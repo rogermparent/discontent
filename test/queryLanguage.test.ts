@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   appendFilterTerm,
+  completionsAt,
   countFilterTerms,
   cycleTermAt,
   filterTerms,
@@ -10,6 +11,7 @@ import {
   positiveTagValues,
   removeFilterTerms,
   removeTermAt,
+  replaceSpan,
   tagSearchHref,
   termText,
   toggleTagTerm,
@@ -282,29 +284,34 @@ describe("parseQuery — comparisons and dates", () => {
   });
 });
 
-describe("parseQuery — half-typed input never throws or blanks", () => {
-  const fragments = [
-    "",
-    " ",
-    "tag:",
-    "tag: ",
-    "time:<",
-    "time:",
-    "-",
-    "(",
-    ")",
-    "((",
-    "cake (",
-    "(ingredient:beef OR",
-    "tag:a OR",
-    "OR tag:a",
-    "AND",
-    "NOT",
-    'tag:"slow coo',
-    "cake )stray(",
-  ];
+/**
+ * Every shape a query passes through while it is being typed. Module-scoped
+ * because PR 21c sweeps the same list at every caret each fragment has — the
+ * inputs that break a parser are the inputs that break a completion.
+ */
+const FRAGMENTS = [
+  "",
+  " ",
+  "tag:",
+  "tag: ",
+  "time:<",
+  "time:",
+  "-",
+  "(",
+  ")",
+  "((",
+  "cake (",
+  "(ingredient:beef OR",
+  "tag:a OR",
+  "OR tag:a",
+  "AND",
+  "NOT",
+  'tag:"slow coo',
+  "cake )stray(",
+];
 
-  it.each(fragments)("survives %j", (fragment) => {
+describe("parseQuery — half-typed input never throws or blanks", () => {
+  it.each(FRAGMENTS)("survives %j", (fragment) => {
     expect(() => parseQuery(fragment)).not.toThrow();
     const parsed = parseQuery(fragment);
     expect(() =>
@@ -876,5 +883,205 @@ describe("appendFilterTerm — what a palette row inserts", () => {
     expect(parsed.text).toBe("chocolate");
     expect(parsed.filter).toBeUndefined();
     expect(parsed.hasAdvancedSyntax).toBe(false);
+  });
+});
+
+/**
+ * PR 21c. `completionsAt` is a caret-keyed read of the raw query and
+ * `replaceSpan` is how a suggestion is accepted; between them they are the
+ * whole of what the suggestion list knows about the language.
+ *
+ * The caret is written into each query as `|` — an offset argument beside a
+ * string literal is unreadable at this density, and every case here is about
+ * exactly where the caret sits.
+ */
+describe("completionsAt — what the caret is in the middle of", () => {
+  function at(marked: string) {
+    const caret = marked.indexOf("|");
+    return completionsAt(marked.replace("|", ""), caret);
+  }
+
+  it("reads a bare word as a field name being typed", () => {
+    expect(at("ta|")).toEqual({
+      kind: "field",
+      prefix: "ta",
+      span: { start: 0, end: 2 },
+    });
+  });
+
+  it("matches on what is typed but replaces the whole word", () => {
+    // The `g` is not part of the prefix — from the caret's point of view it has
+    // not been typed — but accepting has to consume it, or `tag:` lands as
+    // `tag:g`.
+    expect(at("ta|g")).toEqual({
+      kind: "field",
+      prefix: "ta",
+      span: { start: 0, end: 3 },
+    });
+  });
+
+  it("turns into an operand the instant the colon is passed", () => {
+    // The moment the tokenizer throws the atom away (judgement call (a)) is
+    // exactly the moment this has the most to say.
+    expect(at("tag:|")).toEqual({
+      kind: "operand",
+      field: "tag",
+      prefix: "",
+      span: { start: 0, end: 4 },
+    });
+    expect(at("tag:des|")).toEqual({
+      kind: "operand",
+      field: "tag",
+      prefix: "des",
+      span: { start: 0, end: 7 },
+    });
+  });
+
+  it("keeps the operand when the caret is back in the field name", () => {
+    // The span stops at the colon, so accepting `tag:` over `ta|g:dessert`
+    // leaves the operand where it was.
+    expect(at("ta|g:dessert")).toEqual({
+      kind: "field",
+      prefix: "ta",
+      span: { start: 0, end: 4 },
+    });
+  });
+
+  it("offers nothing for an unknown prefix's operand (rule 1)", () => {
+    expect(at("foo:|")).toBeUndefined();
+    expect(at("foo:ba|")).toBeUndefined();
+  });
+
+  it("reads inside a quoted operand, quotes stripped", () => {
+    expect(at('tag:"slow coo|')).toEqual({
+      kind: "operand",
+      field: "tag",
+      prefix: "slow coo",
+      span: { start: 0, end: 13 },
+    });
+    expect(at('tag:"slow cooker"|')).toEqual({
+      kind: "operand",
+      field: "tag",
+      prefix: "slow cooker",
+      span: { start: 0, end: 17 },
+    });
+  });
+
+  it("leaves a negation outside the span", () => {
+    // Nothing for the caller to strip and re-apply: replacing the span keeps
+    // the `-` exactly where it was.
+    expect(at("-tag:des|")).toEqual({
+      kind: "operand",
+      field: "tag",
+      prefix: "des",
+      span: { start: 1, end: 8 },
+    });
+    expect(at("-ta|")).toEqual({
+      kind: "field",
+      prefix: "ta",
+      span: { start: 1, end: 3 },
+    });
+  });
+
+  it("completes the atom the caret is in, not the one beside it", () => {
+    expect(at("tag:dessert ingredient:choc|")).toEqual({
+      kind: "operand",
+      field: "ingredient",
+      prefix: "choc",
+      span: { start: 12, end: 27 },
+    });
+    expect(at("(tag:des| OR tag:baked)")).toEqual({
+      kind: "operand",
+      field: "tag",
+      prefix: "des",
+      span: { start: 1, end: 8 },
+    });
+  });
+
+  it("offers nothing where nothing has been typed", () => {
+    expect(at("|")).toBeUndefined(); // an empty field
+    expect(at("|tag:dessert")).toBeUndefined(); // resting before the atom
+    expect(at("tag:dessert | cake")).toBeUndefined(); // in the whitespace
+    expect(at("-|tag:x")).toBeUndefined(); // on the negation itself
+  });
+
+  it("never returns a span outside the string, for any half-typed input", () => {
+    // The same fragments the parser is swept with, at every caret each one has.
+    for (const fragment of FRAGMENTS) {
+      for (let caret = 0; caret <= fragment.length; caret += 1) {
+        const found = completionsAt(fragment, caret);
+        if (!found) continue;
+        expect(found.span.start).toBeGreaterThanOrEqual(0);
+        expect(found.span.end).toBeLessThanOrEqual(fragment.length);
+        expect(found.span.start).toBeLessThan(found.span.end);
+        // The prefix is text that is really in the query, up to the quotes the
+        // tokenizer would have stripped anyway.
+        expect(fragment.replace(/"/g, "")).toContain(found.prefix);
+      }
+    }
+  });
+
+  it("refuses a caret that is not in the string", () => {
+    // What a stale caret looks like: the query moved under the field.
+    expect(completionsAt("tag:x", -1)).toBeUndefined();
+    expect(completionsAt("tag:x", 6)).toBeUndefined();
+    expect(completionsAt("tag:x", 1.5)).toBeUndefined();
+  });
+});
+
+describe("replaceSpan — accepting a completion", () => {
+  /** Accept `replacement` at the caret, the way the suggestion list does. */
+  function accept(marked: string, replacement: string) {
+    const caret = marked.indexOf("|");
+    const raw = marked.replace("|", "");
+    const found = completionsAt(raw, caret);
+    if (!found) throw new Error(`no completion at ${marked}`);
+    return replaceSpan(raw, found.span, replacement);
+  }
+
+  it("writes a field over the word that was being typed", () => {
+    expect(accept("ta|", "tag:")).toBe("tag:");
+    expect(accept("chocolate ta|", "tag:")).toBe("chocolate tag:");
+    expect(accept("ta|g:dessert", "tag:")).toBe("tag:dessert");
+  });
+
+  it("writes an operand without disturbing the rest of the query", () => {
+    expect(accept("tag:des|", "tag:dessert")).toBe("tag:dessert");
+    expect(accept("cake tag:| -tag:baked", "tag:dessert")).toBe(
+      "cake tag:dessert -tag:baked",
+    );
+    expect(accept("(tag:des| OR tag:baked)", "tag:dessert")).toBe(
+      "(tag:dessert OR tag:baked)",
+    );
+  });
+
+  it("keeps a negation, because the span never covered it", () => {
+    expect(accept("-tag:des|", "tag:dessert")).toBe("-tag:dessert");
+    expect(accept("-ta|", "tag:")).toBe("-tag:");
+  });
+
+  it("tidies the way every other rewrite does", () => {
+    // The same `tidy` pass `cycleTermAt` goes through, which is why the caller
+    // clamps the caret rather than trusting `span.start + replacement.length`.
+    expect(accept("cake    ta|", "tag:")).toBe("cake tag:");
+  });
+
+  it("round-trips into a query that parses to the term it names", () => {
+    const next = accept("tag:cre|", 'tag:"Crème Brûlée"');
+    expect(next).toBe('tag:"Crème Brûlée"');
+    expect(spanless(parseQuery(next).filter)).toEqual({
+      type: "text",
+      field: "tag",
+      value: "creme brulee",
+    });
+  });
+
+  it("leaves the results standing when a bare field is accepted", () => {
+    // Judgement call (a) once more: `tag:` evaluates to nothing, so the page
+    // the user is looking at is the page they keep while typing the operand.
+    const next = accept("chocolate ta|", "tag:");
+    expect(next).toBe("chocolate tag:");
+    expect(parseQuery(next).filter).toBeUndefined();
+    expect(parseQuery(next).text).toBe("chocolate");
   });
 });
