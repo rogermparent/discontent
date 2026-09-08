@@ -126,6 +126,11 @@ featuredRecipeContentConfig, indexField: "group"}]` (thunk). Groups still
   }
   ```
   Data at `groups/data/<slug>/group.json`. No tags on groups in v1.
+  _Amended for 22h (2026-09-08):_ `Group.image?: string` and
+  `GroupEntryValue.image?: string` (a file name under the group's uploads
+  directory, `uploads/group/<slug>/uploads/<image>`, like `Recipe.image`);
+  `groupsByDate` is spec version `"2"` with `image` on the list entry. See
+  D14.
 - **D6 `source` lives on the recipe data file only**, not on
   `RecipeEntryValue`: no index-shape change, no fixture regen, no
   `SEARCH_DB_NAME` bump, no specVersions churn. `source:` search field
@@ -192,6 +197,20 @@ featuredRecipeContentConfig, indexField: "group"}]` (thunk). Groups still
   thumbnail, so `/groups` and the homepage section read every listed group's
   record; the raw `getGroupBySlug` stays the CLI-safe read (T5) and the
   `readGroups.ts` comment is amended.
+- **D14 Group `image` is on the index and in the search corpus (22h).**
+  Why: the user wants groups' pictures in search ("we'll want to see groups
+  in search at least eventually"), and `/search` results are client-rendered
+  — they can only use what the corpus carries. Payoff: a list card whose
+  group has an image renders it with no group read at all; `GroupThumbnail`
+  reads the group only for the member fallback. The member fallback itself
+  stays server-only (deferred: a precomputed `thumbnail` on the corpus).
+- **D15 No raw-upload route for groups (22h).** Images are only ever served
+  transformed: the editor's `image/[...filePath]` route serves any
+  `transformed-images/…` path, and the export symlinks both
+  `transformed-images → public/image` and `uploads → public/uploads`
+  (`exportAction.ts:30-37`). The recipe
+  `uploads/recipe/[slug]/uploads/[filename]` route exists for **video**
+  (`recipeVideo.ts`), which groups do not carry.
 
 ## Traps (T-list; pass to every implementer)
 
@@ -282,16 +301,16 @@ the recipe route was missing"`) asserts the registry-derived tags exactly, so
 
 Each branch is off the previous. Rebase children after a parent merges.
 
-| PR  | Branch (← parent)                              | Status  | Scope                                                                                                                                                                                                         |
-| --- | ---------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 22a | `agent/22a-provenance` ← `content-engine-test` | ✅ done | This doc; `Recipe.source` provenance; imports fill it; both apps render a citation; the form edits it; drop the "Imported from" line (D7)                                                                     |
-| 22b | `agent/22b-groups` ← 22a                       | ✅ done | `groups` content type (meal plans + collections), editor CRUD, export pages, "Appears in" aggregate, `rebuildAllIndexes()`                                                                                    |
-| 22c | `agent/22c-curator-cli` ← 22b                  | ✅ done | `pnpm recipes <command>` CLI over a content directory, `--json` output, transport-agnostic `controller/curation/` layer                                                                                       |
-| 22d | `agent/22d-remote-write` ← 22c                 | ✅ done | Bearer-token JSON API in the editor that revalidates in-process; CLI HTTP backend + `--notify`; `genericActions` refactor (D9); tokens (D10)                                                                  |
-| 22e | `agent/22e-curator-skill` ← 22d                | ✅ done | Committed `.claude/skills/recipe-curator/SKILL.md`, `.claude/settings.json` allow-list, minimal root `CLAUDE.md` (D12)                                                                                        |
-| 22f | `agent/22f-group-discovery` ← 22e              | ✅ done | Header "Groups" link, homepage Groups section, `/search` group rail + group results + `group:` term, ⌘K group rows, group page recipe cards                                                                   |
-| 22g | `agent/22g-featured-groups` ← 22f              | ✅ done | A featured entry may point at a group (`FeaturedRecipe.group`), featured index v2, group picker in the featured form, mixed homepage strip                                                                    |
-| 22h | `agent/22h-group-image` ← 22g                  | 🟡 next | Group `image` field: schema + group index v2, uploads under `uploads/group/<slug>/uploads`, `ImageInput` on the group form, editor upload route, `GroupImage`, precedence completed, CLI `--image-url` import |
+| PR  | Branch (← parent)                              | Status         | Scope                                                                                                                                                                                                                                                                                         |
+| --- | ---------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 22a | `agent/22a-provenance` ← `content-engine-test` | ✅ done        | This doc; `Recipe.source` provenance; imports fill it; both apps render a citation; the form edits it; drop the "Imported from" line (D7)                                                                                                                                                     |
+| 22b | `agent/22b-groups` ← 22a                       | ✅ done        | `groups` content type (meal plans + collections), editor CRUD, export pages, "Appears in" aggregate, `rebuildAllIndexes()`                                                                                                                                                                    |
+| 22c | `agent/22c-curator-cli` ← 22b                  | ✅ done        | `pnpm recipes <command>` CLI over a content directory, `--json` output, transport-agnostic `controller/curation/` layer                                                                                                                                                                       |
+| 22d | `agent/22d-remote-write` ← 22c                 | ✅ done        | Bearer-token JSON API in the editor that revalidates in-process; CLI HTTP backend + `--notify`; `genericActions` refactor (D9); tokens (D10)                                                                                                                                                  |
+| 22e | `agent/22e-curator-skill` ← 22d                | ✅ done        | Committed `.claude/skills/recipe-curator/SKILL.md`, `.claude/settings.json` allow-list, minimal root `CLAUDE.md` (D12)                                                                                                                                                                        |
+| 22f | `agent/22f-group-discovery` ← 22e              | ✅ done        | Header "Groups" link, homepage Groups section, `/search` group rail + group results + `group:` term, ⌘K group rows, group page recipe cards                                                                                                                                                   |
+| 22g | `agent/22g-featured-groups` ← 22f              | ✅ done        | A featured entry may point at a group (`FeaturedRecipe.group`), featured index v2, group picker in the featured form, mixed homepage strip                                                                                                                                                    |
+| 22h | `agent/22h-group-image` ← 22g                  | 🟡 in progress | Group `image` field: schema + group index v2 (on the index and in the search corpus, D14), uploads under `uploads/group/<slug>/uploads`, `ImageInput` on the group form, `GroupImage`, precedence completed, search-result cards show it, CLI `--image-url` import; no raw-upload route (D15) |
 
 ## Phase detail
 
@@ -2542,41 +2561,353 @@ build`): clean; route table lists `● /featured-recipe/[slug]` → `featured-we
   group index to `"2"` (T1 on `groupPaginationConfig.ts`, T3 for every
   fixture with `groups/`).
 
-### PR 22h — Group image field `agent/22h-group-image` 🟡 next (← 22g)
+### PR 22h — Group image field `agent/22h-group-image` 🟡 in progress (← 22g)
 
-Completes the thumbnail precedence from 22g: a group can carry its own
-`image`, which wins over the member fallback. Seed — re-validate against the
-code in the 22h plan session.
+**Why:** 22g gave every server-rendered group card an image slot with the
+precedence _group image › first member thumbnail › placeholder_ and shipped
+the last two; `GroupThumbnail` has a marked slot for the first. 22h fills it:
+a group carries its own `image`, uploaded through the group form (and
+importable by URL through the CLI/API), rendered ahead of the member walk
+everywhere the thumbnail already appears, and shown on the group page itself.
+Decided with the user (2026-09-08):
 
-- **Schema:** `Group.image?: string`; `GroupEntryValue.image?` so list cards
-  and the cached group read see it without a second file read;
-  `groupsByDate` in `groupPaginationConfig.ts` → `version: "2"` (T1 on that
-  file's `specVersions` snapshot); fixture regen (T3) for every fixture with
-  `groups/`. D5 amended.
-- **Uploads:** `groupContentConfig.uploadsDirectory: "uploads/group"`
-  (recipes use `"uploads/recipe"`; the engine default would be
-  `uploads/groups/…`); `getGroupUploadPath` beside `getRecipeUploadPath` in
-  `filesystemDirectories.ts`; `buildCreateUploads`/`buildUpdateUploads` on
-  the group editor config (`UploadSpec {file, fileImportUrl, clearFile, existingFile}`
-  — `existingFile` needs `getGroupBySlug`), modelled on
-  `actions/index.ts:101`.
-- **Form:** `parseGroupFormData` gains `image` / `clearImage`;
-  `GroupFields` renders `ImageInput` (parameterise its `id` — today it is
-  hardcoded to `name="image"` + `clearImage`).
-- **Editor route:** `uploads/group/[slug]/uploads/[filename]` twin of the
-  recipe upload route; the transformed-image route and `exportAction.ts:31`
-  already cover any transformed image (22g fact 10), so the export needs no
-  new route.
-- **Components:** `GroupImage` twin of `RecipeImage`; `GroupThumbnail`
-  checks `group.image` first (the slot is marked with a comment in 22g), then
-  the member walk; the group page shows its image above the description.
-- **CLI:** `curation/groups.ts` `GroupInputSchema.imageUrl` →
-  `fileImportUrl`; `pnpm recipes group create --image-url`. `writeItems`
-  already spreads `{...current, items}` so `image` survives item edits.
-- **Tests:** engine test for the upload write; `groups.spec.ts` uploads a
-  group image and sees it win over a member thumbnail on `/groups`, the
-  homepage section, the featured card and the group page; fixture with an
-  image + regen.
+- **Scope:** PR 22h only, branch `agent/22h-group-image` ← 22g. Same
+  execution model (Fable plans/reviews, one Opus subagent implements, this
+  doc is the handoff).
+- **The image lives on the index too** (`GroupEntryValue.image`,
+  `GroupListEntry.image`, `groupsByDate` → `version: "2"`), not only on the
+  data file. Reason given: _"We'll want to see groups in search at least
+  eventually."_ Two payoffs: list cards whose group has an image render it
+  with **no group read**, and the search corpus can carry it so the
+  **client-rendered search-result group cards get a picture** in this phase
+  (the member fallback stays server-only — deferred, see below). (D14)
+- The strip heading, the featured group card and every 22g surface keep
+  their behaviour; the group image simply wins when present.
+
+Paths are relative to `websites/recipe-website/` unless noted.
+
+#### Facts validated against the code (2026-09-08, worktree `22g-featured-groups`)
+
+1. **Upload plumbing is engine-generic.** `createContent`/`updateContent`
+   take `uploads: Record<field, UploadSpec>`
+   (`packages/cms/content/types.ts:220`:
+   `{file?, fileImportUrl?, clearFile?, existingFile?}`); `getUploadInfo`
+   resolves it (file › clear › import URL basename › existing);
+   `processUploadChanges` (`filesystem.ts:289`) removes the old file and
+   writes the new one under `getUploadsDirectory(config, slug)` =
+   `<content>/<uploadsDirectory>/<slug>/uploads/` (`filesystem.ts:49-66`;
+   recipes set `uploadsDirectory: "uploads/recipe"`). **Rename moves the
+   uploads directory** (`renameContentDirectory`, `filesystem.ts:181-188`)
+   and **delete removes it** (`filesystem.ts:150-152`).
+   `genericActions.ts:183/308` call the editor config's
+   `buildCreateUploads(parsed, contentDirectory)` /
+   `buildUpdateUploads(parsed, currentSlug, contentDirectory)`. The recipe
+   template is `buildRecipeData` in `editor/controller/actions/index.ts:60-130`
+   (`uploads.image = {file, clearFile, fileImportUrl, existingFile:
+current?.image}`; `data.image` = file name › cleared › import basename ›
+   current), with `buildUpdateUploads` reading the current record via the raw
+   `getRecipeBySlug`.
+2. **Form side.** `parseFormData.ts:105-113` declares
+   `image: z.instanceof(File).optional()`, `clearImage: z.coerce.boolean()`,
+   `imageImportUrl: z.string().optional()`. `Form/Image/index.tsx`
+   (`ImageInput`, client) hardcodes `name="image"`, `id="recipe-form-image"`,
+   label "Image", alt "Existing Recipe Image", renders the `clearImage`
+   checkbox when `defaultImage` is set and a hidden `imageImportUrl` only when
+   `imageToImport` is passed. The recipe edit page
+   (`recipe/[slug]/edit/page.tsx:30-40`) computes `defaultImage` with
+   `getTransformedRecipeImageProps` and threads it `page → form → fields`.
+   `GroupFields` (`Form/Group/index.tsx`) is a client component with Name /
+   Kind / Description / item rows / Advanced (slug, date); `Create/index.tsx`
+   re-exports it; `group/new/form.tsx` and `group/[slug]/edit/form.tsx` pass
+   `{state, group, slug}`; the edit page (`group/[slug]/edit/page.tsx`) reads
+   via `getGroupBySlug`. `GroupFormErrors` (`common/controller/groupFormState.ts`)
+   has no `image`. `parseGroupFormData.ts` has no file fields.
+3. **Image rendering.** `RecipeImage/index.tsx` =
+   `getTransformedRecipeImageProps` (`getRecipeUploadPath` →
+   `getStaticImageProps({srcPath, localOutputDirectory}, {src:
+"/uploads/recipe/<slug>/uploads/<image>", …})`, warns and returns
+   `undefined` on error) + `<img>`. `getStaticImageProps`
+   (`packages/next-static-image/src/index.tsx:28-70`) writes
+   `<content>/transformed-images/<src>/<name>-w<w>q<q>.webp` and returns
+   `src="/image/<src>/<file>"` — the original `src` is only a **key**;
+   nothing serves it. The editor's `image/[...filePath]` route serves any
+   transformed path; the export symlinks both
+   `transformed-images → public/image` **and** `uploads → public/uploads`
+   (`exportAction.ts:30-37`). The editor's
+   `(recipes)/uploads/recipe/[slug]/uploads/[filename]` route exists for
+   **video** (`recipeVideo.ts:16`), not images; the generic
+   `uploads/[filename]` route serves one path segment only. ⇒ **No group
+   upload route is needed** for images (D15).
+4. **Client images.** `PureStaticImage`
+   (`packages/next-static-image/src/Pure/index.tsx`) already takes
+   `uploadsDirectory` (default `"uploads/recipe"`) and builds the same
+   `/image/<src>/<name>-w<w>q75.webp` URL client-side;
+   `SearchList/index.tsx:91-104` renders recipe search cards with it at
+   `width={400} height={600}` — the same variant the server cards produce via
+   `standardRecipeImageProps` (`List/shared.tsx:174`, 400×600), which is why
+   the client URL resolves. Group search cards (`SearchForm/GroupResults.tsx`)
+   map `GroupSearchEntry` → `GroupList` with no `renderThumbnail` (22g kept
+   them text-only). `GroupSearchEntry` (`readGroupSearchCorpus.ts:20`) is
+   built **from data files** (not the index) by both `/search/groups` routes,
+   uncached.
+5. **Index shape today.** `Group {name, date, kind, description?, items,
+[k]: unknown}`; `GroupEntryValue {name, kind, items:
+Pick<…,"recipe"|"label">[]}` (`types.ts:189-205`);
+   `buildGroupIndexValue.ts` copies name/kind/items; `GroupListEntry {slug,
+date, name, kind, itemCount}` and `groupsByDate` `version: "1"`
+   (`groupPaginationConfig.ts`); `test/specVersions.test.ts:109-121` pins
+   `groupPaginationConfig.ts` as `{hash: "798bcf7a1f07c6a8", versions: ["1"]}`
+   (T1); `test/groups.test.ts:363` pins the index value with `toEqual` (an
+   absent `image` key stays equal). The `groupsByRecipe` fold copies only
+   `name`/`kind` (`groupAggregateConfigs.ts:62`) — unaffected.
+   `three-recipes-groups` is the **only** fixture with `groups/`; fixture
+   uploads live at `<fixture>/uploads/recipe/<slug>/uploads/<file>`
+   (`linked-recipes`); test images:
+   `editor/playwright/fixtures/images/recipe-6-test-image{,-alternate}.png`.
+   No `visual.spec.ts` baseline uses the groups fixture.
+6. **22g thumbnail seams.** `GroupThumbnail` `{slug, name, items?,
+className?}`: `items ?? (await groupItems.read(slug))?.items`, walks 6
+   distinct members via `recipeItems.read`, renders `RecipeImage` in
+   `data-testid="group-thumbnail"` or the `Layers` placeholder
+   (`group-thumbnail-placeholder`); the 22h slot is a comment above the read.
+   Callers: `GroupIndexPage/shared.tsx`, `Homepage/index.tsx`
+   (`renderThumbnail={(g) => <GroupThumbnail slug name />}`),
+   `List/FeaturedRecipe/GroupCard.tsx` (`<GroupThumbnail slug name />`),
+   `FeaturedRecipeDetailPage` (`items={group.items}`, `className="size-24 …"`).
+   `GroupList`/`GroupListItem` take `renderThumbnail`/`thumbnail` (six-up grid
+   when set). `groupItems` (`data/readGroupItem.ts`) is tagged
+   `item:groups:<slug>`, fired by every group write, so an image change
+   invalidates every card by construction. `GroupDetailPage/index.tsx`
+   renders heading → kind/count/search link → description → `GroupItems`.
+7. **Curation/CLI/API.** `GroupInputSchema` is a `z.strictObject`
+   (`curation/schema.ts:165`) — an unknown key is rejected, so
+   `imageImportUrl` must be declared. `createGroup` (`curation/groups.ts:187`)
+   builds `data` and calls `createContent` **without** `uploads`;
+   `writeItems` spreads `{...current, items}` (image survives item edits);
+   there is no group _update_ seat beyond items (`setItems`/`addItem`/
+   `removeItem`). The recipe template for import-by-URL is
+   `curation/recipes.ts:249-283` (`image = basename(URL.pathname)`,
+   `uploads.image = {fileImportUrl, existingFile}`; `imageImportUrl` deleted
+   before write). CLI `group create` (`cli/commands/group.ts:36-80`) has
+   `--name/--kind/--description/--slug/--date/--file/--item/--force`; the
+   HTTP backend and `POST /api/groups` pass the raw body through to
+   `createGroup`. `test/curation.test.ts:202-210` is the image-import
+   precedent (`imageImportUrl` → `image: "stew.jpg"`).
+8. **22g tests that pin today's thumbnails** (`groups.spec.ts` "thumbnails",
+   lines ~297-420): both fixture groups show placeholders; after uploading
+   `recipe-6-test-image.png` to `third-recipe`, `weeknight-favourites` shows
+   the member image and `week-of-may-4` keeps the placeholder.
+   `featured-recipes.spec.ts` expects the featured `weeknight-favourites`
+   card to show a placeholder. Search/palette group cards are pinned by text
+   in `search-live.spec.ts` / `command-palette.spec.ts` (22f).
+
+#### Design (decided)
+
+**A. Schema, index, config (`common/controller/`)**
+
+- `types.ts`: `Group.image?: string` (file name under the group's uploads
+  dir, like `Recipe.image`); `GroupEntryValue.image?: string` with a comment:
+  on the index by decision (D14) so list cards and the search corpus can
+  render it without a read.
+- `buildGroupIndexValue.ts`: `...(image ? { image } : {})` — set only when
+  present so stored values stay key-free.
+- `groupPaginationConfig.ts`: `GroupListEntry.image?`; `project` copies
+  `image: value.image`; `version: "2"` with a one-line reason. Update the
+  `specVersions.test.ts` inline snapshot
+  (`pnpm exec vitest run -u test/specVersions.test.ts`; the diff must show
+  `["1"] → ["2"]` and the hash only).
+- `groupContentConfig.ts`: `uploadsDirectory: "uploads/group"` (recipes use
+  `"uploads/recipe"`; the engine default would be `uploads/groups/…` — the
+  singular is picked for symmetry; comment it).
+- `filesystemDirectories.ts`: `getGroupUploadsBasePath`,
+  `getGroupUploadsPath`, `getGroupUploadPath` — twins of the recipe trio.
+- `readGroupSearchCorpus.ts`: `GroupSearchEntry.image?` copied from the data
+  file.
+
+**B. Image components (`common/components/`)**
+
+- **`UploadImage/index.tsx`** (new): `getTransformedUploadImageProps({srcPath,
+src, label, alt, width, height, className, loading, sizes})` — the body of
+  `getTransformedRecipeImageProps` with the upload path, the `src` key and
+  the warning label parameterised. `RecipeImage/index.tsx` becomes a thin
+  wrapper over it (identical output and the identical
+  `RecipeImage "<image>" failed with error` warning text —
+  `groups.spec.ts`/`edit.spec.ts` do not assert on it, but keep it).
+- **`GroupImage/index.tsx`** (new, async server):
+  `getTransformedGroupImageProps` (`getGroupUploadPath`,
+  `src: "/uploads/group/<slug>/uploads/<image>"`, label `GroupImage`) +
+  `<GroupImage>` rendering `<img>`.
+- **`GroupThumbnail/Placeholder.tsx`** (new, sync, no server imports):
+  `GroupThumbnailPlaceholder({className?})` = today's `Layers` box with
+  `data-testid="group-thumbnail-placeholder"`. `GroupThumbnail` uses it;
+  client cards can too.
+- **`GroupThumbnail/index.tsx`**: props `{slug, name, image?: string,
+items?, className?}`. Order: (1) `image` prop → `GroupImage` in
+  `data-testid="group-thumbnail"` **with no read at all**; (2) else
+  `groupItems.read(slug)` once → if `group.image` → `GroupImage`; (3) else
+  the existing member walk over `items ?? group.items`; (4) placeholder.
+  Replace the slot comment with the real code; keep the "distinct, in order,
+  six" walk unchanged. Add `data-group-image="own" | "member"` on the wrapper
+  so tests can tell which won.
+- **Callers pass what they hold:** `GroupIndexPage/shared.tsx` and
+  `Homepage/index.tsx` `renderThumbnail={(g) => <GroupThumbnail slug name
+image={g.image} />}` (list entry v2 ⇒ a group with its own image costs no
+  read); `GroupCard.tsx` keeps `<GroupThumbnail slug name />` (the featured
+  index does not borrow `image` — deliberate: borrowing it would put a third
+  field on the featured declaration and bump featured to v3 for a card that
+  already reads the group; note it in the card comment);
+  `FeaturedRecipeDetailPage` passes `image={group.image} items={group.items}`.
+- **`GroupDetailPage/index.tsx`**: when `group.image`, render `<GroupImage>`
+  between the meta row and the description, inside a
+  `relative aspect-[4/3] max-w-xl overflow-hidden rounded-md` box with the
+  same props `View/index.tsx:53-62` uses (`width: 580, height: 450, sizes:
+"100vw", loading: "eager", className: "object-cover absolute w-full h-full
+inset-0 rounded-md"`), wrapper `data-testid="group-image"`.
+- **Search cards get the picture (client):** `SearchForm/GroupResults.tsx`
+  maps `image: group.image` into the list entries and passes
+  `renderThumbnail={(g) => g.image ? <PureStaticImage
+uploadsDirectory="uploads/group" slug={g.slug} image={g.image} alt={g.name}
+width={400} height={600} className={recipeCardImageClassName} /> :
+<GroupThumbnailPlaceholder />}`. The URL resolves whenever the server has
+  produced the 400×600 variant, exactly as recipe search cards assume
+  (fact 4); the member fallback is **not** available on the client — a group
+  without its own image shows the placeholder there. Comment both facts. The
+  ⌘K rows stay text-only.
+
+**C. Editor form and write path**
+
+- `parseGroupFormData.ts`: `image: z.instanceof(File).optional()`,
+  `clearImage: z.coerce.boolean()` (no `imageImportUrl` — the group form has
+  no import flow; the CLI/API path is D below). `GroupFormErrors.image?`.
+- `actions/groups.ts`: `buildGroupData(parsed, date, current?)` returns
+  `{data, uploads}` like `buildRecipeData` — `data.image` = uploaded file
+  name › `undefined` when `clearImage` › `current?.image`;
+  `uploads.image = {file: image?.size ? image : undefined, clearFile:
+clearImage, existingFile: current?.image}`. `buildUpdateData` and
+  `buildUpdateUploads` both read the current record with the raw
+  `getGroupBySlug({slug: currentSlug, contentDirectory})` (never the cached
+  read at a write site — `readGroups.ts` says why). `buildCreateUploads(parsed)`
+  → the create half.
+- `Form/Image/index.tsx`: add `id?: string` (default `"recipe-form-image"`)
+  and `existingAlt?: string` (default "Existing Recipe Image"); nothing else
+  moves.
+- `Form/Group/index.tsx`: `defaultImage?: StaticImageProps` prop; render
+  `<ImageInput id="group-form-image" existingAlt="Existing group image"
+defaultImage errors={state?.errors?.image} />` after Description, before
+  the Recipes fieldset. `group/[slug]/edit/page.tsx` computes `defaultImage`
+  with `getTransformedGroupImageProps` (mirror
+  `recipe/[slug]/edit/page.tsx:30-40`) and `edit/form.tsx` threads it;
+  `new/form.tsx` renders the input with no default. No `encType` is needed —
+  no editor form sets one; server actions receive `File` from `FormData`
+  as-is (the recipe forms prove it).
+- Editor group page: nothing new — `GroupDetailPage` renders the image.
+
+**D. Curation layer, CLI, API**
+
+- `curation/schema.ts`: `GroupInputSchema.imageImportUrl: z.string().optional()`.
+- `curation/groups.ts` `createGroup`: `image = imageImportUrl ?
+basename(new URL(url).pathname) : undefined`; `data.image` when set;
+  `createContent({..., uploads: {image: {fileImportUrl: imageImportUrl}}})`
+  only when an URL was given. `writeItems` already carries `image` forward.
+  No group-update seat is added (deferred).
+- `cli/commands/group.ts` `group create`: `--image-url U` → `imageImportUrl`;
+  usage string updated. `.claude/skills/recipe-curator/SKILL.md:123` shows a
+  `group create` invocation — add `[--image-url U]` to it; do not rewrite the
+  skill otherwise.
+- API: `POST /api/groups` passes the body through, so `imageImportUrl` works
+  with no route change. `curationHttp.test.ts` has no group-create case
+  today; add none (the curation-layer test below covers the schema and the
+  write).
+
+**E. Fixture**
+
+- `three-recipes-groups/groups/data/week-of-may-4/group.json` +=
+  `"image": "recipe-6-test-image-alternate.png"`; copy
+  `fixtures/images/recipe-6-test-image-alternate.png` to
+  `three-recipes-groups/uploads/group/week-of-may-4/uploads/`.
+  `week-of-may-4` is the right host: its members (first, second, missing)
+  have no photos, so it demonstrates _own image with no member fallback_,
+  while `weeknight-favourites` stays imageless for the member-fallback and
+  placeholder tests and keeps the 22g featured-card expectations intact.
+- Regen: `pnpm tsx scripts/build-fixture-indexes.ts` from `editor/`; commit
+  only `three-recipes-groups/groups/{index,pagination,aggregates}` plus the
+  data/upload files; `git checkout --` every other fixture directory the
+  script touches (T3; 22g's close-out lists the churn to expect).
+
+#### Tests
+
+- **`test/groups.test.ts`**: (a) create with
+  `uploads: {image: {file: new File([bytes], "cover.png")}}` writes
+  `uploads/group/<slug>/uploads/cover.png` and the index value carries
+  `image: "cover.png"`; (b) update with `clearFile: true, existingFile:
+"cover.png"` removes the file and the index drops `image`; (c) rename moves
+  `uploads/group/<old>` → `<new>`; (d) delete removes `uploads/group/<slug>`;
+  (e) the 22g "featured group borrows name + kind" case still shows no
+  `groupImage` (borrow list unchanged). Extend the line-363 shape test's
+  comment (image is on the index by D14).
+- **`test/curation.test.ts`**: `createGroup` with `imageImportUrl` (stub
+  `fetch` as the recipe case does) → file written, `group.json.image` =
+  basename, no `imageImportUrl` on disk; `setItems` afterwards keeps `image`.
+  A `strictObject` case: an unknown key still fails.
+- **`test/specVersions.test.ts`**: snapshot only.
+- **`groups.spec.ts` "thumbnails"** (rewrite the describe,
+  `three-recipes-groups`): fixture state — `/groups` and `/`'s Groups section
+  show `week-of-may-4` with `group-thumbnail[data-group-image="own"]` whose
+  `img src` matches
+  `/image/uploads/group/week-of-may-4/uploads/recipe-6-test-image-alternate.png/.*\.webp`,
+  and `weeknight-favourites` with the placeholder; `/group/week-of-may-4`
+  shows `group-image`. Member fallback — upload `recipe-6-test-image.png` to
+  `third-recipe` (existing helper) → `weeknight-favourites` shows
+  `data-group-image="member"` on `/groups`, `/`, and the featured card;
+  `week-of-may-4` unchanged. Precedence — signed in,
+  `/group/weeknight-favourites/edit`, `setInputFiles` the alternate image on
+  `getByLabel("Image", {exact: true})`, Submit, `waitForURL` (T19) → its
+  thumbnail is now `own` with the group URL on `/groups`, `/`, the featured
+  group card and `/featured-recipe/featured-weeknight`; then edit again, tick
+  "Remove Image", Submit → back to `member`. Search — after visiting `/groups`
+  (so the 400×600 variant exists), `/search` for `week` shows the
+  `group-results` card for `week-of-may-4` with an `img src` matching the
+  group URL and `weeknight` with the placeholder.
+- **`featured-recipes.spec.ts`**: unchanged (weeknight has no fixture image)
+  — run it.
+- **`search-live.spec.ts`, `command-palette.spec.ts`, `edit.spec.ts`,
+  `homepage.spec.ts`, `visual.spec.ts`**: run to confirm; no baseline should
+  move (no groups fixture in `visual.spec.ts`).
+
+#### Verification (implementer runs; Fable reruns)
+
+```
+pnpm --filter recipe-editor typecheck
+pnpm --filter recipe-website exec tsc --noEmit
+pnpm exec vitest run                      # 410 at 22g + new groups/curation cases; specVersions group snapshot ["1"] → ["2"]
+pnpm --filter recipe-editor e2e-dev -- groups.spec.ts featured-recipes.spec.ts search-live.spec.ts command-palette.spec.ts edit.spec.ts homepage.spec.ts visual.spec.ts
+CONTENT_DIRECTORY=<three-recipes-groups copy> pnpm --filter recipe-website build   # out/groups.html: one group-thumbnail img (week-of-may-4) + one placeholder; out/group/week-of-may-4.html has group-image; the copy's transformed-images/uploads/group/week-of-may-4/… webp files exist; out/search/groups carries image
+pnpm --silent recipes group create --name "Img" --image-url https://… --content-dir <copy> --json   # manual: uploads/group/img/uploads/<file> written, group.json has image
+```
+
+Traps: T1 (group spec hash), T3 (regen churn — revert everything outside
+`three-recipes-groups/groups/`), T5 (raw reads at write sites), T13/T14 as
+before, T19 (`waitForURL` before asserting after a form submit). Run
+Playwright through a monitor with a long deadline — a 10-minute Bash timeout
+killed 22g's first run.
+
+#### Key files (implementer reads first)
+
+`docs/agent-curation.md` (D-list, T-list, 22b/22g sections, this section);
+`common/controller/{types.ts,groupContentConfig.ts,groupPaginationConfig.ts,buildGroupIndexValue.ts,filesystemDirectories.ts,recipeContentConfig.ts,groupFormState.ts,data/readGroups.ts,data/readGroupItem.ts,data/readGroupSearchCorpus.ts}`;
+`packages/cms/content/{types.ts,filesystem.ts,createContent.ts,updateContent.ts,editorContentConfig.ts,genericActions.ts}`;
+`packages/next-static-image/src/{index.tsx,Pure/index.tsx}`;
+`common/components/{RecipeImage/index.tsx,GroupThumbnail/index.tsx,List/Group/index.tsx,List/shared.tsx,List/FeaturedRecipe/GroupCard.tsx,GroupDetailPage/index.tsx,FeaturedRecipeDetailPage/index.tsx,GroupIndexPage/shared.tsx,Homepage/index.tsx,SearchForm/GroupResults.tsx,SearchList/index.tsx,Form/Image/index.tsx,Form/Group/index.tsx,Form/index.tsx,View/index.tsx}`;
+`editor/controller/{parseFormData.ts,parseGroupFormData.ts,actions/index.ts,actions/groups.ts,curation/schema.ts,curation/groups.ts,curation/recipes.ts}`;
+`editor/cli/commands/group.ts`; editor `group/[slug]/edit/{page,form}.tsx`,
+`group/new/form.tsx`, `recipe/[slug]/edit/page.tsx`,
+`(recipes)/search/groups/route.ts`,
+`(editor)/(settings)/export/exportAction.ts`;
+`editor/scripts/build-fixture-indexes.ts`;
+`test/{groups,curation,specVersions}.test.ts`;
+`editor/playwright/tests/{groups,featured-recipes,edit}.spec.ts`; fixtures
+`three-recipes-groups`, `linked-recipes/uploads`, `images/`;
+`.claude/skills/recipe-curator/SKILL.md`.
 
 ## Deferred
 
@@ -2599,10 +2930,19 @@ code in the 22h plan session.
   as a group kind.**
 - **CLI featured commands** (22g): `pnpm recipes` gets no `feature`
   command; featuring a group is editor-only.
-- **Thumbnails on client-rendered search-result group cards** (22g):
-  `GroupResults` on `/search` stays text-only because the image transform
-  runs only on the server; the member-thumbnail fallback itself is done at
-  render time in 22g (not through the index, so F32 is not needed for it).
+- **Member-thumbnail fallback on client-rendered search-result group cards**
+  (22g, narrowed by 22h): since 22h a `/search` group card shows the group's
+  _own_ image (from the corpus, D14) or the placeholder; the member fallback
+  is done at render time on the server (22g; not through the index, so F32
+  is not needed for it) and the client cannot run it. When wanted, the corpus
+  could carry a precomputed `thumbnail: {uploadsDirectory, slug, image}`
+  resolved from the first member with a photo — N cached reads per group at
+  corpus build.
+- **`group set-image` / a group update seat in the curation layer and CLI**
+  (22h): `group create --image-url` is create-only; an existing group takes
+  an image through the editor form. Also **`--image <local file>`** on the
+  CLI (only import-by-URL exists), and **⌘K rows with thumbnails** (text-only
+  today).
 - **README test section rewrite** (22e): it still describes Cypress; the
   suite is Playwright. `CLAUDE.md` states the current commands.
 - **Tag-vocabulary migration** (22e): the 437 existing recipes carry two tags
