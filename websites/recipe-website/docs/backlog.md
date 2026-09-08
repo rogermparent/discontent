@@ -57,8 +57,21 @@ Sources: `docs/agent-curation.md` (Deferred, and the D/T lists it names),
 
 ### Playwright triage from the promotion run (#132)
 
-_Filled from the first `playwright.yml` run against `content-engine-test`
-(2026-09-08). Each red job is either fixed by a small PR ← `content-engine-test`
-or listed here with what was seen._
+The first `playwright.yml` run against `content-engine-test` (2026-09-08, run 34272827163) — the first e2e signal on anything merged since 2026-07-29.
 
-- (pending — run in progress)
+| Job                   | Result                               | Cause / action                                                                                                                                                                                                                                       |
+| --------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CMS demo (dev, prod)  | ✅ green                             | —                                                                                                                                                                                                                                                    |
+| Portfolio             | ❌ 26 failed / 58 passed             | Every failure at the sign-in helper (`getByLabel('Email')` never appears): `AUTH_SECRET` is unset in CI and Auth.js serves its `MissingSecret` error page instead of the form. **Fixed by #133** (workflow-level env). Reproduced locally 1/5 → 5/5. |
+| Recipe shard 3/4      | ❌ 30 failed / 77 passed, 21 min     | Same cause, same fix.                                                                                                                                                                                                                                |
+| Recipe shards 1, 2, 4 | ⏱ cancelled at `timeout-minutes: 30` | Each failing sign-in burns retries and 10 s waits, so a bad run overruns the budget. **#133 raises the recipe shards to 45 min**; if a _good_ run still nears 30, add a fifth shard rather than more minutes.                                        |
+| Merge sharded reports | ✅ (merged what it got)              | —                                                                                                                                                                                                                                                    |
+
+Still open after #133 — read the next run before promoting:
+
+- Whether shards 1/2/4 and portfolio go fully green once sign-in works; any
+  residue is real and gets its own row here.
+- `pnpm install` in the Playwright container prints `gyp ERR! … not found:
+make` for `unix-dgram` (an optional native dependency; the install still
+  succeeds). Harmless today; a `build-essential` layer or dropping the
+  dependency would silence it.
