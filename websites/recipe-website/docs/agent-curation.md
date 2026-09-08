@@ -301,16 +301,16 @@ the recipe route was missing"`) asserts the registry-derived tags exactly, so
 
 Each branch is off the previous. Rebase children after a parent merges.
 
-| PR  | Branch (← parent)                              | Status         | Scope                                                                                                                                                                                                                                                                                         |
-| --- | ---------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 22a | `agent/22a-provenance` ← `content-engine-test` | ✅ done        | This doc; `Recipe.source` provenance; imports fill it; both apps render a citation; the form edits it; drop the "Imported from" line (D7)                                                                                                                                                     |
-| 22b | `agent/22b-groups` ← 22a                       | ✅ done        | `groups` content type (meal plans + collections), editor CRUD, export pages, "Appears in" aggregate, `rebuildAllIndexes()`                                                                                                                                                                    |
-| 22c | `agent/22c-curator-cli` ← 22b                  | ✅ done        | `pnpm recipes <command>` CLI over a content directory, `--json` output, transport-agnostic `controller/curation/` layer                                                                                                                                                                       |
-| 22d | `agent/22d-remote-write` ← 22c                 | ✅ done        | Bearer-token JSON API in the editor that revalidates in-process; CLI HTTP backend + `--notify`; `genericActions` refactor (D9); tokens (D10)                                                                                                                                                  |
-| 22e | `agent/22e-curator-skill` ← 22d                | ✅ done        | Committed `.claude/skills/recipe-curator/SKILL.md`, `.claude/settings.json` allow-list, minimal root `CLAUDE.md` (D12)                                                                                                                                                                        |
-| 22f | `agent/22f-group-discovery` ← 22e              | ✅ done        | Header "Groups" link, homepage Groups section, `/search` group rail + group results + `group:` term, ⌘K group rows, group page recipe cards                                                                                                                                                   |
-| 22g | `agent/22g-featured-groups` ← 22f              | ✅ done        | A featured entry may point at a group (`FeaturedRecipe.group`), featured index v2, group picker in the featured form, mixed homepage strip                                                                                                                                                    |
-| 22h | `agent/22h-group-image` ← 22g                  | 🟡 in progress | Group `image` field: schema + group index v2 (on the index and in the search corpus, D14), uploads under `uploads/group/<slug>/uploads`, `ImageInput` on the group form, `GroupImage`, precedence completed, search-result cards show it, CLI `--image-url` import; no raw-upload route (D15) |
+| PR  | Branch (← parent)                              | Status  | Scope                                                                                                                                                                                                                                                                                         |
+| --- | ---------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 22a | `agent/22a-provenance` ← `content-engine-test` | ✅ done | This doc; `Recipe.source` provenance; imports fill it; both apps render a citation; the form edits it; drop the "Imported from" line (D7)                                                                                                                                                     |
+| 22b | `agent/22b-groups` ← 22a                       | ✅ done | `groups` content type (meal plans + collections), editor CRUD, export pages, "Appears in" aggregate, `rebuildAllIndexes()`                                                                                                                                                                    |
+| 22c | `agent/22c-curator-cli` ← 22b                  | ✅ done | `pnpm recipes <command>` CLI over a content directory, `--json` output, transport-agnostic `controller/curation/` layer                                                                                                                                                                       |
+| 22d | `agent/22d-remote-write` ← 22c                 | ✅ done | Bearer-token JSON API in the editor that revalidates in-process; CLI HTTP backend + `--notify`; `genericActions` refactor (D9); tokens (D10)                                                                                                                                                  |
+| 22e | `agent/22e-curator-skill` ← 22d                | ✅ done | Committed `.claude/skills/recipe-curator/SKILL.md`, `.claude/settings.json` allow-list, minimal root `CLAUDE.md` (D12)                                                                                                                                                                        |
+| 22f | `agent/22f-group-discovery` ← 22e              | ✅ done | Header "Groups" link, homepage Groups section, `/search` group rail + group results + `group:` term, ⌘K group rows, group page recipe cards                                                                                                                                                   |
+| 22g | `agent/22g-featured-groups` ← 22f              | ✅ done | A featured entry may point at a group (`FeaturedRecipe.group`), featured index v2, group picker in the featured form, mixed homepage strip                                                                                                                                                    |
+| 22h | `agent/22h-group-image` ← 22g                  | ✅ done | Group `image` field: schema + group index v2 (on the index and in the search corpus, D14), uploads under `uploads/group/<slug>/uploads`, `ImageInput` on the group form, `GroupImage`, precedence completed, search-result cards show it, CLI `--image-url` import; no raw-upload route (D15) |
 
 ## Phase detail
 
@@ -2561,7 +2561,7 @@ build`): clean; route table lists `● /featured-recipe/[slug]` → `featured-we
   group index to `"2"` (T1 on `groupPaginationConfig.ts`, T3 for every
   fixture with `groups/`).
 
-### PR 22h — Group image field `agent/22h-group-image` 🟡 in progress (← 22g)
+### PR 22h — Group image field `agent/22h-group-image` ✅ done (← 22g)
 
 **Why:** 22g gave every server-rendered group card an image slot with the
 precedence _group image › first member thumbnail › placeholder_ and shipped
@@ -2908,6 +2908,71 @@ killed 22g's first run.
 `editor/playwright/tests/{groups,featured-recipes,edit}.spec.ts`; fixtures
 `three-recipes-groups`, `linked-recipes/uploads`, `images/`;
 `.claude/skills/recipe-curator/SKILL.md`.
+
+Decisions / close-out (review, 2026-09-08):
+
+- **Decisions made at review:**
+  - **The client card's URL is not the `-w400q75` variant.** Fact 4 above
+    says `PureStaticImage` builds `…-w<w>q75.webp` for `width={400}`; what
+    `next/image`'s `getImageProps` actually emits for a 400-wide image with no
+    `sizes` is the 640 (1×) and 828 (2×) _device sizes_, and the server's
+    `getStaticImageProps` writes the whole device-size set (w128…w3840, no
+    w400). So the URL resolves for the same reason it always has for recipe
+    search cards, just not the reason the fact gave. The `GroupResults`
+    comment was corrected at review; nothing else changes.
+  - **`SKILL.md` gained a sentence, not a usage flag.** The section said to
+    add `[--image-url U]` to the `group create` invocation at line 123; the
+    implementer added one sentence to the prose under it instead, which reads
+    better for the skill's audience. Accepted.
+  - **Rename leaves the old base directory behind, empty.**
+    `renameContentDirectory` moves `uploads/group/<old>/uploads` to
+    `uploads/group/<new>/uploads`; `uploads/group/<old>/` itself stays as an
+    empty directory. True of recipes since before groups; the engine test
+    asserts on the inner `uploads` directory and says so.
+- **Divergences from the section:** the fixtures live under
+  `editor/playwright/fixtures/test-content/` (the section wrote
+  `editor/playwright/fixtures/`); `getTransformedUploadImageProps` derives
+  the warned file name as `basename(srcPath)` since the parameter list has no
+  `image` (identical output); the search-card test runs two queries
+  ("week of may", "weeknight") rather than one so the assertion does not
+  depend on how many groups a prefix matches; an extra
+  `groups.createGroup` "rejects unknown keys" case pins the `strictObject`;
+  `UploadImage` also exports a component (unused — `RecipeImage` and
+  `GroupImage` wrap the props function).
+- **Gates (worktree, 2026-09-08, dev mode):** `pnpm --filter recipe-editor
+typecheck` clean; `pnpm --filter recipe-website exec tsc --noEmit` clean;
+  `pnpm exec vitest run` → **Test Files 24 passed (24), Tests 417 passed
+  (417)** (410 at 22g + 7: four upload cases, one featured borrow-list case,
+  two curation cases); `specVersions` group snapshot moved exactly
+  `798bcf7a1f07c6a8 → 6b48e6448e23012e`, `["1"] → ["2"]`. Playwright
+  `e2e-dev -- groups.spec.ts featured-recipes.spec.ts search-live.spec.ts
+command-palette.spec.ts edit.spec.ts homepage.spec.ts visual.spec.ts` →
+  **158 passed (6.2m)** (review rerun, first try; the implementer's runs were 20 passed for `groups.spec.ts` on a rerun after one cold-compile `toHaveURL` timeout, and 137 passed + 1 for the other six with `command-palette.spec.ts` rerun alone at 36 passed — both first-run failures were early tests in a cold `.next`, neither T18), no `--update-snapshots`, no baseline moved. Export build
+  (`CONTENT_DIRECTORY=<three-recipes-groups copy> pnpm --filter recipe-website
+build`): clean; `out/groups.html` one `group-thumbnail` with
+  `data-group-image="own"` and `src`
+  `/image/uploads/group/week-of-may-4/uploads/recipe-6-test-image-alternate.png/…-w3840q75.webp`
+  plus one `group-thumbnail-placeholder`; `out/group/week-of-may-4.html` has
+  `group-image`, `weeknight-favourites.html` none; `out/index.html` one
+  `own`; `out/search/groups` carries `image` on `week-of-may-4` and no key on
+  `weeknight-favourites`; the copy's
+  `transformed-images/uploads/group/week-of-may-4/uploads/…/` holds the
+  w128…w3840 webp set. CLI (`pnpm --silent recipes group create --name Img
+--image-url <png> --content-dir <copy> --json`): one JSON object,
+  `groups/data/img/group.json` has `"image"` and no `imageImportUrl`,
+  `uploads/group/img/uploads/<file>` written (5969 bytes). Fixture churn: 7
+  paths, all under `three-recipes-groups/` — `groups/data/week-of-may-4/group.json`,
+  `groups/{index,pagination/by-date}/{data,lock}.mdb`,
+  `groups/aggregates/by-recipe/lock.mdb`, and the new
+  `uploads/group/week-of-may-4/uploads/recipe-6-test-image-alternate.png`;
+  85 files the regen script touched elsewhere were reverted; `git status`
+  clean.
+- **The stack is complete.** No 22i is seeded. **Next:** merge from the
+  bottom — #123 (22a) into `content-engine-test`, then rebase each child on
+  its parent as it lands (22b ← 22a, … 22h ← 22g). The deferred list above
+  holds the follow-ups (client-side member fallback via a corpus
+  `thumbnail`, a `group set-image` seat, `--image <local file>`, ⌘K
+  thumbnails).
 
 ## Deferred
 

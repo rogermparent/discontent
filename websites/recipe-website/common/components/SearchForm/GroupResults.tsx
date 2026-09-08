@@ -49,9 +49,10 @@ export function GroupResults() {
          * and both are worth stating because neither is local:
          *
          * The URL resolves because the *server* has already produced this
-         * variant — `PureStaticImage` only rebuilds the `/image/<src>/…-w400q75
-         * .webp` path that `GroupImage` writes when a server-rendered card at
-         * `standardRecipeImageProps` renders the same group. That is exactly
+         * variant — `PureStaticImage` only rebuilds a `/image/<src>/…-w<n>q75
+         * .webp` path (`next/image` maps a 400-wide image to its 640 and 828
+         * device sizes) that `GroupImage` wrote when a server-rendered card at
+         * `standardRecipeImageProps` rendered the same group. That is exactly
          * the assumption the recipe search cards have always made
          * (`SearchList`), at the same 400×600.
          *
