@@ -6,6 +6,7 @@ import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import slugify from "@sindresorhus/slugify";
 import createDefaultGroupSlug from "recipe-website-common/controller/createGroupSlug";
 import { featuredRecipeContentConfig } from "recipe-website-common/controller/featuredRecipeContentConfig";
+import { getGroupBySlug } from "recipe-website-common/controller/data/readGroups";
 import { groupContentConfig } from "recipe-website-common/controller/groupContentConfig";
 import type { GroupFormState } from "recipe-website-common/controller/groupFormState";
 import type {
@@ -14,6 +15,7 @@ import type {
 } from "recipe-website-common/controller/types";
 import { z } from "zod";
 import parseGroupFormData, { ParsedGroupFormData } from "../parseGroupFormData";
+import type { UploadSpec } from "@discontent/cms/content/types";
 import type { EditorContentConfig } from "@discontent/cms/content/editorContentConfig";
 import { createGenericActions } from "@discontent/cms/content/genericActions";
 import { authenticateUser } from "./shared";
@@ -22,15 +24,57 @@ import {
   groupSuccessConfig,
 } from "../successConfigs";
 
-/** The parsed form, as a group record. The one place the shape is assembled. */
-function buildGroupData(parsed: ParsedGroupFormData, date: number): Group {
-  return {
-    name: parsed.name,
-    date,
-    kind: parsed.kind,
-    description: parsed.description,
-    items: parsed.items,
+/**
+ * The parsed form, as a group record plus the uploads that go with it. The one
+ * place the shape is assembled.
+ *
+ * Modelled on `buildRecipeData` (`actions/index.ts`) and for the same reason:
+ * the data file's `image` and the upload's fate are two statements of one
+ * decision, and deriving them apart is how a record ends up naming a file that
+ * was never written. `current` is the record on disk — the *raw* read, never
+ * the cached one (T5) — which is what carries an untouched picture forward
+ * through an edit that says nothing about it.
+ */
+function buildGroupData(
+  parsed: ParsedGroupFormData,
+  date: number,
+  current?: Group | null,
+): {
+  data: Group;
+  uploads: Record<string, UploadSpec>;
+} {
+  const { name, kind, description, items, image, clearImage } = parsed;
+
+  /*
+   * An empty `File` is what an untouched file input submits, so size is the
+   * test for "a file was chosen", exactly as the recipe path has it.
+   */
+  const uploadedImage = image && image.size > 0 ? image : undefined;
+
+  const uploads: Record<string, UploadSpec> = {
+    image: {
+      file: uploadedImage,
+      clearFile: clearImage,
+      existingFile: current?.image,
+    },
   };
+
+  const imageFileName = uploadedImage
+    ? uploadedImage.name
+    : clearImage
+      ? undefined
+      : current?.image;
+
+  const data: Group = {
+    name,
+    date,
+    kind,
+    description,
+    image: imageFileName,
+    items,
+  };
+
+  return { data, uploads };
 }
 
 const groupEditorConfig: EditorContentConfig<
@@ -69,10 +113,11 @@ const groupEditorConfig: EditorContentConfig<
     const slug = slugify(
       parsed.slug || createDefaultGroupSlug({ name: parsed.name, date }),
     );
-    return { slug, data: buildGroupData(parsed, date) };
+    const { data } = buildGroupData(parsed, date);
+    return { slug, data };
   },
 
-  async buildUpdateData(parsed, currentSlug, currentDate) {
+  async buildUpdateData(parsed, currentSlug, currentDate, contentDirectory) {
     /*
      * The *current* slug is the fallback, not a slug re-derived from the name:
      * renaming a group must not silently move its URL, which is how the
@@ -81,7 +126,26 @@ const groupEditorConfig: EditorContentConfig<
      */
     const slug = slugify(parsed.slug || currentSlug);
     const date = parsed.date || currentDate || Date.now();
-    return { slug, data: buildGroupData(parsed, date) };
+    const current = await getGroupBySlug({
+      slug: currentSlug,
+      contentDirectory,
+    });
+    const { data } = buildGroupData(parsed, date, current);
+    return { slug, data };
+  },
+
+  async buildCreateUploads(parsed) {
+    const { uploads } = buildGroupData(parsed, 0);
+    return uploads;
+  },
+
+  async buildUpdateUploads(parsed, currentSlug, contentDirectory) {
+    const current = await getGroupBySlug({
+      slug: currentSlug,
+      contentDirectory,
+    });
+    const { uploads } = buildGroupData(parsed, 0, current);
+    return uploads;
   },
 
   buildCurrentIndexKey(currentDate, currentSlug): GroupEntryKey {

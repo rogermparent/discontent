@@ -182,6 +182,13 @@ export interface Group {
   date: number;
   kind: GroupKind;
   description?: string;
+  /**
+   * The group's own picture: a file name under
+   * `uploads/group/<slug>/uploads/`, exactly as `Recipe.image` names one under
+   * `uploads/recipe/<slug>/uploads/` (22h). Optional, and most groups have
+   * none — the cards fall back to a member's photo and then to a placeholder.
+   */
+  image?: string;
   items: GroupItem[];
   [key: string]: unknown;
 }
@@ -201,6 +208,18 @@ export type GroupEntryKey = [date: number, slug: string];
 export interface GroupEntryValue {
   name: string;
   kind: GroupKind;
+  /**
+   * On the index by decision (D14), where `note` is deliberately not.
+   *
+   * The argument for `note`'s absence — a value no projection and no fold
+   * reads — is exactly what does *not* apply here: `groupsByDate` projects this
+   * onto `GroupListEntry`, so a list card whose group has its own picture
+   * renders it with no group read at all, and the search corpus can carry it to
+   * the client-rendered `/search` cards, which can run no server walk of their
+   * own. Set only when the group has one, so a group without a picture stores
+   * no key.
+   */
+  image?: string;
   items: Pick<GroupItem, "recipe" | "label">[];
 }
 

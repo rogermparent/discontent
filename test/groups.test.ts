@@ -31,6 +31,7 @@ import { createContent } from "@discontent/cms/content/createContent";
 import { deleteContent } from "@discontent/cms/content/deleteContent";
 import { getContentDatabase } from "@discontent/cms/content/database";
 import { rebuildIndex } from "@discontent/cms/content/rebuildIndex";
+import type { UploadSpec } from "@discontent/cms/content/types";
 import { updateContent } from "@discontent/cms/content/updateContent";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 import {
@@ -101,16 +102,26 @@ function createRecipe(slug: string, name: string, date: number) {
   });
 }
 
-function createGroup(slug: string, data: Group) {
+function createGroup(
+  slug: string,
+  data: Group,
+  uploads?: Record<string, UploadSpec>,
+) {
   return createContent<Group, GroupEntryValue, GroupEntryKey>({
     config: groupContentConfig,
     slug,
     data,
     contentDirectory,
+    ...(uploads ? { uploads } : {}),
   });
 }
 
-function updateGroup(slug: string, currentDate: number, data: Group) {
+function updateGroup(
+  slug: string,
+  currentDate: number,
+  data: Group,
+  uploads?: Record<string, UploadSpec>,
+) {
   return updateContent<Group, GroupEntryValue, GroupEntryKey>({
     config: groupContentConfig,
     slug,
@@ -118,7 +129,13 @@ function updateGroup(slug: string, currentDate: number, data: Group) {
     currentIndexKey: [currentDate, slug] as GroupEntryKey,
     data,
     contentDirectory,
+    ...(uploads ? { uploads } : {}),
   });
+}
+
+/** Where a group's uploads live: `uploads/group/<slug>/uploads/<file>` (22h). */
+function groupUploadPath(slug: string, ...rest: string[]) {
+  return join(contentDirectory, "uploads/group", slug, ...rest);
 }
 
 /** The folded "Appears in" map, as a page would read it. */
@@ -368,6 +385,14 @@ describe("the stored group index value", () => {
      * reads the data file anyway. On the index it would be a value no
      * projection and no fold reads — so every note edit would dirty a sealed
      * page for nothing.
+     *
+     * `image` is the opposite case and is on the index by decision (D14/22h):
+     * `groupsByDate` projects it, so a card renders the group's own picture
+     * with no group read, and the search corpus can hand it to a client that
+     * can run no walk of its own. This group has none, so no key is stored —
+     * `toEqual` would accept an explicit `undefined` here either way, which is
+     * why the 22h block below asserts the stored key's arrival and departure
+     * against a group that does have one.
      */
     expect(readGroupIndex().get("week-of-may-4")).toEqual({
       name: "Week of May 4",
@@ -538,6 +563,109 @@ describe("editing a group", () => {
 });
 
 /* ------------------------------------------------------------------ */
+/* 22h: the group's own image                                          */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Uploads are engine-generic — `createContent`/`updateContent` take an
+ * `uploads` map, `processUploadChanges` writes under
+ * `getUploadsDirectory(config, slug)`, and rename and delete move and remove
+ * that directory. What is worth pinning here is that **this site's** group
+ * config wires into all of it: that `uploadsDirectory: "uploads/group"` is the
+ * tree the files land in, and that the file name reaches the index value, which
+ * is what lets a list card and a `/search` card draw the picture with no read
+ * (D14).
+ */
+describe("a group's own image (22h)", () => {
+  const COVER = () => new File(["not really a png"], "cover.png");
+
+  async function seedGroupWithCover() {
+    await createRecipe("soup", "Soup", day(1));
+    await createRecipe("stew", "Stew", day(2));
+    return createGroup(
+      "week-of-may-4",
+      { ...WEEK, image: "cover.png" },
+      { image: { file: COVER() } },
+    );
+  }
+
+  it("writes the file under uploads/group and puts the name on the index", async () => {
+    await seedGroupWithCover();
+
+    expect(
+      await pathExists(groupUploadPath("week-of-may-4", "uploads/cover.png")),
+    ).toBe(true);
+    expect((await readGroupFile("week-of-may-4")).image).toBe("cover.png");
+    /*
+     * The index value, not just the data file: this is the D14 payoff. A card
+     * reading the paginated index has the file name in hand, so it renders
+     * `GroupImage` without opening the group's record at all.
+     */
+    expect(readGroupIndex().get("week-of-may-4")?.image).toBe("cover.png");
+  });
+
+  it("clears: the file goes and the index value drops the key", async () => {
+    await seedGroupWithCover();
+
+    await updateGroup("week-of-may-4", day(10), WEEK, {
+      image: { clearFile: true, existingFile: "cover.png" },
+    });
+
+    expect(
+      await pathExists(groupUploadPath("week-of-may-4", "uploads/cover.png")),
+    ).toBe(false);
+    expect((await readGroupFile("week-of-may-4")).image).toBeUndefined();
+    /*
+     * `buildGroupIndexValue` spreads the field in only when it is set, so a
+     * cleared image leaves no key behind rather than a stored `undefined` —
+     * which is what keeps a group that never had one byte-identical to a group
+     * that lost one.
+     */
+    expect(readGroupIndex().get("week-of-may-4")).not.toHaveProperty("image");
+  });
+
+  it("renames: the uploads directory follows the slug", async () => {
+    await seedGroupWithCover();
+
+    await updateContent<Group, GroupEntryValue, GroupEntryKey>({
+      config: groupContentConfig,
+      slug: "week-of-may-11",
+      currentSlug: "week-of-may-4",
+      currentIndexKey: [day(10), "week-of-may-4"] as GroupEntryKey,
+      data: { ...WEEK, image: "cover.png" },
+      contentDirectory,
+    });
+
+    /*
+     * The `uploads` directory itself is what `renameContentDirectory` moves, so
+     * the old slug's *base* directory is left behind empty — true of recipes
+     * since long before groups, and harmless: nothing lists it and the next
+     * write to that slug reuses it.
+     */
+    expect(await pathExists(groupUploadPath("week-of-may-4", "uploads"))).toBe(
+      false,
+    );
+    expect(
+      await pathExists(groupUploadPath("week-of-may-11", "uploads/cover.png")),
+    ).toBe(true);
+    expect(readGroupIndex().get("week-of-may-11")?.image).toBe("cover.png");
+  });
+
+  it("deletes: the uploads directory goes with the group", async () => {
+    await seedGroupWithCover();
+
+    await deleteContent<Group, GroupEntryValue, GroupEntryKey>({
+      config: groupContentConfig,
+      slug: "week-of-may-4",
+      indexKey: [day(10), "week-of-may-4"] as GroupEntryKey,
+      contentDirectory,
+    });
+
+    expect(await pathExists(groupUploadPath("week-of-may-4"))).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ */
 /* 22g: a featured entry that points at a group                        */
 /* ------------------------------------------------------------------ */
 
@@ -583,6 +711,34 @@ describe("a featured group (22g)", () => {
       recipeName: undefined,
       recipeImage: undefined,
     });
+  });
+
+  it("does not borrow the group's image (22h)", async () => {
+    await createRecipe("soup", "Soup", day(1));
+    await createRecipe("stew", "Stew", day(2));
+    await createGroup(
+      "week-of-may-4",
+      { ...WEEK, image: "cover.png" },
+      { image: { file: new File(["not really a png"], "cover.png") } },
+    );
+    await createFeature("featured-week", {
+      group: "week-of-may-4",
+      date: FEATURE_DATE,
+      note: "A featured meal plan.",
+    });
+
+    /*
+     * The borrow list is still `["name", "kind"]` (22h, deliberately). A
+     * featured card shows the picture, but it gets it the way every group card
+     * without a list entry does — `GroupThumbnail` reads the group under
+     * `item:groups:<slug>`, which every group write fires. Borrowing it would
+     * add a third field to the declaration and bump the featured index to v3
+     * to save one cached read on one card.
+     */
+    const value = readFeaturedIndex().get("featured-week");
+    expect(value).not.toHaveProperty("groupImage");
+    expect(value?.groupName).toBe("Week of May 4");
+    expect(value?.groupKind).toBe("meal-plan");
   });
 
   it("re-titles: the borrowed name and the featured page both move", async () => {

@@ -4,6 +4,7 @@ export interface GroupFormErrors extends Record<string, string[] | undefined> {
   name?: string[];
   kind?: string[];
   description?: string[];
+  image?: string[];
   date?: string[];
   slug?: string[];
   /**

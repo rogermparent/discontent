@@ -23,6 +23,14 @@ export interface GroupSearchEntry {
   name: string;
   kind: GroupKind;
   description?: string;
+  /**
+   * The group's own picture, when it has one (22h/D14) — the whole reason the
+   * field is on the index as well as the data file. A `/search` card is
+   * rendered on the client and can run no server walk, so this is the only
+   * picture it can draw; a group without one shows the placeholder there, where
+   * a server-rendered card would fall back to a member's photo.
+   */
+  image?: string;
   recipes: string[];
 }
 
@@ -87,6 +95,7 @@ export async function getGroupSearchCorpus({
         name: group.name,
         kind: group.kind,
         description: group.description,
+        image: group.image,
         recipes,
       };
     }),

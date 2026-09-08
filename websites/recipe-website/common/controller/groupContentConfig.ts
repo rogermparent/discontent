@@ -41,6 +41,16 @@ export const groupContentConfig: ContentTypeConfig<
   dataDirectory: "groups/data",
   indexDirectory: "groups/index",
   dataFilename: "group.json",
+  /*
+   * Singular, matching `uploads/recipe` — the engine's default for an
+   * undeclared type would be `uploads/groups/<slug>/uploads` (the plural
+   * `contentType`), and one tree naming its items in the singular while the
+   * other used the plural would be a difference with no reason behind it. The
+   * path is baked into three places besides this one: `getGroupUploadPath`,
+   * `GroupImage`'s `src` key, and the `uploadsDirectory` the client search
+   * cards hand `PureStaticImage`.
+   */
+  uploadsDirectory: "uploads/group",
   buildIndexValue: buildGroupIndexValue,
   buildIndexKey: (slug: string, data: Group): GroupEntryKey => [
     data.date,

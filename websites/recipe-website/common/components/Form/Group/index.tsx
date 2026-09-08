@@ -11,6 +11,8 @@ import { SelectInput } from "@discontent/component-library/components/Form/input
 import { TextInput } from "@discontent/component-library/components/Form/inputs/Text";
 import { Errors } from "@discontent/component-library/components/Form";
 import { useCurrentTimezone } from "@discontent/cms/hooks/useCurrentTimezone";
+import type { StaticImageProps } from "@discontent/next-static-image/src";
+import { ImageInput } from "recipe-website-common/components/Form/Image";
 import { RecipeSelectInput } from "recipe-website-common/components/Form/inputs/RecipeSelect";
 import createDefaultGroupSlug from "recipe-website-common/controller/createGroupSlug";
 import type { GroupFormState } from "recipe-website-common/controller/groupFormState";
@@ -38,10 +40,18 @@ export default function GroupFields({
   group,
   state,
   slug,
+  defaultImage,
 }: {
   group?: Partial<Group>;
   state?: GroupFormState;
   slug?: string;
+  /**
+   * The group's current picture, already transformed by the edit page — the
+   * same hand-off the recipe form has (`recipe/[slug]/edit/page.tsx`), because
+   * the transform is server-side and this is a client component. Absent on
+   * `/group/new`, where there is nothing to show yet.
+   */
+  defaultImage?: StaticImageProps;
 }) {
   const { name, kind, description, date, items } = group || {};
   const currentTimezone = useCurrentTimezone();
@@ -114,6 +124,18 @@ export default function GroupFields({
         id="group-form-description"
         defaultValue={description}
         errors={state?.errors?.description}
+      />
+      {/*
+        After the prose and before the recipes (22h): the picture belongs with
+        what the group *is*, not with what is in it. No `encType` on the form
+        around it — a server action receives the `File` from `FormData`
+        directly, which is what the recipe forms have always relied on.
+      */}
+      <ImageInput
+        id="group-form-image"
+        existingAlt="Existing group image"
+        defaultImage={defaultImage}
+        errors={state?.errors?.image}
       />
 
       <fieldset className="my-2 flex flex-col flex-nowrap gap-3">

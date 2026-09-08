@@ -75,6 +75,7 @@ export default function FeaturedRecipeDetailPage(
             <GroupThumbnail
               slug={groupSlug}
               name={group.name}
+              image={group.image}
               items={group.items}
               className="size-24 shrink-0 overflow-hidden rounded-lg"
             />

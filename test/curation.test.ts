@@ -32,7 +32,10 @@ import {
   type AppearsInEntry,
 } from "../websites/recipe-website/common/controller/groupAggregateConfigs";
 import { groupContentConfig } from "../websites/recipe-website/common/controller/groupContentConfig";
-import type { Recipe } from "../websites/recipe-website/common/controller/types";
+import type {
+  Group,
+  Recipe,
+} from "../websites/recipe-website/common/controller/types";
 
 import {
   parseAuthor,
@@ -89,6 +92,10 @@ afterEach(async () => {
 
 function readRecipeFile(slug: string): Promise<Recipe> {
   return readJson(join(contentDirectory, "recipes/data", slug, "recipe.json"));
+}
+
+function readGroupFile(slug: string): Promise<Group> {
+  return readJson(join(contentDirectory, "groups/data", slug, "group.json"));
 }
 
 /** The folded "Appears in" map, as a recipe page would read it. */
@@ -471,6 +478,61 @@ describe("groups", () => {
       { recipe: "salad", label: "Wed", note: "double it" },
     ]);
     expect((await readAppearsIn())?.stew).toBeUndefined();
+  });
+
+  it("imports the group's image from a URL and keeps it through an item edit", async () => {
+    /*
+     * The engine fetches the file itself (`writeUploadFile`), so the stub hands
+     * back a body stream rather than HTML — this is the *upload* fetch, not the
+     * importer's page fetch.
+     */
+    const fetchStub = vi.fn(async () => ({
+      body: new Blob(["not really a png"]).stream(),
+    }));
+    vi.stubGlobal("fetch", fetchStub);
+
+    await groups.createGroup(ctx, {
+      name: "Weeknights",
+      items: ["stew"],
+      imageImportUrl: "https://cdn.example.com/img/cover.png?w=1200",
+    });
+
+    /* The basename of the URL's *pathname*: the query string is not a name. */
+    expect(
+      await pathExists(
+        join(contentDirectory, "uploads/group/weeknights/uploads/cover.png"),
+      ),
+    ).toBe(true);
+    const stored = await readGroupFile("weeknights");
+    expect(stored.image).toBe("cover.png");
+    /* `Group` has an index signature, so an input-only key would have persisted. */
+    expect(stored.imageImportUrl).toBeUndefined();
+
+    /*
+     * `writeItems` spreads the record it read, so the picture survives every
+     * item mutation — which is the whole of the "no group update seat" bet.
+     */
+    await groups.setItems(ctx, "weeknights", [{ recipe: "salad" }]);
+    expect((await readGroupFile("weeknights")).image).toBe("cover.png");
+    expect(
+      await pathExists(
+        join(contentDirectory, "uploads/group/weeknights/uploads/cover.png"),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects unknown keys", async () => {
+    /*
+     * `GroupInputSchema` is a `strictObject`, which is why `imageImportUrl` had
+     * to be declared rather than merely passed through — and why a typo is
+     * still an error rather than a silently ignored field.
+     */
+    await expect(
+      groups.createGroup(ctx, {
+        name: "Weeknights",
+        imageUrl: "https://x/y.png",
+      }),
+    ).rejects.toMatchObject({ code: "validation" });
   });
 
   it("lists and deletes", async () => {

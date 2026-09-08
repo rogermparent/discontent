@@ -16,6 +16,13 @@ export interface GroupListEntry {
   date: number;
   name: string;
   kind: GroupKind;
+  /**
+   * The group's own picture, when it has one (22h/D14). The one field here that
+   * is not printed as text: a card that carries it renders `GroupImage`
+   * directly and never reads the group's record, and a card without it falls
+   * back to the member walk, which does.
+   */
+  image?: string;
   itemCount: number;
 }
 
@@ -42,8 +49,10 @@ export const groupsByDate: PaginationIndexConfig<
    * build and a dev server, so an index built by one and read by the other read
    * as stale and rebuilt itself (F16). Bump this when `key` or `project`
    * changes — nothing else will notice.
+   *
+   * `"2"` since 22h: `project` carries the group's own `image` (D14).
    */
-  version: "1",
+  version: "2",
   /*
    * The date lives in the content index *key* (`buildIndexKey` is
    * `[date, slug]`) and `GroupEntryValue` carries none, so both functions read
@@ -55,6 +64,7 @@ export const groupsByDate: PaginationIndexConfig<
     date,
     name: value.name,
     kind: value.kind,
+    image: value.image,
     itemCount: value.items.length,
   }),
 };

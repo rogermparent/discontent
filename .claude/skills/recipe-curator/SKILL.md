@@ -127,7 +127,8 @@ pnpm --silent recipes group create --name "Week of 2026-09-07" --kind meal-plan 
 
 `--item` is `slug[:label]`, split at the **first** colon, so a label may
 contain one. Use `--kind collection` (with `--description`) for asks with no
-dates. Returns `{slug, date, path, url, warnings?}`. On
+dates. `--image-url U` gives the group its own picture, fetched at write time,
+exactly as it does for a recipe. Returns `{slug, date, path, url, warnings?}`. On
 `{"error":{"code":"unknown_recipe",…}}` fix the slug — never pass `--force`.
 
 ## 8. Report

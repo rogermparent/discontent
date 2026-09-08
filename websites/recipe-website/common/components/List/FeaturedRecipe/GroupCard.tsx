@@ -45,6 +45,15 @@ export function GroupCard({
     <RecipeCard testId="featured-group-card">
       <RecipeCardLink href={`/group/${slug}`}>
         <RecipeCardImageContainer>
+          {/*
+            No `image` prop, deliberately (22h). The featured index borrows the
+            group's `name` and `kind` and could borrow its image too — but that
+            would be a third field on the featured declaration and a version
+            bump on an index whose card already reads the group's record for
+            the member fallback. The read is cached under `item:groups:<slug>`
+            and fires on every group write, so the picture is fresh either way;
+            what the borrow would buy is one read, on one card.
+          */}
           <GroupThumbnail slug={slug} name={name ?? slug} />
         </RecipeCardImageContainer>
         <RecipeCardName

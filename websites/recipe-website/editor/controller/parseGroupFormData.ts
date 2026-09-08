@@ -26,6 +26,14 @@ const GroupFormSchema = z.object({
    */
   kind: z.enum(["meal-plan", "collection"]).default("collection"),
   description: optionalText,
+  /*
+   * The group's own picture (22h), declared exactly as the recipe form declares
+   * its own: the file itself, and the checkbox that clears one. There is no
+   * `imageImportUrl` here — the browser form has no import flow, and the
+   * import-by-URL path is the CLI's (`--image-url` → `GroupInputSchema`).
+   */
+  image: z.instanceof(File).optional(),
+  clearImage: z.coerce.boolean(),
   date: z.optional(dateEpochSchema),
   slug: z.string().optional(),
   /*

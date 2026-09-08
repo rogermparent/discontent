@@ -34,11 +34,19 @@ export function GroupIndexPageWrapper({
               A picture per card (22g). The thumbnail is rendered here rather
               than inside `GroupList` because the walk is async and that
               component is also rendered on the client by `GroupResults`.
+
+              `image` comes straight off the list entry (22h/D14), so a group
+              with its own picture costs no group read at all — only the ones
+              that fall through to the member walk pay for it.
             */}
             <GroupList
               groups={page.items}
               renderThumbnail={(group) => (
-                <GroupThumbnail slug={group.slug} name={group.name} />
+                <GroupThumbnail
+                  slug={group.slug}
+                  name={group.name}
+                  image={group.image}
+                />
               )}
             />
             <RecipePagination

@@ -13,6 +13,7 @@
  * not found" — which is why `--force` downgrades the error to a warning rather
  * than being refused.
  */
+import path from "path";
 import { createContent } from "@discontent/cms/content/createContent";
 import { deleteContent } from "@discontent/cms/content/deleteContent";
 import { readContentFileOrNull } from "@discontent/cms/content/readContentFile";
@@ -202,11 +203,24 @@ export async function createGroup(
   const items = toGroupItems(input.items);
   const warnings = await checkRecipes(ctx, items, force);
 
+  /*
+   * The file name the record will carry, derived from the URL exactly as
+   * `buildRecipeData` derives it — the engine's `getUploadInfo` takes the
+   * basename of the same pathname, so deriving it here is restating what the
+   * write will do rather than deciding it. `imageImportUrl` itself never lands
+   * on disk: it is an input-only key, and `data` is what gets written.
+   */
+  const imageImportUrl = input.imageImportUrl;
+  const image = imageImportUrl
+    ? path.parse(new URL(imageImportUrl).pathname).base
+    : undefined;
+
   const data: Group = {
     name: input.name,
     date,
     kind: input.kind,
     ...(input.description ? { description: input.description } : {}),
+    ...(image ? { image } : {}),
     items,
   };
 
@@ -217,6 +231,15 @@ export async function createGroup(
     contentDirectory: ctx.contentDirectory,
     author: ctx.author,
     commitMessage: `Create group: ${slug}`,
+    /*
+     * Only when an URL was given. Declaring the field with nothing in it would
+     * ask `processUploadChanges` to carry a file forward that does not exist —
+     * the same reason `buildRecipeData`'s curation twin declares `image` and
+     * nothing else.
+     */
+    ...(imageImportUrl
+      ? { uploads: { image: { fileImportUrl: imageImportUrl } } }
+      : {}),
   });
   ctx.onWrite?.({
     contentType: groupContentConfig.contentType,

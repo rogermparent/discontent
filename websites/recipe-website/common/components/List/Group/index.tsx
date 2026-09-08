@@ -28,13 +28,14 @@ interface GroupListDecorations {
  * One group card: the name links to the group, the badge names the kind, and
  * the count says how much is in it.
  *
- * **The picture is a prop, not a read.** A group has no image of its own until
- * 22h, and its member thumbnail is picked by walking `items[].recipe` through
- * the cached item reads — an async server-only walk, which this component
- * cannot do because `GroupResults` renders it on the client (fact 12). So the
- * server callers hand a rendered `GroupThumbnail` in, and search results, which
- * cannot run the image transform, hand nothing and keep the wide text-only card
- * this was before 22g.
+ * **The picture is a prop, not a read.** A group's member thumbnail is picked
+ * by walking `items[].recipe` through the cached item reads — an async
+ * server-only walk, which this component cannot do because `GroupResults`
+ * renders it on the client (fact 12). So every caller hands a rendered node in:
+ * the server ones a `GroupThumbnail`, and `GroupResults` since 22h either a
+ * `PureStaticImage` of the group's own picture (which the search corpus
+ * carries, D14) or the placeholder — the one thing it cannot produce is the
+ * member fallback.
  */
 function GroupListItem({
   slug,
@@ -120,9 +121,13 @@ export default function GroupList({
 }: {
   groups: GroupListEntry[];
   /**
-   * Server callers only (22g): returns a rendered `GroupThumbnail` per entry.
-   * `GroupResults` passes nothing, because a client component cannot run the
-   * image transform.
+   * A rendered thumbnail per entry (22g). The server callers return a
+   * `GroupThumbnail`, which can walk to a member's photo; `GroupResults`
+   * returns the group's own picture or the placeholder (22h), because a client
+   * component cannot run that walk.
+   *
+   * Unset still means the wide text-only card this was before 22g — nothing
+   * renders it that way today, and the shape is what the ⌘K rows would want.
    */
   renderThumbnail?: (entry: GroupListEntry) => ReactNode;
 } & GroupListDecorations) {
