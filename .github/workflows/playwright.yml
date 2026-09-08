@@ -6,6 +6,16 @@ on:
   pull_request:
     branches: [main]
 
+# Auth.js refuses to start without a secret (`MissingSecret`), and every
+# sign-in in the recipe and portfolio suites went through the error page
+# instead of the form until this was set — 30 of shard 3's 107 tests and 26 of
+# portfolio's 84 in the first run against content-engine-test (#132,
+# 2026-09-08). The value only signs session cookies for a server that lives as
+# long as the job, so it is not a secret; docker-compose.test.yml passes the
+# developer's own through from the host env for the same reason.
+env:
+  AUTH_SECRET: playwright-ci-only-not-a-secret
+
 jobs:
   test:
     name: Recipe (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
