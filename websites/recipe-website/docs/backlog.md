@@ -71,7 +71,7 @@ Still open after #133 — read the next run before promoting:
 
 - Whether shards 1/2/4 and portfolio go fully green once sign-in works; any
   residue is real and gets its own row here.
-- `pnpm install` in the Playwright container prints `gyp ERR! … not found:
-make` for `unix-dgram` (an optional native dependency; the install still
-  succeeds). Harmless today; a `build-essential` layer or dropping the
+- The Playwright container's `pnpm install` logs a `gyp ERR!` for `unix-dgram`
+  (`make` is not in the image); the dependency is optional and the install
+  succeeds. Harmless today; a `build-essential` layer or dropping the
   dependency would silence it.
