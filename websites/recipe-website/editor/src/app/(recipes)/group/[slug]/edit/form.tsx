@@ -6,13 +6,16 @@ import { SubmitButton } from "@discontent/component-library/components/SubmitBut
 import type { GroupFormState } from "recipe-website-common/controller/groupFormState";
 import { updateGroup } from "recipe-editor/controller/actions/groups";
 import type { Group } from "recipe-website-common/controller/types";
+import type { StaticImageProps } from "@discontent/next-static-image/src";
 
 export default function EditGroupForm({
   group,
   slug,
+  defaultImage,
 }: {
   group: Group;
   slug: string;
+  defaultImage?: StaticImageProps;
 }) {
   const initialState = { message: "", errors: {} } as GroupFormState;
   const [state, dispatch] = useActionState(
@@ -24,7 +27,12 @@ export default function EditGroupForm({
     <form id="group-form" className="m-2 w-full" action={dispatch}>
       <h2 className="mb-2 text-2xl font-bold">Editing Group: {slug}</h2>
       <div className="flex flex-col flex-nowrap">
-        <CreateGroupFields state={state} group={group} slug={slug} />
+        <CreateGroupFields
+          state={state}
+          group={group}
+          slug={slug}
+          defaultImage={defaultImage}
+        />
         <div id="missing-fields-error" aria-live="polite" aria-atomic="true">
           {state.message && (
             <p className="mt-2 text-sm text-destructive">{state.message}</p>

@@ -3,6 +3,7 @@
   "date": 1777852800000,
   "kind": "meal-plan",
   "description": "Three dinners, one shop.",
+  "image": "recipe-6-test-image-alternate.png",
   "items": [
     {
       "recipe": "first-recipe",

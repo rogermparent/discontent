@@ -37,13 +37,16 @@ const groupCreate: CommandDef<GroupWriteResult> = {
   name: "group create",
   usage:
     "recipes group create --name N [--kind meal-plan|collection] [--description D] " +
-    "[--slug s] [--date d] (--file items.json | --item slug[:label] …) [--force]",
+    "[--slug s] [--date d] [--image-url U] " +
+    "(--file items.json | --item slug[:label] …) [--force]",
   options: {
     name: { type: "string" },
     kind: { type: "string" },
     description: { type: "string" },
     slug: { type: "string" },
     date: { type: "string" },
+    /* The group's own picture, fetched at write time — `imageImportUrl` (22h). */
+    "image-url": { type: "string" },
     file: { type: "string" },
     item: { type: "string", multiple: true },
     force: { type: "boolean" },
@@ -75,6 +78,9 @@ const groupCreate: CommandDef<GroupWriteResult> = {
           ? { slug: stringOption(options, "slug") }
           : {}),
         ...(date ? { date } : {}),
+        ...(stringOption(options, "image-url")
+          ? { imageImportUrl: stringOption(options, "image-url") }
+          : {}),
         items: itemsInput,
       },
       { force: booleanOption(options, "force") },

@@ -113,9 +113,9 @@ describe("declared spec versions", () => {
       ),
     ).toMatchInlineSnapshot(`
       {
-        "hash": "798bcf7a1f07c6a8",
+        "hash": "6b48e6448e23012e",
         "versions": [
-          "1",
+          "2",
         ],
       }
     `);

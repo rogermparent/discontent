@@ -168,6 +168,13 @@ export const GroupInputSchema = z.strictObject({
   kind: z.enum(["meal-plan", "collection"]).default("collection"),
   description: z.string().optional(),
   date: EpochSchema.optional(),
+  /**
+   * Import the group's picture from a URL (22h) — the CLI's `--image-url` and
+   * the API's own key. Declared rather than tolerated: this is a
+   * `strictObject`, so an undeclared key is a validation error, which is the
+   * property the "rejects unknown keys" case pins.
+   */
+  imageImportUrl: z.string().optional(),
   items: z.array(GroupItemInputSchema).default([]),
 });
 

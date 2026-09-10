@@ -12,6 +12,7 @@ import {
 import type { Group } from "../../controller/types";
 import type { ResolvedGroupItem } from "../../controller/data/resolveGroupItems";
 import { groupKindLabel } from "../../util/groupKindLabel";
+import { GroupImage } from "../GroupImage";
 import { groupSearchHref } from "../SearchForm/queryLanguage";
 import { GroupItems } from "./GroupItems";
 
@@ -52,7 +53,7 @@ export default function GroupDetailPage({
   items,
   actions,
 }: GroupDetailPageProps) {
-  const { name, kind, description } = group;
+  const { name, kind, description, image } = group;
   return (
     <PageMain>
       <PageSection maxWidth="4xl" grow>
@@ -80,6 +81,31 @@ export default function GroupDetailPage({
             </Link>
           )}
         </div>
+        {/*
+          The group's own picture (22h), between the meta row and the prose —
+          the same place a recipe's heading image sits relative to its
+          description, with the same crop props `View` uses. A group with no
+          image of its own renders nothing here: the member fallback is a
+          *card* affordance, and standing in a member's photo at this size
+          would read as a picture of the group.
+        */}
+        {image && (
+          <div
+            data-testid="group-image"
+            className="relative aspect-[4/3] max-w-xl overflow-hidden rounded-md"
+          >
+            <GroupImage
+              slug={slug}
+              image={image}
+              alt={`Photo of ${name}`}
+              width={580}
+              height={450}
+              sizes="100vw"
+              loading="eager"
+              className="object-cover absolute w-full h-full inset-0 rounded-md"
+            />
+          </div>
+        )}
         {description && (
           <div className="my-2">
             <Markdown>{description}</Markdown>

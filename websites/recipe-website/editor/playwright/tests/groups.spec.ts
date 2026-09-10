@@ -5,6 +5,7 @@ import {
   signIn,
   deleteWithConfirm,
   markdownEditorReady,
+  searchFor,
 } from "../support/helpers";
 import { fixturePath } from "../support/tasks";
 
@@ -284,23 +285,42 @@ test.describe("Groups", () => {
   });
 
   /**
-   * Group thumbnails (22g): *pre-defined group image › first usable member
-   * thumbnail › placeholder icon*, with the first rung landing in 22h.
+   * Group thumbnails: *the group's own image › first usable member thumbnail ›
+   * placeholder icon*. 22g shipped the last two rungs, 22h the first.
    *
-   * The fallback is a render-time read rather than a borrowed index value,
-   * because borrowing it would mean following `items[].recipe` — the array
-   * reference the engine cannot address (D3/F32). No fixture recipe has a
-   * photo, so these upload one through the form: it is the only way to prove
-   * the invalidation as well as the render, since the write that has to reach
-   * these cards is a *recipe* write, not a group one.
+   * The member fallback is a render-time read rather than a borrowed index
+   * value, because borrowing it would mean following `items[].recipe` — the
+   * array reference the engine cannot address (D3/F32). The group's own image
+   * *is* on the index (D14), which is why a card that has one costs no group
+   * read and why the client-rendered `/search` cards can draw it at all.
+   *
+   * The fixture is built to separate the two: `week-of-may-4` carries its own
+   * picture and lists three recipes with no photos between them, so it can only
+   * be showing its own; `weeknight-favourites` carries none, so it is the
+   * group the member walk and the placeholder are proved on.
    */
   test.describe("thumbnails", () => {
+    /** `week-of-may-4`'s own picture, as the transform serves it. */
+    const OWN_IMAGE =
+      /^\/image\/uploads\/group\/week-of-may-4\/uploads\/recipe-6-test-image-alternate\.png\/.*\.webp$/;
+    /** The same file, uploaded to `weeknight-favourites` by the form. */
+    const WEEKNIGHT_OWN_IMAGE =
+      /^\/image\/uploads\/group\/weeknight-favourites\/uploads\/recipe-6-test-image-alternate\.png\/.*\.webp$/;
+    /** Third Recipe's photo, borrowed by the group that lists it. */
     const MEMBER_IMAGE =
       /^\/image\/uploads\/recipe\/third-recipe\/uploads\/recipe-6-test-image\.png\/.*\.webp$/;
 
     /** Cards on `/groups` and in the homepage section, newest first. */
     const groupCards = (page: Page) =>
       page.getByTestId("group-list").getByRole("listitem");
+
+    const alternateImageFile = () => ({
+      name: "recipe-6-test-image-alternate.png",
+      mimeType: "image/png",
+      buffer: readFileSync(
+        fixturePath("images", "recipe-6-test-image-alternate.png"),
+      ),
+    });
 
     async function uploadImageToThirdRecipe(page: Page) {
       await page.goto("/recipe/third-recipe/edit");
@@ -320,8 +340,8 @@ test.describe("Groups", () => {
        * next `goto` aborts the write in flight. The commit and the tag calls
        * are the last thing a write does, so that leaves the image on disk with
        * `item:recipes:third-recipe` never fired — which reads exactly like a
-       * broken invalidation. `recipe-item-records.spec.ts` documents the same
-       * trap, and this is the second seat to fall into it.
+       * broken invalidation (T19). `recipe-item-records.spec.ts` documents the
+       * same trap, and this is the second seat to fall into it.
        */
       await page.waitForURL((url) => url.pathname === "/recipe/third-recipe");
       await expect(
@@ -329,7 +349,13 @@ test.describe("Groups", () => {
       ).toBeVisible();
     }
 
-    test("falls back to the placeholder while no member has a photo", async ({
+    /** Submit the group form and wait for the redirect to the group (T19). */
+    async function submitGroupForm(page: Page, slug: string) {
+      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page.waitForURL((url) => url.pathname === `/group/${slug}`);
+    }
+
+    test("draws the group's own image, and the placeholder for a group without one", async ({
       page,
       resetData,
     }) => {
@@ -337,24 +363,43 @@ test.describe("Groups", () => {
       await page.goto("/groups");
 
       await expect(groupCards(page)).toHaveCount(2);
+      const week = groupCards(page).nth(0);
+      await expect(week).toContainText("Week of May 4");
+      await expect(week.getByTestId("group-thumbnail")).toHaveAttribute(
+        "data-group-image",
+        "own",
+      );
       await expect(
-        page
-          .getByTestId("group-list")
-          .getByTestId("group-thumbnail-placeholder"),
-      ).toHaveCount(2);
+        week.getByTestId("group-thumbnail").getByRole("img"),
+      ).toHaveAttribute("src", OWN_IMAGE);
+      /*
+       * The other card is the control: no image of its own, and no member with
+       * a photo either, so it is still the placeholder 22g shipped.
+       */
       await expect(
-        page.getByTestId("group-list").getByTestId("group-thumbnail"),
-      ).toHaveCount(0);
+        groupCards(page).nth(1).getByTestId("group-thumbnail-placeholder"),
+      ).toBeVisible();
 
+      // The homepage Groups section reads the same head page of the index.
       await page.goto("/");
       await expect(
-        page
-          .getByTestId("group-list")
-          .getByTestId("group-thumbnail-placeholder"),
-      ).toHaveCount(2);
+        groupCards(page).nth(0).getByTestId("group-thumbnail").getByRole("img"),
+      ).toHaveAttribute("src", OWN_IMAGE);
+      await expect(
+        groupCards(page).nth(1).getByTestId("group-thumbnail-placeholder"),
+      ).toBeVisible();
+
+      // And the group's own page shows it full width, above the description.
+      await page.goto("/group/week-of-may-4");
+      await expect(
+        page.getByTestId("group-image").getByRole("img"),
+      ).toHaveAttribute("src", OWN_IMAGE);
+
+      await page.goto("/group/weeknight-favourites");
+      await expect(page.getByTestId("group-image")).toHaveCount(0);
     });
 
-    test("a member's photo becomes the group's thumbnail everywhere", async ({
+    test("a member's photo becomes the thumbnail of the group that has none", async ({
       page,
       resetData,
     }) => {
@@ -362,29 +407,30 @@ test.describe("Groups", () => {
       await uploadImageToThirdRecipe(page);
 
       /*
-       * `weeknight-favourites` lists first-recipe then third-recipe, so the walk
-       * passes the imageless one and stops at this. `week-of-may-4` lists first,
-       * second and a slug that does not exist — none with a photo — so it keeps
-       * the placeholder, which is what makes this a *precedence* assertion
-       * rather than "some card gained an image".
+       * `weeknight-favourites` lists first-recipe then third-recipe, so the
+       * walk passes the imageless one and stops at this. `week-of-may-4` is
+       * untouched by a recipe write and goes on showing its own picture, which
+       * is what makes this a *precedence* assertion rather than "some card
+       * gained an image".
        */
       await page.goto("/groups");
-      await expect(groupCards(page).nth(0)).toContainText("Week of May 4");
       await expect(
-        groupCards(page).nth(0).getByTestId("group-thumbnail-placeholder"),
-      ).toBeVisible();
+        groupCards(page).nth(0).getByTestId("group-thumbnail").getByRole("img"),
+      ).toHaveAttribute("src", OWN_IMAGE);
+      const weeknight = groupCards(page).nth(1);
+      await expect(weeknight).toContainText("Weeknight Favourites");
+      await expect(weeknight.getByTestId("group-thumbnail")).toHaveAttribute(
+        "data-group-image",
+        "member",
+      );
       await expect(
-        groupCards(page).nth(1).getByTestId("group-thumbnail").getByRole("img"),
+        weeknight.getByTestId("group-thumbnail").getByRole("img"),
       ).toHaveAttribute("src", MEMBER_IMAGE);
 
-      // The homepage Groups section reads the same head page.
       await page.goto("/");
       await expect(
         groupCards(page).nth(1).getByTestId("group-thumbnail").getByRole("img"),
       ).toHaveAttribute("src", MEMBER_IMAGE);
-      await expect(
-        groupCards(page).nth(0).getByTestId("group-thumbnail-placeholder"),
-      ).toBeVisible();
 
       /*
        * And the featured group card, which is the surface with no group write
@@ -399,21 +445,113 @@ test.describe("Groups", () => {
       ).toHaveAttribute("src", MEMBER_IMAGE);
     });
 
-    test("the group page itself is unchanged — recipe cards, no group image", async ({
+    test("an uploaded group image outranks the member photo, and removing it hands the slot back", async ({
       page,
       resetData,
     }) => {
-      // 22h gives a group an image of its own and puts it here; until then this
-      // page is exactly what 22f shipped.
       await resetData("three-recipes-groups");
+      // Both rungs available at once: this group now has a member with a photo.
       await uploadImageToThirdRecipe(page);
 
-      await page.goto("/group/weeknight-favourites");
-      await expect(page.getByTestId("group-item")).toHaveCount(2);
-      await expect(page.getByTestId("group-thumbnail")).toHaveCount(0);
-      await expect(page.getByTestId("group-thumbnail-placeholder")).toHaveCount(
-        0,
+      await page.goto("/group/weeknight-favourites/edit");
+      await markdownEditorReady(page, "description");
+      await page
+        .getByLabel("Image", { exact: true })
+        .setInputFiles(alternateImageFile());
+      await submitGroupForm(page, "weeknight-favourites");
+
+      await expect(
+        page.getByTestId("group-image").getByRole("img"),
+      ).toHaveAttribute("src", WEEKNIGHT_OWN_IMAGE);
+
+      /* Every surface the group appears on, including the two featured ones. */
+      await page.goto("/groups");
+      const weeknightCard = () => groupCards(page).nth(1);
+      await expect(
+        weeknightCard().getByTestId("group-thumbnail"),
+      ).toHaveAttribute("data-group-image", "own");
+      await expect(
+        weeknightCard().getByTestId("group-thumbnail").getByRole("img"),
+      ).toHaveAttribute("src", WEEKNIGHT_OWN_IMAGE);
+
+      await page.goto("/");
+      await expect(
+        weeknightCard().getByTestId("group-thumbnail").getByRole("img"),
+      ).toHaveAttribute("src", WEEKNIGHT_OWN_IMAGE);
+      await expect(
+        page
+          .getByTestId("featured-group-card")
+          .getByTestId("group-thumbnail")
+          .getByRole("img"),
+      ).toHaveAttribute("src", WEEKNIGHT_OWN_IMAGE);
+
+      await page.goto("/featured-recipe/featured-weeknight");
+      await expect(
+        page.getByTestId("group-thumbnail").getByRole("img"),
+      ).toHaveAttribute("src", WEEKNIGHT_OWN_IMAGE);
+
+      /*
+       * And back down a rung. "Remove Image" clears the file and the record's
+       * `image`, so the walk runs again and finds the member photo that was
+       * there the whole time — the state the precedence claims, read backwards.
+       */
+      await page.goto("/group/weeknight-favourites/edit");
+      await markdownEditorReady(page, "description");
+      await page.getByLabel("Remove Image").check();
+      await submitGroupForm(page, "weeknight-favourites");
+
+      await expect(page.getByTestId("group-image")).toHaveCount(0);
+
+      await page.goto("/groups");
+      await expect(
+        weeknightCard().getByTestId("group-thumbnail"),
+      ).toHaveAttribute("data-group-image", "member");
+      await expect(
+        weeknightCard().getByTestId("group-thumbnail").getByRole("img"),
+      ).toHaveAttribute("src", MEMBER_IMAGE);
+    });
+
+    test("a search result card shows the group's own image, or the placeholder", async ({
+      page,
+      resetData,
+    }) => {
+      await resetData("three-recipes-groups");
+      /*
+       * `/groups` first, deliberately: a `/search` card is client-rendered and
+       * only rebuilds the URL of a variant the *server* has already written, so
+       * the server card has to have rendered once. That is the same assumption
+       * the recipe search cards make, at the same 400×600 (fact 4).
+       */
+      await page.goto("/groups");
+      await expect(
+        groupCards(page).nth(0).getByTestId("group-thumbnail").getByRole("img"),
+      ).toBeVisible();
+
+      await page.goto("/search");
+      await searchFor(page, "week of may");
+      const groupResults = page.getByTestId("group-results");
+      await expect(groupResults.getByRole("listitem")).toHaveCount(1, {
+        timeout: SEARCH_TIMEOUT,
+      });
+      await expect(groupResults.getByRole("img")).toHaveAttribute(
+        "src",
+        OWN_IMAGE,
       );
+
+      /*
+       * The group with no picture of its own gets the placeholder here rather
+       * than its member's photo: the member walk is a server-side read, and the
+       * corpus carries the group's own image and nothing else (D14). Deferred:
+       * a precomputed thumbnail on the corpus.
+       */
+      await searchFor(page, "weeknight");
+      const weeknightCard = groupResults.getByRole("listitem").first();
+      await expect(weeknightCard).toContainText("Weeknight Favourites", {
+        timeout: SEARCH_TIMEOUT,
+      });
+      await expect(
+        weeknightCard.getByTestId("group-thumbnail-placeholder"),
+      ).toBeVisible();
     });
   });
 

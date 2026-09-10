@@ -126,7 +126,14 @@ export default async function Homepage({
             <GroupList
               groups={groups}
               renderThumbnail={(group) => (
-                <GroupThumbnail slug={group.slug} name={group.name} />
+                /* The list entry carries the group's own image since 22h
+                   (D14), so a card that has one renders it with no group
+                   read. */
+                <GroupThumbnail
+                  slug={group.slug}
+                  name={group.name}
+                  image={group.image}
+                />
               )}
             />
             <div className="flex flex-row items-center justify-center my-2">

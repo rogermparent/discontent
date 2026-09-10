@@ -1,6 +1,9 @@
 "use client";
 
+import { PureStaticImage } from "@discontent/next-static-image/src/Pure";
+import { GroupThumbnailPlaceholder } from "../GroupThumbnail/Placeholder";
 import GroupList from "../List/Group";
+import { recipeCardImageClassName } from "../List/shared";
 import { useSearch } from "./SearchContext";
 
 /**
@@ -39,7 +42,42 @@ export function GroupResults() {
           // item count. They differ only for a plan that lists one recipe
           // twice, and this is the number the `group:` filter would return.
           itemCount: group.recipes.length,
+          image: group.image,
         }))}
+        /*
+         * A picture on a client-rendered card (22h). Two facts make it work,
+         * and both are worth stating because neither is local:
+         *
+         * The URL resolves because the *server* has already produced this
+         * variant — `PureStaticImage` only rebuilds a `/image/<src>/…-w<n>q75
+         * .webp` path (`next/image` maps a 400-wide image to its 640 and 828
+         * device sizes) that `GroupImage` wrote when a server-rendered card at
+         * `standardRecipeImageProps` rendered the same group. That is exactly
+         * the assumption the recipe search cards have always made
+         * (`SearchList`), at the same 400×600.
+         *
+         * And there is no member fallback here: picking a member's photo means
+         * walking `items[].recipe` through the cached item reads, which is
+         * server-only. The corpus carries the group's own image (D14) and
+         * nothing else, so a group without one shows the placeholder where a
+         * server-rendered card would borrow. Deferred: a precomputed
+         * `thumbnail` on the corpus.
+         */
+        renderThumbnail={(group) =>
+          group.image ? (
+            <PureStaticImage
+              uploadsDirectory="uploads/group"
+              slug={group.slug}
+              image={group.image}
+              alt={group.name}
+              width={400}
+              height={600}
+              className={recipeCardImageClassName}
+            />
+          ) : (
+            <GroupThumbnailPlaceholder />
+          )
+        }
         // The free text, never the raw query — the same rule the recipe cards
         // follow, so `group:x` cannot go on to <mark> the word "x".
         highlightQuery={parsedQuery.text}
