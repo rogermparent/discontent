@@ -172,9 +172,11 @@ same procedure.)_
   extension). New `editor/src/users/index.ts` (currently empty) owns the path.
 - **D11 Push stays manual.** The skill ends by telling the user to push from
   `/git`. `POST /api/git/push` deferred.
-- **D12 `.claude` is a bare gitignore entry** (root `.gitignore` last line).
-  22e changes it to `.claude/*` + `!.claude/skills/` + `!.claude/settings.json`,
-  and adds a minimal root `CLAUDE.md`.
+- **D12 `.claude` carve-out (22e).** The root `.gitignore` last stanza is
+  exactly `.claude/*` + `!.claude/skills/` + `!.claude/settings.json`
+  (was a bare `.claude`), so `settings.local.json` and `worktrees/` stay
+  ignored while `.claude/settings.json` and `.claude/skills/**` are tracked;
+  plus a minimal root `CLAUDE.md`.
 
 ## Traps (T-list; pass to every implementer)
 
@@ -252,7 +254,7 @@ Each branch is off the previous. Rebase children after a parent merges.
 | 22b | `agent/22b-groups` ← 22a                       | ✅ done | `groups` content type (meal plans + collections), editor CRUD, export pages, "Appears in" aggregate, `rebuildAllIndexes()`                   |
 | 22c | `agent/22c-curator-cli` ← 22b                  | ✅ done | `pnpm recipes <command>` CLI over a content directory, `--json` output, transport-agnostic `controller/curation/` layer                      |
 | 22d | `agent/22d-remote-write` ← 22c                 | ✅ done | Bearer-token JSON API in the editor that revalidates in-process; CLI HTTP backend + `--notify`; `genericActions` refactor (D9); tokens (D10) |
-| 22e | `agent/22e-curator-skill` ← 22d                | 🟡 next | Committed `.claude/skills/recipe-curator/SKILL.md`, `.claude/settings.json` allow-list, minimal root `CLAUDE.md` (D12)                       |
+| 22e | `agent/22e-curator-skill` ← 22d                | ✅ done | Committed `.claude/skills/recipe-curator/SKILL.md`, `.claude/settings.json` allow-list, minimal root `CLAUDE.md` (D12)                       |
 
 ## Phase detail
 
@@ -1514,40 +1516,328 @@ found"}` 404 becomes `not_found`, not `internal`. Proved in Playwright:
   server's corpus, which is the one the skill should search before importing.
   Validate the 22e section against the code first, as 22b–22d were.
 
-### PR 22e — Claude Code skill `agent/22e-curator-skill` 🟡 next (← 22d)
+### PR 22e — Claude Code skill `agent/22e-curator-skill` ✅ done (← 22d)
 
-- Root `.gitignore`: `.claude/*`, `!.claude/skills/`, `!.claude/settings.json`
-  (D12).
-- `.claude/skills/recipe-curator/SKILL.md` — frontmatter
-  `name: recipe-curator`, description "Find, import, cite and group recipes for
-  the recipe website (meal plans, collections) via pnpm recipes". Body: (1)
-  turn the ask into constraints (cuisine, diet, max total time, servings,
-  count, days/meals); (2)
-  `pnpm --filter recipe-editor recipes search "..." --json` first to reuse
-  existing recipes; (3) WebSearch for candidates, prefer JSON-LD sites; (4)
-  `import <url> --dry-run --json` each, reject null/no ingredients; (5) import
-  chosen with `--tags`, `source` carries the citation; (6)
-  `group create --kind meal-plan --name "Week of <date>" --item slug:"Mon · Dinner" ...`;
-  (7) report a table with `/recipe/<slug>` and `/group/<slug>` links.
-  Guardrails: never delete without an explicit ask; never push (point to
-  `/git`); never overwrite an existing slug; always keep `source.url`; ask
-  before importing more than ~8 pages; remote mode only when `RECIPE_API_URL`
-  is set. Worked example.
-- `.claude/settings.json` — `permissions.allow`: `Bash(pnpm recipes:*)`,
-  `Bash(pnpm --filter recipe-editor recipes:*)`,
-  `Bash(pnpm -C websites/recipe-website/editor recipes:*)`, `WebSearch`.
-- Root `CLAUDE.md` (minimal): repo shape, the skill, pointers to the three
-  durable docs, verification commands.
+**Goal.** A committed Claude Code skill that turns _"three vegetarian dinners
+under 45 minutes for this week"_ into imported, cited recipes plus a
+`meal-plan` group, and the repo plumbing that lets a fresh session find and
+run it: the `.gitignore` carve-out (D12), a shared `.claude/settings.json`
+allow-list, and a minimal root `CLAUDE.md`. No application code changes.
 
-Verify: `git status` shows skill + settings tracked; a fresh Claude Code
-session asked for "three vegetarian dinners under 45 minutes for this week"
-invokes the skill and ends with a group visible at `/groups`; record the
-transcript summary in the doc.
+#### Facts validated against the code and the live environment (2026-09-05)
 
-Decisions / close-out (fill in at review):
+1. **One invocation form, from the repo root:**
+   `pnpm --silent recipes <command> … --json`. The root `package.json`
+   passthrough is `"recipes": "pnpm --filter recipe-editor recipes"`; without
+   `--silent` pnpm's script banner precedes the JSON, with it stdout is exactly
+   one object. The 22d seed's allow-list (`Bash(pnpm recipes:*)`,
+   `Bash(pnpm --filter recipe-editor recipes:*)`,
+   `Bash(pnpm -C websites/recipe-website/editor recipes:*)`) prefix-matches
+   none of that — **allow-list `Bash(pnpm --silent recipes:*)` (the skill) and
+   `Bash(pnpm recipes:*)` (human, non-JSON runs) only** — plus
+   `Skill(recipe-curator)`, found at review: in `claude -p` the Skill tool is a
+   permission like any other (`permission_denials: [{tool_name: "Skill"}]`
+   with settings alone), and `Skill(recipe-curator)` in `permissions.allow`
+   lifts it (verified: "Launching skill: recipe-curator", no denials).
+2. **Permission rule syntax:** use the `:*` form Claude Code writes itself
+   (the main checkout's `.claude/settings.local.json` holds `Bash(grep:*)`,
+   `Bash(pnpm exec:*)`); `WebSearch` is a bare entry. `WebFetch` is not
+   needed: `import --dry-run` does the fetch.
+3. **Content-directory resolution** (`editor/cli/index.ts`
+   `resolveContentDirectory`): `--content-dir` > `CONTENT_DIRECTORY`, both
+   resolved against `INIT_CWD` (where the user typed the command, i.e. the
+   repo root), else `getContentDirectory()` → `<editor>/content`. In the main
+   checkout that is a **symlink to `/home/roger/Projects/recipe-content`, the
+   real content repo** — a bare `pnpm --silent recipes import …` writes and
+   commits there (identity preflight, 22c fact 8). **In a worktree the symlink
+   does not exist and the CLI silently creates an empty `editor/content`**
+   (verified: a nonexistent `CONTENT_DIRECTORY` yields
+   `{"total":0,"more":false,"recipes":[]}`, exit 0, and the directory
+   appears). The skill therefore runs `list --limit 1 --json` first and stops
+   to ask when `total` is 0 and the ask did not expect an empty site.
+4. **The real corpus is 437 recipes with two tags in total and no groups.**
+   `search "tag:vegetarian"` finds nothing there; reuse goes through free-text
+   `search "<words>"` (name / description / tags / ingredients, prefix match at
+   word start). Tags are something the skill _introduces_ with `--tags`, so
+   the skill names a small controlled vocabulary.
+5. **Query syntax the skill may use** (`common/components/SearchForm/queryLanguage.ts`):
+   `tag:x`, `ingredient:x`, `name:x`, `-tag:x`, `time:<=45` (also `<`, `>`,
+   `>=`; bare `time:30` = ≤30), `before:`/`after:` dates, `AND`/`OR`/`NOT`,
+   parentheses. `time:` evaluates `totalTime`, else `prepTime + cookTime`; a
+   recipe with **no** timing never matches a `time:` query, so "under 45
+   minutes" is checked on the row's `totalTime`, never assumed from absence.
+6. **JSON shapes** are the 22c table (`#### JSON contracts`). Correction to
+   the plan's reading of it: `list`/`search` rows are `MassagedRecipeEntry`
+   (`controller/curation/recipes.ts:63`) — `{date, slug, name, description,
+ingredients?: string[], image?, tags?, prepTime?, cookTime?, totalTime?}`.
+   Verified: a freshly imported recipe's `search` row carried all of them;
+   fixture rows show only the first four because the fixture data has no
+   more. So **`totalTime` and `tags` are checkable straight from `search`**;
+   `show <slug> --json` is for `instructions`/`source`. `import --dry-run` →
+   `{dryRun:true, url, slug, recipe, image?:{importUrl,filename}, video?}`
+   with `recipe.{ingredients, instructions, prepTime, cookTime, totalTime,
+recipeYield, source{url,name?,author?}}` (minutes, parsed from ISO
+   durations); `import` → `{slug, date, path, url, source?}`; `group create`
+   → `{slug, date, path, url, warnings?}`; errors → `{error:{code, message,
+…}}`, exit 2 for `slug_conflict`, else 1.
+7. **Candidate rejection** (re-verified today on a fixture copy): Budget Bytes
+   `vegetarian-chili` dry-runs to `totalTime` 40, 20 ingredients, 6
+   instructions, `source{url,name}`; BBC Good Food `easy-vegetable-lasagne`
+   to 95 min with `source.author` filled; Serious Eats →
+   `{"error":{"code":"import_failed","message":"No schema.org Recipe found at
+…"}}`. **A 404 gives the same `import_failed` message**, so the code does not
+   distinguish bot-blocked from a wrong URL — either way the candidate is
+   dropped. Reject also a dry run whose `recipe.ingredients` or
+   `recipe.instructions` is empty/absent, or whose `totalTime` exceeds the
+   limit (or is missing when the ask has one — say so in the report). YouTube
+   URLs import via the video path (`videoUrl` + `source`), acceptable only when
+   the ask allows videos.
+8. **Skill format** (Claude Code 2.1.259): `.claude/skills/recipe-curator/SKILL.md`
+   with frontmatter `name`, `description` (what auto-invocation matches on),
+   `allowed-tools` (pre-approves the listed tools inside the skill even when
+   settings differ); `$ARGUMENTS` carries the ask when invoked as
+   `/recipe-curator <ask>`; supporting files are referenced by relative path
+   (`examples.md` holds the worked transcripts so `SKILL.md` stays short).
+9. **`.claude/` in the main checkout holds `settings.local.json` and
+   `worktrees/`.** The carve-out `.claude/*` + `!.claude/skills/` +
+   `!.claude/settings.json` keeps both ignored (today every probe hits the
+   bare `.claude` line, `.gitignore:57`). The anchored `.claude/*` stops
+   ignoring nested `.claude` dirs elsewhere; none exist. Worktrees under
+   `.claude/worktrees/<name>/` are full checkouts, so the skill is visible in
+   a worktree session too — where fact 3's empty-content trap applies.
+10. **`CLAUDE.md`** is read from the repo root in any subdirectory session;
+    keep it under ~80 lines. `README.md`'s test section is stale (Cypress; the
+    suite is Playwright) — `CLAUDE.md` states the current commands; the README
+    rewrite is deferred, not silently done.
+11. **The e2e run is headless:** from the worktree root,
+    `CONTENT_DIRECTORY=<scratch copy of three-recipes-groups> claude -p "<ask>" --permission-mode acceptEdits --max-turns 40 --output-format stream-json --verbose`
+    with **no `--allowedTools`**, so the run exercises the committed
+    `.claude/settings.json` (the skill auto-invokes from its description;
+    `stream-json` keeps the tool calls for the summary). Nested inside a
+    Claude Code session this works as-is. The transcript summary is in the
+    close-out below.
+12. **Remote mode in the skill:** only when `RECIPE_API_URL` is set (then
+    `RECIPE_API_TOKEN` must be too, never on argv); with a local write and
+    `RECIPE_EDITOR_URL` set, `--notify` is implicit (22d). The skill never
+    passes `--remote`, `--editor-url`, or `--notify` itself.
+13. **Writes into a content directory with no `.git` succeed** (fixture copy:
+    `group create` exit 0; `import` exit 0, retry → `slug_conflict` exit 2;
+    `--item nope:…` → `unknown_recipe` exit 1). The identity preflight only
+    applies to a git repo, so the scratch e2e needs no `RECIPE_AUTHOR`. The
+    "A running editor is stale until Settings → Maintenance → Reload" stderr
+    hint also prints after `--dry-run`, which writes nothing — cosmetic,
+    deferred.
+14. **WebSearch cannot surface BBC Good Food** (found at review): a query
+    whose results include `bbcgoodfood.com` fails with `API Error: 400 The
+following domains are not accessible to our user agent` because the site
+    blocks Anthropic's crawler. The importer's plain `fetch` of a BBC URL is
+    unaffected (fact 7), so the skill says to rephrase or name another site,
+    and that a known URL is still fair game. Budget Bytes is searchable.
 
-- [ ] `.gitignore` carve-out + skill + settings + `CLAUDE.md` tracked.
-- [ ] End-to-end transcript summary recorded here.
+#### Design (decided)
+
+- **Root `.gitignore`** — replace the bare `.claude` line (last stanza) with:
+
+  ```
+  .claude/*
+  !.claude/skills/
+  !.claude/settings.json
+  ```
+
+- **`.claude/settings.json`:**
+
+  ```json
+  {
+    "permissions": {
+      "allow": [
+        "Bash(pnpm --silent recipes:*)",
+        "Bash(pnpm recipes:*)",
+        "WebSearch",
+        "Skill(recipe-curator)"
+      ]
+    }
+  }
+  ```
+
+- **`.claude/skills/recipe-curator/SKILL.md`** (+ `examples.md`). Frontmatter:
+  `name: recipe-curator`;
+  `description: Find, import, cite and group recipes for the recipe website — meal plans and collections — via pnpm recipes. Use for asks like "plan dinners for the week", "import this recipe", "make a collection of …".`;
+  `allowed-tools: Bash(pnpm --silent recipes:*), WebSearch`. Body under ~150
+  lines; every command line copied from `pnpm recipes --help`:
+  1. **Where writes go.** `pnpm --silent recipes` from the repo root writes
+     the editor's `content` directory (in the main checkout: the real content
+     repo, committed) unless `CONTENT_DIRECTORY` or `--content-dir` points
+     elsewhere; with `RECIPE_API_URL` set every command goes to that editor
+     instead. Run `list --limit 1 --json` first, then `show <that slug>
+--json`: its absolute `path` is the resolved content directory (found at
+     review: the first headless run spent nine turns reading CLI source to
+     learn this because `env` was not an allowed command). State the mode and
+     the corpus size in the report's first line; if `total` is 0 and the ask
+     did not expect an empty site, stop and ask (fact 3). That is the only
+     stop: a `path` outside the editor's own `content` directory means
+     `CONTENT_DIRECTORY`/`--content-dir` was set on purpose and **is** the
+     target (the second headless run vetted three recipes and then refused
+     to write to the "throwaway fixture"). The skill also tells the model to
+     read the JSON itself rather than pipe it through `node -e`/`jq`, and not
+     to run `env`/`printenv` — only the CLI command is pre-approved.
+  2. **Turn the ask into constraints:** cuisine, diet, max total minutes,
+     servings, count, days/meals, exclusions; ask once if count or diet is
+     missing.
+  3. **Reuse first:** `search "<key words>" --json` (free text; the corpus is
+     mostly untagged), filter rows on `totalTime`/`ingredients`, `show <slug>
+--json` only when instructions matter; prefer an existing recipe over a new
+     import.
+  4. **Find candidates** with WebSearch; prefer sites known to expose JSON-LD
+     (BBC Good Food, Budget Bytes) and skip known bot-blocked ones (Serious
+     Eats, NYT Cooking); one search per constraint set, ≤ 8 candidate pages
+     without asking.
+  5. **Dry-run each:** `import <url> --dry-run --json`; reject per fact 7;
+     dedupe against step 3 by slug.
+  6. **Import the keepers:** `import <url> --tags <vocab…> --json`; never
+     `--overwrite`; on `slug_conflict` (exit 2) use the existing slug;
+     `source.url` comes from the importer — never strip it. Tag vocabulary:
+     diet (`vegetarian`, `vegan`, `gluten-free`), meal (`breakfast`, `lunch`,
+     `dinner`, `dessert`, `snack`), speed (`quick` = ≤ 30 min), cuisine as one
+     lowercase word.
+  7. **Group:** `group create --name "Week of <YYYY-MM-DD>" --kind meal-plan
+--item "<slug>:Mon · Dinner" … --json` (`collection` for non-dated asks);
+     on `unknown_recipe` fix the slug, never `--force`.
+  8. **Report:** a `Day | Recipe | Time | Source` table with `/recipe/<slug>`
+     links and the `/group/<slug>` link; end with "push from `/git` when
+     ready". The skill never pushes, never deletes, never runs `reindex`,
+     never passes `--author`, `--remote`, `--editor-url`, `--notify`,
+     `--overwrite` or `--force`.
+
+  `examples.md`: one worked transcript of the vegetarian-dinners ask
+  (commands and abbreviated JSON from fact 7's dry runs) plus a collection
+  example.
+
+- **Root `CLAUDE.md`** (≤ 80 lines): repo shape (`packages/*`, `websites/*`,
+  editor vs export); the skill and its one command form; the three durable
+  docs (`websites/recipe-website/docs/agent-curation.md`,
+  `websites/recipe-website/docs/ui-overhaul.md`,
+  `packages/cms/docs/incremental-regeneration.md`); verification commands
+  (`pnpm --filter recipe-editor typecheck`,
+  `pnpm --filter recipe-website exec tsc --noEmit`, `pnpm exec vitest run`,
+  `pnpm --filter recipe-editor e2e-dev -- <spec>`); the worktree / T13 / T14
+  notes in two lines; "content lives in a separate repo; never commit under
+  `editor/content`".
+
+#### Verification
+
+- **Tracking:** `git ls-files .claude` lists `settings.json` and
+  `skills/recipe-curator/{SKILL.md,examples.md}`;
+  `git check-ignore -v .claude/settings.local.json .claude/worktrees/x` still
+  hit; `git status` clean of `.claude/worktrees`.
+- **Gates unchanged** (no code): both typechecks, `pnpm exec vitest run`
+  (24 files / 395 tests — the 22d close-out recorded 394 before its own
+  review commit added the `cliJson` unreachable-remote case), `pnpm exec
+prettier --check` on the new
+  markdown/JSON (lint-staged runs it on commit).
+- **Command-line audit:** every `pnpm --silent recipes` line in `SKILL.md` /
+  `examples.md` is grepped and checked against `pnpm recipes --help` (flags
+  exist; `--item` shorthand is `slug:label`, split at the first colon).
+- **End-to-end (headless, scratch content):** copy
+  `editor/playwright/fixtures/test-content/three-recipes-groups` to a scratch
+  directory; run the fact-11 command with the ask "three vegetarian dinners
+  under 45 minutes for this week"; assert the transcript invoked the skill,
+  dry-ran ≤ 8 pages, and `group list --json` against the scratch copy shows a
+  `meal-plan` with 3 items whose recipes have `source.url` and
+  `totalTime ≤ 45`; then `CONTENT_DIRECTORY=… pnpm --filter recipe-editor dev`
+  and check `/groups` renders it. Record the transcript summary here.
+- **Decided with the user (2026-09-05):** the e2e run writes only to the
+  scratch fixture copy; Fable runs it headless and records the summary before
+  opening the PR. An interactive run against the real content repo is
+  optional and outside this phase's gates.
+
+Decisions / close-out (review, 2026-09-05):
+
+- [x] `.gitignore` carve-out + skill + settings + `CLAUDE.md` tracked:
+      `git ls-files .claude CLAUDE.md` → `.claude/settings.json`,
+      `.claude/skills/recipe-curator/SKILL.md`,
+      `.claude/skills/recipe-curator/examples.md`, `CLAUDE.md`;
+      `git check-ignore -v .claude/settings.local.json .claude/worktrees/x` →
+      both `.gitignore:57:.claude/*`; `git status` clean.
+- [x] End-to-end transcript summary recorded below.
+- **Decisions made at review:**
+  - `Skill(recipe-curator)` added to `.claude/settings.json` (fact 1): without
+    it a headless run cannot invoke the skill at all and falls back to reading
+    `SKILL.md` by hand.
+  - Skill step 1 gained `show <slug> --json` → `path` as the "where am I
+    writing" check (Design step 1); `examples.md` shows the scratch path.
+  - Free-text search words are ANDed and match at a word start
+    (`search "lentil chili beans"` → 0 rows; `"lentil"` and `"beans"` → 1
+    each), so the skill searches one or two words at a time. Found by the
+    implementer building `examples.md`.
+  - The third under-45 candidate in `examples.md` is BBC Good Food's
+    `spinach-sweet-potato-lentil-dhal` at exactly 45 min, used as the "at the
+    limit, say so" case.
+- **Divergences from the section:** none beyond the three items above and the
+  test count (395, not 394).
+- **Gates (worktree, 2026-09-05):** `pnpm --filter recipe-editor typecheck`
+  clean; `pnpm --filter recipe-website exec tsc --noEmit` clean;
+  `pnpm exec vitest run` → **Test Files 24 passed (24), Tests 395 passed
+  (395)**; `pnpm exec prettier --check` on `settings.json`, `SKILL.md`,
+  `examples.md`, `CLAUDE.md` and this doc → all formatted (lint-staged
+  re-checks on commit). Command-line audit: every `pnpm --silent recipes`
+  line in `SKILL.md`/`examples.md` uses only `list`, `search`, `show`,
+  `import`, `group create`, `group show` with `--json --limit --dry-run
+--tags --name --kind --description --item`, all in `--help`.
+- **End-to-end transcript (headless, scratch copy of `three-recipes-groups`,
+  settings-only permissions):**
+
+  Ask: `three vegetarian dinners under 45 minutes for this week`, run from
+  the worktree root with `CONTENT_DIRECTORY` = a fresh copy of
+  `three-recipes-groups`, `--permission-mode acceptEdits --max-turns 40`, no
+  `--allowedTools`. Three runs were needed; the first two changed the skill.
+  1. **Run 1 (settings without a Skill rule):** the model called
+     `Skill recipe-curator` and was denied (`permission_denials:
+[{tool_name: "Skill"}]`), read `SKILL.md` by hand instead, then spent nine
+     turns reading `cli/index.ts` and `.env` files to find the content
+     directory because `env`/`printenv` were not approved. Stopped at turn
+     ~15 → `Skill(recipe-curator)` added to settings; step 1 gained
+     `show <slug> --json` → `path`.
+  2. **Run 2 (28 turns, $1.20, no denials on CLI calls):** skill launched;
+     `list`/`show` gave the scratch `path`; WebSearch `vegetarian dinner
+recipe 30 minutes` failed with the BBC Good Food crawler error (fact 14)
+     and `quick vegetarian weeknight dinner recipe` succeeded; five Budget
+     Bytes dry runs (marry-me white bean skillet 25 min, quick curried
+     chick peas 30, one-pot veggie pasta 30, black bean quesadillas 15,
+     minestrone 45) all importable. Then it **stopped before writing**:
+     "this session's content directory is a throwaway fixture, not the
+     recipe content repo … tell me where writes should go". Several
+     `node -e` / `printenv` pipelines were denied along the way. → step 1
+     now says an explicit `CONTENT_DIRECTORY` is the target, and to read
+     the JSON directly.
+  3. **Run 3 (final, 19 turns, $0.73, `permission_denials: []`):** - `Skill recipe-curator` → "Launching skill". - `list --limit 1 --json` → `total: 3`; `show third-recipe --json` →
+     `path` under `…/tmp/e2e-content`; `list --limit 3 --json` → the three
+     placeholders, nothing to reuse. - WebSearch ×2: `budgetbytes vegetarian dinner 30 minutes`,
+     `budgetbytes vegetarian pasta chickpea curry quick weeknight` → six
+     candidate URLs. - `import <url> --dry-run --json` ×6 (in parallel): coconut-curry
+     chickpeas 35 min ✔; white beans with mushrooms and marinara 30 ✔;
+     creamy white bean and spinach quesadillas 20 ✔; Thai curry vegetable
+     soup — under the limit but **rejected for fish sauce in the
+     ingredients**; vegan creamy mushroom ramen 15 — importable, held as
+     a fallback; spicy sriracha noodles → `import_failed` (no JSON-LD). - `import … --tags vegetarian,vegan,dinner,indian` /
+     `vegetarian,dinner,quick,italian` / `vegetarian,dinner,quick,mexican`
+     → slugs `chickpea-curry`, `white-beans-with-mushrooms-and-marinara`,
+     `creamy-white-bean-and-spinach-quesadillas`, each with `source.url`. - `group create --name "Week of 2026-09-07" --kind meal-plan --item
+"chickpea-curry:Mon · Dinner" --item "…:Wed · Dinner" --item "…:Fri ·
+Dinner" --json` → `/group/week-of-2026-09-07`. - Report: opened with the mode line ("local content directory at
+     …/e2e-content, a scratch copy set via the environment, not the main
+     content repo; three placeholder fixtures before this run"), the
+     `Day | Recipe | Time | Source` table, the group link, the three
+     rejections with reasons, "Push from `/git` when ready". - **Assertions:** `list --json` → `total: 6`; `group list --json` shows
+     `week-of-2026-09-07` (`meal-plan`, `itemCount: 3`); `group show` items
+     resolve with no `missing`; `show` on each keeper → `totalTime` 35 /
+     30 / 20, `source.url` set, 9–10 ingredients, 5–6 instructions.
+     `pnpm exec next dev -p 3177` in `editor/` with the scratch
+     `CONTENT_DIRECTORY`: `GET /groups 200` lists "Week of 2026-09-07";
+     `GET /group/week-of-2026-09-07 200` renders `Mon · Dinner`,
+     `Wed · Dinner`, `Fri · Dinner` with all three recipe names. Nothing
+     was written outside the scratch copy (`editor/content` still absent
+     in the worktree).
+
 - **Next PR: none — the roadmap closes here.** Remaining work is in Deferred.
 
 ## Deferred
@@ -1573,6 +1863,18 @@ Decisions / close-out (fill in at review):
   homepage reads nothing of groups, which is also why `paginationOnly` drops
   `revalidatePath("/")` safely).
 - **Group cards borrowing a first recipe's thumbnail** — needs F32.
+- **README test section rewrite** (22e): it still describes Cypress; the
+  suite is Playwright. `CLAUDE.md` states the current commands.
+- **Tag-vocabulary migration** (22e): the 437 existing recipes carry two tags
+  in total; the skill's vocabulary (`vegetarian`, `dinner`, `quick`, …) only
+  reaches recipes it imports. A one-off tagging pass would make `tag:` search
+  useful for reuse.
+- **`search` ranking and OR-by-default free text** (22e): free-text words are
+  ANDed with no relevance order, so multi-word asks need several one-word
+  searches.
+- **Stale-editor hint after `--dry-run`** (22e fact 13): the CLI prints the
+  "A running editor is stale until …" stderr hint after a dry run that wrote
+  nothing.
 
 ## Key files to read first (implementers)
 

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm --silent recipes:*)",
+      "Bash(pnpm recipes:*)",
+      "WebSearch",
+      "Skill(recipe-curator)"
+    ]
+  }
+}
