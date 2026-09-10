@@ -2994,8 +2994,12 @@ build`): clean; `out/groups.html` one `group-thumbnail` with
   too (503 tests, one worker) but abandoned at 34 as a gate: it would have
   taken over three hours, and its only failures were 10 s API-route and 60 s
   page timeouts while typecheck and vitest were loading the same machine;
-  CI's four shards on the same commit are the record. (Local re-run of those
-  specs on a quiet machine: _pending_.) The order that bit: deleting a
+  CI's four shards on the same commit are the record. Local re-run of those four
+  specs on a quiet machine: **90 of 92**, the two left being the first hit
+  of a route in `next dev` on this machine — `/signin` for the axe sign-in
+  case (5 s expect) and `POST /api/import` for the first api-write case
+  (10 s request) — both green in CI on the same commit, both passing here
+  once the route is warm. The order that bit: deleting a
   merged parent's branch **before** retargeting its child closes the child —
   #124 had to be recovered by recreating `agent/22a-provenance` at its old
   tip, reopening, `gh pr edit --base`, and deleting again (T20).
