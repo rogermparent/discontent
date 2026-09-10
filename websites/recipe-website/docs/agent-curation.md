@@ -139,14 +139,23 @@ same procedure.)_
   `editor/controller/curation/`.** The editor owns the registry
   (`editor/controller/contentTypes.ts`) and already runs engine code under
   `tsx`; `.npmrc` `shamefully-hoist=true` makes common's deps resolve under
-  plain Node. Rule for `controller/curation/*`: import only
+  plain Node. **Import allow-list for `controller/curation/*`** (enforced by
+  `test/curation.test.ts`'s import-boundary case): `node:*`, `path`,
+  `fs-extra`, `zod`, `simple-git`, `@sindresorhus/slugify`,
   `@discontent/cms/content/*`, `@discontent/cms/aggregates/*`,
-  `recipe-website-common/controller/{types,*ContentConfig,createSlug,normalizeTags,data/read,data/readGroups}`,
-  `recipe-website-common/util/*`. **Never** `data/readRecipeItem` or the cached
-  group reads `data/readGroupPages` / `data/readGroupsByRecipe`
+  `@discontent/cms/git/commit`,
+  `recipe-website-common/controller/{types,recipeContentConfig,groupContentConfig,createSlug,createGroupSlug,normalizeTags,aggregateConfigs,tagSlug,data/read,data/readGroups}`
+  (`data/read` **type-only** — its `getAllTags`/`getSearchCorpus` are
+  Next-only), `recipe-website-common/components/SearchForm/queryLanguage`
+  (pure; only imports `tagSlug`), `recipe-website-common/util/*`, `./*`,
+  `../contentTypes`. **Never** `next/*`, `@/*`, `controller/actions/*`, the
+  cached reads
+  `data/read{RecipeItem,RecipeTags,RecipeTagIndex,GroupPages,GroupsByRecipe,RecipePages,FeaturedRecipePages}`
   (`unstable_cache` throws outside Next, see
-  `packages/cms/content/next/cachedItemRead.ts:47`), never `@/auth`, `next/*`,
-  or `controller/actions/*`.
+  `packages/cms/content/next/cachedItemRead.ts:47`),
+  `@discontent/cms/*/next/*`, or the symbols `getAllTags`/`getSearchCorpus`.
+  Every curation function takes `ctx: {contentDirectory, author?}` first
+  (T16).
 - **D9 `genericActions` refactor (22d):** split `handleContentSuccess` in
   `packages/cms/content/genericActions.ts` into an exported
   `revalidateContentWrite(config, contentType, result, slug, currentSlug?)`
@@ -218,6 +227,15 @@ the recipe route was missing"`) asserts the registry-derived tags exactly, so
   `aggregate:groups:by-recipe`, `item:groups` — verify the emitted order and
   paste it. _(Found planning 22b.)_
 
+- **T16** `packages/cms/fs/getContentDirectory.ts` evaluates a module-scope
+  `contentDirectory` const at import time and uses `CONTENT_DIRECTORY`
+  verbatim; setting the env late does nothing. Scripts and the CLI must thread
+  `contentDirectory` explicitly through every engine call (every engine
+  function accepts it). LMDB envs are cached per process
+  (`packages/cms/lmdb/environmentCache.ts`); call `closeCachedEnvironments()`
+  before a process exits or before spawning a child that opens the same
+  content directory. _(Found planning 22c.)_
+
 ## Stacked-PR roadmap
 
 Each branch is off the previous. Rebase children after a parent merges.
@@ -226,8 +244,8 @@ Each branch is off the previous. Rebase children after a parent merges.
 | --- | ---------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | 22a | `agent/22a-provenance` ← `content-engine-test` | ✅ done | This doc; `Recipe.source` provenance; imports fill it; both apps render a citation; the form edits it; drop the "Imported from" line (D7)    |
 | 22b | `agent/22b-groups` ← 22a                       | ✅ done | `groups` content type (meal plans + collections), editor CRUD, export pages, "Appears in" aggregate, `rebuildAllIndexes()`                   |
-| 22c | `agent/22c-curator-cli` ← 22b                  | 🟡 next | `pnpm recipes <command>` CLI over a content directory, `--json` output, transport-agnostic `controller/curation/` layer                      |
-| 22d | `agent/22d-remote-write` ← 22c                 | ⏸️      | Bearer-token JSON API in the editor that revalidates in-process; CLI HTTP backend + `--notify`; `genericActions` refactor (D9); tokens (D10) |
+| 22c | `agent/22c-curator-cli` ← 22b                  | ✅ done | `pnpm recipes <command>` CLI over a content directory, `--json` output, transport-agnostic `controller/curation/` layer                      |
+| 22d | `agent/22d-remote-write` ← 22c                 | 🟡 next | Bearer-token JSON API in the editor that revalidates in-process; CLI HTTP backend + `--notify`; `genericActions` refactor (D9); tokens (D10) |
 | 22e | `agent/22e-curator-skill` ← 22d                | ⏸️      | Committed `.claude/skills/recipe-curator/SKILL.md`, `.claude/settings.json` allow-list, minimal root `CLAUDE.md` (D12)                       |
 
 ## Phase detail
@@ -671,76 +689,428 @@ commit)_:
   `createContent`/`updateContent` with `groupContentConfig`; the group input
   schema is already sketched there (`GroupInputSchema`).
 
-### PR 22c — Curator CLI `agent/22c-curator-cli` 🟡 next (← 22b)
+### PR 22c — Curator CLI `agent/22c-curator-cli` ✅ done (← 22b)
 
-Goal: `pnpm recipes <command>` drives the engine against a content directory,
-`--json` output, logic in an importable layer.
+Goal: `pnpm recipes <command>` drives the engine against a content directory
+**without Next**, `--json` output, logic in an importable, transport-agnostic
+layer `editor/controller/curation/` that 22d reuses behind bearer-token API
+routes. The seam for 22d is a `CuratorBackend` interface with a local
+implementation; 22d adds an HTTP one and `--notify`.
 
-`editor/controller/curation/`: `schema.ts` (zod `RecipeInputSchema`: name,
-slug?, date? ISO|epoch, description?, tags? normalized, prep/cook/totalTime?,
-recipeYield?, ingredients? as `string | Ingredient` (strings via
-`createIngredient` from `common/util/parseIngredients.ts`), instructions? as
-`string | Instruction | InstructionGroup`, timelines?, source?,
-imageImportUrl?, videoUrl?, videoImportUrl?; `GroupInputSchema`: name, slug?,
-kind default `collection`, description?, date?, items as `string | GroupItem`),
-`recipes.ts` (`createRecipe` → `createContent` with
-`uploads.image.fileImportUrl`, filename from URL pathname as `buildRecipeData`
-does; `updateRecipe` merge + `updateContent` with `currentIndexKey`;
-`deleteRecipe`; `getRecipe`; `listRecipes`), `search.ts` (`parseQuery` +
-`matchesFilter` from `common/components/SearchForm/queryLanguage.ts` over index
-entries; free text via `fold()` substring), `importRecipe.ts` (`importFromUrl`
-wrapping `importRecipeData`; `importAndCreate` with tags/slug/dryRun/overwrite),
-`groups.ts` (create/update/setItems/addItem/removeItem/delete/get/list;
-`addItem` warns on unknown recipe unless `--force`), `reindex.ts`.
+_This section was validated against the code by three exploration passes plus
+a design pass before implementation; the numbered "Validated facts" below
+correct the earlier sketch and are binding._
 
-`editor/cli/`: `index.ts` (`node:util` `parseArgs` as `create-user.ts` does;
-globals `--json`, `--content-dir`, `--author`; exit 0/1/2 for
-ok/error/slug-conflict; `--json` prints one object), `backend/types.ts`
-(`CuratorBackend` interface, one method per command), `backend/local.ts`
-(passes `contentDirectory` explicitly),
-`commands/{import,create,update,show,list,search,delete,group,reindex}.ts`.
-`editor/package.json`: `"recipes": "tsx ./cli/index.ts"`.
+#### Validated facts (corrections to the earlier sketch)
 
-Command surface:
+1. **`pnpm recipes` does not work from the repo root** (the script lives in the
+   editor package). Add a root passthrough
+   `"recipes": "pnpm --filter recipe-editor recipes"` alongside the editor's
+   `"recipes": "tsx ./cli/index.ts"`. A relative `--content-dir` resolves
+   against `process.env.INIT_CWD ?? process.cwd()` (pnpm runs scripts with
+   cwd = package dir).
+2. **`create-user.ts`'s `parseArgs` call cannot be copied**: it disallows
+   positionals and is strict. Use a two-stage strict `node:util` `parseArgs`
+   (globals → command dispatch → per-command options). No new dependencies.
+3. **There is no server-side search database.** `SEARCH_DB_NAME` is a browser
+   IndexedDB name for FlexSearch. CLI search = `parseQuery` + `matchesFilter` +
+   a **mandatory free-text pass** over the full index (`parseQuery` leaves
+   positive bare words in `text`, not in the filter — without the second pass
+   `search "chocolate"` returns everything). Export the private `fieldMatches`
+   from `common/components/SearchForm/queryLanguage.ts` (one-word change) for
+   parity with the browser's prefix-at-word-start matching.
+4. **`getAllTags()` in `data/read.ts` is Next-only** (throws
+   `incrementalCache missing`); `getRecipeBySlug`/`getRecipes` there are
+   Node-safe. Tags come from
+   `readAggregate({config: recipeContentConfig, aggregateConfig: recipeTags})`.
+   D8 (amended) allows `common/components/SearchForm/queryLanguage` (pure; only
+   imports `tagSlug`) and
+   `common/controller/{aggregateConfigs,tagSlug,createGroupSlug}`; forbids the
+   symbols `getAllTags`/`getSearchCorpus`; enforced by the import-boundary
+   test below.
+5. **`updateContent` has no slug-conflict guard** — a rename onto an occupied
+   directory fails with raw `ENOTEMPTY`. The curation layer checks
+   `getContentItemDirectory` existence and throws the engine's
+   `SlugConflictError` itself.
+6. **`deleteContent` requires `indexKey`** → delete reads the record first for
+   `[date, slug]`.
+7. **`createContent({action: "overwrite"})` leaks the old slug's uploads dir.**
+   `--overwrite` = delete-then-create, as the editor's
+   `deleteConflictingContent` (`actions/index.ts:290`) does.
+8. **Committer identity preflight.** `author` on the write functions sets only
+   `--author`; a content repo with no `user.email` fails inside `git commit`
+   _after_ the data file and index are written. Before any write: if
+   `<contentDir>/.git` exists and neither `git config user.email` nor
+   `GIT_COMMITTER_EMAIL` resolves, fail with `no_git_identity` before touching
+   disk. Author chain `--author "Name <email>"` > `RECIPE_AUTHOR` > `undefined`
+   (repo identity; `commitContentChanges` already falls through to bare
+   `git.commit`).
+9. **`importRecipeData` returns `imageImportUrl`/`videoImportUrl`** and no
+   `tags`/`date`/`slug`. Strip the import URLs before writing (`Recipe` has an
+   index signature, so they'd persist into `recipe.json`); `imageImportUrl` →
+   `uploads.image.fileImportUrl` + `data.image = basename(pathname)`;
+   `videoImportUrl` → `data.video` as a URL string (the editor never downloads
+   video).
+10. **Fixture path**: `importable-uploads` lives at
+    `editor/playwright/fixtures/test-content/importable-uploads/uploads/*.html`.
+    Unit tests synthesize JSON-LD inline like `test/importRecipeSource.test.ts`
+    does (`vi.stubGlobal("fetch", …)` returning `{text}`), no fixture read.
+11. **Vitest has no `testTimeout` override** (5 s default); the spawned-CLI test
+    passes `30_000` per case and runs with `cwd` =
+    `websites/recipe-website/editor`. `execa ^9.6.1` is already a root
+    dependency.
+12. `--json` stdout is always exactly one object; every diagnostic (usage,
+    warnings, the stale-editor hint) goes to stderr. Exit codes 0 ok / 1 error
+    / **2 slug conflict**.
+13. `rebuildIndex` takes a config, not a name, returns void and does not
+    commit; `reindex [type]` maps the name through `recipeContentTypes` and,
+    with no arg, passes `cascadeDependents: false` per type (as
+    `rebuildAllIndexes` does).
+14. **T16**: `packages/cms/fs/getContentDirectory.ts` evaluates a module-scope
+    `contentDirectory` const at import and uses `CONTENT_DIRECTORY` verbatim;
+    never rely on setting the env late — thread `contentDirectory` explicitly
+    through every call (every engine function accepts it). LMDB envs are
+    cached per process; the CLI calls `closeCachedEnvironments()` before exit.
+
+#### `editor/controller/curation/` (decided design)
+
+Every function takes `ctx: CurationContext = {contentDirectory, author?}`
+first; no `getContentDirectory()`, no `@/` imports.
+
+- **`context.ts`**: `Author {name,email}`, `CurationContext`,
+  `recipePath(ctx,slug)`, `groupPath(ctx,slug)`, `RECIPE_URL_BASE="/recipe"`,
+  `GROUP_URL_BASE="/group"`.
+- **`errors.ts`**: re-export `SlugConflictError` from
+  `@discontent/cms/content/createContent`; `CurationError(code, message,
+details?)` with codes
+  `not_found | slug_conflict | validation | unknown_recipe | import_failed | no_git_identity | usage | internal`;
+  subclasses `NotFoundError`, `ValidationError` (details.issues =
+  `z.flattenError`), `UnknownRecipeError` (details.recipes), `ImportError`,
+  `NoGitIdentityError`; `toErrorObject(err) →
+{error:{code,message,slug?,issues?,recipes?}}` (maps `SlugConflictError`,
+  `ZodError`, ENOENT); `exitCodeFor(err) → 1|2`.
+- **`schema.ts`** (zod 4): `EpochSchema` (int epoch | ISO string via
+  `Date.parse`, retry with `Z` as `forms/schema/dateEpoch.ts` does),
+  `RecipeInputSchema` (`name` min 1, `slug?`, `date?`, `description?`, `tags?`,
+  times?, `recipeYield?`, `ingredients?: (string|Ingredient)[]`,
+  `instructions?: (string|Instruction|InstructionGroup)[]`, `timelines?`
+  passthrough, `source?`, `imageImportUrl?`, `videoUrl?`, `videoImportUrl?`;
+  `.strict()`), `RecipePatchSchema` = partial with `.nullable()` on optional
+  fields (`null` clears), `GroupInputSchema` (`name`, `slug?`, `kind` default
+  `collection`, `description?`, `date?`, `items: (string|GroupItem)[]` default
+  `[]`). Coercions exported for tests: `toIngredients` (strings →
+  `createIngredient`, drop undefined), `toInstructions` (string → `{text}`),
+  `toGroupItems` (`"slug:label"` split at first `:`), `parseInput(schema,
+raw)` → `ValidationError`.
+- **`recipes.ts`**: `RecipeRow` (= `MassagedRecipeEntry`, **type-only** import
+  from `data/read`), `toRecipeRow`, `readAllRecipeRows(ctx)`
+  (`readContentIndex`, reverse, no limit), `getRecipe(ctx,slug) →
+{slug,path,url,recipe}` (`readContentFileOrNull` → `NotFoundError`),
+  `listRecipes(ctx,{limit=20,offset,tag?})` (with `tag`: full rows filtered by
+  `matchesFilter(row, parseQuery("tag:"+quoteQueryValue(tag)).filter)` — same
+  semantics as typing `tag:t`; else paged `readContentIndex`),
+  `createRecipe(ctx, raw, {overwrite?})`, `updateRecipe(ctx, currentSlug,
+rawPatch)`, `deleteRecipe(ctx, slug)`. Internal `buildRecipeWrite(input,
+{date, current?}) → {data, uploads}` mirrors `buildRecipeData`
+  (`actions/index.ts:56`): `image = imageImportUrl ? path.parse(new
+URL(u).pathname).base : current?.image`; `video = videoUrl ?? videoImportUrl
+?? current?.video`; `uploads = {image:{fileImportUrl, existingFile:
+current?.image}}` only; `tags = normalizeTags`, empty → undefined; strip
+  `slug`/import URLs from `data`. Create: slug = `slugify(input.slug ||
+createDefaultSlug({name}))`, empty → `ValidationError`; overwrite →
+  `deleteRecipe` first when the dir exists; `createContent({...,
+commitMessage: "Create recipe: <slug>"})`. Update: shallow merge over
+  current, `null` clears, `image`/`video` carried forward, rename guarded
+  (`SlugConflictError`), `currentIndexKey: [current.date, currentSlug]`.
+  Delete: `deleteContent({indexKey: [date, slug]})`.
+- **`search.ts`**: `matchesFreeText(row, text)` — fold, split on whitespace,
+  every word must `fieldMatches` name | description | a tag | an ingredient;
+  `searchRecipes(ctx, raw, {limit=20, offset}) →
+{query:{raw,text,hasAdvancedSyntax}, total, recipes}` = `parseQuery` →
+  filter rows by `matchesFilter && matchesFreeText`, newest first, then
+  offset/limit. `listTags(ctx)` via `readAggregate(recipeTags) ?? []` (helper;
+  not a v1 command).
+- **`importRecipe.ts`**: `importFromUrl(url)` wraps `importRecipeData`,
+  `undefined` → `ImportError("No schema.org Recipe found at <url>")`;
+  `importedToInput(imported, {tags, slug, name})` (video-host URLs have no
+  name → `ValidationError` with a `--name` hint); `importAndCreate(ctx, url,
+{tags, slug, name, dryRun, overwrite})` → dry run returns `{dryRun:true, url,
+slug, recipe, image?:{importUrl, filename}, video?}` without writing, else
+  `createRecipe` result plus `source`.
+- **`groups.ts`**: `getGroup(ctx,slug) → {slug,path,url,group,items:
+ResolvedGroupItem[]}` (each item resolved via
+  `readContentFileOrNull(recipeContentConfig)` → `{...item, name}` or
+  `{...item, missing: true}`), `listGroups(ctx,{limit,offset})`
+  (`readContentIndex` on `groupContentConfig` mapped to
+  `{slug,date,name,kind,itemCount}`), `createGroup(ctx, raw, {force?})` (slug
+  = `slugify(input.slug || createDefaultGroupSlug({name,date}))`), `setItems`,
+  `addItem` (appends; duplicates allowed — meal plans repeat recipes),
+  `removeItem` (removes every item with that slug; none → `NotFoundError`),
+  `deleteGroup`. Unknown recipes → `UnknownRecipeError` unless `force`, then
+  `warnings: ["Unknown recipe: <slug>"]` (also stderr). Writes go through
+  `updateContent({config: groupContentConfig, currentIndexKey: [current.date,
+slug], data: {...current, items}})`.
+- **`reindex.ts`**: `reindex(ctx, contentType?) → {rebuilt: string[]}` over
+  `recipeContentTypes` (`../contentTypes`); unknown name → `NotFoundError`.
+- **`author.ts`**: `parseAuthor("Name <email>" | "email")`,
+  `resolveAuthor(flag?, env)`, `assertCommitIdentity(contentDirectory)`
+  (`directoryIsGitRepo` from `@discontent/cms/git/commit`;
+  `simpleGit(...).getConfig("user.email")`; `GIT_COMMITTER_EMAIL`
+  short-circuits). Called by the local backend before writes, not by curation
+  functions (22d's routes get identity from the session).
+
+#### `editor/cli/`
+
+- **`index.ts`**: `main(argv) → exit code`. Drop a leading `--`. Stage 1
+  `splitArgv`: dash tokens (and the operand of `--content-dir`/`--author`) go
+  to `head`; first bare token = command, `group` takes the next bare token as
+  subcommand; rest = `tail`. Parse `head` with `GLOBAL_OPTIONS` (`json`,
+  `content-dir`, `author`, `help`/`-h`; strict, no positionals). Resolve
+  command; parse `tail` with `{...GLOBAL_OPTIONS, ...command.options}` strict
+  - `allowPositionals`. Content dir: `--content-dir` > `CONTENT_DIRECTORY` >
+    `getContentDirectory()`, relative resolved against `INIT_CWD`.
+    `createLocalBackend({contentDirectory, author})`; run; `emit`; on error
+    `emitError` + `exitCodeFor`. `require.main === module` guard (CJS under
+    tsx, as `create-user.ts`); `.finally(closeCachedEnvironments)`; set
+    `process.exitCode`, don't `process.exit` mid-flush. parseArgs
+    `ERR_PARSE_ARGS_*` → `CurationError("usage")`, usage on stderr.
+- **`commands/*.ts`**, `CommandDef {name, usage, options, run({backend,
+positionals, options, json}), format(result), write?}`: `import` (`<url>`,
+  `--tags a,b`, `--slug`, `--name`, `--dry-run`, `--overwrite`), `create`
+  (`--file <path>` | `--stdin`, `--overwrite`), `update` (`<slug>`, `--file` |
+  `--stdin`), `show <slug>`, `list` (`--tag`, `--limit` 20, `--offset`),
+  `search <query…>` (positionals joined), `delete <slug> --yes` (TTY without
+  `--yes` → confirm via the `read` package already in deps; non-TTY without
+  `--yes` → usage error), `group` sub-table (`create --name --kind
+--description --slug --date --file|--item… --force` with `--item` `multiple:
+true`; `add <group> <recipe> --label --note --force`; `remove <group>
+<recipe>`; `set-items <group> --file --force`; `show <group>`; `list --limit
+--offset`; `delete <group> --yes`), `reindex [contentType]`. `input.ts`:
+  `readJsonInput({file?, stdin?})`, both/neither → usage error.
+- **`backend/types.ts`**: `CuratorBackend {kind: "local"|"http"; importRecipe;
+createRecipe; updateRecipe; getRecipe; listRecipes; searchRecipes;
+deleteRecipe; createGroup; addGroupItem; removeGroupItem; setGroupItems;
+getGroup; listGroups; deleteGroup; reindex; afterWrite?():
+Promise<string|undefined>; close()}` — result types re-exported from
+  `controller/curation/*` so 22d's HTTP backend types its responses against
+  the same shapes.
+- **`backend/local.ts`**: one-line delegates with `ctx`; write methods call
+  `assertCommitIdentity` first; `afterWrite` returns the stderr hint
+  `A running editor is stale until Settings → Maintenance → Reload.`; `close =
+closeCachedEnvironments`.
+- **`output.ts`**: `emit` (json → one `JSON.stringify` line on stdout; else
+  `command.format`), `emitError` (json → `toErrorObject` on stdout; else
+  `error: <message>` + zod issues on stderr), `warn` → stderr. Human formats:
+  `list`/`search` fixed-width `slug  name  [tags]  (date)`; `show` pretty
+  JSON; `group show` header + one item per line with `(missing)`.
+- **Scripts**: editor `"recipes": "tsx ./cli/index.ts"`; root `"recipes":
+"pnpm --filter recipe-editor recipes"`. `cli/` is inside the editor tsconfig
+  `include` (`**/*.ts`) so `pnpm --filter recipe-editor typecheck` covers it;
+  lint-staged runs prettier + eslint on it (no `no-console` rule).
+
+#### Command surface
 
 ```
-pnpm recipes import <url> [--tags a,b] [--slug s] [--dry-run] [--overwrite] [--json]
-pnpm recipes create --file recipe.json | --stdin
-pnpm recipes update <slug> --file patch.json
-pnpm recipes show <slug> | list [--tag t] [--limit n] [--offset n] | search "<query>" | delete <slug> [--yes]
-pnpm recipes group create --name N [--kind meal-plan|collection] [--description D] [--file items.json | --item slug[:label] ...]
-pnpm recipes group add <group> <recipe> [--label L] [--note N] | remove <group> <recipe> | set-items <group> --file items.json
-pnpm recipes group show|list|delete
+pnpm recipes import <url> [--tags a,b] [--slug s] [--name N] [--dry-run] [--overwrite]
+pnpm recipes create (--file recipe.json | --stdin) [--overwrite]
+pnpm recipes update <slug> (--file patch.json | --stdin)
+pnpm recipes show <slug>
+pnpm recipes list [--tag t] [--limit 20] [--offset 0]
+pnpm recipes search <query…>
+pnpm recipes delete <slug> [--yes]
+pnpm recipes group create --name N [--kind meal-plan|collection] [--description D] [--slug s] [--date d] (--file items.json | --item slug[:label] ...) [--force]
+pnpm recipes group add <group> <recipe> [--label L] [--note N] [--force]
+pnpm recipes group remove <group> <recipe>
+pnpm recipes group set-items <group> --file items.json [--force]
+pnpm recipes group show <group> | list [--limit] [--offset] | delete <group> [--yes]
 pnpm recipes reindex [contentType]
+Globals: --json  --content-dir <dir>  --author "Name <email>"  --help
 ```
 
-Author: `--author` > `RECIPE_AUTHOR` > content repo git identity. Local writes
-print a hint that a running editor is stale until `/settings/maintenance`
-Reload (or `--notify` after 22d).
+Author: `--author` > `RECIPE_AUTHOR` > content repo git identity (preflight per
+fact 8). Local writes print a stderr hint that a running editor is stale until
+Settings → Maintenance → Reload (or `--notify` after 22d).
 
-Tests: `test/curation.test.ts` (tmpdir; string ingredients get
-`<Multiplyable>`; `SlugConflictError`; `importFromUrl` with stubbed fetch over
-the `importable-uploads` fixture HTML; `searchRecipes("tag:x time:<30")` and
-free text; group add/remove round-trip; group from string items).
-`test/cliJson.test.ts` spawns
-`pnpm exec tsx cli/index.ts list --json --content-dir <tmp>` via `execa` and
-parses stdout (proves it runs outside Next).
+#### JSON contracts (stdout, exactly one object)
 
-Verify: typecheck; vitest; manual
-`pnpm recipes import <JSON-LD url> --dry-run --json`;
-`pnpm recipes group create --name "Test week" --kind meal-plan --item first-recipe:"Mon · Dinner" --content-dir test-content`
-writes `groups/data/test-week/group.json` and the editor shows it after Reload.
-Doc: command table + JSON contracts.
+| Command                             | Object                                                                                  |
+| ----------------------------------- | --------------------------------------------------------------------------------------- |
+| `import --dry-run`                  | `{dryRun:true, url, slug, recipe, image?:{importUrl,filename}, video?}`                 |
+| `import`                            | `{slug, date, path, url, source?}`                                                      |
+| `create` / `update`                 | `{slug, date, path, url}` (`path` absolute to `recipe.json`, `url` `/recipe/<slug>`)    |
+| `show`                              | `{slug, path, url, recipe}`                                                             |
+| `list`                              | `{total, more, recipes: RecipeRow[]}`                                                   |
+| `search`                            | `{query:{raw,text,hasAdvancedSyntax}, total, recipes: RecipeRow[]}`                     |
+| `delete` / `group delete`           | `{slug, deleted: true}`                                                                 |
+| `group create/add/remove/set-items` | `{slug, date, path, url, warnings?}` (`url` `/group/<slug>`)                            |
+| `group show`                        | `{slug, path, url, group, items:[{recipe,label?,note?,name?,missing?:true}]}`           |
+| `group list`                        | `{total, more, groups:[{slug,date,name,kind,itemCount}]}`                               |
+| `reindex`                           | `{rebuilt: ["recipes","featured-recipes","pages","groups"]}`                            |
+| error                               | `{error:{code, message, slug?, issues?, recipes?}}`; exit 2 for `slug_conflict`, else 1 |
 
-Decisions / close-out (fill in at review):
+#### Tests
 
-- [ ] `controller/curation/*` obeys the D8 import rule (no `next/*`, no cached
-      reads, no `@/auth`, no `controller/actions/*`).
-- [ ] Command table + JSON contracts written here.
-- [ ] Gates recorded verbatim.
-- **Next PR: PR 22d — Remote write.**
+- **`test/curation.test.ts`** (`@vitest-environment node`; harness from
+  `test/groups.test.ts:60-90`; relative imports into
+  `editor/controller/curation/`; real `recipeContentConfig`/`groupContentConfig`;
+  `ctx = {contentDirectory}`): (1) string ingredient → `<Multiplyable
+baseNumber="2"`, tags normalized/deduped, slug and date default; (2)
+  duplicate create → `SlugConflictError` with `.slug`; (3) update-rename onto
+  an existing slug → `SlugConflictError`, source untouched; (4) patch merge
+  keeps `name`/`image`/`video`/`tags`, `tags: null` clears, date change moves
+  the index key with total unchanged; (5) `--overwrite` removes a pre-planted
+  `uploads/recipe/<slug>/uploads/old.jpg`, total stays 1; (6) `importAndCreate`
+  with stubbed `fetch` over inline JSON-LD (copy `recipeHtml()` from
+  `importRecipeSource.test.ts:22-35`, add `image`): dry run writes nothing and
+  returns `image.filename`, real run sets `source.url` and `image`, data file
+  has no `imageImportUrl`/`videoImportUrl`, honours `tags`/`slug`; no Recipe
+  node → `import_failed`; (7) `searchRecipes("tag:x time:<30")`, free-text
+  prefix via name and via ingredient, `-word` negation, `listRecipes({tag})` ≡
+  `searchRecipes("tag:x")`; (8) groups: string items `"a:Mon · Dinner"` parse,
+  unknown recipe → `UnknownRecipeError`, `force` → warning + item present,
+  add/remove/set-items round-trip, `getGroup` marks a dangling item `missing`,
+  `groupsByRecipe` aggregate reflects the add; (9) `deleteRecipe` decrements
+  the index and `getRecipe` → `NotFoundError`; (10) `reindex` names all four
+  types, unknown → `NotFoundError`; (11) `parseAuthor`/`resolveAuthor`; (12)
+  **D8 import boundary**: read every `controller/curation/*.ts`, regex import
+  specifiers against the allow-list (`node:*`, `path`, `fs-extra`, `zod`,
+  `simple-git`, `@sindresorhus/slugify`, `@discontent/cms/content/*`,
+  `@discontent/cms/aggregates/*`, `@discontent/cms/git/commit`,
+  `recipe-website-common/controller/{types,recipeContentConfig,groupContentConfig,createSlug,createGroupSlug,normalizeTags,aggregateConfigs,tagSlug,data/read,data/readGroups}`,
+  `recipe-website-common/components/SearchForm/queryLanguage`,
+  `recipe-website-common/util/*`, `./*`, `../contentTypes`), hard-fail on
+  `^next/`, `^@/`, `controller/actions`,
+  `data/read{RecipeItem,RecipeTags,RecipeTagIndex,GroupPages,GroupsByRecipe,RecipePages,FeaturedRecipePages}`,
+  `@discontent/cms/*/next/`, and the symbols `getAllTags`/`getSearchCorpus`.
+- **`test/cliJson.test.ts`** (`@vitest-environment node`): `beforeAll` seeds a
+  tmp content dir with one recipe + one group via `createContent`, then
+  `closeCachedEnvironments()`; `run(args) = execa("pnpm",
+["exec","tsx","cli/index.ts", ...args, "--content-dir", tmp], {cwd:
+editorDir, reject: false, env: {...process.env, CONTENT_DIRECTORY:
+undefined}})`; each `it(…, 30_000)`: `list --json` → exit 0, parseable,
+  `recipes[0].slug`; `group list --json` → `groups.length === 1`,
+  `itemCount`; `show missing --json` → exit 1, `error.code === "not_found"`;
+  `create --stdin --json` with the existing slug → exit 2, `error.code ===
+"slug_conflict"`. No network-touching case here (fetch cannot be stubbed in a
+  child).
+- **`test/queryLanguage.test.ts`**: unchanged, but reruns green after the
+  `fieldMatches` export.
 
-### PR 22d — Remote write `agent/22d-remote-write` ⏸️ (← 22c)
+#### Verify (implementer runs; Fable reruns)
+
+```
+pnpm --filter recipe-editor typecheck
+pnpm --filter recipe-website exec tsc --noEmit
+pnpm exec vitest run                       # +curation.test.ts, +cliJson.test.ts; no snapshot moves
+pnpm recipes --help
+pnpm recipes list --json --content-dir websites/recipe-website/editor/playwright/fixtures/test-content/three-recipes-groups
+pnpm recipes group show week-of-may-4 --json --content-dir websites/recipe-website/editor/playwright/fixtures/test-content/three-recipes-groups   # missing-recipe → "missing": true
+pnpm recipes search "tag:x" --content-dir <same>
+pnpm recipes import <a JSON-LD recipe URL> --dry-run --json
+cd websites/recipe-website/editor && rm -rf test-content && cp -r playwright/fixtures/test-content/three-recipes-groups test-content && pnpm recipes group create --name "Test week" --kind meal-plan --item "first-recipe:Mon · Dinner" --content-dir test-content   # writes groups/data/test-week/group.json; editor Reload shows it
+```
+
+After the fixture reads: `git checkout` the fixture's touched `lock.mdb` files
+(reads open envs too, T3). Playwright: no spec changes expected; rerun
+`featured-recipes.spec groups.spec` only to prove nothing regressed.
+Prerequisites T13/T14 as before.
+
+Deferred from 22c: `list --tags` command; `search` ranking parity with
+FlexSearch (CLI results are unranked, newest first); `delete` of a recipe does
+not touch groups that list it (D3 — the group shows "Recipe not found").
+
+Decisions / close-out _(2026-09-05, implemented by an Opus subagent, reviewed
+by Fable; commits `1f807626` (doc) + `fcefd329` (implementation, including the
+review fixes) + the close-out commit)_:
+
+- [x] **Landed as designed.** Nine curation modules, fifteen CLI modules, the
+      two scripts, the one-word `fieldMatches` export, two new test files. No
+      fixture, snapshot or Playwright change. `controller/curation/*` obeys the
+      D8 allow-list, enforced by `test/curation.test.ts` ("D8 import boundary",
+      two cases: specifier allow/deny lists with comments stripped, and
+      `data/read` imported as `import type` only).
+- [x] **Command table + JSON contracts above match the shipped code**, with
+      two additions recorded here: `group set-items` also takes `--stdin`, and
+      `import` takes `--name` (needed for video-host URLs, which carry no
+      recipe name).
+- [x] **Piping `--json` needs `pnpm --silent`.** Without it pnpm prints its
+      script banner on **stdout** ahead of the object (the object itself does
+      reach stdout, last line), so the stream is not one JSON value.
+      `pnpm --silent recipes … --json | jq` is clean at both the root and the
+      editor level (the loglevel is inherited by the nested `--filter` run).
+      `--help` says so. **22e's skill must use `pnpm --silent`** (or call
+      `pnpm exec tsx cli/index.ts` from `editor/`, which has no banner).
+- [x] **Divergence: `search` accepts a leading `-` directly.** `parseArgs`
+      reads `-second` as short flags; the query language reads it as negation.
+      `CommandDef.takesDashedPositionals` (only `search` sets it) makes
+      `index.ts` move unrecognized dash tokens behind an inserted `--` before
+      parsing. `search -- -second` still works; real flags still parse. Cost: a
+      typo'd flag on `search` becomes a query word rather than a usage error.
+- [x] **Divergence: a rename on `update` is explicit** — it happens only when
+      the patch carries `slug`. The browser form recomputes the slug from the
+      name on every save, but a JSON patch that only retitles must not move
+      the URL out from under every link. Guarded as specified
+      (`getContentItemDirectory` exists → `SlugConflictError`, exit 2).
+- [x] **Divergence: `buildRecipeWrite` declares only the `image` upload**, not
+      `image` + `video`: nothing in the CLI can hand over a `File`. A patch
+      with `videoUrl: null` clears the `video` field but does not delete an
+      uploaded video file; there is no way to clear `image` from the CLI
+      (`imageImportUrl: null` is a no-op). Both deferred.
+- [x] **Divergence: `reindex <type>` lets the cascade run** (`cascadeDependents`
+      default); only the all-types pass passes `false`, exactly as
+      `rebuildAllIndexes` does. `reindex` skips the committer preflight —
+      `rebuildIndex` never commits (review fix).
+- [x] **Divergence: `UsageError` is a named subclass**; `z.strictObject` /
+      `z.looseObject` instead of `.strict()` / `.passthrough()` (zod 4's
+      non-deprecated spellings); `test/curation.test.ts` is 25 `it()` blocks,
+      the doc's 12 numbered claims split where they assert independent things.
+- [x] **Review fixes (Fable, in `fcefd329`):** `--json` is detected anywhere
+      in argv _before_ parsing, so a stage-2 usage error
+      (`recipes list --bogus --json`) still prints the error object (it fell
+      back to prose before); `reindex` no longer calls `assertCommitIdentity`;
+      the `--help` note on `pnpm --silent` states the actual mechanism.
+- [x] **Identity preflight verified end to end** against a fresh `git init`
+      copy of `three-recipes-groups` with `user.email ""`: `group create` →
+      exit 1, `{"error":{"code":"no_git_identity",…}}`, nothing written. With
+      an identity set and `--author "Cur Ator <cur@example.com>"`: exit 0 and
+      `git log` shows author `Cur Ator <cur@example.com>`, committer
+      `C <c@example.com>`, subject `Create group: yes`.
+- [x] **Gates (this worktree; reviewer's rerun).**
+      `pnpm --filter recipe-editor typecheck` → clean.
+      `pnpm --filter recipe-website exec tsc --noEmit` → clean.
+      `pnpm exec vitest run` → `Test Files 20 passed (20)` /
+      `Tests 355 passed (355)` (was 18 / 326; +25 `test/curation.test.ts`,
+      +4 `test/cliJson.test.ts`; no snapshot moves).
+      `pnpm exec eslint websites/recipe-website/editor/cli websites/recipe-website/editor/controller/curation test/curation.test.ts test/cliJson.test.ts`
+      → clean. Prettier → clean (lint-staged on commit).
+      CLI against `three-recipes-groups`: `list --json` → `{"total":3,"more":false,…}`;
+      `group show week-of-may-4 --json` → third item `"missing":true`;
+      `search -second` → `third-recipe`, `first-recipe`, `2 of 2`;
+      `search "tag:x" --json` → `"total":0` (the fixture has no tags; tag
+      filtering is pinned by `listRecipes({tag}) ≡ searchRecipes("tag:x")` in
+      vitest); `list --bogus --json` → exit 1,
+      `{"error":{"code":"usage",…}}`. Against a copy in `editor/test-content`:
+      `group create --name "Test week" --kind meal-plan --item "first-recipe:Mon · Dinner" --json`
+      → exit 0, `groups/data/test-week/group.json` written, stderr
+      `A running editor is stale until Settings → Maintenance → Reload.`;
+      `create --stdin` with `{"name":"First Recipe"}` → exit **2**,
+      `{"error":{"code":"slug_conflict","message":"Content with slug \"first-recipe\" already exists","slug":"first-recipe"}}`;
+      create → `delete --yes --json` → `{"slug":"cli-smoke","deleted":true}`;
+      `reindex --json` → `{"rebuilt":["recipes","featured-recipes","pages","groups"]}`.
+      Implementer's network dry run: BBC Good Food and Budget Bytes import
+      (`image.filename` resolved, `source` filled); Serious Eats and NYT
+      Cooking return no JSON-LD to a plain `fetch` (bot-blocked) →
+      `import_failed`, exit 1. Playwright not run (no UI change). Fixture
+      `lock.mdb` restored after the reads (T3).
+- **Next PR: PR 22d — Remote write.** Seed the next plan-mode session from the
+  `### PR 22d` section below, plus the D-list and T-list. 22d's routes call
+  `controller/curation/*` with `ctx = {contentDirectory, author}` taken from
+  the session/token and add `revalidateContentWrite` (D9) after each write;
+  the CLI gains `cli/backend/http.ts` implementing `CuratorBackend` (result
+  types are re-exported from `cli/backend/types.ts`) and `--notify`. Validate
+  the 22d section against the code first, as 22b and 22c were.
+
+### PR 22d — Remote write `agent/22d-remote-write` 🟡 next (← 22c)
 
 Goal: bearer-token JSON API in the editor that revalidates in-process; CLI
 gains an HTTP backend and `--notify`.

@@ -432,7 +432,7 @@ export interface FilterableRecipe {
  * search does. A multi-word needle (`tag:"slow cooker"`) is matched as a
  * substring instead, since it spans the word boundaries we'd otherwise split on.
  */
-function fieldMatches(haystack: string, needle: string): boolean {
+export function fieldMatches(haystack: string, needle: string): boolean {
   const hay = fold(haystack);
   if (/\s/.test(needle)) return hay.includes(needle);
   if (hay.startsWith(needle)) return true;
