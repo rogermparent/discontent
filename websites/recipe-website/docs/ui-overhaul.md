@@ -1888,8 +1888,12 @@ grammar at the caret.
       because a curator remembers "Weeknight Favourites" while the term wants
       `weeknight-favourites`; the slug is what is written, the name and kind
       are the hint. One e2e case on `three-recipes-groups`. Post-merge gates:
-      **434 vitest** (417 on the landed tip + 17), both typechecks, lint.
-      _(e2e counts below.)_
+      **434 vitest** (417 on the landed tip + 17), both typechecks, lint;
+      e2e + mobile over `search-autocomplete` (11 cases), `search-live`,
+      `search-query-language`, `command-palette`, `visual`: **100 of 101**,
+      the miss a palette Enter-to-recipe navigation over 5 s on the first
+      visit to a recipe route in a fresh `.next` — that spec alone on the warm
+      cache, **36 of 36**. No baseline moved.
 
 **PR 21's scope lock is closed.** All four affordances from 2026-07-28 have
 shipped — the language (21a), the chip preview, the chip edits and the palette
