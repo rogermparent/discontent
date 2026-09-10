@@ -13,6 +13,18 @@ export type MassagedRecipeEntry = {
   ingredients?: string[];
   image?: string;
   tags?: string[];
+  /**
+   * Groups this recipe belongs to, as slug + name per membership.
+   *
+   * **Never written on the server, and never served** — `/search/all` maps this
+   * type and no read fills it. It lives on the type because `SearchContext`
+   * decorates the fetched corpus with it from `/search/groups` (22f), and every
+   * client surface then carries `MassagedRecipeEntry` values that really do
+   * have it. Group membership is in the *groups* index, and moves without the
+   * recipe index moving at all, which is why it arrives as a second document
+   * rather than as a field on this one.
+   */
+  groups?: string[];
   /** Minutes, for the search query language's `time:` filter. */
   prepTime?: number;
   cookTime?: number;

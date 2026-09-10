@@ -27,13 +27,28 @@ const EMPTY_RESULT: ContentWriteResult = Object.freeze({
   aggregates: [],
 });
 
-function handleContentSuccess(
+/**
+ * Everything a successful write has to invalidate — and nothing about where the
+ * caller goes next.
+ *
+ * Split out of `handleContentSuccess` (D9) because a *form* is no longer the
+ * only thing that writes. The editor's API routes call the same
+ * `controller/curation/*` functions the CLI does and then have to expire the
+ * same caches; what they must not do is `redirect`, which throws a
+ * `NEXT_REDIRECT` control-flow error that would escape a route handler as a
+ * 500. So the revalidation is the reusable half and the redirect stays in the
+ * wrapper.
+ *
+ * Nothing about the form path changes: `handleContentSuccess` is this call
+ * followed by the redirect it always did.
+ */
+export function revalidateContentWrite(
   config: ContentSuccessConfig,
   contentType: string,
   result: ContentWriteResult,
   slug: string,
   currentSlug?: string,
-) {
+): void {
   if (currentSlug && currentSlug !== slug) {
     revalidatePath(config.itemBasePath + "/" + currentSlug);
   }
@@ -109,6 +124,16 @@ function handleContentSuccess(
     }
     revalidatePath("/");
   }
+}
+
+function handleContentSuccess(
+  config: ContentSuccessConfig,
+  contentType: string,
+  result: ContentWriteResult,
+  slug: string,
+  currentSlug?: string,
+) {
+  revalidateContentWrite(config, contentType, result, slug, currentSlug);
 
   const redirectTarget = config.redirectTo
     ? config.redirectTo(slug)

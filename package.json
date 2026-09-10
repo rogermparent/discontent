@@ -9,6 +9,7 @@
   "scripts": {
     "prepare": "husky",
     "test": "vitest",
+    "recipes": "pnpm --filter recipe-editor recipes",
     "lint:diff": "lint-staged",
     "lint:diff:write": "lint-staged -c lint-staged.write.config.mjs"
   },

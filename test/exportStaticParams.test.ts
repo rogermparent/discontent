@@ -25,6 +25,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const readAllRecipeIds = vi.fn<() => Promise<string[]>>();
 const readAllFeaturedRecipeIds = vi.fn<() => Promise<string[]>>();
+const readAllGroupIds = vi.fn<() => Promise<string[]>>();
 const readTagIndex = vi.fn<() => Promise<Record<string, unknown> | null>>();
 
 /*
@@ -47,8 +48,27 @@ vi.mock(
   }),
 );
 
+vi.mock("recipe-website-common/controller/data/readGroupPages", () => ({
+  readAllGroupIds: () => readAllGroupIds(),
+  groupPages: {},
+  default: {},
+}));
+
 vi.mock("recipe-website-common/controller/data/readRecipeItem", () => ({
   recipeItems: { read: vi.fn() },
+  default: {},
+}));
+
+/*
+ * Mocked for a reason the others are not: nothing here asks it anything.
+ * `/recipe/[slug]` renders `RecipeView`, which renders "Appears in", which
+ * imports the cached aggregate read — and `createCachedAggregateRead` calls
+ * `unstable_cache` at *module scope*, which the `next/cache` stub does not
+ * provide. So importing the recipe page for its `generateStaticParams` would
+ * throw on an import three components deep from anything this file asserts.
+ */
+vi.mock("recipe-website-common/controller/data/readGroupsByRecipe", () => ({
+  groupsByRecipeReads: { read: async () => ({}) },
   default: {},
 }));
 
@@ -79,6 +99,7 @@ beforeAll(async () => {
   await Promise.all([
     import("../websites/recipe-website/export/src/app/(recipes)/recipe/[slug]/page"),
     import("../websites/recipe-website/export/src/app/(recipes)/featured-recipe/[slug]/page"),
+    import("../websites/recipe-website/export/src/app/(recipes)/group/[slug]/page"),
     import("../websites/recipe-website/common/components/TagPage/routes"),
   ]);
 });
@@ -126,6 +147,33 @@ describe("a dynamic export route never emits zero params", () => {
     expect(await generateStaticParams()).toEqual([
       { slug: "x" },
       { slug: "y" },
+    ]);
+  });
+
+  /*
+   * Groups arrive with the guard rather than gaining it later, and the empty
+   * case is not hypothetical: every existing fixture except `three-recipes-groups`
+   * has no groups at all, so this is what the export does against almost all of
+   * them.
+   */
+  it("/group/[slug] emits a placeholder for a corpus with no groups", async () => {
+    readAllGroupIds.mockResolvedValue([]);
+    const { generateStaticParams } =
+      await import("../websites/recipe-website/export/src/app/(recipes)/group/[slug]/page");
+    const params = await generateStaticParams();
+    expect(params).toHaveLength(1);
+  });
+
+  it("/group/[slug] emits one param per group otherwise", async () => {
+    readAllGroupIds.mockResolvedValue([
+      "week-of-may-4",
+      "weeknight-favourites",
+    ]);
+    const { generateStaticParams } =
+      await import("../websites/recipe-website/export/src/app/(recipes)/group/[slug]/page");
+    expect(await generateStaticParams()).toEqual([
+      { slug: "week-of-may-4" },
+      { slug: "weeknight-favourites" },
     ]);
   });
 

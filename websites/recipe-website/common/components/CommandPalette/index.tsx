@@ -18,6 +18,7 @@ import {
   Monitor,
   Clock,
   Filter,
+  Layers,
   Search,
   Trash2,
   UtensilsCrossed,
@@ -44,6 +45,7 @@ import {
   type FilterTerm,
 } from "../SearchForm/queryLanguage";
 import { highlightText } from "../SearchList";
+import { groupKindLabel } from "../../util/groupKindLabel";
 import { NAV_DESTINATIONS } from "./destinations";
 
 /**
@@ -52,6 +54,13 @@ import { NAV_DESTINATIONS } from "./destinations";
  * `min(24rem,60vh)` — a sixth row pushes "See all results" out of view.
  */
 const MAX_RECIPE_ROWS = 5;
+/**
+ * Max group rows (22f). Three, and below the recipes, because the recipe rows
+ * are what Enter must open — `command-palette.spec.ts` locks that in — and
+ * because a corpus never has enough matching groups for a longer list to be the
+ * thing that pushed "See all results" out of view.
+ */
+const MAX_GROUP_ROWS = 3;
 /** cmdk `value` prefix for a recent-search row; the ⌫ handler keys off it. */
 const RECENT_PREFIX = "recent:";
 /**
@@ -191,6 +200,7 @@ export function CommandPalette({
     // every route but `/search`. Now the filter is whatever this very field
     // says, so honouring it is the only honest thing to do.
     displayedRecipes,
+    matchedGroups,
     recentSearches,
     recordSearch,
     removeRecentSearch,
@@ -326,6 +336,14 @@ export function CommandPalette({
   // When a query has recipe hits, the palette enters "recipe search" mode and
   // hides the nav/actions groups, so the only selectable rows are recipes.
   const hasRecipeHits = showRecipes && topRecipes.length > 0;
+
+  /*
+   * Group rows (22f). Independent of `indexUsable`: groups are matched in JS
+   * over a fetched document, not by FlexSearch, so they can answer while the
+   * index is still populating. Gated on the committed `query` for the same
+   * reason the recipe rows are — an empty palette is a launcher, not a listing.
+   */
+  const groupRows = query ? matchedGroups.slice(0, MAX_GROUP_ROWS) : [];
 
   // --- rows that build the query instead of leaving it (PR 21b) ---
   //
@@ -548,6 +566,43 @@ export function CommandPalette({
                   <span>See all results for “{trimmed}”</span>
                 </CommandItem>
               )}
+            </CommandGroup>
+          )}
+
+          {/*
+            After the recipes, always. The palette's Enter promise is that the
+            top *recipe* row opens — "Enter opens the top recipe even when the
+            query matches a destination" — and cmdk's auto-selection is
+            positional, so a Groups group above the recipes would break it for
+            every query that also names a group. Shown whether or not there are
+            recipe hits, though: `weeknight` matching a collection and no recipe
+            at all is exactly the case this exists for.
+          */}
+          {groupRows.length > 0 && (
+            <CommandGroup heading="Groups" data-testid="palette-groups-group">
+              {groupRows.map((group) => (
+                <CommandItem
+                  key={group.slug}
+                  value={`group:${group.slug}`}
+                  onSelect={() => {
+                    recordSearch(query);
+                    go(`/group/${group.slug}`);
+                  }}
+                >
+                  <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
+                    <Layers className="size-4 text-muted-foreground" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">
+                      {highlightText(group.name, highlightQuery) || group.name}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {groupKindLabel(group.kind)} · {group.recipes.length}{" "}
+                      {group.recipes.length === 1 ? "recipe" : "recipes"}
+                    </span>
+                  </span>
+                </CommandItem>
+              ))}
             </CommandGroup>
           )}
 

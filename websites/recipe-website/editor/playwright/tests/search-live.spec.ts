@@ -216,3 +216,69 @@ test.describe("Search — live @mobile", () => {
     });
   });
 });
+
+/**
+ * Groups as *results* (22f). A matching group is a different kind of answer to
+ * a recipe — one card standing for several — so it gets a strip of its own
+ * above the grid, and the ticker goes on counting recipes only.
+ */
+test.describe("Search — matching groups", () => {
+  const groupResults = (page: Page) => page.getByTestId("group-results");
+
+  test.beforeEach(async ({ page, resetData }) => {
+    await resetData("three-recipes-groups");
+    await page.goto("/search");
+    await expect(ticker(page)).toHaveText(/ALL 3 RECIPES/i, {
+      timeout: SEARCH_TIMEOUT,
+    });
+  });
+
+  test("a description-only match surfaces the group and no recipes", async ({
+    page,
+  }) => {
+    // "shop" is in "Three dinners, one shop." and nowhere in the corpus.
+    await searchFor(page, "shop");
+
+    await expect(groupResults(page)).toBeVisible({ timeout: SEARCH_TIMEOUT });
+    await expect(groupResults(page).getByRole("listitem")).toHaveCount(1);
+    await expect(groupResults(page)).toContainText("Week of May 4");
+    await expect(listItems(page)).toHaveCount(0);
+    // The count under the field is still a recipe count.
+    await expect(ticker(page)).toHaveText(/0 RESULTS/i);
+  });
+
+  test("a name match highlights and opens the group", async ({ page }) => {
+    await searchFor(page, "weeknight");
+
+    const card = groupResults(page).getByRole("listitem").first();
+    await expect(card).toBeVisible({ timeout: SEARCH_TIMEOUT });
+    await expect(card).toContainText("Weeknight Favourites");
+    // The matched prefix is marked, exactly as it is on a recipe card.
+    await expect(card.locator("mark", { hasText: /weeknight/i })).toBeVisible();
+    await expect(listItems(page)).toHaveCount(0);
+
+    await card.getByRole("link").first().click();
+    await expect(page).toHaveURL(/\/group\/weeknight-favourites$/);
+  });
+
+  test("a query that matches only recipes shows no group strip", async ({
+    page,
+  }) => {
+    await searchFor(page, "recipe");
+
+    await expect(listItems(page)).toHaveCount(3, { timeout: SEARCH_TIMEOUT });
+    await expect(groupResults(page)).toHaveCount(0);
+  });
+
+  test("a filter never selects a group", async ({ page }) => {
+    /*
+     * `group:` narrows *recipes*; it does not ask for a list of groups. Nor
+     * does any other filter — answering `tag:x` with the groups that happen to
+     * contain a matching recipe would be a different question than the one that
+     * was asked, and free text is the only thing that selects a group.
+     */
+    await searchFor(page, "group:weeknight-favourites");
+    await expect(listItems(page)).toHaveCount(2, { timeout: SEARCH_TIMEOUT });
+    await expect(groupResults(page)).toHaveCount(0);
+  });
+});

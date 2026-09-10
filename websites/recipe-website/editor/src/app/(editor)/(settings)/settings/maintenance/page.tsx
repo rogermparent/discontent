@@ -1,5 +1,6 @@
 import { rebuildRecipeIndex } from "recipe-editor/controller/actions";
 import { rebuildFeaturedRecipeIndex } from "recipe-editor/controller/actions/featuredRecipes";
+import { rebuildGroupIndex } from "recipe-editor/controller/actions/groups";
 import { auth, signIn } from "@/auth";
 import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
 import {
@@ -29,6 +30,9 @@ export default async function MaintenancePage() {
               </form>
               <form action={rebuildFeaturedRecipeIndex}>
                 <SubmitButton>Reload Featured Recipe Database</SubmitButton>
+              </form>
+              <form action={rebuildGroupIndex}>
+                <SubmitButton>Reload Groups Database</SubmitButton>
               </form>
             </div>
           </SettingsCard>

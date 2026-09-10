@@ -1,6 +1,7 @@
 import type {
   Ingredient,
   InstructionEntry,
+  RecipeSource,
   Timeline,
 } from "recipe-website-common/controller/types";
 
@@ -33,6 +34,7 @@ export type RecipeFormData = {
   totalTime?: number;
   recipeYield?: string;
   videoUrl?: string;
+  source?: RecipeSource;
 };
 
 export type RecipeFormState = ContentFormState<

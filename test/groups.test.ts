@@ -1,0 +1,839 @@
+// @vitest-environment node
+//
+// The repo default is jsdom; this suite opens real LMDB environments in a
+// temporary directory, which needs node.
+//
+// Like `references.test.ts` — whose harness this copies — it drives the *real*
+// write path (`createContent` / `updateContent` / `deleteContent` /
+// `rebuildIndex`) against the *real* `groupContentConfig` and
+// `recipeContentConfig`, rather than a pair of imitation configs. That is safe
+// because `commitContentChanges` no-ops when the content directory is not a git
+// repository, and a tmpdir is not.
+//
+// Using the real configs is the point. What is worth pinning about groups is
+// not that the engine folds an aggregate — `aggregates.test.ts` covers that with
+// a toy config — but the three claims *this site's* configs make: that
+// `groupsByRecipe` is the inverse index "Appears in" renders, that the D3
+// no-references decision leaves a deleted recipe's group untouched, and that the
+// index value drops `note`.
+
+import { mkdtemp, pathExists, readJson, rm } from "fs-extra";
+import { tmpdir } from "os";
+import { join } from "path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { readAggregate } from "@discontent/cms/aggregates/readAggregate";
+import {
+  getAggregateDatabase,
+  readAggregateRecord,
+} from "@discontent/cms/aggregates/database";
+import { createContent } from "@discontent/cms/content/createContent";
+import { deleteContent } from "@discontent/cms/content/deleteContent";
+import { getContentDatabase } from "@discontent/cms/content/database";
+import { rebuildIndex } from "@discontent/cms/content/rebuildIndex";
+import type { UploadSpec } from "@discontent/cms/content/types";
+import { updateContent } from "@discontent/cms/content/updateContent";
+import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
+import {
+  PAGE_SUMMARY,
+  getPaginationDatabase,
+} from "@discontent/cms/pagination/database";
+import type { PageSummary } from "@discontent/cms/pagination/types";
+import type { Key } from "lmdb";
+
+import { featuredRecipeContentConfig } from "../websites/recipe-website/common/controller/featuredRecipeContentConfig";
+import {
+  groupsByRecipe,
+  type AppearsInEntry,
+} from "../websites/recipe-website/common/controller/groupAggregateConfigs";
+import { groupContentConfig } from "../websites/recipe-website/common/controller/groupContentConfig";
+import { groupsByDate } from "../websites/recipe-website/common/controller/groupPaginationConfig";
+import { featuredRecipesByDate } from "../websites/recipe-website/common/controller/paginationConfigs";
+import { recipeContentConfig } from "../websites/recipe-website/common/controller/recipeContentConfig";
+import type {
+  FeaturedRecipe,
+  FeaturedRecipeEntryKey,
+  FeaturedRecipeEntryValue,
+  Group,
+  GroupEntryKey,
+  GroupEntryValue,
+  Recipe,
+  RecipeEntryKey,
+} from "../websites/recipe-website/common/controller/types";
+
+/* ------------------------------------------------------------------ */
+/* Harness                                                             */
+/* ------------------------------------------------------------------ */
+
+let contentDirectory: string;
+let previousContentDirectory: string | undefined;
+
+const DAY = 86_400_000;
+const day = (n: number) => n * DAY;
+
+beforeEach(async () => {
+  contentDirectory = await mkdtemp(join(tmpdir(), "groups-"));
+  /*
+   * Every call below passes `contentDirectory` explicitly; this only covers
+   * anything that still falls back to the ambient one. Pointing it at the
+   * tmpdir — which is not a git repository — makes the commit no-op explicit
+   * either way rather than dependent on the checkout's layout.
+   */
+  previousContentDirectory = process.env.CONTENT_DIRECTORY;
+  process.env.CONTENT_DIRECTORY = contentDirectory;
+});
+
+afterEach(async () => {
+  await closeCachedEnvironments();
+  if (previousContentDirectory === undefined) {
+    delete process.env.CONTENT_DIRECTORY;
+  } else {
+    process.env.CONTENT_DIRECTORY = previousContentDirectory;
+  }
+  await rm(contentDirectory, { recursive: true, force: true });
+});
+
+function createRecipe(slug: string, name: string, date: number) {
+  return createContent<Recipe, unknown, RecipeEntryKey>({
+    config: recipeContentConfig,
+    slug,
+    data: { name, date },
+    contentDirectory,
+  });
+}
+
+function createGroup(
+  slug: string,
+  data: Group,
+  uploads?: Record<string, UploadSpec>,
+) {
+  return createContent<Group, GroupEntryValue, GroupEntryKey>({
+    config: groupContentConfig,
+    slug,
+    data,
+    contentDirectory,
+    ...(uploads ? { uploads } : {}),
+  });
+}
+
+function updateGroup(
+  slug: string,
+  currentDate: number,
+  data: Group,
+  uploads?: Record<string, UploadSpec>,
+) {
+  return updateContent<Group, GroupEntryValue, GroupEntryKey>({
+    config: groupContentConfig,
+    slug,
+    currentSlug: slug,
+    currentIndexKey: [currentDate, slug] as GroupEntryKey,
+    data,
+    contentDirectory,
+    ...(uploads ? { uploads } : {}),
+  });
+}
+
+/** Where a group's uploads live: `uploads/group/<slug>/uploads/<file>` (22h). */
+function groupUploadPath(slug: string, ...rest: string[]) {
+  return join(contentDirectory, "uploads/group", slug, ...rest);
+}
+
+/** The folded "Appears in" map, as a page would read it. */
+function readAppearsIn(): Promise<Record<string, AppearsInEntry[]> | null> {
+  return readAggregate({
+    config: groupContentConfig,
+    aggregateConfig: groupsByRecipe,
+    contentDirectory,
+  });
+}
+
+/**
+ * The aggregate's *stored hash*, which is the byte-for-byte identity of the
+ * folded value — the same hash the engine compares to decide `changed`.
+ */
+function readAppearsInHash(): string | undefined {
+  const db = getAggregateDatabase(
+    groupContentConfig,
+    groupsByRecipe,
+    contentDirectory,
+  );
+  return readAggregateRecord<Record<string, AppearsInEntry[]>>(db)?.hash;
+}
+
+/** The group content index, keyed by slug. */
+function readGroupIndex(): Map<string, GroupEntryValue> {
+  const db = getContentDatabase<GroupEntryValue, GroupEntryKey>(
+    groupContentConfig,
+    contentDirectory,
+  );
+  const entries = new Map<string, GroupEntryValue>();
+  for (const { key, value } of db.getRange()) {
+    entries.set((key as GroupEntryKey)[1], value);
+  }
+  return entries;
+}
+
+/** The stored per-page hashes — the diff source, read directly. */
+function storedPageHashes(): Map<number, string> {
+  const db = getPaginationDatabase(
+    groupContentConfig,
+    groupsByDate,
+    contentDirectory,
+  );
+  const hashes = new Map<number, string>();
+  for (const { key, value } of db.getRange({
+    start: [PAGE_SUMMARY],
+    end: [PAGE_SUMMARY + 1],
+  })) {
+    hashes.set((key as Key[])[1] as number, (value as PageSummary).hash);
+  }
+  return hashes;
+}
+
+function readGroupFile(slug: string): Promise<Group> {
+  return readJson(join(contentDirectory, "groups/data", slug, "group.json"));
+}
+
+/* ---- The featured edge (22g) ---- */
+
+function createFeature(slug: string, data: FeaturedRecipe) {
+  return createContent<
+    FeaturedRecipe,
+    FeaturedRecipeEntryValue,
+    FeaturedRecipeEntryKey
+  >({
+    config: featuredRecipeContentConfig,
+    slug,
+    data,
+    contentDirectory,
+  });
+}
+
+/** The featured-recipes content index, keyed by slug. */
+function readFeaturedIndex(): Map<string, FeaturedRecipeEntryValue> {
+  const db = getContentDatabase<
+    FeaturedRecipeEntryValue,
+    FeaturedRecipeEntryKey
+  >(featuredRecipeContentConfig, contentDirectory);
+  const entries = new Map<string, FeaturedRecipeEntryValue>();
+  for (const { key, value } of db.getRange()) {
+    entries.set((key as FeaturedRecipeEntryKey)[1], value);
+  }
+  return entries;
+}
+
+/** The featured index's stored per-page hashes. */
+function storedFeaturedPageHashes(): Map<number, string> {
+  const db = getPaginationDatabase(
+    featuredRecipeContentConfig,
+    featuredRecipesByDate,
+    contentDirectory,
+  );
+  const hashes = new Map<number, string>();
+  for (const { key, value } of db.getRange({
+    start: [PAGE_SUMMARY],
+    end: [PAGE_SUMMARY + 1],
+  })) {
+    hashes.set((key as Key[])[1] as number, (value as PageSummary).hash);
+  }
+  return hashes;
+}
+
+function readFeatureFile(slug: string): Promise<FeaturedRecipe> {
+  return readJson(
+    join(
+      contentDirectory,
+      "featured-recipes/data",
+      slug,
+      "featured-recipe.json",
+    ),
+  );
+}
+
+const WEEK: Group = {
+  name: "Week of May 4",
+  date: day(10),
+  kind: "meal-plan",
+  items: [
+    { recipe: "stew", label: "Mon · Dinner", note: "Leftovers for lunch" },
+    { recipe: "soup", label: "Tue · Dinner" },
+  ],
+};
+
+async function seedTwoRecipesAndAGroup() {
+  await createRecipe("soup", "Soup", day(1));
+  await createRecipe("stew", "Stew", day(2));
+  return createGroup("week-of-may-4", WEEK);
+}
+
+/* ------------------------------------------------------------------ */
+/* The inverse index behind "Appears in"                               */
+/* ------------------------------------------------------------------ */
+
+describe("groupsByRecipe", () => {
+  it("maps every listed recipe to the group, with that item's own label", async () => {
+    await seedTwoRecipesAndAGroup();
+
+    expect(await readAppearsIn()).toEqual({
+      soup: [
+        {
+          slug: "week-of-may-4",
+          name: "Week of May 4",
+          kind: "meal-plan",
+          label: "Tue · Dinner",
+        },
+      ],
+      stew: [
+        {
+          slug: "week-of-may-4",
+          name: "Week of May 4",
+          kind: "meal-plan",
+          label: "Mon · Dinner",
+        },
+      ],
+    });
+  });
+
+  it("lists a recipe's groups newest first", async () => {
+    await createRecipe("soup", "Soup", day(1));
+    await createGroup("older", {
+      name: "Older",
+      date: day(5),
+      kind: "collection",
+      items: [{ recipe: "soup" }],
+    });
+    await createGroup("newer", {
+      name: "Newer",
+      date: day(20),
+      kind: "collection",
+      items: [{ recipe: "soup" }],
+    });
+
+    /*
+     * The walk is ascending by `[date, slug]`, so `finalize` reverses — the
+     * same newest-first order every other list surface in the app uses.
+     */
+    expect((await readAppearsIn())?.soup.map((entry) => entry.slug)).toEqual([
+      "newer",
+      "older",
+    ]);
+  });
+
+  it("keeps both lines when one group lists a recipe twice", async () => {
+    await createRecipe("soup", "Soup", day(1));
+    await createGroup("twice", {
+      name: "Twice",
+      date: day(5),
+      kind: "meal-plan",
+      items: [
+        { recipe: "soup", label: "Mon · Dinner" },
+        { recipe: "soup", label: "Thu · Lunch" },
+      ],
+    });
+
+    // Collapsing to one entry per group would silently lose the second label,
+    // which for a meal plan is a whole meal.
+    expect((await readAppearsIn())?.soup.map((entry) => entry.label)).toEqual([
+      "Thu · Lunch",
+      "Mon · Dinner",
+    ]);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* D3: no references, and what that costs                              */
+/* ------------------------------------------------------------------ */
+
+describe("a deleted recipe (D3)", () => {
+  it("leaves the group's data file and the aggregate exactly as they were", async () => {
+    await seedTwoRecipesAndAGroup();
+    const before = await readAppearsIn();
+
+    await deleteContent<Recipe, unknown, RecipeEntryKey>({
+      config: recipeContentConfig,
+      slug: "stew",
+      indexKey: [day(2), "stew"] as RecipeEntryKey,
+      contentDirectory,
+    });
+
+    /*
+     * Nothing rewrites `items[].recipe`: groups declare no `references` and no
+     * `referencedBy`, because the engine's reference machinery is scalar-only
+     * and cannot address an array element (F32). So the slug dangles, and both
+     * the data file and the folded value still name it. The detail page renders
+     * that as "Recipe not found: stew" rather than dropping the row — losing a
+     * day out of a meal plan silently would be the worse failure.
+     */
+    expect(await pathExists(join(contentDirectory, "recipes/data/stew"))).toBe(
+      false,
+    );
+    expect((await readGroupFile("week-of-may-4")).items).toEqual(WEEK.items);
+    expect(await readAppearsIn()).toEqual(before);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* The index value, and what it deliberately drops                     */
+/* ------------------------------------------------------------------ */
+
+describe("the stored group index value", () => {
+  it("carries name, kind and the items' recipe + label, and no note", async () => {
+    await seedTwoRecipesAndAGroup();
+
+    /*
+     * `note` is per-item prose only the detail page renders, and that page
+     * reads the data file anyway. On the index it would be a value no
+     * projection and no fold reads — so every note edit would dirty a sealed
+     * page for nothing.
+     *
+     * `image` is the opposite case and is on the index by decision (D14/22h):
+     * `groupsByDate` projects it, so a card renders the group's own picture
+     * with no group read, and the search corpus can hand it to a client that
+     * can run no walk of its own. This group has none, so no key is stored —
+     * `toEqual` would accept an explicit `undefined` here either way, which is
+     * why the 22h block below asserts the stored key's arrival and departure
+     * against a group that does have one.
+     */
+    expect(readGroupIndex().get("week-of-may-4")).toEqual({
+      name: "Week of May 4",
+      kind: "meal-plan",
+      items: [
+        { recipe: "stew", label: "Mon · Dinner" },
+        { recipe: "soup", label: "Tue · Dinner" },
+      ],
+    });
+    expect((await readGroupFile("week-of-may-4")).items[0].note).toBe(
+      "Leftovers for lunch",
+    );
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Rebuild reproduces the incremental result                           */
+/* ------------------------------------------------------------------ */
+
+describe("rebuildIndex", () => {
+  it("reproduces the aggregate byte for byte", async () => {
+    await seedTwoRecipesAndAGroup();
+    const incremental = await readAppearsIn();
+    const incrementalHash = readAppearsInHash();
+
+    await closeCachedEnvironments();
+    await rebuildIndex({ config: groupContentConfig, contentDirectory });
+
+    /*
+     * The hash, not just the value: it is what the engine compares to decide
+     * `changed`, so a rebuild that produced an equal value with a different
+     * hash would make the *next* write report a spurious change and invalidate
+     * every "Appears in" block on the site. Byte-for-byte is the property, and
+     * the hash is the only thing that can state it.
+     */
+    expect(readAppearsInHash()).toBe(incrementalHash);
+    expect(await readAppearsIn()).toEqual(incremental);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* What a write moves, and what it leaves alone                        */
+/* ------------------------------------------------------------------ */
+
+describe("editing a group", () => {
+  it("re-labels an item: the aggregate moves, the sealed page does not", async () => {
+    await seedTwoRecipesAndAGroup();
+    const hashesBefore = storedPageHashes();
+
+    const result = await updateGroup("week-of-may-4", day(10), {
+      ...WEEK,
+      items: [{ ...WEEK.items[0], label: "Wed · Dinner" }, WEEK.items[1]],
+    });
+
+    /*
+     * The two halves of precise invalidation, in one write.
+     *
+     * The *aggregate* moves: "Appears in" prints the label the group gave this
+     * recipe, so it is folded, so it reports `changed` and fires its tag, and
+     * every recipe view that names this group is recomputed.
+     *
+     * The *page* does not: `GroupListEntry` projects `itemCount`, not the
+     * items, because a card prints a count. A projection that carried the array
+     * would dirty every sealed page of the index whenever a label changed
+     * inside a group the page merely lists — the over-projection §3.5 warns
+     * about, and the reason the projection is as narrow as it is.
+     */
+    expect(
+      result.aggregates.find((entry) => entry.name === "by-recipe")?.changed,
+    ).toBe(true);
+    expect(storedPageHashes()).toEqual(hashesBefore);
+    expect((await readAppearsIn())?.stew[0].label).toBe("Wed · Dinner");
+  });
+
+  it("re-orders items: neither derived kind moves, because neither renders the order", async () => {
+    await seedTwoRecipesAndAGroup();
+    const hashesBefore = storedPageHashes();
+    const aggregateBefore = readAppearsInHash();
+
+    const result = await updateGroup("week-of-may-4", day(10), {
+      ...WEEK,
+      items: [WEEK.items[1], WEEK.items[0]],
+    });
+
+    /*
+     * Worth stating because it is the case that looks like it should move
+     * something and does not. For a meal plan the order *is* the plan, so a
+     * reorder is a real edit — but the only surface that renders it is
+     * `/group/<slug>`, which reads the data file rather than either derived
+     * kind, and which this write invalidates through `item:groups:<slug>`
+     * regardless of what the fold reports.
+     *
+     * The cards project a count, which has not changed; and `groupsByRecipe`
+     * is keyed by *recipe*, so swapping two distinct recipes' rows leaves each
+     * recipe's list, labels included, exactly as it was. Reporting `changed`
+     * here would invalidate every recipe view on the site for a value that is
+     * byte-identical, which is precisely what the aggregate kind exists to
+     * avoid.
+     */
+    expect(
+      result.aggregates.find((entry) => entry.name === "by-recipe")?.changed,
+    ).toBe(false);
+    expect(storedPageHashes()).toEqual(hashesBefore);
+    expect(readAppearsInHash()).toBe(aggregateBefore);
+    // The data file and the index value *did* move, which is the edit itself.
+    expect(readGroupIndex().get("week-of-may-4")?.items[0].recipe).toBe("soup");
+  });
+
+  it("re-orders one recipe's two rows: the aggregate does move, since the labels swap", async () => {
+    await createRecipe("soup", "Soup", day(1));
+    await createGroup("twice", {
+      name: "Twice",
+      date: day(5),
+      kind: "meal-plan",
+      items: [
+        { recipe: "soup", label: "Mon · Dinner" },
+        { recipe: "soup", label: "Thu · Lunch" },
+      ],
+    });
+
+    // The other side of the case above: when the reorder is *within* one
+    // recipe's list, the fold really does produce a different value.
+    const result = await updateGroup("twice", day(5), {
+      name: "Twice",
+      date: day(5),
+      kind: "meal-plan",
+      items: [
+        { recipe: "soup", label: "Thu · Lunch" },
+        { recipe: "soup", label: "Mon · Dinner" },
+      ],
+    });
+
+    expect(
+      result.aggregates.find((entry) => entry.name === "by-recipe")?.changed,
+    ).toBe(true);
+    expect((await readAppearsIn())?.soup.map((entry) => entry.label)).toEqual([
+      "Mon · Dinner",
+      "Thu · Lunch",
+    ]);
+  });
+
+  it("removes an item: the page hash moves too, because the count is projected", async () => {
+    await seedTwoRecipesAndAGroup();
+    const hashesBefore = storedPageHashes();
+
+    const result = await updateGroup("week-of-may-4", day(10), {
+      ...WEEK,
+      items: [WEEK.items[0]],
+    });
+
+    expect(
+      result.aggregates.find((entry) => entry.name === "by-recipe")?.changed,
+    ).toBe(true);
+    expect(storedPageHashes()).not.toEqual(hashesBefore);
+    // The dropped recipe loses its whole "Appears in" entry, not just a line.
+    expect((await readAppearsIn())?.soup).toBeUndefined();
+  });
+
+  it("re-titles a group: the page hash moves, since the name is what a card renders", async () => {
+    await seedTwoRecipesAndAGroup();
+    const hashesBefore = storedPageHashes();
+
+    await updateGroup("week-of-may-4", day(10), { ...WEEK, name: "Renamed" });
+
+    expect(storedPageHashes()).not.toEqual(hashesBefore);
+    expect((await readAppearsIn())?.soup[0].name).toBe("Renamed");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 22h: the group's own image                                          */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Uploads are engine-generic — `createContent`/`updateContent` take an
+ * `uploads` map, `processUploadChanges` writes under
+ * `getUploadsDirectory(config, slug)`, and rename and delete move and remove
+ * that directory. What is worth pinning here is that **this site's** group
+ * config wires into all of it: that `uploadsDirectory: "uploads/group"` is the
+ * tree the files land in, and that the file name reaches the index value, which
+ * is what lets a list card and a `/search` card draw the picture with no read
+ * (D14).
+ */
+describe("a group's own image (22h)", () => {
+  const COVER = () => new File(["not really a png"], "cover.png");
+
+  async function seedGroupWithCover() {
+    await createRecipe("soup", "Soup", day(1));
+    await createRecipe("stew", "Stew", day(2));
+    return createGroup(
+      "week-of-may-4",
+      { ...WEEK, image: "cover.png" },
+      { image: { file: COVER() } },
+    );
+  }
+
+  it("writes the file under uploads/group and puts the name on the index", async () => {
+    await seedGroupWithCover();
+
+    expect(
+      await pathExists(groupUploadPath("week-of-may-4", "uploads/cover.png")),
+    ).toBe(true);
+    expect((await readGroupFile("week-of-may-4")).image).toBe("cover.png");
+    /*
+     * The index value, not just the data file: this is the D14 payoff. A card
+     * reading the paginated index has the file name in hand, so it renders
+     * `GroupImage` without opening the group's record at all.
+     */
+    expect(readGroupIndex().get("week-of-may-4")?.image).toBe("cover.png");
+  });
+
+  it("clears: the file goes and the index value drops the key", async () => {
+    await seedGroupWithCover();
+
+    await updateGroup("week-of-may-4", day(10), WEEK, {
+      image: { clearFile: true, existingFile: "cover.png" },
+    });
+
+    expect(
+      await pathExists(groupUploadPath("week-of-may-4", "uploads/cover.png")),
+    ).toBe(false);
+    expect((await readGroupFile("week-of-may-4")).image).toBeUndefined();
+    /*
+     * `buildGroupIndexValue` spreads the field in only when it is set, so a
+     * cleared image leaves no key behind rather than a stored `undefined` —
+     * which is what keeps a group that never had one byte-identical to a group
+     * that lost one.
+     */
+    expect(readGroupIndex().get("week-of-may-4")).not.toHaveProperty("image");
+  });
+
+  it("renames: the uploads directory follows the slug", async () => {
+    await seedGroupWithCover();
+
+    await updateContent<Group, GroupEntryValue, GroupEntryKey>({
+      config: groupContentConfig,
+      slug: "week-of-may-11",
+      currentSlug: "week-of-may-4",
+      currentIndexKey: [day(10), "week-of-may-4"] as GroupEntryKey,
+      data: { ...WEEK, image: "cover.png" },
+      contentDirectory,
+    });
+
+    /*
+     * The `uploads` directory itself is what `renameContentDirectory` moves, so
+     * the old slug's *base* directory is left behind empty — true of recipes
+     * since long before groups, and harmless: nothing lists it and the next
+     * write to that slug reuses it.
+     */
+    expect(await pathExists(groupUploadPath("week-of-may-4", "uploads"))).toBe(
+      false,
+    );
+    expect(
+      await pathExists(groupUploadPath("week-of-may-11", "uploads/cover.png")),
+    ).toBe(true);
+    expect(readGroupIndex().get("week-of-may-11")?.image).toBe("cover.png");
+  });
+
+  it("deletes: the uploads directory goes with the group", async () => {
+    await seedGroupWithCover();
+
+    await deleteContent<Group, GroupEntryValue, GroupEntryKey>({
+      config: groupContentConfig,
+      slug: "week-of-may-4",
+      indexKey: [day(10), "week-of-may-4"] as GroupEntryKey,
+      contentDirectory,
+    });
+
+    expect(await pathExists(groupUploadPath("week-of-may-4"))).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 22g: a featured entry that points at a group                        */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The other half of D3's amendment, and the reason these live here rather than
+ * in `references.test.ts`: that file pins the *engine's* reference machinery
+ * against a pair of imitation configs, while what is worth pinning about this
+ * edge is the claim **this site's** configs make — that a feature can borrow a
+ * group's name and kind, that the borrow is invalidated in every direction a
+ * group can move, and that a dangle is rendered rather than dropped.
+ *
+ * A featured group is a plain scalar reference (`dataField: "group"`), which is
+ * what makes any of it work: `items[].recipe` is the array the engine cannot
+ * address, and this is not that.
+ */
+describe("a featured group (22g)", () => {
+  const FEATURE_DATE = day(30);
+
+  async function seedFeaturedWeek() {
+    await seedTwoRecipesAndAGroup();
+    return createFeature("featured-week", {
+      group: "week-of-may-4",
+      date: FEATURE_DATE,
+      note: "A featured meal plan.",
+    });
+  }
+
+  it("borrows the group's name and kind, and nothing from recipes", async () => {
+    await seedFeaturedWeek();
+
+    /*
+     * `recipe` and `recipeName` are absent, not empty strings: the write path
+     * only ever writes the key that is set, and `resolveReferences` leaves an
+     * unset `dataField` alone rather than resolving it. That is what makes one
+     * index value serve both kinds of feature without a discriminator field.
+     */
+    expect(readFeaturedIndex().get("featured-week")).toEqual({
+      group: "week-of-may-4",
+      groupName: "Week of May 4",
+      groupKind: "meal-plan",
+      note: "A featured meal plan.",
+      recipe: undefined,
+      recipeName: undefined,
+      recipeImage: undefined,
+    });
+  });
+
+  it("does not borrow the group's image (22h)", async () => {
+    await createRecipe("soup", "Soup", day(1));
+    await createRecipe("stew", "Stew", day(2));
+    await createGroup(
+      "week-of-may-4",
+      { ...WEEK, image: "cover.png" },
+      { image: { file: new File(["not really a png"], "cover.png") } },
+    );
+    await createFeature("featured-week", {
+      group: "week-of-may-4",
+      date: FEATURE_DATE,
+      note: "A featured meal plan.",
+    });
+
+    /*
+     * The borrow list is still `["name", "kind"]` (22h, deliberately). A
+     * featured card shows the picture, but it gets it the way every group card
+     * without a list entry does — `GroupThumbnail` reads the group under
+     * `item:groups:<slug>`, which every group write fires. Borrowing it would
+     * add a third field to the declaration and bump the featured index to v3
+     * to save one cached read on one card.
+     */
+    const value = readFeaturedIndex().get("featured-week");
+    expect(value).not.toHaveProperty("groupImage");
+    expect(value?.groupName).toBe("Week of May 4");
+    expect(value?.groupKind).toBe("meal-plan");
+  });
+
+  it("re-titles: the borrowed name and the featured page both move", async () => {
+    await seedFeaturedWeek();
+    const hashesBefore = storedFeaturedPageHashes();
+
+    const result = await updateGroup("week-of-may-4", day(10), {
+      ...WEEK,
+      name: "Renamed Week",
+    });
+
+    /*
+     * The whole point of borrowing. `name` is in the `references` declaration,
+     * so the gate opens on a write that did not rename anything, the dependent
+     * is rebuilt, and — because `groupName` is projected — the featured page
+     * that shows this card is dirty. Before 22g none of that reached featured
+     * recipes at all, because groups declared no `referencedBy`.
+     */
+    expect(result.dependents).toHaveLength(1);
+    expect(result.dependents[0].contentType).toBe("featured-recipes");
+    expect(result.dependents[0].updatedSlugs).toEqual(["featured-week"]);
+
+    expect(readFeaturedIndex().get("featured-week")?.groupName).toBe(
+      "Renamed Week",
+    );
+    expect(storedFeaturedPageHashes()).not.toEqual(hashesBefore);
+  });
+
+  it("renames: the feature's own data file follows the slug", async () => {
+    await seedFeaturedWeek();
+
+    await updateContent<Group, GroupEntryValue, GroupEntryKey>({
+      config: groupContentConfig,
+      slug: "week-of-may-11",
+      currentSlug: "week-of-may-4",
+      currentIndexKey: [day(10), "week-of-may-4"] as GroupEntryKey,
+      data: WEEK,
+      contentDirectory,
+    });
+
+    // Rewritten on disk, not merely in the index: the reference is stored in
+    // the dependent's own file, so a rename that only fixed the index would
+    // leave the next rebuild pointing at a slug that no longer exists.
+    expect((await readFeatureFile("featured-week")).group).toBe(
+      "week-of-may-11",
+    );
+    expect(readFeaturedIndex().get("featured-week")?.group).toBe(
+      "week-of-may-11",
+    );
+    expect(readFeaturedIndex().get("featured-week")?.groupName).toBe(
+      "Week of May 4",
+    );
+  });
+
+  it("deletes: the borrowed values clear and the slug stays, so the card dangles", async () => {
+    await seedFeaturedWeek();
+
+    const result = await deleteContent<Group, GroupEntryValue, GroupEntryKey>({
+      config: groupContentConfig,
+      slug: "week-of-may-4",
+      indexKey: [day(10), "week-of-may-4"] as GroupEntryKey,
+      contentDirectory,
+    });
+
+    expect(result.dependents[0].updatedSlugs).toEqual(["featured-week"]);
+
+    /*
+     * The state `/featured-recipes` renders as "Group not found". Keeping the
+     * slug is deliberate on the engine's part — a delete clears what was
+     * borrowed and leaves the reference — and it is what lets the card say
+     * which group has gone rather than quietly disappearing, which would make
+     * the deletion look like it had taken the feature with it.
+     */
+    const value = readFeaturedIndex().get("featured-week");
+    expect(value?.group).toBe("week-of-may-4");
+    expect(value?.groupName).toBeUndefined();
+    expect(value?.groupKind).toBeUndefined();
+    expect((await readFeatureFile("featured-week")).group).toBe(
+      "week-of-may-4",
+    );
+  });
+
+  it("leaves a featured group alone when only an unborrowed field changes", async () => {
+    await seedFeaturedWeek();
+    const hashesBefore = storedFeaturedPageHashes();
+
+    // `description` is not in the declaration, and neither is `items` — a
+    // featured card prints a name and a kind, and the member thumbnail it also
+    // shows is a render-time read under `item:groups:<slug>`, not a borrow.
+    const result = await updateGroup("week-of-may-4", day(10), {
+      ...WEEK,
+      description: "Three dinners, one shop.",
+    });
+
+    expect(result.dependents).toEqual([]);
+    expect(storedFeaturedPageHashes()).toEqual(hashesBefore);
+  });
+});

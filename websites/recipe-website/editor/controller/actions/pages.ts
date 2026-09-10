@@ -19,6 +19,7 @@ import getPageBySlug from "@discontent/pages-collection/controller/data/read";
 import slugify from "@sindresorhus/slugify";
 import { z } from "zod";
 import { authenticateUser } from "./shared";
+import { pageDeleteSuccessConfig, pageSuccessConfig } from "../successConfigs";
 
 /*
  * Pages' write path.
@@ -55,20 +56,8 @@ const pageEditorConfig: EditorContentConfig<
   ParsedPageFormData
 > = {
   contentConfig: pageContentConfig,
-  successConfig: {
-    // Pages render at the site root ("/about"), not under a prefix, so
-    // itemBasePath is empty and the redirect target is "/" + slug. Keeping that
-    // exact target matters: `pages.spec.ts` asserts the rendered page
-    // immediately after creating it.
-    itemBasePath: "",
-    listPaths: [{ path: "/pages" }],
-    redirectTo: (slug: string) => "/" + slug,
-  },
-  deleteSuccessConfig: {
-    itemBasePath: "",
-    listPaths: [{ path: "/pages" }],
-    redirectTo: () => "/pages",
-  },
+  successConfig: pageSuccessConfig,
+  deleteSuccessConfig: pageDeleteSuccessConfig,
 
   parseFormData: (formData: FormData) => {
     const validated = parsePageFormData(formData);

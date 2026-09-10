@@ -18,6 +18,30 @@ import parseFeaturedRecipeFormData, {
 import type { EditorContentConfig } from "@discontent/cms/content/editorContentConfig";
 import { createGenericActions } from "@discontent/cms/content/genericActions";
 import { authenticateUser } from "./shared";
+import { featuredRecipeSuccessConfig } from "../successConfigs";
+
+/**
+ * The parsed form, as a featured-recipe record. The one place the shape is
+ * assembled, following `buildGroupData`'s lead.
+ *
+ * **Only the key that is set is written.** The parser guarantees exactly one of
+ * them, and spreading conditionally rather than assigning `undefined` keeps the
+ * *other* key out of the JSON altogether — so a record on disk says what it
+ * features rather than saying it features nothing twice, and re-featuring a
+ * recipe on an entry that used to name a group leaves no `"group": null` behind
+ * for `resolveReferences` to walk.
+ */
+function buildFeaturedRecipeData(
+  parsed: ParsedFeaturedRecipeFormData,
+  date: number,
+): FeaturedRecipe {
+  return {
+    ...(parsed.recipe && { recipe: parsed.recipe }),
+    ...(parsed.group && { group: parsed.group }),
+    date,
+    note: parsed.note,
+  };
+}
 
 const featuredRecipeEditorConfig: EditorContentConfig<
   FeaturedRecipe,
@@ -28,35 +52,7 @@ const featuredRecipeEditorConfig: EditorContentConfig<
   ParsedFeaturedRecipeFormData
 > = {
   contentConfig: featuredRecipeContentConfig,
-  successConfig: {
-    itemBasePath: "/featured-recipe",
-    /*
-     * Empty because `/featured-recipes` and `/featured-recipes/[page]` read
-     * through the pagination index, and `revalidatePaginationResults`
-     * invalidates exactly the pages a write actually changed — where a blanket
-     * `revalidatePath` dropped every sealed page on every feature.
-     *
-     * `paginationOnly` is on since F19, for the reason set out at length on the
-     * recipe config: every reader on `/` now carries a tag, the hero's item
-     * read having been the last holdout.
-     *
-     * A featured write matters to the homepage in two ways, and both are
-     * covered by the featured head tag this write already fires. It changes
-     * what the strip lists, and it changes *which* recipe the hero renders —
-     * because the hero prefers the newest featured recipe. The second needs no
-     * special case: the hero is not a cached page, only its read is cached and
-     * keyed by slug, so a new hero is a different cache key rather than a stale
-     * entry. The chosen slug comes from the head above.
-     *
-     * This config has no `deleteSuccessConfig`, so a feature *delete* runs
-     * through here too and redirects to `/`. With the flag on, the featured
-     * head tag alone has to carry that — which is worth knowing, and is why
-     * `featured-recipes.spec.ts` covers a delete removing the card from `/`.
-     */
-    listPaths: [],
-    paginationOnly: true,
-    redirectTo: () => "/",
-  },
+  successConfig: featuredRecipeSuccessConfig,
   label: "featured recipe",
   // Auth is injected rather than imported: the factory lives in
   // @discontent/cms and cannot reach this app\'s `@/auth` alias. Required by
@@ -82,23 +78,13 @@ const featuredRecipeEditorConfig: EditorContentConfig<
     const slug = slugify(
       parsed.slug || createDefaultFeaturedRecipeSlug({ date }),
     );
-    const data: FeaturedRecipe = {
-      recipe: parsed.recipe,
-      date,
-      note: parsed.note,
-    };
-    return { slug, data };
+    return { slug, data: buildFeaturedRecipeData(parsed, date) };
   },
 
   async buildUpdateData(parsed, currentSlug, currentDate) {
     const slug = slugify(parsed.slug || currentSlug);
     const date = parsed.date || currentDate || Date.now();
-    const data: FeaturedRecipe = {
-      recipe: parsed.recipe,
-      date,
-      note: parsed.note,
-    };
-    return { slug, data };
+    return { slug, data: buildFeaturedRecipeData(parsed, date) };
   },
 
   buildCurrentIndexKey(currentDate, currentSlug) {

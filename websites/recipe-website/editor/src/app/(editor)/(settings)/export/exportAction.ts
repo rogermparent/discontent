@@ -2,7 +2,7 @@
 
 import { commandAction } from "@/app/(recipes)/scriptAction";
 import { readSettings } from "@/settings";
-import { rebuildRecipeIndex } from "recipe-editor/controller/actions";
+import { rebuildAllIndexes } from "recipe-editor/controller/actions";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { ensureSymlink } from "fs-extra";
 import { resolve } from "path";
@@ -16,8 +16,16 @@ export async function buildExport() {
    * directory that predates the index, or one restored from a backup taken
    * before it, would otherwise ship an empty `/recipes` with no error at all.
    * `rebuildIndex` forces a pagination rebuild alongside the content index.
+   *
+   * **Every** type, not just recipes (T9/22b). This called `rebuildRecipeIndex`,
+   * whose blast radius is deliberately recipes plus the featured recipes its
+   * cascade reaches — and groups are nobody's dependent (D3), so an unbuilt
+   * groups index survived the rebuild and the export shipped an empty `/groups`
+   * in exactly the way the paragraph above says it must not. Pages were in the
+   * same position and had been since they landed; nothing noticed because
+   * pages declare no index to be empty.
    */
-  await rebuildRecipeIndex();
+  await rebuildAllIndexes();
 
   await ensureSymlink(
     resolve(contentDirectory, "transformed-images"),

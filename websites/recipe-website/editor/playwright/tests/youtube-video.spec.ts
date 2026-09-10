@@ -29,11 +29,11 @@ test.describe("YouTube Video Support", () => {
           youtubeUrl,
         );
 
+        // The description no longer opens with an "Imported from" line (D7);
+        // the citation is the `source` block, filled in by the same import.
         await expect(
-          page.locator('#recipe-form [name="description"]'),
-        ).toHaveValue(
-          new RegExp(`Imported from \\[${youtubeUrl.replace(/\?/g, "\\?")}`),
-        );
+          page.locator('#recipe-form [name="source.url"]'),
+        ).toHaveValue(youtubeUrl);
 
         await page.getByLabel("Name").fill("Direct YouTube Import Test");
         await page.getByRole("button", { name: "Submit" }).click();

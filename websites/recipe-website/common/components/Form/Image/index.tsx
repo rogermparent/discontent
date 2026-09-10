@@ -7,14 +7,29 @@ import { CheckboxInput } from "@discontent/component-library/components/Form/inp
 import { StaticImageProps } from "@discontent/next-static-image/src";
 import { Button } from "@discontent/component-library/components/ui/button";
 
+/**
+ * The file input, its preview and the "Remove Image" checkbox.
+ *
+ * `name="image"` and `name="clearImage"` are fixed: every form that has an
+ * image parses those two keys (recipes since the start, groups since 22h). What
+ * is *not* fixed since 22h is the element id and the existing image's alt text
+ * — a page with a group form on it should not carry an input called
+ * `recipe-form-image`, and a screen reader should not be told the group's
+ * picture is a recipe's. Both default to what recipes have always sent, so the
+ * three recipe call sites are unchanged.
+ */
 export function ImageInput({
   defaultImage,
   errors,
   imageToImport,
+  id = "recipe-form-image",
+  existingAlt = "Existing Recipe Image",
 }: {
   defaultImage?: StaticImageProps;
   errors: string[] | undefined;
   imageToImport?: string;
+  id?: string;
+  existingAlt?: string;
 }) {
   const [imagePreviewURL, setImagePreviewURL] = useState<string>();
 
@@ -33,7 +48,7 @@ export function ImageInput({
       <FileInput
         label="Image"
         name="image"
-        id="recipe-form-image"
+        id={id}
         errors={errors}
         ref={fileInputRef}
         onChange={(e) => {
@@ -92,11 +107,7 @@ export function ImageInput({
             <input type="hidden" value={imageToImport} name="imageImportUrl" />
           </div>
         ) : defaultImage ? (
-          <Image
-            {...defaultImage.props}
-            alt="Existing Recipe Image"
-            unoptimized={true}
-          >
+          <Image {...defaultImage.props} alt={existingAlt} unoptimized={true}>
             {null}
           </Image>
         ) : null}

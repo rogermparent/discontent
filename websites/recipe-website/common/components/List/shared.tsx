@@ -34,12 +34,20 @@ export function RecipeCardTagHint({ tags }: { tags?: string[] }) {
 export function RecipeCard({
   children,
   className = "",
+  testId,
 }: {
   children: ReactNode;
   className?: string;
+  /**
+   * Optional `data-testid` on the card itself (22g, for the featured group
+   * card). Omitted renders no attribute at all, so every existing card's markup
+   * is unchanged — which is what keeps the visual baselines still.
+   */
+  testId?: string;
 }) {
   return (
     <div
+      data-testid={testId}
       className={`rounded-lg bg-card text-card-foreground border border-border overflow-hidden w-full h-full text-sm ${className}`}
     >
       {children}

@@ -13,7 +13,9 @@ import { useQuery } from "@tanstack/react-query";
 import { Document } from "flexsearch";
 import IdxDB from "flexsearch/db/indexeddb";
 import { MassagedRecipeEntry } from "../../controller/data/read";
+import type { GroupSearchEntry } from "../../controller/data/readGroupSearchCorpus";
 import {
+  fieldMatches,
   filterUsesField,
   fold,
   matchesFilter,
@@ -185,6 +187,17 @@ async function fetchIngredients(): Promise<Record<string, string[]>> {
   return res.json();
 }
 
+/**
+ * Every group, small enough to fetch unconditionally beside the display corpus
+ * (22f). Two things need it before any query is typed — the idle browse rail
+ * and the group strip — so there is no condition to gate it on that would ever
+ * be false on `/search`.
+ */
+async function fetchGroups(): Promise<GroupSearchEntry[]> {
+  const res = await fetch("/search/groups");
+  return res.json();
+}
+
 async function fetchIndexVersion(): Promise<string> {
   const res = await fetch("/search/version");
   const { version } = (await res.json()) as { version: string };
@@ -206,6 +219,20 @@ export interface SearchContextValue {
   allRecipes: MassagedRecipeEntry[];
   /** Unique tags across the whole corpus, sorted alphabetically. */
   allTags: string[];
+  /** Every group, newest first — the browse rail and the group strip read this. */
+  allGroups: GroupSearchEntry[];
+  /**
+   * The group document has resolved (or failed). `group:` filters cannot be
+   * answered before it does, exactly as `ingredient:` cannot be answered before
+   * the ingredients land.
+   */
+  groupsSettled: boolean;
+  /**
+   * Groups the query's **free text** matches on name or description — never its
+   * filters, which narrow recipes rather than selecting groups. Empty whenever
+   * the query has no free text in it.
+   */
+  matchedGroups: GroupSearchEntry[];
   /**
    * Results to display: the engine's ranked matches for the query's free text
    * (or the whole corpus, when it has none), narrowed by the query's filter.
@@ -332,9 +359,59 @@ export function SearchProvider({ children }: SearchProviderProps) {
     queryFn: fetchAllRecipes,
     staleTime: Infinity,
   });
+
+  // Step 3a: fetch the groups. Unconditional like the display corpus and for
+  // the same reason — the idle rail and the group strip both render from it
+  // before anything is typed — but a separate document, because a group write
+  // moves this and moves nothing on `/search/all` (22f).
+  const groupsQuery = useQuery({
+    queryKey: ["groups"],
+    queryFn: fetchGroups,
+    staleTime: Infinity,
+  });
+  const allGroups = useMemo(() => groupsQuery.data ?? [], [groupsQuery.data]);
+  // Settled, not successful, for the ingredients' reason: a failed fetch must
+  // let the pipeline move rather than leaving `group:` pending forever.
+  const groupsSettled = groupsQuery.isSuccess || groupsQuery.isError;
+
+  /**
+   * Recipe slug → the group strings a `group:` term may match: each membership
+   * contributes both the group's slug and its name, so
+   * `group:weeknight-favourites` and `group:weeknight` both find it.
+   */
+  const groupsByRecipe = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const group of allGroups) {
+      for (const slug of group.recipes) {
+        const existing = map.get(slug);
+        if (existing) {
+          existing.push(group.slug, group.name);
+        } else {
+          map.set(slug, [group.slug, group.name]);
+        }
+      }
+    }
+    return map;
+  }, [allGroups]);
+
+  const decorateGroups = useCallback(
+    (recipes: MassagedRecipeEntry[]): MassagedRecipeEntry[] => {
+      if (groupsByRecipe.size === 0) return recipes;
+      return recipes.map((recipe) => {
+        const groups = groupsByRecipe.get(recipe.slug);
+        return groups ? { ...recipe, groups } : recipe;
+      });
+    },
+    [groupsByRecipe],
+  );
+
+  // Decorated *here*, ahead of `allTags`, `allRecipes` and the FlexSearch
+  // populate, so every consumer downstream sees one corpus rather than two
+  // shapes of it. `groups` is never an indexed field — it rides along in the
+  // document store, and the filter reads it from there.
   const displayRecipes = useMemo(
-    () => recipesQuery.data ?? [],
-    [recipesQuery.data],
+    () => decorateGroups(recipesQuery.data ?? []),
+    [recipesQuery.data, decorateGroups],
   );
 
   // Unique corpus tags, sorted — drives the filter rail and tag suggestions.
@@ -404,6 +481,12 @@ export function SearchProvider({ children }: SearchProviderProps) {
     [filter],
   );
   const needsIngredients = needsRefetch || filterNeedsIngredients;
+  // The same gate for groups. The document itself is fetched unconditionally,
+  // so this only decides whether the *results* may be shown before it lands.
+  const filterNeedsGroups = useMemo(
+    () => filterUsesField(filter, "group"),
+    [filter],
+  );
   const ingredientsQuery = useQuery({
     queryKey: ["recipe-ingredients"],
     queryFn: fetchIngredients,
@@ -530,20 +613,61 @@ export function SearchProvider({ children }: SearchProviderProps) {
   // out of the `document.index` declaration order above, so there is no JS
   // re-tiering pass here. Filtering preserves that order.
   const displayedRecipes = useMemo(() => {
-    const base = searchText ? searchedRecipes : allRecipes;
+    /*
+     * The engine's hits are re-decorated rather than trusted to carry `groups`.
+     * They come back out of the FlexSearch document *store*, which is persisted
+     * in IndexedDB and only rewritten when the recipe corpus version moves — and
+     * a group write does not move it. Without this, creating a group and then
+     * running `chicken group:new-plan` would answer nothing until something
+     * unrelated touched a recipe. The browse path (`allRecipes`) is already
+     * decorated upstream; this is the one place stale storage can leak in.
+     */
+    const base = searchText
+      ? searchedRecipes && decorateGroups(searchedRecipes)
+      : allRecipes;
     if (!base || !filter) return base;
     // An `ingredient:` filter evaluated before its document arrives would match
     // nothing and read as an honest empty result. Stay pending instead.
     if (filterNeedsIngredients && !ingredientsSettled) return undefined;
+    // Same for `group:` and the group document.
+    if (filterNeedsGroups && !groupsSettled) return undefined;
     return base.filter((recipe) => matchesFilter(recipe, filter));
   }, [
     searchText,
     filter,
     searchedRecipes,
     allRecipes,
+    decorateGroups,
     filterNeedsIngredients,
     ingredientsSettled,
+    filterNeedsGroups,
+    groupsSettled,
   ]);
+
+  /**
+   * The groups the query's free text matches, for the `/search` strip and the
+   * palette's Groups rows.
+   *
+   * **Every** word must match the name or the description — the AND semantics
+   * free text has everywhere else in this app — and a filter never selects a
+   * group: `tag:dessert` narrows recipes, and answering it with a list of
+   * groups that happen to contain a dessert would be a different question than
+   * the one that was asked.
+   */
+  const matchedGroups = useMemo(() => {
+    const words = searchText
+      .split(/\s+/)
+      .map((word) => fold(word))
+      .filter(Boolean);
+    if (words.length === 0) return [];
+    return allGroups.filter((group) =>
+      words.every(
+        (word) =>
+          fieldMatches(group.name, word) ||
+          (!!group.description && fieldMatches(group.description, word)),
+      ),
+    );
+  }, [searchText, allGroups]);
 
   // Results aren't ready yet: either free text is active and the index is still
   // building or the engine is still running, or the filter needs the
@@ -551,7 +675,8 @@ export function SearchProvider({ children }: SearchProviderProps) {
   // (`tag:dessert`) reaches neither, so it is never "searching".
   const isSearching =
     (!!searchText && (!indexPopulated || searchedRecipes === undefined)) ||
-    (filterNeedsIngredients && !ingredientsSettled);
+    (filterNeedsIngredients && !ingredientsSettled) ||
+    (filterNeedsGroups && !groupsSettled);
 
   const setInputValue = useCallback((value: string) => {
     writeSession(INPUT_KEY, value);
@@ -614,10 +739,11 @@ export function SearchProvider({ children }: SearchProviderProps) {
   const retry = useCallback(() => {
     versionQuery.refetch();
     recipesQuery.refetch();
+    groupsQuery.refetch();
     // Only refetches if it is currently enabled, which is what we want: there
     // is nothing to retry when nothing wanted the ingredients.
     ingredientsQuery.refetch();
-  }, [versionQuery, recipesQuery, ingredientsQuery]);
+  }, [versionQuery, recipesQuery, groupsQuery, ingredientsQuery]);
 
   // Surface failures from the version check, either corpus fetch. The
   // ingredients belong here rather than being swallowed: without them the index
@@ -639,6 +765,9 @@ export function SearchProvider({ children }: SearchProviderProps) {
       searchedRecipes,
       allRecipes,
       allTags,
+      allGroups,
+      groupsSettled,
+      matchedGroups,
       displayedRecipes,
       toggleTagTerm,
       indexReady,
@@ -662,6 +791,9 @@ export function SearchProvider({ children }: SearchProviderProps) {
       searchedRecipes,
       allRecipes,
       allTags,
+      allGroups,
+      groupsSettled,
+      matchedGroups,
       displayedRecipes,
       toggleTagTerm,
       indexReady,

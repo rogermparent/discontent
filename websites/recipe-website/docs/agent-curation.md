@@ -1,0 +1,3046 @@
+# Recipe Website Agent Curation — "Claude Code as curator"
+
+> **This is the durable source of truth for the multi-phase agent-curation
+> work.** It persists in-repo so a fresh session (with cleared context) can
+> rebuild the full picture by reading this file. **Read this file first** before
+> planning any `22x` phase: the plan file that seeded it is gone. Update the
+> roadmap **Status** column, each phase's decision checkboxes, and the **Next
+> PR** line at every phase boundary. Each phase is a stacked PR and gets its own
+> plan-mode pass seeded from this doc (see _How a phase is run_).
+
+Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded.
+
+## Why this exists
+
+The recipe website (`websites/recipe-website`: `common/`, the `editor/` Next.js
+CMS, the `export/` static site, all on the `@discontent/cms` engine) can only
+be written through browser forms. The goal is to let **Claude Code act as a
+curator**: given an ask like _"three vegetarian dinners under 45 minutes for
+this week"_, search the web, import recipes **with a citation**, tag them, and
+group them into a **meal plan** the user can see in the site now and later.
+
+Writes land in a content directory — locally the `editor/content` symlink →
+the separate `recipe-content` git repo (437 recipes at the time of writing) —
+and, in a later phase, on a live editor server over HTTP.
+
+Decisions already made with the user (2026-09-03):
+
+- **Local CLI first; remote HTTP API is a later phase** (the work can stop
+  before it).
+- **Meal plans are ordered item lists with free-text labels**
+  (`{recipe, label?: "Mon · Dinner", note?}`), not a day/meal grid.
+- **Interface is a CLI plus a committed Claude Code skill**, not an MCP server.
+
+## Execution model
+
+**One phase per session.** Between phases the user re-enters plan mode and
+clears context when accepting the next phase's plan. This doc is the only
+memory that survives: it holds the full D-list, T-list, every phase's detail,
+the handoff procedure, and each closed phase's decisions and gate results.
+
+The roles: **Fable plans and reviews; an Opus subagent implements.** Branches
+are stacked: `content-engine-test` → `agent/22a-provenance` →
+`agent/22b-groups` → `agent/22c-curator-cli` → `agent/22d-remote-write` →
+`agent/22e-curator-skill` → `agent/22f-group-discovery` →
+`agent/22g-featured-groups` → `agent/22h-group-image`. Rebase children after
+a parent merges. Never push to main; never force-push; never merge.
+
+## How a phase is run
+
+_(Reproduced verbatim from the accepted plan so a fresh session follows the
+same procedure.)_
+
+1. **Step 0 (Fable, done once):** enter a worktree; create this doc from the
+   plan; add one pointer row (`22`) to ui-overhaul's roadmap table; commit as
+   the first commit of `agent/22a-provenance`; save a memory recording the
+   workflow.
+2. **Implement (Opus subagent):** Fable spawns one general-purpose subagent
+   with `model: "opus"`, working in the same worktree on the phase branch. The
+   prompt = the doc's phase section + D-list + T-list + the "key files to read
+   first" list + the phase's verification commands. The subagent implements,
+   runs the verification, and reports back: files changed, what was verified
+   with outputs, divergences from the section and why, anything it could not
+   finish.
+3. **Review (Fable):** read the full diff; rerun typecheck, vitest, and the
+   phase's Playwright specs; correctness review (reference bugs,
+   cache-invalidation gaps, import-cycle/`"use server"` violations, missing
+   tests); fix small things directly, send larger issues back to the same
+   subagent via SendMessage. Then close out the doc: roadmap row → ✅, record
+   decisions made and divergences, gate results verbatim (counts, dev vs
+   production mode), new follow-ups; set the next row to 🟡 with its "Next PR"
+   line. Commit, push the branch, open a draft PR against the parent branch.
+   Report to the user with the PR link and the doc path, and stop: the next
+   phase starts in a fresh plan-mode session from the doc.
+4. Branches are stacked: `content-engine-test` → `agent/22a-provenance` →
+   `agent/22b-groups` → `agent/22c-curator-cli` → `agent/22d-remote-write` →
+   `agent/22e-curator-skill` → `agent/22f-group-discovery` →
+   `agent/22g-featured-groups` → `agent/22h-group-image`. Rebase children
+   after a parent merges.
+   Never push to main; never force-push; never merge.
+
+## Decisions log (D-list)
+
+- **D1 Five stacked PRs.** Provenance (`source`) is split from groups: small
+  change first, then the new content type, then the CLI, then remote, then the
+  skill.
+- **D2 Group routes:** list `/groups` + `/groups/[page]`, item `/group/[slug]`,
+  `/group/new`, `/group/[slug]/edit`. `createPaginatedIndexRoute`
+  (`packages/cms/pagination/next/createPaginatedIndexRoute.ts`) owns `[page]`
+  under the list path, so `/groups/[slug]` would collide. Same split as
+  `/featured-recipes` + `/featured-recipe/[slug]`.
+- **D3 Groups declare no `references`/`referencedBy` in v1.** The engine's
+  reference machinery is scalar-only (`packages/cms/content/references.ts:205`,
+  `updateDependents.ts:235,320`). Group pages resolve items through the cached
+  recipe item read, so retitles show; a recipe rename/delete leaves a dangling
+  slug rendered tolerantly ("Recipe not found: slug"). Array references are
+  deferred as engine follow-up **F32**. _Amended for 22g (2026-09-06):_ the
+  "no `referencedBy`" half was about array references. A featured entry
+  pointing at a group is a **scalar** reference (`dataField: "group"`), so
+  22g adds `groupContentConfig.referencedBy = [{config: () =>
+featuredRecipeContentConfig, indexField: "group"}]` (thunk). Groups still
+  declare no array `references` of their own.
+- **D4 "Appears in" is an aggregate** `groupsByRecipe`
+  (`Record<recipeSlug, {slug, name, kind, label?}[]>`) folded from the groups
+  index, shaped like `recipesByTag` in `common/controller/aggregateConfigs.ts`.
+- **D5 Group schema:**
+  ```ts
+  type GroupKind = "meal-plan" | "collection";
+  interface GroupItem {
+    recipe: string;
+    label?: string;
+    note?: string;
+  }
+  interface Group {
+    name: string;
+    date: number;
+    kind: GroupKind;
+    description?: string;
+    items: GroupItem[];
+    [k: string]: unknown;
+  }
+  type GroupEntryKey = [date: number, slug: string];
+  interface GroupEntryValue {
+    name: string;
+    kind: GroupKind;
+    items: Pick<GroupItem, "recipe" | "label">[];
+  }
+  ```
+  Data at `groups/data/<slug>/group.json`. No tags on groups in v1.
+  _Amended for 22h (2026-09-08):_ `Group.image?: string` and
+  `GroupEntryValue.image?: string` (a file name under the group's uploads
+  directory, `uploads/group/<slug>/uploads/<image>`, like `Recipe.image`);
+  `groupsByDate` is spec version `"2"` with `image` on the list entry. See
+  D14.
+- **D6 `source` lives on the recipe data file only**, not on
+  `RecipeEntryValue`: no index-shape change, no fixture regen, no
+  `SEARCH_DB_NAME` bump, no specVersions churn. `source:` search field
+  deferred.
+  ```ts
+  interface RecipeSource {
+    url: string;
+    name?: string;
+    author?: string;
+  }
+  // Recipe.source?: RecipeSource
+  ```
+- **D7 Stop emitting the `*Imported from …*` description line** once `source`
+  exists (three emitters: both branches of `common/util/importRecipeData.ts`,
+  and `formatYouTubeDescription` in
+  `editor/src/app/(recipes)/new-recipe/common.tsx`). Existing recipes
+  untouched; migration deferred.
+- **D8 CLI in `editor/cli/`; transport-agnostic logic in
+  `editor/controller/curation/`.** The editor owns the registry
+  (`editor/controller/contentTypes.ts`) and already runs engine code under
+  `tsx`; `.npmrc` `shamefully-hoist=true` makes common's deps resolve under
+  plain Node. **Import allow-list for `controller/curation/*`** (enforced by
+  `test/curation.test.ts`'s import-boundary case): `node:*`, `path`,
+  `fs-extra`, `zod`, `simple-git`, `@sindresorhus/slugify`,
+  `@discontent/cms/content/*`, `@discontent/cms/aggregates/*`,
+  `@discontent/cms/git/commit`,
+  `recipe-website-common/controller/{types,recipeContentConfig,groupContentConfig,createSlug,createGroupSlug,normalizeTags,aggregateConfigs,tagSlug,data/read,data/readGroups}`
+  (`data/read` **type-only** — its `getAllTags`/`getSearchCorpus` are
+  Next-only), `recipe-website-common/components/SearchForm/queryLanguage`
+  (pure; only imports `tagSlug`), `recipe-website-common/util/*`, `./*`,
+  `../contentTypes`. **Never** `next/*`, `@/*`, `controller/actions/*`, the
+  cached reads
+  `data/read{RecipeItem,RecipeTags,RecipeTagIndex,GroupPages,GroupsByRecipe,RecipePages,FeaturedRecipePages}`
+  (`unstable_cache` throws outside Next, see
+  `packages/cms/content/next/cachedItemRead.ts:47`),
+  `@discontent/cms/*/next/*`, or the symbols `getAllTags`/`getSearchCorpus`.
+  Every curation function takes `ctx: {contentDirectory, author?}` first
+  (T16).
+- **D9 `genericActions` refactor (22d):** split `handleContentSuccess` in
+  `packages/cms/content/genericActions.ts` into an exported
+  `revalidateContentWrite(config, contentType, result, slug, currentSlug?)`
+  (everything except the final `redirect`) plus the existing wrapper. Success
+  configs move out of `"use server"` modules into
+  `editor/controller/successConfigs.ts` (Next rejects non-async exports from
+  `"use server"` files).
+- **D10 API tokens (22d):** stored hashed (SHA-256, secret is 32 random bytes)
+  in the user record `<contentDir>/users/<email>` (the path
+  `editor/src/auth.ts:17` reads). Format `rcp_<id8>_<secret43>`; lookup scans
+  `users/*` for the id, `timingSafeEqual` on the hash; session cookie remains
+  a fallback. Fix in passing: `editor/scripts/create-user.ts:67` writes
+  `<email>.json` but auth reads `<email>` (the live repo's user file has no
+  extension). New `editor/src/users/index.ts` (currently empty) owns the path.
+- **D11 Push stays manual.** The skill ends by telling the user to push from
+  `/git`. `POST /api/git/push` deferred.
+- **D12 `.claude` carve-out (22e).** The root `.gitignore` last stanza is
+  exactly `.claude/*` + `!.claude/skills/` + `!.claude/settings.json`
+  (was a bare `.claude`), so `settings.local.json` and `worktrees/` stay
+  ignored while `.claude/settings.json` and `.claude/skills/**` are tracked;
+  plus a minimal root `CLAUDE.md`.
+
+- **D13 Groups have a cached item read since 22g** (`readGroupItem.ts`,
+  `createCachedItemRead`, tags `item:groups` / `item:groups:<slug>`). Why:
+  every server-rendered group card needs the group's items to pick a member
+  thumbnail, so `/groups` and the homepage section read every listed group's
+  record; the raw `getGroupBySlug` stays the CLI-safe read (T5) and the
+  `readGroups.ts` comment is amended.
+- **D14 Group `image` is on the index and in the search corpus (22h).**
+  Why: the user wants groups' pictures in search ("we'll want to see groups
+  in search at least eventually"), and `/search` results are client-rendered
+  — they can only use what the corpus carries. Payoff: a list card whose
+  group has an image renders it with no group read at all; `GroupThumbnail`
+  reads the group only for the member fallback. The member fallback itself
+  stays server-only (deferred: a precomputed `thumbnail` on the corpus).
+- **D15 No raw-upload route for groups (22h).** Images are only ever served
+  transformed: the editor's `image/[...filePath]` route serves any
+  `transformed-images/…` path, and the export symlinks both
+  `transformed-images → public/image` and `uploads → public/uploads`
+  (`exportAction.ts:30-37`). The recipe
+  `uploads/recipe/[slug]/uploads/[filename]` route exists for **video**
+  (`recipeVideo.ts`), which groups do not carry.
+
+## Traps (T-list; pass to every implementer)
+
+- **T1** `test/specVersions.test.ts` hashes `paginationConfigs.ts` /
+  `aggregateConfigs.ts` whole-file → put group configs in **new files**
+  (`groupPaginationConfig.ts`, `groupAggregateConfigs.ts`, each declaring at
+  least one `version: "1"`) and add two new `it()` blocks with inline
+  snapshots to the test.
+- **T2** `test/derivedPaths.test.ts:130-139` asserts the registry's ignore
+  list exactly → add `/groups/index`, `/groups/pagination`,
+  `/groups/aggregates` to the expectation.
+- **T3** Fixture ordering: seed data + `rebuildIndex` first, then
+  `pnpm tsx scripts/build-fixture-indexes.ts` (it skips a type whose index dir
+  is absent). Check `git status` for stray `groups/` envs in fixtures without
+  groups (precedent: `editor/.gitignore` last stanza).
+- **T4** Configs must never import the registry. Cross-config edges are
+  always thunks (`config: () => otherConfig`) on **both** sides of a cycle:
+  `recipeContentConfig` ↔ `featuredRecipeContentConfig` since 22a, and
+  `groupContentConfig.referencedBy` ↔ `featuredRecipeContentConfig.references`
+  since 22g. A bare import of a config that imports you back is a TDZ error
+  at module evaluation.
+- **T5** No cached (`unstable_cache`) reads from scripts/CLI (D8).
+- **T6** Content repo `.gitignore` (`/home/roger/Projects/recipe-content/.gitignore`)
+  is hand-written; record a manual checklist: paste
+  `derivedContentPaths(recipeContentTypes)` output (the function lives in
+  `packages/cms/content/derivedPaths.ts`; run it via `pnpm tsx -e` from
+  `editor/`), delete stale `groups/featured.json` and `schedules/` (nothing
+  reads them).
+- **T7** `"use server"` modules export only async functions.
+- **T8** Route split per D2.
+- **T9** `editor/src/app/(editor)/(settings)/export/exportAction.ts` only
+  calls `rebuildRecipeIndex()`; groups are not dependents → 22b adds
+  `rebuildAllIndexes()` over the registry.
+- **T10** Catch-all routes (`export (recipes)/[...slug]`, editor
+  `(editor)/(pages)/[...slug]`): explicit `groups`/`group` segments win; a page
+  slugged `groups` is shadowed (acceptable, note it).
+- **T11** `FormData` cannot carry an empty array
+  (`packages/cms/forms/parseFormData.ts:36`) → zod `items` defaults to `[]`.
+- **T12** Root vitest only includes `test/**`; `.claude/worktrees/` has stale
+  checkouts that pollute naive greps.
+- **T13** A fresh worktree is missing two gitignored files and both gates
+  misbehave without them: `editor/.env.local` (no `AUTH_SECRET` → ~40 of 46
+  e2e tests fail at the base commit, pages render as if signed in) and
+  `export/next-env.d.ts` (`tsc --noEmit` fails with `TS18003 No inputs were
+found` because `export/tsconfig.json` has no source globs). Copy both from
+  the main checkout before running anything. _(Found in 22a.)_
+- **T14** Killing a Playwright run mid-flight leaves the editor's LMDB envs
+  stale; the next run fails with `MDB_BAD_RSLOT` / phantom ENOENTs. From
+  `editor/`: `rm -rf test-content test-settings test-remotes test-clones`.
+  _(Found in 22a.)_
+- **T15** `test/revalidateDerived.test.ts` (`"adds only the item catch-alls
+the recipe route was missing"`) asserts the registry-derived tags exactly, so
+  a registry addition moves it: expect it to gain `pagination:groups:by-date`,
+  `aggregate:groups:by-recipe`, `item:groups` — verify the emitted order and
+  paste it. _(Found planning 22b.)_
+
+- **T16** `packages/cms/fs/getContentDirectory.ts` evaluates a module-scope
+  `contentDirectory` const at import time and uses `CONTENT_DIRECTORY`
+  verbatim; setting the env late does nothing. Scripts and the CLI must thread
+  `contentDirectory` explicitly through every engine call (every engine
+  function accepts it). LMDB envs are cached per process
+  (`packages/cms/lmdb/environmentCache.ts`); call `closeCachedEnvironments()`
+  before a process exits or before spawning a child that opens the same
+  content directory. _(Found planning 22c.)_
+
+- **T17** API route files stay thin — parse, authenticate, call
+  `controller/curation/*`, revalidate, respond. A route that imports a cached
+  read (`readRecipeItem` → `unstable_cache`) cannot be loaded under vitest;
+  Playwright covers routes, vitest covers the pure pieces. _(Found planning
+  22d.)_
+- **T18** `playwright/support/tasks.ts` `resetData` is `remove()` then
+  `copy()`, so a request still in flight from the previous page can recreate
+  an LMDB directory in the gap (`EEXIST: mkdir …/test-content/groups/pagination`).
+  Pre-existing for `recipes/pagination`; 22f's unconditional
+  `/search/groups` fetch makes the window reachable from more pages. Seen
+  once in ~8 implementer runs, never in the review reruns. Retry the spec;
+  fix by removing into a renamed directory if it recurs.
+
+- **T19** A Playwright test that writes then navigates must gate on
+  `page.waitForURL(...)`, not on `getByRole("heading", { name })`: heading
+  names match by _substring_, so the edit page's own "Editing Recipe: Third
+  Recipe" satisfies a gate for "Third Recipe" while the write is still in
+  flight, the next `goto` aborts it, the file lands on disk and the
+  revalidation never fires — which reads exactly like broken invalidation
+  (22g thumbnails; `recipe-item-records.spec.ts` documents the same).
+
+## Stacked-PR roadmap
+
+Each branch is off the previous. Rebase children after a parent merges.
+
+| PR  | Branch (← parent)                              | Status  | Scope                                                                                                                                                                                                                                                                                         |
+| --- | ---------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 22a | `agent/22a-provenance` ← `content-engine-test` | ✅ done | This doc; `Recipe.source` provenance; imports fill it; both apps render a citation; the form edits it; drop the "Imported from" line (D7)                                                                                                                                                     |
+| 22b | `agent/22b-groups` ← 22a                       | ✅ done | `groups` content type (meal plans + collections), editor CRUD, export pages, "Appears in" aggregate, `rebuildAllIndexes()`                                                                                                                                                                    |
+| 22c | `agent/22c-curator-cli` ← 22b                  | ✅ done | `pnpm recipes <command>` CLI over a content directory, `--json` output, transport-agnostic `controller/curation/` layer                                                                                                                                                                       |
+| 22d | `agent/22d-remote-write` ← 22c                 | ✅ done | Bearer-token JSON API in the editor that revalidates in-process; CLI HTTP backend + `--notify`; `genericActions` refactor (D9); tokens (D10)                                                                                                                                                  |
+| 22e | `agent/22e-curator-skill` ← 22d                | ✅ done | Committed `.claude/skills/recipe-curator/SKILL.md`, `.claude/settings.json` allow-list, minimal root `CLAUDE.md` (D12)                                                                                                                                                                        |
+| 22f | `agent/22f-group-discovery` ← 22e              | ✅ done | Header "Groups" link, homepage Groups section, `/search` group rail + group results + `group:` term, ⌘K group rows, group page recipe cards                                                                                                                                                   |
+| 22g | `agent/22g-featured-groups` ← 22f              | ✅ done | A featured entry may point at a group (`FeaturedRecipe.group`), featured index v2, group picker in the featured form, mixed homepage strip                                                                                                                                                    |
+| 22h | `agent/22h-group-image` ← 22g                  | ✅ done | Group `image` field: schema + group index v2 (on the index and in the search corpus, D14), uploads under `uploads/group/<slug>/uploads`, `ImageInput` on the group form, `GroupImage`, precedence completed, search-result cards show it, CLI `--image-url` import; no raw-upload route (D15) |
+
+## Phase detail
+
+### PR 22a — Provenance `agent/22a-provenance` ✅ done
+
+Goal: recipes carry `source`; imports fill it; both apps render a citation;
+the form edits it.
+
+Modify:
+
+- `common/controller/types.ts` — `RecipeSource`, `Recipe.source?`.
+- `common/util/importRecipeData.ts` — `RecipeLD` gains `author`
+  (string | {name} | array) and `publisher {name}`; `extractAuthorName()`; set
+  `source: { url, name: publisher?.name ?? hostname-without-www, author }` on
+  both return paths; drop the "Imported from" prefix (D7).
+- `editor/src/app/(recipes)/new-recipe/common.tsx` — YouTube branch sets
+  `source: { url, name: "YouTube", author: channel }`; description keeps
+  channel + text without the prefix line.
+- `editor/controller/parseFormData.ts` — optional `source` object (`url`
+  validated as URL when present; whole object → `undefined` when url blank).
+- `editor/controller/actions/index.ts` — `buildRecipeData` passes `source`;
+  `formDataFromParsed` carries it.
+- `common/controller/formState.ts` — `RecipeFormData.source?`.
+- `common/components/Form/index.tsx` — "Source" block (`source.url`,
+  `source.name`, `source.author` text inputs, wired like `recipeYield`) in the
+  Advanced section; default values include `source`.
+- `common/components/View/index.tsx` + new `View/SourceLine.tsx` —
+  `Source: <a rel="nofollow noopener">name ?? hostname</a> · author`,
+  `data-testid="recipe-source"`, under the description.
+- `common/components/View/JsonLD/index.tsx` — `isBasedOn = source.url`.
+
+Tests: new `test/importRecipeSource.test.ts` (node env, stubbed `fetch`;
+author string/object/array, publisher present/absent, no "Imported from"
+prefix). Playwright: extend `editor/playwright/tests/new-recipe.spec.ts`
+import case (add author/publisher to the `importable-uploads` fixture's
+`naan.html` JSON-LD) to assert `recipe-source`; one manual-entry +
+edit-preserves case in `recipe.spec.ts`.
+
+Verify: `pnpm --filter recipe-editor typecheck`;
+`pnpm --filter recipe-website exec tsc --noEmit`; `pnpm exec vitest run` (no
+snapshot moves); `pnpm --filter recipe-editor e2e-dev -- new-recipe.spec recipe.spec`.
+No fixture regeneration.
+
+Decisions / close-out _(2026-09-04, implemented by an Opus subagent, reviewed
+by Fable; commits `35d7eb8c` + the review commit)_:
+
+- [x] **Landed as listed.** `RecipeSource` + `Recipe.source?` in `types.ts`;
+      `importRecipeData` gains `AuthorLD` (string | `{name}` | array),
+      exported `extractAuthorName()`, `buildSource()`, and sets `source` on
+      **both** return paths; the YouTube branch sets
+      `{url, name: "YouTube", author: channel}`; `parseFormData` has a
+      `sourceSchema` that validates `url` only when non-blank and collapses an
+      all-blank block to `undefined`; `buildRecipeData` / `formDataFromParsed`
+      carry it; `Form/formContext.tsx` prefills `source` from the recipe
+      (this is what makes edit preserve it); three inputs in Advanced;
+      `View/SourceLine.tsx` under the description (`data-testid="recipe-source"`,
+      `rel="nofollow noopener"`, `target="_blank"`); `isBasedOn` in JSON-LD.
+      `RecipeEntryValue`, the search index, `SEARCH_DB_NAME`, and content
+      fixtures are untouched (D6).
+- [x] **D7 applied to all three emitters.** The video-URL branch of
+      `importRecipeData` now returns **no description at all** (the prefix was
+      all it had) — just `videoImportUrl` + `source`. `formatYouTubeDescription`
+      drops the `url` parameter, joins channel + text with `---`, and returns
+      `undefined` when both are empty.
+- [x] **Divergence: the middle label is "Source Site", not "Source Name".**
+      Playwright's `getByLabel` matches substrings, so a "Source Name" label made
+      every `getByLabel("Name")` in the suite ambiguous with the recipe's own
+      name field (~10 specs broke). "Source URL" / "Source Author" collide with
+      nothing.
+- [x] **Divergence: `hostnameLabel` is a shared util.** The implementer wrote
+      it twice (importer + view); review moved it to
+      `common/util/hostnameLabel.ts`. `source.author` / `publisher.name` are
+      decoded with `decodeHTML` only, not the markdown-producing `decodeText`,
+      because they render as plain text and markdown escaping would corrupt
+      names like `O'Neill`.
+- [x] **Specs beyond the brief that D7 forced.** `new-recipe.spec` (four
+      description assertions lost the prefix; the katsudon case now asserts the
+      hash-stripped `source.url`), `youtube-video.spec` (asserted the prefix;
+      now asserts `source.url`), `ytdlp-import.spec` (gained `source`
+      assertions). `recipe.spec` gained a `provenance` describe: hand-entered
+      source survives an untouched edit; a recipe without a source renders no
+      citation.
+- [x] **Five visual baselines regenerated, on purpose.** The Advanced section
+      is three inputs taller, so `new-recipe-form`, `new-recipe-form-overwrite`,
+      `edit-form-populated`, `edit-form-overwrite`, `markdown-source-mode` (all
+      `-e2e.png`; the mobile project owns none of them) were regenerated with
+      `playwright test visual.spec --project=e2e --update-snapshots --grep "new-recipe form|edit form|markdown editor source mode"`.
+      `search-reveal-control` still fails and is the pre-existing sub-pixel
+      failure recorded in ui-overhaul's PR 21b close-out — not regenerated.
+- [x] **Gates (dev mode, this worktree).**
+      `pnpm --filter recipe-editor typecheck` → clean.
+      `pnpm --filter recipe-website exec tsc --noEmit` → clean **once
+      `export/next-env.d.ts` exists** (see T13).
+      `pnpm exec vitest run` → `Test Files 17 passed (17)` /
+      `Tests 309 passed (309)` (was 296; +13 from
+      `test/importRecipeSource.test.ts`; no snapshot moves).
+      `playwright test visual.spec new-recipe.spec recipe.spec youtube-video.spec ytdlp-import.spec --project=e2e --project=mobile`
+      → `81 passed / 1 failed (3.5m)`, the one being `search-reveal-control`
+      above. The implementer's wider sweep over every form-touching spec
+      (`edit`, `edit-duplicate-slug`, `new-recipe-duplicate-slug`,
+      `paste-replace`, `paste-review`, `timeline`, `yield`, `lexical-smoke`,
+      `ingredient-preview`, `reference-updates`, `homepage`, `git`, `visual`)
+      was `108 passed` with only the visual cases above failing before regen.
+- **Next PR: PR 22b — Groups.** Seed the next plan-mode session from the
+  `### PR 22b` section below, plus the D-list and T-list (T13/T14 included:
+  they are worktree hygiene, not 22a-specific).
+
+### PR 22b — Groups `agent/22b-groups` ✅ done (← 22a)
+
+Goal: `groups` content type, editor CRUD, export pages, "Appears in".
+
+_This section was validated against the code by three exploration passes
+before implementation; the corrections they produced are folded in below and
+into T1/T6/T9 and the new T15. Where this text and the recipe-type templates
+disagree, this text wins._
+
+#### Schema and engine config (`common/controller/`)
+
+- **Types** in `types.ts` exactly as D5: `GroupKind`, `GroupItem`, `Group`,
+  `GroupEntryKey = [date, slug]`, `GroupEntryValue {name, kind, items:
+Pick<GroupItem,"recipe"|"label">[]}`.
+- **`groupContentConfig.ts`**: `contentType: "groups"`, `dataDirectory:
+"groups/data"`, `indexDirectory: "groups/index"`, **`dataFilename:
+"group.json"`** (the `ContentTypeConfig` field is `dataFilename`, not
+  `dataFileName`; the uploads field is `uploadsDirectory` and groups have
+  none), `buildIndexKey: (slug, d) => [d.date, slug]`, `buildIndexValue` from
+  `buildGroupIndexValue.ts` (strip `note`, keep item order), `createDefaultSlug`
+  from `createGroupSlug.ts` (slugify `name`; fall back to a date stamp like
+  `createFeaturedRecipeSlug`), `paginationIndexes: [groupsByDate]`,
+  `aggregates: [groupsByRecipe]`, **no `references`/`referencedBy`** (D3).
+  Imports nothing from the recipe config (T4).
+- **`groupPaginationConfig.ts`** (new module, T1): `GroupListEntry {slug, date,
+name, kind, itemCount}`; `groupsByDate = {name: "by-date", perPage:
+GROUPS_PER_PAGE, version: "1", key: ({key: [date], id}) => [date, id],
+project: …}`. `GROUPS_PER_PAGE = 12` lives in
+  `components/GroupIndexPage/constants.ts`.
+- **`groupAggregateConfigs.ts`** (new module, T1): `groupsByRecipe`, `name:
+"by-recipe"`, `version: "1"`. Accumulator `Map<recipeSlug, {slug, name,
+kind, label?, date}[]>`; `fold` pushes one entry per item, `date` from
+  `entry.key[0]`; `finalize` sorts each list newest-first, drops `date`, and
+  returns `Record<string, AppearsInEntry[]>` with `AppearsInEntry = {slug,
+name, kind, label?}` (D4). Shape it like `recipesByTag` in
+  `aggregateConfigs.ts`.
+- **Reads** in `data/`: `readGroups.ts` — `getGroupBySlug({slug,
+contentDirectory?})` raw via `readContentFile` (the CLI-safe read, T5);
+  `readGroupPages.ts` — `groupPages = createCachedPaginationReads(...)` plus
+  `readAllGroupIds()` via `readAllIds`; `readGroupsByRecipe.ts` —
+  `groupsByRecipeReads = createCachedAggregateRead(...)`. **Build every
+  `createCached*` read at module scope** — a call inside a render gets an
+  empty `React.cache` table. There is **no `readGroupItem.ts`**: detail pages
+  read the group raw with `getGroupBySlug` (ENOENT → `notFound()`), exactly as
+  `featured-recipe/[slug]` does; only _recipes_ go through the cached
+  `recipeItems.read`.
+- **`groupFormState.ts`**: `GroupFormErrors {name, kind, description, date,
+slug, items}`, `GroupFormState = ContentFormState<GroupFormErrors>`.
+
+#### Components (`common/components/`)
+
+- **`GroupIndexPage/{constants.ts, routes.tsx, shared.tsx}`** via
+  `createPaginatedIndexRoute({reads: groupPages, render})`. `shared.tsx` =
+  `PageMain > PageSection > PageHeading "Groups"`, a card grid from
+  `List/Group/index.tsx` (name → `/group/<slug>`, `Badge variant="secondary"`
+  from `@discontent/component-library/components/ui/badge` with the kind
+  rendered "Meal plan" / "Collection", item count, `RecipeCardDate` from
+  `List/shared.tsx`), `RecipePagination basePath="/groups"`, and an
+  `EmptyState` (title "No groups yet", message "Group recipes into a meal plan
+  or a collection to see them here.", action → `/recipes`).
+- **`GroupDetailPage/index.tsx`**: props `{group, slug, items: Array<{item:
+GroupItem; recipe: Recipe | null}>, actions?}`. Renders name, kind badge,
+  `Markdown` description, an ordered list — each row `data-testid="group-item"`:
+  label (muted, if any), a link to `/recipe/<slug>` with the recipe's name, or
+  muted text `Recipe not found: <slug>` with `data-testid="group-item-missing"`;
+  note underneath. Back link to `/groups`.
+- **`Form/Group/index.tsx`** (`"use client"`; plus `Form/Group/Create/index.tsx`
+  re-export as `Form/FeaturedRecipe/Create` does): `TextInput name="name"`
+  (required); `SelectInput name="kind"` from
+  `@discontent/component-library/components/Form/inputs/Select` (options
+  meal-plan / collection); `LexicalMarkdownInput name="description"
+dialect={RECIPE_MARKDOWN}`; **repeatable item rows** held in client state —
+  row _i_ renders `RecipeSelectInput name={"items[" + i + "].recipe"}`,
+  `TextInput name="items[i].label"`, `TextInput name="items[i].note"`, and a
+  remove button; "Add recipe" appends a row; rows keyed by a stable id so
+  removing one doesn't remount its siblings. `<details open>` Advanced:
+  `TextInput name="slug"` (placeholder = slugified name), `DateTimeInput
+name="date"`. `?recipe=` preselects the first row's `defaultValue`. Prefill
+  from `group` on edit.
+- **`Form/inputs/RecipeSelect/index.tsx`** small touch: when `defaultValue`
+  hydration fails (404), render `Selected: <slug> (recipe not found)` instead
+  of an empty picker; the hidden input keeps the slug.
+- **`View/AppearsIn.tsx`** (async server component): `const map = (await
+groupsByRecipeReads.read()) ?? {}`; when `map[slug]` is empty render nothing,
+  else `<section data-testid="appears-in">` headed "Appears in" with one link
+  per group to `/group/<slug>` (name, kind badge, label). Mounted at the bottom
+  of `View/index.tsx` after ingredients/instructions; both apps get it because
+  `RecipeView` is shared.
+- **`CommandPalette/destinations.ts`**: add `{name: "Groups", href: "/groups",
+icon: <lucide Layers>, group: "Browse", keywords: ["meal plan",
+"collection"]}` after "Featured recipes". No homepage section (deferred).
+
+#### Editor
+
+- `controller/contentTypes.ts`: append `groupContentConfig` **last** (no
+  edges, so order is free).
+- `controller/parseGroupFormData.ts`: zod `{name: min(1), kind: enum default
+"collection", description?, date?: dateEpochSchema, slug?, items:
+array({recipe: min(1), label?, note?}).default([])}` (T11); trim blank
+  label/note to `undefined`; drop rows whose `recipe` is blank.
+- `controller/actions/groups.ts` (`"use server"`, copy
+  `actions/featuredRecipes.ts`): `groupEditorConfig` with `successConfig
+{itemBasePath: "/group", listPaths: [], paginationOnly: true}` (the default
+  redirect is `/group/<slug>`), `label: "group"`, `authenticate:
+authenticateUser`, `buildCreateData` (date defaults to now; slug =
+  slugify(parsed.slug || createDefaultGroupSlug(data))), `buildUpdateData`,
+  `buildCurrentIndexKey: (date, slug) => [date, slug]`. Exports
+  `createGroup / updateGroup / deleteGroup / rebuildGroupIndex` (the last is
+  `rebuildIndex` + `revalidateDerivedState([groupContentConfig])`). Only async
+  exports (T7).
+- `controller/actions/index.ts`: `export async function rebuildAllIndexes()`
+  — for each config in `recipeContentTypes`: `rebuildIndex({config,
+contentDirectory, cascadeDependents: false})`; then
+  `revalidateDerivedState(recipeContentTypes)`. Leave `rebuildRecipeIndex` as
+  is (its narrower revalidation is pinned by a test).
+- `src/app/(editor)/(settings)/export/exportAction.ts`: `rebuildRecipeIndex()`
+  → `rebuildAllIndexes()` (T9).
+- Routes under `src/app/(recipes)/`: `groups/page.tsx`
+  (`groupIndexRoutes.landing`), `groups/[page]/page.tsx` (`.numbered`),
+  `group/new/{page,form}.tsx` (auth → `signIn` preserving `?recipe=`,
+  `useActionState(createGroup)`, `<form id="group-form">`),
+  `group/[slug]/page.tsx` (`force-dynamic`; `getGroupBySlug` ENOENT →
+  `notFound()`; `Promise.all(items.map(i => recipeItems.read(i.recipe)))`;
+  actions: `deleteGroup.bind(null, date, slug)` on `<form
+id="delete-group-form">` plus `ConfirmDeleteButton formId
+itemLabel="group" title="Delete this group?"` — the Playwright helper
+  `deleteWithConfirm(page, "group")` expects a confirm button literally named
+  "Delete group" — and an Edit link), `group/[slug]/edit/{page,form}.tsx`
+  (auth-gated; `updateGroup.bind(null, group.date, slug)`).
+- `recipe/[slug]/page.tsx`: "Group" button `href="/group/new?recipe=<slug>"`
+  next to "Feature".
+- Maintenance page: third form `action={rebuildGroupIndex}` "Reload Groups
+  Database".
+- `scripts/seed-groups.ts` (template `seed-pages.ts`): `pnpm tsx
+scripts/seed-groups.ts <contentDir>`; writes `week-of-may-4` (`kind:
+"meal-plan"`, `date: Date.UTC(2026, 4, 4)`, items `first-recipe` "Mon ·
+  Dinner" with note "Leftovers for lunch", `second-recipe` "Tue · Dinner",
+  `missing-recipe` "Wed · Dinner") and `weeknight-favourites` (`collection`,
+  `date: Date.UTC(2026, 4, 1)`, items `first-recipe`, `third-recipe`), then
+  `rebuildIndex({config: groupContentConfig, contentDirectory})`.
+
+#### Export (`export/src/app/(recipes)/`)
+
+`groups/page.tsx`, `groups/[page]/page.tsx` (+ `generateStaticParams =
+groupIndexRoutes.generateStaticParams`), `group/[slug]/page.tsx` (same body
+as the editor's minus actions and `force-dynamic`; `generateStaticParams` from
+`readAllGroupIds()` with the `[{slug: "_"}]` never-empty guard copied from
+`featured-recipe/[slug]`). **T10:** `/groups` and `/group/*` are concrete
+segments and win over both catch-alls; a _page_ slugged `groups` or `group` is
+shadowed — recorded here, no code.
+
+#### Tests
+
+- **Vitest** (root `test/`): `specVersions.test.ts` — two new `it()` blocks
+  with inline snapshots for `groupPaginationConfig.ts` and
+  `groupAggregateConfigs.ts` (each module must declare at least one
+  `version: "1"`); `derivedPaths.test.ts` — expectation gains `/groups/index`,
+  `/groups/pagination`, `/groups/aggregates` in registry order (after pages);
+  `revalidateDerived.test.ts` — the `"adds only the item catch-alls the recipe
+route was missing"` block gains the groups tags (T15; paste the exact emitted
+  order); `exportStaticParams.test.ts` — `vi.mock` for `readGroupPages`, warm
+  import, and the empty/non-empty pair for `/group/[slug]`; **new
+  `test/groups.test.ts`** (`@vitest-environment node`, real engine in a
+  tmpdir, harness copied from `references.test.ts`, real `groupContentConfig`
+  - `recipeContentConfig` with `contentDirectory` passed explicitly): (a)
+    create two recipes + one group → `readAggregate(groupsByRecipe)` maps both
+    slugs with the right label and order; (b) `deleteContent` of a recipe leaves
+    the group data file and the aggregate unchanged (D3); (c) `rebuildIndex({config:
+groupContentConfig})` reproduces the aggregate byte-for-byte; (d) the stored
+    index value has no `note`; (e) `updateContent` re-ordering items changes the
+    pagination page hash and reports the aggregate `changed: true`.
+- **Fixture** `editor/playwright/fixtures/test-content/three-recipes-groups`:
+  `cp -r three-recipes`, run `seed-groups.ts` against it (this creates
+  `groups/index`, so `build-fixture-indexes` will not skip it), then `pnpm tsx
+scripts/build-fixture-indexes.ts` (T3). `git status` must show only that
+  fixture's new `groups/{data,index,pagination/by-date,aggregates/by-recipe}`
+  files. Add to `editor/.gitignore` (precedent: last stanza):
+  `/playwright/fixtures/test-content/*/groups/` +
+  `!/playwright/fixtures/test-content/three-recipes-groups/groups/`.
+  `resetData(fixture)` in `editor/playwright/support/tasks.ts` is a pure copy —
+  no index rebuild — so the fixture's LMDB files _are_ the index.
+- **Playwright** `editor/playwright/tests/groups.spec.ts` (models:
+  `pages.spec.ts` + `featured-recipes.spec.ts`; helpers live in
+  `editor/playwright/support/{tasks,test,helpers}.ts`): `/groups` lists both
+  seeded groups with kind badges and counts; `/group/week-of-may-4` shows three
+  `group-item` rows in order, one `group-item-missing` for `missing-recipe`,
+  and a link to `/recipe/first-recipe`; `/recipe/first-recipe` shows "Appears
+  in" with both groups and the "Mon · Dinner" label; empty state on
+  `resetData("three-recipes")`; create from `/recipe/first-recipe` → "Group" →
+  sign in → first row preselected → fill name → Submit → lands on
+  `/group/<slug>` and "Appears in" updates; edit label → detail shows it;
+  delete via `deleteWithConfirm(page, "group")` → redirect, 404, and "Appears
+  in" gone from the recipe. `accessibility.spec.ts`: two new tests, `/groups`
+  and `/group/week-of-may-4` on `three-recipes-groups` (no `THEME_PAGES` entry
+  — that multiplies by presets).
+
+#### Verify (implementer runs; Fable reruns)
+
+```
+pnpm --filter recipe-editor typecheck
+pnpm --filter recipe-website exec tsc --noEmit         # needs export/next-env.d.ts (T13)
+pnpm exec vitest run                                     # 2 new inline snapshots in specVersions; edits in derivedPaths/revalidateDerived/exportStaticParams; new groups.test.ts
+pnpm --filter recipe-editor exec playwright test groups.spec featured-recipes.spec accessibility.spec pages.spec --project=e2e --project=mobile
+CONTENT_DIRECTORY=$PWD/websites/recipe-website/editor/playwright/fixtures/test-content/three-recipes-groups pnpm --filter recipe-website build && ls websites/recipe-website/export/out/groups.html websites/recipe-website/export/out/group/week-of-may-4.html
+```
+
+Visual baselines: none are expected to move (no existing baseline captures the
+recipe view's bottom or the palette's Browse group at the changed rows). If one
+does, report it; don't regenerate.
+
+Decisions / close-out _(2026-09-04, implemented by an Opus subagent, reviewed
+by Fable; commits `bd0f2fe0` (doc) + `8ce9d36a` (implementation) + the review
+commit)_:
+
+- [x] **Landed as listed.** Types (D5) in `types.ts`; `groupContentConfig`
+      with `dataFilename: "group.json"`, `[date, slug]` keys, one pagination
+      index and one aggregate, no references (D3); `buildGroupIndexValue`
+      strips `note`; `createDefaultGroupSlug` slugifies the name with a
+      `group-<stamp>` fallback; `groupPaginationConfig.ts` /
+      `groupAggregateConfigs.ts` as new modules (T1); `data/readGroups.ts`
+      (raw, CLI-safe), `data/readGroupPages.ts`, `data/readGroupsByRecipe.ts`
+      (both cached reads at module scope); no `readGroupItem.ts`. Components,
+      editor routes, export routes, `rebuildAllIndexes()`, the export action
+      switch (T9), the "Group" button, the maintenance form, the palette
+      destination, `scripts/seed-groups.ts` — all as the section lists.
+      Registry: `groupContentConfig` appended last.
+- [x] **T1/T2/T3/T15 handled.** Two new `specVersions` inline snapshots
+      (`groupPaginationConfig` `798bcf7a1f07c6a8`, `groupAggregateConfigs`
+      `bc0222918ed67b5f`); `derivedPaths` expectation gained the groups triple
+      after pages; `revalidateDerived`'s exact-list block gained, in emitted
+      order, `pagination:groups:by-date`, `aggregate:groups:by-recipe`,
+      `item:groups` (T15 confirmed). Fixture `three-recipes-groups` committed
+      (`groups/{data,index,pagination/by-date,aggregates/by-recipe}` plus the
+      recipes' own rebuilt `index`, `pagination`, `aggregates` — the fixture is
+      a full copy). No stray `groups/` env in any other fixture.
+- [x] **Divergence: vitest case (e) was impossible as written.**
+      `GroupListEntry` projects `itemCount`, not the items, so re-ordering
+      cannot move a pagination page hash; and `groupsByRecipe` is keyed by
+      recipe, so swapping two distinct recipes' rows leaves the fold
+      byte-identical. `test/groups.test.ts` pins the true matrix instead:
+      re-label → aggregate `changed: true`, page hashes unchanged; re-order
+      distinct recipes → neither moves (the detail page reads the data file and
+      is covered by `item:groups:<slug>`); re-order one recipe's two rows →
+      aggregate moves (labels swap); remove an item → both move; re-title →
+      page hash moves. 11 cases in all.
+- [x] **Divergence: `deleteSuccessConfig` redirects to `/groups`.** The
+      section named only `successConfig`, whose default redirect is
+      `/group/<slug>` — a delete would have landed on the 404 of the thing just
+      deleted. The field already existed on `EditorContentConfig`.
+- [x] **Divergence: `List/Group` is its own `<ul data-testid="group-list">`**,
+      three-up, not `RecipeGrid`: the grid stamps `recipe-list`, which
+      `checkNamesInOrder` and many specs resolve unscoped. Cards are text (no
+      image — borrowing a first recipe's thumbnail is F32).
+- [x] **Divergence: the export emits `out/groups.html` and
+      `out/group/<slug>.html`**, not `…/index.html` (same convention as
+      `out/featured-recipes.html`); the verify block's `ls` paths were wrong.
+      Fixed in the section above.
+- [x] **Divergence: extra `editor/.gitignore` lines** for
+      `three-recipes-groups/{featured-recipes,pages}/`: the export-build check
+      points `CONTENT_DIRECTORY` at the fixture itself, so the export opens
+      those LMDB envs in place. Three fixture `recipe.json` files are
+      prettier-formatted copies (lint-staged runs `prettier --check` from
+      `editor/`, which does not see the root `.prettierignore`); parsed content
+      is identical to `three-recipes`, verified at review.
+- [x] **Also landed:** shared `common/util/groupKindLabel.ts` ("Meal plan" /
+      "Collection") instead of four inline ternaries; two extra
+      `revalidateDerived` cases pinning `rebuildGroupIndex`'s narrow radius and
+      the rebuild-all seat's wide one; form row ids derived from state
+      (`react-hooks/refs` rejects reading a ref during render).
+- [x] **T10 recorded:** `/groups` and `/group/*` are concrete segments and win
+      over both catch-alls; a _page_ slugged `groups` or `group` is shadowed.
+      No code.
+- [x] **T6 manual checklist (content repo, the user does this — not the
+      agent).** In `/home/roger/Projects/recipe-content`. **Step 1:** replace
+      `.gitignore` (currently `/transformed-images`, `/featured-recipes/index`,
+      `/recipes/index`, `lock.mdb`, `*.mdb`) with the output of
+      `derivedContentPaths(recipeContentTypes)` plus the two mdb globs:
+
+      ```
+      /transformed-images
+      /recipes/index
+      /recipes/pagination
+      /recipes/aggregates
+      /featured-recipes/index
+      /featured-recipes/pagination
+      /featured-recipes/aggregates
+      /pages/index
+      /pages/pagination
+      /pages/aggregates
+      /groups/index
+      /groups/pagination
+      /groups/aggregates
+      /.pagination-changes.json
+      lock.mdb
+      *.mdb
+      ```
+
+      **Step 2:** `git rm -r groups/featured.json schedules/` — nothing reads
+      either (`groups/` is now the groups content type's directory; its data
+      will live at `groups/data/<slug>/group.json`). **Step 3:** commit in the
+      content repo. Then, in the editor, Settings → Maintenance → "Reload
+      Groups Database" (or run the export once, which now calls
+      `rebuildAllIndexes()`).
+
+- [x] **Gates (dev mode, this worktree; reviewer's rerun).**
+      `pnpm --filter recipe-editor typecheck` → clean.
+      `pnpm --filter recipe-website exec tsc --noEmit` → clean (with
+      `export/next-env.d.ts`, T13).
+      `pnpm exec vitest run` → `Test Files 18 passed (18)` /
+      `Tests 326 passed (326)` (was 17 / 309 with 5 skipped; +11
+      `test/groups.test.ts`, +2 `exportStaticParams`, +2 `specVersions`, +2
+      `revalidateDerived`, and the 5 previously-skipped `exportStaticParams`
+      cases now run).
+      `playwright test groups.spec featured-recipes.spec accessibility.spec pages.spec --project=e2e --project=mobile`
+      → `84 passed (5.4m)`, 0 failed, 0 skipped (the mobile project contributes 0: none of these specs is
+      tagged `@mobile`).
+      `playwright test visual.spec --project=e2e --project=mobile` (implementer)
+      → `19 passed / 1 failed`, the failure being the pre-existing
+      `search-reveal-control` sub-pixel case; **no baseline moved, none
+      regenerated**.
+      Export build against `three-recipes-groups` → `✓ Compiled successfully` /
+      `Generating static pages (26/26)`; routes `● /group/[slug]`
+      (`/group/week-of-may-4`, `/group/weeknight-favourites`), `○ /groups`,
+      `● /groups/[page]` (`/groups/1`); emitted `out/groups.html` (34167 B),
+      `out/groups/1.html`, `out/group/week-of-may-4.html` (31984 B); the
+      latter contains `group-item-missing` and `out/recipe/first-recipe.html`
+      contains `data-testid="appears-in"`. Afterwards `git checkout` the
+      fixture's three touched `lock.mdb` files (the build opens the envs in
+      place).
+- **Next PR: PR 22c — Curator CLI.** Seed the next plan-mode session from the
+  `### PR 22c` section below, plus the D-list and T-list. 22c reads groups via
+  `data/readGroups.ts` (`getGroupBySlug`) and writes them through
+  `createContent`/`updateContent` with `groupContentConfig`; the group input
+  schema is already sketched there (`GroupInputSchema`).
+
+### PR 22c — Curator CLI `agent/22c-curator-cli` ✅ done (← 22b)
+
+Goal: `pnpm recipes <command>` drives the engine against a content directory
+**without Next**, `--json` output, logic in an importable, transport-agnostic
+layer `editor/controller/curation/` that 22d reuses behind bearer-token API
+routes. The seam for 22d is a `CuratorBackend` interface with a local
+implementation; 22d adds an HTTP one and `--notify`.
+
+_This section was validated against the code by three exploration passes plus
+a design pass before implementation; the numbered "Validated facts" below
+correct the earlier sketch and are binding._
+
+#### Validated facts (corrections to the earlier sketch)
+
+1. **`pnpm recipes` does not work from the repo root** (the script lives in the
+   editor package). Add a root passthrough
+   `"recipes": "pnpm --filter recipe-editor recipes"` alongside the editor's
+   `"recipes": "tsx ./cli/index.ts"`. A relative `--content-dir` resolves
+   against `process.env.INIT_CWD ?? process.cwd()` (pnpm runs scripts with
+   cwd = package dir).
+2. **`create-user.ts`'s `parseArgs` call cannot be copied**: it disallows
+   positionals and is strict. Use a two-stage strict `node:util` `parseArgs`
+   (globals → command dispatch → per-command options). No new dependencies.
+3. **There is no server-side search database.** `SEARCH_DB_NAME` is a browser
+   IndexedDB name for FlexSearch. CLI search = `parseQuery` + `matchesFilter` +
+   a **mandatory free-text pass** over the full index (`parseQuery` leaves
+   positive bare words in `text`, not in the filter — without the second pass
+   `search "chocolate"` returns everything). Export the private `fieldMatches`
+   from `common/components/SearchForm/queryLanguage.ts` (one-word change) for
+   parity with the browser's prefix-at-word-start matching.
+4. **`getAllTags()` in `data/read.ts` is Next-only** (throws
+   `incrementalCache missing`); `getRecipeBySlug`/`getRecipes` there are
+   Node-safe. Tags come from
+   `readAggregate({config: recipeContentConfig, aggregateConfig: recipeTags})`.
+   D8 (amended) allows `common/components/SearchForm/queryLanguage` (pure; only
+   imports `tagSlug`) and
+   `common/controller/{aggregateConfigs,tagSlug,createGroupSlug}`; forbids the
+   symbols `getAllTags`/`getSearchCorpus`; enforced by the import-boundary
+   test below.
+5. **`updateContent` has no slug-conflict guard** — a rename onto an occupied
+   directory fails with raw `ENOTEMPTY`. The curation layer checks
+   `getContentItemDirectory` existence and throws the engine's
+   `SlugConflictError` itself.
+6. **`deleteContent` requires `indexKey`** → delete reads the record first for
+   `[date, slug]`.
+7. **`createContent({action: "overwrite"})` leaks the old slug's uploads dir.**
+   `--overwrite` = delete-then-create, as the editor's
+   `deleteConflictingContent` (`actions/index.ts:290`) does.
+8. **Committer identity preflight.** `author` on the write functions sets only
+   `--author`; a content repo with no `user.email` fails inside `git commit`
+   _after_ the data file and index are written. Before any write: if
+   `<contentDir>/.git` exists and neither `git config user.email` nor
+   `GIT_COMMITTER_EMAIL` resolves, fail with `no_git_identity` before touching
+   disk. Author chain `--author "Name <email>"` > `RECIPE_AUTHOR` > `undefined`
+   (repo identity; `commitContentChanges` already falls through to bare
+   `git.commit`).
+9. **`importRecipeData` returns `imageImportUrl`/`videoImportUrl`** and no
+   `tags`/`date`/`slug`. Strip the import URLs before writing (`Recipe` has an
+   index signature, so they'd persist into `recipe.json`); `imageImportUrl` →
+   `uploads.image.fileImportUrl` + `data.image = basename(pathname)`;
+   `videoImportUrl` → `data.video` as a URL string (the editor never downloads
+   video).
+10. **Fixture path**: `importable-uploads` lives at
+    `editor/playwright/fixtures/test-content/importable-uploads/uploads/*.html`.
+    Unit tests synthesize JSON-LD inline like `test/importRecipeSource.test.ts`
+    does (`vi.stubGlobal("fetch", …)` returning `{text}`), no fixture read.
+11. **Vitest has no `testTimeout` override** (5 s default); the spawned-CLI test
+    passes `30_000` per case and runs with `cwd` =
+    `websites/recipe-website/editor`. `execa ^9.6.1` is already a root
+    dependency.
+12. `--json` stdout is always exactly one object; every diagnostic (usage,
+    warnings, the stale-editor hint) goes to stderr. Exit codes 0 ok / 1 error
+    / **2 slug conflict**.
+13. `rebuildIndex` takes a config, not a name, returns void and does not
+    commit; `reindex [type]` maps the name through `recipeContentTypes` and,
+    with no arg, passes `cascadeDependents: false` per type (as
+    `rebuildAllIndexes` does).
+14. **T16**: `packages/cms/fs/getContentDirectory.ts` evaluates a module-scope
+    `contentDirectory` const at import and uses `CONTENT_DIRECTORY` verbatim;
+    never rely on setting the env late — thread `contentDirectory` explicitly
+    through every call (every engine function accepts it). LMDB envs are
+    cached per process; the CLI calls `closeCachedEnvironments()` before exit.
+
+#### `editor/controller/curation/` (decided design)
+
+Every function takes `ctx: CurationContext = {contentDirectory, author?}`
+first; no `getContentDirectory()`, no `@/` imports.
+
+- **`context.ts`**: `Author {name,email}`, `CurationContext`,
+  `recipePath(ctx,slug)`, `groupPath(ctx,slug)`, `RECIPE_URL_BASE="/recipe"`,
+  `GROUP_URL_BASE="/group"`.
+- **`errors.ts`**: re-export `SlugConflictError` from
+  `@discontent/cms/content/createContent`; `CurationError(code, message,
+details?)` with codes
+  `not_found | slug_conflict | validation | unknown_recipe | import_failed | no_git_identity | usage | internal`;
+  subclasses `NotFoundError`, `ValidationError` (details.issues =
+  `z.flattenError`), `UnknownRecipeError` (details.recipes), `ImportError`,
+  `NoGitIdentityError`; `toErrorObject(err) →
+{error:{code,message,slug?,issues?,recipes?}}` (maps `SlugConflictError`,
+  `ZodError`, ENOENT); `exitCodeFor(err) → 1|2`.
+- **`schema.ts`** (zod 4): `EpochSchema` (int epoch | ISO string via
+  `Date.parse`, retry with `Z` as `forms/schema/dateEpoch.ts` does),
+  `RecipeInputSchema` (`name` min 1, `slug?`, `date?`, `description?`, `tags?`,
+  times?, `recipeYield?`, `ingredients?: (string|Ingredient)[]`,
+  `instructions?: (string|Instruction|InstructionGroup)[]`, `timelines?`
+  passthrough, `source?`, `imageImportUrl?`, `videoUrl?`, `videoImportUrl?`;
+  `.strict()`), `RecipePatchSchema` = partial with `.nullable()` on optional
+  fields (`null` clears), `GroupInputSchema` (`name`, `slug?`, `kind` default
+  `collection`, `description?`, `date?`, `items: (string|GroupItem)[]` default
+  `[]`). Coercions exported for tests: `toIngredients` (strings →
+  `createIngredient`, drop undefined), `toInstructions` (string → `{text}`),
+  `toGroupItems` (`"slug:label"` split at first `:`), `parseInput(schema,
+raw)` → `ValidationError`.
+- **`recipes.ts`**: `RecipeRow` (= `MassagedRecipeEntry`, **type-only** import
+  from `data/read`), `toRecipeRow`, `readAllRecipeRows(ctx)`
+  (`readContentIndex`, reverse, no limit), `getRecipe(ctx,slug) →
+{slug,path,url,recipe}` (`readContentFileOrNull` → `NotFoundError`),
+  `listRecipes(ctx,{limit=20,offset,tag?})` (with `tag`: full rows filtered by
+  `matchesFilter(row, parseQuery("tag:"+quoteQueryValue(tag)).filter)` — same
+  semantics as typing `tag:t`; else paged `readContentIndex`),
+  `createRecipe(ctx, raw, {overwrite?})`, `updateRecipe(ctx, currentSlug,
+rawPatch)`, `deleteRecipe(ctx, slug)`. Internal `buildRecipeWrite(input,
+{date, current?}) → {data, uploads}` mirrors `buildRecipeData`
+  (`actions/index.ts:56`): `image = imageImportUrl ? path.parse(new
+URL(u).pathname).base : current?.image`; `video = videoUrl ?? videoImportUrl
+?? current?.video`; `uploads = {image:{fileImportUrl, existingFile:
+current?.image}}` only; `tags = normalizeTags`, empty → undefined; strip
+  `slug`/import URLs from `data`. Create: slug = `slugify(input.slug ||
+createDefaultSlug({name}))`, empty → `ValidationError`; overwrite →
+  `deleteRecipe` first when the dir exists; `createContent({...,
+commitMessage: "Create recipe: <slug>"})`. Update: shallow merge over
+  current, `null` clears, `image`/`video` carried forward, rename guarded
+  (`SlugConflictError`), `currentIndexKey: [current.date, currentSlug]`.
+  Delete: `deleteContent({indexKey: [date, slug]})`.
+- **`search.ts`**: `matchesFreeText(row, text)` — fold, split on whitespace,
+  every word must `fieldMatches` name | description | a tag | an ingredient;
+  `searchRecipes(ctx, raw, {limit=20, offset}) →
+{query:{raw,text,hasAdvancedSyntax}, total, recipes}` = `parseQuery` →
+  filter rows by `matchesFilter && matchesFreeText`, newest first, then
+  offset/limit. `listTags(ctx)` via `readAggregate(recipeTags) ?? []` (helper;
+  not a v1 command).
+- **`importRecipe.ts`**: `importFromUrl(url)` wraps `importRecipeData`,
+  `undefined` → `ImportError("No schema.org Recipe found at <url>")`;
+  `importedToInput(imported, {tags, slug, name})` (video-host URLs have no
+  name → `ValidationError` with a `--name` hint); `importAndCreate(ctx, url,
+{tags, slug, name, dryRun, overwrite})` → dry run returns `{dryRun:true, url,
+slug, recipe, image?:{importUrl, filename}, video?}` without writing, else
+  `createRecipe` result plus `source`.
+- **`groups.ts`**: `getGroup(ctx,slug) → {slug,path,url,group,items:
+ResolvedGroupItem[]}` (each item resolved via
+  `readContentFileOrNull(recipeContentConfig)` → `{...item, name}` or
+  `{...item, missing: true}`), `listGroups(ctx,{limit,offset})`
+  (`readContentIndex` on `groupContentConfig` mapped to
+  `{slug,date,name,kind,itemCount}`), `createGroup(ctx, raw, {force?})` (slug
+  = `slugify(input.slug || createDefaultGroupSlug({name,date}))`), `setItems`,
+  `addItem` (appends; duplicates allowed — meal plans repeat recipes),
+  `removeItem` (removes every item with that slug; none → `NotFoundError`),
+  `deleteGroup`. Unknown recipes → `UnknownRecipeError` unless `force`, then
+  `warnings: ["Unknown recipe: <slug>"]` (also stderr). Writes go through
+  `updateContent({config: groupContentConfig, currentIndexKey: [current.date,
+slug], data: {...current, items}})`.
+- **`reindex.ts`**: `reindex(ctx, contentType?) → {rebuilt: string[]}` over
+  `recipeContentTypes` (`../contentTypes`); unknown name → `NotFoundError`.
+- **`author.ts`**: `parseAuthor("Name <email>" | "email")`,
+  `resolveAuthor(flag?, env)`, `assertCommitIdentity(contentDirectory)`
+  (`directoryIsGitRepo` from `@discontent/cms/git/commit`;
+  `simpleGit(...).getConfig("user.email")`; `GIT_COMMITTER_EMAIL`
+  short-circuits). Called by the local backend before writes, not by curation
+  functions (22d's routes get identity from the session).
+
+#### `editor/cli/`
+
+- **`index.ts`**: `main(argv) → exit code`. Drop a leading `--`. Stage 1
+  `splitArgv`: dash tokens (and the operand of `--content-dir`/`--author`) go
+  to `head`; first bare token = command, `group` takes the next bare token as
+  subcommand; rest = `tail`. Parse `head` with `GLOBAL_OPTIONS` (`json`,
+  `content-dir`, `author`, `help`/`-h`; strict, no positionals). Resolve
+  command; parse `tail` with `{...GLOBAL_OPTIONS, ...command.options}` strict
+  - `allowPositionals`. Content dir: `--content-dir` > `CONTENT_DIRECTORY` >
+    `getContentDirectory()`, relative resolved against `INIT_CWD`.
+    `createLocalBackend({contentDirectory, author})`; run; `emit`; on error
+    `emitError` + `exitCodeFor`. `require.main === module` guard (CJS under
+    tsx, as `create-user.ts`); `.finally(closeCachedEnvironments)`; set
+    `process.exitCode`, don't `process.exit` mid-flush. parseArgs
+    `ERR_PARSE_ARGS_*` → `CurationError("usage")`, usage on stderr.
+- **`commands/*.ts`**, `CommandDef {name, usage, options, run({backend,
+positionals, options, json}), format(result), write?}`: `import` (`<url>`,
+  `--tags a,b`, `--slug`, `--name`, `--dry-run`, `--overwrite`), `create`
+  (`--file <path>` | `--stdin`, `--overwrite`), `update` (`<slug>`, `--file` |
+  `--stdin`), `show <slug>`, `list` (`--tag`, `--limit` 20, `--offset`),
+  `search <query…>` (positionals joined), `delete <slug> --yes` (TTY without
+  `--yes` → confirm via the `read` package already in deps; non-TTY without
+  `--yes` → usage error), `group` sub-table (`create --name --kind
+--description --slug --date --file|--item… --force` with `--item` `multiple:
+true`; `add <group> <recipe> --label --note --force`; `remove <group>
+<recipe>`; `set-items <group> --file --force`; `show <group>`; `list --limit
+--offset`; `delete <group> --yes`), `reindex [contentType]`. `input.ts`:
+  `readJsonInput({file?, stdin?})`, both/neither → usage error.
+- **`backend/types.ts`**: `CuratorBackend {kind: "local"|"http"; importRecipe;
+createRecipe; updateRecipe; getRecipe; listRecipes; searchRecipes;
+deleteRecipe; createGroup; addGroupItem; removeGroupItem; setGroupItems;
+getGroup; listGroups; deleteGroup; reindex; afterWrite?():
+Promise<string|undefined>; close()}` — result types re-exported from
+  `controller/curation/*` so 22d's HTTP backend types its responses against
+  the same shapes.
+- **`backend/local.ts`**: one-line delegates with `ctx`; write methods call
+  `assertCommitIdentity` first; `afterWrite` returns the stderr hint
+  `A running editor is stale until Settings → Maintenance → Reload.`; `close =
+closeCachedEnvironments`.
+- **`output.ts`**: `emit` (json → one `JSON.stringify` line on stdout; else
+  `command.format`), `emitError` (json → `toErrorObject` on stdout; else
+  `error: <message>` + zod issues on stderr), `warn` → stderr. Human formats:
+  `list`/`search` fixed-width `slug  name  [tags]  (date)`; `show` pretty
+  JSON; `group show` header + one item per line with `(missing)`.
+- **Scripts**: editor `"recipes": "tsx ./cli/index.ts"`; root `"recipes":
+"pnpm --filter recipe-editor recipes"`. `cli/` is inside the editor tsconfig
+  `include` (`**/*.ts`) so `pnpm --filter recipe-editor typecheck` covers it;
+  lint-staged runs prettier + eslint on it (no `no-console` rule).
+
+#### Command surface
+
+```
+pnpm recipes import <url> [--tags a,b] [--slug s] [--name N] [--dry-run] [--overwrite]
+pnpm recipes create (--file recipe.json | --stdin) [--overwrite]
+pnpm recipes update <slug> (--file patch.json | --stdin)
+pnpm recipes show <slug>
+pnpm recipes list [--tag t] [--limit 20] [--offset 0]
+pnpm recipes search <query…>
+pnpm recipes delete <slug> [--yes]
+pnpm recipes group create --name N [--kind meal-plan|collection] [--description D] [--slug s] [--date d] (--file items.json | --item slug[:label] ...) [--force]
+pnpm recipes group add <group> <recipe> [--label L] [--note N] [--force]
+pnpm recipes group remove <group> <recipe>
+pnpm recipes group set-items <group> --file items.json [--force]
+pnpm recipes group show <group> | list [--limit] [--offset] | delete <group> [--yes]
+pnpm recipes reindex [contentType]
+Globals: --json  --content-dir <dir>  --author "Name <email>"  --help
+```
+
+Author: `--author` > `RECIPE_AUTHOR` > content repo git identity (preflight per
+fact 8). Local writes print a stderr hint that a running editor is stale until
+Settings → Maintenance → Reload (or `--notify` after 22d).
+
+#### JSON contracts (stdout, exactly one object)
+
+| Command                             | Object                                                                                  |
+| ----------------------------------- | --------------------------------------------------------------------------------------- |
+| `import --dry-run`                  | `{dryRun:true, url, slug, recipe, image?:{importUrl,filename}, video?}`                 |
+| `import`                            | `{slug, date, path, url, source?}`                                                      |
+| `create` / `update`                 | `{slug, date, path, url}` (`path` absolute to `recipe.json`, `url` `/recipe/<slug>`)    |
+| `show`                              | `{slug, path, url, recipe}`                                                             |
+| `list`                              | `{total, more, recipes: RecipeRow[]}`                                                   |
+| `search`                            | `{query:{raw,text,hasAdvancedSyntax}, total, recipes: RecipeRow[]}`                     |
+| `delete` / `group delete`           | `{slug, deleted: true}`                                                                 |
+| `group create/add/remove/set-items` | `{slug, date, path, url, warnings?}` (`url` `/group/<slug>`)                            |
+| `group show`                        | `{slug, path, url, group, items:[{recipe,label?,note?,name?,missing?:true}]}`           |
+| `group list`                        | `{total, more, groups:[{slug,date,name,kind,itemCount}]}`                               |
+| `reindex`                           | `{rebuilt: ["recipes","featured-recipes","pages","groups"]}`                            |
+| error                               | `{error:{code, message, slug?, issues?, recipes?}}`; exit 2 for `slug_conflict`, else 1 |
+
+#### Tests
+
+- **`test/curation.test.ts`** (`@vitest-environment node`; harness from
+  `test/groups.test.ts:60-90`; relative imports into
+  `editor/controller/curation/`; real `recipeContentConfig`/`groupContentConfig`;
+  `ctx = {contentDirectory}`): (1) string ingredient → `<Multiplyable
+baseNumber="2"`, tags normalized/deduped, slug and date default; (2)
+  duplicate create → `SlugConflictError` with `.slug`; (3) update-rename onto
+  an existing slug → `SlugConflictError`, source untouched; (4) patch merge
+  keeps `name`/`image`/`video`/`tags`, `tags: null` clears, date change moves
+  the index key with total unchanged; (5) `--overwrite` removes a pre-planted
+  `uploads/recipe/<slug>/uploads/old.jpg`, total stays 1; (6) `importAndCreate`
+  with stubbed `fetch` over inline JSON-LD (copy `recipeHtml()` from
+  `importRecipeSource.test.ts:22-35`, add `image`): dry run writes nothing and
+  returns `image.filename`, real run sets `source.url` and `image`, data file
+  has no `imageImportUrl`/`videoImportUrl`, honours `tags`/`slug`; no Recipe
+  node → `import_failed`; (7) `searchRecipes("tag:x time:<30")`, free-text
+  prefix via name and via ingredient, `-word` negation, `listRecipes({tag})` ≡
+  `searchRecipes("tag:x")`; (8) groups: string items `"a:Mon · Dinner"` parse,
+  unknown recipe → `UnknownRecipeError`, `force` → warning + item present,
+  add/remove/set-items round-trip, `getGroup` marks a dangling item `missing`,
+  `groupsByRecipe` aggregate reflects the add; (9) `deleteRecipe` decrements
+  the index and `getRecipe` → `NotFoundError`; (10) `reindex` names all four
+  types, unknown → `NotFoundError`; (11) `parseAuthor`/`resolveAuthor`; (12)
+  **D8 import boundary**: read every `controller/curation/*.ts`, regex import
+  specifiers against the allow-list (`node:*`, `path`, `fs-extra`, `zod`,
+  `simple-git`, `@sindresorhus/slugify`, `@discontent/cms/content/*`,
+  `@discontent/cms/aggregates/*`, `@discontent/cms/git/commit`,
+  `recipe-website-common/controller/{types,recipeContentConfig,groupContentConfig,createSlug,createGroupSlug,normalizeTags,aggregateConfigs,tagSlug,data/read,data/readGroups}`,
+  `recipe-website-common/components/SearchForm/queryLanguage`,
+  `recipe-website-common/util/*`, `./*`, `../contentTypes`), hard-fail on
+  `^next/`, `^@/`, `controller/actions`,
+  `data/read{RecipeItem,RecipeTags,RecipeTagIndex,GroupPages,GroupsByRecipe,RecipePages,FeaturedRecipePages}`,
+  `@discontent/cms/*/next/`, and the symbols `getAllTags`/`getSearchCorpus`.
+- **`test/cliJson.test.ts`** (`@vitest-environment node`): `beforeAll` seeds a
+  tmp content dir with one recipe + one group via `createContent`, then
+  `closeCachedEnvironments()`; `run(args) = execa("pnpm",
+["exec","tsx","cli/index.ts", ...args, "--content-dir", tmp], {cwd:
+editorDir, reject: false, env: {...process.env, CONTENT_DIRECTORY:
+undefined}})`; each `it(…, 30_000)`: `list --json` → exit 0, parseable,
+  `recipes[0].slug`; `group list --json` → `groups.length === 1`,
+  `itemCount`; `show missing --json` → exit 1, `error.code === "not_found"`;
+  `create --stdin --json` with the existing slug → exit 2, `error.code ===
+"slug_conflict"`. No network-touching case here (fetch cannot be stubbed in a
+  child).
+- **`test/queryLanguage.test.ts`**: unchanged, but reruns green after the
+  `fieldMatches` export.
+
+#### Verify (implementer runs; Fable reruns)
+
+```
+pnpm --filter recipe-editor typecheck
+pnpm --filter recipe-website exec tsc --noEmit
+pnpm exec vitest run                       # +curation.test.ts, +cliJson.test.ts; no snapshot moves
+pnpm recipes --help
+pnpm recipes list --json --content-dir websites/recipe-website/editor/playwright/fixtures/test-content/three-recipes-groups
+pnpm recipes group show week-of-may-4 --json --content-dir websites/recipe-website/editor/playwright/fixtures/test-content/three-recipes-groups   # missing-recipe → "missing": true
+pnpm recipes search "tag:x" --content-dir <same>
+pnpm recipes import <a JSON-LD recipe URL> --dry-run --json
+cd websites/recipe-website/editor && rm -rf test-content && cp -r playwright/fixtures/test-content/three-recipes-groups test-content && pnpm recipes group create --name "Test week" --kind meal-plan --item "first-recipe:Mon · Dinner" --content-dir test-content   # writes groups/data/test-week/group.json; editor Reload shows it
+```
+
+After the fixture reads: `git checkout` the fixture's touched `lock.mdb` files
+(reads open envs too, T3). Playwright: no spec changes expected; rerun
+`featured-recipes.spec groups.spec` only to prove nothing regressed.
+Prerequisites T13/T14 as before.
+
+Deferred from 22c: `list --tags` command; `search` ranking parity with
+FlexSearch (CLI results are unranked, newest first); `delete` of a recipe does
+not touch groups that list it (D3 — the group shows "Recipe not found").
+
+Decisions / close-out _(2026-09-05, implemented by an Opus subagent, reviewed
+by Fable; commits `1f807626` (doc) + `fcefd329` (implementation, including the
+review fixes) + the close-out commit)_:
+
+- [x] **Landed as designed.** Nine curation modules, fifteen CLI modules, the
+      two scripts, the one-word `fieldMatches` export, two new test files. No
+      fixture, snapshot or Playwright change. `controller/curation/*` obeys the
+      D8 allow-list, enforced by `test/curation.test.ts` ("D8 import boundary",
+      two cases: specifier allow/deny lists with comments stripped, and
+      `data/read` imported as `import type` only).
+- [x] **Command table + JSON contracts above match the shipped code**, with
+      two additions recorded here: `group set-items` also takes `--stdin`, and
+      `import` takes `--name` (needed for video-host URLs, which carry no
+      recipe name).
+- [x] **Piping `--json` needs `pnpm --silent`.** Without it pnpm prints its
+      script banner on **stdout** ahead of the object (the object itself does
+      reach stdout, last line), so the stream is not one JSON value.
+      `pnpm --silent recipes … --json | jq` is clean at both the root and the
+      editor level (the loglevel is inherited by the nested `--filter` run).
+      `--help` says so. **22e's skill must use `pnpm --silent`** (or call
+      `pnpm exec tsx cli/index.ts` from `editor/`, which has no banner).
+- [x] **Divergence: `search` accepts a leading `-` directly.** `parseArgs`
+      reads `-second` as short flags; the query language reads it as negation.
+      `CommandDef.takesDashedPositionals` (only `search` sets it) makes
+      `index.ts` move unrecognized dash tokens behind an inserted `--` before
+      parsing. `search -- -second` still works; real flags still parse. Cost: a
+      typo'd flag on `search` becomes a query word rather than a usage error.
+- [x] **Divergence: a rename on `update` is explicit** — it happens only when
+      the patch carries `slug`. The browser form recomputes the slug from the
+      name on every save, but a JSON patch that only retitles must not move
+      the URL out from under every link. Guarded as specified
+      (`getContentItemDirectory` exists → `SlugConflictError`, exit 2).
+- [x] **Divergence: `buildRecipeWrite` declares only the `image` upload**, not
+      `image` + `video`: nothing in the CLI can hand over a `File`. A patch
+      with `videoUrl: null` clears the `video` field but does not delete an
+      uploaded video file; there is no way to clear `image` from the CLI
+      (`imageImportUrl: null` is a no-op). Both deferred.
+- [x] **Divergence: `reindex <type>` lets the cascade run** (`cascadeDependents`
+      default); only the all-types pass passes `false`, exactly as
+      `rebuildAllIndexes` does. `reindex` skips the committer preflight —
+      `rebuildIndex` never commits (review fix).
+- [x] **Divergence: `UsageError` is a named subclass**; `z.strictObject` /
+      `z.looseObject` instead of `.strict()` / `.passthrough()` (zod 4's
+      non-deprecated spellings); `test/curation.test.ts` is 25 `it()` blocks,
+      the doc's 12 numbered claims split where they assert independent things.
+- [x] **Review fixes (Fable, in `fcefd329`):** `--json` is detected anywhere
+      in argv _before_ parsing, so a stage-2 usage error
+      (`recipes list --bogus --json`) still prints the error object (it fell
+      back to prose before); `reindex` no longer calls `assertCommitIdentity`;
+      the `--help` note on `pnpm --silent` states the actual mechanism.
+- [x] **Identity preflight verified end to end** against a fresh `git init`
+      copy of `three-recipes-groups` with `user.email ""`: `group create` →
+      exit 1, `{"error":{"code":"no_git_identity",…}}`, nothing written. With
+      an identity set and `--author "Cur Ator <cur@example.com>"`: exit 0 and
+      `git log` shows author `Cur Ator <cur@example.com>`, committer
+      `C <c@example.com>`, subject `Create group: yes`.
+- [x] **Gates (this worktree; reviewer's rerun).**
+      `pnpm --filter recipe-editor typecheck` → clean.
+      `pnpm --filter recipe-website exec tsc --noEmit` → clean.
+      `pnpm exec vitest run` → `Test Files 20 passed (20)` /
+      `Tests 355 passed (355)` (was 18 / 326; +25 `test/curation.test.ts`,
+      +4 `test/cliJson.test.ts`; no snapshot moves).
+      `pnpm exec eslint websites/recipe-website/editor/cli websites/recipe-website/editor/controller/curation test/curation.test.ts test/cliJson.test.ts`
+      → clean. Prettier → clean (lint-staged on commit).
+      CLI against `three-recipes-groups`: `list --json` → `{"total":3,"more":false,…}`;
+      `group show week-of-may-4 --json` → third item `"missing":true`;
+      `search -second` → `third-recipe`, `first-recipe`, `2 of 2`;
+      `search "tag:x" --json` → `"total":0` (the fixture has no tags; tag
+      filtering is pinned by `listRecipes({tag}) ≡ searchRecipes("tag:x")` in
+      vitest); `list --bogus --json` → exit 1,
+      `{"error":{"code":"usage",…}}`. Against a copy in `editor/test-content`:
+      `group create --name "Test week" --kind meal-plan --item "first-recipe:Mon · Dinner" --json`
+      → exit 0, `groups/data/test-week/group.json` written, stderr
+      `A running editor is stale until Settings → Maintenance → Reload.`;
+      `create --stdin` with `{"name":"First Recipe"}` → exit **2**,
+      `{"error":{"code":"slug_conflict","message":"Content with slug \"first-recipe\" already exists","slug":"first-recipe"}}`;
+      create → `delete --yes --json` → `{"slug":"cli-smoke","deleted":true}`;
+      `reindex --json` → `{"rebuilt":["recipes","featured-recipes","pages","groups"]}`.
+      Implementer's network dry run: BBC Good Food and Budget Bytes import
+      (`image.filename` resolved, `source` filled); Serious Eats and NYT
+      Cooking return no JSON-LD to a plain `fetch` (bot-blocked) →
+      `import_failed`, exit 1. Playwright not run (no UI change). Fixture
+      `lock.mdb` restored after the reads (T3).
+- **Next PR: PR 22d — Remote write.** Seed the next plan-mode session from the
+  `### PR 22d` section below, plus the D-list and T-list. 22d's routes call
+  `controller/curation/*` with `ctx = {contentDirectory, author}` taken from
+  the session/token and add `revalidateContentWrite` (D9) after each write;
+  the CLI gains `cli/backend/http.ts` implementing `CuratorBackend` (result
+  types are re-exported from `cli/backend/types.ts`) and `--notify`. Validate
+  the 22d section against the code first, as 22b and 22c were.
+
+### PR 22d — Remote write `agent/22d-remote-write` ✅ done (← 22c)
+
+Goal: bearer-token JSON API routes in the editor that call the same
+`controller/curation/*` functions the CLI uses and **revalidate in-process**
+(no more "Settings → Maintenance → Reload" after a write); an HTTP
+`CuratorBackend` so the CLI (and 22e's skill) can drive a live editor; and
+`--notify` so a local CLI write tells a running editor to drop its caches.
+
+_This section was validated against the code before implementation; the
+numbered "Validated facts" below correct the earlier sketch and are binding._
+
+#### Validated facts (corrections to the earlier sketch)
+
+1. **The editor has no middleware/proxy.** `src/` holds `app/ auth.ts
+settings/ users/` only; `auth.config.ts`'s `authorized` callback is
+   unreferenced. API routes are not intercepted, so **every write handler
+   authenticates itself** via `authenticateRequest`; reads stay public (the
+   editor allows guests: `allowGuest = true`).
+2. **The curation write functions discard the engine's `ContentWriteResult`.**
+   `createContent`/`updateContent`/`deleteContent` all return
+   `{pagination, aggregates, dependents}`; `curation/recipes.ts` and
+   `curation/groups.ts` return only `{slug, date, path, url}`. Revalidation
+   needs the engine result → add an optional **`onWrite` hook to
+   `CurationContext`** (design below). The CLI's JSON shapes do not change.
+3. **`handleContentSuccess` lives in `packages/cms/content/genericActions.ts`,
+   which has no `"use server"` directive**, so exporting a sync
+   `revalidateContentWrite` there is legal. The T7 concern is the editor's
+   `controller/actions/{index,featuredRecipes,pages,groups}.ts` (all
+   `"use server"`), where the success configs are inline consts inside each
+   `*EditorConfig` — they move to `editor/controller/successConfigs.ts` along
+   with `RECIPE_DEPENDENT_ITEM_BASE_PATHS` (`actions/index.ts:158`). Groups
+   and recipes have a `deleteSuccessConfig`; featured recipes and pages have
+   their own shapes (pages: `itemBasePath: ""`, `listPaths: [{path: "/pages"}]`).
+4. **User records:** the fixture is
+   `editor/playwright/fixtures/users/admin@nextmail.com` (no extension;
+   `{email, password}`), copied by `resetData` into `test-content/users/`.
+   `auth.ts:17` reads `users/<email>`; `scripts/create-user.ts:67` writes
+   `<email>.json` (D10 fix confirmed). `src/users/index.ts` exists and is
+   **empty**. It must use **relative imports only** (no `@/`, no Next):
+   `playwright/support/tasks.ts` imports it outside Next, and so does
+   `scripts/create-token.ts`.
+5. **Import fixture HTML is served by the editor itself**:
+   `src/app/uploads/[filename]/route.ts` serves `test-content/uploads/*.html`
+   after `resetData("importable-uploads")` (see `new-recipe.spec.ts:39`,
+   `new URL("/uploads/naan.html", baseURL)`). The api-write import case posts
+   that URL. `importRecipeData` fetches with `{next: {revalidate: 300}}` — the
+   server caches a fetched page for 5 min, so a spec must not expect two
+   different bodies from one URL.
+6. **`test/stub_cache.js` records `revalidateTag` but not `revalidatePath`** →
+   add `revalidatedPaths` + reset so the D9 unit test can assert
+   `revalidateContentWrite` fires paths and tags and never calls `redirect`.
+7. **Route files that import cached reads cannot be unit-tested under vitest**
+   (`recipe/[slug]/route.ts` imports `readRecipeItem` → `unstable_cache`
+   throws outside Next). Vitest covers the pure pieces (tokens,
+   `authenticateRequest` with the `@/auth` stub, `revalidateContentWrite`,
+   error→status mapping, body parsing); **Playwright covers the routes**. New
+   trap **T17**: keep API route files thin — parse, authenticate, call
+   curation, revalidate, respond.
+8. **`POST /api/revalidate` is the auth-gated twin of
+   `settings/test-invalidate-cache/route.ts`**: `revalidatePath("/", "layout")`
+   - `revalidateDerivedState(recipeContentTypes)`; the TEST_MODE route stays
+     untouched (Playwright's `global-setup.ts` fingerprints it).
+9. **`auth()` from `@/auth` works in route handlers** (next-auth v5): the
+   session fallback is `await auth()`; Bearer is checked first from
+   `request.headers.get("authorization")`.
+10. **Error contract over HTTP = the CLI's**: body is `toErrorObject(err)`
+    (`{error:{code,message,slug?,issues?,recipes?}}`), status from a pure
+    `statusFor(code)`: `validation`/`usage` 400, `not_found` 404,
+    `slug_conflict` 409, `unknown_recipe` 422, `import_failed` 502,
+    `no_git_identity`/`internal` 500, `unauthenticated` 401. The HTTP backend
+    rehydrates a non-2xx body into `CurationError(code, message, details)` so
+    `exitCodeFor` still yields 2 for a conflict.
+11. **`--notify` semantics (decided):** after a successful local write, if
+    `--notify` is passed or `RECIPE_EDITOR_URL` is set,
+    `POST <url>/api/revalidate` with `Authorization: Bearer $RECIPE_API_TOKEN`;
+    success replaces the stale-editor hint with `Notified <url>`; failure is a
+    **stderr warning, exit stays 0** (the write succeeded). URL from
+    `--editor-url <url>` > `RECIPE_EDITOR_URL`; `--notify` without a URL → usage
+    error. Token is env-only (never on argv).
+12. **Remote mode:** `--remote <url>` > `RECIPE_API_URL` selects
+    `createHttpBackend`; token `RECIPE_API_TOKEN` (required for writes; reads
+    work without). `splitArgv`'s `GLOBAL_VALUE_FLAGS` must gain `--remote` and
+    `--editor-url`. Reads (`show`, `list`, `search`, `group show/list`) hit the
+    API too so the skill sees the server's corpus, not a local copy.
+13. **Token format (D10, confirmed):** `rcp_<id8>_<secret43>` — id = 8 hex
+    chars (4 random bytes), secret = 32 random bytes base64url (43 chars).
+    Stored on the user record as
+    `tokens: [{id, hash: sha256(secret) hex, name, createdAt}]`; lookup scans
+    `users/*` for a record whose `tokens[].id` matches, then `timingSafeEqual`
+    on the hash. Revocation in v1 = delete the object from the user file
+    (documented; no script).
+14. **HTTPS-only.** A bearer token over plain HTTP is only acceptable on
+    localhost / a trusted LAN; put the editor behind TLS before using
+    `--remote` across the internet.
+
+#### Design (decided)
+
+**Engine — D9 split in `packages/cms/content/genericActions.ts`.**
+`export function revalidateContentWrite(config: ContentSuccessConfig,
+contentType: string, result: ContentWriteResult, slug: string,
+currentSlug?: string): void` is the body of `handleContentSuccess` minus the
+final `redirect`; `handleContentSuccess` becomes `revalidateContentWrite(...)`
+
+- `redirect(target)`. Form-action behaviour unchanged.
+
+**Editor — `controller/successConfigs.ts` (plain module, T7).** Exports
+`recipeSuccessConfig`, `recipeDeleteSuccessConfig`,
+`featuredRecipeSuccessConfig`, `pageSuccessConfig`, `pageDeleteSuccessConfig`,
+`groupSuccessConfig`, `groupDeleteSuccessConfig`,
+`RECIPE_DEPENDENT_ITEM_BASE_PATHS`, and
+`successConfigFor(contentType, kind: "write" | "delete"): ContentSuccessConfig`
+keyed by `contentType` (`recipes`, `featured-recipes`, `pages`, `groups`). The
+four action modules import from it (their comment blocks move with the
+objects).
+
+**Curation layer — `onWrite` hook.**
+
+- `context.ts`:
+  `export interface ContentWriteEvent { contentType: string; kind: "create" | "update" | "delete"; result: ContentWriteResult; slug: string; previousSlug?: string }`;
+  `CurationContext.onWrite?: (event: ContentWriteEvent) => void`. Type import
+  from `@discontent/cms/content/types` (already on the D8 allow-list).
+- `recipes.ts`: `createRecipe`, `updateRecipe` (`previousSlug: currentSlug`
+  when renamed), `deleteRecipeIfPresent` (kind `delete`) call
+  `ctx.onWrite?.(…)` with the engine's return. Overwrite therefore fires
+  `delete` then `create`.
+- `groups.ts`: `createGroup`, `writeItems` (update), `deleteGroup` likewise.
+- `reindex.ts`: no engine result; routes revalidate derived state themselves.
+- Boundary test unchanged (no new specifiers).
+
+**Users and tokens — `editor/src/users/index.ts` (relative imports only).**
+`UserRecord {email, password, createdAt?, tokens?: ApiToken[]}`,
+`ApiToken {id, hash, name, createdAt}`, `userFilePath(contentDirectory, email)`
+(= `users/<email>`, no extension), `readUser`, `writeUser`, `listUserEmails`
+(readdir `users/`, skip dotfiles/dirs), `generateToken() → {token, id, hash}`,
+`parseToken(token) → {id, secret} | null`, `hashSecret(secret)`,
+`findUserByToken(contentDirectory, token) → email | null` (scan,
+`timingSafeEqual`). `scripts/create-user.ts` switches to `userFilePath` (and
+`readUser` for `userExists`). New `scripts/create-token.ts` +
+`"create-token": "tsx ./scripts/create-token.ts"` (`-e <email> -n <name>`;
+prompts via `read` when absent; appends to `tokens`; prints the token **once**
+with the HTTPS note). `auth.ts`'s `User` interface widens to `UserRecord`
+(read path unchanged).
+
+**`editor/controller/apiAuth.ts`.**
+`authenticateRequest(request: Request, contentDirectory: string): Promise<string | null>`
+— Bearer header → `findUserByToken`; else `authenticateUser()` from
+`controller/actions/shared` (session). Lives outside `curation/` because it
+imports `@/auth`.
+
+**`editor/controller/curation/http.ts` (pure; on the allow-list).**
+`readJsonBody(request: Request): Promise<unknown>` (invalid/empty JSON →
+`ValidationError`), `statusFor(code: CurationErrorCode): number` (table in
+fact 10), `errorResponse(err)` → `Response.json(toErrorObject(err), {status})`,
+`boolParam(url, name)` for `?overwrite=1` / `?force=1`, `intParam`. Uses only
+web globals, `zod`, `./errors`. `"unauthenticated"` is **added to
+`CurationErrorCode`** so the HTTP backend rehydrates it.
+
+**Routes (`editor/src/app/api/…`; thin per T17).** Each builds
+`ctx = {contentDirectory: getContentDirectory(), author: {name: email, email}, onWrite}`
+where
+`onWrite = (e) => revalidateContentWrite(successConfigFor(e.contentType, e.kind === "delete" ? "delete" : "write"), e.contentType, e.result, e.slug, e.previousSlug)`;
+a shared `controller/apiContext.ts` builds it. Route files import
+`recipe-editor/controller/...` (self-reference, as
+`settings/maintenance/page.tsx` does).
+
+| Route                                  | Methods      | Body / query                                                                   | 2xx                                             |
+| -------------------------------------- | ------------ | ------------------------------------------------------------------------------ | ----------------------------------------------- |
+| `recipes/route.ts`                     | GET (public) | `?q=` → `searchRecipes`; else `?tag&limit&offset` → `listRecipes`              | 200 `SearchResult` / `RecipeListResult`         |
+|                                        | POST         | `RecipeInput`, `?overwrite=1`                                                  | 201 `RecipeWriteResult`                         |
+| `recipe/[slug]/route.ts`               | GET (keep)   |                                                                                | 200 record (unchanged shape for `RecipeSelect`) |
+|                                        | PUT          | `RecipePatch`                                                                  | 200 `RecipeWriteResult`                         |
+|                                        | DELETE       |                                                                                | 200 `{slug, deleted: true}`                     |
+| `import/route.ts`                      | POST         | `{url, tags?, slug?, name?, dryRun?, overwrite?}`                              | 200 dry run / 201 `ImportCreateResult`          |
+| `groups/route.ts`                      | GET (public) | `?limit&offset`                                                                | 200 `GroupListResult`                           |
+|                                        | POST         | `GroupInput`, `?force=1`                                                       | 201 `GroupWriteResult`                          |
+| `group/[slug]/route.ts`                | GET (public) |                                                                                | 200 `GroupDetail` (resolved items, `missing`)   |
+|                                        | PUT          | `{items: (string\|GroupItem)[]}`, `?force=1` → `setItems`                      | 200                                             |
+|                                        | DELETE       |                                                                                | 200 `{slug, deleted: true}`                     |
+| `group/[slug]/items/route.ts`          | POST         | `{recipe, label?, note?}`, `?force=1` → `addItem`                              | 200                                             |
+| `group/[slug]/items/[recipe]/route.ts` | DELETE       | → `removeItem`                                                                 | 200                                             |
+| `reindex/route.ts`                     | POST         | `{contentType?}` → `reindex` then `revalidateDerivedState(recipeContentTypes)` | 200 `ReindexResult`                             |
+| `revalidate/route.ts`                  | POST         | —                                                                              | 200 `{revalidated: true}`                       |
+
+Writes: 401 `{error:{code:"unauthenticated",…}}` without a valid
+token/session. All errors go through `errorResponse`.
+
+| Error code                    | Status |
+| ----------------------------- | ------ |
+| `validation`, `usage`         | 400    |
+| `unauthenticated`             | 401    |
+| `not_found`                   | 404    |
+| `slug_conflict`               | 409    |
+| `unknown_recipe`              | 422    |
+| `import_failed`               | 502    |
+| `no_git_identity`, `internal` | 500    |
+
+**CLI — `editor/cli/backend/http.ts` + wiring.**
+
+- `createHttpBackend({baseUrl, token?}): CuratorBackend` — `kind: "http"`; one
+  `call(method, path, {body?, query?})` helper: `fetch`,
+  `Authorization: Bearer` when token, `content-type: application/json`;
+  non-2xx → throw `CurationError` rehydrated from the body (fallback
+  `internal` with status text); network failure →
+  `CurationError("internal", "Could not reach <url>: …")`. Method map per the
+  route table; `importRecipe` → `POST /api/import`; `close()` no-op;
+  `afterWrite` → `undefined` (the server revalidated).
+- `index.ts`: globals `remote` (string), `editor-url` (string), `notify`
+  (boolean); `GLOBAL_VALUE_FLAGS` += `--remote`, `--editor-url`. Backend
+  selection: `remote ?? RECIPE_API_URL` → HTTP (`RECIPE_API_TOKEN`), else
+  local. Local backend gains `notify?: {url, token?}`; `afterWrite` posts
+  `/api/revalidate` and returns `Notified <url>` or warns on failure (fact 11).
+  `--help` documents remote mode, env vars, `pnpm --silent`.
+
+| Env var             | Meaning                                                             |
+| ------------------- | ------------------------------------------------------------------- |
+| `RECIPE_API_URL`    | Base URL of a running editor; selects the HTTP backend (`--remote`) |
+| `RECIPE_API_TOKEN`  | `rcp_…` bearer token; required for remote writes and for `--notify` |
+| `RECIPE_EDITOR_URL` | Editor to notify after a local write (`--editor-url`)               |
+| `RECIPE_AUTHOR`     | `Name <email>` for local commits (`--author`)                       |
+| `CONTENT_DIRECTORY` | Local content directory (`--content-dir`)                           |
+
+**Token setup.** From `websites/recipe-website/editor`:
+`CONTENT_DIRECTORY=<dir> pnpm create-token -e <email> -n <name>` prints the
+token once. Revoke by deleting the matching `{id, …}` object from
+`<dir>/users/<email>`'s `tokens` array.
+
+#### Tests
+
+- **`test/apiTokens.test.ts`** (`@vitest-environment node`, tmp content dir):
+  `generateToken` → `parseToken` round-trip, format regex
+  `^rcp_[0-9a-f]{8}_[A-Za-z0-9_-]{43}$`; `findUserByToken` finds the right
+  user among two, rejects a tampered secret, an unknown id, a malformed token;
+  `userFilePath` ends in the bare email and equals
+  `resolve(dir, "users", email)` (the path `auth.ts` reads).
+- **`test/apiAuth.test.ts`**: `authenticateRequest` with
+  `Authorization: Bearer <good>` → email; bad → falls to the `@/auth` stub
+  (`auth.mockResolvedValue({user:{email}})` → email; `null` → null).
+- **`test/revalidateContentWrite.test.ts`**: with the extended
+  `stub_cache.js`, `revalidateContentWrite(recipeSuccessConfig, "recipes",
+result, "a", "b")` fires `revalidatePath("/recipe/b")`, `("/recipe/a")`, item
+  tags for both slugs, pagination/aggregate tags from `result`, and **no** `/`
+  path (`paginationOnly`); `pageSuccessConfig` fires `/pages` + `/`; `redirect`
+  from `stub_navigation` not called (spy).
+  `successConfigFor("groups","delete").redirectTo?.("x") === "/groups"`.
+- **`test/curationHttp.test.ts`**: `statusFor` table; `readJsonBody` on
+  empty/invalid → `ValidationError`;
+  `errorResponse(new SlugConflictError("x")).status === 409` with the CLI's
+  body shape.
+- **`test/curation.test.ts`** (extend): `onWrite` receives
+  `{kind:"create", contentType:"recipes", slug}` with a `result` carrying
+  `pagination`; rename passes `previousSlug`; overwrite fires `delete` then
+  `create`; group `addItem` fires `update`. D8 boundary test still green.
+- **`test/cliJson.test.ts`** (extend, one case):
+  `--remote http://127.0.0.1:9 list --json` → exit 1,
+  `error.code === "internal"`, message contains `Could not reach` (proves
+  selection + rehydration without a server).
+- **Playwright `editor/playwright/tests/api-write.spec.ts`** (`tasks.ts` gains
+  `createApiToken(email = "admin@nextmail.com", name = "playwright") → token`,
+  writing into `test-content/users/<email>` via `src/users`; `test.ts` exposes
+  it as a fixture): after `resetData("importable-uploads")` + token:
+  1. `POST /api/recipes` without header → 401; with header → 201, `slug`, then
+     `page.goto("/recipe/<slug>")` renders the name and `/recipes` lists it
+     (no Reload).
+  2. duplicate `POST` → 409 `error.code === "slug_conflict"`; `?overwrite=1` → 201.
+  3. `POST /api/import`
+     `{url: new URL("/uploads/naan.html", baseURL).href, tags:["bread"]}` → 201;
+     `GET /api/recipe/<slug>` has `source.url`; `/recipe/<slug>` shows the
+     citation.
+  4. `PUT /api/recipe/<slug>` `{name: "Renamed"}` → 200; `/recipes` and
+     `/recipe/<slug>` show the new name immediately.
+  5. `POST /api/groups`
+     `{name:"API week", kind:"meal-plan", items:["<slug>:Mon · Dinner"]}` →
+     201; `/group/api-week` renders the item; `/groups` lists it;
+     `POST …/items` with an unknown recipe → 422, with `?force=1` → 200 +
+     `warnings`.
+  6. `DELETE /api/recipe/<slug>` → 200; `/recipe/<slug>` → 404 page;
+     `/group/api-week` shows the missing-recipe marker.
+  7. `POST /api/revalidate` → 401 without token, 200 with.
+- Rerun `featured-recipes.spec recipe.spec groups.spec pages.spec` to guard the
+  D9 refactor of the form path.
+
+#### Verification (implementer runs; Fable reruns)
+
+```
+pnpm --filter recipe-editor typecheck
+pnpm --filter recipe-website exec tsc --noEmit
+pnpm exec vitest run                                  # +apiTokens, +apiAuth, +revalidateContentWrite, +curationHttp; curation/cliJson extended
+pnpm --filter recipe-editor e2e-dev -- api-write.spec featured-recipes.spec recipe.spec groups.spec pages.spec
+# manual, from websites/recipe-website/editor with a fixture copy in test-content:
+CONTENT_DIRECTORY=test-content pnpm create-token -e admin@nextmail.com -n laptop      # prints rcp_…
+CONTENT_DIRECTORY=test-content pnpm dev                                               # editor on :3000
+RECIPE_API_URL=http://localhost:3000 RECIPE_API_TOKEN=rcp_… pnpm --silent recipes group create --name "Remote week" --kind meal-plan --item "first-recipe:Mon · Dinner" --json   # /groups shows it, no Reload
+pnpm --silent recipes group add remote-week second-recipe --content-dir test-content --notify --editor-url http://localhost:3000   # local write; stderr "Notified …"; page updates
+```
+
+T13/T14 prerequisites as before; `git checkout` fixture `lock.mdb` files after
+any fixture read.
+
+Decisions / close-out (filled in at review):
+
+- [x] D9 refactor landed: `revalidateContentWrite` exported from
+      `packages/cms/content/genericActions.ts`; `handleContentSuccess` is that
+      call plus the redirect. All seven success configs and
+      `RECIPE_DEPENDENT_ITEM_BASE_PATHS` live in
+      `editor/controller/successConfigs.ts` with their comment blocks; the four
+      `"use server"` action modules export only async functions (T7).
+- [x] D10 landed: `rcp_<id8>_<secret43>`, sha256 hash on the user record,
+      `findUserByToken` scans `users/*` and compares with `timingSafeEqual`;
+      `scripts/create-user.ts` writes through `writeUser` (bare email, the
+      `.json` bug is gone); `scripts/create-token.ts` + `pnpm create-token`.
+- [x] Endpoint table, status codes, env table, token setup, revocation note
+      and HTTPS-only note are in the section above.
+- [x] Gates recorded verbatim (below).
+- **Decisions made in review:**
+  - **A bad bearer token falls through to the session** rather than refusing
+    outright, so a stale `RECIPE_API_TOKEN` in an agent's shell cannot lock out
+    a signed-in browser. Pinned by `test/apiAuth.test.ts`.
+  - **CSRF on the session fallback** is covered by next-auth's `SameSite=Lax`
+    session cookie (not sent on cross-site POST/PUT/DELETE) plus the JSON
+    content type forcing a preflight the editor never answers. No CSRF token
+    on the API.
+  - **`GET /api/recipe/<slug>` keeps its pre-22d record shape** (it feeds
+    `RecipeSelect`); the HTTP backend rebuilds the `RecipeDetail` envelope and
+    puts the API resource URL in `path`, since a remote caller has no server
+    filesystem path.
+  - **`rehydrate` also maps by HTTP status** (`codeForStatus`) when a body is
+    not the curation error shape, so the kept GET's `{error: "Recipe not
+found"}` 404 becomes `not_found`, not `internal`. Proved in Playwright:
+    `show nope --remote` exits 1 with `not_found`.
+  - **`PUT /api/group/<slug>` accepts a bare array as well as `{items}`** so a
+    file written for `group set-items --file` posts unchanged.
+  - **`POST /api/import` answers 200 for `dryRun`, 201 otherwise.**
+  - **`STALE_EDITOR_HINT` text is unchanged**; the local backend appends "Pass
+    --notify --editor-url <url> …" only when `--notify` was not passed, so a
+    failed notify is not told to try what it just tried.
+  - **`--notify` with only `RECIPE_EDITOR_URL` set is enough** (no flag
+    needed); `--notify` with no URL anywhere is a `usage` error; a failed
+    notify prints `warning: could not notify <url>: …` plus the stale hint and
+    exits 0.
+  - **The `reindex` route parses its optional body by hand** (an empty body
+    means "all types"); a malformed body is a 400 `validation` error, not a 500. _(Fixed in review — the implementer's version let `JSON.parse`'s
+    `SyntaxError` escape as `internal`.)_
+- **Divergences from the section:** `parseBody` was not added to `http.ts`
+  (routes use the existing `parseInput` from `curation/schema.ts`);
+  `UnauthenticatedError` is a named subclass like `UsageError`;
+  `src/users` also exports `addTokenToUser`, `usersDirectory`, `TOKEN_PATTERN`;
+  `apiAuth.ts` imports `../src/users` relatively (the `@/` alias is not
+  configured in root vitest); `apiContext.ts` exposes `curationContextFor`,
+  `readContext` and `requireCurationContext` (throws the 401 so a route body
+  is one `try`/`errorResponse`); `test/stub_navigation.js` records
+  `redirects`; `api-write.spec.ts` has 12 cases, not 7 — it adds public reads,
+  malformed-body 400, reindex gating, and two cases that spawn the real CLI
+  with `--remote` against the test server (the only end-to-end coverage of
+  `createHttpBackend`; the process never opens LMDB, so no T14 contention).
+  No README/CLI-doc edit: there is no CLI doc to extend
+  (`websites/recipe-website/README.md` still describes a Cypress suite —
+  stale, left alone).
+- **Gates (review rerun, dev mode):**
+  - `pnpm --filter recipe-editor typecheck` → clean.
+  - `pnpm --filter recipe-website exec tsc --noEmit` → clean.
+  - `pnpm exec vitest run` → **Test Files 24 passed (24), Tests 394 passed
+    (394)** (22c closed at 20 files / 355 tests; +9 `apiTokens`, +5
+    `apiAuth`, +7 `revalidateContentWrite`, +12 `curationHttp`; `curation`
+    25→30, `cliJson` 4→5).
+  - `pnpm --filter recipe-editor e2e-dev -- api-write.spec featured-recipes.spec recipe.spec groups.spec pages.spec`
+    → **120 passed (4.8m)** (the positional filter also matches
+    `new-recipe.spec` and `tag-pages.spec`). `api-write.spec` alone after the
+    reindex fix: **12 passed (30.7s)**.
+  - Manual, against a copy of the `three-recipes` fixture and `next dev` on
+    :3100, all six steps as expected:
+    1. `pnpm create-token -e admin@nextmail.com -n laptop` printed one
+       `rcp_…` token with the HTTPS note.
+    2. Remote `group create` (`--name "Remote week" --kind meal-plan`, one
+       `--item`, `--json`) with `RECIPE_API_URL` + `RECIPE_API_TOKEN` set
+       answered `{"slug":"remote-week","url":"/group/remote-week",…}`;
+       `/groups` listed it and `/group/remote-week` rendered "Mon · Dinner"
+       with no Reload.
+    3. Local `group add remote-week second-recipe` with `--content-dir`,
+       `--notify` and `--editor-url http://localhost:3100` printed
+       `Notified http://localhost:3100` on stderr; the page showed
+       "Second Recipe" (dev log: `POST /api/revalidate 200`).
+    4. Same with `--editor-url http://127.0.0.1:9` → stderr
+       `warning: could not notify …: fetch failed` plus the stale hint,
+       exit 0.
+    5. `--notify` with no URL anywhere → `{"error":{"code":"usage",…}}`,
+       exit 1.
+
+  - No fixture `lock.mdb` churn in `git status`.
+
+- **Next PR: PR 22e — Claude Code skill.** Seed the next plan-mode session
+  from the `### PR 22e` section below plus the D-list and T-list. The skill
+  must call the CLI as `pnpm --silent recipes …` (pnpm's own banner otherwise
+  precedes the JSON); remote mode is `RECIPE_API_URL` + `RECIPE_API_TOKEN`
+  (the token never on argv); a local write with a running editor should set
+  `RECIPE_EDITOR_URL` so `--notify` is implicit. Reads in remote mode hit the
+  server's corpus, which is the one the skill should search before importing.
+  Validate the 22e section against the code first, as 22b–22d were.
+
+### PR 22e — Claude Code skill `agent/22e-curator-skill` ✅ done (← 22d)
+
+**Goal.** A committed Claude Code skill that turns _"three vegetarian dinners
+under 45 minutes for this week"_ into imported, cited recipes plus a
+`meal-plan` group, and the repo plumbing that lets a fresh session find and
+run it: the `.gitignore` carve-out (D12), a shared `.claude/settings.json`
+allow-list, and a minimal root `CLAUDE.md`. No application code changes.
+
+#### Facts validated against the code and the live environment (2026-09-05)
+
+1. **One invocation form, from the repo root:**
+   `pnpm --silent recipes <command> … --json`. The root `package.json`
+   passthrough is `"recipes": "pnpm --filter recipe-editor recipes"`; without
+   `--silent` pnpm's script banner precedes the JSON, with it stdout is exactly
+   one object. The 22d seed's allow-list (`Bash(pnpm recipes:*)`,
+   `Bash(pnpm --filter recipe-editor recipes:*)`,
+   `Bash(pnpm -C websites/recipe-website/editor recipes:*)`) prefix-matches
+   none of that — **allow-list `Bash(pnpm --silent recipes:*)` (the skill) and
+   `Bash(pnpm recipes:*)` (human, non-JSON runs) only** — plus
+   `Skill(recipe-curator)`, found at review: in `claude -p` the Skill tool is a
+   permission like any other (`permission_denials: [{tool_name: "Skill"}]`
+   with settings alone), and `Skill(recipe-curator)` in `permissions.allow`
+   lifts it (verified: "Launching skill: recipe-curator", no denials).
+2. **Permission rule syntax:** use the `:*` form Claude Code writes itself
+   (the main checkout's `.claude/settings.local.json` holds `Bash(grep:*)`,
+   `Bash(pnpm exec:*)`); `WebSearch` is a bare entry. `WebFetch` is not
+   needed: `import --dry-run` does the fetch.
+3. **Content-directory resolution** (`editor/cli/index.ts`
+   `resolveContentDirectory`): `--content-dir` > `CONTENT_DIRECTORY`, both
+   resolved against `INIT_CWD` (where the user typed the command, i.e. the
+   repo root), else `getContentDirectory()` → `<editor>/content`. In the main
+   checkout that is a **symlink to `/home/roger/Projects/recipe-content`, the
+   real content repo** — a bare `pnpm --silent recipes import …` writes and
+   commits there (identity preflight, 22c fact 8). **In a worktree the symlink
+   does not exist and the CLI silently creates an empty `editor/content`**
+   (verified: a nonexistent `CONTENT_DIRECTORY` yields
+   `{"total":0,"more":false,"recipes":[]}`, exit 0, and the directory
+   appears). The skill therefore runs `list --limit 1 --json` first and stops
+   to ask when `total` is 0 and the ask did not expect an empty site.
+4. **The real corpus is 437 recipes with two tags in total and no groups.**
+   `search "tag:vegetarian"` finds nothing there; reuse goes through free-text
+   `search "<words>"` (name / description / tags / ingredients, prefix match at
+   word start). Tags are something the skill _introduces_ with `--tags`, so
+   the skill names a small controlled vocabulary.
+5. **Query syntax the skill may use** (`common/components/SearchForm/queryLanguage.ts`):
+   `tag:x`, `ingredient:x`, `name:x`, `-tag:x`, `time:<=45` (also `<`, `>`,
+   `>=`; bare `time:30` = ≤30), `before:`/`after:` dates, `AND`/`OR`/`NOT`,
+   parentheses. `time:` evaluates `totalTime`, else `prepTime + cookTime`; a
+   recipe with **no** timing never matches a `time:` query, so "under 45
+   minutes" is checked on the row's `totalTime`, never assumed from absence.
+6. **JSON shapes** are the 22c table (`#### JSON contracts`). Correction to
+   the plan's reading of it: `list`/`search` rows are `MassagedRecipeEntry`
+   (`controller/curation/recipes.ts:63`) — `{date, slug, name, description,
+ingredients?: string[], image?, tags?, prepTime?, cookTime?, totalTime?}`.
+   Verified: a freshly imported recipe's `search` row carried all of them;
+   fixture rows show only the first four because the fixture data has no
+   more. So **`totalTime` and `tags` are checkable straight from `search`**;
+   `show <slug> --json` is for `instructions`/`source`. `import --dry-run` →
+   `{dryRun:true, url, slug, recipe, image?:{importUrl,filename}, video?}`
+   with `recipe.{ingredients, instructions, prepTime, cookTime, totalTime,
+recipeYield, source{url,name?,author?}}` (minutes, parsed from ISO
+   durations); `import` → `{slug, date, path, url, source?}`; `group create`
+   → `{slug, date, path, url, warnings?}`; errors → `{error:{code, message,
+…}}`, exit 2 for `slug_conflict`, else 1.
+7. **Candidate rejection** (re-verified today on a fixture copy): Budget Bytes
+   `vegetarian-chili` dry-runs to `totalTime` 40, 20 ingredients, 6
+   instructions, `source{url,name}`; BBC Good Food `easy-vegetable-lasagne`
+   to 95 min with `source.author` filled; Serious Eats →
+   `{"error":{"code":"import_failed","message":"No schema.org Recipe found at
+…"}}`. **A 404 gives the same `import_failed` message**, so the code does not
+   distinguish bot-blocked from a wrong URL — either way the candidate is
+   dropped. Reject also a dry run whose `recipe.ingredients` or
+   `recipe.instructions` is empty/absent, or whose `totalTime` exceeds the
+   limit (or is missing when the ask has one — say so in the report). YouTube
+   URLs import via the video path (`videoUrl` + `source`), acceptable only when
+   the ask allows videos.
+8. **Skill format** (Claude Code 2.1.259): `.claude/skills/recipe-curator/SKILL.md`
+   with frontmatter `name`, `description` (what auto-invocation matches on),
+   `allowed-tools` (pre-approves the listed tools inside the skill even when
+   settings differ); `$ARGUMENTS` carries the ask when invoked as
+   `/recipe-curator <ask>`; supporting files are referenced by relative path
+   (`examples.md` holds the worked transcripts so `SKILL.md` stays short).
+9. **`.claude/` in the main checkout holds `settings.local.json` and
+   `worktrees/`.** The carve-out `.claude/*` + `!.claude/skills/` +
+   `!.claude/settings.json` keeps both ignored (today every probe hits the
+   bare `.claude` line, `.gitignore:57`). The anchored `.claude/*` stops
+   ignoring nested `.claude` dirs elsewhere; none exist. Worktrees under
+   `.claude/worktrees/<name>/` are full checkouts, so the skill is visible in
+   a worktree session too — where fact 3's empty-content trap applies.
+10. **`CLAUDE.md`** is read from the repo root in any subdirectory session;
+    keep it under ~80 lines. `README.md`'s test section is stale (Cypress; the
+    suite is Playwright) — `CLAUDE.md` states the current commands; the README
+    rewrite is deferred, not silently done.
+11. **The e2e run is headless:** from the worktree root,
+    `CONTENT_DIRECTORY=<scratch copy of three-recipes-groups> claude -p "<ask>" --permission-mode acceptEdits --max-turns 40 --output-format stream-json --verbose`
+    with **no `--allowedTools`**, so the run exercises the committed
+    `.claude/settings.json` (the skill auto-invokes from its description;
+    `stream-json` keeps the tool calls for the summary). Nested inside a
+    Claude Code session this works as-is. The transcript summary is in the
+    close-out below.
+12. **Remote mode in the skill:** only when `RECIPE_API_URL` is set (then
+    `RECIPE_API_TOKEN` must be too, never on argv); with a local write and
+    `RECIPE_EDITOR_URL` set, `--notify` is implicit (22d). The skill never
+    passes `--remote`, `--editor-url`, or `--notify` itself.
+13. **Writes into a content directory with no `.git` succeed** (fixture copy:
+    `group create` exit 0; `import` exit 0, retry → `slug_conflict` exit 2;
+    `--item nope:…` → `unknown_recipe` exit 1). The identity preflight only
+    applies to a git repo, so the scratch e2e needs no `RECIPE_AUTHOR`. The
+    "A running editor is stale until Settings → Maintenance → Reload" stderr
+    hint also prints after `--dry-run`, which writes nothing — cosmetic,
+    deferred.
+14. **WebSearch cannot surface BBC Good Food** (found at review): a query
+    whose results include `bbcgoodfood.com` fails with `API Error: 400 The
+following domains are not accessible to our user agent` because the site
+    blocks Anthropic's crawler. The importer's plain `fetch` of a BBC URL is
+    unaffected (fact 7), so the skill says to rephrase or name another site,
+    and that a known URL is still fair game. Budget Bytes is searchable.
+
+#### Design (decided)
+
+- **Root `.gitignore`** — replace the bare `.claude` line (last stanza) with:
+
+  ```
+  .claude/*
+  !.claude/skills/
+  !.claude/settings.json
+  ```
+
+- **`.claude/settings.json`:**
+
+  ```json
+  {
+    "permissions": {
+      "allow": [
+        "Bash(pnpm --silent recipes:*)",
+        "Bash(pnpm recipes:*)",
+        "WebSearch",
+        "Skill(recipe-curator)"
+      ]
+    }
+  }
+  ```
+
+- **`.claude/skills/recipe-curator/SKILL.md`** (+ `examples.md`). Frontmatter:
+  `name: recipe-curator`;
+  `description: Find, import, cite and group recipes for the recipe website — meal plans and collections — via pnpm recipes. Use for asks like "plan dinners for the week", "import this recipe", "make a collection of …".`;
+  `allowed-tools: Bash(pnpm --silent recipes:*), WebSearch`. Body under ~150
+  lines; every command line copied from `pnpm recipes --help`:
+  1. **Where writes go.** `pnpm --silent recipes` from the repo root writes
+     the editor's `content` directory (in the main checkout: the real content
+     repo, committed) unless `CONTENT_DIRECTORY` or `--content-dir` points
+     elsewhere; with `RECIPE_API_URL` set every command goes to that editor
+     instead. Run `list --limit 1 --json` first, then `show <that slug>
+--json`: its absolute `path` is the resolved content directory (found at
+     review: the first headless run spent nine turns reading CLI source to
+     learn this because `env` was not an allowed command). State the mode and
+     the corpus size in the report's first line; if `total` is 0 and the ask
+     did not expect an empty site, stop and ask (fact 3). That is the only
+     stop: a `path` outside the editor's own `content` directory means
+     `CONTENT_DIRECTORY`/`--content-dir` was set on purpose and **is** the
+     target (the second headless run vetted three recipes and then refused
+     to write to the "throwaway fixture"). The skill also tells the model to
+     read the JSON itself rather than pipe it through `node -e`/`jq`, and not
+     to run `env`/`printenv` — only the CLI command is pre-approved.
+  2. **Turn the ask into constraints:** cuisine, diet, max total minutes,
+     servings, count, days/meals, exclusions; ask once if count or diet is
+     missing.
+  3. **Reuse first:** `search "<key words>" --json` (free text; the corpus is
+     mostly untagged), filter rows on `totalTime`/`ingredients`, `show <slug>
+--json` only when instructions matter; prefer an existing recipe over a new
+     import.
+  4. **Find candidates** with WebSearch; prefer sites known to expose JSON-LD
+     (BBC Good Food, Budget Bytes) and skip known bot-blocked ones (Serious
+     Eats, NYT Cooking); one search per constraint set, ≤ 8 candidate pages
+     without asking.
+  5. **Dry-run each:** `import <url> --dry-run --json`; reject per fact 7;
+     dedupe against step 3 by slug.
+  6. **Import the keepers:** `import <url> --tags <vocab…> --json`; never
+     `--overwrite`; on `slug_conflict` (exit 2) use the existing slug;
+     `source.url` comes from the importer — never strip it. Tag vocabulary:
+     diet (`vegetarian`, `vegan`, `gluten-free`), meal (`breakfast`, `lunch`,
+     `dinner`, `dessert`, `snack`), speed (`quick` = ≤ 30 min), cuisine as one
+     lowercase word.
+  7. **Group:** `group create --name "Week of <YYYY-MM-DD>" --kind meal-plan
+--item "<slug>:Mon · Dinner" … --json` (`collection` for non-dated asks);
+     on `unknown_recipe` fix the slug, never `--force`.
+  8. **Report:** a `Day | Recipe | Time | Source` table with `/recipe/<slug>`
+     links and the `/group/<slug>` link; end with "push from `/git` when
+     ready". The skill never pushes, never deletes, never runs `reindex`,
+     never passes `--author`, `--remote`, `--editor-url`, `--notify`,
+     `--overwrite` or `--force`.
+
+  `examples.md`: one worked transcript of the vegetarian-dinners ask
+  (commands and abbreviated JSON from fact 7's dry runs) plus a collection
+  example.
+
+- **Root `CLAUDE.md`** (≤ 80 lines): repo shape (`packages/*`, `websites/*`,
+  editor vs export); the skill and its one command form; the three durable
+  docs (`websites/recipe-website/docs/agent-curation.md`,
+  `websites/recipe-website/docs/ui-overhaul.md`,
+  `packages/cms/docs/incremental-regeneration.md`); verification commands
+  (`pnpm --filter recipe-editor typecheck`,
+  `pnpm --filter recipe-website exec tsc --noEmit`, `pnpm exec vitest run`,
+  `pnpm --filter recipe-editor e2e-dev -- <spec>`); the worktree / T13 / T14
+  notes in two lines; "content lives in a separate repo; never commit under
+  `editor/content`".
+
+#### Verification
+
+- **Tracking:** `git ls-files .claude` lists `settings.json` and
+  `skills/recipe-curator/{SKILL.md,examples.md}`;
+  `git check-ignore -v .claude/settings.local.json .claude/worktrees/x` still
+  hit; `git status` clean of `.claude/worktrees`.
+- **Gates unchanged** (no code): both typechecks, `pnpm exec vitest run`
+  (24 files / 395 tests — the 22d close-out recorded 394 before its own
+  review commit added the `cliJson` unreachable-remote case), `pnpm exec
+prettier --check` on the new
+  markdown/JSON (lint-staged runs it on commit).
+- **Command-line audit:** every `pnpm --silent recipes` line in `SKILL.md` /
+  `examples.md` is grepped and checked against `pnpm recipes --help` (flags
+  exist; `--item` shorthand is `slug:label`, split at the first colon).
+- **End-to-end (headless, scratch content):** copy
+  `editor/playwright/fixtures/test-content/three-recipes-groups` to a scratch
+  directory; run the fact-11 command with the ask "three vegetarian dinners
+  under 45 minutes for this week"; assert the transcript invoked the skill,
+  dry-ran ≤ 8 pages, and `group list --json` against the scratch copy shows a
+  `meal-plan` with 3 items whose recipes have `source.url` and
+  `totalTime ≤ 45`; then `CONTENT_DIRECTORY=… pnpm --filter recipe-editor dev`
+  and check `/groups` renders it. Record the transcript summary here.
+- **Decided with the user (2026-09-05):** the e2e run writes only to the
+  scratch fixture copy; Fable runs it headless and records the summary before
+  opening the PR. An interactive run against the real content repo is
+  optional and outside this phase's gates.
+
+Decisions / close-out (review, 2026-09-05):
+
+- [x] `.gitignore` carve-out + skill + settings + `CLAUDE.md` tracked:
+      `git ls-files .claude CLAUDE.md` → `.claude/settings.json`,
+      `.claude/skills/recipe-curator/SKILL.md`,
+      `.claude/skills/recipe-curator/examples.md`, `CLAUDE.md`;
+      `git check-ignore -v .claude/settings.local.json .claude/worktrees/x` →
+      both `.gitignore:57:.claude/*`; `git status` clean.
+- [x] End-to-end transcript summary recorded below.
+- **Decisions made at review:**
+  - `Skill(recipe-curator)` added to `.claude/settings.json` (fact 1): without
+    it a headless run cannot invoke the skill at all and falls back to reading
+    `SKILL.md` by hand.
+  - Skill step 1 gained `show <slug> --json` → `path` as the "where am I
+    writing" check (Design step 1); `examples.md` shows the scratch path.
+  - Free-text search words are ANDed and match at a word start
+    (`search "lentil chili beans"` → 0 rows; `"lentil"` and `"beans"` → 1
+    each), so the skill searches one or two words at a time. Found by the
+    implementer building `examples.md`.
+  - The third under-45 candidate in `examples.md` is BBC Good Food's
+    `spinach-sweet-potato-lentil-dhal` at exactly 45 min, used as the "at the
+    limit, say so" case.
+- **Divergences from the section:** none beyond the three items above and the
+  test count (395, not 394).
+- **Gates (worktree, 2026-09-05):** `pnpm --filter recipe-editor typecheck`
+  clean; `pnpm --filter recipe-website exec tsc --noEmit` clean;
+  `pnpm exec vitest run` → **Test Files 24 passed (24), Tests 395 passed
+  (395)**; `pnpm exec prettier --check` on `settings.json`, `SKILL.md`,
+  `examples.md`, `CLAUDE.md` and this doc → all formatted (lint-staged
+  re-checks on commit). Command-line audit: every `pnpm --silent recipes`
+  line in `SKILL.md`/`examples.md` uses only `list`, `search`, `show`,
+  `import`, `group create`, `group show` with `--json --limit --dry-run
+--tags --name --kind --description --item`, all in `--help`.
+- **End-to-end transcript (headless, scratch copy of `three-recipes-groups`,
+  settings-only permissions):**
+
+  Ask: `three vegetarian dinners under 45 minutes for this week`, run from
+  the worktree root with `CONTENT_DIRECTORY` = a fresh copy of
+  `three-recipes-groups`, `--permission-mode acceptEdits --max-turns 40`, no
+  `--allowedTools`. Three runs were needed; the first two changed the skill.
+  1. **Run 1 (settings without a Skill rule):** the model called
+     `Skill recipe-curator` and was denied (`permission_denials:
+[{tool_name: "Skill"}]`), read `SKILL.md` by hand instead, then spent nine
+     turns reading `cli/index.ts` and `.env` files to find the content
+     directory because `env`/`printenv` were not approved. Stopped at turn
+     ~15 → `Skill(recipe-curator)` added to settings; step 1 gained
+     `show <slug> --json` → `path`.
+  2. **Run 2 (28 turns, $1.20, no denials on CLI calls):** skill launched;
+     `list`/`show` gave the scratch `path`; WebSearch `vegetarian dinner
+recipe 30 minutes` failed with the BBC Good Food crawler error (fact 14)
+     and `quick vegetarian weeknight dinner recipe` succeeded; five Budget
+     Bytes dry runs (marry-me white bean skillet 25 min, quick curried
+     chick peas 30, one-pot veggie pasta 30, black bean quesadillas 15,
+     minestrone 45) all importable. Then it **stopped before writing**:
+     "this session's content directory is a throwaway fixture, not the
+     recipe content repo … tell me where writes should go". Several
+     `node -e` / `printenv` pipelines were denied along the way. → step 1
+     now says an explicit `CONTENT_DIRECTORY` is the target, and to read
+     the JSON directly.
+  3. **Run 3 (final, 19 turns, $0.73, `permission_denials: []`):** - `Skill recipe-curator` → "Launching skill". - `list --limit 1 --json` → `total: 3`; `show third-recipe --json` →
+     `path` under `…/tmp/e2e-content`; `list --limit 3 --json` → the three
+     placeholders, nothing to reuse. - WebSearch ×2: `budgetbytes vegetarian dinner 30 minutes`,
+     `budgetbytes vegetarian pasta chickpea curry quick weeknight` → six
+     candidate URLs. - `import <url> --dry-run --json` ×6 (in parallel): coconut-curry
+     chickpeas 35 min ✔; white beans with mushrooms and marinara 30 ✔;
+     creamy white bean and spinach quesadillas 20 ✔; Thai curry vegetable
+     soup — under the limit but **rejected for fish sauce in the
+     ingredients**; vegan creamy mushroom ramen 15 — importable, held as
+     a fallback; spicy sriracha noodles → `import_failed` (no JSON-LD). - `import … --tags vegetarian,vegan,dinner,indian` /
+     `vegetarian,dinner,quick,italian` / `vegetarian,dinner,quick,mexican`
+     → slugs `chickpea-curry`, `white-beans-with-mushrooms-and-marinara`,
+     `creamy-white-bean-and-spinach-quesadillas`, each with `source.url`. - `group create --name "Week of 2026-09-07" --kind meal-plan --item
+"chickpea-curry:Mon · Dinner" --item "…:Wed · Dinner" --item "…:Fri ·
+Dinner" --json` → `/group/week-of-2026-09-07`. - Report: opened with the mode line ("local content directory at
+     …/e2e-content, a scratch copy set via the environment, not the main
+     content repo; three placeholder fixtures before this run"), the
+     `Day | Recipe | Time | Source` table, the group link, the three
+     rejections with reasons, "Push from `/git` when ready". - **Assertions:** `list --json` → `total: 6`; `group list --json` shows
+     `week-of-2026-09-07` (`meal-plan`, `itemCount: 3`); `group show` items
+     resolve with no `missing`; `show` on each keeper → `totalTime` 35 /
+     30 / 20, `source.url` set, 9–10 ingredients, 5–6 instructions.
+     `pnpm exec next dev -p 3177` in `editor/` with the scratch
+     `CONTENT_DIRECTORY`: `GET /groups 200` lists "Week of 2026-09-07";
+     `GET /group/week-of-2026-09-07 200` renders `Mon · Dinner`,
+     `Wed · Dinner`, `Fri · Dinner` with all three recipe names. Nothing
+     was written outside the scratch copy (`editor/content` still absent
+     in the worktree).
+
+- **Next PR: 22f** (reopened 2026-09-06 — the roadmap closed here at 22e;
+  group discovery and featured groups were decided with the user
+  afterwards).
+
+### PR 22f — Group discovery `agent/22f-group-discovery` ✅ done (← 22e)
+
+**Why:** groups shipped in 22b and 22c–22e made them scriptable, but nothing
+_leads_ to them: a group is reachable only from the ⌘K "Go to → Groups" row,
+a member recipe's "Appears in" block, or the raw `/groups` URL. The user's
+concrete case is a collection of pie-iron batter recipes they want to refer
+back to and read quickly. Decided with the user (2026-09-05/06):
+
+- **Entry points:** a header nav link, a homepage groups section, and a
+  browse rail on the idle `/search` page.
+- **Search:** matching groups appear as results on `/search` and in ⌘K
+  (name/description), **plus** a `group:<slug>` query term that narrows
+  recipes to a group's members, with a "Search within this group" link on
+  the group page.
+- **Group page:** items render as recipe cards (image, date, tags — the same
+  card as the recipe grids), keeping label/note and the group's order.
+- **No index-shape change** in this phase; featured groups (which do change
+  the featured index) are PR 22g.
+
+Paths below are relative to `websites/recipe-website/` unless noted.
+
+#### Facts validated against the code (2026-09-06)
+
+1. **Header nav** items are `defaultHeaderItems`
+   (`common/components/AppLayout/index.tsx:41`, today only Bookmarks) plus
+   the owner's `header` menu; `nav.tsx` `NAV_ICONS` keys icons by href. The
+   mobile sheet renders the same list. Adding a default item changes the
+   masthead on **every** page, so every `visual.spec.ts` baseline
+   (`playwright/support/visual.ts` `snapshotPage`) regenerates —
+   intentional, do it with `--update-snapshots` on that spec only.
+2. **Homepage** (`Homepage/route.tsx` + `Homepage/index.tsx`) reads the
+   recipe and featured pagination _heads_ through
+   `createCachedPaginationReads` (tagged `pagination:<type>:by-date:head`).
+   `groupPages.readHead()` (`controller/data/readGroupPages.ts`) is the same
+   shape, so a groups section is invalidated by the head tag a group write
+   already fires — `groupSuccessConfig.paginationOnly`
+   (`editor/controller/successConfigs.ts:137`) stays correct; its comment
+   ("the homepage reads nothing of groups") must be updated.
+3. **Search is client-side.** `SearchContext.tsx` fetches `/search/all`
+   (display corpus, `MassagedRecipeEntry[]`, unconditional) and
+   `/search/ingredients` (on demand), runs FlexSearch for free text, then
+   `matchesFilter(recipe, filter)` (`SearchForm/queryLanguage.ts:471`) over
+   `FilterableRecipe` for typed terms. `FILTER_FIELDS` is a `const` list
+   (`tag ingredient name description time before after`); an unknown prefix
+   is free text. `filterUsesField` gates `/search/ingredients`
+   (`filterNeedsIngredients` / `ingredientsSettled`) — the exact pattern to
+   copy for a groups document. FlexSearch results are the corpus `doc`s
+   (`searchQuery`, `{doc}` map), so decorating the display corpus decorates
+   results too.
+4. **Group index value** is `{name, kind, items[{recipe,label}]}` (D5) — no
+   `description`. The search route reads data files instead of changing the
+   index: `readAllGroupIds()` (keys-only walk, `readGroupPages.ts:45`) +
+   `getGroupBySlug` (`readGroups.ts`, CLI-safe). Groups are few; the export
+   bakes the route at build (`force-static`, like
+   `export/.../search/all/route.ts`).
+5. **Palette** (`CommandPalette/index.tsx`): static rows are filtered by
+   `matchesQuery`; recipe rows come from `displayedRecipes` gated on
+   `query`; `hasRecipeHits` hides "Go to"/"Actions".
+   `command-palette.spec.ts` asserts "Enter opens the top recipe even when
+   the query matches a destination", so a Groups row group must render
+   **after** Recipes.
+6. **Group page** (`GroupDetailPage/index.tsx`) already receives resolved
+   `Recipe` objects per item (route: `recipeItems.read`), so cards need no
+   new reads. `groups.spec.ts` asserts `group-item`, `group-item-label`,
+   `group-item-missing`, `group-kind`, `group-empty` test ids and item order
+   — keep them. Do **not** use `RecipeGrid` (stamps
+   `data-testid="recipe-list"`, counted unscoped by many specs; see
+   `List/Group/index.tsx`'s note).
+7. **Fixture `three-recipes-groups`**: "Week of May 4" (`meal-plan`,
+   description "Three dinners, one shop.", items first/second/missing-recipe
+   with labels) and "Weeknight Favourites" (`collection`, first + third).
+   `three-recipes` has no groups (and predates them, aggregate `null`), so
+   every new surface must render _nothing_ there — that is what keeps its
+   baselines still.
+
+#### Design (decided)
+
+**Shared reads**
+
+- **`common/controller/data/readGroupSearchCorpus.ts`** (new, CLI-safe:
+  `readAllIds` + `readContentFile` only):
+  `getGroupSearchCorpus(): Promise<GroupSearchEntry[]>` with
+  `GroupSearchEntry = {slug, date, name, kind, description?, recipes: string[]}`
+  (item slugs, deduped, order kept). The in-flight collapse `getSearchCorpus`
+  has is unnecessary (one route).
+- **Routes** `editor/src/app/(recipes)/search/groups/route.ts` (plain `GET`,
+  like `search/all`) and `export/src/app/(recipes)/search/groups/route.ts`
+  (`export const dynamic = "force-static"`). JSON = the array.
+
+**Query language (`SearchForm/queryLanguage.ts`)**
+
+- `FILTER_FIELDS` gains `"group"`; `FilterableRecipe` gains
+  `groups?: string[]` (group _slugs and names_ the recipe belongs to,
+  pre-folded by the matcher as usual); `matchesFilter` `case "group"` →
+  `(recipe.groups ?? []).some(g => fieldMatches(g, value))`, and `"any"`
+  does **not** include groups (a bare word must not match through
+  membership). `groupSearchHref(slug)` beside `tagSearchHref`
+  (`/search?q=group:<quoted slug>`). `filterUsesField(filter, "group")`
+  already generalises.
+- `test/queryLanguage.test.ts`: parse `group:weeknight-favourites` as a text
+  leaf, `-group:x` negation, `matchesFilter` on `groups`, `filterUsesField`
+  true/false, `groupSearchHref` quoting.
+
+**Search context (`SearchForm/SearchContext.tsx`)**
+
+- `groupsQuery` (`queryKey: ["groups"]`, `fetch("/search/groups")`,
+  `staleTime: Infinity`; `retry()` refetches it too). Expose
+  `allGroups: GroupSearchEntry[]`, `groupsSettled`.
+- Build `groupsByRecipe: Map<slug, string[]>` (slug + name per membership)
+  and decorate the display corpus **before** it feeds `allRecipes` and the
+  FlexSearch populate — one memo, `{...recipe, groups}` — so
+  `searchedRecipes` carry `groups` too (fact 3). Populate/probe logic is
+  untouched: `groups` is never indexed.
+- `filterNeedsGroups = filterUsesField(filter, "group")`; `displayedRecipes`
+  stays `undefined` and `isSearching` is true until `groupsSettled` when it
+  is set — mirror the ingredients gate exactly.
+- `matchedGroups: GroupSearchEntry[]` — when `parsedQuery.text` is
+  non-empty, groups whose `name` or `description` `fieldMatches` **every**
+  free-text word (same AND-at-word-start semantics as the CLI's free text);
+  empty when the query has no free text. Filters never apply to groups.
+
+**Surfaces**
+
+- **Header:** `defaultHeaderItems` += `{ name: "Groups", href: "/groups" }`
+  after Bookmarks; `NAV_ICONS["/groups"] = LayersIcon`. `destinations.ts`
+  Groups keywords += `"collections", "meal plans"`.
+- **Homepage:** `route.tsx` adds `groupPages.readHead()`; `Homepage` gets
+  `groups: GroupListEntry[]` (first 3) and renders a "Groups" section
+  between Browse chips and Featured: `PageHeading` + `GroupList`
+  (`List/Group`) + "More groups" → `/groups` (same `Button` as the other
+  strips); renders nothing when empty. Update the `groupSuccessConfig`
+  comment (fact 2).
+- **`/search` idle rail:** new `SearchForm/GroupRail.tsx` (client;
+  `useSearch().allGroups`): "Groups" label + one `Badge` link per group
+  (`Layers` icon, name, `itemCount`) to `/group/<slug>`, capped at 12 with
+  "More →" `/groups`; rendered in `SearchResultsPage` only when
+  `!hasFilter`, above `TagFilterRail`; nothing when there are no groups.
+- **`/search` results:** new `SearchForm/GroupResults.tsx`: when
+  `matchedGroups.length > 0`, a "Groups" strip above the recipe grid —
+  `GroupList` cards (reuse) with the name highlighted via
+  `highlightText(name, parsedQuery.text)`; `onClick` → `recordSearch(query)`.
+  `SearchTicker` keeps counting recipes only.
+- **Palette:** after the Recipes group,
+  `{matchedGroups.length > 0 && <CommandGroup heading="Groups" data-testid="palette-groups-group">}`
+  with up to 3 rows (`value="group:<slug>"`, `Layers` icon, name, kind badge
+  text, `onSelect → recordSearch(query); go("/group/<slug>")`). Shown
+  whether or not there are recipe hits; "Go to"/"Actions" hiding rule
+  unchanged.
+- **Group page cards:** extract the item list from `GroupDetailPage` into
+  `GroupDetailPage/GroupItems.tsx` (`items: ResolvedGroupItem[]`): an `<ol>`
+  with `grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3`, each
+  `<li data-testid="group-item">` = optional label line (`group-item-label`)
+  - `RecipeListItem` (`List/index.tsx`, fed
+    `{slug: item.recipe, date, name, image, tags}` from the `Recipe`) +
+    optional note; a dangling item keeps the muted "Recipe not found"
+    (`group-item-missing`) inside a card-shaped box. Under the kind badge add
+    a "Search within this group" link (`groupSearchHref(slug)`,
+    `data-testid="group-search-link"`). 22g reuses `GroupItems`.
+
+#### Tests (Playwright, `three-recipes-groups` unless noted)
+
+- `groups.spec.ts`: header "Groups" link in the banner and in the mobile
+  sheet; homepage "Groups" section lists both groups newest first, "More
+  groups" → `/groups`; homepage on `three-recipes` shows **no** Groups
+  section; group page items are cards in order with labels and the dangling
+  third; "Search within this group" on `weeknight-favourites` lands on
+  `/search?q=group:weeknight-favourites` showing exactly First and Third
+  Recipe with the `group:` chip visible.
+- `search-query-language.spec.ts`: `group:week-of-may-4` → First + Second
+  (dangling slug contributes nothing); `-group:weeknight-favourites` →
+  Second only; `tag:x group:y` compose; an idle `/search` shows the group
+  rail with both chips, and it disappears once a query is typed.
+- `search.spec.ts`/`search-live.spec.ts`: typing `shop` shows the Groups
+  strip with "Week of May 4" (description match) and no recipe cards;
+  `weeknight` shows the group above zero recipes; `recipe` shows recipes and
+  no group strip.
+- `command-palette.spec.ts`: on `three-recipes-groups`, `weeknight` lists
+  option "Weeknight Favourites" that navigates to
+  `/group/weeknight-favourites`; "Enter opens the top recipe" case still
+  passes on `three-recipes`.
+- `visual.spec.ts`: regenerate baselines (header link), review the diff is
+  header-only.
+
+#### Verification (implementer runs; Fable reruns)
+
+- `pnpm --filter recipe-editor typecheck`;
+  `pnpm --filter recipe-website exec tsc --noEmit`;
+  `pnpm exec vitest run` (395 tests at 22e + the new query-language cases).
+- The specs above via `pnpm --filter recipe-editor e2e-dev -- <spec>`;
+  `visual.spec.ts` with `--update-snapshots`, then diff the baselines.
+- Export build check: `CONTENT_DIRECTORY=<three-recipes-groups copy> pnpm
+--filter recipe-website build` produces `out/search/groups` JSON and
+  `/groups`.
+- Traps: T12/T13/T14 as before; no fixture index regen needed (no
+  index-shape change); `git status` must show no fixture `lock.mdb` churn.
+
+Decisions / close-out (review, 2026-09-06):
+
+- **Decisions made at review:**
+  - **Engine hits are re-decorated with `groups` at filter time**, on top of
+    decorating the display corpus before the populate. FlexSearch hits come
+    out of the IndexedDB document _store_, which is rewritten only when the
+    recipe corpus version moves — and a group write does not move it. Without
+    the second pass, `chicken group:new-plan` would answer nothing after
+    creating a group until an unrelated recipe write. Commented in
+    `SearchContext.tsx` `displayedRecipes`.
+  - **Baseline regeneration was wider than "visual.spec.ts only" and narrower
+    in effect than fact 1 predicted.** No baseline actually failed: the new
+    nav link lands inside the config's `maxDiffPixelRatio: 0.02`. All 21
+    masthead-bearing shots were regenerated anyway (`visual.spec.ts` ×19,
+    `header.spec.ts/masthead-signed-out`, `menus.spec.ts/header-with-about-link`)
+    so a stale masthead does not silently eat that tolerance. Reviewed
+    `homepage-three-recipes` old vs new: body pixel-identical, masthead now
+    `Bookmarks · ⧉ Groups · Search Ctrl+K` (the `Ctrl+K` hint chip was
+    captured post-hydration this time; the old shots predated it).
+    `search-reveal-control` changed only in antialiasing.
+  - `getGroupSearchCorpus` takes an optional `{ contentDirectory }` (T16),
+    matching `getGroupBySlug`; no caller passes it yet.
+  - `GroupRail` chips are destinations (`/group/<slug>`), not filter writers;
+    the narrowing move is the group page's "Search within this group" link.
+    The 12-chip cap + "More →" is implemented but no fixture exercises it.
+  - `GroupResults` cards print the _deduped_ member count (`recipes.length`)
+    where `/groups` prints the raw `items.length`; they differ only for a plan
+    listing one recipe twice.
+  - `MassagedRecipeEntry.groups?` was added to the type (documented as
+    client-side decoration, never served by `/search/all`).
+  - The `search.spec.ts` cases from the plan landed in `search-live.spec.ts`
+    (a new "Search — matching groups" describe) — same coverage, one file.
+- **Divergences from the section:** the six items above; the "tag:x group:y"
+  compose case uses `name:second` because the fixture recipes carry no tags.
+- **Gates (worktree, 2026-09-06, dev mode):** `pnpm --filter recipe-editor
+typecheck` clean; `pnpm --filter recipe-website exec tsc --noEmit` clean;
+  `pnpm exec vitest run` → **Test Files 24 passed (24), Tests 405 passed
+  (405)** (395 at 22e + 10 `group:` cases); `e2e-dev -- groups.spec.ts
+search-query-language.spec.ts search.spec.ts search-live.spec.ts
+command-palette.spec.ts` → **92 passed (2.8m)**; `e2e-dev -- visual.spec.ts
+header.spec.ts menus.spec.ts homepage.spec.ts mobile.spec.ts navigation.spec.ts
+accessibility.spec.ts` → **67 passed (2.5m)**, no `--update-snapshots`, no
+  flakes on the review rerun. Export build
+  (`CONTENT_DIRECTORY=<three-recipes-groups copy> pnpm --filter recipe-website
+build`): route table lists `○ /search/groups` and `● /group/[slug]` ×2;
+  `out/search/groups` = `week-of-may-4` (first, second, missing-recipe) then
+  `weeknight-favourites` (first, third); `out/groups.html` and
+  `out/group/*.html` present. `git status` clean — no fixture `lock.mdb`
+  churn.
+- **Next PR: 22g** — featured groups, seeded below. Re-validate facts 8–9
+  against the code before spawning the implementer; it changes the featured
+  index value (`version: "2"`, T1/T3) and the featured form.
+
+### PR 22g — Featured groups `agent/22g-featured-groups` ✅ done (← 22f)
+
+**Why:** 22f gave groups their entry points and turned the group page into
+recipe cards, but the homepage's featured strip is still recipes-only. The
+user's concrete case is a collection (pie-iron batters) they want to pin
+beside featured recipes. Decided with the user (2026-09-07):
+
+- **A featured entry can point at a group instead of a recipe.** This
+  **changes the featured index value** (spec version `"2"`, every featured
+  fixture's index) and the featured form.
+- **Group cards get an image slot** with the precedence _pre-defined group
+  image › first usable member thumbnail › placeholder icon_, applied to
+  **every server-rendered group card** (featured group card, homepage Groups
+  section, `/groups`, the featured detail header). Client-rendered search
+  result cards on `/search` stay text-only (they cannot run the image
+  transform).
+- **Split:** 22g ships featured groups + the member-thumbnail fallback
+  (render-time cached reads, no group schema change). **22h** adds the
+  group's own `image` field on top, completing the precedence. The strip
+  heading stays **"Featured Recipes"**.
+
+Paths are relative to `websites/recipe-website/` unless noted.
+
+#### Facts validated against the code (2026-09-07)
+
+1. **Reference machinery is per-declaration.** `resolveReferences`
+   (`packages/cms/content/references.ts:190`) loops `config.references`; for
+   each it reads `data[dataField]` and a missing/empty string yields
+   `undefined` without touching the resolver. So
+   `featuredRecipeContentConfig.references` can hold two declarations
+   (`recipe` → recipes, `group` → groups) and an entry with only one field
+   set resolves cleanly. `borrowed<T>(refs, dataField)` is what
+   `buildFeaturedRecipeIndexValue.ts` already uses.
+2. **Dependents are found via `referencedBy` on the target.**
+   `updateDependents` (`packages/cms/content/updateDependents.ts:92`) returns
+   early unless `borrowedFieldsOf(config)` changed or the slug moved; then
+   per `ReferenceSpec` it scans the dependent's index for
+   `value[indexField] === targetSlug`, rewrites `data[dataField ?? indexField]`
+   on a rename, and rebuilds those dependents.
+   `recipeContentConfig.referencedBy = [{config: () => featuredRecipeContentConfig, indexField: "recipe"}]`
+   is the template. `deleteContent` calls it too (borrowed values cleared,
+   reference kept). `genericActions.ts:92` revalidates each dependent's
+   pagination/aggregate/item tags, so a group retitle refreshes featured
+   cards with no new seat.
+3. **`rebuildIndex` cascades through `referencedBy` by default**
+   (`packages/cms/content/rebuildIndex.ts:130`, `visited` bounds cycles).
+   `rebuildGroupIndex` (`editor/controller/actions/groups.ts:96`) passes only
+   `groupContentConfig` to `revalidateDerivedState` and its comment says the
+   cascade is empty (D3). After 22g the cascade reaches featured recipes, so
+   the seat must pass `[groupContentConfig, featuredRecipeContentConfig]`,
+   and `test/revalidateDerived.test.ts` "fires no recipe tag for a group
+   rebuild either" (~line 200) must expect five tags
+   (`pagination:groups:by-date`, `aggregate:groups:by-recipe`, `item:groups`,
+   `pagination:featured-recipes:by-date`, `item:featured-recipes`) and still
+   no recipe tag. `rebuildAllIndexes`/`rebuildFixtureIndexes` already take
+   the whole registry (`editor/controller/contentTypes.ts` includes groups).
+   `derivedPaths.test.ts` reads directories only — unchanged.
+4. **Thunk cycle.** `featuredRecipeContentConfig` will import
+   `groupContentConfig`; `groupContentConfig.referencedBy` imports it back —
+   the same TDZ cycle as recipes↔featured, fixed by the thunk on both sides.
+   `groupContentConfig.ts`'s header ("No `references` and no `referencedBy`
+   (D3)… needs no thunk") and T4 must be rewritten. D3 was amended in the doc
+   on 2026-09-06.
+5. **Types.** `FeaturedRecipe {recipe: string; date; note?}`
+   (`common/controller/types.ts:89`);
+   `FeaturedRecipeEntryValue {recipe; note?; recipeName?; recipeImage?}`;
+   `FeaturedRecipeListEntry` (`paginationConfigs.ts:87`);
+   `featuredRecipesByDate.project` copies field by field, `version: "1"`
+   (line 110). `test/specVersions.test.ts` pins `paginationConfigs.ts` as
+   `{hash: "e49d4da3e1cd36e4", versions: ["1","1"]}` (T1). Fixture indexes
+   must be regenerated (T3: `pnpm tsx scripts/build-fixture-indexes.ts` from
+   `editor/`) for `one-featured-recipe`, `many-featured-recipes`,
+   `many-featured-recipes-paged`, and `three-recipes-groups` once it gains a
+   feature.
+6. **Surfaces that assume a recipe** (all confirmed):
+   `List/FeaturedRecipe/index.tsx` (`RecipeCardLink href="/recipe/<recipe>"`,
+   `RecipeImage`, `recipeName`, "View Feature", note; `RecipeGrid`);
+   `FeaturedRecipeDetailPage/index.tsx` (`{recipe, recipeSlug, note?, actions?}`
+   → `RecipeView`); editor + export `featured-recipe/[slug]/page.tsx`
+   (`getFeaturedRecipeBySlug` → `recipeItems.read(featuredRecipe.recipe)` →
+   `notFound()`; `generateMetadata` uses `recipe?.name`); `Homepage/route.tsx`
+   (`featuredHead.items.slice(0,6).filter(e => e.recipeName)`),
+   `Homepage/index.tsx` (`heroSlug = featuredRecipes[0]?.slug ?? recipes[0]?.slug`;
+   `RecipeSection "Featured Recipes"` → `RecipeList` → `RecipeGrid` of
+   `RecipeListItem`, each with a `BookmarkButton`);
+   `Form/FeaturedRecipe/index.tsx` (`RecipeSelectInput name="recipe" required`;
+   `Create/index.tsx` re-exports); `parseFeaturedRecipeFormData.ts`
+   (`recipe: min(1)`; `parseFormData` passes raw strings, so an empty field
+   is `""`); `actions/featuredRecipes.ts` (`buildCreateData`/`buildUpdateData`
+   copy `parsed.recipe`); `featured-recipe/new/page.tsx`
+   (`searchParams.recipe`, sign-in `redirectTo` keeps it) + `new/form.tsx`
+   (`preselectedRecipe`); `[slug]/edit/form.tsx`; the recipe page's Feature
+   button (`editor/src/app/(recipes)/recipe/[slug]/page.tsx:62`). The editor
+   group page renders Delete + Edit in `actions` — the Feature button goes
+   there.
+7. **Group picker.** `RecipeSelectInput` opens `SearchFormModal` and hydrates
+   via `/api/recipe/<slug>`; no group equivalent exists. 22f's
+   `/search/groups` (`GroupSearchEntry[]`) is the right feed for a native
+   `<select>`. `ToggleGroup`/`ToggleGroupItem`
+   (`packages/component-library/components/ui/toggle-group.tsx`) is used as
+   `type="single" variant="outline" size="sm"` in
+   `RecipeIndexPage/RecipeIndexList.tsx:104`.
+8. **Tests that pin today's shape.** `featured-recipes.spec.ts` finds the
+   strip as `h2 "Featured Recipes"` → `xpath=ancestor::*[1]`, counts
+   `listitem` unscoped on `/` after a submit, and orders `/featured-recipes`
+   by `listitem`. `visual.spec.ts` `featured-recipes-page1` is
+   `many-featured-recipes` (recipes only) — recipe card markup must not move.
+   `test/groups.test.ts` seeds real recipes/groups with
+   `createContent`/`updateContent` in a tmpdir (`createRecipe`,
+   `createGroup`, `updateGroup`, "re-titles a group" at line 468) — the home
+   for the featured-edge engine tests. `exportStaticParams.test.ts` mocks the
+   page reads — unaffected.
+9. **Fixture `three-recipes-groups`**: `groups/`, `recipes/`, `users/`; no
+   `featured-recipes/`. Groups: `week-of-may-4` (meal-plan, 2026-05-04, items
+   first/second/`missing-recipe`), `weeknight-favourites` (collection,
+   2026-05-01, first + third). Recipes are dated 2026-01-06 and have **no
+   images**.
+10. **Image pipeline is per content type and already generic enough.**
+    `RecipeImage` (`common/components/RecipeImage/index.tsx`) is an async
+    server component: `getRecipeUploadPath(contentDir, slug, image)` →
+    `<content>/uploads/recipe/<slug>/uploads/<image>`
+    (`recipeContentConfig.uploadsDirectory: "uploads/recipe"`; engine default
+    would be `uploads/<contentType>/…`, `packages/cms/content/filesystem.ts:63`),
+    transformed by `getStaticImageProps`
+    (`packages/next-static-image/src/index.tsx`) into
+    `<content>/transformed-images/<src>/<name>-w<w>q<q>.webp`, served by the
+    editor's `image/[...filePath]` route and **copied into the export by
+    `exportAction.ts:31`**, so any transformed image (recipe or, in 22h,
+    group) reaches the static site with no new route. Uploads are written by
+    the engine from `buildCreateUploads`/`buildUpdateUploads`
+    (`editorContentConfig.ts:60`, `UploadSpec {file, fileImportUrl, clearFile, existingFile}`),
+    as `actions/index.ts:101` does for recipes; the form input is
+    `Form/Image/index.tsx` (`ImageInput`, hardcoded `name="image"` +
+    `clearImage`). The curation layer's `writeItems` spreads
+    `{...current, items}` so an extra group field survives CLI item edits.
+    (All 22h.)
+11. **Cached item reads.** `createCachedItemRead`
+    (`packages/cms/content/next/cachedItemRead.ts`) wraps
+    `readContentFileOrNull` in `React.cache` + `unstable_cache` tagged
+    `item:<type>` and `item:<type>:<slug>`; `genericActions` fires
+    `revalidateItemWrite` for the written type on every write. Only recipes
+    use it (`readRecipeItem.ts`); `readGroups.ts:10` documents _not_ having
+    one for groups because a group page reads its record once. 22g reverses
+    that for a new reason (list cards need every group's items) — amend that
+    comment (D13).
+12. **`GroupList` is a sync component used from both server
+    (`GroupIndexPage/shared.tsx:32`, `Homepage/index.tsx`) and client
+    (`SearchForm/GroupResults.tsx`)**, so it cannot itself become async; a
+    thumbnail has to arrive as a prop the server callers render.
+    `RecipeCardImageContainer` / `RecipeCardPlaceholder` /
+    `standardRecipeImageProps` / `recipeCardImageClassName`
+    (`List/shared.tsx`) are the card image primitives `RecipeListItem` uses.
+
+#### Design (decided)
+
+##### A. Featured groups: schema, config, engine edge (`common/controller/`)
+
+- `types.ts`: `FeaturedRecipe { recipe?: string; group?: string; date; note? }`
+  (exactly one set — enforced by the form parser, tolerated by the engine);
+  `FeaturedRecipeEntryValue` += `group?: string; groupName?: string; groupKind?: GroupKind`.
+- `paginationConfigs.ts`: `FeaturedRecipeListEntry` += the same three;
+  `project` copies them; `version: "2"` with a one-line reason. Update the
+  `specVersions.test.ts` inline snapshot
+  (`vitest run -u test/specVersions.test.ts`; the diff must show `["1","2"]`).
+- `featuredRecipeContentConfig.ts`: second declaration
+  `{config: () => groupContentConfig, dataField: "group", fields: ["name", "kind"]}`;
+  comment amended.
+- `buildFeaturedRecipeIndexValue.ts`: `const group = borrowed<Group>(refs, "group")`;
+  value gains `group, groupName: group?.name, groupKind: group?.kind`.
+- `groupContentConfig.ts`:
+  `referencedBy: [{config: () => featuredRecipeContentConfig, indexField: "group"}]`;
+  header comment rewritten (no _array_ references; one scalar inbound edge;
+  the thunk breaks the cycle — T4 updated).
+- `editor/controller/actions/groups.ts` `rebuildGroupIndex`:
+  `revalidateDerivedState([groupContentConfig, featuredRecipeContentConfig])`,
+  comment rewritten around fact 3.
+
+##### B. Featured groups: editor write path
+
+- `parseFeaturedRecipeFormData.ts`: `recipe` and `group` both
+  `z.string().optional().transform(v => v?.trim() || undefined)`, then
+  `.refine(d => Boolean(d.recipe) !== Boolean(d.group), {message: "Choose a recipe or a group", path: ["recipe"]})`.
+  `FeaturedRecipeFormErrors` += `group?`.
+- `actions/featuredRecipes.ts`: `buildCreateData`/`buildUpdateData` write
+  only the set key (`...(parsed.recipe && {recipe: parsed.recipe})`,
+  `...(parsed.group && {group: parsed.group})`).
+- `Form/FeaturedRecipe/index.tsx`: `target: "recipe" | "group"` state
+  initialised from `featuredRecipe.group ? "group" : "recipe"`; a
+  `ToggleGroup type="single"` labelled "Feature a" with Recipe / Group items
+  (`data-testid="featured-target"`); render **only** the active input so the
+  inactive hidden input never submits. Group errors shown on the group input.
+- **`common/components/Form/inputs/GroupSelect/index.tsx`** (new, client):
+  `FieldWrapper` + `Errors` + native `<select name id required>` fed once by
+  `fetch("/search/groups")`; "Select a group…" empty option; options
+  "Name · Collection|Meal plan"; a `defaultValue` slug missing from the list
+  keeps an `<option value={slug}>` labelled `"<slug> (group not found)"`
+  selected with `data-testid="group-select-missing"`, mirroring
+  `RecipeSelectInput`.
+- `featured-recipe/new/page.tsx`: `searchParams: {recipe?, group?}`;
+  `redirectTo` preserves whichever is set; `new/form.tsx` takes
+  `preselectedGroup` and passes `featuredRecipe={{recipe, group}}`.
+- Editor group page:
+  `<Button asChild size="sm"><Link href={`/featured-recipe/new?group=${slug}`}>Feature</Link></Button>`
+  before Edit.
+
+##### C. Group thumbnails (member fallback › icon)
+
+- **`common/controller/data/readGroupItem.ts`** (new):
+  `groupItems = createCachedItemRead<Group, GroupEntryValue, GroupEntryKey>({config: groupContentConfig})`
+  — tags `item:groups` / `item:groups:<slug>`, fired by every group write
+  (fact 11). Amend `readGroups.ts`'s comment: the raw read stays the
+  CLI-safe one; the cached one exists for cards.
+- **`common/components/GroupThumbnail/index.tsx`** (new, async server
+  component): props `{slug, name, items?: GroupItem[], className?}`. Uses
+  `items` when given (group/featured detail pages already hold them), else
+  `groupItems.read(slug)`. Walks the first **6** distinct item slugs in
+  order, `recipeItems.read(slug)` each (cached, tagged `item:recipes:<slug>`),
+  and renders the first recipe that has an `image` as
+  `<RecipeImage slug={recipeSlug} image alt="<name>" className={recipeCardImageClassName} {...standardRecipeImageProps} />`
+  wrapped in `data-testid="group-thumbnail"`; otherwise a `Layers` icon
+  placeholder in the same bench-toned box as `RecipeCardPlaceholder`
+  (`data-testid="group-thumbnail-placeholder"`). 22h inserts the group's own
+  image ahead of the walk — leave a one-line comment marking the slot.
+- **`List/Group/index.tsx`**: `GroupListItem` gains `thumbnail?: ReactNode`;
+  when present it renders `<RecipeCardImageContainer>{thumbnail}</RecipeCardImageContainer>`
+  above the name link (inside the same `Link`), otherwise the card is exactly
+  today's text-only card (keeps `GroupResults` and the 22f group tests
+  unchanged). `GroupList` gains
+  `renderThumbnail?: (entry: GroupListEntry) => ReactNode`. Server callers
+  pass `(g) => <GroupThumbnail slug={g.slug} name={g.name} />`:
+  `GroupIndexPage/shared.tsx` (`/groups` + pages) and `Homepage/index.tsx`
+  (Groups section). With images the group grid becomes the recipe grid's
+  column count (`grid-cols-2 md:grid-cols-3 lg:grid-cols-6`) — adjust the
+  `<ul>` classes in `GroupList` only when `renderThumbnail` is set.
+  `GroupResults` passes nothing and keeps the wide text-only layout.
+- Invalidation is by construction: a recipe's image change fires
+  `item:recipes:<slug>`; a group's item change fires `item:groups:<slug>`.
+  Implementer confirms the API write path (22d, `revalidateContentWrite`)
+  fires item tags too — `test/revalidateContentWrite.test.ts` should already
+  pin it.
+
+##### D. Rendering featured entries (`common/components/`)
+
+- **`List/FeaturedRecipe/GroupCard.tsx`** (new, server): `RecipeCard` →
+  `RecipeCardLink href="/group/<group>"` → `RecipeCardImageContainer` holding
+  `<GroupThumbnail slug name />` → `RecipeCardName` =
+  `groupName ?? "Group not found"` (muted when missing) → kind `Badge`
+  (`groupKindLabel`) → `RecipeCardDate`; `data-testid="featured-group-card"`;
+  **no** bookmark button. Optional `footer?: ReactNode` for the "View
+  Feature" link + note on `/featured-recipes`.
+- **`List/FeaturedRecipe/index.tsx`**: `FeaturedRecipeListItem` branches on
+  `entry.group` → `GroupCard` with footer; the recipe branch is byte-for-byte
+  today's markup.
+- **`Homepage/route.tsx`**: `featured: FeaturedStripEntry[]` from
+  `featuredHead.items.slice(0, 6).filter(e => e.recipeName || e.groupName)`,
+  `FeaturedStripEntry = {kind: "recipe", recipe: MassagedRecipeEntry} | {kind: "group", slug, name, groupKind, date}`.
+  **`Homepage/index.tsx`** takes `featured`, derives
+  `featuredRecipes = featured.filter(kind === "recipe")` for the hero (first
+  featured _recipe_, else latest — unchanged meaning), and renders
+  **`Homepage/FeaturedStrip.tsx`** (new, server) in place of the featured
+  `RecipeSection`: same wrapper (`div.mb-8` → `PageHeading "Featured Recipes"`
+  → `RecipeGrid` → "More Featured Recipes" button), per entry
+  `RecipeListItem` or `GroupCard`; nothing when empty.
+- **`FeaturedRecipeDetailPage/index.tsx`**: props become a union —
+  `{kind: "recipe", recipe, recipeSlug}` |
+  `{kind: "group", group: Group, groupSlug, items: ResolvedGroupItem[]}` —
+  plus `note?`, `actions?`. Group variant: note, a header with
+  `<GroupThumbnail slug name items />` (small, `size-24`), the group name and
+  kind badge, then `GroupItems` (from 22f) and an "Open group" link
+  (`/group/<slug>`) beside "Back to Featured Recipes".
+- Both `featured-recipe/[slug]/page.tsx` routes: if `featuredRecipe.group` →
+  `getGroupBySlug` (ENOENT → `notFound()`) + items via a new
+  `resolveGroupItems(group)` in `common/controller/data/resolveGroupItems.ts`
+  (lift the `Promise.all(recipeItems.read)` mapping from both
+  `group/[slug]/page.tsx` routes and use it in all four places); else
+  today's recipe path. `generateMetadata` title =
+  `groupName || recipe?.name || slug`. Export `generateStaticParams`
+  unchanged.
+
+##### E. Fixture
+
+- `three-recipes-groups/featured-recipes/data/featured-weeknight/featured-recipe.json`
+  = `{"group": "weeknight-favourites", "date": 1777680000000, "note": "A featured collection for testing."}`;
+  run the fixture script; commit the regenerated
+  `featured-recipes/{index,pagination}` for all four fixtures. `git status`
+  must show only those directories moving (T3), no `groups/` or `recipes/`
+  churn. No fixture recipe gets an image — the thumbnail tests upload one
+  through the form.
+
+##### F. Tests
+
+- **`test/groups.test.ts`** (real configs, tmpdir): featured group borrows
+  name + kind (`recipeName` undefined); re-titling the group moves
+  `groupName` and the featured page hash; deleting the group dangles
+  (`groupName` undefined, `group` slug kept); renaming the group rewrites the
+  feature's data file.
+- **`test/revalidateDerived.test.ts`**: group-rebuild case per fact 3; "a
+  group rebuild fires featured tags but no recipe tag".
+- **`test/specVersions.test.ts`**: snapshot only.
+- **`featured-recipes.spec.ts`** (`three-recipes-groups`): the fixture's
+  featured group on `/` inside "Featured Recipes" as a card linking to
+  `/group/weeknight-favourites` with no bookmark button and a placeholder
+  thumbnail; on `/featured-recipes`; on `/featured-recipe/featured-weeknight`
+  (name, `group-item` cards, "Open group"); signed in, the group page's
+  Feature button opens `/featured-recipe/new?group=week-of-may-4` with the
+  toggle on Group and the select preselected, Submit lands on `/` with "Week
+  of May 4" in the strip; toggling to Recipe still features a recipe
+  (existing `one-recipe` cases keep passing); editing the featured group
+  keeps it selected; renaming the group via `/group/<slug>/edit` retitles
+  the featured card; deleting the group leaves a "Group not found" card on
+  `/featured-recipes`.
+- **`groups.spec.ts`** (thumbnails, `three-recipes-groups`): `/groups` and
+  the homepage Groups section show placeholders for both groups; sign in and
+  upload `fixtures/images/recipe-6-test-image.png` to `third-recipe` via
+  `/recipe/third-recipe/edit` (`setInputFiles` as in `edit.spec.ts:314`);
+  then `weeknight-favourites` shows `group-thumbnail` with `src` matching
+  `/image/uploads/recipe/third-recipe/uploads/…webp` on `/groups`, on `/`'s
+  Groups section, and on the featured group card, while `week-of-may-4`
+  (first, second, missing — none with an image) keeps the placeholder; the
+  group page itself is unchanged (cards only).
+- `visual.spec.ts`: no baseline fixture gains a feature or an image, so
+  nothing moves; run it to confirm.
+
+#### Verification (implementer runs; Fable reruns)
+
+```
+pnpm --filter recipe-editor typecheck
+pnpm --filter recipe-website exec tsc --noEmit
+pnpm exec vitest run                      # 405 at 22f + new groups/revalidate cases; specVersions snapshot updated
+pnpm --filter recipe-editor e2e-dev -- featured-recipes.spec.ts groups.spec.ts homepage.spec.ts homepage-hero.spec.ts edit.spec.ts visual.spec.ts
+CONTENT_DIRECTORY=<three-recipes-groups copy> pnpm --filter recipe-website build   # out/featured-recipe/featured-weeknight.html renders the group; out/groups.html cards carry the placeholder
+```
+
+Traps: T1 (spec hash), T3 (fixture regen order), T4 (thunks both sides),
+T12/T13/T14 as before; `git status` after regen must show only
+`featured-recipes/{index,pagination}` under the four fixtures.
+
+#### Key files (implementer reads first)
+
+`docs/agent-curation.md` (D-list, T-list, 22b/22f sections, this section);
+`common/controller/{types.ts,paginationConfigs.ts,featuredRecipeContentConfig.ts,buildFeaturedRecipeIndexValue.ts,groupContentConfig.ts,recipeContentConfig.ts,data/readRecipeItem.ts,data/readGroups.ts}`;
+`packages/cms/content/{references.ts,updateDependents.ts,rebuildIndex.ts,genericActions.ts,next/cachedItemRead.ts}`;
+`common/components/{List/FeaturedRecipe/index.tsx,List/Group/index.tsx,List/index.tsx,List/shared.tsx,RecipeImage/index.tsx,FeaturedRecipeDetailPage/index.tsx,GroupIndexPage/shared.tsx,Homepage/{index.tsx,route.tsx},GroupDetailPage/GroupItems.tsx,Form/FeaturedRecipe/index.tsx,Form/inputs/RecipeSelect/index.tsx,SearchForm/GroupResults.tsx}`;
+`editor/controller/{parseFeaturedRecipeFormData.ts,actions/featuredRecipes.ts,actions/groups.ts}`;
+editor `featured-recipe/{new/page.tsx,new/form.tsx,[slug]/page.tsx,[slug]/edit/form.tsx}`,
+`group/[slug]/page.tsx`; export `featured-recipe/[slug]/page.tsx`,
+`group/[slug]/page.tsx`; `editor/scripts/build-fixture-indexes.ts`;
+`test/{groups,revalidateDerived,specVersions,references,revalidateContentWrite}.test.ts`;
+`editor/playwright/tests/{featured-recipes,groups,edit,visual}.spec.ts`;
+fixtures `three-recipes-groups`, `images/`.
+
+Decisions / close-out (review, 2026-09-07):
+
+- **Decisions made at review:**
+  - **`recipe` is optional on `FeaturedRecipeEntryValue` and
+    `FeaturedRecipeListEntry` too**, not only on the data type. The section
+    listed the three added fields, but `buildFeaturedRecipeIndexValue` copies
+    `featuredRecipe.recipe` straight through, so an optional data field forces
+    both. Recipe-branch call sites pass `entry.recipe ?? ""`.
+  - **`generateMetadata` reads the group through the cached `groupItems`
+    read**, not a `groupName` off the record: `groupName` is an index-value
+    field and `getFeaturedRecipeBySlug` returns the data file, which has no
+    such key. A missing group degrades to the slug, as the recipe branch does.
+  - **`RecipeCard` gained an optional `testId`** so `featured-group-card` sits
+    on the card itself with no wrapper; omitted renders no attribute, so every
+    existing card's markup is unchanged.
+  - **`ResolvedGroupItem` lives in `controller/data/resolveGroupItems.ts`**
+    and `GroupDetailPage` re-exports it, rather than the controller importing a
+    type from a component.
+  - **`editor/.gitignore` dropped the
+    `three-recipes-groups/featured-recipes/` rule.** 22b ignored it as an
+    export-build artifact; it is tracked fixture content now. The export-build
+    check must run against a _copy_ of the fixture (it always should have).
+  - **`contentTypes.ts`'s registry comment** asserted groups have no
+    `referencedBy`; amended, order untouched (`derivedPaths`/`derivedTags`
+    expectations do not move).
+  - The `/featured-recipes` "View Feature" line and note moved into a shared
+    `FeatureFooter` fragment used by both card kinds; the recipe card's
+    rendered HTML is identical.
+  - The featured-group delete dialog says "The group itself is not deleted"
+    (review fix; the implementer's copy said "recipe" for both kinds).
+  - `GroupSelectInput` shows "`<slug>` (group not found)" for the instant
+    before `/search/groups` resolves as well as for a genuinely dangling slug;
+    the selected value is the slug in both cases, so nothing submits wrong.
+- **Divergences from the section:** the six forced items above; the engine
+  tests landed in `test/groups.test.ts` as planned (five cases, including a
+  "unborrowed field is a no-op" case the section did not list).
+- **Trap recorded (T19):** a write-then-navigate Playwright test that gates on
+  `getByRole("heading", { name })` matches by _substring_, so the edit page's
+  own "Editing Recipe: Third Recipe" title satisfied the gate while the write
+  was in flight; the next `goto` aborted it, the file landed on disk and the
+  revalidation never fired — which reads exactly like broken invalidation.
+  Gate on `page.waitForURL(...)` first. Both new thumbnail tests carry the
+  comment.
+- **Gates (worktree, 2026-09-07, dev mode):** `pnpm --filter recipe-editor
+typecheck` clean; `pnpm --filter recipe-website exec tsc --noEmit` clean;
+  `pnpm exec vitest run` → **Test Files 24 passed (24), Tests 410 passed
+  (410)** (405 at 22f + 5 featured-edge cases); `specVersions` snapshot moved
+  exactly `e49d4da3e1cd36e4 → 0d0d2499bc2a1719`, `["1","1"] → ["1","2"]`.
+  `e2e-dev -- featured-recipes.spec.ts groups.spec.ts homepage.spec.ts
+homepage-hero.spec.ts edit.spec.ts visual.spec.ts search-live.spec.ts
+command-palette.spec.ts` → **159 passed (6.4m)** (review rerun; the implementer's
+  runs were 108 + 51 + 42 passed with `accessibility.spec.ts
+search-query-language.spec.ts` added), no `--update-snapshots`, no
+  baseline moved. Export build
+  (`CONTENT_DIRECTORY=<three-recipes-groups copy> pnpm --filter recipe-website
+build`): clean; route table lists `● /featured-recipe/[slug]` → `featured-weeknight`; `out/featured-recipe/featured-weeknight.html` renders "Weeknight Favourites", two `group-item` cards, "Open group" and one `group-thumbnail-placeholder`; `out/groups.html` two placeholders; `out/index.html` one `featured-group-card` under "Featured Recipes" and three placeholders (two in the Groups section, one on the featured card); `out/featured-recipes.html` one `featured-group-card` with "View Feature". Fixture churn: 17 files, all under the four
+  fixtures' `featured-recipes/{index,pagination}`, plus the new data file;
+  `git status` clean.
+- **Next PR: 22h** — the group's own `image` field, seeded below. Re-validate
+  the seed against the code before spawning the implementer; it bumps the
+  group index to `"2"` (T1 on `groupPaginationConfig.ts`, T3 for every
+  fixture with `groups/`).
+
+### PR 22h — Group image field `agent/22h-group-image` ✅ done (← 22g)
+
+**Why:** 22g gave every server-rendered group card an image slot with the
+precedence _group image › first member thumbnail › placeholder_ and shipped
+the last two; `GroupThumbnail` has a marked slot for the first. 22h fills it:
+a group carries its own `image`, uploaded through the group form (and
+importable by URL through the CLI/API), rendered ahead of the member walk
+everywhere the thumbnail already appears, and shown on the group page itself.
+Decided with the user (2026-09-08):
+
+- **Scope:** PR 22h only, branch `agent/22h-group-image` ← 22g. Same
+  execution model (Fable plans/reviews, one Opus subagent implements, this
+  doc is the handoff).
+- **The image lives on the index too** (`GroupEntryValue.image`,
+  `GroupListEntry.image`, `groupsByDate` → `version: "2"`), not only on the
+  data file. Reason given: _"We'll want to see groups in search at least
+  eventually."_ Two payoffs: list cards whose group has an image render it
+  with **no group read**, and the search corpus can carry it so the
+  **client-rendered search-result group cards get a picture** in this phase
+  (the member fallback stays server-only — deferred, see below). (D14)
+- The strip heading, the featured group card and every 22g surface keep
+  their behaviour; the group image simply wins when present.
+
+Paths are relative to `websites/recipe-website/` unless noted.
+
+#### Facts validated against the code (2026-09-08, worktree `22g-featured-groups`)
+
+1. **Upload plumbing is engine-generic.** `createContent`/`updateContent`
+   take `uploads: Record<field, UploadSpec>`
+   (`packages/cms/content/types.ts:220`:
+   `{file?, fileImportUrl?, clearFile?, existingFile?}`); `getUploadInfo`
+   resolves it (file › clear › import URL basename › existing);
+   `processUploadChanges` (`filesystem.ts:289`) removes the old file and
+   writes the new one under `getUploadsDirectory(config, slug)` =
+   `<content>/<uploadsDirectory>/<slug>/uploads/` (`filesystem.ts:49-66`;
+   recipes set `uploadsDirectory: "uploads/recipe"`). **Rename moves the
+   uploads directory** (`renameContentDirectory`, `filesystem.ts:181-188`)
+   and **delete removes it** (`filesystem.ts:150-152`).
+   `genericActions.ts:183/308` call the editor config's
+   `buildCreateUploads(parsed, contentDirectory)` /
+   `buildUpdateUploads(parsed, currentSlug, contentDirectory)`. The recipe
+   template is `buildRecipeData` in `editor/controller/actions/index.ts:60-130`
+   (`uploads.image = {file, clearFile, fileImportUrl, existingFile:
+current?.image}`; `data.image` = file name › cleared › import basename ›
+   current), with `buildUpdateUploads` reading the current record via the raw
+   `getRecipeBySlug`.
+2. **Form side.** `parseFormData.ts:105-113` declares
+   `image: z.instanceof(File).optional()`, `clearImage: z.coerce.boolean()`,
+   `imageImportUrl: z.string().optional()`. `Form/Image/index.tsx`
+   (`ImageInput`, client) hardcodes `name="image"`, `id="recipe-form-image"`,
+   label "Image", alt "Existing Recipe Image", renders the `clearImage`
+   checkbox when `defaultImage` is set and a hidden `imageImportUrl` only when
+   `imageToImport` is passed. The recipe edit page
+   (`recipe/[slug]/edit/page.tsx:30-40`) computes `defaultImage` with
+   `getTransformedRecipeImageProps` and threads it `page → form → fields`.
+   `GroupFields` (`Form/Group/index.tsx`) is a client component with Name /
+   Kind / Description / item rows / Advanced (slug, date); `Create/index.tsx`
+   re-exports it; `group/new/form.tsx` and `group/[slug]/edit/form.tsx` pass
+   `{state, group, slug}`; the edit page (`group/[slug]/edit/page.tsx`) reads
+   via `getGroupBySlug`. `GroupFormErrors` (`common/controller/groupFormState.ts`)
+   has no `image`. `parseGroupFormData.ts` has no file fields.
+3. **Image rendering.** `RecipeImage/index.tsx` =
+   `getTransformedRecipeImageProps` (`getRecipeUploadPath` →
+   `getStaticImageProps({srcPath, localOutputDirectory}, {src:
+"/uploads/recipe/<slug>/uploads/<image>", …})`, warns and returns
+   `undefined` on error) + `<img>`. `getStaticImageProps`
+   (`packages/next-static-image/src/index.tsx:28-70`) writes
+   `<content>/transformed-images/<src>/<name>-w<w>q<q>.webp` and returns
+   `src="/image/<src>/<file>"` — the original `src` is only a **key**;
+   nothing serves it. The editor's `image/[...filePath]` route serves any
+   transformed path; the export symlinks both
+   `transformed-images → public/image` **and** `uploads → public/uploads`
+   (`exportAction.ts:30-37`). The editor's
+   `(recipes)/uploads/recipe/[slug]/uploads/[filename]` route exists for
+   **video** (`recipeVideo.ts:16`), not images; the generic
+   `uploads/[filename]` route serves one path segment only. ⇒ **No group
+   upload route is needed** for images (D15).
+4. **Client images.** `PureStaticImage`
+   (`packages/next-static-image/src/Pure/index.tsx`) already takes
+   `uploadsDirectory` (default `"uploads/recipe"`) and builds the same
+   `/image/<src>/<name>-w<w>q75.webp` URL client-side;
+   `SearchList/index.tsx:91-104` renders recipe search cards with it at
+   `width={400} height={600}` — the same variant the server cards produce via
+   `standardRecipeImageProps` (`List/shared.tsx:174`, 400×600), which is why
+   the client URL resolves. Group search cards (`SearchForm/GroupResults.tsx`)
+   map `GroupSearchEntry` → `GroupList` with no `renderThumbnail` (22g kept
+   them text-only). `GroupSearchEntry` (`readGroupSearchCorpus.ts:20`) is
+   built **from data files** (not the index) by both `/search/groups` routes,
+   uncached.
+5. **Index shape today.** `Group {name, date, kind, description?, items,
+[k]: unknown}`; `GroupEntryValue {name, kind, items:
+Pick<…,"recipe"|"label">[]}` (`types.ts:189-205`);
+   `buildGroupIndexValue.ts` copies name/kind/items; `GroupListEntry {slug,
+date, name, kind, itemCount}` and `groupsByDate` `version: "1"`
+   (`groupPaginationConfig.ts`); `test/specVersions.test.ts:109-121` pins
+   `groupPaginationConfig.ts` as `{hash: "798bcf7a1f07c6a8", versions: ["1"]}`
+   (T1); `test/groups.test.ts:363` pins the index value with `toEqual` (an
+   absent `image` key stays equal). The `groupsByRecipe` fold copies only
+   `name`/`kind` (`groupAggregateConfigs.ts:62`) — unaffected.
+   `three-recipes-groups` is the **only** fixture with `groups/`; fixture
+   uploads live at `<fixture>/uploads/recipe/<slug>/uploads/<file>`
+   (`linked-recipes`); test images:
+   `editor/playwright/fixtures/images/recipe-6-test-image{,-alternate}.png`.
+   No `visual.spec.ts` baseline uses the groups fixture.
+6. **22g thumbnail seams.** `GroupThumbnail` `{slug, name, items?,
+className?}`: `items ?? (await groupItems.read(slug))?.items`, walks 6
+   distinct members via `recipeItems.read`, renders `RecipeImage` in
+   `data-testid="group-thumbnail"` or the `Layers` placeholder
+   (`group-thumbnail-placeholder`); the 22h slot is a comment above the read.
+   Callers: `GroupIndexPage/shared.tsx`, `Homepage/index.tsx`
+   (`renderThumbnail={(g) => <GroupThumbnail slug name />}`),
+   `List/FeaturedRecipe/GroupCard.tsx` (`<GroupThumbnail slug name />`),
+   `FeaturedRecipeDetailPage` (`items={group.items}`, `className="size-24 …"`).
+   `GroupList`/`GroupListItem` take `renderThumbnail`/`thumbnail` (six-up grid
+   when set). `groupItems` (`data/readGroupItem.ts`) is tagged
+   `item:groups:<slug>`, fired by every group write, so an image change
+   invalidates every card by construction. `GroupDetailPage/index.tsx`
+   renders heading → kind/count/search link → description → `GroupItems`.
+7. **Curation/CLI/API.** `GroupInputSchema` is a `z.strictObject`
+   (`curation/schema.ts:165`) — an unknown key is rejected, so
+   `imageImportUrl` must be declared. `createGroup` (`curation/groups.ts:187`)
+   builds `data` and calls `createContent` **without** `uploads`;
+   `writeItems` spreads `{...current, items}` (image survives item edits);
+   there is no group _update_ seat beyond items (`setItems`/`addItem`/
+   `removeItem`). The recipe template for import-by-URL is
+   `curation/recipes.ts:249-283` (`image = basename(URL.pathname)`,
+   `uploads.image = {fileImportUrl, existingFile}`; `imageImportUrl` deleted
+   before write). CLI `group create` (`cli/commands/group.ts:36-80`) has
+   `--name/--kind/--description/--slug/--date/--file/--item/--force`; the
+   HTTP backend and `POST /api/groups` pass the raw body through to
+   `createGroup`. `test/curation.test.ts:202-210` is the image-import
+   precedent (`imageImportUrl` → `image: "stew.jpg"`).
+8. **22g tests that pin today's thumbnails** (`groups.spec.ts` "thumbnails",
+   lines ~297-420): both fixture groups show placeholders; after uploading
+   `recipe-6-test-image.png` to `third-recipe`, `weeknight-favourites` shows
+   the member image and `week-of-may-4` keeps the placeholder.
+   `featured-recipes.spec.ts` expects the featured `weeknight-favourites`
+   card to show a placeholder. Search/palette group cards are pinned by text
+   in `search-live.spec.ts` / `command-palette.spec.ts` (22f).
+
+#### Design (decided)
+
+**A. Schema, index, config (`common/controller/`)**
+
+- `types.ts`: `Group.image?: string` (file name under the group's uploads
+  dir, like `Recipe.image`); `GroupEntryValue.image?: string` with a comment:
+  on the index by decision (D14) so list cards and the search corpus can
+  render it without a read.
+- `buildGroupIndexValue.ts`: `...(image ? { image } : {})` — set only when
+  present so stored values stay key-free.
+- `groupPaginationConfig.ts`: `GroupListEntry.image?`; `project` copies
+  `image: value.image`; `version: "2"` with a one-line reason. Update the
+  `specVersions.test.ts` inline snapshot
+  (`pnpm exec vitest run -u test/specVersions.test.ts`; the diff must show
+  `["1"] → ["2"]` and the hash only).
+- `groupContentConfig.ts`: `uploadsDirectory: "uploads/group"` (recipes use
+  `"uploads/recipe"`; the engine default would be `uploads/groups/…` — the
+  singular is picked for symmetry; comment it).
+- `filesystemDirectories.ts`: `getGroupUploadsBasePath`,
+  `getGroupUploadsPath`, `getGroupUploadPath` — twins of the recipe trio.
+- `readGroupSearchCorpus.ts`: `GroupSearchEntry.image?` copied from the data
+  file.
+
+**B. Image components (`common/components/`)**
+
+- **`UploadImage/index.tsx`** (new): `getTransformedUploadImageProps({srcPath,
+src, label, alt, width, height, className, loading, sizes})` — the body of
+  `getTransformedRecipeImageProps` with the upload path, the `src` key and
+  the warning label parameterised. `RecipeImage/index.tsx` becomes a thin
+  wrapper over it (identical output and the identical
+  `RecipeImage "<image>" failed with error` warning text —
+  `groups.spec.ts`/`edit.spec.ts` do not assert on it, but keep it).
+- **`GroupImage/index.tsx`** (new, async server):
+  `getTransformedGroupImageProps` (`getGroupUploadPath`,
+  `src: "/uploads/group/<slug>/uploads/<image>"`, label `GroupImage`) +
+  `<GroupImage>` rendering `<img>`.
+- **`GroupThumbnail/Placeholder.tsx`** (new, sync, no server imports):
+  `GroupThumbnailPlaceholder({className?})` = today's `Layers` box with
+  `data-testid="group-thumbnail-placeholder"`. `GroupThumbnail` uses it;
+  client cards can too.
+- **`GroupThumbnail/index.tsx`**: props `{slug, name, image?: string,
+items?, className?}`. Order: (1) `image` prop → `GroupImage` in
+  `data-testid="group-thumbnail"` **with no read at all**; (2) else
+  `groupItems.read(slug)` once → if `group.image` → `GroupImage`; (3) else
+  the existing member walk over `items ?? group.items`; (4) placeholder.
+  Replace the slot comment with the real code; keep the "distinct, in order,
+  six" walk unchanged. Add `data-group-image="own" | "member"` on the wrapper
+  so tests can tell which won.
+- **Callers pass what they hold:** `GroupIndexPage/shared.tsx` and
+  `Homepage/index.tsx` `renderThumbnail={(g) => <GroupThumbnail slug name
+image={g.image} />}` (list entry v2 ⇒ a group with its own image costs no
+  read); `GroupCard.tsx` keeps `<GroupThumbnail slug name />` (the featured
+  index does not borrow `image` — deliberate: borrowing it would put a third
+  field on the featured declaration and bump featured to v3 for a card that
+  already reads the group; note it in the card comment);
+  `FeaturedRecipeDetailPage` passes `image={group.image} items={group.items}`.
+- **`GroupDetailPage/index.tsx`**: when `group.image`, render `<GroupImage>`
+  between the meta row and the description, inside a
+  `relative aspect-[4/3] max-w-xl overflow-hidden rounded-md` box with the
+  same props `View/index.tsx:53-62` uses (`width: 580, height: 450, sizes:
+"100vw", loading: "eager", className: "object-cover absolute w-full h-full
+inset-0 rounded-md"`), wrapper `data-testid="group-image"`.
+- **Search cards get the picture (client):** `SearchForm/GroupResults.tsx`
+  maps `image: group.image` into the list entries and passes
+  `renderThumbnail={(g) => g.image ? <PureStaticImage
+uploadsDirectory="uploads/group" slug={g.slug} image={g.image} alt={g.name}
+width={400} height={600} className={recipeCardImageClassName} /> :
+<GroupThumbnailPlaceholder />}`. The URL resolves whenever the server has
+  produced the 400×600 variant, exactly as recipe search cards assume
+  (fact 4); the member fallback is **not** available on the client — a group
+  without its own image shows the placeholder there. Comment both facts. The
+  ⌘K rows stay text-only.
+
+**C. Editor form and write path**
+
+- `parseGroupFormData.ts`: `image: z.instanceof(File).optional()`,
+  `clearImage: z.coerce.boolean()` (no `imageImportUrl` — the group form has
+  no import flow; the CLI/API path is D below). `GroupFormErrors.image?`.
+- `actions/groups.ts`: `buildGroupData(parsed, date, current?)` returns
+  `{data, uploads}` like `buildRecipeData` — `data.image` = uploaded file
+  name › `undefined` when `clearImage` › `current?.image`;
+  `uploads.image = {file: image?.size ? image : undefined, clearFile:
+clearImage, existingFile: current?.image}`. `buildUpdateData` and
+  `buildUpdateUploads` both read the current record with the raw
+  `getGroupBySlug({slug: currentSlug, contentDirectory})` (never the cached
+  read at a write site — `readGroups.ts` says why). `buildCreateUploads(parsed)`
+  → the create half.
+- `Form/Image/index.tsx`: add `id?: string` (default `"recipe-form-image"`)
+  and `existingAlt?: string` (default "Existing Recipe Image"); nothing else
+  moves.
+- `Form/Group/index.tsx`: `defaultImage?: StaticImageProps` prop; render
+  `<ImageInput id="group-form-image" existingAlt="Existing group image"
+defaultImage errors={state?.errors?.image} />` after Description, before
+  the Recipes fieldset. `group/[slug]/edit/page.tsx` computes `defaultImage`
+  with `getTransformedGroupImageProps` (mirror
+  `recipe/[slug]/edit/page.tsx:30-40`) and `edit/form.tsx` threads it;
+  `new/form.tsx` renders the input with no default. No `encType` is needed —
+  no editor form sets one; server actions receive `File` from `FormData`
+  as-is (the recipe forms prove it).
+- Editor group page: nothing new — `GroupDetailPage` renders the image.
+
+**D. Curation layer, CLI, API**
+
+- `curation/schema.ts`: `GroupInputSchema.imageImportUrl: z.string().optional()`.
+- `curation/groups.ts` `createGroup`: `image = imageImportUrl ?
+basename(new URL(url).pathname) : undefined`; `data.image` when set;
+  `createContent({..., uploads: {image: {fileImportUrl: imageImportUrl}}})`
+  only when an URL was given. `writeItems` already carries `image` forward.
+  No group-update seat is added (deferred).
+- `cli/commands/group.ts` `group create`: `--image-url U` → `imageImportUrl`;
+  usage string updated. `.claude/skills/recipe-curator/SKILL.md:123` shows a
+  `group create` invocation — add `[--image-url U]` to it; do not rewrite the
+  skill otherwise.
+- API: `POST /api/groups` passes the body through, so `imageImportUrl` works
+  with no route change. `curationHttp.test.ts` has no group-create case
+  today; add none (the curation-layer test below covers the schema and the
+  write).
+
+**E. Fixture**
+
+- `three-recipes-groups/groups/data/week-of-may-4/group.json` +=
+  `"image": "recipe-6-test-image-alternate.png"`; copy
+  `fixtures/images/recipe-6-test-image-alternate.png` to
+  `three-recipes-groups/uploads/group/week-of-may-4/uploads/`.
+  `week-of-may-4` is the right host: its members (first, second, missing)
+  have no photos, so it demonstrates _own image with no member fallback_,
+  while `weeknight-favourites` stays imageless for the member-fallback and
+  placeholder tests and keeps the 22g featured-card expectations intact.
+- Regen: `pnpm tsx scripts/build-fixture-indexes.ts` from `editor/`; commit
+  only `three-recipes-groups/groups/{index,pagination,aggregates}` plus the
+  data/upload files; `git checkout --` every other fixture directory the
+  script touches (T3; 22g's close-out lists the churn to expect).
+
+#### Tests
+
+- **`test/groups.test.ts`**: (a) create with
+  `uploads: {image: {file: new File([bytes], "cover.png")}}` writes
+  `uploads/group/<slug>/uploads/cover.png` and the index value carries
+  `image: "cover.png"`; (b) update with `clearFile: true, existingFile:
+"cover.png"` removes the file and the index drops `image`; (c) rename moves
+  `uploads/group/<old>` → `<new>`; (d) delete removes `uploads/group/<slug>`;
+  (e) the 22g "featured group borrows name + kind" case still shows no
+  `groupImage` (borrow list unchanged). Extend the line-363 shape test's
+  comment (image is on the index by D14).
+- **`test/curation.test.ts`**: `createGroup` with `imageImportUrl` (stub
+  `fetch` as the recipe case does) → file written, `group.json.image` =
+  basename, no `imageImportUrl` on disk; `setItems` afterwards keeps `image`.
+  A `strictObject` case: an unknown key still fails.
+- **`test/specVersions.test.ts`**: snapshot only.
+- **`groups.spec.ts` "thumbnails"** (rewrite the describe,
+  `three-recipes-groups`): fixture state — `/groups` and `/`'s Groups section
+  show `week-of-may-4` with `group-thumbnail[data-group-image="own"]` whose
+  `img src` matches
+  `/image/uploads/group/week-of-may-4/uploads/recipe-6-test-image-alternate.png/.*\.webp`,
+  and `weeknight-favourites` with the placeholder; `/group/week-of-may-4`
+  shows `group-image`. Member fallback — upload `recipe-6-test-image.png` to
+  `third-recipe` (existing helper) → `weeknight-favourites` shows
+  `data-group-image="member"` on `/groups`, `/`, and the featured card;
+  `week-of-may-4` unchanged. Precedence — signed in,
+  `/group/weeknight-favourites/edit`, `setInputFiles` the alternate image on
+  `getByLabel("Image", {exact: true})`, Submit, `waitForURL` (T19) → its
+  thumbnail is now `own` with the group URL on `/groups`, `/`, the featured
+  group card and `/featured-recipe/featured-weeknight`; then edit again, tick
+  "Remove Image", Submit → back to `member`. Search — after visiting `/groups`
+  (so the 400×600 variant exists), `/search` for `week` shows the
+  `group-results` card for `week-of-may-4` with an `img src` matching the
+  group URL and `weeknight` with the placeholder.
+- **`featured-recipes.spec.ts`**: unchanged (weeknight has no fixture image)
+  — run it.
+- **`search-live.spec.ts`, `command-palette.spec.ts`, `edit.spec.ts`,
+  `homepage.spec.ts`, `visual.spec.ts`**: run to confirm; no baseline should
+  move (no groups fixture in `visual.spec.ts`).
+
+#### Verification (implementer runs; Fable reruns)
+
+```
+pnpm --filter recipe-editor typecheck
+pnpm --filter recipe-website exec tsc --noEmit
+pnpm exec vitest run                      # 410 at 22g + new groups/curation cases; specVersions group snapshot ["1"] → ["2"]
+pnpm --filter recipe-editor e2e-dev -- groups.spec.ts featured-recipes.spec.ts search-live.spec.ts command-palette.spec.ts edit.spec.ts homepage.spec.ts visual.spec.ts
+CONTENT_DIRECTORY=<three-recipes-groups copy> pnpm --filter recipe-website build   # out/groups.html: one group-thumbnail img (week-of-may-4) + one placeholder; out/group/week-of-may-4.html has group-image; the copy's transformed-images/uploads/group/week-of-may-4/… webp files exist; out/search/groups carries image
+pnpm --silent recipes group create --name "Img" --image-url https://… --content-dir <copy> --json   # manual: uploads/group/img/uploads/<file> written, group.json has image
+```
+
+Traps: T1 (group spec hash), T3 (regen churn — revert everything outside
+`three-recipes-groups/groups/`), T5 (raw reads at write sites), T13/T14 as
+before, T19 (`waitForURL` before asserting after a form submit). Run
+Playwright through a monitor with a long deadline — a 10-minute Bash timeout
+killed 22g's first run.
+
+#### Key files (implementer reads first)
+
+`docs/agent-curation.md` (D-list, T-list, 22b/22g sections, this section);
+`common/controller/{types.ts,groupContentConfig.ts,groupPaginationConfig.ts,buildGroupIndexValue.ts,filesystemDirectories.ts,recipeContentConfig.ts,groupFormState.ts,data/readGroups.ts,data/readGroupItem.ts,data/readGroupSearchCorpus.ts}`;
+`packages/cms/content/{types.ts,filesystem.ts,createContent.ts,updateContent.ts,editorContentConfig.ts,genericActions.ts}`;
+`packages/next-static-image/src/{index.tsx,Pure/index.tsx}`;
+`common/components/{RecipeImage/index.tsx,GroupThumbnail/index.tsx,List/Group/index.tsx,List/shared.tsx,List/FeaturedRecipe/GroupCard.tsx,GroupDetailPage/index.tsx,FeaturedRecipeDetailPage/index.tsx,GroupIndexPage/shared.tsx,Homepage/index.tsx,SearchForm/GroupResults.tsx,SearchList/index.tsx,Form/Image/index.tsx,Form/Group/index.tsx,Form/index.tsx,View/index.tsx}`;
+`editor/controller/{parseFormData.ts,parseGroupFormData.ts,actions/index.ts,actions/groups.ts,curation/schema.ts,curation/groups.ts,curation/recipes.ts}`;
+`editor/cli/commands/group.ts`; editor `group/[slug]/edit/{page,form}.tsx`,
+`group/new/form.tsx`, `recipe/[slug]/edit/page.tsx`,
+`(recipes)/search/groups/route.ts`,
+`(editor)/(settings)/export/exportAction.ts`;
+`editor/scripts/build-fixture-indexes.ts`;
+`test/{groups,curation,specVersions}.test.ts`;
+`editor/playwright/tests/{groups,featured-recipes,edit}.spec.ts`; fixtures
+`three-recipes-groups`, `linked-recipes/uploads`, `images/`;
+`.claude/skills/recipe-curator/SKILL.md`.
+
+Decisions / close-out (review, 2026-09-08):
+
+- **Decisions made at review:**
+  - **The client card's URL is not the `-w400q75` variant.** Fact 4 above
+    says `PureStaticImage` builds `…-w<w>q75.webp` for `width={400}`; what
+    `next/image`'s `getImageProps` actually emits for a 400-wide image with no
+    `sizes` is the 640 (1×) and 828 (2×) _device sizes_, and the server's
+    `getStaticImageProps` writes the whole device-size set (w128…w3840, no
+    w400). So the URL resolves for the same reason it always has for recipe
+    search cards, just not the reason the fact gave. The `GroupResults`
+    comment was corrected at review; nothing else changes.
+  - **`SKILL.md` gained a sentence, not a usage flag.** The section said to
+    add `[--image-url U]` to the `group create` invocation at line 123; the
+    implementer added one sentence to the prose under it instead, which reads
+    better for the skill's audience. Accepted.
+  - **Rename leaves the old base directory behind, empty.**
+    `renameContentDirectory` moves `uploads/group/<old>/uploads` to
+    `uploads/group/<new>/uploads`; `uploads/group/<old>/` itself stays as an
+    empty directory. True of recipes since before groups; the engine test
+    asserts on the inner `uploads` directory and says so.
+- **Divergences from the section:** the fixtures live under
+  `editor/playwright/fixtures/test-content/` (the section wrote
+  `editor/playwright/fixtures/`); `getTransformedUploadImageProps` derives
+  the warned file name as `basename(srcPath)` since the parameter list has no
+  `image` (identical output); the search-card test runs two queries
+  ("week of may", "weeknight") rather than one so the assertion does not
+  depend on how many groups a prefix matches; an extra
+  `groups.createGroup` "rejects unknown keys" case pins the `strictObject`;
+  `UploadImage` also exports a component (unused — `RecipeImage` and
+  `GroupImage` wrap the props function).
+- **Gates (worktree, 2026-09-08, dev mode):** `pnpm --filter recipe-editor
+typecheck` clean; `pnpm --filter recipe-website exec tsc --noEmit` clean;
+  `pnpm exec vitest run` → **Test Files 24 passed (24), Tests 417 passed
+  (417)** (410 at 22g + 7: four upload cases, one featured borrow-list case,
+  two curation cases); `specVersions` group snapshot moved exactly
+  `798bcf7a1f07c6a8 → 6b48e6448e23012e`, `["1"] → ["2"]`. Playwright
+  `e2e-dev -- groups.spec.ts featured-recipes.spec.ts search-live.spec.ts
+command-palette.spec.ts edit.spec.ts homepage.spec.ts visual.spec.ts` →
+  **158 passed (6.2m)** (review rerun, first try; the implementer's runs were 20 passed for `groups.spec.ts` on a rerun after one cold-compile `toHaveURL` timeout, and 137 passed + 1 for the other six with `command-palette.spec.ts` rerun alone at 36 passed — both first-run failures were early tests in a cold `.next`, neither T18), no `--update-snapshots`, no baseline moved. Export build
+  (`CONTENT_DIRECTORY=<three-recipes-groups copy> pnpm --filter recipe-website
+build`): clean; `out/groups.html` one `group-thumbnail` with
+  `data-group-image="own"` and `src`
+  `/image/uploads/group/week-of-may-4/uploads/recipe-6-test-image-alternate.png/…-w3840q75.webp`
+  plus one `group-thumbnail-placeholder`; `out/group/week-of-may-4.html` has
+  `group-image`, `weeknight-favourites.html` none; `out/index.html` one
+  `own`; `out/search/groups` carries `image` on `week-of-may-4` and no key on
+  `weeknight-favourites`; the copy's
+  `transformed-images/uploads/group/week-of-may-4/uploads/…/` holds the
+  w128…w3840 webp set. CLI (`pnpm --silent recipes group create --name Img
+--image-url <png> --content-dir <copy> --json`): one JSON object,
+  `groups/data/img/group.json` has `"image"` and no `imageImportUrl`,
+  `uploads/group/img/uploads/<file>` written (5969 bytes). Fixture churn: 7
+  paths, all under `three-recipes-groups/` — `groups/data/week-of-may-4/group.json`,
+  `groups/{index,pagination/by-date}/{data,lock}.mdb`,
+  `groups/aggregates/by-recipe/lock.mdb`, and the new
+  `uploads/group/week-of-may-4/uploads/recipe-6-test-image-alternate.png`;
+  85 files the regen script touched elsewhere were reverted; `git status`
+  clean.
+- **The stack is complete.** No 22i is seeded. **Next:** merge from the
+  bottom — #123 (22a) into `content-engine-test`, then rebase each child on
+  its parent as it lands (22b ← 22a, … 22h ← 22g). The deferred list above
+  holds the follow-ups (client-side member fallback via a corpus
+  `thumbnail`, a `group set-image` seat, `--image <local file>`, ⌘K
+  thumbnails).
+
+## Deferred
+
+- **F32 — array references in the engine** (`path: "items[].recipe"`):
+  rename-following and thumbnail borrowing for group cards. The reference
+  machinery is scalar-only (D3). When picked up, add an F-row to the §10
+  "Rollout" engine-hygiene table in
+  `packages/cms/docs/incremental-regeneration.md` (last rows F29/F31) plus the
+  matching bold-prose entry in §11.4.
+- **`source:` search field** + `SEARCH_DB_NAME` bump + fixture regen (D6):
+  kept out of 22a so provenance needs no index-shape change.
+- **Migration script for legacy "Imported from" descriptions** (D7): existing
+  recipes keep their prefix line until a one-off script moves it into
+  `source`.
+- **`POST /api/git/push`** (D11): push stays manual from `/git`.
+- **API token hygiene** (22d): a `revoke-token` script (v1 is hand-editing
+  the `tokens` array in `users/<email>`), per-token scopes (every token is
+  a full write token today), and a `lastUsedAt` stamp on the record.
+- **Group tags / tag pages; per-item servings for meal plans; featured recipes
+  as a group kind.**
+- **CLI featured commands** (22g): `pnpm recipes` gets no `feature`
+  command; featuring a group is editor-only.
+- **Member-thumbnail fallback on client-rendered search-result group cards**
+  (22g, narrowed by 22h): since 22h a `/search` group card shows the group's
+  _own_ image (from the corpus, D14) or the placeholder; the member fallback
+  is done at render time on the server (22g; not through the index, so F32
+  is not needed for it) and the client cannot run it. When wanted, the corpus
+  could carry a precomputed `thumbnail: {uploadsDirectory, slug, image}`
+  resolved from the first member with a photo — N cached reads per group at
+  corpus build.
+- **`group set-image` / a group update seat in the curation layer and CLI**
+  (22h): `group create --image-url` is create-only; an existing group takes
+  an image through the editor form. Also **`--image <local file>`** on the
+  CLI (only import-by-URL exists), and **⌘K rows with thumbnails** (text-only
+  today).
+- **README test section rewrite** (22e): it still describes Cypress; the
+  suite is Playwright. `CLAUDE.md` states the current commands.
+- **Tag-vocabulary migration** (22e): the 437 existing recipes carry two tags
+  in total; the skill's vocabulary (`vegetarian`, `dinner`, `quick`, …) only
+  reaches recipes it imports. A one-off tagging pass would make `tag:` search
+  useful for reuse.
+- **`search` ranking and OR-by-default free text** (22e): free-text words are
+  ANDed with no relevance order, so multi-word asks need several one-word
+  searches.
+- **Stale-editor hint after `--dry-run`** (22e fact 13): the CLI prints the
+  "A running editor is stale until …" stderr hint after a dry run that wrote
+  nothing.
+
+## Key files to read first (implementers)
+
+- `websites/recipe-website/common/controller/featuredRecipeContentConfig.ts`
+  (+ `buildFeaturedRecipeIndexValue.ts`, `paginationConfigs.ts`,
+  `aggregateConfigs.ts`) — template for the groups type.
+- `websites/recipe-website/editor/controller/actions/index.ts`
+  (`buildRecipeData`, success configs, `rebuildRecipeIndex`).
+- `packages/cms/content/genericActions.ts` (`handleContentSuccess`).
+- `websites/recipe-website/common/util/importRecipeData.ts`.
+- `websites/recipe-website/editor/controller/contentTypes.ts` (registry).
+- `packages/cms/content/createContent.ts`, `test/references.test.ts`
+  (engine-in-tmpdir test template), `editor/scripts/seed-pages.ts` (script
+  template).
+
+## Verification (Playwright-first)
+
+Verify UI changes with Playwright; open a real browser only to diagnose
+failures. Run the phase's named specs with
+`pnpm --filter recipe-editor e2e-dev -- <spec> <spec>`; run both typechecks
+(`pnpm --filter recipe-editor typecheck`,
+`pnpm --filter recipe-website exec tsc --noEmit`) and the root
+`pnpm exec vitest run` before closing a phase. Record counts verbatim in the
+phase's close-out.

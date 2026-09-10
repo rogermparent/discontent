@@ -31,6 +31,10 @@ import { recipeContentTypes } from "../contentTypes";
 import type { EditorContentConfig } from "@discontent/cms/content/editorContentConfig";
 import { createGenericActions } from "@discontent/cms/content/genericActions";
 import { authenticateUser } from "./shared";
+import {
+  recipeDeleteSuccessConfig,
+  recipeSuccessConfig,
+} from "../successConfigs";
 
 const INITIAL_COMMIT_MESSAGE = "Initial commit";
 
@@ -48,6 +52,7 @@ function formDataFromParsed(parsed: ParsedRecipeFormData): RecipeFormData {
     totalTime: parsed.totalTime,
     recipeYield: parsed.recipeYield,
     tags: parsed.tags,
+    source: parsed.source,
     videoUrl: parsed.videoUrl || undefined,
   };
 }
@@ -78,6 +83,7 @@ function buildRecipeData(
     recipeYield,
     timelines,
     tags,
+    source,
   } = parsed;
 
   // Determine final video value with priority handling
@@ -133,28 +139,11 @@ function buildRecipeData(
     recipeYield,
     timelines,
     tags: tags && tags.length > 0 ? tags : undefined,
+    source,
   };
 
   return { data, uploads };
 }
-
-/**
- * Where the items that borrow from a recipe are served.
- *
- * A featured recipe's *detail* page renders the recipe's name through its own
- * `getRecipeBySlug`, so the borrowed values on the index do not cover it — a
- * retitle would update the cards and leave `/featured-recipe/<slug>` serving
- * the old name. The write path knows which features moved; only the app knows
- * the URL they are served at, which is why this seat exists here and not on
- * the content config.
- *
- * Shared by the update and delete configs: a delete strips the borrowed values
- * from every feature of the recipe, and those detail pages go stale in exactly
- * the same way.
- */
-const RECIPE_DEPENDENT_ITEM_BASE_PATHS = {
-  "featured-recipes": "/featured-recipe",
-};
 
 const recipeEditorConfig: EditorContentConfig<
   Recipe,
@@ -165,58 +154,8 @@ const recipeEditorConfig: EditorContentConfig<
   ParsedRecipeFormData
 > = {
   contentConfig: recipeContentConfig,
-  successConfig: {
-    itemBasePath: "/recipe",
-    /*
-     * Empty because `/recipes` and `/recipes/[page]` read through the
-     * pagination index, and `revalidatePaginationResults` invalidates exactly
-     * the pages a write actually changed — where a blanket `revalidatePath`
-     * dropped every sealed page on every create.
-     *
-     * With `listPaths` empty on all **three** recipe-family configs (this one,
-     * `deleteSuccessConfig` below, and featured recipes' — a comment here used
-     * to say four), `paginationOnly` controls exactly one call:
-     * `revalidatePath("/")`. So the only question it has ever asked is "what
-     * does the homepage still read untagged", and the answer is now nothing.
-     * `homepageRoute` reads four things, and each carries a tag this write
-     * fires when it moves them:
-     *
-     *   `recipePages.readHead()`          pagination head tag       (P3)
-     *   `featuredRecipePages.readHead()`  pagination head tag       (D2b/F10a)
-     *   `getAllTags()`                    aggregate tag             (F10b/F10c)
-     *   `recipeItems.read(heroSlug)`      `item:recipes:<slug>`     (F19)
-     *
-     * The hero was the last holdout and F19 closed it. Note what did *not*
-     * need a special case: featuring a recipe changes *which* recipe the hero
-     * renders, but the hero is not a cached page — only the read is cached,
-     * keyed by slug — so a different hero is simply a different cache key, and
-     * the choice itself comes from the featured head above.
-     *
-     * **This is a declaration, not a measurable change**, and the honest
-     * framing matters more than the flag. A production build renders `/` as
-     * `ƒ` — next-auth reads cookies in the layout — so there is no Full Route
-     * Cache entry for `revalidatePath("/")` to drop, and the export has no
-     * server at all. Nothing observable moves. What changes is that the record
-     * is now true: the write path is precise, rather than precise-plus-a-
-     * blanket-call kept for the one reader that had no tag.
-     *
-     * F4 never blocked this, contrary to what the doc used to say:
-     * `revalidatePath("/")` never covered `/search/all`, `/search/ingredients`
-     * or `/search/version`, which are separate route paths that nothing
-     * revalidates.
-     */
-    listPaths: [],
-    paginationOnly: true,
-    dependentItemBasePaths: RECIPE_DEPENDENT_ITEM_BASE_PATHS,
-  },
-  deleteSuccessConfig: {
-    itemBasePath: "/recipe",
-    listPaths: [],
-    /* Same reasoning as above; a delete moves the same four readers. */
-    paginationOnly: true,
-    dependentItemBasePaths: RECIPE_DEPENDENT_ITEM_BASE_PATHS,
-    redirectTo: () => "/",
-  },
+  successConfig: recipeSuccessConfig,
+  deleteSuccessConfig: recipeDeleteSuccessConfig,
   label: "recipe",
   // Auth is injected rather than imported: the factory lives in
   // @discontent/cms and cannot reach this app\'s `@/auth` alias. Required by
@@ -349,6 +288,36 @@ export async function rebuildRecipeIndex() {
    * `paginationOnly` removes from the write path.
    */
   revalidateDerivedState([recipeContentConfig, featuredRecipeContentConfig]);
+}
+
+/**
+ * Rebuild **every** index this site owns, then invalidate everything derived
+ * from any of them.
+ *
+ * The seat `rebuildRecipeIndex` could not become. That one is pinned by
+ * `test/revalidateDerived.test.ts` as a *narrow* seat — recipes and the
+ * featured recipes its cascade reaches, and deliberately nothing else — and it
+ * is what the git branch-switch path calls, where widening it would drop the
+ * whole cache on every checkout for no reason.
+ *
+ * What needed a wider one was the export (T9/22b): `buildExport` called
+ * `rebuildRecipeIndex` to self-heal a content directory that predates an index,
+ * and groups are not recipe dependents, so a directory with unbuilt groups
+ * shipped a `/groups` that was silently empty with no error at all. That is the
+ * same class of bug §13 keeps producing, and the fix is to ask the registry
+ * rather than to name two more configs here.
+ *
+ * `cascadeDependents: false` because the loop already covers every type. The
+ * default is true, and leaving it on would rebuild featured recipes twice —
+ * once as the recipe rebuild's cascade, once on its own pass.
+ */
+export async function rebuildAllIndexes() {
+  const contentDirectory = getContentDirectory();
+  for (const config of recipeContentTypes) {
+    await rebuildIndex({ config, contentDirectory, cascadeDependents: false });
+  }
+  /* One call over the whole registry: everything moved, so everything expires. */
+  revalidateDerivedState(recipeContentTypes);
 }
 
 export async function createRemote(

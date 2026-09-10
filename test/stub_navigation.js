@@ -1,5 +1,21 @@
-export function redirect() {
+/**
+ * Recorded, not merely stubbed, since D9.
+ *
+ * The split of `handleContentSuccess` is only worth anything if
+ * `revalidateContentWrite` provably does *not* redirect — a `NEXT_REDIRECT`
+ * throw escaping an API route is a 500 — and the real `redirect` announces
+ * itself by throwing, which this stub cannot do without breaking every form
+ * test. So it records instead.
+ */
+export const redirects = [];
+
+export function redirect(target) {
+  redirects.push(target);
   return null;
+}
+
+export function resetRedirects() {
+  redirects.length = 0;
 }
 
 /*

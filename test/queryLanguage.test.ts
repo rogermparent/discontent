@@ -5,6 +5,7 @@ import {
   cycleTermAt,
   filterTerms,
   filterUsesField,
+  groupSearchHref,
   matchesFilter,
   parseQuery,
   positiveTagValues,
@@ -49,12 +50,18 @@ function spanless(node: FilterNode | undefined): unknown {
 const day = (year: number, month: number, date: number) =>
   new Date(year, month - 1, date).getTime();
 
+/*
+ * `groups` carries slug *and* name per membership, which is what the client
+ * decorates the corpus with (22f) — so `group:week-of-may-4` and
+ * `group:"week of may"` both reach the same recipes.
+ */
 const CAKE: FilterableRecipe = {
   name: "Chocolate Truffle Cake",
   date: day(2026, 3, 14),
   description: "A dense flourless chocolate cake with a molten center.",
   ingredients: ["200 g dark chocolate", "4 eggs", "1/2 cup butter"],
   tags: ["dessert", "chocolate"],
+  groups: ["week-of-may-4", "Week of May 4"],
   prepTime: 20,
   cookTime: 40,
 };
@@ -74,6 +81,12 @@ const SLAW: FilterableRecipe = {
   description: "A bright raw salad dressed with rice vinegar.",
   ingredients: ["4 carrots", "1 tbsp grated ginger"],
   tags: ["salad", "quick"],
+  groups: [
+    "week-of-may-4",
+    "Week of May 4",
+    "weeknight-favourites",
+    "Weeknight Favourites",
+  ],
   prepTime: 10,
 };
 
@@ -148,6 +161,46 @@ describe("parseQuery — free text vs typed terms", () => {
       type: "text",
       field: "tag",
       value: "dessert",
+    });
+  });
+});
+
+describe("parseQuery — the group: field", () => {
+  it("parses a group term as an ordinary text leaf", () => {
+    const parsed = parseQuery("group:weeknight-favourites");
+    expect(parsed.text).toBe("");
+    expect(spanless(parsed.filter)).toEqual({
+      type: "text",
+      field: "group",
+      value: "weeknight-favourites",
+    });
+    expect(parsed.hasAdvancedSyntax).toBe(true);
+  });
+
+  it("negates with the short form and the long one alike", () => {
+    const negated = {
+      type: "not",
+      child: {
+        type: "text",
+        field: "group",
+        value: "weeknight-favourites",
+      },
+    };
+    expect(spanless(parseQuery("-group:weeknight-favourites").filter)).toEqual(
+      negated,
+    );
+    expect(
+      spanless(parseQuery("NOT group:weeknight-favourites").filter),
+    ).toEqual(negated);
+  });
+
+  it("keeps free text beside a group term", () => {
+    const parsed = parseQuery("chocolate group:week-of-may-4");
+    expect(parsed.text).toBe("chocolate");
+    expect(spanless(parsed.filter)).toEqual({
+      type: "text",
+      field: "group",
+      value: "week-of-may-4",
     });
   });
 });
@@ -407,6 +460,43 @@ describe("matchesFilter", () => {
     ]);
   });
 
+  it("matches a group by slug or by name, prefix-first", () => {
+    expect(filtered("group:week-of-may-4")).toEqual([
+      "Chocolate Truffle Cake",
+      "Carrot Slaw",
+    ]);
+    // The name half of the membership, and a prefix of it.
+    expect(filtered("group:weeknight")).toEqual(["Carrot Slaw"]);
+    expect(filtered('group:"week of may"')).toEqual([
+      "Chocolate Truffle Cake",
+      "Carrot Slaw",
+    ]);
+  });
+
+  it("negates a group term, and composes it with another field", () => {
+    expect(filtered("-group:weeknight-favourites")).toEqual([
+      "Chocolate Truffle Cake",
+      "Crème Brûlée",
+      "Pantry Staple 1",
+    ]);
+    expect(filtered("group:week-of-may-4 tag:salad")).toEqual(["Carrot Slaw"]);
+  });
+
+  /*
+   * The rule that keeps membership from leaking into ordinary search: a bare
+   * word reads a recipe's own text, never the groups it happens to sit in.
+   * "Weeknight Favourites" is a group name and appears nowhere on Carrot Slaw,
+   * so excluding the word must not exclude the recipe.
+   */
+  it("never matches through a group for a bare word", () => {
+    expect(filtered("-weeknight")).toEqual([
+      "Chocolate Truffle Cake",
+      "Crème Brûlée",
+      "Carrot Slaw",
+      "Pantry Staple 1",
+    ]);
+  });
+
   it("drops an unconstrained OR operand instead of widening to everything", () => {
     // Free text can't be evaluated here — the engine already applied it — so the
     // tag is the only operand that can constrain the set.
@@ -490,6 +580,23 @@ describe("filterUsesField", () => {
     expect(filterUsesField(undefined, "ingredient")).toBe(false);
   });
 
+  /*
+   * The same gate, for the group document `/search/groups` serves (22f). The
+   * `"any"` case reports true here as it does for every text field — a false
+   * negative would show `group:` results before the document lands, and the
+   * cost of the false positive is one already-fetched query being awaited.
+   */
+  it("reports whether a query reads group membership", () => {
+    const usesGroup = (query: string) =>
+      filterUsesField(parseQuery(query).filter, "group");
+    expect(usesGroup("group:weeknight-favourites")).toBe(true);
+    expect(usesGroup("-group:weeknight-favourites")).toBe(true);
+    expect(usesGroup("tag:dessert (group:x OR tag:y)")).toBe(true);
+    expect(usesGroup("tag:dessert time:<30")).toBe(false);
+    expect(usesGroup("chocolate cake")).toBe(false);
+    expect(usesGroup("-chocolate")).toBe(true);
+  });
+
   /* The non-text nodes report only their own field. */
   it("matches comparison and date nodes on their own field", () => {
     expect(filterUsesField(parseQuery("time:<30").filter, "time")).toBe(true);
@@ -502,6 +609,35 @@ describe("filterUsesField", () => {
     expect(
       filterUsesField(parseQuery("before:2024-01-01").filter, "after"),
     ).toBe(false);
+  });
+});
+
+describe("groupSearchHref", () => {
+  /*
+   * A `?q=` query rather than a path, unlike `tagSearchHref` — there is no
+   * pre-baked page for a group's members, and the point of the link is that the
+   * reader can go on editing the query it lands in.
+   */
+  it("links to a group-narrowed search", () => {
+    expect(groupSearchHref("weeknight-favourites")).toBe(
+      "/search?q=group%3Aweeknight-favourites",
+    );
+  });
+
+  it("quotes a value that would tokenize as several atoms", () => {
+    expect(groupSearchHref("week of may 4")).toBe(
+      "/search?q=group%3A%22week%20of%20may%204%22",
+    );
+  });
+
+  it("round-trips through the parser", () => {
+    const href = groupSearchHref("weeknight-favourites");
+    const query = decodeURIComponent(href.slice("/search?q=".length));
+    expect(spanless(parseQuery(query).filter)).toEqual({
+      type: "text",
+      field: "group",
+      value: "weeknight-favourites",
+    });
   });
 });
 

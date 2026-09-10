@@ -1,7 +1,10 @@
 import { notFound } from "next/navigation";
 import { getFeaturedRecipeBySlug } from "recipe-website-common/controller/data/readFeaturedRecipes";
 import { readAllFeaturedRecipeIds } from "recipe-website-common/controller/data/readFeaturedRecipePages";
+import { groupItems } from "recipe-website-common/controller/data/readGroupItem";
+import { getGroupBySlug } from "recipe-website-common/controller/data/readGroups";
 import { recipeItems } from "recipe-website-common/controller/data/readRecipeItem";
+import { resolveGroupItems } from "recipe-website-common/controller/data/resolveGroupItems";
 import FeaturedRecipeDetailPage from "recipe-website-common/components/FeaturedRecipeDetailPage";
 
 export async function generateMetadata({
@@ -19,12 +22,20 @@ export async function generateMetadata({
     }
     throw e;
   }
+  /* A featured group (22g) — see the editor's twin for why this read is the
+   * cached one and why a missing group degrades to the slug. */
+  if (featuredRecipe.group) {
+    const group = await groupItems.read(featuredRecipe.group);
+    return { title: group?.name || featuredRecipe.group || slug };
+  }
   /*
    * A dangling reference has always been possible here — the recipe can be
    * deleted while the feature remains — so `null` was already the answer. The
    * cached read hands it back as a value instead of as a swallowed exception.
    */
-  const recipe = await recipeItems.read(featuredRecipe.recipe);
+  const recipe = featuredRecipe.recipe
+    ? await recipeItems.read(featuredRecipe.recipe)
+    : null;
   return { title: recipe?.name || featuredRecipe.recipe || slug };
 }
 
@@ -43,7 +54,29 @@ export default async function FeaturedRecipePage({
     }
     throw e;
   }
-  const { recipe: recipeSlug, note } = featuredRecipe;
+  const { recipe: recipeSlug, group: groupSlug, note } = featuredRecipe;
+
+  /* The same body as the editor's, minus the actions — see that file. */
+  if (groupSlug) {
+    let group;
+    try {
+      group = await getGroupBySlug({ slug: groupSlug });
+    } catch (e) {
+      if (e instanceof Error && "code" in e && e.code === "ENOENT") {
+        notFound();
+      }
+      throw e;
+    }
+    return (
+      <FeaturedRecipeDetailPage
+        kind="group"
+        group={group}
+        groupSlug={groupSlug}
+        items={await resolveGroupItems(group)}
+        note={note}
+      />
+    );
+  }
 
   /*
    * The whole recipe record, rendered under the *featured recipe's* slug. This
@@ -51,11 +84,12 @@ export default async function FeaturedRecipePage({
    * by path: this URL is a function of the feature's slug, and nothing the
    * recipe write knows could name it (§2, F19).
    */
-  const recipe = await recipeItems.read(recipeSlug);
-  if (!recipe) notFound();
+  const recipe = recipeSlug ? await recipeItems.read(recipeSlug) : null;
+  if (!recipe || !recipeSlug) notFound();
 
   return (
     <FeaturedRecipeDetailPage
+      kind="recipe"
       recipe={recipe}
       recipeSlug={recipeSlug}
       note={note}

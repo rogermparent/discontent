@@ -127,14 +127,26 @@ describe("derivedContentPaths", () => {
       }
     });
 
-    it("recipe: gains exactly the pages directories the production writer lacked", () => {
+    it("recipe: gains exactly the pages and groups directories the production writer lacked", () => {
       const generated = entriesOf(derivedContentPaths(recipeContentTypes));
       const before = entriesOf(RECIPE_PRODUCTION_BEFORE);
 
+      /*
+       * In registry order, so `groups` follows `pages` — the derivation walks
+       * `recipeContentTypes` and 22b appended the group config last. The groups
+       * triple is the payoff this module exists for: a new content type gains
+       * its ignore lines by being declared, with no edit to either writer. The
+       * *content repository's* `.gitignore` is hand-written and is the one
+       * copy still not derived (T6), so it needs the manual paste this list is
+       * the source for.
+       */
       expect(generated.filter((entry) => !before.includes(entry))).toEqual([
         "/pages/index",
         "/pages/pagination",
         "/pages/aggregates",
+        "/groups/index",
+        "/groups/pagination",
+        "/groups/aggregates",
       ]);
     });
 

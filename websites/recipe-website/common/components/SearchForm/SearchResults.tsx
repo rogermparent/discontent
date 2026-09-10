@@ -7,6 +7,8 @@ import { RecipeCardLink } from "../List/shared";
 import { EmptyState } from "../EmptyState";
 import { SearchSkeleton } from "./SearchSkeleton";
 import { TagFilterRail } from "./TagFilterRail";
+import { GroupRail } from "./GroupRail";
+import { GroupResults } from "./GroupResults";
 import { RecentSearches } from "./RecentSearches";
 import { QueryChips } from "./QueryChips";
 import { SearchTicker } from "./SearchTicker";
@@ -141,9 +143,14 @@ export function SearchResultsPage() {
       {/* One chip per typed term — renders nothing at all for a plain search,
           which is why the default view's baselines don't move. */}
       <QueryChips />
-      {/* Idle: recents + the tag rail are the browse affordance. */}
+      {/* Idle: recents + the group and tag rails are the browse affordance.
+          Groups lead: there are a handful of them against dozens of tags, and
+          each one is a destination rather than a filter. */}
       {!hasFilter && <RecentSearches />}
+      {!hasFilter && <GroupRail />}
       <TagFilterRail />
+      {/* Matching groups sit above the grid; the ticker still counts recipes. */}
+      <GroupResults />
       {body}
     </>
   );

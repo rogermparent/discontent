@@ -31,6 +31,16 @@ export function RecipeSelectInput({
     useState<MassagedRecipeEntry | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState<boolean>(Boolean(defaultValue));
+  /*
+   * The hydration read failed — almost always a 404, because the slug names a
+   * recipe that has since been renamed or deleted. That is an ordinary state
+   * for a group (D3: nothing rewrites `items[].recipe` when a recipe moves),
+   * and before this the field simply rendered its empty "Select Recipe" state
+   * while the hidden input went on submitting the slug — so an edit that
+   * touched nothing looked like it had cleared the row, and saving it kept the
+   * dangle anyway. Saying so is the honest version.
+   */
+  const [loadFailed, setLoadFailed] = useState(false);
 
   // Fetch recipe data if defaultValue is provided
   useEffect(() => {
@@ -46,9 +56,11 @@ export function RecipeSelectInput({
           })
           .then((recipe: MassagedRecipeEntry) => {
             setSelectedRecipe(recipe);
+            setLoadFailed(false);
           })
           .catch((err) => {
             console.error("Failed to fetch recipe", value, err);
+            setLoadFailed(true);
           })
           .finally(() => {
             setIsLoading(false);
@@ -60,11 +72,13 @@ export function RecipeSelectInput({
   const handleSelectRecipe = (recipe: MassagedRecipeEntry) => {
     setSelectedSlug(recipe.slug);
     setSelectedRecipe(recipe);
+    setLoadFailed(false);
   };
 
   const handleClear = () => {
     setSelectedSlug(null);
     setSelectedRecipe(null);
+    setLoadFailed(false);
   };
 
   return (
@@ -83,6 +97,15 @@ export function RecipeSelectInput({
         ) : selectedRecipe ? (
           <div className="flex items-center gap-2">
             <p className="text-sm">Selected: {selectedRecipe.name}</p>
+            <Button type="button" onClick={handleClear}>
+              Clear
+            </Button>
+          </div>
+        ) : loadFailed && selectedSlug ? (
+          <div className="flex items-center gap-2">
+            <p className="text-sm" data-testid="recipe-select-missing">
+              Selected: {selectedSlug} (recipe not found)
+            </p>
             <Button type="button" onClick={handleClear}>
               Clear
             </Button>
