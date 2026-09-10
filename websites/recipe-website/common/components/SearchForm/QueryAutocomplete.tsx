@@ -17,6 +17,7 @@ import {
 } from "@discontent/component-library/components/ui/popover";
 import { cn } from "@discontent/component-library/lib/utils";
 import { useSearch } from "./SearchContext";
+import type { GroupSearchEntry } from "../../controller/data/readGroupSearchCorpus";
 import {
   FILTER_FIELDS,
   completionsAt,
@@ -43,6 +44,7 @@ const FIELD_HINTS: Record<FilterField, string> = {
   ingredient: "recipes using an ingredient",
   name: "match the recipe name only",
   description: "match the description",
+  group: "recipes in a meal plan or collection — group:<slug>",
   time: "total minutes — time:<30",
   before: "added before a date — before:2026-01-01",
   after: "added on or after a date",
@@ -97,21 +99,52 @@ function tagOptions(prefix: string, allTags: string[]): CompletionOption[] {
     }));
 }
 
+/**
+ * Groups matching what has been typed after `group:` (22f's term, which
+ * matches on the group's *slug*). The prefix is tried against the folded slug
+ * and the folded name, so `group:week` offers `week-of-may-4` and so does
+ * `group:Week of` — a curator remembers the name, the query wants the slug.
+ * Slugs carry no whitespace, so nothing needs quoting on the way out.
+ */
+function groupOptions(
+  prefix: string,
+  allGroups: GroupSearchEntry[],
+): CompletionOption[] {
+  const folded = fold(prefix);
+  return allGroups
+    .filter((group) => {
+      const slug = fold(group.slug);
+      if (slug === folded) return false;
+      return slug.startsWith(folded) || fold(group.name).startsWith(folded);
+    })
+    .slice(0, MAX_OPTIONS)
+    .map((group) => ({
+      key: `group:${group.slug}`,
+      label: group.slug,
+      hint: `${group.name} · ${group.kind === "meal-plan" ? "meal plan" : "collection"}`,
+      replacement: `group:${group.slug}`,
+    }));
+}
+
 function optionsFor(
   completion: QueryCompletion | undefined,
   allTags: string[],
+  allGroups: GroupSearchEntry[],
 ): CompletionOption[] {
   if (!completion) return [];
   if (completion.kind === "field") return fieldOptions(completion.prefix);
   /*
-   * Only `tag:` has values to offer, and that is a scope decision rather than a
-   * gap. `allTags` is already on the context, so tags cost nothing; ingredients
-   * are a *conditional* fetch (F4a) that is often not in memory, so completing
-   * them would mean a loading state and a request inside a keystroke. The other
+   * Only `tag:` and `group:` have values to offer, and that is a scope decision
+   * rather than a gap. `allTags` and `allGroups` are already on the context
+   * (both fetched unconditionally), so they cost nothing; ingredients are a
+   * *conditional* fetch (F4a) that is often not in memory, so completing them
+   * would mean a loading state and a request inside a keystroke. The other
    * fields take free text or a date, which no list can shorten.
    */
-  if (completion.field !== "tag") return [];
-  return tagOptions(completion.prefix, allTags);
+  if (completion.field === "tag") return tagOptions(completion.prefix, allTags);
+  if (completion.field === "group")
+    return groupOptions(completion.prefix, allGroups);
+  return [];
 }
 
 export interface QueryAutocomplete {
@@ -154,7 +187,8 @@ export function useQueryAutocomplete({
    * on top of the rewrite — 21b's `insertTerm` opens the same way. */
   clearPendingSearch: () => void;
 }): QueryAutocomplete {
-  const { inputValue, setInputValue, submitSearch, allTags } = useSearch();
+  const { inputValue, setInputValue, submitSearch, allTags, allGroups } =
+    useSearch();
   const listId = useId();
   const [caret, setCaret] = useState(0);
   const [focused, setFocused] = useState(false);
@@ -168,8 +202,8 @@ export function useQueryAutocomplete({
     [enabled, raw, caret],
   );
   const options = useMemo(
-    () => optionsFor(completion, allTags),
-    [completion, allTags],
+    () => optionsFor(completion, allTags, allGroups),
+    [completion, allTags, allGroups],
   );
 
   const open = enabled && focused && !dismissed && options.length > 0;

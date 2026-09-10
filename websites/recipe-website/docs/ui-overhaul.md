@@ -1877,6 +1877,20 @@ grammar at the caret.
       `search-autocomplete.png`, locator-scoped, since the list is portaled and a
       clip would have to be computed rather than named.
 
+- [x] **Landed after the 22 stack, with one merge-time change.** 21c was
+      written against 21b and merged into `content-engine-test` on 2026-09-10,
+      after PRs #123–#130 had landed 22f's `group:` term. `FIELD_HINTS` is
+      `Record<FilterField, string>` on purpose, so the merge failed typecheck
+      until `group` had a hint — the type did its job. And since `allGroups`
+      is on the search context unconditionally (22f fetches `/search/groups`
+      like the display corpus), `group:` gets operand rows for the same price
+      as `tag:`: the prefix is tried against the folded slug _and_ name,
+      because a curator remembers "Weeknight Favourites" while the term wants
+      `weeknight-favourites`; the slug is what is written, the name and kind
+      are the hint. One e2e case on `three-recipes-groups`. Post-merge gates:
+      **434 vitest** (417 on the landed tip + 17), both typechecks, lint.
+      _(e2e counts below.)_
+
 **PR 21's scope lock is closed.** All four affordances from 2026-07-28 have
 shipped — the language (21a), the chip preview, the chip edits and the palette
 insert rows (21b), and the completion list (21c) — and the fifth item on that

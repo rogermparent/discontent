@@ -206,6 +206,43 @@ test.describe("Search — in-field autocomplete", () => {
   });
 });
 
+test.describe("Search — autocomplete offers groups", () => {
+  test.beforeEach(async ({ page, resetData }) => {
+    // The one fixture with groups in it (see search-query-language.spec.ts):
+    // "Week of May 4" (a meal plan) and "Weeknight Favourites" (a collection).
+    await resetData("three-recipes-groups");
+    await page.goto("/search");
+    await expect(ticker(page)).toHaveText(/ALL 3 RECIPES/i, {
+      timeout: SEARCH_TIMEOUT,
+    });
+  });
+
+  test("offers group slugs once the caret is past group:, by slug or name", async ({
+    page,
+  }) => {
+    // `group:` matches on the slug (22f), and the slug is what gets written —
+    // but the prefix is also tried against the name, because that is what a
+    // curator remembers. `week` hits both "week-of-may-4" (slug) and
+    // "Weeknight Favourites" (name).
+    const field = searchField(page);
+    await field.click();
+    await field.pressSequentially("group:week");
+    await expect(optionLabels(page)).toHaveText([
+      "week-of-may-4",
+      "weeknight-favourites",
+    ]);
+
+    await field.pressSequentially("-of");
+    await expect(optionLabels(page)).toHaveText(["week-of-may-4"]);
+
+    await field.press("ArrowDown");
+    await field.press("Enter");
+    await expect(field).toHaveValue("group:week-of-may-4");
+    await expect(listItems(page)).toHaveCount(2, { timeout: SEARCH_TIMEOUT });
+    await expect(suggestions(page)).toHaveCount(0);
+  });
+});
+
 test.describe("Search — autocomplete stays on /search", () => {
   test.beforeEach(async ({ page, resetData }) => {
     await resetData("three-recipes");
