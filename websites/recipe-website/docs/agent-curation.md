@@ -41,8 +41,9 @@ the handoff procedure, and each closed phase's decisions and gate results.
 The roles: **Fable plans and reviews; an Opus subagent implements.** Branches
 are stacked: `content-engine-test` → `agent/22a-provenance` →
 `agent/22b-groups` → `agent/22c-curator-cli` → `agent/22d-remote-write` →
-`agent/22e-curator-skill`. Rebase children after a parent merges. Never push
-to main; never force-push; never merge.
+`agent/22e-curator-skill` → `agent/22f-group-discovery` →
+`agent/22g-featured-groups`. Rebase children after a parent merges. Never
+push to main; never force-push; never merge.
 
 ## How a phase is run
 
@@ -72,8 +73,9 @@ same procedure.)_
    phase starts in a fresh plan-mode session from the doc.
 4. Branches are stacked: `content-engine-test` → `agent/22a-provenance` →
    `agent/22b-groups` → `agent/22c-curator-cli` → `agent/22d-remote-write` →
-   `agent/22e-curator-skill`. Rebase children after a parent merges. Never
-   push to main; never force-push; never merge.
+   `agent/22e-curator-skill` → `agent/22f-group-discovery` →
+   `agent/22g-featured-groups`. Rebase children after a parent merges.
+   Never push to main; never force-push; never merge.
 
 ## Decisions log (D-list)
 
@@ -90,7 +92,12 @@ same procedure.)_
   `updateDependents.ts:235,320`). Group pages resolve items through the cached
   recipe item read, so retitles show; a recipe rename/delete leaves a dangling
   slug rendered tolerantly ("Recipe not found: slug"). Array references are
-  deferred as engine follow-up **F32**.
+  deferred as engine follow-up **F32**. _Amended for 22g (2026-09-06):_ the
+  "no `referencedBy`" half was about array references. A featured entry
+  pointing at a group is a **scalar** reference (`dataField: "group"`), so
+  22g adds `groupContentConfig.referencedBy = [{config: () =>
+featuredRecipeContentConfig, indexField: "group"}]` (thunk). Groups still
+  declare no array `references` of their own.
 - **D4 "Appears in" is an aggregate** `groupsByRecipe`
   (`Record<recipeSlug, {slug, name, kind, label?}[]>`) folded from the groups
   index, shaped like `recipesByTag` in `common/controller/aggregateConfigs.ts`.
@@ -193,7 +200,11 @@ same procedure.)_
   is absent). Check `git status` for stray `groups/` envs in fixtures without
   groups (precedent: `editor/.gitignore` last stanza).
 - **T4** Configs must never import the registry; `groupContentConfig` imports
-  nothing from the recipe config (no thunks needed).
+  nothing from the recipe config (no thunks needed). 22g adds a
+  `referencedBy` thunk to `groupContentConfig` pointing at
+  `featuredRecipeContentConfig`, which itself references
+  `groupContentConfig` — the thunk breaks that cycle the same way it does
+  for recipes.
 - **T5** No cached (`unstable_cache`) reads from scripts/CLI (D8).
 - **T6** Content repo `.gitignore` (`/home/roger/Projects/recipe-content/.gitignore`)
   is hand-written; record a manual checklist: paste
@@ -243,6 +254,13 @@ the recipe route was missing"`) asserts the registry-derived tags exactly, so
   read (`readRecipeItem` → `unstable_cache`) cannot be loaded under vitest;
   Playwright covers routes, vitest covers the pure pieces. _(Found planning
   22d.)_
+- **T18** `playwright/support/tasks.ts` `resetData` is `remove()` then
+  `copy()`, so a request still in flight from the previous page can recreate
+  an LMDB directory in the gap (`EEXIST: mkdir …/test-content/groups/pagination`).
+  Pre-existing for `recipes/pagination`; 22f's unconditional
+  `/search/groups` fetch makes the window reachable from more pages. Seen
+  once in ~8 implementer runs, never in the review reruns. Retry the spec;
+  fix by removing into a renamed directory if it recurs.
 
 ## Stacked-PR roadmap
 
@@ -255,6 +273,8 @@ Each branch is off the previous. Rebase children after a parent merges.
 | 22c | `agent/22c-curator-cli` ← 22b                  | ✅ done | `pnpm recipes <command>` CLI over a content directory, `--json` output, transport-agnostic `controller/curation/` layer                      |
 | 22d | `agent/22d-remote-write` ← 22c                 | ✅ done | Bearer-token JSON API in the editor that revalidates in-process; CLI HTTP backend + `--notify`; `genericActions` refactor (D9); tokens (D10) |
 | 22e | `agent/22e-curator-skill` ← 22d                | ✅ done | Committed `.claude/skills/recipe-curator/SKILL.md`, `.claude/settings.json` allow-list, minimal root `CLAUDE.md` (D12)                       |
+| 22f | `agent/22f-group-discovery` ← 22e              | ✅ done | Header "Groups" link, homepage Groups section, `/search` group rail + group results + `group:` term, ⌘K group rows, group page recipe cards  |
+| 22g | `agent/22g-featured-groups` ← 22f              | 🟡 next | A featured entry may point at a group (`FeaturedRecipe.group`), featured index v2, group picker in the featured form, mixed homepage strip   |
 
 ## Phase detail
 
@@ -1838,7 +1858,344 @@ Dinner" --json` → `/group/week-of-2026-09-07`. - Report: opened with the mode 
      was written outside the scratch copy (`editor/content` still absent
      in the worktree).
 
-- **Next PR: none — the roadmap closes here.** Remaining work is in Deferred.
+- **Next PR: 22f** (reopened 2026-09-06 — the roadmap closed here at 22e;
+  group discovery and featured groups were decided with the user
+  afterwards).
+
+### PR 22f — Group discovery `agent/22f-group-discovery` ✅ done (← 22e)
+
+**Why:** groups shipped in 22b and 22c–22e made them scriptable, but nothing
+_leads_ to them: a group is reachable only from the ⌘K "Go to → Groups" row,
+a member recipe's "Appears in" block, or the raw `/groups` URL. The user's
+concrete case is a collection of pie-iron batter recipes they want to refer
+back to and read quickly. Decided with the user (2026-09-05/06):
+
+- **Entry points:** a header nav link, a homepage groups section, and a
+  browse rail on the idle `/search` page.
+- **Search:** matching groups appear as results on `/search` and in ⌘K
+  (name/description), **plus** a `group:<slug>` query term that narrows
+  recipes to a group's members, with a "Search within this group" link on
+  the group page.
+- **Group page:** items render as recipe cards (image, date, tags — the same
+  card as the recipe grids), keeping label/note and the group's order.
+- **No index-shape change** in this phase; featured groups (which do change
+  the featured index) are PR 22g.
+
+Paths below are relative to `websites/recipe-website/` unless noted.
+
+#### Facts validated against the code (2026-09-06)
+
+1. **Header nav** items are `defaultHeaderItems`
+   (`common/components/AppLayout/index.tsx:41`, today only Bookmarks) plus
+   the owner's `header` menu; `nav.tsx` `NAV_ICONS` keys icons by href. The
+   mobile sheet renders the same list. Adding a default item changes the
+   masthead on **every** page, so every `visual.spec.ts` baseline
+   (`playwright/support/visual.ts` `snapshotPage`) regenerates —
+   intentional, do it with `--update-snapshots` on that spec only.
+2. **Homepage** (`Homepage/route.tsx` + `Homepage/index.tsx`) reads the
+   recipe and featured pagination _heads_ through
+   `createCachedPaginationReads` (tagged `pagination:<type>:by-date:head`).
+   `groupPages.readHead()` (`controller/data/readGroupPages.ts`) is the same
+   shape, so a groups section is invalidated by the head tag a group write
+   already fires — `groupSuccessConfig.paginationOnly`
+   (`editor/controller/successConfigs.ts:137`) stays correct; its comment
+   ("the homepage reads nothing of groups") must be updated.
+3. **Search is client-side.** `SearchContext.tsx` fetches `/search/all`
+   (display corpus, `MassagedRecipeEntry[]`, unconditional) and
+   `/search/ingredients` (on demand), runs FlexSearch for free text, then
+   `matchesFilter(recipe, filter)` (`SearchForm/queryLanguage.ts:471`) over
+   `FilterableRecipe` for typed terms. `FILTER_FIELDS` is a `const` list
+   (`tag ingredient name description time before after`); an unknown prefix
+   is free text. `filterUsesField` gates `/search/ingredients`
+   (`filterNeedsIngredients` / `ingredientsSettled`) — the exact pattern to
+   copy for a groups document. FlexSearch results are the corpus `doc`s
+   (`searchQuery`, `{doc}` map), so decorating the display corpus decorates
+   results too.
+4. **Group index value** is `{name, kind, items[{recipe,label}]}` (D5) — no
+   `description`. The search route reads data files instead of changing the
+   index: `readAllGroupIds()` (keys-only walk, `readGroupPages.ts:45`) +
+   `getGroupBySlug` (`readGroups.ts`, CLI-safe). Groups are few; the export
+   bakes the route at build (`force-static`, like
+   `export/.../search/all/route.ts`).
+5. **Palette** (`CommandPalette/index.tsx`): static rows are filtered by
+   `matchesQuery`; recipe rows come from `displayedRecipes` gated on
+   `query`; `hasRecipeHits` hides "Go to"/"Actions".
+   `command-palette.spec.ts` asserts "Enter opens the top recipe even when
+   the query matches a destination", so a Groups row group must render
+   **after** Recipes.
+6. **Group page** (`GroupDetailPage/index.tsx`) already receives resolved
+   `Recipe` objects per item (route: `recipeItems.read`), so cards need no
+   new reads. `groups.spec.ts` asserts `group-item`, `group-item-label`,
+   `group-item-missing`, `group-kind`, `group-empty` test ids and item order
+   — keep them. Do **not** use `RecipeGrid` (stamps
+   `data-testid="recipe-list"`, counted unscoped by many specs; see
+   `List/Group/index.tsx`'s note).
+7. **Fixture `three-recipes-groups`**: "Week of May 4" (`meal-plan`,
+   description "Three dinners, one shop.", items first/second/missing-recipe
+   with labels) and "Weeknight Favourites" (`collection`, first + third).
+   `three-recipes` has no groups (and predates them, aggregate `null`), so
+   every new surface must render _nothing_ there — that is what keeps its
+   baselines still.
+
+#### Design (decided)
+
+**Shared reads**
+
+- **`common/controller/data/readGroupSearchCorpus.ts`** (new, CLI-safe:
+  `readAllIds` + `readContentFile` only):
+  `getGroupSearchCorpus(): Promise<GroupSearchEntry[]>` with
+  `GroupSearchEntry = {slug, date, name, kind, description?, recipes: string[]}`
+  (item slugs, deduped, order kept). The in-flight collapse `getSearchCorpus`
+  has is unnecessary (one route).
+- **Routes** `editor/src/app/(recipes)/search/groups/route.ts` (plain `GET`,
+  like `search/all`) and `export/src/app/(recipes)/search/groups/route.ts`
+  (`export const dynamic = "force-static"`). JSON = the array.
+
+**Query language (`SearchForm/queryLanguage.ts`)**
+
+- `FILTER_FIELDS` gains `"group"`; `FilterableRecipe` gains
+  `groups?: string[]` (group _slugs and names_ the recipe belongs to,
+  pre-folded by the matcher as usual); `matchesFilter` `case "group"` →
+  `(recipe.groups ?? []).some(g => fieldMatches(g, value))`, and `"any"`
+  does **not** include groups (a bare word must not match through
+  membership). `groupSearchHref(slug)` beside `tagSearchHref`
+  (`/search?q=group:<quoted slug>`). `filterUsesField(filter, "group")`
+  already generalises.
+- `test/queryLanguage.test.ts`: parse `group:weeknight-favourites` as a text
+  leaf, `-group:x` negation, `matchesFilter` on `groups`, `filterUsesField`
+  true/false, `groupSearchHref` quoting.
+
+**Search context (`SearchForm/SearchContext.tsx`)**
+
+- `groupsQuery` (`queryKey: ["groups"]`, `fetch("/search/groups")`,
+  `staleTime: Infinity`; `retry()` refetches it too). Expose
+  `allGroups: GroupSearchEntry[]`, `groupsSettled`.
+- Build `groupsByRecipe: Map<slug, string[]>` (slug + name per membership)
+  and decorate the display corpus **before** it feeds `allRecipes` and the
+  FlexSearch populate — one memo, `{...recipe, groups}` — so
+  `searchedRecipes` carry `groups` too (fact 3). Populate/probe logic is
+  untouched: `groups` is never indexed.
+- `filterNeedsGroups = filterUsesField(filter, "group")`; `displayedRecipes`
+  stays `undefined` and `isSearching` is true until `groupsSettled` when it
+  is set — mirror the ingredients gate exactly.
+- `matchedGroups: GroupSearchEntry[]` — when `parsedQuery.text` is
+  non-empty, groups whose `name` or `description` `fieldMatches` **every**
+  free-text word (same AND-at-word-start semantics as the CLI's free text);
+  empty when the query has no free text. Filters never apply to groups.
+
+**Surfaces**
+
+- **Header:** `defaultHeaderItems` += `{ name: "Groups", href: "/groups" }`
+  after Bookmarks; `NAV_ICONS["/groups"] = LayersIcon`. `destinations.ts`
+  Groups keywords += `"collections", "meal plans"`.
+- **Homepage:** `route.tsx` adds `groupPages.readHead()`; `Homepage` gets
+  `groups: GroupListEntry[]` (first 3) and renders a "Groups" section
+  between Browse chips and Featured: `PageHeading` + `GroupList`
+  (`List/Group`) + "More groups" → `/groups` (same `Button` as the other
+  strips); renders nothing when empty. Update the `groupSuccessConfig`
+  comment (fact 2).
+- **`/search` idle rail:** new `SearchForm/GroupRail.tsx` (client;
+  `useSearch().allGroups`): "Groups" label + one `Badge` link per group
+  (`Layers` icon, name, `itemCount`) to `/group/<slug>`, capped at 12 with
+  "More →" `/groups`; rendered in `SearchResultsPage` only when
+  `!hasFilter`, above `TagFilterRail`; nothing when there are no groups.
+- **`/search` results:** new `SearchForm/GroupResults.tsx`: when
+  `matchedGroups.length > 0`, a "Groups" strip above the recipe grid —
+  `GroupList` cards (reuse) with the name highlighted via
+  `highlightText(name, parsedQuery.text)`; `onClick` → `recordSearch(query)`.
+  `SearchTicker` keeps counting recipes only.
+- **Palette:** after the Recipes group,
+  `{matchedGroups.length > 0 && <CommandGroup heading="Groups" data-testid="palette-groups-group">}`
+  with up to 3 rows (`value="group:<slug>"`, `Layers` icon, name, kind badge
+  text, `onSelect → recordSearch(query); go("/group/<slug>")`). Shown
+  whether or not there are recipe hits; "Go to"/"Actions" hiding rule
+  unchanged.
+- **Group page cards:** extract the item list from `GroupDetailPage` into
+  `GroupDetailPage/GroupItems.tsx` (`items: ResolvedGroupItem[]`): an `<ol>`
+  with `grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3`, each
+  `<li data-testid="group-item">` = optional label line (`group-item-label`)
+  - `RecipeListItem` (`List/index.tsx`, fed
+    `{slug: item.recipe, date, name, image, tags}` from the `Recipe`) +
+    optional note; a dangling item keeps the muted "Recipe not found"
+    (`group-item-missing`) inside a card-shaped box. Under the kind badge add
+    a "Search within this group" link (`groupSearchHref(slug)`,
+    `data-testid="group-search-link"`). 22g reuses `GroupItems`.
+
+#### Tests (Playwright, `three-recipes-groups` unless noted)
+
+- `groups.spec.ts`: header "Groups" link in the banner and in the mobile
+  sheet; homepage "Groups" section lists both groups newest first, "More
+  groups" → `/groups`; homepage on `three-recipes` shows **no** Groups
+  section; group page items are cards in order with labels and the dangling
+  third; "Search within this group" on `weeknight-favourites` lands on
+  `/search?q=group:weeknight-favourites` showing exactly First and Third
+  Recipe with the `group:` chip visible.
+- `search-query-language.spec.ts`: `group:week-of-may-4` → First + Second
+  (dangling slug contributes nothing); `-group:weeknight-favourites` →
+  Second only; `tag:x group:y` compose; an idle `/search` shows the group
+  rail with both chips, and it disappears once a query is typed.
+- `search.spec.ts`/`search-live.spec.ts`: typing `shop` shows the Groups
+  strip with "Week of May 4" (description match) and no recipe cards;
+  `weeknight` shows the group above zero recipes; `recipe` shows recipes and
+  no group strip.
+- `command-palette.spec.ts`: on `three-recipes-groups`, `weeknight` lists
+  option "Weeknight Favourites" that navigates to
+  `/group/weeknight-favourites`; "Enter opens the top recipe" case still
+  passes on `three-recipes`.
+- `visual.spec.ts`: regenerate baselines (header link), review the diff is
+  header-only.
+
+#### Verification (implementer runs; Fable reruns)
+
+- `pnpm --filter recipe-editor typecheck`;
+  `pnpm --filter recipe-website exec tsc --noEmit`;
+  `pnpm exec vitest run` (395 tests at 22e + the new query-language cases).
+- The specs above via `pnpm --filter recipe-editor e2e-dev -- <spec>`;
+  `visual.spec.ts` with `--update-snapshots`, then diff the baselines.
+- Export build check: `CONTENT_DIRECTORY=<three-recipes-groups copy> pnpm
+--filter recipe-website build` produces `out/search/groups` JSON and
+  `/groups`.
+- Traps: T12/T13/T14 as before; no fixture index regen needed (no
+  index-shape change); `git status` must show no fixture `lock.mdb` churn.
+
+Decisions / close-out (review, 2026-09-06):
+
+- **Decisions made at review:**
+  - **Engine hits are re-decorated with `groups` at filter time**, on top of
+    decorating the display corpus before the populate. FlexSearch hits come
+    out of the IndexedDB document _store_, which is rewritten only when the
+    recipe corpus version moves — and a group write does not move it. Without
+    the second pass, `chicken group:new-plan` would answer nothing after
+    creating a group until an unrelated recipe write. Commented in
+    `SearchContext.tsx` `displayedRecipes`.
+  - **Baseline regeneration was wider than "visual.spec.ts only" and narrower
+    in effect than fact 1 predicted.** No baseline actually failed: the new
+    nav link lands inside the config's `maxDiffPixelRatio: 0.02`. All 21
+    masthead-bearing shots were regenerated anyway (`visual.spec.ts` ×19,
+    `header.spec.ts/masthead-signed-out`, `menus.spec.ts/header-with-about-link`)
+    so a stale masthead does not silently eat that tolerance. Reviewed
+    `homepage-three-recipes` old vs new: body pixel-identical, masthead now
+    `Bookmarks · ⧉ Groups · Search Ctrl+K` (the `Ctrl+K` hint chip was
+    captured post-hydration this time; the old shots predated it).
+    `search-reveal-control` changed only in antialiasing.
+  - `getGroupSearchCorpus` takes an optional `{ contentDirectory }` (T16),
+    matching `getGroupBySlug`; no caller passes it yet.
+  - `GroupRail` chips are destinations (`/group/<slug>`), not filter writers;
+    the narrowing move is the group page's "Search within this group" link.
+    The 12-chip cap + "More →" is implemented but no fixture exercises it.
+  - `GroupResults` cards print the _deduped_ member count (`recipes.length`)
+    where `/groups` prints the raw `items.length`; they differ only for a plan
+    listing one recipe twice.
+  - `MassagedRecipeEntry.groups?` was added to the type (documented as
+    client-side decoration, never served by `/search/all`).
+  - The `search.spec.ts` cases from the plan landed in `search-live.spec.ts`
+    (a new "Search — matching groups" describe) — same coverage, one file.
+- **Divergences from the section:** the six items above; the "tag:x group:y"
+  compose case uses `name:second` because the fixture recipes carry no tags.
+- **Gates (worktree, 2026-09-06, dev mode):** `pnpm --filter recipe-editor
+typecheck` clean; `pnpm --filter recipe-website exec tsc --noEmit` clean;
+  `pnpm exec vitest run` → **Test Files 24 passed (24), Tests 405 passed
+  (405)** (395 at 22e + 10 `group:` cases); `e2e-dev -- groups.spec.ts
+search-query-language.spec.ts search.spec.ts search-live.spec.ts
+command-palette.spec.ts` → **92 passed (2.8m)**; `e2e-dev -- visual.spec.ts
+header.spec.ts menus.spec.ts homepage.spec.ts mobile.spec.ts navigation.spec.ts
+accessibility.spec.ts` → **67 passed (2.5m)**, no `--update-snapshots`, no
+  flakes on the review rerun. Export build
+  (`CONTENT_DIRECTORY=<three-recipes-groups copy> pnpm --filter recipe-website
+build`): route table lists `○ /search/groups` and `● /group/[slug]` ×2;
+  `out/search/groups` = `week-of-may-4` (first, second, missing-recipe) then
+  `weeknight-favourites` (first, third); `out/groups.html` and
+  `out/group/*.html` present. `git status` clean — no fixture `lock.mdb`
+  churn.
+- **Next PR: 22g** — featured groups, seeded below. Re-validate facts 8–9
+  against the code before spawning the implementer; it changes the featured
+  index value (`version: "2"`, T1/T3) and the featured form.
+
+### PR 22g — Featured groups `agent/22g-featured-groups` 🟡 next (← 22f)
+
+A featured entry can point at a **group** instead of a recipe, so groups sit
+beside recipes in the homepage's featured strip. This phase changes the
+featured index value, its spec version, fixtures and the featured form.
+
+#### Facts validated against the code (2026-09-06)
+
+8. **Featured references:** `featuredRecipeContentConfig.references =
+[{config: () => recipeContentConfig, dataField: "recipe", fields: ["name","image"]}]`;
+   `resolveReferences` (`packages/cms/content/references.ts`) resolves each
+   declaration independently and yields `undefined` for a missing/empty
+   `dataField`, so a **second declaration**
+   `{config: () => groupContentConfig, dataField: "group", fields: ["name","kind"]}`
+   works with either field absent. `updateDependents` walks the target's
+   `referencedBy` by `indexField`, so `groupContentConfig` needs
+   `referencedBy: [{config: () => featuredRecipeContentConfig, indexField: "group"}]`
+   (thunk; D3's "no referencedBy" was about _array_ references and is
+   amended). `featuredRecipesByDate` (`paginationConfigs.ts:102`,
+   `version: "1"`) projects the index value; adding fields bumps it to `"2"`
+   and moves `test/specVersions.test.ts`'s whole-file hash (T1) and needs
+   fixture index regen (T3: `pnpm tsx scripts/build-fixture-indexes.ts` from
+   `editor/`).
+9. **Featured surfaces** that assume a recipe: `List/FeaturedRecipe/index.tsx`
+   (card → `/recipe/<recipe>`), `FeaturedRecipeDetailPage` (renders
+   `RecipeView`), both `featured-recipe/[slug]/page.tsx` routes
+   (`recipeItems.read(featuredRecipe.recipe)`, `notFound()` if missing),
+   `Homepage/route.tsx` (`filter(entry => entry.recipeName)`, maps to
+   recipe cards; hero = `featuredRecipes[0]`), the form
+   (`Form/FeaturedRecipe/index.tsx`: `RecipeSelectInput name="recipe"
+required`), `parseFeaturedRecipeFormData.ts` (`recipe: min(1)`),
+   `actions/featuredRecipes.ts` (`buildCreateData/buildUpdateData` copy
+   `parsed.recipe`), `featured-recipe/new/page.tsx` (`?recipe=` prefill),
+   the recipe page's "Feature" button
+   (`editor/src/app/(recipes)/recipe/[slug]/page.tsx:62`).
+   `RecipeSelectInput` hydrates via `/api/recipe/<slug>`; there is no group
+   picker yet.
+
+#### Design (seed — re-validate in the 22g plan session)
+
+- **Schema** (`common/controller/types.ts`):
+  `FeaturedRecipe.recipe?: string; group?: string` (exactly one set);
+  `FeaturedRecipeEntryValue` += `group?`, `groupName?`, `groupKind?`;
+  `FeaturedRecipeListEntry` (`paginationConfigs.ts`) += the same;
+  `featuredRecipesByDate.project` copies them, `version: "2"` → update the
+  `specVersions.test.ts` snapshot; regen fixture indexes (T3) for
+  `one-featured-recipe`, `many-featured-recipes`,
+  `many-featured-recipes-paged`, `three-recipes-groups` (+ add one featured
+  group to `three-recipes-groups` for the tests).
+- **References:** second declaration on
+  `featuredRecipeContentConfig.references` (fact 8);
+  `groupContentConfig.referencedBy` for the scalar edge (D3 amended: groups
+  still declare no _array_ references; T4 note updated — the thunk breaks
+  the featured↔groups cycle as it does for recipes).
+  `buildFeaturedRecipeIndexValue` borrows `name`/`kind` from `refs.group`.
+  Engine test in `test/references.test.ts`: retitle a group → the featured
+  index value's `groupName` moves; delete the group → value dangles
+  (`groupName` undefined) and the card renders "Group not found"; verify
+  `revalidateDerived.test.ts` / `derivedPaths.test.ts` expectations
+  (T15/T2) — expected unchanged, confirm.
+- **Editor:** `parseFeaturedRecipeFormData` → `recipe`/`group` optional with
+  a `refine` requiring exactly one; actions copy both; form gets a "Feature
+  a: Recipe | Group" segmented toggle (`ToggleGroup` from the component
+  library) switching between `RecipeSelectInput` and a new
+  `common/components/Form/inputs/GroupSelect` (native `<select>` fed by
+  `/search/groups`, hidden input `name="group"`, shows "Selected: <slug>
+  (group not found)" when the slug is unknown); `featured-recipe/new`
+  accepts `?group=` (and the sign-in redirect keeps it); the group page gets
+  a "Feature" button (`/featured-recipe/new?group=<slug>`) beside Edit.
+- **Rendering:** `List/FeaturedRecipe` card group variant (name, kind badge,
+  `Layers` placeholder in the image slot, link `/group/<slug>`, "View
+  Feature" kept); `FeaturedRecipeDetailPage` group variant = note +
+  `GroupItems` (from 22f) + "Open group" link, both `featured-recipe/[slug]`
+  routes resolve the group (`getGroupBySlug` + `recipeItems.read` items) or
+  the recipe, `generateMetadata` uses `groupName`; export
+  `generateStaticParams` unchanged. Homepage: `route.tsx` keeps entries with
+  `recipeName || groupName`; a new `Homepage/FeaturedStrip.tsx` renders
+  mixed cards (recipe → `RecipeListItem`, group → the featured group card)
+  inside one grid; the hero is the first featured **recipe** (groups have no
+  image/timeline).
+- **Tests:** `featured-recipes.spec.ts` — feature a group from the group
+  page, see it on the homepage strip (no bookmark button on it), on
+  `/featured-recipes`, and on its detail page; a recipe feature still works;
+  `visual.spec.ts` `featured-recipes-page1` unchanged unless the fixture
+  changed. CLI `pnpm recipes` gets no featured command (Deferred).
 
 ## Deferred
 
@@ -1859,9 +2216,8 @@ Dinner" --json` → `/group/week-of-2026-09-07`. - Report: opened with the mode 
   a full write token today), and a `lastUsedAt` stamp on the record.
 - **Group tags / tag pages; per-item servings for meal plans; featured recipes
   as a group kind.**
-- **Homepage "Groups" section** (22b shipped the palette destination only; the
-  homepage reads nothing of groups, which is also why `paginationOnly` drops
-  `revalidatePath("/")` safely).
+- **CLI featured commands** (22g): `pnpm recipes` gets no `feature`
+  command; featuring a group is editor-only.
 - **Group cards borrowing a first recipe's thumbnail** — needs F32.
 - **README test section rewrite** (22e): it still describes Cypress; the
   suite is Playwright. `CLAUDE.md` states the current commands.

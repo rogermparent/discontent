@@ -1,6 +1,8 @@
 import Link from "next/link";
 import RecipeList from "../List";
+import GroupList from "../List/Group";
 import { MassagedRecipeEntry, getAllTags } from "../../controller/data/read";
+import type { GroupListEntry } from "../../controller/groupPaginationConfig";
 import { recipeItems } from "../../controller/data/readRecipeItem";
 import { Recipe } from "../../controller/types";
 import {
@@ -52,10 +54,13 @@ function RecipeSection({
 export default async function Homepage({
   recipes,
   featuredRecipes,
+  groups,
   moreRecipes,
 }: {
   recipes: MassagedRecipeEntry[];
   featuredRecipes: MassagedRecipeEntry[];
+  /** The newest few groups, or none — an empty list renders no section at all. */
+  groups: GroupListEntry[];
   moreRecipes: boolean;
 }) {
   // The hero leads with a featured recipe when there is one; otherwise it falls
@@ -95,6 +100,26 @@ export default async function Homepage({
           <HeroBench recipe={heroRecipe} slug={heroSlug} label={heroLabel} />
         )}
         <BrowseChips tags={tags} />
+        {/*
+         * Groups sit between the browse chips and the featured strip: above the
+         * recipe grids because they are a *way in* rather than more of the same
+         * thing, and below the chips because tags are the shorter, cheaper cut.
+         *
+         * Nothing at all when there are none — which is what keeps the
+         * `three-recipes` homepage baseline still, since that fixture has no
+         * groups and never will.
+         */}
+        {groups.length > 0 && (
+          <div className="mb-8">
+            <PageHeading className="font-display">Groups</PageHeading>
+            <GroupList groups={groups} />
+            <div className="flex flex-row items-center justify-center my-2">
+              <Button asChild variant="secondary" size="sm">
+                <Link href="/groups">More groups</Link>
+              </Button>
+            </div>
+          </div>
+        )}
         <RecipeSection
           title="Featured Recipes"
           recipes={featuredRecipes}

@@ -38,8 +38,16 @@ const defaultFooterItems: MenuItem[] = [
   { name: "Bookmarks", href: "/bookmarks" },
 ];
 
+/*
+ * `Groups` joined Bookmarks here in 22f. Groups shipped in 22b with no entry
+ * point at all — a ⌘K row, an "Appears in" block on a member recipe, or the
+ * raw URL — and a masthead link is the one that says the feature exists before
+ * you know to look for it. It renders on every page, which is why adding it
+ * regenerated every visual baseline.
+ */
 const defaultHeaderItems: MenuItem[] = [
   { name: "Bookmarks", href: "/bookmarks" },
+  { name: "Groups", href: "/groups" },
 ];
 
 interface SiteHeaderProps {

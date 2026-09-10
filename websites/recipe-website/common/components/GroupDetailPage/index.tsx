@@ -11,6 +11,8 @@ import {
 } from "recipe-website-common/components/PageLayout";
 import type { Group, GroupItem, Recipe } from "../../controller/types";
 import { groupKindLabel } from "../../util/groupKindLabel";
+import { groupSearchHref } from "../SearchForm/queryLanguage";
+import { GroupItems } from "./GroupItems";
 
 /** One row's item, paired with the recipe it names — or `null` if it dangles. */
 export interface ResolvedGroupItem {
@@ -21,10 +23,9 @@ export interface ResolvedGroupItem {
 export interface GroupDetailPageProps {
   group: Group;
   /**
-   * The group's own slug. Not read here — the page renders no self-link — but
-   * both routes have it and both apps' `generateMetadata` want the same record,
-   * so it stays on the props rather than being reconstructed by a caller that
-   * later needs it.
+   * The group's own slug. Read since 22f, by the "Search within this group"
+   * link — before that it was carried only because both routes had it and both
+   * apps' `generateMetadata` wanted the same record.
    */
   slug: string;
   /**
@@ -45,6 +46,7 @@ export interface GroupDetailPageProps {
  */
 export default function GroupDetailPage({
   group,
+  slug,
   items,
   actions,
 }: GroupDetailPageProps) {
@@ -60,6 +62,21 @@ export default function GroupDetailPage({
           <span className="font-mono text-xs tabular-nums text-muted-foreground">
             {items.length} {items.length === 1 ? "recipe" : "recipes"}
           </span>
+          {/*
+            The narrowing move, sitting where the group is (22f). A group page
+            is a fixed list; this hands the same membership to `/search`, where
+            it composes with everything else the query language can say
+            (`group:x tag:quick time:<30`) and stays visible as a chip.
+          */}
+          {items.length > 0 && (
+            <Link
+              href={groupSearchHref(slug)}
+              data-testid="group-search-link"
+              className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            >
+              Search within this group
+            </Link>
+          )}
         </div>
         {description && (
           <div className="my-2">
@@ -67,48 +84,7 @@ export default function GroupDetailPage({
           </div>
         )}
         {items.length > 0 ? (
-          <ol className="my-4 flex flex-col flex-nowrap gap-3">
-            {items.map(({ item, recipe }, index) => (
-              <li
-                /*
-                 * By position, not by slug: a meal plan may legitimately list
-                 * the same recipe twice, so the slug is not a key.
-                 */
-                key={`${index}-${item.recipe}`}
-                data-testid="group-item"
-                className="rounded-lg border border-border bg-card p-3 text-card-foreground"
-              >
-                {item.label && (
-                  <p
-                    className="font-mono text-xs uppercase tracking-wide text-muted-foreground"
-                    data-testid="group-item-label"
-                  >
-                    {item.label}
-                  </p>
-                )}
-                {recipe ? (
-                  <Link
-                    href={`/recipe/${item.recipe}`}
-                    className="font-display font-semibold text-primary hover:underline"
-                  >
-                    {recipe.name}
-                  </Link>
-                ) : (
-                  <p
-                    className="text-muted-foreground"
-                    data-testid="group-item-missing"
-                  >
-                    Recipe not found: {item.recipe}
-                  </p>
-                )}
-                {item.note && (
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {item.note}
-                  </p>
-                )}
-              </li>
-            ))}
-          </ol>
+          <GroupItems items={items} />
         ) : (
           <p className="my-4 text-muted-foreground" data-testid="group-empty">
             This group has no recipes in it yet.

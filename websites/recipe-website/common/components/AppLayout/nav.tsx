@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ComponentType, ReactNode, useState } from "react";
-import { BookmarkIcon, MenuIcon, SearchIcon } from "lucide-react";
+import { BookmarkIcon, LayersIcon, MenuIcon, SearchIcon } from "lucide-react";
 import { cn } from "@discontent/component-library/lib/utils";
 import { Button } from "@discontent/component-library/components/ui/button";
 import {
@@ -28,6 +28,7 @@ import { StickyChromeToggle } from "./useStickyChrome";
  */
 const NAV_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   "/bookmarks": BookmarkIcon,
+  "/groups": LayersIcon,
   "/search": SearchIcon,
 };
 

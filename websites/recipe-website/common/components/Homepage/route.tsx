@@ -1,10 +1,18 @@
 import type { MassagedRecipeEntry } from "../../controller/data/read";
 import { featuredRecipePages } from "../../controller/data/readFeaturedRecipePages";
+import { groupPages } from "../../controller/data/readGroupPages";
 import { recipePages } from "../../controller/data/readRecipePages";
 import Homepage from ".";
 
 /** How many cards each homepage strip shows. */
 const STRIP_SIZE = 6;
+
+/**
+ * How many group cards the homepage shows. Three, not six: the cards are
+ * three-up and text-only, so a second row of them would push the recipe grids
+ * below the fold on a laptop for a section that is a signpost, not the content.
+ */
+const GROUP_STRIP_SIZE = 3;
 
 /**
  * The homepage, defined once and re-exported by both apps' `page.tsx`.
@@ -27,9 +35,16 @@ const STRIP_SIZE = 6;
  * that do not bound themselves (F2).
  */
 export async function homepageRoute() {
-  const [recipeHead, featuredHead] = await Promise.all([
+  const [recipeHead, featuredHead, groupHead] = await Promise.all([
     recipePages.readHead(),
     featuredRecipePages.readHead(),
+    /*
+     * The same shape as the two above, and invalidated the same way: a group
+     * write already fires `pagination:groups:by-date:head`, so
+     * `groupSuccessConfig.paginationOnly` keeps working untouched — the
+     * homepage needs no `revalidatePath("/")` to see a new group (fact 2).
+     */
+    groupPages.readHead(),
   ]);
 
   const recipes: MassagedRecipeEntry[] = recipeHead.items.slice(0, STRIP_SIZE);
@@ -54,6 +69,7 @@ export async function homepageRoute() {
     <Homepage
       recipes={recipes}
       featuredRecipes={featuredRecipes}
+      groups={groupHead.items.slice(0, GROUP_STRIP_SIZE)}
       moreRecipes={recipeHead.total > STRIP_SIZE}
     />
   );

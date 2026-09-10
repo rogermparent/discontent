@@ -143,10 +143,14 @@ export const groupSuccessConfig: ContentSuccessConfig = {
    * the pages this write moved, where a blanket `revalidatePath` would drop
    * every sealed page on every save.
    *
-   * The flag's only remaining job is dropping `revalidatePath("/")`, and the
-   * homepage reads nothing of groups at all — a homepage section is
-   * deferred. The recipe *views* that render "Appears in" do read group
-   * state, and they are covered without a path call: the block reads
+   * The flag's only remaining job is dropping `revalidatePath("/")`, and that
+   * stayed correct when 22f gave the homepage a Groups section: the section
+   * reads `groupPages.readHead()`, whose `pagination:groups:by-date:head` tag
+   * this very write already fires through `revalidatePaginationResults`. A
+   * blanket path call would drop the whole homepage — hero, both recipe
+   * strips, the browse chips — to move three cards. The recipe *views* that
+   * render "Appears in" also read group state, and they are covered without a
+   * path call for the same kind of reason: the block reads
    * `groupsByRecipe`, whose aggregate tag this write fires through
    * `revalidateAggregateResults` — and only when the folded value actually
    * moved, which is the whole point of the aggregate kind.

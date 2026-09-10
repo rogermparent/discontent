@@ -75,7 +75,7 @@ export const NAV_DESTINATIONS: NavDestination[] = [
     href: "/groups",
     icon: Layers,
     group: "Browse",
-    keywords: ["meal plan", "collection"],
+    keywords: ["meal plan", "meal plans", "collection", "collections"],
   },
 
   // Owner destinations — mirror editor's SettingsNav (NAV_GROUPS).

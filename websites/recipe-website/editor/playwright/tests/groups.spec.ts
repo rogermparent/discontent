@@ -1,10 +1,18 @@
-import { test, expect } from "../support/test";
+import { test, expect, type Page } from "../support/test";
 import {
   fillSignInForm,
   signIn,
   deleteWithConfirm,
   markdownEditorReady,
 } from "../support/helpers";
+
+/** The client search pipeline has to fetch and index before a query resolves. */
+const SEARCH_TIMEOUT = 20_000;
+
+// Direct-child cards only, matching the search specs — a card's matched
+// ingredient lines would otherwise be counted as extra list items.
+const searchCards = (page: Page) =>
+  page.getByTestId("recipe-list").locator("> li");
 
 /**
  * Groups: meal plans and collections (22b).
@@ -115,6 +123,45 @@ test.describe("Groups", () => {
       await expect(page.getByText("Appears in")).toHaveCount(0);
     });
 
+    test("renders a group's items as recipe cards, in order", async ({
+      page,
+      resetData,
+    }) => {
+      /*
+       * 22f turned the item list into a grid of the same cards the recipe grids
+       * draw — a collection is something you read, and a column of blue names
+       * carries no image, date or tags to recognise a recipe by. What must not
+       * change is the markup the rest of the suite counts on: the cards live in
+       * a `group-item` list of their own and the page still does not answer to
+       * `recipe-list`, which a dozen specs resolve unscoped.
+       */
+      await resetData("three-recipes-groups");
+      await page.goto("/group/week-of-may-4");
+
+      await expect(page.getByTestId("recipe-list")).toHaveCount(0);
+
+      const items = page.getByTestId("group-item");
+      await expect(items).toHaveCount(3);
+
+      // Each resolved row is a card whose one link opens the recipe.
+      await expect(items.nth(0).getByTestId("group-item-label")).toHaveText(
+        "Mon · Dinner",
+      );
+      await expect(items.nth(0).getByRole("link")).toHaveAttribute(
+        "href",
+        "/recipe/first-recipe",
+      );
+      await expect(items.nth(1).getByRole("link")).toHaveAttribute(
+        "href",
+        "/recipe/second-recipe",
+      );
+      // …and the dangling one keeps its slot rather than leaving a hole.
+      await expect(items.nth(2).getByTestId("group-item-missing")).toHaveText(
+        "Recipe not found: missing-recipe",
+      );
+      await expect(items.nth(2).getByRole("link")).toHaveCount(0);
+    });
+
     test("shows an empty state for a corpus with no groups", async ({
       page,
       resetData,
@@ -127,6 +174,110 @@ test.describe("Groups", () => {
       await expect(
         page.getByRole("link", { name: "Browse all recipes" }),
       ).toBeVisible();
+    });
+  });
+
+  /**
+   * 22f: the ways a reader *arrives* at a group. Groups shipped in 22b with no
+   * entry point but the raw URL, a ⌘K row and a member recipe's "Appears in".
+   */
+  test.describe("discovery", () => {
+    test("the masthead links to Groups on every page", async ({
+      page,
+      resetData,
+    }) => {
+      await resetData("three-recipes-groups");
+      await page.goto("/");
+
+      const link = page
+        .getByRole("banner")
+        .getByRole("link", { name: "Groups", exact: true });
+      await expect(link).toBeVisible();
+      await link.click();
+      await expect(page).toHaveURL(/\/groups$/);
+
+      // It is a *default* nav item, so it is there with no menu configured and
+      // on a corpus that has no groups in it at all.
+      await resetData("three-recipes");
+      await page.goto("/recipe/first-recipe");
+      await expect(
+        page.getByRole("banner").getByRole("link", { name: "Groups" }),
+      ).toBeVisible();
+    });
+
+    test("the homepage lists the newest groups and links to the rest", async ({
+      page,
+      resetData,
+    }) => {
+      await resetData("three-recipes-groups");
+      await page.goto("/");
+
+      await expect(
+        page.getByRole("heading", { name: "Groups", exact: true }),
+      ).toBeVisible();
+
+      const cards = page.getByTestId("group-list").getByRole("listitem");
+      await expect(cards).toHaveCount(2);
+      // Newest first, the same order `/groups` uses — both read the head page
+      // of `pagination:groups:by-date`.
+      await expect(cards.nth(0)).toContainText("Week of May 4");
+      await expect(cards.nth(1)).toContainText("Weeknight Favourites");
+
+      await page.getByRole("link", { name: "More groups" }).click();
+      await expect(page).toHaveURL(/\/groups$/);
+    });
+
+    test("the homepage shows no Groups section when there are none", async ({
+      page,
+      resetData,
+    }) => {
+      /*
+       * The promise that keeps `three-recipes`' visual baselines still: every
+       * surface this phase adds renders *nothing* on a corpus with no groups,
+       * so the only thing that moved in those shots is the masthead link.
+       */
+      await resetData("three-recipes");
+      await page.goto("/");
+
+      await expect(page.getByTestId("group-list")).toHaveCount(0);
+      await expect(
+        page.getByRole("heading", { name: "Groups", exact: true }),
+      ).toHaveCount(0);
+      await expect(page.getByRole("link", { name: "More groups" })).toHaveCount(
+        0,
+      );
+    });
+
+    test("'Search within this group' narrows the search to its members", async ({
+      page,
+      resetData,
+    }) => {
+      await resetData("three-recipes-groups");
+      await page.goto("/group/weeknight-favourites");
+
+      await page.getByTestId("group-search-link").click();
+      await expect(page).toHaveURL(/\?q=group%3Aweeknight-favourites/);
+
+      // Exactly the collection's two members, and nothing else in the corpus.
+      await expect(searchCards(page)).toHaveCount(2, {
+        timeout: SEARCH_TIMEOUT,
+      });
+      const names = await searchCards(page)
+        .getByRole("heading")
+        .allTextContents();
+      expect(names.map((name) => name.trim()).sort()).toEqual([
+        "First Recipe",
+        "Third Recipe",
+      ]);
+
+      // The term is visible in the field and as a chip — a `group:` search is
+      // an ordinary query the reader can go on editing, not a hidden mode.
+      await expect(page.getByLabel("Search recipes")).toHaveValue(
+        "group:weeknight-favourites",
+      );
+      await expect(
+        page.getByTestId("query-chips").getByTestId("query-chip-face"),
+      ).toHaveText(["group:weeknight-favourites"]);
     });
   });
 
@@ -289,5 +440,22 @@ test.describe("Groups", () => {
       await page.goto("/recipe/second-recipe");
       await expect(page.getByTestId("appears-in")).toHaveCount(0);
     });
+  });
+});
+
+test.describe("Groups @mobile", () => {
+  test("the hamburger sheet lists Groups too", async ({ page, resetData }) => {
+    // The sheet renders the same `defaultHeaderItems` the desktop row does, so
+    // this is the one assertion that proves the mobile half did not get left
+    // behind when a default item was added.
+    await resetData("three-recipes-groups");
+    await page.goto("/");
+    await page.getByRole("button", { name: "Open menu" }).click();
+
+    const sheet = page.getByRole("dialog");
+    const link = sheet.getByRole("link", { name: "Groups", exact: true });
+    await expect(link).toBeVisible();
+    await link.click();
+    await expect(page).toHaveURL(/\/groups$/);
   });
 });

@@ -28,6 +28,7 @@ export const FILTER_FIELDS = [
   "ingredient",
   "name",
   "description",
+  "group",
   "time",
   "before",
   "after",
@@ -420,6 +421,17 @@ export interface FilterableRecipe {
   description?: string;
   ingredients?: string[];
   tags?: string[];
+  /**
+   * The groups this recipe belongs to — each membership contributing both the
+   * group's slug and its name, so `group:weeknight-favourites` and
+   * `group:weeknight` both find it (22f).
+   *
+   * Never carried by the corpus the server serves: `SearchContext` decorates
+   * the fetched corpus from `/search/groups` before anything filters over it,
+   * because group membership lives in the *groups* index and moves without the
+   * recipe index moving at all.
+   */
+  groups?: string[];
   prepTime?: number;
   cookTime?: number;
   totalTime?: number;
@@ -516,7 +528,20 @@ export function matchesFilter(
           return fieldMatches(recipe.name, value);
         case "description":
           return anyMatches([recipe.description], value);
+        case "group":
+          return (recipe.groups ?? []).some((group) =>
+            fieldMatches(group, value),
+          );
         case "any":
+          /*
+           * Groups are deliberately absent here. `"any"` is what a *negated
+           * bare word* binds to, and it reads the fields a plain search reads —
+           * a recipe's own text. Membership is not that: `-weeknight` would
+           * otherwise quietly drop every recipe in a collection called
+           * "Weeknight Favourites", none of which mentions the word. Narrowing
+           * by a group is something you type (`group:`), never something a bare
+           * word does by itself.
+           */
           return (
             anyMatches([recipe.name, recipe.description], value) ||
             (recipe.tags ?? []).some((tag) => fieldMatches(tag, value)) ||
@@ -689,6 +714,23 @@ export function quoteQueryValue(value: string): string {
  */
 export function tagSearchHref(tag: string): string {
   return `/tags/${tagSlug(tag)}`;
+}
+
+/**
+ * The canonical "search inside this group" link — a `?q=` query, not a path.
+ *
+ * Unlike `tagSearchHref` this stays on `/search`, because that is the whole
+ * point of it: the destination is a *live* query the reader can then widen,
+ * negate or compose (`group:x tag:quick`), with the term visible in the field
+ * as a chip. There is no pre-baked page to point at, and a group is small
+ * enough that the client corpus answers it instantly.
+ *
+ * The slug is quoted before it is encoded, so a value that would tokenize as
+ * several atoms survives the round trip even though `createGroupSlug` does not
+ * currently mint one.
+ */
+export function groupSearchHref(slug: string): string {
+  return `/search?q=${encodeURIComponent(`group:${quoteQueryValue(slug)}`)}`;
 }
 
 /**
