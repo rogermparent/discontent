@@ -3,6 +3,7 @@ import { featuredRecipePages } from "../../controller/data/readFeaturedRecipePag
 import { groupPages } from "../../controller/data/readGroupPages";
 import { recipePages } from "../../controller/data/readRecipePages";
 import Homepage from ".";
+import type { FeaturedStripEntry } from "./FeaturedStrip";
 
 /** How many cards each homepage strip shows. */
 const STRIP_SIZE = 6;
@@ -54,21 +55,42 @@ export async function homepageRoute() {
    * the six newest are chosen first, and a dangling reference among them
    * yields a shorter strip rather than pulling a seventh entry forward.
    * Filtering first would silently change which cards the homepage shows.
+   *
+   * The filter is on the *borrowed name* rather than on the reference, which is
+   * what makes it cover both kinds with one rule (22g): an entry whose recipe
+   * or group has been deleted has no name to print, and a nameless card on the
+   * homepage would be a hole rather than information. `/featured-recipes`
+   * deliberately differs — it renders the dangle as "Group not found", because
+   * that page is where a curator goes to fix one.
    */
-  const featuredRecipes: MassagedRecipeEntry[] = featuredHead.items
+  const featured: FeaturedStripEntry[] = featuredHead.items
     .slice(0, STRIP_SIZE)
-    .filter((entry) => entry.recipeName)
-    .map((entry) => ({
-      slug: entry.recipe,
-      date: entry.date,
-      name: entry.recipeName!,
-      image: entry.recipeImage,
-    }));
+    .filter((entry) => entry.recipeName || entry.groupName)
+    .map(
+      (entry): FeaturedStripEntry =>
+        entry.group && entry.groupName
+          ? {
+              kind: "group",
+              slug: entry.group,
+              name: entry.groupName,
+              groupKind: entry.groupKind,
+              date: entry.date,
+            }
+          : {
+              kind: "recipe",
+              recipe: {
+                slug: entry.recipe!,
+                date: entry.date,
+                name: entry.recipeName!,
+                image: entry.recipeImage,
+              } satisfies MassagedRecipeEntry,
+            },
+    );
 
   return (
     <Homepage
       recipes={recipes}
-      featuredRecipes={featuredRecipes}
+      featured={featured}
       groups={groupHead.items.slice(0, GROUP_STRIP_SIZE)}
       moreRecipes={recipeHead.total > STRIP_SIZE}
     />

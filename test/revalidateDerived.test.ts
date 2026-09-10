@@ -197,20 +197,42 @@ describe("rebuild seats", () => {
     }
   });
 
-  it("fires no recipe tag for a group rebuild either", () => {
-    // `rebuildGroupIndex`'s radius, the same claim as its featured sibling's
-    // and true for a stronger reason: groups declare no references in v1 (D3),
-    // so `rebuildIndex`'s cascade is empty and this really is the whole of what
-    // a group rebuild moves. Three tags — the keyspace, the aggregate behind
-    // "Appears in", and the catch-all every repair seat fires.
-    const fired = derivedTagsOf(groupContentConfig);
+  it("a group rebuild fires featured tags but no recipe tag", () => {
+    /*
+     * `rebuildGroupIndex`'s radius, and the one case in this file that *grew*.
+     *
+     * Until 22g the seat passed groups alone, on the argument that groups
+     * declare no references (D3) so `rebuildIndex`'s cascade is empty. Half of
+     * that is still true and half is not: groups borrow nothing, but a featured
+     * entry may now point at one and borrow its `name` and `kind`, so the
+     * cascade reaches featured recipes and the seat has to say so — or every
+     * featured *group* card would go on serving pre-rebuild borrowed values,
+     * which is the exact failure the button exists to repair.
+     *
+     * Five tags: the group keyspace, the aggregate behind "Appears in",
+     * `item:groups`, then the featured keyspace and `item:featured-recipes`.
+     * Recipes are still absent, and that is still the point — a group rebuild
+     * moves no recipe record, page or aggregate.
+     */
+    const fired = derivedTagsOfAll([
+      groupContentConfig,
+      featuredRecipeContentConfig,
+    ]);
 
     expect(fired).toEqual([
       "pagination:groups:by-date",
       "aggregate:groups:by-recipe",
       "item:groups",
+      "pagination:featured-recipes:by-date",
+      "item:featured-recipes",
     ]);
     for (const tag of RECIPE_ROUTE_BEFORE) {
+      /*
+       * `pagination:featured-recipes:by-date` is in the floor list because the
+       * recipe *route* fired it; a group rebuild firing it is correct, so only
+       * the four genuinely recipe-owned tags are asserted absent here.
+       */
+      if (tag === "pagination:featured-recipes:by-date") continue;
       expect(fired).not.toContain(tag);
     }
   });

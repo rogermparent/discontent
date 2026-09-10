@@ -5,6 +5,7 @@ import { revalidateDerivedState } from "@discontent/cms/content/next/revalidateD
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import slugify from "@sindresorhus/slugify";
 import createDefaultGroupSlug from "recipe-website-common/controller/createGroupSlug";
+import { featuredRecipeContentConfig } from "recipe-website-common/controller/featuredRecipeContentConfig";
 import { groupContentConfig } from "recipe-website-common/controller/groupContentConfig";
 import type { GroupFormState } from "recipe-website-common/controller/groupFormState";
 import type {
@@ -100,17 +101,22 @@ export async function rebuildGroupIndex() {
     contentDirectory,
   });
   /*
-   * One config, and the narrowness is the point — the same argument
-   * `rebuildFeaturedRecipeIndex` makes. A group rebuild reprojects every group
-   * page and re-folds `groupsByRecipe`; it moves no recipe record, no recipe
-   * page and no recipe aggregate, so passing recipes here would be the
-   * over-invalidation §6.4 exists to prevent. `rebuildIndex` cascades to
-   * dependents by default, and groups have none (D3), so the cascade is empty
-   * too.
+   * Two configs, and the second one is not a widening — it is what the rebuild
+   * actually did. `rebuildIndex` cascades through `referencedBy` by default,
+   * and since 22g groups have a dependent: a featured entry may point at a
+   * group, borrowing its `name` and `kind`. So this call has already
+   * reprojected the featured-recipes index as well, and a seat that named only
+   * groups would leave every featured *group* card serving pre-rebuild borrowed
+   * values — the exact failure the button exists to repair.
    *
-   * It expands to three tags: the keyspace, the aggregate, and
-   * `item:groups` — the catch-all every repair seat fires, because a rebuild
-   * reprojects and cannot know which cached group records are still right.
+   * The narrowness that remains is still the point, and it is the same argument
+   * `rebuildFeaturedRecipeIndex` makes: a group rebuild moves no recipe record,
+   * no recipe page and no recipe aggregate, so recipes are not on this list.
+   *
+   * It expands to five tags: the group keyspace, the "Appears in" aggregate and
+   * `item:groups`, then the featured keyspace and `item:featured-recipes`. The
+   * item catch-alls are what every repair seat fires, because a rebuild
+   * reprojects and cannot know which cached records are still right.
    */
-  revalidateDerivedState([groupContentConfig]);
+  revalidateDerivedState([groupContentConfig, featuredRecipeContentConfig]);
 }

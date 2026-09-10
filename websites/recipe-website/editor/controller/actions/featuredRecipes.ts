@@ -20,6 +20,29 @@ import { createGenericActions } from "@discontent/cms/content/genericActions";
 import { authenticateUser } from "./shared";
 import { featuredRecipeSuccessConfig } from "../successConfigs";
 
+/**
+ * The parsed form, as a featured-recipe record. The one place the shape is
+ * assembled, following `buildGroupData`'s lead.
+ *
+ * **Only the key that is set is written.** The parser guarantees exactly one of
+ * them, and spreading conditionally rather than assigning `undefined` keeps the
+ * *other* key out of the JSON altogether — so a record on disk says what it
+ * features rather than saying it features nothing twice, and re-featuring a
+ * recipe on an entry that used to name a group leaves no `"group": null` behind
+ * for `resolveReferences` to walk.
+ */
+function buildFeaturedRecipeData(
+  parsed: ParsedFeaturedRecipeFormData,
+  date: number,
+): FeaturedRecipe {
+  return {
+    ...(parsed.recipe && { recipe: parsed.recipe }),
+    ...(parsed.group && { group: parsed.group }),
+    date,
+    note: parsed.note,
+  };
+}
+
 const featuredRecipeEditorConfig: EditorContentConfig<
   FeaturedRecipe,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -55,23 +78,13 @@ const featuredRecipeEditorConfig: EditorContentConfig<
     const slug = slugify(
       parsed.slug || createDefaultFeaturedRecipeSlug({ date }),
     );
-    const data: FeaturedRecipe = {
-      recipe: parsed.recipe,
-      date,
-      note: parsed.note,
-    };
-    return { slug, data };
+    return { slug, data: buildFeaturedRecipeData(parsed, date) };
   },
 
   async buildUpdateData(parsed, currentSlug, currentDate) {
     const slug = slugify(parsed.slug || currentSlug);
     const date = parsed.date || currentDate || Date.now();
-    const data: FeaturedRecipe = {
-      recipe: parsed.recipe,
-      date,
-      note: parsed.note,
-    };
-    return { slug, data };
+    return { slug, data: buildFeaturedRecipeData(parsed, date) };
   },
 
   buildCurrentIndexKey(currentDate, currentSlug) {

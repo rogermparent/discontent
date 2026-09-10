@@ -63,13 +63,16 @@ next-env.d.ts
 # itself, which is why both lines name `groups/` and not `groups/**`.
 /playwright/fixtures/test-content/*/groups/
 !/playwright/fixtures/test-content/three-recipes-groups/groups/
-# `three-recipes-groups` inherits the featured-recipes artifact above, and gains
-# a `pages` one, because 22b's export-build check points `CONTENT_DIRECTORY`
-# straight at this fixture — so the export opens every environment it reads,
-# right here, rather than in a copy. Named per fixture rather than as a
-# wildcard: `about-page` and `two-pages` have real `pages/` content, and
-# `one-featured-recipe` real featured recipes.
-/playwright/fixtures/test-content/three-recipes-groups/featured-recipes/
+# `three-recipes-groups` gains a `pages` artifact, because 22b's export-build
+# check points `CONTENT_DIRECTORY` straight at this fixture — so the export
+# opens every environment it reads, right here, rather than in a copy. Named per
+# fixture rather than as a wildcard: `about-page` and `two-pages` have real
+# `pages/` content.
+#
+# Its `featured-recipes/` was on this list for the same reason until 22g, which
+# gave the fixture a real featured group. It is tracked content now, so the rule
+# is gone rather than negated — and the export-build check should be run against
+# a *copy* of the fixture, which is what stops the artifact coming back.
 /playwright/fixtures/test-content/three-recipes-groups/pages/
 
 .env

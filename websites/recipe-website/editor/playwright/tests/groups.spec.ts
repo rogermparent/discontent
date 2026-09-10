@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "../support/test";
 import {
   fillSignInForm,
@@ -5,6 +6,7 @@ import {
   deleteWithConfirm,
   markdownEditorReady,
 } from "../support/helpers";
+import { fixturePath } from "../support/tasks";
 
 /** The client search pipeline has to fetch and index before a query resolves. */
 const SEARCH_TIMEOUT = 20_000;
@@ -278,6 +280,140 @@ test.describe("Groups", () => {
       await expect(
         page.getByTestId("query-chips").getByTestId("query-chip-face"),
       ).toHaveText(["group:weeknight-favourites"]);
+    });
+  });
+
+  /**
+   * Group thumbnails (22g): *pre-defined group image › first usable member
+   * thumbnail › placeholder icon*, with the first rung landing in 22h.
+   *
+   * The fallback is a render-time read rather than a borrowed index value,
+   * because borrowing it would mean following `items[].recipe` — the array
+   * reference the engine cannot address (D3/F32). No fixture recipe has a
+   * photo, so these upload one through the form: it is the only way to prove
+   * the invalidation as well as the render, since the write that has to reach
+   * these cards is a *recipe* write, not a group one.
+   */
+  test.describe("thumbnails", () => {
+    const MEMBER_IMAGE =
+      /^\/image\/uploads\/recipe\/third-recipe\/uploads\/recipe-6-test-image\.png\/.*\.webp$/;
+
+    /** Cards on `/groups` and in the homepage section, newest first. */
+    const groupCards = (page: Page) =>
+      page.getByTestId("group-list").getByRole("listitem");
+
+    async function uploadImageToThirdRecipe(page: Page) {
+      await page.goto("/recipe/third-recipe/edit");
+      await fillSignInForm(page);
+      await markdownEditorReady(page, "description");
+
+      await page.getByLabel("Image", { exact: true }).setInputFiles({
+        name: "recipe-6-test-image.png",
+        mimeType: "image/png",
+        buffer: readFileSync(fixturePath("images", "recipe-6-test-image.png")),
+      });
+      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      /*
+       * Wait for the *redirect*, not for a heading — the edit page's own
+       * "Editing Recipe: Third Recipe" satisfies a substring name match, so
+       * gating on the heading returns while the URL is still `/edit` and the
+       * next `goto` aborts the write in flight. The commit and the tag calls
+       * are the last thing a write does, so that leaves the image on disk with
+       * `item:recipes:third-recipe` never fired — which reads exactly like a
+       * broken invalidation. `recipe-item-records.spec.ts` documents the same
+       * trap, and this is the second seat to fall into it.
+       */
+      await page.waitForURL((url) => url.pathname === "/recipe/third-recipe");
+      await expect(
+        page.getByRole("heading", { level: 1, name: "Third Recipe" }),
+      ).toBeVisible();
+    }
+
+    test("falls back to the placeholder while no member has a photo", async ({
+      page,
+      resetData,
+    }) => {
+      await resetData("three-recipes-groups");
+      await page.goto("/groups");
+
+      await expect(groupCards(page)).toHaveCount(2);
+      await expect(
+        page
+          .getByTestId("group-list")
+          .getByTestId("group-thumbnail-placeholder"),
+      ).toHaveCount(2);
+      await expect(
+        page.getByTestId("group-list").getByTestId("group-thumbnail"),
+      ).toHaveCount(0);
+
+      await page.goto("/");
+      await expect(
+        page
+          .getByTestId("group-list")
+          .getByTestId("group-thumbnail-placeholder"),
+      ).toHaveCount(2);
+    });
+
+    test("a member's photo becomes the group's thumbnail everywhere", async ({
+      page,
+      resetData,
+    }) => {
+      await resetData("three-recipes-groups");
+      await uploadImageToThirdRecipe(page);
+
+      /*
+       * `weeknight-favourites` lists first-recipe then third-recipe, so the walk
+       * passes the imageless one and stops at this. `week-of-may-4` lists first,
+       * second and a slug that does not exist — none with a photo — so it keeps
+       * the placeholder, which is what makes this a *precedence* assertion
+       * rather than "some card gained an image".
+       */
+      await page.goto("/groups");
+      await expect(groupCards(page).nth(0)).toContainText("Week of May 4");
+      await expect(
+        groupCards(page).nth(0).getByTestId("group-thumbnail-placeholder"),
+      ).toBeVisible();
+      await expect(
+        groupCards(page).nth(1).getByTestId("group-thumbnail").getByRole("img"),
+      ).toHaveAttribute("src", MEMBER_IMAGE);
+
+      // The homepage Groups section reads the same head page.
+      await page.goto("/");
+      await expect(
+        groupCards(page).nth(1).getByTestId("group-thumbnail").getByRole("img"),
+      ).toHaveAttribute("src", MEMBER_IMAGE);
+      await expect(
+        groupCards(page).nth(0).getByTestId("group-thumbnail-placeholder"),
+      ).toBeVisible();
+
+      /*
+       * And the featured group card, which is the surface with no group write
+       * behind it at all: nothing about `featured-weeknight` changed, and the
+       * card is fresh because the read is tagged `item:recipes:third-recipe`.
+       */
+      await expect(
+        page
+          .getByTestId("featured-group-card")
+          .getByTestId("group-thumbnail")
+          .getByRole("img"),
+      ).toHaveAttribute("src", MEMBER_IMAGE);
+    });
+
+    test("the group page itself is unchanged — recipe cards, no group image", async ({
+      page,
+      resetData,
+    }) => {
+      // 22h gives a group an image of its own and puts it here; until then this
+      // page is exactly what 22f shipped.
+      await resetData("three-recipes-groups");
+      await uploadImageToThirdRecipe(page);
+
+      await page.goto("/group/weeknight-favourites");
+      await expect(page.getByTestId("group-item")).toHaveCount(2);
+      await expect(page.getByTestId("group-thumbnail")).toHaveCount(0);
+      await expect(page.getByTestId("group-thumbnail-placeholder")).toHaveCount(
+        0,
+      );
     });
   });
 

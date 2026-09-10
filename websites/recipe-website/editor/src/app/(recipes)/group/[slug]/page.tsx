@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getGroupBySlug } from "recipe-website-common/controller/data/readGroups";
-import { recipeItems } from "recipe-website-common/controller/data/readRecipeItem";
+import { resolveGroupItems } from "recipe-website-common/controller/data/resolveGroupItems";
 import GroupDetailPage from "recipe-website-common/components/GroupDetailPage";
 import { deleteGroup } from "recipe-editor/controller/actions/groups";
 import { Button } from "@discontent/component-library/components/ui/button";
@@ -44,20 +44,11 @@ export default async function GroupPage({
 
   /*
    * Each item's recipe, through the *cached* item read — which is what makes a
-   * retitle show here without groups declaring a reference (D3). The reads are
-   * concurrent but the array keeps the group's order, because `Promise.all`
-   * resolves positionally; for a meal plan the order is the plan.
-   *
-   * `recipeItems.read` answers `null` rather than throwing for a missing slug,
-   * so a dangling item renders as "Recipe not found" instead of 404ing a group
-   * that is otherwise entirely fine.
+   * retitle show here without groups declaring a reference (D3). Lifted into
+   * `resolveGroupItems` in 22g, when the featured-recipe routes needed the same
+   * four lines; that module documents the order and dangling properties.
    */
-  const items = await Promise.all(
-    (group.items ?? []).map(async (item) => ({
-      item,
-      recipe: await recipeItems.read(item.recipe),
-    })),
-  );
+  const items = await resolveGroupItems(group);
 
   const deleteGroupWithSlug = deleteGroup.bind(null, group.date, slug);
 
@@ -79,6 +70,15 @@ export default async function GroupPage({
             title="Delete this group?"
             description="The recipes themselves are not deleted — only the grouping."
           />
+          {/*
+           * The same affordance a recipe page has had since 22a, in the same
+           * place: a group can be pinned to the homepage strip (22g), and the
+           * form's toggle opens on Group with this one selected because the
+           * slug rides along in the query string.
+           */}
+          <Button asChild size="sm">
+            <Link href={`/featured-recipe/new?group=${slug}`}>Feature</Link>
+          </Button>
           <Button asChild size="sm">
             <Link href={`/group/${slug}/edit`}>Edit</Link>
           </Button>

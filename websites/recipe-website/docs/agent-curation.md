@@ -42,8 +42,8 @@ The roles: **Fable plans and reviews; an Opus subagent implements.** Branches
 are stacked: `content-engine-test` → `agent/22a-provenance` →
 `agent/22b-groups` → `agent/22c-curator-cli` → `agent/22d-remote-write` →
 `agent/22e-curator-skill` → `agent/22f-group-discovery` →
-`agent/22g-featured-groups`. Rebase children after a parent merges. Never
-push to main; never force-push; never merge.
+`agent/22g-featured-groups` → `agent/22h-group-image`. Rebase children after
+a parent merges. Never push to main; never force-push; never merge.
 
 ## How a phase is run
 
@@ -74,7 +74,8 @@ same procedure.)_
 4. Branches are stacked: `content-engine-test` → `agent/22a-provenance` →
    `agent/22b-groups` → `agent/22c-curator-cli` → `agent/22d-remote-write` →
    `agent/22e-curator-skill` → `agent/22f-group-discovery` →
-   `agent/22g-featured-groups`. Rebase children after a parent merges.
+   `agent/22g-featured-groups` → `agent/22h-group-image`. Rebase children
+   after a parent merges.
    Never push to main; never force-push; never merge.
 
 ## Decisions log (D-list)
@@ -185,6 +186,13 @@ featuredRecipeContentConfig, indexField: "group"}]` (thunk). Groups still
   ignored while `.claude/settings.json` and `.claude/skills/**` are tracked;
   plus a minimal root `CLAUDE.md`.
 
+- **D13 Groups have a cached item read since 22g** (`readGroupItem.ts`,
+  `createCachedItemRead`, tags `item:groups` / `item:groups:<slug>`). Why:
+  every server-rendered group card needs the group's items to pick a member
+  thumbnail, so `/groups` and the homepage section read every listed group's
+  record; the raw `getGroupBySlug` stays the CLI-safe read (T5) and the
+  `readGroups.ts` comment is amended.
+
 ## Traps (T-list; pass to every implementer)
 
 - **T1** `test/specVersions.test.ts` hashes `paginationConfigs.ts` /
@@ -199,12 +207,12 @@ featuredRecipeContentConfig, indexField: "group"}]` (thunk). Groups still
   `pnpm tsx scripts/build-fixture-indexes.ts` (it skips a type whose index dir
   is absent). Check `git status` for stray `groups/` envs in fixtures without
   groups (precedent: `editor/.gitignore` last stanza).
-- **T4** Configs must never import the registry; `groupContentConfig` imports
-  nothing from the recipe config (no thunks needed). 22g adds a
-  `referencedBy` thunk to `groupContentConfig` pointing at
-  `featuredRecipeContentConfig`, which itself references
-  `groupContentConfig` — the thunk breaks that cycle the same way it does
-  for recipes.
+- **T4** Configs must never import the registry. Cross-config edges are
+  always thunks (`config: () => otherConfig`) on **both** sides of a cycle:
+  `recipeContentConfig` ↔ `featuredRecipeContentConfig` since 22a, and
+  `groupContentConfig.referencedBy` ↔ `featuredRecipeContentConfig.references`
+  since 22g. A bare import of a config that imports you back is a TDZ error
+  at module evaluation.
 - **T5** No cached (`unstable_cache`) reads from scripts/CLI (D8).
 - **T6** Content repo `.gitignore` (`/home/roger/Projects/recipe-content/.gitignore`)
   is hand-written; record a manual checklist: paste
@@ -262,19 +270,28 @@ the recipe route was missing"`) asserts the registry-derived tags exactly, so
   once in ~8 implementer runs, never in the review reruns. Retry the spec;
   fix by removing into a renamed directory if it recurs.
 
+- **T19** A Playwright test that writes then navigates must gate on
+  `page.waitForURL(...)`, not on `getByRole("heading", { name })`: heading
+  names match by _substring_, so the edit page's own "Editing Recipe: Third
+  Recipe" satisfies a gate for "Third Recipe" while the write is still in
+  flight, the next `goto` aborts it, the file lands on disk and the
+  revalidation never fires — which reads exactly like broken invalidation
+  (22g thumbnails; `recipe-item-records.spec.ts` documents the same).
+
 ## Stacked-PR roadmap
 
 Each branch is off the previous. Rebase children after a parent merges.
 
-| PR  | Branch (← parent)                              | Status  | Scope                                                                                                                                        |
-| --- | ---------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| 22a | `agent/22a-provenance` ← `content-engine-test` | ✅ done | This doc; `Recipe.source` provenance; imports fill it; both apps render a citation; the form edits it; drop the "Imported from" line (D7)    |
-| 22b | `agent/22b-groups` ← 22a                       | ✅ done | `groups` content type (meal plans + collections), editor CRUD, export pages, "Appears in" aggregate, `rebuildAllIndexes()`                   |
-| 22c | `agent/22c-curator-cli` ← 22b                  | ✅ done | `pnpm recipes <command>` CLI over a content directory, `--json` output, transport-agnostic `controller/curation/` layer                      |
-| 22d | `agent/22d-remote-write` ← 22c                 | ✅ done | Bearer-token JSON API in the editor that revalidates in-process; CLI HTTP backend + `--notify`; `genericActions` refactor (D9); tokens (D10) |
-| 22e | `agent/22e-curator-skill` ← 22d                | ✅ done | Committed `.claude/skills/recipe-curator/SKILL.md`, `.claude/settings.json` allow-list, minimal root `CLAUDE.md` (D12)                       |
-| 22f | `agent/22f-group-discovery` ← 22e              | ✅ done | Header "Groups" link, homepage Groups section, `/search` group rail + group results + `group:` term, ⌘K group rows, group page recipe cards  |
-| 22g | `agent/22g-featured-groups` ← 22f              | 🟡 next | A featured entry may point at a group (`FeaturedRecipe.group`), featured index v2, group picker in the featured form, mixed homepage strip   |
+| PR  | Branch (← parent)                              | Status  | Scope                                                                                                                                                                                                         |
+| --- | ---------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 22a | `agent/22a-provenance` ← `content-engine-test` | ✅ done | This doc; `Recipe.source` provenance; imports fill it; both apps render a citation; the form edits it; drop the "Imported from" line (D7)                                                                     |
+| 22b | `agent/22b-groups` ← 22a                       | ✅ done | `groups` content type (meal plans + collections), editor CRUD, export pages, "Appears in" aggregate, `rebuildAllIndexes()`                                                                                    |
+| 22c | `agent/22c-curator-cli` ← 22b                  | ✅ done | `pnpm recipes <command>` CLI over a content directory, `--json` output, transport-agnostic `controller/curation/` layer                                                                                       |
+| 22d | `agent/22d-remote-write` ← 22c                 | ✅ done | Bearer-token JSON API in the editor that revalidates in-process; CLI HTTP backend + `--notify`; `genericActions` refactor (D9); tokens (D10)                                                                  |
+| 22e | `agent/22e-curator-skill` ← 22d                | ✅ done | Committed `.claude/skills/recipe-curator/SKILL.md`, `.claude/settings.json` allow-list, minimal root `CLAUDE.md` (D12)                                                                                        |
+| 22f | `agent/22f-group-discovery` ← 22e              | ✅ done | Header "Groups" link, homepage Groups section, `/search` group rail + group results + `group:` term, ⌘K group rows, group page recipe cards                                                                   |
+| 22g | `agent/22g-featured-groups` ← 22f              | ✅ done | A featured entry may point at a group (`FeaturedRecipe.group`), featured index v2, group picker in the featured form, mixed homepage strip                                                                    |
+| 22h | `agent/22h-group-image` ← 22g                  | 🟡 next | Group `image` field: schema + group index v2, uploads under `uploads/group/<slug>/uploads`, `ImageInput` on the group form, editor upload route, `GroupImage`, precedence completed, CLI `--image-url` import |
 
 ## Phase detail
 
@@ -2111,91 +2128,455 @@ build`): route table lists `○ /search/groups` and `● /group/[slug]` ×2;
   against the code before spawning the implementer; it changes the featured
   index value (`version: "2"`, T1/T3) and the featured form.
 
-### PR 22g — Featured groups `agent/22g-featured-groups` 🟡 next (← 22f)
+### PR 22g — Featured groups `agent/22g-featured-groups` ✅ done (← 22f)
 
-A featured entry can point at a **group** instead of a recipe, so groups sit
-beside recipes in the homepage's featured strip. This phase changes the
-featured index value, its spec version, fixtures and the featured form.
+**Why:** 22f gave groups their entry points and turned the group page into
+recipe cards, but the homepage's featured strip is still recipes-only. The
+user's concrete case is a collection (pie-iron batters) they want to pin
+beside featured recipes. Decided with the user (2026-09-07):
 
-#### Facts validated against the code (2026-09-06)
+- **A featured entry can point at a group instead of a recipe.** This
+  **changes the featured index value** (spec version `"2"`, every featured
+  fixture's index) and the featured form.
+- **Group cards get an image slot** with the precedence _pre-defined group
+  image › first usable member thumbnail › placeholder icon_, applied to
+  **every server-rendered group card** (featured group card, homepage Groups
+  section, `/groups`, the featured detail header). Client-rendered search
+  result cards on `/search` stay text-only (they cannot run the image
+  transform).
+- **Split:** 22g ships featured groups + the member-thumbnail fallback
+  (render-time cached reads, no group schema change). **22h** adds the
+  group's own `image` field on top, completing the precedence. The strip
+  heading stays **"Featured Recipes"**.
 
-8. **Featured references:** `featuredRecipeContentConfig.references =
-[{config: () => recipeContentConfig, dataField: "recipe", fields: ["name","image"]}]`;
-   `resolveReferences` (`packages/cms/content/references.ts`) resolves each
-   declaration independently and yields `undefined` for a missing/empty
-   `dataField`, so a **second declaration**
-   `{config: () => groupContentConfig, dataField: "group", fields: ["name","kind"]}`
-   works with either field absent. `updateDependents` walks the target's
-   `referencedBy` by `indexField`, so `groupContentConfig` needs
-   `referencedBy: [{config: () => featuredRecipeContentConfig, indexField: "group"}]`
-   (thunk; D3's "no referencedBy" was about _array_ references and is
-   amended). `featuredRecipesByDate` (`paginationConfigs.ts:102`,
-   `version: "1"`) projects the index value; adding fields bumps it to `"2"`
-   and moves `test/specVersions.test.ts`'s whole-file hash (T1) and needs
-   fixture index regen (T3: `pnpm tsx scripts/build-fixture-indexes.ts` from
-   `editor/`).
-9. **Featured surfaces** that assume a recipe: `List/FeaturedRecipe/index.tsx`
-   (card → `/recipe/<recipe>`), `FeaturedRecipeDetailPage` (renders
-   `RecipeView`), both `featured-recipe/[slug]/page.tsx` routes
-   (`recipeItems.read(featuredRecipe.recipe)`, `notFound()` if missing),
-   `Homepage/route.tsx` (`filter(entry => entry.recipeName)`, maps to
-   recipe cards; hero = `featuredRecipes[0]`), the form
-   (`Form/FeaturedRecipe/index.tsx`: `RecipeSelectInput name="recipe"
-required`), `parseFeaturedRecipeFormData.ts` (`recipe: min(1)`),
-   `actions/featuredRecipes.ts` (`buildCreateData/buildUpdateData` copy
-   `parsed.recipe`), `featured-recipe/new/page.tsx` (`?recipe=` prefill),
-   the recipe page's "Feature" button
-   (`editor/src/app/(recipes)/recipe/[slug]/page.tsx:62`).
-   `RecipeSelectInput` hydrates via `/api/recipe/<slug>`; there is no group
-   picker yet.
+Paths are relative to `websites/recipe-website/` unless noted.
 
-#### Design (seed — re-validate in the 22g plan session)
+#### Facts validated against the code (2026-09-07)
 
-- **Schema** (`common/controller/types.ts`):
-  `FeaturedRecipe.recipe?: string; group?: string` (exactly one set);
-  `FeaturedRecipeEntryValue` += `group?`, `groupName?`, `groupKind?`;
-  `FeaturedRecipeListEntry` (`paginationConfigs.ts`) += the same;
-  `featuredRecipesByDate.project` copies them, `version: "2"` → update the
-  `specVersions.test.ts` snapshot; regen fixture indexes (T3) for
-  `one-featured-recipe`, `many-featured-recipes`,
-  `many-featured-recipes-paged`, `three-recipes-groups` (+ add one featured
-  group to `three-recipes-groups` for the tests).
-- **References:** second declaration on
-  `featuredRecipeContentConfig.references` (fact 8);
-  `groupContentConfig.referencedBy` for the scalar edge (D3 amended: groups
-  still declare no _array_ references; T4 note updated — the thunk breaks
-  the featured↔groups cycle as it does for recipes).
-  `buildFeaturedRecipeIndexValue` borrows `name`/`kind` from `refs.group`.
-  Engine test in `test/references.test.ts`: retitle a group → the featured
-  index value's `groupName` moves; delete the group → value dangles
-  (`groupName` undefined) and the card renders "Group not found"; verify
-  `revalidateDerived.test.ts` / `derivedPaths.test.ts` expectations
-  (T15/T2) — expected unchanged, confirm.
-- **Editor:** `parseFeaturedRecipeFormData` → `recipe`/`group` optional with
-  a `refine` requiring exactly one; actions copy both; form gets a "Feature
-  a: Recipe | Group" segmented toggle (`ToggleGroup` from the component
-  library) switching between `RecipeSelectInput` and a new
-  `common/components/Form/inputs/GroupSelect` (native `<select>` fed by
-  `/search/groups`, hidden input `name="group"`, shows "Selected: <slug>
-  (group not found)" when the slug is unknown); `featured-recipe/new`
-  accepts `?group=` (and the sign-in redirect keeps it); the group page gets
-  a "Feature" button (`/featured-recipe/new?group=<slug>`) beside Edit.
-- **Rendering:** `List/FeaturedRecipe` card group variant (name, kind badge,
-  `Layers` placeholder in the image slot, link `/group/<slug>`, "View
-  Feature" kept); `FeaturedRecipeDetailPage` group variant = note +
-  `GroupItems` (from 22f) + "Open group" link, both `featured-recipe/[slug]`
-  routes resolve the group (`getGroupBySlug` + `recipeItems.read` items) or
-  the recipe, `generateMetadata` uses `groupName`; export
-  `generateStaticParams` unchanged. Homepage: `route.tsx` keeps entries with
-  `recipeName || groupName`; a new `Homepage/FeaturedStrip.tsx` renders
-  mixed cards (recipe → `RecipeListItem`, group → the featured group card)
-  inside one grid; the hero is the first featured **recipe** (groups have no
-  image/timeline).
-- **Tests:** `featured-recipes.spec.ts` — feature a group from the group
-  page, see it on the homepage strip (no bookmark button on it), on
-  `/featured-recipes`, and on its detail page; a recipe feature still works;
-  `visual.spec.ts` `featured-recipes-page1` unchanged unless the fixture
-  changed. CLI `pnpm recipes` gets no featured command (Deferred).
+1. **Reference machinery is per-declaration.** `resolveReferences`
+   (`packages/cms/content/references.ts:190`) loops `config.references`; for
+   each it reads `data[dataField]` and a missing/empty string yields
+   `undefined` without touching the resolver. So
+   `featuredRecipeContentConfig.references` can hold two declarations
+   (`recipe` → recipes, `group` → groups) and an entry with only one field
+   set resolves cleanly. `borrowed<T>(refs, dataField)` is what
+   `buildFeaturedRecipeIndexValue.ts` already uses.
+2. **Dependents are found via `referencedBy` on the target.**
+   `updateDependents` (`packages/cms/content/updateDependents.ts:92`) returns
+   early unless `borrowedFieldsOf(config)` changed or the slug moved; then
+   per `ReferenceSpec` it scans the dependent's index for
+   `value[indexField] === targetSlug`, rewrites `data[dataField ?? indexField]`
+   on a rename, and rebuilds those dependents.
+   `recipeContentConfig.referencedBy = [{config: () => featuredRecipeContentConfig, indexField: "recipe"}]`
+   is the template. `deleteContent` calls it too (borrowed values cleared,
+   reference kept). `genericActions.ts:92` revalidates each dependent's
+   pagination/aggregate/item tags, so a group retitle refreshes featured
+   cards with no new seat.
+3. **`rebuildIndex` cascades through `referencedBy` by default**
+   (`packages/cms/content/rebuildIndex.ts:130`, `visited` bounds cycles).
+   `rebuildGroupIndex` (`editor/controller/actions/groups.ts:96`) passes only
+   `groupContentConfig` to `revalidateDerivedState` and its comment says the
+   cascade is empty (D3). After 22g the cascade reaches featured recipes, so
+   the seat must pass `[groupContentConfig, featuredRecipeContentConfig]`,
+   and `test/revalidateDerived.test.ts` "fires no recipe tag for a group
+   rebuild either" (~line 200) must expect five tags
+   (`pagination:groups:by-date`, `aggregate:groups:by-recipe`, `item:groups`,
+   `pagination:featured-recipes:by-date`, `item:featured-recipes`) and still
+   no recipe tag. `rebuildAllIndexes`/`rebuildFixtureIndexes` already take
+   the whole registry (`editor/controller/contentTypes.ts` includes groups).
+   `derivedPaths.test.ts` reads directories only — unchanged.
+4. **Thunk cycle.** `featuredRecipeContentConfig` will import
+   `groupContentConfig`; `groupContentConfig.referencedBy` imports it back —
+   the same TDZ cycle as recipes↔featured, fixed by the thunk on both sides.
+   `groupContentConfig.ts`'s header ("No `references` and no `referencedBy`
+   (D3)… needs no thunk") and T4 must be rewritten. D3 was amended in the doc
+   on 2026-09-06.
+5. **Types.** `FeaturedRecipe {recipe: string; date; note?}`
+   (`common/controller/types.ts:89`);
+   `FeaturedRecipeEntryValue {recipe; note?; recipeName?; recipeImage?}`;
+   `FeaturedRecipeListEntry` (`paginationConfigs.ts:87`);
+   `featuredRecipesByDate.project` copies field by field, `version: "1"`
+   (line 110). `test/specVersions.test.ts` pins `paginationConfigs.ts` as
+   `{hash: "e49d4da3e1cd36e4", versions: ["1","1"]}` (T1). Fixture indexes
+   must be regenerated (T3: `pnpm tsx scripts/build-fixture-indexes.ts` from
+   `editor/`) for `one-featured-recipe`, `many-featured-recipes`,
+   `many-featured-recipes-paged`, and `three-recipes-groups` once it gains a
+   feature.
+6. **Surfaces that assume a recipe** (all confirmed):
+   `List/FeaturedRecipe/index.tsx` (`RecipeCardLink href="/recipe/<recipe>"`,
+   `RecipeImage`, `recipeName`, "View Feature", note; `RecipeGrid`);
+   `FeaturedRecipeDetailPage/index.tsx` (`{recipe, recipeSlug, note?, actions?}`
+   → `RecipeView`); editor + export `featured-recipe/[slug]/page.tsx`
+   (`getFeaturedRecipeBySlug` → `recipeItems.read(featuredRecipe.recipe)` →
+   `notFound()`; `generateMetadata` uses `recipe?.name`); `Homepage/route.tsx`
+   (`featuredHead.items.slice(0,6).filter(e => e.recipeName)`),
+   `Homepage/index.tsx` (`heroSlug = featuredRecipes[0]?.slug ?? recipes[0]?.slug`;
+   `RecipeSection "Featured Recipes"` → `RecipeList` → `RecipeGrid` of
+   `RecipeListItem`, each with a `BookmarkButton`);
+   `Form/FeaturedRecipe/index.tsx` (`RecipeSelectInput name="recipe" required`;
+   `Create/index.tsx` re-exports); `parseFeaturedRecipeFormData.ts`
+   (`recipe: min(1)`; `parseFormData` passes raw strings, so an empty field
+   is `""`); `actions/featuredRecipes.ts` (`buildCreateData`/`buildUpdateData`
+   copy `parsed.recipe`); `featured-recipe/new/page.tsx`
+   (`searchParams.recipe`, sign-in `redirectTo` keeps it) + `new/form.tsx`
+   (`preselectedRecipe`); `[slug]/edit/form.tsx`; the recipe page's Feature
+   button (`editor/src/app/(recipes)/recipe/[slug]/page.tsx:62`). The editor
+   group page renders Delete + Edit in `actions` — the Feature button goes
+   there.
+7. **Group picker.** `RecipeSelectInput` opens `SearchFormModal` and hydrates
+   via `/api/recipe/<slug>`; no group equivalent exists. 22f's
+   `/search/groups` (`GroupSearchEntry[]`) is the right feed for a native
+   `<select>`. `ToggleGroup`/`ToggleGroupItem`
+   (`packages/component-library/components/ui/toggle-group.tsx`) is used as
+   `type="single" variant="outline" size="sm"` in
+   `RecipeIndexPage/RecipeIndexList.tsx:104`.
+8. **Tests that pin today's shape.** `featured-recipes.spec.ts` finds the
+   strip as `h2 "Featured Recipes"` → `xpath=ancestor::*[1]`, counts
+   `listitem` unscoped on `/` after a submit, and orders `/featured-recipes`
+   by `listitem`. `visual.spec.ts` `featured-recipes-page1` is
+   `many-featured-recipes` (recipes only) — recipe card markup must not move.
+   `test/groups.test.ts` seeds real recipes/groups with
+   `createContent`/`updateContent` in a tmpdir (`createRecipe`,
+   `createGroup`, `updateGroup`, "re-titles a group" at line 468) — the home
+   for the featured-edge engine tests. `exportStaticParams.test.ts` mocks the
+   page reads — unaffected.
+9. **Fixture `three-recipes-groups`**: `groups/`, `recipes/`, `users/`; no
+   `featured-recipes/`. Groups: `week-of-may-4` (meal-plan, 2026-05-04, items
+   first/second/`missing-recipe`), `weeknight-favourites` (collection,
+   2026-05-01, first + third). Recipes are dated 2026-01-06 and have **no
+   images**.
+10. **Image pipeline is per content type and already generic enough.**
+    `RecipeImage` (`common/components/RecipeImage/index.tsx`) is an async
+    server component: `getRecipeUploadPath(contentDir, slug, image)` →
+    `<content>/uploads/recipe/<slug>/uploads/<image>`
+    (`recipeContentConfig.uploadsDirectory: "uploads/recipe"`; engine default
+    would be `uploads/<contentType>/…`, `packages/cms/content/filesystem.ts:63`),
+    transformed by `getStaticImageProps`
+    (`packages/next-static-image/src/index.tsx`) into
+    `<content>/transformed-images/<src>/<name>-w<w>q<q>.webp`, served by the
+    editor's `image/[...filePath]` route and **copied into the export by
+    `exportAction.ts:31`**, so any transformed image (recipe or, in 22h,
+    group) reaches the static site with no new route. Uploads are written by
+    the engine from `buildCreateUploads`/`buildUpdateUploads`
+    (`editorContentConfig.ts:60`, `UploadSpec {file, fileImportUrl, clearFile, existingFile}`),
+    as `actions/index.ts:101` does for recipes; the form input is
+    `Form/Image/index.tsx` (`ImageInput`, hardcoded `name="image"` +
+    `clearImage`). The curation layer's `writeItems` spreads
+    `{...current, items}` so an extra group field survives CLI item edits.
+    (All 22h.)
+11. **Cached item reads.** `createCachedItemRead`
+    (`packages/cms/content/next/cachedItemRead.ts`) wraps
+    `readContentFileOrNull` in `React.cache` + `unstable_cache` tagged
+    `item:<type>` and `item:<type>:<slug>`; `genericActions` fires
+    `revalidateItemWrite` for the written type on every write. Only recipes
+    use it (`readRecipeItem.ts`); `readGroups.ts:10` documents _not_ having
+    one for groups because a group page reads its record once. 22g reverses
+    that for a new reason (list cards need every group's items) — amend that
+    comment (D13).
+12. **`GroupList` is a sync component used from both server
+    (`GroupIndexPage/shared.tsx:32`, `Homepage/index.tsx`) and client
+    (`SearchForm/GroupResults.tsx`)**, so it cannot itself become async; a
+    thumbnail has to arrive as a prop the server callers render.
+    `RecipeCardImageContainer` / `RecipeCardPlaceholder` /
+    `standardRecipeImageProps` / `recipeCardImageClassName`
+    (`List/shared.tsx`) are the card image primitives `RecipeListItem` uses.
+
+#### Design (decided)
+
+##### A. Featured groups: schema, config, engine edge (`common/controller/`)
+
+- `types.ts`: `FeaturedRecipe { recipe?: string; group?: string; date; note? }`
+  (exactly one set — enforced by the form parser, tolerated by the engine);
+  `FeaturedRecipeEntryValue` += `group?: string; groupName?: string; groupKind?: GroupKind`.
+- `paginationConfigs.ts`: `FeaturedRecipeListEntry` += the same three;
+  `project` copies them; `version: "2"` with a one-line reason. Update the
+  `specVersions.test.ts` inline snapshot
+  (`vitest run -u test/specVersions.test.ts`; the diff must show `["1","2"]`).
+- `featuredRecipeContentConfig.ts`: second declaration
+  `{config: () => groupContentConfig, dataField: "group", fields: ["name", "kind"]}`;
+  comment amended.
+- `buildFeaturedRecipeIndexValue.ts`: `const group = borrowed<Group>(refs, "group")`;
+  value gains `group, groupName: group?.name, groupKind: group?.kind`.
+- `groupContentConfig.ts`:
+  `referencedBy: [{config: () => featuredRecipeContentConfig, indexField: "group"}]`;
+  header comment rewritten (no _array_ references; one scalar inbound edge;
+  the thunk breaks the cycle — T4 updated).
+- `editor/controller/actions/groups.ts` `rebuildGroupIndex`:
+  `revalidateDerivedState([groupContentConfig, featuredRecipeContentConfig])`,
+  comment rewritten around fact 3.
+
+##### B. Featured groups: editor write path
+
+- `parseFeaturedRecipeFormData.ts`: `recipe` and `group` both
+  `z.string().optional().transform(v => v?.trim() || undefined)`, then
+  `.refine(d => Boolean(d.recipe) !== Boolean(d.group), {message: "Choose a recipe or a group", path: ["recipe"]})`.
+  `FeaturedRecipeFormErrors` += `group?`.
+- `actions/featuredRecipes.ts`: `buildCreateData`/`buildUpdateData` write
+  only the set key (`...(parsed.recipe && {recipe: parsed.recipe})`,
+  `...(parsed.group && {group: parsed.group})`).
+- `Form/FeaturedRecipe/index.tsx`: `target: "recipe" | "group"` state
+  initialised from `featuredRecipe.group ? "group" : "recipe"`; a
+  `ToggleGroup type="single"` labelled "Feature a" with Recipe / Group items
+  (`data-testid="featured-target"`); render **only** the active input so the
+  inactive hidden input never submits. Group errors shown on the group input.
+- **`common/components/Form/inputs/GroupSelect/index.tsx`** (new, client):
+  `FieldWrapper` + `Errors` + native `<select name id required>` fed once by
+  `fetch("/search/groups")`; "Select a group…" empty option; options
+  "Name · Collection|Meal plan"; a `defaultValue` slug missing from the list
+  keeps an `<option value={slug}>` labelled `"<slug> (group not found)"`
+  selected with `data-testid="group-select-missing"`, mirroring
+  `RecipeSelectInput`.
+- `featured-recipe/new/page.tsx`: `searchParams: {recipe?, group?}`;
+  `redirectTo` preserves whichever is set; `new/form.tsx` takes
+  `preselectedGroup` and passes `featuredRecipe={{recipe, group}}`.
+- Editor group page:
+  `<Button asChild size="sm"><Link href={`/featured-recipe/new?group=${slug}`}>Feature</Link></Button>`
+  before Edit.
+
+##### C. Group thumbnails (member fallback › icon)
+
+- **`common/controller/data/readGroupItem.ts`** (new):
+  `groupItems = createCachedItemRead<Group, GroupEntryValue, GroupEntryKey>({config: groupContentConfig})`
+  — tags `item:groups` / `item:groups:<slug>`, fired by every group write
+  (fact 11). Amend `readGroups.ts`'s comment: the raw read stays the
+  CLI-safe one; the cached one exists for cards.
+- **`common/components/GroupThumbnail/index.tsx`** (new, async server
+  component): props `{slug, name, items?: GroupItem[], className?}`. Uses
+  `items` when given (group/featured detail pages already hold them), else
+  `groupItems.read(slug)`. Walks the first **6** distinct item slugs in
+  order, `recipeItems.read(slug)` each (cached, tagged `item:recipes:<slug>`),
+  and renders the first recipe that has an `image` as
+  `<RecipeImage slug={recipeSlug} image alt="<name>" className={recipeCardImageClassName} {...standardRecipeImageProps} />`
+  wrapped in `data-testid="group-thumbnail"`; otherwise a `Layers` icon
+  placeholder in the same bench-toned box as `RecipeCardPlaceholder`
+  (`data-testid="group-thumbnail-placeholder"`). 22h inserts the group's own
+  image ahead of the walk — leave a one-line comment marking the slot.
+- **`List/Group/index.tsx`**: `GroupListItem` gains `thumbnail?: ReactNode`;
+  when present it renders `<RecipeCardImageContainer>{thumbnail}</RecipeCardImageContainer>`
+  above the name link (inside the same `Link`), otherwise the card is exactly
+  today's text-only card (keeps `GroupResults` and the 22f group tests
+  unchanged). `GroupList` gains
+  `renderThumbnail?: (entry: GroupListEntry) => ReactNode`. Server callers
+  pass `(g) => <GroupThumbnail slug={g.slug} name={g.name} />`:
+  `GroupIndexPage/shared.tsx` (`/groups` + pages) and `Homepage/index.tsx`
+  (Groups section). With images the group grid becomes the recipe grid's
+  column count (`grid-cols-2 md:grid-cols-3 lg:grid-cols-6`) — adjust the
+  `<ul>` classes in `GroupList` only when `renderThumbnail` is set.
+  `GroupResults` passes nothing and keeps the wide text-only layout.
+- Invalidation is by construction: a recipe's image change fires
+  `item:recipes:<slug>`; a group's item change fires `item:groups:<slug>`.
+  Implementer confirms the API write path (22d, `revalidateContentWrite`)
+  fires item tags too — `test/revalidateContentWrite.test.ts` should already
+  pin it.
+
+##### D. Rendering featured entries (`common/components/`)
+
+- **`List/FeaturedRecipe/GroupCard.tsx`** (new, server): `RecipeCard` →
+  `RecipeCardLink href="/group/<group>"` → `RecipeCardImageContainer` holding
+  `<GroupThumbnail slug name />` → `RecipeCardName` =
+  `groupName ?? "Group not found"` (muted when missing) → kind `Badge`
+  (`groupKindLabel`) → `RecipeCardDate`; `data-testid="featured-group-card"`;
+  **no** bookmark button. Optional `footer?: ReactNode` for the "View
+  Feature" link + note on `/featured-recipes`.
+- **`List/FeaturedRecipe/index.tsx`**: `FeaturedRecipeListItem` branches on
+  `entry.group` → `GroupCard` with footer; the recipe branch is byte-for-byte
+  today's markup.
+- **`Homepage/route.tsx`**: `featured: FeaturedStripEntry[]` from
+  `featuredHead.items.slice(0, 6).filter(e => e.recipeName || e.groupName)`,
+  `FeaturedStripEntry = {kind: "recipe", recipe: MassagedRecipeEntry} | {kind: "group", slug, name, groupKind, date}`.
+  **`Homepage/index.tsx`** takes `featured`, derives
+  `featuredRecipes = featured.filter(kind === "recipe")` for the hero (first
+  featured _recipe_, else latest — unchanged meaning), and renders
+  **`Homepage/FeaturedStrip.tsx`** (new, server) in place of the featured
+  `RecipeSection`: same wrapper (`div.mb-8` → `PageHeading "Featured Recipes"`
+  → `RecipeGrid` → "More Featured Recipes" button), per entry
+  `RecipeListItem` or `GroupCard`; nothing when empty.
+- **`FeaturedRecipeDetailPage/index.tsx`**: props become a union —
+  `{kind: "recipe", recipe, recipeSlug}` |
+  `{kind: "group", group: Group, groupSlug, items: ResolvedGroupItem[]}` —
+  plus `note?`, `actions?`. Group variant: note, a header with
+  `<GroupThumbnail slug name items />` (small, `size-24`), the group name and
+  kind badge, then `GroupItems` (from 22f) and an "Open group" link
+  (`/group/<slug>`) beside "Back to Featured Recipes".
+- Both `featured-recipe/[slug]/page.tsx` routes: if `featuredRecipe.group` →
+  `getGroupBySlug` (ENOENT → `notFound()`) + items via a new
+  `resolveGroupItems(group)` in `common/controller/data/resolveGroupItems.ts`
+  (lift the `Promise.all(recipeItems.read)` mapping from both
+  `group/[slug]/page.tsx` routes and use it in all four places); else
+  today's recipe path. `generateMetadata` title =
+  `groupName || recipe?.name || slug`. Export `generateStaticParams`
+  unchanged.
+
+##### E. Fixture
+
+- `three-recipes-groups/featured-recipes/data/featured-weeknight/featured-recipe.json`
+  = `{"group": "weeknight-favourites", "date": 1777680000000, "note": "A featured collection for testing."}`;
+  run the fixture script; commit the regenerated
+  `featured-recipes/{index,pagination}` for all four fixtures. `git status`
+  must show only those directories moving (T3), no `groups/` or `recipes/`
+  churn. No fixture recipe gets an image — the thumbnail tests upload one
+  through the form.
+
+##### F. Tests
+
+- **`test/groups.test.ts`** (real configs, tmpdir): featured group borrows
+  name + kind (`recipeName` undefined); re-titling the group moves
+  `groupName` and the featured page hash; deleting the group dangles
+  (`groupName` undefined, `group` slug kept); renaming the group rewrites the
+  feature's data file.
+- **`test/revalidateDerived.test.ts`**: group-rebuild case per fact 3; "a
+  group rebuild fires featured tags but no recipe tag".
+- **`test/specVersions.test.ts`**: snapshot only.
+- **`featured-recipes.spec.ts`** (`three-recipes-groups`): the fixture's
+  featured group on `/` inside "Featured Recipes" as a card linking to
+  `/group/weeknight-favourites` with no bookmark button and a placeholder
+  thumbnail; on `/featured-recipes`; on `/featured-recipe/featured-weeknight`
+  (name, `group-item` cards, "Open group"); signed in, the group page's
+  Feature button opens `/featured-recipe/new?group=week-of-may-4` with the
+  toggle on Group and the select preselected, Submit lands on `/` with "Week
+  of May 4" in the strip; toggling to Recipe still features a recipe
+  (existing `one-recipe` cases keep passing); editing the featured group
+  keeps it selected; renaming the group via `/group/<slug>/edit` retitles
+  the featured card; deleting the group leaves a "Group not found" card on
+  `/featured-recipes`.
+- **`groups.spec.ts`** (thumbnails, `three-recipes-groups`): `/groups` and
+  the homepage Groups section show placeholders for both groups; sign in and
+  upload `fixtures/images/recipe-6-test-image.png` to `third-recipe` via
+  `/recipe/third-recipe/edit` (`setInputFiles` as in `edit.spec.ts:314`);
+  then `weeknight-favourites` shows `group-thumbnail` with `src` matching
+  `/image/uploads/recipe/third-recipe/uploads/…webp` on `/groups`, on `/`'s
+  Groups section, and on the featured group card, while `week-of-may-4`
+  (first, second, missing — none with an image) keeps the placeholder; the
+  group page itself is unchanged (cards only).
+- `visual.spec.ts`: no baseline fixture gains a feature or an image, so
+  nothing moves; run it to confirm.
+
+#### Verification (implementer runs; Fable reruns)
+
+```
+pnpm --filter recipe-editor typecheck
+pnpm --filter recipe-website exec tsc --noEmit
+pnpm exec vitest run                      # 405 at 22f + new groups/revalidate cases; specVersions snapshot updated
+pnpm --filter recipe-editor e2e-dev -- featured-recipes.spec.ts groups.spec.ts homepage.spec.ts homepage-hero.spec.ts edit.spec.ts visual.spec.ts
+CONTENT_DIRECTORY=<three-recipes-groups copy> pnpm --filter recipe-website build   # out/featured-recipe/featured-weeknight.html renders the group; out/groups.html cards carry the placeholder
+```
+
+Traps: T1 (spec hash), T3 (fixture regen order), T4 (thunks both sides),
+T12/T13/T14 as before; `git status` after regen must show only
+`featured-recipes/{index,pagination}` under the four fixtures.
+
+#### Key files (implementer reads first)
+
+`docs/agent-curation.md` (D-list, T-list, 22b/22f sections, this section);
+`common/controller/{types.ts,paginationConfigs.ts,featuredRecipeContentConfig.ts,buildFeaturedRecipeIndexValue.ts,groupContentConfig.ts,recipeContentConfig.ts,data/readRecipeItem.ts,data/readGroups.ts}`;
+`packages/cms/content/{references.ts,updateDependents.ts,rebuildIndex.ts,genericActions.ts,next/cachedItemRead.ts}`;
+`common/components/{List/FeaturedRecipe/index.tsx,List/Group/index.tsx,List/index.tsx,List/shared.tsx,RecipeImage/index.tsx,FeaturedRecipeDetailPage/index.tsx,GroupIndexPage/shared.tsx,Homepage/{index.tsx,route.tsx},GroupDetailPage/GroupItems.tsx,Form/FeaturedRecipe/index.tsx,Form/inputs/RecipeSelect/index.tsx,SearchForm/GroupResults.tsx}`;
+`editor/controller/{parseFeaturedRecipeFormData.ts,actions/featuredRecipes.ts,actions/groups.ts}`;
+editor `featured-recipe/{new/page.tsx,new/form.tsx,[slug]/page.tsx,[slug]/edit/form.tsx}`,
+`group/[slug]/page.tsx`; export `featured-recipe/[slug]/page.tsx`,
+`group/[slug]/page.tsx`; `editor/scripts/build-fixture-indexes.ts`;
+`test/{groups,revalidateDerived,specVersions,references,revalidateContentWrite}.test.ts`;
+`editor/playwright/tests/{featured-recipes,groups,edit,visual}.spec.ts`;
+fixtures `three-recipes-groups`, `images/`.
+
+Decisions / close-out (review, 2026-09-07):
+
+- **Decisions made at review:**
+  - **`recipe` is optional on `FeaturedRecipeEntryValue` and
+    `FeaturedRecipeListEntry` too**, not only on the data type. The section
+    listed the three added fields, but `buildFeaturedRecipeIndexValue` copies
+    `featuredRecipe.recipe` straight through, so an optional data field forces
+    both. Recipe-branch call sites pass `entry.recipe ?? ""`.
+  - **`generateMetadata` reads the group through the cached `groupItems`
+    read**, not a `groupName` off the record: `groupName` is an index-value
+    field and `getFeaturedRecipeBySlug` returns the data file, which has no
+    such key. A missing group degrades to the slug, as the recipe branch does.
+  - **`RecipeCard` gained an optional `testId`** so `featured-group-card` sits
+    on the card itself with no wrapper; omitted renders no attribute, so every
+    existing card's markup is unchanged.
+  - **`ResolvedGroupItem` lives in `controller/data/resolveGroupItems.ts`**
+    and `GroupDetailPage` re-exports it, rather than the controller importing a
+    type from a component.
+  - **`editor/.gitignore` dropped the
+    `three-recipes-groups/featured-recipes/` rule.** 22b ignored it as an
+    export-build artifact; it is tracked fixture content now. The export-build
+    check must run against a _copy_ of the fixture (it always should have).
+  - **`contentTypes.ts`'s registry comment** asserted groups have no
+    `referencedBy`; amended, order untouched (`derivedPaths`/`derivedTags`
+    expectations do not move).
+  - The `/featured-recipes` "View Feature" line and note moved into a shared
+    `FeatureFooter` fragment used by both card kinds; the recipe card's
+    rendered HTML is identical.
+  - The featured-group delete dialog says "The group itself is not deleted"
+    (review fix; the implementer's copy said "recipe" for both kinds).
+  - `GroupSelectInput` shows "`<slug>` (group not found)" for the instant
+    before `/search/groups` resolves as well as for a genuinely dangling slug;
+    the selected value is the slug in both cases, so nothing submits wrong.
+- **Divergences from the section:** the six forced items above; the engine
+  tests landed in `test/groups.test.ts` as planned (five cases, including a
+  "unborrowed field is a no-op" case the section did not list).
+- **Trap recorded (T19):** a write-then-navigate Playwright test that gates on
+  `getByRole("heading", { name })` matches by _substring_, so the edit page's
+  own "Editing Recipe: Third Recipe" title satisfied the gate while the write
+  was in flight; the next `goto` aborted it, the file landed on disk and the
+  revalidation never fired — which reads exactly like broken invalidation.
+  Gate on `page.waitForURL(...)` first. Both new thumbnail tests carry the
+  comment.
+- **Gates (worktree, 2026-09-07, dev mode):** `pnpm --filter recipe-editor
+typecheck` clean; `pnpm --filter recipe-website exec tsc --noEmit` clean;
+  `pnpm exec vitest run` → **Test Files 24 passed (24), Tests 410 passed
+  (410)** (405 at 22f + 5 featured-edge cases); `specVersions` snapshot moved
+  exactly `e49d4da3e1cd36e4 → 0d0d2499bc2a1719`, `["1","1"] → ["1","2"]`.
+  `e2e-dev -- featured-recipes.spec.ts groups.spec.ts homepage.spec.ts
+homepage-hero.spec.ts edit.spec.ts visual.spec.ts search-live.spec.ts
+command-palette.spec.ts` → **159 passed (6.4m)** (review rerun; the implementer's
+  runs were 108 + 51 + 42 passed with `accessibility.spec.ts
+search-query-language.spec.ts` added), no `--update-snapshots`, no
+  baseline moved. Export build
+  (`CONTENT_DIRECTORY=<three-recipes-groups copy> pnpm --filter recipe-website
+build`): clean; route table lists `● /featured-recipe/[slug]` → `featured-weeknight`; `out/featured-recipe/featured-weeknight.html` renders "Weeknight Favourites", two `group-item` cards, "Open group" and one `group-thumbnail-placeholder`; `out/groups.html` two placeholders; `out/index.html` one `featured-group-card` under "Featured Recipes" and three placeholders (two in the Groups section, one on the featured card); `out/featured-recipes.html` one `featured-group-card` with "View Feature". Fixture churn: 17 files, all under the four
+  fixtures' `featured-recipes/{index,pagination}`, plus the new data file;
+  `git status` clean.
+- **Next PR: 22h** — the group's own `image` field, seeded below. Re-validate
+  the seed against the code before spawning the implementer; it bumps the
+  group index to `"2"` (T1 on `groupPaginationConfig.ts`, T3 for every
+  fixture with `groups/`).
+
+### PR 22h — Group image field `agent/22h-group-image` 🟡 next (← 22g)
+
+Completes the thumbnail precedence from 22g: a group can carry its own
+`image`, which wins over the member fallback. Seed — re-validate against the
+code in the 22h plan session.
+
+- **Schema:** `Group.image?: string`; `GroupEntryValue.image?` so list cards
+  and the cached group read see it without a second file read;
+  `groupsByDate` in `groupPaginationConfig.ts` → `version: "2"` (T1 on that
+  file's `specVersions` snapshot); fixture regen (T3) for every fixture with
+  `groups/`. D5 amended.
+- **Uploads:** `groupContentConfig.uploadsDirectory: "uploads/group"`
+  (recipes use `"uploads/recipe"`; the engine default would be
+  `uploads/groups/…`); `getGroupUploadPath` beside `getRecipeUploadPath` in
+  `filesystemDirectories.ts`; `buildCreateUploads`/`buildUpdateUploads` on
+  the group editor config (`UploadSpec {file, fileImportUrl, clearFile, existingFile}`
+  — `existingFile` needs `getGroupBySlug`), modelled on
+  `actions/index.ts:101`.
+- **Form:** `parseGroupFormData` gains `image` / `clearImage`;
+  `GroupFields` renders `ImageInput` (parameterise its `id` — today it is
+  hardcoded to `name="image"` + `clearImage`).
+- **Editor route:** `uploads/group/[slug]/uploads/[filename]` twin of the
+  recipe upload route; the transformed-image route and `exportAction.ts:31`
+  already cover any transformed image (22g fact 10), so the export needs no
+  new route.
+- **Components:** `GroupImage` twin of `RecipeImage`; `GroupThumbnail`
+  checks `group.image` first (the slot is marked with a comment in 22g), then
+  the member walk; the group page shows its image above the description.
+- **CLI:** `curation/groups.ts` `GroupInputSchema.imageUrl` →
+  `fileImportUrl`; `pnpm recipes group create --image-url`. `writeItems`
+  already spreads `{...current, items}` so `image` survives item edits.
+- **Tests:** engine test for the upload write; `groups.spec.ts` uploads a
+  group image and sees it win over a member thumbnail on `/groups`, the
+  homepage section, the featured card and the group page; fixture with an
+  image + regen.
 
 ## Deferred
 
@@ -2218,7 +2599,10 @@ required`), `parseFeaturedRecipeFormData.ts` (`recipe: min(1)`),
   as a group kind.**
 - **CLI featured commands** (22g): `pnpm recipes` gets no `feature`
   command; featuring a group is editor-only.
-- **Group cards borrowing a first recipe's thumbnail** — needs F32.
+- **Thumbnails on client-rendered search-result group cards** (22g):
+  `GroupResults` on `/search` stays text-only because the image transform
+  runs only on the server; the member-thumbnail fallback itself is done at
+  render time in 22g (not through the index, so F32 is not needed for it).
 - **README test section rewrite** (22e): it still describes Cypress; the
   suite is Playwright. `CLAUDE.md` states the current commands.
 - **Tag-vocabulary migration** (22e): the 437 existing recipes carry two tags

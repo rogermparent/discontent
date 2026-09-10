@@ -86,8 +86,21 @@ export interface RecipeEntry {
   version?: number;
 }
 
+/**
+ * One thing pinned to the homepage strip: a recipe, or — since 22g — a group.
+ *
+ * **Exactly one of `recipe` and `group` is set.** That is a form-level
+ * invariant, enforced by `parseFeaturedRecipeFormData`'s refine, and
+ * deliberately not an engine-level one. `resolveReferences` loops the two
+ * declarations independently and a missing or empty `dataField` resolves to
+ * `undefined` without touching the resolver, so a record with neither — or with
+ * both — indexes cleanly and renders as whichever branch the card checks first.
+ * Tolerating that is what lets every record written before 22g, all of which
+ * carry `recipe` and no `group`, go on working with no migration.
+ */
 export interface FeaturedRecipe {
-  recipe: string; // Recipe slug/id reference
+  recipe?: string; // Recipe slug/id reference
+  group?: string; // Group slug/id reference (22g)
   date: number;
   note?: string;
   [key: string]: unknown;
@@ -95,7 +108,8 @@ export interface FeaturedRecipe {
 
 export type FeaturedRecipeEntryKey = [date: number, slug: string];
 export interface FeaturedRecipeEntryValue {
-  recipe: string;
+  recipe?: string;
+  group?: string;
   note?: string;
   /**
    * Borrowed from the referenced recipe (§6.1). Optional for two independent
@@ -110,6 +124,19 @@ export interface FeaturedRecipeEntryValue {
    */
   recipeName?: string;
   recipeImage?: string;
+  /**
+   * Borrowed from the referenced group (22g), optional for the same two reasons
+   * plus a third: an entry that features a *recipe* has no group to borrow from
+   * at all, so absence here is the ordinary case rather than the degraded one.
+   *
+   * No image among them. A group has none of its own until 22h, and its card
+   * picks a member's thumbnail at render time through the cached item reads
+   * (D13) — a value the index could not carry, because borrowing it would mean
+   * following `items[].recipe`, which is exactly the array reference the
+   * engine's scalar-only machinery cannot address (D3/F32).
+   */
+  groupName?: string;
+  groupKind?: GroupKind;
 }
 
 export interface FeaturedRecipeEntry {

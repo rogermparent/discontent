@@ -40,14 +40,19 @@ import {
 import type { PageSummary } from "@discontent/cms/pagination/types";
 import type { Key } from "lmdb";
 
+import { featuredRecipeContentConfig } from "../websites/recipe-website/common/controller/featuredRecipeContentConfig";
 import {
   groupsByRecipe,
   type AppearsInEntry,
 } from "../websites/recipe-website/common/controller/groupAggregateConfigs";
 import { groupContentConfig } from "../websites/recipe-website/common/controller/groupContentConfig";
 import { groupsByDate } from "../websites/recipe-website/common/controller/groupPaginationConfig";
+import { featuredRecipesByDate } from "../websites/recipe-website/common/controller/paginationConfigs";
 import { recipeContentConfig } from "../websites/recipe-website/common/controller/recipeContentConfig";
 import type {
+  FeaturedRecipe,
+  FeaturedRecipeEntryKey,
+  FeaturedRecipeEntryValue,
   Group,
   GroupEntryKey,
   GroupEntryValue,
@@ -170,6 +175,62 @@ function storedPageHashes(): Map<number, string> {
 
 function readGroupFile(slug: string): Promise<Group> {
   return readJson(join(contentDirectory, "groups/data", slug, "group.json"));
+}
+
+/* ---- The featured edge (22g) ---- */
+
+function createFeature(slug: string, data: FeaturedRecipe) {
+  return createContent<
+    FeaturedRecipe,
+    FeaturedRecipeEntryValue,
+    FeaturedRecipeEntryKey
+  >({
+    config: featuredRecipeContentConfig,
+    slug,
+    data,
+    contentDirectory,
+  });
+}
+
+/** The featured-recipes content index, keyed by slug. */
+function readFeaturedIndex(): Map<string, FeaturedRecipeEntryValue> {
+  const db = getContentDatabase<
+    FeaturedRecipeEntryValue,
+    FeaturedRecipeEntryKey
+  >(featuredRecipeContentConfig, contentDirectory);
+  const entries = new Map<string, FeaturedRecipeEntryValue>();
+  for (const { key, value } of db.getRange()) {
+    entries.set((key as FeaturedRecipeEntryKey)[1], value);
+  }
+  return entries;
+}
+
+/** The featured index's stored per-page hashes. */
+function storedFeaturedPageHashes(): Map<number, string> {
+  const db = getPaginationDatabase(
+    featuredRecipeContentConfig,
+    featuredRecipesByDate,
+    contentDirectory,
+  );
+  const hashes = new Map<number, string>();
+  for (const { key, value } of db.getRange({
+    start: [PAGE_SUMMARY],
+    end: [PAGE_SUMMARY + 1],
+  })) {
+    hashes.set((key as Key[])[1] as number, (value as PageSummary).hash);
+  }
+  return hashes;
+}
+
+function readFeatureFile(slug: string): Promise<FeaturedRecipe> {
+  return readJson(
+    join(
+      contentDirectory,
+      "featured-recipes/data",
+      slug,
+      "featured-recipe.json",
+    ),
+  );
 }
 
 const WEEK: Group = {
@@ -473,5 +534,150 @@ describe("editing a group", () => {
 
     expect(storedPageHashes()).not.toEqual(hashesBefore);
     expect((await readAppearsIn())?.soup[0].name).toBe("Renamed");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 22g: a featured entry that points at a group                        */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The other half of D3's amendment, and the reason these live here rather than
+ * in `references.test.ts`: that file pins the *engine's* reference machinery
+ * against a pair of imitation configs, while what is worth pinning about this
+ * edge is the claim **this site's** configs make — that a feature can borrow a
+ * group's name and kind, that the borrow is invalidated in every direction a
+ * group can move, and that a dangle is rendered rather than dropped.
+ *
+ * A featured group is a plain scalar reference (`dataField: "group"`), which is
+ * what makes any of it work: `items[].recipe` is the array the engine cannot
+ * address, and this is not that.
+ */
+describe("a featured group (22g)", () => {
+  const FEATURE_DATE = day(30);
+
+  async function seedFeaturedWeek() {
+    await seedTwoRecipesAndAGroup();
+    return createFeature("featured-week", {
+      group: "week-of-may-4",
+      date: FEATURE_DATE,
+      note: "A featured meal plan.",
+    });
+  }
+
+  it("borrows the group's name and kind, and nothing from recipes", async () => {
+    await seedFeaturedWeek();
+
+    /*
+     * `recipe` and `recipeName` are absent, not empty strings: the write path
+     * only ever writes the key that is set, and `resolveReferences` leaves an
+     * unset `dataField` alone rather than resolving it. That is what makes one
+     * index value serve both kinds of feature without a discriminator field.
+     */
+    expect(readFeaturedIndex().get("featured-week")).toEqual({
+      group: "week-of-may-4",
+      groupName: "Week of May 4",
+      groupKind: "meal-plan",
+      note: "A featured meal plan.",
+      recipe: undefined,
+      recipeName: undefined,
+      recipeImage: undefined,
+    });
+  });
+
+  it("re-titles: the borrowed name and the featured page both move", async () => {
+    await seedFeaturedWeek();
+    const hashesBefore = storedFeaturedPageHashes();
+
+    const result = await updateGroup("week-of-may-4", day(10), {
+      ...WEEK,
+      name: "Renamed Week",
+    });
+
+    /*
+     * The whole point of borrowing. `name` is in the `references` declaration,
+     * so the gate opens on a write that did not rename anything, the dependent
+     * is rebuilt, and — because `groupName` is projected — the featured page
+     * that shows this card is dirty. Before 22g none of that reached featured
+     * recipes at all, because groups declared no `referencedBy`.
+     */
+    expect(result.dependents).toHaveLength(1);
+    expect(result.dependents[0].contentType).toBe("featured-recipes");
+    expect(result.dependents[0].updatedSlugs).toEqual(["featured-week"]);
+
+    expect(readFeaturedIndex().get("featured-week")?.groupName).toBe(
+      "Renamed Week",
+    );
+    expect(storedFeaturedPageHashes()).not.toEqual(hashesBefore);
+  });
+
+  it("renames: the feature's own data file follows the slug", async () => {
+    await seedFeaturedWeek();
+
+    await updateContent<Group, GroupEntryValue, GroupEntryKey>({
+      config: groupContentConfig,
+      slug: "week-of-may-11",
+      currentSlug: "week-of-may-4",
+      currentIndexKey: [day(10), "week-of-may-4"] as GroupEntryKey,
+      data: WEEK,
+      contentDirectory,
+    });
+
+    // Rewritten on disk, not merely in the index: the reference is stored in
+    // the dependent's own file, so a rename that only fixed the index would
+    // leave the next rebuild pointing at a slug that no longer exists.
+    expect((await readFeatureFile("featured-week")).group).toBe(
+      "week-of-may-11",
+    );
+    expect(readFeaturedIndex().get("featured-week")?.group).toBe(
+      "week-of-may-11",
+    );
+    expect(readFeaturedIndex().get("featured-week")?.groupName).toBe(
+      "Week of May 4",
+    );
+  });
+
+  it("deletes: the borrowed values clear and the slug stays, so the card dangles", async () => {
+    await seedFeaturedWeek();
+
+    const result = await deleteContent<Group, GroupEntryValue, GroupEntryKey>({
+      config: groupContentConfig,
+      slug: "week-of-may-4",
+      indexKey: [day(10), "week-of-may-4"] as GroupEntryKey,
+      contentDirectory,
+    });
+
+    expect(result.dependents[0].updatedSlugs).toEqual(["featured-week"]);
+
+    /*
+     * The state `/featured-recipes` renders as "Group not found". Keeping the
+     * slug is deliberate on the engine's part — a delete clears what was
+     * borrowed and leaves the reference — and it is what lets the card say
+     * which group has gone rather than quietly disappearing, which would make
+     * the deletion look like it had taken the feature with it.
+     */
+    const value = readFeaturedIndex().get("featured-week");
+    expect(value?.group).toBe("week-of-may-4");
+    expect(value?.groupName).toBeUndefined();
+    expect(value?.groupKind).toBeUndefined();
+    expect((await readFeatureFile("featured-week")).group).toBe(
+      "week-of-may-4",
+    );
+  });
+
+  it("leaves a featured group alone when only an unborrowed field changes", async () => {
+    await seedFeaturedWeek();
+    const hashesBefore = storedFeaturedPageHashes();
+
+    // `description` is not in the declaration, and neither is `items` — a
+    // featured card prints a name and a kind, and the member thumbnail it also
+    // shows is a render-time read under `item:groups:<slug>`, not a borrow.
+    const result = await updateGroup("week-of-may-4", day(10), {
+      ...WEEK,
+      description: "Three dinners, one shop.",
+    });
+
+    expect(result.dependents).toEqual([]);
+    expect(storedFeaturedPageHashes()).toEqual(hashesBefore);
   });
 });

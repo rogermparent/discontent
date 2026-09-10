@@ -1017,3 +1017,250 @@ test.describe("Featured Recipes", () => {
     });
   });
 });
+
+/**
+ * A featured entry that points at a **group** (22g).
+ *
+ * `three-recipes-groups` carries one in the fixture — `featured-weeknight`,
+ * pinning the `weeknight-favourites` collection — because the strip is where
+ * this phase's whole point lands and a fixture is the only way to assert it
+ * without featuring something first in every test.
+ *
+ * The heading over the mixed strip is still "Featured Recipes". That was
+ * decided with the user: the strip is the place things are featured, and
+ * renaming it would make a page that mostly shows recipes read as though the
+ * section had changed subject.
+ */
+test.describe("Featured groups", () => {
+  const featuredSection = (page: Page) =>
+    page
+      .locator("h2", { hasText: "Featured Recipes" })
+      .locator("xpath=ancestor::*[1]");
+
+  test("shows the featured group in the homepage strip", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("three-recipes-groups");
+    await page.goto("/");
+
+    const card = featuredSection(page).getByTestId("featured-group-card");
+    await expect(card).toHaveCount(1);
+    await expect(card.getByText("Weeknight Favourites")).toBeVisible();
+    await expect(card.getByText("Collection")).toBeVisible();
+
+    // The card is a way *into* the group, not into the feature — the feature's
+    // own page is reached from `/featured-recipes`, which is where the "View
+    // Feature" line lives.
+    await expect(card.getByRole("link").first()).toHaveAttribute(
+      "href",
+      "/group/weeknight-favourites",
+    );
+
+    /*
+     * No bookmark button. Bookmarks are a per-recipe store keyed by slug, and a
+     * group is not a recipe — a bookmark control here would write a row nothing
+     * could ever render.
+     */
+    await expect(card.getByRole("button", { name: /bookmark/i })).toHaveCount(
+      0,
+    );
+
+    // Neither fixture recipe in the collection has a photo, so the card falls
+    // all the way through to the placeholder.
+    await expect(card.getByTestId("group-thumbnail-placeholder")).toBeVisible();
+  });
+
+  test("shows it on the index page with its View Feature link and note", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("three-recipes-groups");
+    await page.goto("/featured-recipes");
+
+    const card = page.getByTestId("featured-group-card");
+    await expect(card).toHaveCount(1);
+    await expect(card.getByText("Weeknight Favourites")).toBeVisible();
+    await expect(
+      card.getByText("A featured collection for testing."),
+    ).toBeVisible();
+
+    await card.getByRole("link", { name: "View Feature", exact: true }).click();
+    await expect(page).toHaveURL(/\/featured-recipe\/featured-weeknight$/);
+  });
+
+  test("the feature's own page shows the group and its members", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("three-recipes-groups");
+    await page.goto("/featured-recipe/featured-weeknight");
+
+    await expect(
+      page.getByRole("heading", { name: "Weeknight Favourites" }),
+    ).toBeVisible();
+    await expect(page.getByTestId("group-kind")).toHaveText("Collection");
+
+    // The members, as the same cards the group page uses.
+    const items = page.getByTestId("group-item");
+    await expect(items).toHaveCount(2);
+    await expect(items.nth(0)).toContainText("First Recipe");
+    await expect(items.nth(1)).toContainText("Third Recipe");
+
+    // Everything this page deliberately leaves out is one click away.
+    await page.getByRole("link", { name: "Open group", exact: true }).click();
+    await expect(page).toHaveURL(/\/group\/weeknight-favourites$/);
+  });
+
+  test("features a group from the group page's Feature button", async ({
+    page,
+    baseURL,
+    resetData,
+  }) => {
+    await resetData("three-recipes-groups");
+    await page.goto("/group/week-of-may-4");
+    await signIn(page);
+
+    await page.getByRole("link", { name: "Feature", exact: true }).click();
+    await expect(page).toHaveURL(/\/featured-recipe\/new\?group=week-of-may-4/);
+
+    // The toggle opens on Group, and the picker is already on this group —
+    // the slug rode along in the query string.
+    await expect(
+      page.getByTestId("featured-target").locator('[data-state="on"]'),
+    ).toHaveText("Group");
+    await expect(page.getByLabel("Group", { exact: true })).toHaveValue(
+      "week-of-may-4",
+    );
+
+    await page.getByRole("button", { name: "Submit", exact: true }).click();
+
+    await expect(page).toHaveURL(baseURL + "/");
+    await expect(
+      featuredSection(page).getByText("Week of May 4"),
+    ).toBeVisible();
+  });
+
+  test("toggling back to Recipe features a recipe from the same form", async ({
+    page,
+    baseURL,
+    resetData,
+  }) => {
+    await resetData("three-recipes-groups");
+    await page.goto("/featured-recipe/new?group=week-of-may-4");
+    await fillSignInForm(page);
+    await markdownEditorReady(page, "note");
+
+    await page
+      .getByTestId("featured-target")
+      .getByText("Recipe", { exact: true })
+      .click();
+
+    /*
+     * The inactive input is *unmounted*, not hidden. The parser requires
+     * exactly one of `recipe`/`group`, so a group field left in the DOM would
+     * be submitting a slug the reader has just navigated away from.
+     */
+    await expect(page.getByLabel("Group", { exact: true })).toHaveCount(0);
+
+    await page
+      .getByRole("button", { name: "Select Recipe", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await searchFor(page, "Second Recipe", dialog);
+    await expect(
+      dialog.getByRole("listitem").first().getByRole("heading"),
+    ).toHaveText("Second Recipe");
+    await dialog.getByRole("listitem").first().getByRole("button").click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Submit", exact: true }).click();
+
+    await expect(page).toHaveURL(baseURL + "/");
+    await expect(
+      featuredSection(page).getByText("Second Recipe", { exact: true }),
+    ).toBeVisible();
+    // The group it *started* on was not featured as a side effect.
+    await expect(featuredSection(page).getByText("Week of May 4")).toHaveCount(
+      0,
+    );
+  });
+
+  test("the edit form opens on Group with the group still selected", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("three-recipes-groups");
+    await page.goto("/featured-recipe/featured-weeknight/edit");
+    await fillSignInForm(page);
+    await markdownEditorReady(page, "note");
+
+    await expect(
+      page.getByTestId("featured-target").locator('[data-state="on"]'),
+    ).toHaveText("Group");
+    await expect(page.getByLabel("Group", { exact: true })).toHaveValue(
+      "weeknight-favourites",
+    );
+  });
+
+  test("retitling the group retitles the featured card", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("three-recipes-groups");
+    await page.goto("/group/weeknight-favourites/edit");
+    await fillSignInForm(page);
+    await markdownEditorReady(page, "description");
+
+    await page.getByLabel("Name").first().clear();
+    await page.getByLabel("Name").first().fill("Renamed Collection");
+    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    /*
+     * The *redirect*, not a heading: the edit page's own title satisfies a
+     * substring name match, so gating on the heading returns while the write is
+     * still in flight and the next `goto` aborts it — the trap
+     * `recipe-item-records.spec.ts` documents.
+     */
+    await page.waitForURL(
+      (url) => url.pathname === "/group/weeknight-favourites",
+    );
+    await expect(
+      page.getByRole("heading", { name: "Renamed Collection" }),
+    ).toBeVisible();
+
+    /*
+     * The borrowed value moving, end to end: `name` is in the featured config's
+     * `references` declaration, so this write opened the dependent gate,
+     * rebuilt the feature's index value and dirtied the page it is projected
+     * onto. Nothing rewrote the feature.
+     */
+    await page.goto("/featured-recipes");
+    await expect(
+      page.getByTestId("featured-group-card").getByText("Renamed Collection"),
+    ).toBeVisible();
+    await expect(page.getByText("Weeknight Favourites")).toHaveCount(0);
+  });
+
+  test("deleting the group leaves a 'Group not found' card", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("three-recipes-groups");
+    await page.goto("/group/weeknight-favourites");
+    await signIn(page);
+    await deleteWithConfirm(page, "group");
+    await expect(page).toHaveURL(/\/groups$/);
+
+    /*
+     * A delete clears the borrowed values and leaves the reference, which is
+     * what lets the card say *which* group has gone. A card that vanished
+     * instead would make deleting a group look like it had taken the feature
+     * with it — and the feature is still there, on disk, for a curator to
+     * remove or repoint.
+     */
+    await page.goto("/featured-recipes");
+    await expect(
+      page.getByTestId("featured-group-card").getByText("Group not found"),
+    ).toBeVisible();
+  });
+});

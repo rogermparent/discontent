@@ -8,6 +8,7 @@ import {
 } from "recipe-website-common/components/PageLayout";
 import type { GroupListEntry } from "../../controller/groupPaginationConfig";
 import { EmptyState } from "../EmptyState";
+import { GroupThumbnail } from "../GroupThumbnail";
 import GroupList from "../List/Group";
 import { RecipePagination } from "../Pagination";
 
@@ -29,7 +30,17 @@ export function GroupIndexPageWrapper({
         <PageHeading>Groups</PageHeading>
         {page.items.length > 0 ? (
           <div>
-            <GroupList groups={page.items} />
+            {/*
+              A picture per card (22g). The thumbnail is rendered here rather
+              than inside `GroupList` because the walk is async and that
+              component is also rendered on the client by `GroupResults`.
+            */}
+            <GroupList
+              groups={page.items}
+              renderThumbnail={(group) => (
+                <GroupThumbnail slug={group.slug} name={group.name} />
+              )}
+            />
             <RecipePagination
               basePath="/groups"
               page={page}

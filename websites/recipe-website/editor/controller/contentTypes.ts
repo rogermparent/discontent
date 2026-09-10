@@ -32,12 +32,15 @@ export const recipeContentTypes: AnyContentTypeConfig[] = [
   featuredRecipeContentConfig,
   pageContentConfig,
   /*
-   * Last, and the position is free rather than lucky: groups declare no
-   * `references` and no `referencedBy` (D3), so no cascade walks from or to
-   * them and nothing in this list has to be evaluated before anything else.
-   * The order does show up in derived output — `derivedContentPaths` and
-   * `derivedTagsOfAll` both emit in registry order, and both are pinned by
-   * tests — so appending is also the edit with the smallest blast radius.
+   * Last, and the position is still free after 22g gave groups a dependent
+   * (`featuredRecipeContentConfig.references` names them, so a feature may
+   * point at a group). Order would matter only if a rebuild read its target's
+   * *index*; `createReferenceResolver` reads the referenced item's **data
+   * file**, so a fixture or export rebuild resolves the same values whichever
+   * end it reaches first. The order does show up in derived output —
+   * `derivedContentPaths` and `derivedTagsOfAll` both emit in registry order,
+   * and both are pinned by tests — so leaving groups appended is also the
+   * arrangement with the smallest blast radius.
    */
   groupContentConfig,
 ];

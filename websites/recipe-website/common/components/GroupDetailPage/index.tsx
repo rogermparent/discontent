@@ -9,16 +9,18 @@ import {
   PageHeading,
   PageActions,
 } from "recipe-website-common/components/PageLayout";
-import type { Group, GroupItem, Recipe } from "../../controller/types";
+import type { Group } from "../../controller/types";
+import type { ResolvedGroupItem } from "../../controller/data/resolveGroupItems";
 import { groupKindLabel } from "../../util/groupKindLabel";
 import { groupSearchHref } from "../SearchForm/queryLanguage";
 import { GroupItems } from "./GroupItems";
 
-/** One row's item, paired with the recipe it names — or `null` if it dangles. */
-export interface ResolvedGroupItem {
-  item: GroupItem;
-  recipe: Recipe | null;
-}
+/*
+ * Re-exported, not redeclared: `resolveGroupItems` is what produces these, and
+ * it moved to the controller in 22g so the featured-recipe routes could share
+ * it. Every existing importer goes on naming it here.
+ */
+export type { ResolvedGroupItem } from "../../controller/data/resolveGroupItems";
 
 export interface GroupDetailPageProps {
   group: Group;

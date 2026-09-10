@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { getGroupBySlug } from "recipe-website-common/controller/data/readGroups";
 import { readAllGroupIds } from "recipe-website-common/controller/data/readGroupPages";
-import { recipeItems } from "recipe-website-common/controller/data/readRecipeItem";
+import { resolveGroupItems } from "recipe-website-common/controller/data/resolveGroupItems";
 import GroupDetailPage from "recipe-website-common/components/GroupDetailPage";
 
 export async function generateMetadata({
@@ -39,15 +39,10 @@ export default async function GroupPage({
 
   /*
    * The same body as the editor's, minus the actions and the `force-dynamic` —
-   * see that file for why the reads keep the group's order and why a dangling
-   * item is rendered rather than skipped.
+   * see `resolveGroupItems` for why the reads keep the group's order and why a
+   * dangling item is rendered rather than skipped.
    */
-  const items = await Promise.all(
-    (group.items ?? []).map(async (item) => ({
-      item,
-      recipe: await recipeItems.read(item.recipe),
-    })),
-  );
+  const items = await resolveGroupItems(group);
 
   return <GroupDetailPage group={group} slug={slug} items={items} />;
 }
