@@ -74,3 +74,8 @@ and both gates misbehave without them: copy `editor/.env.local` (no
 Killing a Playwright run mid-flight leaves stale LMDB envs (`MDB_BAD_RSLOT`,
 phantom ENOENTs); recover with `rm -rf test-content test-settings test-remotes
 test-clones` from `websites/recipe-website/editor`.
+
+An old worktree carries an old `editor/.next`: after a big merge Turbopack
+spends minutes compacting that cache and the first request never returns, so
+Playwright's `webServer` times out at 120 s while `next dev` reports "Ready".
+`rm -rf websites/recipe-website/editor/.next` before the first run.
