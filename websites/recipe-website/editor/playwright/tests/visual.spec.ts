@@ -263,6 +263,30 @@ test.describe("Visual baselines @visual", () => {
     await snapshotLocator(chips, "search-query-chips.png");
   });
 
+  // The suggestion list (PR 21c). Locator-scoped for the chips' reasons, and
+  // because the list is *portaled* — it is not inside the field it hangs under,
+  // so a clip would have to be computed rather than named. Nothing above moves
+  // for it either: closed, the field renders exactly the markup it did before,
+  // which is what keeps the four `/search` baselines where they are.
+  test("search page autocomplete list", async ({ page, resetData }) => {
+    await resetData("search-corpus");
+    await page.goto("/search");
+    await expect(page.getByTestId("search-ticker")).toHaveText(
+      /ALL 67 RECIPES/i,
+      { timeout: 20_000 },
+    );
+
+    // A field list rather than a tag one: seven rows with hints is the denser
+    // of the two states, and the one whose two-column row is worth pinning.
+    const field = page.getByLabel("Search recipes");
+    await field.click();
+    await field.pressSequentially("t");
+    const list = page.getByTestId("query-autocomplete");
+    await expect(list).toBeVisible();
+    await field.press("ArrowDown"); // one row active, so the highlight is in shot
+    await snapshotLocator(list, "search-autocomplete.png");
+  });
+
   test("search page reveal control", async ({ page, resetData }) => {
     await resetData("search-corpus");
     await page.goto("/search");

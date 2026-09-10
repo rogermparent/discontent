@@ -15,7 +15,8 @@ export function SearchPageWrapper() {
 
   return (
     <>
-      <SearchInput className="mt-2" />
+      {/* The one surface that offers completions — see `SearchInput`'s prop. */}
+      <SearchInput className="mt-2" autocomplete />
       <SearchResultsPage />
     </>
   );

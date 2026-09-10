@@ -141,6 +141,21 @@ conflict resolver, commit log`) before branching.
   already recorded the offsets, so this is propagation rather than parsing, at the
   cost of AST equality becoming position-sensitive (the unit tests strip spans
   where they are comparing grammar).
+- **21c completes on one surface, and never steals Enter (2026-08-11).** The
+  suggestion list is `/search`-only, behind an opt-in prop on the shared
+  `SearchInput`. Not taste: cmdk's `CommandInput` already renders
+  `role="combobox"` with its own `aria-activedescendant`, so a list inside the ⌘K
+  palette would be a second combobox nested in the first — two owners of one
+  attribute, two meanings for Enter — and the picker modal would get a filter
+  builder inside a dialog for choosing one recipe. The second call follows from
+  the first: **nothing is highlighted until an arrow key highlights it**, so
+  Enter keeps meaning submit. Auto-highlighting the first row is the convention,
+  and here it would mean typing `tag` and pressing Enter inserts `tag:` instead
+  of searching — a hijack the whole existing suite would have walked into, since
+  `searchFor()` fills and then presses Enter. Also decided here: **completions
+  cover fields and tag values only.** `allTags` is already on the context;
+  ingredients are a conditional fetch (F4a) that is often not in memory, so
+  offering them would mean a loading state inside a keystroke.
 - **Deferred:** the **git-cluster dedup (step 1f)** is dropped from PR 1 — the
   `git/` files are being actively rewritten by the git-sync feature; revisit
   after that lands.
@@ -492,35 +507,35 @@ multiplier`, `Step N duration in minutes`, `article` names) unchanged, so
 
 Each branch is off the previous. Rebase children after a parent merges.
 
-| PR  | Branch (← parent)               | Status        | Scope                                                                                                                                                                                                                                               |
-| --- | ------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `ui/01-foundation` ← `overhaul` | ✅ done       | This doc, central palette, typography, 3-way theme, shadcn dedup, primitives                                                                                                                                                                        |
-| 2a  | `ui/02a-theming-engine` ← 01    | ✅ done       | Theming engine + owner theme editor + built-in presets + live preview (editor app); site default in `settings.json`                                                                                                                                 |
-| 2b  | `ui/02b-theming-export` ← 2a    | ✅ done       | Bake site default into the static export build (`SITE_THEME` env), import/export theme JSON, owner-saved named presets                                                                                                                              |
-| 2c  | `ui/02c-theming-overrides` ← 2b | ⏸️ deferred   | Per-component raw-token overrides (`--destructive`, `--chart-*`, …) behind a disclosure; expose owner presets to public visitors — **skipped for now**                                                                                              |
-| 3   | `ui/03-search-tags` ← 2b        | ⤴️ superseded | Tall-card fix, tags taxonomy as priority filters, search-page filter-chip rail (AND/OR), tag display on detail/cards — the chip rail was replaced outright by PR 21a's query language                                                               |
-| 4   | `ui/04-homepage` ← 03           | ⤴️ superseded | Working Bench homepage + live hero — rebuilt from scratch by PR 10's timeline-led hero                                                                                                                                                              |
-| 4.2 | `ui/04.2-form-fixes` ← 04.1     | ✅ done       | Repair TanStack-form / Lexical migration (submit, source-toggle serialise, `importDOM`); fix overhaul-induced selector collisions; sign-in contrast; regen stale form baselines; root-cause + gate dev-mode hydration flake → full e2e+mobile green |
-| 5   | `ui/05-paste` ← 04.2            | ✅ done       | Symmetric `detectHeading` (trailing-`:` / `For the …` / ALL-CAPS) for both parsers; `parseInstructions` folds steps into `InstructionGroup`s; always-on live paste review with per-line heading toggle                                              |
-| 6   | `ui/06-detail-timeline` ← 05    | ✅ done       | Toggle-able schedule (compact strip → rethemed editor), sticky scale bar, print stylesheet, `formatDuration` dedup + `TimelineStrip` extraction, detail retheme                                                                                     |
-| 7   | `ui/07-a11y-motion` ← 06        | ✅ done       | Focus rings on 2 gap buttons, Timeline offset keyboard-activation, global `prefers-reduced-motion` guard, shared-kit focus/dark-bg fixes, dark + custom-theme axe sweep (found + fixed dark `--destructive` AA fail)                                |
-| 8   | `test/editor-server-isolation`  | ✅ done       | Isolate the editor test server off port 3010; guard specs against foreign DOM                                                                                                                                                                       |
-| 9   | `ui/09-header` ← 08             | ✅ done       | Single sticky masthead (wordmark+ember mark left; Bookmarks/Search/Appearance right); new `ui/popover` primitive; consolidate ThemeToggle+PresetPicker into one Appearance popover / mobile sheet; `--header-height` var                            |
-| 10  | `ui/10-homepage` ← 09           | ✅ done       | Timeline-led homepage hero (drop the scaler; TimelineStrip as the signature; meta line; never-bare fallback)                                                                                                                                        |
-| 11  | `ui/11-detail-scaler` ← 10      | ✅ done       | Detail hero meta bar (Prep\|Cook\|Total\|Yield); kill the standalone sticky scale bar; scaler → Ingredients heading (½·1·2 + custom)                                                                                                                |
-| 12  | `ui/12-polish` ← 11             | ✅ done       | Uniform image-forward cards, BookmarkButton shrink, house-voice empty states, FlexSearch/tag-driven search polish, instrument consistency                                                                                                           |
-| 13  | `ui/13-footer` ← 12             | ✅ done       | Rethink the shared site footer: colophon plate (brand block + social/contact icons + menu-driven columns + colophon bar); fix Sign In/Out to a link-styled control; owner "Manage" column (editor-only); footer note + contact plumbing (both apps) |
-| 14  | `ui/14-settings` ← 13           | ✅ done       | Replace the hardcoded sub-footer with a settings sidebar (instrument rack); a page per area; Theme → its own `/settings/theme` route; mobile drawer; General page gains the editable Site details (footer note + contact) form                      |
-| 15  | `ui/15-tokens` ← 14             | ✅ done       | Semantic status tokens (`--success/--warning/--info`); retokenize ~15 hardcoded-color files; fixed-width mono instruction step numbers; card-ify menus/pages tiles; git h1→h2; light+dark axe sweep (added git-page coverage)                       |
-| 16  | `ui/16-settings-nested` ← 15    | ✅ done       | Settings sidebar → nested `(settings)` layout + full-bleed + reusable `SidebarLayout`                                                                                                                                                               |
-| 17  | `ui/17-settings-redesign` ← 16  | ✅ done       | Settings redesign → contained layout + segmented pages + card sections (plus `ui/17-settings-polish`: sidebar left-bleed, uniform 4xl page width)                                                                                                   |
-| 18  | `ui/18-command-palette` ← 17    | ✅ done       | ⌘K command palette + export search parity                                                                                                                                                                                                           |
-| 19  | `ui/19-search-centerpiece` ← 18 | ✅ done       | Search as centerpiece + FlexSearch engine upgrade                                                                                                                                                                                                   |
-| 20  | `ui/20-palette-search` ← 19     | ✅ done       | The palette joins the search language                                                                                                                                                                                                               |
-| 21a | `ui/21a-query-language` ← 20    | ✅ done       | The query becomes the only filter — this is what superseded PR 3's chip rail                                                                                                                                                                        |
-| 21b | `ui/21b-builder-layer` ← 21a    | ✅ done       | The builder layer: a chip preview line, chips that cycle their operator and remove themselves, palette rows that insert terms                                                                                                                       |
-| 21c | `ui/21c-autocomplete` ← 21b     | 🟡 next       | In-field syntax autocomplete — the fourth PR-21 affordance, held back for its own keyboard contract and for having no combobox primitive to build on                                                                                                |
-| 22  | `agent/22a-provenance` … `22e`  | 🟡 next       | Agent curation (provenance, groups/meal plans, curator CLI, remote write, Claude Code skill) — tracked in its own doc, **`docs/agent-curation.md`**; a separate stack off `content-engine-test`, not off 21c                                    |
+| PR  | Branch (← parent)               | Status        | Scope                                                                                                                                                                                                                                                                                            |
+| --- | ------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | `ui/01-foundation` ← `overhaul` | ✅ done       | This doc, central palette, typography, 3-way theme, shadcn dedup, primitives                                                                                                                                                                                                                     |
+| 2a  | `ui/02a-theming-engine` ← 01    | ✅ done       | Theming engine + owner theme editor + built-in presets + live preview (editor app); site default in `settings.json`                                                                                                                                                                              |
+| 2b  | `ui/02b-theming-export` ← 2a    | ✅ done       | Bake site default into the static export build (`SITE_THEME` env), import/export theme JSON, owner-saved named presets                                                                                                                                                                           |
+| 2c  | `ui/02c-theming-overrides` ← 2b | ⏸️ deferred   | Per-component raw-token overrides (`--destructive`, `--chart-*`, …) behind a disclosure; expose owner presets to public visitors — **skipped for now**                                                                                                                                           |
+| 3   | `ui/03-search-tags` ← 2b        | ⤴️ superseded | Tall-card fix, tags taxonomy as priority filters, search-page filter-chip rail (AND/OR), tag display on detail/cards — the chip rail was replaced outright by PR 21a's query language                                                                                                            |
+| 4   | `ui/04-homepage` ← 03           | ⤴️ superseded | Working Bench homepage + live hero — rebuilt from scratch by PR 10's timeline-led hero                                                                                                                                                                                                           |
+| 4.2 | `ui/04.2-form-fixes` ← 04.1     | ✅ done       | Repair TanStack-form / Lexical migration (submit, source-toggle serialise, `importDOM`); fix overhaul-induced selector collisions; sign-in contrast; regen stale form baselines; root-cause + gate dev-mode hydration flake → full e2e+mobile green                                              |
+| 5   | `ui/05-paste` ← 04.2            | ✅ done       | Symmetric `detectHeading` (trailing-`:` / `For the …` / ALL-CAPS) for both parsers; `parseInstructions` folds steps into `InstructionGroup`s; always-on live paste review with per-line heading toggle                                                                                           |
+| 6   | `ui/06-detail-timeline` ← 05    | ✅ done       | Toggle-able schedule (compact strip → rethemed editor), sticky scale bar, print stylesheet, `formatDuration` dedup + `TimelineStrip` extraction, detail retheme                                                                                                                                  |
+| 7   | `ui/07-a11y-motion` ← 06        | ✅ done       | Focus rings on 2 gap buttons, Timeline offset keyboard-activation, global `prefers-reduced-motion` guard, shared-kit focus/dark-bg fixes, dark + custom-theme axe sweep (found + fixed dark `--destructive` AA fail)                                                                             |
+| 8   | `test/editor-server-isolation`  | ✅ done       | Isolate the editor test server off port 3010; guard specs against foreign DOM                                                                                                                                                                                                                    |
+| 9   | `ui/09-header` ← 08             | ✅ done       | Single sticky masthead (wordmark+ember mark left; Bookmarks/Search/Appearance right); new `ui/popover` primitive; consolidate ThemeToggle+PresetPicker into one Appearance popover / mobile sheet; `--header-height` var                                                                         |
+| 10  | `ui/10-homepage` ← 09           | ✅ done       | Timeline-led homepage hero (drop the scaler; TimelineStrip as the signature; meta line; never-bare fallback)                                                                                                                                                                                     |
+| 11  | `ui/11-detail-scaler` ← 10      | ✅ done       | Detail hero meta bar (Prep\|Cook\|Total\|Yield); kill the standalone sticky scale bar; scaler → Ingredients heading (½·1·2 + custom)                                                                                                                                                             |
+| 12  | `ui/12-polish` ← 11             | ✅ done       | Uniform image-forward cards, BookmarkButton shrink, house-voice empty states, FlexSearch/tag-driven search polish, instrument consistency                                                                                                                                                        |
+| 13  | `ui/13-footer` ← 12             | ✅ done       | Rethink the shared site footer: colophon plate (brand block + social/contact icons + menu-driven columns + colophon bar); fix Sign In/Out to a link-styled control; owner "Manage" column (editor-only); footer note + contact plumbing (both apps)                                              |
+| 14  | `ui/14-settings` ← 13           | ✅ done       | Replace the hardcoded sub-footer with a settings sidebar (instrument rack); a page per area; Theme → its own `/settings/theme` route; mobile drawer; General page gains the editable Site details (footer note + contact) form                                                                   |
+| 15  | `ui/15-tokens` ← 14             | ✅ done       | Semantic status tokens (`--success/--warning/--info`); retokenize ~15 hardcoded-color files; fixed-width mono instruction step numbers; card-ify menus/pages tiles; git h1→h2; light+dark axe sweep (added git-page coverage)                                                                    |
+| 16  | `ui/16-settings-nested` ← 15    | ✅ done       | Settings sidebar → nested `(settings)` layout + full-bleed + reusable `SidebarLayout`                                                                                                                                                                                                            |
+| 17  | `ui/17-settings-redesign` ← 16  | ✅ done       | Settings redesign → contained layout + segmented pages + card sections (plus `ui/17-settings-polish`: sidebar left-bleed, uniform 4xl page width)                                                                                                                                                |
+| 18  | `ui/18-command-palette` ← 17    | ✅ done       | ⌘K command palette + export search parity                                                                                                                                                                                                                                                        |
+| 19  | `ui/19-search-centerpiece` ← 18 | ✅ done       | Search as centerpiece + FlexSearch engine upgrade                                                                                                                                                                                                                                                |
+| 20  | `ui/20-palette-search` ← 19     | ✅ done       | The palette joins the search language                                                                                                                                                                                                                                                            |
+| 21a | `ui/21a-query-language` ← 20    | ✅ done       | The query becomes the only filter — this is what superseded PR 3's chip rail                                                                                                                                                                                                                     |
+| 21b | `ui/21b-builder-layer` ← 21a    | ✅ done       | The builder layer: a chip preview line, chips that cycle their operator and remove themselves, palette rows that insert terms                                                                                                                                                                    |
+| 21c | `ui/21c-autocomplete` ← 21b     | ✅ done       | In-field syntax autocomplete — the fourth PR-21 affordance: field names and corpus tags under the caret, on `/search` only, with its own keyboard contract                                                                                                                                       |
+| 22  | `agent/22a-provenance` … `22h`  | ✅ done       | Agent curation (provenance, groups/meal plans, curator CLI, remote write, Claude Code skill, group discovery, featured groups, group image) — landed via #123–#130 on 2026-09-10 — tracked in its own doc, **`docs/agent-curation.md`**; a separate stack off `content-engine-test`, not off 21c |
 
 _(Table reconciled 2026-07-31.)_ It stopped at 15 while 16 through 21a had
 shipped and were merged into `content-engine-test`, and it left PRs 3 and 4
@@ -1754,17 +1769,144 @@ autocomplete, is 21c.
       `search-reveal-control`, fails on a "Show 7 more" button this PR does not
       touch — checked out at `8d3c243c` with none of 21b applied and it fails
       identically, so it is this box's sub-pixel text rendering, not a regression.
-- **Next PR: PR 21c — in-field syntax autocomplete.** 21b leaves it the mechanism
-  it wants: `filterTerms` and the offset helpers are exported, and finding the
-  atom under a caret is a span comparison rather than new parsing. The open
-  question, recorded now so it isn't rediscovered: **there is no combobox
-  primitive** in `packages/component-library/components/ui/` (there is
-  `command.tsx`, `popover.tsx`, `input-group.tsx`, `badge.tsx`). The
-  shadcn-canonical composition is Popover + Command, but a `Command` inside the
-  `/search` field puts a second cmdk instance on a page that already has the ⌘K
-  palette, and autocomplete inside the palette's own `CommandInput` would nest
-  Command in Command. 21c should probably hand-roll a `role="listbox"` on
-  `popover.tsx` instead.
+- **Next PR: PR 21c — in-field syntax autocomplete.** Taken; see below. Its two
+  open questions both resolved the way this note guessed, and one of its
+  premises turned out to be wrong: **finding the atom under a caret is not a
+  span comparison**, because the spans 21b exported are only on leaves that
+  _evaluate_, and the caret positions worth completing are exactly the ones the
+  tokenizer discards. 21c writes a real function rather than reading an existing
+  one.
+
+### PR 21c — In-field syntax autocomplete `ui/21c-autocomplete` ✅ done
+
+The fourth and last affordance from PR 21's 2026-07-28 scope lock, and the one
+held back because it is the only one that has to **share the keyboard** with a
+field that already had meanings for Enter and Escape. 21a made the query the
+only filter state; 21b made it editable by pointing at it; 21c makes it
+_writable_ without knowing the language first — the field teaches its own
+grammar at the caret.
+
+- [x] **`completionsAt` is a new function, not a re-export, and the tokenizer is
+      why.** 21b's closing note expected a span comparison over `filterTerms`.
+      But `filterTerms` reports only leaves that evaluate, and the tokenizer
+      **deliberately drops a known field with an empty operand** (21a's
+      judgement call (a), `if (!value) continue`) — so `tag:`, precisely the
+      caret where an operand list is most useful, produces no token, no leaf and
+      no span to compare against. `completionsAt(raw, caret)` scans atoms in its
+      own right and reports `{ kind, field?, prefix, span }`: a bare or partial
+      word is a **field** name being typed, anything past a known `field:` is an
+      **operand**. `replaceSpan` is the second export, a thin opening of the
+      private `spliceSpan` so accepting a suggestion goes through the same
+      `tidy` pass every chip rewrite does.
+- [x] **The span never covers a leading `-`.** The alternative was a `negated`
+      flag on the result that every caller re-applies by hand. Leaving the sign
+      outside means `-tag:des` accepts `tag:dessert` and stays negated with no
+      special case anywhere — and it is the sort of decision that is invisible
+      when right and a bug report when wrong, so it has its own unit case.
+- [x] **Fields and tag values; ingredients deliberately not.** `allTags` is
+      already on the search context, so tag completion costs no fetch and no new
+      endpoint. Ingredients are a _conditional_ fetch (F4a) that is often not in
+      memory, so completing them would mean a loading state and a request inside
+      a keystroke — a different feature, and not the one asked for.
+- [x] **`/search` only, and the prop is what proves it.** `SearchInput` is
+      shared verbatim with the featured-recipe picker, so anything added
+      unconditionally is live in a dialog whose job is picking one recipe. An
+      `autocomplete` prop, default off, keeps the picker's markup exactly what it
+      was — no combobox ARIA naming a listbox that is never mounted. The ⌘K
+      palette was ruled out for a stronger reason than taste: cmdk's
+      `CommandInput` already renders `role="combobox"` with its own
+      `aria-activedescendant`, so a second combobox inside it would be two owners
+      of one attribute and two meanings for Enter. The palette's equivalent
+      affordance shipped in 21b as the insert-term rows.
+- [x] **Popover, not a hand-rolled `absolute` div — the closing note's guess,
+      confirmed for a reason it had not found.** `PopoverContent` **portals**,
+      and the picker modal really is `max-h-[80vh] overflow-y-auto`; an in-flow
+      dropdown would be clipped by that scroll container the day someone turns
+      the prop on there. Radix also brings a correct dismissal layer, so an
+      Escape aimed at the list is not also an Escape aimed at the dialog. Three
+      overrides are required and none is cosmetic: `align="start"`, the default
+      `w-72 p-4` surface replaced with a trigger-width one, and
+      **`onOpenAutoFocus`/`onCloseAutoFocus` both prevented** — Radix moves focus
+      into an opening popover, and the caret has to stay in the field.
+      `PopoverAnchor` rather than `PopoverTrigger`: the input is not a button.
+- [x] **The ARIA layer is written here for the first time.** A repo-wide grep for
+      `role="listbox"`, `role="option"` and `aria-activedescendant` finds nothing
+      in first-party code outside cmdk's own output. `ChipsInput` looked like
+      precedent and is not: its suggestions are a static chip row of plain
+      buttons, unfiltered by the draft, with no arrows and no Escape. So there
+      was no pattern to copy — and no `<button>` in a row either, because
+      `nested-interactive` is a **wcag2a** rule the axe specs assert. Rows are
+      plain `<li>`s; the pointer path is a `mousedown` that `preventDefault`s so
+      focus never leaves the field.
+- [x] **Enter stays submission unless a row is active, and nothing is active
+      until an arrow makes it.** The tempting default — highlight the first
+      suggestion — would mean typing `tag` and pressing Enter inserts `tag:`
+      instead of searching for the word. That is a hijack of the field's primary
+      key, and the repo says so out loud: `searchFor()` fills and then presses
+      Enter, so auto-highlighting would have quietly rewritten the query in every
+      search spec in the suite. The resting `activeIndex` is -1 and Enter falls
+      through untouched, which keeps "Enter flushes the debounce and records the
+      query" exactly true. There is an e2e case for the fall-through with the
+      list open, because that is the half that would rot silently.
+- [x] **Escape must `preventDefault`.** `type="search"` clears the field natively
+      on Escape in some engines, so dismissing the list without stopping the
+      event would take the query with it. Its case asserts the value survives.
+      IME composition is guarded with `nativeEvent.isComposing` before any key is
+      read as navigation — the same guard cmdk applies at its root.
+- [x] **Suggestions read `inputValue`, never `query`.** `query` lags the field by
+      `SEARCH_DEBOUNCE_MS` (180), and a completion computed against a 180 ms-old
+      string carries offsets into text that has already moved. The chips can key
+      off `query` because they are drawn _from_ it; this is keyed off the caret,
+      which lives in the present.
+- [x] **Accepting follows 21b's `insertTerm` exactly**, including the part 21b
+      found by a failing assertion: clear the pending debounce first, then
+      `replaceSpan` → `setInputValue` → `submitSearch`, then **refocus and put
+      the caret after the inserted text**. A bare `tag:` is only "ready for the
+      operand" if the caret is actually there. The caret offset is clamped
+      because `replaceSpan` tidies, which can shorten the string.
+- [x] **Verification: 313 vitest** (296 before; 17 new cases across
+      `completionsAt` and `replaceSpan`, including a sweep of every half-typed
+      fragment the parser is swept with, at **every caret each one has**,
+      asserting no span ever escapes the string) **and a 10-case
+      `search-autocomplete.spec.ts`** covering the keyboard contract, the click
+      path, the negation round trip, axe with the list open, and the picker modal
+      having no list and no combobox role — which is what proves the prop gates.
+- [x] **Baselines: 20 unchanged, one added.** Closed, the field renders the
+      markup it rendered before, which is what holds the four `/search` baselines
+      still — verified by running `visual.spec` whole rather than assumed. New:
+      `search-autocomplete.png`, locator-scoped, since the list is portaled and a
+      clip would have to be computed rather than named.
+
+- [x] **Landed after the 22 stack, with one merge-time change.** 21c was
+      written against 21b and merged into `content-engine-test` on 2026-09-10,
+      after PRs #123–#130 had landed 22f's `group:` term. `FIELD_HINTS` is
+      `Record<FilterField, string>` on purpose, so the merge failed typecheck
+      until `group` had a hint — the type did its job. And since `allGroups`
+      is on the search context unconditionally (22f fetches `/search/groups`
+      like the display corpus), `group:` gets operand rows for the same price
+      as `tag:`: the prefix is tried against the folded slug _and_ name,
+      because a curator remembers "Weeknight Favourites" while the term wants
+      `weeknight-favourites`; the slug is what is written, the name and kind
+      are the hint. One e2e case on `three-recipes-groups`. Post-merge gates:
+      **434 vitest** (417 on the landed tip + 17), both typechecks, lint;
+      e2e + mobile over `search-autocomplete` (11 cases), `search-live`,
+      `search-query-language`, `command-palette`, `visual`: **100 of 101**,
+      the miss a palette Enter-to-recipe navigation over 5 s on the first
+      visit to a recipe route in a fresh `.next` — that spec alone on the warm
+      cache, **36 of 36**. No baseline moved.
+
+**PR 21's scope lock is closed.** All four affordances from 2026-07-28 have
+shipped — the language (21a), the chip preview, the chip edits and the palette
+insert rows (21b), and the completion list (21c) — and the fifth item on that
+lock, the rail emitting `tag:` terms, turned out to have been done inside 21a.
+
+**And with it, this document has no live row left.** Every entry in the table
+above is done, superseded or deferred; the only thing not done is PR 2c, which
+is explicitly "skipped for now" rather than pending. That is worth saying plainly
+because the next pass has no obvious next step to inherit: a further pass would
+have to be about something this roadmap does not currently name — the cyan/teal
+accent band that dips under AA (recorded at PR 7 and still open as a curve
+redesign) is the one concrete candidate, and everything else would be new scope.
 
 ## Reader chrome pass
 

@@ -1005,6 +1005,183 @@ export function cycleTermAt(raw: string, term: FilterTerm): string {
   return spliceSpan(raw, span, `-${body}`);
 }
 
+// --- completing what is under the caret (PR 21c) ----------------------------
+
+/**
+ * What the caret is sitting in the middle of, and what could finish it.
+ *
+ * `kind` says which half of an atom is being typed: a bare or partial word is a
+ * **field** name waiting for its colon; anything after a known `field:` is an
+ * **operand**. `prefix` is what has been typed *so far* — the text from the
+ * start of that half up to the caret, quotes stripped — and is what candidates
+ * are matched against. `span` is what to replace when one is accepted, which is
+ * the whole half, not just the prefix: completing `ta|g` has to consume the `g`.
+ *
+ * **The span never includes a leading `-`.** A negation is not part of what is
+ * being completed, and leaving it outside means `-tag:des` accepts a completion
+ * by replacing `tag:des` and staying negated, with no sign for the caller to
+ * carry around and re-apply.
+ */
+export interface QueryCompletion {
+  kind: "field" | "operand";
+  /** Set on `operand`: the field whose values would finish this atom. */
+  field?: FilterField;
+  prefix: string;
+  span: QuerySpan;
+}
+
+/**
+ * Every atom in a raw query, by span — including the ones `tokenize` throws
+ * away.
+ *
+ * It has to be a second scan rather than a reuse, and that is the whole reason
+ * `completionsAt` is a new function instead of a read of `filterTerms`: the
+ * tokenizer **deliberately drops a known field with an empty operand**
+ * (judgement call (a), `if (!value) continue`), which is exactly the moment —
+ * `tag:` with the caret just past the colon — when an operand list is most
+ * useful. A `tag:` that produces no token also produces no span, so there would
+ * be nothing to complete against.
+ *
+ * The delimiter rules are the tokenizer's, copied rather than shared because
+ * this loop records boundaries where that one records meaning: whitespace and
+ * parens split atoms, a quote suspends both, and an unterminated quote runs to
+ * the end of the input (rule 2 — this is what half-typed looks like).
+ */
+function scanAtoms(raw: string): QuerySpan[] {
+  const atoms: QuerySpan[] = [];
+  let i = 0;
+
+  while (i < raw.length) {
+    const char = raw[i];
+    if (/\s/.test(char) || char === "(" || char === ")") {
+      i += 1;
+      continue;
+    }
+
+    const start = i;
+    if (char === "-" && i + 1 < raw.length && !/[\s()]/.test(raw[i + 1])) {
+      i += 1;
+    }
+    while (i < raw.length) {
+      const c = raw[i];
+      if (c === '"') {
+        i += 1;
+        while (i < raw.length && raw[i] !== '"') i += 1;
+        if (i < raw.length) i += 1; // closing quote
+        continue;
+      }
+      if (/[\s()]/.test(c)) break;
+      i += 1;
+    }
+    atoms.push({ start, end: i });
+  }
+
+  return atoms;
+}
+
+/** Quotes are syntax, never operand content — `tokenize` strips them the same way. */
+function unquote(text: string): string {
+  return text.replace(/"/g, "");
+}
+
+/**
+ * Read the atom under the caret, or `undefined` when there is nothing to
+ * complete.
+ *
+ * "Under the caret" means `start < caret <= end`: the caret has to be past at
+ * least one character of the atom. A caret resting *before* a word (`|tag:x`)
+ * completes nothing, because nothing has been typed there yet — and neither
+ * does a caret in whitespace, or in an empty field.
+ *
+ * Three things return `undefined` on purpose:
+ *
+ * - **An unknown prefix's operand.** `foo:ba` is free text by rule 1, so
+ *   offering it a field's values would be inventing a filter the user did not
+ *   ask for. (Its *field half* still completes — `fo|o:bar` offers `tag:` —
+ *   because that is a rewrite the user has to accept before anything happens.)
+ * - **A caret on the negation itself** (`-|tag:x`), which is between the sign
+ *   and the atom rather than inside either.
+ * - **A caret outside the string**, which is what a stale caret from a query
+ *   that moved underneath the field looks like.
+ *
+ * Nothing here throws, for rule 2's reason: it runs on every keystroke.
+ */
+export function completionsAt(
+  raw: string,
+  caret: number,
+): QueryCompletion | undefined {
+  if (!Number.isInteger(caret) || caret < 0 || caret > raw.length) {
+    return undefined;
+  }
+
+  const atom = scanAtoms(raw).find(
+    (candidate) => caret > candidate.start && caret <= candidate.end,
+  );
+  if (!atom) return undefined;
+
+  let start = atom.start;
+  if (raw[start] === "-" && atom.end > start + 1) start += 1;
+  if (caret <= start) return undefined;
+
+  // The first colon *outside* quotes, as `tokenize` reads it: a quoted colon
+  // (`name:"the sequel: part two"`) is content, not an operator.
+  let colon = -1;
+  let quoted = false;
+  for (let i = start; i < atom.end; i += 1) {
+    const c = raw[i];
+    if (c === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (c === ":" && !quoted) {
+      colon = i;
+      break;
+    }
+  }
+
+  // Past the colon: the operand half, and only for a field that exists.
+  if (colon !== -1 && caret > colon) {
+    const name = unquote(raw.slice(start, colon)).toLowerCase();
+    if (!isFilterField(name)) return undefined;
+    return {
+      kind: "operand",
+      field: name,
+      prefix: unquote(raw.slice(colon + 1, caret)),
+      span: { start, end: atom.end },
+    };
+  }
+
+  /*
+   * The field half. The span stops at the colon when there is one, so accepting
+   * `tag:` inside `ta|g:dessert` keeps the operand instead of eating it — the
+   * replacement carries its own colon, which is what makes the two line up.
+   */
+  const end = colon === -1 ? atom.end : colon + 1;
+  return {
+    kind: "field",
+    prefix: unquote(raw.slice(start, caret)),
+    span: { start, end },
+  };
+}
+
+/**
+ * Write a replacement over a span and tidy what it leaves behind — the export
+ * of the same splice `cycleTermAt` rewrites through.
+ *
+ * Accepting a completion goes through this rather than slicing strings in a
+ * component, so a rewrite from the suggestion list is normalised exactly like a
+ * rewrite from a chip. `tidy` can shorten the result (it collapses runs of
+ * whitespace), which is why the caller places the caret with a clamp rather
+ * than trusting `span.start + replacement.length` outright.
+ */
+export function replaceSpan(
+  raw: string,
+  span: QuerySpan,
+  replacement: string,
+): string {
+  return spliceSpan(raw, span, replacement);
+}
+
 /**
  * Append a term to a query — `field:value`, or a bare `field:` when no operand
  * is given.
