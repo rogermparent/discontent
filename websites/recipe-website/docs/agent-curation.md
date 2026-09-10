@@ -296,6 +296,14 @@ the recipe route was missing"`) asserts the registry-derived tags exactly, so
   flight, the next `goto` aborts it, the file lands on disk and the
   revalidation never fires — which reads exactly like broken invalidation
   (22g thumbnails; `recipe-item-records.spec.ts` documents the same).
+- **T20** Landing a stack: merge the parent, **retarget the child, then**
+  delete the parent's branch. GitHub retargets a child only when the branch
+  is deleted through the merge UI; a branch deleted by API or push closes
+  the child PR instead, and a closed PR can be neither retargeted nor
+  reopened until its base exists again (#124, 2026-09-10 — recovered by
+  recreating the branch at its old tip, reopening, editing the base,
+  deleting again). Also: `playwright.yml` runs only for `main`, so a stack
+  off `content-engine-test` gets its first e2e signal from the promotion PR.
 
 ## Stacked-PR roadmap
 
@@ -2967,12 +2975,30 @@ build`): clean; `out/groups.html` one `group-thumbnail` with
   `uploads/group/week-of-may-4/uploads/recipe-6-test-image-alternate.png`;
   85 files the regen script touched elsewhere were reverted; `git status`
   clean.
-- **The stack is complete.** No 22i is seeded. **Next:** merge from the
-  bottom — #123 (22a) into `content-engine-test`, then rebase each child on
-  its parent as it lands (22b ← 22a, … 22h ← 22g). The deferred list above
-  holds the follow-ups (client-side member fallback via a corpus
-  `thumbnail`, a `group set-image` seat, `--image <local file>`, ⌘K
-  thumbnails).
+- **The stack is complete.** No 22i is seeded. The deferred list below holds
+  the follow-ups; `docs/backlog.md` consolidates them with the rest.
+- **Landed (2026-09-10).** #123–#130 merged into `content-engine-test` in
+  order, each as a merge commit, bottom-up, with the head branch deleted after
+  its child was retargeted. Two things the landing found that no phase could
+  have: (1) the `lint` job had been red since 2026-09-04 because the editor's
+  nested lint-staged config makes prettier read its ignore file from
+  `editor/` only — #131 adds `editor/.prettierignore`; (2) `playwright.yml`
+  had never run on this work (it runs only for `main`), and its first run
+  (#132) failed every sign-in because CI never set `AUTH_SECRET` — #133 sets
+  it and gives the recipe shards a 45-minute budget. Gates on the tip
+  (`80619f12`): both typechecks clean; **vitest 417**; CI Playwright on the tip
+  (run 34436073765) green on portfolio, both demo cells and recipe shards
+  1–3, with one failure in shard 4 — the `search-reveal-control.png` locator
+  snapshot, 84 px of glyph antialiasing on a ~110×36 button, 3% against the
+  global 2% — given a 5% budget by #136. The local full suite was started
+  too (503 tests, one worker) but abandoned at 34 as a gate: it would have
+  taken over three hours, and its only failures were 10 s API-route and 60 s
+  page timeouts while typecheck and vitest were loading the same machine;
+  CI's four shards on the same commit are the record. (Local re-run of those
+  specs on a quiet machine: _pending_.) The order that bit: deleting a
+  merged parent's branch **before** retargeting its child closes the child —
+  #124 had to be recovered by recreating `agent/22a-provenance` at its old
+  tip, reopening, `gh pr edit --base`, and deleting again (T20).
 
 ## Deferred
 
