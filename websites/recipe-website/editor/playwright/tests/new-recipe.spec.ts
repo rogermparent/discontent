@@ -47,8 +47,30 @@ test.describe("New Recipe View", () => {
         await expect(form.getByTitle("Total Time Hours")).toHaveValue("2");
         await expect(form.getByTitle("Total Time Minutes")).toHaveValue("0");
 
+        // Provenance (22a): the JSON-LD's publisher names the citation and its
+        // author supplies the byline, filled into the Advanced source block.
+        await expect(form.locator('[name="source.url"]')).toHaveValue(
+          fullTestURL.href,
+        );
+        await expect(form.locator('[name="source.name"]')).toHaveValue(
+          "King Arthur Baking",
+        );
+        await expect(form.locator('[name="source.author"]')).toHaveValue(
+          "Pooja Makhijani",
+        );
+
         await page.getByRole("button", { name: "Submit", exact: true }).click();
         await expect(page.getByLabel("Multiply")).toBeVisible();
+
+        // …and survives the write, rendered as the citation under the
+        // description rather than as an "Imported from" line inside it (D7).
+        const source = page.getByTestId("recipe-source");
+        await expect(source).toContainText("King Arthur Baking");
+        await expect(source).toContainText("Pooja Makhijani");
+        await expect(
+          source.getByRole("link", { name: "King Arthur Baking" }),
+        ).toHaveAttribute("href", fullTestURL.href);
+        await expect(page.getByText("Imported from")).toHaveCount(0);
 
         await expect(
           page
@@ -221,14 +243,15 @@ test.describe("New Recipe View", () => {
           "Matzoh Balls & Matzoh Ball Soup",
         );
 
+        // No "Imported from" prefix any more (D7) — the citation is a `source`
+        // field now, not a line glued onto the user's description.
         await expect(form.locator('[name="description"]')).toHaveValue(
-          `*Imported from [${fullTestURL.href}](${fullTestURL.href})*
-
----
-
-“This is the best way to introduce someone to classic Jewish food,” says chef and cookbook author Joshua Weissman. “It has a special place in my heart.”
+          `“This is the best way to introduce someone to classic Jewish food,” says chef and cookbook author Joshua Weissman. “It has a special place in my heart.”
 
 Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a warm and comforting meal.`,
+        );
+        await expect(form.locator('[name="source.url"]')).toHaveValue(
+          fullTestURL.href,
         );
 
         await expect(
@@ -1202,7 +1225,7 @@ Sprinkle`,
         const form = page.locator("#recipe-form");
         await expect(form.locator('[name="name"]')).toHaveValue("Katsudon");
         await expect(form.locator('[name="description"]')).toHaveValue(
-          `*Imported from [${baseURL}/uploads/katsudon.html](${baseURL}/uploads/katsudon.html)*\n\n---\n\nKatsudon is a Japanese pork cutlet rice bowl made with tonkatsu, eggs, and sautéed onions simmered in a sweet and savory sauce. It‘s a one-bowl wonder and true comfort food!`,
+          `Katsudon is a Japanese pork cutlet rice bowl made with tonkatsu, eggs, and sautéed onions simmered in a sweet and savory sauce. It‘s a one-bowl wonder and true comfort food!`,
         );
         await expect(
           form.locator('[name="ingredients[0].ingredient"]'),
@@ -1244,12 +1267,16 @@ Sprinkle`,
         const form = page.locator("#recipe-form");
         await expect(form.locator('[name="name"]')).toHaveValue("Katsudon");
         await expect(form.locator('[name="description"]')).toHaveValue(
-          `*Imported from [${baseURL}/uploads/katsudon.html](${baseURL}/uploads/katsudon.html)*\n\n---\n\nKatsudon is a Japanese pork cutlet rice bowl made with tonkatsu, eggs, and sautéed onions simmered in a sweet and savory sauce. It‘s a one-bowl wonder and true comfort food!`,
+          `Katsudon is a Japanese pork cutlet rice bowl made with tonkatsu, eggs, and sautéed onions simmered in a sweet and savory sauce. It‘s a one-bowl wonder and true comfort food!`,
         );
         await expect(
           form.locator('[name="ingredients[0].ingredient"]'),
         ).toHaveValue(
           `<Multiplyable baseNumber="1" /> cup water ((for the dashi packet))`,
+        );
+        // The citation is the fetched URL, so it loses the hash too.
+        await expect(form.locator('[name="source.url"]')).toHaveValue(
+          `${baseURL}/uploads/katsudon.html`,
         );
 
         await page.getByRole("button", { name: "Submit", exact: true }).click();
@@ -1480,11 +1507,7 @@ Sprinkle`,
         const form = page.locator("#recipe-form");
         await expect(form.locator('[name="name"]')).toHaveValue("Naan");
         await expect(form.locator('[name="description"]')).toHaveValue(
-          `*Imported from [${fullTestURL.href}](${fullTestURL.href})*
-
----
-
-South Asia's classic yeasted flatbread, naan, is traditionally baked in a super-hot tandoor oven, which gives it gentle puffiness and a hint of smoke. In the absence of a tandoor, we find home bakers can replicate those qualities pretty closely with a cast iron pan or electric griddle. Our thanks to author Pooja Makhijani for sharing this recipe with us.`,
+          `South Asia's classic yeasted flatbread, naan, is traditionally baked in a super-hot tandoor oven, which gives it gentle puffiness and a hint of smoke. In the absence of a tandoor, we find home bakers can replicate those qualities pretty closely with a cast iron pan or electric griddle. Our thanks to author Pooja Makhijani for sharing this recipe with us.`,
         );
 
         await expect(form.locator('[name="instructions[0].name"]')).toHaveValue(

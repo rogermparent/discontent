@@ -253,3 +253,92 @@ test.describe("Search — query language", () => {
     expect(axe.violations).toEqual([]);
   });
 });
+
+/**
+ * The `group:` field (22f). Its own describe because it needs the one fixture
+ * that has groups in it: `three-recipes-groups` is `three-recipes` plus "Week
+ * of May 4" (first + second + a dangling `missing-recipe`) and "Weeknight
+ * Favourites" (first + third).
+ *
+ * Membership does not live on the recipe index at all — it arrives as a second
+ * document from `/search/groups` and the client decorates the corpus with it —
+ * so what these cases really prove is that the decoration reaches the filter.
+ */
+test.describe("Search — the group: field", () => {
+  test.beforeEach(async ({ page, resetData }) => {
+    await resetData("three-recipes-groups");
+    await page.goto("/search");
+    await expect(ticker(page)).toHaveText(/ALL 3 RECIPES/i, {
+      timeout: SEARCH_TIMEOUT,
+    });
+  });
+
+  test("narrows to a group's members, and a dangling slug contributes nothing", async ({
+    page,
+  }) => {
+    await searchFor(page, "group:week-of-may-4");
+
+    // Three items, two recipes: `missing-recipe` names nothing in the corpus,
+    // and a membership cannot conjure a card for a recipe that is not there.
+    await expect(listItems(page)).toHaveCount(2, { timeout: SEARCH_TIMEOUT });
+    expect((await cardNames(page)).sort()).toEqual([
+      "First Recipe",
+      "Second Recipe",
+    ]);
+    await expect(ticker(page)).toHaveText(/1 FILTER/i);
+  });
+
+  test("negation excludes a group's members", async ({ page }) => {
+    await searchFor(page, "-group:weeknight-favourites");
+
+    // First and Third are the collection; Second is the one left.
+    await expect(listItems(page)).toHaveCount(1, { timeout: SEARCH_TIMEOUT });
+    await expect(cardNamed(page, "Second Recipe")).toBeVisible();
+  });
+
+  test("composes with another field", async ({ page }) => {
+    await searchFor(page, "group:week-of-may-4 name:second");
+    await expect(listItems(page)).toHaveCount(1, { timeout: SEARCH_TIMEOUT });
+    await expect(cardNamed(page, "Second Recipe")).toBeVisible();
+
+    // The two groups overlap on First Recipe only.
+    await searchFor(page, "group:week-of-may-4 group:weeknight-favourites");
+    await expect(listItems(page)).toHaveCount(1);
+    await expect(cardNamed(page, "First Recipe")).toBeVisible();
+  });
+
+  test("the idle browse rail lists the groups, and goes away once a query is typed", async ({
+    page,
+  }) => {
+    const rail = page.getByTestId("group-rail");
+    await expect(rail).toBeVisible({ timeout: SEARCH_TIMEOUT });
+    await expect(rail.getByRole("link")).toHaveCount(2);
+    await expect(rail).toContainText("Week of May 4");
+    await expect(rail).toContainText("Weeknight Favourites");
+
+    // The rail is a browse affordance for the *empty* page, exactly as the
+    // recents row is — once there is a query, the results are the answer.
+    await searchFor(page, "first");
+    await expect(rail).toHaveCount(0);
+
+    await searchFor(page, "");
+    await expect(page.getByTestId("group-rail")).toBeVisible();
+
+    // A chip is a destination, not a filter: it opens the group's page.
+    await page.getByRole("link", { name: /Week of May 4/ }).click();
+    await expect(page).toHaveURL(/\/group\/week-of-may-4$/);
+  });
+
+  test("shows no rail at all on a corpus with no groups", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("three-recipes");
+    await page.goto("/search");
+    await expect(ticker(page)).toHaveText(/ALL 3 RECIPES/i, {
+      timeout: SEARCH_TIMEOUT,
+    });
+    await expect(page.getByTestId("group-rail")).toHaveCount(0);
+    await expect(page.getByTestId("group-results")).toHaveCount(0);
+  });
+});

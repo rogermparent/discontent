@@ -169,6 +169,73 @@ test.describe("Single Recipe View", () => {
     expect(response.status()).toBe(404);
   });
 
+  test.describe("provenance", () => {
+    // 22a. A source typed by hand into the Advanced block is the manual twin of
+    // what an import fills in, and the round trip through *edit* is the part
+    // that can quietly regress: the edit form has to be prefilled from the
+    // stored `source`, or saving an untouched form would drop the citation.
+    test("keeps a hand-entered source through an edit that never touches it", async ({
+      page,
+      resetData,
+    }) => {
+      await resetData("one-recipe");
+      await page.goto("/new-recipe");
+      await fillSignInForm(page);
+      await markdownEditorReady(page, "description");
+
+      const form = page.locator("#recipe-form");
+      await page.getByLabel("Name").first().fill("Cited Recipe");
+      await form
+        .locator('[name="source.url"]')
+        .fill("https://example.com/naan");
+      await form.locator('[name="source.name"]').fill("Example Kitchen");
+      await form.locator('[name="source.author"]').fill("A. Cook");
+
+      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await expect(
+        page.getByRole("heading", { level: 1, name: "Cited Recipe" }),
+      ).toBeVisible();
+
+      const source = page.getByTestId("recipe-source");
+      await expect(source).toContainText("Example Kitchen");
+      await expect(source).toContainText("A. Cook");
+      const link = source.getByRole("link", { name: "Example Kitchen" });
+      await expect(link).toHaveAttribute("href", "https://example.com/naan");
+      await expect(link).toHaveAttribute("rel", "nofollow noopener");
+
+      // Edit and save without going near the source block.
+      await page.getByRole("link", { name: "Edit", exact: true }).click();
+      await expect(page.getByText("Editing Recipe: Cited Recipe")).toBeVisible({
+        timeout: 10_000,
+      });
+      await markdownEditorReady(page, "description");
+      await expect(
+        page.locator('#recipe-form [name="source.url"]'),
+      ).toHaveValue("https://example.com/naan");
+      await page.getByRole("button", { name: "Submit", exact: true }).click();
+
+      await expect(
+        page.getByRole("heading", { level: 1, name: "Cited Recipe" }),
+      ).toBeVisible();
+      await expect(page.getByTestId("recipe-source")).toContainText(
+        "Example Kitchen",
+      );
+      await expect(page.getByTestId("recipe-source")).toContainText("A. Cook");
+    });
+
+    test("renders no citation for a recipe without a source", async ({
+      page,
+      resetData,
+    }) => {
+      await resetData("two-pages");
+      await page.goto("/recipe/recipe-6");
+      await expect(
+        page.getByRole("heading", { level: 1, name: "Recipe 6" }),
+      ).toBeVisible();
+      await expect(page.getByTestId("recipe-source")).toHaveCount(0);
+    });
+  });
+
   test.describe("hero meta bar", () => {
     test("renders Prep · Cook · Total in the hero", async ({
       page,

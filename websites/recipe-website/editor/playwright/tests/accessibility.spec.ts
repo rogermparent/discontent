@@ -60,6 +60,33 @@ test.describe("Accessibility (axe)", () => {
     expect(results.violations).toEqual([]);
   });
 
+  /*
+   * Groups (22b) are two new reader surfaces — a card grid whose cards are text
+   * rather than images, and a detail page built on an ordered list with muted
+   * rows for dangling items. Both are swept once here, in the default theme;
+   * neither joins `THEME_PAGES`, which multiplies by preset × mode and is
+   * reserved for the pages whose colour work is load-bearing.
+   */
+  test("groups listing has no WCAG2AA violations", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("three-recipes-groups");
+    await page.goto("/groups");
+    const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    expect(results.violations).toEqual([]);
+  });
+
+  test("group detail page has no WCAG2AA violations", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("three-recipes-groups");
+    await page.goto("/group/week-of-may-4");
+    const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    expect(results.violations).toEqual([]);
+  });
+
   test("sign-in form has no WCAG2AA violations", async ({
     page,
     resetData,

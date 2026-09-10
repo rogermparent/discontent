@@ -18,6 +18,8 @@ const recentGroup = (page: Page) => page.getByTestId("palette-recent-group");
 const filterGroup = (page: Page) => page.getByTestId("palette-filter-group");
 /** PR 21b's rows that write a term into the field. Not PR 20's retired group. */
 const insertGroup = (page: Page) => page.getByTestId("palette-insert-group");
+/** 22f's Groups rows. Always below the recipes — see the ordering case. */
+const groupsGroup = (page: Page) => page.getByTestId("palette-groups-group");
 const rows = (page: Page) => page.getByRole("option");
 const recipeRow = (page: Page, name: string | RegExp) =>
   page.getByTestId("palette-recipes-group").getByRole("option").filter({
@@ -684,5 +686,82 @@ test.describe("Command palette @mobile", () => {
     await expect(
       page.getByRole("option", { name: /First Recipe/ }),
     ).toBeVisible({ timeout: SEARCH_TIMEOUT });
+  });
+});
+
+/**
+ * Groups in the palette (22f). The one fixture that has any, so this is its own
+ * describe — the launcher cases above stay on `three-recipes`, where the Groups
+ * rows never render and the owner baseline cannot churn.
+ */
+test.describe("Command palette — groups", () => {
+  test.beforeEach(async ({ resetData }) => {
+    await resetData("three-recipes-groups");
+  });
+
+  test("a group name lists a Groups row that opens the group", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await openPalette(page);
+    await paletteSearch(page, "weeknight");
+
+    const row = groupsGroup(page).getByRole("option");
+    await expect(row).toHaveCount(1, { timeout: SEARCH_TIMEOUT });
+    await expect(row.first()).toContainText("Weeknight Favourites");
+    // The kind is on the row, so a group is never mistaken for a recipe.
+    await expect(row.first()).toContainText("Collection");
+
+    await row.first().click();
+    await expect(page).toHaveURL(/\/group\/weeknight-favourites$/);
+  });
+
+  test("groups match on description, and vanish with the query", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await openPalette(page);
+
+    // "shop" is only in "Week of May 4"'s description.
+    await paletteSearch(page, "shop");
+    await expect(groupsGroup(page)).toBeVisible({ timeout: SEARCH_TIMEOUT });
+    await expect(groupsGroup(page).getByRole("option")).toHaveCount(1);
+
+    // An empty palette is a launcher: no recipes, and no groups either.
+    await paletteSearch(page, "");
+    await expect(groupsGroup(page)).toHaveCount(0);
+  });
+
+  test("the Groups rows sit below the recipe rows, so Enter still opens a recipe", async ({
+    page,
+  }) => {
+    /*
+     * The palette's oldest promise, restated for a new row group. "th" is the
+     * one prefix this fixture answers on both sides — every recipe description
+     * carries "This"/"the", and "Week of May 4" is described as "Three dinners,
+     * one shop." — so it is exactly the query a Groups group placed above the
+     * recipes would break. Asserted by DOM order rather than trusted, because
+     * cmdk's auto-selection is positional.
+     */
+    await page.goto("/");
+    await openPalette(page);
+    await paletteSearch(page, "th");
+
+    await expect(groupsGroup(page).getByRole("option")).toHaveCount(1, {
+      timeout: SEARCH_TIMEOUT,
+    });
+
+    const texts = await rows(page).allTextContents();
+    const groupIndex = texts.findIndex((text) =>
+      text.includes("Week of May 4"),
+    );
+    expect(groupIndex).toBeGreaterThan(0);
+    // Everything above the group row is a recipe row.
+    expect(
+      texts.slice(0, groupIndex).every((text) => /Recipe/.test(text)),
+    ).toBe(true);
+
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/recipe\/[a-z-]+$/);
   });
 });

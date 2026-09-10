@@ -54,4 +54,6 @@ next-env.d.ts
 .netlify
 
 # Claude files
-.claude
+.claude/*
+!.claude/skills/
+!.claude/settings.json

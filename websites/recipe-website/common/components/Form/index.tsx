@@ -207,6 +207,59 @@ export default function RecipeFields({
               />
             )}
           </form.Field>
+          {/*
+            Provenance (D6/22a). An import fills these in; typing a URL here by
+            hand is the manual path to the same citation. The three inputs are
+            always mounted and submit as `source.url` / `source.name` /
+            `source.author` — `parseFormData`'s lodash `set` nests them, and
+            the schema collapses an all-blank block back to no `source`.
+          */}
+          <form.Field name="source.url">
+            {(field) => (
+              <TextInput
+                label="Source URL"
+                name="source.url"
+                id="recipe-form-source-url"
+                value={field.state.value}
+                onChange={(e) => field.handleChange(e.target.value)}
+                onBlur={field.handleBlur}
+                placeholder="https://example.com/the-original-recipe"
+                errors={mergeFieldErrors(
+                  state?.errors?.source,
+                  field.state.meta.errors,
+                )}
+              />
+            )}
+          </form.Field>
+          <form.Field name="source.name">
+            {(field) => (
+              // "Site" rather than "Name": `getByLabel` matches substrings, so
+              // a "Source Name" label made every `getByLabel("Name")` in the
+              // suite ambiguous with the recipe's own name field.
+              <TextInput
+                label="Source Site"
+                name="source.name"
+                id="recipe-form-source-name"
+                value={field.state.value}
+                onChange={(e) => field.handleChange(e.target.value)}
+                onBlur={field.handleBlur}
+                errors={mergeFieldErrors(undefined, field.state.meta.errors)}
+              />
+            )}
+          </form.Field>
+          <form.Field name="source.author">
+            {(field) => (
+              <TextInput
+                label="Source Author"
+                name="source.author"
+                id="recipe-form-source-author"
+                value={field.state.value}
+                onChange={(e) => field.handleChange(e.target.value)}
+                onBlur={field.handleBlur}
+                errors={mergeFieldErrors(undefined, field.state.meta.errors)}
+              />
+            )}
+          </form.Field>
         </div>
       </details>
     </VideoPlayerProvider>

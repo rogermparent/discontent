@@ -6,11 +6,18 @@ import { readJson } from "fs-extra";
 import { resolve } from "path";
 import bcrypt from "bcrypt";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
+import type { UserRecord } from "./users";
 
-export interface User {
-  email: string;
-  password: string;
-}
+/**
+ * The record on disk, which now also carries API tokens (D10).
+ *
+ * Widened rather than duplicated: `src/users` owns the shape *and* the path,
+ * and this module's `getUser` reads exactly the file `userFilePath` builds. The
+ * read itself is unchanged — `resolve(<content>, "users", email)`, no
+ * extension — and tokens are simply extra fields the credentials provider
+ * ignores.
+ */
+export type User = UserRecord;
 
 async function getUser(email: string): Promise<User | undefined> {
   try {

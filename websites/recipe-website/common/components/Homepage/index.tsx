@@ -1,8 +1,12 @@
 import Link from "next/link";
 import RecipeList from "../List";
+import GroupList from "../List/Group";
+import { GroupThumbnail } from "../GroupThumbnail";
 import { MassagedRecipeEntry, getAllTags } from "../../controller/data/read";
+import type { GroupListEntry } from "../../controller/groupPaginationConfig";
 import { recipeItems } from "../../controller/data/readRecipeItem";
 import { Recipe } from "../../controller/types";
+import { FeaturedStrip, type FeaturedStripEntry } from "./FeaturedStrip";
 import {
   PageMain,
   PageSection,
@@ -51,15 +55,27 @@ function RecipeSection({
 
 export default async function Homepage({
   recipes,
-  featuredRecipes,
+  featured,
+  groups,
   moreRecipes,
 }: {
   recipes: MassagedRecipeEntry[];
-  featuredRecipes: MassagedRecipeEntry[];
+  /** The newest few features — recipes and groups mixed, newest first (22g). */
+  featured: FeaturedStripEntry[];
+  /** The newest few groups, or none — an empty list renders no section at all. */
+  groups: GroupListEntry[];
   moreRecipes: boolean;
 }) {
-  // The hero leads with a featured recipe when there is one; otherwise it falls
-  // back to the latest recipe. The grids below still list every recipe.
+  /*
+   * The hero leads with a featured **recipe** when there is one; otherwise it
+   * falls back to the latest recipe. A featured *group* is not a hero candidate
+   * — `HeroBench` renders a recipe's whole record — so filtering here keeps the
+   * rule 22g inherited exactly as it was rather than letting a group in the
+   * strip silently demote the hero to "Latest".
+   */
+  const featuredRecipes: MassagedRecipeEntry[] = featured
+    .filter((entry) => entry.kind === "recipe")
+    .map((entry) => entry.recipe);
   const heroSlug = featuredRecipes[0]?.slug ?? recipes[0]?.slug;
   const heroLabel: "Featured" | "Latest" =
     featuredRecipes.length > 0 ? "Featured" : "Latest";
@@ -95,12 +111,39 @@ export default async function Homepage({
           <HeroBench recipe={heroRecipe} slug={heroSlug} label={heroLabel} />
         )}
         <BrowseChips tags={tags} />
-        <RecipeSection
-          title="Featured Recipes"
-          recipes={featuredRecipes}
-          linkHref="/featured-recipes"
-          linkText="More Featured Recipes"
-        />
+        {/*
+         * Groups sit between the browse chips and the featured strip: above the
+         * recipe grids because they are a *way in* rather than more of the same
+         * thing, and below the chips because tags are the shorter, cheaper cut.
+         *
+         * Nothing at all when there are none — which is what keeps the
+         * `three-recipes` homepage baseline still, since that fixture has no
+         * groups and never will.
+         */}
+        {groups.length > 0 && (
+          <div className="mb-8">
+            <PageHeading className="font-display">Groups</PageHeading>
+            <GroupList
+              groups={groups}
+              renderThumbnail={(group) => (
+                /* The list entry carries the group's own image since 22h
+                   (D14), so a card that has one renders it with no group
+                   read. */
+                <GroupThumbnail
+                  slug={group.slug}
+                  name={group.name}
+                  image={group.image}
+                />
+              )}
+            />
+            <div className="flex flex-row items-center justify-center my-2">
+              <Button asChild variant="secondary" size="sm">
+                <Link href="/groups">More groups</Link>
+              </Button>
+            </div>
+          </div>
+        )}
+        <FeaturedStrip featured={featured} />
         <RecipeSection
           title="Latest Recipes"
           recipes={recipes}

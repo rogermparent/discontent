@@ -1,16 +1,9 @@
 import { hash, genSalt } from "bcrypt";
-import { mkdir, writeFile, access } from "fs-extra";
-import { resolve } from "path";
 import { read } from "read";
 import process from "node:process";
 import { parseArgs, ParseArgsOptionsConfig } from "node:util";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
-
-interface UserData {
-  email: string;
-  password: string;
-  createdAt: string;
-}
+import { readUser, writeUser, type UserRecord } from "../src/users";
 
 interface UserInput {
   email: string;
@@ -62,20 +55,13 @@ function validatePassword(password: string): {
   };
 }
 
-function generateUserFilename(email: string): string {
-  // Create a safe filename using hash of email to avoid filesystem issues
-  return `${email}.json`;
-}
-
+/*
+ * `src/users` owns the path, and it is a bare email with no extension (D10).
+ * This wrote `<email>.json` while `src/auth.ts` read `<email>`, so every user
+ * this script created was invisible to sign-in.
+ */
 async function userExists(email: string): Promise<boolean> {
-  try {
-    const usersDir = resolve(getContentDirectory(), "users");
-    const filename = generateUserFilename(email);
-    await access(resolve(usersDir, filename));
-    return true;
-  } catch {
-    return false;
-  }
+  return (await readUser(getContentDirectory(), email)) !== null;
 }
 
 async function getInput(): Promise<UserInput> {
@@ -162,19 +148,13 @@ export async function createUser(): Promise<void> {
     const salt = await genSalt(12); // Increased rounds for better security
     const hashedPassword = await hash(password, salt);
 
-    const userData: UserData = {
+    const userData: UserRecord = {
       email,
       password: hashedPassword,
       createdAt: new Date().toISOString(),
     };
 
-    const usersDir = resolve(getContentDirectory(), "users");
-    await mkdir(usersDir, { recursive: true });
-
-    const filename = generateUserFilename(email);
-    const filepath = resolve(usersDir, filename);
-
-    await writeFile(filepath, JSON.stringify(userData, null, 2));
+    const filepath = await writeUser(getContentDirectory(), userData);
 
     console.log(`✅ User created successfully!`);
     console.log(`📧 Email: ${email}`);

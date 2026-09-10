@@ -1,10 +1,19 @@
 import type { MassagedRecipeEntry } from "../../controller/data/read";
 import { featuredRecipePages } from "../../controller/data/readFeaturedRecipePages";
+import { groupPages } from "../../controller/data/readGroupPages";
 import { recipePages } from "../../controller/data/readRecipePages";
 import Homepage from ".";
+import type { FeaturedStripEntry } from "./FeaturedStrip";
 
 /** How many cards each homepage strip shows. */
 const STRIP_SIZE = 6;
+
+/**
+ * How many group cards the homepage shows. Three, not six: the cards are
+ * three-up and text-only, so a second row of them would push the recipe grids
+ * below the fold on a laptop for a section that is a signpost, not the content.
+ */
+const GROUP_STRIP_SIZE = 3;
 
 /**
  * The homepage, defined once and re-exported by both apps' `page.tsx`.
@@ -27,9 +36,16 @@ const STRIP_SIZE = 6;
  * that do not bound themselves (F2).
  */
 export async function homepageRoute() {
-  const [recipeHead, featuredHead] = await Promise.all([
+  const [recipeHead, featuredHead, groupHead] = await Promise.all([
     recipePages.readHead(),
     featuredRecipePages.readHead(),
+    /*
+     * The same shape as the two above, and invalidated the same way: a group
+     * write already fires `pagination:groups:by-date:head`, so
+     * `groupSuccessConfig.paginationOnly` keeps working untouched — the
+     * homepage needs no `revalidatePath("/")` to see a new group (fact 2).
+     */
+    groupPages.readHead(),
   ]);
 
   const recipes: MassagedRecipeEntry[] = recipeHead.items.slice(0, STRIP_SIZE);
@@ -39,21 +55,43 @@ export async function homepageRoute() {
    * the six newest are chosen first, and a dangling reference among them
    * yields a shorter strip rather than pulling a seventh entry forward.
    * Filtering first would silently change which cards the homepage shows.
+   *
+   * The filter is on the *borrowed name* rather than on the reference, which is
+   * what makes it cover both kinds with one rule (22g): an entry whose recipe
+   * or group has been deleted has no name to print, and a nameless card on the
+   * homepage would be a hole rather than information. `/featured-recipes`
+   * deliberately differs — it renders the dangle as "Group not found", because
+   * that page is where a curator goes to fix one.
    */
-  const featuredRecipes: MassagedRecipeEntry[] = featuredHead.items
+  const featured: FeaturedStripEntry[] = featuredHead.items
     .slice(0, STRIP_SIZE)
-    .filter((entry) => entry.recipeName)
-    .map((entry) => ({
-      slug: entry.recipe,
-      date: entry.date,
-      name: entry.recipeName!,
-      image: entry.recipeImage,
-    }));
+    .filter((entry) => entry.recipeName || entry.groupName)
+    .map(
+      (entry): FeaturedStripEntry =>
+        entry.group && entry.groupName
+          ? {
+              kind: "group",
+              slug: entry.group,
+              name: entry.groupName,
+              groupKind: entry.groupKind,
+              date: entry.date,
+            }
+          : {
+              kind: "recipe",
+              recipe: {
+                slug: entry.recipe!,
+                date: entry.date,
+                name: entry.recipeName!,
+                image: entry.recipeImage,
+              } satisfies MassagedRecipeEntry,
+            },
+    );
 
   return (
     <Homepage
       recipes={recipes}
-      featuredRecipes={featuredRecipes}
+      featured={featured}
+      groups={groupHead.items.slice(0, GROUP_STRIP_SIZE)}
       moreRecipes={recipeHead.total > STRIP_SIZE}
     />
   );

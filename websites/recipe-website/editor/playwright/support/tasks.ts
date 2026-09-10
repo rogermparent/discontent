@@ -13,6 +13,7 @@ import { resolve } from "node:path";
 import simpleGit from "simple-git";
 import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
 import { recipeContentTypes } from "../../controller/contentTypes";
+import { addTokenToUser } from "../../src/users";
 
 const projectRoot = resolve(__dirname, "..", "..");
 const testContentDir = resolve(projectRoot, "test-content");
@@ -38,6 +39,24 @@ export async function resetData(fixture?: string): Promise<void> {
     await copy(fixturePath("test-content", fixture), testContentDir);
   }
   await copy(fixturePath("users"), resolve(testContentDir, "users"));
+}
+
+/**
+ * Mint an API token for a fixture user (22d/D10).
+ *
+ * Written straight into `test-content/users/<email>` through `src/users` — the
+ * same module the server reads it back with, so the test cannot pass against a
+ * path or a hash format the app does not use. That is the whole reason it goes
+ * through the module rather than writing the JSON here.
+ *
+ * Call it *after* `resetData`, which recreates `test-content/users/` from the
+ * fixture and would otherwise wipe the token.
+ */
+export async function createApiToken(
+  email = "admin@nextmail.com",
+  name = "playwright",
+): Promise<string> {
+  return addTokenToUser(testContentDir, email, name);
 }
 
 /**

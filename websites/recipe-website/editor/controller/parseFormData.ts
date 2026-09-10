@@ -64,6 +64,41 @@ const optionalDurationSchema = z
     return hoursNumber * 60 + minutesNumber;
   });
 
+/**
+ * Provenance (D6/22a). Three text inputs in the form's Advanced section, so an
+ * untouched block still arrives as three empty strings — hence the collapse to
+ * `undefined` rather than persisting an empty `source` object on the recipe.
+ * `url` is the citation, so it is what decides whether a source exists at all,
+ * and it is validated as a URL only once something has been typed into it.
+ */
+const sourceSchema = z
+  .object({
+    url: z.string().optional(),
+    name: z.string().optional(),
+    author: z.string().optional(),
+  })
+  .transform((arg, ctx) => {
+    const url = arg?.url?.trim();
+    if (!url) {
+      return undefined;
+    }
+    try {
+      new URL(url);
+    } catch {
+      ctx.addIssue({
+        code: "custom",
+        path: ["url"],
+        message: "Invalid URL",
+      });
+      return undefined;
+    }
+    return {
+      url,
+      name: arg.name?.trim() || undefined,
+      author: arg.author?.trim() || undefined,
+    };
+  });
+
 const RecipeFormSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
@@ -80,6 +115,7 @@ const RecipeFormSchema = z.object({
   cookTime: durationSchema.optional(),
   totalTime: durationSchema.optional(),
   recipeYield: z.string().optional(),
+  source: sourceSchema.optional(),
   tags: z
     .array(z.string())
     .optional()

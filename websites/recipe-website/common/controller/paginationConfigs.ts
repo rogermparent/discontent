@@ -4,6 +4,7 @@ import { RECIPES_PER_PAGE } from "../components/RecipeIndexPage/constants";
 import type {
   FeaturedRecipeEntryKey,
   FeaturedRecipeEntryValue,
+  GroupKind,
   RecipeEntryKey,
   RecipeEntryValue,
 } from "./types";
@@ -87,10 +88,21 @@ export const recipesByDate: PaginationIndexConfig<
 export interface FeaturedRecipeListEntry {
   slug: string;
   date: number;
-  recipe: string;
+  recipe?: string;
   note?: string;
   recipeName?: string;
   recipeImage?: string;
+  /**
+   * The group half (22g). `recipe` and `group` are both optional here because
+   * an entry sets exactly one of them, and the card branches on `group`.
+   *
+   * `groupKind` is what the card's badge prints, and it is borrowed rather than
+   * read: a projection that read the group's data file would be a value nothing
+   * invalidates, which is the whole argument `recipeName` makes above.
+   */
+  group?: string;
+  groupName?: string;
+  groupKind?: GroupKind;
 }
 
 /**
@@ -106,8 +118,14 @@ export const featuredRecipesByDate: PaginationIndexConfig<
 > = {
   name: "by-date",
   perPage: FEATURED_RECIPES_PER_PAGE,
-  /* Pinned by hand, for the reason spelled out on `recipesByDate` above. */
-  version: "1",
+  /*
+   * Pinned by hand, for the reason spelled out on `recipesByDate` above.
+   *
+   * `"2"` since 22g: the projection gained `group`, `groupName` and `groupKind`,
+   * so every page projected by a `"1"` build is missing the three fields a
+   * featured *group* card renders and has to be reprojected.
+   */
+  version: "2",
   key: ({ key: [date], id }) => [date, id],
   project: ({ key: [date], value, id }) => ({
     slug: id,
@@ -116,6 +134,9 @@ export const featuredRecipesByDate: PaginationIndexConfig<
     note: value.note,
     recipeName: value.recipeName,
     recipeImage: value.recipeImage,
+    group: value.group,
+    groupName: value.groupName,
+    groupKind: value.groupKind,
   }),
 };
 

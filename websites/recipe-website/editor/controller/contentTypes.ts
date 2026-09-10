@@ -24,12 +24,25 @@
 import type { AnyContentTypeConfig } from "@discontent/cms/content/types";
 import { pageContentConfig } from "@discontent/pages-collection/controller/pageContentConfig";
 import { featuredRecipeContentConfig } from "recipe-website-common/controller/featuredRecipeContentConfig";
+import { groupContentConfig } from "recipe-website-common/controller/groupContentConfig";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
 
 export const recipeContentTypes: AnyContentTypeConfig[] = [
   recipeContentConfig,
   featuredRecipeContentConfig,
   pageContentConfig,
+  /*
+   * Last, and the position is still free after 22g gave groups a dependent
+   * (`featuredRecipeContentConfig.references` names them, so a feature may
+   * point at a group). Order would matter only if a rebuild read its target's
+   * *index*; `createReferenceResolver` reads the referenced item's **data
+   * file**, so a fixture or export rebuild resolves the same values whichever
+   * end it reaches first. The order does show up in derived output —
+   * `derivedContentPaths` and `derivedTagsOfAll` both emit in registry order,
+   * and both are pinned by tests — so leaving groups appended is also the
+   * arrangement with the smallest blast radius.
+   */
+  groupContentConfig,
 ];
 
 export default recipeContentTypes;

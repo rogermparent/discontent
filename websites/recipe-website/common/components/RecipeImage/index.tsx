@@ -1,14 +1,18 @@
 /* eslint-disable @next/next/no-img-element */
-import { join } from "path";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
-import {
-  TransformedStaticImageProps,
-  getStaticImageProps,
-} from "@discontent/next-static-image/src";
+import { TransformedStaticImageProps } from "@discontent/next-static-image/src";
 import { getRecipeUploadPath } from "../../controller/filesystemDirectories";
+import { getTransformedUploadImageProps } from "../UploadImage";
 
-const localOutputDirectory = join(getContentDirectory(), "transformed-images");
-
+/**
+ * A recipe's photo.
+ *
+ * A thin wrapper over `UploadImage` since 22h, when groups gained a picture of
+ * their own and the transform, the `/image/<src>/…` key and the warn-and-return
+ * error handling became two callers' worth of one body. The output is
+ * unchanged, warning text included — `RecipeImage "<file>" failed with error…`
+ * is what the log has always said, and what anything grepping it expects.
+ */
 export async function getTransformedRecipeImageProps({
   slug,
   image,
@@ -20,28 +24,17 @@ export async function getTransformedRecipeImageProps({
   className,
 }: TransformedStaticImageProps) {
   if (!image) return undefined;
-  const srcPath = getRecipeUploadPath(getContentDirectory(), slug, image);
-  try {
-    const transformedProps = await getStaticImageProps(
-      { srcPath, localOutputDirectory },
-      {
-        src: `/uploads/recipe/${slug}/uploads/${image}`,
-        alt,
-        width,
-        height,
-        className,
-        loading,
-        sizes,
-      },
-    );
-    return transformedProps;
-  } catch (e) {
-    const { code, message } = e as { code?: string; message?: string };
-    console.warn(
-      `RecipeImage "${image}" failed with error` +
-        (message ? `: ${message}` : code ? ` code ${code}` : ""),
-    );
-  }
+  return getTransformedUploadImageProps({
+    srcPath: getRecipeUploadPath(getContentDirectory(), slug, image),
+    src: `/uploads/recipe/${slug}/uploads/${image}`,
+    label: "RecipeImage",
+    alt,
+    width,
+    height,
+    className,
+    loading,
+    sizes,
+  });
 }
 
 export async function RecipeImage(inputProps: TransformedStaticImageProps) {

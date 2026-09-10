@@ -61,6 +61,9 @@ export default async function RecipePage({
         <Button asChild size="sm">
           <Link href={`/featured-recipe/new?recipe=${slug}`}>Feature</Link>
         </Button>
+        <Button asChild size="sm">
+          <Link href={`/group/new?recipe=${slug}`}>Group</Link>
+        </Button>
       </PageActions>
     </PageMain>
   );
