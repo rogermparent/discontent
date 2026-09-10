@@ -20,6 +20,13 @@ export type CurationErrorCode =
   | "unknown_recipe"
   | "import_failed"
   | "no_git_identity"
+  /**
+   * Only ever produced over HTTP, and listed here anyway: the HTTP backend
+   * rehydrates a server error body into a `CurationError`, so a code this union
+   * did not know would be widened away to `internal` and a 401 would print as a
+   * mystery. No local path throws it.
+   */
+  | "unauthenticated"
   | "usage"
   | "internal";
 
@@ -81,6 +88,13 @@ export class NoGitIdentityError extends CurationError {
         `(and user.name), or export GIT_COMMITTER_EMAIL.`,
     );
     this.name = "NoGitIdentityError";
+  }
+}
+
+export class UnauthenticatedError extends CurationError {
+  constructor(message = "Authentication required") {
+    super("unauthenticated", message);
+    this.name = "UnauthenticatedError";
   }
 }
 

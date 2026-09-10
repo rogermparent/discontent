@@ -16,6 +16,10 @@ import parseGroupFormData, { ParsedGroupFormData } from "../parseGroupFormData";
 import type { EditorContentConfig } from "@discontent/cms/content/editorContentConfig";
 import { createGenericActions } from "@discontent/cms/content/genericActions";
 import { authenticateUser } from "./shared";
+import {
+  groupDeleteSuccessConfig,
+  groupSuccessConfig,
+} from "../successConfigs";
 
 /** The parsed form, as a group record. The one place the shape is assembled. */
 function buildGroupData(parsed: ParsedGroupFormData, date: number): Group {
@@ -37,39 +41,8 @@ const groupEditorConfig: EditorContentConfig<
   ParsedGroupFormData
 > = {
   contentConfig: groupContentConfig,
-  successConfig: {
-    itemBasePath: "/group",
-    /*
-     * Empty, and `paginationOnly` on, for the reason the recipe and featured
-     * configs give at length: `/groups` and `/groups/[page]` read through the
-     * pagination index, so `revalidatePaginationResults` invalidates exactly
-     * the pages this write moved, where a blanket `revalidatePath` would drop
-     * every sealed page on every save.
-     *
-     * The flag's only remaining job is dropping `revalidatePath("/")`, and the
-     * homepage reads nothing of groups at all — a homepage section is
-     * deferred. The recipe *views* that render "Appears in" do read group
-     * state, and they are covered without a path call: the block reads
-     * `groupsByRecipe`, whose aggregate tag this write fires through
-     * `revalidateAggregateResults` — and only when the folded value actually
-     * moved, which is the whole point of the aggregate kind.
-     */
-    listPaths: [],
-    paginationOnly: true,
-    /* No `redirectTo`: the default is `itemBasePath + "/" + slug`. */
-  },
-  /*
-   * A delete needs its own, or it would inherit the create/update redirect and
-   * send the user to the group it just removed. `/groups` is where a delete
-   * leaves you everywhere else in this app (pages, menus), and the aggregate
-   * tag above still carries the "Appears in" removal onto every recipe view.
-   */
-  deleteSuccessConfig: {
-    itemBasePath: "/group",
-    listPaths: [],
-    paginationOnly: true,
-    redirectTo: () => "/groups",
-  },
+  successConfig: groupSuccessConfig,
+  deleteSuccessConfig: groupDeleteSuccessConfig,
   label: "group",
   // Auth is injected rather than imported: the factory lives in
   // @discontent/cms and cannot reach this app's `@/auth` alias. Required by

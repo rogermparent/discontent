@@ -30,6 +30,7 @@ import {
   UsageError,
   exitCodeFor,
 } from "../controller/curation/errors";
+import { createHttpBackend } from "./backend/http";
 import { createLocalBackend } from "./backend/local";
 import type { CuratorBackend } from "./backend/types";
 import { createCommand } from "./commands/create";
@@ -48,11 +49,21 @@ const GLOBAL_OPTIONS: ParseArgsOptionsConfig = {
   json: { type: "boolean" },
   "content-dir": { type: "string" },
   author: { type: "string" },
+  /** Drive a running editor over HTTP instead of this content directory. */
+  remote: { type: "string" },
+  /** Which editor a *local* write should tell about itself. */
+  "editor-url": { type: "string" },
+  notify: { type: "boolean" },
   help: { type: "boolean", short: "h" },
 };
 
 /** Flags whose operand is a separate token, so it must not be read as a command. */
-const GLOBAL_VALUE_FLAGS = new Set(["--content-dir", "--author"]);
+const GLOBAL_VALUE_FLAGS = new Set([
+  "--content-dir",
+  "--author",
+  "--remote",
+  "--editor-url",
+]);
 
 const COMMANDS: Record<string, CommandDef<unknown>> = {
   import: importCommand,
@@ -85,6 +96,30 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   reindex [contentType]
 
 Globals: --json  --content-dir <dir>  --author "Name <email>"  --help
+Remote:  --remote <url>  |  --notify [--editor-url <url>]
+
+Two ways to reach a running editor:
+
+  --remote <url>       Send every command to that editor's JSON API. The server
+                       does the write and revalidates its own caches, so the
+                       site is up to date the moment the command returns. Reads
+                       go there too, so you search the corpus you write to.
+  --notify             After a *local* write, POST /api/revalidate to
+                       --editor-url (or RECIPE_EDITOR_URL) so a running editor
+                       drops its caches. A failed notify is a warning: the write
+                       already landed, so the exit code stays 0.
+
+Environment:
+  RECIPE_API_URL       Base URL of a running editor; same as --remote
+  RECIPE_API_TOKEN     rcp_… bearer token; required for remote writes and
+                       --notify. Mint one with \`pnpm create-token\` in the
+                       editor package. Never passed on argv.
+  RECIPE_EDITOR_URL    Same as --editor-url
+  RECIPE_AUTHOR        "Name <email>" for local commits; same as --author
+  CONTENT_DIRECTORY    Local content directory; same as --content-dir
+
+A bearer token over plain HTTP is only safe on localhost or a trusted LAN. Put
+the editor behind TLS before using --remote across the internet.
 
 Author resolution: --author > RECIPE_AUTHOR > the content repo's git identity.
 Content directory: --content-dir > CONTENT_DIRECTORY > ./content.
@@ -209,6 +244,32 @@ function resolveContentDirectory(flag?: string): string {
   return path.resolve(process.env.INIT_CWD ?? process.cwd(), raw);
 }
 
+/**
+ * Where a local write should send its revalidation, if anywhere.
+ *
+ * `--editor-url` > `RECIPE_EDITOR_URL`, and the env var alone is enough — a
+ * shell that exports it has already said "there is an editor running here".
+ * `--notify` with no URL anywhere is a usage error rather than a silent no-op:
+ * the flag's whole purpose is the thing it could not do.
+ */
+export function resolveNotify(
+  notify: boolean,
+  editorUrl: string | undefined,
+  token: string | undefined,
+): { url: string; token?: string } | undefined {
+  const url = editorUrl ?? process.env.RECIPE_EDITOR_URL;
+  if (!notify && !url) return undefined;
+  if (!url) {
+    throw new UsageError(
+      "--notify needs an editor URL: pass --editor-url <url> or set RECIPE_EDITOR_URL.",
+    );
+  }
+  if (!URL.canParse(url)) {
+    throw new UsageError(`"${url}" is not a URL.`);
+  }
+  return { url, token };
+}
+
 export async function main(argv: string[]): Promise<number> {
   /* pnpm and npm both hand a bare `--` through when a script is called with one. */
   const args = argv[0] === "--" ? argv.slice(1) : argv;
@@ -267,16 +328,30 @@ export async function main(argv: string[]): Promise<number> {
       return 0;
     }
 
-    const contentDirectory = resolveContentDirectory(
-      (values["content-dir"] ?? headParse.values["content-dir"]) as
-        | string
-        | undefined,
-    );
-    const author = resolveAuthor(
-      (values.author ?? headParse.values.author) as string | undefined,
-    );
+    /* A global may sit on either side of the command; the tail wins. */
+    const global = (name: string) =>
+      (values[name] ?? headParse.values[name]) as string | undefined;
 
-    backend = createLocalBackend({ contentDirectory, author });
+    /*
+     * Remote first, because it settles what the rest of the setup means: with
+     * `--remote` there is no local content directory, no committer identity to
+     * preflight and nothing to notify, since the server revalidated itself.
+     */
+    const remote = global("remote") ?? process.env.RECIPE_API_URL;
+    const token = process.env.RECIPE_API_TOKEN;
+
+    if (remote) {
+      backend = createHttpBackend({ baseUrl: remote, token });
+    } else {
+      const contentDirectory = resolveContentDirectory(global("content-dir"));
+      const author = resolveAuthor(global("author"));
+      const notify = resolveNotify(
+        values.notify === true || headParse.values.notify === true,
+        global("editor-url"),
+        token,
+      );
+      backend = createLocalBackend({ contentDirectory, author, notify });
+    }
 
     const result = await definition.run({
       backend,

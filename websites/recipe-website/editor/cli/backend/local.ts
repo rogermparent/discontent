@@ -19,14 +19,63 @@ import type { CuratorBackend } from "./types";
 
 /**
  * A CLI write and a running `next dev` are two processes over one directory,
- * and only one of them holds the cache. Nothing here can invalidate it — that
- * is what 22d's `POST /api/revalidate` and `--notify` are for — so the honest
- * move is to say so on stderr every time.
+ * and only one of them holds the cache. Nothing in *this* process can
+ * invalidate it, so the honest move is to say so on stderr every time.
+ *
+ * 22d gives it an escape hatch rather than removing it: `--notify` posts
+ * `/api/revalidate` and replaces this line with `Notified <origin>`. The
+ * suggestion is only added when `--notify` was not passed, so a run that tried
+ * and failed is not told to try the thing it just did.
  */
 export const STALE_EDITOR_HINT =
   "A running editor is stale until Settings → Maintenance → Reload.";
 
-export function createLocalBackend(ctx: CurationContext): CuratorBackend {
+/** Shown once, to a caller who has not discovered `--notify` yet. */
+const NOTIFY_SUGGESTION =
+  " Pass --notify --editor-url <url> to invalidate it automatically.";
+
+export interface NotifyTarget {
+  url: string;
+  token?: string;
+}
+
+export interface LocalBackendOptions extends CurationContext {
+  /**
+   * Where to send `POST /api/revalidate` after a successful write.
+   *
+   * Set by `--notify`. Without it a local write leaves a running editor serving
+   * what it had, because invalidating a Next cache from outside the Next
+   * process is not a thing — which is what the hint above says.
+   */
+  notify?: NotifyTarget;
+}
+
+/**
+ * Tell a running editor its caches are wrong.
+ *
+ * Failure is a **warning, not an error**: the write already landed on disk and
+ * is committed. Turning "the editor was not running" into a non-zero exit would
+ * make a correct write look failed, and would leave a scripted caller retrying
+ * something it must not repeat.
+ */
+async function notifyEditor({ url, token }: NotifyTarget): Promise<string> {
+  const target = new URL("/api/revalidate", url);
+  const response = await fetch(target, {
+    method: "POST",
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) {
+    throw new Error(
+      `${target.origin} answered ${response.status} ${response.statusText}`.trim(),
+    );
+  }
+  return `Notified ${target.origin}`;
+}
+
+export function createLocalBackend({
+  notify,
+  ...ctx
+}: LocalBackendOptions): CuratorBackend {
   const guard = async () => {
     await assertCommitIdentity(ctx.contentDirectory);
   };
@@ -81,7 +130,14 @@ export function createLocalBackend(ctx: CurationContext): CuratorBackend {
     reindex: (contentType) => reindex(ctx, contentType),
 
     async afterWrite() {
-      return STALE_EDITOR_HINT;
+      if (!notify) return STALE_EDITOR_HINT + NOTIFY_SUGGESTION;
+      try {
+        return await notifyEditor(notify);
+      } catch (error) {
+        return `warning: could not notify ${notify.url}: ${
+          error instanceof Error ? error.message : String(error)
+        }\n${STALE_EDITOR_HINT}`;
+      }
     },
 
     /*

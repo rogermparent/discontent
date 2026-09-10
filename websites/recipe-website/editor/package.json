@@ -11,6 +11,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "create-user": "tsx ./scripts/create-user.ts",
+    "create-token": "tsx ./scripts/create-token.ts",
     "recipes": "tsx ./cli/index.ts",
     "e2e-dev": "playwright test --project=e2e --project=mobile",
     "e2e-dev:headed": "playwright test --project=e2e --project=mobile --ui",

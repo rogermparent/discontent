@@ -320,7 +320,7 @@ export async function createRecipe(
     );
   }
 
-  await createContent<Recipe, RecipeEntryValue, RecipeEntryKey>({
+  const result = await createContent<Recipe, RecipeEntryValue, RecipeEntryKey>({
     config: recipeContentConfig,
     slug,
     data,
@@ -328,6 +328,12 @@ export async function createRecipe(
     contentDirectory: ctx.contentDirectory,
     author: ctx.author,
     commitMessage: `Create recipe: ${slug}`,
+  });
+  ctx.onWrite?.({
+    contentType: recipeContentConfig.contentType,
+    kind: "create",
+    result,
+    slug,
   });
 
   return {
@@ -387,7 +393,7 @@ export async function updateRecipe(
   const date = patch.date ?? current.date ?? Date.now();
   const { data, uploads } = buildRecipeWrite(patch, { date, current });
 
-  await updateContent<Recipe, RecipeEntryValue, RecipeEntryKey>({
+  const result = await updateContent<Recipe, RecipeEntryValue, RecipeEntryKey>({
     config: recipeContentConfig,
     slug,
     currentSlug,
@@ -397,6 +403,14 @@ export async function updateRecipe(
     contentDirectory: ctx.contentDirectory,
     author: ctx.author,
     commitMessage: `Update recipe: ${slug}`,
+  });
+  ctx.onWrite?.({
+    contentType: recipeContentConfig.contentType,
+    kind: "update",
+    result,
+    slug,
+    /* Only on a real rename: the old URL is a page that now 404s. */
+    ...(slug !== currentSlug ? { previousSlug: currentSlug } : {}),
   });
 
   return { slug, date, path: recipePath(ctx, slug), url: recipeUrl(slug) };
@@ -417,13 +431,24 @@ async function deleteRecipeIfPresent(
     contentDirectory: ctx.contentDirectory,
   });
   if (!current) return false;
-  await deleteContent<Recipe, RecipeEntryValue, RecipeEntryKey>({
+  const result = await deleteContent<Recipe, RecipeEntryValue, RecipeEntryKey>({
     config: recipeContentConfig,
     slug,
     indexKey: [current.date, slug],
     contentDirectory: ctx.contentDirectory,
     author: ctx.author,
     commitMessage,
+  });
+  /*
+   * Fires on the overwrite path too, so `create --overwrite` reports a delete
+   * and then a create. That is what actually happened on disk (fact 7), and the
+   * delete's config is the one that clears the old item's dependents.
+   */
+  ctx.onWrite?.({
+    contentType: recipeContentConfig.contentType,
+    kind: "delete",
+    result,
+    slug,
   });
   return true;
 }

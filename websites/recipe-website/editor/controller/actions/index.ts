@@ -31,6 +31,10 @@ import { recipeContentTypes } from "../contentTypes";
 import type { EditorContentConfig } from "@discontent/cms/content/editorContentConfig";
 import { createGenericActions } from "@discontent/cms/content/genericActions";
 import { authenticateUser } from "./shared";
+import {
+  recipeDeleteSuccessConfig,
+  recipeSuccessConfig,
+} from "../successConfigs";
 
 const INITIAL_COMMIT_MESSAGE = "Initial commit";
 
@@ -141,24 +145,6 @@ function buildRecipeData(
   return { data, uploads };
 }
 
-/**
- * Where the items that borrow from a recipe are served.
- *
- * A featured recipe's *detail* page renders the recipe's name through its own
- * `getRecipeBySlug`, so the borrowed values on the index do not cover it — a
- * retitle would update the cards and leave `/featured-recipe/<slug>` serving
- * the old name. The write path knows which features moved; only the app knows
- * the URL they are served at, which is why this seat exists here and not on
- * the content config.
- *
- * Shared by the update and delete configs: a delete strips the borrowed values
- * from every feature of the recipe, and those detail pages go stale in exactly
- * the same way.
- */
-const RECIPE_DEPENDENT_ITEM_BASE_PATHS = {
-  "featured-recipes": "/featured-recipe",
-};
-
 const recipeEditorConfig: EditorContentConfig<
   Recipe,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -168,58 +154,8 @@ const recipeEditorConfig: EditorContentConfig<
   ParsedRecipeFormData
 > = {
   contentConfig: recipeContentConfig,
-  successConfig: {
-    itemBasePath: "/recipe",
-    /*
-     * Empty because `/recipes` and `/recipes/[page]` read through the
-     * pagination index, and `revalidatePaginationResults` invalidates exactly
-     * the pages a write actually changed — where a blanket `revalidatePath`
-     * dropped every sealed page on every create.
-     *
-     * With `listPaths` empty on all **three** recipe-family configs (this one,
-     * `deleteSuccessConfig` below, and featured recipes' — a comment here used
-     * to say four), `paginationOnly` controls exactly one call:
-     * `revalidatePath("/")`. So the only question it has ever asked is "what
-     * does the homepage still read untagged", and the answer is now nothing.
-     * `homepageRoute` reads four things, and each carries a tag this write
-     * fires when it moves them:
-     *
-     *   `recipePages.readHead()`          pagination head tag       (P3)
-     *   `featuredRecipePages.readHead()`  pagination head tag       (D2b/F10a)
-     *   `getAllTags()`                    aggregate tag             (F10b/F10c)
-     *   `recipeItems.read(heroSlug)`      `item:recipes:<slug>`     (F19)
-     *
-     * The hero was the last holdout and F19 closed it. Note what did *not*
-     * need a special case: featuring a recipe changes *which* recipe the hero
-     * renders, but the hero is not a cached page — only the read is cached,
-     * keyed by slug — so a different hero is simply a different cache key, and
-     * the choice itself comes from the featured head above.
-     *
-     * **This is a declaration, not a measurable change**, and the honest
-     * framing matters more than the flag. A production build renders `/` as
-     * `ƒ` — next-auth reads cookies in the layout — so there is no Full Route
-     * Cache entry for `revalidatePath("/")` to drop, and the export has no
-     * server at all. Nothing observable moves. What changes is that the record
-     * is now true: the write path is precise, rather than precise-plus-a-
-     * blanket-call kept for the one reader that had no tag.
-     *
-     * F4 never blocked this, contrary to what the doc used to say:
-     * `revalidatePath("/")` never covered `/search/all`, `/search/ingredients`
-     * or `/search/version`, which are separate route paths that nothing
-     * revalidates.
-     */
-    listPaths: [],
-    paginationOnly: true,
-    dependentItemBasePaths: RECIPE_DEPENDENT_ITEM_BASE_PATHS,
-  },
-  deleteSuccessConfig: {
-    itemBasePath: "/recipe",
-    listPaths: [],
-    /* Same reasoning as above; a delete moves the same four readers. */
-    paginationOnly: true,
-    dependentItemBasePaths: RECIPE_DEPENDENT_ITEM_BASE_PATHS,
-    redirectTo: () => "/",
-  },
+  successConfig: recipeSuccessConfig,
+  deleteSuccessConfig: recipeDeleteSuccessConfig,
   label: "recipe",
   // Auth is injected rather than imported: the factory lives in
   // @discontent/cms and cannot reach this app\'s `@/auth` alias. Required by

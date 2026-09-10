@@ -38,7 +38,10 @@ import {
   parseAuthor,
   resolveAuthor,
 } from "../websites/recipe-website/editor/controller/curation/author";
-import type { CurationContext } from "../websites/recipe-website/editor/controller/curation/context";
+import type {
+  ContentWriteEvent,
+  CurationContext,
+} from "../websites/recipe-website/editor/controller/curation/context";
 import { SlugConflictError } from "../websites/recipe-website/editor/controller/curation/errors";
 import * as groups from "../websites/recipe-website/editor/controller/curation/groups";
 import { importAndCreate } from "../websites/recipe-website/editor/controller/curation/importRecipe";
@@ -576,7 +579,132 @@ describe("author resolution", () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* 12. D8 import boundary                                              */
+/* 12. The onWrite hook (22d)                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The seat the API routes fill with `revalidateContentWrite` (D9).
+ *
+ * 22c's curation functions threw the engine's `ContentWriteResult` away — a CLI
+ * has no cache to invalidate, so there was nothing to do with it. A write that
+ * arrives *through* the editor is in the process that owns the caches, so the
+ * result has to come back out. It is reported through a hook rather than
+ * returned so the CLI's JSON contract is byte-identical to what 22c shipped,
+ * which is what the `cliJson` suite still asserts.
+ *
+ * What matters here is the *shape of the report*, since a route cannot be
+ * unit-tested (T17) and a wrong `contentType` or a missing `previousSlug` would
+ * simply leave a page stale — silent, and invisible to every other test.
+ */
+describe("onWrite", () => {
+  function recordingCtx(): {
+    ctx: CurationContext;
+    events: ContentWriteEvent[];
+  } {
+    const events: ContentWriteEvent[] = [];
+    return {
+      ctx: { contentDirectory, onWrite: (event) => events.push(event) },
+      events,
+    };
+  }
+
+  it("reports a create with the engine's own result", async () => {
+    const { ctx: recording, events } = recordingCtx();
+    await createRecipe(recording, { name: "Chocolate Cake" });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      contentType: "recipes",
+      kind: "create",
+      slug: "chocolate-cake",
+    });
+    /* The half a CLI cannot use and a route cannot do without. */
+    expect(Array.isArray(events[0].result.pagination)).toBe(true);
+    expect(Array.isArray(events[0].result.aggregates)).toBe(true);
+    expect(events[0].previousSlug).toBeUndefined();
+  });
+
+  it("reports an update, and carries previousSlug only on a rename", async () => {
+    await createRecipe(ctx, { name: "Chocolate Cake" });
+
+    const { ctx: recording, events } = recordingCtx();
+    await updateRecipe(recording, "chocolate-cake", { description: "Rich." });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      contentType: "recipes",
+      kind: "update",
+      slug: "chocolate-cake",
+    });
+    expect(events[0].previousSlug).toBeUndefined();
+
+    await updateRecipe(recording, "chocolate-cake", { slug: "choc-cake" });
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({
+      kind: "update",
+      slug: "choc-cake",
+      previousSlug: "chocolate-cake",
+    });
+  });
+
+  it("reports a delete, and reports overwrite as delete then create", async () => {
+    await createRecipe(ctx, { name: "Chocolate Cake" });
+
+    const { ctx: recording, events } = recordingCtx();
+    await createRecipe(
+      recording,
+      { name: "Chocolate Cake", description: "Second." },
+      { overwrite: true },
+    );
+    expect(events.map((event) => event.kind)).toEqual(["delete", "create"]);
+    expect(events.every((event) => event.slug === "chocolate-cake")).toBe(true);
+
+    await deleteRecipe(recording, "chocolate-cake");
+    expect(events).toHaveLength(3);
+    expect(events[2]).toMatchObject({
+      contentType: "recipes",
+      kind: "delete",
+      slug: "chocolate-cake",
+    });
+  });
+
+  it("reports group writes, with an item mutation as an update", async () => {
+    await createRecipe(ctx, { name: "First Recipe" });
+
+    const { ctx: recording, events } = recordingCtx();
+    await groups.createGroup(recording, {
+      name: "API week",
+      kind: "meal-plan",
+      items: ["first-recipe"],
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ contentType: "groups", kind: "create" });
+    const slug = events[0].slug;
+
+    await groups.addItem(recording, slug, "first-recipe", { label: "Tue" });
+    expect(events[1]).toMatchObject({
+      contentType: "groups",
+      kind: "update",
+      slug,
+    });
+    expect(events[1].previousSlug).toBeUndefined();
+
+    await groups.deleteGroup(recording, slug);
+    expect(events[2]).toMatchObject({
+      contentType: "groups",
+      kind: "delete",
+      slug,
+    });
+  });
+
+  it("is optional: a context without it writes exactly as before", async () => {
+    const result = await createRecipe(ctx, { name: "Chocolate Cake" });
+    expect(result.slug).toBe("chocolate-cake");
+    expect(Object.keys(result).sort()).toEqual(["date", "path", "slug", "url"]);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 13. D8 import boundary                                              */
 /* ------------------------------------------------------------------ */
 
 /**

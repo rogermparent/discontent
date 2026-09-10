@@ -9,6 +9,7 @@ type Fixtures = {
   initializeContentGit: () => Promise<void>;
   getContentGitLog: () => Promise<string[]>;
   copyFixtures: (fixtureName: string) => Promise<void>;
+  createApiToken: (email?: string, name?: string) => Promise<string>;
   readFeaturedRecipeIndexDigest: () => Promise<string>;
   makeRecipeUnreadable: (slug: string) => Promise<void>;
   writeSettings: (settings: Record<string, unknown>) => Promise<void>;
@@ -53,6 +54,14 @@ export const test = base.extend<Fixtures>({
   },
   copyFixtures: async ({}, use) => {
     await use(tasks.copyFixtures);
+  },
+  /*
+   * No cache invalidation: a token is read per request straight off disk, so
+   * there is nothing cached to expire. `resetData` recreates `users/`, so this
+   * must be called after it.
+   */
+  createApiToken: async ({}, use) => {
+    await use(tasks.createApiToken);
   },
   readFeaturedRecipeIndexDigest: async ({}, use) => {
     await use(tasks.readFeaturedRecipeIndexDigest);

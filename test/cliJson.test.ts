@@ -158,4 +158,29 @@ describe("the CLI as a process", () => {
     },
     TIMEOUT,
   );
+
+  /*
+   * 22d. Two things in one case, and neither needs a server: that `--remote`
+   * actually *selects* the HTTP backend — a local read would have succeeded
+   * against the seeded tmpdir, so a passing `list` here would mean the flag was
+   * ignored — and that a transport failure arrives as the CLI's own error
+   * object rather than an unhandled `fetch failed`. Port 9 is discard: nothing
+   * listens there by definition.
+   */
+  it(
+    "reports an unreachable --remote as one internal error object",
+    async () => {
+      const result = await run([
+        "--remote",
+        "http://127.0.0.1:9",
+        "list",
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.error.code).toBe("internal");
+      expect(parsed.error.message).toContain("Could not reach");
+    },
+    TIMEOUT,
+  );
 });

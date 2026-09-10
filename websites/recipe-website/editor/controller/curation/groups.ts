@@ -210,13 +210,19 @@ export async function createGroup(
     items,
   };
 
-  await createContent<Group, GroupEntryValue, GroupEntryKey>({
+  const result = await createContent<Group, GroupEntryValue, GroupEntryKey>({
     config: groupContentConfig,
     slug,
     data,
     contentDirectory: ctx.contentDirectory,
     author: ctx.author,
     commitMessage: `Create group: ${slug}`,
+  });
+  ctx.onWrite?.({
+    contentType: groupContentConfig.contentType,
+    kind: "create",
+    result,
+    slug,
   });
 
   return {
@@ -237,7 +243,7 @@ async function writeItems(
   warnings: string[],
   commitMessage: string,
 ): Promise<GroupWriteResult> {
-  await updateContent<Group, GroupEntryValue, GroupEntryKey>({
+  const result = await updateContent<Group, GroupEntryValue, GroupEntryKey>({
     config: groupContentConfig,
     slug,
     currentSlug: slug,
@@ -246,6 +252,17 @@ async function writeItems(
     contentDirectory: ctx.contentDirectory,
     author: ctx.author,
     commitMessage,
+  });
+  /*
+   * Every item mutation lands here — `setItems`, `addItem`, `removeItem` — so
+   * one hook covers all three. Never a rename: this seat writes the same slug
+   * back, which is why there is no `previousSlug`.
+   */
+  ctx.onWrite?.({
+    contentType: groupContentConfig.contentType,
+    kind: "update",
+    result,
+    slug,
   });
   return {
     slug,
@@ -339,13 +356,19 @@ export async function deleteGroup(
   slug: string,
 ): Promise<{ slug: string; deleted: true }> {
   const current = await requireGroup(ctx, slug);
-  await deleteContent<Group, GroupEntryValue, GroupEntryKey>({
+  const result = await deleteContent<Group, GroupEntryValue, GroupEntryKey>({
     config: groupContentConfig,
     slug,
     indexKey: [current.date, slug],
     contentDirectory: ctx.contentDirectory,
     author: ctx.author,
     commitMessage: `Delete group: ${slug}`,
+  });
+  ctx.onWrite?.({
+    contentType: groupContentConfig.contentType,
+    kind: "delete",
+    result,
+    slug,
   });
   return { slug, deleted: true };
 }
