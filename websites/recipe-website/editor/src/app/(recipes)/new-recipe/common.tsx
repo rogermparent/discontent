@@ -20,19 +20,27 @@ function isYouTubeUrl(url: string): boolean {
   }
 }
 
+/**
+ * The `*Imported from [url](url)*` line this used to open with is gone (D7):
+ * the citation is carried by `source` instead, which the detail page renders
+ * and the form can edit. What the prefix never covered — the channel and the
+ * video's own description — still belongs here.
+ */
 function formatYouTubeDescription(
-  url: string,
   description?: string,
   channel?: string,
-): string {
-  const segments = [`*Imported from [${url}](${url})*`];
+): string | undefined {
+  const segments: string[] = [];
   if (channel) {
-    segments.push(`\n\nChannel: ${channel}`);
+    segments.push(`Channel: ${channel}`);
   }
   if (description) {
-    segments.push(`\n\n---\n\n${description}`);
+    segments.push(description);
   }
-  return segments.join("");
+  if (segments.length === 0) {
+    return undefined;
+  }
+  return segments.join("\n\n---\n\n");
 }
 
 export async function reduceRecipeImport(
@@ -53,10 +61,14 @@ export async function reduceRecipeImport(
             recipe: {
               name: metadata.title,
               description: formatYouTubeDescription(
-                url,
                 metadata.description,
                 metadata.channel,
               ),
+              source: {
+                url,
+                name: "YouTube",
+                author: metadata.channel,
+              },
               videoImportUrl: metadata.webpage_url,
               imageImportUrl: metadata.thumbnail,
             } as Partial<ImportedRecipe>,

@@ -3,8 +3,10 @@ import {
   Instruction,
   InstructionGroup,
   Recipe,
+  RecipeSource,
 } from "../controller/types";
 import { createIngredient } from "./parseIngredients";
+import { hostnameLabel } from "./hostnameLabel";
 import { fromHtml } from "hast-util-from-html";
 import { toMdast } from "hast-util-to-mdast";
 import { toMarkdown } from "mdast-util-to-markdown";
@@ -17,6 +19,12 @@ function decodeText(html: string) {
   const markdown = toMarkdown(mdast);
   return markdown.trim();
 }
+
+/**
+ * schema.org lets `author` be a bare string, a Person/Organization object, or
+ * an array of either — all three occur in the wild on recipe sites.
+ */
+type AuthorLD = string | { name?: string } | (string | { name?: string })[];
 
 interface RecipeLD {
   name: string;
@@ -32,6 +40,51 @@ interface RecipeLD {
   prepTime?: string;
   cookTime?: string;
   totalTime?: string;
+  author?: AuthorLD;
+  publisher?: { name?: string };
+}
+
+/** Entities only — the value is rendered as plain text, never as markdown. */
+function decodeName(value: string): string | undefined {
+  return decodeHTML(value).trim() || undefined;
+}
+
+/**
+ * The first usable name out of a schema.org `author`, in any of its three
+ * shapes. Exported for the unit tests, which pin each shape.
+ */
+export function extractAuthorName(author?: AuthorLD): string | undefined {
+  if (!author) return undefined;
+  if (typeof author === "string") return decodeName(author);
+  if (Array.isArray(author)) {
+    for (const entry of author) {
+      const name = extractAuthorName(entry);
+      if (name) return name;
+    }
+    return undefined;
+  }
+  if (typeof author === "object" && typeof author.name === "string") {
+    return decodeName(author.name);
+  }
+  return undefined;
+}
+
+/**
+ * The citation carried by every import (D6/22a). It replaces the
+ * `*Imported from [url](url)*` description prefix this importer used to write
+ * (D7): the same fact, in a field the site can render and a query can read,
+ * rather than prose glued to the front of the user's own description.
+ */
+function buildSource(
+  url: string,
+  publisherName?: string,
+  author?: string,
+): RecipeSource {
+  return {
+    url,
+    name: publisherName || hostnameLabel(url),
+    author,
+  };
 }
 
 type UnknownLD = Record<string, unknown> | UnknownLD[] | RecipeLD;
@@ -160,7 +213,7 @@ export async function importRecipeData(
     // For video URLs, return a simple recipe with the video URL
     return {
       videoImportUrl: url,
-      description: `*Imported from [${url}](${url})*`,
+      source: buildSource(url),
     };
   }
 
@@ -184,23 +237,26 @@ export async function importRecipeData(
     prepTime,
     cookTime,
     totalTime,
+    author,
+    publisher,
   } = recipeObject;
 
   const imageURL =
     image && getImageUrl(Array.isArray(image) ? image[0] : image);
   const videoURL = video && getVideoUrl(video);
 
-  const newDescriptionSegments = [`*Imported from [${url}](${url})*`];
-  if (description) {
-    newDescriptionSegments.push(`\n\n---\n\n${decodeText(description)}`);
-  }
-  const newDescription = newDescriptionSegments.join("");
+  const newDescription = description ? decodeText(description) : undefined;
 
   const massagedData: Partial<ImportedRecipe> = {
     name: decodeText(name),
     imageImportUrl: imageURL,
     videoImportUrl: videoURL,
     description: newDescription,
+    source: buildSource(
+      url,
+      publisher?.name ? decodeName(publisher.name) : undefined,
+      extractAuthorName(author),
+    ),
     prepTime: parseDurationToMinutes(prepTime),
     cookTime: parseDurationToMinutes(cookTime),
     totalTime: parseDurationToMinutes(totalTime),

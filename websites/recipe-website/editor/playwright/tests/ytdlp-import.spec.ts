@@ -36,6 +36,16 @@ test.describe("yt-dlp Import", () => {
       /Test Kitchen Channel/,
     );
     await expect(page.locator('input[name="videoUrl"]')).toHaveValue(url);
+    // Provenance (22a): the channel is the byline, YouTube the publisher.
+    await expect(page.locator('#recipe-form [name="source.url"]')).toHaveValue(
+      url,
+    );
+    await expect(page.locator('#recipe-form [name="source.name"]')).toHaveValue(
+      "YouTube",
+    );
+    await expect(
+      page.locator('#recipe-form [name="source.author"]'),
+    ).toHaveValue("Test Kitchen Channel");
   });
 
   test("should inform the user if yt-dlp has an error", async ({

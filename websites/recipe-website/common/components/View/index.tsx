@@ -13,6 +13,7 @@ import { VideoPlayerProvider } from "@discontent/component-library/components/Vi
 import { VideoPlayer } from "@discontent/component-library/components/VideoPlayer";
 import { RecipeJsonLD } from "./JsonLD";
 import { Ingredients } from "./Ingredients";
+import { SourceLine } from "./SourceLine";
 import { RecipeSchedule } from "./Schedule";
 import BookmarkButton from "../BookmarkButton";
 import { resolveRecipeVideoSrc } from "../../controller/recipeVideo";
@@ -101,6 +102,7 @@ export async function RecipeView({
                   <Markdown>{description}</Markdown>
                 </div>
               )}
+              <SourceLine source={recipe.source} />
               {/* Canonical meta strip — Prep · Cook · Total · Yield. Yield scales
                   in place with the Ingredients-header scaler (both share the
                   MultiplierProvider). Fills the hero's formerly-dead right half. */}

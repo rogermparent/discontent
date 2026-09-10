@@ -30,6 +30,21 @@ export interface Timeline {
   note?: string;
 }
 
+/**
+ * Where a recipe came from (D6/22a). Provenance lives on the recipe data file
+ * only — never on `RecipeEntryValue` — so adding it needed no index-shape
+ * change, no fixture regeneration and no `SEARCH_DB_NAME` bump.
+ *
+ * `url` is the only required part: it is the citation. `name` is the human
+ * label for the link (a JSON-LD `publisher.name`, else the hostname without
+ * `www.`), and `author` the byline when the source page carried one.
+ */
+export interface RecipeSource {
+  url: string;
+  name?: string;
+  author?: string;
+}
+
 export interface Recipe {
   name: string;
   date: number;
@@ -44,6 +59,7 @@ export interface Recipe {
   instructions?: InstructionEntry[];
   timelines?: Timeline[];
   tags?: string[];
+  source?: RecipeSource;
   [key: string]: unknown;
 }
 

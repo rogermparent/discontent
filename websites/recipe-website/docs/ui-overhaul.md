@@ -520,6 +520,7 @@ Each branch is off the previous. Rebase children after a parent merges.
 | 21a | `ui/21a-query-language` ← 20    | ✅ done       | The query becomes the only filter — this is what superseded PR 3's chip rail                                                                                                                                                                        |
 | 21b | `ui/21b-builder-layer` ← 21a    | ✅ done       | The builder layer: a chip preview line, chips that cycle their operator and remove themselves, palette rows that insert terms                                                                                                                       |
 | 21c | `ui/21c-autocomplete` ← 21b     | 🟡 next       | In-field syntax autocomplete — the fourth PR-21 affordance, held back for its own keyboard contract and for having no combobox primitive to build on                                                                                                |
+| 22  | `agent/22a-provenance` … `22e`  | 🟡 next       | Agent curation (provenance, groups/meal plans, curator CLI, remote write, Claude Code skill) — tracked in its own doc, **`docs/agent-curation.md`**; a separate stack off `content-engine-test`, not off 21c                                    |
 
 _(Table reconciled 2026-07-31.)_ It stopped at 15 while 16 through 21a had
 shipped and were merged into `content-engine-test`, and it left PRs 3 and 4

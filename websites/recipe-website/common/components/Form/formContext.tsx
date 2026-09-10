@@ -27,6 +27,12 @@ export interface RecipeFormValues {
   cookTime: number;
   totalTime: number;
   date?: number;
+  /**
+   * Provenance (D6/22a). Flat empty strings rather than an optional object:
+   * the three inputs are always mounted, and `parseRecipeFormData` is what
+   * collapses an untouched block back to no `source` at all.
+   */
+  source: { url: string; name: string; author: string };
 }
 
 export function recipeToFormValues(
@@ -46,6 +52,11 @@ export function recipeToFormValues(
     cookTime: recipe?.cookTime ?? 0,
     totalTime: recipe?.totalTime ?? 0,
     date: recipe?.date,
+    source: {
+      url: recipe?.source?.url ?? "",
+      name: recipe?.source?.name ?? "",
+      author: recipe?.source?.author ?? "",
+    },
   };
 }
 

@@ -48,6 +48,7 @@ function formDataFromParsed(parsed: ParsedRecipeFormData): RecipeFormData {
     totalTime: parsed.totalTime,
     recipeYield: parsed.recipeYield,
     tags: parsed.tags,
+    source: parsed.source,
     videoUrl: parsed.videoUrl || undefined,
   };
 }
@@ -78,6 +79,7 @@ function buildRecipeData(
     recipeYield,
     timelines,
     tags,
+    source,
   } = parsed;
 
   // Determine final video value with priority handling
@@ -133,6 +135,7 @@ function buildRecipeData(
     recipeYield,
     timelines,
     tags: tags && tags.length > 0 ? tags : undefined,
+    source,
   };
 
   return { data, uploads };
