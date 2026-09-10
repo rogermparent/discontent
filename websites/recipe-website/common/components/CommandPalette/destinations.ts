@@ -5,6 +5,7 @@ import {
   Bookmark,
   UtensilsCrossed,
   Star,
+  Layers,
   Store,
   Palette,
   ListTree,
@@ -68,6 +69,13 @@ export const NAV_DESTINATIONS: NavDestination[] = [
     icon: Star,
     group: "Browse",
     keywords: ["highlights"],
+  },
+  {
+    name: "Groups",
+    href: "/groups",
+    icon: Layers,
+    group: "Browse",
+    keywords: ["meal plan", "collection"],
   },
 
   // Owner destinations — mirror editor's SettingsNav (NAV_GROUPS).

@@ -13,6 +13,7 @@ import { VideoPlayerProvider } from "@discontent/component-library/components/Vi
 import { VideoPlayer } from "@discontent/component-library/components/VideoPlayer";
 import { RecipeJsonLD } from "./JsonLD";
 import { Ingredients } from "./Ingredients";
+import { AppearsIn } from "./AppearsIn";
 import { SourceLine } from "./SourceLine";
 import { RecipeSchedule } from "./Schedule";
 import BookmarkButton from "../BookmarkButton";
@@ -138,6 +139,10 @@ export async function RecipeView({
             <Ingredients ingredients={ingredients} />
             <Instructions instructions={instructions} />
           </div>
+          {/* Below the recipe itself, because it is about the recipe rather
+              than part of it, and because it is the one block here that reads
+              a *different* content type's derived state (22b/D4). */}
+          <AppearsIn slug={slug} />
         </div>
       </VideoPlayerProvider>
     </MultiplierProvider>

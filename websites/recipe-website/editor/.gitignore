@@ -55,5 +55,21 @@ next-env.d.ts
 # The three-recipes fixture has no featured recipes; a stray featured-recipes
 # LMDB index gets generated there by test runs. Ignore that spurious artifact.
 /playwright/fixtures/test-content/three-recipes/featured-recipes/
+# The same artifact, for groups — but as a rule rather than one fixture, because
+# every fixture is copied into `test-content` and any page the run visits can
+# open the groups environment there. `three-recipes-groups` is the one fixture
+# whose groups are real content, so it is carved back out. Order matters: a
+# negation only works if the pattern above it does not exclude the directory
+# itself, which is why both lines name `groups/` and not `groups/**`.
+/playwright/fixtures/test-content/*/groups/
+!/playwright/fixtures/test-content/three-recipes-groups/groups/
+# `three-recipes-groups` inherits the featured-recipes artifact above, and gains
+# a `pages` one, because 22b's export-build check points `CONTENT_DIRECTORY`
+# straight at this fixture — so the export opens every environment it reads,
+# right here, rather than in a copy. Named per fixture rather than as a
+# wildcard: `about-page` and `two-pages` have real `pages/` content, and
+# `one-featured-recipe` real featured recipes.
+/playwright/fixtures/test-content/three-recipes-groups/featured-recipes/
+/playwright/fixtures/test-content/three-recipes-groups/pages/
 
 .env

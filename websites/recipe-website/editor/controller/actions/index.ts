@@ -354,6 +354,36 @@ export async function rebuildRecipeIndex() {
   revalidateDerivedState([recipeContentConfig, featuredRecipeContentConfig]);
 }
 
+/**
+ * Rebuild **every** index this site owns, then invalidate everything derived
+ * from any of them.
+ *
+ * The seat `rebuildRecipeIndex` could not become. That one is pinned by
+ * `test/revalidateDerived.test.ts` as a *narrow* seat — recipes and the
+ * featured recipes its cascade reaches, and deliberately nothing else — and it
+ * is what the git branch-switch path calls, where widening it would drop the
+ * whole cache on every checkout for no reason.
+ *
+ * What needed a wider one was the export (T9/22b): `buildExport` called
+ * `rebuildRecipeIndex` to self-heal a content directory that predates an index,
+ * and groups are not recipe dependents, so a directory with unbuilt groups
+ * shipped a `/groups` that was silently empty with no error at all. That is the
+ * same class of bug §13 keeps producing, and the fix is to ask the registry
+ * rather than to name two more configs here.
+ *
+ * `cascadeDependents: false` because the loop already covers every type. The
+ * default is true, and leaving it on would rebuild featured recipes twice —
+ * once as the recipe rebuild's cascade, once on its own pass.
+ */
+export async function rebuildAllIndexes() {
+  const contentDirectory = getContentDirectory();
+  for (const config of recipeContentTypes) {
+    await rebuildIndex({ config, contentDirectory, cascadeDependents: false });
+  }
+  /* One call over the whole registry: everything moved, so everything expires. */
+  revalidateDerivedState(recipeContentTypes);
+}
+
 export async function createRemote(
   _state: string | undefined,
   formData: FormData,

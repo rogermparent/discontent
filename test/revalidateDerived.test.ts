@@ -14,6 +14,7 @@ import { demoContentTypes } from "../packages/cms/demo/lib/contentTypes";
 import { portfolioContentTypes } from "../websites/portfolio/editor/controller/contentTypes";
 import { recipeContentTypes } from "../websites/recipe-website/editor/controller/contentTypes";
 import { featuredRecipeContentConfig } from "../websites/recipe-website/common/controller/featuredRecipeContentConfig";
+import { groupContentConfig } from "../websites/recipe-website/common/controller/groupContentConfig";
 import { recipeContentConfig } from "../websites/recipe-website/common/controller/recipeContentConfig";
 
 /*
@@ -90,12 +91,26 @@ describe("derivedTagsOfAll", () => {
     }
   });
 
-  it("adds only the item catch-alls the recipe route was missing", () => {
+  it("adds the item catch-alls the recipe route was missing, plus everything groups declares", () => {
     const fired = derivedTagsOfAll(recipeContentTypes);
 
+    /*
+     * In registry order, and `derivedTagsOf` emits each type's pagination
+     * indexes, then its aggregates, then its item catch-all — so groups
+     * contribute their three at the end, after `pages`, which was last before
+     * 22b appended them.
+     *
+     * That the groups triple appeared here with no edit to the reset route is
+     * the property F21b bought: the seat reads the registry, so declaring a
+     * content type is the whole of adopting it. The only edit 22b needed was to
+     * this expectation (T15).
+     */
     expect(fired.filter((tag) => !RECIPE_ROUTE_BEFORE.includes(tag))).toEqual([
       "item:featured-recipes",
       "item:pages",
+      "pagination:groups:by-date",
+      "aggregate:groups:by-recipe",
+      "item:groups",
     ]);
   });
 
@@ -180,6 +195,40 @@ describe("rebuild seats", () => {
     for (const tag of RECIPE_ROUTE_BEFORE) {
       expect(fired).toContain(tag);
     }
+  });
+
+  it("fires no recipe tag for a group rebuild either", () => {
+    // `rebuildGroupIndex`'s radius, the same claim as its featured sibling's
+    // and true for a stronger reason: groups declare no references in v1 (D3),
+    // so `rebuildIndex`'s cascade is empty and this really is the whole of what
+    // a group rebuild moves. Three tags — the keyspace, the aggregate behind
+    // "Appears in", and the catch-all every repair seat fires.
+    const fired = derivedTagsOf(groupContentConfig);
+
+    expect(fired).toEqual([
+      "pagination:groups:by-date",
+      "aggregate:groups:by-recipe",
+      "item:groups",
+    ]);
+    for (const tag of RECIPE_ROUTE_BEFORE) {
+      expect(fired).not.toContain(tag);
+    }
+  });
+
+  it("fires every type's tags for the export's rebuild-all seat", () => {
+    // `rebuildAllIndexes` (22b/T9) is the deliberately *wide* seat: it rebuilds
+    // the whole registry and hands the whole registry to `revalidateDerivedState`,
+    // because the export rebuilds everything and groups are nobody's dependent
+    // — so the narrow recipe seat it replaced left an unbuilt groups index
+    // alone. Its argument and the registry are the same list by construction,
+    // which is what this pins.
+    expect(derivedTagsOfAll(recipeContentTypes)).toContain("item:groups");
+    expect(derivedTagsOfAll(recipeContentTypes)).toContain(
+      "pagination:groups:by-date",
+    );
+    expect(derivedTagsOfAll(recipeContentTypes)).toContain(
+      "aggregate:groups:by-recipe",
+    );
   });
 
   it("fires no recipe tag for a featured-recipe rebuild", () => {

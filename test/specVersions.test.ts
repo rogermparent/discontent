@@ -99,6 +99,43 @@ describe("declared spec versions", () => {
     `);
   });
 
+  /*
+   * Groups get their own two blocks because they get their own two *modules*
+   * (T1). Folding `groupsByDate` into `paginationConfigs.ts` would have moved
+   * that file's hash, which is this test asking an author whether the recipe
+   * configs needed a version bump — for an edit that could not possibly have
+   * touched them.
+   */
+  it("group pagination config", () => {
+    expect(
+      readConfigModule(
+        "websites/recipe-website/common/controller/groupPaginationConfig.ts",
+      ),
+    ).toMatchInlineSnapshot(`
+      {
+        "hash": "798bcf7a1f07c6a8",
+        "versions": [
+          "1",
+        ],
+      }
+    `);
+  });
+
+  it("group aggregate configs", () => {
+    expect(
+      readConfigModule(
+        "websites/recipe-website/common/controller/groupAggregateConfigs.ts",
+      ),
+    ).toMatchInlineSnapshot(`
+      {
+        "hash": "bc0222918ed67b5f",
+        "versions": [
+          "1",
+        ],
+      }
+    `);
+  });
+
   it("project pagination configs", () => {
     expect(
       readConfigModule(

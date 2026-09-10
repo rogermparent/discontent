@@ -117,3 +117,68 @@ export interface FeaturedRecipeEntry {
   value: FeaturedRecipeEntryValue;
   version?: number;
 }
+
+/**
+ * The two things a group can be (D5/22b).
+ *
+ * A **meal plan** is an ordered run of meals — the items carry free-text labels
+ * like "Mon · Dinner" rather than a day/meal grid, which is the decision that
+ * kept the schema a flat list. A **collection** is a standing grouping
+ * ("Weeknight favourites") that keeps whatever order it was authored in.
+ *
+ * The kind is stored, projected and rendered, but nothing branches on it: the
+ * two read identically and differ only in a badge. That is deliberate —
+ * "featured recipes as a group kind" is deferred, and a kind that changed the
+ * rendering would make that harder to reach rather than easier.
+ */
+export type GroupKind = "meal-plan" | "collection";
+
+/**
+ * One line of a group: which recipe, and the two free-text fields around it.
+ *
+ * `recipe` is a slug, and it may dangle. Groups declare no `references` (D3) —
+ * the engine's reference machinery is scalar-only and cannot follow
+ * `items[].recipe` — so a recipe rename or delete leaves the slug behind and
+ * the detail page renders "Recipe not found: <slug>" rather than 404ing the
+ * whole group. Array references are engine follow-up F32.
+ */
+export interface GroupItem {
+  recipe: string;
+  /** "Mon · Dinner", "Starter", "Week 2" — whatever the curator wants. */
+  label?: string;
+  /** A line of prose under the item ("Leftovers for lunch"). */
+  note?: string;
+}
+
+export interface Group {
+  name: string;
+  date: number;
+  kind: GroupKind;
+  description?: string;
+  items: GroupItem[];
+  [key: string]: unknown;
+}
+
+export type GroupEntryKey = [date: number, slug: string];
+
+/**
+ * What the group index carries — everything the cards and the "Appears in"
+ * fold need, and nothing else.
+ *
+ * `note` is deliberately **not** here. It is per-item prose that only the
+ * detail page renders, and that page reads the data file anyway; carrying it
+ * would put a value on the index that no projection and no fold reads, so every
+ * note edit would dirty a page for nothing. `test/groups.test.ts` pins its
+ * absence.
+ */
+export interface GroupEntryValue {
+  name: string;
+  kind: GroupKind;
+  items: Pick<GroupItem, "recipe" | "label">[];
+}
+
+export interface GroupEntry {
+  key: GroupEntryKey;
+  value: GroupEntryValue;
+  version?: number;
+}

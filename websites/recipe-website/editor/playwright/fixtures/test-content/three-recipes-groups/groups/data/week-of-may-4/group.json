@@ -1,0 +1,21 @@
+{
+  "name": "Week of May 4",
+  "date": 1777852800000,
+  "kind": "meal-plan",
+  "description": "Three dinners, one shop.",
+  "items": [
+    {
+      "recipe": "first-recipe",
+      "label": "Mon · Dinner",
+      "note": "Leftovers for lunch"
+    },
+    {
+      "recipe": "second-recipe",
+      "label": "Tue · Dinner"
+    },
+    {
+      "recipe": "missing-recipe",
+      "label": "Wed · Dinner"
+    }
+  ]
+}
