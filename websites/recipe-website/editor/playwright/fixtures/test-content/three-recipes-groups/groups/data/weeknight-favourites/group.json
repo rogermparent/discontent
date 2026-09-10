@@ -1,0 +1,13 @@
+{
+  "name": "Weeknight Favourites",
+  "date": 1777593600000,
+  "kind": "collection",
+  "items": [
+    {
+      "recipe": "first-recipe"
+    },
+    {
+      "recipe": "third-recipe"
+    }
+  ]
+}

@@ -1,0 +1,242 @@
+name: Playwright Tests
+
+on:
+  push:
+    branches: [main, playwright]
+  pull_request:
+    branches: [main]
+
+# Auth.js refuses to start without a secret (`MissingSecret`), and every
+# sign-in in the recipe and portfolio suites went through the error page
+# instead of the form until this was set — 30 of shard 3's 107 tests and 26 of
+# portfolio's 84 in the first run against content-engine-test (#132,
+# 2026-09-08). The value only signs session cookies for a server that lives as
+# long as the job, so it is not a secret; docker-compose.test.yml passes the
+# developer's own through from the host env for the same reason.
+env:
+  AUTH_SECRET: playwright-ci-only-not-a-secret
+
+jobs:
+  test:
+    name: Recipe (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
+    # 45, not 30: in #132's first run three of four shards were cancelled at
+    # exactly 30 minutes while the fourth finished in 21 with 30 failures, so
+    # 30 is inside the noise of a bad run and made that run inconclusive.
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shardIndex: [1, 2, 3, 4]
+        shardTotal: [4]
+    container:
+      # Must match @playwright/test in the workspace — Playwright refuses to run
+      # against a mismatched browser bundle. This was pinned to v1.50.0-jammy
+      # while Dockerfile.playwright used v1.59.1-noble and the two sites'
+      # devDependencies disagreed with both.
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git
+        # The CI container carries no git identity, and `init.defaultBranch`
+        # decides what a bundle clone checks out: `git-test-content/test-git.bundle`
+        # holds only `refs/heads/main`, so a container defaulting to `master`
+        # checks out nothing and git.spec fails on an empty page.
+        run: |
+          git config --global user.name "Playwright Tester"
+          git config --global user.email "playwright@example.com"
+          git config --global init.defaultBranch main
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Playwright tests (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
+        working-directory: websites/recipe-website/editor
+        run: |
+          pnpm exec playwright test \
+            --project=e2e \
+            --project=mobile \
+            --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }} \
+            --reporter=blob
+
+      - name: Upload blob report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-report-${{ matrix.shardIndex }}
+          path: websites/recipe-website/editor/blob-report
+          retention-days: 14
+
+  portfolio:
+    name: Portfolio
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git
+        # The CI container carries no git identity, and `init.defaultBranch`
+        # decides what a bundle clone checks out: `git-test-content/test-git.bundle`
+        # holds only `refs/heads/main`, so a container defaulting to `master`
+        # checks out nothing and git.spec fails on an empty page.
+        run: |
+          git config --global user.name "Playwright Tester"
+          git config --global user.email "playwright@example.com"
+          git config --global init.defaultBranch main
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Unsharded on purpose: portfolio's suite is a fraction of recipe's, so
+      # four containers would spend more time starting up than testing.
+      - name: Run Playwright tests
+        working-directory: websites/portfolio/editor
+        run: |
+          pnpm exec playwright test \
+            --project=e2e \
+            --project=mobile \
+            --reporter=blob
+
+      - name: Upload blob report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-report-portfolio
+          path: websites/portfolio/editor/blob-report
+          retention-days: 14
+
+  # `packages/cms/demo` is the CMS's own suite — the only place the core is
+  # exercised without a site's opinions on top of it. No job ran it, so it could
+  # rot silently while both sites stayed green. Nine specs (create, read,
+  # update, delete, git, pagination, references, aggregates, items), 109 tests,
+  # ~3 minutes; this comment said five specs and 71 tests for several passes
+  # after it stopped being true.
+  #
+  # Both server modes, as a matrix. `dev` is the suite's contract and the fast
+  # cell; `prod` sets PLAYWRIGHT_BUILD=1, so playwright.config.ts runs
+  # `next build --webpack` and then `next start` on 3011.
+  #
+  # The prod cell exists because F20 was invisible for six passes purely because
+  # nothing here had ever run a production build — and when the first honest one
+  # was finally run it was red. It is green at 109 now
+  # (packages/cms/docs/incremental-regeneration.md §11.4), and this is what keeps
+  # it that way. `fail-fast: false` so a red prod cell never hides a red dev one.
+  #
+  # Cost is the build: ~50s on top of a suite that is *faster* in prod than in
+  # dev (no per-route compilation), well inside the 20-minute timeout, and it
+  # runs beside recipe's shards rather than ahead of them.
+  demo:
+    name: CMS demo (${{ matrix.mode }})
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [dev, prod]
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git
+        # git.spec asserts on commits the CMS makes, so the container needs an
+        # identity before the suite can produce any.
+        run: |
+          git config --global user.name "Playwright Tester"
+          git config --global user.email "playwright@example.com"
+          git config --global init.defaultBranch main
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Playwright tests
+        working-directory: packages/cms/demo
+        env:
+          # Empty on the dev cell: playwright.config.ts reads this as
+          # `!!process.env.PLAYWRIGHT_BUILD`, and "" is falsy.
+          PLAYWRIGHT_BUILD: ${{ matrix.mode == 'prod' && '1' || '' }}
+        run: pnpm exec playwright test --project=e2e
+
+  merge-reports:
+    name: Merge sharded reports
+    if: ${{ !cancelled() }}
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Recipe's shards only — the numeric pattern excludes
+      # `blob-report-portfolio`. Merging it in would interleave two unrelated
+      # suites into a single HTML report.
+      - name: Download all blob reports
+        uses: actions/download-artifact@v4
+        with:
+          path: all-blob-reports
+          pattern: blob-report-[0-9]*
+          merge-multiple: true
+
+      - name: Merge into a single HTML report
+        working-directory: websites/recipe-website/editor
+        run: pnpm exec playwright merge-reports --reporter=html,github ../../../all-blob-reports
+
+      - name: Upload merged HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: websites/recipe-website/editor/playwright-report
+          retention-days: 14

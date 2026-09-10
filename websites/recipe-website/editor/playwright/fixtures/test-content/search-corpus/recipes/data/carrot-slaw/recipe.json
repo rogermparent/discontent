@@ -1,0 +1,21 @@
+{
+  "name": "Carrot Slaw",
+  "description": "A bright raw salad dressed with rice vinegar and sesame.",
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"4\" /> carrots"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> tbsp grated ginger"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"2\" /> tbsp rice vinegar"
+    }
+  ],
+  "date": 1785278327600,
+  "prepTime": 10,
+  "cookTime": 0,
+  "totalTime": 0,
+  "recipeYield": "",
+  "tags": ["salad", "quick"]
+}

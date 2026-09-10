@@ -1,6 +1,6 @@
 import { ChangeEventHandler } from "react";
-import { Errors, FieldWrapper, baseInputStyle } from "../..";
-import clsx from "clsx";
+import { Errors, FieldWrapper } from "../..";
+import { Input } from "@discontent/component-library/components/ui/input";
 
 export function PasswordInput({
   name,
@@ -22,11 +22,10 @@ export function PasswordInput({
   return (
     <FieldWrapper label={label} id={id}>
       <Errors errors={errors} />
-      <input
+      <Input
         type="password"
         name={name}
         id={id}
-        className={clsx(baseInputStyle, "px-2 py-1")}
         defaultValue={defaultValue}
         onChange={onChange}
         placeholder={placeholder}

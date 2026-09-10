@@ -16,6 +16,17 @@ interface PureStaticImageProps {
   width: number;
   height: number;
   className?: string;
+  /**
+   * Which content type's uploads tree the image lives under — the same value as
+   * the collection's `ContentTypeConfig.uploadsDirectory`.
+   *
+   * This used to be the string literal `uploads/recipe`, baked into a package
+   * that is otherwise collection-agnostic, which made the component silently
+   * unusable by anything except recipes: a project image resolved to a recipe
+   * path and 404'd. Defaulted rather than required so recipe's three call sites
+   * keep working unchanged.
+   */
+  uploadsDirectory?: string;
 }
 
 export function getPureStaticImageProps({
@@ -25,12 +36,13 @@ export function getPureStaticImageProps({
   width,
   height,
   className,
+  uploadsDirectory = "uploads/recipe",
 }: PureStaticImageProps) {
   const {
     props: { children, ...rest },
   } = getImageProps({
     loader: pureLoader,
-    src: `/uploads/recipe/${slug}/uploads/${image}`,
+    src: `/${uploadsDirectory}/${slug}/uploads/${image}`,
     alt,
     width,
     height,

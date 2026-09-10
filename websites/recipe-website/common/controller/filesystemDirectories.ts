@@ -44,6 +44,31 @@ export function getRecipeUploadPath(
   return join(getRecipeUploadsPath(contentDirectory, slug), filename);
 }
 
+/*
+ * The group twins of the recipe trio above (22h). `uploads/group/<slug>` —
+ * singular, and the same shape recipes use — is what
+ * `groupContentConfig.uploadsDirectory` declares, so the engine's write path
+ * and these read paths agree by construction rather than by coincidence.
+ */
+export function getGroupUploadsBasePath(
+  contentDirectory: string,
+  slug: string,
+) {
+  return join(contentDirectory, "uploads", "group", slug);
+}
+
+export function getGroupUploadsPath(contentDirectory: string, slug: string) {
+  return join(getGroupUploadsBasePath(contentDirectory, slug), "uploads");
+}
+
+export function getGroupUploadPath(
+  contentDirectory: string,
+  slug: string,
+  filename: string,
+) {
+  return join(getGroupUploadsPath(contentDirectory, slug), filename);
+}
+
 export function getFeaturedRecipesBaseDirectory(
   providedContentDirectory?: string,
 ) {

@@ -27,7 +27,7 @@ function SearchModalContent({
 
   return (
     <>
-      <SearchInput />
+      <SearchInput placeholder="Search recipes…" />
       <SearchResultsModal onRecipeSelect={onRecipeSelect} />
     </>
   );

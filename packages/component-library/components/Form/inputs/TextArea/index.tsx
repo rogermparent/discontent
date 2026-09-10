@@ -1,11 +1,12 @@
 import { ChangeEventHandler } from "react";
-import { Errors, FieldWrapper, baseInputStyle } from "../..";
-import clsx from "clsx";
+import { Errors, FieldWrapper } from "../..";
+import { Textarea } from "@discontent/component-library/components/ui/textarea";
 
 export function TextAreaInput({
   name,
   id = name,
   defaultValue,
+  value,
   onChange,
   label,
   errors,
@@ -14,17 +15,21 @@ export function TextAreaInput({
   id?: string;
   label?: string;
   defaultValue?: string;
+  /** Controlled value; when provided the textarea is controlled. */
+  value?: string;
   onChange?: ChangeEventHandler<HTMLTextAreaElement>;
   errors?: string[];
 }) {
+  // Avoid passing both value and defaultValue (React would warn / ignore one).
+  const valueProps = value !== undefined ? { value } : { defaultValue };
   return (
     <FieldWrapper label={label} id={id}>
       <Errors errors={errors} />
-      <textarea
+      <Textarea
         name={name}
         id={id}
-        className={clsx(baseInputStyle, "px-1 h-40 grow")}
-        defaultValue={defaultValue}
+        className="h-40 grow"
+        {...valueProps}
         onChange={onChange}
       />
     </FieldWrapper>

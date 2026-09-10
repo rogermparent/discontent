@@ -1,0 +1,10 @@
+# The dirty-page artifact, not fixture data.
+#
+# `rebuildIndex` and the multi-item write path both drop one of these into the
+# content directory, so `copyFixtures` sweeps it into whatever fixture was
+# being generated. It carries a wall-clock `updatedAt`, so committing it means
+# a spurious diff every time a fixture is regenerated — and nothing in this
+# suite reads it. A real content repository ignores it for the same reason
+# (`initializeContentGit`); the demo's fixtures are the exception, because its
+# specs assert on the file directly.
+.pagination-changes.json

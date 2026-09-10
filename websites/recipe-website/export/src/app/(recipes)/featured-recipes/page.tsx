@@ -1,16 +1,8 @@
-import { getFeaturedRecipes } from "recipe-website-common/controller/data/readFeaturedRecipes";
-import FirstFeaturedRecipeIndexPage from "recipe-website-common/components/FeaturedRecipeIndexPage/FirstFeaturedRecipeIndexPage";
-import { FEATURED_RECIPES_PER_PAGE } from "recipe-website-common/components/FeaturedRecipeIndexPage/constants";
+import { featuredRecipeIndexRoutes } from "recipe-website-common/components/FeaturedRecipeIndexPage/routes";
 
-export default async function FeaturedRecipes() {
-  const { featuredRecipes, more } = await getFeaturedRecipes({
-    limit: FEATURED_RECIPES_PER_PAGE,
-  });
-
-  return (
-    <FirstFeaturedRecipeIndexPage
-      featuredRecipes={featuredRecipes}
-      more={more}
-    />
-  );
-}
+/**
+ * The landing page: the head page folded together with the one below it, so it
+ * always holds between `perPage + 1` and `2 * perPage` features rather than the
+ * 1-to-`perPage` a partial head would give on its own.
+ */
+export default featuredRecipeIndexRoutes.landing;

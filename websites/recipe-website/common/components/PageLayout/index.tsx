@@ -88,7 +88,7 @@ export interface PageActionsProps {
 export function PageActions({ children, className }: PageActionsProps) {
   return (
     <>
-      <hr className="w-full border-slate-700 print:hidden" />
+      <hr className="w-full border-border print:hidden" />
       <div
         className={cn(
           "flex flex-row justify-center px-4 py-2 print:hidden gap-2",

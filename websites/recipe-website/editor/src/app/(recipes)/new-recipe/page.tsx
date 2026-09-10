@@ -1,5 +1,6 @@
 import CreateForm from "./form";
 import { auth, signIn } from "@/auth";
+import { getAllTags } from "recipe-website-common/controller/data/read";
 import { reduceRecipeImport } from "./common";
 import {
   PageMain,
@@ -22,11 +23,12 @@ export default async function NewRecipe({
   const initialState = importURL
     ? await reduceRecipeImport(null, importURL)
     : null;
+  const allTags = await getAllTags();
 
   return (
     <PageMain>
       <PageSection maxWidth="xl" grow>
-        <CreateForm initialState={initialState} />
+        <CreateForm initialState={initialState} allTags={allTags} />
       </PageSection>
     </PageMain>
   );

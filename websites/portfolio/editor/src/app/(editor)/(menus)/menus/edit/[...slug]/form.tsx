@@ -5,8 +5,8 @@ import { useActionState } from "react";
 import { Button } from "@discontent/component-library/components/Button";
 import { Menu } from "@discontent/menus-collection/controller/types";
 import { MenuFormState } from "@discontent/menus-collection/controller/formState";
-import updateMenu from "@discontent/menus-collection/controller/actions/update";
 import Link from "next/link";
+import { updateMenu } from "../../../../../../../controller/actions/menus";
 
 export default function EditMenuForm({
   menu,

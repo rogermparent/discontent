@@ -1,0 +1,146 @@
+# Three suites, one image.
+#
+# The recipe shards keep their names and mounts so existing invocations
+# (`docker compose -f docker-compose.test.yml up shard-1 …`) are unchanged.
+# Portfolio and the cms demo are separate profiles: portfolio's suite is ~50
+# tests and the demo's is 109, against recipe's ~360, so sharding either four
+# ways would spend more time on container startup than on testing.
+#
+# Which projects each suite runs is `PLAYWRIGHT_PROJECTS`, not the Dockerfile's
+# CMD — the demo has no `mobile` project, and naming one that does not exist is
+# a hard error rather than a no-op.
+#
+# `AUTH_SECRET` is passed through rather than baked: .dockerignore keeps
+# .env.local out of the image on purpose, so it must be injected at run time.
+
+x-recipe-shard: &recipe-shard
+  image: content-engine-playwright:latest
+  environment: &recipe-env
+    SITE_DIR: websites/recipe-website/editor
+    SHARD_TOTAL: "${SHARD_TOTAL:-4}"
+    PLAYWRIGHT_ARGS: "${PLAYWRIGHT_ARGS:-}"
+    AUTH_SECRET: "${AUTH_SECRET:-}"
+    # Empty by default, so a container run stays dev-mode like every other suite
+    # here. `scripts/run-sharded-tests.sh --prod` sets it to 1, which makes
+    # playwright.config.ts build and then `pnpm start:test`. Passed through
+    # rather than hardcoded so four service definitions cover both modes — and
+    # because recipe is where the mode matters most: `next dev` serves with
+    # `no-cache`, so the stale-read class this project is about cannot be seen
+    # in the mode recipe was gated in until F22c.
+    PLAYWRIGHT_BUILD: "${PLAYWRIGHT_BUILD:-}"
+    CI: "true"
+  volumes: &recipe-volumes
+    # Variable for the demo's reason: a prod run reports into
+    # blob-reports-prod rather than merging into the dev run's directory, since
+    # two modes' blobs in one report would double every test and attribute
+    # failures to the wrong server.
+    - ./${RECIPE_BLOB_DIR:-blob-reports}:/app/websites/recipe-website/editor/blob-report
+    - ./websites/recipe-website/editor/playwright/tests/__screenshots__:/app/websites/recipe-website/editor/playwright/tests/__screenshots__
+
+services:
+  shard-1:
+    <<: *recipe-shard
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright
+    environment:
+      <<: *recipe-env
+      SHARD_INDEX: "1"
+
+  shard-2:
+    <<: *recipe-shard
+    depends_on:
+      - shard-1
+    environment:
+      <<: *recipe-env
+      SHARD_INDEX: "2"
+
+  shard-3:
+    <<: *recipe-shard
+    depends_on:
+      - shard-1
+    environment:
+      <<: *recipe-env
+      SHARD_INDEX: "3"
+
+  shard-4:
+    <<: *recipe-shard
+    depends_on:
+      - shard-1
+    environment:
+      <<: *recipe-env
+      SHARD_INDEX: "4"
+
+  # Portfolio, unsharded. The __screenshots__ mount is what makes baseline
+  # regeneration inside the container land back in the repo — baselines must
+  # never be generated on the host, since host fonts and rasterization differ.
+  portfolio:
+    image: content-engine-playwright:latest
+    # Behind a profile so `docker compose up` — which scripts/run-sharded-tests.sh
+    # uses with --abort-on-container-exit — stays recipe's four shards. Reach it
+    # with `docker compose -f docker-compose.test.yml run --rm portfolio`, which
+    # enables the profile implicitly.
+    profiles: ["portfolio"]
+    # Its own build, rather than `depends_on: shard-1`. Borrowing the dependency
+    # for its build was doing two unwanted things: `run --rm portfolio` silently
+    # required someone to have run `build shard-1` first (undocumented, and the
+    # failure mode is a missing-image error that names the wrong service), and
+    # `docker compose run` starts dependencies — so asking for portfolio's suite
+    # also started recipe's first shard in the background.
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright
+    environment:
+      SITE_DIR: websites/portfolio/editor
+      SHARD_INDEX: "1"
+      SHARD_TOTAL: "1"
+      PLAYWRIGHT_ARGS: "${PLAYWRIGHT_ARGS:-}"
+      AUTH_SECRET: "${AUTH_SECRET:-}"
+      CI: "true"
+    volumes:
+      - ./blob-reports-portfolio:/app/websites/portfolio/editor/blob-report
+      - ./websites/portfolio/editor/playwright/tests/__screenshots__:/app/websites/portfolio/editor/playwright/tests/__screenshots__
+
+  # The cms demo, unsharded. Nine specs, 109 tests — the only suite here that
+  # exercises the engine without a site's opinions on top of it, and until now
+  # the only one with no container at all: it ran in CI and nowhere else, so a
+  # local "everything is green" never actually included it.
+  demo:
+    image: content-engine-playwright:latest
+    # Behind a profile for exactly portfolio's reason: `docker compose up` —
+    # which scripts/run-sharded-tests.sh uses with --abort-on-container-exit —
+    # must stay recipe's four shards. Reach it with
+    # `docker compose -f docker-compose.test.yml run --rm demo`, which enables
+    # the profile implicitly.
+    profiles: ["demo"]
+    # Its own build rather than `depends_on: shard-1`, for the reason spelled
+    # out on portfolio above: `docker compose run` starts dependencies, so
+    # borrowing shard-1's build would start recipe's first shard just to test
+    # the demo.
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright
+    environment:
+      SITE_DIR: packages/cms/demo
+      # `e2e` only — the demo defines no `mobile` project, and asking for one
+      # that does not exist is a hard error. The pin also keeps the
+      # `generators` project from running, which would rewrite the fixtures
+      # under playwright/fixtures/ in place.
+      PLAYWRIGHT_PROJECTS: "--project=e2e"
+      SHARD_INDEX: "1"
+      SHARD_TOTAL: "1"
+      PLAYWRIGHT_ARGS: "${PLAYWRIGHT_ARGS:-}"
+      # Empty by default, so the container run stays dev-mode like every other
+      # suite here. `scripts/run-demo-tests.sh --prod` sets it to 1, which makes
+      # playwright.config.ts build and then `next start`. Passed through rather
+      # than hardcoded so one service definition covers both modes.
+      PLAYWRIGHT_BUILD: "${PLAYWRIGHT_BUILD:-}"
+      CI: "true"
+    # No AUTH_SECRET: the demo has no auth. No __screenshots__ mount: it takes
+    # no screenshots, so it has no host-font hazard and no baselines to
+    # regenerate.
+    volumes:
+      # Variable so a prod run reports into blob-reports-demo-prod rather than
+      # merging into the dev run's directory — two modes' blobs in one report
+      # would double every test and attribute failures to the wrong server.
+      - ./${DEMO_BLOB_DIR:-blob-reports-demo}:/app/packages/cms/demo/blob-report

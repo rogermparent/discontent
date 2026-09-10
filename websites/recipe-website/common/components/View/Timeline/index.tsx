@@ -1,7 +1,8 @@
 "use client";
 
-import { useReducer, useState, useEffect } from "react";
+import { useReducer, useState } from "react";
 import { TimelineEvent, Timeline } from "../../../controller/types";
+import { formatDurationCompact } from "../../../util/formatDuration";
 import clsx from "clsx";
 
 type LocalTimelineEvent = TimelineEvent & { currentLength: number };
@@ -63,19 +64,14 @@ function timelinesReducer(
   }
 }
 
-function formatDuration(minutes: number) {
-  const h = Math.floor(minutes / 60);
-  const m = Math.floor(minutes % 60);
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
-
+// Durations are the recipe's material — set in mono tabular figures on quiet
+// bench surfaces (the Working Bench signature move), with an ember focus ring.
 const INPUT_BASE_STYLES =
-  "text-xs px-1 py-0.5 rounded border bg-slate-800 text-slate-200 border-slate-600 outline-none focus:ring-2 focus:ring-blue-500 focus:w-14 focus:min-w-14";
+  "font-mono tabular-nums text-xs px-1 py-0.5 rounded border bg-background text-foreground border-input outline-none focus:ring-2 focus:ring-ring focus:w-14 focus:min-w-14";
 const INPUT_STANDARD_STYLES = `${INPUT_BASE_STYLES} w-14`;
 const INPUT_ZERO_OFFSET_STYLES = `${INPUT_BASE_STYLES} absolute left-1/2 opacity-0 pointer-events-none group-focus-within:opacity-100 group-focus-within:pointer-events-auto z-50`;
 const INPUT_ZOOM_STYLES =
-  "text-sm px-2 py-1 rounded border bg-slate-800 text-slate-200 border-slate-600 outline-none focus:ring-2 focus:ring-blue-500 w-16 text-center";
+  "font-mono tabular-nums text-sm px-2 py-1 rounded border bg-background text-foreground border-input outline-none focus:ring-2 focus:ring-ring w-16 text-center";
 
 function DurationInput({
   value,
@@ -167,7 +163,9 @@ function ZoomInput({
 
   return (
     <label className="flex flex-col items-center print:hidden">
-      <span className="text-xs text-slate-400 mb-1">Zoom</span>
+      <span className="mb-1 font-mono text-[0.65rem] uppercase tracking-wide text-muted-foreground">
+        Zoom
+      </span>
       <input
         type="number"
         min={1}
@@ -201,7 +199,7 @@ function EventBlock({
     (event.minLength !== undefined || event.maxLength !== undefined) &&
     event.minLength !== event.maxLength;
 
-  const durationText = formatDuration(duration);
+  const durationText = formatDurationCompact(duration);
   const ariaLabel = isResizable
     ? `${eventLabel}: ${durationText} (resizable)${hasOverlap && event.activeTime ? " (overlap conflict)" : ""}`
     : `${eventLabel}: ${durationText}${hasOverlap && event.activeTime ? " (overlap conflict)" : ""}`;
@@ -211,11 +209,14 @@ function EventBlock({
   return (
     <label
       className={clsx(
-        "relative h-full transition-colors border-r border-slate-700 box-border focus-within:overflow-visible",
+        // border-r takes its color from the base layer's `* { border-border }`;
+        // the overlap state overrides it with a destructive edge.
+        "relative h-full transition-colors border-r box-border focus-within:overflow-visible",
         {
-          "bg-red-900/70 border-red-500": hasOverlap && event.activeTime,
-          "bg-amber-900/50": !hasOverlap && event.activeTime,
-          "bg-slate-800/50": !event.activeTime,
+          "bg-destructive/15 border-destructive text-foreground":
+            hasOverlap && event.activeTime,
+          "bg-primary/20 text-foreground": !hasOverlap && event.activeTime,
+          "bg-muted text-muted-foreground": !event.activeTime,
         },
       )}
       style={{ width: `${widthPercent}%` }}
@@ -234,11 +235,13 @@ function EventBlock({
             ariaLabel={`${eventLabel} duration in minutes`}
           />
         ) : (
-          <div className="text-xs opacity-75">{formatDuration(duration)}</div>
+          <div className="font-mono tabular-nums text-xs opacity-75">
+            {formatDurationCompact(duration)}
+          </div>
         )}
       </div>
       {hasOverlap && event.activeTime && (
-        <div className="absolute top-1 right-2 text-red-400 text-xs font-bold">
+        <div className="absolute top-1 right-2 text-destructive text-xs font-bold">
           ⚠
         </div>
       )}
@@ -255,7 +258,7 @@ function OffsetBlock({
   onOffsetChange: (newOffset: number) => void;
   maxDuration: number;
 }) {
-  const handleLabelClick = (e: React.MouseEvent) => {
+  const handleLabelClick = (e: React.SyntheticEvent) => {
     const input = e.currentTarget.nextElementSibling as HTMLInputElement;
     if (input) {
       input.focus();
@@ -263,14 +266,14 @@ function OffsetBlock({
   };
 
   const isZero = offset === 0;
-  const offsetText = formatDuration(offset);
+  const offsetText = formatDurationCompact(offset);
   // Use minimum 1% width for zero offset to keep the clickable indicator visible
   const widthPercent = isZero ? 1 : (offset / maxDuration) * 100;
 
   if (isZero) {
     return (
       <label
-        className="group relative h-full bg-slate-950/30 border-r border-slate-700 box-border"
+        className="group relative h-full bg-muted/40 border-r box-border"
         style={{ width: `${widthPercent}%` }}
         role="article"
         aria-label={`Offset: ${offsetText}`}
@@ -278,7 +281,13 @@ function OffsetBlock({
         <div className="absolute inset-0 flex items-center justify-center">
           <div
             onClick={handleLabelClick}
-            className="w-1 h-4 bg-slate-400 rounded cursor-pointer hover:bg-slate-200"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault(); // stop Space from scrolling
+                handleLabelClick(e);
+              }
+            }}
+            className="w-1 h-4 bg-muted-foreground rounded cursor-pointer hover:bg-foreground"
             role="button"
             aria-label="Set timeline offset"
             tabIndex={0}
@@ -297,13 +306,15 @@ function OffsetBlock({
 
   return (
     <label
-      className="relative h-full bg-slate-950/30 border-r border-slate-700 box-border"
+      className="relative h-full bg-muted/40 border-r box-border"
       style={{ width: `${widthPercent}%` }}
       role="article"
       aria-label={`Offset: ${offsetText}`}
     >
       <div className="absolute inset-0 flex flex-col justify-center px-2 overflow-hidden">
-        <div className="text-xs opacity-50 truncate">Offset</div>
+        <div className="font-mono text-[0.65rem] uppercase tracking-wide opacity-60 truncate">
+          Offset
+        </div>
         <DurationInput
           value={offset}
           onChange={onOffsetChange}
@@ -336,7 +347,7 @@ function TimelineRow({
     0,
   );
 
-  const durationText = formatDuration(totalEventDuration);
+  const durationText = formatDurationCompact(totalEventDuration);
   const timelineName = timeline.name || "Timeline";
   const timelineId = timeline.name
     ? `timeline-${timeline.name.replace(/\s+/g, "-").toLowerCase()}`
@@ -356,18 +367,20 @@ function TimelineRow({
             </h4>
           )}
           {timeline.note && (
-            <p className="text-xs text-slate-400 truncate">{timeline.note}</p>
+            <p className="text-xs text-muted-foreground truncate">
+              {timeline.note}
+            </p>
           )}
         </div>
         <div
-          className="text-xs text-slate-300 shrink-0"
+          className="font-mono tabular-nums text-xs text-muted-foreground shrink-0"
           aria-label={`${timelineName} duration: ${durationText}`}
         >
           Duration: {durationText}
         </div>
       </div>
       <div
-        className="relative border border-slate-700 rounded bg-slate-950 h-16 w-full"
+        className="relative border border-border rounded bg-background h-16 w-full"
         role="group"
         aria-label={`${timelineName} events`}
       >
@@ -437,7 +450,7 @@ export function TimelineView({ timelines }: { timelines: Timeline[] }) {
     1, // Ensure at least 1 to avoid division by zero
   );
 
-  const maxDurationText = formatDuration(maxDuration);
+  const maxDurationText = formatDurationCompact(maxDuration);
 
   const showOffsets = localTimelines.length > 1;
 
@@ -502,15 +515,17 @@ export function TimelineView({ timelines }: { timelines: Timeline[] }) {
   }
 
   return (
-    <div className="my-6 bg-slate-900 rounded-md border border-slate-800">
+    <div className="mt-3 bg-card rounded-md border border-border">
       <div className="p-4">
         <div className="flex flex-row justify-between items-center mb-4 gap-2">
-          <h3 className="text-lg font-bold truncate">Timelines</h3>
+          <span className="font-mono text-[0.65rem] uppercase tracking-widest text-muted-foreground">
+            Adjust timing
+          </span>
           <div
-            className="text-sm text-slate-300 shrink-0"
+            className="font-mono tabular-nums text-xs text-muted-foreground shrink-0"
             aria-label={`Maximum duration: ${maxDurationText}`}
           >
-            Max Duration: {maxDurationText}
+            Max {maxDurationText}
           </div>
         </div>
         <div
@@ -537,7 +552,7 @@ export function TimelineView({ timelines }: { timelines: Timeline[] }) {
           </div>
         </div>
         <div className="flex flex-row justify-between items-start mt-4 gap-4">
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-muted-foreground">
             Edit the duration values to experiment with timing variations.
           </p>
           <ZoomInput value={zoom} onChange={setZoom} />

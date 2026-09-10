@@ -39,7 +39,9 @@ next-env.d.ts
 /content
 /test-content
 
-# cypress
-/cypress/screenshots
+# playwright
+/playwright-report
+/test-results
+/playwright/.cache
 
 .env

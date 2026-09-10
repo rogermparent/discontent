@@ -64,6 +64,60 @@ export function BookmarkForm({
         />
       </div>
 
+      {/*
+       * Slug and date, as the note form has. The server action already read
+       * both; without inputs every bookmark took `Date.now()`, so the sort key
+       * of a generated fixture depended on how fast the generator ran.
+       */}
+      <div>
+        {/*
+         * "Bookmark Slug", not "Slug": the reference field above is labelled
+         * "Note Slug", and a bare "Slug" would make every
+         * `getByLabel(/Slug/)` in the suite ambiguous.
+         */}
+        <label
+          htmlFor="slug"
+          style={{ display: "block", marginBottom: "5px", fontWeight: "500" }}
+        >
+          Bookmark Slug (optional, auto-generated from label)
+        </label>
+        <input
+          type="text"
+          id="slug"
+          name="slug"
+          style={{
+            width: "100%",
+            padding: "8px",
+            border: "1px solid #ddd",
+            borderRadius: "4px",
+          }}
+        />
+      </div>
+
+      <div>
+        <label
+          htmlFor="date"
+          style={{ display: "block", marginBottom: "5px", fontWeight: "500" }}
+        >
+          Date (UTC)
+        </label>
+        <input
+          type="datetime-local"
+          id="date"
+          name="date"
+          step="any"
+          defaultValue={
+            bookmark ? new Date(bookmark.date).toISOString().slice(0, 16) : ""
+          }
+          style={{
+            width: "100%",
+            padding: "8px",
+            border: "1px solid #ddd",
+            borderRadius: "4px",
+          }}
+        />
+      </div>
+
       <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
         <button
           type="submit"

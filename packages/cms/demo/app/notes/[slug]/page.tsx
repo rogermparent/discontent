@@ -1,13 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { readContentFile } from "@discontent/cms/content/readContentFile";
-import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
-import {
-  noteConfig,
-  NoteIndexKey,
-  NoteIndexValue,
-  type Note,
-} from "@/lib/notes";
+import { noteItems } from "@/lib/noteItemReads";
 
 export const dynamic = "force-dynamic";
 
@@ -17,18 +10,19 @@ interface Props {
 
 export default async function ViewNotePage({ params }: Props) {
   const { slug } = await params;
-  const contentDirectory = getContentDirectory();
 
-  let note: Note;
-  try {
-    note = await readContentFile<Note, NoteIndexValue, NoteIndexKey>({
-      config: noteConfig,
-      slug,
-      contentDirectory,
-    });
-  } catch {
-    notFound();
-  }
+  /*
+   * Cached and tagged `item:notes:<slug>`. `force-dynamic` above only stops
+   * the *route* being cached — the read underneath still persists across
+   * requests, which is what makes this page a real proving ground: without the
+   * write path firing that tag, editing the body below would leave this
+   * showing the old one.
+   *
+   * `null` rather than a throw, so the six-line try/catch this replaces
+   * collapses to the line after it.
+   */
+  const note = await noteItems.read(slug);
+  if (!note) notFound();
 
   return (
     <div>

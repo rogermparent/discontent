@@ -1,0 +1,9 @@
+{
+  "name": "Résumé Builder",
+  "date": 1710892800000,
+  "summary": "Structured résumé data in, a typeset PDF and a web page out — one source, no reformatting.",
+  "role": "Design & build",
+  "status": "shipped",
+  "tags": ["typography", "print", "next.js"],
+  "content": "A résumé is structured data pretending to be a document. Editing it as a\ndocument means every change is a formatting change.\n\nThis keeps the data structured and renders it twice: a print stylesheet tuned\nfor a single page, and a web version that stays readable at any width."
+}

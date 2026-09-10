@@ -1,33 +1,9 @@
-import { getFeaturedRecipes } from "recipe-website-common/controller/data/readFeaturedRecipes";
-import FeaturedRecipeIndexPage from "recipe-website-common/components/FeaturedRecipeIndexPage";
-import { redirect } from "next/navigation";
-import { FEATURED_RECIPES_PER_PAGE } from "recipe-website-common/components/FeaturedRecipeIndexPage/constants";
+import { featuredRecipeIndexRoutes } from "recipe-website-common/components/FeaturedRecipeIndexPage/routes";
 
-export default async function FeaturedRecipes({
-  params,
-}: {
-  params: Promise<{ page: string }>;
-}) {
-  const { page } = await params;
-  const pageNumber = Number(page);
-
-  if (isNaN(pageNumber) || pageNumber < 1) {
-    throw new Error("Invalid page number");
-  }
-  if (pageNumber === 1) {
-    redirect("/featured-recipes");
-  }
-
-  const { featuredRecipes, more } = await getFeaturedRecipes({
-    offset: (pageNumber - 1) * FEATURED_RECIPES_PER_PAGE,
-    limit: FEATURED_RECIPES_PER_PAGE,
-  });
-
-  return (
-    <FeaturedRecipeIndexPage
-      featuredRecipes={featuredRecipes}
-      pageNumber={pageNumber}
-      more={more}
-    />
-  );
-}
+/**
+ * A numbered page. `/featured-recipes/1` is the *oldest* page, not an alias for
+ * the landing — numbers name stable page ids counted from the oldest feature,
+ * so featuring a recipe moves nothing and no sealed URL ever changes what it
+ * points at.
+ */
+export default featuredRecipeIndexRoutes.numbered;

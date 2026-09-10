@@ -11,8 +11,22 @@ node_modules
 **/.env.development.local
 **/.env.test.local
 **/.env.production.local
-websites/portfolio
+# `websites/portfolio` used to be excluded outright, which is the reason
+# portfolio could not join the container harness: the image did not contain it.
+# Its runtime trees are excluded instead, exactly as recipe's are — and note
+# .env.local stays excluded above, which is why the container needs AUTH_SECRET
+# injected at `docker run`.
 websites/resume-builder
 websites/recipe-website/*/content
 websites/recipe-website/*/test-content
+websites/recipe-website/*/test-settings
+websites/portfolio/*/content
+websites/portfolio/*/test-content
+websites/portfolio/*/test-settings
+# The demo's runtime tree, excluded for the same reasons as the sites' above.
+# It is gitignored scratch that `resetData` deletes and recreates on the
+# suite's first test, so baking a developer's local copy in is pure waste — and
+# because it changes on every local run it would invalidate the `COPY . .`
+# layer every time, rebuilding the image from scratch.
+packages/cms/demo/test-content
 **/.cypress

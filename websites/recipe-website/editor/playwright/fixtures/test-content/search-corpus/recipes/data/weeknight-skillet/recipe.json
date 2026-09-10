@@ -1,0 +1,21 @@
+{
+  "name": "Weeknight Skillet",
+  "description": "A brisk one-pan supper glazed with pomegranate molasses and finished with herbs.\n\nAdapted from [a smokehouse standby](https://example.com/smokehouse), with the char traded for a fast sear under the broiler.",
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"2\" /> chicken thighs"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> onion"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> tbsp olive oil"
+    }
+  ],
+  "date": 1785278324365,
+  "prepTime": 10,
+  "cookTime": 15,
+  "totalTime": 0,
+  "recipeYield": "",
+  "tags": ["quick"]
+}

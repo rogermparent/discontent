@@ -1,81 +1,127 @@
-import clsx from "clsx";
-import { RecipeFormErrors } from "../../../controller/formState";
-import { TimelineEvent, Timeline } from "../../../controller/types";
+"use client";
+
 import { Button } from "@discontent/component-library/components/Button";
 import { FieldWrapper } from "@discontent/component-library/components/Form";
-import {
-  InputListControls,
-  KeyListAction,
-  useKeyList,
-} from "@discontent/component-library/components/Form/inputs/List";
-import { ActionDispatch, useEffect } from "react";
 import { TextInput } from "@discontent/component-library/components/Form/inputs/Text";
 import { DurationInput } from "@discontent/component-library/components/Form/inputs/Duration";
 import { CheckboxInput } from "@discontent/component-library/components/Form/inputs/Checkbox";
 import { TextAreaInput } from "@discontent/component-library/components/Form/inputs/TextArea";
+import { Timeline, TimelineEvent } from "../../../controller/types";
+import { useRecipeForm } from "../formContext";
+import { ArrayItemControls } from "@discontent/component-library/components/Form/ArrayItemControls";
+
+// Field-name prefixes that exist in the form's typed key space.
+type TimelinePrefix = `timelines[${number}]`;
+type EventPrefix = `timelines[${number}].events[${number}]`;
+
+/**
+ * Reorder / insert / delete controls for an array item, driven by TanStack
+ * Form array-field helpers (replaces the old useKeyList dispatch).
+ */
+type DurationFieldName =
+  | `${EventPrefix}.defaultLength`
+  | `${EventPrefix}.minLength`
+  | `${EventPrefix}.maxLength`
+  | `${TimelinePrefix}.default_offset`;
+
+/** Controlled duration field (total minutes) wired to TanStack Form. */
+function DurationField({
+  name,
+  label,
+  id,
+}: {
+  name: DurationFieldName;
+  label: string;
+  id: string;
+}) {
+  const form = useRecipeForm();
+  return (
+    <form.Field name={name}>
+      {(field) => (
+        <DurationInput
+          label={label}
+          name={name}
+          id={id}
+          valueMinutes={(field.state.value as number | undefined) ?? 0}
+          onValueChange={(minutes) => field.handleChange(minutes)}
+        />
+      )}
+    </form.Field>
+  );
+}
 
 function TimelineEventInput({
-  name,
+  prefix,
   id,
-  defaultValue,
-  index,
-  dispatch,
-  errors,
+  onInsert,
+  onMoveUp,
+  onMoveDown,
+  onRemove,
 }: {
-  name: string;
+  prefix: EventPrefix;
   id: string;
-  defaultValue?: TimelineEvent;
-  index: number;
-  dispatch: ActionDispatch<[KeyListAction<TimelineEvent>]>;
-  errors?: RecipeFormErrors;
+  onInsert: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onRemove: () => void;
 }) {
+  const form = useRecipeForm();
   return (
-    <div className="border p-2 rounded mb-2 bg-slate-900 border-slate-700">
+    <div className="border p-2 rounded mb-2 bg-muted border-border">
       <div className="flex flex-row justify-between items-start gap-2">
         <div className="flex-1">
-          <TextInput
-            label="Event Name"
-            name={`${name}.name`}
-            id={`${id}-name`}
-            defaultValue={defaultValue?.name}
-            errors={errors?.[`${name}.name`]}
-          />
+          <form.Field name={`${prefix}.name`}>
+            {(field) => (
+              <TextInput
+                label="Event Name"
+                name={`${prefix}.name`}
+                id={`${id}-name`}
+                value={(field.state.value as string) ?? ""}
+                onChange={(e) => field.handleChange(e.target.value)}
+                onBlur={field.handleBlur}
+              />
+            )}
+          </form.Field>
         </div>
         <div className="mt-6">
-          <InputListControls dispatch={dispatch} index={index} />
+          <ArrayItemControls
+            onInsert={onInsert}
+            onMoveUp={onMoveUp}
+            onMoveDown={onMoveDown}
+            onRemove={onRemove}
+          />
         </div>
       </div>
 
       <div className="my-2">
-        <CheckboxInput
-          label="Active Time?"
-          name={`${name}.activeTime`}
-          id={`${id}-activeTime`}
-          defaultChecked={defaultValue?.activeTime}
-        />
+        <form.Field name={`${prefix}.activeTime`}>
+          {(field) => (
+            <CheckboxInput
+              label="Active Time?"
+              name={`${prefix}.activeTime`}
+              id={`${id}-activeTime`}
+              checked={Boolean(field.state.value)}
+              onChange={(e) => field.handleChange(e.target.checked)}
+            />
+          )}
+        </form.Field>
       </div>
 
       <div className="flex flex-row gap-2 flex-wrap">
-        <DurationInput
+        <DurationField
           label="Default Length"
-          name={`${name}.defaultLength`}
+          name={`${prefix}.defaultLength`}
           id={`${id}-defaultLength`}
-          defaultValue={defaultValue?.defaultLength}
-          errors={errors?.[`${name}.defaultLength`]}
         />
-        <DurationInput
+        <DurationField
           label="Max Length"
-          name={`${name}.maxLength`}
+          name={`${prefix}.maxLength`}
           id={`${id}-maxLength`}
-          defaultValue={defaultValue?.maxLength}
-          errors={errors?.[`${name}.maxLength`]}
         />
-        <DurationInput
+        <DurationField
           label="Min Length"
-          name={`${name}.minLength`}
+          name={`${prefix}.minLength`}
           id={`${id}-minLength`}
-          defaultValue={defaultValue?.minLength}
-          errors={errors?.[`${name}.minLength`]}
         />
       </div>
     </div>
@@ -83,172 +129,196 @@ function TimelineEventInput({
 }
 
 function TimelineEventsInput({
-  name,
+  prefix,
   id,
-  defaultValue,
-  errors,
 }: {
-  name: string;
+  prefix: TimelinePrefix;
   id: string;
-  defaultValue?: TimelineEvent[];
-  errors?: RecipeFormErrors | undefined;
 }) {
-  const [{ values }, dispatch] = useKeyList<TimelineEvent>(defaultValue || []);
-
+  const form = useRecipeForm();
   return (
-    <>
-      <ul>
-        {values.map(({ key, defaultValue }, index) => {
-          const itemKey = `${name}[${index}]`;
-          const itemId = `${id}-${index}`;
-
-          return (
-            <li key={key} className="flex flex-col my-1">
-              <TimelineEventInput
-                name={itemKey}
-                id={itemId}
-                index={index}
-                defaultValue={defaultValue}
-                dispatch={dispatch}
-                errors={errors}
-              />
-            </li>
-          );
-        })}
-      </ul>
-      <div className="flex flex-row">
-        <Button
-          onClick={() =>
-            dispatch({
-              type: "APPEND",
-            })
-          }
-        >
-          Add Timeline Event
-        </Button>
-      </div>
-    </>
+    <form.Field name={`${prefix}.events`} mode="array">
+      {(arrayField) => {
+        const items =
+          (arrayField.state.value as TimelineEvent[] | undefined) ?? [];
+        return (
+          <>
+            <ul>
+              {items.map((_, index) => (
+                <li key={index} className="flex flex-col my-1">
+                  <TimelineEventInput
+                    prefix={`${prefix}.events[${index}]`}
+                    id={`${id}-${index}`}
+                    onInsert={() =>
+                      arrayField.insertValue(index, {
+                        activeTime: false,
+                        defaultLength: 0,
+                      })
+                    }
+                    onMoveUp={() =>
+                      index > 0 && arrayField.moveValue(index, index - 1)
+                    }
+                    onMoveDown={() =>
+                      index < items.length - 1 &&
+                      arrayField.moveValue(index, index + 1)
+                    }
+                    onRemove={() => arrayField.removeValue(index)}
+                  />
+                </li>
+              ))}
+            </ul>
+            <div className="flex flex-row">
+              <Button
+                onClick={() =>
+                  arrayField.pushValue({
+                    activeTime: false,
+                    defaultLength: 0,
+                  })
+                }
+              >
+                Add Timeline Event
+              </Button>
+            </div>
+          </>
+        );
+      }}
+    </form.Field>
   );
 }
 
 function TimelineInput({
-  name,
+  prefix,
   id,
-  defaultValue,
   index,
-  dispatch,
-  errors,
+  onInsert,
+  onMoveUp,
+  onMoveDown,
+  onRemove,
 }: {
-  name: string;
+  prefix: TimelinePrefix;
   id: string;
-  defaultValue?: Timeline;
   index: number;
-  dispatch: ActionDispatch<[KeyListAction<Timeline>]>;
-  errors?: RecipeFormErrors;
+  onInsert: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onRemove: () => void;
 }) {
-  const timelineName = defaultValue?.name || `Timeline ${index + 1}`;
-
+  const form = useRecipeForm();
   return (
-    <fieldset
-      className="border-2 p-4 rounded mb-4 bg-slate-800 border-slate-600"
-      aria-label={`${timelineName} editor`}
-    >
-      <div className="flex flex-row justify-between items-start gap-2 mb-4">
-        <div className="flex-1">
-          <TextInput
-            label="Timeline Name"
-            name={`${name}.name`}
-            id={`${id}-name`}
-            defaultValue={defaultValue?.name}
-            errors={errors?.[`${name}.name`]}
-            placeholder="e.g., 'Dough', 'Sauce', 'Assembly'"
-          />
-        </div>
-        <div className="mt-6">
-          <InputListControls dispatch={dispatch} index={index} />
-        </div>
-      </div>
+    <form.Field name={`${prefix}.name`}>
+      {(nameField) => {
+        const timelineName =
+          (nameField.state.value as string) || `Timeline ${index + 1}`;
+        return (
+          <fieldset
+            className="border-2 p-4 rounded mb-4 bg-card border-border"
+            aria-label={`${timelineName} editor`}
+          >
+            <div className="flex flex-row justify-between items-start gap-2 mb-4">
+              <div className="flex-1">
+                <TextInput
+                  label="Timeline Name"
+                  name={`${prefix}.name`}
+                  id={`${id}-name`}
+                  value={(nameField.state.value as string) ?? ""}
+                  onChange={(e) => nameField.handleChange(e.target.value)}
+                  onBlur={nameField.handleBlur}
+                  placeholder="e.g., 'Dough', 'Sauce', 'Assembly'"
+                />
+              </div>
+              <div className="mt-6">
+                <ArrayItemControls
+                  onInsert={onInsert}
+                  onMoveUp={onMoveUp}
+                  onMoveDown={onMoveDown}
+                  onRemove={onRemove}
+                />
+              </div>
+            </div>
 
-      <div className="mb-4">
-        <DurationInput
-          label="Starting Offset (minutes before recipe start)"
-          name={`${name}.default_offset`}
-          id={`${id}-default-offset`}
-          defaultValue={defaultValue?.default_offset}
-          errors={errors?.[`${name}.default_offset`]}
-        />
-      </div>
+            <div className="mb-4">
+              <DurationField
+                label="Starting Offset (minutes before recipe start)"
+                name={`${prefix}.default_offset`}
+                id={`${id}-default-offset`}
+              />
+            </div>
 
-      <div className="mb-4">
-        <TextAreaInput
-          label="Note (optional)"
-          name={`${name}.note`}
-          id={`${id}-note`}
-          defaultValue={defaultValue?.note}
-          errors={errors?.[`${name}.note`]}
-        />
-      </div>
+            <div className="mb-4">
+              <form.Field name={`${prefix}.note`}>
+                {(field) => (
+                  <TextAreaInput
+                    label="Note (optional)"
+                    name={`${prefix}.note`}
+                    id={`${id}-note`}
+                    value={(field.state.value as string) ?? ""}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                  />
+                )}
+              </form.Field>
+            </div>
 
-      <div className="border-t border-slate-700 pt-4">
-        <h4 className="text-sm font-semibold mb-2">Events</h4>
-        <TimelineEventsInput
-          name={`${name}.events`}
-          id={`${id}-events`}
-          defaultValue={defaultValue?.events}
-          errors={errors}
-        />
-      </div>
-    </fieldset>
+            <div className="border-t border-border pt-4">
+              <h4 className="text-sm font-semibold mb-2">Events</h4>
+              <TimelineEventsInput prefix={prefix} id={`${id}-events`} />
+            </div>
+          </fieldset>
+        );
+      }}
+    </form.Field>
   );
 }
 
 export function TimelinesInput({
-  name,
   id,
-  defaultValue,
   label,
-  errors,
 }: {
-  name: string;
+  name?: string;
   id: string;
   label: string;
   defaultValue?: Timeline[];
-  errors?: RecipeFormErrors | undefined;
+  errors?: unknown;
 }) {
-  const [{ values }, dispatch] = useKeyList<Timeline>(defaultValue || []);
-
+  const form = useRecipeForm();
   return (
     <FieldWrapper label={label} id={id}>
-      <ul>
-        {values.map(({ key, defaultValue }, index) => {
-          const itemKey = `${name}[${index}]`;
-          const itemId = `${id}-${index}`;
-
+      <form.Field name="timelines" mode="array">
+        {(arrayField) => {
+          const items =
+            (arrayField.state.value as Timeline[] | undefined) ?? [];
           return (
-            <li key={key} className="flex flex-col my-1">
-              <TimelineInput
-                name={itemKey}
-                id={itemId}
-                index={index}
-                defaultValue={defaultValue}
-                dispatch={dispatch}
-                errors={errors}
-              />
-            </li>
+            <>
+              <ul>
+                {items.map((_, index) => (
+                  <li key={index} className="flex flex-col my-1">
+                    <TimelineInput
+                      prefix={`timelines[${index}]`}
+                      id={`${id}-${index}`}
+                      index={index}
+                      onInsert={() =>
+                        arrayField.insertValue(index, { events: [] })
+                      }
+                      onMoveUp={() =>
+                        index > 0 && arrayField.moveValue(index, index - 1)
+                      }
+                      onMoveDown={() =>
+                        index < items.length - 1 &&
+                        arrayField.moveValue(index, index + 1)
+                      }
+                      onRemove={() => arrayField.removeValue(index)}
+                    />
+                  </li>
+                ))}
+              </ul>
+              <div className="flex flex-row">
+                <Button onClick={() => arrayField.pushValue({ events: [] })}>
+                  Add Timeline
+                </Button>
+              </div>
+            </>
           );
-        })}
-      </ul>
-      <div className="flex flex-row">
-        <Button
-          onClick={() =>
-            dispatch({
-              type: "APPEND",
-            })
-          }
-        >
-          Add Timeline
-        </Button>
-      </div>
+        }}
+      </form.Field>
     </FieldWrapper>
   );
 }

@@ -39,7 +39,15 @@ next-env.d.ts
 /content
 /test-content
 
-# cypress
-/cypress/screenshots
+# settings (written at runtime; test-settings by the Playwright fixtures)
+/settings
+/test-settings
+
+# playwright
+/playwright-report
+/test-results
+/playwright/.auth
+/blob-report
+/blob-reports
 
 .env

@@ -1,12 +1,13 @@
-import { ChangeEventHandler } from "react";
-import { Errors, FieldWrapper, baseInputStyle } from "../..";
-import clsx from "clsx";
+import { ChangeEventHandler, FocusEventHandler } from "react";
+import { Errors, FieldWrapper } from "../..";
+import { Input } from "@discontent/component-library/components/ui/input";
 
 export function TextInput({
   name,
   id = name,
   defaultValue,
   onChange,
+  onBlur,
   label,
   placeholder,
   errors,
@@ -18,6 +19,7 @@ export function TextInput({
   label?: string;
   defaultValue?: string;
   onChange?: ChangeEventHandler<HTMLInputElement>;
+  onBlur?: FocusEventHandler<HTMLInputElement>;
   placeholder?: string;
   errors?: string[];
   list?: string;
@@ -26,13 +28,13 @@ export function TextInput({
   return (
     <FieldWrapper label={label} id={id}>
       <Errors errors={errors} />
-      <input
+      <Input
         type="text"
         name={name}
         id={id}
-        className={clsx(baseInputStyle, "px-2 py-1")}
         defaultValue={defaultValue}
         onChange={onChange}
+        onBlur={onBlur}
         placeholder={placeholder}
         list={list}
         value={value}

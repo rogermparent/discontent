@@ -1,7 +1,41 @@
 @import "tailwindcss";
-@source "../../node_modules/projects-collection/components";
+@import "tw-animate-css";
+/*
+ * Central content-engine palette + type tokens. Portfolio sits at the same depth
+ * as recipe, so this path is identical in both sites.
+ *
+ * Its absence was the whole problem: without it none of the token utilities
+ * (bg-background, text-foreground, font-display…) existed, so every color class
+ * in the Homepage components resolved to nothing and the only thing painting the
+ * page was a hardcoded bg-slate-950 on <body>.
+ */
+@import "../../../../../packages/component-library/styles/theme.css";
+/*
+ * These globs used to point at pre-@discontent-rename paths
+ * (node_modules/component-library/components), which exist nowhere — so Tailwind
+ * never scanned the shared kit and emitted none of its classes. Tailwind does
+ * not warn about an @source that matches nothing.
+ */
 @source "../../node_modules/portfolio-website-common/components";
-@source "../../node_modules/component-library/components";
+@source "../../node_modules/@discontent/component-library/components";
+@source "../../node_modules/@discontent/projects-collection/components";
+@source "../../node_modules/@discontent/pages-collection/components";
+@source "../../node_modules/@discontent/menus-collection/components";
+
+/*
+ * Portfolio's default font-role binding.
+ *
+ * theme.css points the roles at the "bench" pairing, which is *recipe's* — and
+ * portfolio never registers it, so without this every heading silently fell back
+ * to system-ui via the --ff-*-fallback chain. (Caught by smoke.spec, which is
+ * why that assertion exists.) The theming engine overrides these when a visitor
+ * or the owner picks a different pairing; this is only the no-theme default.
+ */
+:root {
+  --ff-display: var(--ff-display-marginalia, var(--ff-display-fallback));
+  --ff-body: var(--ff-body-marginalia, var(--ff-body-fallback));
+  --ff-mono: var(--ff-mono-marginalia, var(--ff-mono-fallback));
+}
 
 .markdown-body {
   h1,
@@ -10,7 +44,7 @@
   h4,
   h5,
   h6 {
-    @apply font-bold;
+    @apply font-display font-semibold;
   }
   h1 {
     @apply text-3xl my-4;
@@ -27,25 +61,71 @@
   ul {
     @apply list-disc pl-5 my-2;
   }
+
+  a {
+    @apply underline decoration-primary/40 hover:text-primary;
+  }
 }
 
 html,
 body {
-  @apply text-slate-100;
   padding: 0;
   margin: 0;
   min-height: 100vh;
 }
 
-body {
-  color: rgb(var(--foreground-rgb));
+/*
+ * Full-bleed default for *unsized* SVGs. Scoped into `@layer base` so Tailwind's
+ * size-* / w-* / h-* utilities win over it — an unlayered `svg {}` rule beats
+ * every layered utility, which silently blows every sized icon up to fill its
+ * parent. Recipe hit exactly this bug; portfolio inherited the unlayered rule
+ * and would have hit it the moment it started using lucide icons.
+ */
+@layer base {
+  svg {
+    width: 100%;
+    height: 100%;
+  }
 }
 
-svg {
-  width: 100%;
-  height: 100%;
+/*
+ * Print stylesheet. A portfolio gets printed — to PDF, for a job application —
+ * so the index has to survive it. Screen chrome is hidden with `print:hidden` at
+ * the component layer; this handles what utilities can't.
+ */
+@media print {
+  /* The year rail carries the accent, which is the one thing that must not wash
+     out: it is what distinguishes the current entry. */
+  [data-slot="index-row"] * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Never split a work across a page break. */
+  [data-slot="index-row"],
+  .markdown-body,
+  li {
+    break-inside: avoid;
+  }
 }
 
-a {
-  @apply transition hover:text-cyan-700 visited:text-purple-950 dark:hover:text-cyan-100 dark:visited:text-purple-300;
+/*
+ * Reduced-motion kill-switch. One global guard rather than per-component
+ * `motion-reduce:` variants — the guarantee is "no motion when the OS asks for
+ * none", so it belongs in one place. Portfolio's motion budget is a single plate
+ * cross-fade, and this is what turns it off.
+ *
+ * 0.01ms (not 0) so transitionend/animationend still fire and JS waiting on them
+ * isn't left hanging. next-themes already sets disableTransitionOnChange, so
+ * there's no conflict on mode flips.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

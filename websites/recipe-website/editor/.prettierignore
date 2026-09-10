@@ -1,0 +1,8 @@
+# prettier reads .prettierignore from its cwd only; lint-staged runs this
+# package with cwd=editor/, so the root ignore list is never consulted here.
+# Machine-written fixture and runtime content trees are not hand-formatted code.
+playwright/fixtures/test-content
+test-content
+content
+.next
+out

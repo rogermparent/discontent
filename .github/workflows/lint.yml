@@ -1,5 +1,5 @@
-name: Lint
-run-name: Lint ${{ github.ref }}
+name: Checks
+run-name: Checks ${{ github.ref }}
 on: [push]
 permissions: read-all
 jobs:
@@ -26,3 +26,63 @@ jobs:
 
       - name: Runt lint-staged
         run: pnpm exec lint-staged --diff origin/main
+
+  # The unit suite gates `test/projectSecurity.test.ts` and
+  # `test/resolveWithin.test.ts` — the tests the path-traversal argument rests
+  # on. Nothing ran them before this job, so that argument was resting on
+  # nothing. 96 tests, under two seconds; there is no cheaper check in the repo.
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out current branch
+        uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        name: Install pnpm
+        with:
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Run vitest
+        run: pnpm test --run
+
+  typecheck:
+    name: Typecheck (${{ matrix.site }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        site: [websites/recipe-website/editor, websites/portfolio/editor]
+    steps:
+      - name: Check out current branch
+        uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        name: Install pnpm
+        with:
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # `next build` typechecks as a side effect, but no job ran one, so type
+      # errors could reach main freely. Recipe's tsconfig made that worse: its
+      # `include` listed only `next-env.d.ts` and the two generated `.next` type
+      # globs, omitting `**/*.ts` and `**/*.tsx` — a `tsc` there checked
+      # essentially nothing. Both configs cover the source now.
+      - name: tsc --noEmit
+        working-directory: ${{ matrix.site }}
+        run: pnpm typecheck

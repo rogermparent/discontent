@@ -4,16 +4,16 @@
   "private": true,
   "scripts": {
     "dev": "next dev --port 3001",
-    "dev:test": "CONTENT_DIRECTORY=test-content next dev --port 3001",
+    "dev:test": "CONTENT_DIRECTORY=test-content next dev --port 3011",
     "build": "next build --webpack",
     "start": "next start --port 3001",
-    "start:test": "CONTENT_DIRECTORY=test-content next start --port 3001",
+    "start:test": "CONTENT_DIRECTORY=test-content next start --port 3011",
     "lint": "next lint",
-    "e2e-dev": "start-server-and-test dev:test http://localhost:3001 \"cypress open --e2e\"",
-    "e2e-dev:headless": "start-server-and-test dev:test http://localhost:3001 \"cypress run --e2e\"",
-    "e2e-start": "start-server-and-test start:test http://localhost:3001 \"cypress open --e2e\"",
-    "e2e-start:headless": "start-server-and-test start:test http://localhost:3001 \"cypress run --e2e\"",
-    "generate-fixtures": "start-server-and-test dev:test http://localhost:3001 \"cypress run --config specPattern='cypress/fixtures/**/*.cy.{js,jsx,ts,tsx}'\""
+    "e2e-dev": "playwright test --project=e2e",
+    "e2e-dev:headed": "playwright test --project=e2e --ui",
+    "e2e-start": "PLAYWRIGHT_BUILD=1 playwright test --project=e2e",
+    "e2e-start:headed": "PLAYWRIGHT_BUILD=1 playwright test --project=e2e --ui",
+    "generate-fixtures": "playwright test --project=generators"
   },
   "dependencies": {
     "@discontent/cms": "^1.0.0",
@@ -25,14 +25,12 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@testing-library/cypress": "^10.1.0",
+    "@playwright/test": "^1.59.1",
     "@types/fs-extra": "^11.0.4",
     "@types/node": "^25.2.0",
     "@types/react": "^19.2.10",
     "@types/react-dom": "^19.2.3",
-    "cypress": "^15.9.0",
     "simple-git": "^3.30.0",
-    "start-server-and-test": "^2.1.3",
     "typescript": "^5.9.3"
   }
 }

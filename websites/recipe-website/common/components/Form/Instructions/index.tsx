@@ -1,92 +1,133 @@
-import { RecipeFormErrors } from "../../../controller/formState";
+"use client";
+
 import {
   Instruction,
   InstructionEntry,
   InstructionGroup,
 } from "../../../controller/types";
 import { Button } from "@discontent/component-library/components/Button";
+import { Toggle } from "@discontent/component-library/components/ui/toggle";
 import { FieldWrapper } from "@discontent/component-library/components/Form";
-import {
-  InputListControls,
-  KeyListAction,
-  ListInputButton,
-  useKeyList,
-} from "@discontent/component-library/components/Form/inputs/List";
 import { TextInput } from "@discontent/component-library/components/Form/inputs/Text";
 import InstructionTextInput from "./InstructionTextInput";
-import { ActionDispatch, useEffect, useState } from "react";
-import { PasteField } from "../PasteField";
+import { Group, Ungroup } from "lucide-react";
+import { PasteField, ParsedLine } from "../PasteField";
+import { detectHeading } from "../../../util/detectHeading";
+import { useRecipeForm } from "../formContext";
+import { ArrayItemControls } from "@discontent/component-library/components/Form/ArrayItemControls";
 
-function InstructionInput({
-  currentDefaultItem,
-  itemKey,
-}: {
-  currentDefaultItem?: Instruction;
-  itemKey: string;
-}) {
+/**
+ * Field-name prefixes that exist in the form's typed key space: a top-level
+ * entry or a child instruction nested inside a group. Used to keep TanStack
+ * Form's DeepKeys typing happy for the dynamic nested field names.
+ */
+type TopLevelPrefix = `instructions[${number}]`;
+type InstructionPrefix =
+  | TopLevelPrefix
+  | `instructions[${number}].instructions[${number}]`;
+
+/**
+ * Reorder / insert / delete controls for an array item, driven by TanStack
+ * Form array-field helpers (mirrors the ingredients list; replaces useKeyList).
+ */
+/**
+ * Name + markdown text inputs for a single instruction, controlled by TanStack
+ * Form so reordering reflects the moved data (uncontrolled DOM inputs would
+ * keep stale values when React reuses nodes across index changes). The `name`
+ * attributes are preserved so submission stays FormData (parsed via lodash.set).
+ */
+function InstructionFields({ namePrefix }: { namePrefix: InstructionPrefix }) {
+  const form = useRecipeForm();
   return (
     <div>
-      <TextInput
-        label="Name"
-        name={`${itemKey}.name`}
-        defaultValue={currentDefaultItem?.name}
-        key={currentDefaultItem?.name}
-      />
-      <InstructionTextInput
-        label="Text"
-        name={`${itemKey}.text`}
-        defaultValue={currentDefaultItem?.text}
-        key={currentDefaultItem?.text}
-      />
+      <form.Field name={`${namePrefix}.name`}>
+        {(field) => (
+          <TextInput
+            label="Name"
+            name={`${namePrefix}.name`}
+            value={(field.state.value as string) ?? ""}
+            onChange={(e) => field.handleChange(e.target.value)}
+            onBlur={field.handleBlur}
+          />
+        )}
+      </form.Field>
+      <form.Field name={`${namePrefix}.text`}>
+        {(field) => (
+          <InstructionTextInput
+            label="Text"
+            name={`${namePrefix}.text`}
+            value={(field.state.value as string) ?? ""}
+            onChange={field.handleChange}
+          />
+        )}
+      </form.Field>
     </div>
   );
 }
 
-function InstructionGroupInput<T>({
-  currentDefaultItem,
-  itemKey,
+/** Name + nested child-instruction array for an instruction group. */
+function InstructionGroupFields({
+  namePrefix,
 }: {
-  currentDefaultItem?: InstructionGroup;
-  itemKey: string;
-  index: number;
-  dispatch: ActionDispatch<[action: KeyListAction<T>]>;
+  namePrefix: TopLevelPrefix;
 }) {
-  const [{ values }, childDispatch] = useKeyList<InstructionEntry>(
-    currentDefaultItem?.instructions,
-  );
+  const form = useRecipeForm();
   return (
     <div>
-      <TextInput
-        label="Name"
-        name={`${itemKey}.name`}
-        defaultValue={currentDefaultItem?.name}
-      />
+      <form.Field name={`${namePrefix}.name`}>
+        {(field) => (
+          <TextInput
+            label="Name"
+            name={`${namePrefix}.name`}
+            value={(field.state.value as string) ?? ""}
+            onChange={(e) => field.handleChange(e.target.value)}
+            onBlur={field.handleBlur}
+          />
+        )}
+      </form.Field>
       <FieldWrapper label="Children">
-        <div className="pl-2 ml-0.5 border-l-2 border-white">
-          <ul>
-            {values.map(({ key, defaultValue }, index) => {
-              const childItemKey = `${itemKey}.instructions[${index}]`;
+        <div className="pl-2 ml-0.5 border-l-2 border-border">
+          <form.Field name={`${namePrefix}.instructions`} mode="array">
+            {(arrayField) => {
+              const items =
+                (arrayField.state.value as Instruction[] | undefined) ?? [];
               return (
-                <li key={key}>
-                  <InstructionInput
-                    currentDefaultItem={defaultValue as Instruction}
-                    itemKey={childItemKey}
-                  />
-                  <div className="flex flex-row flex-nowrap justify-center">
-                    <InputListControls dispatch={childDispatch} index={index} />
-                  </div>
-                </li>
+                <>
+                  <ul>
+                    {items.map((_, index) => (
+                      <li key={index}>
+                        <InstructionFields
+                          namePrefix={`${namePrefix}.instructions[${index}]`}
+                        />
+                        <div className="flex flex-row flex-nowrap justify-center">
+                          <ArrayItemControls
+                            onInsert={() =>
+                              arrayField.insertValue(index, { text: "" })
+                            }
+                            onMoveUp={() =>
+                              index > 0 &&
+                              arrayField.moveValue(index, index - 1)
+                            }
+                            onMoveDown={() =>
+                              index < items.length - 1 &&
+                              arrayField.moveValue(index, index + 1)
+                            }
+                            onRemove={() => arrayField.removeValue(index)}
+                          />
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  <Button
+                    className="mx-0.5 my-1 w-full"
+                    onClick={() => arrayField.pushValue({ text: "" })}
+                  >
+                    Add Instruction
+                  </Button>
+                </>
               );
-            })}
-          </ul>
-          <Button
-            className="mx-0.5 my-1 w-full"
-            onClick={() => {
-              childDispatch({ type: "APPEND" });
             }}
-          >
-            Add Instruction
-          </Button>
+          </form.Field>
         </div>
       </FieldWrapper>
     </div>
@@ -97,109 +138,190 @@ function entryIsGroup(entry: InstructionEntry | undefined): boolean {
   return Boolean(entry && "instructions" in entry && entry.instructions);
 }
 
-function InstructionEntryInput<T>({
-  defaultValue,
-  itemKey,
+/**
+ * A single top-level entry: renders as a single instruction or a group, with a
+ * toggle that rewrites the entry's shape (matching the old behaviour, which
+ * dropped the inactive variant's content). isGroup is derived from the data so
+ * it survives reordering.
+ */
+function InstructionEntryFields({
   index,
-  dispatch,
+  onInsert,
+  onMoveUp,
+  onMoveDown,
+  onRemove,
 }: {
-  defaultValue?: InstructionEntry;
-  itemKey: string;
   index: number;
-  dispatch: ActionDispatch<[action: KeyListAction<T>]>;
+  onInsert: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onRemove: () => void;
 }) {
-  const [isGroup, setIsGroup] = useState(entryIsGroup(defaultValue));
-
-  const toggleIsGroup = () => {
-    setIsGroup((prevIsGroup) => !prevIsGroup);
-  };
-
+  const form = useRecipeForm();
   return (
-    <li className="flex flex-col my-1">
-      {isGroup ? (
-        <InstructionGroupInput
-          currentDefaultItem={defaultValue as InstructionGroup}
-          itemKey={itemKey}
-          dispatch={dispatch}
-          index={index}
-        />
-      ) : (
-        <InstructionInput
-          currentDefaultItem={defaultValue as Instruction}
-          itemKey={itemKey}
-        />
-      )}
-      <div className="flex flex-row flex-nowrap justify-center">
-        <InputListControls dispatch={dispatch} index={index} />
-        <ListInputButton onClick={toggleIsGroup}>
-          {isGroup ? <>&#8213;</> : <>&#9776;</>}
-        </ListInputButton>
-      </div>
-    </li>
+    <form.Field name={`instructions[${index}]`}>
+      {(entryField) => {
+        const entry = entryField.state.value as InstructionEntry | undefined;
+        const isGroup = entryIsGroup(entry);
+        const toggleIsGroup = () => {
+          if (isGroup) {
+            entryField.handleChange({
+              name: (entry as InstructionGroup)?.name ?? "",
+              text: "",
+            } as InstructionEntry);
+          } else {
+            entryField.handleChange({
+              name: (entry as Instruction)?.name ?? "",
+              instructions: [],
+            } as InstructionEntry);
+          }
+        };
+        return (
+          <li className="flex flex-col my-1">
+            {isGroup ? (
+              <InstructionGroupFields namePrefix={`instructions[${index}]`} />
+            ) : (
+              <InstructionFields namePrefix={`instructions[${index}]`} />
+            )}
+            <div className="flex flex-row flex-nowrap justify-center">
+              <ArrayItemControls
+                onInsert={onInsert}
+                onMoveUp={onMoveUp}
+                onMoveDown={onMoveDown}
+                onRemove={onRemove}
+              />
+              <Toggle
+                variant="outline"
+                pressed={isGroup}
+                onPressedChange={toggleIsGroup}
+                aria-label={
+                  isGroup
+                    ? "Convert to single instruction"
+                    : "Convert to instruction group"
+                }
+                title={
+                  isGroup
+                    ? "Convert to single instruction"
+                    : "Convert to instruction group"
+                }
+                className="ml-0.5 size-10 sm:size-8"
+              >
+                {isGroup ? <Ungroup /> : <Group />}
+              </Toggle>
+            </div>
+          </li>
+        );
+      }}
+    </form.Field>
   );
 }
 
 const trimInstructionRegex = /^\s*(?:\d+[.:]?\s*)?(.*)/;
 
-function parseInstructions(value: string): InstructionEntry[] {
-  const lines = value.split(/\n+/);
-  const instructions: InstructionEntry[] = [];
-  for (const instruction of lines) {
-    const trimmedInstruction = (
-      trimInstructionRegex.exec(instruction)?.[1] || instruction
-    ).trim();
-    if (trimmedInstruction) {
-      instructions.push({ text: trimmedInstruction });
+/**
+ * Split a raw paste into the flat, reviewable line model. Blank lines are
+ * dropped; each surviving line is classified with `detectHeading`, then its
+ * text is normalized for its role — a heading loses a trailing colon, a step
+ * loses its leading step-number (reusing `trimInstructionRegex`).
+ */
+function parseInstructionLines(value: string): ParsedLine[] {
+  const lines: ParsedLine[] = [];
+  for (const raw of value.split(/\n+/)) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const isHeading = detectHeading(trimmed);
+    const text = isHeading
+      ? trimmed.replace(/:\s*$/, "").trim()
+      : (trimInstructionRegex.exec(trimmed)?.[1] || trimmed).trim();
+    if (!text) continue;
+    lines.push({ text, isHeading });
+  }
+  return lines;
+}
+
+/**
+ * Single-pass fold of reviewed lines into grouped instruction entries. A
+ * heading opens a new `InstructionGroup` (pushed once by reference, then
+ * mutated as later steps nest into it); steps before the first heading stay
+ * flat top-level entries. With no headings this is byte-identical to the
+ * historical flat parser, which guards the existing regression specs.
+ */
+function assembleInstructions(lines: ParsedLine[]): InstructionEntry[] {
+  const entries: InstructionEntry[] = [];
+  let currentGroup: InstructionGroup | null = null;
+  for (const line of lines) {
+    if (line.isHeading) {
+      currentGroup = { name: line.text, instructions: [] };
+      entries.push(currentGroup);
+    } else if (currentGroup) {
+      currentGroup.instructions.push({ text: line.text });
+    } else {
+      entries.push({ text: line.text });
     }
   }
-  return instructions;
+  return entries;
 }
 
 export function InstructionsListInput({
-  name,
   id,
-  defaultValue,
   label,
 }: {
-  name: string;
+  name?: string;
   id: string;
   label: string;
   defaultValue?: InstructionEntry[];
   placeholder?: string;
-  errors?: RecipeFormErrors | undefined;
+  errors?: unknown;
 }) {
-  const [{ values }, dispatch] = useKeyList<InstructionEntry>(defaultValue);
+  const form = useRecipeForm();
 
   return (
     <FieldWrapper label={label} id={id}>
-      <PasteField
-        itemName="Instructions"
-        pasteAreaId="instructions-paste-area"
-        parseFunction={parseInstructions}
-        onImport={(values) => dispatch({ type: "RESET", values })}
-      />
-      <ul>
-        {values.map(({ key, defaultValue }, index) => {
-          const itemKey = `${name}[${index}]`;
+      <form.Field name="instructions" mode="array">
+        {(arrayField) => {
+          const items =
+            (arrayField.state.value as InstructionEntry[] | undefined) ?? [];
           return (
-            <InstructionEntryInput
-              key={key}
-              defaultValue={defaultValue}
-              itemKey={itemKey}
-              index={index}
-              dispatch={dispatch}
-            />
+            <>
+              <PasteField
+                itemName="Instructions"
+                pasteAreaId="instructions-paste-area"
+                parseToLines={parseInstructionLines}
+                assemble={assembleInstructions}
+                onImport={(values) =>
+                  form.setFieldValue(
+                    "instructions",
+                    values as InstructionEntry[],
+                  )
+                }
+              />
+              <ul>
+                {items.map((_, index) => (
+                  <InstructionEntryFields
+                    key={index}
+                    index={index}
+                    onInsert={() => arrayField.insertValue(index, { text: "" })}
+                    onMoveUp={() =>
+                      index > 0 && arrayField.moveValue(index, index - 1)
+                    }
+                    onMoveDown={() =>
+                      index < items.length - 1 &&
+                      arrayField.moveValue(index, index + 1)
+                    }
+                    onRemove={() => arrayField.removeValue(index)}
+                  />
+                ))}
+              </ul>
+              <Button
+                className="mx-0.5 my-1 w-full"
+                onClick={() => arrayField.pushValue({ text: "" })}
+              >
+                Add Instruction
+              </Button>
+            </>
           );
-        })}
-      </ul>
-      <Button
-        className="mx-0.5 my-1 w-full"
-        onClick={() => {
-          dispatch({ type: "APPEND" });
         }}
-      >
-        Add Instruction
-      </Button>
+      </form.Field>
     </FieldWrapper>
   );
 }

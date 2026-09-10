@@ -1,6 +1,6 @@
 import { ChangeEventHandler, forwardRef, ForwardedRef } from "react";
-import clsx from "clsx";
-import { Errors, FieldWrapper, baseInputStyle } from "../..";
+import { Errors, FieldWrapper } from "../..";
+import { InputGroup } from "@discontent/component-library/components/ui/input-group";
 
 function FileInputComponent(
   {
@@ -25,17 +25,23 @@ function FileInputComponent(
   return (
     <FieldWrapper label={label} id={id}>
       <Errors errors={errors} />
-      <div className={clsx(baseInputStyle, "p-1")}>
+      {/* The file input stays a native, *uncontrolled* <input type="file"> —
+          browsers do not allow setting a file input's value programmatically.
+          InputGroup only supplies the border/focus treatment the wrapper used
+          to hand-roll. */}
+      <InputGroup className="h-auto px-3 py-2">
         <input
           type="file"
           name={name}
           id={id}
+          data-slot="input-group-control"
+          className="min-w-0 flex-1 bg-transparent text-sm outline-none file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-2 file:py-1 file:text-sm file:font-medium file:text-secondary-foreground"
           defaultValue={defaultValue}
           onChange={onChange}
           placeholder={placeholder}
           ref={ref}
         />
-      </div>
+      </InputGroup>
     </FieldWrapper>
   );
 }

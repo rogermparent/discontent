@@ -1,27 +1,25 @@
 /* eslint-disable @next/next/no-img-element */
+import Link from "next/link";
 import { Recipe } from "../../controller/types";
 
+import { Badge } from "@discontent/component-library/components/ui/badge";
 import Markdown from "@discontent/component-library/components/Markdown";
 import { getTransformedRecipeImageProps } from "../RecipeImage";
-import { MultipliedServings, MultiplierInput } from "./Multiplier";
-import { InfoCard } from "./shared";
+import { ScaledYield } from "./Multiplier";
+import { MetaBar } from "./shared";
 import { Instructions } from "./Instructions";
 import { MultiplierProvider } from "./Multiplier/Provider";
 import { VideoPlayerProvider } from "@discontent/component-library/components/VideoPlayer/Provider";
 import { VideoPlayer } from "@discontent/component-library/components/VideoPlayer";
 import { RecipeJsonLD } from "./JsonLD";
 import { Ingredients } from "./Ingredients";
-import { TimelineView } from "./Timeline";
+import { AppearsIn } from "./AppearsIn";
+import { SourceLine } from "./SourceLine";
+import { RecipeSchedule } from "./Schedule";
 import BookmarkButton from "../BookmarkButton";
-
-function formatDuration(duration: number | undefined) {
-  const durationOrZero = duration || 0;
-  const hours = Math.floor(durationOrZero / 60);
-  const minutes = durationOrZero % 60;
-  return [hours && `${hours} hr`, (minutes || !hours) && `${minutes || 0} min`]
-    .filter(Boolean)
-    .join(" ");
-}
+import { resolveRecipeVideoSrc } from "../../controller/recipeVideo";
+import { formatDurationLong } from "../../util/formatDuration";
+import { tagSearchHref } from "../SearchForm/queryLanguage";
 
 export async function RecipeView({
   recipe,
@@ -45,6 +43,7 @@ export async function RecipeView({
     video,
     timelines,
     date,
+    tags,
   } = recipe;
 
   // Calculate the totalTime from prepTime and cookTime if not provided
@@ -54,7 +53,7 @@ export async function RecipeView({
     ? await getTransformedRecipeImageProps({
         slug: slug,
         image: image,
-        alt: "Heading image",
+        alt: `Photo of ${name}`,
         width: 580,
         height: 450,
         sizes: "100vw",
@@ -69,17 +68,13 @@ export async function RecipeView({
         <RecipeJsonLD recipe={recipe} image={recipeImageProps?.props.src} />
         <div className="w-full h-full p-2 print:p-0 grow flex flex-col flex-nowrap">
           <div className="container mx-auto lg:flex lg:flex-row justify-center print:w-full print:max-w-full">
-            <div className="aspect-ratio-[16/10] w-full lg:max-w-96 lg:mr-4 h-96 print:hidden relative">
+            <div className="aspect-[16/10] w-full lg:aspect-auto lg:h-96 lg:max-w-96 lg:mr-4 print:hidden relative">
               {recipeImageProps && (
-                <img {...recipeImageProps.props} alt="Heading image" />
+                <img {...recipeImageProps.props} alt={`Photo of ${name}`} />
               )}
               {video && (
                 <VideoPlayer
-                  src={
-                    video.startsWith("http")
-                      ? video
-                      : `/uploads/recipe/${slug}/uploads/${video}`
-                  }
+                  src={resolveRecipeVideoSrc(slug, video)}
                   className="object-cover absolute w-full h-full inset-0"
                 />
               )}
@@ -87,41 +82,67 @@ export async function RecipeView({
             <div className="flex-1 max-w-xl mx-auto lg:mx-0 print:max-w-full">
               <div className="flex flex-row items-start justify-between mt-4 mb-6">
                 <h1 className="text-3xl font-bold mr-4">{name}</h1>
-                <BookmarkButton recipe={{ slug, date, name, image }} />
+                <div className="print:hidden">
+                  <BookmarkButton recipe={{ slug, date, name, image }} />
+                </div>
               </div>
+              {tags && tags.length > 0 && (
+                <div
+                  className="flex flex-row flex-wrap items-center gap-1.5 mb-4 print:hidden"
+                  aria-label="Tags"
+                >
+                  {tags.map((tag) => (
+                    <Badge key={tag} asChild variant="secondary">
+                      <Link href={tagSearchHref(tag)}>{tag}</Link>
+                    </Badge>
+                  ))}
+                </div>
+              )}
               {description && (
                 <div className="my-2">
                   <Markdown>{description}</Markdown>
                 </div>
               )}
-              <div className="m-2 flex flex-row flex-wrap items-center justify-center">
-                <MultiplierInput />
-                <MultipliedServings recipe={recipe} />
-                {prepTime || cookTime || totalTime ? (
-                  <>
-                    <InfoCard title="Prep Time">
-                      {formatDuration(prepTime)}
-                    </InfoCard>
-                    <InfoCard title="Cook Time">
-                      {formatDuration(cookTime)}
-                    </InfoCard>
-                    <InfoCard title="Total Time">
-                      {formatDuration(totalTime)}
-                    </InfoCard>
-                  </>
-                ) : null}
-              </div>
+              <SourceLine source={recipe.source} />
+              {/* Canonical meta strip — Prep · Cook · Total · Yield. Yield scales
+                  in place with the Ingredients-header scaler (both share the
+                  MultiplierProvider). Fills the hero's formerly-dead right half. */}
+              <MetaBar
+                items={[
+                  ...(prepTime
+                    ? [{ label: "Prep", value: formatDurationLong(prepTime) }]
+                    : []),
+                  ...(cookTime
+                    ? [{ label: "Cook", value: formatDurationLong(cookTime) }]
+                    : []),
+                  ...(totalTime
+                    ? [{ label: "Total", value: formatDurationLong(totalTime) }]
+                    : []),
+                  ...(recipe.recipeYield
+                    ? [
+                        {
+                          label: "Yield",
+                          value: <ScaledYield recipe={recipe} />,
+                        },
+                      ]
+                    : []),
+                ]}
+              />
             </div>
           </div>
           {timelines && timelines.length > 0 && (
-            <div className="container mx-auto px-2 max-w-5xl print:hidden">
-              <TimelineView timelines={timelines} />
-            </div>
+            <RecipeSchedule timelines={timelines} />
           )}
+          {/* The scaler used to sit in a full-width sticky bar here; it now lives
+              in the Ingredients header (PR 11), where recipe sites put it. */}
           <div className="justify-center flex-nowrap container mx-auto p-2 lg:flex lg:flex-row print:w-full print:max-w-full print:flex print:flex-row rounded">
             <Ingredients ingredients={ingredients} />
             <Instructions instructions={instructions} />
           </div>
+          {/* Below the recipe itself, because it is about the recipe rather
+              than part of it, and because it is the one block here that reads
+              a *different* content type's derived state (22b/D4). */}
+          <AppearsIn slug={slug} />
         </div>
       </VideoPlayerProvider>
     </MultiplierProvider>

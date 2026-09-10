@@ -42,5 +42,18 @@ next-env.d.ts
 # cypress
 /cypress/screenshots
 
+# playwright sharded blob reports + merged HTML
+/blob-reports
+/blob-reports-prod
+/blob-reports-portfolio
+/blob-reports-demo
+/blob-reports-demo-prod
+/playwright-report
+
 # Local Netlify folder
 .netlify
+
+# Claude files
+.claude/*
+!.claude/skills/
+!.claude/settings.json

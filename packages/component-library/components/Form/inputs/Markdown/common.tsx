@@ -1,5 +1,5 @@
-import { MouseEventHandler, ReactNode } from "react";
-import { Button } from "@discontent/component-library/components/Button";
+import { ComponentProps, MouseEventHandler, ReactNode } from "react";
+import { Button } from "@discontent/component-library/components/ui/button";
 import { MarkdownToJSX } from "markdown-to-jsx/react";
 
 export interface MarkdownControlsProps {
@@ -16,6 +16,9 @@ export interface MarkdownInputProps {
   id?: string;
   label?: string;
   defaultValue?: string;
+  /** Controlled markdown value (for TanStack Form). */
+  value?: string;
+  onChange?: (markdown: string) => void;
   errors?: string[];
   Controls?: (props: MarkdownControlsProps) => ReactNode;
   components?: MarkdownToJSX.Overrides;
@@ -24,16 +27,19 @@ export interface MarkdownInputProps {
 export function FormatButton({
   children,
   onClick,
-}: {
+  ...rest
+}: Omit<ComponentProps<typeof Button>, "size" | "variant" | "type"> & {
   children: ReactNode;
   onClick: MouseEventHandler<HTMLButtonElement>;
 }) {
   return (
     <Button
-      onClick={onClick}
-      overrideDefaultStyles={true}
-      className="w-6 h-6 leading-none text-center rounded-xs bg-slate-700 hover:bg-slate-500 disabled:bg-gray-900"
       type="button"
+      size="icon-sm"
+      variant="ghost"
+      onClick={onClick}
+      className="bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50"
+      {...rest}
     >
       {children}
     </Button>
@@ -189,66 +195,76 @@ function getBlockquoteSelection({
   }
 }
 
+const applyBlockquote = ({
+  textArea,
+}: {
+  textArea: HTMLTextAreaElement | HTMLInputElement | null;
+}) => {
+  if (!textArea) return;
+  if (
+    typeof textArea.selectionStart !== "number" ||
+    typeof textArea.selectionEnd !== "number"
+  ) {
+    return;
+  }
+  const value = textArea.value;
+  const { selectionStart, selectionEnd } = getBlockquoteSelection({
+    selectionStart: textArea.selectionStart,
+    selectionEnd: textArea.selectionEnd,
+    value,
+  });
+
+  const selectedText = value.substring(selectionStart, selectionEnd);
+
+  const selectedLines = selectedText.split("\n");
+
+  const quotedSelectionContent = selectedLines
+    .map((line) => `> ${line}`)
+    .join("\n");
+
+  const characterBeforeSelection = value[selectionStart - 1];
+  const characterTwoBeforeSelection = value[selectionStart - 2];
+  const characterAfterSelection = value[selectionEnd];
+  const characterTwoAfterSelection = value[selectionEnd + 1];
+
+  const quotedSelection = [
+    characterBeforeSelection === "\n" ? "" : "\n",
+    characterTwoBeforeSelection === "\n" ? "" : "\n",
+    quotedSelectionContent,
+    characterAfterSelection === "\n" ? "" : "\n",
+    characterTwoAfterSelection === "\n" ? "" : "\n",
+  ].join("");
+
+  textArea.focus();
+  textArea.setSelectionRange(selectionStart, selectionEnd);
+  if (!document.execCommand("insertText", false, quotedSelection)) {
+    console.warn(
+      "Failed to insert text with execCommand! Falling back to setting value.",
+    );
+    const newValue =
+      value.substring(0, selectionStart) +
+      quotedSelection +
+      value.substring(selectionEnd);
+    textArea.value = newValue;
+  }
+
+  if (selectionStart === selectionEnd) {
+    const blockquoteContentIndex =
+      selectionStart + quotedSelection.indexOf("> ") + 2;
+    textArea.focus();
+    textArea.setSelectionRange(blockquoteContentIndex, blockquoteContentIndex);
+  } else {
+    textArea.focus();
+    textArea.setSelectionRange(
+      selectionStart,
+      selectionStart + quotedSelection.length,
+    );
+  }
+};
+
 function BlockquoteControl({ textArea: textArea }: MarkdownControlsProps) {
   const handleBlockquoteClick: MouseEventHandler<HTMLButtonElement> = () => {
-    if (textArea) {
-      if (
-        typeof textArea.selectionStart !== "number" ||
-        typeof textArea.selectionEnd !== "number"
-      ) {
-        return;
-      }
-      const value = textArea.value;
-      const { selectionStart, selectionEnd } = getBlockquoteSelection({
-        selectionStart: textArea.selectionStart,
-        selectionEnd: textArea.selectionEnd,
-        value,
-      });
-
-      const selectedText = value.substring(selectionStart, selectionEnd);
-
-      const selectedLines = selectedText.split("\n");
-
-      const quotedSelectionContent = selectedLines
-        .map((line) => `> ${line}`)
-        .join("\n");
-
-      const characterBeforeSelection = value[selectionStart - 1];
-      const characterTwoBeforeSelection = value[selectionStart - 2];
-      const characterAfterSelection = value[selectionEnd];
-      const characterTwoAfterSelection = value[selectionEnd + 1];
-
-      const quotedSelection = [
-        characterBeforeSelection === "\n" ? "" : "\n",
-        characterTwoBeforeSelection === "\n" ? "" : "\n",
-        quotedSelectionContent,
-        characterAfterSelection === "\n" ? "" : "\n",
-        characterTwoAfterSelection === "\n" ? "" : "\n",
-      ].join("");
-
-      const newValue =
-        value.substring(0, selectionStart) +
-        quotedSelection +
-        value.substring(selectionEnd);
-
-      textArea.value = newValue;
-
-      if (selectionStart === selectionEnd) {
-        const blockquoteContentIndex =
-          selectionStart + quotedSelection.indexOf("> ") + 2;
-        textArea.focus();
-        textArea.setSelectionRange(
-          blockquoteContentIndex,
-          blockquoteContentIndex,
-        );
-      } else {
-        textArea.focus();
-        textArea.setSelectionRange(
-          selectionStart,
-          selectionStart + quotedSelection.length,
-        );
-      }
-    }
+    applyBlockquote({ textArea });
   };
 
   return (

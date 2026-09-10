@@ -13,6 +13,7 @@ export type StreamActionResult = string | ReadableStream<Uint8Array>;
 
 export async function commandAction(
   command: string,
+  extraEnv?: Record<string, string>,
 ): Promise<StreamActionResult> {
   unstable_noStore();
   const user = await auth();
@@ -30,6 +31,7 @@ export async function commandAction(
     env: {
       NODE_ENV: "production",
       CONTENT_DIRECTORY: contentDirectory,
+      ...extraEnv,
     },
   })`pnpm run ${command}`;
   if (!newBuild.all) {

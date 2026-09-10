@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createContent } from "@discontent/cms/content/createContent";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
+import { revalidateWrite } from "@/lib/revalidateWrite";
 import {
   bookmarkConfig,
   bookmarkFormSchema,
@@ -34,13 +35,15 @@ async function createBookmark(formData: FormData) {
   const bookmark = formDataToBookmark(parsed.data);
   const contentDirectory = getContentDirectory();
 
-  await createContent({
+  const result = await createContent({
     config: bookmarkConfig,
     slug,
     data: bookmark,
     contentDirectory,
     commitMessage: `Create bookmark: ${bookmark.label}`,
   });
+
+  revalidateWrite(bookmarkConfig.contentType, result, { slug });
 
   redirect(`/bookmarks/${slug}`);
 }

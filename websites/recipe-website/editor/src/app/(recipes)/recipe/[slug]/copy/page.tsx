@@ -1,4 +1,5 @@
-import { getRecipeBySlug } from "recipe-website-common/controller/data/read";
+import { getAllTags } from "recipe-website-common/controller/data/read";
+import { recipeItems } from "recipe-website-common/controller/data/readRecipeItem";
 import CopyForm from "./form";
 import { notFound } from "next/navigation";
 import { auth, signIn } from "@/auth";
@@ -22,20 +23,14 @@ export default async function Recipe({
       redirectTo: `/recipe/${slug}/copy`,
     });
   }
-  let recipe;
-  try {
-    recipe = await getRecipeBySlug({ slug });
-  } catch (e) {
-    if (e instanceof Error && "code" in e && e.code === "ENOENT") {
-      notFound();
-    }
-    throw e;
-  }
+  const recipe = await recipeItems.read(slug);
+  if (!recipe) notFound();
+  const allTags = await getAllTags();
   return (
     <PageMain>
       <PageSection maxWidth="xl" grow>
         <PageHeading as="h1">Copying recipe</PageHeading>
-        <CopyForm recipe={recipe} />
+        <CopyForm recipe={recipe} allTags={allTags} />
       </PageSection>
     </PageMain>
   );

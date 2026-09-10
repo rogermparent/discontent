@@ -1,8 +1,8 @@
 "use server";
 
 import { rebuildIndex } from "@discontent/cms/content/rebuildIndex";
+import { revalidateDerivedState } from "@discontent/cms/content/next/revalidateDerived";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
-import { revalidatePath } from "next/cache";
 import slugify from "@sindresorhus/slugify";
 import createDefaultFeaturedRecipeSlug from "recipe-website-common/controller/createFeaturedRecipeSlug";
 import { featuredRecipeContentConfig } from "recipe-website-common/controller/featuredRecipeContentConfig";
@@ -15,8 +15,33 @@ import { z } from "zod";
 import parseFeaturedRecipeFormData, {
   ParsedFeaturedRecipeFormData,
 } from "../parseFeaturedRecipeFormData";
-import type { EditorContentConfig } from "./editorContentConfig";
-import { createGenericActions } from "./genericActions";
+import type { EditorContentConfig } from "@discontent/cms/content/editorContentConfig";
+import { createGenericActions } from "@discontent/cms/content/genericActions";
+import { authenticateUser } from "./shared";
+import { featuredRecipeSuccessConfig } from "../successConfigs";
+
+/**
+ * The parsed form, as a featured-recipe record. The one place the shape is
+ * assembled, following `buildGroupData`'s lead.
+ *
+ * **Only the key that is set is written.** The parser guarantees exactly one of
+ * them, and spreading conditionally rather than assigning `undefined` keeps the
+ * *other* key out of the JSON altogether — so a record on disk says what it
+ * features rather than saying it features nothing twice, and re-featuring a
+ * recipe on an entry that used to name a group leaves no `"group": null` behind
+ * for `resolveReferences` to walk.
+ */
+function buildFeaturedRecipeData(
+  parsed: ParsedFeaturedRecipeFormData,
+  date: number,
+): FeaturedRecipe {
+  return {
+    ...(parsed.recipe && { recipe: parsed.recipe }),
+    ...(parsed.group && { group: parsed.group }),
+    date,
+    note: parsed.note,
+  };
+}
 
 const featuredRecipeEditorConfig: EditorContentConfig<
   FeaturedRecipe,
@@ -27,12 +52,12 @@ const featuredRecipeEditorConfig: EditorContentConfig<
   ParsedFeaturedRecipeFormData
 > = {
   contentConfig: featuredRecipeContentConfig,
-  successConfig: {
-    itemBasePath: "/featured-recipe",
-    listPaths: [{ path: "/featured-recipes" }],
-    redirectTo: () => "/",
-  },
+  successConfig: featuredRecipeSuccessConfig,
   label: "featured recipe",
+  // Auth is injected rather than imported: the factory lives in
+  // @discontent/cms and cannot reach this app\'s `@/auth` alias. Required by
+  // the type, so a content type cannot ship an unauthenticated write path.
+  authenticate: authenticateUser,
 
   parseFormData(formData: FormData) {
     const formResult = parseFeaturedRecipeFormData(formData);
@@ -53,23 +78,13 @@ const featuredRecipeEditorConfig: EditorContentConfig<
     const slug = slugify(
       parsed.slug || createDefaultFeaturedRecipeSlug({ date }),
     );
-    const data: FeaturedRecipe = {
-      recipe: parsed.recipe,
-      date,
-      note: parsed.note,
-    };
-    return { slug, data };
+    return { slug, data: buildFeaturedRecipeData(parsed, date) };
   },
 
   async buildUpdateData(parsed, currentSlug, currentDate) {
     const slug = slugify(parsed.slug || currentSlug);
     const date = parsed.date || currentDate || Date.now();
-    const data: FeaturedRecipe = {
-      recipe: parsed.recipe,
-      date,
-      note: parsed.note,
-    };
-    return { slug, data };
+    return { slug, data: buildFeaturedRecipeData(parsed, date) };
   },
 
   buildCurrentIndexKey(currentDate, currentSlug) {
@@ -88,6 +103,33 @@ export async function rebuildFeaturedRecipeIndex() {
     config: featuredRecipeContentConfig,
     contentDirectory,
   });
-  revalidatePath("/");
-  revalidatePath("/featured-recipes");
+  /*
+   * A rebuild reprojects every page, so every cached page is potentially wrong,
+   * and the pagination reads are cached by tag. Without this the operator
+   * presses "Rebuild" and the site goes on serving pre-rebuild pages, which is
+   * the exact failure the button exists to repair.
+   *
+   * **One config, and the list is the point.** `revalidateDerivedState` takes a
+   * list precisely so a seat can say what it touched instead of what exists:
+   * this rebuild moves featured recipes and nothing else, so it passes featured
+   * recipes and nothing else. That covers `/featured-recipes` and its numbered
+   * pages, plus the homepage's featured strip and hero choice, which read the
+   * same head — so neither `revalidatePath("/")` nor
+   * `revalidatePath("/featured-recipes")` is left; they predate the pages
+   * carrying tags at all.
+   *
+   * It expands to two tags rather than the one written here before: the
+   * keyspace, plus `item:featured-recipes`. The second is new and is the
+   * catch-all every repair seat fires — a rebuild reprojects, so it cannot know
+   * which cached feature records are still right.
+   *
+   * What it deliberately does **not** fire is anything in the recipe keyspace:
+   * no `pagination:recipes:by-date`, no recipe aggregate, no `item:recipes`.
+   * Recipe records are untouched by a featured rebuild. The sibling seat in
+   * `actions/index.ts` passes both configs because its rebuild really does
+   * cascade (D1); this one does not, and widening it to match would be the
+   * over-invalidation §6.4 exists to prevent. `test/revalidateDerived.test.ts`
+   * pins that difference, since it is a property no e2e test can see.
+   */
+  revalidateDerivedState([featuredRecipeContentConfig]);
 }

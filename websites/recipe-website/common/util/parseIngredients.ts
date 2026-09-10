@@ -1,4 +1,5 @@
 import type { Ingredient } from "../controller/types";
+import { detectHeading } from "./detectHeading";
 
 // This function assumes all numbers in input will require being wrapped with the `Multiply` tag
 function addMultipliersToNumbers(input: string) {
@@ -19,7 +20,7 @@ function addMultipliersToIngredient(input: string): string {
   let parenStart = 0;
   let parenEnd = 0;
   let level = 0;
-  let segments = [];
+  const segments = [];
 
   // Iterate over each character to find parentheses
   for (let i = 0; i < input.length; i++) {
@@ -87,7 +88,7 @@ export function createIngredient(inputLine: string): Ingredient | undefined {
     .replaceAll(/ +/g, " ");
 
   if (trimmedInputLine) {
-    const isHeading = trimmedInputLine.endsWith(":");
+    const isHeading = detectHeading(trimmedInputLine);
 
     const multiplyableIngredient = addMultipliersToIngredient(trimmedInputLine);
 

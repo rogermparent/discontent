@@ -1,0 +1,10 @@
+{
+  "name": "Recipe Website",
+  "date": 1756857600000,
+  "summary": "A cooking site whose two real features — scaling ingredients and timing a cook — are the interface, not a footnote.",
+  "role": "Design & build",
+  "status": "shipped",
+  "featured": true,
+  "tags": ["design system", "search", "accessibility"],
+  "content": "Most recipe sites are a wall of prose with the quantities buried in it. This\none makes the two things a cook actually does — scale the batch, and work out\nwhen to start — first-class.\n\n## Scaling\n\nQuantities are marked up, not parsed out of the text, so doubling a recipe\nrewrites every number in place, including the ones inside instructions.\n\n## Timelines\n\nA recipe declares its steps' durations and dependencies; the site renders a\nschedule from them, so \"start the dough at 4pm\" is computed rather than\nwritten down and left to rot."
+}

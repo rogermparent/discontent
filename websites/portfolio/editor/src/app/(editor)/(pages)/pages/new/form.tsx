@@ -4,7 +4,7 @@ import CreatePageFields from "@discontent/pages-collection/components/Form/Creat
 import { useActionState } from "react";
 import { Button } from "@discontent/component-library/components/Button";
 import { PageFormState } from "@discontent/pages-collection/controller/formState";
-import createPage from "@discontent/pages-collection/controller/actions/create";
+import { createPage } from "../../../../../../controller/actions/pages";
 import Link from "next/link";
 
 export default function NewPageForm() {

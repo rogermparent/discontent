@@ -1,0 +1,9 @@
+{
+  "name": "Raspberry Pi Static Host",
+  "date": 1688774400000,
+  "summary": "Self-hosted static publishing on a 4GB Pi, including the build that kept running out of memory.",
+  "role": "Build & operations",
+  "status": "archived",
+  "tags": ["self-hosting", "ci", "linux"],
+  "content": "Running the editor and the export build on a Raspberry Pi is a useful forcing\nfunction: it makes every accidental cost visible immediately.\n\nThe interesting failure was the build OOMing on 4GB — not from the site's\nsize, but from a bundler holding the whole module graph. Constraining the\nbuild fixed it, and the constraint turned out to be worth keeping."
+}

@@ -1,0 +1,17 @@
+{
+  "name": "Content Engine",
+  "date": 1768176000000,
+  "summary": "A git-backed CMS that treats content as files, not rows — so a site outlives the tool that built it.",
+  "role": "Design & build",
+  "status": "shipped",
+  "featured": true,
+  "image": "project-cover.png",
+  "tags": ["cms", "next.js", "typescript", "lmdb"],
+  "links": [
+    {
+      "label": "Source",
+      "url": "https://github.com/rogermparent/content-engine"
+    }
+  ],
+  "content": "## The problem with a database-backed CMS\n\nEvery CMS eventually becomes the thing you have to migrate off. The content\nis in its schema, the schema is in its database, and the database is in its\nhosting. Content Engine inverts that: content is plain JSON and markdown in\na git repository, and the CMS is a *view* of it.\n\n## How it works\n\nAn editor app writes files and commits them. An export app reads the same\ntree and produces a fully static site. An LMDB index sits beside the data as\nderived state — rebuildable, never authoritative — so listing and pagination\nstay fast without the files stopping being the source of truth."
+}

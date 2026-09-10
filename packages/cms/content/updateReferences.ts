@@ -8,6 +8,7 @@ import {
   readContentFromFilesystem,
   writeContentToFilesystem,
 } from "./filesystem";
+import { createReferenceResolver, resolveReferences } from "./references";
 import type { ContentTypeConfig, ReferenceSpec } from "./types";
 import { relative } from "path";
 
@@ -61,7 +62,7 @@ function setFieldValue(
  * - [date, slug]: composite key with date first
  * - [slug, ...]: array with slug first
  */
-function extractSlugFromKey(key: Key): string | null {
+export function extractSlugFromKey(key: Key): string | null {
   if (typeof key === "string") {
     return key;
   }
@@ -76,114 +77,6 @@ function extractSlugFromKey(key: Key): string | null {
     }
   }
   return null;
-}
-
-/**
- * Update references for a single content type using index-based lookup (optimized)
- */
-async function updateReferencesViaIndex<
-  TReferencingData extends Record<string, unknown>,
-  TReferencingIndexValue extends Record<string, unknown>,
-  TReferencingKey extends Key,
->(
-  spec: ReferenceSpec<
-    TReferencingData,
-    TReferencingIndexValue,
-    TReferencingKey
-  >,
-  oldSlug: string,
-  newSlug: string,
-  contentDirectory: string,
-): Promise<ReferenceUpdateResult> {
-  const { config, indexField, dataField } = spec;
-  const result: ReferenceUpdateResult = {
-    contentType: config.contentType,
-    updatedCount: 0,
-    updatedSlugs: [],
-    updatedPaths: [],
-    errors: [],
-  };
-
-  // Field to check in index
-  const indexFieldName = indexField!;
-  // Field to update in data (defaults to indexField if not specified)
-  const dataFieldName = dataField || indexField!;
-
-  const db = getContentDatabase<TReferencingIndexValue, TReferencingKey>(
-    config as ContentTypeConfig,
-    contentDirectory,
-  );
-
-  try {
-    // Get all index entries as an array
-    const entries = await db.getRange().asArray;
-
-    // Process each entry
-    for (const { key, value } of entries) {
-      const referenceValue = getFieldValue(
-        value as Record<string, unknown>,
-        indexFieldName,
-      );
-
-      if (referenceValue === oldSlug) {
-        const slug = extractSlugFromKey(key);
-        if (!slug) {
-          result.errors.push({
-            slug: String(key),
-            error: "Could not extract slug from index key",
-          });
-          continue;
-        }
-
-        try {
-          // Read the data file
-          const data = await readContentFromFilesystem<TReferencingData>(
-            config as ContentTypeConfig<TReferencingData>,
-            slug,
-            contentDirectory,
-          );
-
-          // Update the reference field in data
-          setFieldValue(
-            data as Record<string, unknown>,
-            dataFieldName,
-            newSlug,
-          );
-
-          // Write updated data back to filesystem
-          await writeContentToFilesystem(
-            config as ContentTypeConfig<TReferencingData>,
-            slug,
-            data,
-            contentDirectory,
-          );
-
-          // Update the index entry
-          const newIndexKey = config.buildIndexKey(slug, data);
-          const newIndexValue = config.buildIndexValue(data);
-          await writeToIndex(db, newIndexKey, newIndexValue);
-
-          result.updatedCount++;
-          result.updatedSlugs.push(slug);
-          const filePath = getContentFilePath(
-            config as ContentTypeConfig,
-            slug,
-            contentDirectory,
-          );
-          result.updatedPaths.push(relative(contentDirectory, filePath));
-        } catch (error) {
-          result.errors.push({
-            slug,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-    }
-  } finally {
-    db.close();
-  }
-
-  return result;
 }
 
 /**
@@ -203,7 +96,9 @@ async function updateReferencesViaFileScan<
   newSlug: string,
   contentDirectory: string,
 ): Promise<ReferenceUpdateResult> {
-  const { config, dataField } = spec;
+  const config = spec.config();
+  const { dataField, indexField } = spec;
+  const resolver = createReferenceResolver(contentDirectory);
   const result: ReferenceUpdateResult = {
     contentType: config.contentType,
     updatedCount: 0,
@@ -212,7 +107,8 @@ async function updateReferencesViaFileScan<
     errors: [],
   };
 
-  const dataFieldName = dataField!;
+  /* `indexField` alone means the same field name lives in both. */
+  const dataFieldName = (dataField || indexField)!;
   const dataDirectory = getDataDirectory(
     config as ContentTypeConfig,
     contentDirectory,
@@ -256,13 +152,10 @@ async function updateReferencesViaFileScan<
           config as ContentTypeConfig,
           contentDirectory,
         );
-        try {
-          const indexKey = config.buildIndexKey(slug, data);
-          const indexValue = config.buildIndexValue(data);
-          await writeToIndex(db, indexKey, indexValue);
-        } finally {
-          db.close();
-        }
+        const refs = await resolveReferences({ config, data, resolver });
+        const indexKey = config.buildIndexKey(slug, data);
+        const indexValue = config.buildIndexValue(data, refs);
+        await writeToIndex(db, indexKey, indexValue);
 
         result.updatedCount++;
         result.updatedSlugs.push(slug);
@@ -306,7 +199,7 @@ export async function updateReferencesForSpec<
   // Validate that at least one field is specified
   if (!indexField && !dataField) {
     return {
-      contentType: spec.config.contentType,
+      contentType: spec.config().contentType,
       updatedCount: 0,
       updatedSlugs: [],
       updatedPaths: [],
@@ -319,21 +212,16 @@ export async function updateReferencesForSpec<
     };
   }
 
-  // Use index-based lookup if indexField is provided (optimized path)
-  if (indexField) {
-    return updateReferencesViaIndex(
-      spec as ReferenceSpec<
-        TReferencingData,
-        Record<string, unknown>,
-        TReferencingKey
-      >,
-      oldSlug,
-      newSlug,
-      contentDirectory,
-    );
-  }
-
-  // Fall back to file scan if only dataField is provided
+  /*
+   * Always the file scan now. The index-lookup path this used to prefer was
+   * the whole of the engine's cross-type invalidation, and `updateDependents`
+   * replaces it — reading each dependent's data file once and writing it at
+   * most once, resolving borrowed values, syncing that type's pagination
+   * precisely and reporting what moved, none of which this could do.
+   *
+   * The module stays because `packages/cms` has no `exports` map, so its deep
+   * paths are public API. Nothing inside the engine calls it.
+   */
   return updateReferencesViaFileScan(spec, oldSlug, newSlug, contentDirectory);
 }
 

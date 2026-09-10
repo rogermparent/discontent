@@ -2,6 +2,7 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { readContentFile } from "@discontent/cms/content/readContentFile";
 import { deleteContent } from "@discontent/cms/content/deleteContent";
+import { revalidateWrite } from "@/lib/revalidateWrite";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import {
   noteConfig,
@@ -24,13 +25,15 @@ async function performDelete(formData: FormData) {
   const contentDirectory = getContentDirectory();
   const indexKey: NoteIndexKey = [date, slug];
 
-  await deleteContent({
+  const result = await deleteContent({
     config: noteConfig,
     slug,
     indexKey,
     contentDirectory,
     commitMessage: `Delete note: ${slug}`,
   });
+
+  revalidateWrite(noteConfig.contentType, result, { slug });
 
   redirect("/");
 }

@@ -47,7 +47,14 @@ export function getContentFilePath(
  * Get the uploads directory for a content type/slug
  */
 export function getUploadsDirectory(
-  config: ContentTypeConfig,
+  /*
+   * Only `uploadsDirectory` and `contentType` are read, and neither depends on
+   * the data generic — but naming the whole `ContentTypeConfig` pinned it to
+   * the *default* instantiation, so passing a real typed config
+   * (`ContentTypeConfig<Project, …>`) was a type error. Narrowing to what is
+   * actually used makes the function usable from the collections it is for.
+   */
+  config: Pick<ContentTypeConfig, "uploadsDirectory" | "contentType">,
   slug: string,
   contentDirectory?: string,
 ): string {

@@ -1,0 +1,9 @@
+{
+  "name": "Discontent Design System",
+  "date": 1764547200000,
+  "summary": "A token layer whose contrast curve makes every accent choice WCAG AA by construction.",
+  "role": "Design",
+  "status": "wip",
+  "tags": ["design system", "color", "accessibility", "oklch"],
+  "content": "The usual failure of a themeable design system is that theming it breaks its\ncontrast. If a user can pick any colour, a user can pick an unreadable one.\n\n## The curve\n\nHere the accent's lightness and chroma are fixed and only the *hue* moves. In\nOKLCH that keeps a constant perceptual lightness, so every hue on the curve\nholds roughly the same contrast against its foreground. Theming becomes a\none-dimensional choice that cannot produce a failing pair.\n\nThe accessibility sweep that checks this should pass by construction — a\nfailure means someone hand-authored a token instead of deriving it."
+}

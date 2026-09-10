@@ -1,0 +1,281 @@
+/*
+ * Content-engine design tokens — the single source of truth for the palette.
+ *
+ * Import this from a site's globals.css AFTER `@import "tailwindcss";`:
+ *   @import ".../packages/component-library/styles/theme.css";
+ *
+ * The default preset is "The Working Bench" (warm bench neutrals + a copper
+ * ember accent, with a cool steel secondary). Every value is a CSS custom
+ * property so a site (or, later, an end user) can override the palette in one
+ * place without touching component code. See websites/recipe-website/docs/
+ * ui-overhaul.md for the design direction and the theming roadmap.
+ *
+ * Typography is supplied by the app via next/font as --ff-display / --ff-body /
+ * --ff-mono; this file maps them onto Tailwind's font-* utilities with
+ * fallbacks, so the tokens work even before the fonts load.
+ */
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Working Bench — light (warm paper) */
+  --background: oklch(0.98 0.006 85);
+  --foreground: oklch(0.22 0.02 70);
+  --card: oklch(1 0.002 85);
+  --card-foreground: oklch(0.22 0.02 70);
+  --popover: oklch(1 0.002 85);
+  --popover-foreground: oklch(0.22 0.02 70);
+  /* Ember (copper) — actions */
+  --primary: oklch(0.53 0.16 50);
+  --primary-foreground: oklch(0.99 0.01 85);
+  /* Steel — cool counterbalance */
+  --secondary: oklch(0.94 0.008 250);
+  --secondary-foreground: oklch(0.3 0.03 250);
+  --muted: oklch(0.955 0.006 250);
+  --muted-foreground: oklch(0.5 0.02 250);
+  /* Warm hover/subtle tint */
+  --accent: oklch(0.95 0.03 60);
+  --accent-foreground: oklch(0.3 0.04 50);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0.005 85);
+  /* Semantic status colors (PR 15). WCAG-checked like --destructive: L=0.53
+     clears 4.5:1 both as text on the light background and as a fill under
+     near-white foreground. Used for form/git/timeline status messages. */
+  --success: oklch(0.53 0.14 150);
+  --success-foreground: oklch(0.985 0.005 85);
+  --warning: oklch(0.53 0.13 70);
+  --warning-foreground: oklch(0.985 0.005 85);
+  --info: oklch(0.53 0.15 255);
+  --info-foreground: oklch(0.985 0.005 85);
+  --border: oklch(0.9 0.008 80);
+  --input: oklch(0.9 0.008 80);
+  --ring: oklch(0.58 0.13 50);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --radius: 0.5rem;
+  --sidebar: oklch(0.985 0.005 85);
+  --sidebar-foreground: oklch(0.22 0.02 70);
+  --sidebar-primary: oklch(0.53 0.16 50);
+  --sidebar-primary-foreground: oklch(0.99 0.01 85);
+  --sidebar-accent: oklch(0.95 0.03 60);
+  --sidebar-accent-foreground: oklch(0.3 0.04 50);
+  --sidebar-border: oklch(0.9 0.008 80);
+  --sidebar-ring: oklch(0.58 0.13 50);
+
+  /*
+   * Font-role fallbacks. derive.ts emits
+   * `var(--ff-display-<key>, var(--ff-display-fallback))`, so a pairing key this
+   * app never registered lands here instead of poisoning the chain: an undefined
+   * var makes --font-display invalid-at-computed-value and headings drop to the
+   * browser default. These keep an unregistered pairing on system fonts, which
+   * is a degradation rather than a break. Each site registers its own keys in
+   * its AppLayout/fonts.ts.
+   */
+  --ff-display-fallback: ui-sans-serif, system-ui, sans-serif;
+  --ff-body-fallback: ui-sans-serif, system-ui, sans-serif;
+  --ff-mono-fallback: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /*
+   * Font-role default binding. The app registers each pairing's typefaces on
+   * suffixed vars (--ff-display-bench, …); this points the roles the theme
+   * consumes at the default "bench" pairing, so the no-theme path still resolves
+   * to real fonts. The theming engine overrides these to var(--ff-*-<pairing>)
+   * when a non-default pairing is selected (see theming/derive.ts). A site whose
+   * menu has no "bench" still resolves, via the same fallback.
+   */
+  --ff-display: var(--ff-display-bench, var(--ff-display-fallback));
+  --ff-body: var(--ff-body-bench, var(--ff-body-fallback));
+  --ff-mono: var(--ff-mono-bench, var(--ff-mono-fallback));
+
+  /*
+   * Height of the sticky masthead (PR 9). A layout constant, not a themeable
+   * color, so it lives once on :root — the header reserves this height and any
+   * secondary sticky element (e.g. the detail scale bar until PR 11) offsets by
+   * it via `top-[var(--header-height)]` so the two never overlap.
+   */
+  --header-height: 3.5rem;
+
+  /*
+   * Sticky-chrome policy — the reader chrome pass. On an 851×393 phone held
+   * sideways the masthead (56px) plus the Ingredients header (~84px) is 140px,
+   * 36% of the viewport, spent on chrome that labels the ingredients it is
+   * crowding out. So stickiness is a *policy*, read from these two properties,
+   * rather than a `sticky` utility hard-coded at each call site.
+   *
+   * Three states, driven by `data-sticky-chrome` on <html>:
+   *   absent / anything else → "auto"   — pinned when there's room (below).
+   *   "always"               → pinned regardless of viewport height.
+   *   "off"                  → never pinned.
+   *
+   * These stay UNLAYERED, and that is load-bearing: unlayered declarations
+   * outrank every cascade layer, so a layered override of an unlayered default
+   * could never win and would fail silently. Position and offset always move
+   * together from the same condition — an offset still reserving 3.5rem under a
+   * released masthead would strand a dead band at the top of every secondary
+   * sticky element.
+   */
+  --sticky-chrome-position: sticky;
+  --sticky-chrome-offset: var(--header-height);
+}
+
+/*
+ * 600px, not 640px: 640 sits right on a 1366×768 laptop's usable viewport and
+ * would flap for a large real population. 600 clears the tallest phone
+ * landscape (iPhone Pro Max, 430) by 170px and the laptop by ~40px.
+ */
+@media (max-height: 600px) {
+  :root:not([data-sticky-chrome="always"]) {
+    --sticky-chrome-position: static;
+    --sticky-chrome-offset: 0px;
+  }
+}
+
+:root[data-sticky-chrome="off"] {
+  --sticky-chrome-position: static;
+  --sticky-chrome-offset: 0px;
+}
+
+.dark {
+  /* Working Bench — dark (warm charcoal) */
+  --background: oklch(0.185 0.008 70);
+  --foreground: oklch(0.96 0.006 85);
+  --card: oklch(0.225 0.009 70);
+  --card-foreground: oklch(0.96 0.006 85);
+  --popover: oklch(0.225 0.009 70);
+  --popover-foreground: oklch(0.96 0.006 85);
+  --primary: oklch(0.7 0.16 55);
+  --primary-foreground: oklch(0.2 0.03 55);
+  --secondary: oklch(0.27 0.01 250);
+  --secondary-foreground: oklch(0.92 0.006 85);
+  --muted: oklch(0.27 0.008 260);
+  --muted-foreground: oklch(0.7 0.02 250);
+  --accent: oklch(0.32 0.035 55);
+  --accent-foreground: oklch(0.95 0.01 85);
+  /* Dark destructive darkened from L=0.70 to L=0.577 (matching the light
+     destructive's lightness). At 0.70 the `bg-destructive text-white` Delete
+     button was only 2.92:1 (axe color-contrast, needs 4.5); 0.577 gives 4.78:1.
+     Dark-only, so light visual baselines are untouched. See ui-overhaul.md PR 7. */
+  --destructive: oklch(0.577 0.191 22.216);
+  --destructive-foreground: oklch(0.98 0.005 85);
+  /* Status colors — dark. Lightened to L≈0.7–0.75 (like --primary dark) so they
+     clear AA as text on the charcoal background and take a dark foreground when
+     used as a fill. */
+  --success: oklch(0.72 0.15 150);
+  --success-foreground: oklch(0.2 0.03 150);
+  --warning: oklch(0.75 0.13 75);
+  --warning-foreground: oklch(0.2 0.03 75);
+  --info: oklch(0.7 0.15 255);
+  --info-foreground: oklch(0.2 0.03 255);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.7 0.14 55);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.225 0.009 70);
+  --sidebar-foreground: oklch(0.96 0.006 85);
+  --sidebar-primary: oklch(0.7 0.16 55);
+  --sidebar-primary-foreground: oklch(0.2 0.03 55);
+  --sidebar-accent: oklch(0.32 0.035 55);
+  --sidebar-accent-foreground: oklch(0.95 0.01 85);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.7 0.14 55);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Typography roles — supplied by next/font, with fallbacks. */
+  --font-sans: var(--ff-body), ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--ff-body), ui-sans-serif, system-ui, sans-serif;
+  --font-display:
+    var(--ff-display), var(--ff-body), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--ff-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+}
+
+/*
+ * The one class that reads the sticky-chrome policy above. Applied to the
+ * masthead and the Ingredients header (see the reader chrome pass in
+ * websites/recipe-website/docs/ui-overhaul.md).
+ *
+ * `@layer components`, not `@utility`, and that is the whole trick. Tailwind v4
+ * emits a bare `@layer components;` declaration *before* `@layer utilities`, and
+ * layers order by declaration — so this block loses to every utility regardless
+ * of `@import` order, which is exactly what keeps `print:static` and
+ * `print:hidden` winning at the call sites. An `@utility sticky-chrome` would
+ * land in the utilities layer, where a `[data-sticky-chrome="off"]` selector at
+ * (0,3,0) out-ranks `print:static` at (0,1,0) and printing under "Always" would
+ * keep the header pinned. `sticky-chrome.spec.ts` guards this with a print test.
+ *
+ * STANDING RULE: an element with `.sticky-chrome` must NEVER also carry
+ * Tailwind's `sticky` utility. The utility out-ranks this layer, and the
+ * reader's preference dies quietly with nothing to see in the diff.
+ *
+ * `static`, not `relative`: these elements carry `top-[…]` utilities that a
+ * positioned box would honour and shift by.
+ */
+@layer components {
+  .sticky-chrome {
+    position: var(--sticky-chrome-position, sticky);
+  }
+  @media print {
+    .sticky-chrome {
+      position: static;
+    }
+  }
+}

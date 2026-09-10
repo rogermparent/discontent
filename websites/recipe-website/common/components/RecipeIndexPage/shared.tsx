@@ -1,70 +1,44 @@
-import Link from "next/link";
+import type { PaginationPage } from "@discontent/cms/pagination/types";
 import RecipeList from "../List";
-import { MassagedRecipeEntry } from "../../controller/data/read";
+import type { RecipeListEntry } from "../../controller/paginationConfigs";
 import {
   PageMain,
   PageSection,
   PageHeading,
 } from "recipe-website-common/components/PageLayout";
+import { EmptyState } from "../EmptyState";
+import { RecipeIndexList } from "./RecipeIndexList";
 
-export function Pagination({
-  pageNumber,
-  more,
-}: {
-  pageNumber: number;
-  more: boolean;
-}) {
-  const isFirstPage = pageNumber === 1;
-  const previousHref =
-    pageNumber === 2 ? "/recipes" : `/recipes/${pageNumber - 1}`;
-
-  return (
-    <div className="flex flex-row items-center justify-center font-semibold my-2">
-      {isFirstPage ? (
-        <Link href="/" className="text-center p-1 m-1 bg-slate-700 rounded-xs">
-          Home
-        </Link>
-      ) : (
-        <Link
-          href={previousHref}
-          className="text-center p-1 m-1 bg-slate-700 rounded-xs"
-        >
-          &larr;
-        </Link>
-      )}
-      <span className="p-1 m-1">{pageNumber}</span>
-      {more && (
-        <Link
-          href={`/recipes/${pageNumber + 1}`}
-          className="text-center p-1 m-1 bg-slate-700 rounded-xs"
-        >
-          &rarr;
-        </Link>
-      )}
-    </div>
-  );
-}
-
+/**
+ * One surface of the paginated recipe index — the landing, or one numbered
+ * page. Both render identically apart from their navigation, so they share a
+ * component and differ only in the page they are handed.
+ *
+ * Still a server component. `RecipeIndexList` below it is the client half, and
+ * it is handed this component's own render of the list as a slot rather than
+ * the items to render: a recipe card's image is produced by an async server
+ * component that resizes on disk, so the seed page has to be rendered here or
+ * not at all. Only pages appended past the seed are rendered on the client.
+ */
 export function RecipeIndexPageWrapper({
-  recipes,
-  pageNumber,
-  more,
+  page,
+  isLanding,
 }: {
-  recipes: MassagedRecipeEntry[];
-  pageNumber: number;
-  more: boolean;
+  page: PaginationPage<RecipeListEntry>;
+  isLanding: boolean;
 }) {
   return (
     <PageMain>
       <PageSection grow>
         <PageHeading>All Recipes</PageHeading>
-        {recipes && recipes.length > 0 ? (
-          <div>
-            <RecipeList recipes={recipes} />
-            <Pagination pageNumber={pageNumber} more={more} />
-          </div>
+        {page.items.length > 0 ? (
+          <RecipeIndexList
+            page={page}
+            isLanding={isLanding}
+            seed={<RecipeList recipes={page.items} />}
+          />
         ) : (
-          <p className="text-center my-4">There are no recipes yet.</p>
+          <EmptyState message="There are no recipes yet." />
         )}
       </PageSection>
     </PageMain>

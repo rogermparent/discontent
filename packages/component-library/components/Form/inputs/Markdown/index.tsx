@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Errors, FieldWrapper, baseInputStyle } from "../..";
-import clsx from "clsx";
+import { Errors, FieldWrapper } from "../..";
+import { Textarea } from "@discontent/component-library/components/ui/textarea";
 import StyledMarkdown from "@discontent/component-library/components/Markdown";
-import { Button } from "@discontent/component-library/components/Button";
+import { Button } from "@discontent/component-library/components/ui/button";
 import { DefaultControls, MarkdownInputProps } from "./common";
 
 export function MarkdownInput({
@@ -21,41 +21,37 @@ export function MarkdownInput({
     <FieldWrapper label={label} id={id}>
       <Errors errors={errors} />
       <div className="flex flex-col border rounded-xs">
-        <div className="flex border-b overflow-hidden">
+        <div className="flex gap-1 border-b p-1">
           <Button
-            overrideDefaultStyles={true}
-            className={clsx(
-              activeTab === "edit" ? "bg-blue-500 text-white" : "",
-              "px-4 py-2",
-            )}
+            type="button"
+            size="sm"
+            variant={activeTab === "edit" ? "default" : "ghost"}
+            aria-pressed={activeTab === "edit"}
             onClick={() => setActiveTab("edit")}
           >
             Write
           </Button>
           <Button
-            overrideDefaultStyles={true}
-            className={clsx(
-              activeTab === "preview" ? "bg-blue-500 text-white" : "",
-              "px-4 py-2",
-            )}
-            onClick={() => {
-              setActiveTab("preview");
-            }}
+            type="button"
+            size="sm"
+            variant={activeTab === "preview" ? "default" : "ghost"}
+            aria-pressed={activeTab === "preview"}
+            onClick={() => setActiveTab("preview")}
           >
             Preview
           </Button>
         </div>
         <div className={activeTab === "edit" ? "" : "hidden"}>
-          <div className="flex gap-2 border-b p-2">
+          <div className="flex flex-wrap gap-2 border-b p-2">
             <Controls textArea={textArea} />
           </div>
-          <textarea
+          <Textarea
             name={name}
             id={id}
             ref={(el) => {
               setTextArea(el);
             }}
-            className={clsx(baseInputStyle, "px-1 h-40 grow w-full")}
+            className="h-40 w-full grow"
             defaultValue={defaultValue}
           />
         </div>

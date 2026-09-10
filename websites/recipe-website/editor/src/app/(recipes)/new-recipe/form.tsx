@@ -1,8 +1,10 @@
 "use client";
 
 import CreateRecipeFields from "recipe-website-common/components/Form/Create";
+import { RecipeFormShell } from "recipe-website-common/components/Form/RecipeFormShell";
 import { useActionState } from "react";
 import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
+import { Button } from "@discontent/component-library/components/ui/button";
 import { RecipeFormState } from "recipe-website-common/controller/formState";
 import {
   createRecipe,
@@ -15,9 +17,11 @@ import { RecipeActionState } from "./common";
 export default function NewOrImportRecipeForm({
   slug,
   initialState: initialImportState,
+  allTags = [],
 }: {
   slug?: string;
   initialState: RecipeActionState | null;
+  allTags?: string[];
 }) {
   const [importState, importDispatch] = useActionState(
     importRecipeAction,
@@ -36,22 +40,32 @@ export default function NewOrImportRecipeForm({
   return (
     <div>
       <form id="import-form" action={importDispatch}>
-        {message ? <div className="bg-slate-800">{message}</div> : null}
+        {message ? (
+          <div className="my-1 rounded bg-muted px-2 py-1 text-sm text-muted-foreground">
+            {message}
+          </div>
+        ) : null}
         <TextInput name="import" label="Import from URL" />
         <SubmitButton>Import</SubmitButton>
       </form>
-      <form id="recipe-form" className="m-2 w-full" action={submissionDispatch}>
+      <RecipeFormShell
+        key={submissionState.formData ? submissionState.message : url}
+        action={submissionDispatch}
+        slug={slug}
+        recipe={submissionState.formData || recipe || undefined}
+        className="m-2 w-full"
+      >
         <h2 className="font-bold text-2xl mb-2">New Recipe</h2>
         <div className="flex flex-col flex-nowrap">
           <CreateRecipeFields
-            key={submissionState.formData ? submissionState.message : url}
             state={submissionState}
             slug={slug}
             recipe={submissionState.formData || recipe || undefined}
+            allTags={allTags}
           />
           <div id="missing-fields-error" aria-live="polite" aria-atomic="true">
             {submissionState.message && (
-              <p className="mt-2 text-sm text-red-500">
+              <p className="mt-2 text-sm text-destructive">
                 {submissionState.message}
               </p>
             )}
@@ -59,16 +73,17 @@ export default function NewOrImportRecipeForm({
           <div className="my-1 flex gap-2">
             <SubmitButton>Submit</SubmitButton>
             {submissionState.slugConflict && (
-              <button
+              <Button
+                type="submit"
+                variant="destructive"
                 formAction={overwriteDispatch}
-                className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
               >
                 Overwrite
-              </button>
+              </Button>
             )}
           </div>
         </div>
-      </form>
+      </RecipeFormShell>
     </div>
   );
 }

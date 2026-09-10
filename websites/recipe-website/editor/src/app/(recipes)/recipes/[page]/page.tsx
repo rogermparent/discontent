@@ -1,29 +1,8 @@
-import { getRecipes } from "recipe-website-common/controller/data/read";
-import RecipeIndexPage from "recipe-website-common/components/RecipeIndexPage";
-import { redirect } from "next/navigation";
-import { RECIPES_PER_PAGE } from "recipe-website-common/components/RecipeIndexPage/constants";
+import { recipeIndexRoutes } from "recipe-website-common/components/RecipeIndexPage/routes";
 
-export default async function Recipes({
-  params,
-}: {
-  params: Promise<{ page: string }>;
-}) {
-  const { page } = await params;
-  const pageNumber = Number(page);
-
-  if (isNaN(pageNumber) || pageNumber < 1) {
-    throw new Error("Invalid page number");
-  }
-  if (pageNumber === 1) {
-    redirect("/recipes");
-  }
-
-  const { recipes, more } = await getRecipes({
-    offset: (pageNumber - 1) * RECIPES_PER_PAGE,
-    limit: RECIPES_PER_PAGE,
-  });
-
-  return (
-    <RecipeIndexPage recipes={recipes} pageNumber={pageNumber} more={more} />
-  );
-}
+/**
+ * A numbered page. `/recipes/1` is the *oldest* page, not an alias for the
+ * landing — numbers name stable page ids counted from the oldest recipe, so a
+ * create moves nothing and no sealed URL ever changes what it points at.
+ */
+export default recipeIndexRoutes.numbered;

@@ -9,6 +9,8 @@ import {
   RecipeCardImageContainer,
   RecipeCardName,
   RecipeCardDate,
+  RecipeCardPlaceholder,
+  RecipeCardTagHint,
   RecipeGrid,
   recipeCardImageClassName,
   standardRecipeImageProps,
@@ -33,6 +35,7 @@ export function RecipeListItem({
   date,
   name,
   image,
+  tags,
 }: MassagedRecipeEntry) {
   return (
     <RecipeCard className="relative group">
@@ -41,7 +44,7 @@ export function RecipeListItem({
       </div>
       <RecipeCardLink href={`/recipe/${slug}`}>
         <RecipeCardImageContainer>
-          {image && (
+          {image ? (
             <RecipeImage
               slug={slug}
               image={image}
@@ -49,11 +52,14 @@ export function RecipeListItem({
               className={recipeCardImageClassName}
               {...standardRecipeImageProps}
             />
+          ) : (
+            <RecipeCardPlaceholder name={name} />
           )}
         </RecipeCardImageContainer>
         <RecipeCardName>{name}</RecipeCardName>
         <RecipeCardDate date={date} />
       </RecipeCardLink>
+      <RecipeCardTagHint tags={tags} />
     </RecipeCard>
   );
 }
@@ -66,10 +72,16 @@ export default function RecipeList({
   return (
     <RecipeGrid>
       {recipes.map((entry) => {
-        const { date, slug, name, image } = entry;
+        const { date, slug, name, image, tags } = entry;
         return (
           <li key={slug}>
-            <RecipeListItem slug={slug} date={date} name={name} image={image} />
+            <RecipeListItem
+              slug={slug}
+              date={date}
+              name={name}
+              image={image}
+              tags={tags}
+            />
           </li>
         );
       })}

@@ -1,13 +1,13 @@
 import getMenuBySlug from "@discontent/menus-collection/controller/data/read";
 import EditForm from "./form";
-import deleteMenu from "@discontent/menus-collection/controller/actions/delete";
-import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
+import { deleteMenu } from "../../../../../../../controller/actions/menus";
 import { auth, signIn } from "@/auth";
 import {
   PageMain,
   PageSection,
   PageHeading,
 } from "recipe-website-common/components/PageLayout";
+import { ConfirmDeleteButton } from "@discontent/component-library/components/ConfirmDelete";
 
 async function maybeGetMenu(slug: string) {
   try {
@@ -42,9 +42,12 @@ export default async function Menu({
       <PageSection maxWidth="xl" grow>
         <PageHeading as="h1">Editing Menu: {slug}</PageHeading>
         <EditForm menu={menu} slug={slug} />
-        <form action={deleteThisMenu}>
-          <SubmitButton>Delete</SubmitButton>
-        </form>
+        <form id="delete-menu-form" action={deleteThisMenu} />
+        <ConfirmDeleteButton
+          formId="delete-menu-form"
+          itemLabel="menu"
+          description="The navigation this menu provides disappears from every page."
+        />
       </PageSection>
     </PageMain>
   );

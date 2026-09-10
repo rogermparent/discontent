@@ -193,9 +193,11 @@ export function VideoInput({
             placeholder="https://www.youtube.com/watch?v=..."
             aria-label="Video URL"
           />
-          {urlError && <p className="text-red-600 text-sm mt-1">{urlError}</p>}
+          {urlError && (
+            <p className="text-destructive text-sm mt-1">{urlError}</p>
+          )}
           {errors && errors.length > 0 && (
-            <div className="text-red-600 text-sm mt-1">
+            <div className="text-destructive text-sm mt-1">
               {errors.map((error, i) => (
                 <p key={i}>{error}</p>
               ))}

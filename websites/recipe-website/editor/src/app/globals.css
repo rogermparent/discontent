@@ -1,7 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+/* Central content-engine palette + type tokens (Working Bench default). */
+@import "../../../../../packages/component-library/styles/theme.css";
 @source "../../node_modules/recipe-website-common/components";
-@source "../../node_modules/component-library/components";
+@source "../../node_modules/@discontent/component-library/components";
 
 .markdown-body {
   h1,
@@ -10,7 +12,7 @@
   h4,
   h5,
   h6 {
-    @apply font-bold;
+    @apply font-display font-bold;
   }
   h1 {
     @apply text-3xl my-4;
@@ -29,145 +31,84 @@
   }
 
   a {
-    @apply underline visited:text-purple-200;
-    hover: text-cyan-200;
+    @apply underline decoration-primary/40 hover:text-primary;
   }
 }
 
 html,
 body {
-  @apply text-slate-100;
   padding: 0;
   margin: 0;
   min-height: 100vh;
 }
 
-body {
-  color: rgb(var(--foreground-rgb));
-}
-
-svg {
-  width: 100%;
-  height: 100%;
-}
-
-@custom-variant dark (&:is(.dark *));
-
-:root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
-
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
-}
-
+/*
+ * Full-bleed default for *unsized* SVGs (a Lighthouse-era tweak). Scoped into
+ * `@layer base` so Tailwind's `size-*` / `w-*` / `h-*` utilities (utilities
+ * layer) win over it — an unlayered `svg{}` rule beats every layered utility,
+ * which silently blew every sized icon (lucide `size-4`, BookmarkButton `w-6`)
+ * up to fill its parent. Unsized SVGs still stretch to their container.
+ */
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
+  svg {
+    width: 100%;
+    height: 100%;
   }
-  body {
-    @apply bg-background text-foreground;
+}
+
+/*
+ * Print stylesheet — a clean recipe printout. Screen chrome (header, footer,
+ * sticky scale bar, Reset/Bookmark controls, image/video) is hidden with
+ * `print:hidden` utilities at the component layer; this block handles what
+ * utilities can't: forcing meaningful color fills to survive the browser's
+ * default background-stripping, and turning the checklist boxes into tickable
+ * squares. Keep the editor and export copies of this block in sync.
+ */
+@media print {
+  /* The cook-schedule strip encodes timing in its segment fills (ember = hands
+     on, quiet = rest). Force them to print instead of washing out to white. */
+  section[aria-label="Cook schedule"] * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Uncontrolled checkboxes print as empty squares to tick by hand. */
+  [data-slot="checkbox"] {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    border: 1px solid #666 !important;
+    box-shadow: none !important;
+  }
+
+  /* Keep an ingredient or a step from splitting across a page break. */
+  .markdown-body,
+  li {
+    break-inside: avoid;
+  }
+}
+
+/*
+ * Reduced-motion kill-switch. One global guard, not per-component
+ * `motion-reduce:` variants — the accessibility guarantee is "no motion when the
+ * OS asks for none," so it belongs in one place. Neutralizes every animation and
+ * transition source in the app at once: tw-animate-css enter/exit, Radix
+ * data-[state] animations, animate-pulse skeletons, and every transition-*
+ * (Schedule chevron, Timeline transition-colors, list group-hover:scale, the
+ * bookmark and sticky-video controls). next-themes already sets
+ * disableTransitionOnChange, so there's no conflict on mode flips.
+ *
+ * 0.01ms (not 0) so transitionend/animationend still fire and JS that waits on
+ * them isn't left hanging. Kept out of shared theme.css and in sync with the
+ * export copy — a behavioral global belongs in the app layer where this app's
+ * reviewers can see it, matching the @media print precedent above.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

@@ -5,11 +5,15 @@
   "main": "index.js",
   "files": [
     "README.md",
+    "aggregates",
     "content",
+    "docs",
     "fs",
     "hooks",
     "forms",
     "git",
+    "lmdb",
+    "pagination",
     "util",
     "tsconfig.json"
   ],

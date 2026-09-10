@@ -1,0 +1,10 @@
+# The dirty-page artifact, not fixture data.
+#
+# `rebuildIndex` and the multi-item write path both drop one of these into the
+# content directory, so it lands in whatever fixture was being generated — and
+# from F29 onward portfolio has a pagination index, so it lands here too. It
+# carries a wall-clock `updatedAt`, so committing it means a spurious diff every
+# time a fixture is regenerated, and nothing in this suite reads it. Recipe's
+# fixture tree carries the identical rule for the identical reason; a real
+# content repository ignores it via `initializeContentGit`.
+.pagination-changes.json

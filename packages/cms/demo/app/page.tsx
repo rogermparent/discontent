@@ -101,7 +101,17 @@ export default async function HomePage() {
 
       {bookmarksResult.entries.length > 0 && (
         <>
-          <h2 style={{ marginTop: "40px" }}>Bookmarks</h2>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginTop: "40px",
+            }}
+          >
+            <h2>Bookmarks</h2>
+            <Link href="/bookmarks/browse">Browse bookmarks</Link>
+          </div>
           <ul style={{ listStyle: "none", padding: 0 }}>
             {bookmarksResult.entries.map((entry) => {
               const [, slug] = entry.key;
@@ -134,6 +144,23 @@ export default async function HomePage() {
                     }}
                   >
                     References: {entry.value.note}
+                  </p>
+                  {/*
+                   * The referenced note's *title*, with no second read. It is
+                   * borrowed into the bookmark's own content index value at
+                   * write time, so this list costs one index scan rather than
+                   * one scan plus an N+1 of note reads — which is the enrichment
+                   * pass `getFeaturedRecipes` still does today.
+                   */}
+                  <p
+                    data-testid="bookmark-note-title"
+                    style={{
+                      color: "#666",
+                      fontSize: "14px",
+                      margin: "5px 0 0",
+                    }}
+                  >
+                    Note: {entry.value.noteTitle ?? "(missing)"}
                   </p>
                 </li>
               );

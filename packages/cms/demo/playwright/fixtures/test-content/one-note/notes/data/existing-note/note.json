@@ -1,0 +1,8 @@
+{
+  "title": "Existing Note",
+  "content": "This note already exists for testing updates and deletes.",
+  "date": 1699920000000,
+  "tags": [
+    "test"
+  ]
+}

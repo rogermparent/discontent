@@ -1,38 +1,15 @@
-import { getRecipes } from "recipe-website-common/controller/data/read";
-import RecipeIndexPage from "recipe-website-common/components/RecipeIndexPage";
-import { redirect } from "next/navigation";
-import { RECIPES_PER_PAGE } from "recipe-website-common/components/RecipeIndexPage/constants";
+import { recipeIndexRoutes } from "recipe-website-common/components/RecipeIndexPage/routes";
 
-export default async function Recipes({
-  params,
-}: {
-  params: Promise<{ page: string }>;
-}) {
-  const { page } = await params;
-  const pageNumber = Number(page);
+/**
+ * A numbered page. `/recipes/1` is the *oldest* page, not an alias for the
+ * landing — numbers name stable page ids counted from the oldest recipe, so a
+ * create moves nothing and no sealed URL ever changes what it points at.
+ */
+export default recipeIndexRoutes.numbered;
 
-  if (isNaN(pageNumber) || pageNumber < 1) {
-    throw new Error("Invalid page number");
-  }
-  if (pageNumber === 1) {
-    redirect("/recipes");
-  }
-
-  const { recipes, more } = await getRecipes({
-    offset: (pageNumber - 1) * RECIPES_PER_PAGE,
-    limit: RECIPES_PER_PAGE,
-  });
-
-  return (
-    <RecipeIndexPage recipes={recipes} pageNumber={pageNumber} more={more} />
-  );
-}
-
-export async function generateStaticParams() {
-  const { recipes } = await getRecipes();
-  const indexPageParams = [];
-  for (let i = 0; i * RECIPES_PER_PAGE <= recipes.length; i++) {
-    indexPageParams.push({ page: String(i + 1) });
-  }
-  return indexPageParams;
-}
+/**
+ * Derived from the meta record in O(1). The hand-written form loaded the
+ * entire corpus into an array purely to count it — and its `<=` bound emitted
+ * one page too many whenever the count divided evenly.
+ */
+export const generateStaticParams = recipeIndexRoutes.generateStaticParams;

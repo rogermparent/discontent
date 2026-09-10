@@ -33,7 +33,7 @@ export default function EditFeaturedRecipeForm({
         />
         <div id="missing-fields-error" aria-live="polite" aria-atomic="true">
           {state.message && (
-            <p className="mt-2 text-sm text-red-500">{state.message}</p>
+            <p className="mt-2 text-sm text-destructive">{state.message}</p>
           )}
         </div>
         <div className="my-1">

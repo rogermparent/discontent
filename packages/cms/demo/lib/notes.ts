@@ -1,7 +1,14 @@
 import type { ContentTypeConfig } from "@discontent/cms/content/types";
 import { z } from "zod";
 import dateEpochSchema from "@discontent/cms/forms/schema/dateEpoch";
+/*
+ * Circular: `bookmarks.ts` imports this module back, because the reference
+ * edge between the two is declared from both sides. Safe only because both
+ * sides defer the config behind a thunk — see `ReferenceSpec.config`.
+ */
 import { bookmarkConfig } from "./bookmarks";
+import { noteTags } from "./noteAggregates";
+import { notesByDate } from "./notePagination";
 
 // Note data schema
 export interface Note {
@@ -15,6 +22,13 @@ export interface Note {
 export interface NoteIndexValue {
   title: string;
   date: number;
+  /*
+   * Carried so the tag aggregate can fold it. An aggregate reads the index
+   * value, not a pagination projection — which is exactly why this field can
+   * be here without `NoteListItem` carrying it, and so without a note's tags
+   * dirtying a page nobody renders them on.
+   */
+  tags?: string[];
 }
 
 // Index key: [date, slug] for sorting by date
@@ -30,6 +44,7 @@ export const noteConfig: ContentTypeConfig<Note, NoteIndexValue, NoteIndexKey> =
     buildIndexValue: (data: Note): NoteIndexValue => ({
       title: data.title,
       date: data.date,
+      tags: data.tags,
     }),
     buildIndexKey: (slug: string, data: Note): NoteIndexKey => [
       data.date,
@@ -37,10 +52,12 @@ export const noteConfig: ContentTypeConfig<Note, NoteIndexValue, NoteIndexKey> =
     ],
     referencedBy: [
       {
-        config: bookmarkConfig,
+        config: () => bookmarkConfig,
         indexField: "note",
       },
     ],
+    paginationIndexes: [notesByDate],
+    aggregates: [noteTags],
   };
 
 // Zod schema for form validation

@@ -1,67 +1,22 @@
-import clsx from "clsx";
-import { MouseEventHandler, ReactNode } from "react";
+import { ComponentProps } from "react";
 import {
-  buttonVariants,
   Button as ShadcnButton,
+  buttonVariants,
 } from "@discontent/component-library/components/ui/button";
 
+/**
+ * Thin wrapper over the shadcn Button whose one job is defaulting `type` to
+ * "button" instead of the native "submit". Most usages live inside <form>s as
+ * action buttons (add item, replace, paste, etc.) that must NOT submit the
+ * form; importing this wrapper makes that the safe default. Pass type="submit"
+ * explicitly for real submit buttons. Do not collapse this into ui/button — the
+ * type default is load-bearing across recipe-website, portfolio, and menus.
+ */
 export function Button({
-  children,
   type = "button",
-  onClick,
-  className,
-  disabled,
-  name,
-  value,
-}: {
-  children: ReactNode;
-  type?: HTMLButtonElement["type"];
-  onClick?: MouseEventHandler<HTMLButtonElement>;
-  className?: string;
-  disabled?: boolean;
-  overrideDefaultStyles?: boolean;
-  name?: string;
-  value?: string;
-}) {
-  return (
-    <ShadcnButton
-      className={className}
-      onClick={onClick}
-      type={type}
-      disabled={disabled}
-      name={name}
-      value={value}
-    >
-      {children}
-    </ShadcnButton>
-  );
+  ...props
+}: ComponentProps<typeof ShadcnButton>) {
+  return <ShadcnButton type={type} {...props} />;
 }
 
-export function PaddedButton({
-  children,
-  type = "button",
-  onClick,
-  className,
-  disabled,
-}: {
-  children: ReactNode;
-  type?: HTMLButtonElement["type"];
-  onClick?: MouseEventHandler<HTMLButtonElement>;
-  className?: string;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      className={clsx(className, "group")}
-      onClick={onClick}
-      type={type}
-      disabled={disabled}
-    >
-      <span
-        className={clsx(buttonVariants({ variant: "default", size: "sm" }))}
-      >
-        {children}
-      </span>
-    </button>
-  );
-}
+export { buttonVariants };

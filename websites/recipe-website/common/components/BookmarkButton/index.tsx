@@ -23,8 +23,11 @@ export default function BookmarkButton({
   return (
     <Button
       variant="ghost"
-      size="sm"
-      className={clsx("p-2 bg-slate-400/25", className)}
+      size="icon-sm"
+      className={clsx(
+        "bg-background/80 backdrop-blur-sm hover:bg-background",
+        className,
+      )}
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -43,10 +46,10 @@ export default function BookmarkButton({
         strokeLinecap="round"
         strokeLinejoin="round"
         className={clsx(
-          "w-6 h-6 transition-colors duration-200",
+          "size-5 transition-colors duration-200",
           bookmarked
-            ? "text-yellow-500"
-            : "text-slate-400 hover:text-yellow-500",
+            ? "text-primary"
+            : "text-muted-foreground hover:text-primary",
         )}
       >
         <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />

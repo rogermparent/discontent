@@ -53,7 +53,7 @@ function MenuItemFields<T>({
         defaultValue={currentDefaultItem?.href}
       />
       <FieldWrapper label="Children">
-        <div className="pl-2 ml-0.5 border-l-2 border-white">
+        <div className="pl-2 ml-0.5 border-l-2 border-border">
           <ul>
             {values.map(({ key }, index) => {
               return (

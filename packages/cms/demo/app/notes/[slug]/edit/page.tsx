@@ -1,6 +1,7 @@
 import { redirect, notFound } from "next/navigation";
 import { readContentFile } from "@discontent/cms/content/readContentFile";
 import { updateContent } from "@discontent/cms/content/updateContent";
+import { revalidateWrite } from "@/lib/revalidateWrite";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import {
   noteConfig,
@@ -43,7 +44,7 @@ async function updateNote(formData: FormData) {
   const contentDirectory = getContentDirectory();
   const currentIndexKey: NoteIndexKey = [currentDate, currentSlug];
 
-  await updateContent({
+  const result = await updateContent({
     config: noteConfig,
     slug: newSlug,
     currentSlug,
@@ -51,6 +52,11 @@ async function updateNote(formData: FormData) {
     data: note,
     contentDirectory,
     commitMessage: `Update note: ${note.title}`,
+  });
+
+  revalidateWrite(noteConfig.contentType, result, {
+    slug: newSlug,
+    previousSlug: currentSlug,
   });
 
   redirect(`/notes/${newSlug}`);

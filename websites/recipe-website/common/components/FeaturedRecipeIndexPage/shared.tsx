@@ -1,72 +1,51 @@
+import type { PaginationPage } from "@discontent/cms/pagination/types";
 import Link from "next/link";
 import FeaturedRecipeList from "../List/FeaturedRecipe";
-import { MassagedFeaturedRecipeEntry } from "../../controller/data/readFeaturedRecipes";
+import type { FeaturedRecipeListEntry } from "../../controller/paginationConfigs";
 import {
   PageMain,
   PageSection,
   PageHeading,
 } from "recipe-website-common/components/PageLayout";
+import { Button } from "@discontent/component-library/components/ui/button";
+import { RecipePagination } from "../Pagination";
+import { EmptyState } from "../EmptyState";
 
-export function Pagination({
-  pageNumber,
-  more,
-}: {
-  pageNumber: number;
-  more: boolean;
-}) {
-  const isFirstPage = pageNumber === 1;
-  const previousHref =
-    pageNumber === 2
-      ? "/featured-recipes"
-      : `/featured-recipes/${pageNumber - 1}`;
-
-  return (
-    <div className="flex flex-row items-center justify-center font-semibold my-2">
-      {isFirstPage ? (
-        <Link href="/" className="text-center p-1 m-1 bg-slate-700 rounded-xs">
-          Home
-        </Link>
-      ) : (
-        <Link
-          href={previousHref}
-          className="text-center p-1 m-1 bg-slate-700 rounded-xs"
-        >
-          &larr;
-        </Link>
-      )}
-      <span className="p-1 m-1">{pageNumber}</span>
-      {more && (
-        <Link
-          href={`/featured-recipes/${pageNumber + 1}`}
-          className="text-center p-1 m-1 bg-slate-700 rounded-xs"
-        >
-          &rarr;
-        </Link>
-      )}
-    </div>
-  );
-}
-
+/**
+ * One surface of the paginated featured-recipe index — the landing, or one
+ * numbered page. Both render identically apart from their navigation, so they
+ * share a component and differ only in the page they are handed.
+ */
 export function FeaturedRecipeIndexPageWrapper({
-  featuredRecipes,
-  pageNumber,
-  more,
+  page,
+  isLanding,
 }: {
-  featuredRecipes: MassagedFeaturedRecipeEntry[];
-  pageNumber: number;
-  more: boolean;
+  page: PaginationPage<FeaturedRecipeListEntry>;
+  isLanding: boolean;
 }) {
   return (
     <PageMain>
       <PageSection grow>
         <PageHeading>Featured Recipes</PageHeading>
-        {featuredRecipes && featuredRecipes.length > 0 ? (
+        {page.items.length > 0 ? (
           <div>
-            <FeaturedRecipeList featuredRecipes={featuredRecipes} />
-            <Pagination pageNumber={pageNumber} more={more} />
+            <FeaturedRecipeList featuredRecipes={page.items} />
+            <RecipePagination
+              basePath="/featured-recipes"
+              page={page}
+              isLanding={isLanding}
+            />
           </div>
         ) : (
-          <p className="text-center my-4">There are no featured recipes yet.</p>
+          <EmptyState
+            title="No featured recipes yet"
+            message="Feature a recipe to spotlight it here."
+            action={
+              <Button asChild>
+                <Link href="/recipes">Browse all recipes</Link>
+              </Button>
+            }
+          />
         )}
       </PageSection>
     </PageMain>

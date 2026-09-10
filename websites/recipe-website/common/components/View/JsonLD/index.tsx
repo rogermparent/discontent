@@ -70,6 +70,18 @@ export function buildRecipeJsonLD(
     recipeInstructions: buildJsonLDInstructions(recipe),
   };
 
+  // schema.org keywords: a comma-separated list of the recipe's tags.
+  if (recipe.tags && recipe.tags.length > 0) {
+    jsonLD.keywords = recipe.tags.join(", ");
+  }
+
+  // The citation, in the vocabulary a crawler already reads (D6/22a).
+  // `isBasedOn` is schema.org's "derived from this work" — exactly what an
+  // imported or adapted recipe's `source.url` is.
+  if (recipe.source?.url) {
+    jsonLD.isBasedOn = recipe.source.url;
+  }
+
   return jsonLD;
 }
 

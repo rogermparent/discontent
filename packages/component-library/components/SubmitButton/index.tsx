@@ -1,36 +1,23 @@
 "use client";
 
-import { ReactNode } from "react";
-import { Button } from "../Button";
+import { ComponentProps, ReactNode } from "react";
 import { useFormStatus } from "react-dom";
+import { Button } from "@discontent/component-library/components/ui/button";
+
+type ButtonProps = ComponentProps<typeof Button>;
 
 export function SubmitButton({
   children,
-  className,
-  disabled,
-  overrideDefaultStyles,
-  name,
-  value,
   pendingChildren,
-}: {
+  disabled,
+  ...rest
+}: Omit<ButtonProps, "type"> & {
   children: ReactNode;
-  className?: string;
-  disabled?: boolean;
-  overrideDefaultStyles?: boolean;
-  name?: string;
-  value?: string;
-  pendingChildren?: string;
+  pendingChildren?: ReactNode;
 }) {
   const { pending } = useFormStatus();
   return (
-    <Button
-      type="submit"
-      className={className}
-      disabled={disabled || pending}
-      overrideDefaultStyles={overrideDefaultStyles}
-      name={name}
-      value={value}
-    >
+    <Button type="submit" disabled={disabled || pending} {...rest}>
       {pendingChildren !== undefined && pending ? pendingChildren : children}
     </Button>
   );

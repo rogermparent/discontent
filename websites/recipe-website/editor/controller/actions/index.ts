@@ -3,7 +3,9 @@
 import { auth } from "@/auth";
 import slugify from "@sindresorhus/slugify";
 import { deleteContent } from "@discontent/cms/content/deleteContent";
+import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
 import { rebuildIndex } from "@discontent/cms/content/rebuildIndex";
+import { revalidateDerivedState } from "@discontent/cms/content/next/revalidateDerived";
 import type { UploadSpec } from "@discontent/cms/content/types";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { directoryIsGitRepo } from "@discontent/cms/git/commit";
@@ -16,6 +18,7 @@ import type {
   RecipeFormData,
   RecipeFormState,
 } from "recipe-website-common/controller/formState";
+import { featuredRecipeContentConfig } from "recipe-website-common/controller/featuredRecipeContentConfig";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
 import type {
   Recipe,
@@ -24,8 +27,14 @@ import type {
 import simpleGit, { SimpleGit } from "simple-git";
 import { z } from "zod";
 import parseRecipeFormData, { ParsedRecipeFormData } from "../parseFormData";
-import type { EditorContentConfig } from "./editorContentConfig";
-import { createGenericActions } from "./genericActions";
+import { recipeContentTypes } from "../contentTypes";
+import type { EditorContentConfig } from "@discontent/cms/content/editorContentConfig";
+import { createGenericActions } from "@discontent/cms/content/genericActions";
+import { authenticateUser } from "./shared";
+import {
+  recipeDeleteSuccessConfig,
+  recipeSuccessConfig,
+} from "../successConfigs";
 
 const INITIAL_COMMIT_MESSAGE = "Initial commit";
 
@@ -42,6 +51,8 @@ function formDataFromParsed(parsed: ParsedRecipeFormData): RecipeFormData {
     cookTime: parsed.cookTime,
     totalTime: parsed.totalTime,
     recipeYield: parsed.recipeYield,
+    tags: parsed.tags,
+    source: parsed.source,
     videoUrl: parsed.videoUrl || undefined,
   };
 }
@@ -71,6 +82,8 @@ function buildRecipeData(
     totalTime,
     recipeYield,
     timelines,
+    tags,
+    source,
   } = parsed;
 
   // Determine final video value with priority handling
@@ -125,6 +138,8 @@ function buildRecipeData(
     totalTime,
     recipeYield,
     timelines,
+    tags: tags && tags.length > 0 ? tags : undefined,
+    source,
   };
 
   return { data, uploads };
@@ -139,22 +154,13 @@ const recipeEditorConfig: EditorContentConfig<
   ParsedRecipeFormData
 > = {
   contentConfig: recipeContentConfig,
-  successConfig: {
-    itemBasePath: "/recipe",
-    listPaths: [
-      { path: "/recipes" },
-      { path: "/recipes/[page]", type: "page" as const },
-    ],
-  },
-  deleteSuccessConfig: {
-    itemBasePath: "/recipe",
-    listPaths: [
-      { path: "/recipes" },
-      { path: "/recipes/[page]", type: "page" as const },
-    ],
-    redirectTo: () => "/",
-  },
+  successConfig: recipeSuccessConfig,
+  deleteSuccessConfig: recipeDeleteSuccessConfig,
   label: "recipe",
+  // Auth is injected rather than imported: the factory lives in
+  // @discontent/cms and cannot reach this app\'s `@/auth` alias. Required by
+  // the type, so a content type cannot ship an unauthenticated write path.
+  authenticate: authenticateUser,
 
   parseFormData(formData: FormData) {
     const formResult = parseRecipeFormData(formData);
@@ -255,7 +261,63 @@ export async function rebuildRecipeIndex() {
     config: recipeContentConfig,
     contentDirectory,
   });
-  revalidatePath("/");
+  /*
+   * A P3 gap, found while giving featured recipes the same seat: this fired
+   * only `revalidatePath("/")` and no tags at all, so a rebuild reprojected
+   * every page and the site went on serving the old ones. Worst on the git
+   * branch-switch path, where `rebuildRecipeIndex` is how the whole corpus is
+   * meant to change over.
+   *
+   * The argument is the blast radius, stated once: **the two configs this
+   * rebuild moves.** `rebuildIndex` cascades to dependents by default (D1), so
+   * a recipe rebuild really does move featured recipes too. What that expands
+   * to — one tag per keyspace, one per aggregate, plus each type's item
+   * catch-all — is `derivedTagsOf`'s business, and it stays right when a config
+   * gains an index. The five hand-written `revalidateTag` calls this replaces
+   * were correct on the day they were written and had no way to stay correct;
+   * that is the third seat of §11.4, and F22 is the entry that derives it.
+   *
+   * A repair seat is also the one place the item catch-all belongs. A *write*
+   * must never fire it — it knows which slugs it touched, and expiring the type
+   * would be the over-invalidation §6.4 exists to prevent — but a rebuild knows
+   * nothing and wants everything, which matters most on the branch-switch path:
+   * without it every record cached under the old branch survives the checkout.
+   *
+   * No `revalidatePath("/")`. These tags are exactly what the homepage reads
+   * through (see `successConfig`), so the path call was the same redundancy
+   * `paginationOnly` removes from the write path.
+   */
+  revalidateDerivedState([recipeContentConfig, featuredRecipeContentConfig]);
+}
+
+/**
+ * Rebuild **every** index this site owns, then invalidate everything derived
+ * from any of them.
+ *
+ * The seat `rebuildRecipeIndex` could not become. That one is pinned by
+ * `test/revalidateDerived.test.ts` as a *narrow* seat — recipes and the
+ * featured recipes its cascade reaches, and deliberately nothing else — and it
+ * is what the git branch-switch path calls, where widening it would drop the
+ * whole cache on every checkout for no reason.
+ *
+ * What needed a wider one was the export (T9/22b): `buildExport` called
+ * `rebuildRecipeIndex` to self-heal a content directory that predates an index,
+ * and groups are not recipe dependents, so a directory with unbuilt groups
+ * shipped a `/groups` that was silently empty with no error at all. That is the
+ * same class of bug §13 keeps producing, and the fix is to ask the registry
+ * rather than to name two more configs here.
+ *
+ * `cascadeDependents: false` because the loop already covers every type. The
+ * default is true, and leaving it on would rebuild featured recipes twice —
+ * once as the recipe rebuild's cascade, once on its own pass.
+ */
+export async function rebuildAllIndexes() {
+  const contentDirectory = getContentDirectory();
+  for (const config of recipeContentTypes) {
+    await rebuildIndex({ config, contentDirectory, cascadeDependents: false });
+  }
+  /* One call over the whole registry: everything moved, so everything expires. */
+  revalidateDerivedState(recipeContentTypes);
 }
 
 export async function createRemote(
@@ -412,19 +474,6 @@ export async function branchCommandAction(
   return null;
 }
 
-export async function remoteCommandAction(
-  _previousState: string | null,
-  _formData: FormData,
-): Promise<string | null> {
-  // Auth check
-  const session = await auth();
-  if (!session?.user?.email) {
-    return "Authentication required";
-  }
-
-  return null;
-}
-
 export async function initializeContentGit() {
   // Auth check
   const session = await auth();
@@ -443,8 +492,21 @@ export async function initializeContentGit() {
     await git.init();
     await writeFile(
       join(contentDirectory, ".gitignore"),
-      `/transformed-images
-/recipes/index`,
+      /*
+       * The pagination keyspace and its dirty-page artifact are derived from
+       * the content index, which is itself derived from the data files — all
+       * three rebuild from what is tracked. `git.add(".")` just below would
+       * otherwise sweep LMDB binaries into the initial commit.
+       *
+       * Derived from the registry rather than typed out (F21). The list this
+       * replaced had drifted twice in the direction its own comment predicted:
+       * the featured-recipes pair went missing until D2a, and `/pages/index`
+       * was still absent here after the Playwright equivalent gained it. The
+       * harness writes its own `.gitignore` and never exercises this one, so
+       * nothing goes red — which is why the fix is a single owner rather than
+       * a third careful reading.
+       */
+      derivedContentPaths(recipeContentTypes),
     );
     await git.add(".");
     await git.commit(INITIAL_COMMIT_MESSAGE, {

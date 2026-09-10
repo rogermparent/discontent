@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { FileInput } from "../File";
 import { StaticImageProps } from "@discontent/next-static-image/src";
+import { Button } from "@discontent/component-library/components/ui/button";
 import { CheckboxInput } from "../Checkbox";
 
 export function ImageInput({
@@ -68,7 +69,14 @@ export function ImageInput({
             >
               {null}
             </Image>
-            <button
+            {/* type="button" is load-bearing: a <button> inside a <form>
+                defaults to type="submit", so clearing the chosen image was
+                *submitting the whole form*. */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-2"
               onClick={() => {
                 if (fileInputRef.current) {
                   fileInputRef.current.value = "";
@@ -77,7 +85,7 @@ export function ImageInput({
               }}
             >
               Cancel upload
-            </button>
+            </Button>
           </div>
         ) : defaultImage ? (
           typeof defaultImage === "string" ? (

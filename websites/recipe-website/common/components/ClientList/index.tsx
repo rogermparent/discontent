@@ -6,12 +6,14 @@ import {
   RecipeCardImageContainer,
   RecipeCardName,
   RecipeCardDate,
+  RecipeCardPlaceholder,
+  RecipeCardTagHint,
   RecipeGrid,
   recipeCardImageClassName,
 } from "../List/shared";
 
 export function ClientListItem({
-  recipe: { slug, date, name, image },
+  recipe: { slug, date, name, image, tags },
 }: {
   recipe: MassagedRecipeEntry;
 }) {
@@ -19,7 +21,7 @@ export function ClientListItem({
     <RecipeCard>
       <RecipeCardLink href={`/recipe/${slug}`}>
         <RecipeCardImageContainer>
-          {image && (
+          {image ? (
             <PureStaticImage
               slug={slug}
               image={image}
@@ -28,11 +30,14 @@ export function ClientListItem({
               height={600}
               className={recipeCardImageClassName}
             />
+          ) : (
+            <RecipeCardPlaceholder name={name} />
           )}
         </RecipeCardImageContainer>
         <RecipeCardName>{name}</RecipeCardName>
         {date && <RecipeCardDate date={date} />}
       </RecipeCardLink>
+      <RecipeCardTagHint tags={tags} />
     </RecipeCard>
   );
 }

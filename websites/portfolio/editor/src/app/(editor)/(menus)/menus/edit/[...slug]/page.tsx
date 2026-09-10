@@ -1,8 +1,8 @@
 import getMenuBySlug from "@discontent/menus-collection/controller/data/read";
 import EditForm from "./form";
-import deleteMenu from "@discontent/menus-collection/controller/actions/delete";
-import { Button } from "@discontent/component-library/components/Button";
+import { deleteMenu } from "../../../../../../../controller/actions/menus";
 import { auth, signIn } from "@/auth";
+import { ConfirmDeleteButton } from "@discontent/component-library/components/ConfirmDelete";
 
 async function maybeGetMenu(slug: string) {
   try {
@@ -36,9 +36,12 @@ export default async function Menu({
     <main className="flex flex-col items-center px-2 grow max-w-xl w-full h-full">
       <h1 className="text-2xl font-bold my-2">Editing Menu: {slug}</h1>
       <EditForm menu={menu} slug={slug} />
-      <form action={deleteThisMenu}>
-        <Button type="submit">Delete</Button>
-      </form>
+      <form id="delete-menu-form" action={deleteThisMenu} />
+      <ConfirmDeleteButton
+        formId="delete-menu-form"
+        itemLabel="menu"
+        description="The navigation this menu provides disappears from every page."
+      />
     </main>
   );
 }

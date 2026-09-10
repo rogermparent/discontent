@@ -1,9 +1,8 @@
-import { getRecipes } from "recipe-website-common/controller/data/read";
-import FirstRecipeIndexPage from "recipe-website-common/components/RecipeIndexPage/FirstRecipeIndexPage";
-import { RECIPES_PER_PAGE } from "recipe-website-common/components/RecipeIndexPage/constants";
+import { recipeIndexRoutes } from "recipe-website-common/components/RecipeIndexPage/routes";
 
-export default async function Recipes() {
-  const { recipes, more } = await getRecipes({ limit: RECIPES_PER_PAGE });
-
-  return <FirstRecipeIndexPage recipes={recipes} more={more} />;
-}
+/**
+ * The landing page: the head page folded together with the one below it, so it
+ * always holds between `perPage + 1` and `2 * perPage` recipes rather than the
+ * 1-to-`perPage` a partial head would give on its own.
+ */
+export default recipeIndexRoutes.landing;

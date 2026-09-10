@@ -1,0 +1,21 @@
+{
+  "name": "Sourdough Loaf",
+  "description": "A slow-fermented country loaf with a blistered crust and an open, custardy crumb.",
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"500\" /> g bread flour"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> cup starter"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"10\" /> g salt"
+    }
+  ],
+  "date": 1785278322792,
+  "prepTime": 30,
+  "cookTime": 45,
+  "totalTime": 0,
+  "recipeYield": "",
+  "tags": ["bread", "baked"]
+}

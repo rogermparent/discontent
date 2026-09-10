@@ -1,19 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { readContentFile } from "@discontent/cms/content/readContentFile";
-import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
-import {
-  bookmarkConfig,
-  BookmarkIndexKey,
-  BookmarkIndexValue,
-  type Bookmark,
-} from "@/lib/bookmarks";
-import {
-  noteConfig,
-  NoteIndexKey,
-  NoteIndexValue,
-  type Note,
-} from "@/lib/notes";
+import { bookmarkItems } from "@/lib/bookmarkItemReads";
+import { noteItems } from "@/lib/noteItemReads";
 
 export const dynamic = "force-dynamic";
 
@@ -23,34 +11,24 @@ interface PageProps {
 
 export default async function BookmarkPage({ params }: PageProps) {
   const { slug } = await params;
-  const contentDirectory = getContentDirectory();
 
-  let bookmark: Bookmark;
-  try {
-    bookmark = await readContentFile<
-      Bookmark,
-      BookmarkIndexValue,
-      BookmarkIndexKey
-    >({
-      config: bookmarkConfig,
-      slug,
-      contentDirectory,
-    });
-  } catch {
-    notFound();
-  }
+  /*
+   * This page is the demo's version of the shape the whole kind exists for: it
+   * renders one item's whole record *and* a second item's, of a different
+   * content type, at a URL that is neither of theirs. Nothing derived from a
+   * projection reaches it — `revalidatePath("/bookmarks/" + slug)` covers the
+   * bookmark and the note not at all.
+   */
+  const bookmark = await bookmarkItems.read(slug);
+  if (!bookmark) notFound();
 
-  // Try to fetch the referenced note
-  let note: Note | null = null;
-  try {
-    note = await readContentFile<Note, NoteIndexValue, NoteIndexKey>({
-      config: noteConfig,
-      slug: bookmark.note,
-      contentDirectory,
-    });
-  } catch {
-    // Note may not exist
-  }
+  /*
+   * A reference can dangle — the note may have been deleted — and `null` was
+   * always the answer here. The cached read simply hands it back as a value
+   * instead of as a swallowed exception, which is the contract the kind adopts
+   * everywhere else.
+   */
+  const note = await noteItems.read(bookmark.note);
 
   return (
     <div>
@@ -80,33 +58,6 @@ export default async function BookmarkPage({ params }: PageProps) {
       <p style={{ color: "#999", fontSize: "14px" }}>
         Created: {new Date(bookmark.date).toLocaleString()}
       </p>
-
-      <div style={{ marginTop: "20px", display: "flex", gap: "10px" }}>
-        <Link
-          href={`/bookmarks/${slug}/edit`}
-          style={{
-            padding: "8px 16px",
-            backgroundColor: "#f5f5f5",
-            borderRadius: "4px",
-            textDecoration: "none",
-            color: "#333",
-          }}
-        >
-          Edit
-        </Link>
-        <Link
-          href={`/bookmarks/${slug}/delete`}
-          style={{
-            padding: "8px 16px",
-            backgroundColor: "#fee",
-            borderRadius: "4px",
-            textDecoration: "none",
-            color: "#c00",
-          }}
-        >
-          Delete
-        </Link>
-      </div>
     </div>
   );
 }

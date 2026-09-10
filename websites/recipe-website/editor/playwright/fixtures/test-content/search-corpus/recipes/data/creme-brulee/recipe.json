@@ -1,0 +1,21 @@
+{
+  "name": "Crème Brûlée",
+  "description": "A classic French custard baked slow and low, finished under a blowtorch for a caramelized sugar crust.",
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"2\" /> cups heavy cream"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1/2\" /> cup sugar"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"6\" /> egg yolks"
+    }
+  ],
+  "date": 1588680000000,
+  "prepTime": 20,
+  "cookTime": 180,
+  "totalTime": 0,
+  "recipeYield": "",
+  "tags": ["dessert", "french"]
+}

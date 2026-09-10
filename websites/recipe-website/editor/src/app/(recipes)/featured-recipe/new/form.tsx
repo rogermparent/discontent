@@ -8,8 +8,11 @@ import { createFeaturedRecipe } from "recipe-editor/controller/actions/featuredR
 
 export default function NewFeaturedRecipeForm({
   preselectedRecipe,
+  preselectedGroup,
 }: {
   preselectedRecipe?: string;
+  /** From `?group=` — the group page's Feature button (22g). */
+  preselectedGroup?: string;
 }) {
   const initialState = { message: "", errors: {} } as FeaturedRecipeFormState;
   const [state, dispatch] = useActionState(createFeaturedRecipe, initialState);
@@ -20,11 +23,14 @@ export default function NewFeaturedRecipeForm({
       <div className="flex flex-col flex-nowrap">
         <CreateFeaturedRecipeFields
           state={state}
-          featuredRecipe={{ recipe: preselectedRecipe }}
+          featuredRecipe={{
+            recipe: preselectedRecipe,
+            group: preselectedGroup,
+          }}
         />
         <div id="missing-fields-error" aria-live="polite" aria-atomic="true">
           {state.message && (
-            <p className="mt-2 text-sm text-red-500">{state.message}</p>
+            <p className="mt-2 text-sm text-destructive">{state.message}</p>
           )}
         </div>
         <div className="my-1">

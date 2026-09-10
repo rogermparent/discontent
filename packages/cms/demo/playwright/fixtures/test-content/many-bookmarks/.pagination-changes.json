@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "updatedAt": 1785726249203,
+  "indexes": {
+    "notes/by-date": {
+      "dirtyPages": [
+        0
+      ],
+      "removedPages": [],
+      "headPage": 0,
+      "total": 3
+    },
+    "bookmarks/by-date": {
+      "dirtyPages": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "removedPages": [],
+      "headPage": 3,
+      "total": 14
+    }
+  }
+}

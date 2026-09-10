@@ -24,6 +24,18 @@ async function getUser(email: string): Promise<User | undefined> {
 
 export const { auth, signIn, signOut, handlers } = NextAuth({
   ...authConfig,
+  // NextAuth's default sign-in page colours its submit button with `brandColor`,
+  // and the stock blue (#157efb) is only ~3.9:1 against its white label — below
+  // the 4.5:1 WCAG2AA needs. Recipe pinned its own ember here for exactly this
+  // reason; portfolio never did, and the axe sweep found it.
+  //
+  // #a14090 is portfolio's light `--primary` — the madder, oklch(0.53 0.16 335)
+  // — which is 5.75:1 with white. Hardcoded rather than derived because this page
+  // is rendered by NextAuth's route handler, outside the app's stylesheet: no
+  // custom property reaches it.
+  theme: {
+    brandColor: "#a14090",
+  },
   providers: [
     Credentials({
       credentials: {

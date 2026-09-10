@@ -27,6 +27,11 @@ next-env.d.ts
 # test content directory
 /test-content
 
-# cypress
-cypress/videos
-cypress/screenshots
+# playwright
+/playwright-report
+/test-results
+/playwright/.cache
+# Written by the containerized run's --reporter=blob, which is bind-mounted out
+# to ../../../blob-reports-demo. The two editors already ignore theirs; the
+# demo never produced one before it had a container.
+/blob-report

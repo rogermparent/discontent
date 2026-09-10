@@ -1,0 +1,21 @@
+{
+  "name": "Tomato Basil Soup",
+  "description": "Slow-roasted tomatoes blended smooth with fresh basil and a splash of cream.",
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"6\" /> ripe tomatoes"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> bunch basil"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> cup cream"
+    }
+  ],
+  "date": 1785278321162,
+  "prepTime": 15,
+  "cookTime": 45,
+  "totalTime": 0,
+  "recipeYield": "",
+  "tags": ["soup"]
+}
