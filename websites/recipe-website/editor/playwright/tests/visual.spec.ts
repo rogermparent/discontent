@@ -273,6 +273,13 @@ test.describe("Visual baselines @visual", () => {
 
     const showMore = page.getByRole("button", { name: /Show \d+ more/ });
     await showMore.scrollIntoViewIfNeeded();
-    await snapshotLocator(showMore, "search-reveal-control.png");
+    // A ~110×36 element that is mostly text: glyph-edge antialiasing between
+    // the machine that drew the baseline and the CI container is 84 px, which
+    // is 3% of an image this small (the global 2% is sized for pages). The
+    // first CI run against content-engine-test (#132, 2026-09-10) failed on
+    // exactly that, with expected and actual otherwise identical.
+    await snapshotLocator(showMore, "search-reveal-control.png", {
+      maxDiffPixelRatio: 0.05,
+    });
   });
 });
