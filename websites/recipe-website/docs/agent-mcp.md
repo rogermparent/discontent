@@ -317,9 +317,18 @@ Carried over from 22 (numbers kept so the two docs agree; full text in
   checkouts that pollute naive greps.
 - **T13** A fresh worktree is missing `editor/.env.local` and
   `export/next-env.d.ts`; copy both from the main checkout before running
-  either gate.
+  either gate. _Amended 23a:_ it also has **no `node_modules`**, and without
+  them the package-name imports (`recipe-editor/*`,
+  `recipe-website-common/*`) resolve up the directory tree into the main
+  checkout — so the editor typecheck silently reads _that_ copy of the code.
+  Run `pnpm install --frozen-lockfile` in the worktree first.
 - **T14** A killed Playwright run leaves stale LMDB envs; from `editor/`:
-  `rm -rf test-content test-settings test-remotes test-clones`.
+  `rm -rf test-content test-settings test-remotes test-clones`. _Amended
+  23a:_ `pkill -f "playwright test"` does not reap the `next-server` the
+  run started; an orphan squatting the port (3019 for `e2e-dev`) is reused
+  by `reuseExistingServer` and answers with a dead `test-settings`, which
+  reads as spurious 401s and a `global-setup` timeout. Check `ss -ltnp` for
+  the port and kill the holder by PID before re-running.
 - **T16** `getContentDirectory()` evaluates `CONTENT_DIRECTORY` at import
   time; set it before the first import or pass the directory explicitly.
 - **T17** API route files stay thin — parse, authenticate, call
@@ -365,18 +374,21 @@ Each branch is off the previous. Rebase children after a parent merges.
 
 | PR  | Branch (← parent)                   | Status   | Scope                                                                                                                                                                                                                  |
 | --- | ----------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 23a | `agent/23a-curation-seats` ← `main` | 🟡 next  | This doc; featured seat (D5) + group update seat (D4) in the curation layer, API routes, CLI commands, backend interface (local + http), vitest + Playwright; strike two backlog rows                                  |
-| 23b | `agent/23b-mcp-stdio` ← 23a         | ⏸️ later | `@modelcontextprotocol/server` + `/client` deps; `editor/mcp/{registry,server}.ts`; every D2 tool that exists by then; compact outputs (D3); `.mcp.json` (D10); vitest via `InMemoryTransport`; smoke from Claude Code |
+| 23a | `agent/23a-curation-seats` ← `main` | ✅ done  | This doc; featured seat (D5) + group update seat (D4) in the curation layer, API routes, CLI commands, backend interface (local + http), vitest + Playwright; strike two backlog rows                                  |
+| 23b | `agent/23b-mcp-stdio` ← 23a         | 🟡 next  | `@modelcontextprotocol/server` + `/client` deps; `editor/mcp/{registry,server}.ts`; every D2 tool that exists by then; compact outputs (D3); `.mcp.json` (D10); vitest via `InMemoryTransport`; smoke from Claude Code |
 | 23c | `agent/23c-nested-groups` ← 23b     | ⏸️ later | D6: schema, validation, index/aggregate versions, fixture regen (T3), group page + cards, search term, CLI/API/tools; Playwright `groups.spec.ts` cases; `group_add_item` accepts `{group}`                            |
 | 23d | `agent/23d-git-seats` ← 23c         | ⏸️ later | D7: `curation/git.ts`, `/api/git/*`, CLI `git …`, MCP git tools; tests on a temp repo; `/git` page keeps its behaviour                                                                                                 |
 | 23e | `agent/23e-mcp-http` ← 23d          | ⏸️ later | D8: `/api/mcp` route; client-transport test against `next dev` (api-write precedent) + handler-level vitest                                                                                                            |
 | 23f | `agent/23f-curator-skill-v2` ← 23e  | ⏸️ later | D9: skill rewrite, examples, acceptance test of the user story, docs close-out, backlog update, memory                                                                                                                 |
 
-**Next PR:** 23a — `agent/23a-curation-seats` off `main`; this session.
+**Next PR:** 23b — `agent/23b-mcp-stdio` off `agent/23a-curation-seats`
+(rebase onto `main` once 23a merges). Start from the 23b seed section
+below in a fresh plan-mode session; validate fact 9 (SDK v2 exports)
+against the installed package before designing the registry.
 
 ## Phase detail
 
-### PR 23a — Curation seats `agent/23a-curation-seats` 🟡 next (← `main`)
+### PR 23a — Curation seats `agent/23a-curation-seats` ✅ done (← `main`)
 
 Two seats the curator is missing, both purely additive to the 22c/22d
 layers, and both prerequisites for the MCP registry (23b) to expose
@@ -580,17 +592,67 @@ the log; from `editor/`, `rm -rf test-content test-settings test-remotes
 test-clones` after a killed run (T14). Then CI on the draft PR (lint, unit,
 typecheck, Playwright).
 
-#### Decisions and close-out
+#### Decisions and close-out (2026-09-12)
 
-_(Filled at review.)_
+- [x] `unknown_group` added with 422 (T25 chain complete: `statusFor`,
+      `rehydrate`, `ErrorObject`; pinned by `curationHttp.test.ts`).
+- [x] `featured list` subcommand dispatch generalised in `splitArgv`
+      (as a `SUBCOMMAND_TABLES` map read by both the split and the
+      dispatch; see the implementer notes).
+- [x] Skill §7 amended; "Never" list gains `unfeature`.
+- [x] Backlog rows struck (done at Step 0).
+- [x] `group update` refuses an empty patch and mixed `--file`/flag input as
+      usage errors; `--description ""` clears; `--clear-image` clears.
+- [x] `feature` result carries the target (`recipe` or `group`) beside the
+      feature's own `slug`/`url`, so a caller can tell the two slugs apart.
+- [x] `PATCH /api/group/[slug]` sits beside `PUT` (items only) — neither
+      method can do the other's damage.
 
-- [ ] `unknown_group` added with 422 (T25 chain complete: `statusFor`,
-      `rehydrate`, `ErrorObject`).
-- [ ] `featured list` subcommand dispatch generalised in `splitArgv`.
-- [ ] Skill §7 amended; "Never" list gains `unfeature`.
-- [ ] Backlog rows struck (done at Step 0).
+**Review (Fable).** Read the full diff; no correctness changes needed. The
+curation seats mirror `updateRecipe` / `createGroup` exactly (conflict
+pre-check, `previousSlug`, only-the-set-key data, `onWrite` with the right
+`contentType`), and the engine's scalar rename propagation is pinned by the
+`updateGroup` rename test rather than re-implemented. Follow-ups recorded
+under Deferred: none new beyond the T13/T14 amendments above.
 
-### PR 23b — MCP stdio `agent/23b-mcp-stdio` ⏸️ later (← 23a)
+**Gate results (verbatim, reviewer rerun in the worktree):**
+
+| Gate                                                           | Result                                                                                 |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `pnpm --filter recipe-editor typecheck`                        | clean                                                                                  |
+| `pnpm --filter recipe-website exec tsc --noEmit`               | clean                                                                                  |
+| `pnpm exec vitest run`                                         | `Test Files 25 passed (25)` · `Tests 454 passed (454)` (434 at base, +20)              |
+| `pnpm e2e-dev -- api-write groups featured-recipes` (dev mode) | implementer: `82 passed (3.4m)`; reviewer rerun: `82 passed (4.0m)`, 0 failed, 0 flaky |
+| CI on the draft PR                                             | CI_RESULT                                                                              |
+
+**Implementer notes (divergences from the design above, and why).**
+
+- **`splitArgv` takes a `SUBCOMMAND_TABLES` map, not a bare `Set`.** The split
+  and the dispatch have to agree about exactly which commands take a
+  subcommand; one map keyed by command name, read by both, is the version where
+  they cannot drift. `index.ts` looks the table up once and falls back to
+  `COMMANDS`.
+- **`SlugConflictError` carries no `code`.** It is the _engine's_ error, which
+  `toErrorObject` maps to `slug_conflict`; `test/featured.test.ts`'s duplicate
+  case asserts `toBeInstanceOf` plus `toErrorObject(...).error.code` rather than
+  `rejects.toMatchObject({code})`, which would silently match nothing.
+- **`test/curation.test.ts`'s D8 allow-list grew two entries** —
+  `featuredRecipeContentConfig` and `createFeaturedRecipeSlug`. Both are a
+  content config and a pure string builder with no Next reachability, and the
+  boundary test is an explicit list, so the seat could not import them without
+  saying so.
+- **`group update` validates before it calls.** `--image-url` with
+  `--clear-image`, a patch file _and_ flags, and a patch with nothing in it are
+  all usage errors in the command rather than validation errors from the
+  schema, so the message names the flags a person typed. The schema still
+  guards the API and (at 23b) the tool.
+- **The worktree had no `node_modules`.** Package-name imports
+  (`recipe-editor/*`, `recipe-website-common/*`) were resolving up to the main
+  checkout, so the editor typecheck was reading _that_ copy of the curation
+  layer. `pnpm install --frozen-lockfile` in the worktree fixed it; worth
+  adding to T13, which today mentions only `.env.local` and `next-env.d.ts`.
+
+### PR 23b — MCP stdio `agent/23b-mcp-stdio` 🟡 next (← 23a)
 
 Seed for the phase's plan-mode session: add `@modelcontextprotocol/server`
 and `@modelcontextprotocol/client` (2.x) to the editor; `editor/mcp/registry.ts`

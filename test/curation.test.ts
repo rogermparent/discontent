@@ -46,6 +46,7 @@ import type {
   CurationContext,
 } from "../websites/recipe-website/editor/controller/curation/context";
 import { SlugConflictError } from "../websites/recipe-website/editor/controller/curation/errors";
+import { feature } from "../websites/recipe-website/editor/controller/curation/featured";
 import * as groups from "../websites/recipe-website/editor/controller/curation/groups";
 import { importAndCreate } from "../websites/recipe-website/editor/controller/curation/importRecipe";
 import {
@@ -557,6 +558,179 @@ describe("groups", () => {
 });
 
 /* ------------------------------------------------------------------ */
+/* 8b. Group update (23a/D4)                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The seat that did not exist until 23a: everything about a group *except* its
+ * items.
+ *
+ * Two properties carry the whole design. **A patch cannot touch `items`** —
+ * `GroupPatchSchema` does not declare the key, so a patch meaning "rename this"
+ * cannot silently wipe a meal plan. And **a rename is explicit and checked**,
+ * because `updateContent` has no conflict guard of its own and the featured
+ * entry that points at the old slug has to follow.
+ */
+describe("updateGroup", () => {
+  beforeEach(async () => {
+    await createRecipe(ctx, { name: "Stew" });
+    await groups.createGroup(ctx, {
+      name: "Weeknights",
+      slug: "weeknights",
+      description: "Fast ones.",
+      items: ["stew:Mon"],
+    });
+  });
+
+  it("changes the name and description and leaves everything else alone", async () => {
+    const result = await groups.updateGroup(ctx, "weeknights", {
+      name: "Weeknight Favourites",
+      description: "Thirty minutes or less.",
+    });
+    expect(result).toMatchObject({
+      slug: "weeknights",
+      url: "/group/weeknights",
+    });
+
+    const stored = await readGroupFile("weeknights");
+    expect(stored.name).toBe("Weeknight Favourites");
+    expect(stored.description).toBe("Thirty minutes or less.");
+    /* The whole reason `items` is not in the patch schema. */
+    expect(stored.items).toEqual([{ recipe: "stew", label: "Mon" }]);
+    expect(stored.kind).toBe("collection");
+
+    expect((await groups.listGroups(ctx)).groups[0]).toMatchObject({
+      name: "Weeknight Favourites",
+      itemCount: 1,
+    });
+  });
+
+  it("clears the description on null and keeps it on undefined", async () => {
+    await groups.updateGroup(ctx, "weeknights", { name: "Renamed" });
+    expect((await readGroupFile("weeknights")).description).toBe("Fast ones.");
+
+    await groups.updateGroup(ctx, "weeknights", { description: null });
+    expect("description" in (await readGroupFile("weeknights"))).toBe(false);
+  });
+
+  it("moves the kind onto the index value", async () => {
+    await groups.updateGroup(ctx, "weeknights", { kind: "meal-plan" });
+    expect((await readGroupFile("weeknights")).kind).toBe("meal-plan");
+    /* `listGroups` reads the index, not the file — so this is the projection. */
+    expect((await groups.listGroups(ctx)).groups[0].kind).toBe("meal-plan");
+  });
+
+  it("renames: moves the directory, the index key, and the feature pointing at it", async () => {
+    await feature(ctx, { group: "weeknights", slug: "weeknights-feature" });
+
+    const { ctx: recording, events } = (() => {
+      const collected: ContentWriteEvent[] = [];
+      return {
+        ctx: {
+          contentDirectory,
+          onWrite: (event: ContentWriteEvent) => collected.push(event),
+        } satisfies CurationContext,
+        events: collected,
+      };
+    })();
+
+    const result = await groups.updateGroup(recording, "weeknights", {
+      slug: "weeknight-favourites",
+    });
+    expect(result.slug).toBe("weeknight-favourites");
+    expect(result.url).toBe("/group/weeknight-favourites");
+
+    expect(
+      await pathExists(join(contentDirectory, "groups/data/weeknights")),
+    ).toBe(false);
+    expect((await readGroupFile("weeknight-favourites")).items).toEqual([
+      { recipe: "stew", label: "Mon" },
+    ]);
+
+    /* The index key moved with it: the old slug lists nowhere. */
+    const listed = await groups.listGroups(ctx);
+    expect(listed.groups.map((group) => group.slug)).toEqual([
+      "weeknight-favourites",
+    ]);
+    await expect(groups.getGroup(ctx, "weeknights")).rejects.toMatchObject({
+      code: "not_found",
+    });
+
+    /* Only a real rename carries `previousSlug`: the old URL now 404s. */
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      contentType: "groups",
+      kind: "update",
+      slug: "weeknight-favourites",
+      previousSlug: "weeknights",
+    });
+
+    /*
+     * `group` is a scalar `dataField` on `featuredRecipeContentConfig`, so
+     * `updateDependents` rewrote the feature's own record. Nothing in the
+     * curation layer does this — it is engine behaviour, pinned here because
+     * the alternative is a homepage card pointing at a 404.
+     */
+    const featured = await readJson(
+      join(
+        contentDirectory,
+        "featured-recipes/data/weeknights-feature/featured-recipe.json",
+      ),
+    );
+    expect(featured.group).toBe("weeknight-favourites");
+  });
+
+  it("refuses a rename onto an occupied slug", async () => {
+    await groups.createGroup(ctx, { name: "Taken", slug: "taken" });
+    await expect(
+      groups.updateGroup(ctx, "weeknights", { slug: "taken" }),
+    ).rejects.toBeInstanceOf(SlugConflictError);
+    /* And the group it would have clobbered is untouched. */
+    expect((await readGroupFile("taken")).name).toBe("Taken");
+    expect((await readGroupFile("weeknights")).name).toBe("Weeknights");
+  });
+
+  it("refuses an `items` key, so a patch cannot wipe a plan", async () => {
+    await expect(
+      groups.updateGroup(ctx, "weeknights", { name: "Renamed", items: [] }),
+    ).rejects.toMatchObject({ code: "validation" });
+    expect((await readGroupFile("weeknights")).items).toHaveLength(1);
+  });
+
+  it("clears the picture on null and carries it forward otherwise", async () => {
+    const fetchStub = vi.fn(async () => ({
+      body: new Blob(["not really a png"]).stream(),
+    }));
+    vi.stubGlobal("fetch", fetchStub);
+    await groups.createGroup(ctx, {
+      name: "Pictured",
+      slug: "pictured",
+      imageImportUrl: "https://cdn.example.com/img/cover.png?w=1200",
+    });
+    const uploaded = join(
+      contentDirectory,
+      "uploads/group/pictured/uploads/cover.png",
+    );
+    expect(await pathExists(uploaded)).toBe(true);
+
+    /* An unrelated patch leaves the file and the field where they were. */
+    await groups.updateGroup(ctx, "pictured", { name: "Still Pictured" });
+    expect((await readGroupFile("pictured")).image).toBe("cover.png");
+    expect(await pathExists(uploaded)).toBe(true);
+
+    await groups.updateGroup(ctx, "pictured", { imageImportUrl: null });
+    expect("image" in (await readGroupFile("pictured"))).toBe(false);
+    expect(await pathExists(uploaded)).toBe(false);
+  });
+
+  it("404s a group that is not there", async () => {
+    await expect(
+      groups.updateGroup(ctx, "ghost", { name: "Nope" }),
+    ).rejects.toMatchObject({ code: "not_found", details: { slug: "ghost" } });
+  });
+});
+
+/* ------------------------------------------------------------------ */
 /* 9. Delete                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -795,7 +969,9 @@ const ALLOWED: RegExp[] = [
   /^@discontent\/cms\/content\/[^/]+$/,
   /^@discontent\/cms\/aggregates\/[^/]+$/,
   /^@discontent\/cms\/git\/commit$/,
-  /^recipe-website-common\/controller\/(types|recipeContentConfig|groupContentConfig|createSlug|createGroupSlug|normalizeTags|aggregateConfigs|tagSlug|data\/read|data\/readGroups)$/,
+  /* `featuredRecipeContentConfig` and its default slug joined at 23a (D5): a
+   * content config and a pure string builder, neither of which touches Next. */
+  /^recipe-website-common\/controller\/(types|recipeContentConfig|groupContentConfig|featuredRecipeContentConfig|createSlug|createGroupSlug|createFeaturedRecipeSlug|normalizeTags|aggregateConfigs|tagSlug|data\/read|data\/readGroups)$/,
   /^recipe-website-common\/components\/SearchForm\/queryLanguage$/,
   /^recipe-website-common\/util\/[^/]+$/,
   /^\.\.?\//,

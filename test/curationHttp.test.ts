@@ -17,8 +17,10 @@ import {
   NotFoundError,
   SlugConflictError,
   UnauthenticatedError,
+  UnknownGroupError,
   UnknownRecipeError,
   ValidationError,
+  toErrorObject,
   type CurationErrorCode,
 } from "../websites/recipe-website/editor/controller/curation/errors";
 import {
@@ -38,6 +40,7 @@ describe("statusFor", () => {
       not_found: 404,
       slug_conflict: 409,
       unknown_recipe: 422,
+      unknown_group: 422,
       import_failed: 502,
       no_git_identity: 500,
       internal: 500,
@@ -78,6 +81,29 @@ describe("errorResponse", () => {
     const response = errorResponse(new UnknownRecipeError(["ghost"]));
     expect(response.status).toBe(422);
     expect((await response.json()).error.recipes).toEqual(["ghost"]);
+  });
+
+  it("gives an unknown group 422 with the offending slugs", async () => {
+    /*
+     * The T25 chain, end to end: a new code needs a `statusFor` case, an
+     * `ErrorObject` field and a `rehydrate` copy, or a remote `feature --group`
+     * of a missing group prints as `internal`.
+     */
+    expect(toErrorObject(new UnknownGroupError(["ghost"]))).toEqual({
+      error: {
+        code: "unknown_group",
+        message: expect.stringContaining("ghost"),
+        groups: ["ghost"],
+      },
+    });
+
+    const response = errorResponse(new UnknownGroupError(["ghost"]));
+    expect(response.status).toBe(422);
+    const body = await response.json();
+    expect(body.error.code).toBe("unknown_group");
+    expect(body.error.groups).toEqual(["ghost"]);
+    /* And no `--force` hint: featuring has no force (D5). */
+    expect(body.error.message).not.toContain("--force");
   });
 
   it("gives 401 and 404 their codes", async () => {

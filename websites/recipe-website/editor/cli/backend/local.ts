@@ -9,6 +9,7 @@
  */
 import { assertCommitIdentity } from "../../controller/curation/author";
 import type { CurationContext } from "../../controller/curation/context";
+import * as featured from "../../controller/curation/featured";
 import * as groups from "../../controller/curation/groups";
 import { importAndCreate } from "../../controller/curation/importRecipe";
 import * as recipes from "../../controller/curation/recipes";
@@ -107,6 +108,10 @@ export function createLocalBackend({
       await guard();
       return groups.createGroup(ctx, raw, options);
     },
+    async updateGroup(slug, raw) {
+      await guard();
+      return groups.updateGroup(ctx, slug, raw);
+    },
     async addGroupItem(group, recipe, options = {}) {
       await guard();
       return groups.addItem(ctx, group, recipe, options);
@@ -124,6 +129,16 @@ export function createLocalBackend({
     async deleteGroup(slug) {
       await guard();
       return groups.deleteGroup(ctx, slug);
+    },
+
+    listFeatured: (options) => featured.listFeatured(ctx, options),
+    async feature(raw) {
+      await guard();
+      return featured.feature(ctx, raw);
+    },
+    async unfeature(slug) {
+      await guard();
+      return featured.unfeature(ctx, slug);
     },
 
     /* `rebuildIndex` writes LMDB only and never commits: no identity needed. */

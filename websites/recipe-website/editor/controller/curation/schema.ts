@@ -180,6 +180,52 @@ export const GroupInputSchema = z.strictObject({
 
 export type GroupInput = z.infer<typeof GroupInputSchema>;
 
+/**
+ * The same fields, all optional, and `null` where clearing is meaningful.
+ *
+ * **No `items`** (D4). Item edits stay on `setItems`/`addItem`/`removeItem`, so
+ * a patch meaning "rename this group" cannot silently wipe a meal plan — the
+ * one mistake a hand-written patch over an existing plan is most likely to
+ * make, and `strictObject` turns an `items` key here into a validation error
+ * rather than a lost week. `name`, `kind` and `date` are not nullable for the
+ * reason `RecipePatchSchema`'s are not: a group with no name is not a group,
+ * and a cleared date would take the index key with it.
+ */
+export const GroupPatchSchema = z.strictObject({
+  name: z.string().min(1).optional(),
+  slug: z.string().optional(),
+  kind: z.enum(["meal-plan", "collection"]).optional(),
+  date: EpochSchema.optional(),
+  description: z.string().nullable().optional(),
+  imageImportUrl: z.string().nullable().optional(),
+});
+
+export type GroupPatch = z.infer<typeof GroupPatchSchema>;
+
+/**
+ * What `feature` accepts: exactly one target, and the three fields around it.
+ *
+ * The XOR is a `.refine` rather than a union of two object schemas, so a body
+ * naming both — or neither — fails as one message on one field, exactly as
+ * `parseFeaturedRecipeFormData`'s refine does for the form. It reports on
+ * `recipe` for the same reason that one does: it is the side a caller who named
+ * nothing is looking at.
+ */
+export const FeaturedInputSchema = z
+  .strictObject({
+    recipe: z.string().min(1).optional(),
+    group: z.string().min(1).optional(),
+    note: z.string().optional(),
+    date: EpochSchema.optional(),
+    slug: z.string().optional(),
+  })
+  .refine((data) => Boolean(data.recipe) !== Boolean(data.group), {
+    message: "Name exactly one of `recipe` or `group`",
+    path: ["recipe"],
+  });
+
+export type FeaturedInput = z.infer<typeof FeaturedInputSchema>;
+
 /* --- coercions ----------------------------------------------------------- */
 
 /**

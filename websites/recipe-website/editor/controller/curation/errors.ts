@@ -18,6 +18,8 @@ export type CurationErrorCode =
   | "slug_conflict"
   | "validation"
   | "unknown_recipe"
+  /** A slug that named no group: featuring one, and from 23c a group item. */
+  | "unknown_group"
   | "import_failed"
   | "no_git_identity"
   /**
@@ -34,6 +36,7 @@ export interface CurationErrorDetails {
   slug?: string;
   issues?: { path: string; message: string }[];
   recipes?: string[];
+  groups?: string[];
 }
 
 export class CurationError extends Error {
@@ -69,6 +72,25 @@ export class UnknownRecipeError extends CurationError {
       { recipes },
     );
     this.name = "UnknownRecipeError";
+  }
+}
+
+/**
+ * `UnknownRecipeError`'s twin, without the `--force` hint.
+ *
+ * Featuring has no force: a feature whose target does not exist renders as an
+ * empty card with a borrowed name that was never borrowed, which is not a
+ * legitimate state the way a dangling *group item* is (D3). So the message
+ * stops at the fact rather than offering a way past it.
+ */
+export class UnknownGroupError extends CurationError {
+  constructor(groups: string[]) {
+    super(
+      "unknown_group",
+      `No group at ${groups.length === 1 ? "slug" : "slugs"}: ${groups.join(", ")}.`,
+      { groups },
+    );
+    this.name = "UnknownGroupError";
   }
 }
 
@@ -112,6 +134,7 @@ export interface ErrorObject {
     slug?: string;
     issues?: { path: string; message: string }[];
     recipes?: string[];
+    groups?: string[];
   };
 }
 
@@ -150,6 +173,7 @@ export function toErrorObject(error: unknown): ErrorObject {
         ...(error.details.slug ? { slug: error.details.slug } : {}),
         ...(error.details.issues ? { issues: error.details.issues } : {}),
         ...(error.details.recipes ? { recipes: error.details.recipes } : {}),
+        ...(error.details.groups ? { groups: error.details.groups } : {}),
       },
     };
   }

@@ -7,8 +7,9 @@
  * thing `/group/<slug>` renders as "Recipe not found".
  *
  * PUT replaces the whole item list (`setItems`), which is why it takes
- * `{items}` and not a partial group: renaming or re-describing a group stays a
- * browser-form job in v1.
+ * `{items}` and not a partial group. PATCH is the other half (23a/D4):
+ * everything about a group *except* its items, so neither method can do the
+ * other's damage — a patch cannot wipe a plan, and a `setItems` cannot rename.
  */
 import {
   readContext,
@@ -23,6 +24,7 @@ import {
   deleteGroup,
   getGroup,
   setItems,
+  updateGroup,
 } from "recipe-editor/controller/curation/groups";
 import { ValidationError } from "recipe-editor/controller/curation/errors";
 
@@ -61,6 +63,20 @@ export async function PUT(
     return Response.json(
       await setItems(ctx, slug, items, { force: boolParam(url, "force") }),
     );
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ slug: string }> },
+) {
+  try {
+    const { slug } = await params;
+    const ctx = await requireCurationContext(request);
+    const body = await readJsonBody(request);
+    return Response.json(await updateGroup(ctx, slug, body));
   } catch (error) {
     return errorResponse(error);
   }

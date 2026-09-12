@@ -35,6 +35,11 @@ import { createLocalBackend } from "./backend/local";
 import type { CuratorBackend } from "./backend/types";
 import { createCommand } from "./commands/create";
 import { deleteCommand } from "./commands/delete";
+import {
+  featuredCommands,
+  featureCommand,
+  unfeatureCommand,
+} from "./commands/featured";
 import { groupCommands } from "./commands/group";
 import { importCommand } from "./commands/import";
 import { listCommand } from "./commands/list";
@@ -73,8 +78,32 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
   list: listCommand,
   search: searchCommand,
   delete: deleteCommand,
+  feature: featureCommand,
+  unfeature: unfeatureCommand,
   reindex: reindexCommand,
 };
+
+/**
+ * The commands that take a subcommand after them, and what each dispatches to.
+ *
+ * One table rather than a chain of `===` tests, because the *split* and the
+ * *dispatch* have to agree about exactly this list: a command in one and not
+ * the other would either eat its subcommand as a positional or report a
+ * perfectly good subcommand as unknown.
+ */
+const SUBCOMMAND_TABLES: Record<string, Record<string, CommandDef<unknown>>> = {
+  group: groupCommands,
+  featured: featuredCommands,
+};
+
+/** Own properties only, so `recipes toString x` is not a `Function`. */
+function subcommandTableFor(
+  command: string | undefined,
+): Record<string, CommandDef<unknown>> | undefined {
+  return command !== undefined && Object.hasOwn(SUBCOMMAND_TABLES, command)
+    ? SUBCOMMAND_TABLES[command]
+    : undefined;
+}
 
 const USAGE = `Usage: pnpm recipes <command> [options]
 
@@ -87,12 +116,17 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   delete <slug> [--yes]
   group create --name N [--kind meal-plan|collection] [--description D] [--slug s]
                [--date d] (--file items.json | --item slug[:label] …) [--force]
+  group update <group> [--name N] [--description D] [--kind K] [--date d]
+               [--slug s] [--image-url U | --clear-image] | (--file patch.json | --stdin)
   group add <group> <recipe> [--label L] [--note N] [--force]
   group remove <group> <recipe>
   group set-items <group> (--file items.json | --stdin) [--force]
   group show <group>
   group list [--limit 20] [--offset 0]
   group delete <group> [--yes]
+  feature (--recipe s | --group s) [--note N] [--date d] [--slug s]
+  unfeature <slug> [--yes]
+  featured list [--limit 20] [--offset 0]
   reindex [contentType]
 
 Globals: --json  --content-dir <dir>  --author "Name <email>"  --help
@@ -161,7 +195,7 @@ export function splitArgv(argv: string[]): SplitArgv {
 
   let subcommand: string | undefined;
   if (
-    command === "group" &&
+    subcommandTableFor(command) &&
     index < argv.length &&
     !argv[index].startsWith("-")
   ) {
@@ -299,17 +333,17 @@ export async function main(argv: string[]): Promise<number> {
       throw new UsageError("No command given.");
     }
 
-    const definition =
-      command === "group"
-        ? subcommand
-          ? groupCommands[subcommand]
-          : undefined
-        : COMMANDS[command];
+    const table = subcommandTableFor(command);
+    const definition = table
+      ? subcommand
+        ? table[subcommand]
+        : undefined
+      : COMMANDS[command];
 
     if (!definition) {
       throw new UsageError(
-        command === "group"
-          ? `Unknown group subcommand: ${subcommand ?? "(none)"}`
+        table
+          ? `Unknown ${command} subcommand: ${subcommand ?? "(none)"}`
           : `Unknown command: ${command}`,
       );
     }

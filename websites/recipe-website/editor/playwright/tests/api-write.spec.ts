@@ -246,6 +246,155 @@ test.describe("JSON write API", () => {
     await expect(page.getByTestId("group-item-missing")).toHaveCount(0);
   });
 
+  /**
+   * The featured seat (23a/D5) end to end.
+   *
+   * The homepage assertion is the point: featuring was form-only, so this is
+   * the first time a non-browser caller can put something on the front page —
+   * and because the write went through the editor's own process, the strip is
+   * right on the very next navigation with no reload in between.
+   */
+  test("features a group via the API and the homepage shows it", async ({
+    request,
+    page,
+  }) => {
+    await request.post("/api/recipes", {
+      headers: auth(),
+      data: { name: "API Naan" },
+    });
+    await request.post("/api/groups", {
+      headers: auth(),
+      data: {
+        name: "API week",
+        kind: "meal-plan",
+        slug: "api-week",
+        items: ["api-naan:Mon · Dinner"],
+      },
+    });
+
+    const anonymous = await request.post("/api/featured", {
+      data: { group: "api-week", slug: "api-feature" },
+    });
+    expect(anonymous.status()).toBe(401);
+
+    const featured = await request.post("/api/featured", {
+      headers: auth(),
+      data: { group: "api-week", slug: "api-feature" },
+    });
+    expect(featured.status()).toBe(201);
+    expect(await featured.json()).toMatchObject({
+      slug: "api-feature",
+      group: "api-week",
+      url: "/featured-recipe/api-feature",
+    });
+
+    /* The borrowed name, straight off the index — no group read at all. */
+    const listed = await request.get("/api/featured");
+    expect(listed.status()).toBe(200);
+    const list = await listed.json();
+    expect(list.total).toBe(1);
+    expect(list.featured[0]).toMatchObject({
+      slug: "api-feature",
+      group: "api-week",
+      name: "API week",
+    });
+
+    const featuredSection = page
+      .locator("h2", { hasText: "Featured Recipes" })
+      .locator("xpath=ancestor::*[1]");
+    await page.goto("/");
+    await expect(featuredSection.getByText("API week")).toBeVisible();
+
+    /* And the inverse takes it back off the front page. */
+    const removed = await request.delete("/api/featured/api-feature", {
+      headers: auth(),
+    });
+    expect(removed.status()).toBe(200);
+    expect(await removed.json()).toEqual({
+      slug: "api-feature",
+      deleted: true,
+    });
+
+    await page.goto("/");
+    /*
+     * The whole section goes, since it was the only feature. Scoped rather than
+     * a bare `getByText("API week")`: the homepage also lists every group, and
+     * unfeaturing is not deleting.
+     */
+    await expect(
+      page.getByText("Featured Recipes", { exact: true }),
+    ).toHaveCount(0);
+    /* Which is the other half of the same claim. */
+    await page.goto("/group/api-week");
+    await expect(page.getByRole("heading", { name: "API week" })).toBeVisible();
+  });
+
+  /**
+   * The group update seat (23a/D4).
+   *
+   * `PUT` on this same route is `setItems`; `PATCH` is everything *but* the
+   * items, which is why the case checks the plan is still intact after both a
+   * retitle and a rename.
+   */
+  test("a PATCH renames and re-describes a group", async ({
+    request,
+    page,
+  }) => {
+    await request.post("/api/recipes", {
+      headers: auth(),
+      data: { name: "API Naan" },
+    });
+    await request.post("/api/groups", {
+      headers: auth(),
+      data: {
+        name: "API week",
+        kind: "meal-plan",
+        slug: "api-week",
+        items: ["api-naan:Mon · Dinner"],
+      },
+    });
+
+    const anonymous = await request.patch("/api/group/api-week", {
+      data: { name: "Sneaky" },
+    });
+    expect(anonymous.status()).toBe(401);
+    expect((await anonymous.json()).error.code).toBe("unauthenticated");
+
+    const patched = await request.patch("/api/group/api-week", {
+      headers: auth(),
+      data: { name: "API fortnight", description: "Two weeks" },
+    });
+    expect(patched.status()).toBe(200);
+    /* No `slug` in the patch, so the URL deliberately does not move. */
+    expect((await patched.json()).slug).toBe("api-week");
+
+    await page.goto("/group/api-week");
+    await expect(
+      page.getByRole("heading", { name: "API fortnight" }),
+    ).toBeVisible();
+    await expect(page.getByText("Two weeks")).toBeVisible();
+    /* The items a patch may not touch are still there. */
+    await expect(page.getByTestId("group-item")).toHaveCount(1);
+
+    const renamed = await request.patch("/api/group/api-week", {
+      headers: auth(),
+      data: { slug: "api-fortnight" },
+    });
+    expect(renamed.status()).toBe(200);
+    expect(await renamed.json()).toMatchObject({
+      slug: "api-fortnight",
+      url: "/group/api-fortnight",
+    });
+
+    await page.goto("/group/api-fortnight");
+    await expect(
+      page.getByRole("heading", { name: "API fortnight" }),
+    ).toBeVisible();
+    await expect(page.getByTestId("group-item")).toHaveCount(1);
+    /* The old URL is a page that now 404s — which only `previousSlug` expires. */
+    expect((await request.get("/group/api-week")).status()).toBe(404);
+  });
+
   test("a delete 404s the recipe page and leaves the group's row dangling", async ({
     request,
     page,
@@ -437,10 +586,57 @@ test.describe("JSON write API", () => {
       );
       expect(JSON.parse(shown.stdout).items[0].missing).toBe(true);
 
+      /*
+       * The 23a seats over the same wire. Both are new URLs in the route table
+       * (`PATCH /api/group/<slug>`, `POST /api/featured`), which is exactly the
+       * kind of hand-written string that fails as a 404 rather than as a type
+       * error — so each is worth one round trip.
+       */
+      const updated = await cli(
+        [
+          "group",
+          "update",
+          result.slug,
+          "--name",
+          "Remote fortnight",
+          "--json",
+        ],
+        baseURL!,
+      );
+      expect(JSON.parse(updated.stdout)).toMatchObject({
+        slug: result.slug,
+        url: `/group/${result.slug}`,
+      });
+
+      const featured = await cli(
+        [
+          "feature",
+          "--group",
+          result.slug,
+          "--slug",
+          "remote-feature",
+          "--json",
+        ],
+        baseURL!,
+      );
+      expect(JSON.parse(featured.stdout)).toMatchObject({
+        slug: "remote-feature",
+        group: result.slug,
+        url: "/featured-recipe/remote-feature",
+      });
+
       /* And the page the server rendered agrees, with no reload in between. */
       await page.goto(`/group/${result.slug}`);
       await expect(
-        page.getByRole("heading", { name: "Remote week" }),
+        page.getByRole("heading", { name: "Remote fortnight" }),
+      ).toBeVisible();
+
+      await page.goto("/");
+      await expect(
+        page
+          .locator("h2", { hasText: "Featured Recipes" })
+          .locator("xpath=ancestor::*[1]")
+          .getByText("Remote fortnight"),
       ).toBeVisible();
     });
 
