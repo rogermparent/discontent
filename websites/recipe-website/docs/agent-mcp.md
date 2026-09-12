@@ -617,13 +617,13 @@ under Deferred: none new beyond the T13/T14 amendments above.
 
 **Gate results (verbatim, reviewer rerun in the worktree):**
 
-| Gate                                                           | Result                                                                                 |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `pnpm --filter recipe-editor typecheck`                        | clean                                                                                  |
-| `pnpm --filter recipe-website exec tsc --noEmit`               | clean                                                                                  |
-| `pnpm exec vitest run`                                         | `Test Files 25 passed (25)` · `Tests 454 passed (454)` (434 at base, +20)              |
-| `pnpm e2e-dev -- api-write groups featured-recipes` (dev mode) | implementer: `82 passed (3.4m)`; reviewer rerun: `82 passed (4.0m)`, 0 failed, 0 flaky |
-| CI on the draft PR                                             | CI_RESULT                                                                              |
+| Gate                                                           | Result                                                                                                                 |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `pnpm --filter recipe-editor typecheck`                        | clean                                                                                                                  |
+| `pnpm --filter recipe-website exec tsc --noEmit`               | clean                                                                                                                  |
+| `pnpm exec vitest run`                                         | `Test Files 25 passed (25)` · `Tests 454 passed (454)` (434 at base, +20)                                              |
+| `pnpm e2e-dev -- api-write groups featured-recipes` (dev mode) | implementer: `82 passed (3.4m)`; reviewer rerun: `82 passed (4.0m)`, 0 failed, 0 flaky                                 |
+| CI on the draft PR                                             | green on `ac80a887`: lint, both typechecks, unit, CMS demo (dev, prod), Portfolio, recipe shards 1–4 (run 34678595744) |
 
 **Implementer notes (divergences from the design above, and why).**
 
