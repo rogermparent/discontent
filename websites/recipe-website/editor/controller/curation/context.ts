@@ -15,6 +15,7 @@
  */
 import type { ContentWriteResult } from "@discontent/cms/content/types";
 import path from "node:path";
+import { featuredRecipeContentConfig } from "recipe-website-common/controller/featuredRecipeContentConfig";
 import { groupContentConfig } from "recipe-website-common/controller/groupContentConfig";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
 
@@ -64,6 +65,12 @@ export interface CurationContext {
 export const RECIPE_URL_BASE = "/recipe";
 /** Where a group is served in both apps. */
 export const GROUP_URL_BASE = "/group";
+/**
+ * Where one feature's own page is served — singular, unlike the index at
+ * `/featured-recipes`. It is the same base `successConfigs.ts` declares as the
+ * featured type's `itemBasePath`.
+ */
+export const FEATURED_URL_BASE = "/featured-recipe";
 
 export function recipePath(ctx: CurationContext, slug: string): string {
   return path.join(
@@ -83,8 +90,21 @@ export function groupPath(ctx: CurationContext, slug: string): string {
   );
 }
 
+export function featuredPath(ctx: CurationContext, slug: string): string {
+  return path.join(
+    ctx.contentDirectory,
+    featuredRecipeContentConfig.dataDirectory,
+    slug,
+    featuredRecipeContentConfig.dataFilename,
+  );
+}
+
 export function recipeUrl(slug: string): string {
   return `${RECIPE_URL_BASE}/${slug}`;
+}
+
+export function featuredUrl(slug: string): string {
+  return `${FEATURED_URL_BASE}/${slug}`;
 }
 
 export function groupUrl(slug: string): string {

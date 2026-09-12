@@ -89,6 +89,99 @@ const groupCreate: CommandDef<GroupWriteResult> = {
   format: (result) => formatWrite("Created group", result),
 };
 
+/**
+ * `group update` — everything about a group except its items (D4).
+ *
+ * Two input styles for the same reason `create` has two: a person types a flag
+ * or two, an agent writes a patch object. They are mutually exclusive rather
+ * than merged, so a patch file and a stray `--name` cannot silently disagree
+ * about what the group is called.
+ *
+ * An empty patch is a usage error rather than a no-op write: a run that changed
+ * nothing but still committed would be a commit with no diff, and far more
+ * often it means a flag was mistyped.
+ */
+const groupUpdate: CommandDef<GroupWriteResult> = {
+  name: "group update",
+  usage:
+    "recipes group update <slug> [--name N] [--description D] [--kind K] [--date d] " +
+    "[--slug s] [--image-url U | --clear-image] | (--file patch.json | --stdin)",
+  options: {
+    name: { type: "string" },
+    description: { type: "string" },
+    kind: { type: "string" },
+    date: { type: "string" },
+    slug: { type: "string" },
+    "image-url": { type: "string" },
+    "clear-image": { type: "boolean" },
+    file: { type: "string" },
+    stdin: { type: "boolean" },
+  },
+  write: true,
+  async run({ backend, positionals, options }) {
+    const group = positionals[0];
+    if (!group) throw new UsageError("group update needs <group>.");
+
+    const file = stringOption(options, "file");
+    const stdin = booleanOption(options, "stdin");
+    const name = stringOption(options, "name");
+    /*
+     * Tested for `undefined` rather than for truthiness, because
+     * `--description ""` is the *clear* gesture — the one thing a flag can say
+     * that an absent flag cannot, and the reason `GroupPatchSchema` has a
+     * nullable description at all.
+     */
+    const description = stringOption(options, "description");
+    const kind = stringOption(options, "kind");
+    const date = stringOption(options, "date");
+    const slug = stringOption(options, "slug");
+    const imageUrl = stringOption(options, "image-url");
+    const clearImage = booleanOption(options, "clear-image");
+
+    const hasFlags =
+      name !== undefined ||
+      description !== undefined ||
+      kind !== undefined ||
+      date !== undefined ||
+      slug !== undefined ||
+      imageUrl !== undefined ||
+      clearImage;
+
+    if ((file || stdin) && hasFlags) {
+      throw new UsageError(
+        "Pass either a patch (--file/--stdin) or the individual flags, not both.",
+      );
+    }
+    if (imageUrl && clearImage) {
+      throw new UsageError(
+        "Pass either --image-url or --clear-image, not both.",
+      );
+    }
+    if (file || stdin) {
+      return backend.updateGroup(group, await readJsonInput({ file, stdin }));
+    }
+    if (!hasFlags) {
+      throw new UsageError(
+        "group update needs something to change: --name, --description, --kind, " +
+          "--date, --slug, --image-url, --clear-image, or --file/--stdin.",
+      );
+    }
+
+    return backend.updateGroup(group, {
+      ...(name !== undefined ? { name } : {}),
+      ...(description !== undefined
+        ? { description: description === "" ? null : description }
+        : {}),
+      ...(kind !== undefined ? { kind } : {}),
+      ...(date !== undefined ? { date } : {}),
+      ...(slug !== undefined ? { slug } : {}),
+      ...(imageUrl !== undefined ? { imageImportUrl: imageUrl } : {}),
+      ...(clearImage ? { imageImportUrl: null } : {}),
+    });
+  },
+  format: (result) => formatWrite("Updated group", result),
+};
+
 const groupAdd: CommandDef<GroupWriteResult> = {
   name: "group add",
   usage: "recipes group add <group> <recipe> [--label L] [--note N] [--force]",
@@ -224,6 +317,7 @@ const groupDelete: CommandDef<DeleteResult> = {
 
 export const groupCommands: Record<string, CommandDef<unknown>> = {
   create: groupCreate,
+  update: groupUpdate,
   add: groupAdd,
   remove: groupRemove,
   "set-items": groupSetItems,

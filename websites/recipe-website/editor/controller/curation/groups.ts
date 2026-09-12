@@ -18,7 +18,13 @@ import { createContent } from "@discontent/cms/content/createContent";
 import { deleteContent } from "@discontent/cms/content/deleteContent";
 import { readContentFileOrNull } from "@discontent/cms/content/readContentFile";
 import { readContentIndex } from "@discontent/cms/content/readContentIndex";
+import { getContentItemDirectory } from "@discontent/cms/content/filesystem";
+import type {
+  ContentTypeConfig,
+  UploadSpec,
+} from "@discontent/cms/content/types";
 import { updateContent } from "@discontent/cms/content/updateContent";
+import { exists } from "fs-extra";
 import slugify from "@sindresorhus/slugify";
 import createDefaultGroupSlug from "recipe-website-common/controller/createGroupSlug";
 import { groupContentConfig } from "recipe-website-common/controller/groupContentConfig";
@@ -34,10 +40,16 @@ import type {
   RecipeEntryValue,
 } from "recipe-website-common/controller/types";
 import { groupPath, groupUrl, type CurationContext } from "./context";
-import { NotFoundError, UnknownRecipeError, ValidationError } from "./errors";
+import {
+  NotFoundError,
+  SlugConflictError,
+  UnknownRecipeError,
+  ValidationError,
+} from "./errors";
 import {
   GroupInputSchema,
   GroupItemInputSchema,
+  GroupPatchSchema,
   parseInput,
   toGroupItems,
 } from "./schema";
@@ -254,6 +266,110 @@ export async function createGroup(
     path: groupPath(ctx, slug),
     url: groupUrl(slug),
     ...(warnings.length > 0 ? { warnings } : {}),
+  };
+}
+
+/**
+ * Rename, retitle, re-describe, re-picture — everything about a group except
+ * its items (D4).
+ *
+ * Modelled on `updateRecipe` rather than on `writeItems`, because this is the
+ * one group write that may *move* the slug: `writeItems` always writes the same
+ * slug back and so needs neither a conflict pre-check nor a `previousSlug`.
+ * Both are here for the same reasons they are there — `updateContent` has no
+ * conflict guard of its own, so a rename onto an occupied directory would fail
+ * as a raw `ENOTEMPTY` after the uploads had already been processed; and the
+ * old URL is a page that now 404s, which only the event can tell a cache.
+ *
+ * The featured→group reference follows the rename on its own: `group` is a
+ * scalar `dataField` on `featuredRecipeContentConfig`, so `updateDependents`
+ * rewrites every feature pointing at the old slug. That is engine behaviour,
+ * pinned here by a test rather than re-implemented.
+ */
+export async function updateGroup(
+  ctx: CurationContext,
+  currentSlug: string,
+  rawPatch: unknown,
+): Promise<GroupWriteResult> {
+  const patch = parseInput(GroupPatchSchema, rawPatch);
+  const current = await requireGroup(ctx, currentSlug);
+
+  const slug = patch.slug ? slugify(patch.slug) : currentSlug;
+  if (!slug) {
+    throw new ValidationError(`"${patch.slug}" does not slugify to anything.`);
+  }
+  if (slug !== currentSlug) {
+    const target = getContentItemDirectory(
+      /* The engine's own call sites widen the same way; the helper reads two
+       * string fields off the config and is generic in nothing. */
+      groupContentConfig as unknown as ContentTypeConfig,
+      slug,
+      ctx.contentDirectory,
+    );
+    if (await exists(target)) throw new SlugConflictError(slug);
+  }
+
+  const date = patch.date ?? current.date ?? Date.now();
+
+  /*
+   * Spread the record that is on disk, so every key this patch does not name —
+   * `items` above all — survives verbatim. `null` clears, `undefined` leaves
+   * alone; the same contract `buildRecipeWrite` states for recipes.
+   */
+  const data: Group = { ...current, date };
+  if (patch.name !== undefined) data.name = patch.name;
+  if (patch.kind !== undefined) data.kind = patch.kind;
+  if (patch.description === null) delete data.description;
+  else if (patch.description !== undefined) {
+    data.description = patch.description;
+  }
+
+  const imageImportUrl = patch.imageImportUrl ?? undefined;
+  const image = imageImportUrl
+    ? path.parse(new URL(imageImportUrl).pathname).base
+    : patch.imageImportUrl === null
+      ? undefined
+      : current.image;
+  if (image) data.image = image;
+  else delete data.image;
+
+  /* Never on disk: input-only keys, and the slug, which is the directory name. */
+  delete data.slug;
+  delete data.imageImportUrl;
+
+  const uploads: Record<string, UploadSpec> = {
+    image: {
+      fileImportUrl: imageImportUrl,
+      clearFile: patch.imageImportUrl === null,
+      existingFile: current.image,
+    },
+  };
+
+  const result = await updateContent<Group, GroupEntryValue, GroupEntryKey>({
+    config: groupContentConfig,
+    slug,
+    currentSlug,
+    currentIndexKey: [current.date, currentSlug],
+    data,
+    uploads,
+    contentDirectory: ctx.contentDirectory,
+    author: ctx.author,
+    commitMessage: `Update group: ${slug}`,
+  });
+  ctx.onWrite?.({
+    contentType: groupContentConfig.contentType,
+    kind: "update",
+    result,
+    slug,
+    /* Only on a real rename: the old URL is a page that now 404s. */
+    ...(slug !== currentSlug ? { previousSlug: currentSlug } : {}),
+  });
+
+  return {
+    slug,
+    date,
+    path: groupPath(ctx, slug),
+    url: groupUrl(slug),
   };
 }
 

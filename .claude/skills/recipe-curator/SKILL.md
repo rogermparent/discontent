@@ -131,6 +131,14 @@ dates. `--image-url U` gives the group its own picture, fetched at write time,
 exactly as it does for a recipe. Returns `{slug, date, path, url, warnings?}`. On
 `{"error":{"code":"unknown_recipe",…}}` fix the slug — never pass `--force`.
 
+After the group exists, `pnpm --silent recipes feature --group <slug> --json`
+puts it on the homepage strip — **only when the ask says so** ("feature it",
+"put it on the homepage"). It returns `{slug, date, path, url, group}`, where
+`slug` is the _feature's_ own, not the group's. To fix a name or a description
+afterwards, `pnpm --silent recipes group update <slug> --name "…"
+--description "…" --json`; it never touches the group's items, so a plan
+cannot be lost to a rename.
+
 ## 8. Report
 
 A `Day | Recipe | Time | Source` table (`Recipe` linking `/recipe/<slug>`),
@@ -139,7 +147,7 @@ push from `/git` when ready.
 
 ## Never
 
-Never push, never delete, never `reindex`, and never pass `--author`,
+Never push, never delete, never `unfeature`, never `reindex`, and never pass `--author`,
 `--remote`, `--editor-url`, `--notify`, `--overwrite` or `--force`. Remote
 mode is selected by `RECIPE_API_URL` alone (with `RECIPE_API_TOKEN` in the
 environment — never on argv); `--notify` is implicit for a local write when

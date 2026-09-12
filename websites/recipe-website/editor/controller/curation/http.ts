@@ -40,6 +40,8 @@ export function statusFor(code: CurationErrorCode): number {
     case "slug_conflict":
       return 409;
     case "unknown_recipe":
+    /* Same reasoning, other content type: well-formed body, absent target. */
+    case "unknown_group":
       return 422;
     case "import_failed":
       return 502;

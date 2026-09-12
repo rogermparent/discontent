@@ -10,6 +10,10 @@
  * the local one returns and the two cannot answer in different vocabularies.
  */
 import type {
+  FeaturedListResult,
+  FeaturedWriteResult,
+} from "../../controller/curation/featured";
+import type {
   GroupDetail,
   GroupListResult,
   GroupWriteResult,
@@ -24,6 +28,8 @@ import type { ReindexResult } from "../../controller/curation/reindex";
 import type { SearchResult } from "../../controller/curation/search";
 
 export type {
+  FeaturedListResult,
+  FeaturedWriteResult,
   GroupDetail,
   GroupListResult,
   GroupWriteResult,
@@ -73,6 +79,8 @@ export interface CuratorBackend {
     raw: unknown,
     options?: { force?: boolean },
   ): Promise<GroupWriteResult>;
+  /** Everything about a group except its items (D4). */
+  updateGroup(slug: string, raw: unknown): Promise<GroupWriteResult>;
   addGroupItem(
     group: string,
     recipe: string,
@@ -90,6 +98,13 @@ export interface CuratorBackend {
     offset?: number;
   }): Promise<GroupListResult>;
   deleteGroup(slug: string): Promise<DeleteResult>;
+
+  listFeatured(options?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<FeaturedListResult>;
+  feature(raw: unknown): Promise<FeaturedWriteResult>;
+  unfeature(slug: string): Promise<DeleteResult>;
 
   reindex(contentType?: string): Promise<ReindexResult>;
 

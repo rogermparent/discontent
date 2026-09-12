@@ -34,6 +34,8 @@ import {
 import type {
   CuratorBackend,
   DeleteResult,
+  FeaturedListResult,
+  FeaturedWriteResult,
   GroupDetail,
   GroupListResult,
   GroupWriteResult,
@@ -104,6 +106,9 @@ function rehydrate(status: number, statusText: string, body: unknown): Error {
     }
     if (Array.isArray(source.recipes)) {
       details.recipes = source.recipes as string[];
+    }
+    if (Array.isArray(source.groups)) {
+      details.groups = source.groups as string[];
     }
     return new CurationError(
       source.code as CurationErrorCode,
@@ -237,6 +242,13 @@ export function createHttpBackend({
         query: { force: options.force ? 1 : undefined },
       });
     },
+    updateGroup(slug, raw) {
+      return call<GroupWriteResult>(
+        "PATCH",
+        `/api/group/${encodeURIComponent(slug)}`,
+        { body: raw },
+      );
+    },
     addGroupItem(group, recipe, options = {}) {
       const { force, ...item } = options;
       return call<GroupWriteResult>(
@@ -268,6 +280,21 @@ export function createHttpBackend({
       return call<DeleteResult>(
         "DELETE",
         `/api/group/${encodeURIComponent(slug)}`,
+      );
+    },
+
+    listFeatured(options = {}) {
+      return call<FeaturedListResult>("GET", "/api/featured", {
+        query: options,
+      });
+    },
+    feature(raw) {
+      return call<FeaturedWriteResult>("POST", "/api/featured", { body: raw });
+    },
+    unfeature(slug) {
+      return call<DeleteResult>(
+        "DELETE",
+        `/api/featured/${encodeURIComponent(slug)}`,
       );
     },
 
