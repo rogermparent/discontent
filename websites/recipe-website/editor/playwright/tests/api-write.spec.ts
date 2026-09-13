@@ -463,6 +463,11 @@ test.describe("JSON write API", () => {
     const tagged = await request.get("/api/recipes?tag=bread");
     expect((await tagged.json()).total).toBe(1);
 
+    /* The tag vocabulary is a public read too, and it is folded on write (D12). */
+    const tags = await request.get("/api/tags");
+    expect(tags.status()).toBe(200);
+    expect(await tags.json()).toEqual({ tags: ["bread"] });
+
     const groups = await request.get("/api/groups");
     expect(groups.status()).toBe(200);
     expect((await groups.json()).total).toBe(0);
