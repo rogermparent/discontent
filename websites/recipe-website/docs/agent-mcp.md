@@ -177,9 +177,15 @@ McpHttpHandler` (fetch-style; per-request = stateless; does no token
    `StdioServerTransport`) and `@modelcontextprotocol/client` 2.0.0 (for
    tests). Peer `zod ^3.25 || ^4`; the editor has `zod ^4.3.6`, Node 22. No
    MCP dependency and no `.mcp.json` in the repo today; the user's Claude
-   Code has no MCP servers configured.
+   Code has no MCP servers configured. _Amended 23b (2026-09-13, from the
+   published tarballs):_ there are **no peer dependencies** — both packages
+   depend on `zod ^4.2.0` directly (one physical copy once deduped);
+   `StdioServerTransport` and `serveStdio` live under the
+   `@modelcontextprotocol/server/stdio` subpath; `inputSchema` takes a full
+   schema object (the raw-shape form is deprecated and non-strict); see the
+   23b Facts for the full export list.
 10. **Tests:** vitest at the repo root, `test/*.test.ts` (434 passing at
-    the base commit; precedents `curation.test.ts` (curation layer in a
+    the base commit, 454 after 23a; precedents `curation.test.ts` (curation layer in a
     tmpdir), `curationHttp.test.ts`, `groups.test.ts` (engine in a tmpdir),
     `specVersions.test.ts` (22-T1), `derivedPaths.test.ts` (22-T2));
     Playwright `editor/playwright/tests/{api-write,groups,featured-recipes}.spec.ts`;
@@ -289,6 +295,33 @@ slug, rev})` (`git checkout <rev> -- <paths>` + commit `Restore <type>
   `RECIPE_AUTHOR`, `RECIPE_EDITOR_URL`. Local mode by default (same
   resolution as the CLI).
 
+- **D11 Backend resolution is one exported function (23b).**
+  `cli/backend/resolve.ts`: `resolveBackendConfig(overrides?, env)` →
+  `BackendConfig` (`{kind: "http", baseUrl, token?}` |
+  `{kind: "local", contentDirectory, author?, notify?}`), `createBackend`,
+  `resolveBackend`; `resolveContentDirectory` / `resolveNotify` move there
+  from `cli/index.ts`. Env reads treat empty strings as unset. The CLI and
+  the MCP server call the same function, so mode resolution cannot drift.
+- **D12 `listTags` joins the seam (23b).** `CuratorBackend.listTags()`,
+  `GET /api/tags` → `{tags}`, CLI `tags`. The MCP `tag_list` tool sits on
+  the seam like every other tool (D1), not on the curation layer directly.
+- **D13 Registry conventions (23b).** Every `inputSchema` is a
+  `z.strictObject` (an empty one for `tag_list`); create/update tools nest
+  the payload (`{recipe, overwrite?}`, `{slug, patch}`) so option flags and
+  a rename `slug` never collide; success returns the backend result as
+  `structuredContent` plus its JSON in `content[0].text`; failures return
+  `toErrorObject(error)` the same way with `isError: true`; write tools
+  fold `afterWrite()`'s hint into `warnings: string[]`. Annotations:
+  `readOnlyHint` on reads, `destructiveHint` on deletes, `idempotentHint`
+  on update/set/remove/reindex. No `outputSchema` until a consumer needs
+  one.
+- **D14 stdio server lifecycle (23b).** `editor/mcp/server.ts` resolves the
+  backend once (D11), prints one mode banner to stderr, hands
+  `serveStdio` a factory, and shuts down (close handle → `backend.close()`
+  → `process.exit`) on `SIGINT`, `SIGTERM`, and stdin `end`/`close`, with a
+  double-shutdown guard. Never `process.exit` before `close()` resolves
+  (T5).
+
 ## Traps (T-list; pass to every implementer)
 
 Carried over from 22 (numbers kept so the two docs agree; full text in
@@ -359,6 +392,10 @@ runtime = "nodejs"`** so Next does not attempt the edge runtime.
   editor already uses: `z.strictObject`, `z.flattenError`). Do not import
   from `"zod/v3"` or `"zod/v4"` sub-paths — one `z` instance across the
   registry and `curation/schema.ts`, or `instanceof ZodError` checks fail.
+  _Amended 23b:_ the SDK itself imports `zod/v4`; in zod 4 that sub-path
+  re-exports the root classes, so the real invariant is **one physical zod
+  copy** in the lockfile (`pnpm why zod`; `pnpm dedupe` if a second 4.x
+  appears). App code keeps `import { z } from "zod"`.
 - **T25 `statusFor` is exhaustive.** Adding a `CurationErrorCode` without a
   case in `curation/http.ts` `statusFor` is a type error; the HTTP backend's
   `rehydrate` and `codeForStatus` also need the new code and status, or a
@@ -368,6 +405,22 @@ runtime = "nodejs"`** so Next does not attempt the edge runtime.
   so two `feature` calls in one second conflict (409). Tests pass explicit
   `slug`s; agents that feature several targets in a burst should too.
 
+- **T27 `${VAR}` without `:-` in `.mcp.json` is passed through literally
+  when unset.** Claude Code keeps an unexpanded `${VAR}` as the literal
+  string (with a warning), so `CONTENT_DIRECTORY` would become the path
+  `${CONTENT_DIRECTORY}`. Always write `${VAR:-}` and make the consumer
+  treat empty as unset (D11's `envValue`).
+- **T28 Two error shapes.** Input the tool schema rejects (unknown key,
+  wrong type) is answered by the SDK's pre-dispatch validation in the
+  SDK's own shape, not by `toErrorObject`; curation codes (`validation`,
+  `not_found`, …) appear only after the schema passes. Tests that want the
+  `{error: {code}}` shape must trigger a curation-layer failure (unknown
+  group, duplicate slug, a patch the curation schema rejects).
+- **T29 `StdioClientTransport` passes a minimal env by default.** The
+  client's spawn does not inherit the parent's environment; pass
+  `CONTENT_DIRECTORY`, `PATH`, and `HOME` explicitly or pnpm cannot be
+  found and the server opens the real content directory.
+
 ## Stacked-PR roadmap
 
 Each branch is off the previous. Rebase children after a parent merges.
@@ -375,16 +428,15 @@ Each branch is off the previous. Rebase children after a parent merges.
 | PR  | Branch (← parent)                   | Status   | Scope                                                                                                                                                                                                                  |
 | --- | ----------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 23a | `agent/23a-curation-seats` ← `main` | ✅ done  | This doc; featured seat (D5) + group update seat (D4) in the curation layer, API routes, CLI commands, backend interface (local + http), vitest + Playwright; strike two backlog rows                                  |
-| 23b | `agent/23b-mcp-stdio` ← 23a         | 🟡 next  | `@modelcontextprotocol/server` + `/client` deps; `editor/mcp/{registry,server}.ts`; every D2 tool that exists by then; compact outputs (D3); `.mcp.json` (D10); vitest via `InMemoryTransport`; smoke from Claude Code |
+| 23b | `agent/23b-mcp-stdio` ← `main`      | 🟡 next  | `@modelcontextprotocol/server` + `/client` deps; `editor/mcp/{registry,server}.ts`; every D2 tool that exists by then; compact outputs (D3); `.mcp.json` (D10); vitest via `InMemoryTransport`; smoke from Claude Code |
 | 23c | `agent/23c-nested-groups` ← 23b     | ⏸️ later | D6: schema, validation, index/aggregate versions, fixture regen (T3), group page + cards, search term, CLI/API/tools; Playwright `groups.spec.ts` cases; `group_add_item` accepts `{group}`                            |
 | 23d | `agent/23d-git-seats` ← 23c         | ⏸️ later | D7: `curation/git.ts`, `/api/git/*`, CLI `git …`, MCP git tools; tests on a temp repo; `/git` page keeps its behaviour                                                                                                 |
 | 23e | `agent/23e-mcp-http` ← 23d          | ⏸️ later | D8: `/api/mcp` route; client-transport test against `next dev` (api-write precedent) + handler-level vitest                                                                                                            |
 | 23f | `agent/23f-curator-skill-v2` ← 23e  | ⏸️ later | D9: skill rewrite, examples, acceptance test of the user story, docs close-out, backlog update, memory                                                                                                                 |
 
-**Next PR:** 23b — `agent/23b-mcp-stdio` off `agent/23a-curation-seats`
-(rebase onto `main` once 23a merges). Start from the 23b seed section
-below in a fresh plan-mode session; validate fact 9 (SDK v2 exports)
-against the installed package before designing the registry.
+**Next PR:** 23b — `agent/23b-mcp-stdio` off `main` (23a merged
+2026-09-12 as `2ad89683`). The 23b section below is the handoff; the
+implementer works from its Design, Tests and Gates.
 
 ## Phase detail
 
@@ -652,20 +704,398 @@ under Deferred: none new beyond the T13/T14 amendments above.
   layer. `pnpm install --frozen-lockfile` in the worktree fixed it; worth
   adding to T13, which today mentions only `.env.local` and `next-env.d.ts`.
 
-### PR 23b — MCP stdio `agent/23b-mcp-stdio` 🟡 next (← 23a)
+### PR 23b — MCP stdio `agent/23b-mcp-stdio` 🟡 next (← `main`)
 
-Seed for the phase's plan-mode session: add `@modelcontextprotocol/server`
-and `@modelcontextprotocol/client` (2.x) to the editor; `editor/mcp/registry.ts`
-registers every D2 tool that exists (recipes, tags, groups incl.
-`group_update`, featured, `reindex`) over a `CuratorBackend` — local or HTTP
-by the same env resolution as the CLI; `editor/mcp/server.ts` wires
-`StdioServerTransport`, closes LMDB envs on exit (T5/T16), logs to stderr
-(T21); package script `mcp`; `.mcp.json` (D10); vitest through
-`InMemoryTransport` + the client package against a tmpdir content directory;
-compact rows (D3); a smoke run from Claude Code against a fixture directory
-recorded in the close-out. Verification: `recipe_search {query: "cookie"}`
-returns compact rows; `group_create` + `feature` complete a collection
-end-to-end against a scratch `CONTENT_DIRECTORY`.
+A **stateless MCP stdio server** that exposes the curation layer as typed
+tools, so any MCP client (Claude Code first, via `.mcp.json`) can manage and
+search the recipe database without shell JSON. Everything the tools wrap
+already exists behind `CuratorBackend` (recipes, groups, featured, tags,
+reindex); this phase adds **no new content seats**. 23a merged into `main`
+on 2026-09-12 (`2ad89683`), so this branch is off `main`.
+
+#### Facts (validated 2026-09-13 against `main` at `2ad89683`)
+
+Paths under `websites/recipe-website/editor/` unless noted.
+
+- **Backend seam** `cli/backend/types.ts` `CuratorBackend`: `kind`,
+  `importRecipe(url, {tags, slug, name, dryRun, overwrite})`,
+  `createRecipe(raw, {overwrite})`, `updateRecipe(slug, raw)`, `getRecipe`,
+  `listRecipes({limit, offset, tag})`, `searchRecipes(query, {limit,
+offset})`, `deleteRecipe`, `createGroup(raw, {force})`, `updateGroup(slug,
+raw)`, `addGroupItem(group, recipe, {label, note, force})`,
+  `removeGroupItem`, `setGroupItems(group, items, {force})`, `getGroup`,
+  `listGroups`, `deleteGroup`, `listFeatured`, `feature(raw)`, `unfeature`,
+  `reindex(contentType?)`, `afterWrite?()`, `close()`. **`listTags` is not
+  on the seam** (`controller/curation/search.ts` `listTags(ctx):
+Promise<string[]>` reads the `recipeTags` aggregate) and has no API route
+  or CLI command — D12 adds all three.
+- **Backend factories.** `createLocalBackend({contentDirectory, author?,
+onWrite?, notify?})` (`cli/backend/local.ts`), `createHttpBackend({baseUrl,
+token?})` (`http.ts`). Local guards every write with `assertCommitIdentity`
+  (skipped for `dryRun` imports and `reindex`); `afterWrite()` returns the
+  stale-editor hint or `Notified <origin>`; `close` is
+  `closeCachedEnvironments`. HTTP `afterWrite` → `undefined`, `close` no-op.
+- **Mode resolution is inline in `cli/index.ts` `main()`**: `--remote ??
+RECIPE_API_URL` → HTTP with `RECIPE_API_TOKEN`; else local with
+  `resolveContentDirectory(flag)` (not exported; `--content-dir` >
+  `CONTENT_DIRECTORY` > `getContentDirectory()`, relative to `INIT_CWD ??
+cwd()`), `resolveAuthor(flag)` (`controller/curation/author.ts`, exported:
+  flag > `RECIPE_AUTHOR`), `resolveNotify(notify, editorUrl, token)`
+  (exported; `--editor-url` > `RECIPE_EDITOR_URL`, env alone suffices). D11
+  extracts this into one exported function both entry points call.
+- **Row shapes.** `RecipeRow = MassagedRecipeEntry`
+  (`common/controller/data/read.ts`): `{date, slug, name, description?,
+ingredients?, image?, tags?, prepTime?, cookTime?, totalTime?}` (`groups`
+  is client-only). `RecipeListResult {total, more, recipes}`, `SearchResult
+{query: {raw, text, hasAdvancedSyntax}, total, recipes}`, `RecipeDetail
+{slug, path, url, recipe}`. **No projection option exists anywhere**; D3's
+  `fields` is an MCP-layer projection over these rows. Group/featured
+  results are already small (`GroupRow`, `GroupDetail` with
+  `ResolvedGroupItem`, `FeaturedRow`).
+- **Schemas** (`controller/curation/schema.ts`, `import { z } from "zod"`,
+  zod `4.3.6`): `RecipeInputSchema`, `RecipePatchSchema`, `GroupInputSchema`,
+  `GroupPatchSchema`, `FeaturedInputSchema` (with the XOR refine),
+  `GroupItemInputSchema`, `EpochSchema`; `parseInput(schema, raw)` throws
+  `ValidationError`. All strict objects.
+- **Errors** (`controller/curation/errors.ts`): `CurationErrorCode` =
+  `not_found | slug_conflict | validation | unknown_recipe | unknown_group |
+import_failed | no_git_identity | unauthenticated | usage | internal`;
+  `toErrorObject(error): ErrorObject` (`{error: {code, message, slug?,
+issues?, recipes?, groups?}}`). No new codes in 23b, so T25 does not fire.
+- **stdout purity (T21)**: no `console.log` in `controller/`,
+  `common/controller/`, `cli/`, or `packages/cms/` except
+  `rebuildFixtureIndexes.ts`'s default `log` parameter (script-only). The
+  engine's `console.warn` calls (`rebuildIndex.ts`, `updateDependents.ts`,
+  `references.ts`) go to stderr and are fine. Only `cli/output.ts` and the
+  `--help` paths write stdout; the MCP server must not import
+  `cli/output.ts`.
+- **Process lifecycle**: the CLI awaits `backend.close()` in a `finally` and
+  sets `process.exitCode` (never `process.exit`) so stdout flushes. No
+  signal handlers exist anywhere in the repo. The editor package is CJS (no
+  `"type": "module"`), scripts run via `tsx ^4.21.0` (`"recipes": "tsx
+./cli/index.ts"`); root `package.json` has `"recipes": "pnpm --filter
+recipe-editor recipes"`. Node `22.23.2`, pnpm `10.24.0`.
+- **Tests**: single `vitest.config.js` at the root (jsdom default, `include:
+test/**`, excludes `.claude/**`, aliases stub `next/cache`,
+  `next/navigation`, `@/auth`, `discontent/fs/getContentDirectory`).
+  `test/curation.test.ts` is the tmpdir precedent (`// @vitest-environment
+node`, `mkdtemp` per test, `process.env.CONTENT_DIRECTORY` set,
+  `closeCachedEnvironments()` + `rm` in `afterEach`; the tmpdir is not a git
+  repo so commits no-op). `test/cliJson.test.ts` is the spawn precedent
+  (`execa("pnpm", ["exec", "tsx", "cli/index.ts", …])` from the editor dir,
+  30 s timeouts; pnpm is on PATH in CI's `unit` job). 454 tests at base.
+- **No `.mcp.json`; `.claude/settings.json`** allows only `Bash(pnpm
+--silent recipes:*)`, `Bash(pnpm recipes:*)`, `WebSearch`,
+  `Skill(recipe-curator)` (no MCP keys). Skill frontmatter `allowed-tools:
+Bash(pnpm --silent recipes:*), WebSearch`.
+- **Git identity**: `resolveAuthor` is the `--author`; `assertCommitIdentity`
+  (`author.ts`) is the committer check (`GIT_COMMITTER_EMAIL` or the content
+  repo's `user.email`), throwing `no_git_identity`.
+- **MCP SDK v2** (inspected from the published tarballs 2026-09-13):
+  `@modelcontextprotocol/server@2.0.0` and `/client@2.0.0` (only `latest`;
+  the v1 monolith `@modelcontextprotocol/sdk` is `1.30.0`). Both are
+  `"type": "module"` but dual-published (`require` branches exist), Node
+  `>=20`. **No `peerDependencies`**: each depends on `zod ^4.2.0` and
+  `@modelcontextprotocol/core 2.0.0` directly; the editor's `zod ^4.3.6`
+  satisfies it, so pnpm dedupes to one copy (verify with `pnpm why zod`).
+  SDK types import `* as z from "zod/v4"`; in zod 4 the root and `/v4`
+  export the same classes, so app code keeps `import { z } from "zod"`
+  (T24). Root exports: `McpServer` (`new McpServer({name, version},
+{capabilities?, instructions?})`, `.connect(transport)`, `.close()`),
+  `InMemoryTransport.createLinkedPair()` (exported from **both** package
+  roots; import the pair from one package), `createMcpHandler` and the HTTP
+  transports (23e). `registerTool(name, {title?, description?,
+inputSchema?, outputSchema?, annotations?, icons?, _meta?}, cb)`:
+  `inputSchema` is a **full schema object** (`z.object` / `z.strictObject`);
+  the raw-shape `{field: z.string()}` form is `@deprecated` and auto-wraps
+  with a non-strict `z.object`. Callback arity is conditional: `(args, ctx)`
+  with an `inputSchema`, `(ctx)` without. Return `{content: [{type: "text",
+text}], structuredContent?: unknown, isError?: boolean}`;
+  `structuredContent` is `unknown` (SEP-2106), not typed from
+  `outputSchema`. Unknown keys against a strict input fail the SDK's
+  pre-dispatch validation (T28). `@modelcontextprotocol/server/stdio`
+  (**subpath, not root**) exports `StdioServerTransport(stdin?, stdout?,
+{maxBufferSize?})` and `serveStdio(factory, {legacy?: "serve" | "reject",
+transport?, onerror?}) → {close()}` (synchronous; owns the protocol-era
+  decision; factory = `(ctx) => McpServer`). `@modelcontextprotocol/client`:
+  `new Client({name, version})`, `.connect(transport)`, `.listTools()`
+  (auto-paginates), `.callTool({name, arguments})` → `CallToolResult`
+  (`isError` for tool-level failures; protocol failures throw);
+  `/client/stdio` exports `StdioClientTransport({command, args?, env?,
+cwd?, stderr?})` — the way to spawn the real server in a test and prove
+  T21 (T29). README caveat: TypeScript ≥ 6 needs `"types": ["node"]`; the
+  workspace is on `5.9.3`, so it does not apply.
+- **Build/lint/test plumbing.** Editor `tsconfig.json` includes `**/*.ts`
+  with `moduleResolution: "bundler"`, so `editor/mcp/*.ts` is typechecked
+  with no config change. `.npmrc` has `shamefully-hoist=true`, which is why
+  root `test/*.test.ts` already import `zod`/`lmdb` undeclared; an editor
+  devDependency on `@modelcontextprotocol/client` resolves from `test/` the
+  same way. **`next lint` no longer exists in Next 16.1.6**; CI's lint job
+  runs `pnpm exec lint-staged --diff origin/main` at the root (prettier +
+  the root flat `eslint.config.mjs`), so new files under `editor/mcp/`,
+  `editor/cli/`, `test/` and `.mcp.json` are all linted. No
+  `pnpm.overrides`; the lockfile has exactly `zod@3.25.76` and `zod@4.3.6`.
+- **zod 4.3.6 semantics.** `z.strictObject(...).extend(shape)` keeps
+  strictness and existing checks; `.refine()` returns the same `ZodObject`,
+  so `FeaturedInputSchema` can be passed to `registerTool` as-is; spreading
+  `.shape` into a new object **drops** refinements. `EpochSchema`'s string
+  branch is `z.string().transform(...)`; `z.toJSONSchema` throws
+  `"Transforms cannot be represented in JSON Schema"` in the default `io:
+"output"` mode and emits the input side under `io: "input"`. Whether
+  `tools/list` survives depends on which mode the SDK's converter uses —
+  **check after install** (grep `toJSONSchema(` in
+  `node_modules/@modelcontextprotocol/core/dist`); the mitigation is under
+  Risks.
+- **Claude Code `.mcp.json`** (docs fetched 2026-09-13): stdio servers
+  inherit the launching process environment (plus `CLAUDE_PROJECT_DIR`);
+  `${VAR}` / `${VAR:-default}` expand in `command`, `args`, `env`, `url`,
+  `headers`; an unset `${VAR}` with no default is kept as literal text with
+  a warning (T27). A project server prompts for approval on first use
+  unless listed in `enabledMcpjsonServers` in `.claude/settings.json`.
+  Permission patterns: `mcp__recipes` (all tools), `mcp__recipes__recipe_search`
+  (one tool). `claude mcp list` / `/mcp` show status.
+
+#### Design (decided)
+
+**D11 Backend resolution (`cli/backend/resolve.ts`, new).**
+
+```ts
+export interface BackendOverrides {
+  remote?: string;
+  contentDir?: string;
+  author?: string;
+  notify?: boolean;
+  editorUrl?: string;
+}
+export type BackendConfig =
+  | { kind: "http"; baseUrl: string; token?: string }
+  | {
+      kind: "local";
+      contentDirectory: string;
+      author?: Author;
+      notify?: NotifyTarget;
+    };
+export function resolveContentDirectory(
+  flag?: string,
+  env = process.env,
+): string; // moved from index.ts verbatim (keeps the INIT_CWD comment)
+export function resolveNotify(
+  notify: boolean,
+  editorUrl?: string,
+  token?: string,
+  env = process.env,
+): NotifyTarget | undefined; // moved from index.ts
+export function resolveBackendConfig(
+  overrides?: BackendOverrides,
+  env = process.env,
+): BackendConfig;
+export function createBackend(config: BackendConfig): CuratorBackend;
+export function resolveBackend(
+  overrides?: BackendOverrides,
+  env = process.env,
+): CuratorBackend;
+```
+
+Every env read goes through an `envValue(env, name)` that treats **empty
+strings as unset** (needed for `${VAR:-}` in `.mcp.json`, T27). `cli/index.ts`
+`main()` replaces its inline block with one `resolveBackend({remote:
+global("remote"), contentDir: global("content-dir"), author:
+global("author"), notify: values.notify === true || headParse.values.notify
+=== true, editorUrl: global("editor-url")})` call and drops the two moved
+functions and their imports (`resolveNotify` has no other importer). The
+config/create split exists so `server.ts` can print its mode banner.
+
+**D12 `listTags` joins the seam.** `CuratorBackend.listTags():
+Promise<string[]>`; local → `listTags(ctx)`; http → `GET /api/tags` (new
+thin route `src/app/api/tags/route.ts`, `readContext`, answers `{tags}`);
+CLI parity command `tags` (`cli/commands/tags.ts`, in `COMMANDS` + USAGE;
+`--json` → `{tags}`).
+
+**D13 Registry (`editor/mcp/registry.ts`).** `createRecipeServer(backend,
+info?): McpServer` (`name: "recipes"`, editor package version, an
+`instructions` paragraph: compact rows, `fields`, error shape, `warnings`).
+Exports `TOOL_NAMES`, `compactRow`, `pickRecipe`, `ROW_FIELDS`. Every
+`inputSchema` is a `z.strictObject` (an empty one for `tag_list`, so every
+callback is `(args)`), one `z` from `"zod"`. Success → `{content: [{type:
+"text", text: JSON.stringify(result)}], structuredContent: result}`;
+failure → the same over `toErrorObject(error)` with `isError: true`. Write
+tools call `backend.afterWrite?.()` and append the returned string to
+`warnings: string[]` on the result (merged with `GroupWriteResult.warnings`);
+`recipe_import` with `dryRun` skips it. Tool names snake_case, **input keys
+camelCase** as in the curation schemas; create/update tools nest the
+payload so option flags and the rename `slug` never collide. No
+`outputSchema` in 23b.
+
+| Tool                | inputSchema (`z.strictObject`)                     | Backend call → result                              | Annotations        |
+| ------------------- | -------------------------------------------------- | -------------------------------------------------- | ------------------ |
+| `recipe_search`     | `{query: string.min(1), limit?, offset?, fields?}` | `searchRecipes` → rows `compactRow(fields)`        | readOnly           |
+| `recipe_list`       | `{tag?, limit?, offset?, fields?}`                 | `listRecipes` → rows compacted                     | readOnly           |
+| `recipe_get`        | `{slug, fields?: string[]}`                        | `getRecipe` → `recipe: pickRecipe(recipe, fields)` | readOnly           |
+| `recipe_import`     | `{url, tags?, slug?, name?, dryRun?, overwrite?}`  | `importRecipe(url, opts)`                          | write              |
+| `recipe_create`     | `{recipe: RecipeInputSchema, overwrite?}`          | `createRecipe(recipe, {overwrite})`                | write              |
+| `recipe_update`     | `{slug, patch: RecipePatchSchema}`                 | `updateRecipe`                                     | write, idempotent  |
+| `recipe_delete`     | `{slug}`                                           | `deleteRecipe`                                     | write, destructive |
+| `tag_list`          | `{}`                                               | `listTags()` → `{tags}`                            | readOnly           |
+| `group_list`        | `{limit?, offset?}`                                | `listGroups`                                       | readOnly           |
+| `group_get`         | `{slug}`                                           | `getGroup`                                         | readOnly           |
+| `group_create`      | `{group: GroupInputSchema, force?}`                | `createGroup(group, {force})`                      | write              |
+| `group_update`      | `{slug, patch: GroupPatchSchema}`                  | `updateGroup`                                      | write, idempotent  |
+| `group_set_items`   | `{group, items: GroupItemInputSchema[], force?}`   | `setGroupItems`                                    | write, idempotent  |
+| `group_add_item`    | `{group, recipe, label?, note?, force?}`           | `addGroupItem`                                     | write              |
+| `group_remove_item` | `{group, recipe}`                                  | `removeGroupItem`                                  | write, idempotent  |
+| `group_delete`      | `{slug}`                                           | `deleteGroup`                                      | write, destructive |
+| `featured_list`     | `{limit?, offset?}`                                | `listFeatured`                                     | readOnly           |
+| `feature`           | `FeaturedInputSchema` as-is (strict + XOR refine)  | `feature(args)`                                    | write              |
+| `unfeature`         | `{slug}`                                           | `unfeature`                                        | write, destructive |
+| `reindex`           | `{contentType?}`                                   | `reindex`                                          | write, idempotent  |
+
+**D3 as built.** Compact row = `{slug, name, date, tags, totalTime,
+image?}`; `fields` on rows ⊆ `description | ingredients | prepTime |
+cookTime` (rows carry no `source`; `recipe_get {fields: ["source"]}` covers
+it — the D3 divergence). `recipe_get` without `fields` returns the full
+`RecipeDetail`.
+
+**D14 Server (`editor/mcp/server.ts`).** CJS under tsx, no top-level await,
+never writes stdout: `resolveBackendConfig({}, process.env)` →
+`createBackend`; one stderr banner (`recipes MCP: local <dir>` / `remote
+<url>`); `serveStdio(() => createRecipeServer(backend), {onerror →
+console.error})`; `SIGINT` / `SIGTERM` / stdin `end` + `close` → guarded
+`shutdown`: close the handle, `await backend.close()`, `process.exit`.
+Scripts: editor `"mcp": "tsx ./mcp/server.ts"`, root `"mcp": "pnpm --filter
+recipe-editor mcp"`.
+
+**D10 as built** — `.mcp.json` at the repo root (tracked; `.gitignore` only
+covers `.claude/*`):
+
+```json
+{
+  "mcpServers": {
+    "recipes": {
+      "command": "pnpm",
+      "args": ["--silent", "--filter", "recipe-editor", "mcp"],
+      "env": {
+        "CONTENT_DIRECTORY": "${CONTENT_DIRECTORY:-}",
+        "RECIPE_API_URL": "${RECIPE_API_URL:-}",
+        "RECIPE_API_TOKEN": "${RECIPE_API_TOKEN:-}",
+        "RECIPE_AUTHOR": "${RECIPE_AUTHOR:-}",
+        "RECIPE_EDITOR_URL": "${RECIPE_EDITOR_URL:-}"
+      }
+    }
+  }
+}
+```
+
+`${VAR:-}` plus D11's empty-means-unset works whether or not the launcher
+inherits the shell environment; a bare `${VAR}` would pass the literal
+placeholder through when unset (T27). **Default = local mode on
+`editor/content`, the real content repo through the symlink** — every smoke
+run and test must export a scratch `CONTENT_DIRECTORY`. Also add
+`"enabledMcpjsonServers": ["recipes"]` to `.claude/settings.json` beside the
+existing skill allows (pre-approves the project server; the 23f skill
+depends on it). Skill frontmatter is untouched until 23f.
+
+#### Tests
+
+**`test/mcp.test.ts`** (`// @vitest-environment node`; per-test `mkdtemp`,
+`CONTENT_DIRECTORY` set/restored, `afterEach`: `client.close()`,
+`server.close()`, `backend.close()`, `rm`). Setup: `createLocalBackend({
+contentDirectory})` → `createRecipeServer(backend)` →
+`InMemoryTransport.createLinkedPair()` (import the pair and `Client` from
+`@modelcontextprotocol/client`) → `client.connect`. Cases:
+
+1. `listTools` names equal `TOOL_NAMES`; `recipe_create`'s schema has
+   `additionalProperties: false` and `recipe.properties.name`;
+   `recipe_search` `readOnlyHint`, `recipe_delete` `destructiveHint`.
+2. `recipe_create` (name, tags `["Dessert"]`, description, ingredients,
+   totalTime) → slug; `warnings` carries the stale-editor hint;
+   `recipe_search {query}` rows are compact (no `description`); `fields:
+["description", "ingredients"]` adds both.
+3. `recipe_list` compact; `fields: ["prepTime"]`; `tag: "dessert"` filters.
+4. `recipe_get` full detail; `fields: ["name", "tags"]` → exactly those keys.
+5. Errors: unknown slug → `isError`, `error.code === "not_found"`, `slug`;
+   duplicate create → `slug_conflict`; `feature {group: "ghost"}` →
+   `unknown_group` (a curation-only failure, guaranteed `toErrorObject`
+   shape); unknown key `{recipe: {name: "x", bogus: 1}}` → pin whatever the
+   SDK answers (T28).
+6. Christmas-Cookies shape end-to-end: `group_create` → `group_add_item`
+   (label) → `feature {group, slug: "xmas"}` (explicit slug, T26) →
+   `featured_list` row has `group` + `name` → `group_get` items resolved
+   with `name`; `group_add_item` unknown recipe → `unknown_recipe`; with
+   `force` → `warnings` has both the unknown-recipe line and the hint.
+7. `tag_list` → `{tags: ["dessert"]}`; empty dir → `{tags: []}`.
+8. `group_update {slug, patch: {slug: "xmas-cookies", description}}` → new
+   slug, old → `not_found`; `patch: {items: []}` → `validation` / T28 shape.
+9. `recipe_delete` → `{slug, deleted: true}`; `unfeature` → deleted,
+   `featured_list.total === 0`.
+10. `reindex {}` → `rebuilt` non-empty; `reindex {contentType: "bogus"}` →
+    `not_found`.
+11. `resolveBackendConfig` unit cases: empty env → local at
+    `getContentDirectory()`; `RECIPE_API_URL: ""` → local; set → http with
+    token; override beats env; relative `CONTENT_DIRECTORY` resolves against
+    `INIT_CWD`.
+
+**`test/mcpStdio.test.ts`** (node env, one seeded tmpdir in `beforeAll` via
+`createContent` + `closeCachedEnvironments()`, 60 s timeouts): `new
+StdioClientTransport({command: "pnpm", args: ["--silent", "--filter",
+"recipe-editor", "mcp"], cwd: <repo root>, env: {PATH, HOME,
+CONTENT_DIRECTORY}, stderr: "pipe"})` (T29); `listTools` equals
+`TOOL_NAMES`; `recipe_list {}` → `total 1`, compact row; `afterAll` closes
+the client (stdin end → server exits) and removes the tmpdir. This is the
+T21 proof: a stray stdout byte anywhere in the import graph breaks the
+handshake. Include captured stderr in the failure message.
+
+Also: `test/cliJson.test.ts` gains `tags --json` → `{tags: []}`;
+`api-write.spec.ts`'s public-reads case gains `GET /api/tags` → `{tags:
+["bread"]}`.
+
+#### Gates
+
+```
+pnpm --filter recipe-editor typecheck
+pnpm --filter recipe-website exec tsc --noEmit
+pnpm exec vitest run                      # 454 at base + new cases
+pnpm exec lint-staged --diff main         # what CI's lint job runs
+pnpm --filter recipe-editor e2e-dev -- api-write.spec.ts     # detached: setsid nohup … > log 2>&1 &; strip ANSI; T14 cleanup
+grep -rn "console.log\|process.stdout" websites/recipe-website/editor/{controller,cli,mcp} websites/recipe-website/common/controller packages/cms --include='*.ts' | grep -v node_modules
+# expected: only cli/output.ts and the two --help writes in cli/index.ts
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"x","version":"0"}}}' \
+  | CONTENT_DIRECTORY=<scratch dir> pnpm --silent --filter recipe-editor mcp 2>/dev/null | head -c 400
+# expected: exactly one JSON-RPC frame, nothing else on stdout
+```
+
+Then CI on the draft PR (lint, both typechecks, unit, Playwright shards).
+Headless smoke if the `claude` CLI is usable: `CONTENT_DIRECTORY=<scratch
+copy of playwright/fixtures/test-content/three-recipes-groups> claude -p
+--mcp-config .mcp.json --strict-mcp-config --allowedTools "mcp__recipes"
+"search recipes for 'week' and list the groups"`; otherwise the interactive
+smoke is the user's and the close-out says so.
+
+#### Risks → mitigations
+
+- **`EpochSchema` transform vs `tools/list`**: if the SDK converts with
+  `io: "output"`, define a registry-local `WireEpoch = z.union([z.int(),
+z.string()])` and `extend({date: WireEpoch.optional()})` on the four
+  unrefined schemas (strictness survives `extend`); rebuild
+  `FeaturedInputSchema` with the same XOR refine. The backend re-parses with
+  the real `EpochSchema`, so semantics are unchanged. Detector: test case 1.
+- **Two error shapes** (T28): SDK-level input rejection is not
+  `toErrorObject`; the `validation`-shaped tests use curation-only failures.
+- **pnpm spawn under vitest / tsx startup**: `cliJson.test.ts` already
+  spawns pnpm in CI; only the two-case stdio suite spawns.
+- **CJS/ESM**: tsx runs the editor as CJS and takes the SDK's `require`
+  branch; vitest is ESM throughout. Never add `"type": "module"` or `.mts`.
+- **zod duplication**: lockfile check after install; even with two copies
+  `toErrorObject`'s `instanceof ZodError` sees the curation layer's own zod.
+- **Real content dir by default**: every smoke/test sets `CONTENT_DIRECTORY`
+  to a tmpdir or scratch copy.
+- **Shutdown**: stdin `end`/`close` listeners drive `backend.close()` even
+  if `serveStdio`'s handle semantics differ; double-shutdown guard.
+
+#### Not in 23b
+
+Nested groups (23c), git tools (23d), the HTTP transport (23e), the skill
+rewrite and the acceptance test (23f), `outputSchema`s, base64 image upload
+(Deferred), the parked pie-iron content task.
 
 ### PR 23c — Nested groups `agent/23c-nested-groups` ⏸️ later (← 23b)
 
