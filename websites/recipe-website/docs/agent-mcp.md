@@ -428,15 +428,17 @@ Each branch is off the previous. Rebase children after a parent merges.
 | PR  | Branch (← parent)                   | Status   | Scope                                                                                                                                                                                                                  |
 | --- | ----------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 23a | `agent/23a-curation-seats` ← `main` | ✅ done  | This doc; featured seat (D5) + group update seat (D4) in the curation layer, API routes, CLI commands, backend interface (local + http), vitest + Playwright; strike two backlog rows                                  |
-| 23b | `agent/23b-mcp-stdio` ← `main`      | 🟡 next  | `@modelcontextprotocol/server` + `/client` deps; `editor/mcp/{registry,server}.ts`; every D2 tool that exists by then; compact outputs (D3); `.mcp.json` (D10); vitest via `InMemoryTransport`; smoke from Claude Code |
-| 23c | `agent/23c-nested-groups` ← 23b     | ⏸️ later | D6: schema, validation, index/aggregate versions, fixture regen (T3), group page + cards, search term, CLI/API/tools; Playwright `groups.spec.ts` cases; `group_add_item` accepts `{group}`                            |
+| 23b | `agent/23b-mcp-stdio` ← `main`      | ✅ done  | `@modelcontextprotocol/server` + `/client` deps; `editor/mcp/{registry,server}.ts`; every D2 tool that exists by then; compact outputs (D3); `.mcp.json` (D10); vitest via `InMemoryTransport`; smoke from Claude Code |
+| 23c | `agent/23c-nested-groups` ← 23b     | 🟡 next  | D6: schema, validation, index/aggregate versions, fixture regen (T3), group page + cards, search term, CLI/API/tools; Playwright `groups.spec.ts` cases; `group_add_item` accepts `{group}`                            |
 | 23d | `agent/23d-git-seats` ← 23c         | ⏸️ later | D7: `curation/git.ts`, `/api/git/*`, CLI `git …`, MCP git tools; tests on a temp repo; `/git` page keeps its behaviour                                                                                                 |
 | 23e | `agent/23e-mcp-http` ← 23d          | ⏸️ later | D8: `/api/mcp` route; client-transport test against `next dev` (api-write precedent) + handler-level vitest                                                                                                            |
 | 23f | `agent/23f-curator-skill-v2` ← 23e  | ⏸️ later | D9: skill rewrite, examples, acceptance test of the user story, docs close-out, backlog update, memory                                                                                                                 |
 
-**Next PR:** 23b — `agent/23b-mcp-stdio` off `main` (23a merged
-2026-09-12 as `2ad89683`). The 23b section below is the handoff; the
-implementer works from its Design, Tests and Gates.
+**Next PR:** 23c — `agent/23c-nested-groups` off `agent/23b-mcp-stdio`
+(rebase onto `main` once 23b merges). Start from D6 and the 23c seed
+section below in a fresh plan-mode session; validate the group schema,
+aggregate versions and the `by-recipe` fold against the code before
+designing, and remember T1 (snapshot updates) and T3 (fixture regen order).
 
 ## Phase detail
 
@@ -704,7 +706,7 @@ under Deferred: none new beyond the T13/T14 amendments above.
   layer. `pnpm install --frozen-lockfile` in the worktree fixed it; worth
   adding to T13, which today mentions only `.env.local` and `next-env.d.ts`.
 
-### PR 23b — MCP stdio `agent/23b-mcp-stdio` 🟡 next (← `main`)
+### PR 23b — MCP stdio `agent/23b-mcp-stdio` ✅ done (← `main`)
 
 A **stateless MCP stdio server** that exposes the curation layer as typed
 tools, so any MCP client (Claude Code first, via `.mcp.json`) can manage and
@@ -1097,7 +1099,87 @@ Nested groups (23c), git tools (23d), the HTTP transport (23e), the skill
 rewrite and the acceptance test (23f), `outputSchema`s, base64 image upload
 (Deferred), the parked pie-iron content task.
 
-### PR 23c — Nested groups `agent/23c-nested-groups` ⏸️ later (← 23b)
+#### Decisions and close-out (2026-09-13)
+
+- [x] D11: `cli/backend/resolve.ts` is the one mode resolver; `cli/index.ts`
+      `main()` is a single `resolveBackend({…})` call. Empty env strings are
+      unset (T27). `resolveNotify` treats `--editor-url ""` the same way.
+- [x] D12: `listTags` on the seam (local + http), `GET /api/tags` → `{tags}`,
+      CLI `recipes tags` (`--json` → `{tags}`).
+- [x] D13: `mcp/registry.ts` registers the twenty tools in the table, every
+      input a `z.strictObject`, results and errors in the shapes above.
+- [x] D14: `mcp/server.ts` + scripts `mcp` (editor and root); `.mcp.json`
+      verbatim from D10 as built; `"enabledMcpjsonServers": ["recipes"]` in
+      `.claude/settings.json`.
+- [x] SDK converter uses `io: "input"` (both `tools/list` sites in
+      `@modelcontextprotocol/server` call `standardSchemaToJsonSchema(schema,
+"input")`), so `EpochSchema`'s transform is fine and the `WireEpoch`
+      mitigation was **not** needed; `date` publishes as `anyOf [integer,
+string]`.
+- [x] T28 pinned: the SDK answers schema rejections as `{content: [{type:
+"text", text: "Input validation error: Invalid arguments for tool
+recipe_create: recipe: Unrecognized key: \"bogus\""}], isError: true}`
+      — no `structuredContent`, no `error.code`. `group_update {patch:
+{items: []}}` lands in the same shape.
+- [x] zod: lockfile still has exactly `zod@3.25.76` and `zod@4.3.6`; every
+      MCP snapshot resolves `zod 4.3.6`; no `pnpm dedupe` needed.
+- [x] Headless smoke run recorded below; the interactive Claude Code run is
+      the user's.
+
+**Review (Fable).** Read the full diff; no correctness changes needed. The
+registry is a faithful wrapper: payload schemas are imported unchanged from
+`curation/schema.ts`, so a tool cannot accept what the API refuses; `write()`
+runs `afterWrite` only after a write that happened (and never for a `dryRun`
+import); `server.ts` never touches stdout and closes LMDB before exit with a
+double-shutdown guard. `pnpm add` alphabetised the editor's `dependencies`
+block — cosmetic, left as is. Reviewer reran every gate (below) plus the
+headless smoke.
+
+**Gate results (verbatim, reviewer rerun in the worktree):**
+
+| Gate                                                  | Result                                                                                                                                                                        |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm --filter recipe-editor typecheck`               | clean                                                                                                                                                                         |
+| `pnpm --filter recipe-website exec tsc --noEmit`      | clean                                                                                                                                                                         |
+| `pnpm exec vitest run`                                | `Test Files 27 passed (27)` · `Tests 474 passed (474)` (454 at base, +20: 17 `mcp`, 2 `mcpStdio`, 1 `cliJson`)                                                                |
+| `pnpm exec lint-staged --diff main`                   | clean (prettier + eslint)                                                                                                                                                     |
+| stdout grep                                           | only `cli/output.ts` and the two `--help` writes (plus a comment in `mcp/server.ts` and the script-only `log` default)                                                        |
+| `initialize` frame over `pnpm --silent … mcp`         | exactly one JSON-RPC frame on stdout; stderr `recipes MCP: local <scratch>`; scratch dir untouched                                                                            |
+| `pnpm e2e-dev -- api-write.spec.ts` (dev mode)        | reviewer rerun: `14 passed (51.2s)`, 0 failed, 0 flaky (implementer: `14 passed (52.8s)`)                                                                                     |
+| Headless smoke (`claude -p --mcp-config .mcp.json …`) | `subtype: success`, 4 turns, 7.3 s: `recipe_search {query: "week"}` → 0 rows; `group_list` → `week-of-may-4`, `weeknight-favourites` (scratch copy of `three-recipes-groups`) |
+| CI on the draft PR                                    | pending at close-out; see the PR                                                                                                                                              |
+
+**Implementer notes (divergences from the design above, and why).**
+
+- **`ROW_FIELDS` is a closed `z.enum`** (`description | ingredients |
+prepTime | cookTime`), so the published JSON Schema documents the choice
+  and a typo is a schema error. `recipe_get`'s `fields` stays free strings
+  because `Recipe` has an index signature (`source`, `videoUrl`, …).
+- **`compactRow` omits undefined keys** rather than emitting `tags:
+undefined`; identical after JSON serialisation and cheaper.
+- **`reindex` folds the `afterWrite` hint** like every other write tool
+  (the CLI's `reindexCommand` is `write: true`); only a `dryRun` import
+  skips it.
+- **`resolveBackendConfig` always sets `token` / `author` / `notify` keys**
+  (possibly `undefined`) rather than conditionally spreading;
+  `exactOptionalPropertyTypes` is off and the unit tests `toEqual` the
+  explicit shape.
+- **`test/mcp.test.ts` has 17 `it()`s for the doc's 11 cases**: case 5 split
+  into curation errors vs. the T28 shape, case 6 into the happy path vs. the
+  `force` path, case 11 into five `resolveBackendConfig` cases in their own
+  `describe` (outside the `CONTENT_DIRECTORY`-mutating harness). The stdio
+  suite also asserts the stderr banner.
+- **The tool callback must return the SDK's `CallToolResult` type**, not a
+  structurally equal local interface: `registerTool`'s callback returns
+  `CallToolResult | InputRequiredResult`, and a hand-rolled shape resolves
+  against the latter and fails on a missing `resultType`.
+- **The vitest alias `discontent/fs/getContentDirectory` in
+  `vitest.config.js` is dead**: the real specifier is
+  `@discontent/cms/fs/getContentDirectory`, which the prefix alias never
+  matches, and the real module loads fine under vitest. Worth a separate
+  cleanup; untouched here.
+
+### PR 23c — Nested groups `agent/23c-nested-groups` 🟡 next (← 23b)
 
 Seed: D6 in full — types, `GroupItemObjectSchema` union, `checkItems`
 (recipes + groups + cycle DFS, `group_cycle` / `unknown_group`), `getGroup`
