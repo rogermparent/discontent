@@ -6,6 +6,10 @@
  * things only a *local* caller has to do — preflight the committer identity
  * before a write (fact 8), warn that a running editor is now stale, and close
  * the LMDB environments this process opened (T16).
+ *
+ * All three are wrong when the caller is the editor itself, which is what
+ * `inProcess` turns off (23e/D25): `mcp/http.ts` builds this per request, in
+ * the process that owns those caches.
  */
 import { assertCommitIdentity } from "../../controller/curation/author";
 import type { CurationContext } from "../../controller/curation/context";
@@ -50,6 +54,30 @@ export interface LocalBackendOptions extends CurationContext {
    * process is not a thing — which is what the hint above says.
    */
   notify?: NotifyTarget;
+  /**
+   * This backend is being built *inside* the editor, once per request (23e/D25).
+   *
+   * All three of the local-only jobs above are wrong there, and each is wrong
+   * in a way that is invisible until it bites:
+   *
+   * - **The identity preflight** would demand a committer identity the routes
+   *   deliberately do not demand (`author.ts`): a request already authenticated
+   *   an author, and every other write route commits without asking. So `guard`
+   *   becomes a no-op.
+   * - **The stale-editor hint** is a lie in-process — this *is* the process
+   *   that owns the caches, and `ctx.onWrite` has just invalidated them. So
+   *   `afterWrite` is absent rather than empty (`registry.ts` calls
+   *   `backend.afterWrite?.()`), which is what keeps `warnings` undefined over
+   *   HTTP (T53).
+   * - **`close()`** is `closeCachedEnvironments`, which is process-global: one
+   *   request closing it would tear down the *server's* LMDB environments
+   *   underneath every other request (T52). So it does nothing.
+   *
+   * `notify` is ignored for the same reason `afterWrite` goes: there is no
+   * other process to tell. `resolve.ts` never sets this, so the CLI and the
+   * stdio server are untouched.
+   */
+  inProcess?: boolean;
 }
 
 /**
@@ -76,10 +104,24 @@ async function notifyEditor({ url, token }: NotifyTarget): Promise<string> {
 
 export function createLocalBackend({
   notify,
+  inProcess = false,
   ...ctx
 }: LocalBackendOptions): CuratorBackend {
-  const guard = async () => {
-    await assertCommitIdentity(ctx.contentDirectory);
+  const guard = inProcess
+    ? async () => {}
+    : async () => {
+        await assertCommitIdentity(ctx.contentDirectory);
+      };
+
+  const afterWrite = async () => {
+    if (!notify) return STALE_EDITOR_HINT + NOTIFY_SUGGESTION;
+    try {
+      return await notifyEditor(notify);
+    } catch (error) {
+      return `warning: could not notify ${notify.url}: ${
+        error instanceof Error ? error.message : String(error)
+      }\n${STALE_EDITOR_HINT}`;
+    }
   };
 
   return {
@@ -168,23 +210,19 @@ export function createLocalBackend({
     },
     gitPush: (options) => git.gitPush(ctx, options),
 
-    async afterWrite() {
-      if (!notify) return STALE_EDITOR_HINT + NOTIFY_SUGGESTION;
-      try {
-        return await notifyEditor(notify);
-      } catch (error) {
-        return `warning: could not notify ${notify.url}: ${
-          error instanceof Error ? error.message : String(error)
-        }\n${STALE_EDITOR_HINT}`;
-      }
-    },
+    /*
+     * Spread rather than a property that returns `undefined`: the seam declares
+     * `afterWrite?()`, `registry.ts` and the CLI both call it with `?.()`, and
+     * an in-process write must produce no `warnings` entry at all (T53).
+     */
+    ...(inProcess ? {} : { afterWrite }),
 
     /*
      * LMDB environments are cached per process (`lmdb/environmentCache.ts`) and
      * a mapping outlives the last read. Closing on the way out is what keeps a
      * spawned CLI from leaving a lock file another process then trips over
-     * (T3/T16).
+     * (T3/T16) — and is exactly what an in-process backend must never do (T52).
      */
-    close: closeCachedEnvironments,
+    close: inProcess ? async () => {} : closeCachedEnvironments,
   };
 }
