@@ -46,6 +46,9 @@ survives a cleared context.
 - `websites/recipe-website/docs/agent-curation.md` — the agent-curation phases
   (provenance, groups, the CLI, remote write, this skill): decisions, traps,
   gate results.
+- `websites/recipe-website/docs/agent-mcp.md` — the Recipe MCP epic (23a–23f:
+  curation seats, the stdio server, nested groups, git seats, MCP over HTTP,
+  the skill rewrite): decisions, traps, gate results.
 - `websites/recipe-website/docs/ui-overhaul.md` — the UI roadmap.
 - `packages/cms/docs/incremental-regeneration.md` — how the engine
   invalidates and rebuilds derived state.
