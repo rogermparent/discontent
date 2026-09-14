@@ -283,7 +283,15 @@ slug, rev})` (`git checkout <rev> -- <paths>` + commit `Restore <type>
   Writes refuse when a merge is in progress or the tree is dirty
   (`dirty_tree`), validate revisions (`bad_revision`), and finish with
   `rebuildAllIndexes` + full revalidation (new `ctx.onBulkChange?`).
-  `/api/git/*` routes mirror them.
+  `/api/git/*` routes mirror them. **Amended at 23d (D19–D23):** the
+  function names are `gitStatus`/`gitLog`/`gitShow`/`gitFileAt`/`gitDiff`/
+  `gitRevert`/`gitRestore`/`gitPush`; `type` ∈ `{recipe, group, featured}`;
+  `push` takes `{remote?, setUpstream?}` and is **not** clean-tree-guarded
+  (T47); the codes are four — `not_a_repo`, `dirty_tree`, `git_conflict`
+  (409) and `bad_revision` (422); revert/restore do **not** go through
+  `commitChanges` (T46) and finish with `reindex(ctx)` inside the module
+  plus `ctx.onBulkChange?.()` (Next-only revalidation stays outside the
+  curation layer, D8 boundary); reverting a merge commit is `bad_revision`.
 - **D8 HTTP transport (23e).** `app/api/mcp/route.ts` → `createMcpHandler`
   from `@modelcontextprotocol/server`, `runtime = "nodejs"`; auth via
   `authenticateRequest` before the handler (401 without a token/session);
@@ -406,6 +414,123 @@ GroupItem & {id}`; a `{group}` row renders read-only ("Group N: <slug>",
 N"`, `data-testid="group-item-group-row"`); legend and buttons unchanged; no
   picker (Deferred: wire the existing `GroupSelectInput` as an "Add group"
   row, at which point the server action needs the cycle check — T38).
+
+- **D19 Module `controller/curation/git.ts` (23d).** Node-safe (simple-git,
+  `@discontent/cms/git/commit`, `../contentTypes`, `./reindex`; no Next). The
+  page DTOs move here (`CommitSummary {hash, message, author_name, date}`,
+  `SyncStatus`, `RemoteSummary`, `BranchInfo`, `ConflictFile`, `MergeState`)
+  and `src/app/(editor)/(settings)/git/types.ts` re-exports them. Result
+  types: `GitLogResult {commits: CommitEntry[], hasMore}` with `CommitEntry =
+CommitSummary & {files: string[]}` (`--name-only`, paths relative to the
+  content dir), `ShowResult {hash, diff, truncated}`, `DiffResult {from, to,
+path?, diff, truncated}`, `FileAtResult {type, slug, rev, path, content}`
+  (the data file at `rev`, JSON-parsed), `GitWriteResult {commit: string |
+null, message, rebuilt: string[]}`, `PushResult {remote, branch}`. Reads:
+  `gitStatus(ctx)` (`EMPTY_STATUS` with `isRepo: false` when not a repo),
+  `gitLog(ctx, {type?, slug?, limit = 30, offset = 0})` — path filter =
+  `<dataDirectory>[/<slug>]` + `<uploadsDirectory>[/<slug>]` from the content
+  config (`type` ∈ registry names; unknown → `not_found` listing the known
+  types, as `reindex` does), `gitShow(ctx, hash, {maxChars = 50_000})`,
+  `gitFileAt(ctx, {type, slug, rev})` (`git show <rev>:<path>`; absent →
+  `not_found`), `gitDiff(ctx, {from, to = "HEAD", path?})`. `gitStatus` never
+  throws (`isRepo: false` is what the page renders as "not tracked with
+  Git"); an unborn branch makes `gitLog` return no commits (as
+  `sync.ts:110-116` does). `gitLog` uses simple-git's **array form** —
+  `git.log(["--max-count=<n+1>", "--skip=<offset>", "--name-only", "--",
+...paths])` — because the object form appends options after `--` and `file`
+  adds `--follow` (T44); files come from `entry.diff.files[].file`. A `type`
+  ∈ `{recipe, group, featured}` maps to its config through one `GIT_TYPES`
+  table; per-slug pathspecs = `<dataDirectory>/<slug>` +
+  `relative(getUploadsBaseDirectory(config, slug, dir))`
+  (`packages/cms/content/filesystem.ts:71-82`, so featured gets the engine
+  default). Wire input is validated before it reaches git: `hash` matches
+  `/^[0-9a-f]{7,40}$/i`, `rev` and `path` must not start with `-`, `slug` is
+  one path segment (not `.`/`..`) → `validation` (T45). Writes:
+  `gitRevert(ctx, hash)` — `rev-parse --verify <hash>^{commit}` (else
+  `bad_revision`), `rev-list --parents -n 1` with more than two hashes (a
+  merge) → `bad_revision`, then one shot `git.env({GIT_AUTHOR_NAME,
+GIT_AUTHOR_EMAIL} when ctx.author).raw(["revert", "--no-edit", hash])`
+  (git's own `Revert "<subject>"` message); on failure `revert --abort`
+  (fallback `reset --hard HEAD`, safe because the tree was clean) and
+  `git_conflict`. **Not `commitChanges`**: its `git add <paths>` fails on a
+  path the reverted commit added (gone from index and tree) — T46.
+  `gitRestore(ctx, {type, slug, rev})` — `ls-tree -r --name-only <rev> --
+<pathspecs>` empty → `not_found` ("<type> <slug> does not exist at <rev>");
+  `rm -r --ignore-unmatch -q -- <pathspecs>`; `checkout <rev> -- <only the
+files ls-tree listed>`; `diff --cached --name-only` empty → `reset --hard
+HEAD`, `{commit: null}` and no reindex; else `git.commit(["Restore <type>
+<slug> to <short rev>", "From <full rev>."], author ? {"--author": …} : {})`.
+  `gitPush(ctx, {remote?, setUpstream?})` — the whole `doPush` contract
+  (tracking and not `setUpstream` → `push`; else `push -u <remote ??
+"origin"> <status.current>`; no current branch → `bad_revision` "Cannot
+  determine the current branch to push."); the `/rejected|non-fast-forward|
+fetch first/i` case → `git_conflict` with the existing "Push rejected — the
+  remote has commits you don't have. Pull first to merge, then push."
+  sentence. **Push is not clean-tree-guarded** (the page pushes a dirty tree
+  today, T47). Preflights: every write `requireRepo` → `not_a_repo`;
+  revert/restore `requireCleanTree` (`status.isClean()` false, or
+  `MERGE_HEAD` / `REVERT_HEAD` / `CHERRY_PICK_HEAD` present) → `dirty_tree`
+  ("commit or discard working changes in /git first" / "a merge is in
+  progress"). After a revert/restore that made a commit: `await reindex(ctx)`
+  (its `rebuilt` — four names incl. `pages` — rides the result; `commit` is
+  `git.revparse(["HEAD"])`) then `ctx.onBulkChange?.()`. `mergeInProgress`,
+  `labelForPath`, `toSummary`, `EMPTY_STATUS` are exported for `sync.ts`.
+  Never `getContentDirectory()` inside (T16; the D8 allow-list has no
+  `@discontent/cms/fs/*`).
+- **D20 `ctx.onBulkChange` (23d).** `CurationContext.onBulkChange?: () =>
+void`, synchronous and fire-and-forget exactly like `onWrite`.
+  `curationContextFor` sets it to `revalidatePath("/", "layout")` +
+  `revalidateDerivedState(recipeContentTypes)` (what `/api/revalidate`
+  does). `readContext` and the local backend leave it unset — the CLI's
+  `afterWrite` hint / `--notify` already cover a stale editor.
+- **D21 Git error codes (23d).** `not_a_repo` 409, `dirty_tree` 409,
+  `git_conflict` 409 (revert conflict, non-fast-forward push),
+  `bad_revision` 422. Classes `NotARepoError`, `DirtyTreeError`,
+  `GitConflictError`, `BadRevisionError`; no new `CurationErrorDetails`
+  field (messages carry the hash/branch), so `rehydrate` is unchanged;
+  `codeForStatus` unchanged (bodies always present, T39). T25 chain: union,
+  `statusFor`, `curationHttp` table, registry instructions.
+- **D22 `sync.ts` delegates, the page is unchanged (23d).** `getSyncStatus`
+  → `gitStatus(readCtx)`, `getCommitDiff` → `gitShow` (errors still returned
+  as the diff string, truncation marker identical), `getCommitLogPage` →
+  `gitLog` (page keeps `LOG_PAGE_SIZE = 30`, `hasMore`), `doPush` →
+  `gitPush` (a `CurationError` becomes the action's string).
+  Fetch/pull/sync/merge/conflict, branches, remotes, `initializeContentGit`,
+  `rebuildRecipeIndex`, `rebuildAllIndexes` stay where they are.
+  `labelForPath`'s stale `recipes/data/<slug>/(.+)` branch becomes
+  `uploads/(recipe|group)/<slug>/…` → "Recipe: <slug>" / "Group: <slug>".
+  `git.spec.ts` stays green **unchanged** (the gate for this refactor).
+- **D23 Seam, routes, CLI, MCP (23d).** `CuratorBackend`: `gitStatus()`,
+  `gitLog(opts)`, `gitShow(hash, opts?)`, `gitFileAt(ref)`, `gitDiff(opts)`,
+  `gitRevert(hash)`, `gitRestore(ref)`, `gitPush(opts?)`. Local: `guard()`
+  on `gitRevert`/`gitRestore` (they commit); `gitPush` unguarded. HTTP (all
+  `requireCurationContext` — history is not public; all `export const
+runtime = "nodejs"`, T23, the first such declarations in the tree): `GET
+/api/git/status`, `GET /api/git/log?type&slug&limit&offset`, `GET
+/api/git/show/[hash]?maxChars`, `GET /api/git/file?type&slug&rev`, `GET
+/api/git/diff?from&to&path`, `POST /api/git/revert {hash}`, `POST
+/api/git/restore {type, slug, rev}`, `POST /api/git/push {remote?}`; bodies
+  via strict zod schemas in `curation/schema.ts` (`GitRevertSchema`,
+  `GitRestoreSchema`, `GitPushSchema`, `GitLogQuerySchema`). CLI: `git` joins
+  `SUBCOMMAND_TABLES`: `git status`, `git log [--type t] [--slug s] [--limit
+n] [--offset n]`, `git show <hash> [--max-chars n]`, `git file <type> <slug>
+<rev>`, `git diff <from> [<to>] [--path p]`, `git revert <hash> [--yes]`,
+  `git restore <type> <slug> <rev> [--yes]`, `git push [--remote r]
+[--set-upstream]`; `write: true` on revert/restore only (`git push` changes
+  nothing locally, so the stale-editor hint would be wrong); `--yes` reuses
+  the delete confirmation generalised to `confirm(label, yes)` (its prompt
+  currently says "Delete"). Text formats: `log` via `formatRows`,
+  `show`/`diff` print the raw diff, `file` prints JSON. MCP `/* --- git ---
+*/` block after maintenance: `git_status`, `git_log {type?, slug?, limit?,
+offset?}`, `git_show {hash, maxChars?}`, `git_file_at {type, slug, rev}`,
+  `git_diff {from, to?, path?}` (READ_ONLY, via `read`); `git_revert {hash}`,
+  `git_restore {type, slug, rev}` (DESTRUCTIVE_WRITE, via `write` so the hint
+  rides `warnings`); `git_push {remote?, setUpstream?}` (WRITES, via `read` —
+  no local change); `TOOL_NAMES` gains the eight in D2 order (`mcpStdio` pins
+  the same list); instructions gain the four codes and "git_revert /
+  git_restore make a new commit and rebuild every index; git_push sends the
+  branch to its remote; neither is undoable from here". The skill's "never
+  push" rule is untouched (23f decides what the skill exposes).
 
 ## Traps (T-list; pass to every implementer)
 
@@ -555,6 +680,38 @@ runtime = "nodejs"`** so Next does not attempt the edge runtime.
   `three-recipes-groups` meal plan already dangles `missing-recipe`, so a
   new missing-target assertion on `/group/week-of-may-4` needs `.last()`.
 
+- **T44 simple-git `log` object-form options land after `--`.** `log({file,
+maxCount})` emits `--follow` and appends the options behind the pathspec
+  separator, so `--name-only` + several paths is only expressible with the
+  array form `git.log(["--max-count=<n+1>", "--skip=<offset>",
+"--name-only", "--", ...paths])`; the touched files come from
+  `entry.diff.files[].file`.
+- **T45 Wire `rev`/`hash`/`path`/`slug` reach git argv.** Refuse a leading
+  `-` on `rev` and `path`, keep `hash` to `/^[0-9a-f]{7,40}$/i` and slugs to
+  one path segment (not `.`/`..`) with a `validation` error before any git
+  call; `schema.ts` slugs are bare strings, so the module validates them
+  itself.
+- **T46 `commitChanges(paths)` cannot commit a staged revert.** Its `git add
+<paths>` fails on a path the reverted commit added (gone from index and
+  tree). Revert commits in one shot with `GIT_AUTHOR_*` in `git.env(...)`;
+  restore stages with `rm`/`checkout` and commits with `git.commit([...],
+{"--author"})`.
+- **T47 Push is not clean-tree-guarded.** The `/git` page pushes a dirty
+  tree today and `git.spec.ts` relies on it; only revert/restore preflight
+  `dirty_tree`.
+- **T48 `test-content/users/` is inside the repo Playwright inits.**
+  `createApiToken` writes there, so it must run **before**
+  `initializeContentGit` — the other order leaves the tree dirty and every
+  revert/restore fails `dirty_tree`.
+- **T49 The vitest repo helper's ordering.** `git init`, a local
+  `user.email`/`user.name`, `commit.gpgsign=false`, and the `.gitignore` from
+  `derivedContentPaths(recipeContentTypes)` all before the first LMDB open;
+  otherwise the index files land in the initial commit or a signing key is
+  demanded.
+- **T50 `git_push` and CLI `git push` bypass `afterWrite`.** Nothing local
+  changed, so the stale-editor hint would be wrong there; revert/restore go
+  through it (CLI `write: true`, MCP `write(...)`) so the hint fires.
+
 ## Stacked-PR roadmap
 
 Each branch is off the previous. Rebase children after a parent merges.
@@ -568,11 +725,10 @@ Each branch is off the previous. Rebase children after a parent merges.
 | 23e | `agent/23e-mcp-http` ← 23d          | ⏸️ later | D8: `/api/mcp` route; client-transport test against `next dev` (api-write precedent) + handler-level vitest                                                                                                                      |
 | 23f | `agent/23f-curator-skill-v2` ← 23e  | ⏸️ later | D9: skill rewrite, examples, acceptance test of the user story, docs close-out, backlog update, memory                                                                                                                           |
 
-**Next PR:** 23d — `agent/23d-git-seats` off `agent/23c-nested-groups`
-(the stack is #138 → #139; rebase 23d onto `main` as each parent merges,
-T20). Start from D7 and the 23d seed section below in a fresh plan-mode
-session; validate `actions/sync.ts`'s helpers, the `/git` page's server
-actions and `simple-git` usage (T23) against the code before designing.
+**Current PR:** 23d — `agent/23d-git-seats` off `agent/23c-nested-groups`
+at `d57e598d` (the stack is #138 → #139 → 23d; rebase 23d onto `main` as
+each parent merges, T20). The 23d section below is the handoff; D7 is
+amended by D19–D23.
 
 ## Phase detail
 
@@ -1622,16 +1778,284 @@ all return `group_cycle` for a cycle; `group:spring-menus` search returns
 First, Second and Third Recipe; index versions bumped and `specVersions`
 snapshots updated.
 
-### PR 23d — Git seats `agent/23d-git-seats` 🟡 next (← 23c)
+### PR 23d — Git seats `agent/23d-git-seats` 🟡 in progress (← 23c)
 
-Seed: D7 — extract `controller/curation/git.ts` from `actions/sync.ts`
-(T22), reads + writes with `dirty_tree` / `bad_revision` codes (T25),
-`ctx.onBulkChange` → `rebuildAllIndexes` + `revalidateDerivedState` over the
-registry, `/api/git/*` routes (T23), CLI `git log|show|diff|revert|restore|push`,
-MCP git tools, vitest on a temp git repo with a real identity. Verification:
+Branch `agent/23d-git-seats` off `agent/23c-nested-groups` at `d57e598d`
+(the stack is #138 → #139 → 23d; the merge/retarget/rebase of each parent
+stays the user's housekeeping, T20). Workflow unchanged: Fable plans and
+reviews, an Opus subagent implements in `.claude/worktrees/agent-23d`, this
+section is the handoff, the user merges. Never push `main`, never
+force-push, never merge.
+
+#### Facts (validated 2026-09-13 on `agent/23c-nested-groups` at `d57e598d`; paths under `websites/recipe-website/editor/` unless noted)
+
+- **Git actions live in two `"use server"` files.** `controller/actions/sync.ts`
+  (507 lines): private, already-pure helpers `getGit :24`, `normalizeError
+:28`, `mergeInProgress :49` (`.git/MERGE_HEAD`), `labelForPath :53-64`,
+  `toSummary :66` (`{hash, message, author_name, date}`), `readSyncStatus
+:89-149` (`git.status()`, `getRemotes(true)`, `branchLocal()`, `log({maxCount:
+31})`), `doFetch :156`, `doPull :162-205` (`pull --no-rebase --no-edit`),
+  `doPush :207-235` (tracking → `push`; else `push -u <remote> <branch>`;
+  rejection regex `/rejected|non-fast-forward|fetch first/i` → "Push rejected —
+  …"), `doSync :237`. Exported actions: `getSyncStatus :152`,
+  `remoteCommandAction :277`, `resolveConflict :336`, `commitMerge :371`,
+  `abortMerge :405`, `commitWorkingChanges :430`, `getCommitDiff(hash) :459`
+  (validates `/^[0-9a-f]{7,40}$/i`, `git.show([hash])`, truncates at
+  `MAX_DIFF_CHARS = 50_000` with "… diff truncated …", returns errors as the
+  diff string), `getCommitLogPage(offset) :484` (`log({maxCount: 31,
+"--skip": offset})`, `LOG_PAGE_SIZE = 30`). Every one calls
+  `getContentDirectory()` directly (T16) and `auth()`; DTOs are imported
+  **from the page directory** `src/app/(editor)/(settings)/git/types.ts`
+  (`CommitSummary`, `RemoteSummary`, `BranchInfo`, `ConflictFile`, `MergeState`,
+  `SyncStatus`, `CommitLogPage`). `controller/actions/index.ts`: `createRemote
+:323`, `createBranch :370`, `branchCommandAction :429`, `initializeContentGit
+:477` (`.gitignore` from `derivedContentPaths(recipeContentTypes)`),
+  `rebuildRecipeIndex :258` (recipes + featured only), **`rebuildAllIndexes
+:314-321`** (loops `recipeContentTypes` with `cascadeDependents: false`, then
+  `revalidateDerivedState(recipeContentTypes)`) — D7's `onBulkChange` target.
+- **`labelForPath` has a stale branch**: `recipes/data/<slug>/(.+)` for uploads,
+  but uploads live at `uploads/recipe/<slug>/uploads/<file>`; only the
+  `recipe.json` and `uploads/(.+)` branches fire. Fix in passing (23d owns the
+  path rule).
+- **Author**: session email as both name and email (`sync.ts:394,447`,
+  `apiContext.ts:38`). `curation/author.ts`: `parseAuthor :31`,
+  `resolveAuthor :45`, `assertCommitIdentity :52-67` (reads `user.email` via
+  `getConfig`, or `GIT_COMMITTER_EMAIL`; throws `NoGitIdentityError`, code
+  `no_git_identity` → 500); only `cli/backend/local.ts:81` calls it (routes
+  deliberately do not, `author.ts:14-17`).
+- **`packages/cms/git/commit.ts`**: `directoryIsGitRepo :6`, `commitChanges
+:15` (`git.add(paths ?? "./*")` + `commit(message, {"--author": "Name
+<email>"})`), `commitContentChanges :43` — **silent no-op when not a repo**;
+  callers pass engine-relative `touchedPaths`. `simple-git ^3.30.0` in both
+  `packages/cms` and the editor. The curation boundary test
+  (`test/curation.test.ts:1112-1129`) already allows `simple-git` and
+  `@discontent/cms/git/commit`.
+- **Push is manual today** (22-D11, `docs/agent-curation.md:186`, backlog
+  row, skill "Never push"); no credential handling, ambient helper/agent.
+- **Content paths** (`common/controller/*ContentConfig.ts`): recipes
+  `recipes/data/<slug>/recipe.json` + `uploads/recipe/<slug>/uploads/*`; groups
+  `groups/data/<slug>/group.json` + `uploads/group/<slug>/uploads/*`; featured
+  `featured-recipes/data/<slug>/featured-recipe.json` (no uploads declared;
+  engine default would be `uploads/featured-recipes/<slug>/uploads`).
+  Per-slug helpers already exist: `curation/context.ts:75-100` `recipePath`,
+  `groupPath`, `featuredPath`; `common/controller/filesystemDirectories.ts`
+  `getRecipeUploadsBasePath :28`, `getGroupUploadsBasePath :53`. Derived
+  (gitignored) paths: `packages/cms/content/derivedPaths.ts:73-86`
+  (`/transformed-images`, `<type>/{index,pagination,aggregates}`,
+  `/.pagination-changes.json`).
+- **`/git` page** `src/app/(editor)/(settings)/git/` (11 files): `ui.tsx`
+  "Content Sync" → `SyncPanel` (`useActionState(remoteCommandAction)`),
+  `ConflictResolver`, `CommitLog` (lazy `getCommitDiff`, "Load more" via
+  `getCommitLogPage`), branch/remote forms. **No testids**; `git.spec.ts` (838
+  lines) drives it by role/text: "when empty", "with some git history"
+  (`loadGitFixture("test-git.bundle")`, 5 commits), "syncing with a remote"
+  (bare remote in `test-remotes/`, clone in `test-clones/`, non-fast-forward →
+  `/Push rejected/`), "conflict resolution" (label `"Recipe: shared"`).
+  `accessibility.spec.ts:140-156` axe on `/git`. Playwright support
+  `playwright/support/tasks.ts`: `initializeContentGit :115` (no identity
+  set), `loadGitFixture :139`, `createBareRemote :146`, `addRemoteAndPush
+:155`, `cloneFromRemote :166` (sets `user.email`/`user.name` via
+  `addConfig`), `addRecipeInClone :193`, `editRecipeInClone :204`, `pushClone
+:217`, `getRemoteLog :222`, `getContentGitLog :110`.
+- **No vitest creates a git repo** (`test/curation.test.ts:6-10`: tmpdir is
+  not a repo so commits no-op). A git suite needs `// @vitest-environment
+node` and per-repo identity via `addConfig("user.email"/"user.name")` (the
+  keys `assertCommitIdentity` reads) — no precedent to copy.
+- **No `/api/git/*` route exists; no route exports `runtime`** (T23 applies
+  to every new git route). Template: `api/reindex/route.ts`
+  (`requireCurationContext` → `readJsonBody` → `parseInput` → curation call →
+  `revalidateDerivedState(recipeContentTypes)` → `Response.json`, one
+  `try/catch errorResponse`).
+- **Seam/CLI/MCP anchors**: `cli/backend/types.ts:59-136` `CuratorBackend`;
+  `cli/index.ts` `COMMANDS :70-82`, `GLOBAL_OPTIONS :50-60`, subcommand tables
+  `:84+` (`group`, `featured` — the pattern for `git …`); `mcp/registry.ts`
+  `TOOL_NAMES :68-91`, `createRecipeServer :269`, instructions codes `:260`.
+  New codes (`dirty_tree`, `bad_revision`) follow the T25 chain:
+  `errors.ts:16-41` union, `http.ts:31-64` `statusFor`, `cli/backend/http.ts
+:72-91` `codeForStatus` + `:93-124` `rehydrate`, `test/curationHttp.test.ts`
+  table, registry instructions.
+- **Context**: `curation/context.ts:48-62` `CurationContext {contentDirectory,
+author?, onWrite?}`; `onWrite` is **synchronous fire-and-forget** (comment
+  `:52-60` — the precedent for `onBulkChange`'s doc). `apiContext.ts`:
+  `curationContextFor(email) :32-52` (author `{name: email, email}`, `onWrite`
+  → `revalidateContentWrite`), `readContext :55`, `requireCurationContext
+:68-79`. `cli/backend/local.ts:43-52` `LocalBackendOptions extends
+CurationContext` and spreads `...ctx`, so a new context field flows through
+  `createBackend` (`resolve.ts:135-143`) untouched.
+- **Rebuild + revalidate**: `curation/reindex.ts:23-51` `reindex(ctx,
+contentType?)` → `{rebuilt: string[]}` (full registry loop with
+  `cascadeDependents: false` when no type) is the Node-safe half of
+  `rebuildAllIndexes`; `revalidateDerivedState(recipeContentTypes)`
+  (`packages/cms/content/next/revalidateDerived.ts:96`) is the Next-only half
+  and is **forbidden inside `controller/curation/`** by the D8 boundary test
+  (`test/curation.test.ts:1131-1137` bans `@discontent/cms/*/next/*`). So the
+  pair after a revert/restore is `await reindex(ctx)` inside `git.ts` plus a
+  `ctx.onBulkChange?.()` callback that `apiContext.ts` supplies. Registry:
+  `controller/contentTypes.ts:30-46` `recipeContentTypes` (allowed import).
+- **After-write per mode**: routes → `ctx.onWrite`; CLI local →
+  `backend.afterWrite()` stale-editor hint (`local.ts:149-158`) or `--notify`
+  POST `/api/revalidate`; http → nothing; MCP `write(backend, run)`
+  (`registry.ts:193-208`) folds the hint into `warnings`.
+- **Seam shapes**: `CuratorBackend` (`types.ts:59-136`) re-exports curation
+  result types; `local.ts:76-167` — writes `await guard()` then call, reads are
+  arrows, `reindex` is deliberately unguarded (`:146`, never commits);
+  `http.ts` `call :132-180` (drops undefined query, bearer, `rehydrate` on
+  non-ok), `listTags :312` unwraps an envelope (precedent); `CommandDef`
+  (`cli/commands/types.ts:22-35` `{name, usage, options, write?, run, format}`),
+  `featured.ts:44-48` exactly-one-of `UsageError`, `delete.ts` `confirmDeletion`;
+  `cli/index.ts` `SUBCOMMAND_TABLES :92-95`, `USAGE` list `:108-130`, `main`
+  `:269-374` (`write` → `afterWrite` hint on stderr). MCP: `read(run) :174`,
+  `write :193`, annotations `:246-252` (`DESTRUCTIVE_WRITE` exists), section
+  banners (`/* --- maintenance --- */ :615`), `INSTRUCTIONS :254-260` (codes
+  paragraph; "Writes commit … Deletes … are not undoable from here").
+- **Routes**: 13 files under `src/app/api/`; `group/[slug]/route.ts:31-96` is
+  the four-method template (`params` is a `Promise`); `reindex/route.ts:30-48`
+  = auth → optional body → `parseInput` → `reindex` →
+  `revalidateDerivedState(recipeContentTypes)` → `Response.json`. Routes
+  import via the `recipe-editor/controller/...` alias.
+- **Tests**: `test/curation.test.ts` — `// @vitest-environment node`, `ctx =
+{contentDirectory}`, teardown `closeCachedEnvironments()`, `recordingCtx()`
+  `:981-990` for `onWrite`, D8 boundary suite `:1154-1212`. `test/mcp.test.ts`
+  `:46-78` setup/teardown, `call`/`callError :81-100`, first case pins
+  `TOOL_NAMES`. `test/cliJson.test.ts` `run(args) :77-91` (execa tsx,
+  `--content-dir`, `closeCachedEnvironments()` before spawning). Playwright
+  `api-write.spec.ts:35-46` (`resetData` then `createApiToken`, `auth()`
+  header). Fixtures: 14 content dirs (none a git repo) + the one bundle
+  `playwright/fixtures/git-test-content/test-git.bundle` (5 commits).
+- **`reindex` today** is on every surface (curation, seam, local, http `POST
+/api/reindex`, CLI `reindex`, MCP `reindex`); `/api/revalidate` is the
+  no-rebuild half.
+
+#### Design (decided)
+
+D19 (the `curation/git.ts` module: types, reads, writes, preflights), D20
+(`ctx.onBulkChange`), D21 (the four error codes), D22 (`sync.ts` delegates,
+the page is unchanged) and D23 (seam, routes, CLI, MCP) in the decisions log
+are the design; D7 is amended there to match. Summary of the surface:
+
+| Surface  | Reads                                                                      | Writes                                                                                |
+| -------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| curation | `gitStatus`, `gitLog`, `gitShow`, `gitFileAt`, `gitDiff`                   | `gitRevert`, `gitRestore`, `gitPush`                                                  |
+| seam     | same names on `CuratorBackend`                                             | local `guard()` on revert/restore only; push unguarded                                |
+| HTTP     | `GET /api/git/{status,log,file,diff}`, `GET /api/git/show/[hash]`          | `POST /api/git/{revert,restore,push}`                                                 |
+| CLI      | `git status`, `git log`, `git show`, `git file`, `git diff`                | `git revert --yes`, `git restore --yes` (`write: true`), `git push`                   |
+| MCP      | `git_status`, `git_log`, `git_show`, `git_file_at`, `git_diff` (READ_ONLY) | `git_revert`, `git_restore` (DESTRUCTIVE_WRITE), `git_push` (WRITES, no local change) |
+
+Every HTTP route is `requireCurationContext` (history is not public) and
+`export const runtime = "nodejs"` (T23) — the first such declarations in
+the tree. `type` ∈ `{recipe, group, featured}` everywhere.
+
+#### Steps (Opus implementer, in order)
+
+1. Errors + `statusFor` + `curationHttp` table + registry instructions
+   (`not_a_repo`, `dirty_tree`, `git_conflict` → 409; `bad_revision` → 422).
+   `CurationContext.onBulkChange`.
+2. `controller/curation/git.ts` (types moved from the page's `types.ts`,
+   which becomes type-only re-exports; `GIT_TYPES`; helpers; reads; writes)
+   - `curation/schema.ts` git schemas (`GitTypeSchema = z.enum(["recipe",
+"group", "featured"])`, `GitLogQuerySchema`, `GitRevertSchema`,
+     `GitRestoreSchema`, `GitPushSchema`, `GitDiffQuerySchema`,
+     `GitFileQuerySchema`).
+3. `sync.ts` delegation (D22) — then run `git.spec.ts` **before anything
+   else** and keep it green unchanged.
+4. `apiContext.ts` `onBulkChange`; seam (`types.ts`, `local.ts` with
+   `guard()` on revert/restore, `http.ts` eight calls); the eight routes
+   under `src/app/api/git/` (`status`, `log`, `file`, `diff`, `push`,
+   `revert`, `restore`, `show/[hash]`), each `export const runtime =
+"nodejs"`, `requireCurationContext`, `errorResponse`.
+5. CLI `cli/commands/git.ts` + `SUBCOMMAND_TABLES` + `USAGE`; MCP block.
+6. Tests (below), then gates; report divergences and the T28-shaped output
+   for a `git_revert` with a bad hash.
+
+#### Tests
+
+- **New `test/curationGit.test.ts`** (`// @vitest-environment node`): helper
+  `initTestRepo(dir)` = `git init`, `addConfig("user.email"/"user.name")`
+  (local scope), `addConfig("commit.gpgsign", "false")`, write `.gitignore`
+  from `derivedContentPaths(recipeContentTypes)` **before the first LMDB
+  read**, initial commit; seed through curation `createRecipe`/`createGroup`
+  (they now commit, `createContent.ts:177`); do not assert the branch name.
+  Cases: `gitStatus` on a non-repo → `isRepo: false`; on the repo → `isRepo`,
+  clean; `gitLog` all / `{type: "recipe", slug}` only that recipe's commits
+  with `files` = its data path / unknown type → `not_found`; `gitShow` diff
+  contains the slug, `maxChars` truncates with the marker; `gitFileAt` at the
+  create commit returns the old `name`, absent → `not_found`; `gitDiff`
+  between two commits; `gitRevert` of a group creation → new commit, group
+  file gone, `rebuilt` has four names, `onBulkChange` called once
+  (`recordingCtx` shape); revert of an unknown hash → `bad_revision`, of a
+  merge commit → `bad_revision` (build one with a branch + `merge --no-ff`);
+  a revert that conflicts (edit the same file after the commit, revert the
+  earlier edit) → `git_conflict` and the tree is clean afterwards;
+  `gitRestore` a recipe to its create rev → old content on disk, commit
+  message `Restore recipe <slug> to <short>`, uploads dir restored (seed one
+  upload), restoring to the current state → `{commit: null}` and no
+  `onBulkChange`; restore of a slug absent at rev → `not_found`; dirty tree
+  (write a file) → `dirty_tree` for revert/restore, and `gitPush` still runs;
+  `gitPush` to a bare remote (`init --bare` in a second tmpdir, `push -u`
+  first via `setUpstream`) → `{remote, branch}`, then a diverged remote →
+  `git_conflict` with "Push rejected"; `rev`/`slug` starting with `-` or
+  containing `/` → `validation`. D8 boundary suite picks `git.ts` up
+  automatically.
+- `test/curationHttp.test.ts` table + one `errorResponse` case per new code.
+- `test/mcp.test.ts` `describe("git")` with its own `initTestRepo` setup:
+  `git_log` after `recipe_create` shows the commit with `files`; `git_revert`
+  of a `group_create` → `group_list` empty and `warnings` carries the
+  stale-editor hint; `git_revert {hash: "zzz"}` → SDK-shape (schema regex,
+  T28); `git_push` without a remote → `isError` with a curation code.
+- `test/cliJson.test.ts`: make the `beforeAll` dir a repo (identity before
+  the `createContent` seeds), one `git log --json` case → `{commits, hasMore}`.
+- Playwright `api-write.spec.ts` `describe("git")`: **`resetData` →
+  `createApiToken` → `initializeContentGit`** (the token file lives under
+  `test-content/users/`, so the other order leaves the tree dirty — T48);
+  cases: `GET /api/git/status` anonymous → 401; with token → `isRepo: true`;
+  `POST /api/group` then `GET /api/git/log?type=group&slug=<slug>` → 1
+  commit; `POST /api/git/revert {hash}` → 200 `{commit, rebuilt}` and
+  `/group/<slug>` → 404, `/groups` shows no card (in-process
+  `onBulkChange`); `POST /api/git/restore` back to the create rev → the page
+  renders again; a bogus hash → 422 `bad_revision`; `git.spec.ts` untouched.
+
+#### Gates (in `.claude/worktrees/agent-23d`)
+
+```
+pnpm --filter recipe-editor typecheck
+pnpm --filter recipe-website exec tsc --noEmit
+pnpm exec vitest run                      # 488 at base + new cases
+pnpm exec lint-staged --diff agent/23c-nested-groups
+pnpm --filter recipe-editor e2e-dev -- git.spec.ts api-write.spec.ts   # detached (setsid nohup … > log 2>&1 &), strip ANSI, T14 cleanup; git.spec.ts is the refactor gate
+grep -rn "console.log\|process.stdout" websites/recipe-website/editor/{controller,cli,mcp} websites/recipe-website/common/controller packages/cms --include='*.ts' | grep -v node_modules   # unchanged from 23b
+```
+
+Then CI on the draft PR (only lint/typecheck/unit run while the base is not
+`main`). Smoke (Fable, script under `$CLAUDE_JOB_DIR/tmp`, scratch copy of
+`three-recipes-groups` turned into a repo with an identity):
+`claude -p --mcp-config .mcp.json … "create a collection 'Scratch' with
+first-recipe, then look at the git log for that group and revert the commit
+that created it; confirm the group is gone"` → expects `git_log` then
+`git_revert` then `group_list` without it.
+
+#### Risks → mitigations
+
+T44 (simple-git `log` array form), T45 (wire strings reach git argv), T46
+(`commitChanges` cannot commit a staged revert), T47 (push is not
+clean-tree-guarded), T48 (`test-content/users/` is inside the Playwright
+repo), T49 (the vitest repo helper's ordering), T50 (`git_push` bypasses
+`afterWrite`) in the T-list, plus T23 restated: the `/api/git/*` files are
+the first routes in the tree with `export const runtime = "nodejs"`.
+
+#### Not in 23d
+
+HTTP MCP transport (23e), skill rewrite incl. `git_*` in the skill's
+allow/never lists (23f), fetch/pull/sync/merge/conflict/branch/remote
+seats (stay page-only), push credentials, reverting a merge commit
+(`bad_revision`), a `push_rejected` code (folded into `git_conflict`), the
+parked pie-iron task, the #138 → #139 landing housekeeping (user).
+
+#### Verification
+
 `git_log {type: "recipe", slug}` lists that recipe's commits; `git_restore`
 to an earlier revision produces a new commit and the page shows the old
-content; `git_revert` of a group creation removes the group.
+content; `git_revert` of a group creation removes the group (page 404,
+`/groups` empty) without a manual reindex; `git.spec.ts` passes unchanged.
 
 ### PR 23e — MCP over HTTP `agent/23e-mcp-http` ⏸️ later (← 23d)
 
