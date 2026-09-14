@@ -1,54 +1,30 @@
-export interface CommitSummary {
-  hash: string;
-  message: string;
-  author_name: string;
-  date: string;
-}
+/**
+ * The `/git` page's DTOs, which now live in the curation layer (23d/D19).
+ *
+ * They were declared here because the page was the only thing that had them,
+ * and `controller/actions/sync.ts` imported *up* into the page directory to
+ * reach them. `controller/curation/git.ts` is where the reads that produce them
+ * live now, so the declarations moved with the code and this file is the
+ * re-export that keeps every component's `from "./types"` import working.
+ */
+export type {
+  BranchInfo,
+  CommitSummary,
+  ConflictFile,
+  MergeState,
+  RemoteSummary,
+  SyncStatus,
+} from "../../../../../controller/curation/git";
 
-export interface RemoteSummary {
-  name: string;
-  fetchUrl: string;
-}
+import type { CommitSummary } from "../../../../../controller/curation/git";
 
-export interface BranchInfo {
-  name: string;
-  current: boolean;
-}
-
-export interface ConflictFile {
-  path: string;
-  label: string;
-}
-
-export interface MergeState {
-  /** A merge is underway (MERGE_HEAD exists), so the resolver should be shown. */
-  inProgress: boolean;
-  /** Files that still need an ours/theirs decision. */
-  conflicted: ConflictFile[];
-  /** Count of files already resolved (staged) but not yet committed. */
-  resolvedCount: number;
-}
-
-export interface SyncStatus {
-  isRepo: boolean;
-  branch?: string;
-  detached: boolean;
-  /** Upstream tracking ref, e.g. "origin/main". Undefined when none is configured. */
-  upstream?: string;
-  ahead: number;
-  behind: number;
-  remotes: RemoteSummary[];
-  branches: BranchInfo[];
-  merge: MergeState;
-  /** Uncommitted working-tree changes are present (outside of a merge). */
-  dirty: boolean;
-  /** Number of uncommitted changed files (for the warning copy). */
-  dirtyCount: number;
-  log: CommitSummary[];
-  /** More commits exist beyond the first page. */
-  hasMore: boolean;
-}
-
+/**
+ * One "Load more" page of the commit log.
+ *
+ * Page-only, and deliberately *not* `GitLogResult`: the curation seat's entry
+ * carries the files each commit touched, which the log list does not render and
+ * would only pay for over the RSC wire.
+ */
 export interface CommitLogPage {
   commits: CommitSummary[];
   hasMore: boolean;

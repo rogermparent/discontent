@@ -34,18 +34,25 @@ import {
 import type {
   CuratorBackend,
   DeleteResult,
+  DiffResult,
   FeaturedListResult,
   FeaturedWriteResult,
+  FileAtResult,
+  GitWriteResult,
+  GitLogResult,
   GroupDetail,
   GroupListResult,
   GroupWriteResult,
   ImportOptions,
   ImportResult,
+  PushResult,
   RecipeDetail,
   RecipeListResult,
   RecipeWriteResult,
   ReindexResult,
   SearchResult,
+  ShowResult,
+  SyncStatus,
 } from "./types";
 
 export interface HttpBackendOptions {
@@ -318,6 +325,46 @@ export function createHttpBackend({
       return call<ReindexResult>("POST", "/api/reindex", {
         body: contentType ? { contentType } : {},
       });
+    },
+
+    /*
+     * The git seats (23d/D23). Every one is authenticated on the server, reads
+     * included — a content repository's history names files, branches and
+     * remotes, and is not public the way a recipe page is.
+     */
+    gitStatus() {
+      return call<SyncStatus>("GET", "/api/git/status");
+    },
+    gitLog(options = {}) {
+      return call<GitLogResult>("GET", "/api/git/log", {
+        query: { ...options },
+      });
+    },
+    gitShow(hash, options = {}) {
+      return call<ShowResult>(
+        "GET",
+        `/api/git/show/${encodeURIComponent(hash)}`,
+        { query: { maxChars: options.maxChars } },
+      );
+    },
+    gitFileAt(ref) {
+      return call<FileAtResult>("GET", "/api/git/file", { query: { ...ref } });
+    },
+    gitDiff(options) {
+      return call<DiffResult>("GET", "/api/git/diff", {
+        query: { ...options },
+      });
+    },
+    gitRevert(hash) {
+      return call<GitWriteResult>("POST", "/api/git/revert", {
+        body: { hash },
+      });
+    },
+    gitRestore(ref) {
+      return call<GitWriteResult>("POST", "/api/git/restore", { body: ref });
+    },
+    gitPush(options = {}) {
+      return call<PushResult>("POST", "/api/git/push", { body: options });
     },
 
     /* The server revalidated in the same request; there is nothing to report. */

@@ -16,7 +16,10 @@
  */
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { revalidateContentWrite } from "@discontent/cms/content/genericActions";
+import { revalidateDerivedState } from "@discontent/cms/content/next/revalidateDerived";
+import { revalidatePath } from "next/cache";
 import type { CurationContext } from "./curation/context";
+import { recipeContentTypes } from "./contentTypes";
 import { UnauthenticatedError } from "./curation/errors";
 import { successConfigFor } from "./successConfigs";
 import { authenticateRequest } from "./apiAuth";
@@ -47,6 +50,18 @@ export function curationContextFor(
         event.slug,
         event.previousSlug,
       );
+    },
+    /*
+     * The bulk seat (23d/D20): a git revert or restore moved data files the
+     * engine never saw, so there is no `ContentWriteResult` to be narrow with.
+     * `git.ts` has already rebuilt the indexes by the time this fires; this is
+     * the Next-only half, and it is exactly what `POST /api/revalidate` does —
+     * every rendered page plus every derived tag, because a checkout of an
+     * arbitrary revision cannot say which page is still right.
+     */
+    onBulkChange: () => {
+      revalidatePath("/", "layout");
+      revalidateDerivedState(recipeContentTypes);
     },
   };
 }

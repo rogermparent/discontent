@@ -38,6 +38,16 @@ export function statusFor(code: CurationErrorCode): number {
     case "not_found":
       return 404;
     case "slug_conflict":
+    /*
+     * The three git conflicts (23d/D21). Same reading as a slug conflict: the
+     * request was well-formed and the *server's state* is what refuses it —
+     * the directory is not a repository, a human left uncommitted work in
+     * `/git`, or somebody else's commits are in the way. None of them is
+     * retryable without something changing outside this request.
+     */
+    case "not_a_repo":
+    case "dirty_tree":
+    case "git_conflict":
       return 409;
     case "unknown_recipe":
     /* Same reasoning, other content type: well-formed body, absent target. */
@@ -48,6 +58,12 @@ export function statusFor(code: CurationErrorCode): number {
      * declines to store. Unlike the two above, no `?force=1` gets past it.
      */
     case "group_cycle":
+    /*
+     * And once more for a revision (23d): `{hash: "zzz"}` parses as a string
+     * and names no commit, so the body was well-formed and its *content* was
+     * wrong — the same reading `unknown_recipe` gets.
+     */
+    case "bad_revision":
       return 422;
     case "import_failed":
       return 502;

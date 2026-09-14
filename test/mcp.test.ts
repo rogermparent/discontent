@@ -14,13 +14,17 @@
 // protocol conversation without a process. `mcpStdio.test.ts` is the other
 // half: a real process, proving stdout purity.
 
-import { mkdtemp, rm } from "fs-extra";
+import { mkdtemp, rm, writeFile } from "fs-extra";
 import { tmpdir } from "os";
 import { join } from "path";
+import simpleGit from "simple-git";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
+
+import { recipeContentTypes } from "../websites/recipe-website/editor/controller/contentTypes";
 
 import {
   createLocalBackend,
@@ -506,6 +510,158 @@ describe("the MCP registry over an in-memory transport", () => {
     expect(await callError("reindex", { contentType: "bogus" })).toMatchObject({
       code: "not_found",
     });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 10. Git (23d)                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Its own harness, because the suite above deliberately works in a directory
+ * that is *not* a repository — which is what lets every other tool run without
+ * a committer identity. The git tools need the opposite, so this describe
+ * builds a real repo the way `curationGit.test.ts` does (T49).
+ *
+ * `curationGit.test.ts` covers what the seats *do*; what is worth pinning here
+ * is the wrapper: that a rewind's warnings carry the stale-editor hint, and
+ * that a hash the schema rejects never reaches the layer at all (T28).
+ */
+describe("git", () => {
+  let contentDirectory: string;
+  let previousContentDirectory: string | undefined;
+  let backend: ReturnType<typeof createLocalBackend>;
+  let server: ReturnType<typeof createRecipeServer>;
+  let client: Client;
+
+  beforeEach(async () => {
+    contentDirectory = await mkdtemp(join(tmpdir(), "mcp-git-"));
+    const repo = simpleGit({ baseDir: contentDirectory });
+    await repo.init();
+    await repo.addConfig("user.email", "curator@test.local");
+    await repo.addConfig("user.name", "Test Curator");
+    await repo.addConfig("commit.gpgsign", "false");
+    await writeFile(
+      join(contentDirectory, ".gitignore"),
+      derivedContentPaths(recipeContentTypes),
+    );
+    await repo.add(".");
+    await repo.commit("Initial commit");
+
+    previousContentDirectory = process.env.CONTENT_DIRECTORY;
+    process.env.CONTENT_DIRECTORY = contentDirectory;
+
+    backend = createLocalBackend({ contentDirectory });
+    server = createRecipeServer(backend);
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    client = new Client({ name: "mcp-git-test", version: "0" });
+    await Promise.all([
+      server.connect(serverTransport),
+      client.connect(clientTransport),
+    ]);
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await server.close();
+    await backend.close();
+    if (previousContentDirectory === undefined) {
+      delete process.env.CONTENT_DIRECTORY;
+    } else {
+      process.env.CONTENT_DIRECTORY = previousContentDirectory;
+    }
+    await rm(contentDirectory, { recursive: true, force: true });
+  });
+
+  async function call(
+    name: string,
+    args: Record<string, unknown> = {},
+  ): Promise<{ isError: boolean; data: Record<string, unknown> }> {
+    const result = await client.callTool({ name, arguments: args });
+    return {
+      isError: result.isError === true,
+      data: (result.structuredContent ?? {}) as Record<string, unknown>,
+    };
+  }
+
+  it("reports the repository and a write's own commit", async () => {
+    expect((await call("git_status")).data).toMatchObject({
+      isRepo: true,
+      dirty: false,
+    });
+
+    await call("recipe_create", { recipe: { name: "Naan" } });
+
+    const log = await call("git_log", { type: "recipe", slug: "naan" });
+    expect(log.isError).toBe(false);
+    const commits = log.data.commits as {
+      message: string;
+      files: string[];
+    }[];
+    expect(commits).toHaveLength(1);
+    expect(commits[0]).toMatchObject({
+      message: "Create recipe: naan",
+      files: ["recipes/data/naan/recipe.json"],
+    });
+  });
+
+  it("reverts a group creation, and the hint rides the warnings", async () => {
+    await call("group_create", { group: { name: "Week One" } });
+    const log = await call("git_log", { type: "group" });
+    const hash = (log.data.commits as { hash: string }[])[0].hash;
+
+    const reverted = await call("git_revert", { hash });
+    expect(reverted.isError).toBe(false);
+    expect(reverted.data.commit).toBeTruthy();
+    expect(reverted.data.rebuilt).toHaveLength(4);
+    /* `write()` folds `afterWrite`'s stale-editor hint in, as every write does. */
+    expect(reverted.data.warnings).toEqual([
+      expect.stringContaining(STALE_EDITOR_HINT),
+    ]);
+
+    expect((await call("group_list")).data).toMatchObject({
+      total: 0,
+      groups: [],
+    });
+  });
+
+  it("leaves a hash the schema rejects to the SDK, in the SDK's own shape", async () => {
+    /*
+     * The pattern is on `GitRevertSchema`, so "zzz" never reaches `gitRevert`:
+     * there is no `structuredContent` and no `error.code` here, only the SDK's
+     * text (T28). Pinned verbatim — an agent reading it is the only thing that
+     * tells it what a hash looks like.
+     */
+    const result = await client.callTool({
+      name: "git_revert",
+      arguments: { hash: "zzz" },
+    });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
+    expect((result.content as { text: string }[])[0].text).toBe(
+      "Input validation error: Invalid arguments for tool git_revert: hash: Expected 7 to 40 hexadecimal characters",
+    );
+  });
+
+  it("reports a push with no remote as a curation failure", async () => {
+    const result = await client.callTool({
+      name: "git_push",
+      arguments: {},
+    });
+    expect(result.isError).toBe(true);
+    const error = (
+      result.structuredContent as { error: { code: string; message: string } }
+    ).error;
+    /*
+     * Whatever git says about the missing remote, wrapped in our vocabulary —
+     * `internal`, because "there is no remote called origin" is not one of the
+     * four git codes and inventing a fifth for it is a design call 23d did not
+     * make. What matters to a caller is that it is an `{error: {code,
+     * message}}` object naming the remote, not an unhandled throw.
+     */
+    expect(error.code).toBe("internal");
+    expect(error.message).toContain("origin");
   });
 });
 

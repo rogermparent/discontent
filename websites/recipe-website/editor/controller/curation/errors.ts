@@ -31,6 +31,43 @@ export type CurationErrorCode =
   | "import_failed"
   | "no_git_identity"
   /**
+   * The content directory is not a git repository, so there is no history to
+   * read and nothing a revert could undo (23d/D21).
+   *
+   * A conflict rather than a 404 because the *request* named something real —
+   * this deployment simply is not tracking its content with git, which is a
+   * state of the server and not of the resource. `gitStatus` is the one seat
+   * that does not throw it: "not a repository" is exactly what the `/git` page
+   * renders.
+   */
+  | "not_a_repo"
+  /**
+   * Uncommitted working changes (or a merge/revert/cherry-pick already in
+   * flight), so a revert or a restore would mix the caller's commit with
+   * whatever a human left half-done in the editor (23d/D21).
+   *
+   * Push is deliberately *not* guarded by this: the `/git` page pushes a dirty
+   * tree today and nothing about sending committed history upstream depends on
+   * the working tree (T47).
+   */
+  | "dirty_tree"
+  /**
+   * Git refused to apply the change: a revert whose patch does not apply, or a
+   * push the remote rejected as non-fast-forward (23d/D21).
+   *
+   * One code for both because the answer is the same — somebody else's commits
+   * are in the way, and resolving that is a human's job in `/git`. A revert
+   * that conflicts is rolled back before this is thrown, so the tree the caller
+   * gets back is the one they had.
+   */
+  | "git_conflict"
+  /**
+   * A revision this repository cannot resolve to a single non-merge commit
+   * (23d/D21): a hash that names nothing, or a merge commit, which `git revert`
+   * can only undo with a `-m` choice nobody here is in a position to make.
+   */
+  | "bad_revision"
+  /**
    * Only ever produced over HTTP, and listed here anyway: the HTTP backend
    * rehydrates a server error body into a `CurationError`, so a code this union
    * did not know would be widened away to `internal` and a 401 would print as a
@@ -151,6 +188,48 @@ export class NoGitIdentityError extends CurationError {
         `(and user.name), or export GIT_COMMITTER_EMAIL.`,
     );
     this.name = "NoGitIdentityError";
+  }
+}
+
+/* --- git (23d/D21) ------------------------------------------------------- */
+
+/**
+ * The four git failures share `CurationErrorDetails` with everything else and
+ * add no field to it: the hash, the branch and the remote all belong in the
+ * message, because there is nothing a caller *does* with them programmatically
+ * — a revert that conflicted is not retried with different arguments, it is
+ * resolved by a person in `/git`. That is also what keeps the HTTP backend's
+ * `rehydrate` unchanged (D21).
+ */
+export class NotARepoError extends CurationError {
+  constructor(contentDirectory: string) {
+    super(
+      "not_a_repo",
+      `The content directory at ${contentDirectory} is not a Git repository, so it has no history. ` +
+        `Initialize one from Settings → Git.`,
+    );
+    this.name = "NotARepoError";
+  }
+}
+
+export class DirtyTreeError extends CurationError {
+  constructor(message: string) {
+    super("dirty_tree", message);
+    this.name = "DirtyTreeError";
+  }
+}
+
+export class GitConflictError extends CurationError {
+  constructor(message: string) {
+    super("git_conflict", message);
+    this.name = "GitConflictError";
+  }
+}
+
+export class BadRevisionError extends CurationError {
+  constructor(message: string) {
+    super("bad_revision", message);
+    this.name = "BadRevisionError";
   }
 }
 
