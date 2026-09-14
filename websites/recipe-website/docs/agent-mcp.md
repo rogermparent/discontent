@@ -1147,7 +1147,7 @@ headless smoke.
 | `initialize` frame over `pnpm --silent … mcp`         | exactly one JSON-RPC frame on stdout; stderr `recipes MCP: local <scratch>`; scratch dir untouched                                                                            |
 | `pnpm e2e-dev -- api-write.spec.ts` (dev mode)        | reviewer rerun: `14 passed (51.2s)`, 0 failed, 0 flaky (implementer: `14 passed (52.8s)`)                                                                                     |
 | Headless smoke (`claude -p --mcp-config .mcp.json …`) | `subtype: success`, 4 turns, 7.3 s: `recipe_search {query: "week"}` → 0 rows; `group_list` → `week-of-may-4`, `weeknight-favourites` (scratch copy of `three-recipes-groups`) |
-| CI on the draft PR                                    | pending at close-out; see the PR                                                                                                                                              |
+| CI on the draft PR                                    | green on `832f4d9b`: lint, both typechecks, unit, CMS demo (dev, prod), Portfolio, recipe shards 1–4, merged reports (run 34762488216)                                        |
 
 **Implementer notes (divergences from the design above, and why).**
 
