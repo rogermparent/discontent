@@ -15,14 +15,18 @@
 // rules out the network cases, because `fetch` cannot be stubbed in a child.
 
 import { execa } from "execa";
-import { mkdtemp, rm } from "fs-extra";
+import { mkdtemp, rm, writeFile } from "fs-extra";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
+import simpleGit from "simple-git";
 import { fileURLToPath } from "url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createContent } from "@discontent/cms/content/createContent";
+import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
+
+import { recipeContentTypes } from "../websites/recipe-website/editor/controller/contentTypes";
 
 import { groupContentConfig } from "../websites/recipe-website/common/controller/groupContentConfig";
 import { recipeContentConfig } from "../websites/recipe-website/common/controller/recipeContentConfig";
@@ -46,6 +50,23 @@ let contentDirectory: string;
 
 beforeAll(async () => {
   contentDirectory = await mkdtemp(join(tmpdir(), "cli-json-"));
+  /*
+   * A repository, unlike every other content test's tmpdir (23d). The identity
+   * and the `.gitignore` land before the first `createContent` below, because
+   * that call commits and would otherwise either demand a committer or sweep
+   * the LMDB files into the initial commit (T49).
+   */
+  const repo = simpleGit({ baseDir: contentDirectory });
+  await repo.init();
+  await repo.addConfig("user.email", "curator@test.local");
+  await repo.addConfig("user.name", "Test Curator");
+  await repo.addConfig("commit.gpgsign", "false");
+  await writeFile(
+    join(contentDirectory, ".gitignore"),
+    derivedContentPaths(recipeContentTypes),
+  );
+  await repo.add(".");
+  await repo.commit("Initial commit");
   await createContent<Recipe, RecipeEntryValue, RecipeEntryKey>({
     config: recipeContentConfig,
     slug: "first-recipe",
@@ -158,6 +179,37 @@ describe("the CLI as a process", () => {
           message: expect.stringContaining("week-one"),
           groups: ["week-one", "week-one"],
         },
+      });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "prints one object for git log --json",
+    async () => {
+      /*
+       * 23d, and the only thing that proves the git seats survive the trip
+       * through a real `tsx` process: `simple-git` spawns a child, and the
+       * seeded commits above are what it has to find. `--type recipe --slug`
+       * also exercises the pathspec the content config produces, which is the
+       * part a wrong `uploadsDirectory` would silently widen.
+       */
+      const result = await run([
+        "git",
+        "log",
+        "--type",
+        "recipe",
+        "--slug",
+        "first-recipe",
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.hasMore).toBe(false);
+      expect(parsed.commits).toHaveLength(1);
+      expect(parsed.commits[0]).toMatchObject({
+        message: "Add new recipes: first-recipe",
+        files: ["recipes/data/first-recipe/recipe.json"],
       });
     },
     TIMEOUT,

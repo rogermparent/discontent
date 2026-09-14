@@ -36,6 +36,7 @@ import {
   featureCommand,
   unfeatureCommand,
 } from "./commands/featured";
+import { gitCommands } from "./commands/git";
 import { groupCommands } from "./commands/group";
 import { importCommand } from "./commands/import";
 import { listCommand } from "./commands/list";
@@ -92,6 +93,7 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
 const SUBCOMMAND_TABLES: Record<string, Record<string, CommandDef<unknown>>> = {
   group: groupCommands,
   featured: featuredCommands,
+  git: gitCommands,
 };
 
 /** Own properties only, so `recipes toString x` is not a `Function`. */
@@ -128,6 +130,14 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   unfeature <slug> [--yes]
   featured list [--limit 20] [--offset 0]
   reindex [contentType]
+  git status
+  git log [--type recipe|group|featured] [--slug s] [--limit 30] [--offset 0]
+  git show <hash> [--max-chars 50000]
+  git file <type> <slug> <rev>
+  git diff <from> [<to>] [--path p]
+  git revert <hash> [--yes]
+  git restore <type> <slug> <rev> [--yes]
+  git push [--remote r] [--set-upstream]
 
 Globals: --json  --content-dir <dir>  --author "Name <email>"  --help
 Remote:  --remote <url>  |  --notify [--editor-url <url>]

@@ -46,6 +46,13 @@ import { toErrorObject } from "../controller/curation/errors";
 import type { RecipeRow } from "../controller/curation/recipes";
 import {
   FeaturedInputSchema,
+  GitDiffQuerySchema,
+  GitFileQuerySchema,
+  GitHashSchema,
+  GitLogQuerySchema,
+  GitPushSchema,
+  GitRestoreSchema,
+  GitRevertSchema,
   GroupInputSchema,
   GroupItemInputSchema,
   GroupPatchSchema,
@@ -86,6 +93,14 @@ export const TOOL_NAMES = [
   "feature",
   "unfeature",
   "reindex",
+  "git_status",
+  "git_log",
+  "git_show",
+  "git_file_at",
+  "git_diff",
+  "git_revert",
+  "git_restore",
+  "git_push",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -255,9 +270,11 @@ const INSTRUCTIONS = `Manage and search a recipe website's content.
 
 Recipe rows from recipe_search and recipe_list are compact — {slug, name, date, tags, totalTime, image?} — to keep results small; pass \`fields\` to add description, ingredients, prepTime or cookTime, and use recipe_get for a whole recipe. Slugs are the identity of everything: recipe slugs, group slugs, and a featured entry's own slug (which is not its target's).
 
-Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?}}; the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, group_cycle, import_failed, no_git_identity, unauthenticated, usage and internal. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
+Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?}}; the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, group_cycle, import_failed, no_git_identity, not_a_repo, dirty_tree, git_conflict, bad_revision, unauthenticated, usage and internal. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
 
-Writes commit to the content repository, one commit each. Deletes (recipe_delete, group_delete, unfeature) are not undoable from here.`;
+Writes commit to the content repository, one commit each. Deletes (recipe_delete, group_delete, unfeature) are not undoable from here.
+
+The git tools read and rewind that repository. git_log, git_show, git_file_at and git_diff read history; \`type\` is recipe, group or featured. git_revert and git_restore make a new commit and rebuild every index — they need a clean working tree (dirty_tree otherwise) and neither is undoable from here. git_push sends the branch to its remote and changes nothing locally.`;
 
 /* --- the registry -------------------------------------------------------- */
 
@@ -628,6 +645,134 @@ export function createRecipeServer(
     },
     async ({ contentType }) =>
       write(backend, () => backend.reindex(contentType)),
+  );
+
+  /* --- git --------------------------------------------------------------- */
+
+  server.registerTool(
+    "git_status",
+    {
+      title: "Git status",
+      description:
+        "Whether the content directory is a Git repository, and where it stands: " +
+        "branch, upstream, ahead/behind, uncommitted changes, remotes, and the most " +
+        "recent commits. `isRepo: false` means this deployment does not track its " +
+        "content with Git, and no other git tool will work.",
+      inputSchema: z.strictObject({}),
+      annotations: READ_ONLY,
+    },
+    async () => read(() => backend.gitStatus()),
+  );
+
+  server.registerTool(
+    "git_log",
+    {
+      title: "Git log",
+      description:
+        "Commits that touched the content, newest first, each with the files it " +
+        "changed. Pass `type` (recipe, group or featured) to narrow it to one content " +
+        "type, and `type` with `slug` to see one item's own history — which is the " +
+        "read to make before reverting or restoring anything.",
+      inputSchema: GitLogQuerySchema,
+      annotations: READ_ONLY,
+    },
+    async (args) => read(() => backend.gitLog(args)),
+  );
+
+  server.registerTool(
+    "git_show",
+    {
+      title: "Show a commit",
+      description:
+        "One commit's full diff. Hashes come from git_log; 7 to 40 hex characters. " +
+        "Long diffs are truncated at `maxChars` (50000 by default) and say so.",
+      inputSchema: z.strictObject({
+        hash: GitHashSchema,
+        maxChars: z.number().int().min(1).optional(),
+      }),
+      annotations: READ_ONLY,
+    },
+    async ({ hash, maxChars }) =>
+      read(() =>
+        backend.gitShow(hash, maxChars === undefined ? {} : { maxChars }),
+      ),
+  );
+
+  server.registerTool(
+    "git_file_at",
+    {
+      title: "Read an item at a revision",
+      description:
+        "One recipe's, group's or featured entry's data file as it was at a revision, " +
+        "parsed. The read that answers “what would a restore give me back” — compare " +
+        "it to recipe_get or group_get before committing to git_restore.",
+      inputSchema: GitFileQuerySchema,
+      annotations: READ_ONLY,
+    },
+    async (args) => read(() => backend.gitFileAt(args)),
+  );
+
+  server.registerTool(
+    "git_diff",
+    {
+      title: "Diff two revisions",
+      description:
+        "What changed between two revisions of the content. `to` defaults to HEAD, and " +
+        "`path` narrows the diff to one file or directory inside the content directory.",
+      inputSchema: GitDiffQuerySchema,
+      annotations: READ_ONLY,
+    },
+    async (args) => read(() => backend.gitDiff(args)),
+  );
+
+  server.registerTool(
+    "git_revert",
+    {
+      title: "Revert a commit",
+      description:
+        "Undo one commit by making a new one that reverses it, then rebuild every " +
+        "index. Use it to take back a write that should not have happened — reverting " +
+        "a create removes the item. Refuses a merge commit, a dirty working tree, and " +
+        "a patch that no longer applies (nothing is changed in that case).",
+      inputSchema: GitRevertSchema,
+      annotations: DESTRUCTIVE_WRITE,
+    },
+    async ({ hash }) => write(backend, () => backend.gitRevert(hash)),
+  );
+
+  server.registerTool(
+    "git_restore",
+    {
+      title: "Restore an item to a revision",
+      description:
+        "Make one item's files — its data file and its uploads — match an earlier " +
+        "revision, in a new commit, then rebuild every index. Narrower and more " +
+        "predictable than git_revert: it cannot conflict. Answers `commit: null` when " +
+        "the item already matches that revision.",
+      inputSchema: GitRestoreSchema,
+      annotations: DESTRUCTIVE_WRITE,
+    },
+    async (args) => write(backend, () => backend.gitRestore(args)),
+  );
+
+  server.registerTool(
+    "git_push",
+    {
+      title: "Push the content branch",
+      description:
+        "Send the current branch's commits to its remote. Changes nothing locally. " +
+        "Pass `remote` (and `setUpstream` the first time) when no upstream is " +
+        "configured. A rejection means the remote has commits this branch does not; " +
+        "pulling them is a person's job in the editor's Git page.",
+      inputSchema: GitPushSchema,
+      annotations: WRITES,
+    },
+    /*
+     * Through `read`, not `write`: the seat commits nothing and writes no file,
+     * so `afterWrite`'s stale-editor hint would be describing something that
+     * did not happen (T50).
+     */
+    async (args) => read(() => backend.gitPush(args)),
   );
 
   return server;

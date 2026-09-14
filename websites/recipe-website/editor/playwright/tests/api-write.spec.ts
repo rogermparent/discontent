@@ -758,5 +758,163 @@ test.describe("JSON write API", () => {
       expect(missing.code).toBe(1);
       expect(JSON.parse(missing.stdout).error.code).toBe("not_found");
     });
+
+    test("reads and rewinds the history over --remote", async ({
+      baseURL,
+      initializeContentGit,
+    }) => {
+      /*
+       * The eight git URLs the HTTP backend hand-writes (23d/D23) — the same
+       * failure mode as every other remote seat: a wrong path is a 404, not a
+       * type error. Three of them are enough to prove the wiring, and the third
+       * is the interesting one, because `git revert` over `--remote` is a write
+       * whose *rebuild* happens on the server.
+       *
+       * `initializeContentGit` runs inside the test rather than in a
+       * `beforeEach`, so the other remote cases keep the plain content
+       * directory they were written against — and it still runs after
+       * `createApiToken`, which writes inside the repo it initializes (T48).
+       */
+      await initializeContentGit();
+
+      const status = await cli(["git", "status", "--json"], baseURL!);
+      expect(JSON.parse(status.stdout).isRepo).toBe(true);
+
+      const created = await cli(
+        ["group", "create", "--name", "Remote git week", "--json"],
+        baseURL!,
+      );
+      const { slug } = JSON.parse(created.stdout);
+
+      const log = await cli(
+        ["git", "log", "--type", "group", "--slug", slug, "--json"],
+        baseURL!,
+      );
+      const { commits } = JSON.parse(log.stdout);
+      expect(commits).toHaveLength(1);
+      expect(commits[0].files).toEqual([`groups/data/${slug}/group.json`]);
+
+      const reverted = await cli(
+        ["git", "revert", commits[0].hash, "--yes", "--json"],
+        baseURL!,
+      );
+      expect(JSON.parse(reverted.stdout).rebuilt).toHaveLength(4);
+
+      const after = await cli(["group", "list", "--json"], baseURL!);
+      expect(JSON.parse(after.stdout).total).toBe(0);
+    });
+  });
+
+  /**
+   * The git routes (23d).
+   *
+   * The only tests these eight routes have. `curationGit.test.ts` covers the
+   * layer under them; what a route can get wrong on its own is the URL, the
+   * `runtime = "nodejs"` declaration (T23 — without it Next tries the edge
+   * runtime and `simple-git` cannot spawn), the auth gate, and whether
+   * `onBulkChange` actually reaches the render cache. All four are only
+   * observable against a running server.
+   *
+   * **`initializeContentGit` last.** `createApiToken` writes into
+   * `test-content/users/`, which is *inside* the repository this initializes —
+   * so minting the token afterwards would leave the tree dirty and every
+   * revert and restore below would fail its `dirty_tree` preflight (T48).
+   */
+  test.describe("git", () => {
+    test.beforeEach(async ({ initializeContentGit }) => {
+      await initializeContentGit();
+    });
+
+    test("refuses the history without a token", async ({ request }) => {
+      const anonymous = await request.get("/api/git/status");
+      expect(anonymous.status()).toBe(401);
+      expect((await anonymous.json()).error.code).toBe("unauthenticated");
+
+      const status = await request.get("/api/git/status", { headers: auth() });
+      expect(status.status()).toBe(200);
+      expect(await status.json()).toMatchObject({
+        isRepo: true,
+        dirty: false,
+      });
+    });
+
+    test("reverts a group creation and restores it, with no cache reload", async ({
+      request,
+      page,
+    }) => {
+      const created = await request.post("/api/groups", {
+        headers: auth(),
+        data: { name: "Git Week", kind: "meal-plan" },
+      });
+      expect(created.status()).toBe(201);
+      const { slug } = await created.json();
+      expect(slug).toBe("git-week");
+
+      /* One commit, and the log knows which file it touched. */
+      const log = await request.get(`/api/git/log?type=group&slug=${slug}`, {
+        headers: auth(),
+      });
+      expect(log.status()).toBe(200);
+      const { commits } = await log.json();
+      expect(commits).toHaveLength(1);
+      expect(commits[0].files).toEqual([`groups/data/${slug}/group.json`]);
+      const rev = commits[0].hash;
+
+      await page.goto(`/group/${slug}`);
+      await expect(
+        page.getByRole("heading", { name: "Git Week" }),
+      ).toBeVisible();
+
+      const reverted = await request.post("/api/git/revert", {
+        headers: auth(),
+        data: { hash: rev },
+      });
+      expect(reverted.status()).toBe(200);
+      const revertBody = await reverted.json();
+      expect(revertBody.commit).toBeTruthy();
+      expect(revertBody.rebuilt).toHaveLength(4);
+
+      /*
+       * No `resetData`, no Maintenance → Reload: `ctx.onBulkChange` fired in
+       * the process that owns the render cache (D20), which is the whole point
+       * of the seat.
+       */
+      expect((await request.get(`/group/${slug}`)).status()).toBe(404);
+      await page.goto("/groups");
+      await expect(page.getByText("Git Week")).toHaveCount(0);
+
+      const restored = await request.post("/api/git/restore", {
+        headers: auth(),
+        data: { type: "group", slug, rev },
+      });
+      expect(restored.status()).toBe(200);
+      const restoreBody = await restored.json();
+      expect(restoreBody.commit).toBeTruthy();
+      expect(restoreBody.message).toContain(`Restore group ${slug} to `);
+
+      await page.goto(`/group/${slug}`);
+      await expect(
+        page.getByRole("heading", { name: "Git Week" }),
+      ).toBeVisible();
+    });
+
+    test("answers a well-formed hash that names nothing with 422", async ({
+      request,
+    }) => {
+      const bogus = await request.post("/api/git/revert", {
+        headers: auth(),
+        data: { hash: "0123456789abcdef" },
+      });
+      expect(bogus.status()).toBe(422);
+      expect((await bogus.json()).error.code).toBe("bad_revision");
+
+      /* And a hash that is not one at all never reaches git: 400. */
+      const malformed = await request.post("/api/git/revert", {
+        headers: auth(),
+        data: { hash: "zzz" },
+      });
+      expect(malformed.status()).toBe(400);
+      expect((await malformed.json()).error.code).toBe("validation");
+    });
   });
 });
