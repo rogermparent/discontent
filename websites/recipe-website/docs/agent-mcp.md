@@ -712,6 +712,13 @@ maxCount})` emits `--follow` and appends the options behind the pathspec
   changed, so the stale-editor hint would be wrong there; revert/restore go
   through it (CLI `write: true`, MCP `write(...)`) so the hint fires.
 
+- **T51 `editor/.gitignore` swallows every fixture's `groups/`** except the
+  ones carved back out by name (`three-recipes-groups`, and since `8a6618ea`
+  `nested-groups`). A new fixture with groups needs its own negation line or
+  it ships without them: 23c's `nested-groups` passed every local gate from
+  ignored files and would have failed `groups.spec.ts` on a fresh checkout.
+  `git ls-tree -r <commit> -- <fixture>` is the check.
+
 ## Stacked-PR roadmap
 
 Each branch is off the previous. Rebase children after a parent merges.
@@ -721,14 +728,16 @@ Each branch is off the previous. Rebase children after a parent merges.
 | 23a | `agent/23a-curation-seats` ← `main` | ✅ done  | This doc; featured seat (D5) + group update seat (D4) in the curation layer, API routes, CLI commands, backend interface (local + http), vitest + Playwright; strike two backlog rows                                            |
 | 23b | `agent/23b-mcp-stdio` ← `main`      | ✅ done  | `@modelcontextprotocol/server` + `/client` deps; `editor/mcp/{registry,server}.ts`; every D2 tool that exists by then; compact outputs (D3); `.mcp.json` (D10); vitest via `InMemoryTransport`; smoke from Claude Code           |
 | 23c | `agent/23c-nested-groups` ← 23b     | ✅ done  | D6/D15–D18: `{group}` items, `group_cycle`, `groupsByDate` v3 + `by-group` aggregate, group cards + Appears-in on group pages, transitive `group:` search, CLI `--group-item`/`--group`, MCP `subgroup`, `nested-groups` fixture |
-| 23d | `agent/23d-git-seats` ← 23c         | 🟡 next  | D7: `curation/git.ts`, `/api/git/*`, CLI `git …`, MCP git tools; tests on a temp repo; `/git` page keeps its behaviour                                                                                                           |
-| 23e | `agent/23e-mcp-http` ← 23d          | ⏸️ later | D8: `/api/mcp` route; client-transport test against `next dev` (api-write precedent) + handler-level vitest                                                                                                                      |
+| 23d | `agent/23d-git-seats` ← 23c         | ✅ done  | D7: `curation/git.ts`, `/api/git/*`, CLI `git …`, MCP git tools; tests on a temp repo; `/git` page keeps its behaviour                                                                                                           |
+| 23e | `agent/23e-mcp-http` ← 23d          | 🟡 next  | D8: `/api/mcp` route; client-transport test against `next dev` (api-write precedent) + handler-level vitest                                                                                                                      |
 | 23f | `agent/23f-curator-skill-v2` ← 23e  | ⏸️ later | D9: skill rewrite, examples, acceptance test of the user story, docs close-out, backlog update, memory                                                                                                                           |
 
-**Current PR:** 23d — `agent/23d-git-seats` off `agent/23c-nested-groups`
-at `d57e598d` (the stack is #138 → #139 → 23d; rebase 23d onto `main` as
-each parent merges, T20). The 23d section below is the handoff; D7 is
-amended by D19–D23.
+**Next PR:** 23e — `agent/23e-mcp-http` off `agent/23d-git-seats` (the
+stack is #138 → #139 → #140; rebase each child onto `main` as its parent
+merges, T20). Start from D8 and the 23e seed section below in a fresh
+plan-mode session; validate `@modelcontextprotocol/server`'s
+`createMcpHandler` signature, `authenticateRequest` and the api-write
+Playwright precedent against the code before designing.
 
 ## Phase detail
 
@@ -1772,13 +1781,19 @@ plus the headless smoke.
 - **Fixture regen churn** (T41) reverted by hand; **`lint-staged --diff`
   reverts an interleaved `prettier --write`** (T42).
 
+**Post-close-out fix (2026-09-14).** `8a6618ea` on `agent/23c-nested-groups`
+tracks `nested-groups/groups/` (data, index, pagination, aggregates) and adds
+its `.gitignore` negation — the fixture had been committed without its
+groups (T51); found by 23d's `api-write.spec.ts` run. Cherry-picked onto 23d
+as `87c96e17`.
+
 **Verification (epic line for 23c):** met — `/group/spring-menus` renders
 the meal-plan card and its own recipe; the API, the CLI and `group_add_item`
 all return `group_cycle` for a cycle; `group:spring-menus` search returns
 First, Second and Third Recipe; index versions bumped and `specVersions`
 snapshots updated.
 
-### PR 23d — Git seats `agent/23d-git-seats` 🟡 in progress (← 23c)
+### PR 23d — Git seats `agent/23d-git-seats` ✅ done (← 23c)
 
 Branch `agent/23d-git-seats` off `agent/23c-nested-groups` at `d57e598d`
 (the stack is #138 → #139 → 23d; the merge/retarget/rebase of each parent
@@ -2057,7 +2072,103 @@ to an earlier revision produces a new commit and the page shows the old
 content; `git_revert` of a group creation removes the group (page 404,
 `/groups` empty) without a manual reindex; `git.spec.ts` passes unchanged.
 
-### PR 23e — MCP over HTTP `agent/23e-mcp-http` ⏸️ later (← 23d)
+#### Decisions and close-out (2026-09-14)
+
+Commits on `agent/23d-git-seats`: `d9655d4c` (this design), `886c601b`
+(implementation, 28 files, +3048 −216), `87c96e17` (cherry-pick of the 23c
+fixture fix `8a6618ea`, see T51), `89448dbc` (review fixes), the close-out.
+Draft PR #140 against `agent/23c-nested-groups`; retarget to `main` after
+#139 merges (T20).
+
+- [x] D19: `controller/curation/git.ts` — page DTOs moved, `types.ts` is
+      re-exports (+ page-only `CommitLogPage`); `GIT_TYPES`/`GIT_TYPE_NAMES`;
+      `assertHash`/`assertArgument`/`assertSlug`; `pathspecsFor` through the
+      engine's `getUploadsBaseDirectory`; `requireRepo`/`requireCleanTree`;
+      five reads, three writes; `mergeInProgress`/`labelForPath`/`toSummary`/
+      `EMPTY_STATUS` exported for `sync.ts`.
+- [x] D20: `CurationContext.onBulkChange`; `curationContextFor` supplies
+      `revalidatePath("/", "layout")` + `revalidateDerivedState`.
+- [x] D21: `not_a_repo`/`dirty_tree`/`git_conflict` → 409, `bad_revision` →
+      422; four classes; `rehydrate` and `codeForStatus` untouched.
+- [x] D22: `sync.ts` 507 → 391 lines, delegates the four; `labelForPath`'s
+      upload branch reads `uploads/(recipe|group)/<slug>/…`; `git.spec.ts`
+      unchanged and green.
+- [x] D23: eight seam methods (local `guard()` on revert/restore), eight
+      routes under `src/app/api/git/` (all `runtime = "nodejs"`,
+      `requireCurationContext`), CLI `git` sub-table (`confirm(action, yes)`
+      generalised from `confirmDeletion`, prompts byte-identical), eight MCP
+      tools (`git_push` via `read`), `TOOL_NAMES` +8, instructions.
+- [x] Tests: `test/curationGit.test.ts` (28 cases, the first vitest suite on
+      a real repo, T49), `curationHttp` table, `mcp.test.ts` `describe("git")`
+      ×4, `cliJson` repo + `git log --json`, Playwright `api-write.spec.ts`
+      `describe("git")` ×3 + one `--remote` history case.
+- [x] T28 pinned: `git_revert {hash: "zzz"}` answers in the SDK shape, no
+      `structuredContent`, text "Input validation error: Invalid arguments
+      for tool git_revert: hash: Expected 7 to 40 hexadecimal characters".
+
+**Review (Fable).** Read the full diff. Three fixes in `89448dbc`: `gitPush`
+passed `remote` to `push -u <remote> <branch>` unchecked (a remote spelled
+`--force` would have been an option, T45) and ignored an explicit `remote`
+when an upstream was tracked, silently pushing elsewhere and reporting the
+caller's name — now `assertArgument` and a `push -u` whenever the remote
+differs from the tracked one; `gitRestore` left a half-restored tree if
+`checkout` failed after `rm` — now `reset --hard HEAD` and `bad_revision`;
+`gitLog` normalised `limit` for argv but sliced with the raw value. The
+revert path's one-shot `revert --no-edit` with `GIT_AUTHOR_*` over
+`process.env` is right (simple-git's `.env()` replaces the child
+environment). Reviewer reran every gate (below) plus the headless smoke.
+
+**Gate results (verbatim, reviewer rerun in the worktree):**
+
+| Gate                                                   | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm --filter recipe-editor typecheck`                | clean                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `pnpm --filter recipe-website exec tsc --noEmit`       | clean                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `pnpm exec vitest run`                                 | `Test Files 28 passed (28)` · `Tests 522 passed (522)` (488 at base, +34: 28 `curationGit`, 4 `mcp`, 1 `curationHttp`, 1 `cliJson`)                                                                                                                                                                                                                                                                                                                            |
+| `pnpm exec lint-staged --diff agent/23c-nested-groups` | clean (prettier + eslint, 24 files)                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| stdout grep                                            | unchanged from 23b: `cli/output.ts` ×3, the two `--help` writes, a comment in `mcp/server.ts`, the script-only `log` default                                                                                                                                                                                                                                                                                                                                   |
+| `pnpm e2e-dev -- git.spec.ts api-write.spec.ts` (dev)  | reviewer rerun after the fixture fix and the review fixes: `45 passed (2.8m)`, 0 failed, 0 flaky (implementer: `44 passed · 1 failed` — the 23c cycle case, T51; `git.spec.ts` alone `26 passed (1.8m)`)                                                                                                                                                                                                                                                       |
+| Headless smoke (`claude -p --mcp-config .mcp.json …`)  | `subtype: success`, 12 turns, 66.7 s: `group_create` Scratch with first-recipe → `git_log {type: "group", slug: "scratch"}` (one commit, `Create group: scratch`, files = the group JSON) → `git_revert` (new commit `Revert "Create group: scratch"`, rebuilt recipes/featured/pages/groups) → `group_get` `not_found`, `group_list` shows only the two fixture groups; scratch repo: three commits, clean tree; both writes carried the stale-editor warning |
+| CI on the draft PR                                     | pending at close-out; recorded in the follow-up commit (only lint/typecheck/unit run while the base is not `main`)                                                                                                                                                                                                                                                                                                                                             |
+
+**Implementer notes (divergences from the design above, and why).**
+
+- **`GitHashSchema` carries the hex regex** (D21 said bare strings). The
+  Tests list wants `git_revert {hash: "zzz"}` in the SDK shape, which only
+  happens when the tool schema rejects it; `git.ts` re-checks the pattern for
+  direct callers. So `POST /api/git/revert {hash: "zzz"}` is 400
+  `validation` and a well-formed hash naming nothing is 422 `bad_revision`
+  (both pinned in Playwright).
+- **Reads preflight `requireRepo` too** (D19 named it for writes): without it
+  `gitLog`/`gitShow`/`gitFileAt`/`gitDiff` leak a raw git error as `internal`
+  on a non-repo. `gitStatus` still never throws.
+- **`git.env({...process.env, ...authorEnv})`**, not the bare pair:
+  simple-git's `.env(object)` replaces the child environment.
+- **`CommitLogPage` stays in the page's `types.ts`**; `getCommitLogPage` maps
+  entries down to `CommitSummary` so the RSC payload is unchanged.
+- **`labelForPath` also labels `groups/data/<slug>/group.json`** as
+  `Group: <slug>`.
+- **`gitLog` refuses `slug` without `type`** (`validation`) rather than
+  guessing across three directories.
+- **`git restore` / `git_restore` still fire the stale-editor hint on the
+  `{commit: null}` no-op** — `write: true` and MCP `write()` are static per
+  command. Cosmetic.
+- **`gitPush` with no remote configured answers `internal`** with git's own
+  `'origin' does not appear to be a git repository`; D19's contract names only
+  the rejection and no-branch cases. Deferred (a fifth code, or `not_found`).
+- **Playwright's `initializeContentGit` sets no identity**, so the API writes
+  in the git describes commit with the ambient config, as `git.spec.ts:282`
+  already does.
+- **One extra Playwright case** (`reads and rewinds the history over
+--remote`) is the only coverage `createHttpBackend`'s eight git calls get.
+
+**Verification (epic line for 23d):** met — `git_log {type: "recipe", slug}`
+lists that recipe's commits with `files`; `git_restore` to the create
+revision makes a `Restore recipe <slug> to <short>` commit and the page shows
+the old content; `git_revert` of a group creation removes the group (page
+404, `/groups` empty) with no manual reindex; `git.spec.ts` passes unchanged.
+
+### PR 23e — MCP over HTTP `agent/23e-mcp-http` 🟡 next (← 23d)
 
 Seed: D8 — `app/api/mcp/route.ts` with `createMcpHandler`, `runtime =
 "nodejs"` (T23), `authenticateRequest` gate, per-request context; a
