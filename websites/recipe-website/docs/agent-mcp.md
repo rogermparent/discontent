@@ -798,23 +798,33 @@ maxCount})` emits `--follow` and appends the options behind the pathspec
   `GIT_COMMITTER_EMAIL`) and a real repo (`assertCommitIdentity` returns
   early on a non-repo); "no identity commits fine" is not a state git
   allows, so the in-process case asserts only that the guard did not fire.
+- **T62 Playwright's `request.post` re-encodes a malformed string body.**
+  With a JSON content type, `data: "{"` goes through `isJsonParsable(data) ?
+data : JSON.stringify(data)` (`playwright-core/lib/client/fetch.js`), so the
+  server receives the JSON _string_ `"{"` — valid JSON, `-32600`, never the
+  `-32700` parse error. A deliberately malformed body must be a
+  `Buffer.from("{")`. Found by 23e's first `mcp-http.spec.ts` run.
 
 ## Stacked-PR roadmap
 
 Each branch is off the previous. Rebase children after a parent merges.
 
-| PR  | Branch (← parent)                   | Status   | Scope                                                                                                                                                                                                                            |
-| --- | ----------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 23a | `agent/23a-curation-seats` ← `main` | ✅ done  | This doc; featured seat (D5) + group update seat (D4) in the curation layer, API routes, CLI commands, backend interface (local + http), vitest + Playwright; strike two backlog rows                                            |
-| 23b | `agent/23b-mcp-stdio` ← `main`      | ✅ done  | `@modelcontextprotocol/server` + `/client` deps; `editor/mcp/{registry,server}.ts`; every D2 tool that exists by then; compact outputs (D3); `.mcp.json` (D10); vitest via `InMemoryTransport`; smoke from Claude Code           |
-| 23c | `agent/23c-nested-groups` ← 23b     | ✅ done  | D6/D15–D18: `{group}` items, `group_cycle`, `groupsByDate` v3 + `by-group` aggregate, group cards + Appears-in on group pages, transitive `group:` search, CLI `--group-item`/`--group`, MCP `subgroup`, `nested-groups` fixture |
-| 23d | `agent/23d-git-seats` ← 23c         | ✅ done  | D7: `curation/git.ts`, `/api/git/*`, CLI `git …`, MCP git tools; tests on a temp repo; `/git` page keeps its behaviour                                                                                                           |
-| 23e | `agent/23e-mcp-http` ← 23d          | 🟡 doing | D8/D24–D26: `POST /api/mcp` route on `createMcpHandler`, `inProcess` local backend, `mcp/http.ts`; `test/mcpHttp.test.ts` (client via handler) + `mcp-http.spec.ts` against `next dev`                                           |
-| 23f | `agent/23f-curator-skill-v2` ← 23e  | ⏸️ later | D9: skill rewrite, examples, acceptance test of the user story, docs close-out, backlog update, memory                                                                                                                           |
+| PR  | Branch (← parent)                   | Status  | Scope                                                                                                                                                                                                                            |
+| --- | ----------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 23a | `agent/23a-curation-seats` ← `main` | ✅ done | This doc; featured seat (D5) + group update seat (D4) in the curation layer, API routes, CLI commands, backend interface (local + http), vitest + Playwright; strike two backlog rows                                            |
+| 23b | `agent/23b-mcp-stdio` ← `main`      | ✅ done | `@modelcontextprotocol/server` + `/client` deps; `editor/mcp/{registry,server}.ts`; every D2 tool that exists by then; compact outputs (D3); `.mcp.json` (D10); vitest via `InMemoryTransport`; smoke from Claude Code           |
+| 23c | `agent/23c-nested-groups` ← 23b     | ✅ done | D6/D15–D18: `{group}` items, `group_cycle`, `groupsByDate` v3 + `by-group` aggregate, group cards + Appears-in on group pages, transitive `group:` search, CLI `--group-item`/`--group`, MCP `subgroup`, `nested-groups` fixture |
+| 23d | `agent/23d-git-seats` ← 23c         | ✅ done | D7: `curation/git.ts`, `/api/git/*`, CLI `git …`, MCP git tools; tests on a temp repo; `/git` page keeps its behaviour                                                                                                           |
+| 23e | `agent/23e-mcp-http` ← 23d          | ✅ done | D8/D24–D26: `POST /api/mcp` route on `createMcpHandler`, `inProcess` local backend, `mcp/http.ts`; `test/mcpHttp.test.ts` (client via handler) + `mcp-http.spec.ts` against `next dev`                                           |
+| 23f | `agent/23f-curator-skill-v2` ← 23e  | 🟡 next | D9: skill rewrite, examples, acceptance test of the user story, docs close-out, backlog update, memory                                                                                                                           |
 
-**Current PR:** 23e — `agent/23e-mcp-http` off `agent/23d-git-seats` at
-`469c4e34` (the stack is #138 → #139 → #140 → 23e; rebase each child onto
-`main` as its parent merges, T20). The 23e section below is the handoff.
+**Next PR:** 23f — `agent/23f-curator-skill-v2` off `agent/23e-mcp-http`
+(the stack is #138 → #139 → #140 → #141; rebase each child onto `main` as
+its parent merges, T20). Start from D9 and the 23f seed section below in a
+fresh plan-mode session; verify Claude Code's current `allowed-tools` syntax
+for MCP tool names (`mcp__recipes__*`) and the skill frontmatter it accepts
+against the installed CLI before designing, and decide there whether the
+skill documents the HTTP transport (D24) next to stdio.
 
 ## Phase detail
 
@@ -2245,7 +2255,7 @@ revision makes a `Restore recipe <slug> to <short>` commit and the page shows
 the old content; `git_revert` of a group creation removes the group (page
 404, `/groups` empty) with no manual reindex; `git.spec.ts` passes unchanged.
 
-### PR 23e — MCP over HTTP `agent/23e-mcp-http` 🟡 doing (← 23d)
+### PR 23e — MCP over HTTP `agent/23e-mcp-http` ✅ done (← 23d)
 
 Branch `agent/23e-mcp-http` off `agent/23d-git-seats` at `469c4e34` (the
 stack is #138 → #139 → #140 → 23e; the merge/retarget/rebase of each parent
@@ -2622,7 +2632,91 @@ stdio and performs one write that the page reflects without a reload;
 without a token → 401 `unauthenticated`; `GET /api/mcp` → 405; Claude Code's
 own client completes the smoke against `next dev`.
 
-### PR 23f — Curator skill v2 `agent/23f-curator-skill-v2` ⏸️ later (← 23e)
+#### Decisions and close-out (2026-09-14)
+
+Commits on `agent/23e-mcp-http`: `8a429c96` (this design; also lists this
+doc under `CLAUDE.md`'s durable docs), `83762d1f` (implementation, 5 files,
++913 −14), the close-out. Draft PR #141 against `agent/23d-git-seats`;
+retarget to `main` after #140 merges (T20).
+
+- [x] D8 (amended) / D24: `src/app/api/mcp/route.ts` — `runtime =
+"nodejs"`, `POST` only, `requireCurationContext` → `errorResponse`, else
+      `handleMcpRequest`; the ninth `runtime` declaration.
+- [x] D25: `LocalBackendOptions.inProcess` — `guard` no-op, `afterWrite`
+      spread in only when not in-process (the notify body became a local
+      `const afterWrite`), `close` no-op; `resolve.ts` untouched.
+- [x] D26: `editor/mcp/http.ts` `handleMcpRequest` — per-request
+      `createMcpHandler`, `keepAliveMs: 0`, `onerror` → `console.error`, no
+      `responseMode`, never `close()`d; header comment carries the legacy-leg
+      shape and the not-built JSON-only fallback.
+- [x] Tests: `test/mcpHttp.test.ts` (8 cases: registry + no session, write
+      through `ctx.onWrite` with no `warnings`, cache alive across requests + the seam's absent `afterWrite`/inert `close`, `not_found` shape,
+      legacy wire shape, four refusals, modern JSON leg, identity guard
+      skipped on a scrubbed repo); `playwright/tests/mcp-http.spec.ts` (8
+      cases: 401 anonymous + wrong token, 405/204 for GET/OPTIONS,
+      `SdkHttpError` 401 from `connect()`, 28 tools, `group_create` →
+      `/group/mcp-week` + `/groups` without a reload, `git_status` `isRepo:
+false`, `not_found`, raw `-32700`).
+- [x] `.mcp.json`, `test/mcp.test.ts`, `test/mcpStdio.test.ts`,
+      `api-write.spec.ts`, `git.spec.ts` unchanged.
+
+**Review (Fable).** Read the full diff; no fixes needed. The three
+implementer divergences below are accepted as written: the
+`const afterWrite` restructure is the only way to make the property truly
+absent without touching the 28-method literal; the `Buffer` in the
+Playwright malformed-body case is a Playwright fact, now T62; the
+identity-guard case's positive assertion (the data file exists on disk after
+the in-process write, while the guarded backend never wrote it) is stronger
+than the design's "any code but `no_git_identity`". Reviewer reran every
+gate (below) plus the smoke.
+
+**Gate results (verbatim, reviewer rerun in the worktree):**
+
+| Gate                                                                | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm --filter recipe-editor typecheck`                             | clean (exit 0)                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `pnpm --filter recipe-website exec tsc --noEmit`                    | clean (exit 0)                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `pnpm exec vitest run`                                              | `Test Files 29 passed (29)` · `Tests 530 passed (530)` (522 at base, +8 `mcpHttp`)                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `pnpm exec lint-staged --diff agent/23d-git-seats`                  | clean (prettier + eslint, 7 files), tree clean afterwards                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| stdout grep                                                         | unchanged from 23b/23d: eight hits (`cli/output.ts` ×3, the two `--help` writes, the `mcp/server.ts` comment, the script-only `log` default ×2); a comment in `mcp/http.ts` was reworded so it would not add a ninth                                                                                                                                                                                                                                                                 |
+| `pnpm e2e-dev -- mcp-http.spec.ts api-write.spec.ts` (dev)          | reviewer rerun `27 passed (1.1m)`, 0 failed, 0 flaky (19 api-write + 8 mcp-http; implementer's first run `26 passed · 1 failed` on the malformed-body case → T62, then `27 passed`)                                                                                                                                                                                                                                                                                                  |
+| Raw `tools/call` on the legacy leg, through `next dev`              | `HTTP/1.1 200 OK` · `content-type: text/event-stream` · `cache-control: no-cache, no-transform` · `x-accel-buffering: no` · `Transfer-Encoding: chunked` · no `mcp-session-id`; body exactly `event: message\ndata: {"result":{"content":[{"type":"text","text":"{\"total\":2,…}"}],"structuredContent":{…}},"jsonrpc":"2.0","id":7}\n\n`, stream closed (the vitest capture of the same frame without Next is identical minus `vary`/`Transfer-Encoding`)                           |
+| Smoke: `curl` without a token / `GET`                               | `GET /api/mcp` → 405 empty; anonymous `POST tools/list` → 401 `{"error":{"code":"unauthenticated","message":"Authentication required: …"}}`                                                                                                                                                                                                                                                                                                                                          |
+| Smoke: `claude -p --mcp-config mcp-http.json --strict-mcp-config …` | `is_error: false`, 3 turns, 5.3 s, result "week-of-may-4 / weeknight-favourites" via `group_list` over `{"type": "http", "url": "http://localhost:3019/api/mcp", "headers": {"Authorization": "Bearer rcp_…"}}` against `next dev` on `three-recipes-groups`. Next's log: four `POST /api/mcp 200` from Claude Code's client, no `GET`, no `202`, no 4xx, no `Rejected inbound request`; one of the four responses was held open for the run's whole 5.5 s — recorded, not explained |
+| CI on the draft PR                                                  | pending at close-out; recorded in the follow-up commit (only lint/typecheck/unit run while the base is not `main`)                                                                                                                                                                                                                                                                                                                                                                   |
+
+**Implementer notes (divergences from the design above, and why).**
+
+- **`createLocalBackend` restructure.** The notify body moved from an inline
+  method to a local `const afterWrite`, spread in as `...(inProcess ? {} :
+{ afterWrite })`; the 28-method literal is otherwise untouched.
+- **Playwright case (8) needs `Buffer.from("{")`**, not the string — T62.
+- **Vitest case (8) asserts on disk**, not on a `GIT_COMMITTER_*` pair:
+  "errored with anything but `no_git_identity`" plus "the recipe file
+  exists" is the positive proof the guard did not fire (the guarded backend
+  stops before `createContent` writes). Empirically git refuses the commit.
+  `initTestRepo` could not be reused: the repo must carry no `user.email`,
+  so its initial commit takes its identity from `simpleGit(...).env({…})`
+  scoped to those child processes only.
+- **No SDK behaviour contradicted the Facts.** Legacy-by-default client,
+  SSE-per-POST without `mcp-session-id`, `202` for
+  `notifications/initialized`, the swallowed 405 on the standalone GET,
+  `415/-32000`, `400/-32700`, `400/-32600`, `406` without the dual `Accept`,
+  `SdkHttpError` 401 out of `connect()`, one `application/json` body under
+  `versionNegotiation: {mode: "auto"}`, Next's empty 405 and `204 Allow:
+OPTIONS, POST` — all as written. One extra observation: on the legacy
+  stateless leg a `tools/call` POST is answered without a preceding
+  `initialize`; each POST gets its own server instance, so there is no
+  per-connection initialization state to violate.
+
+**Verification (epic line for 23e):** met — an MCP client over HTTP with a
+bearer token lists the same 28 tools as stdio (`mcp-http.spec.ts` and the
+vitest harness both pin `[...TOOL_NAMES]`) and `group_create` is reflected
+by `/group/mcp-week` and `/groups` without a reload; without a token → 401
+`unauthenticated`; `GET /api/mcp` → 405; Claude Code's own client listed the
+groups through the endpoint against `next dev`.
+
+### PR 23f — Curator skill v2 `agent/23f-curator-skill-v2` 🟡 next (← 23e)
 
 Seed: D9 — rewrite `SKILL.md` around the tools (verify the `allowed-tools`
 syntax for MCP tool names), keep the CLI as fallback, regenerate
