@@ -265,7 +265,13 @@ note?}`; `GroupEntryValue.items` gains `group?`; `groupsByDate.version` →
   (validate at 23c). CLI: `--item` keeps `slug[:label]` for recipes;
   `--group-item slug[:label]` and the JSON `{group}` object form for groups.
   Every group still lists at `/groups`, so "top-level and inside" is
-  automatic.
+  automatic. **Amended at 23c planning (2026-09-13):** `by-recipe` stays
+  v"1" (its fold skips `{group}` items, so its output is byte-identical);
+  Appears-in lists **direct** parents only, on both recipe and group
+  pages; the MCP field is `subgroup` and the CLI flag is `--group <sub>`
+  on `group add|remove` (D15); the DELETE route takes `?kind=group`; the
+  browser form preserves sub-group rows read-only and gets no picker
+  (D18). Detail in D15–D18.
 - **D7 Git seats (23d).** Extract the pure helpers out of `actions/sync.ts`
   into `controller/curation/git.ts` (the server actions call them; the
   `/git` page is unchanged): `status`, `log({type?, slug?, limit, offset})`
@@ -321,6 +327,85 @@ slug, rev})` (`git checkout <rev> -- <paths>` + commit `Restore <type>
   → `process.exit`) on `SIGINT`, `SIGTERM`, and stdin `end`/`close`, with a
   double-shutdown guard. Never `process.exit` before `close()` resolves
   (T5).
+- **D15 Group item refs (23c).** `GroupItemRef = {recipe: string; group?:
+never} | {group: string; recipe?: never}`; `GroupItem = GroupItemRef &
+{label?, note?}`; `GroupEntryItem {recipe?, group?, label?}` replaces the
+  `Pick` on `GroupEntryValue.items`; `buildGroupIndexValue` copies `group`
+  only when set (`label` stays an unconditional key so stored values do not
+  move, T40). Schema: `GroupItemObjectSchema` is exported, strict `{recipe?,
+group?, label?, note?}` with an XOR refine at path `["recipe"]`; the string
+  form of `toGroupItems` stays recipe-only and the filter is `recipe ||
+group`. Naming per surface: JSON, API bodies and `--file` use `{group}`;
+  CLI `group create --group-item slug[:label]` (appended after the
+  `--item`s) and `group add|remove <group> --group <sub>` instead of the
+  recipe positional (both or neither → `UsageError`); MCP `group_add_item
+{group, recipe?, subgroup?, label?, note?, force?}` and `group_remove_item
+{group, recipe?, subgroup?}` with XOR refines; seam `addGroupItem(group,
+ref: GroupItemRef, opts)` / `removeGroupItem(group, ref)`; HTTP `POST
+/api/group/[slug]/items` body = `GroupItemObjectSchema` (the route's
+  private schema deleted), `DELETE /api/group/[slug]/items/[slug]?kind=group`
+  for a sub-group (directory name `[recipe]` kept). `removeItem` drops every
+  row matching the ref, as today.
+- **D16 Derived state (23c).** `groupsByDate` → v"3" with
+  `GroupListEntry.groupCount` (count of `{group}` items; `itemCount` stays
+  the total). The `by-recipe` fold skips `{group}` items, so its output is
+  unchanged and it **stays v"1"** (divergence from D6 as first written). A
+  new `groupsByGroup` "by-group" v"1" (parents of a group, same entry shape,
+  keyed on `item.group`) lives in the same file; both come from one
+  `appearsInAggregate(name, version, keyOf)` factory; `aggregates:
+[groupsByRecipe, groupsByGroup]` (order pinned by `revalidateDerived`,
+  T36). Reader `data/readGroupsByGroup.ts` mirrors `readGroupsByRecipe.ts`.
+  Appears-in is **direct parents only** on both the recipe and the group
+  page (a sub-group's own page shows its parents); the group page gains a
+  `GroupAppearsIn` sharing `AppearsIn`'s markup and testids (`appears-in`,
+  `appears-in-item`) through a sync `AppearsInList`.
+- **D17 Validation (23c).** `checkItems(ctx, slug, items, force)` replaces
+  `checkRecipes`: (1) `item.group === slug` → `GroupCycleError([slug, slug])`
+  before anything else (T30); (2) unknown recipes → `UnknownRecipeError`, or
+  `"Unknown recipe: x"` warnings under force; (3) unknown groups →
+  `UnknownGroupError(groups, {forceHint: true})` — the message gains the
+  `--force` sentence only when asked, so the featured call site is unchanged
+  — or `"Unknown group: y"` warnings under force; (4) a cycle DFS from each
+  distinct existing sub-group over `groups/data` (`readContentFileOrNull` on
+  `groupContentConfig`, follow `items[].group`, visited set,
+  `MAX_GROUP_DEPTH = 32`): reaching `slug` → `GroupCycleError([slug, ...path,
+slug])`, exceeding the cap → the same code ("nesting deeper than 32"). New
+  code **`group_cycle`**, HTTP 422, never forceable, `details.groups`
+  carries the path (no new details field; the T25 chain is the `errors.ts`
+  union + class, `http.ts` `statusFor`, the `curationHttp` table, the
+  registry instructions; `rehydrate` already copies `groups`). `getGroup`
+  resolves `{group}` items to `{...item, name, kind}` or `missing: true`
+  (`ResolvedGroupItem` becomes a `type` intersection with `kind?:
+GroupKind`). Renames and deletes of a sub-group leave parents dangling
+  (T31/T32, the D3 rule); no cycle re-check on rename (it can only remove an
+  edge).
+- **D18 Rendering, search, form (23c).** `resolveGroupItems` → `{item,
+recipe: Recipe | null, group: Group | null}` (`groupItems.read` for group
+  items). `GroupItems`: a `{group}` item renders the `GroupCard` silhouette
+  (`GroupThumbnail` + name + kind badge, link `/group/<slug>`,
+  `data-testid="group-item-group"`, `image`/`items` forwarded so the card
+  skips the group read; `testId` prop defaulting to `featured-group-card`);
+  missing → "Group not found: slug" in the existing `group-item-missing`
+  box. Count text through one helper `groupCountLabel(recipeCount,
+groupCount)` ("n recipes" + ", m groups" when m > 0) used by
+  `GroupDetailPage`, `FeaturedRecipeDetailPage` and the list chip
+  (`groupCount ?? 0`, T34); empty text "This group has nothing in it yet."
+  `GroupThumbnail`'s member walk becomes a depth-first candidate collector
+  (recipe items deduped; a sub-group with its own image is a candidate,
+  otherwise recurse; `GROUPS_DEEP = 4`, visited set seeded with the root
+  slug, still bounded by `MEMBERS_WALKED`); a group candidate renders
+  `GroupImage` and `data-group-image` stays "member".
+  `readGroupSearchCorpus`: two passes (read every group, then expand each
+  group's `recipes` transitively with a visited set and depth cap 32) so
+  `group:<parent>` matches nested recipes with no other search change;
+  `GroupResults.tsx` supplies `groupCount: 0`. Form: `parseGroupFormData`'s
+  `GroupItemSchema` → `{recipe?, group?, label, note}`, both trimmed, rows
+  with neither dropped, output `GroupItem[]`; `Form/Group` `ItemRow =
+GroupItem & {id}`; a `{group}` row renders read-only ("Group N: <slug>",
+  hidden `items[i].group`, Label/Note inputs kept, `aria-label="Remove group
+N"`, `data-testid="group-item-group-row"`); legend and buttons unchanged; no
+  picker (Deferred: wire the existing `GroupSelectInput` as an "Add group"
+  row, at which point the server action needs the cycle check — T38).
 
 ## Traps (T-list; pass to every implementer)
 
@@ -420,6 +505,39 @@ runtime = "nodejs"`** so Next does not attempt the edge runtime.
   client's spawn does not inherit the parent's environment; pass
   `CONTENT_DIRECTORY`, `PATH`, and `HOME` explicitly or pnpm cannot be
   found and the server opens the real content directory.
+- **T30 Self-reference precedes the existence check.** At create the group
+  does not exist yet, so a `{group: <own slug>}` item checked after the
+  unknown-group pass surfaces as a forceable `unknown_group` instead of
+  `group_cycle`. `checkItems` tests `item.group === slug` first.
+- **T31/T32 Sub-group rename/delete dangles.** Parents keep their `{group}`
+  items and the `by-group` aggregate stays keyed on the old slug until a
+  parent is re-saved — the D3 rule for recipes, extended. Pages show "Group
+  not found: slug"; `getGroup` reports `missing: true`; tool descriptions
+  say so. Rewriting parents needs F32 (Deferred).
+- **T33 Regenerate fixtures after the config code lands.**
+  `scripts/build-fixture-indexes.ts` silently skips a fixture that lacks
+  `groups/index/`, so a copied fixture must carry that directory before the
+  script runs; run it once, after steps 1–5, and check `git status` shows
+  only the group fixtures' `groups/*` moving.
+- **T34 `groupCount` may be `undefined`** on a v2-projected page in a dev
+  content directory that has not been reindexed; the chip helper reads
+  `groupCount ?? 0`.
+- **T35 Thumbnail recursion is render-time.** `GROUPS_DEEP × MEMBERS_WALKED`
+  bounds the reads, the visited set stops hand-edited on-disk cycles; the
+  export build on `nested-groups` proves the nested image variants are
+  generated.
+- **T36 `revalidateDerived` tag lists are order-sensitive** with the
+  `aggregates` array; `by-group` goes after `by-recipe` in both.
+- **T37 XOR refines on tool inputs fail in the SDK shape** (T28); the
+  curation-level XOR fails as `validation` with `issues[].path` `["recipe"]`.
+  Tests that want `{error: {code}}` go through the curation layer.
+- **T38 The browser form cannot add sub-groups**, so `actions/groups.ts`
+  skips the cycle check; wiring `GroupSelectInput` later must add it.
+- **T39 `codeForStatus(422)` without a body → `unknown_recipe`.** Every
+  curation route sends a body; record only.
+- **T40 `label` stays an unconditional key in the index value** so existing
+  stored values (and sealed page hashes) do not move; only `group` is
+  conditional.
 
 ## Stacked-PR roadmap
 
@@ -1181,15 +1299,213 @@ undefined`; identical after JSON serialisation and cheaper.
 
 ### PR 23c — Nested groups `agent/23c-nested-groups` 🟡 next (← 23b)
 
-Seed: D6 in full — types, `GroupItemObjectSchema` union, `checkItems`
-(recipes + groups + cycle DFS, `group_cycle` / `unknown_group`), `getGroup`
-resolves sub-groups, `groupsByDate` v3 and `by-recipe` v2 + `by-group` (T1
-snapshots, T2 ignore list, T3 fixture regen), group page cards and "Appears
-in" for groups, `group:` search transitive, CLI `--group-item`, API/tool
-inputs, Playwright `groups.spec.ts` cases. Verification: a group containing
-a group renders both levels; adding a cycle returns `group_cycle`;
-`group:<parent>` search includes nested members; fixtures' index versions
-bumped and `specVersions` snapshots updated.
+Stacked off `agent/23b-mcp-stdio` at `1318fcf5`; rebase onto `main` after
+#138 merges (T20: retarget the child before deleting the parent branch).
+Decided with the user 2026-09-13: the browser group form preserves
+sub-group rows read-only (no picker in 23c); sub-group renames/deletes
+leave parents dangling (the D3 rule; F32 stays deferred).
+
+#### Facts (validated 2026-09-13 on `agent/23b-mcp-stdio`; paths under `websites/recipe-website/`)
+
+- **Types** `common/controller/types.ts:172-178` `GroupItem {recipe: string;
+label?; note?}`; `:223` `GroupEntryValue.items: Pick<GroupItem, "recipe" |
+"label">[]` (`note` excluded, pinned by `test/groups.test.ts:380`).
+  `buildGroupIndexValue.ts:28` maps `({recipe, label}) => ({recipe, label})`.
+- **Derived state**: `groupPaginationConfig.ts:39-70` `groupsByDate` v"2"
+  projects `{slug, date, name, kind, image, itemCount}` only (no items).
+  `groupAggregateConfigs.ts:40-96` `groupsByRecipe` "by-recipe" v"1": fold
+  keyed on `item.recipe` (skips falsy), one entry per item; reader
+  `data/readGroupsByRecipe.ts`; consumer `View/AppearsIn.tsx` (recipe page
+  only). The group page has no Appears-in. `groupContentConfig.ts:61`
+  `aggregates: [groupsByRecipe]`.
+- **Render**: `data/resolveGroupItems.ts:29-38` → `{item, recipe: Recipe |
+null}` via `recipeItems.read`, shared by both apps' `group/[slug]` and
+  `featured-recipe/[slug]` pages. `GroupDetailPage/index.tsx:65-67` "n
+  recipes", `:118` empty text; `GroupItems.tsx` renders `RecipeListItem`
+  (mounts a BookmarkButton — wrong for a group) or `group-item-missing`.
+  `List/FeaturedRecipe/GroupCard.tsx` is the bookmark-free group card.
+  `GroupThumbnail/index.tsx:84-92` member walk skips items without
+  `.recipe`, `MEMBERS_WALKED = 6`, `data-group-image` ∈ {own, member}.
+  `List/Group/index.tsx:95` chip "n recipes".
+  `FeaturedRecipeDetailPage/index.tsx:79-99` duplicates the count/empty text
+  and passes `items={group.items}` to `GroupThumbnail`.
+- **Search**: `data/readGroupSearchCorpus.ts:55-114` builds
+  `GroupSearchEntry.recipes` from `items[].recipe` (data files, deduped);
+  `SearchContext.tsx:382-395` decorates recipes; `queryLanguage.ts:531`
+  evaluates `group:`. `GroupResults.tsx:44` builds a `GroupListEntry` by
+  hand. CLI `search group:` is a pre-existing no-op
+  (`curation/search.ts:60-78` filters rows that never carry `groups`) —
+  out of scope, recorded under Deferred.
+- **Curation** `editor/controller/curation/groups.ts`: `getGroup :115-143`
+  (recipe-only resolve; `ResolvedGroupItem extends GroupItem {name?,
+missing?}` `:58-63`), private `checkRecipes :177-198`, `createGroup :216`,
+  `setItems :425`, `addItem(ctx, slug, recipe, {label, note, force})
+:442-467` (append, duplicates allowed), `removeItem(ctx, slug, recipe)
+:470-491` (drops every matching row, `not_found` if none).
+  `schema.ts:153-163` private strict `GroupItemObjectSchema`,
+  `GroupItemInputSchema = union(string, object)`, `toGroupItems :256-276`
+  filters on `item.recipe`. `errors.ts`: `UnknownGroupError :86-95` has no
+  `--force` sentence and `test/curationHttp.test.ts:105` asserts that for
+  the featured case; `CurationErrorDetails {slug?, issues?, recipes?,
+groups?}`; `http.ts:31-52` `statusFor` exhaustive (T25);
+  `cli/backend/http.ts:93-124` `rehydrate` copies `groups`;
+  `test/curationHttp.test.ts:36-47` exhaustive `Record<CurationErrorCode,
+number>`.
+- **Seam/API/CLI/MCP**: `cli/backend/types.ts:84-93` `addGroupItem(group,
+recipe, opts)`, `removeGroupItem(group, recipe)`, `setGroupItems(group,
+items: unknown, opts)`; http `:263` builds `/api/group/<g>/items/<recipe>`,
+  `call` drops undefined `query` values. `api/group/[slug]/items/route.ts:18-22`
+  has its own strict `{recipe, label?, note?}` schema;
+  `items/[recipe]/route.ts` DELETE keyed on the segment.
+  `cli/commands/group.ts`: `create --item slug[:label] | --file`, `add
+<group> <recipe>`, `remove <group> <recipe>`, `show :262-269`;
+  `cli/index.ts` USAGE `:116-125`. `mcp/registry.ts`: `group_set_items`
+  imports `GroupItemInputSchema` (free upgrade), `group_add_item :483-500`
+  (`recipe: Slug` required), `group_remove_item :503-512`, `group_get`
+  description `:422`, instructions list the codes `:226`.
+- **Form**: `editor/controller/parseGroupFormData.ts:14-18,53,56` requires
+  `recipe` and would drop or crash on a `{group}` row; the form submits the
+  full array and `actions/groups.ts:38-78` spreads it, so an unwidened
+  parser silently deletes sub-groups on re-save. `Form/Group/index.tsx` rows
+  `group-item-row`, legend "Recipes", "Add recipe", aria "Remove recipe N"
+  (matched by `groups.spec.ts:618`). `Form/inputs/GroupSelect/` exists
+  (featured form) — not wired here in 23c.
+- **Tests**: `test/specVersions.test.ts:109,124` inline snapshots (hash +
+  versions) for both group config modules;
+  `test/revalidateDerived.test.ts:112,224` `toEqual` tag lists containing
+  `aggregate:groups:by-recipe` (`:252` `toContain`);
+  `test/exportStaticParams.test.ts:70` mocks `readGroupsByRecipe`;
+  `test/derivedPaths.test.ts` is directory-level (no change for a new
+  aggregate). Playwright `groups.spec.ts` uses
+  `resetData("three-recipes-groups")` (hand-authored fixture, `.mdb`
+  committed; regen `pnpm tsx scripts/build-fixture-indexes.ts` from
+  `editor/`, which **skips a fixture lacking `groups/index/`**). Only that
+  fixture has groups; many specs count its two groups.
+
+#### Design (decided)
+
+D15 (item refs and naming per surface), D16 (derived state: `groupsByDate`
+v3 with `groupCount`, `by-recipe` unchanged at v1, new `by-group` v1 from a
+shared factory, direct-parents Appears-in on both pages), D17 (validation:
+`checkItems`, `group_cycle`, `getGroup` resolving sub-groups, dangling on
+rename/delete) and D18 (rendering, thumbnail collector, transitive search
+corpus, read-only form rows) in the decisions log are the design; the
+amended D6 records the divergences from the seed.
+
+#### Steps (Opus implementer, in order)
+
+1. Types + `buildGroupIndexValue` + `groupPaginationConfig` v3 +
+   `groupAggregateConfigs` factory / `groupsByGroup` + `groupContentConfig`
+   aggregates + `readGroupsByGroup.ts`. Convert the two `interface … extends
+GroupItem` (`curation/groups.ts:58`, `Form/Group/index.tsx:30`) to `type`.
+2. Errors (`group_cycle`, `UnknownGroupError` force hint) + `statusFor` +
+   `curationHttp` table. Schema (`GroupItemObjectSchema` export, XOR,
+   `toGroupItems`).
+3. Curation (`checkItems`, `assertNoCycle`, `getGroup`, `addItem`,
+   `removeItem` by ref; commit messages name `group <slug>`).
+4. Seam + local/http backends + the two API routes + CLI (`--group-item`,
+   `--group`, `show` lines, USAGE) + MCP (`subgroup`, descriptions,
+   instructions).
+5. Render (`resolveGroupItems`, `GroupItems`, `GroupCard` props,
+   `groupCountLabel`, `GroupDetailPage` + `FeaturedRecipeDetailPage` counts
+   and `GroupAppearsIn`, `AppearsInList` split, `GroupThumbnail` collector,
+   list chip, `GroupResults`). Search corpus. Form parser + row.
+6. Fixture `editor/playwright/fixtures/test-content/nested-groups` = copy of
+   `three-recipes-groups` + `groups/data/spring-menus/group.json` (`{name:
+"Spring Menus", date: 1778112000000, kind: "collection", description: "Two
+weeks of menus.", items: [{group: "week-of-may-4", label: "Week 1"},
+{recipe: "third-recipe"}]}`), then **after steps 1–5** regen with the
+   script (T33); `git status` must show only the two group fixtures'
+   `groups/*` moving. `three-recipes-groups` data files untouched.
+7. Tests, then gates; report divergences and the T28-shaped outputs.
+
+#### Tests
+
+Updates forced by the change: `specVersions` snapshots (`-u` for the two
+group blocks only: pagination `["3"]`, aggregates `["1", "1"]`);
+`revalidateDerived.test.ts:112,224` gain `aggregate:groups:by-group` after
+`by-recipe`; `exportStaticParams.test.ts` adds a `vi.mock` for
+`readGroupsByGroup`; `curationHttp` table gains `group_cycle: 422`.
+`groups.spec.ts` existing cases stay green (fixture unchanged).
+
+New vitest: `test/groups.test.ts` (index value stores `{group, label}` and
+no `recipe`; `groupsByGroup` maps child → parents newest-first, `{group}`
+items contribute nothing to `groupsByRecipe`, `rebuildIndex` reproduces it;
+`groupCount` projected). `test/curation.test.ts` `describe("groups")`
+(create with `{group}` → `getGroup` item `{group, label, name, kind}`;
+missing sub-group → `missing`; unknown sub-group → `unknown_group` with
+`--force` in the message, forced → `"Unknown group: ghost"`; self-reference
+at create (explicit slug) and via `addItem` → `group_cycle` `groups: [slug,
+slug]`, force does not bypass; a→b then `addItem(b, {group: "a"})` → path
+`["b", "a", "b"]`; three-level via `setItems`; `removeItem` by `{group}`
+leaves recipe rows and vice versa, `not_found` when absent). `curationHttp`:
+`GroupCycleError` → 422 body `{code, groups}`; featured `unknown_group`
+still has no `--force`. `test/mcp.test.ts`: `group_add_item {subgroup}` →
+`group_get` shows `{group, name, kind}`; `group_remove_item {subgroup}`;
+cycle → `group_cycle`; XOR miss → SDK shape (T28/T37); `group_set_items`
+with a `{group}` object. `cliJson`: optional `group add <g> --group <sub>
+--json`.
+
+Playwright `groups.spec.ts` new `describe("nesting")` on
+`resetData("nested-groups")`: (1) `/group/spring-menus` has 2 `group-item`s,
+the first is `group-item-group` "Week of May 4" with label "Week 1" linking
+to `/group/week-of-may-4`, count "1 recipe, 1 group", click-through shows 3
+items; (2) `/group/week-of-may-4` `appears-in` lists "Spring Menus" + "Week
+1", `/group/weeknight-favourites` has none, `/recipe/first-recipe`
+Appears-in does **not** list Spring Menus; (3) `/groups` shows 3 cards
+newest-first, the Spring Menus chip reads "1 recipe, 1 group" and its
+`group-thumbnail` is `data-group-image="member"` with the `week-of-may-4`
+own-image src; (4) `group:spring-menus` search returns First/Second/Third
+Recipe; (5) edit-form re-save keeps the sub-group row ("Group 1:
+week-of-may-4", "Remove group 1"; change Label → the detail page shows it);
+(6) removing the row through the form drops the item and the child's
+Appears-in. `api-write.spec.ts` on `nested-groups`: POST
+`/api/group/week-of-may-4/items {group: "spring-menus"}` → 422 `group_cycle`
+with the path; `{group: "week-of-may-4"}` → 422; `{group: "ghost"}` → 422
+`unknown_group`, `?force=1` → 200 + warning and the page shows "Group not
+found: ghost"; `DELETE …/items/week-of-may-4?kind=group` → 200; without
+`?kind=group` → 404.
+
+#### Gates (in `.claude/worktrees/agent-23c`)
+
+```
+pnpm --filter recipe-editor typecheck
+pnpm --filter recipe-website exec tsc --noEmit
+pnpm exec vitest run                      # 474 at base + new cases
+pnpm exec lint-staged --diff agent/23b-mcp-stdio
+pnpm --filter recipe-editor e2e-dev -- groups.spec.ts api-write.spec.ts   # detached: setsid nohup … > log 2>&1 &; strip ANSI; T14 cleanup
+CONTENT_DIRECTORY=<scratch copy of nested-groups> pnpm --filter recipe-website build   # export renders nested thumbnails (T35)
+```
+
+Then CI on the draft PR. Smoke (Fable): `CONTENT_DIRECTORY=<scratch
+nested-groups> claude -p --mcp-config .mcp.json --strict-mcp-config
+--allowedTools "mcp__recipes" "add the collection 'Holiday' containing
+spring-menus, then try to add holiday inside week-of-may-4 and report the
+error"` → expects a `group_cycle` refusal.
+
+#### Risks → mitigations
+
+T30–T40 in the trap list: self-reference ordering (T30), dangling parents
+on rename/delete (T31/T32), fixture regen ordering (T33), `groupCount ?? 0`
+(T34), bounded thumbnail recursion proven by the export build (T35),
+order-sensitive revalidate tags (T36), XOR failures in the SDK shape (T37),
+the form's missing cycle check (T38), `codeForStatus(422)` (T39), the
+unconditional `label` key (T40).
+
+#### Not in 23c
+
+Git tools (23d), HTTP transport (23e), skill rewrite incl. `--group-item`
+docs (23f), a group picker in the form, transitive Appears-in, rewriting
+parents on rename (needs F32), CLI `search group:` (pre-existing no-op →
+Deferred), the parked pie-iron task.
+
+#### Verification
+
+A group containing a group renders both levels (`/group/spring-menus` shows
+the meal-plan card and its own recipe); adding a cycle through the API or
+`group_add_item` returns `group_cycle`; `group:spring-menus` search includes
+the nested meal plan's recipes; fixture index versions bumped and
+`specVersions` snapshots updated.
 
 ### PR 23d — Git seats `agent/23d-git-seats` ⏸️ later (← 23c)
 
@@ -1247,7 +1563,15 @@ and the memory, close this doc out.
   (D5). If agents double-feature in practice, add an `already_featured`
   code or return the existing slug.
 - **F32 array references** stay deferred; nested groups (23c) resolve
-  sub-groups at read time exactly as recipes are resolved today.
+  sub-groups at read time exactly as recipes are resolved today, and a
+  sub-group rename or delete leaves its parents' `{group}` items dangling
+  (T31/T32).
+- **CLI `search group:` is a no-op** (pre-existing, found at 23c planning):
+  `curation/search.ts` filters rows that never carry `groups`, so the term
+  matches nothing from the CLI/MCP while the browser search honours it.
+- **Group picker in the browser form**: 23c keeps sub-group rows read-only;
+  wiring `GroupSelectInput` as an "Add group" row also needs the cycle check
+  in `actions/groups.ts` (T38).
 - Everything still open in `agent-curation.md` → Deferred and
   `docs/backlog.md` that this epic does not name.
 
