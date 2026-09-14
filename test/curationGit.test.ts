@@ -590,6 +590,10 @@ describe("input validation", () => {
     await expect(
       gitRestore(ctx, { type: "recipe", slug: "naan", rev: "-1" }),
     ).rejects.toMatchObject({ code: "validation" });
+    /* `push -u <remote> <branch>`: a remote spelled `--force` would be an option. */
+    await expect(
+      gitPush(ctx, { remote: "--force", setUpstream: true }),
+    ).rejects.toMatchObject({ code: "validation" });
   });
 
   it("refuses a slug that is not one path segment", async () => {

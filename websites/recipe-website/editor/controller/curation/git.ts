@@ -527,8 +527,9 @@ export async function gitLog(
     ]);
   }
 
+  const size = Math.max(1, Math.trunc(limit));
   const args = [
-    `--max-count=${Math.max(1, Math.trunc(limit)) + 1}`,
+    `--max-count=${size + 1}`,
     `--skip=${Math.max(0, Math.trunc(offset))}`,
     "--name-only",
   ];
@@ -542,9 +543,9 @@ export async function gitLog(
     return { commits: [], hasMore: false };
   }
 
-  const hasMore = all.length > limit;
+  const hasMore = all.length > size;
   return {
-    commits: all.slice(0, limit).map((entry) => ({
+    commits: all.slice(0, size).map((entry) => ({
       ...toSummary(entry),
       files: (entry.diff?.files ?? []).map((file) => file.file),
     })),
@@ -811,8 +812,16 @@ export async function gitRestore(
     );
   }
 
-  await git.raw(["rm", "-r", "--ignore-unmatch", "-q", "--", ...pathspecs]);
-  await git.raw(["checkout", safeRev, "--", ...listed]);
+  try {
+    await git.raw(["rm", "-r", "--ignore-unmatch", "-q", "--", ...pathspecs]);
+    await git.raw(["checkout", safeRev, "--", ...listed]);
+  } catch (error) {
+    /* Half a restore is worse than none; the tree was clean, so this is safe. */
+    await git.raw(["reset", "--hard", "HEAD"]);
+    throw new BadRevisionError(
+      `Cannot restore ${type} ${safeSlug} from ${safeRev}, so nothing was changed: ${messageOf(error).split("\n")[0].trim()}`,
+    );
+  }
 
   const staged = String(
     await git.raw(["diff", "--cached", "--name-only"]),
@@ -856,18 +865,30 @@ export async function gitPush(
   ctx: CurationContext,
   { remote, setUpstream }: GitPushOptions = {},
 ): Promise<PushResult> {
+  const safeRemote =
+    remote === undefined ? undefined : assertArgument(remote, "remote");
   const git = await requireRepo(ctx);
   const status = await git.status();
+  const trackingRemote = status.tracking?.split("/")[0];
 
   try {
-    if (status.tracking && !setUpstream) {
+    /*
+     * A bare `push` only when it would go where the caller asked: an explicit
+     * `remote` that is not the tracked one is a `push -u` there, not a silent
+     * push somewhere else with the wrong name in the answer.
+     */
+    if (
+      status.tracking &&
+      !setUpstream &&
+      (safeRemote === undefined || safeRemote === trackingRemote)
+    ) {
       await git.raw(["push"]);
       return {
-        remote: remote ?? status.tracking.split("/")[0],
+        remote: trackingRemote ?? status.tracking,
         branch: status.current ?? status.tracking,
       };
     }
-    const targetRemote = remote ?? "origin";
+    const targetRemote = safeRemote ?? "origin";
     const targetBranch = status.current;
     if (!targetBranch) {
       throw new BadRevisionError(
