@@ -13,7 +13,9 @@ import type { Group } from "../../controller/types";
 import type { ResolvedGroupItem } from "../../controller/data/resolveGroupItems";
 import { groupKindLabel } from "../../util/groupKindLabel";
 import { GroupImage } from "../GroupImage";
+import { groupCountLabel } from "../../util/groupCountLabel";
 import { groupSearchHref } from "../SearchForm/queryLanguage";
+import { GroupAppearsIn } from "./GroupAppearsIn";
 import { GroupItems } from "./GroupItems";
 
 /*
@@ -63,7 +65,10 @@ export default function GroupDetailPage({
             {groupKindLabel(kind)}
           </Badge>
           <span className="font-mono text-xs tabular-nums text-muted-foreground">
-            {items.length} {items.length === 1 ? "recipe" : "recipes"}
+            {groupCountLabel(
+              items.filter(({ item }) => !item.group).length,
+              items.filter(({ item }) => Boolean(item.group)).length,
+            )}
           </span>
           {/*
             The narrowing move, sitting where the group is (22f). A group page
@@ -115,9 +120,15 @@ export default function GroupDetailPage({
           <GroupItems items={items} />
         ) : (
           <p className="my-4 text-muted-foreground" data-testid="group-empty">
-            This group has no recipes in it yet.
+            This group has nothing in it yet.
           </p>
         )}
+        {/*
+          A group's own "Appears in" (23c): the parents that list it, rendered
+          below its members for the same reason the recipe page puts the block
+          under the recipe — it is context, not content.
+        */}
+        <GroupAppearsIn slug={slug} />
       </PageSection>
       <PageActions>
         {actions}

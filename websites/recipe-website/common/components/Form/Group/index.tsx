@@ -27,9 +27,9 @@ import type { Group, GroupItem } from "recipe-website-common/controller/types";
  * away their fetched recipe names. It cannot be the recipe slug either: a meal
  * plan may list the same recipe twice, and a fresh row has no slug at all.
  */
-interface ItemRow extends GroupItem {
+type ItemRow = GroupItem & {
   id: number;
-}
+};
 
 const KIND_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "meal-plan", label: "Meal plan" },
@@ -144,23 +144,50 @@ export default function GroupFields({
         {rows.map((row, index) => (
           <div
             key={row.id}
-            data-testid="group-item-row"
+            data-testid={row.group ? "group-item-group-row" : "group-item-row"}
             className="rounded-lg border border-border p-2"
           >
             <div className="flex flex-row flex-nowrap items-start justify-between gap-2">
               <div className="grow">
-                <RecipeSelectInput
-                  label={`Recipe ${index + 1}`}
-                  name={`items[${index}].recipe`}
-                  id={`group-form-item-${row.id}-recipe`}
-                  defaultValue={row.recipe || undefined}
-                />
+                {row.group ? (
+                  /*
+                   * A sub-group row is carried, not edited (23c/D18). The form
+                   * has no group picker — adding one is deferred, and would
+                   * make this component's server action need the cycle check
+                   * (T38) — but the parser reads what the form submits, so a
+                   * row the page dropped would be a sub-group silently deleted
+                   * by an edit that only meant to fix a typo. The hidden input
+                   * is what keeps it.
+                   */
+                  <>
+                    <input
+                      type="hidden"
+                      name={`items[${index}].group`}
+                      value={row.group}
+                    />
+                    <p className="py-2 text-sm">
+                      <span className="font-semibold">{`Group ${index + 1}: `}</span>
+                      <span className="font-mono">{row.group}</span>
+                    </p>
+                  </>
+                ) : (
+                  <RecipeSelectInput
+                    label={`Recipe ${index + 1}`}
+                    name={`items[${index}].recipe`}
+                    id={`group-form-item-${row.id}-recipe`}
+                    defaultValue={row.recipe || undefined}
+                  />
+                )}
               </div>
               <Button
                 type="button"
                 size="sm"
                 variant="ghost"
-                aria-label={`Remove recipe ${index + 1}`}
+                aria-label={
+                  row.group
+                    ? `Remove group ${index + 1}`
+                    : `Remove recipe ${index + 1}`
+                }
                 onClick={() => removeRow(row.id)}
               >
                 <X />

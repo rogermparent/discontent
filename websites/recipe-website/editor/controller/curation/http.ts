@@ -42,6 +42,12 @@ export function statusFor(code: CurationErrorCode): number {
     case "unknown_recipe":
     /* Same reasoning, other content type: well-formed body, absent target. */
     case "unknown_group":
+    /*
+     * And again for a shape rather than an absence (23c): the body parsed, the
+     * slugs all exist, and the arrangement they ask for is one this server
+     * declines to store. Unlike the two above, no `?force=1` gets past it.
+     */
+    case "group_cycle":
       return 422;
     case "import_failed":
       return 502;

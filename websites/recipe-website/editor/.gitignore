@@ -63,6 +63,7 @@ next-env.d.ts
 # itself, which is why both lines name `groups/` and not `groups/**`.
 /playwright/fixtures/test-content/*/groups/
 !/playwright/fixtures/test-content/three-recipes-groups/groups/
+!/playwright/fixtures/test-content/nested-groups/groups/
 # `three-recipes-groups` gains a `pages` artifact, because 22b's export-build
 # check points `CONTENT_DIRECTORY` straight at this fixture — so the export
 # opens every environment it reads, right here, rather than in a copy. Named per

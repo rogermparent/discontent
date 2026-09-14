@@ -1,0 +1,15 @@
+{
+  "name": "Spring Menus",
+  "date": 1778112000000,
+  "kind": "collection",
+  "description": "Two weeks of menus.",
+  "items": [
+    {
+      "group": "week-of-may-4",
+      "label": "Week 1"
+    },
+    {
+      "recipe": "third-recipe"
+    }
+  ]
+}

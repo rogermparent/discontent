@@ -1,6 +1,7 @@
 import { ZodSafeParseResult, z } from "zod";
 import parseFormData from "@discontent/cms/forms/parseFormData";
 import dateEpochSchema from "@discontent/cms/forms/schema/dateEpoch";
+import type { GroupItem } from "recipe-website-common/controller/types";
 
 /** Blank text is absent text — the form always submits the input, empty or not. */
 const optionalText = z
@@ -11,8 +12,20 @@ const optionalText = z
     return trimmed ? trimmed : undefined;
   });
 
+/**
+ * One row of the items fieldset: a recipe the picker chose, or a sub-group the
+ * form is carrying through read-only (23c/D18).
+ *
+ * Both refs are optional and neither is refused when both arrive, unlike the
+ * JSON schema's XOR: this parses a *browser form*, whose group rows are hidden
+ * inputs the page rendered from what was already on disk, and the honest
+ * failure mode for a hand-forged post is a row that writes one key, not a 400
+ * on a form nobody can submit wrong. `{group}` wins because a group row has no
+ * recipe input at all.
+ */
 const GroupItemSchema = z.object({
-  recipe: z.string(),
+  recipe: optionalText,
+  group: optionalText,
   label: optionalText,
   note: optionalText,
 });
@@ -47,15 +60,26 @@ const GroupFormSchema = z.object({
     .array(GroupItemSchema)
     .default([])
     /*
-     * A row whose recipe was never chosen is a row the user added and left
-     * blank, not an error: the picker starts empty and "Add recipe" appends
-     * another empty one. Dropping them here keeps the form forgiving and keeps
-     * `items[].recipe` non-empty for everything downstream — the aggregate fold
-     * would otherwise key a list on "".
+     * A row that names neither is a row the user added and left blank, not an
+     * error: the picker starts empty and "Add recipe" appends another empty
+     * one. Dropping them here keeps the form forgiving and keeps every ref
+     * downstream non-empty — the aggregate folds would otherwise key a list on
+     * "". `optionalText` has already trimmed and emptied both.
      */
-    .transform((items) => items.filter((item) => item.recipe.trim().length > 0))
     .transform((items) =>
-      items.map((item) => ({ ...item, recipe: item.recipe.trim() })),
+      items.filter((item) => Boolean(item.recipe || item.group)),
+    )
+    /*
+     * One key each, group first. The rows are what goes on disk, and a recipe
+     * row carrying `group: undefined` — or worse, both — would be a data file
+     * that no longer matches `GroupItem`'s union.
+     */
+    .transform((items): GroupItem[] =>
+      items.map(({ recipe, group, label, note }) => ({
+        ...(group ? { group } : { recipe: recipe as string }),
+        ...(label ? { label } : {}),
+        ...(note ? { note } : {}),
+      })),
     ),
 });
 

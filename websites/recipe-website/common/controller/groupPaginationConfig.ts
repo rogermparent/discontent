@@ -23,7 +23,18 @@ export interface GroupListEntry {
    * back to the member walk, which does.
    */
   image?: string;
+  /** Every item, sub-groups included — what the card counts against. */
   itemCount: number;
+  /**
+   * How many of those items are sub-groups (23c/D16), so the chip can read
+   * "1 recipe, 1 group" without reading the group's record.
+   *
+   * Optional because a *stored* row may predate it: an index built at v"2" and
+   * not yet rebuilt projects no such key, which is the ordinary state of a dev
+   * content directory between a version bump and its reindex. Every reader
+   * therefore takes it as `groupCount ?? 0` (T34).
+   */
+  groupCount?: number;
 }
 
 /**
@@ -51,8 +62,9 @@ export const groupsByDate: PaginationIndexConfig<
    * changes — nothing else will notice.
    *
    * `"2"` since 22h: `project` carries the group's own `image` (D14).
+   * `"3"` since 23c: it also carries `groupCount` (D16).
    */
-  version: "2",
+  version: "3",
   /*
    * The date lives in the content index *key* (`buildIndexKey` is
    * `[date, slug]`) and `GroupEntryValue` carries none, so both functions read
@@ -66,6 +78,7 @@ export const groupsByDate: PaginationIndexConfig<
     kind: value.kind,
     image: value.image,
     itemCount: value.items.length,
+    groupCount: value.items.filter((item) => Boolean(item.group)).length,
   }),
 };
 

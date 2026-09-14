@@ -65,41 +65,52 @@ export async function getGroupSearchCorpus({
     contentDirectory,
   });
 
-  const entries = await Promise.all(
-    slugs.map(async (slug): Promise<GroupSearchEntry | undefined> => {
-      let group: Group;
+  /*
+   * Two passes since 23c, because membership became transitive (D18).
+   *
+   * The first reads every group; the second expands each one's `recipes` by
+   * following its sub-groups through the records the first pass already holds.
+   * Reading twice would be the obvious alternative and is the wrong one: a
+   * collection of plans would re-read each plan once per parent, and the whole
+   * point of this document is that the walk happens once per build.
+   */
+  const records = new Map<string, Group>();
+  await Promise.all(
+    slugs.map(async (slug) => {
       try {
-        group = await readContentFile<Group, GroupEntryValue, GroupEntryKey>({
-          config: groupContentConfig,
+        records.set(
           slug,
-          contentDirectory,
-        });
+          await readContentFile<Group, GroupEntryValue, GroupEntryKey>({
+            config: groupContentConfig,
+            slug,
+            contentDirectory,
+          }),
+        );
       } catch {
-        return undefined;
+        /* A slug in the keyspace whose data file has gone: skipped, see above. */
       }
+    }),
+  );
 
-      // Deduped, order kept: a meal plan may list the same recipe twice, and a
-      // membership list with a duplicate in it would count that recipe twice
-      // into a filter that only asks whether it is in the group at all.
-      const recipes: string[] = [];
-      const seen = new Set<string>();
-      for (const item of group.items ?? []) {
-        if (!item?.recipe || seen.has(item.recipe)) continue;
-        seen.add(item.recipe);
-        recipes.push(item.recipe);
-      }
-
-      return {
+  /*
+   * Built from `slugs` rather than from the map, so the pre-sort order is the
+   * keyspace's and not whichever read settled first — `sort` is stable, and two
+   * groups sharing a date have to land in a fixed order.
+   */
+  const entries = slugs
+    .map((slug) => [slug, records.get(slug)] as const)
+    .filter((pair): pair is [string, Group] => pair[1] !== undefined)
+    .map(
+      ([slug, group]): GroupSearchEntry => ({
         slug,
         date: group.date,
         name: group.name,
         kind: group.kind,
         description: group.description,
         image: group.image,
-        recipes,
-      };
-    }),
-  );
+        recipes: expandRecipes(slug, records),
+      }),
+    );
 
   /*
    * Newest first, matching every other group surface (`/groups`, the homepage
@@ -108,9 +119,54 @@ export async function getGroupSearchCorpus({
    * it is written as a sort because the corpus is tiny and the order is a
    * promise the rail and the palette both rely on.
    */
-  return entries
-    .filter((entry): entry is GroupSearchEntry => entry !== undefined)
-    .sort((a, b) => b.date - a.date);
+  return entries.sort((a, b) => b.date - a.date);
+}
+
+/**
+ * How deep `group:` follows sub-groups — the curation layer's cap, restated
+ * where the walk is (D17/D18).
+ *
+ * It can only be reached by a content directory written before the write-time
+ * cycle check, or edited by hand. The visited set is what actually terminates
+ * the walk; this bounds the pathological shapes it cannot.
+ */
+const MAX_GROUP_DEPTH = 32;
+
+/**
+ * Every recipe in a group, its sub-groups' recipes included (23c/D18).
+ *
+ * Transitive here where "Appears in" is direct (D16), and the asymmetry is the
+ * point: a reader looking at a parent's page wants the whole plan narrowed to,
+ * and `group:spring-menus` reading only the two rows the collection literally
+ * holds would answer with a third of what the page shows.
+ *
+ * Deduped in walk order: a meal plan may list the same recipe twice, and two
+ * sub-groups may share one. A membership list with a duplicate in it would
+ * count that recipe twice into a filter that only asks whether it is in the
+ * group at all.
+ */
+function expandRecipes(slug: string, records: Map<string, Group>): string[] {
+  const recipes: string[] = [];
+  const seenRecipes = new Set<string>();
+  const visited = new Set<string>([slug]);
+
+  const walk = (current: string, depth: number) => {
+    if (depth > MAX_GROUP_DEPTH) return;
+    for (const item of records.get(current)?.items ?? []) {
+      if (item?.recipe) {
+        if (seenRecipes.has(item.recipe)) continue;
+        seenRecipes.add(item.recipe);
+        recipes.push(item.recipe);
+        continue;
+      }
+      if (!item?.group || visited.has(item.group)) continue;
+      visited.add(item.group);
+      walk(item.group, depth + 1);
+    }
+  };
+
+  walk(slug, 0);
+  return recipes;
 }
 
 export default getGroupSearchCorpus;

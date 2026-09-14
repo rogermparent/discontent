@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { Badge } from "@discontent/component-library/components/ui/badge";
 import type { GroupListEntry } from "../../../controller/groupPaginationConfig";
+import { groupCountLabel } from "../../../util/groupCountLabel";
 import { groupKindLabel } from "../../../util/groupKindLabel";
 import { highlightText } from "../../SearchList";
 import {
@@ -43,6 +44,7 @@ function GroupListItem({
   name,
   kind,
   itemCount,
+  groupCount,
   highlightQuery,
   onSelect,
   thumbnail,
@@ -92,7 +94,13 @@ function GroupListItem({
           className="font-mono text-xs tabular-nums text-muted-foreground"
           data-testid="group-item-count"
         >
-          {itemCount} {itemCount === 1 ? "recipe" : "recipes"}
+          {/*
+            `itemCount` is the total and `groupCount` the part of it that is
+            sub-groups, so the recipes are the difference (23c/D16). Read
+            through `?? 0` because a row projected by a v2 index carries no
+            `groupCount` until that index is rebuilt (T34).
+          */}
+          {groupCountLabel(itemCount - (groupCount ?? 0), groupCount ?? 0)}
         </span>
       </div>
       <RecipeCardDate date={date} />

@@ -53,7 +53,10 @@ import {
   RecipePatchSchema,
 } from "../controller/curation/schema";
 import packageJson from "../package.json";
-import type { Recipe } from "recipe-website-common/controller/types";
+import type {
+  GroupItemRef,
+  Recipe,
+} from "recipe-website-common/controller/types";
 
 /**
  * Tool names, in registration order.
@@ -211,6 +214,35 @@ const Offset = z.number().int().min(0).optional();
 const RowFields = z.array(z.enum(ROW_FIELDS)).optional();
 const Slug = z.string().min(1);
 
+/**
+ * The two halves of a group item's XOR, as an extendable object (23c/D15).
+ *
+ * `subgroup` rather than `group`, because `group` is already the tool's *first*
+ * argument — the group being edited — and one call carrying `group` twice with
+ * two meanings would be a mistake waiting for a hurried agent.
+ *
+ * The refine lives on each tool rather than here so `.extend` can add the
+ * surrounding fields first: a refined schema is no longer an object schema and
+ * cannot be extended.
+ */
+const GroupItemRefSchema = z.strictObject({
+  recipe: Slug.optional(),
+  subgroup: Slug.optional(),
+});
+
+const exactlyOneRef = (data: { recipe?: string; subgroup?: string }) =>
+  Boolean(data.recipe) !== Boolean(data.subgroup);
+
+const REF_REFINEMENT = {
+  message: "Name exactly one of `recipe` or `subgroup`",
+  path: ["recipe"] as PropertyKey[],
+};
+
+/** The seam's ref, from the two optional keys the schema has already checked. */
+function toRef(recipe?: string, subgroup?: string): GroupItemRef {
+  return subgroup ? { group: subgroup } : { recipe: recipe as string };
+}
+
 const READ_ONLY = { readOnlyHint: true } as const;
 const WRITES = { readOnlyHint: false } as const;
 const IDEMPOTENT_WRITE = { readOnlyHint: false, idempotentHint: true } as const;
@@ -223,7 +255,7 @@ const INSTRUCTIONS = `Manage and search a recipe website's content.
 
 Recipe rows from recipe_search and recipe_list are compact — {slug, name, date, tags, totalTime, image?} — to keep results small; pass \`fields\` to add description, ingredients, prepTime or cookTime, and use recipe_get for a whole recipe. Slugs are the identity of everything: recipe slugs, group slugs, and a featured entry's own slug (which is not its target's).
 
-Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?}}; the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, import_failed, no_git_identity, unauthenticated, usage and internal. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
+Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?}}; the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, group_cycle, import_failed, no_git_identity, unauthenticated, usage and internal. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
 
 Writes commit to the content repository, one commit each. Deletes (recipe_delete, group_delete, unfeature) are not undoable from here.`;
 
@@ -419,8 +451,8 @@ export function createRecipeServer(
     {
       title: "Get a group",
       description:
-        "One group with its items resolved: each carries the recipe's current name, or " +
-        "`missing` when the slug names nothing.",
+        "One group with its items resolved: each carries the target's current name — and " +
+        "`kind` when the item is a nested group — or `missing` when the slug names nothing.",
       inputSchema: z.strictObject({ slug: Slug }),
       annotations: READ_ONLY,
     },
@@ -433,7 +465,8 @@ export function createRecipeServer(
       title: "Create a group",
       description:
         'A meal plan or a collection. Items may be `"slug"`, `"slug:label"` or ' +
-        "{recipe, label?, note?}. `force` downgrades unknown recipe slugs to warnings.",
+        "{recipe, label?, note?} — or {group, label?, note?} for a nested group. " +
+        "`force` downgrades unknown recipe and group slugs to warnings.",
       inputSchema: z.strictObject({
         group: GroupInputSchema,
         force: z.boolean().optional(),
@@ -466,8 +499,9 @@ export function createRecipeServer(
     {
       title: "Replace a group's items",
       description:
-        "Set the whole item list, in order. This replaces what is there — use " +
-        "group_add_item to append.",
+        'Set the whole item list, in order. Each item is `"slug"`, `"slug:label"` or ' +
+        "{recipe | group, label?, note?} — a `{group}` item nests that group inside this " +
+        "one. This replaces what is there; use group_add_item to append.",
       inputSchema: z.strictObject({
         group: Slug,
         items: z.array(GroupItemInputSchema),
@@ -482,33 +516,44 @@ export function createRecipeServer(
   server.registerTool(
     "group_add_item",
     {
-      title: "Add a recipe to a group",
+      title: "Add a recipe or a group to a group",
       description:
-        'Append one recipe, with an optional label ("Mon · Dinner") and note. ' +
-        "`force` allows a slug that names no recipe yet.",
-      inputSchema: z.strictObject({
+        "Append one member — a recipe, or a `subgroup` (a group nested inside this " +
+        'one) — with an optional label ("Mon · Dinner") and note. Name exactly one of ' +
+        "`recipe` and `subgroup`. `force` allows a slug that names nothing yet; nothing " +
+        "allows a cycle (group_cycle). Renaming or deleting a sub-group later leaves " +
+        "this row pointing at the old slug, and the page says so.",
+      inputSchema: GroupItemRefSchema.extend({
         group: Slug,
-        recipe: Slug,
         label: z.string().optional(),
         note: z.string().optional(),
         force: z.boolean().optional(),
-      }),
+      }).refine(exactlyOneRef, REF_REFINEMENT),
       annotations: WRITES,
     },
-    async ({ group, recipe, ...options }) =>
-      write(backend, () => backend.addGroupItem(group, recipe, options)),
+    async ({ group, recipe, subgroup, ...options }) =>
+      write(backend, () =>
+        backend.addGroupItem(group, toRef(recipe, subgroup), options),
+      ),
   );
 
   server.registerTool(
     "group_remove_item",
     {
-      title: "Remove a recipe from a group",
-      description: "Drop one item by its recipe slug; the group itself stays.",
-      inputSchema: z.strictObject({ group: Slug, recipe: Slug }),
+      title: "Remove a recipe or a group from a group",
+      description:
+        "Drop every item naming that member — `recipe` for a recipe row, `subgroup` " +
+        "for a nested group. The member itself is untouched; only the row goes.",
+      inputSchema: GroupItemRefSchema.extend({ group: Slug }).refine(
+        exactlyOneRef,
+        REF_REFINEMENT,
+      ),
       annotations: IDEMPOTENT_WRITE,
     },
-    async ({ group, recipe }) =>
-      write(backend, () => backend.removeGroupItem(group, recipe)),
+    async ({ group, recipe, subgroup }) =>
+      write(backend, () =>
+        backend.removeGroupItem(group, toRef(recipe, subgroup)),
+      ),
   );
 
   server.registerTool(

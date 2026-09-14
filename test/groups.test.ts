@@ -39,15 +39,20 @@ import {
   getPaginationDatabase,
 } from "@discontent/cms/pagination/database";
 import type { PageSummary } from "@discontent/cms/pagination/types";
+import { readPage } from "@discontent/cms/pagination/readPage";
 import type { Key } from "lmdb";
 
 import { featuredRecipeContentConfig } from "../websites/recipe-website/common/controller/featuredRecipeContentConfig";
 import {
+  groupsByGroup,
   groupsByRecipe,
   type AppearsInEntry,
 } from "../websites/recipe-website/common/controller/groupAggregateConfigs";
 import { groupContentConfig } from "../websites/recipe-website/common/controller/groupContentConfig";
-import { groupsByDate } from "../websites/recipe-website/common/controller/groupPaginationConfig";
+import {
+  groupsByDate,
+  type GroupListEntry,
+} from "../websites/recipe-website/common/controller/groupPaginationConfig";
 import { featuredRecipesByDate } from "../websites/recipe-website/common/controller/paginationConfigs";
 import { recipeContentConfig } from "../websites/recipe-website/common/controller/recipeContentConfig";
 import type {
@@ -158,6 +163,36 @@ function readAppearsInHash(): string | undefined {
     contentDirectory,
   );
   return readAggregateRecord<Record<string, AppearsInEntry[]>>(db)?.hash;
+}
+
+/** The folded "parents of a group" map, as a group page would read it (23c). */
+function readParentGroups(): Promise<Record<string, AppearsInEntry[]> | null> {
+  return readAggregate({
+    config: groupContentConfig,
+    aggregateConfig: groupsByGroup,
+    contentDirectory,
+  });
+}
+
+/** The `by-group` aggregate's stored hash, for the rebuild comparison. */
+function readParentGroupsHash(): string | undefined {
+  const db = getAggregateDatabase(
+    groupContentConfig,
+    groupsByGroup,
+    contentDirectory,
+  );
+  return readAggregateRecord<Record<string, AppearsInEntry[]>>(db)?.hash;
+}
+
+/** The first page of the group list, as `/groups` projects it. */
+async function readGroupListPage(): Promise<GroupListEntry[]> {
+  const page = await readPage<GroupEntryValue, GroupEntryKey, GroupListEntry>({
+    config: groupContentConfig,
+    paginationConfig: groupsByDate,
+    contentDirectory,
+    pageIndex: 0,
+  });
+  return page?.items ?? [];
 }
 
 /** The group content index, keyed by slug. */
@@ -405,6 +440,113 @@ describe("the stored group index value", () => {
     expect((await readGroupFile("week-of-may-4")).items[0].note).toBe(
       "Leftovers for lunch",
     );
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Nested groups (23c)                                                 */
+/* ------------------------------------------------------------------ */
+
+describe("a group inside a group", () => {
+  /** The collection holds the meal plan and one recipe of its own. */
+  async function seedNesting() {
+    await seedTwoRecipesAndAGroup();
+    await createRecipe("cake", "Cake", day(3));
+    return createGroup("spring-menus", {
+      name: "Spring Menus",
+      date: day(20),
+      kind: "collection",
+      items: [{ group: "week-of-may-4", label: "Week 1" }, { recipe: "cake" }],
+    });
+  }
+
+  it("stores the sub-group on the index value, and no recipe key beside it", async () => {
+    await seedNesting();
+
+    /*
+     * `label` is present on both rows and `group` only on the one that has it
+     * (T40): every value written before 23c has to re-index to the bytes that
+     * are already stored, which is what lets the `by-recipe` aggregate stay at
+     * version "1" and the fixtures' recipe indexes stay untouched.
+     */
+    expect(readGroupIndex().get("spring-menus")).toEqual({
+      name: "Spring Menus",
+      kind: "collection",
+      items: [{ group: "week-of-may-4", label: "Week 1" }, { recipe: "cake" }],
+    });
+    expect(
+      Object.keys(readGroupIndex().get("spring-menus")!.items[0]),
+    ).not.toContain("recipe");
+  });
+
+  it("folds by-group into the parents of a group, newest first", async () => {
+    await seedNesting();
+    await createGroup("older-menus", {
+      name: "Older Menus",
+      date: day(5),
+      kind: "collection",
+      items: [{ group: "week-of-may-4" }],
+    });
+
+    expect(await readParentGroups()).toEqual({
+      "week-of-may-4": [
+        {
+          slug: "spring-menus",
+          name: "Spring Menus",
+          kind: "collection",
+          label: "Week 1",
+        },
+        {
+          slug: "older-menus",
+          name: "Older Menus",
+          kind: "collection",
+          label: undefined,
+        },
+      ],
+    });
+  });
+
+  it("contributes nothing to by-recipe, which is why it stays at version 1", async () => {
+    await seedNesting();
+
+    const appearsIn = (await readAppearsIn()) ?? {};
+    /* The sub-group's slug is not a key, and the parent is on no recipe's list. */
+    expect(appearsIn["week-of-may-4"]).toBeUndefined();
+    expect(appearsIn.stew?.map((entry) => entry.slug)).toEqual([
+      "week-of-may-4",
+    ]);
+    /* Only the parent's *own* recipe names it. */
+    expect(appearsIn.cake?.map((entry) => entry.slug)).toEqual([
+      "spring-menus",
+    ]);
+  });
+
+  it("projects groupCount beside the total item count", async () => {
+    await seedNesting();
+
+    const entries = await readGroupListPage();
+    expect(
+      entries.map(({ slug, itemCount, groupCount }) => ({
+        slug,
+        itemCount,
+        groupCount,
+      })),
+    ).toEqual([
+      { slug: "spring-menus", itemCount: 2, groupCount: 1 },
+      { slug: "week-of-may-4", itemCount: 2, groupCount: 0 },
+    ]);
+  });
+
+  it("rebuilds both aggregates byte for byte", async () => {
+    await seedNesting();
+    const incremental = await readParentGroups();
+    const incrementalHash = readParentGroupsHash();
+
+    await closeCachedEnvironments();
+    await rebuildIndex({ config: groupContentConfig, contentDirectory });
+
+    expect(readParentGroupsHash()).toBe(incrementalHash);
+    expect(await readParentGroups()).toEqual(incremental);
   });
 });
 
