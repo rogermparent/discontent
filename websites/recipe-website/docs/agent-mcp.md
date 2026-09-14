@@ -538,25 +538,41 @@ runtime = "nodejs"`** so Next does not attempt the edge runtime.
 - **T40 `label` stays an unconditional key in the index value** so existing
   stored values (and sealed page hashes) do not move; only `group` is
   conditional.
+- **T41 `build-fixture-indexes.ts` rebuilds every fixture.** Even an
+  untouched type's LMDB files come back byte-different (page churn, no
+  content change): at 23c that was ~84 stray `.mdb` modifications.
+  `git checkout --` everything outside the fixtures the change concerns.
+  A file that does **not** move (`three-recipes-groups/…/by-recipe/data.mdb`
+  at 23c) is the evidence an aggregate's output really is unchanged.
+- **T42 `lint-staged --diff` stages the files it checks and re-applies that
+  snapshot afterwards**, so a `prettier --write` run between two lint-staged
+  invocations is thrown away. Format, `git add -A`, then lint-staged.
+- **T43 `specVersions`' regex sees prose.** `declaredVersions` matches
+  `version: "…"` anywhere in the file, comments included — a doc comment
+  quoting the literal adds a phantom version, and a factory that takes the
+  version positionally declares none (amends T1: a shared aggregate factory
+  must take `version` as a named argument). Amends T33: the
+  `three-recipes-groups` meal plan already dangles `missing-recipe`, so a
+  new missing-target assertion on `/group/week-of-may-4` needs `.last()`.
 
 ## Stacked-PR roadmap
 
 Each branch is off the previous. Rebase children after a parent merges.
 
-| PR  | Branch (← parent)                   | Status   | Scope                                                                                                                                                                                                                  |
-| --- | ----------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 23a | `agent/23a-curation-seats` ← `main` | ✅ done  | This doc; featured seat (D5) + group update seat (D4) in the curation layer, API routes, CLI commands, backend interface (local + http), vitest + Playwright; strike two backlog rows                                  |
-| 23b | `agent/23b-mcp-stdio` ← `main`      | ✅ done  | `@modelcontextprotocol/server` + `/client` deps; `editor/mcp/{registry,server}.ts`; every D2 tool that exists by then; compact outputs (D3); `.mcp.json` (D10); vitest via `InMemoryTransport`; smoke from Claude Code |
-| 23c | `agent/23c-nested-groups` ← 23b     | 🟡 next  | D6: schema, validation, index/aggregate versions, fixture regen (T3), group page + cards, search term, CLI/API/tools; Playwright `groups.spec.ts` cases; `group_add_item` accepts `{group}`                            |
-| 23d | `agent/23d-git-seats` ← 23c         | ⏸️ later | D7: `curation/git.ts`, `/api/git/*`, CLI `git …`, MCP git tools; tests on a temp repo; `/git` page keeps its behaviour                                                                                                 |
-| 23e | `agent/23e-mcp-http` ← 23d          | ⏸️ later | D8: `/api/mcp` route; client-transport test against `next dev` (api-write precedent) + handler-level vitest                                                                                                            |
-| 23f | `agent/23f-curator-skill-v2` ← 23e  | ⏸️ later | D9: skill rewrite, examples, acceptance test of the user story, docs close-out, backlog update, memory                                                                                                                 |
+| PR  | Branch (← parent)                   | Status   | Scope                                                                                                                                                                                                                            |
+| --- | ----------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 23a | `agent/23a-curation-seats` ← `main` | ✅ done  | This doc; featured seat (D5) + group update seat (D4) in the curation layer, API routes, CLI commands, backend interface (local + http), vitest + Playwright; strike two backlog rows                                            |
+| 23b | `agent/23b-mcp-stdio` ← `main`      | ✅ done  | `@modelcontextprotocol/server` + `/client` deps; `editor/mcp/{registry,server}.ts`; every D2 tool that exists by then; compact outputs (D3); `.mcp.json` (D10); vitest via `InMemoryTransport`; smoke from Claude Code           |
+| 23c | `agent/23c-nested-groups` ← 23b     | ✅ done  | D6/D15–D18: `{group}` items, `group_cycle`, `groupsByDate` v3 + `by-group` aggregate, group cards + Appears-in on group pages, transitive `group:` search, CLI `--group-item`/`--group`, MCP `subgroup`, `nested-groups` fixture |
+| 23d | `agent/23d-git-seats` ← 23c         | 🟡 next  | D7: `curation/git.ts`, `/api/git/*`, CLI `git …`, MCP git tools; tests on a temp repo; `/git` page keeps its behaviour                                                                                                           |
+| 23e | `agent/23e-mcp-http` ← 23d          | ⏸️ later | D8: `/api/mcp` route; client-transport test against `next dev` (api-write precedent) + handler-level vitest                                                                                                                      |
+| 23f | `agent/23f-curator-skill-v2` ← 23e  | ⏸️ later | D9: skill rewrite, examples, acceptance test of the user story, docs close-out, backlog update, memory                                                                                                                           |
 
-**Next PR:** 23c — `agent/23c-nested-groups` off `agent/23b-mcp-stdio`
-(rebase onto `main` once 23b merges). Start from D6 and the 23c seed
-section below in a fresh plan-mode session; validate the group schema,
-aggregate versions and the `by-recipe` fold against the code before
-designing, and remember T1 (snapshot updates) and T3 (fixture regen order).
+**Next PR:** 23d — `agent/23d-git-seats` off `agent/23c-nested-groups`
+(the stack is #138 → #139; rebase 23d onto `main` as each parent merges,
+T20). Start from D7 and the 23d seed section below in a fresh plan-mode
+session; validate `actions/sync.ts`'s helpers, the `/git` page's server
+actions and `simple-git` usage (T23) against the code before designing.
 
 ## Phase detail
 
@@ -1297,7 +1313,7 @@ undefined`; identical after JSON serialisation and cheaper.
   matches, and the real module loads fine under vitest. Worth a separate
   cleanup; untouched here.
 
-### PR 23c — Nested groups `agent/23c-nested-groups` 🟡 next (← 23b)
+### PR 23c — Nested groups `agent/23c-nested-groups` ✅ done (← 23b)
 
 Stacked off `agent/23b-mcp-stdio` at `1318fcf5`; rebase onto `main` after
 #138 merges (T20: retarget the child before deleting the parent branch).
@@ -1507,7 +1523,106 @@ the meal-plan card and its own recipe); adding a cycle through the API or
 the nested meal plan's recipes; fixture index versions bumped and
 `specVersions` snapshots updated.
 
-### PR 23d — Git seats `agent/23d-git-seats` ⏸️ later (← 23c)
+#### Decisions and close-out (2026-09-13)
+
+Commits on `agent/23c-nested-groups`: `9a8bf253` (this design),
+`27b6e07c` (implementation, 67 files, +1977 −326), the close-out. Draft PR
+#139 against `agent/23b-mcp-stdio`; retarget to `main` after #138 merges
+(T20).
+
+- [x] D15: `GroupItemRef` / `GroupItem` union, `GroupEntryItem`,
+      `GroupItemObjectSchema` exported with the XOR refine, `toGroupItems`
+      filter on `recipe || group`; seam `addGroupItem(group, ref, opts)` /
+      `removeGroupItem(group, ref)`; `POST …/items` parses the shared schema
+      (route copy deleted); `DELETE …/items/<slug>?kind=group`; CLI
+      `--group-item`, `group add|remove <g> (<recipe> | --group <sub>)`; MCP
+      `subgroup` on `group_add_item` / `group_remove_item`, `group_set_items`
+      takes `{group}` through the shared schema.
+- [x] D16: `groupsByDate` v"3" with `groupCount`; `appearsInAggregate`
+      factory, `by-recipe` still v"1" (and its fixture `data.mdb` did not
+      move — T41), `by-group` v"1"; `readGroupsByGroup.ts`; `GroupAppearsIn`
+      over a sync `AppearsInList`; direct parents only.
+- [x] D17: `checkItems` in the four-pass order, `assertNoCycle` DFS over
+      `groups/data` with `MAX_GROUP_DEPTH = 32`, `GroupCycleError` →
+      `group_cycle` (422, `details.groups` = path), `UnknownGroupError`
+      `{forceHint}`; `getGroup` resolves `{group}` items to `{name, kind}` or
+      `missing`.
+- [x] D18: `resolveGroupItems` `{item, recipe, group}`; `GroupItems` renders
+      the `GroupCard` silhouette with `testId="group-item-group"`;
+      `groupCountLabel`; "This group has nothing in it yet."; `GroupThumbnail`
+      depth-first collector (`GROUPS_DEEP = 4`); transitive search corpus;
+      `parseGroupFormData` widened, read-only `group-item-group-row`.
+- [x] Fixture `nested-groups` (T33 order respected; only the two group
+      fixtures' `groups/*` moved), `specVersions` snapshots: pagination
+      `"2" → "3"`, aggregates `["1"] → ["1", "1"]`.
+- [x] T28/T37 pinned: an XOR miss on `group_add_item` (both, or neither)
+      answers in the SDK shape with no `structuredContent`; the text is
+      "Input validation error: Invalid arguments for tool group_add_item:
+      recipe: Name exactly one of `recipe` or `subgroup`". A cycle answers
+      with code `group_cycle`, the path in `groups` (`["week-one",
+"spring-menus", "week-one"]`) and the message "That would put a group
+      inside itself: week-one → spring-menus → week-one."
+
+**Review (Fable).** Read the full diff; no correctness changes needed. The
+cycle check runs before any write and never under `--force`; the index value
+keeps `label` unconditional and spreads `recipe`/`group` so pre-23c values
+re-index to their stored bytes (the `by-recipe` fixture file not moving is
+the proof); the two API routes and the http backend send byte-identical
+requests for recipe rows; the form's hidden `items[i].group` input is what
+keeps a re-save from deleting sub-groups. Reviewer reran every gate (below)
+plus the headless smoke.
+
+**Gate results (verbatim, reviewer rerun in the worktree):**
+
+| Gate                                                     | Result                                                                                                                                                                                                                                                                                      |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm --filter recipe-editor typecheck`                  | clean                                                                                                                                                                                                                                                                                       |
+| `pnpm --filter recipe-website exec tsc --noEmit`         | clean                                                                                                                                                                                                                                                                                       |
+| `pnpm exec vitest run`                                   | `Test Files 27 passed (27)` · `Tests 488 passed (488)` (474 at base, +14)                                                                                                                                                                                                                   |
+| `pnpm exec lint-staged --diff agent/23b-mcp-stdio`       | clean (prettier + eslint)                                                                                                                                                                                                                                                                   |
+| stdout grep                                              | unchanged from 23b: `cli/output.ts`, the two `--help` writes, a comment in `mcp/server.ts`, the script-only `log` default                                                                                                                                                                   |
+| `pnpm e2e-dev -- groups.spec.ts api-write.spec.ts` (dev) | reviewer rerun: `41 passed (2.6m)`, 0 failed, 0 flaky (implementer: `41 passed (2.3m)` after fixing two of its own new assertions)                                                                                                                                                          |
+| Export build on a scratch `nested-groups` (T35)          | `Compiled successfully`, `/group/spring-menus` prerendered with one `group-item-group` card and "1 recipe, 1 group"; `groups.html` Spring Menus thumbnail `data-group-image="member"` with the `week-of-may-4` own image; variants under `transformed-images/uploads/group/week-of-may-4/…` |
+| Headless smoke (`claude -p --mcp-config .mcp.json …`)    | `subtype: success`, 6 turns, 19.7 s: `group_create` Holiday `{group: "spring-menus"}` written to the scratch dir; `group_add_item {group: "week-of-may-4", subgroup: "holiday"}` refused with `group_cycle`, path `week-of-may-4 → holiday → spring-menus → week-of-may-4`                  |
+| CI on the draft PR                                       | pending at close-out; see the PR                                                                                                                                                                                                                                                            |
+
+**Implementer notes (divergences from the design above, and why).**
+
+- **`appearsInAggregate` takes a named-argument object**, not
+  `(name, version, keyOf)`: `specVersions` greps the source for
+  `version: "…"`, so a positional `"1"` would declare zero versions (T43).
+- **`GroupItem` is a distributed intersection** (`WithItemText<GroupItemRef>`),
+  not the literal `GroupItemRef & {label?, note?}`: `(A | B) & C` does not
+  narrow, and four sites failed on `item.recipe` being `string | undefined`.
+  Values are identical.
+- **Narrowing is `item.group !== undefined`**, not truthiness, where the
+  type matters: `{group: string}` includes `""`. Truthiness stays where only
+  behaviour matters (`buildGroupIndexValue`, the folds, the collector).
+- **`GroupListEntry.groupCount` is optional** (`groupCount?: number`): T34's
+  `?? 0` is only meaningful if the field can be absent on a v2-projected row.
+  `project` always writes it.
+- **`MissingCard`** is one local component in `GroupItems.tsx` rather than
+  two copies of the dashed box; markup and testid are byte-identical.
+- **`describeRef`** names the target in commit messages and the `not_found`
+  message (`Add group x to group: y`, `…has no item for group x`), so a slug
+  in both namespaces reads right.
+- **The `cliJson` case is the cycle** (`group add week-one --group week-one
+--json` → exit 1 + `group_cycle`), not a happy-path add: the file's other
+  cases assert exactly one group exists, so a writing case would couple to
+  test order.
+- **`group-card-link` is `List/Group`'s testid**, not the nested card's: the
+  nested card is `List/FeaturedRecipe/GroupCard`'s silhouette over
+  `RecipeCardLink`, which stamps none; the spec clicks it by role.
+- **Fixture regen churn** (T41) reverted by hand; **`lint-staged --diff`
+  reverts an interleaved `prettier --write`** (T42).
+
+**Verification (epic line for 23c):** met — `/group/spring-menus` renders
+the meal-plan card and its own recipe; the API, the CLI and `group_add_item`
+all return `group_cycle` for a cycle; `group:spring-menus` search returns
+First, Second and Third Recipe; index versions bumped and `specVersions`
+snapshots updated.
+
+### PR 23d — Git seats `agent/23d-git-seats` 🟡 next (← 23c)
 
 Seed: D7 — extract `controller/curation/git.ts` from `actions/sync.ts`
 (T22), reads + writes with `dirty_tree` / `bad_revision` codes (T25),
