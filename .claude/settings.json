@@ -1,4 +1,5 @@
 {
+  "enabledMcpjsonServers": ["recipes"],
   "permissions": {
     "allow": [
       "Bash(pnpm --silent recipes:*)",

@@ -20,18 +20,14 @@
  * `create-user.ts`'s `parseArgs` call is not a template for this: it disallows
  * positionals outright (fact 2).
  */
-import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
-import path from "node:path";
 import process from "node:process";
 import { parseArgs, type ParseArgsOptionsConfig } from "node:util";
-import { resolveAuthor } from "../controller/curation/author";
 import {
   CurationError,
   UsageError,
   exitCodeFor,
 } from "../controller/curation/errors";
-import { createHttpBackend } from "./backend/http";
-import { createLocalBackend } from "./backend/local";
+import { resolveBackend } from "./backend/resolve";
 import type { CuratorBackend } from "./backend/types";
 import { createCommand } from "./commands/create";
 import { deleteCommand } from "./commands/delete";
@@ -46,6 +42,7 @@ import { listCommand } from "./commands/list";
 import { reindexCommand } from "./commands/reindex";
 import { searchCommand } from "./commands/search";
 import { showCommand } from "./commands/show";
+import { tagsCommand } from "./commands/tags";
 import type { CommandDef } from "./commands/types";
 import { updateCommand } from "./commands/update";
 import { emit, emitError, warn } from "./output";
@@ -77,6 +74,7 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
   show: showCommand,
   list: listCommand,
   search: searchCommand,
+  tags: tagsCommand,
   delete: deleteCommand,
   feature: featureCommand,
   unfeature: unfeatureCommand,
@@ -113,6 +111,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   show <slug>
   list [--tag t] [--limit 20] [--offset 0]
   search <query…>
+  tags
   delete <slug> [--yes]
   group create --name N [--kind meal-plan|collection] [--description D] [--slug s]
                [--date d] (--file items.json | --item slug[:label] …) [--force]
@@ -266,44 +265,6 @@ function isParseArgsError(error: unknown): boolean {
   );
 }
 
-function resolveContentDirectory(flag?: string): string {
-  const raw = flag ?? process.env.CONTENT_DIRECTORY;
-  if (!raw) return getContentDirectory();
-  /*
-   * `INIT_CWD` rather than `cwd()`: pnpm runs a package script with the *package*
-   * directory as cwd, so `pnpm recipes list --content-dir ./fixtures/x` typed at
-   * the repo root would otherwise resolve against `websites/recipe-website/editor`
-   * (fact 1).
-   */
-  return path.resolve(process.env.INIT_CWD ?? process.cwd(), raw);
-}
-
-/**
- * Where a local write should send its revalidation, if anywhere.
- *
- * `--editor-url` > `RECIPE_EDITOR_URL`, and the env var alone is enough — a
- * shell that exports it has already said "there is an editor running here".
- * `--notify` with no URL anywhere is a usage error rather than a silent no-op:
- * the flag's whole purpose is the thing it could not do.
- */
-export function resolveNotify(
-  notify: boolean,
-  editorUrl: string | undefined,
-  token: string | undefined,
-): { url: string; token?: string } | undefined {
-  const url = editorUrl ?? process.env.RECIPE_EDITOR_URL;
-  if (!notify && !url) return undefined;
-  if (!url) {
-    throw new UsageError(
-      "--notify needs an editor URL: pass --editor-url <url> or set RECIPE_EDITOR_URL.",
-    );
-  }
-  if (!URL.canParse(url)) {
-    throw new UsageError(`"${url}" is not a URL.`);
-  }
-  return { url, token };
-}
-
 export async function main(argv: string[]): Promise<number> {
   /* pnpm and npm both hand a bare `--` through when a script is called with one. */
   const args = argv[0] === "--" ? argv.slice(1) : argv;
@@ -367,25 +328,16 @@ export async function main(argv: string[]): Promise<number> {
       (values[name] ?? headParse.values[name]) as string | undefined;
 
     /*
-     * Remote first, because it settles what the rest of the setup means: with
-     * `--remote` there is no local content directory, no committer identity to
-     * preflight and nothing to notify, since the server revalidated itself.
+     * One function, shared with the MCP server (D11), so the two entry points
+     * cannot disagree about which corpus a bare invocation talks to.
      */
-    const remote = global("remote") ?? process.env.RECIPE_API_URL;
-    const token = process.env.RECIPE_API_TOKEN;
-
-    if (remote) {
-      backend = createHttpBackend({ baseUrl: remote, token });
-    } else {
-      const contentDirectory = resolveContentDirectory(global("content-dir"));
-      const author = resolveAuthor(global("author"));
-      const notify = resolveNotify(
-        values.notify === true || headParse.values.notify === true,
-        global("editor-url"),
-        token,
-      );
-      backend = createLocalBackend({ contentDirectory, author, notify });
-    }
+    backend = resolveBackend({
+      remote: global("remote"),
+      contentDir: global("content-dir"),
+      author: global("author"),
+      notify: values.notify === true || headParse.values.notify === true,
+      editorUrl: global("editor-url"),
+    });
 
     const result = await definition.run({
       backend,

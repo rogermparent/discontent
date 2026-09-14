@@ -298,6 +298,12 @@ export function createHttpBackend({
       );
     },
 
+    /* The route answers `{tags}`; the seam's shape is the bare list. */
+    async listTags() {
+      const { tags } = await call<{ tags: string[] }>("GET", "/api/tags");
+      return tags;
+    },
+
     reindex(contentType) {
       return call<ReindexResult>("POST", "/api/reindex", {
         body: contentType ? { contentType } : {},

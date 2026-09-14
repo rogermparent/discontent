@@ -120,6 +120,21 @@ describe("the CLI as a process", () => {
   );
 
   it(
+    "prints one object for tags --json",
+    async () => {
+      /*
+       * The fixture recipe carries no tags, so the interesting part is the
+       * *shape*: the CLI's contract is one JSON object, which is why `tags`
+       * answers `{tags}` rather than a bare array (D12).
+       */
+      const result = await run(["tags", "--json"]);
+      expect(result.exitCode).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual({ tags: [] });
+    },
+    TIMEOUT,
+  );
+
+  it(
     "exits 1 with a not_found object for a missing recipe",
     async () => {
       const result = await run(["show", "missing", "--json"]);

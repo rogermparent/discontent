@@ -14,7 +14,7 @@ import * as groups from "../../controller/curation/groups";
 import { importAndCreate } from "../../controller/curation/importRecipe";
 import * as recipes from "../../controller/curation/recipes";
 import { reindex } from "../../controller/curation/reindex";
-import { searchRecipes } from "../../controller/curation/search";
+import { listTags, searchRecipes } from "../../controller/curation/search";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 import type { CuratorBackend } from "./types";
 
@@ -140,6 +140,8 @@ export function createLocalBackend({
       await guard();
       return featured.unfeature(ctx, slug);
     },
+
+    listTags: () => listTags(ctx),
 
     /* `rebuildIndex` writes LMDB only and never commits: no identity needed. */
     reindex: (contentType) => reindex(ctx, contentType),

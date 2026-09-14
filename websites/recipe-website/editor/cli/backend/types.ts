@@ -106,6 +106,14 @@ export interface CuratorBackend {
   feature(raw: unknown): Promise<FeaturedWriteResult>;
   unfeature(slug: string): Promise<DeleteResult>;
 
+  /**
+   * Every tag in the corpus, sorted (D12).
+   *
+   * On the seam rather than reached for directly, so the MCP `tag_list` tool
+   * and a `--remote` CLI run answer from the same place every other read does.
+   */
+  listTags(): Promise<string[]>;
+
   reindex(contentType?: string): Promise<ReindexResult>;
 
   /**

@@ -10,6 +10,7 @@
     "prepare": "husky",
     "test": "vitest",
     "recipes": "pnpm --filter recipe-editor recipes",
+    "mcp": "pnpm --filter recipe-editor mcp",
     "lint:diff": "lint-staged",
     "lint:diff:write": "lint-staged -c lint-staged.write.config.mjs"
   },

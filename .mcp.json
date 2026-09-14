@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "recipes": {
+      "command": "pnpm",
+      "args": ["--silent", "--filter", "recipe-editor", "mcp"],
+      "env": {
+        "CONTENT_DIRECTORY": "${CONTENT_DIRECTORY:-}",
+        "RECIPE_API_URL": "${RECIPE_API_URL:-}",
+        "RECIPE_API_TOKEN": "${RECIPE_API_TOKEN:-}",
+        "RECIPE_AUTHOR": "${RECIPE_AUTHOR:-}",
+        "RECIPE_EDITOR_URL": "${RECIPE_EDITOR_URL:-}"
+      }
+    }
+  }
+}
