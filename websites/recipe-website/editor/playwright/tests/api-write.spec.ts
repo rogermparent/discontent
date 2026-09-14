@@ -247,6 +247,97 @@ test.describe("JSON write API", () => {
   });
 
   /**
+   * Nested groups over the API (23c/D15–D17).
+   *
+   * On `nested-groups` rather than this suite's usual empty corpus, because
+   * every assertion here is about a *shape* that already exists: `spring-menus`
+   * holds `week-of-may-4`, so the cycle the API has to refuse is one hop away
+   * and needs no setup writes to reach.
+   */
+  test("refuses a cycle, dangles a forced sub-group, and removes one by kind", async ({
+    request,
+    page,
+    resetData,
+    createApiToken,
+  }) => {
+    await resetData("nested-groups");
+    const nestedToken = await createApiToken();
+    const nestedAuth = () => ({ authorization: `Bearer ${nestedToken}` });
+
+    /* The child cannot swallow its parent: `spring-menus` already holds it. */
+    const cycle = await request.post("/api/group/week-of-may-4/items", {
+      headers: nestedAuth(),
+      data: { group: "spring-menus" },
+    });
+    expect(cycle.status()).toBe(422);
+    const cycleBody = await cycle.json();
+    expect(cycleBody.error.code).toBe("group_cycle");
+    expect(cycleBody.error.groups).toEqual([
+      "week-of-may-4",
+      "spring-menus",
+      "week-of-may-4",
+    ]);
+
+    /* Nor itself — and that one is caught before the existence check (T30). */
+    const self = await request.post("/api/group/week-of-may-4/items", {
+      headers: nestedAuth(),
+      data: { group: "week-of-may-4" },
+    });
+    expect(self.status()).toBe(422);
+    expect((await self.json()).error.groups).toEqual([
+      "week-of-may-4",
+      "week-of-may-4",
+    ]);
+
+    /* A sub-group that does not exist is the forceable case, like a recipe. */
+    const ghost = await request.post("/api/group/week-of-may-4/items", {
+      headers: nestedAuth(),
+      data: { group: "ghost" },
+    });
+    expect(ghost.status()).toBe(422);
+    const ghostBody = await ghost.json();
+    expect(ghostBody.error.code).toBe("unknown_group");
+    expect(ghostBody.error.groups).toEqual(["ghost"]);
+
+    const forced = await request.post(
+      "/api/group/week-of-may-4/items?force=1",
+      { headers: nestedAuth(), data: { group: "ghost" } },
+    );
+    expect(forced.status()).toBe(200);
+    expect((await forced.json()).warnings).toEqual(["Unknown group: ghost"]);
+
+    await page.goto("/group/week-of-may-4");
+    /*
+     * `.last()`: the fixture's plan already dangles a *recipe* (`missing-recipe`,
+     * Wed · Dinner), so the page holds two missing boxes — and the appended one
+     * is the sub-group, which is also the assertion that `addItem` appends.
+     */
+    await expect(page.getByTestId("group-item-missing").last()).toHaveText(
+      "Group not found: ghost",
+    );
+
+    /*
+     * And the delete needs `?kind=group` to name the sub-group namespace: the
+     * bare path means a recipe, which this group has no row for.
+     */
+    const wrongKind = await request.delete(
+      "/api/group/spring-menus/items/week-of-may-4",
+      { headers: nestedAuth() },
+    );
+    expect(wrongKind.status()).toBe(404);
+
+    const removed = await request.delete(
+      "/api/group/spring-menus/items/week-of-may-4?kind=group",
+      { headers: nestedAuth() },
+    );
+    expect(removed.status()).toBe(200);
+
+    await page.goto("/group/spring-menus");
+    await expect(page.getByTestId("group-item-group")).toHaveCount(0);
+    await expect(page.getByTestId("group-item")).toHaveCount(1);
+  });
+
+  /**
    * The featured seat (23a/D5) end to end.
    *
    * The homepage assertion is the point: featuring was form-only, so this is

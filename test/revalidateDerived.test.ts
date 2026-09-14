@@ -110,6 +110,7 @@ describe("derivedTagsOfAll", () => {
       "item:pages",
       "pagination:groups:by-date",
       "aggregate:groups:by-recipe",
+      "aggregate:groups:by-group",
       "item:groups",
     ]);
   });
@@ -222,6 +223,7 @@ describe("rebuild seats", () => {
     expect(fired).toEqual([
       "pagination:groups:by-date",
       "aggregate:groups:by-recipe",
+      "aggregate:groups:by-group",
       "item:groups",
       "pagination:featured-recipes:by-date",
       "item:featured-recipes",
@@ -250,6 +252,9 @@ describe("rebuild seats", () => {
     );
     expect(derivedTagsOfAll(recipeContentTypes)).toContain(
       "aggregate:groups:by-recipe",
+    );
+    expect(derivedTagsOfAll(recipeContentTypes)).toContain(
+      "aggregate:groups:by-group",
     );
   });
 

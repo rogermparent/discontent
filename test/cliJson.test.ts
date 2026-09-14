@@ -135,6 +135,35 @@ describe("the CLI as a process", () => {
   );
 
   it(
+    "exits 1 with a group_cycle object for `group add <g> --group <g>`",
+    async () => {
+      /*
+       * The 23c flag through a real process: `--group` names a sub-group where
+       * the positional names a recipe, and a group that would contain itself is
+       * refused before anything is written — so this case needs no fixture of
+       * its own and leaves the corpus exactly as it found it.
+       */
+      const result = await run([
+        "group",
+        "add",
+        "week-one",
+        "--group",
+        "week-one",
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(1);
+      expect(JSON.parse(result.stdout)).toEqual({
+        error: {
+          code: "group_cycle",
+          message: expect.stringContaining("week-one"),
+          groups: ["week-one", "week-one"],
+        },
+      });
+    },
+    TIMEOUT,
+  );
+
+  it(
     "exits 1 with a not_found object for a missing recipe",
     async () => {
       const result = await run(["show", "missing", "--json"]);

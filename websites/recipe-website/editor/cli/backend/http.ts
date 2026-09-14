@@ -249,18 +249,28 @@ export function createHttpBackend({
         { body: raw },
       );
     },
-    addGroupItem(group, recipe, options = {}) {
+    addGroupItem(group, ref, options = {}) {
       const { force, ...item } = options;
       return call<GroupWriteResult>(
         "POST",
         `/api/group/${encodeURIComponent(group)}/items`,
-        { body: { recipe, ...item }, query: { force: force ? 1 : undefined } },
+        { body: { ...ref, ...item }, query: { force: force ? 1 : undefined } },
       );
     },
-    removeGroupItem(group, recipe) {
+    removeGroupItem(group, ref) {
+      /*
+       * One path segment for both kinds, disambiguated by `?kind=group` (D15):
+       * the route directory is `[recipe]` and renaming it would move the URL
+       * every existing caller uses. `call` drops an undefined query value, so
+       * a recipe ref sends no `kind` at all and the request is byte-identical
+       * to the one 22d shipped.
+       */
       return call<GroupWriteResult>(
         "DELETE",
-        `/api/group/${encodeURIComponent(group)}/items/${encodeURIComponent(recipe)}`,
+        `/api/group/${encodeURIComponent(group)}/items/${encodeURIComponent(
+          ref.group ?? ref.recipe,
+        )}`,
+        { query: { kind: ref.group ? "group" : undefined } },
       );
     },
     setGroupItems(group, items, options = {}) {

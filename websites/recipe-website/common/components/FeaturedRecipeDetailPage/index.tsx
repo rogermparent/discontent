@@ -14,6 +14,7 @@ import {
 } from "recipe-website-common/components/PageLayout";
 import { GroupItems } from "../GroupDetailPage/GroupItems";
 import { GroupThumbnail } from "../GroupThumbnail";
+import { groupCountLabel } from "../../util/groupCountLabel";
 import { groupKindLabel } from "../../util/groupKindLabel";
 
 /**
@@ -86,7 +87,10 @@ export default function FeaturedRecipeDetailPage(
                   {groupKindLabel(group.kind)}
                 </Badge>
                 <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                  {items.length} {items.length === 1 ? "recipe" : "recipes"}
+                  {groupCountLabel(
+                    items.filter(({ item }) => !item.group).length,
+                    items.filter(({ item }) => Boolean(item.group)).length,
+                  )}
                 </span>
               </div>
             </div>
@@ -95,7 +99,7 @@ export default function FeaturedRecipeDetailPage(
             <GroupItems items={items} />
           ) : (
             <p className="my-4 text-muted-foreground" data-testid="group-empty">
-              This group has no recipes in it yet.
+              This group has nothing in it yet.
             </p>
           )}
         </PageSection>

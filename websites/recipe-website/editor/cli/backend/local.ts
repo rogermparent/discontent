@@ -112,13 +112,13 @@ export function createLocalBackend({
       await guard();
       return groups.updateGroup(ctx, slug, raw);
     },
-    async addGroupItem(group, recipe, options = {}) {
+    async addGroupItem(group, ref, options = {}) {
       await guard();
-      return groups.addItem(ctx, group, recipe, options);
+      return groups.addItem(ctx, group, ref, options);
     },
-    async removeGroupItem(group, recipe) {
+    async removeGroupItem(group, ref) {
       await guard();
-      return groups.removeItem(ctx, group, recipe);
+      return groups.removeItem(ctx, group, ref);
     },
     async setGroupItems(group, items, options = {}) {
       await guard();

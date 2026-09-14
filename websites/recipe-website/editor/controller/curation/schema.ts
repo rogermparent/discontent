@@ -150,13 +150,40 @@ export const RecipePatchSchema = z.strictObject({
 
 export type RecipePatch = z.infer<typeof RecipePatchSchema>;
 
-const GroupItemObjectSchema = z.strictObject({
-  recipe: z.string().min(1),
-  label: z.string().optional(),
-  note: z.string().optional(),
-});
+/**
+ * One item, as JSON: a recipe **or** a group, and the two free-text fields.
+ *
+ * Exported since 23c so `POST /api/group/<slug>/items` can parse its body with
+ * it rather than with a private near-copy — the route had one, and a route
+ * schema that drifts from this one is a body the CLI accepts and the API does
+ * not.
+ *
+ * The XOR is a `.refine` rather than a union of two object schemas, exactly as
+ * `FeaturedInputSchema`'s is and for the same reason: naming both, or neither,
+ * fails as one message on one field instead of as two unreadable branch
+ * failures. It reports on `recipe` because that is the side a caller who named
+ * nothing is looking at.
+ */
+export const GroupItemObjectSchema = z
+  .strictObject({
+    recipe: z.string().min(1).optional(),
+    group: z.string().min(1).optional(),
+    label: z.string().optional(),
+    note: z.string().optional(),
+  })
+  .refine((data) => Boolean(data.recipe) !== Boolean(data.group), {
+    message: "Name exactly one of `recipe` or `group`",
+    path: ["recipe"],
+  });
 
-/** `"first-recipe:Mon · Dinner"` is the shorthand `--item` accepts. */
+/**
+ * `"first-recipe:Mon · Dinner"` is the shorthand `--item` accepts.
+ *
+ * The string form stays **recipe-only** (D15). A bare slug is what a human
+ * types after `--item`, and making it ambiguous between the two content types
+ * would be a guess; the CLI's `--group-item` and the object form's `{group}`
+ * are the two ways to name a group.
+ */
 export const GroupItemInputSchema = z.union([
   z.string(),
   GroupItemObjectSchema,
@@ -261,18 +288,29 @@ export function toInstructions(
 export function toGroupItems(
   input: z.infer<typeof GroupItemInputSchema>[],
 ): GroupItem[] {
-  return input
-    .map((entry) => {
-      if (typeof entry !== "string") return entry;
-      const colon = entry.indexOf(":");
-      if (colon === -1) return { recipe: entry.trim() };
-      const label = entry.slice(colon + 1).trim();
-      return {
-        recipe: entry.slice(0, colon).trim(),
-        ...(label ? { label } : {}),
-      };
-    })
-    .filter((item) => Boolean(item.recipe));
+  return (
+    input
+      .map((entry): z.infer<typeof GroupItemObjectSchema> => {
+        if (typeof entry !== "string") return entry;
+        const colon = entry.indexOf(":");
+        if (colon === -1) return { recipe: entry.trim() };
+        const label = entry.slice(colon + 1).trim();
+        return {
+          recipe: entry.slice(0, colon).trim(),
+          ...(label ? { label } : {}),
+        };
+      })
+      /* An item naming neither is a row the caller left blank, not an error. */
+      .filter((item) => Boolean(item.recipe || item.group))
+      /*
+       * The parsed object keeps both keys optional — the XOR lives in a refine,
+       * which zod cannot narrow a type through — while `GroupItem` is a union
+       * that has already made the choice. The filter above is what makes the
+       * assertion true; the entries themselves pass through verbatim, so an
+       * object item lands on disk exactly as it was written.
+       */
+      .map((item) => item as GroupItem)
+  );
 }
 
 /** Parse, or throw the layer's own `ValidationError` with zod's issues on it. */

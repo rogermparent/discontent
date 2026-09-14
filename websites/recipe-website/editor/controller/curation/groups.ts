@@ -34,6 +34,7 @@ import type {
   GroupEntryKey,
   GroupEntryValue,
   GroupItem,
+  GroupItemRef,
   GroupKind,
   Recipe,
   RecipeEntryKey,
@@ -41,8 +42,10 @@ import type {
 } from "recipe-website-common/controller/types";
 import { groupPath, groupUrl, type CurationContext } from "./context";
 import {
+  GroupCycleError,
   NotFoundError,
   SlugConflictError,
+  UnknownGroupError,
   UnknownRecipeError,
   ValidationError,
 } from "./errors";
@@ -55,12 +58,20 @@ import {
 } from "./schema";
 import { z } from "zod";
 
-export interface ResolvedGroupItem extends GroupItem {
-  /** The recipe's own name, when it resolves. */
+/**
+ * An item with its target resolved.
+ *
+ * A `type` intersection rather than an `interface … extends` since 23c, because
+ * `GroupItem` became a union and an interface cannot extend one.
+ */
+export type ResolvedGroupItem = GroupItem & {
+  /** The recipe's or the sub-group's own name, when it resolves. */
   name?: string;
+  /** A sub-group's kind, so a caller can print the badge without a read. */
+  kind?: GroupKind;
   /** Set only when the slug resolves to nothing (D3 leaves these behind). */
   missing?: true;
-}
+};
 
 export interface GroupDetail {
   slug: string;
@@ -118,7 +129,19 @@ export async function getGroup(
 ): Promise<GroupDetail> {
   const group = await requireGroup(ctx, slug);
   const items: ResolvedGroupItem[] = await Promise.all(
-    (group.items ?? []).map(async (item) => {
+    (group.items ?? []).map(async (item): Promise<ResolvedGroupItem> => {
+      /*
+       * A sub-group resolves to its name *and* its kind: a caller printing the
+       * row — `group show`, the MCP `group_get` — wants to say "meal plan"
+       * without a second read, and the kind is the one thing a group has that
+       * a recipe does not.
+       */
+      if (item.group !== undefined) {
+        const child = await readGroup(ctx, item.group);
+        return child
+          ? { ...item, name: child.name, kind: child.kind }
+          : { ...item, missing: true as const };
+      }
       const recipe = await readContentFileOrNull<
         Recipe,
         RecipeEntryValue,
@@ -168,33 +191,135 @@ export async function listGroups(
 }
 
 /**
- * Every item's recipe must exist, unless `force`.
+ * How deep a chain of groups may go before this layer calls it a mistake.
+ *
+ * A bound rather than a promise: the DFS below terminates on its visited set
+ * alone, and this is what keeps a *legitimate* thirty-deep nesting — which
+ * would make the render-time thumbnail walk and the search expansion crawl —
+ * from being written in the first place. Thirty-two is far past any plan a
+ * person would build by hand.
+ */
+const MAX_GROUP_DEPTH = 32;
+
+/**
+ * Every item's target must exist, unless `force` — and no item may make the
+ * group contain itself, force or not (D17).
+ *
+ * The order of the four passes is the design. Self-reference comes **first**
+ * (T30): at create time the group is not on disk yet, so `{group: <own slug>}`
+ * checked after the existence pass would surface as a forceable
+ * `unknown_group` — an error that names the wrong problem and offers a flag
+ * that would write the cycle.
  *
  * The warnings are returned *and* printed to stderr by the CLI, because the
  * JSON contract keeps stdout to exactly one object — a caller parsing stdout
  * sees `warnings`, a human watching the terminal sees the lines.
  */
-async function checkRecipes(
+async function checkItems(
   ctx: CurationContext,
+  slug: string,
   items: GroupItem[],
   force: boolean,
 ): Promise<string[]> {
-  const unknown: string[] = [];
-  for (const slug of new Set(items.map((item) => item.recipe))) {
+  /* 1. The cycle of length one, before anything can mistake it for an absence. */
+  if (items.some((item) => item.group === slug)) {
+    throw new GroupCycleError([slug, slug]);
+  }
+
+  const warnings: string[] = [];
+
+  /* 2. Recipes. */
+  const unknownRecipes: string[] = [];
+  for (const recipeSlug of new Set(
+    items
+      .map((item) => item.recipe)
+      .filter((value): value is string => Boolean(value)),
+  )) {
     const recipe = await readContentFileOrNull<
       Recipe,
       RecipeEntryValue,
       RecipeEntryKey
     >({
       config: recipeContentConfig,
-      slug,
+      slug: recipeSlug,
       contentDirectory: ctx.contentDirectory,
     });
-    if (!recipe) unknown.push(slug);
+    if (!recipe) unknownRecipes.push(recipeSlug);
   }
-  if (unknown.length === 0) return [];
-  if (!force) throw new UnknownRecipeError(unknown);
-  return unknown.map((slug) => `Unknown recipe: ${slug}`);
+  if (unknownRecipes.length > 0) {
+    if (!force) throw new UnknownRecipeError(unknownRecipes);
+    warnings.push(...unknownRecipes.map((s) => `Unknown recipe: ${s}`));
+  }
+
+  /* 3. Sub-groups. Dangling is legitimate here too, so `--force` gets past it. */
+  const subgroups = [
+    ...new Set(
+      items
+        .map((item) => item.group)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+  const unknownGroups: string[] = [];
+  const existing: string[] = [];
+  for (const groupSlug of subgroups) {
+    if (await readGroup(ctx, groupSlug)) existing.push(groupSlug);
+    else unknownGroups.push(groupSlug);
+  }
+  if (unknownGroups.length > 0) {
+    if (!force) throw new UnknownGroupError(unknownGroups, { forceHint: true });
+    warnings.push(...unknownGroups.map((s) => `Unknown group: ${s}`));
+  }
+
+  /* 4. And the cycles that only exist on disk. */
+  if (existing.length > 0) await assertNoCycle(ctx, slug, existing);
+
+  return warnings;
+}
+
+/**
+ * Walk down from each sub-group being added and refuse to arrive back at the
+ * group doing the adding.
+ *
+ * Depth-first over the *data files* rather than over an index, because the
+ * write that is being validated has not happened yet and because this runs
+ * from the CLI and the MCP server, where no cached read may be called (T5).
+ * The visited set is what makes it terminate on a content directory that
+ * already contains a cycle — hand-edited, or written by an older build — and
+ * the depth cap is what keeps a legitimate but absurd chain out.
+ *
+ * The path it reports reads outermost-first and closes on itself:
+ * `["b", "a", "b"]` is "b would contain a, which already contains b".
+ */
+async function assertNoCycle(
+  ctx: CurationContext,
+  slug: string,
+  subgroups: string[],
+): Promise<void> {
+  const visited = new Set<string>();
+
+  const walk = async (current: string, path: string[]): Promise<void> => {
+    if (path.length >= MAX_GROUP_DEPTH) {
+      throw new GroupCycleError(
+        [slug, ...path],
+        `Groups may not nest deeper than ${MAX_GROUP_DEPTH}: ${[slug, ...path].join(" → ")}.`,
+      );
+    }
+    visited.add(current);
+    const group = await readGroup(ctx, current);
+    for (const item of group?.items ?? []) {
+      if (!item.group) continue;
+      if (item.group === slug) {
+        throw new GroupCycleError([slug, ...path, slug]);
+      }
+      if (visited.has(item.group)) continue;
+      await walk(item.group, [...path, item.group]);
+    }
+  };
+
+  for (const subgroup of subgroups) {
+    if (visited.has(subgroup)) continue;
+    await walk(subgroup, [subgroup]);
+  }
 }
 
 export async function createGroup(
@@ -213,7 +338,7 @@ export async function createGroup(
     );
   }
   const items = toGroupItems(input.items);
-  const warnings = await checkRecipes(ctx, items, force);
+  const warnings = await checkItems(ctx, slug, items, force);
 
   /*
    * The file name the record will carry, derived from the URL exactly as
@@ -421,7 +546,7 @@ export async function setItems(
   const parsed = parseInput(z.array(GroupItemInputSchema), rawItems);
   const items = toGroupItems(parsed);
   const current = await requireGroup(ctx, slug);
-  const warnings = await checkRecipes(ctx, items, force);
+  const warnings = await checkItems(ctx, slug, items, force);
   return writeItems(
     ctx,
     slug,
@@ -430,6 +555,19 @@ export async function setItems(
     warnings,
     `Set items on group: ${slug}`,
   );
+}
+
+/**
+ * How a commit message and a `not_found` name the thing an item points at:
+ * `first-recipe`, or `group week-of-may-4`.
+ *
+ * The recipe form is bare because it is what every message said before 23c and
+ * the history is worth not churning; the group form is qualified because
+ * "Remove week-of-may-4 from group: spring-menus" would not say which of the
+ * two kinds of row went.
+ */
+function describeRef(ref: GroupItemRef): string {
+  return ref.group !== undefined ? `group ${ref.group}` : ref.recipe;
 }
 
 /**
@@ -442,7 +580,7 @@ export async function setItems(
 export async function addItem(
   ctx: CurationContext,
   slug: string,
-  recipe: string,
+  ref: GroupItemRef,
   {
     label,
     note,
@@ -451,32 +589,41 @@ export async function addItem(
 ): Promise<GroupWriteResult> {
   const current = await requireGroup(ctx, slug);
   const item: GroupItem = {
-    recipe,
+    ...ref,
     ...(label ? { label } : {}),
     ...(note ? { note } : {}),
   };
-  const warnings = await checkRecipes(ctx, [item], force);
+  const warnings = await checkItems(ctx, slug, [item], force);
   return writeItems(
     ctx,
     slug,
     current,
     [...(current.items ?? []), item],
     warnings,
-    `Add ${recipe} to group: ${slug}`,
+    `Add ${describeRef(ref)} to group: ${slug}`,
   );
 }
 
-/** Removes *every* row naming that recipe — the inverse of `addItem`'s duplicates. */
+/** Removes *every* row naming that target — the inverse of `addItem`'s duplicates. */
 export async function removeItem(
   ctx: CurationContext,
   slug: string,
-  recipe: string,
+  ref: GroupItemRef,
 ): Promise<GroupWriteResult> {
   const current = await requireGroup(ctx, slug);
-  const items = (current.items ?? []).filter((item) => item.recipe !== recipe);
+  /*
+   * Matched on the *same* key the ref names, so removing a recipe leaves a
+   * sub-group of the same slug alone and vice versa — the two namespaces are
+   * separate and a group may legitimately be in both.
+   */
+  const items = (current.items ?? []).filter((item) =>
+    ref.group !== undefined
+      ? item.group !== ref.group
+      : item.recipe !== ref.recipe,
+  );
   if (items.length === (current.items ?? []).length) {
     throw new NotFoundError(
-      `Group "${slug}" has no item for recipe "${recipe}"`,
+      `Group "${slug}" has no item for ${describeRef(ref)}`,
       slug,
     );
   }
@@ -486,7 +633,7 @@ export async function removeItem(
     current,
     items,
     [],
-    `Remove ${recipe} from group: ${slug}`,
+    `Remove ${describeRef(ref)} from group: ${slug}`,
   );
 }
 

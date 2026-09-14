@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Badge } from "@discontent/component-library/components/ui/badge";
-import type { GroupKind } from "../../../controller/types";
+import type { GroupItem, GroupKind } from "../../../controller/types";
 import { groupKindLabel } from "../../../util/groupKindLabel";
 import { GroupThumbnail } from "../../GroupThumbnail";
 import {
@@ -33,16 +33,34 @@ export function GroupCard({
   name,
   kind,
   date,
+  image,
+  items,
   footer,
+  testId = "featured-group-card",
 }: {
   slug: string;
   name?: string;
   kind?: GroupKind;
   date: number;
+  /**
+   * The group's own picture and its items, when the caller already holds the
+   * record (23c). The featured strip does not — it borrows `name` and `kind`
+   * off the index and lets the thumbnail read the rest — but a group page
+   * rendering a *sub-group* card has the whole child in hand, and forwarding
+   * these is what keeps that card from re-reading it.
+   */
+  image?: string;
+  items?: GroupItem[];
   footer?: ReactNode;
+  /**
+   * What a test finds this card by. Defaults to the featured strip's name,
+   * which every existing spec matches on; the group page passes its own so a
+   * nested card is not counted as a featured one.
+   */
+  testId?: string;
 }) {
   return (
-    <RecipeCard testId="featured-group-card">
+    <RecipeCard testId={testId}>
       <RecipeCardLink href={`/group/${slug}`}>
         <RecipeCardImageContainer>
           {/*
@@ -54,7 +72,12 @@ export function GroupCard({
             and fires on every group write, so the picture is fresh either way;
             what the borrow would buy is one read, on one card.
           */}
-          <GroupThumbnail slug={slug} name={name ?? slug} />
+          <GroupThumbnail
+            slug={slug}
+            name={name ?? slug}
+            image={image}
+            items={items}
+          />
         </RecipeCardImageContainer>
         <RecipeCardName
           className={

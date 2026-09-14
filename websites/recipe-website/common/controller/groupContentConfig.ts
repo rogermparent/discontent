@@ -2,7 +2,7 @@ import type { ContentTypeConfig } from "@discontent/cms/content/types";
 import buildGroupIndexValue from "./buildGroupIndexValue";
 import createDefaultGroupSlug from "./createGroupSlug";
 import { featuredRecipeContentConfig } from "./featuredRecipeContentConfig";
-import { groupsByRecipe } from "./groupAggregateConfigs";
+import { groupsByGroup, groupsByRecipe } from "./groupAggregateConfigs";
 import { groupsByDate } from "./groupPaginationConfig";
 import { Group, GroupEntryKey, GroupEntryValue } from "./types";
 
@@ -58,7 +58,13 @@ export const groupContentConfig: ContentTypeConfig<
   ],
   createDefaultSlug: createDefaultGroupSlug,
   paginationIndexes: [groupsByDate],
-  aggregates: [groupsByRecipe],
+  /*
+   * Order is part of the contract: `revalidateDerivedState` emits one tag per
+   * aggregate in this order, and `test/revalidateDerived.test.ts` compares the
+   * list with `toEqual` (T36). `by-group` goes after `by-recipe` because it
+   * arrived after it.
+   */
+  aggregates: [groupsByRecipe, groupsByGroup],
   referencedBy: [
     { config: () => featuredRecipeContentConfig, indexField: "group" },
   ],

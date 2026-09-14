@@ -329,6 +329,105 @@ describe("the MCP registry over an in-memory transport", () => {
   });
 
   /* ---------------------------------------------------------------- */
+  /* 6b. Nested groups (23c)                                           */
+  /* ---------------------------------------------------------------- */
+
+  it("nests one group inside another and reads it back resolved", async () => {
+    await call("group_create", {
+      group: { name: "Week One", kind: "meal-plan" },
+    });
+    await call("group_create", { group: { name: "Spring Menus" } });
+
+    const added = await call("group_add_item", {
+      group: "spring-menus",
+      subgroup: "week-one",
+      label: "Week 1",
+    });
+    expect(added.isError).toBe(false);
+
+    expect(
+      (await call("group_get", { slug: "spring-menus" })).data.items,
+    ).toEqual([
+      {
+        group: "week-one",
+        label: "Week 1",
+        name: "Week One",
+        kind: "meal-plan",
+      },
+    ]);
+
+    /* And `group_set_items` takes the same `{group}` object (the free upgrade). */
+    await call("group_set_items", {
+      group: "spring-menus",
+      items: [{ group: "week-one", label: "Week 1 again" }],
+    });
+    expect(
+      (
+        (await call("group_get", { slug: "spring-menus" })).data
+          .items as Record<string, unknown>[]
+      )[0].label,
+    ).toBe("Week 1 again");
+
+    const removed = await call("group_remove_item", {
+      group: "spring-menus",
+      subgroup: "week-one",
+    });
+    expect(removed.isError).toBe(false);
+    expect(
+      (await call("group_get", { slug: "spring-menus" })).data.items,
+    ).toEqual([]);
+  });
+
+  it("refuses a cycle, and reports the XOR miss in the SDK's shape", async () => {
+    await call("group_create", { group: { name: "Week One" } });
+    await call("group_create", { group: { name: "Spring Menus" } });
+    await call("group_add_item", {
+      group: "spring-menus",
+      subgroup: "week-one",
+    });
+
+    /* A curation-layer failure, so it arrives as `{error: {code}}` (T28). */
+    expect(
+      await callError("group_add_item", {
+        group: "week-one",
+        subgroup: "spring-menus",
+      }),
+    ).toMatchObject({
+      code: "group_cycle",
+      groups: ["week-one", "spring-menus", "week-one"],
+    });
+
+    /*
+     * The XOR, on the other hand, is the tool schema's own refine — rejected
+     * before dispatch, in the SDK's shape and with no `structuredContent` at
+     * all (T28/T37). Pinned verbatim, because an agent reading the text is the
+     * only thing that tells it what to send next.
+     */
+    const both = await client.callTool({
+      name: "group_add_item",
+      arguments: {
+        group: "spring-menus",
+        recipe: "chocolate-cake",
+        subgroup: "week-one",
+      },
+    });
+    expect(both.isError).toBe(true);
+    expect(both.structuredContent).toBeUndefined();
+    expect((both.content as { text: string }[])[0].text).toBe(
+      "Input validation error: Invalid arguments for tool group_add_item: recipe: Name exactly one of `recipe` or `subgroup`",
+    );
+
+    const neither = await client.callTool({
+      name: "group_add_item",
+      arguments: { group: "spring-menus" },
+    });
+    expect(neither.isError).toBe(true);
+    expect((neither.content as { text: string }[])[0].text).toBe(
+      "Input validation error: Invalid arguments for tool group_add_item: recipe: Name exactly one of `recipe` or `subgroup`",
+    );
+  });
+
+  /* ---------------------------------------------------------------- */
   /* 7. Tags                                                           */
   /* ---------------------------------------------------------------- */
 

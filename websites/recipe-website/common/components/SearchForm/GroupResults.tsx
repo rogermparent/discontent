@@ -42,6 +42,14 @@ export function GroupResults() {
           // item count. They differ only for a plan that lists one recipe
           // twice, and this is the number the `group:` filter would return.
           itemCount: group.recipes.length,
+          /*
+           * Zero, not the real count: `recipes` on the corpus is already the
+           * *transitive* membership (23c), so a nested group's recipes are in
+           * that number and counting the sub-groups again would count them
+           * twice. What this card promises is what the `group:` filter would
+           * return, which is recipes.
+           */
+          groupCount: 0,
           image: group.image,
         }))}
         /*
