@@ -303,7 +303,7 @@ export function createRecipeServer(
       title: "Search recipes",
       description:
         "Free-text search over the corpus, newest first. Supports the site's query " +
-        "language: tag:, ingredient:, name:, description:, group:, time:, before:, " +
+        "language: tag:, ingredient:, name:, description:, time:, before:, " +
         "after:, and a leading - to negate a term.",
       inputSchema: z.strictObject({
         query: z.string().min(1),

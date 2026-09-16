@@ -1,0 +1,35 @@
+{
+  "name": "Sugar Cookies",
+  "date": 1764979200000,
+  "description": "Cut-out cookies that hold their shape, ready for icing.",
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"3\" /> cups flour"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> cup sugar"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> tsp almond extract"
+    }
+  ],
+  "instructions": [
+    {
+      "name": "",
+      "text": "Roll the chilled dough out and cut your shapes."
+    },
+    {
+      "name": "",
+      "text": "Bake briefly, cool completely, then ice."
+    }
+  ],
+  "prepTime": 40,
+  "cookTime": 9,
+  "totalTime": 49,
+  "recipeYield": "",
+  "tags": [
+    "cookies",
+    "dessert",
+    "baked"
+  ]
+}

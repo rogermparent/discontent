@@ -1,0 +1,36 @@
+{
+  "name": "Gingerbread Cookies",
+  "date": 1765065600000,
+  "description": "Dark molasses cookies, spicy enough to stand up to icing.",
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"3\" /> cups flour"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"0.75\" /> cup molasses"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"2\" /> tsp ground ginger"
+    }
+  ],
+  "instructions": [
+    {
+      "name": "",
+      "text": "Mix the molasses into the creamed butter and sugar."
+    },
+    {
+      "name": "",
+      "text": "Roll, cut and bake until the edges firm up."
+    }
+  ],
+  "prepTime": 45,
+  "cookTime": 10,
+  "totalTime": 55,
+  "recipeYield": "",
+  "tags": [
+    "cookies",
+    "dessert",
+    "baked",
+    "christmas"
+  ]
+}

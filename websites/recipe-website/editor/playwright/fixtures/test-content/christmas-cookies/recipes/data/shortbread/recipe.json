@@ -1,0 +1,35 @@
+{
+  "name": "Shortbread",
+  "date": 1764720000000,
+  "description": "Buttery Scottish cookies cut into fingers and pricked.",
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"2\" /> cups flour"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> cup butter"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"0.5\" /> cup sugar"
+    }
+  ],
+  "instructions": [
+    {
+      "name": "",
+      "text": "Cream the butter and sugar, then work in the flour."
+    },
+    {
+      "name": "",
+      "text": "Press into a pan, prick all over and bake until pale gold."
+    }
+  ],
+  "prepTime": 15,
+  "cookTime": 35,
+  "totalTime": 50,
+  "recipeYield": "",
+  "tags": [
+    "cookies",
+    "dessert",
+    "baked"
+  ]
+}

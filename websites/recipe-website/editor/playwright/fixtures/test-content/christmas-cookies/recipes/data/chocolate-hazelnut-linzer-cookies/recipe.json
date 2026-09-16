@@ -1,0 +1,36 @@
+{
+  "name": "Chocolate Hazelnut Linzer Cookies",
+  "date": 1765238400000,
+  "description": "Toasted hazelnut cookies sandwiched with chocolate spread instead of jam.",
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1.5\" /> cups hazelnut flour"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> cup flour"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"0.5\" /> cup chocolate spread"
+    }
+  ],
+  "instructions": [
+    {
+      "name": "",
+      "text": "Toast and grind the hazelnuts, then make the dough."
+    },
+    {
+      "name": "",
+      "text": "Bake, cool, and sandwich with the chocolate spread."
+    }
+  ],
+  "prepTime": 55,
+  "cookTime": 12,
+  "totalTime": 67,
+  "recipeYield": "",
+  "tags": [
+    "cookies",
+    "dessert",
+    "baked",
+    "christmas"
+  ]
+}

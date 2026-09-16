@@ -1,0 +1,34 @@
+{
+  "name": "Banana Bread",
+  "date": 1764633600000,
+  "description": "A dark, moist loaf for bananas that went too far on the counter.",
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"3\" /> ripe bananas"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"2\" /> cups flour"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> stick butter"
+    }
+  ],
+  "instructions": [
+    {
+      "name": "",
+      "text": "Mash the bananas into the melted butter."
+    },
+    {
+      "name": "",
+      "text": "Fold in the dry mix and bake for an hour."
+    }
+  ],
+  "prepTime": 15,
+  "cookTime": 60,
+  "totalTime": 75,
+  "recipeYield": "",
+  "tags": [
+    "breakfast",
+    "baked"
+  ]
+}

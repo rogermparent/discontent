@@ -1,0 +1,35 @@
+{
+  "name": "Snickerdoodles",
+  "date": 1764892800000,
+  "description": "Cinnamon-sugar cookies with a tang of cream of tartar.",
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"2.75\" /> cups flour"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"2\" /> tsp cream of tartar"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"2\" /> tbsp cinnamon sugar"
+    }
+  ],
+  "instructions": [
+    {
+      "name": "",
+      "text": "Chill the dough, then roll it in the cinnamon sugar."
+    },
+    {
+      "name": "",
+      "text": "Bake until the edges set and the middles are still soft."
+    }
+  ],
+  "prepTime": 20,
+  "cookTime": 11,
+  "totalTime": 31,
+  "recipeYield": "",
+  "tags": [
+    "cookies",
+    "dessert",
+    "baked"
+  ]
+}

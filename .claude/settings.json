@@ -5,7 +5,28 @@
       "Bash(pnpm --silent recipes:*)",
       "Bash(pnpm recipes:*)",
       "WebSearch",
-      "Skill(recipe-curator)"
+      "Skill(recipe-curator)",
+      "mcp__recipes__recipe_search",
+      "mcp__recipes__recipe_list",
+      "mcp__recipes__recipe_get",
+      "mcp__recipes__recipe_import",
+      "mcp__recipes__recipe_create",
+      "mcp__recipes__recipe_update",
+      "mcp__recipes__tag_list",
+      "mcp__recipes__group_list",
+      "mcp__recipes__group_get",
+      "mcp__recipes__group_create",
+      "mcp__recipes__group_update",
+      "mcp__recipes__group_set_items",
+      "mcp__recipes__group_add_item",
+      "mcp__recipes__group_remove_item",
+      "mcp__recipes__featured_list",
+      "mcp__recipes__feature",
+      "mcp__recipes__git_status",
+      "mcp__recipes__git_log",
+      "mcp__recipes__git_show",
+      "mcp__recipes__git_file_at",
+      "mcp__recipes__git_diff"
     ]
   }
 }

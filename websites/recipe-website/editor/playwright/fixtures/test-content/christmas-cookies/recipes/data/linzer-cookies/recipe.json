@@ -1,0 +1,36 @@
+{
+  "name": "Linzer Cookies",
+  "date": 1765324800000,
+  "description": "The classic: raspberry jam between two almond cookies, one with a cut-out heart.",
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1.5\" /> cups almond flour"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> cup flour"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"0.5\" /> cup raspberry jam"
+    }
+  ],
+  "instructions": [
+    {
+      "name": "",
+      "text": "Chill the dough well, then roll and cut the pairs."
+    },
+    {
+      "name": "",
+      "text": "Bake, cool, fill with jam and finish with icing sugar."
+    }
+  ],
+  "prepTime": 50,
+  "cookTime": 12,
+  "totalTime": 62,
+  "recipeYield": "",
+  "tags": [
+    "cookies",
+    "dessert",
+    "baked",
+    "christmas"
+  ]
+}

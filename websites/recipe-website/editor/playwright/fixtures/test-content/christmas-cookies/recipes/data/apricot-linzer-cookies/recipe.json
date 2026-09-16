@@ -1,0 +1,36 @@
+{
+  "name": "Apricot Linzer Cookies",
+  "date": 1765152000000,
+  "description": "Almond sandwich cookies with a window of apricot jam.",
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1.5\" /> cups almond flour"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> cup flour"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"0.5\" /> cup apricot jam"
+    }
+  ],
+  "instructions": [
+    {
+      "name": "",
+      "text": "Cut a window from half the rounds before baking."
+    },
+    {
+      "name": "",
+      "text": "Sandwich the cooled pairs with jam and dust with sugar."
+    }
+  ],
+  "prepTime": 50,
+  "cookTime": 12,
+  "totalTime": 62,
+  "recipeYield": "",
+  "tags": [
+    "cookies",
+    "dessert",
+    "baked",
+    "christmas"
+  ]
+}
