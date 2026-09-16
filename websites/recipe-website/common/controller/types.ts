@@ -161,21 +161,47 @@ export interface FeaturedRecipeEntry {
 export type GroupKind = "meal-plan" | "collection";
 
 /**
- * One line of a group: which recipe, and the two free-text fields around it.
+ * What one line of a group points at: a recipe, or — since 23c — another group.
  *
- * `recipe` is a slug, and it may dangle. Groups declare no `references` (D3) —
- * the engine's reference machinery is scalar-only and cannot follow
- * `items[].recipe` — so a recipe rename or delete leaves the slug behind and
- * the detail page renders "Recipe not found: <slug>" rather than 404ing the
- * whole group. Array references are engine follow-up F32.
+ * A union rather than two optional fields, so a row naming both is a type error
+ * rather than a question the readers have to answer. The `never` halves are
+ * what make the exclusion checkable on an object literal; the schema layer
+ * states the same rule for input that arrives as JSON (D15).
  */
-export interface GroupItem {
-  recipe: string;
-  /** "Mon · Dinner", "Starter", "Week 2" — whatever the curator wants. */
-  label?: string;
-  /** A line of prose under the item ("Leftovers for lunch"). */
-  note?: string;
-}
+export type GroupItemRef =
+  | { recipe: string; group?: never }
+  | { group: string; recipe?: never };
+
+/**
+ * One line of a group: what it points at, and the two free-text fields around
+ * it.
+ *
+ * Both kinds of slug may dangle. Groups declare no `references` (D3) — the
+ * engine's reference machinery is scalar-only and cannot follow
+ * `items[].recipe` or `items[].group` — so a rename or a delete on either side
+ * leaves the slug behind and the detail page renders "Recipe not found: <slug>"
+ * / "Group not found: <slug>" rather than 404ing the whole group (T31/T32).
+ * Array references are engine follow-up F32.
+ */
+export type GroupItem = WithItemText<GroupItemRef>;
+
+/**
+ * `GroupItemRef & {label?, note?}`, distributed over the union.
+ *
+ * The plain intersection says the same thing about values and a different thing
+ * to the narrowing analysis: `(A | B) & C` is one intersection type, and
+ * checking `item.group !== undefined` on it narrows nothing, so every reader
+ * would have to assert the other half back. Distributing makes it the ordinary
+ * two-member union the readers already treat it as.
+ */
+type WithItemText<TRef> = TRef extends unknown
+  ? TRef & {
+      /** "Mon · Dinner", "Starter", "Week 2" — whatever the curator wants. */
+      label?: string;
+      /** A line of prose under the item ("Leftovers for lunch"). */
+      note?: string;
+    }
+  : never;
 
 export interface Group {
   name: string;
@@ -220,7 +246,26 @@ export interface GroupEntryValue {
    * no key.
    */
   image?: string;
-  items: Pick<GroupItem, "recipe" | "label">[];
+  items: GroupEntryItem[];
+}
+
+/**
+ * One item as the index carries it: the slug it points at, and the label.
+ *
+ * Its own type rather than a `Pick` on `GroupItem` since 23c, because the ref
+ * is a union there and this is not one: an index value is *stored*, and an
+ * older record written before sub-groups existed carries `recipe` alone. Both
+ * fields are optional here for that reason, and the folds skip a falsy key
+ * rather than asserting one.
+ *
+ * `note` is deliberately absent — see `GroupEntryValue` — and `group` is
+ * written only when set, so every value stored before 23c is byte-identical to
+ * the one this produces today (T40).
+ */
+export interface GroupEntryItem {
+  recipe?: string;
+  group?: string;
+  label?: string;
 }
 
 export interface GroupEntry {

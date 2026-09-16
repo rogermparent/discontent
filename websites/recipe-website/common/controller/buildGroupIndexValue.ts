@@ -25,6 +25,20 @@ export default function buildGroupIndexValue(group: Group): GroupEntryValue {
      * existed, which is the kind of difference a stored hash notices.
      */
     ...(image ? { image } : {}),
-    items: (items ?? []).map(({ recipe, label }) => ({ recipe, label })),
+    /*
+     * `label` is an unconditional key and `group` a spread one, deliberately
+     * (T40): every item written before 23c carried `{recipe, label}` with
+     * `label` possibly `undefined`, so keeping that shape means a re-index of
+     * untouched content produces the bytes that are already stored — while a
+     * `group` key that appeared as `undefined` on every recipe item would move
+     * all of them. `recipe` is spread for the mirror-image reason: a sub-group
+     * row has no recipe, and writing one as `undefined` would put a key on the
+     * value that nothing reads.
+     */
+    items: (items ?? []).map(({ recipe, group, label }) => ({
+      ...(recipe ? { recipe } : {}),
+      label,
+      ...(group ? { group } : {}),
+    })),
   };
 }

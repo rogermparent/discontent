@@ -12,6 +12,7 @@ import { formatRows } from "../output";
 import type {
   DeleteResult,
   GroupDetail,
+  GroupItemRef,
   GroupListResult,
   GroupWriteResult,
 } from "../backend/types";
@@ -23,6 +24,22 @@ import {
   stringOption,
   type CommandDef,
 } from "./types";
+
+/**
+ * `--group-item spring-menus:Week 1` → `{group, label}`.
+ *
+ * Splits at the **first** colon, exactly as the recipe shorthand does, so a
+ * label may contain one.
+ */
+function toGroupItemInput(entry: string): { group: string; label?: string } {
+  const colon = entry.indexOf(":");
+  if (colon === -1) return { group: entry.trim() };
+  const label = entry.slice(colon + 1).trim();
+  return {
+    group: entry.slice(0, colon).trim(),
+    ...(label ? { label } : {}),
+  };
+}
 
 function formatWrite(verb: string, result: GroupWriteResult): string {
   return [
@@ -38,7 +55,7 @@ const groupCreate: CommandDef<GroupWriteResult> = {
   usage:
     "recipes group create --name N [--kind meal-plan|collection] [--description D] " +
     "[--slug s] [--date d] [--image-url U] " +
-    "(--file items.json | --item slug[:label] …) [--force]",
+    "(--file items.json | --item slug[:label] … [--group-item slug[:label] …]) [--force]",
   options: {
     name: { type: "string" },
     kind: { type: "string" },
@@ -49,6 +66,15 @@ const groupCreate: CommandDef<GroupWriteResult> = {
     "image-url": { type: "string" },
     file: { type: "string" },
     item: { type: "string", multiple: true },
+    /**
+     * A *group* member, in the same `slug[:label]` shorthand (23c/D15).
+     *
+     * Its own flag rather than a prefix on `--item`, because a bare slug after
+     * `--item` has always meant a recipe and a CLI that started guessing which
+     * content type a slug named would guess wrong on the day someone names a
+     * collection after a recipe.
+     */
+    "group-item": { type: "string", multiple: true },
     force: { type: "boolean" },
   },
   write: true,
@@ -57,13 +83,22 @@ const groupCreate: CommandDef<GroupWriteResult> = {
     if (!name) throw new UsageError("group create needs --name.");
     const file = stringOption(options, "file");
     const items = stringListOption(options, "item");
-    if (file && items.length > 0) {
-      throw new UsageError("Pass either --file or --item, not both.");
+    const groupItems = stringListOption(options, "group-item");
+    if (file && (items.length > 0 || groupItems.length > 0)) {
+      throw new UsageError(
+        "Pass either --file or --item/--group-item, not both.",
+      );
     }
     const itemsInput = file
       ? await readJsonInput({ file })
-      : /* `--item` may be absent entirely: an empty group is legal (T11). */
-        items;
+      : /*
+         * `--item` may be absent entirely: an empty group is legal (T11). The
+         * sub-groups are appended after the recipes rather than interleaved —
+         * `parseArgs` hands back one array per flag and the relative order of
+         * two different flags is not recoverable, so the order is stated here
+         * instead of pretended at. `--file` is how an exact order is written.
+         */
+        [...items, ...groupItems.map(toGroupItemInput)];
     const date = stringOption(options, "date");
     return backend.createGroup(
       {
@@ -182,10 +217,35 @@ const groupUpdate: CommandDef<GroupWriteResult> = {
   format: (result) => formatWrite("Updated group", result),
 };
 
+/**
+ * The recipe positional and `--group` are the two ways to name what a row
+ * points at, and exactly one of them is required (23c/D15).
+ *
+ * Naming both is refused rather than resolved by precedence: a command line
+ * that says two things is a mistake, and picking one of them silently writes
+ * the row the author did not ask for.
+ */
+function itemRef(
+  command: string,
+  recipe: string | undefined,
+  subgroup: string | undefined,
+): GroupItemRef {
+  if (recipe && subgroup) {
+    throw new UsageError(
+      `${command} takes either <recipe> or --group <group>, not both.`,
+    );
+  }
+  if (subgroup) return { group: subgroup };
+  if (recipe) return { recipe };
+  throw new UsageError(`${command} needs <recipe> or --group <group>.`);
+}
+
 const groupAdd: CommandDef<GroupWriteResult> = {
   name: "group add",
-  usage: "recipes group add <group> <recipe> [--label L] [--note N] [--force]",
+  usage:
+    "recipes group add <group> (<recipe> | --group <group>) [--label L] [--note N] [--force]",
   options: {
+    group: { type: "string" },
     label: { type: "string" },
     note: { type: "string" },
     force: { type: "boolean" },
@@ -193,29 +253,34 @@ const groupAdd: CommandDef<GroupWriteResult> = {
   write: true,
   async run({ backend, positionals, options }) {
     const [group, recipe] = positionals;
-    if (!group || !recipe) {
-      throw new UsageError("group add needs <group> and <recipe>.");
-    }
-    return backend.addGroupItem(group, recipe, {
-      label: stringOption(options, "label"),
-      note: stringOption(options, "note"),
-      force: booleanOption(options, "force"),
-    });
+    if (!group) throw new UsageError("group add needs <group>.");
+    return backend.addGroupItem(
+      group,
+      itemRef("group add", recipe, stringOption(options, "group")),
+      {
+        label: stringOption(options, "label"),
+        note: stringOption(options, "note"),
+        force: booleanOption(options, "force"),
+      },
+    );
   },
   format: (result) => formatWrite("Updated group", result),
 };
 
 const groupRemove: CommandDef<GroupWriteResult> = {
   name: "group remove",
-  usage: "recipes group remove <group> <recipe>",
-  options: {},
+  usage: "recipes group remove <group> (<recipe> | --group <group>)",
+  options: {
+    group: { type: "string" },
+  },
   write: true,
-  async run({ backend, positionals }) {
+  async run({ backend, positionals, options }) {
     const [group, recipe] = positionals;
-    if (!group || !recipe) {
-      throw new UsageError("group remove needs <group> and <recipe>.");
-    }
-    return backend.removeGroupItem(group, recipe);
+    if (!group) throw new UsageError("group remove needs <group>.");
+    return backend.removeGroupItem(
+      group,
+      itemRef("group remove", recipe, stringOption(options, "group")),
+    );
   },
   format: (result) => formatWrite("Updated group", result),
 };
@@ -261,9 +326,11 @@ const groupShow: CommandDef<GroupDetail> = {
     ].filter(Boolean);
     const items = result.items.map((item) => {
       const label = item.label ? `${item.label} — ` : "";
+      /* A sub-group says so, so a slug that is in both namespaces reads right. */
+      const target = item.group ? `group ${item.group}` : item.recipe;
       const body = item.missing
-        ? `${item.recipe} (missing)`
-        : `${item.name} (${item.recipe})`;
+        ? `${target} (missing)`
+        : `${item.name} (${target})`;
       const note = item.note ? `\n      ${item.note}` : "";
       return `  - ${label}${body}${note}`;
     });

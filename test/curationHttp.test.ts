@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CurationError,
+  GroupCycleError,
   NotFoundError,
   SlugConflictError,
   UnauthenticatedError,
@@ -41,6 +42,7 @@ describe("statusFor", () => {
       slug_conflict: 409,
       unknown_recipe: 422,
       unknown_group: 422,
+      group_cycle: 422,
       import_failed: 502,
       no_git_identity: 500,
       internal: 500,
@@ -103,6 +105,21 @@ describe("errorResponse", () => {
     expect(body.error.code).toBe("unknown_group");
     expect(body.error.groups).toEqual(["ghost"]);
     /* And no `--force` hint: featuring has no force (D5). */
+    expect(body.error.message).not.toContain("--force");
+  });
+
+  it("gives a group cycle 422 with the path it would have made", async () => {
+    /*
+     * The other 422 (23c). Same status as `unknown_group` and a different
+     * meaning: the body was well-formed and every slug in it exists, and the
+     * *shape* is what this server declines to store — which is also why there
+     * is no `--force` to offer.
+     */
+    const response = errorResponse(new GroupCycleError(["b", "a", "b"]));
+    expect(response.status).toBe(422);
+    const body = await response.json();
+    expect(body.error.code).toBe("group_cycle");
+    expect(body.error.groups).toEqual(["b", "a", "b"]);
     expect(body.error.message).not.toContain("--force");
   });
 

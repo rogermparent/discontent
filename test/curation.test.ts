@@ -451,7 +451,12 @@ describe("groups", () => {
       items: ["stew"],
     });
 
-    await groups.addItem(ctx, "weeknights", "salad", { label: "Tue" });
+    await groups.addItem(
+      ctx,
+      "weeknights",
+      { recipe: "salad" },
+      { label: "Tue" },
+    );
     expect((await groups.getGroup(ctx, "weeknights")).group.items).toEqual([
       { recipe: "stew" },
       { recipe: "salad", label: "Tue" },
@@ -465,10 +470,10 @@ describe("groups", () => {
       },
     ]);
 
-    await groups.removeItem(ctx, "weeknights", "salad");
+    await groups.removeItem(ctx, "weeknights", { recipe: "salad" });
     expect((await readAppearsIn())?.salad).toBeUndefined();
     await expect(
-      groups.removeItem(ctx, "weeknights", "salad"),
+      groups.removeItem(ctx, "weeknights", { recipe: "salad" }),
     ).rejects.toMatchObject({ code: "not_found" });
 
     await groups.setItems(ctx, "weeknights", [
@@ -554,6 +559,146 @@ describe("groups", () => {
     await expect(groups.getGroup(ctx, "weeknights")).rejects.toMatchObject({
       code: "not_found",
     });
+  });
+
+  /* ---- Nested groups (23c/D15–D17) ---- */
+
+  it("resolves a sub-group item to its name and kind, or marks it missing", async () => {
+    await groups.createGroup(ctx, {
+      name: "Week of May 4",
+      slug: "week-of-may-4",
+      kind: "meal-plan",
+      items: ["stew"],
+    });
+    await groups.createGroup(ctx, {
+      name: "Spring Menus",
+      slug: "spring-menus",
+      items: [{ group: "week-of-may-4", label: "Week 1" }, { recipe: "salad" }],
+    });
+
+    const detail = await groups.getGroup(ctx, "spring-menus");
+    expect(detail.items[0]).toEqual({
+      group: "week-of-may-4",
+      label: "Week 1",
+      name: "Week of May 4",
+      kind: "meal-plan",
+    });
+    expect(detail.items[1]).toMatchObject({ recipe: "salad", name: "Salad" });
+
+    /*
+     * Deleting the child leaves the row (T31): nothing rewrites a parent, the
+     * same D3 rule recipes have had since 22b.
+     */
+    await groups.deleteGroup(ctx, "week-of-may-4");
+    expect((await groups.getGroup(ctx, "spring-menus")).items[0]).toMatchObject(
+      { group: "week-of-may-4", missing: true },
+    );
+  });
+
+  it("refuses a sub-group that does not exist, and forces past it", async () => {
+    await expect(
+      groups.createGroup(ctx, {
+        name: "Spring Menus",
+        items: [{ group: "ghost" }],
+      }),
+    ).rejects.toMatchObject({
+      code: "unknown_group",
+      details: { groups: ["ghost"] },
+      /* The hint `UnknownGroupError` only carries when it is asked for (D17). */
+      message: expect.stringContaining("--force"),
+    });
+
+    const forced = await groups.createGroup(
+      ctx,
+      { name: "Spring Menus", items: [{ group: "ghost" }] },
+      { force: true },
+    );
+    expect(forced.warnings).toEqual(["Unknown group: ghost"]);
+  });
+
+  it("refuses a group that contains itself, at create and through addItem", async () => {
+    /*
+     * At create the group is not on disk yet, so the self-reference has to be
+     * caught before the existence pass or it surfaces as a forceable
+     * `unknown_group` and `--force` writes the cycle (T30).
+     */
+    await expect(
+      groups.createGroup(ctx, {
+        name: "Spring Menus",
+        slug: "spring-menus",
+        items: [{ group: "spring-menus" }],
+      }),
+    ).rejects.toMatchObject({
+      code: "group_cycle",
+      details: { groups: ["spring-menus", "spring-menus"] },
+    });
+    await expect(
+      groups.createGroup(
+        ctx,
+        {
+          name: "Spring Menus",
+          slug: "spring-menus",
+          items: [{ group: "spring-menus" }],
+        },
+        { force: true },
+      ),
+    ).rejects.toMatchObject({ code: "group_cycle" });
+
+    await groups.createGroup(ctx, {
+      name: "Spring Menus",
+      slug: "spring-menus",
+    });
+    await expect(
+      groups.addItem(ctx, "spring-menus", { group: "spring-menus" }),
+    ).rejects.toMatchObject({
+      code: "group_cycle",
+      details: { groups: ["spring-menus", "spring-menus"] },
+    });
+  });
+
+  it("refuses a cycle two and three levels deep, and names the path", async () => {
+    await groups.createGroup(ctx, { name: "A", slug: "a" });
+    await groups.createGroup(ctx, { name: "B", slug: "b" });
+    await groups.addItem(ctx, "a", { group: "b" });
+
+    /* b would contain a, which already contains b. */
+    await expect(
+      groups.addItem(ctx, "b", { group: "a" }),
+    ).rejects.toMatchObject({
+      code: "group_cycle",
+      details: { groups: ["b", "a", "b"] },
+    });
+
+    await groups.createGroup(ctx, { name: "C", slug: "c" });
+    await groups.addItem(ctx, "b", { group: "c" });
+    await expect(
+      groups.setItems(ctx, "c", [{ group: "a" }]),
+    ).rejects.toMatchObject({
+      code: "group_cycle",
+      details: { groups: ["c", "a", "b", "c"] },
+    });
+  });
+
+  it("removes by ref, leaving the other namespace's rows alone", async () => {
+    await groups.createGroup(ctx, { name: "Stew", slug: "stew-group" });
+    await groups.createGroup(ctx, {
+      name: "Spring Menus",
+      slug: "spring-menus",
+      items: [{ recipe: "stew" }, { group: "stew-group" }],
+    });
+
+    await groups.removeItem(ctx, "spring-menus", { group: "stew-group" });
+    expect((await groups.getGroup(ctx, "spring-menus")).group.items).toEqual([
+      { recipe: "stew" },
+    ]);
+    await expect(
+      groups.removeItem(ctx, "spring-menus", { group: "stew-group" }),
+    ).rejects.toMatchObject({ code: "not_found" });
+
+    await groups.removeItem(ctx, "spring-menus", { recipe: "stew" });
+    expect((await groups.getGroup(ctx, "spring-menus")).group.items).toEqual(
+      [],
+    );
   });
 });
 
@@ -916,7 +1061,12 @@ describe("onWrite", () => {
     expect(events[0]).toMatchObject({ contentType: "groups", kind: "create" });
     const slug = events[0].slug;
 
-    await groups.addItem(recording, slug, "first-recipe", { label: "Tue" });
+    await groups.addItem(
+      recording,
+      slug,
+      { recipe: "first-recipe" },
+      { label: "Tue" },
+    );
     expect(events[1]).toMatchObject({
       contentType: "groups",
       kind: "update",

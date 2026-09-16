@@ -1,10 +1,19 @@
+import { groupItems } from "./readGroupItem";
 import { recipeItems } from "./readRecipeItem";
 import type { Group, GroupItem, Recipe } from "../types";
 
-/** One row's item, paired with the recipe it names — or `null` if it dangles. */
+/**
+ * One row's item, paired with what it names — or `null` if it dangles.
+ *
+ * Both halves are nullable and at most one is ever set, because an item names
+ * one thing: a `{recipe}` row leaves `group` null and a `{group}` row leaves
+ * `recipe` null. Rendering reads the item's own key to know which to look at,
+ * so a dangling row is the case where the key is set and the value is null.
+ */
 export interface ResolvedGroupItem {
   item: GroupItem;
   recipe: Recipe | null;
+  group: Group | null;
 }
 
 /**
@@ -30,10 +39,17 @@ export async function resolveGroupItems(
   group: Group,
 ): Promise<ResolvedGroupItem[]> {
   return Promise.all(
-    (group.items ?? []).map(async (item) => ({
-      item,
-      recipe: await recipeItems.read(item.recipe),
-    })),
+    (group.items ?? []).map(async (item) => {
+      /*
+       * A sub-group goes through `groupItems.read` — the same cached by-slug
+       * read the cards use — so a nested group's card is fresh when the child
+       * is retitled, for the same reason and by the same tag a recipe's is.
+       */
+      if (item.group !== undefined) {
+        return { item, recipe: null, group: await groupItems.read(item.group) };
+      }
+      return { item, recipe: await recipeItems.read(item.recipe), group: null };
+    }),
   );
 }
 

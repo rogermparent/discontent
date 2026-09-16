@@ -72,6 +72,12 @@ vi.mock("recipe-website-common/controller/data/readGroupsByRecipe", () => ({
   default: {},
 }));
 
+/* The same, for the group page's own "Appears in" block (23c). */
+vi.mock("recipe-website-common/controller/data/readGroupsByGroup", () => ({
+  groupsByGroupReads: { read: async () => ({}) },
+  default: {},
+}));
+
 vi.mock("recipe-website-common/controller/data/readRecipeTagIndex", () => ({
   recipeTagIndexReads: { read: () => readTagIndex() },
   default: {},

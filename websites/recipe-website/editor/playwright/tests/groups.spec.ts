@@ -683,6 +683,180 @@ test.describe("Groups", () => {
     });
   });
 
+  /**
+   * Nested groups (23c): a collection whose first item is a meal plan.
+   *
+   * The `nested-groups` fixture is `three-recipes-groups` plus `spring-menus`,
+   * which holds `week-of-may-4` (labelled "Week 1") and `third-recipe`. That
+   * shape is what makes the thumbnail case a *precedence* assertion rather than
+   * "something rendered": the sub-group carries its own picture and the
+   * collection carries none, so a card that shows one can only have borrowed it
+   * from the child.
+   */
+  test.describe("nesting", () => {
+    test.beforeEach(async ({ resetData }) => {
+      await resetData("nested-groups");
+    });
+
+    test("renders a sub-group as a group card, and counts it apart", async ({
+      page,
+    }) => {
+      await page.goto("/group/spring-menus");
+
+      const items = page.getByTestId("group-item");
+      await expect(items).toHaveCount(2);
+
+      const nested = page.getByTestId("group-item-group");
+      await expect(nested).toHaveCount(1);
+      await expect(nested).toContainText("Week of May 4");
+      await expect(nested).toContainText("Meal plan");
+      await expect(items.nth(0)).toContainText("Week 1");
+      await expect(items.nth(1)).toContainText("Third Recipe");
+
+      /* The count names both kinds, and only when there is a second one. */
+      await expect(page.getByText("1 recipe, 1 group")).toBeVisible();
+
+      /*
+       * The featured-card silhouette wraps its whole body in one link and
+       * stamps no testid on it (unlike `List/Group`'s `group-card-link`), so
+       * the row is reached by role — which is also what a reader does.
+       */
+      await nested.getByRole("link").first().click();
+      await expect(page).toHaveURL(/\/group\/week-of-may-4$/);
+      await expect(page.getByTestId("group-item")).toHaveCount(3);
+    });
+
+    test("shows a group's own Appears in, and leaves the recipe's direct", async ({
+      page,
+    }) => {
+      await page.goto("/group/week-of-may-4");
+      const appearsIn = page.getByTestId("appears-in");
+      await expect(appearsIn).toBeVisible();
+      const entries = appearsIn.getByTestId("appears-in-item");
+      await expect(entries).toHaveCount(1);
+      await expect(entries.nth(0)).toContainText("Spring Menus");
+      await expect(entries.nth(0)).toContainText("Week 1");
+
+      /* A group in no group renders nothing at all, as a recipe does. */
+      await page.goto("/group/weeknight-favourites");
+      await expect(page.getByTestId("appears-in")).toHaveCount(0);
+
+      /*
+       * And Appears-in stays **direct** (D16): first-recipe is in the meal plan
+       * which is in the collection, and the collection is not on its list.
+       */
+      await page.goto("/recipe/first-recipe");
+      const recipeAppearsIn = page.getByTestId("appears-in");
+      await expect(recipeAppearsIn).toContainText("Week of May 4");
+      await expect(recipeAppearsIn).not.toContainText("Spring Menus");
+    });
+
+    test("lists three groups, with the parent borrowing its child's picture", async ({
+      page,
+    }) => {
+      await page.goto("/groups");
+
+      const cards = page.getByTestId("group-list").getByRole("listitem");
+      await expect(cards).toHaveCount(3);
+      await expect(cards.nth(0)).toContainText("Spring Menus");
+      await expect(cards.nth(1)).toContainText("Week of May 4");
+      await expect(cards.nth(2)).toContainText("Weeknight Favourites");
+
+      await expect(cards.nth(0).getByTestId("group-item-count")).toHaveText(
+        "1 recipe, 1 group",
+      );
+
+      /*
+       * The thumbnail walk descends: Spring Menus has no picture of its own, so
+       * it takes the first candidate that has one — the sub-group's, which is
+       * why the src is an `uploads/group/week-of-may-4` path while the rung is
+       * still "member" (D18).
+       */
+      const thumbnail = cards.nth(0).getByTestId("group-thumbnail");
+      await expect(thumbnail).toHaveAttribute("data-group-image", "member");
+      await expect(thumbnail.getByRole("img")).toHaveAttribute(
+        "src",
+        /^\/image\/uploads\/group\/week-of-may-4\/uploads\/recipe-6-test-image-alternate\.png\/.*\.webp$/,
+      );
+    });
+
+    test("`group:` search reaches the nested plan's recipes", async ({
+      page,
+    }) => {
+      await page.goto("/group/spring-menus");
+      await page.getByTestId("group-search-link").click();
+      await expect(page).toHaveURL(/\?q=group%3Aspring-menus/);
+
+      /*
+       * Third Recipe is the collection's own; First and Second are inside the
+       * meal plan. Transitive membership is the whole point of the corpus's
+       * second pass (D18) — a direct read would answer with one card.
+       */
+      await expect(searchCards(page)).toHaveCount(3, {
+        timeout: SEARCH_TIMEOUT,
+      });
+      const names = await searchCards(page)
+        .getByRole("heading")
+        .allTextContents();
+      expect(names.map((name) => name.trim()).sort()).toEqual([
+        "First Recipe",
+        "Second Recipe",
+        "Third Recipe",
+      ]);
+    });
+
+    test("the edit form carries the sub-group row through a re-save", async ({
+      page,
+      baseURL,
+    }) => {
+      await page.goto("/group/spring-menus/edit");
+      await fillSignInForm(page);
+      await markdownEditorReady(page, "description");
+
+      /*
+       * Read-only, and *submitted*: the form has no group picker (T38), so the
+       * hidden input is the only thing standing between an unrelated edit and a
+       * silently deleted sub-group.
+       */
+      const groupRow = page.getByTestId("group-item-group-row");
+      await expect(groupRow).toHaveCount(1);
+      await expect(groupRow).toContainText("Group 1: week-of-may-4");
+      await expect(
+        page.getByRole("button", { name: "Remove group 1" }),
+      ).toBeVisible();
+
+      await groupRow.getByLabel("Label").clear();
+      await groupRow.getByLabel("Label").fill("Week One");
+      await page.getByRole("button", { name: "Submit", exact: true }).click();
+
+      await expect(page).toHaveURL(baseURL + "/group/spring-menus");
+      await expect(page.getByTestId("group-item-group")).toHaveCount(1);
+      await expect(page.getByTestId("group-item").nth(0)).toContainText(
+        "Week One",
+      );
+    });
+
+    test("removing the sub-group row drops it and the child's Appears in", async ({
+      page,
+      baseURL,
+    }) => {
+      await page.goto("/group/spring-menus/edit");
+      await fillSignInForm(page);
+      await markdownEditorReady(page, "description");
+
+      await page.getByRole("button", { name: "Remove group 1" }).click();
+      await expect(page.getByTestId("group-item-group-row")).toHaveCount(0);
+      await page.getByRole("button", { name: "Submit", exact: true }).click();
+
+      await expect(page).toHaveURL(baseURL + "/group/spring-menus");
+      await expect(page.getByTestId("group-item-group")).toHaveCount(0);
+      await expect(page.getByTestId("group-item")).toHaveCount(1);
+
+      await page.goto("/group/week-of-may-4");
+      await expect(page.getByTestId("appears-in")).toHaveCount(0);
+    });
+  });
+
   test.describe("deleting", () => {
     test("removes the group, its page, and its Appears in entries", async ({
       page,

@@ -20,6 +20,14 @@ export type CurationErrorCode =
   | "unknown_recipe"
   /** A slug that named no group: featuring one, and from 23c a group item. */
   | "unknown_group"
+  /**
+   * A sub-group item that would put a group inside itself (23c/D17).
+   *
+   * Never forceable, unlike `unknown_recipe` / `unknown_group`: a dangling slug
+   * is a state the pages render, while a cycle is a shape the render walk
+   * cannot terminate on.
+   */
+  | "group_cycle"
   | "import_failed"
   | "no_git_identity"
   /**
@@ -76,21 +84,54 @@ export class UnknownRecipeError extends CurationError {
 }
 
 /**
- * `UnknownRecipeError`'s twin, without the `--force` hint.
+ * `UnknownRecipeError`'s twin, whose `--force` hint is asked for rather than
+ * assumed.
  *
  * Featuring has no force: a feature whose target does not exist renders as an
  * empty card with a borrowed name that was never borrowed, which is not a
- * legitimate state the way a dangling *group item* is (D3). So the message
- * stops at the fact rather than offering a way past it.
+ * legitimate state the way a dangling *group item* is (D3). So the default
+ * message stops at the fact rather than offering a way past it.
+ *
+ * A group item naming a missing group *is* the dangling case (23c/T31), and
+ * there the hint is the whole answer — so `checkItems` constructs this with
+ * `{forceHint: true}` and nothing else does.
  */
 export class UnknownGroupError extends CurationError {
-  constructor(groups: string[]) {
+  constructor(
+    groups: string[],
+    { forceHint = false }: { forceHint?: boolean } = {},
+  ) {
     super(
       "unknown_group",
-      `No group at ${groups.length === 1 ? "slug" : "slugs"}: ${groups.join(", ")}.`,
+      `No group at ${groups.length === 1 ? "slug" : "slugs"}: ${groups.join(", ")}.` +
+        (forceHint ? " Pass --force to add it anyway." : ""),
       { groups },
     );
     this.name = "UnknownGroupError";
+  }
+}
+
+/**
+ * A sub-group item that would make a group contain itself (23c/D17).
+ *
+ * `groups` is the **path**, first and last element the group being written:
+ * `["b", "a", "b"]` reads as "b, inside a, inside b". A self-reference is the
+ * shortest of them, `["x", "x"]`.
+ *
+ * There is no `--force`. The other two content failures are forceable because
+ * what they describe — a slug that names nothing — is a state every page
+ * already renders; a cycle is not a state at all, and the render walk that
+ * follows sub-groups for a thumbnail would only be saved from it by the bounds
+ * it carries for hand-edited files (T35).
+ */
+export class GroupCycleError extends CurationError {
+  constructor(groups: string[], message?: string) {
+    super(
+      "group_cycle",
+      message ?? `That would put a group inside itself: ${groups.join(" → ")}.`,
+      { groups },
+    );
+    this.name = "GroupCycleError";
   }
 }
 

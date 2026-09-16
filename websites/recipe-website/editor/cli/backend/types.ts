@@ -9,6 +9,7 @@
  * redeclared, so the HTTP backend's responses are typed against the same shapes
  * the local one returns and the two cannot answer in different vocabularies.
  */
+import type { GroupItemRef } from "recipe-website-common/controller/types";
 import type {
   FeaturedListResult,
   FeaturedWriteResult,
@@ -31,6 +32,7 @@ export type {
   FeaturedListResult,
   FeaturedWriteResult,
   GroupDetail,
+  GroupItemRef,
   GroupListResult,
   GroupWriteResult,
   ImportResult,
@@ -81,12 +83,19 @@ export interface CuratorBackend {
   ): Promise<GroupWriteResult>;
   /** Everything about a group except its items (D4). */
   updateGroup(slug: string, raw: unknown): Promise<GroupWriteResult>;
+  /**
+   * Append one item — a recipe, or since 23c another group (D15).
+   *
+   * The ref is one object rather than two parameters so the two kinds cannot
+   * both be passed, and so a third kind would be one type change here rather
+   * than a new argument at every implementation.
+   */
   addGroupItem(
     group: string,
-    recipe: string,
+    ref: GroupItemRef,
     options?: { label?: string; note?: string; force?: boolean },
   ): Promise<GroupWriteResult>;
-  removeGroupItem(group: string, recipe: string): Promise<GroupWriteResult>;
+  removeGroupItem(group: string, ref: GroupItemRef): Promise<GroupWriteResult>;
   setGroupItems(
     group: string,
     items: unknown,

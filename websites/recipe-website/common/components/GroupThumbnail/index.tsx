@@ -20,6 +20,22 @@ import { GroupThumbnailPlaceholder } from "./Placeholder";
 const MEMBERS_WALKED = 6;
 
 /**
+ * How many levels of sub-group the walk descends through (23c/D18).
+ *
+ * Four, with `MEMBERS_WALKED` still capping the candidates: the two bounds
+ * multiply, so the worst case is a fixed handful of cached reads however a
+ * curator has nested things. The visited set below is the other half — it is
+ * what makes a cycle *on disk* (hand-edited, or written before the write-time
+ * check existed) terminate rather than hang a render (T35).
+ */
+const GROUPS_DEEP = 4;
+
+/** What the walk found to draw: a member recipe, or a sub-group's own picture. */
+type Candidate =
+  | { kind: "recipe"; slug: string }
+  | { kind: "group"; slug: string; image: string };
+
+/**
  * A group's picture: its own image, else its first member with a photo, else a
  * placeholder.
  *
@@ -81,46 +97,115 @@ export async function GroupThumbnail({
 
   const groupItemList = items ?? group?.items ?? [];
 
-  /* Distinct, in the group's order: a meal plan may list one recipe twice. */
-  const candidates: string[] = [];
-  const seen = new Set<string>();
-  for (const item of groupItemList) {
-    if (!item?.recipe || seen.has(item.recipe)) continue;
-    seen.add(item.recipe);
-    candidates.push(item.recipe);
-    if (candidates.length >= MEMBERS_WALKED) break;
-  }
+  const candidates = await collectCandidates(groupItemList, 1, {
+    candidates: [],
+    seenRecipes: new Set<string>(),
+    /* Seeded with this group, so a plan that lists itself stops immediately. */
+    visitedGroups: new Set<string>([slug]),
+  });
 
   /*
    * Concurrent, then chosen positionally — `Promise.all` resolves in order, so
    * "the first member with a photo" stays the group's own first, not whichever
-   * read settled first.
+   * read settled first. A sub-group candidate already carries its picture: the
+   * walk only kept it *because* it had one.
    */
-  const recipes = await Promise.all(
-    candidates.map((recipeSlug) => recipeItems.read(recipeSlug)),
+  const images = await Promise.all(
+    candidates.map(async (candidate) =>
+      candidate.kind === "group"
+        ? candidate.image
+        : (await recipeItems.read(candidate.slug))?.image,
+    ),
   );
-  const index = recipes.findIndex((recipe) => Boolean(recipe?.image));
-  const memberImage = index === -1 ? undefined : recipes[index]?.image;
+  const index = images.findIndex(Boolean);
 
-  if (memberImage) {
+  if (index !== -1) {
+    const candidate = candidates[index];
+    const memberImage = images[index] as string;
     return (
       <div
         data-testid="group-thumbnail"
+        /*
+         * "member" for both kinds. The distinction the attribute exists to make
+         * is *whose* picture this is — the group's own, or one it borrowed —
+         * and a picture borrowed from a sub-group is still borrowed.
+         */
         data-group-image="member"
         className={box}
       >
-        <RecipeImage
-          slug={candidates[index]}
-          image={memberImage}
-          alt={name}
-          className={recipeCardImageClassName}
-          {...standardRecipeImageProps}
-        />
+        {candidate.kind === "group" ? (
+          <GroupImage
+            slug={candidate.slug}
+            image={memberImage}
+            alt={name}
+            className={recipeCardImageClassName}
+            {...standardRecipeImageProps}
+          />
+        ) : (
+          <RecipeImage
+            slug={candidate.slug}
+            image={memberImage}
+            alt={name}
+            className={recipeCardImageClassName}
+            {...standardRecipeImageProps}
+          />
+        )}
       </div>
     );
   }
 
   return <GroupThumbnailPlaceholder className={box} />;
+}
+
+/**
+ * The members worth reading a picture from, depth-first in the group's order
+ * (23c/D18).
+ *
+ * Depth-first rather than level-by-level because the order *is* the answer: the
+ * first row of a collection whose first entry is a meal plan should show that
+ * meal plan's picture, not the collection's third recipe. A sub-group with its
+ * own image is a candidate as it stands; one without is descended into, which
+ * is what lets a collection of plans of recipes still find a photo.
+ *
+ * Recipes are deduped (a plan may cook one twice) and groups are visited once
+ * (two plans may share a child, and a hand-written file may loop).
+ */
+async function collectCandidates(
+  items: GroupItem[],
+  depth: number,
+  state: {
+    candidates: Candidate[];
+    seenRecipes: Set<string>;
+    visitedGroups: Set<string>;
+  },
+): Promise<Candidate[]> {
+  for (const item of items) {
+    if (state.candidates.length >= MEMBERS_WALKED) break;
+
+    if (item?.recipe) {
+      if (state.seenRecipes.has(item.recipe)) continue;
+      state.seenRecipes.add(item.recipe);
+      state.candidates.push({ kind: "recipe", slug: item.recipe });
+      continue;
+    }
+
+    if (!item?.group || state.visitedGroups.has(item.group)) continue;
+    state.visitedGroups.add(item.group);
+    if (depth >= GROUPS_DEEP) continue;
+
+    const child = await groupItems.read(item.group);
+    if (!child) continue;
+    if (child.image) {
+      state.candidates.push({
+        kind: "group",
+        slug: item.group,
+        image: child.image,
+      });
+      continue;
+    }
+    await collectCandidates(child.items ?? [], depth + 1, state);
+  }
+  return state.candidates;
 }
 
 export default GroupThumbnail;
