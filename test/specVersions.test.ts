@@ -213,13 +213,13 @@ describe("declared spec versions", () => {
   it("engine taxonomy folds", () => {
     expect(readConfigModule("packages/cms/taxonomies/aggregates.ts"))
       .toMatchInlineSnapshot(`
-      {
-        "hash": "58eb91fa2cc91be7",
-        "versions": [
-          "1",
-        ],
-      }
-    `);
+        {
+          "hash": "38a209cd0c85b3f4",
+          "versions": [
+            "1",
+          ],
+        }
+      `);
   });
 
   it("engine term tree fold", () => {

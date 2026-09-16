@@ -6,7 +6,9 @@
 > `24x` phase: the plan file that seeded it is gone. Update the roadmap
 > **Status** column, each phase's decision checkboxes, and the **Next PR** line
 > at every phase boundary. Each phase is a stacked PR and gets its own
-> plan-mode pass seeded from this doc (see _How a phase is run_). The previous
+> plan-mode pass seeded from this doc (see _How a phase is run_). **24a is
+> closed out (2026-09-16, draft PR #143); 24b is next and starts by deciding
+> D5.** The previous
 > epics' docs — `agent-curation.md` (22) and `agent-mcp.md` (23) — are the
 > reference for everything the curation layer and the MCP already do; their
 > D-lists and T-lists are cited here by number with a `22-` / `23-` prefix
@@ -158,9 +160,12 @@ noteAggregates}.ts`. `test/aggregates.test.ts` (19 cases) is the engine-level
    type's content database, finds candidates via `indexField` (index scan) or
    via data files, rewrites each candidate through the dependent's
    `buildIndexValue` with a resolver, and returns touched paths for the
-   commit. **No spec in the repo points a type at itself**; a self-referencing
-   edge means the pass re-opens the environment the write just closed and
-   rewrites siblings of the item being written. Unproven — see D2 and T8.
+   commit. **No spec in the repo pointed a type at itself before 24a.**
+   _Corrected at 24a close-out:_ the "re-opens the environment the write just
+   closed" premise was wrong — `getContentDatabase` hands back the cached
+   environment (F1), so the dependent scan and the write share one live
+   environment, and dependent = self needs no special case. Proven green; see
+   T8 and the 24a close-out.
 7. **Docs.** `incremental-regeneration.md` §10's last rows are F29/F31; there
    is no F32 row yet (the number is reserved in `docs/backlog.md` for array
    references). §11.1 **F8b** (deferred) fixes the shape for paginated
@@ -281,6 +286,14 @@ The engine derives, per taxonomy (`packages/cms/taxonomies/aggregates.ts`):
 - `appearsInAggregate` stays as is (one row per item, duplicates must
   survive); it is re-expressible over the same inverted primitive later. Not
   in scope.
+- _Recorded at 24a close-out:_ because the terms value carries `count`, a
+  **second carrier of an existing term moves both records** (the hand-written
+  `Set<string>` folds reported `changed: false` there). The kind's payoff
+  holds where it matters — a write touching neither the vocabulary nor a
+  projected field moves neither record — and the demo's tag cloud stays
+  byte-identical because it renders labels only. Sites that render counts
+  on `/tags` pay one extra invalidation per tagged write, which is what
+  they would pay anyway through `by-tag`.
 
 ### D2 — Term records (engine primitive at 24a, site adoption at 24c)
 
@@ -473,7 +486,13 @@ See the roadmap table below. Doc = this file; branches stacked off `main`.
    proves the parent-rename → child `parentLabel` case on the demo term type
    (green) or leaves the case `it.skip` with the exact reason, and 24c's plan
    reads that verdict before it relies on it (fallback: curation-layer rewrite
-   at `term_rename`).
+   at `term_rename`). **Verdict (24a, green, no fallback needed):** parent
+   rename rewrites the child's data-file `parent` and index `parentLabel`;
+   a parent label edit alone moves `parentLabel`; an unborrowed edit moves
+   nothing. The trap that remains is narrower: the candidate scan matches
+   `value.parent === <old slug>`, so a term whose `parent` names itself would
+   be its own candidate — the seat (24e) must reject `parent === slug`, and
+   the tree fold already drops it from its own `children`.
 9. **T9 — By-term record size threshold** is ~150 KB (F8b, F28). 24f measures
    the real record after the backfill; over the threshold → slim `project`
    first, then F8b partitions (24g).
@@ -499,19 +518,31 @@ Each branch is off the previous. Rebase children after a parent merges.
 
 | PR      | Branch (← parent)                    | Status  | Scope                                                                                                                                                                                                                                                       |
 | ------- | ------------------------------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **24a** | `agent/24a-taxonomy-engine` ← `main` | 🟡 next | This doc; D1 + D2 primitives in `packages/cms/taxonomies/`; `aggregatesOf` at the two seats; demo notes adopt (terms + by-term); demo term type + the self-reference proof (T8); `incremental-regeneration.md` §10 F33 + §11; epic-23 housekeeping docs (M) |
-| 24b     | `agent/24b-taxonomy-adopt` ← 24a     | ⏸️      | Recipes → taxonomy (delete the pair, keep names, v2), readers, groups gain `tags` (types, index value, schemas, form, seat), portfolio declares + routes, `/tags` unions; all 15 recipe fixtures regenerated; **D5 decided here** (M–L)                     |
+| **24a** | `agent/24a-taxonomy-engine` ← `main` | ✅ done | This doc; D1 + D2 primitives in `packages/cms/taxonomies/`; `aggregatesOf` at the two seats; demo notes adopt (terms + by-term); demo term type + the self-reference proof (T8); `incremental-regeneration.md` §10 F33 + §11; epic-23 housekeeping docs (M) |
+| 24b     | `agent/24b-taxonomy-adopt` ← 24a     | 🟡 next | Recipes → taxonomy (delete the pair, keep names, v2), readers, groups gain `tags` (types, index value, schemas, form, seat), portfolio declares + routes, `/tags` unions; all 15 recipe fixtures regenerated; **D5 decided here** (M–L)                     |
 | 24c     | `agent/24c-term-records` ← 24b       | ⏸️      | `tagTermContentConfig` in the registry, tree read + label override, term page metadata / breadcrumb / children, `feature {term}` (featured v3), `christmas-cookies` seed gains term records (L)                                                             |
 | 24d     | `agent/24d-taxonomy-search` ← 24c    | ⏸️      | Resolver, `/search/terms`, one "all terms" source, hierarchical autocomplete / ⌘K, server descendant expansion + `group:` parity (L)                                                                                                                        |
 | 24e     | `agent/24e-term-seats` ← 24d         | ⏸️      | Seats / CLI / API / MCP / skill v3 + the fixture acceptance test (D7) (L)                                                                                                                                                                                   |
 | 24f     | `agent/24f-taxonomy-closeout` ← 24e  | ⏸️      | Backfill on the real repo (content task), the real story run, by-term measurement, backlog strikes, close-out, memory (S code / L content)                                                                                                                  |
 | 24g     | conditional                          | ⏸️      | F8b partitions, only if 24f's by-term number exceeds 150 KB (L)                                                                                                                                                                                             |
 
-**Next PR:** 24a — this session; see the phase detail below.
+**Next PR: 24b** — `agent/24b-taxonomy-adopt` stacked on
+`agent/24a-taxonomy-engine` (draft PR #143; retarget to `main` after #143
+merges, 22-T20). Start its plan-mode session from **D4 and D5**, and decide
+**D5 first** — the answer changes what `Group` gains (only `tags`, or also a
+narrowed `kind`) and what the recipe `/tags` route unions. Then: recipes
+declare `recipeTagTaxonomy` (`name: "tag"`, `field: "tags"`, `version: "2"`,
+`project` = today's `RecipeListEntry` projection) and delete `recipeTags` /
+`recipesByTag`; readers move to `createCachedTaxonomyReads`; groups gain
+`tags` (T7); portfolio declares + routes; all 15 recipe fixtures regenerated
+in their own commit (T6). Facts to validate first: the recipe `TagPage`
+reader's shape (`recipes` → `items`), `getAllTags()` callers, the
+`group_update` patch schema, and the 24a close-out below (the `count` trade,
+the third seat).
 
 ## Phase detail
 
-### PR 24a — Taxonomy engine `agent/24a-taxonomy-engine` 🟡 (← `main`)
+### PR 24a — Taxonomy engine `agent/24a-taxonomy-engine` ✅ done (← `main`)
 
 Worktree `.claude/worktrees/agent-24a`, base `main` at `bd02f6f9`. No
 recipe-site change; the engine and the demo only.
@@ -528,7 +559,7 @@ D1 and D2 in full. Module layout under `packages/cms/taxonomies/`:
 | `read.ts`             | `readTaxonomyTerms({config, taxonomy, contentDirectory?})`, `readTaxonomyByTerm(...)` — Node-safe, over `readAggregate`                                                                                         |
 | `next/cachedReads.ts` | `createCachedTaxonomyReads({config, taxonomy, contentDirectory?})` → `{terms, byTerm}`, each a `createCachedAggregateRead` result                                                                               |
 | `termContentType.ts`  | `createTermContentType({taxonomy, directory, uploadsDirectory?, buildIndexValue?})`, `Term`, `TermIndexValue`, `TermIndexKey`                                                                                   |
-| `tree.ts`             | `termTreeAggregate(taxonomy)` (`name: "tree"`, `version: "1"`), `TermTree = Record<slug, {label, parent?, children: string[], image?}>`                                                                         |
+| `tree.ts`             | `termTreeAggregate()` (`name: "tree"`, `version: "1"`; takes no argument, close-out divergence 5), `TermTree = Record<slug, {label, parent?, children: string[], image?}>`                                      |
 
 Fold rules: a carrier's `field` value that is not an array is treated as
 empty; each raw term is `normalizeTerm`ed, slugged, and the empty slug is
@@ -643,14 +674,86 @@ consumer (24c); `/search/terms`; seats; F32.
   typechecks clean; the self-reference case green or `it.skip` with a written
   reason.
 
-#### Decisions and close-out
+#### Decisions and close-out (2026-09-16)
 
-_(Filled in by Fable at review.)_
+Draft PR **#143** against `main`. Commits: `52feb70e` design (this doc,
+backlog, F33 row, `agent-mcp.md` landing note, CLAUDE.md), `999dae32`
+implementation (26 files, +1890/−91), then the close-out and the CI-result
+commits. Worktree `.claude/worktrees/agent-24a`.
+
+**Gates (Fable's rerun after review; the implementer's run matched):**
+
+| Gate                                                                        | Result                                                                         |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `pnpm --filter recipe-editor typecheck`                                     | exit 0                                                                         |
+| `pnpm --filter recipe-website exec tsc --noEmit`                            | exit 0                                                                         |
+| `pnpm --filter discontent-demo exec tsc --noEmit`                           | exit 0                                                                         |
+| `pnpm exec vitest run`                                                      | **32 files, 573 passed** (535 at base + 36 new + 2 pins)                       |
+| `pnpm exec lint-staged --diff main`                                         | pass (64 files)                                                                |
+| demo `pnpm e2e-dev -- tests/aggregates.spec.ts` (dev)                       | **7 passed** (27.8 s); implementer's whole demo suite **109 passed** (2.2 min) |
+| `git status --porcelain websites/recipe-website/editor/playwright/fixtures` | empty (T6)                                                                     |
+
+**The T8 verdict — green, no fallback.** Against the demo's real
+`createTermContentType` config through `createContent` / `updateContent`:
+renaming a parent (`cookies` → `holiday-cookies`) rewrites the child's
+data-file `parent` and its index `parentLabel` (`dependents[0] =
+{contentType: "tag-terms", updatedSlugs: ["linzer"]}`); editing the parent's
+`label` alone moves `parentLabel`; editing `description` moves nothing.
+Mechanism: `updateContent` runs `updateDependents` after its own index write
+and `getContentDatabase` returns the cached environment (F1), so dependent =
+self shares one live environment; `borrowedFieldsOf` walks `referencedBy →
+self → references` and yields `["label"]`; `findViaIndex` matches
+`value.parent === <old slug>`, which the item being written does not carry.
+**24c may rely on the edge**; the curation-layer rewrite at `term_rename` is
+struck from D7's obligations (rename still rewrites _carriers'_ strings —
+that part stands).
+
+**Divergences from the section, accepted:**
+
+1. **Three `aggregatesOf` seats, not two.** `syncPaginationItems` gates the
+   derived pass on `config.aggregates.length > 0`; left alone, a type whose
+   only derived state is a taxonomy would never fold — silently. Fixed and
+   pinned (`test/taxonomies.test.ts` "runs the aggregate pass for a type with
+   a taxonomy and no pagination index"). D1's "exactly two call sites" is
+   superseded by the module comment's three.
+2. **`aggregates.spec.ts` assertions moved** for the `count` trade recorded
+   under D1: four `readAggregateChanges()` expectations now read
+   `["notes/by-tag", "notes/tags"]`; the tag-cloud text and byte-identical
+   HTML assertions are unchanged, and "editing a title moves a page and not
+   the aggregate" still asserts `[]`.
+3. **`revalidateDerived.test.ts`'s demo case** also gained
+   `aggregate:tag-terms:tree` and `item:tag-terms` (the registry entry); the
+   five original tags are kept as an explicit floor.
+4. **`specVersions.test.ts`'s regex** also matches `VERSION = "…"`, or the
+   engine's `aggregates.ts` (whose only literal is `TAXONOMY_FOLD_VERSION`)
+   could not be pinned; `noteTaxonomy.ts` is pinned as a new config module
+   (T1), not just `noteAggregates.ts` removed.
+5. **`termTreeAggregate()` takes no argument** — the parameter had no use
+   and eslint's `args: "all"` rejects an unused one; the aggregate is scoped
+   by the term content type that declares it.
+6. No new demo page was needed.
+
+**Review fixes (Fable):** the `aggregatesOf` doc comment said two seats;
+corrected to three (re-snapshot of `specVersions` for the comment edit — no
+version bump, T1's safe direction).
+
+**Traps met:** an interrupted demo Playwright run leaves its dev server
+alive (`pkill -f "playwright test"` misses it — the cmdline is `node
+…/@playwright/test/cli.js test`), and a second run reuses the server so two
+suites race on one `test-content`; kill by PID, `rm -rf
+packages/cms/demo/test-content`, rerun. One unreproducible single-test
+failure in one mid-session vitest run (not captured; three subsequent full
+runs 573/573) — watch for it in CI.
+
+**Follow-ups filed:** none new beyond Deferred. F33's §10 row is **Done**
+(573 vitest); §11.1 carries the "what 24a built" paragraph and the verdict.
 
 ## Verification (epic-level)
 
-- 24a: `test/taxonomies.test.ts` green; demo `aggregates.spec.ts` green with
-  unchanged assertions; the T8 verdict recorded in the phase close-out.
+- 24a: ✅ `test/taxonomies.test.ts` green (36 cases); demo
+  `aggregates.spec.ts` green with the cloud assertions unchanged (the
+  recorded-changes assertions moved for the `count` trade, D1); the T8
+  verdict recorded in the phase close-out.
 - 24b: recipe `/tags` and `/tags/[tag]` render from the taxonomy aggregates
   with byte-identical HTML for the same fixture; a group with tags appears on
   `/tags/<slug>`; portfolio's `/tags` exists; `specVersions` snapshots show

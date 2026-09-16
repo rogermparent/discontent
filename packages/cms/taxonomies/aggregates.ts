@@ -180,11 +180,13 @@ export function taxonomyAggregates<TIndexValue, TKey extends Key, TItem>(
 /**
  * Every aggregate a content type actually has — declared and derived.
  *
- * **The single derivation.** Exactly two seats read it: `updateAggregates`,
- * which folds them, and `derivedTagsOf`, which names their cache tags.
- * Everything else — `rebuildIndex`, `rebuildFixtureIndexes`, `derivedPaths`,
- * the write path's changes artifact — inherits through those two, which is why
- * declaring a taxonomy needed no other engine edit.
+ * **The single derivation.** Exactly three seats read it: `updateAggregates`,
+ * which folds them; `derivedTagsOf`, which names their cache tags; and the
+ * `hasAggregates` gate in `syncPaginationItems`, which decides whether the
+ * derived pass runs at all. Everything else — `rebuildIndex`,
+ * `rebuildFixtureIndexes`, `derivedPaths`, the write path's changes artifact —
+ * inherits through those three, which is why declaring a taxonomy needed no
+ * other engine edit.
  *
  * **Order is the contract** (T4): declared aggregates first, then taxonomies in
  * declaration order, each one's terms before its by-term. `derivedTagsOf`'s
