@@ -23,20 +23,19 @@ is a symlink to it (and is gitignored here). Never commit anything under
 
 ## Curating recipes
 
-The `recipe-curator` skill (`.claude/skills/recipe-curator/`) imports, cites
-and groups recipes. It has exactly one command form, run **from the repo
-root**:
+The `recipe-curator` skill (`.claude/skills/recipe-curator/`) imports, cites,
+groups and features recipes through the **`recipes` MCP server** — `.mcp.json`
+registers it, `.claude/settings.json` pre-approves its 21 non-destructive
+tools, and the skill's frontmatter lists the same 21. Held back, deliberately:
+`recipe_delete`, `group_delete`, `unfeature`, `reindex`, `git_revert`,
+`git_restore`, `git_push`. The server reads `CONTENT_DIRECTORY` (or
+`RECIPE_API_URL` for a running editor, with `RECIPE_API_TOKEN`); with neither
+set it writes — and commits — to the real content repo through that symlink.
 
-```
-pnpm --silent recipes <command> … --json
-```
-
-`--silent` keeps pnpm's script banner off stdout so `--json` output is a
-single object. `pnpm --silent recipes --help` lists every command, global and
-environment variable (`CONTENT_DIRECTORY`, `RECIPE_API_URL`,
-`RECIPE_API_TOKEN`, `RECIPE_EDITOR_URL`, `RECIPE_AUTHOR`). Without
-`CONTENT_DIRECTORY` or `--content-dir` it writes — and commits — to the real
-content repo through that symlink.
+The same operations exist as a CLI fallback, `pnpm --silent recipes <command>
+… --json` from the repo root (`--silent` keeps pnpm's banner out of the JSON).
+`pnpm --silent recipes --help` lists every command, global and environment
+variable.
 
 ## Durable docs
 

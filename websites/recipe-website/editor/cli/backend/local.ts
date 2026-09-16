@@ -36,9 +36,16 @@ import type { CuratorBackend } from "./types";
 export const STALE_EDITOR_HINT =
   "A running editor is stale until Settings → Maintenance → Reload.";
 
-/** Shown once, to a caller who has not discovered `--notify` yet. */
+/**
+ * Shown once, to a caller who has not set the invalidation up yet.
+ *
+ * Both halves are true of both callers: `resolveNotify` turns notification on
+ * from `RECIPE_EDITOR_URL` alone, which is what the MCP tools have (`.mcp.json`
+ * passes it through and there are no flags out there), and the CLI additionally
+ * takes the two flags.
+ */
 const NOTIFY_SUGGESTION =
-  " Pass --notify --editor-url <url> to invalidate it automatically.";
+  " Set RECIPE_EDITOR_URL (or pass --notify --editor-url <url>) to invalidate it automatically.";
 
 export interface NotifyTarget {
   url: string;

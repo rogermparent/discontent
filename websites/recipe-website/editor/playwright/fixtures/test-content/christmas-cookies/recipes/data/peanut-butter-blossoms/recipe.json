@@ -1,0 +1,35 @@
+{
+  "name": "Peanut Butter Blossoms",
+  "date": 1764806400000,
+  "description": "Rolled peanut butter cookies topped with a chocolate kiss the moment they leave the oven.",
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> cup peanut butter"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1.75\" /> cups flour"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"48\" /> chocolate kisses"
+    }
+  ],
+  "instructions": [
+    {
+      "name": "",
+      "text": "Roll the dough into balls and coat them in sugar."
+    },
+    {
+      "name": "",
+      "text": "Bake, then press a kiss into each one while warm."
+    }
+  ],
+  "prepTime": 25,
+  "cookTime": 10,
+  "totalTime": 35,
+  "recipeYield": "",
+  "tags": [
+    "cookies",
+    "dessert",
+    "baked"
+  ]
+}
