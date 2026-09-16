@@ -6,7 +6,9 @@
 > `23x` phase: the plan file that seeded it is gone. Update the roadmap
 > **Status** column, each phase's decision checkboxes, and the **Next PR** line
 > at every phase boundary. Each phase is a stacked PR and gets its own
-> plan-mode pass seeded from this doc (see _How a phase is run_). The previous
+> plan-mode pass seeded from this doc (see _How a phase is run_). **All six
+> phases are closed out (2026-09-15); the roadmap's "Epic complete" note
+> carries the landing order and the user's last step.** The previous
 > epic's doc, `agent-curation.md`, is the reference for everything the
 > curation layer already does; its D-list and T-list are cited here by number
 > with a `22-` prefix (`22-D3`, `22-T1`).
@@ -992,15 +994,17 @@ Each branch is off the previous. Rebase children after a parent merges.
 | 23c | `agent/23c-nested-groups` ← 23b     | ✅ done | D6/D15–D18: `{group}` items, `group_cycle`, `groupsByDate` v3 + `by-group` aggregate, group cards + Appears-in on group pages, transitive `group:` search, CLI `--group-item`/`--group`, MCP `subgroup`, `nested-groups` fixture |
 | 23d | `agent/23d-git-seats` ← 23c         | ✅ done | D7: `curation/git.ts`, `/api/git/*`, CLI `git …`, MCP git tools; tests on a temp repo; `/git` page keeps its behaviour                                                                                                           |
 | 23e | `agent/23e-mcp-http` ← 23d          | ✅ done | D8/D24–D26: `POST /api/mcp` route on `createMcpHandler`, `inProcess` local backend, `mcp/http.ts`; `test/mcpHttp.test.ts` (client via handler) + `mcp-http.spec.ts` against `next dev`                                           |
-| 23f | `agent/23f-curator-skill-v2` ← 23e  | 🟡 wip  | D9: skill rewrite, examples, acceptance test of the user story, docs close-out, backlog update, memory                                                                                                                           |
+| 23f | `agent/23f-curator-skill-v2` ← 23e  | ✅ done | D9: skill rewrite, examples, acceptance test of the user story, docs close-out, backlog update, memory                                                                                                                           |
 
-**Next PR:** 23f — `agent/23f-curator-skill-v2` off `agent/23e-mcp-http`
-(the stack is #138 → #139 → #140 → #141; rebase each child onto `main` as
-its parent merges, T20). Start from D9 and the 23f seed section below in a
-fresh plan-mode session; verify Claude Code's current `allowed-tools` syntax
-for MCP tool names (`mcp__recipes__*`) and the skill frontmatter it accepts
-against the installed CLI before designing, and decide there whether the
-skill documents the HTTP transport (D24) next to stdio.
+**Epic complete (2026-09-15).** Every phase is designed, implemented,
+reviewed and closed out in this doc; nothing has merged yet. Landing order,
+each a draft PR against its parent: #138 (23b) → #139 (23c) → #140 (23d) →
+#141 (23e) → #142 (23f). For each: merge the parent, **retarget the child to
+`main`, then** delete the parent's branch (T20); the recipe Playwright shards
+run on a PR only once its base is `main`. After #142 lands, the user's real
+run — `/recipe-curator` with the Christmas-Cookies ask against the real
+content repo — is the epic's last checkbox (Verification, below). Anything
+still open is in Deferred and `docs/backlog.md`.
 
 ## Phase detail
 
@@ -2892,7 +2896,7 @@ by `/group/mcp-week` and `/groups` without a reload; without a token → 401
 `unauthenticated`; `GET /api/mcp` → 405; Claude Code's own client listed the
 groups through the endpoint against `next dev`.
 
-### PR 23f — Curator skill v2 `agent/23f-curator-skill-v2` 🟡 in progress (← 23e)
+### PR 23f — Curator skill v2 `agent/23f-curator-skill-v2` ✅ done (← 23e)
 
 Branch `agent/23f-curator-skill-v2` off `agent/23e-mcp-http` at `b0ef22eb`
 (the stack is #138 → #139 → #140 → #141 → this PR; the merge/retarget/rebase
@@ -3229,6 +3233,104 @@ places; Run A completes the story headlessly from `/recipe-curator` with
 zero permission denials and no held-back tool; `examples.md` shows both
 runs; the user's real run is the epic's last checkbox.
 
+#### Decisions and close-out (2026-09-15)
+
+Commits on `agent/23f-curator-skill-v2`: `46876f5d` (this design),
+`3d8819be` (implementation, 28 files, +1399 −272), the close-out (this
+commit; `examples.md` from the two runs). Draft PR #142 against
+`agent/23e-mcp-http`; retarget to `main` after #141 merges (T20).
+
+- [x] D9 (amended) / D27: `SKILL.md` v2, 179 lines — 21 tools on one
+      `allowed-tools:` line, eight tool-first steps with a JSON example and
+      the result shape each, "Held back" (the seven) replaces "Never",
+      "Fallback (CLI)" carries the flag Nevers plus `--content-dir`, the
+      HTTP paragraph sits at the end of step 1 (same server name `recipes`).
+- [x] D28: `.claude/settings.json` +21 `mcp__recipes__<tool>` entries;
+      `test/curatorSkill.test.ts` (4 cases: destructive ⊆ held back,
+      frontmatter == settings == `TOOL_NAMES − HELD_BACK`, prose audit, CLI
+      lines only in Fallback).
+- [x] D29: fixture `christmas-cookies`, 18 tracked files (ten `recipe.json`,
+      eight `.mdb` in exactly the four recipe environments), built by
+      `scripts/seed-christmas-cookies.ts`; `search cookie` → 8 in the
+      designed order, `linzer` → 3, `chili` → 1, seven tags (baked,
+      breakfast, christmas, cookies, dessert, dinner, quick).
+- [x] D30: `test/christmasCookies.test.ts` — one 30 s case, the story end to
+      end on a tmpdir copy (T63), `group_cycle` the other way, `group_get`
+      ×2, `group_list`, `featured_list`, distractor untouched.
+- [x] Code fixes: `recipe_search` description no longer lists `group:`;
+      `NOTIFY_SUGGESTION` = " Set RECIPE_EDITOR_URL (or pass --notify
+      --editor-url <url>) to invalidate it automatically." No pin needed
+      updating (none existed; `api-write.spec.ts:674` asserts on
+      "Maintenance", which is `STALE_EDITOR_HINT`).
+- [x] `examples.md` rebuilt from Run A and Run B (below); root `CLAUDE.md`
+      "Curating recipes" MCP-first (83 lines); `docs/backlog.md` dry-run row
+      narrowed to the CLI, new "Server-side `group:` in `recipe_search`"
+      row.
+
+**Review (Fable).** Read the full diff; nothing sent back. The skill body
+reads as the eight steps with the tools' real result shapes; the pin test's
+`section()` helper and the body-only scope of check (d) are right (the
+frontmatter's `Bash(pnpm --silent recipes:*)` is the permission, not a
+command line). `group_cycle` and the other error codes are written as
+`code: "group_cycle"` so the tool-shaped audit skips them — deliberate, and
+the reason no error code can be mistaken for a tool. The seeder's removal of
+`.pagination-changes.json` is correct (gitignored, but `resetData` copies
+whole directories). Reviewer reran every gate (below) and ran both
+transcripts.
+
+**Gate results (verbatim, reviewer rerun in the worktree):**
+
+| Gate                                                     | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm --filter recipe-editor typecheck`                  | clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `pnpm --filter recipe-website exec tsc --noEmit`         | clean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `pnpm exec vitest run`                                   | `Test Files 31 passed (31)` · `Tests 535 passed (535)` (530 at base, +1 `christmasCookies`, +4 `curatorSkill`); `curatorSkill` rerun green after the `examples.md` rebuild                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `pnpm exec lint-staged --diff agent/23e-mcp-http`        | clean (prettier + eslint; 5 ts/mjs files, 16 json/md files)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| stdout grep                                              | unchanged from 23e: `cli/output.ts` ×3, the two `--help` writes, a comment in `mcp/server.ts`, the script-only `log` default; the seeder uses `console.error`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `git ls-files …/christmas-cookies`                       | 18 files: ten `recipes/data/*/recipe.json`, `data.mdb` + `lock.mdb` under `recipes/{index,pagination/by-date,aggregates/tags,aggregates/by-tag}`; nothing under `featured-recipes/`, `groups/`, `pages/`; `git check-ignore` exit 1 on both a data file and an `.mdb`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `pnpm e2e-dev -- api-write.spec.ts groups.spec.ts` (dev) | reviewer rerun (detached, `setsid nohup`): `45 passed (2.5m)`, 0 failed, 0 flaky (implementer: the same `45 passed (2.5m)`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Run A — the story (`claude -p "/recipe-curator …"`)      | `subtype: success`, 24 turns, 66.5 s, $0.90, **`permission_denials`: one `Bash` grep (the model tried to peek at the pinned test through the placeholder `examples.md`; not in the allow-list, denied without a prompt — the settings working, and moot now the transcripts are real), no MCP denial, no held-back tool.** Calls: `git_status`, `recipe_list {limit: 1}`, `recipe_search` cookie (8) / linzer (3), `group_list`, `featured_list`, `tag_list`, `recipe_get`, `group_create` ×2, `feature {slug: "christmas-cookies-strip"}`, `group_set_items` with a `{group: "linzer-cookies", note}` item, `group_get` ×2, `featured_list`, `group_list` (`itemCount` 6 and 3), `git_log`. Post-assert with the CLI: `group show` both groups match, `featured list` one row, scratch repo four commits on `main` |
+| Run B — meal plan on `three-recipes-groups`              | `subtype: success`, 21 turns, 69.1 s, $1.08, `permission_denials: []`. Two `WebSearch` (budgetbytes.com), six `recipe_import {dryRun}` (one `import_failed`), three `recipe_import` with tags, `group_create` meal-plan `week-of-2026-09-14` with `Tue · Dinner` / `Thu · Dinner` / `Sat · Dinner` labels, `group_get`, `git_log`; scratch repo four commits                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| CI on the draft PR                                       | recorded in the follow-up commit `Docs: 23f's CI result` (lint/typecheck/unit run while the base is `agent/23e-mcp-http`; Playwright shards run only after the retarget to `main`, T20)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+
+Both runs: `CONTENT_DIRECTORY` absolute scratch copy with a local identity
+and the `derivedContentPaths` `.gitignore`, `CLAUDECODE` unset, no
+`--allowedTools`, `--mcp-config .mcp.json --strict-mcp-config
+--permission-mode acceptEdits --max-turns 40`. `editor/content` stayed absent
+in the worktree.
+
+**Implementer notes (divergences from the design above, and why).**
+
+- **`SKILL.md` is 179 lines, not ≤ ~170**: four condensation passes; the
+  next cut would drop the typed-term list, the rejection rules or the tag
+  vocabulary. The HTTP paragraph lives at the end of step 1 rather than
+  under its own heading, where it is load-bearing.
+- **Error codes are never bare backticked tokens** (`code: "group_cycle"`,
+  not `` `group_cycle` ``) so the tool-shaped audit ignores them.
+- **Check (d) scopes to the body** after the frontmatter.
+- **The seeder removes `.pagination-changes.json`** after the rebuild — it
+  is gitignored, but no other fixture carries one and `resetData` copies
+  whole directories.
+- **No "Skill v2 follow-ups" backlog row** — nothing genuine that Not in 23f
+  / Deferred does not already carry.
+- **`group_get` recipe rows assert `name: expect.any(String)`**; the slug
+  order and the absence of `missing` are exact.
+
+**Observed in Run A, recorded.** The model passed `slug` inside
+`group_create.group` (accepted — the schema takes it) and created the parent
+with all eight cookies, then `group_set_items` to replace the linzer three
+with the nested group so nothing appears twice; it named that as the one
+judgment call in its report. `group_add_item {subgroup}` was not used;
+either path is documented.
+
+**Verification (epic line for 23f):** met on the automated half —
+`christmasCookies.test.ts` replays the story green on the committed fixture;
+`curatorSkill.test.ts` pins the 21-tool allow-list in both places; Run A
+completed the story headlessly from `/recipe-curator` with zero MCP
+permission denials and no held-back tool; `examples.md` shows both runs.
+**The user's real run** — the same Run A prompt against the real content
+repo, after the stack lands — is the epic's last checkbox and stays theirs.
+
 ## Verification (epic-level)
 
 - 23a: `pnpm --silent recipes feature --group <slug> --json` returns a
@@ -3247,13 +3349,17 @@ runs; the user's real run is the epic's last checkbox.
 - 23e: an MCP client over HTTP with a bearer token lists the same tools as
   stdio and performs one write; without a token → 401.
 - 23f: the Christmas-Cookies story runs green as a vitest transcript on a
-  cookies fixture and once for real by the user.
+  cookies fixture (`test/christmasCookies.test.ts`, ✅) and headlessly from
+  `/recipe-curator` with no permission denial (Run A, ✅) — and **once for
+  real by the user** (☐ theirs, after #142 lands: the Run A prompt with no
+  `CONTENT_DIRECTORY` set, then push from `/git`).
 
 ## Deferred
 
 - **`--image <local file>` on the CLI** (from the 22h row): a local file
-  upload has no JSON transport; an MCP tool could carry base64, which is a
-  23b-or-later decision.
+  upload has no JSON transport; an MCP tool could carry base64 (a
+  `recipe_set_image {slug, base64}` seat), decided against for this epic —
+  the skill imports by URL and `imageImportUrl` covers group covers.
 - **Featured dedupe**: `feature` does not refuse an already-featured target
   (D5). If agents double-feature in practice, add an `already_featured`
   code or return the existing slug.
@@ -3261,9 +3367,22 @@ runs; the user's real run is the epic's last checkbox.
   sub-groups at read time exactly as recipes are resolved today, and a
   sub-group rename or delete leaves its parents' `{group}` items dangling
   (T31/T32).
-- **CLI `search group:` is a no-op** (pre-existing, found at 23c planning):
+- **Server-side `group:` search** (pre-existing, found at 23c planning):
   `curation/search.ts` filters rows that never carry `groups`, so the term
-  matches nothing from the CLI/MCP while the browser search honours it.
+  matches nothing from the CLI/MCP while the browser search honours it. 23f
+  stopped the `recipe_search` description advertising it and the skill
+  points at `group_get`; making it work server-side means decorating rows
+  with the `by-group` aggregate at query time. Backlog row.
+- **Stale-editor hint after a CLI `--dry-run`**: the MCP path omits it
+  (`recipe_import` passes `notify: dryRun !== true`); the CLI still prints
+  it. Backlog row, narrowed at 23f.
+- **Read-only tokens / an HTTP `.mcp.json` entry**: every API token is
+  full-write (backlog "API token hygiene"), so a remote `recipes` entry in
+  `.mcp.json` would hand the skill a write token in a file that is committed;
+  the HTTP transport stays a per-user registration under the same server
+  name (D27) until scopes exist.
+- **`gitPush` with no remote** answers `internal` with git's own message
+  (23d); a fifth code or `not_found` if it matters in practice.
 - **Group picker in the browser form**: 23c keeps sub-group rows read-only;
   wiring `GroupSelectInput` as an "Add group" row also needs the cycle check
   in `actions/groups.ts` (T38).
