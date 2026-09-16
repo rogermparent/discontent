@@ -970,7 +970,7 @@ needed F16's build-stable spec hash first.
 | **F28h** | `references.ts`'s cache-key separator written as the `\0` escape instead of a literal NUL byte, so the file can be `grep`ped at all                                                                                                   | `grep -c import packages/cms/content/references.ts` is non-zero                                                                                                                            | **Done** — no behaviour moves, notes at §11.4    |
 | **F29**  | Portfolio's `projects` declares `projectsByDate`; `readAllProjectIds` replaces `getProjects()` in the export's `project/[slug]` params (§11.2)                                                                                        | a project write produces a regeneration set at all, and the emitted file list does not move                                                                                                | **Done** — 268 vitest, notes at §12.14           |
 | **F31**  | Three loose ends too small for a PR each: delete the callerless `getFeaturedRecipes` (a), fix `exportStaticParams.test.ts`'s timeout at the cause (b), repair a doc-truth defect of F28's own (c)                                     | 268 vitest still green with one file no longer near its timeout, and no stale claim left behind                                                                                            | **Done** — notes at §11.4                        |
-| **F33**  | Taxonomy as an engine kind: `taxonomies` on a content type derives a terms aggregate and an inverted by-term aggregate; `createTermContentType` gives a vocabulary term records with a scalar `parent` (epic 24, `agent-taxonomy.md`) | the demo's `noteTags` replaced by a declaration with `aggregates.spec.ts` unchanged, and a parent rename reaching a child's borrowed `parentLabel` — or the reason it cannot, written down | **Planned** — 24a; notes at §11.1                |
+| **F33**  | Taxonomy as an engine kind: `taxonomies` on a content type derives a terms aggregate and an inverted by-term aggregate; `createTermContentType` gives a vocabulary term records with a scalar `parent` (epic 24, `agent-taxonomy.md`) | the demo's `noteTags` replaced by a declaration with `aggregates.spec.ts` unchanged, and a parent rename reaching a child's borrowed `parentLabel` — or the reason it cannot, written down | **Done** — 573 vitest, notes at §11.1            |
 
 **D1's "done when" had to be restated.** It read "a recipe rename dirties only the featured
 pages that show it", which is unachievable as written: featured recipes have no pagination
@@ -1872,6 +1872,36 @@ paths or slug assignments (the latter would need F32).
 Per-term pagination is **not** part of F33: F8b already fixes that shape and its reopen threshold
 (~150 KB for the by-term record); the epic measures the real record after its vocabulary backfill
 and opens F8b only if the number demands it.
+
+**What 24a built.** `packages/cms/taxonomies/`: `types.ts` (`TaxonomyConfig`, `TaxonomyTerm`,
+`TaxonomyByTerm`), `slug.ts` (`normalizeTerm` / `termSlug` — the site's `normalizeTag` rules and
+`tagSlug`, reimplemented because the component library is not an engine dependency), `aggregates.ts`
+(`TAXONOMY_FOLD_VERSION`, `termsAggregate`, `byTermAggregate`, `taxonomyAggregates`,
+`aggregatesOf`), `read.ts`, `next/cachedReads.ts`, `termContentType.ts`, `tree.ts`. Plus
+`taxonomies?` on `ContentTypeConfig`. `aggregatesOf` replaced `config.aggregates` at **three** seats,
+not the two the plan named: `updateAggregates`, `derivedTagsOf`, and the `hasAggregates` gate in
+`syncPaginationItems` — which the plan missed, and which would have skipped the whole derived pass
+for a content type whose only derived state is a taxonomy, silently, as a value that is simply never
+folded. The demo notes adopted it (`noteTaxonomy.ts` in, `noteAggregates.ts` out), and
+`demo/lib/noteTerms.ts` declares the term type so the self-referencing edge is exercised by a real
+registry entry.
+
+**The T8 verdict: the self-referencing edge works, unchanged.** `test/taxonomies.test.ts` renames a
+parent term and the child's data-file `parent` **and** its borrowed `parentLabel` both follow; a
+parent label edit with no rename moves `parentLabel` alone; an unborrowed field of the parent moves
+nothing. The mechanism is that dependent = self needs no special case: `updateContent` runs
+`updateDependents` at step 6, after its own index write, and `getContentDatabase` hands back the
+_cached_ environment (F1) rather than reopening a closed one — so the scan and the write share one
+environment. `findViaIndex` then matches on `parent === <old slug>`, which the item being written
+does not carry, so the pass cannot find itself. The plan's fallback — a curation-layer rewrite of
+children at `term_rename` — is **not needed**; 24c can rely on the edge.
+
+One behavioural note for adopters: the terms value carries `count`, so a _second_ carrier of a term
+that already exists moves it, where the hand-written `Set<string>` folds it replaces reported
+`changed: false`. The kind's payoff is unaffected — a write touching neither the vocabulary nor a
+projected field still moves neither record — but the demo's `aggregates.spec.ts` case that asserted
+"nothing recorded" for a repeat tag now asserts both records moved while the rendered cloud stays
+byte-identical, which is the honest form of the claim.
 
 ### 11.2 Consumers of the existing machinery
 

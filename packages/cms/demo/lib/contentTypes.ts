@@ -16,10 +16,17 @@
 import type { AnyContentTypeConfig } from "@discontent/cms/content/types";
 import { bookmarkConfig } from "./bookmarks";
 import { noteConfig } from "./notes";
+import { noteTermConfig } from "./noteTerms";
 
+/*
+ * Appended, never inserted. `test/revalidateDerived.test.ts` pins what this
+ * list expands to, and a cache tag is matched by string — so a new type at the
+ * end is additive and a reorder is not (T4).
+ */
 export const demoContentTypes: AnyContentTypeConfig[] = [
   noteConfig,
   bookmarkConfig,
+  noteTermConfig,
 ];
 
 export default demoContentTypes;

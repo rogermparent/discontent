@@ -16,7 +16,23 @@ import { test, expect } from "../support/test";
  * captured before notes carried tags at all.
  */
 
-const AGGREGATE = "notes/tags";
+/*
+ * Both of the taxonomy's derived aggregates (F33).
+ *
+ * The demo used to declare one hand-written `noteTags` fold; it now declares
+ * `taxonomies: [noteTagTaxonomy]`, from which the engine derives the same
+ * `notes/tags` — same name, same cache tag, same LMDB directory — plus the
+ * inverted `notes/by-tag` beside it. Everything this file asserted about the
+ * *tag cloud* is unchanged, because the cloud still renders one label per term
+ * and nothing else. What moved is which aggregates a write records: the
+ * vocabulary now carries a per-term carrier count, so a second note on an
+ * existing tag moves both records where the old `Set<string>` fold moved
+ * neither. `test/taxonomies.test.ts` states that trade at the unit level.
+ */
+const TERMS = "notes/tags";
+const BY_TERM = "notes/by-tag";
+/* The artifact sorts its aggregate list, so `by-tag` reads before `tags`. */
+const BOTH = [BY_TERM, TERMS];
 
 async function createNote(
   page: Page,
@@ -145,15 +161,21 @@ test.describe("Aggregates", () => {
 
     await createNote(page, { slug: "b", title: "B", tags: "brand-new" });
 
-    expect(await readAggregateChanges()).toEqual([AGGREGATE]);
+    expect(await readAggregateChanges()).toEqual(BOTH);
     expect(await tagCloud(page)).toEqual(["alpha", "brand-new"]);
   });
 
   /*
-   * The negative half, and the reason the kind exists at all. This write
-   * touched the corpus the tag cloud is folded from, dirtied a page, and
-   * created a whole new note — and the tag cloud is byte-identical, with
-   * nothing recorded and no tag fired.
+   * The tag cloud is byte-identical across a write that created a whole new
+   * note and dirtied a page.
+   *
+   * Before F33 this was also the "nothing recorded" case, because the folded
+   * value was a bare `Set<string>` and a second carrier of `alpha` left it
+   * alone. The vocabulary now carries a per-term count, so both records really
+   * do move — and the page is *still* unchanged, because it renders labels and
+   * not counts. Which makes this the honest version of the claim: what an
+   * aggregate reports is whether the stored value moved, not whether any
+   * particular page did. The next test is where "nothing recorded" still holds.
    */
   test("a note carrying an existing tag leaves the cloud untouched", async ({
     page,
@@ -167,7 +189,7 @@ test.describe("Aggregates", () => {
 
     await createNote(page, { slug: "b", title: "B", tags: "alpha" });
 
-    expect(await readAggregateChanges()).toEqual([]);
+    expect(await readAggregateChanges()).toEqual(BOTH);
     expect(await tagCloudHtml(page)).toBe(before);
 
     /*
@@ -180,6 +202,13 @@ test.describe("Aggregates", () => {
     ).toEqual([0]);
   });
 
+  /*
+   * The negative half, and the reason the kind exists at all. This write
+   * dirtied a page and touched the corpus both values are folded from — and
+   * neither moved, so nothing is recorded and no tag fires. The note's title
+   * is not in the vocabulary and, with the demo's default `project`, not in the
+   * carrier rows either.
+   */
   test("editing a title moves a page and not the aggregate", async ({
     page,
     clearPaginationChanges,
@@ -223,7 +252,7 @@ test.describe("Aggregates", () => {
      */
     await expect(page).toHaveURL(/\/$/);
 
-    expect(await readAggregateChanges()).toEqual([AGGREGATE]);
+    expect(await readAggregateChanges()).toEqual(BOTH);
     expect(await tagCloud(page)).toEqual(["keep"]);
   });
 
@@ -247,7 +276,7 @@ test.describe("Aggregates", () => {
     await page.getByRole("button", { name: "Update Note" }).click();
     await expect(page.getByRole("heading", { name: "A" })).toBeVisible();
 
-    expect(await readAggregateChanges()).toEqual([AGGREGATE]);
+    expect(await readAggregateChanges()).toEqual(BOTH);
     expect(await tagCloud(page)).toEqual(["replacement"]);
   });
 });

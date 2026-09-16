@@ -42,11 +42,21 @@ import { hashValue } from "@discontent/cms/pagination/hash";
  * direction, at a cost of one snapshot update.
  */
 
-/** Every `version: "..."` a module declares, in source order. */
+/**
+ * Every version literal a module declares, in source order.
+ *
+ * Two spellings, because the engine has two kinds of declaration site. A config
+ * object writes `version: "1"`; the taxonomy kind's *engine* half is a module
+ * constant (`TAXONOMY_FOLD_VERSION = "1"`) that every site's stored spec
+ * version is prefixed with, so an edit to the shared fold bumps one place
+ * rather than every site. Both have to be visible here, or a module whose only
+ * version is the constant would trip the "declares at least one" guard below
+ * and could never be pinned at all.
+ */
 function declaredVersions(source: string): string[] {
-  return [...source.matchAll(/\bversion:\s*"([^"]*)"/g)].map(
-    (match) => match[1],
-  );
+  return [
+    ...source.matchAll(/\bversion:\s*"([^"]*)"|VERSION\s*=\s*"([^"]*)"/g),
+  ].map((match) => match[1] ?? match[2]);
 }
 
 /** Repo root, resolved from this file rather than from the runner's cwd. */
@@ -176,15 +186,51 @@ describe("declared spec versions", () => {
       `);
   });
 
-  it("demo note aggregate config", () => {
-    expect(readConfigModule("packages/cms/demo/lib/noteAggregates.ts"))
+  it("demo note taxonomy config", () => {
+    // Replaces the `noteAggregates.ts` block this test used to carry: the demo
+    // declares the vocabulary now and the engine derives both folds from it.
+    expect(readConfigModule("packages/cms/demo/lib/noteTaxonomy.ts"))
       .toMatchInlineSnapshot(`
         {
-          "hash": "11f11fb8a9117609",
+          "hash": "9dddd00b5d4ddd91",
           "versions": [
             "1",
           ],
         }
       `);
+  });
+
+  /*
+   * The engine's own two, pinned for the reason every site config is (T1).
+   *
+   * They are different in kind from the ones above, and that is why they are
+   * here: a site config's fold is read by one site, while these two are read by
+   * *every* site that declares a taxonomy. An edit to either changes what is
+   * stored under names — `tags`, `by-tag`, `tree` — that no site's version can
+   * speak for, so `TAXONOMY_FOLD_VERSION` and the tree's `version` are the only
+   * lever, and this test is what asks whether the lever was pulled.
+   */
+  it("engine taxonomy folds", () => {
+    expect(readConfigModule("packages/cms/taxonomies/aggregates.ts"))
+      .toMatchInlineSnapshot(`
+      {
+        "hash": "58eb91fa2cc91be7",
+        "versions": [
+          "1",
+        ],
+      }
+    `);
+  });
+
+  it("engine term tree fold", () => {
+    expect(readConfigModule("packages/cms/taxonomies/tree.ts"))
+      .toMatchInlineSnapshot(`
+      {
+        "hash": "593a8a1b6da11675",
+        "versions": [
+          "1",
+        ],
+      }
+    `);
   });
 });

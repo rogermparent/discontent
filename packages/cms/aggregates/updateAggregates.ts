@@ -1,7 +1,8 @@
 import type { Key } from "lmdb";
 import { getContentDatabase } from "../content/database";
-import type { ContentTypeConfig } from "../content/types";
+import type { AnyContentTypeConfig, ContentTypeConfig } from "../content/types";
 import { getContentDirectory } from "../fs/getContentDirectory";
+import { aggregatesOf } from "../taxonomies/aggregates";
 import { hashValue } from "../pagination/hash";
 import {
   RECORD_KEY,
@@ -50,9 +51,16 @@ export async function updateAggregates<TIndexValue, TKey extends Key>(
   options: UpdateAggregatesOptions<TIndexValue, TKey>,
 ): Promise<AggregateUpdateResult[]> {
   const { config, contentDirectory } = options;
+  /*
+   * Declared *and* derived (F33). A taxonomy is not its own pass: it expands
+   * into two ordinary aggregates here, so it inherits this walk, the spec hash,
+   * the `changed: false` report and the changes artifact without any of them
+   * knowing it exists.
+   */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const aggregates: AggregateConfig<any, any, any, any>[] =
-    config.aggregates ?? [];
+  const aggregates: AggregateConfig<any, any, any, any>[] = aggregatesOf(
+    config as AnyContentTypeConfig,
+  );
   if (aggregates.length === 0) return [];
 
   /*

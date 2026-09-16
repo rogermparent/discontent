@@ -7,8 +7,8 @@ import dateEpochSchema from "@discontent/cms/forms/schema/dateEpoch";
  * sides defer the config behind a thunk — see `ReferenceSpec.config`.
  */
 import { bookmarkConfig } from "./bookmarks";
-import { noteTags } from "./noteAggregates";
 import { notesByDate } from "./notePagination";
+import { noteTagTaxonomy } from "./noteTaxonomy";
 
 // Note data schema
 export interface Note {
@@ -57,7 +57,13 @@ export const noteConfig: ContentTypeConfig<Note, NoteIndexValue, NoteIndexKey> =
       },
     ],
     paginationIndexes: [notesByDate],
-    aggregates: [noteTags],
+    /*
+     * No `aggregates` of its own any more. The hand-written `noteTags` fold is
+     * gone; `taxonomies` derives `tags` in its place — under the same name, so
+     * the same cache tag and the same `notes/aggregates/tags` directory — and
+     * adds the inverted `by-tag` the demo never had.
+     */
+    taxonomies: [noteTagTaxonomy],
   };
 
 // Zod schema for form validation

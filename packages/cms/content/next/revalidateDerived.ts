@@ -22,6 +22,7 @@
 import { revalidateTag } from "next/cache";
 import { aggregateTags } from "../../aggregates/next/tags";
 import { paginationTags } from "../../pagination/next/tags";
+import { aggregatesOf } from "../../taxonomies/aggregates";
 import type { AnyContentTypeConfig } from "../types";
 import { itemTags } from "./itemTags";
 
@@ -57,8 +58,15 @@ export function derivedTagsOf(config: AnyContentTypeConfig): string[] {
      * to "did it change". It is nonetheless a *separate* tag from any
      * keyspace's, so a rollback that expired only the pagination tags would
      * serve a tag cloud folded from the previous fixture.
+     *
+     * `aggregatesOf` rather than `config.aggregates`, so a taxonomy's two
+     * derived aggregates are expired here too (F33) — the same list
+     * `updateAggregates` folds, which is what keeps the write path and the
+     * repair seat from disagreeing about what exists. Declared first, then
+     * taxonomies in declaration order: the order is pinned with `toEqual`
+     * (T4), so appending is safe and reordering is not.
      */
-    ...(config.aggregates ?? []).map(
+    ...aggregatesOf(config).map(
       (aggregate) => aggregateTags(contentType, aggregate.name).value,
     ),
     /*
