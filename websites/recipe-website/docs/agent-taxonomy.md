@@ -745,6 +745,11 @@ packages/cms/demo/test-content`, rerun. One unreproducible single-test
 failure in one mid-session vitest run (not captured; three subsequent full
 runs 573/573) — watch for it in CI.
 
+**CI on `f4dcc5f9` (2026-09-16): all 12 checks green** — lint, unit tests
+and both typechecks (run 35134379165); Playwright run 35134382864: CMS demo
+dev + prod, Portfolio, recipe shards 1–4, merge of sharded reports. The
+draft PR #143 is ready for the user's review and merge.
+
 **Follow-ups filed:** none new beyond Deferred. F33's §10 row is **Done**
 (573 vitest); §11.1 carries the "what 24a built" paragraph and the verdict.
 
