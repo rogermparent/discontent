@@ -1,28 +1,60 @@
 "use server";
 
+/**
+ * The `/git` page's server actions.
+ *
+ * Since 23d the `simple-git` reads and the push live in
+ * `controller/curation/git.ts`, which is plain Node and therefore reachable
+ * from a route handler, the CLI and the MCP registry (T22). What stays here is
+ * what only a *page* needs: the `auth()` gate, `revalidatePath("/git")`, and
+ * the fetch/pull/sync/merge/conflict flows, which are interactive by nature and
+ * have no agent-facing seat (D22).
+ *
+ * The wrappers below are deliberately shape-preserving: `getCommitDiff` still
+ * answers with its error *as the diff string* and `getCommitLogPage` still
+ * swallows failures into an empty page, because the components render those
+ * values directly and `git.spec.ts` is the gate that says so.
+ */
 import { auth } from "@/auth";
-import { access } from "fs-extra";
-import { join } from "node:path";
 import { revalidatePath } from "next/cache";
-import simpleGit, { SimpleGit, DefaultLogFields } from "simple-git";
+import simpleGit, { SimpleGit } from "simple-git";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import {
   directoryIsGitRepo,
   commitContentChanges,
 } from "@discontent/cms/git/commit";
+import { readContext } from "../apiContext";
+import type { CurationContext } from "../curation/context";
+import { CurationError } from "../curation/errors";
+import {
+  gitLog,
+  gitPush,
+  gitShow,
+  gitStatus,
+  mergeInProgress,
+} from "../curation/git";
 import { rebuildRecipeIndex } from "./index";
 import type {
   CommitLogPage,
-  CommitSummary,
   SyncStatus,
 } from "../../src/app/(editor)/(settings)/git/types";
 
 const LOG_PAGE_SIZE = 30;
-const MAX_DIFF_CHARS = 50_000;
 const MERGE_COMMIT_MESSAGE = "Merge remote content";
 
 function getGit(contentDirectory: string): SimpleGit {
   return simpleGit({ baseDir: contentDirectory });
+}
+
+/**
+ * The curation context these actions read with.
+ *
+ * No `author`: the two actions that commit (`commitMerge`,
+ * `commitWorkingChanges`) pass the session's email themselves, and everything
+ * delegated here either reads or pushes.
+ */
+function readCtx(): CurationContext {
+  return readContext();
 }
 
 function normalizeError(e: unknown): string {
@@ -37,120 +69,9 @@ function normalizeError(e: unknown): string {
   return String(e);
 }
 
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function mergeInProgress(contentDirectory: string): Promise<boolean> {
-  return fileExists(join(contentDirectory, ".git", "MERGE_HEAD"));
-}
-
-/** Map a tracked path to a friendly label for the conflict resolver. */
-function labelForPath(path: string): string {
-  const recipeData = path.match(/^recipes\/data\/([^/]+)\/recipe\.json$/);
-  if (recipeData) return `Recipe: ${recipeData[1]}`;
-  const recipeUpload = path.match(/^recipes\/data\/([^/]+)\/(.+)$/);
-  if (recipeUpload) {
-    return `Upload (${recipeUpload[1]}): ${recipeUpload[2].split("/").pop()}`;
-  }
-  const upload = path.match(/^uploads\/(.+)$/);
-  if (upload) return `Upload: ${upload[1]}`;
-  return path;
-}
-
-function toSummary(entry: DefaultLogFields): CommitSummary {
-  return {
-    hash: entry.hash,
-    message: entry.message,
-    author_name: entry.author_name,
-    date: entry.date,
-  };
-}
-
-const EMPTY_STATUS: SyncStatus = {
-  isRepo: false,
-  detached: false,
-  ahead: 0,
-  behind: 0,
-  remotes: [],
-  branches: [],
-  merge: { inProgress: false, conflicted: [], resolvedCount: 0 },
-  dirty: false,
-  dirtyCount: 0,
-  log: [],
-  hasMore: false,
-};
-
-async function readSyncStatus(contentDirectory: string): Promise<SyncStatus> {
-  if (!(await directoryIsGitRepo(contentDirectory))) {
-    return EMPTY_STATUS;
-  }
-
-  const git = getGit(contentDirectory);
-  const status = await git.status();
-  const inMerge = await mergeInProgress(contentDirectory);
-  const remotesRaw = await git.getRemotes(true);
-  const remotes = remotesRaw.map((remote) => ({
-    name: remote.name,
-    fetchUrl: remote.refs.fetch,
-  }));
-  const branchSummary = await git.branchLocal();
-  const branches = Object.values(branchSummary.branches).map((b) => ({
-    name: b.name,
-    current: b.current,
-  }));
-
-  let log: CommitSummary[] = [];
-  let hasMore = false;
-  try {
-    const logResult = await git.log({ maxCount: LOG_PAGE_SIZE + 1 });
-    hasMore = logResult.all.length > LOG_PAGE_SIZE;
-    log = logResult.all.slice(0, LOG_PAGE_SIZE).map(toSummary);
-  } catch {
-    // Repository has no commits yet — leave the log empty.
-  }
-
-  const conflicted = status.conflicted.map((path) => ({
-    path,
-    label: labelForPath(path),
-  }));
-
-  const dirtyCount =
-    status.created.length +
-    status.deleted.length +
-    status.modified.length +
-    status.not_added.length +
-    status.renamed.length;
-
-  return {
-    isRepo: true,
-    branch: status.current ?? undefined,
-    detached: status.detached,
-    upstream: status.tracking ?? undefined,
-    ahead: status.ahead,
-    behind: status.behind,
-    remotes,
-    branches,
-    merge: {
-      inProgress: inMerge,
-      conflicted,
-      resolvedCount: inMerge ? status.staged.length : 0,
-    },
-    dirty: !inMerge && dirtyCount > 0,
-    dirtyCount,
-    log,
-    hasMore,
-  };
-}
-
 /** Read the cheap sync status for the page. Auth is enforced by the route. */
 export async function getSyncStatus(): Promise<SyncStatus> {
-  return readSyncStatus(getContentDirectory());
+  return gitStatus(readCtx());
 }
 
 async function doFetch(git: SimpleGit, remote?: string): Promise<void> {
@@ -204,33 +125,25 @@ async function doPull(
   }
 }
 
-async function doPush(
-  git: SimpleGit,
-  {
-    remote,
-    branch,
-    setUpstream,
-  }: { remote?: string; branch?: string; setUpstream?: boolean },
-): Promise<string | null> {
+/**
+ * The push seat, as a string-or-null the form action renders.
+ *
+ * `gitPush` owns the contract now (D22), including the "Push rejected" sentence
+ * — which arrives as a `git_conflict` `CurationError` whose message is that
+ * same sentence, so the panel's copy is unchanged.
+ */
+async function doPush({
+  remote,
+  setUpstream,
+}: {
+  remote?: string;
+  setUpstream?: boolean;
+}): Promise<string | null> {
   try {
-    const status = await git.status();
-    if (status.tracking && !setUpstream) {
-      await git.raw(["push"]);
-    } else {
-      const targetRemote = remote ?? "origin";
-      const targetBranch = branch ?? status.current;
-      if (!targetBranch) {
-        return "Cannot determine the current branch to push.";
-      }
-      await git.raw(["push", "-u", targetRemote, targetBranch]);
-    }
+    await gitPush(readCtx(), { remote, setUpstream });
     return null;
   } catch (e) {
-    const message = normalizeError(e);
-    if (/rejected|non-fast-forward|fetch first/i.test(message)) {
-      return "Push rejected — the remote has commits you don't have. Pull first to merge, then push.";
-    }
-    return message;
+    return e instanceof CurationError ? e.message : normalizeError(e);
   }
 }
 
@@ -267,7 +180,7 @@ async function doSync(
 
   status = await git.status();
   if (status.ahead > 0 || !status.tracking) {
-    const error = await doPush(git, { remote });
+    const error = await doPush({ remote });
     if (error) return error;
   }
   return null;
@@ -308,12 +221,12 @@ export async function remoteCommandAction(
         break;
       }
       case "push": {
-        const error = await doPush(git, { remote });
+        const error = await doPush({ remote });
         if (error) return error;
         break;
       }
       case "pushSetUpstream": {
-        const error = await doPush(git, { remote, setUpstream: true });
+        const error = await doPush({ remote, setUpstream: true });
         if (error) return error;
         break;
       }
@@ -471,13 +384,10 @@ export async function getCommitDiff(hash: string): Promise<string> {
   }
 
   try {
-    const diff = String(await getGit(contentDirectory).show([hash]));
-    if (diff.length > MAX_DIFF_CHARS) {
-      return `${diff.slice(0, MAX_DIFF_CHARS)}\n\n… diff truncated …`;
-    }
-    return diff;
+    /* Truncation, marker included, is `gitShow`'s (D19/D22). */
+    return (await gitShow({ contentDirectory }, hash)).diff;
   } catch (e) {
-    return normalizeError(e);
+    return e instanceof CurationError ? e.message : normalizeError(e);
   }
 }
 
@@ -493,13 +403,22 @@ export async function getCommitLogPage(offset: number): Promise<CommitLogPage> {
   }
 
   try {
-    const logResult = await getGit(contentDirectory).log({
-      maxCount: LOG_PAGE_SIZE + 1,
-      "--skip": offset,
-    });
+    const { commits, hasMore } = await gitLog(
+      { contentDirectory },
+      { limit: LOG_PAGE_SIZE, offset },
+    );
+    /*
+     * The entries' `files` are dropped rather than forwarded: the log list does
+     * not render them, and they would ride every "Load more" over the RSC wire.
+     */
     return {
-      commits: logResult.all.slice(0, LOG_PAGE_SIZE).map(toSummary),
-      hasMore: logResult.all.length > LOG_PAGE_SIZE,
+      commits: commits.map(({ hash, message, author_name, date }) => ({
+        hash,
+        message,
+        author_name,
+        date,
+      })),
+      hasMore,
     };
   } catch {
     return { commits: [], hasMore: false };

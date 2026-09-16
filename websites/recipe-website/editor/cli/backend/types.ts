@@ -19,6 +19,20 @@ import type {
   GroupListResult,
   GroupWriteResult,
 } from "../../controller/curation/groups";
+import type {
+  DiffResult,
+  FileAtResult,
+  GitDiffOptions,
+  GitFileRef,
+  GitLogOptions,
+  GitLogResult,
+  GitPushOptions,
+  GitRestoreRef,
+  GitWriteResult,
+  PushResult,
+  ShowResult,
+  SyncStatus,
+} from "../../controller/curation/git";
 import type { ImportResult } from "../../controller/curation/importRecipe";
 import type {
   RecipeDetail,
@@ -29,18 +43,30 @@ import type { ReindexResult } from "../../controller/curation/reindex";
 import type { SearchResult } from "../../controller/curation/search";
 
 export type {
+  DiffResult,
   FeaturedListResult,
   FeaturedWriteResult,
+  FileAtResult,
+  GitDiffOptions,
+  GitFileRef,
+  GitLogOptions,
+  GitLogResult,
+  GitPushOptions,
+  GitRestoreRef,
+  GitWriteResult,
   GroupDetail,
   GroupItemRef,
   GroupListResult,
   GroupWriteResult,
   ImportResult,
+  PushResult,
   RecipeDetail,
   RecipeListResult,
   RecipeWriteResult,
   ReindexResult,
   SearchResult,
+  ShowResult,
+  SyncStatus,
 };
 
 export interface DeleteResult {
@@ -124,6 +150,27 @@ export interface CuratorBackend {
   listTags(): Promise<string[]>;
 
   reindex(contentType?: string): Promise<ReindexResult>;
+
+  /* --- git (23d/D23) ----------------------------------------------------- */
+
+  /**
+   * The content repository's history, and the two ways back into it.
+   *
+   * On the seam for the same reason every other read is: a `--remote` run must
+   * see the history of the corpus it writes to, not of whatever directory
+   * happens to be under the CLI. The `/git` page's fetch, pull, merge,
+   * conflict, branch and remote flows stay page-only — they are interactive by
+   * nature and there is nothing an agent would do with half a merge.
+   */
+  gitStatus(): Promise<SyncStatus>;
+  gitLog(options?: GitLogOptions): Promise<GitLogResult>;
+  gitShow(hash: string, options?: { maxChars?: number }): Promise<ShowResult>;
+  gitFileAt(ref: GitFileRef): Promise<FileAtResult>;
+  gitDiff(options: GitDiffOptions): Promise<DiffResult>;
+  gitRevert(hash: string): Promise<GitWriteResult>;
+  gitRestore(ref: GitRestoreRef): Promise<GitWriteResult>;
+  /** Changes nothing locally, so no `afterWrite` follows it (T50). */
+  gitPush(options?: GitPushOptions): Promise<PushResult>;
 
   /**
    * Run after a command whose `write` flag is set; the string it resolves to is

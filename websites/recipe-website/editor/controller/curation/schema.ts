@@ -253,6 +253,72 @@ export const FeaturedInputSchema = z
 
 export type FeaturedInput = z.infer<typeof FeaturedInputSchema>;
 
+/* --- git (23d/D23) ------------------------------------------------------- */
+
+/**
+ * Which content type a git seat is talking about.
+ *
+ * A closed enum rather than a free string, so the published JSON Schema names
+ * the three choices and a typo is a schema rejection instead of a `not_found`
+ * from inside `git.ts`. Singular, because these name one item.
+ */
+export const GitTypeSchema = z.enum(["recipe", "group", "featured"]);
+
+export type GitTypeInput = z.infer<typeof GitTypeSchema>;
+
+export const GitLogQuerySchema = z.strictObject({
+  type: GitTypeSchema.optional(),
+  slug: z.string().min(1).optional(),
+  limit: z.number().int().min(1).optional(),
+  offset: z.number().int().min(0).optional(),
+});
+
+/**
+ * A commit hash, in the only shape git will answer to.
+ *
+ * The pattern is published *and* re-checked. Here it buys an early, documented
+ * rejection: the JSON Schema an MCP client reads says what a hash looks like,
+ * so `{hash: "zzz"}` is refused before dispatch with the SDK's own message
+ * (T28) instead of travelling two layers to be refused there. `git.ts` checks
+ * the same pattern anyway, because that check is not about a request's shape —
+ * it is what keeps a string from reaching git's argv as an option (T45), and a
+ * direct caller of the module has no schema in front of it.
+ *
+ * Slugs and revisions stay bare strings on purpose: a revision is `HEAD~2`,
+ * `v1.2`, a branch name or a hash, and enumerating that in a schema would
+ * refuse legitimate input.
+ */
+export const GitHashSchema = z
+  .string()
+  .regex(/^[0-9a-f]{7,40}$/i, "Expected 7 to 40 hexadecimal characters");
+
+export const GitRevertSchema = z.strictObject({
+  hash: GitHashSchema,
+});
+
+export const GitRestoreSchema = z.strictObject({
+  type: GitTypeSchema,
+  slug: z.string().min(1),
+  rev: z.string().min(1),
+});
+
+export const GitPushSchema = z.strictObject({
+  remote: z.string().min(1).optional(),
+  setUpstream: z.boolean().optional(),
+});
+
+export const GitDiffQuerySchema = z.strictObject({
+  from: z.string().min(1),
+  to: z.string().min(1).optional(),
+  path: z.string().min(1).optional(),
+});
+
+export const GitFileQuerySchema = z.strictObject({
+  type: GitTypeSchema,
+  slug: z.string().min(1),
+  rev: z.string().min(1),
+});
+
 /* --- coercions ----------------------------------------------------------- */
 
 /**

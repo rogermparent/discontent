@@ -10,6 +10,7 @@
 import { assertCommitIdentity } from "../../controller/curation/author";
 import type { CurationContext } from "../../controller/curation/context";
 import * as featured from "../../controller/curation/featured";
+import * as git from "../../controller/curation/git";
 import * as groups from "../../controller/curation/groups";
 import { importAndCreate } from "../../controller/curation/importRecipe";
 import * as recipes from "../../controller/curation/recipes";
@@ -145,6 +146,27 @@ export function createLocalBackend({
 
     /* `rebuildIndex` writes LMDB only and never commits: no identity needed. */
     reindex: (contentType) => reindex(ctx, contentType),
+
+    gitStatus: () => git.gitStatus(ctx),
+    gitLog: (options) => git.gitLog(ctx, options),
+    gitShow: (hash, options) => git.gitShow(ctx, hash, options),
+    gitFileAt: (ref) => git.gitFileAt(ctx, ref),
+    gitDiff: (options) => git.gitDiff(ctx, options),
+    /*
+     * Only the two that commit preflight the identity. `gitPush` sends commits
+     * that already exist and makes none of its own, so demanding a committer
+     * identity for it would refuse a perfectly good push on a repository
+     * configured only to read (T47/T50) — and the reads never commit either.
+     */
+    async gitRevert(hash) {
+      await guard();
+      return git.gitRevert(ctx, hash);
+    },
+    async gitRestore(ref) {
+      await guard();
+      return git.gitRestore(ctx, ref);
+    },
+    gitPush: (options) => git.gitPush(ctx, options),
 
     async afterWrite() {
       if (!notify) return STALE_EDITOR_HINT + NOTIFY_SUGGESTION;

@@ -59,6 +59,23 @@ export interface CurationContext {
    * not fail a write that already landed on disk because a cache hint threw.
    */
   onWrite?: (event: ContentWriteEvent) => void;
+  /**
+   * Called after a write that moved *everything* — a git revert or restore
+   * (23d/D20).
+   *
+   * `onWrite` cannot describe those: the engine never ran, so there is no
+   * `ContentWriteResult` naming which pages moved, and after a checkout of an
+   * arbitrary revision the honest answer is "all of them". `git.ts` rebuilds
+   * the indexes itself (`reindex`, which is Node-safe) and then fires this for
+   * the half that is Next-only — `revalidatePath("/", "layout")` plus
+   * `revalidateDerivedState`, exactly what `POST /api/revalidate` does.
+   *
+   * Synchronous and fire-and-forget for the same reason `onWrite` is: the
+   * commit has already landed, and a cache hint must not fail it. The CLI and
+   * `readContext` leave it unset — a separate process cannot invalidate a
+   * running editor's caches, which is what the stale-editor hint says.
+   */
+  onBulkChange?: () => void;
 }
 
 /** Where a recipe is served in both apps. */

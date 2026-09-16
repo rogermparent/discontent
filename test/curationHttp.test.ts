@@ -13,8 +13,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BadRevisionError,
   CurationError,
+  DirtyTreeError,
+  GitConflictError,
   GroupCycleError,
+  NotARepoError,
   NotFoundError,
   SlugConflictError,
   UnauthenticatedError,
@@ -45,6 +49,15 @@ describe("statusFor", () => {
       group_cycle: 422,
       import_failed: 502,
       no_git_identity: 500,
+      /*
+       * The git four (23d/D21). Three conflicts, because each describes the
+       * *server's* state refusing a well-formed request, and one 422, because
+       * `{hash: "zzz"}` is a well-formed body whose content names no commit.
+       */
+      not_a_repo: 409,
+      dirty_tree: 409,
+      git_conflict: 409,
+      bad_revision: 422,
       internal: 500,
     };
     for (const [code, status] of Object.entries(table)) {
@@ -121,6 +134,46 @@ describe("errorResponse", () => {
     expect(body.error.code).toBe("group_cycle");
     expect(body.error.groups).toEqual(["b", "a", "b"]);
     expect(body.error.message).not.toContain("--force");
+  });
+
+  it("gives each git failure its status and carries no new detail field", async () => {
+    /*
+     * One case per code (23d). The detail bag is deliberately empty: the hash,
+     * the branch and the directory all live in the message, which is what keeps
+     * the HTTP backend's `rehydrate` unchanged — a field it did not know to
+     * copy would be dropped silently.
+     */
+    const notARepo = errorResponse(new NotARepoError("/tmp/content"));
+    expect(notARepo.status).toBe(409);
+    expect(await notARepo.json()).toEqual({
+      error: {
+        code: "not_a_repo",
+        message: expect.stringContaining("/tmp/content"),
+      },
+    });
+
+    const dirty = errorResponse(
+      new DirtyTreeError("commit or discard working changes in /git first."),
+    );
+    expect(dirty.status).toBe(409);
+    expect((await dirty.json()).error.code).toBe("dirty_tree");
+
+    const conflict = errorResponse(
+      new GitConflictError(
+        "Push rejected — the remote has commits you don't have.",
+      ),
+    );
+    expect(conflict.status).toBe(409);
+    expect((await conflict.json()).error).toEqual({
+      code: "git_conflict",
+      message: expect.stringContaining("Push rejected"),
+    });
+
+    const badRevision = errorResponse(
+      new BadRevisionError('No commit at "zzz".'),
+    );
+    expect(badRevision.status).toBe(422);
+    expect((await badRevision.json()).error.code).toBe("bad_revision");
   });
 
   it("gives 401 and 404 their codes", async () => {
