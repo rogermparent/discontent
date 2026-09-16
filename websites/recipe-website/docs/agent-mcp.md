@@ -294,9 +294,17 @@ slug, rev})` (`git checkout <rev> -- <paths>` + commit `Restore <type>
   curation layer, D8 boundary); reverting a merge commit is `bad_revision`.
 - **D8 HTTP transport (23e).** `app/api/mcp/route.ts` → `createMcpHandler`
   from `@modelcontextprotocol/server`, `runtime = "nodejs"`; auth via
-  `authenticateRequest` before the handler (401 without a token/session);
-  reads use `readContext()`, writes `curationContextFor(email)`; JSON
-  responses, no sessions, GET → 405.
+  `requireCurationContext` before the handler (401 without a token/session).
+  **Amended at 23e (D24–D26):** the whole endpoint is authenticated —
+  `tools/list` and every call alike, as `/api/git/*` is; the original "reads
+  use `readContext()`" clause is dropped (one MCP endpoint cannot know a call
+  is a read before dispatch, and the stdio server has no anonymous mode
+  either). "JSON responses" means one complete answer per POST, no sessions:
+  on the SDK's legacy leg every 2025-era client (the v2 `Client` default,
+  Claude Code) receives a one-frame `text/event-stream` that closes
+  immediately (T55); on the modern leg a single `application/json` body.
+  GET → 405 (Next's default for an unexported method, T58). `.mcp.json`
+  stays stdio-only.
 - **D9 Skill v2 (23f).** `recipe-curator` rewritten around the tools
   (`allowed-tools` uses the `mcp__recipes__*` names — verify the exact
   syntax at 23f), CLI kept as the documented fallback; `examples.md`
@@ -531,6 +539,43 @@ offset?}`, `git_show {hash, maxChars?}`, `git_file_at {type, slug, rev}`,
   git_restore make a new commit and rebuild every index; git_push sends the
   branch to its remote; neither is undoable from here". The skill's "never
   push" rule is untouched (23f decides what the skill exposes).
+- **D24 Route `src/app/api/mcp/route.ts` (23e).** `export const runtime =
+"nodejs"` (T23; the ninth such declaration) and **`POST` only** — no
+  `GET`/`DELETE`/`HEAD` export, so Next answers 405 with an empty body, which
+  is exactly what the client's post-initialize GET tolerates (T58). Shape:
+  one `try { ctx = await requireCurationContext(request) } catch (e) { return
+errorResponse(e) }`, then `return handleMcpRequest(request, ctx)`. Two
+  returns on purpose: anonymous → the usual 401 `{error: {code:
+"unauthenticated"}}` (not a JSON-RPC error), while the handler never throws
+  (it converts failures to JSON-RPC 500s) and must not be re-shaped by
+  `errorResponse`. Imports via the `recipe-editor/...` self-alias
+  (`recipe-editor/mcp/http` resolves like `recipe-editor/controller/...`). No
+  Host/Origin validation: the route is same-origin with the app and behind
+  the same auth as every other write route (recorded, not inherited). The
+  route authenticates from headers only and never reads the body (T54).
+- **D25 `LocalBackendOptions.inProcess?: boolean` (23e).** On
+  `createLocalBackend` (`cli/backend/local.ts`). When true: `guard` is a
+  no-op (the request already authenticated an author; routes never demand a
+  committer identity, `author.ts:14-17`), `afterWrite` is **absent**
+  (`...(inProcess ? {} : {afterWrite})` — the seam's `afterWrite?` is
+  optional and `registry.ts` does `backend.afterWrite?.()`, so no
+  `warnings`, T53), and `close` is `async () => {}` (the LMDB cache belongs
+  to the server, T52); `notify` is ignored. The 28-method object literal is
+  untouched; `resolve.ts` never sets `inProcess`, so the CLI and the stdio
+  server are unchanged.
+- **D26 Module `editor/mcp/http.ts` (23e, Next-free).**
+  `handleMcpRequest(request, ctx): Promise<Response>` builds
+  `createLocalBackend({...ctx, inProcess: true})`, then `createMcpHandler(()
+=> createRecipeServer(backend), {keepAliveMs: 0, onerror: console.error
+…})` and returns `handler.fetch(request)`. Per-request handler, never
+  `close()`d (T59); no `responseMode` (T55); `console.error` only (the stdout
+  grep stays unchanged). The header comment records the legacy-leg
+  SSE-per-POST shape and the fallback if `next dev` ever misbehaves on
+  streamed bodies: `isLegacyRequest(request)` → own
+  `WebStandardStreamableHTTPServerTransport({sessionIdGenerator: undefined,
+enableJsonResponse: true})` + `createMcpHandler(factory, {legacy:
+"reject"})` for the modern leg (~25 lines replicating the SDK's
+  `createLegacyStatelessFallback`) — not built unless Playwright forces it.
 
 ## Traps (T-list; pass to every implementer)
 
@@ -719,25 +764,67 @@ maxCount})` emits `--follow` and appends the options behind the pathspec
   ignored files and would have failed `groups.spec.ts` on a fresh checkout.
   `git ls-tree -r <commit> -- <fixture>` is the check.
 
+- **T52 The in-process backend must never close the LMDB cache.**
+  `closeCachedEnvironments` is process-global; inside the editor it tears
+  down the server's own environments. `inProcess` makes `close()` a no-op;
+  `resolve.ts` never sets it.
+- **T53 The stale-editor hint is false in-process.** `afterWrite` is absent
+  on an `inProcess` backend; a `warnings` entry over HTTP means the wrong
+  backend was built.
+- **T54 Never read the body before `handler.fetch`.** It clones then
+  `text()`s the request; a consumed body makes the clone throw. Authenticate
+  from headers only (`authenticateRequest` does).
+- **T55 `responseMode` never reaches the legacy leg.** 2025-era clients get
+  `text/event-stream` per POST regardless (the legacy transport defaults
+  `enableJsonResponse = false`); `responseMode: "json"` also `console.warn`s
+  per `createMcpHandler` call — never combine it with a per-request handler.
+- **T56 On the modern leg `"auto"` upgrades to SSE only when a notification
+  precedes the result.** Adding progress/logging to a tool changes the wire
+  shape.
+- **T57 Raw POSTs need `Accept: application/json, text/event-stream`** or
+  the legacy leg answers 406 before any parse error.
+- **T58 The client's post-initialize GET must get exactly a 405** (Next's
+  default for an unexported method; a 405 is swallowed silently by the
+  client); a `GET` export returning anything else turns every connect into
+  an `onerror` + reconnect loop.
+- **T59 `handler.close()` is never needed per request.** The legacy leg
+  tears down transport + server when the response body drains and the
+  modern leg closes after the terminal response; calling `close()` before
+  the SSE body drains aborts the exchange.
+- **T60 A 401 reaches the client as `SdkHttpError`** (`status 401`, body in
+  `data.text`), not `UnauthorizedError` — that class needs an `authProvider`.
+- **T61 Identity-guard tests need a scrubbed git environment**
+  (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, no
+  `GIT_COMMITTER_EMAIL`) and a real repo (`assertCommitIdentity` returns
+  early on a non-repo); "no identity commits fine" is not a state git
+  allows, so the in-process case asserts only that the guard did not fire.
+- **T62 Playwright's `request.post` re-encodes a malformed string body.**
+  With a JSON content type, `data: "{"` goes through `isJsonParsable(data) ?
+data : JSON.stringify(data)` (`playwright-core/lib/client/fetch.js`), so the
+  server receives the JSON _string_ `"{"` — valid JSON, `-32600`, never the
+  `-32700` parse error. A deliberately malformed body must be a
+  `Buffer.from("{")`. Found by 23e's first `mcp-http.spec.ts` run.
+
 ## Stacked-PR roadmap
 
 Each branch is off the previous. Rebase children after a parent merges.
 
-| PR  | Branch (← parent)                   | Status   | Scope                                                                                                                                                                                                                            |
-| --- | ----------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 23a | `agent/23a-curation-seats` ← `main` | ✅ done  | This doc; featured seat (D5) + group update seat (D4) in the curation layer, API routes, CLI commands, backend interface (local + http), vitest + Playwright; strike two backlog rows                                            |
-| 23b | `agent/23b-mcp-stdio` ← `main`      | ✅ done  | `@modelcontextprotocol/server` + `/client` deps; `editor/mcp/{registry,server}.ts`; every D2 tool that exists by then; compact outputs (D3); `.mcp.json` (D10); vitest via `InMemoryTransport`; smoke from Claude Code           |
-| 23c | `agent/23c-nested-groups` ← 23b     | ✅ done  | D6/D15–D18: `{group}` items, `group_cycle`, `groupsByDate` v3 + `by-group` aggregate, group cards + Appears-in on group pages, transitive `group:` search, CLI `--group-item`/`--group`, MCP `subgroup`, `nested-groups` fixture |
-| 23d | `agent/23d-git-seats` ← 23c         | ✅ done  | D7: `curation/git.ts`, `/api/git/*`, CLI `git …`, MCP git tools; tests on a temp repo; `/git` page keeps its behaviour                                                                                                           |
-| 23e | `agent/23e-mcp-http` ← 23d          | 🟡 next  | D8: `/api/mcp` route; client-transport test against `next dev` (api-write precedent) + handler-level vitest                                                                                                                      |
-| 23f | `agent/23f-curator-skill-v2` ← 23e  | ⏸️ later | D9: skill rewrite, examples, acceptance test of the user story, docs close-out, backlog update, memory                                                                                                                           |
+| PR  | Branch (← parent)                   | Status  | Scope                                                                                                                                                                                                                            |
+| --- | ----------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 23a | `agent/23a-curation-seats` ← `main` | ✅ done | This doc; featured seat (D5) + group update seat (D4) in the curation layer, API routes, CLI commands, backend interface (local + http), vitest + Playwright; strike two backlog rows                                            |
+| 23b | `agent/23b-mcp-stdio` ← `main`      | ✅ done | `@modelcontextprotocol/server` + `/client` deps; `editor/mcp/{registry,server}.ts`; every D2 tool that exists by then; compact outputs (D3); `.mcp.json` (D10); vitest via `InMemoryTransport`; smoke from Claude Code           |
+| 23c | `agent/23c-nested-groups` ← 23b     | ✅ done | D6/D15–D18: `{group}` items, `group_cycle`, `groupsByDate` v3 + `by-group` aggregate, group cards + Appears-in on group pages, transitive `group:` search, CLI `--group-item`/`--group`, MCP `subgroup`, `nested-groups` fixture |
+| 23d | `agent/23d-git-seats` ← 23c         | ✅ done | D7: `curation/git.ts`, `/api/git/*`, CLI `git …`, MCP git tools; tests on a temp repo; `/git` page keeps its behaviour                                                                                                           |
+| 23e | `agent/23e-mcp-http` ← 23d          | ✅ done | D8/D24–D26: `POST /api/mcp` route on `createMcpHandler`, `inProcess` local backend, `mcp/http.ts`; `test/mcpHttp.test.ts` (client via handler) + `mcp-http.spec.ts` against `next dev`                                           |
+| 23f | `agent/23f-curator-skill-v2` ← 23e  | 🟡 next | D9: skill rewrite, examples, acceptance test of the user story, docs close-out, backlog update, memory                                                                                                                           |
 
-**Next PR:** 23e — `agent/23e-mcp-http` off `agent/23d-git-seats` (the
-stack is #138 → #139 → #140; rebase each child onto `main` as its parent
-merges, T20). Start from D8 and the 23e seed section below in a fresh
-plan-mode session; validate `@modelcontextprotocol/server`'s
-`createMcpHandler` signature, `authenticateRequest` and the api-write
-Playwright precedent against the code before designing.
+**Next PR:** 23f — `agent/23f-curator-skill-v2` off `agent/23e-mcp-http`
+(the stack is #138 → #139 → #140 → #141; rebase each child onto `main` as
+its parent merges, T20). Start from D9 and the 23f seed section below in a
+fresh plan-mode session; verify Claude Code's current `allowed-tools` syntax
+for MCP tool names (`mcp__recipes__*`) and the skill frontmatter it accepts
+against the installed CLI before designing, and decide there whether the
+skill documents the HTTP transport (D24) next to stdio.
 
 ## Phase detail
 
@@ -2168,15 +2255,468 @@ revision makes a `Restore recipe <slug> to <short>` commit and the page shows
 the old content; `git_revert` of a group creation removes the group (page
 404, `/groups` empty) with no manual reindex; `git.spec.ts` passes unchanged.
 
-### PR 23e — MCP over HTTP `agent/23e-mcp-http` 🟡 next (← 23d)
+### PR 23e — MCP over HTTP `agent/23e-mcp-http` ✅ done (← 23d)
 
-Seed: D8 — `app/api/mcp/route.ts` with `createMcpHandler`, `runtime =
-"nodejs"` (T23), `authenticateRequest` gate, per-request context; a
-Playwright/API test that connects an MCP client over HTTP with a bearer
-token, lists the same tools stdio lists, performs one write, and gets 401
-without a token; handler-level vitest.
+Branch `agent/23e-mcp-http` off `agent/23d-git-seats` at `469c4e34` (the
+stack is #138 → #139 → #140 → 23e; the merge/retarget/rebase of each parent
+stays the user's housekeeping, T20). Workflow unchanged: Fable plans and
+reviews, an Opus subagent implements in `.claude/worktrees/agent-23e`, this
+section is the handoff, the user merges. Never push `main`, never
+force-push, never merge.
 
-### PR 23f — Curator skill v2 `agent/23f-curator-skill-v2` ⏸️ later (← 23e)
+Goal (D8): a `POST /api/mcp` route handler in the editor that serves the
+same 28-tool registry the stdio server serves, gated by the editor's own
+API-token/session auth, so a remote MCP client (a Claude Code on another
+machine, a claude.ai connector) can curate the live editor without the repo
+checked out.
+
+#### Facts (validated 2026-09-14 on `agent/23d-git-seats` at `469c4e34`; paths under `websites/recipe-website/editor/` unless noted)
+
+- **SDK is the v2 split**, all `2.0.0`: `@modelcontextprotocol/server`
+  (dependency, `package.json:39`), `@modelcontextprotocol/client`
+  (devDependency, `:74`), `@modelcontextprotocol/core` (transitive). Exports
+  are on the package **roots** plus `./stdio`; there is no `./streamableHttp`
+  subpath, no `StreamableHTTPServerTransport`, no `SSEServerTransport`, no
+  `createMcpExpressApp`, and `@modelcontextprotocol/node` (`toNodeHandler`)
+  is not installed and not needed (route handlers are web-standard). Server
+  root: `createMcpHandler(factory, options?) → McpHttpHandler` with
+  `McpServerFactory = (ctx: McpRequestContext) => McpServer | Server |
+Promise<…>` (`McpRequestContext {era: "legacy" | "modern", authInfo?,
+requestInfo?: Request}` — zero-arg factories stay assignable),
+  `CreateMcpHandlerOptions {legacy?: "stateless" | "reject" (default
+"stateless": GET and DELETE → 405 "Method not allowed."), onerror?,
+responseMode?: "auto" | "sse" | "json" (default "auto"), bus?,
+maxSubscriptions? (1024), keepAliveMs? (15000; 0 disables)}`,
+  `McpHttpHandler {fetch(request, {authInfo?, parsedBody?}) (arrow-bound),
+close(), notify, bus}`. The handler "performs no token verification"
+  (`authInfo` is pass-through) and is "deliberately validation-free" (no
+  Host/Origin checks; the transport's DNS-rebinding options are
+  `@deprecated`). Also exported: `WebStandardStreamableHTTPServerTransport`
+  (long-lived, `handleRequest(req, opts?): Promise<Response>`),
+  `PerRequestHTTPServerTransport`, `legacyStatelessFallback`,
+  `requireBearerAuth`, `hostHeaderValidationResponse`,
+  `originValidationResponse`, `InMemoryTransport`. Client root: `Client`,
+  `InMemoryTransport`, `StreamableHTTPClientTransport(url: URL, opts?:
+{requestInit?: RequestInit, fetch?: FetchLike, sessionId?, protocolVersion?,
+authProvider?, reconnectionOptions?})`, `SSEClientTransport`;
+  `StdioClientTransport` under `/stdio`. (SDK `.d.mts`: `server/dist/index.d.mts:459-536,
+538-549, 653, 738`; `createMcpHandler-*.d.mts:3996-4040`;
+  `client/dist/index.d.mts:3020-3075, 3114, 3145`.)
+- **Our registry is transport-agnostic.** `mcp/registry.ts:286`
+  `createRecipeServer(backend: CuratorBackend, info: RecipeServerInfo = {}):
+McpServer` (`new McpServer({name: "recipes", version: packageJson.version},
+{capabilities: {tools: {}}, instructions})`), `TOOL_NAMES :75` (28 names,
+  ending `…reindex, git_status … git_push`); no `process.env`, no module
+  state. `read(run) :189`, `write(backend, run, {notify = true}) :208` —
+  `write` awaits `backend.afterWrite?.()` and folds the string into
+  `warnings`. `mcp/server.ts:54` already hands `serveStdio` the factory
+  `() => createRecipeServer(backend)`; the same expression is a valid
+  `McpServerFactory` for `createMcpHandler`. Everything process-global (env,
+  `process.exit`, signals, stdin, stderr banner) is in `server.ts` only.
+- **Backend seam.** `cli/backend/local.ts:44` `LocalBackendOptions extends
+CurationContext {notify?: NotifyTarget}`; `createLocalBackend({notify,
+...ctx}) :77`; `guard()` `:81-83` = `assertCommitIdentity(ctx.contentDirectory)`
+  before every committing write (throws `NoGitIdentityError` → 500;
+  unconfigurable; `author.ts:13-16` says routes must not demand it);
+  `afterWrite() :171-180` returns `STALE_EDITOR_HINT + NOTIFY_SUGGESTION`
+  when `notify` is unset; `close: closeCachedEnvironments :188` (the
+  **process-wide** LMDB environment cache — closing it inside the editor
+  tears down the server's own environments). `cli/backend/resolve.ts:135`
+  `createBackend(config)` drops `onWrite`/`onBulkChange` (`BackendConfig` has
+  no seat for them) and `resolveBackendConfig` reads `process.env`
+  (`RECIPE_API_URL` would make the editor proxy to itself) — unusable for
+  the route. `CuratorBackend` (`cli/backend/types.ts:85-183`): 28 methods +
+  `afterWrite?()` + `close()`; the HTTP backend's `afterWrite` returns
+  `undefined` and `close` is a no-op (`http.ts:371,376`) — the precedent
+  for "no hint, nothing to close".
+- **Auth/context.** `controller/apiAuth.ts:32` `authenticateRequest(request,
+contentDirectory): Promise<string | null>` — `/^Bearer\s+(.+)$/i` →
+  `findUserByToken` (constant-time, `src/users/index.ts:140-176`, tokens
+  `rcp_<8hex>_<43>` hashed in `<content>/users/<email>`, no scopes/expiry),
+  then falls through to the session cookie via `actions/shared.ts`
+  `authenticateUser` (`@/auth`), even when a bearer token was present but
+  wrong; **reads headers only**. `controller/apiContext.ts:37`
+  `curationContextFor(email, contentDirectory = getContentDirectory())` →
+  `{contentDirectory, author: {name: email, email}, onWrite →
+revalidateContentWrite(successConfigFor…), onBulkChange → revalidatePath("/",
+"layout") + revalidateDerivedState(recipeContentTypes)}`; `readContext :73`;
+  `requireCurationContext(request) :85` throws `UnauthenticatedError`
+  ("Authentication required: send an API token as `Authorization: Bearer
+rcp_…`, or sign in.") → `errorResponse` → 401 `{error: {code:
+"unauthenticated", message}}` (asserted `api-write.spec.ts:828-831`).
+  `curation/http.ts`: `statusFor`, `errorResponse`, `readJsonBody`
+  (**consumes the body** via `request.text()`), `boolParam`, `intParam`.
+- **Routes.** 21 route files under `src/app/api/`; no `api/mcp/`. Template
+  `api/git/status/route.ts` (26 lines): `export const runtime = "nodejs"`
+  (T23; the eight `/api/git/*` files are the only such declarations), one
+  `try { ctx = await requireCurationContext(request); … } catch (e) { return
+errorResponse(e) }`, imports via the `recipe-editor/controller/...`
+  self-alias (`node_modules/recipe-editor` → the editor package). No
+  `middleware.ts`/`proxy.ts` anywhere (so `auth.config.ts`'s `authorized`
+  is dead code; `/api/*` is never redirected). `next.config.mjs`:
+  `serverExternalPackages: ["lmdb"]`, `serverActions.bodySizeLimit: "10mb"`
+  (Server Actions only), no rewrites/headers. Next.js 16.1.6, React 19.2.4,
+  next-auth 5.0.0-beta.30, zod ^4.3.6. No route returns a streaming
+  `Response`; `Response.json` everywhere.
+- **Content directory.** `packages/cms/fs/getContentDirectory.ts`:
+  `CONTENT_DIRECTORY` → `TEST_MODE` ? `<cwd>/test-content` : `<cwd>/content`,
+  evaluated at import (T16). Playwright's `webServer` is `pnpm dev:test`
+  (`TEST_MODE=true next dev --port ${PLAYWRIGHT_PORT:-3019}`), so the server
+  reads `editor/test-content`, the same absolute path `playwright/support/
+tasks.ts:19` seeds and `createApiToken :55-60` (`addTokenToUser(testContentDir,
+"admin@nextmail.com", "playwright")`) writes into. Fixture order: `resetData`
+  first (it recreates `test-content/users/`), then `createApiToken`
+  (`support/test.ts:63-65`).
+- **Tests.** Root `test/` under vitest (`vitest.config.js` includes
+  `test/**/*.{test,spec}.*`, excludes `.claude/**`; aliases `next/cache`,
+  `next/navigation`, `@/auth` to stubs; jsdom default → `//
+@vitest-environment node`). `test/mcp.test.ts:49-100`: tmpdir +
+  `process.env.CONTENT_DIRECTORY`, `createLocalBackend({contentDirectory})`,
+  `InMemoryTransport.createLinkedPair()`, `call`/`callError` helpers, T28
+  shape pinned. `test/mcpStdio.test.ts:46-104`: `closeCachedEnvironments()`
+  before spawning (T16), `StdioClientTransport` with explicit `PATH`/`HOME`/
+  `CONTENT_DIRECTORY` (T29), `tools/list` equals `[...TOOL_NAMES]`. T17: a
+  route file that imports a cached read cannot load under vitest — test an
+  extracted handler, not `route.ts`. Playwright: no spec imports the MCP
+  client yet; `api-write.spec.ts:635-649` spawns the CLI with `--remote
+<baseURL>` and `CONTENT_DIRECTORY: "/nonexistent"`; `playwright.config.ts`:
+  `use.baseURL = http://localhost:3019`, `webServer.timeout` 120 s,
+  `reuseExistingServer: !CI && !BUILD`, `workers: 1`.
+- **CI.** `lint.yml` runs lint/unit/typecheck on every push; `playwright.yml`
+  runs on pushes to `main`/`playwright` and PRs to `main` only — a stacked
+  draft PR gets no e2e signal until the T20 retarget, so the reviewer's
+  local rerun is the gate (23d gate table records the same).
+- **`.mcp.json`** is stdio-only (D10 as built, `${VAR:-}` expansion, T27).
+  Claude Code's `.mcp.json` accepts `{"type": "http", "url", "headers"}`
+  entries; an entry whose URL expands to empty fails every startup.
+- **Protocol facts read from the SDK source** (`S` = `server/dist/index.mjs`,
+  `CORE` = `server/dist/src-CX2iR2pK.mjs`, `MCPX` = `server/dist/mcp-DXXb3Vv3.mjs`,
+  `C` = `client/dist/index.mjs`, under `node_modules/.pnpm/@modelcontextprotocol+*@2.0.0/`):
+  - The v2 `Client` negotiates in **legacy** mode by default (`C:2436`):
+    `initialize` (no `_meta` envelope) → `notifications/initialized` → calls,
+    each an independent POST. `createMcpHandler` classifies a claim-less
+    `initialize`/`tools/*` as legacy (`CORE:5106-5139`) and serves it on
+    `createLegacyStatelessFallback` (`S:966-1032`): per POST, `factory({era:
+"legacy", requestInfo})`, a fresh `WebStandardStreamableHTTPServerTransport({
+sessionIdGenerator: undefined})`, `connect`, `handleRequest`; never a
+    `mcp-session-id` header (`S:715, 846`); non-POST → 405 JSON-RPC (`S:968`).
+    `legacy: "reject"` would 400 every such client — keep the default.
+  - **`responseMode` reaches only the modern leg** (`S:1206, 1225,
+1270-1276`); the legacy transport defaults `enableJsonResponse = false`
+    (`S:326`), so a legacy request POST is answered `200 text/event-stream`
+    with one `event: message` frame and the stream closed (`S:700-736,
+891-931`); a notification-only POST is `202` empty (`S:668-674`).
+    `responseMode: "json"` also `console.warn`s on every `createMcpHandler`
+    call (`S:1224`). `keepAliveMs: 0` disables the per-stream 15 s interval
+    (`MCPX:62-70`). No registry tool emits notifications, so on the modern
+    leg `"auto"` already yields a single `application/json` body (`S:125-137`).
+  - Client `fetch?: FetchLike = (url, init?) => Promise<Response>` is used
+    for every request (`C:5331, 5090-5095, 5424`). After the 202 to
+    `notifications/initialized` the client fires a standalone GET
+    (`C:5381-5385`); a **405** is swallowed silently (`C:5138-5141`); any
+    other non-ok status goes to `onerror` and a reconnect loop (`C:5142-5180`).
+  - A 401 without an `authProvider` throws `SdkHttpError` (`name ===
+"SdkHttpError"`, `status === 401`, `data.text` = our JSON body; `C:5375-5379`)
+    out of `client.connect()`.
+  - `createMcpHandler` allocates only an in-memory bus, a listen router and an
+    `inflight` set (`S:1210`, `MCPX:82-111, 219-260`); the legacy leg tears
+    down transport + server when the response body drains (`S:989-1027`),
+    the modern leg closes via microtask after the terminal response
+    (`S:114-130`). Skipping `handler.close()` per request retains nothing;
+    calling it before the body drains would abort the exchange (`S:1320-1331`).
+  - Next 16.1.6 answers an unimplemented route method with `405`, empty body,
+    no `Allow` header (`next/dist/server/route-modules/app-route/helpers/
+auto-implement-methods.js:16-29`); `OPTIONS` is auto-implemented as `204
+Allow: OPTIONS, POST` (`:52-70`).
+  - `handler.fetch` clones then `text()`s the request (`S:1066-1073`) — a
+    body consumed by the route makes the clone throw. Non-JSON content type →
+    415 `-32000`; a JSON body without `Accept: application/json,
+text/event-stream` → 406 (`S:627-631`); invalid JSON → 400 `-32700`; valid
+    JSON that is not JSON-RPC → 400 `-32600` (`CORE:5210`, `S:1302-1305`).
+
+#### Design (decided)
+
+D8 as amended, D24 (the route), D25 (`inProcess` on the local backend) and
+D26 (`mcp/http.ts`) in the decisions log are the design. Summary:
+
+| Piece   | Where                          | Shape                                                                                                                                                         |
+| ------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| route   | `src/app/api/mcp/route.ts`     | `runtime = "nodejs"`, `POST` only; `requireCurationContext` → `errorResponse` on failure, else `handleMcpRequest(request, ctx)`                               |
+| handler | `editor/mcp/http.ts`           | `createLocalBackend({...ctx, inProcess: true})` → `createMcpHandler(() => createRecipeServer(backend), {keepAliveMs: 0, onerror})` → `handler.fetch(request)` |
+| backend | `cli/backend/local.ts`         | `inProcess?: boolean`: `guard` no-op, `afterWrite` absent, `close` no-op, `notify` ignored                                                                    |
+| client  | remote `.mcp.json` (docs only) | `{"type": "http", "url": "<editor>/api/mcp", "headers": {"Authorization": "Bearer rcp_…"}}`                                                                   |
+
+Route body:
+
+```ts
+export const runtime = "nodejs";
+
+export async function POST(request: Request) {
+  let ctx: CurationContext;
+  try {
+    ctx = await requireCurationContext(request);
+  } catch (error) {
+    return errorResponse(error);
+  }
+  return handleMcpRequest(request, ctx);
+}
+```
+
+Handler body:
+
+```ts
+export async function handleMcpRequest(
+  request: Request,
+  ctx: CurationContext,
+): Promise<Response> {
+  const backend = createLocalBackend({ ...ctx, inProcess: true });
+  const handler = createMcpHandler(() => createRecipeServer(backend), {
+    keepAliveMs: 0,
+    onerror: (error) =>
+      console.error(`recipes MCP (http): ${error.stack ?? error.message}`),
+  });
+  return handler.fetch(request);
+}
+```
+
+Remote client snippet (for a Claude Code on another machine; the editor
+must be reached over HTTPS — a bearer token on plain HTTP is a credential
+in the clear, `agent-curation.md` fact 14):
+
+```json
+{
+  "mcpServers": {
+    "recipes": {
+      "type": "http",
+      "url": "https://<editor>/api/mcp",
+      "headers": { "Authorization": "Bearer rcp_…" }
+    }
+  }
+}
+```
+
+#### Steps (Opus implementer, in order)
+
+1. `cli/backend/local.ts` `inProcess` (D25); `test/mcp.test.ts` stays green.
+2. `mcp/http.ts` (D26) + `src/app/api/mcp/route.ts` (D24).
+3. `test/mcpHttp.test.ts` (below).
+4. `playwright/tests/mcp-http.spec.ts` (below); run with `api-write.spec.ts`.
+5. Doc edits are Fable's (this section is already the design); the
+   implementer reports divergences only.
+6. Gates; report divergences, plus the raw SSE frame of one `tools/call` on
+   the legacy leg for the record.
+
+#### Tests
+
+- **New `test/mcpHttp.test.ts`** (`// @vitest-environment node`). Harness
+  mirrors `test/mcp.test.ts:46-100`: per-test `mkdtemp`; `events:
+ContentWriteEvent[]`, `bulk = 0`; `ctx = {contentDirectory, author: {name:
+"mcp@test", email: "mcp@test"}, onWrite: e => events.push(e), onBulkChange:
+() => bulk++}`; the client's `fetch` option routes to the handler with Next's
+  behaviour for other methods:
+  ```ts
+  const viaHandler: FetchLike = async (url, init) => {
+    const request = new Request(url, init);
+    if (request.method !== "POST") return new Response(null, { status: 405 });
+    return handleMcpRequest(request, ctx);
+  };
+  transport = new StreamableHTTPClientTransport(
+    new URL("http://editor.test/api/mcp"),
+    { fetch: viaHandler },
+  );
+  client = new Client({ name: "mcp-http-test", version: "0" });
+  await client.connect(transport);
+  ```
+  Teardown: `client.close()`, `closeCachedEnvironments()` (the test process
+  owns the cache), `rm` tmpdir. Cases: (1) `listTools()` names deep-equal
+  `TOOL_NAMES` and `transport.sessionId` is `undefined`; (2) `recipe_create`
+  → not `isError`, `events` has exactly one `{kind: "create"}`,
+  `structuredContent.warnings` is `undefined`; (3) `recipe_list` then
+  `group_list` afterwards answer (consecutive requests share a live cache;
+  also assert `createLocalBackend({contentDirectory, inProcess:
+true}).afterWrite === undefined` and that its `close()` resolves without
+  evicting — a following `listRecipes` on a default backend still works);
+  (4) `group_get {slug: "nope"}` → `isError`, `error.code === "not_found"`
+  (T28: curation-layer failure); (5) raw legacy-leg wire shape via
+  `handleMcpRequest` with `Accept: application/json, text/event-stream`:
+  `initialize` → 200, `content-type` starts `text/event-stream`, no
+  `mcp-session-id`; `notifications/initialized` → 202 empty; (6) malformed
+  bodies (raw): `text/plain` → 415 `-32000`; JSON content type with body `{`
+  → 400 `-32700`; body `{}` → 400 `-32600`; a JSON body without `Accept` →
+  406 (pins T57); (7) modern leg: `new Client({…}, {versionNegotiation:
+{mode: "auto"}})` connects, `listTools` equals `TOOL_NAMES`, and a
+  `tools/call` response captured in the stub is `application/json`; (8)
+  identity guard skipped in-process: `initTestRepo` as in
+  `test/curationGit.test.ts` (T49) **without** `user.email`, with
+  `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, `GIT_COMMITTER_EMAIL`
+  deleted (restored in `afterEach`): a default backend's `createRecipe` →
+  `no_git_identity` and no data file; the `inProcess` backend's create is
+  refused by git itself (any code but `no_git_identity`) or, with a
+  `GIT_COMMITTER_*` pair set only for that call, succeeds — either way the
+  guard did not fire (T61).
+- **New Playwright `playwright/tests/mcp-http.spec.ts`**: `beforeEach`
+  `resetData("three-recipes-groups")` then `createApiToken()`; no
+  `initializeContentGit` (so `git_status` → `isRepo: false`). Helper
+  `connect()` = `new StreamableHTTPClientTransport(new URL("/api/mcp",
+baseURL), {requestInit: {headers: {authorization: \`Bearer ${token}\`}}})`+
+ `Client`; `afterEach`closes it. Cases: (1) anonymous`request.post`of a
+ `tools/list`body → 401`error.code === "unauthenticated"`; wrong token
+  `Bearer rcp_deadbeef_nope`→ 401; (2)`request.get("/api/mcp")`→ 405 empty
+  body;`OPTIONS`→ 204`Allow: OPTIONS, POST`; (3) client without a token:
+  `connect()`rejects with`name === "SdkHttpError"`, `status === 401`; (4)
+  with token: `listTools()`names equal`[...TOOL_NAMES]`; (5) `group_create
+  {group: {name: "MCP Week", kind: "meal-plan"}}`→ no`warnings`, then
+  `page.goto("/group/mcp-week")`renders and`/groups` lists it without a
+  reload (`api-write.spec.ts:195-216`precedent); (6)`git_status`→
+ `isRepo: false`; (7) `recipe_get {slug: "nope"}`→`isError`, `not_found`;
+  (8) malformed body over real HTTP (`content-type: application/json`,
+  `accept: application/json, text/event-stream`, body `{`) → 400 `-32700`.
+  `@modelcontextprotocol/client` is already a devDependency of the editor,
+  so the spec resolves it.
+- `test/mcp.test.ts`, `test/mcpStdio.test.ts`, `api-write.spec.ts`,
+  `git.spec.ts` unchanged.
+
+#### Gates (in `.claude/worktrees/agent-23e`)
+
+```
+pnpm --filter recipe-editor typecheck
+pnpm --filter recipe-website exec tsc --noEmit
+pnpm exec vitest run                                  # 522 at base + mcpHttp cases
+pnpm exec lint-staged --diff agent/23d-git-seats      # prettier --write, git add -A, then run (T42)
+pnpm --filter recipe-editor e2e-dev -- mcp-http.spec.ts api-write.spec.ts   # detached (setsid nohup … > log 2>&1 &), strip ANSI, T14 cleanup
+grep -rn "console.log\|process.stdout" websites/recipe-website/editor/{controller,cli,mcp} websites/recipe-website/common/controller packages/cms --include='*.ts' | grep -v node_modules   # unchanged from 23b/23d
+```
+
+Then CI on the draft PR (lint/typecheck/unit only while the base is not
+`main`; the local `e2e-dev` rerun is the Playwright gate). Smoke (Fable,
+scripts under `$CLAUDE_JOB_DIR/tmp`): copy `three-recipes-groups` over
+`editor/test-content` (it carries `users/admin@nextmail.com`); start `pnpm
+--filter recipe-editor dev:test` detached on 3019; mint a token with
+`CONTENT_DIRECTORY=<editor>/test-content pnpm --filter recipe-editor
+create-token -e admin@nextmail.com -n smoke`; write `mcp-http.json` =
+`{"mcpServers": {"recipes-http": {"type": "http", "url":
+"http://localhost:3019/api/mcp", "headers": {"Authorization": "Bearer
+rcp_…"}}}}`; `claude -p --mcp-config <that file> --strict-mcp-config
+--allowedTools "mcp__recipes-http" --output-format json "list the groups"` →
+expects `group_list` returning `week-of-may-4` and `weeknight-favourites`;
+watch the Next log for `Rejected inbound request` (none expected — this also
+records which era Claude Code's own client speaks). Stop the dev server and
+restore `test-content` afterwards (T14 cleanup).
+
+#### Risks → mitigations
+
+T52 (the in-process backend must never close the LMDB cache), T53 (the
+stale-editor hint is false in-process), T54 (never read the body before
+`handler.fetch`), T55 (`responseMode` never reaches the legacy leg), T56
+(`"auto"` upgrades to SSE on the first notification), T57 (raw POSTs need
+the dual `Accept`), T58 (the post-initialize GET must get exactly a 405),
+T59 (`handler.close()` is never needed per request), T60 (a 401 is
+`SdkHttpError`), T61 (identity-guard tests need a scrubbed git environment)
+in the T-list, plus T23 restated: `api/mcp/route.ts` is the ninth `runtime =
+"nodejs"` declaration.
+
+#### Not in 23e
+
+OAuth metadata / `requireBearerAuth` / `WWW-Authenticate` challenges;
+sessions, resumability, the standalone GET SSE stream, `subscriptions/listen`;
+Host/Origin validation; an HTTP entry in `.mcp.json`; token scopes or a
+read-only token (backlog "API token hygiene"); anonymous reads over MCP; the
+hand-wired JSON-only legacy leg (recorded as the fallback in D26); the skill
+rewrite and `mcp__recipes__*` allow-lists (23f); the #138 → #139 → #140
+landing housekeeping (user); the parked pie-iron task.
+
+#### Verification
+
+An MCP client over HTTP with a bearer token lists the same 28 tools as
+stdio and performs one write that the page reflects without a reload;
+without a token → 401 `unauthenticated`; `GET /api/mcp` → 405; Claude Code's
+own client completes the smoke against `next dev`.
+
+#### Decisions and close-out (2026-09-14)
+
+Commits on `agent/23e-mcp-http`: `8a429c96` (this design; also lists this
+doc under `CLAUDE.md`'s durable docs), `83762d1f` (implementation, 5 files,
++913 −14), the close-out. Draft PR #141 against `agent/23d-git-seats`;
+retarget to `main` after #140 merges (T20).
+
+- [x] D8 (amended) / D24: `src/app/api/mcp/route.ts` — `runtime =
+"nodejs"`, `POST` only, `requireCurationContext` → `errorResponse`, else
+      `handleMcpRequest`; the ninth `runtime` declaration.
+- [x] D25: `LocalBackendOptions.inProcess` — `guard` no-op, `afterWrite`
+      spread in only when not in-process (the notify body became a local
+      `const afterWrite`), `close` no-op; `resolve.ts` untouched.
+- [x] D26: `editor/mcp/http.ts` `handleMcpRequest` — per-request
+      `createMcpHandler`, `keepAliveMs: 0`, `onerror` → `console.error`, no
+      `responseMode`, never `close()`d; header comment carries the legacy-leg
+      shape and the not-built JSON-only fallback.
+- [x] Tests: `test/mcpHttp.test.ts` (8 cases: registry + no session, write
+      through `ctx.onWrite` with no `warnings`, cache alive across requests + the seam's absent `afterWrite`/inert `close`, `not_found` shape,
+      legacy wire shape, four refusals, modern JSON leg, identity guard
+      skipped on a scrubbed repo); `playwright/tests/mcp-http.spec.ts` (8
+      cases: 401 anonymous + wrong token, 405/204 for GET/OPTIONS,
+      `SdkHttpError` 401 from `connect()`, 28 tools, `group_create` →
+      `/group/mcp-week` + `/groups` without a reload, `git_status` `isRepo:
+false`, `not_found`, raw `-32700`).
+- [x] `.mcp.json`, `test/mcp.test.ts`, `test/mcpStdio.test.ts`,
+      `api-write.spec.ts`, `git.spec.ts` unchanged.
+
+**Review (Fable).** Read the full diff; no fixes needed. The three
+implementer divergences below are accepted as written: the
+`const afterWrite` restructure is the only way to make the property truly
+absent without touching the 28-method literal; the `Buffer` in the
+Playwright malformed-body case is a Playwright fact, now T62; the
+identity-guard case's positive assertion (the data file exists on disk after
+the in-process write, while the guarded backend never wrote it) is stronger
+than the design's "any code but `no_git_identity`". Reviewer reran every
+gate (below) plus the smoke.
+
+**Gate results (verbatim, reviewer rerun in the worktree):**
+
+| Gate                                                                | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm --filter recipe-editor typecheck`                             | clean (exit 0)                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `pnpm --filter recipe-website exec tsc --noEmit`                    | clean (exit 0)                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `pnpm exec vitest run`                                              | `Test Files 29 passed (29)` · `Tests 530 passed (530)` (522 at base, +8 `mcpHttp`)                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `pnpm exec lint-staged --diff agent/23d-git-seats`                  | clean (prettier + eslint, 7 files), tree clean afterwards                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| stdout grep                                                         | unchanged from 23b/23d: eight hits (`cli/output.ts` ×3, the two `--help` writes, the `mcp/server.ts` comment, the script-only `log` default ×2); a comment in `mcp/http.ts` was reworded so it would not add a ninth                                                                                                                                                                                                                                                                 |
+| `pnpm e2e-dev -- mcp-http.spec.ts api-write.spec.ts` (dev)          | reviewer rerun `27 passed (1.1m)`, 0 failed, 0 flaky (19 api-write + 8 mcp-http; implementer's first run `26 passed · 1 failed` on the malformed-body case → T62, then `27 passed`)                                                                                                                                                                                                                                                                                                  |
+| Raw `tools/call` on the legacy leg, through `next dev`              | `HTTP/1.1 200 OK` · `content-type: text/event-stream` · `cache-control: no-cache, no-transform` · `x-accel-buffering: no` · `Transfer-Encoding: chunked` · no `mcp-session-id`; body exactly `event: message\ndata: {"result":{"content":[{"type":"text","text":"{\"total\":2,…}"}],"structuredContent":{…}},"jsonrpc":"2.0","id":7}\n\n`, stream closed (the vitest capture of the same frame without Next is identical minus `vary`/`Transfer-Encoding`)                           |
+| Smoke: `curl` without a token / `GET`                               | `GET /api/mcp` → 405 empty; anonymous `POST tools/list` → 401 `{"error":{"code":"unauthenticated","message":"Authentication required: …"}}`                                                                                                                                                                                                                                                                                                                                          |
+| Smoke: `claude -p --mcp-config mcp-http.json --strict-mcp-config …` | `is_error: false`, 3 turns, 5.3 s, result "week-of-may-4 / weeknight-favourites" via `group_list` over `{"type": "http", "url": "http://localhost:3019/api/mcp", "headers": {"Authorization": "Bearer rcp_…"}}` against `next dev` on `three-recipes-groups`. Next's log: four `POST /api/mcp 200` from Claude Code's client, no `GET`, no `202`, no 4xx, no `Rejected inbound request`; one of the four responses was held open for the run's whole 5.5 s — recorded, not explained |
+| CI on the draft PR                                                  | green on `165b4746`: lint, both typechecks, unit (run 34859414499). The recipe Playwright shards, CMS demo and Portfolio jobs run only on PRs to `main`, so they first run after the retarget (T20) — `mcp-http.spec.ts` and `api-write.spec.ts` are covered by the reviewer rerun above                                                                                                                                                                                             |
+
+**Implementer notes (divergences from the design above, and why).**
+
+- **`createLocalBackend` restructure.** The notify body moved from an inline
+  method to a local `const afterWrite`, spread in as `...(inProcess ? {} :
+{ afterWrite })`; the 28-method literal is otherwise untouched.
+- **Playwright case (8) needs `Buffer.from("{")`**, not the string — T62.
+- **Vitest case (8) asserts on disk**, not on a `GIT_COMMITTER_*` pair:
+  "errored with anything but `no_git_identity`" plus "the recipe file
+  exists" is the positive proof the guard did not fire (the guarded backend
+  stops before `createContent` writes). Empirically git refuses the commit.
+  `initTestRepo` could not be reused: the repo must carry no `user.email`,
+  so its initial commit takes its identity from `simpleGit(...).env({…})`
+  scoped to those child processes only.
+- **No SDK behaviour contradicted the Facts.** Legacy-by-default client,
+  SSE-per-POST without `mcp-session-id`, `202` for
+  `notifications/initialized`, the swallowed 405 on the standalone GET,
+  `415/-32000`, `400/-32700`, `400/-32600`, `406` without the dual `Accept`,
+  `SdkHttpError` 401 out of `connect()`, one `application/json` body under
+  `versionNegotiation: {mode: "auto"}`, Next's empty 405 and `204 Allow:
+OPTIONS, POST` — all as written. One extra observation: on the legacy
+  stateless leg a `tools/call` POST is answered without a preceding
+  `initialize`; each POST gets its own server instance, so there is no
+  per-connection initialization state to violate.
+
+**Verification (epic line for 23e):** met — an MCP client over HTTP with a
+bearer token lists the same 28 tools as stdio (`mcp-http.spec.ts` and the
+vitest harness both pin `[...TOOL_NAMES]`) and `group_create` is reflected
+by `/group/mcp-week` and `/groups` without a reload; without a token → 401
+`unauthenticated`; `GET /api/mcp` → 405; Claude Code's own client listed the
+groups through the endpoint against `next dev`.
+
+### PR 23f — Curator skill v2 `agent/23f-curator-skill-v2` 🟡 next (← 23e)
 
 Seed: D9 — rewrite `SKILL.md` around the tools (verify the `allowed-tools`
 syntax for MCP tool names), keep the CLI as fallback, regenerate
