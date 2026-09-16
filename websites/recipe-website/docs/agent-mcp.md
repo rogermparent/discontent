@@ -195,7 +195,9 @@ McpHttpHandler` (fetch-style; per-request = stateless; does no token
 11. **Skill** `.claude/skills/recipe-curator/SKILL.md` allowlists
     `Bash(pnpm --silent recipes:*)` + `WebSearch`; `examples.md` holds real
     transcripts. Its "Never" list forbids push, delete, reindex, `--force`,
-    `--overwrite`, and every routing flag.
+    `--overwrite`, and every routing flag. _Stale after 23f_: the skill now
+    pre-approves 21 `mcp__recipes__<tool>` names (D27), `settings.json`
+    mirrors them (D28), and the CLI is the fallback section.
 12. **CLI dispatch** (`editor/cli/index.ts`): `splitArgv` recognises a
     subcommand only after `group`; commands are `CommandDef` objects
     (`options`, `usage`, `write`, `run`, `format`) in `cli/commands/*.ts`;
@@ -310,7 +312,14 @@ slug, rev})` (`git checkout <rev> -- <paths>` + commit `Restore <type>
   syntax at 23f), CLI kept as the documented fallback; `examples.md`
   regenerated from real tool transcripts; the Christmas-Cookies story
   becomes both an automated acceptance test (vitest, in-memory client,
-  fixture content dir) and the user's first real run.
+  fixture content dir) and the user's first real run. **Amended at 23f
+  (2026-09-14):** `allowed-tools` enumerates the 21 non-destructive tools
+  by name, not the server; the CLI is a fallback section, not a parallel
+  path; the acceptance test is a deterministic replay over the in-memory
+  client on a committed fixture (no model in the loop) and two headless runs
+  are the transcripts; the HTTP transport gets one paragraph — register the
+  editor's `/api/mcp` under the same server name `recipes` so the tool
+  names and the allow-list apply unchanged. See D27–D30.
 - **D10 `.mcp.json`** at the repo root registers `recipes` →
   `pnpm --silent --filter recipe-editor mcp`, passing through
   `CONTENT_DIRECTORY`, `RECIPE_API_URL`, `RECIPE_API_TOKEN`,
@@ -576,6 +585,148 @@ errorResponse(e) }`, then `return handleMcpRequest(request, ctx)`. Two
 enableJsonResponse: true})` + `createMcpHandler(factory, {legacy:
 "reject"})` for the modern leg (~25 lines replicating the SDK's
   `createLegacyStatelessFallback`) — not built unless Playwright forces it.
+- **D27 Skill v2 `SKILL.md` (23f).** ≤ ~170 lines. Frontmatter `name`,
+  `description` (MCP-first: "… through the `recipes` MCP tools …" plus the
+  ask examples, adding nested collections and the homepage strip), and one
+  comma-separated `allowed-tools:` line — the 21 `mcp__recipes__<tool>`
+  names, `WebSearch`, `Bash(pnpm --silent recipes:*)` (the form the current
+  file uses and 22e's Run 3 proved accepted; one line so the pin test's
+  regex stays a one-liner and prettier leaves it alone). 21 = `TOOL_NAMES`
+  minus the seven **held back**: `recipe_delete`, `group_delete`,
+  `unfeature`, `reindex`, `git_revert`, `git_restore`, `git_push` — every
+  `DESTRUCTIVE_WRITE` tool plus the two that change the world without being
+  one; the set cannot be derived from annotations (`reindex` is
+  `IDEMPOTENT_WRITE`, `git_push` is `WRITES`), so it is spelled out in the
+  test. Body: the same eight steps, tool-first, each with one JSON example
+  and the result shape: (1) **where writes go** — `git_status` (is the
+  content a repo, which branch — whether writes commit) and `recipe_list
+{limit: 1}` → `recipe_get {slug}` (its `path` is the resolved content
+  directory; `total` 0 on a non-empty site → stop and ask, the only stop);
+  remote: if the `recipes` server is the editor's `/api/mcp`, `path` is the
+  server's; never read env or shell out to find this. (2) **constraints**
+  unchanged. (3) **reuse first** — `recipe_search {query}` rows are compact
+  (`slug, name, date, tags?, totalTime?, image?`); `fields: ["description",
+"ingredients", "prepTime", "cookTime"]` adds those; `recipe_get` for
+  `instructions`/`source`; one or two words per query (ANDed, word-start
+  prefix, unranked); `tag_list` before inventing a tag; typed terms `tag:`,
+  `-tag:`, `ingredient:`, `name:`, `description:`, `time:<=45`,
+  `before:`/`after:`, `AND`/`OR`/`NOT`, parentheses; **`group:` works only
+  in the browser search — use `group_get` for membership**; prefer an
+  existing recipe over an import. (4) **web candidates** unchanged. (5)
+  **dry-run** `recipe_import {url, dryRun: true}` → `{dryRun, url, slug,
+recipe, image?, video?}`, no `warnings`; rejection rules unchanged. (6)
+  **import** `recipe_import {url, tags}` → `{slug, date, path, url,
+source?, warnings?}`; `slug_conflict` → reuse the slug, never `overwrite`;
+  `source.url` is the citation; tag vocabulary unchanged; `recipe_update
+{slug, patch: {tags}}` only to fix tags on a recipe this run imported. (7)
+  **group** `group_create {group: {name, kind, description?, items:
+["slug:label", …]}}` (`kind` `meal-plan` with dated labels, `collection`
+  otherwise; `imageImportUrl` for a cover); nesting = `{group: "<slug>"}`
+  items or `group_add_item {group, subgroup}`; `group_cycle` is final;
+  `group_set_items` replaces, `group_add_item` appends;
+  `unknown_recipe`/`unknown_group` → fix the slug, never `force`; `feature
+{group, slug: "<explicit>"}` **only when the ask says so**, `slug` explicit
+  when featuring more than one thing; `group_update` for
+  name/description/kind (never touches items); the Christmas-Cookies shape
+  spelled out: parent collection → feature → child collection →
+  `group_add_item {subgroup}` (or `group_set_items` with a `{group}` item) →
+  `group_get` both. (8) **report** — table, `/group/<slug>` links,
+  rejections, `warnings` restated in plain words ("the running editor needs
+  Settings → Maintenance → Reload" / "set `RECIPE_EDITOR_URL`"), and — when
+  `git_status.isRepo` — the commits from `git_log {type: "group", slug}`;
+  end "push from `/git` when ready". **Held back** section (replaces
+  "Never"): the seven tools are not pre-approved and not part of this
+  skill; a wrong write is reported with its commit hash from `git_log` for
+  the user to `git_revert`/`git_restore` themselves; never `overwrite`,
+  never `force`, never `RECIPE_API_TOKEN` on argv; `warnings` are
+  information (the stale-editor line means the running editor needs
+  Settings → Maintenance → Reload, or `RECIPE_EDITOR_URL` with
+  `RECIPE_API_TOKEN` in the server's environment makes it automatic).
+  **Fallback (CLI)** section: `pnpm --silent recipes <command> … --json`
+  from the repo root when the `recipes` server is not connected; flags
+  mirror the tool inputs (`pnpm --silent recipes --help`); the old
+  flag-level Nevers (`--author --remote --editor-url --notify --overwrite
+--force`) live here **plus `--content-dir`** (the environment chooses the
+  target; a flag would let a fallback run write somewhere the tools would
+  not). HTTP transport gets one paragraph: register the editor's `/api/mcp`
+  under the same server name `recipes` and nothing else changes.
+- **D28 Permissions and the drift pin (23f).** `.claude/settings.json`
+  `permissions.allow` gains the same 21 `mcp__recipes__<tool>` entries (the
+  four existing entries and `enabledMcpjsonServers` stay). New
+  `test/curatorSkill.test.ts` (node env) reads `SKILL.md` (regex on the
+  `allowed-tools:` line) and `settings.json`, spells out `HELD_BACK` (the
+  seven names) and asserts: (a) `HELD_BACK ⊇` every tool whose
+  `annotations.destructiveHint` is true on a live `listTools()`; (b)
+  frontmatter MCP names == settings MCP names == `TOOL_NAMES − HELD_BACK`
+  (as sets, and every name is a real tool); (c) every backticked token in
+  `SKILL.md`/`examples.md` shaped like a tool name
+  (`/^(recipe|group|git|tag|featured)_[a-z_]+$|^(feature|unfeature|reindex)$/`)
+  is in `TOOL_NAMES`, and none of `HELD_BACK` appears outside the "Held
+  back" section — the MCP analogue of 22e's command-line audit; (d) no
+  `pnpm --silent recipes` line outside the Fallback section.
+- **D29 Fixture `christmas-cookies` (23f)**
+  (`editor/playwright/fixtures/test-content/christmas-cookies/`): ten
+  recipes, `recipe.json` shaped as `search-corpus/…/ginger-cookies`, dates
+  strictly increasing so newest-first is deterministic, no images, no
+  `groups/`, no `featured-recipes/`, no `users/` (vitest and the stdio smoke
+  need none; Playwright's `resetData` layers users anyway). Rows (# = day of
+  `Date.UTC(2025, 11, n)`, so newest-first is `linzer-cookies` …
+  `weeknight-chili` with no ties): 1 `weeknight-chili` (dinner, quick; no
+  "cookie" anywhere), 2 `banana-bread` (breakfast, baked; description avoids
+  the word), 3 `shortbread` (description "Buttery Scottish cookies …"), 4
+  `peanut-butter-blossoms` (description "… cookies topped with a chocolate
+  kiss"), 5 `snickerdoodles` (description "Cinnamon-sugar cookies …"), 6
+  `sugar-cookies`, 7 `gingerbread-cookies`, 8 `apricot-linzer-cookies`, 9
+  `chocolate-hazelnut-linzer-cookies`, 10 `linzer-cookies`; rows 3–10 carry
+  `cookies, dessert, baked`, rows 7–10 add `christmas`. Every cookie carries
+  the `cookies` tag (so `tag_list` is non-trivial and `tag:cookies` works);
+  no word starting with "cookie" or "linzer" may appear in the two
+  distractors' name, description, tags **or ingredients** (T66).
+  Three-ingredient lists in the `{ingredient: "<Multiplyable
+baseNumber=\"2\" /> cups flour"}` shape of the template, short
+  `instructions`, `prepTime`/`cookTime`/`totalTime` set, `recipeYield` "".
+  Built by a new one-shot `editor/scripts/seed-christmas-cookies.ts` (the
+  `seed-groups.ts` pattern): `outputJSON` the ten files, then
+  `rebuildIndex({config: recipeContentConfig, contentDirectory,
+cascadeDependents: false})`, then `closeCachedEnvironments()`; run once
+  against the fixture path. `git status` must then show only
+  `christmas-cookies/recipes/{data/*/recipe.json, index,
+pagination/by-date, aggregates/tags, aggregates/by-tag}` — ten JSON files
+  and eight `.mdb` files, nothing under `featured-recipes/`, `groups/` or
+  `pages/`. The fixture is the vitest corpus (copied to a tmpdir), the
+  headless smoke's scratch corpus, and a rehearsal corpus for the user's
+  real run.
+- **D30 Acceptance test `test/christmasCookies.test.ts` (23f).** Node env,
+  one `describe`, per-case timeout 30 s. `beforeAll`:
+  `closeCachedEnvironments()`, `mkdtemp`, `copy(fixture, tmpdir)`,
+  `CONTENT_DIRECTORY`, harness as `mcp.test.ts:44-117`; `afterAll`: close
+  client/server/backend, restore env, `rm`. One sequential story case plus
+  small follow-ups: (1) `tag_list` **first** → includes `cookies` and
+  `christmas` (proves the committed aggregate was read, not rebuilt);
+  `recipe_search {query: "cookie"}` → `total` 8, slugs = rows 10…3 in that
+  order, neither distractor; `recipe_search {query: "linzer"}` → 3;
+  `recipe_search {query: "tag:cookies"}` → 8. (2) `group_create {group:
+{name: "Christmas Cookies", kind: "collection", description, items: <8
+slugs>}}` → `slug: "christmas-cookies"`, `warnings` contains
+  `STALE_EDITOR_HINT` (`toMatchObject`, T53's inverse: the local backend is
+  not in-process). (3) `feature {group: "christmas-cookies", slug:
+"christmas-cookies-strip"}` → `{slug: "christmas-cookies-strip", group:
+"christmas-cookies"}`. (4) `group_create {group: {name: "Linzer Cookies",
+kind: "collection", items: <3 linzer>}}` → `linzer-cookies`. (5)
+  `group_set_items {group: "christmas-cookies", items: [<5 non-linzer>,
+{group: "linzer-cookies", label: "Linzer"}]}` (exercises a `{group}` item
+  through set_items); then `group_add_item {group: "linzer-cookies",
+subgroup: "christmas-cookies"}` → `group_cycle` with `groups:
+["linzer-cookies", "christmas-cookies", "linzer-cookies"]` (shape as
+  `mcp.test.ts:393-401`). (6) Reads: `group_get christmas-cookies` → five
+  `{recipe, name}` rows and one `{group: "linzer-cookies", label: "Linzer",
+name: "Linzer Cookies", kind: "collection"}`, no `missing`; `group_get
+linzer-cookies` → three rows; `group_list` → `total` 2, `itemCount` 6 and 3
+  (top-level accessibility); `featured_list` → one row `{slug:
+"christmas-cookies-strip", group: "christmas-cookies", name: "Christmas
+Cookies"}`; `recipe_search {query: "chili"}` → 1 (distractor untouched);
+  the fixture directory itself is unchanged (`git status` clean under
+  `playwright/fixtures` — asserted by the gate, not the test).
 
 ## Traps (T-list; pass to every implementer)
 
@@ -804,6 +955,31 @@ data : JSON.stringify(data)` (`playwright-core/lib/client/fetch.js`), so the
   server receives the JSON _string_ `"{"` — valid JSON, `-32600`, never the
   `-32700` parse error. A deliberately malformed body must be a
   `Buffer.from("{")`. Found by 23e's first `mcp-http.spec.ts` run.
+- **T63 A fixture copied by vitest must be copied, never pointed at:** the
+  story writes groups, and a write into `playwright/fixtures/…` dirties the
+  tree and, for `groups/`, is swallowed by `.gitignore` (T51).
+- **T64 Three allow-lists can drift** (skill frontmatter, `settings.json`,
+  `TOOL_NAMES`); `test/curatorSkill.test.ts` is the only guard, and a new
+  `DESTRUCTIVE_WRITE` tool must be added to its `HELD_BACK` or the test
+  fails.
+- **T65 A headless skill run with `.mcp.json` writes to the real content
+  repo** unless `CONTENT_DIRECTORY` is exported as an **absolute** path
+  (`${VAR:-}` expands empty → `editor/content`; a relative path resolves
+  against `INIT_CWD`); `RECIPE_API_URL` in the shell redirects to an editor;
+  `--strict-mcp-config` changes neither. `CLAUDECODE` must be unset from
+  inside a session. `--permission-mode acceptEdits` does not allow MCP
+  tools: a denial in `-p` mode means the settings list is wrong.
+- **T66 `recipe_search` free text is prefix-at-word-start with the query
+  word as the prefix,** so "cookie" finds "cookies" but not the reverse; a
+  fixture recipe is in the cluster iff such a word appears in its name,
+  description, tags or **ingredients** ("cookie sheet" in a distractor
+  makes it nine).
+- **T67 `rebuildIndex` cascades to dependents by default and LMDB `open()`
+  creates directories:** seeding a recipes-only fixture without
+  `cascadeDependents: false` commits a stray `featured-recipes/`
+  environment. `build-fixture-indexes.ts` rebuilds every fixture (T41) —
+  never for one. And T26 restated: explicit `slug` on `feature` in any test
+  or run that features more than once.
 
 ## Stacked-PR roadmap
 
@@ -816,7 +992,7 @@ Each branch is off the previous. Rebase children after a parent merges.
 | 23c | `agent/23c-nested-groups` ← 23b     | ✅ done | D6/D15–D18: `{group}` items, `group_cycle`, `groupsByDate` v3 + `by-group` aggregate, group cards + Appears-in on group pages, transitive `group:` search, CLI `--group-item`/`--group`, MCP `subgroup`, `nested-groups` fixture |
 | 23d | `agent/23d-git-seats` ← 23c         | ✅ done | D7: `curation/git.ts`, `/api/git/*`, CLI `git …`, MCP git tools; tests on a temp repo; `/git` page keeps its behaviour                                                                                                           |
 | 23e | `agent/23e-mcp-http` ← 23d          | ✅ done | D8/D24–D26: `POST /api/mcp` route on `createMcpHandler`, `inProcess` local backend, `mcp/http.ts`; `test/mcpHttp.test.ts` (client via handler) + `mcp-http.spec.ts` against `next dev`                                           |
-| 23f | `agent/23f-curator-skill-v2` ← 23e  | 🟡 next | D9: skill rewrite, examples, acceptance test of the user story, docs close-out, backlog update, memory                                                                                                                           |
+| 23f | `agent/23f-curator-skill-v2` ← 23e  | 🟡 wip  | D9: skill rewrite, examples, acceptance test of the user story, docs close-out, backlog update, memory                                                                                                                           |
 
 **Next PR:** 23f — `agent/23f-curator-skill-v2` off `agent/23e-mcp-http`
 (the stack is #138 → #139 → #140 → #141; rebase each child onto `main` as
@@ -2716,13 +2892,342 @@ by `/group/mcp-week` and `/groups` without a reload; without a token → 401
 `unauthenticated`; `GET /api/mcp` → 405; Claude Code's own client listed the
 groups through the endpoint against `next dev`.
 
-### PR 23f — Curator skill v2 `agent/23f-curator-skill-v2` 🟡 next (← 23e)
+### PR 23f — Curator skill v2 `agent/23f-curator-skill-v2` 🟡 in progress (← 23e)
 
-Seed: D9 — rewrite `SKILL.md` around the tools (verify the `allowed-tools`
-syntax for MCP tool names), keep the CLI as fallback, regenerate
-`examples.md` from real transcripts, add the Christmas-Cookies acceptance
-test (vitest, in-memory client, a cookies fixture), update `docs/backlog.md`
-and the memory, close this doc out.
+Branch `agent/23f-curator-skill-v2` off `agent/23e-mcp-http` at `b0ef22eb`
+(the stack is #138 → #139 → #140 → #141 → this PR; the merge/retarget/rebase
+of each parent stays the user's housekeeping, T20). Workflow unchanged: Fable
+plans and reviews, an Opus subagent implements in
+`.claude/worktrees/agent-23f`, this section is the handoff, the user merges.
+Never push `main`, never force-push, never merge.
+
+Goal (D9, amended): rewrite `.claude/skills/recipe-curator/SKILL.md` around
+the 28 `mcp__recipes__*` tools with the CLI kept as the documented fallback,
+regenerate `examples.md` from real tool transcripts, turn the driving user
+story into an automated acceptance test on a committed cookie fixture,
+update `docs/backlog.md`, close this doc out, update memory. The story:
+
+> "Organize the cluster of cookie recipes into one featured group called
+> _Christmas Cookies_, then combine the linzer cookie recipes into a group
+> that is accessible both at the top level and inside _Christmas Cookies_."
+
+Decided with the user (2026-09-14, plan mode): the skill pre-approves the
+**21 non-destructive tools** (in its frontmatter and in
+`.claude/settings.json`, pinned by a test); `examples.md` comes from **two
+headless runs** (the story, and the meal-plan ask regenerated); the cookie
+corpus is a **new committed fixture**; the two truth gaps (`recipe_search`
+advertising `group:`, the stale-editor hint's CLI-only advice) are **fixed in
+code, one line each**.
+
+#### Facts (validated 2026-09-14 on `agent/23e-mcp-http` at `b0ef22eb`; paths under `websites/recipe-website/editor/` unless noted)
+
+- **The skill today.** `.claude/skills/recipe-curator/SKILL.md` (156 lines)
+  and `examples.md` (173 lines), untouched since 22h. Frontmatter: `name`,
+  `description` ("… via pnpm recipes …"), `allowed-tools: Bash(pnpm --silent
+recipes:*), WebSearch`. Body: `$ARGUMENTS` (`:9`), eight numbered steps
+  (where writes go → constraints → reuse → web candidates → dry-run → import
+  → group → report) and a "Never" block (`:148-156`: never push/delete/
+  `unfeature`/`reindex`, never `--author --remote --editor-url --notify
+--overwrite --force`). Every command line is `pnpm --silent recipes … --json`
+  from the repo root. `examples.md`: two hand-abbreviated real transcripts
+  (meal plan "three vegetarian dinners under 45 minutes"; collection
+  "meatless bean dinners"); no `feature`, no `group update`, no
+  `--image-url` example. Nothing automated exercises the skill; it is the
+  only `SKILL.md` in the repo, so there is no second frontmatter convention
+  to copy.
+- **Permissions today.** `.claude/settings.json`: `enabledMcpjsonServers:
+["recipes"]` (23b) and `permissions.allow` = `Bash(pnpm --silent recipes:*)`,
+  `Bash(pnpm recipes:*)`, `WebSearch`, `Skill(recipe-curator)` — **no
+  `mcp__recipes*` entry**. `.mcp.json` registers `recipes` (stdio, `${VAR:-}`
+  passthrough of `CONTENT_DIRECTORY`, `RECIPE_API_URL`, `RECIPE_API_TOKEN`,
+  `RECIPE_AUTHOR`, `RECIPE_EDITOR_URL`); default target is the **real
+  content repo** through the `editor/content` symlink — every smoke must
+  export a scratch `CONTENT_DIRECTORY`.
+- **Claude Code contract (official docs, fetched 2026-09-14;
+  code.claude.com/docs/en/{skills,mcp,permissions,headless}.md).** SKILL.md
+  frontmatter fields: `name`, `description`, `allowed-tools` (space-separated
+  string, or a YAML list), `disable-model-invocation`, `user-invocable`,
+  `context: fork`, `agent`, `arguments`, `paths`, `background`.
+  `allowed-tools` **pre-approves** the listed tools for the skill's turn
+  ("Permission expires when you send your next message"). MCP names:
+  `mcp__<server>__<tool>` per tool, `mcp__<server>` or `mcp__<server>__*` for
+  the whole server; the same three forms are the `permissions.allow` rule
+  syntax. `claude -p "/recipe-curator <ask>"` expands the skill in headless
+  mode; `--allowedTools`, `--permission-mode`, `--max-turns`,
+  `--output-format stream-json`, `--verbose` as before; a skill cannot
+  declare MCP servers (only plugins can). Two `.mcp.json` entries for the
+  same server under two names yield two tool prefixes (`mcp__recipes__*` vs
+  `mcp__recipes-http__*`), so an HTTP registration meant for this skill must
+  reuse the name `recipes`.
+- **The tool surface** (`mcp/registry.ts`): `TOOL_NAMES` (`:75-104`, 28).
+  Annotations `:261-267`: `READ_ONLY` (recipe_search, recipe_list,
+  recipe_get, tag_list, group_list, group_get, featured_list, git_status,
+  git_log, git_show, git_file_at, git_diff), `WRITES` (recipe_import,
+  recipe_create, group_create, group_add_item, feature, git_push),
+  `IDEMPOTENT_WRITE` (recipe_update, group_update, group_set_items,
+  group_remove_item, reindex), `DESTRUCTIVE_WRITE` (recipe_delete,
+  group_delete, unfeature, git_revert, git_restore). `git_push` is only
+  `WRITES`, so annotations alone do not carry the skill's "never push".
+  `group_add_item`/`group_remove_item` take `subgroup` (not `group`) for the
+  nested target (`:230-246`); `group_create.items` / `group_set_items.items`
+  take `"slug"`, `"slug:label"`, `{recipe, label?, note?}` or `{group,
+label?, note?}`; `group_create.group.kind` defaults to `collection`;
+  `feature` takes `{recipe | group, note?, date?, slug?}` and the default
+  entry slug has one-second resolution (T26 — pass `slug` when featuring
+  more than once); `group_get` resolves items to `{recipe, label?, note?,
+name}` or `{group, label?, note?, name, kind}` or `{…, missing: true}`;
+  `featured_list` rows are `{slug, date, recipe? | group?, note?, name?}`;
+  `group_list` rows `{slug, date, name, kind, itemCount}`. Server
+  `instructions` (`:269-277`) already name the 15 error codes and the
+  `warnings` semantics.
+- **`warnings`.** `write()` (`registry.ts:196-223`) folds
+  `backend.afterWrite?.()` into `warnings`; the local backend returns
+  `STALE_EDITOR_HINT + NOTIFY_SUGGESTION` = "A running editor is stale until
+  Settings → Maintenance → Reload." + " Pass --notify --editor-url <url> to
+  invalidate it automatically." (`cli/backend/local.ts:36-41`) — CLI-flag
+  advice that reaches MCP callers verbatim. `recipe_import` passes `notify:
+dryRun !== true`, so the MCP path already omits the hint on a dry run (the
+  CLI still prints it — backlog row stays, narrowed to the CLI). Curation
+  warnings are `Unknown recipe: <slug>` / `Unknown group: <slug>`
+  (`curation/groups.ts:251,270`), only under `force`.
+- **Search truth.** `controller/curation/search.ts:47-77`: every free-text
+  word must prefix-match at a word start in `name`, `description`, a tag or
+  an ingredient; unranked, newest first. **`group:` matches nothing
+  server-side** — `matchesFilter`'s `case "group"` reads `recipe.groups`,
+  which `toRecipeRow` never sets (`common/controller/data/read.ts:16-28`:
+  "never written on the server"); only the browser decorates rows. The
+  `recipe_search` description (`registry.ts:302-333`) lists `group:` anyway.
+  `tag_list` reads the `recipeTags` aggregate.
+- **Fixtures.** `playwright/fixtures/test-content/<name>/`; LMDB index files
+  are **committed** (e.g. `search-corpus/recipes/index/{data,lock}.mdb`), so
+  a copied fixture answers `recipe_search` with no rebuild; nothing
+  self-heals on read (an unindexed directory answers `{total: 0}`). The only
+  cookie today is `search-corpus/…/ginger-cookies` (the recipe.json
+  template). `resetData` (`playwright/support/tasks.ts:33-42`) is `fs-extra`
+  `copy` + layering `playwright/fixtures/users`. `editor/.gitignore`
+  wildcard-ignores every fixture's `groups/` (negations for
+  `three-recipes-groups`, `nested-groups`; T51) — a fixture **without**
+  `groups/` needs no line; `featured-recipes/` is not wildcard-ignored.
+  **Index build:** `scripts/build-fixture-indexes.ts` (no args, run from the
+  editor dir) rebuilds **every** fixture and leaves every other fixture's
+  `.mdb` byte-different (T41) — not the tool for one new fixture. The
+  `scripts/seed-groups.ts` pattern (`:75-79`: `outputJSON` the data files,
+  then `rebuildIndex({config, contentDirectory})`) builds one directory;
+  `rebuildIndex` defaults `cascadeDependents: true` and recipes are
+  `referencedBy` featured (`recipeContentConfig.ts:28-33`), so the call must
+  pass `cascadeDependents: false` or it plants a stray `featured-recipes/`
+  environment (LMDB `open()` creates directories,
+  `environmentCache.ts:114-116`). A recipes-only fixture commits exactly
+  four environments — `recipes/index`, `recipes/pagination/by-date`,
+  `recipes/aggregates/tags`, `recipes/aggregates/by-tag` (`data.mdb` +
+  `lock.mdb` each; `search-corpus` and `three-recipes` show the same eight
+  files). `date` is the index key (`recipeContentConfig.ts:23-26`); rows
+  read `reverse: true` keyed `[date, slug]`. No test enumerates fixtures;
+  `specVersions.test.ts` hashes config source only. `fs-extra` `copy` is a
+  root dependency and copies `lock.mdb` exactly as `resetData` does (no lock
+  hazard; reader slots are PID-keyed). Free-text match direction
+  (`queryLanguage.ts:447-455`): the **query word must be a prefix of a field
+  word** — `cookie` matches "cookies", not the reverse — over name,
+  description, tags and the flattened ingredient strings from the index
+  value.
+- **No test pins the two strings being changed.** `registry.ts:306` holds
+  `group:` in the description; no test asserts it. `NOTIFY_SUGGESTION` is
+  module-private (`local.ts:40-41`); `test/mcp.test.ts:155,331,620` assert
+  `stringContaining(STALE_EDITOR_HINT)` only. `resolveNotify`
+  (`cli/backend/resolve.ts:94-97`) turns notify on from `RECIPE_EDITOR_URL`
+  alone, with `RECIPE_API_TOKEN` as the token.
+- **Vitest.** Root `test/` only; jsdom default (`// @vitest-environment
+node` on line 1); files run in parallel forks, cases in a file
+  sequentially; no global timeout (5 s default — pass a per-case timeout).
+  No test copies a fixture yet; `test/mcp.test.ts:44-117` is the harness
+  (tmpdir, `CONTENT_DIRECTORY`, `createLocalBackend`, `InMemoryTransport`,
+  `call`/`callError`); `test/mcp.test.ts:520-565` already has the _shape_ of
+  the story (one cake, one group, one feature — no nesting, no cookies).
+  `closeCachedEnvironments()` before touching files a process has opened
+  (T16). Import can be stubbed with `vi.stubGlobal("fetch", …)`
+  (`test/curation.test.ts:266-289`) — not needed here, the story imports
+  nothing.
+- **Headless precedent.** 22e Run 3 (`agent-curation.md:1792-1900`):
+  `CONTENT_DIRECTORY=<scratch> claude -p "<ask>" --permission-mode
+acceptEdits --max-turns 40 --output-format stream-json --verbose` with **no
+  `--allowedTools`** so the committed settings gate the run; 23b/23c/23e
+  smokes used `--mcp-config .mcp.json --strict-mcp-config`. From inside a
+  Claude Code session `CLAUDECODE` must be unset (memory).
+- **Docs to close.** This doc: roadmap row 23f, the "Next PR" paragraph,
+  fact 11 (stale after this PR), Deferred, epic Verification, the header
+  obligation. `docs/backlog.md` rows: "Stale-editor hint after `--dry-run`"
+  (narrow to CLI), "Tag-vocabulary pass", "Search ranking", "API token
+  hygiene", "`--image <local file>`". Root `CLAUDE.md` "Curating recipes"
+  ("exactly one command form") — 84 lines against a soft 80-line budget.
+  Numbering before this phase: highest D is D26, highest T is T62.
+
+#### Design (decided)
+
+D9 amended, D27–D30 in the D-list; T63–T67 in the T-list. In short:
+
+- **D9 amended.** `allowed-tools` enumerates tools, not the server; the CLI
+  is a fallback section, not a parallel path; the acceptance test is a
+  deterministic replay of the story over the in-memory client on a
+  committed fixture (no model in the loop), and the two headless runs are
+  the transcripts. HTTP transport: one paragraph — register the editor's
+  `/api/mcp` under the **same server name `recipes`** so the tool names and
+  this skill's allow-list apply unchanged; then "where writes go" is the
+  server's content directory.
+- **D27 Skill v2** — `SKILL.md` (≤ ~170 lines): frontmatter with the 21
+  pre-approved `mcp__recipes__<tool>` names + `WebSearch` + `Bash(pnpm
+--silent recipes:*)` on one comma-separated `allowed-tools:` line; body =
+  the same eight steps, tool-first, one JSON example and the result shape
+  per step; "Held back" replaces "Never"; "Fallback (CLI)" carries the old
+  flag-level Nevers plus `--content-dir`.
+- **D28 Permissions and the drift pin** — `.claude/settings.json` gains the
+  same 21 entries; `test/curatorSkill.test.ts` pins frontmatter ==
+  settings == `TOOL_NAMES − HELD_BACK`, `HELD_BACK ⊇` every
+  `destructiveHint` tool, every tool-shaped token in the skill files is a
+  real tool, no held-back name outside "Held back", no CLI line outside
+  "Fallback".
+- **D29 Fixture `christmas-cookies`** — ten recipes (eight cookies, three of
+  them linzer, two distractors), committed with its four index
+  environments, built by a one-shot `scripts/seed-christmas-cookies.ts`
+  with `cascadeDependents: false`.
+- **D30 Acceptance test `test/christmasCookies.test.ts`** — the story
+  replayed over `InMemoryTransport` on a tmpdir copy of the fixture:
+  `tag_list` → `recipe_search` (cookie, linzer, `tag:cookies`) →
+  `group_create` Christmas Cookies → `feature` (explicit slug) →
+  `group_create` Linzer Cookies → `group_set_items` with a `{group}` item →
+  `group_add_item` the other way → `group_cycle` → `group_get` ×2,
+  `group_list`, `featured_list`, distractor untouched.
+- **Code fixes.** `registry.ts:306` `recipe_search` description: drop
+  `group:` from the operator list (the string only; no test pins it).
+  `local.ts:40-41` `NOTIFY_SUGGESTION` → `" Set RECIPE_EDITOR_URL (or pass
+--notify --editor-url <url>) to invalidate it automatically."` — true for
+  the CLI (both documented in USAGE) and for MCP (`.mcp.json` passes
+  `RECIPE_EDITOR_URL`; `resolveNotify` needs nothing else); adjust the
+  comment above it. No test pins the full string.
+- **Transcripts (Fable, after review).** Two headless runs, scripts under
+  the job's tmp dir, `CLAUDECODE` unset, **no `--allowedTools`** (the
+  committed settings gate the run), `--mcp-config .mcp.json
+--strict-mcp-config --permission-mode acceptEdits --max-turns 40
+--output-format stream-json --verbose`, `CONTENT_DIRECTORY` = an
+  **absolute** path to a scratch copy turned into a repo with a local
+  identity and the `derivedContentPaths` `.gitignore` (23d smoke shape);
+  `RECIPE_API_URL` unset. `--permission-mode acceptEdits` does not cover MCP
+  tools, and in `-p` mode a non-allowed tool is denied without a prompt —
+  so `permission_denials: []` is the proof that the committed
+  `settings.json` list is right, and a denial means the list is wrong, not
+  the model. (In the worktree `editor/content` is absent, so a misfire
+  creates an empty directory rather than touching the real repo — a net,
+  not the plan.)
+  - **Run A — the story** on `christmas-cookies`: `claude -p
+"/recipe-curator Organize the cluster of cookie recipes into one featured
+group called Christmas Cookies, then combine the linzer cookie recipes into
+a group that is accessible both at the top level and inside Christmas
+Cookies"`. Expected tool sequence: `git_status`, `recipe_list`/`recipe_get`,
+    `recipe_search` (cookie, linzer), `group_create` ×2, `feature`,
+    `group_add_item {subgroup}` or `group_set_items`, `group_get`; zero
+    `permission_denials`, no held-back tool called. Post-assert with the CLI
+    (`group show christmas-cookies`, `featured list`) and `git log` in the
+    scratch repo.
+  - **Run B — meal plan** on `three-recipes-groups`: `claude -p
+"/recipe-curator three vegetarian dinners under 45 minutes for this week"`
+    (WebSearch + real imports, as 22e). Expected: `recipe_import {dryRun}`
+    ×n, `recipe_import` ×3, `group_create` meal-plan with dated labels.
+  - `examples.md` is rebuilt from the two `stream-json` logs (tool_use +
+    tool_result pairs, long arrays cut with `…`, paths elided), keyed to the
+    SKILL.md step numbers as today; the run summaries (turns, cost,
+    denials) go in this section's gate table as 22e did. The user's "once
+    for real" run is the same Run A prompt against the real content repo,
+    after the stack lands — recorded as the user's step, outside the PR
+    gates.
+- **Docs.** This doc: D9 amendment, D27–D30, T63–T67, fact 11 amended, this
+  section then close-out; roadmap all ✅; the "Next PR" paragraph becomes an
+  **epic-complete** note with the landing order #138 → #139 → #140 → #141 →
+  23f's PR; Deferred consolidated (adds server-side `group:` search, the
+  CLI dry-run hint, `already_featured`, base64 image tool, read-only token /
+  HTTP `.mcp.json` entry). `docs/backlog.md`: narrow the dry-run row to the
+  CLI, add "Server-side `group:` in `recipe_search`" and "Skill v2
+  follow-ups" rows as needed, strike none by hand that 23a already struck.
+  Root `CLAUDE.md` "Curating recipes": MCP-first (the skill, the `recipes`
+  server, `CONTENT_DIRECTORY` decides the target, the held-back seven), CLI
+  as fallback in two lines; keep the file near its 80-line budget. Memory:
+  `agent-curation-workflow.md` + `MEMORY.md` line — epic complete, PR
+  number, landing order.
+
+#### Steps (Opus implementer, in order)
+
+1. Fixture `christmas-cookies` (D29) via the new
+   `scripts/seed-christmas-cookies.ts` (`cascadeDependents: false`); `git
+status` must show only the ten JSON + eight `.mdb` files; verify with
+   `CONTENT_DIRECTORY=<copy> pnpm --silent recipes search cookie --json` →
+   8 and the tag aggregate via `pnpm --silent recipes tags --json` (or the
+   MCP test itself). Never run `build-fixture-indexes.ts` (T41).
+2. Code fixes: `registry.ts:306` description; `local.ts:40-41`
+   `NOTIFY_SUGGESTION` (no pins to update).
+3. `test/christmasCookies.test.ts` (D30).
+4. `SKILL.md` v2 (D27) — leave `examples.md` for the reviewer's runs but
+   update its header and step keys; `.claude/settings.json` (D28);
+   `test/curatorSkill.test.ts` (D28).
+5. Root `CLAUDE.md` "Curating recipes"; `docs/backlog.md` rows.
+6. Gates; report divergences and the fixture's `git ls-files` listing.
+
+Then Fable: review, the two headless runs, `examples.md` rebuild, gate
+rerun, close-out.
+
+#### Tests
+
+- `test/christmasCookies.test.ts` (D30), `test/curatorSkill.test.ts` (D28).
+- Existing pins updated for `NOTIFY_SUGGESTION` (none expected; the Plan
+  report lists any).
+- `test/mcp.test.ts`, `mcpStdio`, `mcpHttp`, Playwright specs otherwise
+  unchanged; no new Playwright spec (nested rendering is covered by
+  `groups.spec.ts` on `nested-groups`).
+
+#### Gates (in `.claude/worktrees/agent-23f`)
+
+```
+pnpm --filter recipe-editor typecheck
+pnpm --filter recipe-website exec tsc --noEmit
+pnpm exec vitest run                                  # 530 at base + christmasCookies + curatorSkill
+pnpm exec lint-staged --diff agent/23e-mcp-http       # script file (T42)
+pnpm --filter recipe-editor e2e-dev -- api-write.spec.ts groups.spec.ts   # detached; the touched CLI string + a sanity pass over nested groups
+grep -rn "console.log\|process.stdout" websites/recipe-website/editor/{controller,cli,mcp} websites/recipe-website/common/controller packages/cms --include='*.ts' | grep -v node_modules   # unchanged
+git ls-files websites/recipe-website/editor/playwright/fixtures/test-content/christmas-cookies   # data + index files tracked (T51 check)
+```
+
+Then CI on the draft PR (lint/typecheck/unit while the base is not `main`),
+the two headless runs (above), and the `examples.md` rebuild.
+
+#### Risks → mitigations
+
+- Three allow-lists drift (frontmatter, `settings.json`, `TOOL_NAMES`) →
+  `curatorSkill.test.ts` (T64).
+- A headless run writes to the real content repo → absolute scratch
+  `CONTENT_DIRECTORY`, `RECIPE_API_URL` unset, `editor/content` absent in
+  the worktree (T65).
+- A distractor lands in the cookie cluster through an ingredient →
+  the test asserts `total` 8 and the exact slug order (T66).
+- Seeding plants a stray `featured-recipes/` environment →
+  `cascadeDependents: false`; the fixture's `git ls-files` listing is a
+  gate (T67).
+- The story written into the fixture itself → the test copies to a tmpdir
+  (T63).
+- `feature` slug collision across the test and the runs → explicit `slug`
+  (T26).
+
+#### Not in 23f
+
+Server-side `group:` search; `already_featured`; base64 image upload; token
+scopes / read-only tokens; an HTTP entry in `.mcp.json`; a Playwright spec
+on the new fixture; `context: fork`/subagent skills; plugin packaging; the
+user's real run (theirs, after landing); the #138 → … → #141 landing
+housekeeping (user); the parked pie-iron task.
+
+#### Verification
+
+`test/christmasCookies.test.ts` replays the story green on the committed
+fixture; `test/curatorSkill.test.ts` pins the 21-tool allow-list in both
+places; Run A completes the story headlessly from `/recipe-curator` with
+zero permission denials and no held-back tool; `examples.md` shows both
+runs; the user's real run is the epic's last checkbox.
 
 ## Verification (epic-level)
 
