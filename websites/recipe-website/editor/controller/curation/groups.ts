@@ -28,6 +28,7 @@ import { exists } from "fs-extra";
 import slugify from "@sindresorhus/slugify";
 import createDefaultGroupSlug from "recipe-website-common/controller/createGroupSlug";
 import { groupContentConfig } from "recipe-website-common/controller/groupContentConfig";
+import { normalizeTags } from "recipe-website-common/controller/normalizeTags";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
 import type {
   Group,
@@ -87,6 +88,13 @@ export interface GroupRow {
   name: string;
   kind: GroupKind;
   itemCount: number;
+  /**
+   * Present only when the group carries some (24b). Optional *and* spread at
+   * the projection below, because `test/groups.test.ts` and
+   * `test/christmasCookies.test.ts` pin whole rows with `toEqual` and an
+   * untagged group's row has to keep the exact shape it had (T16).
+   */
+  tags?: string[];
 }
 
 export interface GroupListResult {
@@ -185,6 +193,8 @@ export async function listGroups(
       name: value.name,
       kind: value.kind,
       itemCount: (value.items ?? []).length,
+      /* Spread, never assigned — see `GroupRow.tags` (T16). */
+      ...(value.tags && value.tags.length > 0 ? { tags: value.tags } : {}),
     }),
   });
   return { total, more, groups: entries };
@@ -352,12 +362,21 @@ export async function createGroup(
     ? path.parse(new URL(imageImportUrl).pathname).base
     : undefined;
 
+  /*
+   * Normalised here, exactly as `buildRecipeWrite` does it (`recipes.ts`), so
+   * the two carriers of one vocabulary cannot disagree about what counts as the
+   * same term. Spread only when something survives normalisation, so an
+   * untagged group's data file is byte-identical to what it was before 24b.
+   */
+  const tags = input.tags ? normalizeTags(input.tags) : [];
+
   const data: Group = {
     name: input.name,
     date,
     kind: input.kind,
     ...(input.description ? { description: input.description } : {}),
     ...(image ? { image } : {}),
+    ...(tags.length > 0 ? { tags } : {}),
     items,
   };
 
@@ -447,6 +466,16 @@ export async function updateGroup(
   if (patch.description === null) delete data.description;
   else if (patch.description !== undefined) {
     data.description = patch.description;
+  }
+
+  /* `null` clears, an array replaces, `undefined` leaves alone — the contract
+   * `buildRecipeWrite` states for a recipe's tags, restated for a group's. */
+  if (patch.tags === null) {
+    delete data.tags;
+  } else if (patch.tags !== undefined) {
+    const tags = normalizeTags(patch.tags);
+    if (tags.length > 0) data.tags = tags;
+    else delete data.tags;
   }
 
   const imageImportUrl = patch.imageImportUrl ?? undefined;

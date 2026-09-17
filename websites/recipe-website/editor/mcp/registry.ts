@@ -483,6 +483,8 @@ export function createRecipeServer(
       description:
         'A meal plan or a collection. Items may be `"slug"`, `"slug:label"` or ' +
         "{recipe, label?, note?} — or {group, label?, note?} for a nested group. " +
+        "`tags` classifies the group in the site's one tag vocabulary, the same " +
+        "one recipes use, so it appears on those tags' pages. " +
         "`force` downgrades unknown recipe and group slugs to warnings.",
       inputSchema: z.strictObject({
         group: GroupInputSchema,
@@ -500,7 +502,8 @@ export function createRecipeServer(
       title: "Update a group",
       description:
         "Everything about a group except its items: name, slug (a rename), kind, date, " +
-        "description and image. Use group_set_items for the items themselves.",
+        "description, image and tags. `tags` replaces the whole list; null clears it. " +
+        "Use group_set_items for the items themselves.",
       inputSchema: z.strictObject({
         slug: Slug,
         patch: GroupPatchSchema,

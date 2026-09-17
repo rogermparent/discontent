@@ -1,4 +1,5 @@
 import NewGroupForm from "./form";
+import { getAllTags } from "recipe-website-common/controller/data/read";
 import {
   PageMain,
   PageSection,
@@ -24,10 +25,12 @@ export default async function NewGroup({
     return signIn(undefined, { redirectTo });
   }
 
+  const allTags = await getAllTags();
+
   return (
     <PageMain>
       <PageSection maxWidth="xl" grow>
-        <NewGroupForm preselectedRecipe={preselectedRecipe} />
+        <NewGroupForm preselectedRecipe={preselectedRecipe} allTags={allTags} />
       </PageSection>
     </PageMain>
   );

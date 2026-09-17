@@ -54,7 +54,7 @@ const groupCreate: CommandDef<GroupWriteResult> = {
   name: "group create",
   usage:
     "recipes group create --name N [--kind meal-plan|collection] [--description D] " +
-    "[--slug s] [--date d] [--image-url U] " +
+    "[--slug s] [--date d] [--image-url U] [--tag t …] " +
     "(--file items.json | --item slug[:label] … [--group-item slug[:label] …]) [--force]",
   options: {
     name: { type: "string" },
@@ -62,6 +62,12 @@ const groupCreate: CommandDef<GroupWriteResult> = {
     description: { type: "string" },
     slug: { type: "string" },
     date: { type: "string" },
+    /*
+     * Repeatable, like `--item` — a group joins the site's one tag vocabulary
+     * (24b/D4), and a flag that took a comma list would have to decide what a
+     * term containing a comma means. `normalizeTags` runs in the seat.
+     */
+    tag: { type: "string", multiple: true },
     /* The group's own picture, fetched at write time — `imageImportUrl` (22h). */
     "image-url": { type: "string" },
     file: { type: "string" },
@@ -100,6 +106,7 @@ const groupCreate: CommandDef<GroupWriteResult> = {
          */
         [...items, ...groupItems.map(toGroupItemInput)];
     const date = stringOption(options, "date");
+    const tags = stringListOption(options, "tag");
     return backend.createGroup(
       {
         name,
@@ -116,6 +123,7 @@ const groupCreate: CommandDef<GroupWriteResult> = {
         ...(stringOption(options, "image-url")
           ? { imageImportUrl: stringOption(options, "image-url") }
           : {}),
+        ...(tags.length > 0 ? { tags } : {}),
         items: itemsInput,
       },
       { force: booleanOption(options, "force") },
@@ -140,7 +148,8 @@ const groupUpdate: CommandDef<GroupWriteResult> = {
   name: "group update",
   usage:
     "recipes group update <slug> [--name N] [--description D] [--kind K] [--date d] " +
-    "[--slug s] [--image-url U | --clear-image] | (--file patch.json | --stdin)",
+    "[--slug s] [--image-url U | --clear-image] [--tag t … | --clear-tags] " +
+    "| (--file patch.json | --stdin)",
   options: {
     name: { type: "string" },
     description: { type: "string" },
@@ -149,6 +158,14 @@ const groupUpdate: CommandDef<GroupWriteResult> = {
     slug: { type: "string" },
     "image-url": { type: "string" },
     "clear-image": { type: "boolean" },
+    /*
+     * Repeatable, and it **replaces** the whole list — the patch schema's
+     * `tags` is a replacement, not an addition, so `--tag a --tag b` is the
+     * group's tags afterwards. `--clear-tags` is the empty case a repeatable
+     * flag cannot express, the same shape `--clear-image` has.
+     */
+    tag: { type: "string", multiple: true },
+    "clear-tags": { type: "boolean" },
     file: { type: "string" },
     stdin: { type: "boolean" },
   },
@@ -172,6 +189,8 @@ const groupUpdate: CommandDef<GroupWriteResult> = {
     const slug = stringOption(options, "slug");
     const imageUrl = stringOption(options, "image-url");
     const clearImage = booleanOption(options, "clear-image");
+    const tags = stringListOption(options, "tag");
+    const clearTags = booleanOption(options, "clear-tags");
 
     const hasFlags =
       name !== undefined ||
@@ -180,7 +199,9 @@ const groupUpdate: CommandDef<GroupWriteResult> = {
       date !== undefined ||
       slug !== undefined ||
       imageUrl !== undefined ||
-      clearImage;
+      clearImage ||
+      tags.length > 0 ||
+      clearTags;
 
     if ((file || stdin) && hasFlags) {
       throw new UsageError(
@@ -192,13 +213,17 @@ const groupUpdate: CommandDef<GroupWriteResult> = {
         "Pass either --image-url or --clear-image, not both.",
       );
     }
+    if (tags.length > 0 && clearTags) {
+      throw new UsageError("Pass either --tag or --clear-tags, not both.");
+    }
     if (file || stdin) {
       return backend.updateGroup(group, await readJsonInput({ file, stdin }));
     }
     if (!hasFlags) {
       throw new UsageError(
         "group update needs something to change: --name, --description, --kind, " +
-          "--date, --slug, --image-url, --clear-image, or --file/--stdin.",
+          "--date, --slug, --image-url, --clear-image, --tag, --clear-tags, " +
+          "or --file/--stdin.",
       );
     }
 
@@ -212,6 +237,8 @@ const groupUpdate: CommandDef<GroupWriteResult> = {
       ...(slug !== undefined ? { slug } : {}),
       ...(imageUrl !== undefined ? { imageImportUrl: imageUrl } : {}),
       ...(clearImage ? { imageImportUrl: null } : {}),
+      ...(tags.length > 0 ? { tags } : {}),
+      ...(clearTags ? { tags: null } : {}),
     });
   },
   format: (result) => formatWrite("Updated group", result),

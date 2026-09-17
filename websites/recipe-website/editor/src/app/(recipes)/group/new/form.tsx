@@ -8,8 +8,10 @@ import { createGroup } from "recipe-editor/controller/actions/groups";
 
 export default function NewGroupForm({
   preselectedRecipe,
+  allTags,
 }: {
   preselectedRecipe?: string;
+  allTags?: string[];
 }) {
   const initialState = { message: "", errors: {} } as GroupFormState;
   const [state, dispatch] = useActionState(createGroup, initialState);
@@ -20,6 +22,7 @@ export default function NewGroupForm({
       <div className="flex flex-col flex-nowrap">
         <CreateGroupFields
           state={state}
+          allTags={allTags}
           /*
            * `?recipe=` becomes the first row's default. The row is there
            * either way — a group form with no rows has no obvious affordance —

@@ -27,6 +27,8 @@ const readAllRecipeIds = vi.fn<() => Promise<string[]>>();
 const readAllFeaturedRecipeIds = vi.fn<() => Promise<string[]>>();
 const readAllGroupIds = vi.fn<() => Promise<string[]>>();
 const readTagIndex = vi.fn<() => Promise<Record<string, unknown> | null>>();
+const readGroupTagIndex =
+  vi.fn<() => Promise<Record<string, unknown> | null>>();
 
 /*
  * Mocked at the data layer rather than stubbed at the LMDB layer: these modules
@@ -60,6 +62,17 @@ vi.mock("recipe-website-common/controller/data/readRecipeItem", () => ({
 }));
 
 /*
+ * The same, for the group thumbnail's member walk (24b). `/tags/[tag]` renders
+ * `GroupList` now, whose thumbnails read groups and recipes by slug — and
+ * `createCachedItemRead` runs at module scope, so importing the route for its
+ * params function would otherwise evaluate that read.
+ */
+vi.mock("recipe-website-common/controller/data/readGroupItem", () => ({
+  groupItems: { read: vi.fn() },
+  default: {},
+}));
+
+/*
  * Mocked for a reason the others are not: nothing here asks it anything.
  * `/recipe/[slug]` renders `RecipeView`, which renders "Appears in", which
  * imports the cached aggregate read — and `createCachedAggregateRead` calls
@@ -78,8 +91,32 @@ vi.mock("recipe-website-common/controller/data/readGroupsByGroup", () => ({
   default: {},
 }));
 
+/*
+ * Mocked **by module path**, and the export name matters (T14): the reader is
+ * `recipeTagReads` since 24b and carries two cached reads rather than one, so a
+ * factory still exporting `recipeTagIndexReads` would mock nothing, the real
+ * module would load, and the test would silently read a content directory that
+ * is not there.
+ */
 vi.mock("recipe-website-common/controller/data/readRecipeTagIndex", () => ({
-  recipeTagIndexReads: { read: () => readTagIndex() },
+  recipeTagReads: {
+    terms: { read: async () => [] },
+    byTerm: { read: () => readTagIndex() },
+  },
+  default: {},
+}));
+
+/*
+ * Groups carry the same vocabulary since 24b, and `/tags/[tag]`'s params are
+ * the union of both carriers' keys — so this module has to be mocked too, or
+ * importing the route builds a cached read at module scope and
+ * `unstable_cache` is not a function under the `next/cache` stub.
+ */
+vi.mock("recipe-website-common/controller/data/readGroupTagIndex", () => ({
+  groupTagReads: {
+    terms: { read: async () => [] },
+    byTerm: { read: () => readGroupTagIndex() },
+  },
   default: {},
 }));
 
@@ -186,8 +223,36 @@ describe("a dynamic export route never emits zero params", () => {
   /* Already guarded before this pass — pinned so it stays that way. */
   it("/tags/[tag] emits a placeholder for a corpus with no tags", async () => {
     readTagIndex.mockResolvedValue({});
+    readGroupTagIndex.mockResolvedValue({});
     const { generateTagStaticParams } =
       await import("../websites/recipe-website/common/components/TagPage/routes");
     expect(await generateTagStaticParams()).toEqual([{ tag: "_" }]);
+  });
+
+  /*
+   * The union (24b). Two carriers declare one vocabulary, so a term page exists
+   * if *either* has the slug — including a slug only a group carries, which
+   * would have 404'd before this phase. Deduped, because the common case is a
+   * term both carry.
+   */
+  it("/tags/[tag] emits the union of the recipe and group vocabularies", async () => {
+    readTagIndex.mockResolvedValue({ dessert: {}, quick: {} });
+    readGroupTagIndex.mockResolvedValue({ quick: {}, weeknight: {} });
+    const { generateTagStaticParams } =
+      await import("../websites/recipe-website/common/components/TagPage/routes");
+    expect(await generateTagStaticParams()).toEqual([
+      { tag: "dessert" },
+      { tag: "quick" },
+      { tag: "weeknight" },
+    ]);
+  });
+
+  /* A group-only vocabulary still emits pages rather than the placeholder. */
+  it("/tags/[tag] emits a group-only tag when no recipe carries one", async () => {
+    readTagIndex.mockResolvedValue({});
+    readGroupTagIndex.mockResolvedValue({ weeknight: {} });
+    const { generateTagStaticParams } =
+      await import("../websites/recipe-website/common/components/TagPage/routes");
+    expect(await generateTagStaticParams()).toEqual([{ tag: "weeknight" }]);
   });
 });

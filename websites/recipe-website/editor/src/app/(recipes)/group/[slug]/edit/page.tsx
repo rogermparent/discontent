@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { getAllTags } from "recipe-website-common/controller/data/read";
 import { getGroupBySlug } from "recipe-website-common/controller/data/readGroups";
 import { getTransformedGroupImageProps } from "recipe-website-common/components/GroupImage";
 import EditGroupForm from "./form";
@@ -49,10 +50,17 @@ export default async function EditGroupPage({
       })
     : undefined;
 
+  const allTags = await getAllTags();
+
   return (
     <PageMain>
       <PageSection maxWidth="xl" grow>
-        <EditGroupForm group={group} slug={slug} defaultImage={defaultImage} />
+        <EditGroupForm
+          group={group}
+          slug={slug}
+          defaultImage={defaultImage}
+          allTags={allTags}
+        />
       </PageSection>
     </PageMain>
   );

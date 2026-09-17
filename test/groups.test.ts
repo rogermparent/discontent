@@ -24,6 +24,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { readAggregate } from "@discontent/cms/aggregates/readAggregate";
 import {
+  byTermAggregate,
+  termsAggregate,
+} from "@discontent/cms/taxonomies/aggregates";
+import type {
+  TaxonomyByTerm,
+  TaxonomyTerm,
+} from "@discontent/cms/taxonomies/types";
+import {
   getAggregateDatabase,
   readAggregateRecord,
 } from "@discontent/cms/aggregates/database";
@@ -49,6 +57,7 @@ import {
   type AppearsInEntry,
 } from "../websites/recipe-website/common/controller/groupAggregateConfigs";
 import { groupContentConfig } from "../websites/recipe-website/common/controller/groupContentConfig";
+import { groupTagTaxonomy } from "../websites/recipe-website/common/controller/groupTagTaxonomy";
 import {
   groupsByDate,
   type GroupListEntry,
@@ -182,6 +191,24 @@ function readParentGroupsHash(): string | undefined {
     contentDirectory,
   );
   return readAggregateRecord<Record<string, AppearsInEntry[]>>(db)?.hash;
+}
+
+/** The group vocabulary, as `/tags` reads it (24b). */
+function readGroupTerms(): Promise<TaxonomyTerm[] | null> {
+  return readAggregate({
+    config: groupContentConfig,
+    aggregateConfig: termsAggregate(groupTagTaxonomy),
+    contentDirectory,
+  });
+}
+
+/** The inverted group vocabulary, as `/tags/<slug>` reads it (24b). */
+function readGroupsByTag(): Promise<TaxonomyByTerm<GroupListEntry> | null> {
+  return readAggregate({
+    config: groupContentConfig,
+    aggregateConfig: byTermAggregate(groupTagTaxonomy),
+    contentDirectory,
+  });
 }
 
 /** The first page of the group list, as `/groups` projects it. */
@@ -440,6 +467,115 @@ describe("the stored group index value", () => {
     expect((await readGroupFile("week-of-may-4")).items[0].note).toBe(
       "Leftovers for lunch",
     );
+  });
+
+  /*
+   * The 24b field, and the shape rule that makes it safe to add: `tags` is
+   * spread rather than assigned, so every group written before this phase
+   * re-indexes to the bytes already on disk and the bare `toEqual` above keeps
+   * passing untouched (T16).
+   */
+  it("carries tags when the group has some, and no key at all when it does not", async () => {
+    await seedTwoRecipesAndAGroup();
+    await createGroup("tagged", {
+      name: "Tagged",
+      date: day(21),
+      kind: "collection",
+      tags: ["weeknight", "quick"],
+      items: [{ recipe: "stew" }],
+    });
+
+    expect(readGroupIndex().get("tagged")).toEqual({
+      name: "Tagged",
+      kind: "collection",
+      tags: ["weeknight", "quick"],
+      items: [{ recipe: "stew", label: undefined }],
+    });
+    expect(Object.keys(readGroupIndex().get("week-of-may-4")!)).not.toContain(
+      "tags",
+    );
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* The tag vocabulary groups joined at 24b                             */
+/* ------------------------------------------------------------------ */
+
+describe("the group tag taxonomy", () => {
+  it("folds the vocabulary and the inverted map from one declaration", async () => {
+    await seedTwoRecipesAndAGroup();
+    await createGroup("weeknights", {
+      name: "Weeknights",
+      date: day(21),
+      kind: "collection",
+      tags: ["weeknight"],
+      items: [{ recipe: "stew" }],
+    });
+    await createGroup("quick-ones", {
+      name: "Quick Ones",
+      date: day(22),
+      kind: "collection",
+      tags: ["weeknight", "quick"],
+      items: [{ recipe: "soup" }, { recipe: "stew" }],
+    });
+
+    /* Sorted by slug, and `count` is a count of carriers. */
+    expect(await readGroupTerms()).toEqual([
+      { slug: "quick", label: "quick", count: 1 },
+      { slug: "weeknight", label: "weeknight", count: 2 },
+    ]);
+
+    /*
+     * The row shape is `GroupListEntry` — the taxonomy's `project` *is*
+     * `groupsByDate`'s, which is what lets a tag page render `GroupList` with
+     * no second card shape. Newest first, like every other list surface.
+     */
+    const byTag = await readGroupsByTag();
+    expect(byTag?.weeknight).toEqual({
+      label: "weeknight",
+      items: [
+        {
+          slug: "quick-ones",
+          date: day(22),
+          name: "Quick Ones",
+          kind: "collection",
+          image: undefined,
+          itemCount: 2,
+          groupCount: 0,
+        },
+        {
+          slug: "weeknights",
+          date: day(21),
+          name: "Weeknights",
+          kind: "collection",
+          image: undefined,
+          itemCount: 1,
+          groupCount: 0,
+        },
+      ],
+    });
+    /* An untagged group is in neither record. */
+    expect(Object.keys(byTag ?? {})).toEqual(["quick", "weeknight"]);
+  });
+
+  it("drops a group from the vocabulary when its tags are removed", async () => {
+    await createGroup("weeknights", {
+      name: "Weeknights",
+      date: day(21),
+      kind: "collection",
+      tags: ["weeknight"],
+      items: [],
+    });
+    expect(await readGroupTerms()).toHaveLength(1);
+
+    await updateGroup("weeknights", day(21), {
+      name: "Weeknights",
+      date: day(21),
+      kind: "collection",
+      items: [],
+    });
+    expect(await readGroupTerms()).toEqual([]);
+    expect(await readGroupsByTag()).toEqual({});
   });
 });
 

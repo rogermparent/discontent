@@ -202,6 +202,13 @@ export const GroupInputSchema = z.strictObject({
    * property the "rejects unknown keys" case pins.
    */
   imageImportUrl: z.string().optional(),
+  /**
+   * The site's one `tag` vocabulary, which groups joined at 24b (D4).
+   * Declared rather than tolerated for the same reason `imageImportUrl` is —
+   * this is a `strictObject`, so an undeclared key is a validation error and a
+   * group write carrying tags would fail outright (T7).
+   */
+  tags: z.array(z.string()).optional(),
   items: z.array(GroupItemInputSchema).default([]),
 });
 
@@ -225,6 +232,8 @@ export const GroupPatchSchema = z.strictObject({
   date: EpochSchema.optional(),
   description: z.string().nullable().optional(),
   imageImportUrl: z.string().nullable().optional(),
+  /** `null` clears every tag; an array replaces the whole list (T7). */
+  tags: z.array(z.string()).nullable().optional(),
 });
 
 export type GroupPatch = z.infer<typeof GroupPatchSchema>;

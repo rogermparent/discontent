@@ -1907,6 +1907,18 @@ byte-identical, which is the honest form of the claim.
 
 No new design — these adopt what P1–P3 shipped.
 
+**F33's consumers (24b).** Three sites adopted the taxonomy kind with no engine change at all:
+recipes replaced the hand-written `recipeTags` / `recipesByTag` pair with `taxonomies:
+[recipeTagTaxonomy]` (same `tags` / `by-tag` names, same cache tags, same LMDB directories, site
+version `"1"` → `"2"` because the terms value's shape moved); groups gained a `tags` field and
+declared the _same_ `tag` vocabulary, so `/tags/<slug>` unions two carriers at read time rather
+than folding a third aggregate; and `projects` gained its first aggregates of any kind from one
+`taxonomies` line, which is what gave portfolio a `/tags` at all. The one thing worth writing
+down is what "one vocabulary, many carriers" costs: **nothing derived**. Each carrier keeps its
+own pair under its own cache tag, and the union is two `readAggregate`s in the route — so tagging
+a group does not invalidate a page that lists only recipes, and a fourth carrier is a third read
+and no new state.
+
 **F21 removed the per-adoption overhead, which is why it went first.** A content type declaring
 its first index used to mean also remembering three hand-maintained lists — the `.gitignore`
 writers, the cache-reset seat, and the fixture rebuild — each of which fails _silently_ when

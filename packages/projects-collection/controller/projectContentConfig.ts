@@ -2,6 +2,7 @@ import type { ContentTypeConfig } from "@discontent/cms/content/types";
 import buildProjectIndexValue from "./buildIndexValue";
 import createDefaultSlug from "./createSlug";
 import { projectsByDate } from "./paginationConfigs";
+import { projectTagTaxonomy } from "./projectTagTaxonomy";
 import type { Project, ProjectEntryKey, ProjectEntryValue } from "./types";
 
 /**
@@ -45,6 +46,13 @@ export const projectContentConfig: ContentTypeConfig<
    * incremental story.
    */
   paginationIndexes: [projectsByDate],
+  /*
+   * One line, and `/tags` exists (24b/D4). `ProjectEntryValue` already carried
+   * `tags` — the index rows print them — so this is not an index-shape change
+   * and forces no content rebuild; only the two new aggregate records have to
+   * be folded, which the fixture script and any write both do.
+   */
+  taxonomies: [projectTagTaxonomy],
 };
 
 export default projectContentConfig;

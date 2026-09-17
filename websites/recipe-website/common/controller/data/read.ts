@@ -2,7 +2,7 @@ import { readContentFile } from "@discontent/cms/content/readContentFile";
 import { readContentIndex } from "@discontent/cms/content/readContentIndex";
 import { recipeContentConfig } from "../recipeContentConfig";
 import { Recipe, RecipeEntryKey, RecipeEntryValue } from "../types";
-import { recipeTagReads } from "./readRecipeTags";
+import { recipeTagReads } from "./readRecipeTagIndex";
 
 export type MassagedRecipeEntry = {
   date: number;
@@ -171,7 +171,13 @@ export function getSearchCorpus(): Promise<ReadRecipeIndexResult> {
  * directory, or a fixture captured before recipes declared this. It reads as
  * no tags, which is what the corpus looked like to the previous
  * implementation too when the index was empty.
+ *
+ * Labels, not terms. Since 24b the folded value is `TaxonomyTerm[]`
+ * (`{slug, label, count}`), and every one of these four call sites wants the
+ * printable string — the chips link through `tagSearchHref`, which slugs it
+ * again, and `TagsInput` suggests what a person would type. The counts are
+ * read by `/tags` alone, which reads the term list directly.
  */
 export async function getAllTags(): Promise<string[]> {
-  return (await recipeTagReads.read()) ?? [];
+  return ((await recipeTagReads.terms.read()) ?? []).map((term) => term.label);
 }

@@ -445,6 +445,41 @@ describe("groups", () => {
     expect(detail.items[1]).toMatchObject({ recipe: "ghost", missing: true });
   });
 
+  /*
+   * The 24b field on the way in. Normalised with the same function recipes use,
+   * and spread only when something survives it — so an untagged group's record
+   * and its `GroupRow` both keep the exact shape they had (T16).
+   */
+  it("normalises the tags it is given and leaves an untagged group unchanged", async () => {
+    await groups.createGroup(ctx, {
+      name: "Weeknights",
+      slug: "weeknights",
+      tags: [" Weeknight ", "QUICK", "quick", "  "],
+      items: ["stew"],
+    });
+    expect((await readGroupFile("weeknights")).tags).toEqual([
+      "weeknight",
+      "quick",
+    ]);
+    expect((await groups.listGroups(ctx)).groups[0]).toMatchObject({
+      slug: "weeknights",
+      tags: ["weeknight", "quick"],
+    });
+
+    await groups.createGroup(ctx, { name: "Plain", slug: "plain" });
+    expect("tags" in (await readGroupFile("plain"))).toBe(false);
+    const plainRow = (await groups.listGroups(ctx)).groups.find(
+      (row) => row.slug === "plain",
+    );
+    expect(plainRow).toEqual({
+      slug: "plain",
+      date: expect.any(Number),
+      name: "Plain",
+      kind: "collection",
+      itemCount: 0,
+    });
+  });
+
   it("round-trips add / remove / set-items and keeps the aggregate in step", async () => {
     await groups.createGroup(ctx, {
       name: "Weeknights",
@@ -748,6 +783,35 @@ describe("updateGroup", () => {
       name: "Weeknight Favourites",
       itemCount: 1,
     });
+  });
+
+  /*
+   * Groups joined the site's one tag vocabulary at 24b (D4). The seat's
+   * contract is `updateRecipe`'s, restated: normalised on the way in, `null`
+   * clears, an array replaces, and an empty result writes no key at all so an
+   * untagged group's data file is byte-identical to what it was.
+   */
+  it("normalises the tags it is given and replaces the whole list", async () => {
+    await groups.updateGroup(ctx, "weeknights", {
+      tags: ["  Weeknight  ", "QUICK", "quick"],
+    });
+    expect((await readGroupFile("weeknights")).tags).toEqual([
+      "weeknight",
+      "quick",
+    ]);
+
+    await groups.updateGroup(ctx, "weeknights", { tags: ["dinner"] });
+    expect((await readGroupFile("weeknights")).tags).toEqual(["dinner"]);
+  });
+
+  it("clears the tags on null and leaves them alone on undefined", async () => {
+    await groups.updateGroup(ctx, "weeknights", { tags: ["weeknight"] });
+
+    await groups.updateGroup(ctx, "weeknights", { name: "Renamed Again" });
+    expect((await readGroupFile("weeknights")).tags).toEqual(["weeknight"]);
+
+    await groups.updateGroup(ctx, "weeknights", { tags: null });
+    expect("tags" in (await readGroupFile("weeknights"))).toBe(false);
   });
 
   it("clears the description on null and keeps it on undefined", async () => {
@@ -1118,10 +1182,14 @@ const ALLOWED: RegExp[] = [
   /^@sindresorhus\/slugify$/,
   /^@discontent\/cms\/content\/[^/]+$/,
   /^@discontent\/cms\/aggregates\/[^/]+$/,
+  /* The taxonomy kind's Node-safe reads (24b): `listTags` folds through
+   * `readTaxonomyTerms`, which is `readAggregate` underneath and touches no
+   * Next API — the same standing the `aggregates/` prefix above has. */
+  /^@discontent\/cms\/taxonomies\/[^/]+$/,
   /^@discontent\/cms\/git\/commit$/,
   /* `featuredRecipeContentConfig` and its default slug joined at 23a (D5): a
    * content config and a pure string builder, neither of which touches Next. */
-  /^recipe-website-common\/controller\/(types|recipeContentConfig|groupContentConfig|featuredRecipeContentConfig|createSlug|createGroupSlug|createFeaturedRecipeSlug|normalizeTags|aggregateConfigs|tagSlug|data\/read|data\/readGroups)$/,
+  /^recipe-website-common\/controller\/(types|recipeContentConfig|groupContentConfig|featuredRecipeContentConfig|createSlug|createGroupSlug|createFeaturedRecipeSlug|normalizeTags|recipeTagTaxonomy|groupTagTaxonomy|tagSlug|data\/read|data\/readGroups)$/,
   /^recipe-website-common\/components\/SearchForm\/queryLanguage$/,
   /^recipe-website-common\/util\/[^/]+$/,
   /^\.\.?\//,

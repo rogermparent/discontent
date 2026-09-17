@@ -43,7 +43,7 @@ function buildGroupData(
   data: Group;
   uploads: Record<string, UploadSpec>;
 } {
-  const { name, kind, description, items, image, clearImage } = parsed;
+  const { name, kind, description, items, image, clearImage, tags } = parsed;
 
   /*
    * An empty `File` is what an untouched file input submits, so size is the
@@ -71,6 +71,13 @@ function buildGroupData(
     kind,
     description,
     image: imageFileName,
+    /*
+     * Spread, never assigned (T16/24b). `tags` is already normalised and
+     * defaulted to `[]` by the parser, so an untagged group writes no `tags`
+     * key at all and its data file stays byte-identical to what it was — which
+     * is also what clears the list when every chip is removed.
+     */
+    ...(tags.length > 0 ? { tags } : {}),
     items,
   };
 

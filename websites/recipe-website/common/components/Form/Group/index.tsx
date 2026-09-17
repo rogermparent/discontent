@@ -9,12 +9,17 @@ import { LexicalMarkdownInput } from "@discontent/component-library/components/F
 import { RECIPE_MARKDOWN } from "@discontent/component-library/components/Form/inputs/LexicalMarkdown/transformers";
 import { SelectInput } from "@discontent/component-library/components/Form/inputs/Select";
 import { TextInput } from "@discontent/component-library/components/Form/inputs/Text";
-import { Errors } from "@discontent/component-library/components/Form";
+import {
+  Errors,
+  FieldWrapper,
+} from "@discontent/component-library/components/Form";
+import { ChipsInput } from "@discontent/component-library/components/Form/ChipsInput";
 import { useCurrentTimezone } from "@discontent/cms/hooks/useCurrentTimezone";
 import type { StaticImageProps } from "@discontent/next-static-image/src";
 import { ImageInput } from "recipe-website-common/components/Form/Image";
 import { RecipeSelectInput } from "recipe-website-common/components/Form/inputs/RecipeSelect";
 import createDefaultGroupSlug from "recipe-website-common/controller/createGroupSlug";
+import { normalizeTag } from "recipe-website-common/controller/normalizeTags";
 import type { GroupFormState } from "recipe-website-common/controller/groupFormState";
 import type { Group, GroupItem } from "recipe-website-common/controller/types";
 
@@ -41,6 +46,7 @@ export default function GroupFields({
   state,
   slug,
   defaultImage,
+  allTags = [],
 }: {
   group?: Partial<Group>;
   state?: GroupFormState;
@@ -52,8 +58,15 @@ export default function GroupFields({
    * `/group/new`, where there is nothing to show yet.
    */
   defaultImage?: StaticImageProps;
+  /**
+   * The corpus's vocabulary, offered as one-click quick-adds. Read by the
+   * *page* (`getAllTags()`), because that read is a server one and this is a
+   * client component — the same hand-off `defaultImage` uses, and the same one
+   * the three recipe form pages make for `TagsInput`.
+   */
+  allTags?: string[];
 }) {
-  const { name, kind, description, date, items } = group || {};
+  const { name, kind, description, date, items, tags } = group || {};
   const currentTimezone = useCurrentTimezone();
 
   const [rows, setRows] = useState<ItemRow[]>(() =>
@@ -61,6 +74,26 @@ export default function GroupFields({
       (item, index) => ({ ...item, id: index }),
     ),
   );
+
+  /*
+   * The chips, held in state rather than in a form library (T13).
+   *
+   * `ChipsInput` was promoted out of the recipe form and takes the *structural*
+   * slice of a TanStack array field — `{state: {value}, pushValue,
+   * removeValue}` — precisely so a second form could use it without one. This
+   * form is uncontrolled `FormData`, parsed by `parseGroupFormData`, and
+   * `Form/Recipe`'s `TagsInput` cannot be dropped in because it reads
+   * `useRecipeForm`. The six lines below are the whole adapter; the component
+   * renders the hidden `tags[i]` inputs that actually submit.
+   */
+  const [tagValues, setTagValues] = useState<string[]>(() => tags ?? []);
+  const tagField = {
+    state: { value: tagValues },
+    pushValue: (value: string) =>
+      setTagValues((current) => [...current, value]),
+    removeValue: (index: number) =>
+      setTagValues((current) => current.filter((_, i) => i !== index)),
+  };
 
   const [defaultDate] = useState<number>(() => Date.now());
   const [nameValue, setNameValue] = useState<string>(name ?? "");
@@ -137,6 +170,22 @@ export default function GroupFields({
         defaultImage={defaultImage}
         errors={state?.errors?.image}
       />
+
+      {/*
+        Groups joined the site's one tag vocabulary at 24b (D4), so a group can
+        be classified the same way a recipe is and shows up on the same
+        `/tags/<slug>` page. Between the picture and the members, which is where
+        the recipe form puts its own chips relative to the body of the record.
+      */}
+      <FieldWrapper label="Tags" id="group-form-tags">
+        <ChipsInput
+          field={tagField}
+          name="tags"
+          id="group-form-tags"
+          normalize={normalizeTag}
+          suggestions={allTags}
+        />
+      </FieldWrapper>
 
       <fieldset className="my-2 flex flex-col flex-nowrap gap-3">
         <legend className="text-sm font-semibold">Recipes</legend>
