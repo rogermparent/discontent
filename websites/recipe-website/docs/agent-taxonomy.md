@@ -8,8 +8,8 @@
 > at every phase boundary. Each phase is a stacked PR and gets its own
 > plan-mode pass seeded from this doc (see _How a phase is run_). **24a is
 > merged (#143 → `main` `6709f4c8`, 2026-09-17); 24b is merged (#144 →
-> `main` `c581f222`, 2026-09-17, and the real repo is reindexed); 24c is in
-> progress (2026-09-17, `agent/24c-term-records` ← `main`).** The previous
+> `main` `c581f222`, 2026-09-17, and the real repo is reindexed); 24c is
+> closed out (2026-09-17, draft PR #145); 24d is next.** The previous
 > epics' docs — `agent-curation.md` (22) and `agent-mcp.md` (23) — are the
 > reference for everything the curation layer and the MCP already do; their
 > D-lists and T-lists are cited here by number with a `22-` / `23-` prefix
@@ -602,30 +602,36 @@ tagTermContentConfig → featuredRecipeContentConfig → recipeContentConfig
 
 Each branch is off the previous. Rebase children after a parent merges.
 
-| PR      | Branch (← parent)                    | Status         | Scope                                                                                                                                                                                                                                                       |
-| ------- | ------------------------------------ | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **24a** | `agent/24a-taxonomy-engine` ← `main` | ✅ done        | This doc; D1 + D2 primitives in `packages/cms/taxonomies/`; `aggregatesOf` at the two seats; demo notes adopt (terms + by-term); demo term type + the self-reference proof (T8); `incremental-regeneration.md` §10 F33 + §11; epic-23 housekeeping docs (M) |
-| 24b     | `agent/24b-taxonomy-adopt` ← `main`  | ✅ done        | Recipes → taxonomy (delete the pair, keep names, v2), readers, groups gain `tags` (types, index value, schemas, form, seat), portfolio declares + routes, `/tags` unions; all 15 recipe fixtures regenerated; **D5 decided** (M–L)                          |
-| 24c     | `agent/24c-term-records` ← `main`    | 🟡 in progress | `tagTermContentConfig` in the registry, tree read + label override + curated front (`pinned`/`description`/`image`), term page metadata / breadcrumb / children, `feature {term}` (featured v3), `christmas-cookies` seed gains term records (L)            |
-| 24d     | `agent/24d-taxonomy-search` ← 24c    | ⏸️             | Resolver, `/search/terms`, one "all terms" source, hierarchical autocomplete / ⌘K, server descendant expansion + `group:` parity (L)                                                                                                                        |
-| 24e     | `agent/24e-term-seats` ← 24d         | ⏸️             | Seats / CLI / API / MCP / skill v3 + the fixture acceptance test (D7) (L)                                                                                                                                                                                   |
-| 24f     | `agent/24f-taxonomy-closeout` ← 24e  | ⏸️             | Backfill on the real repo (content task), the real story run, by-term measurement, backlog strikes, close-out, memory (S code / L content)                                                                                                                  |
-| 24g     | conditional                          | ⏸️             | F8b partitions, only if 24f's by-term number exceeds 150 KB (L)                                                                                                                                                                                             |
+| PR      | Branch (← parent)                    | Status  | Scope                                                                                                                                                                                                                                                       |
+| ------- | ------------------------------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **24a** | `agent/24a-taxonomy-engine` ← `main` | ✅ done | This doc; D1 + D2 primitives in `packages/cms/taxonomies/`; `aggregatesOf` at the two seats; demo notes adopt (terms + by-term); demo term type + the self-reference proof (T8); `incremental-regeneration.md` §10 F33 + §11; epic-23 housekeeping docs (M) |
+| 24b     | `agent/24b-taxonomy-adopt` ← `main`  | ✅ done | Recipes → taxonomy (delete the pair, keep names, v2), readers, groups gain `tags` (types, index value, schemas, form, seat), portfolio declares + routes, `/tags` unions; all 15 recipe fixtures regenerated; **D5 decided** (M–L)                          |
+| 24c     | `agent/24c-term-records` ← `main`    | ✅ done | `tagTermContentConfig` in the registry, tree read + label override + curated front (`pinned`/`description`/`image`), term page metadata / breadcrumb / children, `feature {term}` (featured v3), `christmas-cookies` seed gains term records (L)            |
+| 24d     | `agent/24d-taxonomy-search` ← 24c    | 🟡 next | Resolver, `/search/terms`, one "all terms" source, hierarchical autocomplete / ⌘K, server descendant expansion + `group:` parity (L)                                                                                                                        |
+| 24e     | `agent/24e-term-seats` ← 24d         | ⏸️      | Seats / CLI / API / MCP / skill v3 + the fixture acceptance test (D7) (L)                                                                                                                                                                                   |
+| 24f     | `agent/24f-taxonomy-closeout` ← 24e  | ⏸️      | Backfill on the real repo (content task), the real story run, by-term measurement, backlog strikes, close-out, memory (S code / L content)                                                                                                                  |
+| 24g     | conditional                          | ⏸️      | F8b partitions, only if 24f's by-term number exceeds 150 KB (L)                                                                                                                                                                                             |
 
 **#144 landed** 2026-09-17 (`c581f222`) and the real repo was reindexed the
 same day.
 
-**Next PR: 24c** — `agent/24c-term-records` off `main` at `c581f222`
-(draft PR against `main`). Scope: `tagTermContentConfig` in the recipe
-registry via `createTermContentType` (records under `taxonomies/tag/`), the
-**curated front per D5** (`pinned: string[]` of recipe slugs, `description`,
-`image` on the record; `Group.kind` untouched until 24e), record label
-override + tree read through a site reader (**not** the `terms` thunk, T17),
-term page metadata / breadcrumb / children on `/tags/[tag]`, `feature {term}`
-(featured `by-date` v2 → v3, `unknown_term` 422), the `christmas-cookies`
-seed gains three hand-written term records. **Read side only**: no term
-write seat, CLI, MCP or browser form (24e / backlog). Zero engine files
-change. Section below.
+**Next PR: 24d** — `agent/24d-taxonomy-search` stacked on
+`agent/24c-term-records` (draft PR #145; retarget to `main` after #145
+merges, 22-T20). Scope (D6): a term **resolver** over the tree (a slug → its
+descendants, from `tagTermReads.tree`), `/search/terms` = the union of the
+carriers' `terms` folds and the tree (**`readTagVocabulary()` is already that
+union** — 24d makes it the one "all terms" source and retires
+`SearchContext.allTags` / `getAllTags()`, T11), hierarchical autocomplete
+and ⌘K rows from it, server-side descendant expansion of `tag:` in
+`curation/search.ts` and the browser (`tag:dessert` matches `cookies`
+carriers), and `group:` parity on the server (`GroupSearchEntry.tags`).
+Facts to validate first: T17 (no value import from a taxonomy module may
+reach a content config — `/search/terms` must import `readTermPage.ts` /
+`readTagTerms.ts`, never a taxonomy module for its `terms` thunk), the 24c
+close-out below (`resolveTermPage`'s count map is the by-term row lengths),
+`SearchContext.allTags`'s consumers, and `curation/search.ts`'s current
+`tag:` operand. Real repo: after #145 lands the user runs `reindex` (featured
+v3, T5) and adds the three `taxonomies/tag/*` ignore lines.
 
 ## Phase detail
 
@@ -1259,7 +1265,7 @@ real repo needs one `reindex` (T5, mandatory).
 `GroupSearchEntry.tags` + `group:`/`tag:` parity are 24d's as planned;
 `Group.kind` narrowing 24e (D5).
 
-### PR 24c — Term records `agent/24c-term-records` 🟡 in progress (← `main`)
+### PR 24c — Term records `agent/24c-term-records` ✅ done (← `main`)
 
 Worktree `.claude/worktrees/agent-24c`, base `main` at `c581f222` (the #144
 merge). The recipe site adopts the engine's term-record content type (24a,
@@ -1641,6 +1647,88 @@ lands.
   succeed, `--term ghost` is `unknown_term` 422; draft PR against `main`
   with CI green; close-out below; memory updated.
 
+#### Decisions and close-out (2026-09-17)
+
+Draft PR **#145** against `main`
+(https://github.com/rogermparent/discontent/pull/145). Commits: `6b0b45c2`
+design (this doc: header, roadmap, D2/D5/D7 amendments, T17–T19, the section
+above; the backlog row), `65c73d81` implementation (Opus subagent; 53 files,
++2288/−204), `bfc75aa9` seed (123 files, all under `playwright/fixtures`,
+T6), `021298f0` the e2e registry-count pins (2 files), then the review-fix +
+close-out commit and the CI-result commit. Worktree
+`.claude/worktrees/agent-24c`. **Zero engine code changed**: the only
+`packages/cms` file touched is `docs/incremental-regeneration.md` (§11.2).
+
+**Gates (Fable's rerun after review; the implementer's run matched):**
+
+| Gate                                                                         | Result                                                                                                                      |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm --filter recipe-editor typecheck`                                      | exit 0                                                                                                                      |
+| `pnpm --filter recipe-website exec tsc --noEmit`                             | exit 0                                                                                                                      |
+| `pnpm exec vitest run`                                                       | **33 files, 609 passed** (583 at base + 26 new)                                                                             |
+| `pnpm exec lint-staged --diff main`                                          | exit 0                                                                                                                      |
+| recipe `e2e-dev -- tag-pages featured-recipes api-write groups` (Fable)      | **115 passed (5.5 min)**                                                                                                    |
+| recipe `e2e-dev` same four specs (implementer)                               | 115 passed (5.6 min); the first run had 4 failures, fixed in `021298f0`                                                     |
+| `git status --porcelain editor/playwright/fixtures` after the suite          | clean                                                                                                                       |
+| stdout-purity grep over `editor/cli`, `editor/mcp`                           | 8 hits; no `console.log`/`process.stdout` line added or removed since `main`                                                |
+| CLI smoke on a fixture copy (`feature --term cookies` / `ghost` / two flags) | commit `Feature term: cookies`, list row `name: "Cookies"`; `unknown_term` with `terms: ["ghost"]`, exit 1; `usage`, exit 1 |
+
+The 26 new cases: 23 in `test/tagTerms.test.ts` (the pure join rules, the
+term → featured edge in a tmpdir including the rename case, the
+import-order tripwire), +1 `test/featured.test.ts`, +2
+`test/exportStaticParams.test.ts`. `specVersions` "recipe pagination
+configs" now reads `["1","3"]`.
+
+**The byte check.** Every fixture's `featured-recipes/{index,pagination}`
+dumped before and after the regeneration: `featured-recipes/index` has
+**zero** changes, and the only pagination differences are each meta row's
+`specHash` (the `"2"` → `"3"` bump) and `updatedAt`. The projected page rows
+are byte-identical too — no existing feature names a term, and the three new
+keys are spread only when set — so the reprojection the section predicted is
+a no-op on content.
+
+**Divergences from the section, accepted:**
+
+1. **`editorTagRoute`** beside `tagRoute` in `TagPage/routes.tsx`: a Next
+   page module exports a function and cannot pass it arguments, so the
+   editor's `tags/[tag]/page.tsx` re-exports the variant that renders the
+   Feature link; `TagPage` takes an optional `actions` node.
+2. **`readTermPageSlugs()`** in `readTermPage.ts`: the three-source union for
+   `generateTagStaticParams` lives beside the other reads rather than inline.
+3. **The term text field is not `required`** — `TextInput` has no such prop;
+   the refine enforces "exactly one" and the new Playwright case pins its
+   message.
+4. **The browser "unknown term" case was dropped**: the form goes through
+   `createGenericActions`, not the curation seat, so it does no existence
+   check (the same is true of a recipe). `unknown_term` is pinned in
+   `tagTerms.test.ts` and `featured.test.ts`; the browser case pins the
+   exactly-one refusal instead.
+5. **Registry-count pins the section did not name** moved 4 → 5 / gained
+   `tag-terms`: `test/curation.test.ts` (reindex list), `test/curationGit.test.ts`
+   ×2, `test/mcp.test.ts`, `api-write.spec.ts` ×3 — the last three only
+   surfaced in the e2e run, hence the third `24c:` commit.
+
+**Review fix (Fable):** the MCP server's `INSTRUCTIONS` string
+(`mcp/registry.ts`) enumerates the error codes and the error object's
+detail keys; it gained `unknown_term` and `terms?` (no test pins the
+string; the skill's prose is 24e's).
+
+**Traps met:** the worktree's local `main` ref was stale at `2ad89683`, so
+`lint-staged --diff main` linted a superset (passed; also run against
+`c581f222`). The first `/tags` render on any fixture creates
+`taxonomies/tag/{index,aggregates/tree}` (T18) — the `.gitignore` pair went
+in with the code and the suite leaves the fixtures clean.
+
+**After #145 lands (the user's):** the real repo needs one `reindex` (the
+featured pagination v3 bump, T5) and three hand-written `.gitignore` lines
+(`/taxonomies/tag/index`, `/taxonomies/tag/pagination`,
+`/taxonomies/tag/aggregates`); no term records exist there until 24e's seats
+write some.
+
+**Follow-ups filed:** browser form for term records (backlog); `TaxonomyConfig.terms`
+unread — drop or keep at 24f (T17); `unknown_term` in the skill's prose
+(24e, with the term seats).
+
 ## Verification (epic-level)
 
 - 24a: ✅ `test/taxonomies.test.ts` green (36 cases); demo
@@ -1651,9 +1739,11 @@ lands.
   with byte-identical HTML for the same fixture; a group with tags appears on
   `/tags/<slug>`; portfolio's `/tags` exists; `specVersions` snapshots show
   the v1 → v2 bumps; D5 recorded.
-- 24c: a term record with `parent` renders breadcrumb + children on its page;
-  `feature {term}` renders a homepage card; `christmas-cookies` fixture
-  carries term records.
+- 24c: ✅ `/tags/cookies` on `christmas-cookies` renders the record's label,
+  description, the "Dessert" breadcrumb and the pinned order; `/tags/dessert`
+  lists "Cookies 8"; `/tags/holiday` is a page at count 0; a term feature
+  renders on the strip and its detail page (`tag-pages.spec.ts`,
+  `featured-recipes.spec.ts`); the fixture carries three term records.
 - 24d: `tag:christmas-cookies` in the browser and via `recipe_search` returns
   the same set including linzer descendants; `group:<parent>` from the server
   matches the browser; one "all terms" list feeds rail, autocomplete, ⌘K.

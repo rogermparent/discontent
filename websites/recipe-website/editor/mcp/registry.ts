@@ -270,7 +270,7 @@ const INSTRUCTIONS = `Manage and search a recipe website's content.
 
 Recipe rows from recipe_search and recipe_list are compact — {slug, name, date, tags, totalTime, image?} — to keep results small; pass \`fields\` to add description, ingredients, prepTime or cookTime, and use recipe_get for a whole recipe. Slugs are the identity of everything: recipe slugs, group slugs, and a featured entry's own slug (which is not its target's).
 
-Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?}}; the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, group_cycle, import_failed, no_git_identity, not_a_repo, dirty_tree, git_conflict, bad_revision, unauthenticated, usage and internal. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
+Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?, terms?}}; the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, unknown_term, group_cycle, import_failed, no_git_identity, not_a_repo, dirty_tree, git_conflict, bad_revision, unauthenticated, usage and internal. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
 
 Writes commit to the content repository, one commit each. Deletes (recipe_delete, group_delete, unfeature) are not undoable from here.
 
