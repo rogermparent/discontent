@@ -131,19 +131,42 @@ describe("derivedTagsOfAll", () => {
     ]);
   });
 
-  it("reproduces the demo route's five tags exactly, adding and losing none", () => {
-    // The demo is the one seat where the derivation is a *pure* simplification:
-    // its hand-written list and the derived one are the same set, so adopting
-    // it could not have changed behaviour. Pinned so it stays that way.
-    expect(derivedTagsOfAll(demoContentTypes).sort()).toEqual(
-      [
-        "pagination:notes:by-date", // notePages.tags.all
-        "aggregate:notes:tags", // noteTagReads.tags.value
-        "item:notes", // noteItems.tags.all
-        "pagination:bookmarks:by-date", // bookmarkPages.tags.all
-        "item:bookmarks", // bookmarkItems.tags.all
-      ].sort(),
-    );
+  it("reproduces the demo route's five tags exactly, then what F33 added", () => {
+    // The demo was the one seat where the derivation was a *pure*
+    // simplification: its hand-written list and the derived one were the same
+    // set, so adopting it could not have changed behaviour. F33 grew it, in the
+    // two ways a declaration is allowed to grow a derived list — the notes'
+    // hand-written `tags` aggregate became a taxonomy, which derives a second
+    // `by-tag` fold beside it, and the demo declares the term record type.
+    // Both are additive; the five original tags are still a floor.
+    const fired = derivedTagsOfAll(demoContentTypes);
+
+    for (const tag of [
+      "pagination:notes:by-date", // notePages.tags.all
+      "aggregate:notes:tags", // noteTagReads.terms.tags.value
+      "item:notes", // noteItems.tags.all
+      "pagination:bookmarks:by-date", // bookmarkPages.tags.all
+      "item:bookmarks", // bookmarkItems.tags.all
+    ]) {
+      expect(fired).toContain(tag);
+    }
+
+    /*
+     * In registry order, and within one type: indexes, then aggregates —
+     * declared first, then each taxonomy's terms before its by-term (T4) —
+     * then the item catch-all. `tag-terms` is appended last, so its two
+     * follow everything the demo already had.
+     */
+    expect(fired).toEqual([
+      "pagination:notes:by-date",
+      "aggregate:notes:tags",
+      "aggregate:notes:by-tag",
+      "item:notes",
+      "pagination:bookmarks:by-date",
+      "item:bookmarks",
+      "aggregate:tag-terms:tree",
+      "item:tag-terms",
+    ]);
   });
 
   it("emits no duplicate tags", () => {

@@ -7,8 +7,10 @@
 > **Status** column, each phase's decision checkboxes, and the **Next PR** line
 > at every phase boundary. Each phase is a stacked PR and gets its own
 > plan-mode pass seeded from this doc (see _How a phase is run_). **All six
-> phases are closed out (2026-09-15); the roadmap's "Epic complete" note
-> carries the landing order and the user's last step.** The previous
+> phases are closed out (2026-09-15) and landed on `main` (2026-09-16); the
+> roadmap's "Epic complete" note carries the merge commits. The real
+> Christmas-Cookies run is superseded by epic 24 (`agent-taxonomy.md`,
+> 24f).** The previous
 > epic's doc, `agent-curation.md`, is the reference for everything the
 > curation layer already does; its D-list and T-list are cited here by number
 > with a `22-` prefix (`22-D3`, `22-T1`).
@@ -997,14 +999,24 @@ Each branch is off the previous. Rebase children after a parent merges.
 | 23f | `agent/23f-curator-skill-v2` ← 23e  | ✅ done | D9: skill rewrite, examples, acceptance test of the user story, docs close-out, backlog update, memory                                                                                                                           |
 
 **Epic complete (2026-09-15).** Every phase is designed, implemented,
-reviewed and closed out in this doc; nothing has merged yet. Landing order,
-each a draft PR against its parent: #138 (23b) → #139 (23c) → #140 (23d) →
-#141 (23e) → #142 (23f). For each: merge the parent, **retarget the child to
-`main`, then** delete the parent's branch (T20); the recipe Playwright shards
-run on a PR only once its base is `main`. After #142 lands, the user's real
-run — `/recipe-curator` with the Christmas-Cookies ask against the real
-content repo — is the epic's last checkbox (Verification, below). Anything
-still open is in Deferred and `docs/backlog.md`.
+reviewed and closed out in this doc. Landing order, each a draft PR against
+its parent: #138 (23b) → #139 (23c) → #140 (23d) → #141 (23e) → #142 (23f).
+For each: merge the parent, **retarget the child to `main`, then** delete the
+parent's branch (T20); the recipe Playwright shards run on a PR only once its
+base is `main`. Anything still open is in Deferred and `docs/backlog.md`.
+
+**Landed 2026-09-16.** All five merged into `main` as merge commits, in
+order, on the user's say-so: #138 `e1ffd5b8` → #139 `78a5de92` → #140
+`c2219e02` → #141 `a6582344` → #142 `bd02f6f9`. Each child was retargeted to
+`main` first, brought up to date through GitHub's `update-branch` API (`main`
+protection is strict on `lint`), and merged only after all 12 checks —
+including the four recipe Playwright shards — passed; `main`'s own Playwright
+run at the tip (35060176674) is green. The five head branches and the
+`agent-23b…23f` worktrees were left for housekeeping, done from epic 24's
+first PR (`agent-taxonomy.md`, "Why this exists"). **The real run of the
+story did not happen on groups**: before it, the user redirected to a
+universal taxonomy in the engine, so the story is now epic 24's acceptance
+case (Verification, below).
 
 ## Phase detail
 
@@ -3350,9 +3362,14 @@ repo, after the stack lands — is the epic's last checkbox and stays theirs.
   stdio and performs one write; without a token → 401.
 - 23f: the Christmas-Cookies story runs green as a vitest transcript on a
   cookies fixture (`test/christmasCookies.test.ts`, ✅) and headlessly from
-  `/recipe-curator` with no permission denial (Run A, ✅) — and **once for
-  real by the user** (☐ theirs, after #142 lands: the Run A prompt with no
-  `CONTENT_DIRECTORY` set, then push from `/git`).
+  `/recipe-curator` with no permission denial (Run A, ✅). The run **once for
+  real by the user** is ⤴️ **superseded → epic 24 (24f)**: on 2026-09-16,
+  with #142 landed, the user chose to fulfil the use case with a "flexible,
+  universal tagging / taxonomy system integrated into the CMS engine" first,
+  because "it may affect how the MCP should see and operate on groups
+  fundamentally" (`agent-taxonomy.md`, Why this exists and D5). The story
+  becomes that epic's acceptance case: fixture replay at 24e, for real at
+  24f.
 
 ## Deferred
 

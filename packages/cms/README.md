@@ -17,8 +17,53 @@ interface ContentTypeConfig<TData, TIndexValue, TKey extends Key> {
   createDefaultSlug?(data: TData): string;
   uploadsDirectory?: string;
   referencedBy?: ReferenceSpec[]; // other types that reference this one by slug
+  references?: ReferenceDeclaration[]; // types this one borrows index-value fields from
+  paginationIndexes?: PaginationIndexConfig[]; // pre-baked paginated queries over this type
+  aggregates?: AggregateConfig[]; // values folded from this type's whole index
+  taxonomies?: TaxonomyConfig[]; // index-value fields that are vocabularies (see below)
 }
 ```
+
+`references` and `referencedBy` are the two halves of one edge and must both be declared: the borrowing side names the fields it reads, and the referenced side names the types to rewrite when it is written. Both take the other's config as a **thunk**, because declaring the edge from both sides makes the two modules import each other.
+
+## Taxonomies
+
+A `string[]` field on the index value can be declared a **vocabulary** instead of left as bare strings:
+
+```ts
+interface TaxonomyConfig<TIndexValue, TKey extends Key, TItem> {
+  name: string; // singular stem: names both derived aggregates
+  field: string; // the index-value field holding the raw terms
+  version: string; // the site's half of the stored spec version
+  slugOf?(term: string): string; // default: @sindresorhus/slugify
+  project?(entry: AggregateEntry<TIndexValue, TKey>): TItem; // a by-term row; default { id }
+  terms?(): AnyContentTypeConfig; // the vocabulary's term-record type
+}
+
+// packages/cms/demo/lib/noteTaxonomy.ts, in full:
+export const noteTagTaxonomy: TaxonomyConfig<NoteIndexValue, NoteIndexKey> = {
+  name: "tag",
+  field: "tags",
+  version: "1",
+};
+```
+
+From that the engine derives **two ordinary aggregates**, appended after whatever the type declares in `aggregates`:
+
+| Derived | Name                    | Value                                                             |
+| ------- | ----------------------- | ----------------------------------------------------------------- |
+| terms   | `${name}s` → `tags`     | `Array<{ slug, label, count }>`, sorted by slug, first label wins |
+| by-term | `by-${name}` → `by-tag` | `Record<slug, { label, items }>`, items newest-first              |
+
+So a taxonomy is a declaration, not a fourth derived kind: `aggregatesOf(config)` is the single derivation, and the fold pass, the cache tags and the ignore list all read it. Term identity is `slugOf(normalizeTerm(label))` — carriers go on storing free-text strings, so nothing on disk changes and two labels that slugify alike merge.
+
+Reads are `readTaxonomyTerms` / `readTaxonomyByTerm` (`taxonomies/read`, Node-safe) and `createCachedTaxonomyReads` (`taxonomies/next/cachedReads`, returning `{ terms, byTerm }`).
+
+### Term records
+
+`createTermContentType({ taxonomy, directory })` returns an ordinary `ContentTypeConfig` giving a vocabulary optional **records** — `term.json` per slug, holding `{ label, date, description?, image?, parent? }` plus anything the site adds. Its one novelty is a self-referencing reference edge: `parent` is a scalar slug, so renaming a parent rewrites its children and each child's index value borrows `parentLabel`. A `tree` aggregate folds `Record<slug, { label, parent?, children, image? }>` from the term index alone.
+
+Records are additive: a term with carriers but no record is still a term, and a record with no carriers still has a page.
 
 ## Sub-modules
 

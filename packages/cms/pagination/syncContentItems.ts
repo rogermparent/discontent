@@ -1,5 +1,7 @@
 import type { Key } from "lmdb";
 import { updateAggregates } from "../aggregates/updateAggregates";
+import type { AnyContentTypeConfig } from "../content/types";
+import { aggregatesOf } from "../taxonomies/aggregates";
 import { recordPaginationChanges } from "./changes";
 import { getPaginationDatabase } from "./database";
 import type {
@@ -51,7 +53,14 @@ export async function syncPaginationItems<TIndexValue, TKey extends Key>(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const indexes: PaginationIndexConfig<any, any, any>[] =
     config.paginationIndexes ?? [];
-  const hasAggregates = (config.aggregates ?? []).length > 0;
+  /*
+   * `aggregatesOf`, not `config.aggregates`: since F33 a content type can
+   * declare a taxonomy and no hand-written aggregate at all, and reading the
+   * raw field here would skip the whole derived pass for it — silently, as an
+   * aggregate that is simply never folded. The gate has to ask the same
+   * question `updateAggregates` answers.
+   */
+  const hasAggregates = aggregatesOf(config as AnyContentTypeConfig).length > 0;
   if ((indexes.length === 0 && !hasAggregates) || items.length === 0) {
     return { pagination: [], aggregates: [] };
   }

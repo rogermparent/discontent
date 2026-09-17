@@ -7,6 +7,7 @@ import type {
   PaginationIndexConfig,
   PaginationUpdateResult,
 } from "../pagination/types";
+import type { TaxonomyConfig } from "../taxonomies/types";
 import type { ReferenceDeclaration, ResolvedReferences } from "./references";
 
 /**
@@ -194,6 +195,37 @@ export interface ContentTypeConfig<
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   aggregates?: AggregateConfig<any, any, any, any>[];
+
+  /**
+   * Which of this type's index-value fields are **vocabularies** rather than
+   * bare `string[]` — the taxonomy kind (F33).
+   *
+   * Not a fourth derived kind: each declaration expands into two ordinary
+   * aggregates, which `aggregatesOf(config)` appends after whatever
+   * `aggregates` declares. From `{name: "tag", field: "tags"}` the engine
+   * derives `tags` (`Array<{slug, label, count}>`, sorted by slug) and
+   * `by-tag` (`Record<slug, {label, items}>`, newest-first), and everything
+   * downstream — the fold pass, the cache tags, the changes artifact, the
+   * ignore list — follows with no further declaration.
+   *
+   * **The naming rule is `name` and nothing else**: `${name}s` and
+   * `by-${name}`, chosen so a site whose hand-written pair already used those
+   * strings adopts the kind without moving a cache tag or an LMDB directory.
+   *
+   * **The version rule**: `TaxonomyConfig.version` is the site's half of the
+   * stored spec version and covers `slugOf` / `project`; the engine's fold
+   * carries its own half (`TAXONOMY_FOLD_VERSION`). Bump the site's whenever
+   * either function changes what it produces.
+   *
+   * **`field` must already be on the index value.** A fold reads the content
+   * index, never a data file, so a field only the data file carries folds as
+   * empty — silently, and correctly, since a value that is not an array is
+   * simply no terms.
+   *
+   * Loosely typed for the same variance reason `aggregates` is.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  taxonomies?: TaxonomyConfig<any, any, any>[];
 }
 
 /**
