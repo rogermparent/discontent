@@ -1725,6 +1725,12 @@ featured pagination v3 bump, T5) and three hand-written `.gitignore` lines
 `/taxonomies/tag/aggregates`); no term records exist there until 24e's seats
 write some.
 
+**CI on `6baa0aaf` (2026-09-17): all 12 checks green** — lint, unit tests
+and both typechecks (run 35244457981); Playwright run 35244463233: CMS demo
+dev + prod, Portfolio, recipe shards 1–4, merge of sharded reports. The
+draft PR #145 is ready for the user's review and merge; after it lands, the
+real repo needs one `reindex` and the three ignore lines (above).
+
 **Follow-ups filed:** browser form for term records (backlog); `TaxonomyConfig.terms`
 unread — drop or keep at 24f (T17); `unknown_term` in the skill's prose
 (24e, with the term seats).
