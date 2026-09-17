@@ -1215,6 +1215,12 @@ the recipe editor's `.env.local` across fixes it (now in CLAUDE.md). `eslint`
 was SIGKILLed twice under memory pressure during one `lint-staged` run;
 clean on rerun and every run since.
 
+**CI on `cd163832` (2026-09-17): all 12 checks green** — lint, unit tests
+and both typechecks (run 35184951752); Playwright run 35184954546: CMS demo
+dev + prod, Portfolio, recipe shards 1–4, merge of sharded reports. The
+draft PR #144 is ready for the user's review and merge; after it lands, the
+real repo needs one `reindex` (T5, mandatory).
+
 **Follow-ups filed:** read-side spec guard in `readAggregate` (Deferred);
 `GroupSearchEntry.tags` + `group:`/`tag:` parity are 24d's as planned;
 `Group.kind` narrowing 24e (D5).
