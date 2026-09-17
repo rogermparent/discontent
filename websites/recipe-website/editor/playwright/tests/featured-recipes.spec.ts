@@ -1342,6 +1342,7 @@ test.describe("Featured terms", () => {
 
   test("the feature's own page renders the term", async ({
     page,
+    baseURL,
     resetData,
   }) => {
     await resetData("christmas-cookies");
@@ -1349,6 +1350,13 @@ test.describe("Featured terms", () => {
     await fillSignInForm(page);
     await markdownEditorReady(page, "note");
     await page.getByRole("button", { name: "Submit", exact: true }).click();
+    /*
+     * The redirect, awaited before anything navigates away: a `goto` issued
+     * while the write is still in flight aborts it, and the index page then
+     * renders its empty state. The trap `recipe-item-records.spec.ts`
+     * documents, and the one this test hit first time out.
+     */
+    await expect(page).toHaveURL(baseURL + "/");
 
     await page.goto("/featured-recipes");
     await page

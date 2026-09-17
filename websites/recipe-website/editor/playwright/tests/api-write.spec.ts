@@ -584,6 +584,8 @@ test.describe("JSON write API", () => {
       "featured-recipes",
       "pages",
       "groups",
+      /* The `tag` vocabulary's records, appended to the registry at 24c. */
+      "tag-terms",
     ]);
 
     /* The body is optional, not unchecked: a malformed one is still a 400. */
@@ -798,7 +800,8 @@ test.describe("JSON write API", () => {
         ["git", "revert", commits[0].hash, "--yes", "--json"],
         baseURL!,
       );
-      expect(JSON.parse(reverted.stdout).rebuilt).toHaveLength(4);
+      /* Five since 24c, when the registry gained the `tag-terms` records. */
+      expect(JSON.parse(reverted.stdout).rebuilt).toHaveLength(5);
 
       const after = await cli(["group", "list", "--json"], baseURL!);
       expect(JSON.parse(after.stdout).total).toBe(0);
@@ -872,7 +875,8 @@ test.describe("JSON write API", () => {
       expect(reverted.status()).toBe(200);
       const revertBody = await reverted.json();
       expect(revertBody.commit).toBeTruthy();
-      expect(revertBody.rebuilt).toHaveLength(4);
+      /* Five since 24c, when the registry gained the `tag-terms` records. */
+      expect(revertBody.rebuilt).toHaveLength(5);
 
       /*
        * No `resetData`, no Maintenance → Reload: `ctx.onBulkChange` fired in
