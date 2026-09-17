@@ -74,7 +74,11 @@ lint-staged.
 A fresh worktree under `.claude/worktrees/` is missing two gitignored files,
 and both gates misbehave without them: copy `editor/.env.local` (no
 `AUTH_SECRET` fails ~40 e2e tests) and `export/next-env.d.ts` (without it
-`tsc --noEmit` reports `TS18003`) from the main checkout first.
+`tsc --noEmit` reports `TS18003`) from the main checkout first. The portfolio
+editor needs the same `AUTH_SECRET`: `websites/portfolio/editor/.env.local`
+is missing from the main checkout too, so copy the recipe editor's there before running
+portfolio Playwright (`[auth][error] MissingSecret` fails every signed-in
+spec otherwise).
 
 Killing a Playwright run mid-flight leaves stale LMDB envs (`MDB_BAD_RSLOT`,
 phantom ENOENTs); recover with `rm -rf test-content test-settings test-remotes

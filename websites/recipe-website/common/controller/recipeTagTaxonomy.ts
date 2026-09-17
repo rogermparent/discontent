@@ -41,8 +41,11 @@ export const recipeTagTaxonomy: TaxonomyConfig<
    * declared `"1"`; the stored spec version is now
    * `` `${TAXONOMY_FOLD_VERSION}.${version}` `` = `"1.2"`, so every record
    * folded by the old configs reads as stale and is recomputed at the next
-   * write — which is exactly what the changed terms shape requires. A corpus
-   * reads `null` (empty) in between, so the real repo gets one `reindex` (T5).
+   * write — which is exactly what the changed terms shape requires. In between,
+   * nothing guards the read: `readAggregate` hands back whatever is stored, so
+   * a v1 `string[]` reaches `.map((t) => t.label)` and every label is
+   * `undefined`. That is why the real repo's `reindex` after this lands is
+   * mandatory, not housekeeping (T5).
    *
    * Bump this when `project` or `slugOf` changes what it produces, for the
    * reason `recipesByDate.version` spells out at length: a hash over
