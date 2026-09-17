@@ -1,0 +1,11 @@
+{
+  "label": "Cookies",
+  "date": 1764547200000,
+  "parent": "dessert",
+  "description": "Small, sweet, baked one tray at a time. The linzers lead, because they are the ones worth chilling the dough for.",
+  "pinned": [
+    "apricot-linzer-cookies",
+    "chocolate-hazelnut-linzer-cookies",
+    "linzer-cookies"
+  ]
+}
