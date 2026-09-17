@@ -7,8 +7,9 @@
 > **Status** column, each phase's decision checkboxes, and the **Next PR** line
 > at every phase boundary. Each phase is a stacked PR and gets its own
 > plan-mode pass seeded from this doc (see _How a phase is run_). **24a is
-> merged (#143 → `main` `6709f4c8`, 2026-09-17); 24b is closed out
-> (2026-09-17, draft PR #144); 24c is next.** The previous
+> merged (#143 → `main` `6709f4c8`, 2026-09-17); 24b is merged (#144 →
+> `main` `c581f222`, 2026-09-17, and the real repo is reindexed); 24c is in
+> progress (2026-09-17, `agent/24c-term-records` ← `main`).** The previous
 > epics' docs — `agent-curation.md` (22) and `agent-mcp.md` (23) — are the
 > reference for everything the curation layer and the MCP already do; their
 > D-lists and T-lists are cited here by number with a `22-` / `23-` prefix
@@ -313,8 +314,8 @@ buildIndexValue?})` (`packages/cms/taxonomies/termContentType.ts`) returns a
   self-referencing edge.
 - `aggregates: [termTreeAggregate]` (`taxonomies/tree.ts`, `name: "tree"`,
   version literal) folding `Record<slug, {label, parent?, children: slug[],
-image?}>` from the term index alone; a visited set makes the fold terminate
-  on a hand-edited cycle.
+image?}>` from the term index alone; a single linking pass terminates on a
+  hand-edited cycle (both nodes present, each the other's child).
 
 **`parent` is scalar on purpose**: a parent rename rewrites children through
 `updateDependents` and `parentLabel` is borrowed with no new engine feature.
@@ -391,6 +392,14 @@ and the real repo has no groups, so nothing is lost today).
       today (`test/christmasCookies.test.ts`); 24b, 24c and 24d keep
       `collection` accepted everywhere. 24b records this decision and gives
       groups `tags` without touching `kind`.
+- [x] **Two answers at 24c (2026-09-17).** (1) **Read side only**: 24c
+      ships records → pages, tree, breadcrumb, pinned front, `feature {term}`
+      and a hand-written fixture seed; every term _write_ lands with 24e's
+      seats, CLI and MCP, and no browser form for term records is scheduled
+      (backlog). (2) **`pinned` names recipe slugs only**, ordered: pinned
+      recipes render first in pinned order, then the remaining carriers
+      newest-first, then groups; a pinned slug that does not carry the tag is
+      ignored at render time and rejected by 24e's `term_update`.
 
 ### D6 — Search and UI (24d)
 
@@ -417,13 +426,17 @@ threshold restated; 24f measures.
 every carrier string whose slug matches; children follow by reference),
 `mergeTerm`, `assignTerm {add, remove, type?}` (one `updateRecipe` /
 `updateGroup` per carrier; reports `{updated, unchanged, missing}`). Codes:
-`unknown_term` 404, `term_cycle` 409, `term_in_use` 409. `FeaturedInputSchema`
+`unknown_term` **422** (24c; like `unknown_recipe`/`unknown_group` in
+`curation/http.ts` — an earlier draft said 404), `term_cycle` 409,
+`term_in_use` 409. `FeaturedInputSchema`
 exactly-one-of `recipe | group | term`; `GitTypeSchema` + `"term"`. Backend
 ×2, API `/api/taxonomies/[taxonomy]/…`, CLI `recipes term …`, MCP `term_list,
 term_get, term_create, term_update, term_delete, term_rename, term_merge,
 term_assign` (28 → 36), `feature {term}`, `tag_list` extended **additively**;
 regex → `^(recipe|group|git|tag|featured|term)_[a-z_]+$`; settings + skill v3
-pre-approve all but `term_delete`, `term_merge`.
+pre-approve all but `term_delete`, `term_merge`. **The seats + the skill
+are the write path for term records**; a browser form for them is a backlog
+row, not a scheduled phase (24c decision).
 
 D5's consequence for this seat set: `group_*` stays, for **plans** — the
 skill v3 rule (24e) is _a cluster by kind, or a curated collection → term; an
@@ -563,35 +576,56 @@ pushValue, removeValue}` — a `useState<string[]>` plus a six-line adapter
     rows). A new optional field must be **spread only when set**
     (`...(tags?.length ? {tags} : {})`) so untagged fixtures keep the exact
     object shape; `tags: undefined` would fail those pins.
+17. **T17 — A taxonomy module may never gain a value import that reaches a
+    content config.** `taxonomies: [recipeTagTaxonomy]` on
+    `recipeContentConfig` / `groupContentConfig` is a **direct read at module
+    evaluation, not a thunk**, so a chain `recipeTagTaxonomy →
+tagTermContentConfig → featuredRecipeContentConfig → recipeContentConfig
+→ recipeTagTaxonomy` throws a TDZ `ReferenceError` the first time any
+    module imports a taxonomy module before a content config. `TaxonomyConfig.terms`
+    therefore stays declared and **unread** (24c); site readers name
+    `tagTermContentConfig` directly. `test/tagTerms.test.ts` carries an
+    import-order tripwire; 24f may drop the unused field.
+18. **T18 — Every new aggregate _read_ creates an LMDB directory**
+    (`environmentCache.ts` opens on read), so each new aggregate is an
+    `editor/.gitignore` question: the first `/tags` render on any fixture
+    creates `taxonomies/tag/aggregates/tree/`, and a Playwright run dirties
+    every fixture until the `*/taxonomies/` rule + the seeded fixture's
+    carve-out exist (the `groups/` pair's shape).
+19. **T19 — A content config with no `version:` literal cannot be pinned by
+    `specVersions`** (`featuredRecipeContentConfig.ts`,
+    `tagTermContentConfig.ts`); do not add a fake literal to satisfy the
+    grep — pin the pagination / aggregate module that carries the version
+    instead.
 
 ## Stacked-PR roadmap
 
 Each branch is off the previous. Rebase children after a parent merges.
 
-| PR      | Branch (← parent)                    | Status  | Scope                                                                                                                                                                                                                                                       |
-| ------- | ------------------------------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **24a** | `agent/24a-taxonomy-engine` ← `main` | ✅ done | This doc; D1 + D2 primitives in `packages/cms/taxonomies/`; `aggregatesOf` at the two seats; demo notes adopt (terms + by-term); demo term type + the self-reference proof (T8); `incremental-regeneration.md` §10 F33 + §11; epic-23 housekeeping docs (M) |
-| 24b     | `agent/24b-taxonomy-adopt` ← `main`  | ✅ done | Recipes → taxonomy (delete the pair, keep names, v2), readers, groups gain `tags` (types, index value, schemas, form, seat), portfolio declares + routes, `/tags` unions; all 15 recipe fixtures regenerated; **D5 decided** (M–L)                          |
-| 24c     | `agent/24c-term-records` ← 24b       | 🟡 next | `tagTermContentConfig` in the registry, tree read + label override, term page metadata / breadcrumb / children, `feature {term}` (featured v3), `christmas-cookies` seed gains term records (L)                                                             |
-| 24d     | `agent/24d-taxonomy-search` ← 24c    | ⏸️      | Resolver, `/search/terms`, one "all terms" source, hierarchical autocomplete / ⌘K, server descendant expansion + `group:` parity (L)                                                                                                                        |
-| 24e     | `agent/24e-term-seats` ← 24d         | ⏸️      | Seats / CLI / API / MCP / skill v3 + the fixture acceptance test (D7) (L)                                                                                                                                                                                   |
-| 24f     | `agent/24f-taxonomy-closeout` ← 24e  | ⏸️      | Backfill on the real repo (content task), the real story run, by-term measurement, backlog strikes, close-out, memory (S code / L content)                                                                                                                  |
-| 24g     | conditional                          | ⏸️      | F8b partitions, only if 24f's by-term number exceeds 150 KB (L)                                                                                                                                                                                             |
+| PR      | Branch (← parent)                    | Status         | Scope                                                                                                                                                                                                                                                       |
+| ------- | ------------------------------------ | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **24a** | `agent/24a-taxonomy-engine` ← `main` | ✅ done        | This doc; D1 + D2 primitives in `packages/cms/taxonomies/`; `aggregatesOf` at the two seats; demo notes adopt (terms + by-term); demo term type + the self-reference proof (T8); `incremental-regeneration.md` §10 F33 + §11; epic-23 housekeeping docs (M) |
+| 24b     | `agent/24b-taxonomy-adopt` ← `main`  | ✅ done        | Recipes → taxonomy (delete the pair, keep names, v2), readers, groups gain `tags` (types, index value, schemas, form, seat), portfolio declares + routes, `/tags` unions; all 15 recipe fixtures regenerated; **D5 decided** (M–L)                          |
+| 24c     | `agent/24c-term-records` ← `main`    | 🟡 in progress | `tagTermContentConfig` in the registry, tree read + label override + curated front (`pinned`/`description`/`image`), term page metadata / breadcrumb / children, `feature {term}` (featured v3), `christmas-cookies` seed gains term records (L)            |
+| 24d     | `agent/24d-taxonomy-search` ← 24c    | ⏸️             | Resolver, `/search/terms`, one "all terms" source, hierarchical autocomplete / ⌘K, server descendant expansion + `group:` parity (L)                                                                                                                        |
+| 24e     | `agent/24e-term-seats` ← 24d         | ⏸️             | Seats / CLI / API / MCP / skill v3 + the fixture acceptance test (D7) (L)                                                                                                                                                                                   |
+| 24f     | `agent/24f-taxonomy-closeout` ← 24e  | ⏸️             | Backfill on the real repo (content task), the real story run, by-term measurement, backlog strikes, close-out, memory (S code / L content)                                                                                                                  |
+| 24g     | conditional                          | ⏸️             | F8b partitions, only if 24f's by-term number exceeds 150 KB (L)                                                                                                                                                                                             |
 
-**Next PR: 24c** — `agent/24c-term-records` stacked on
-`agent/24b-taxonomy-adopt` (draft PR #144; retarget to `main` after #144
-merges, 22-T20). Scope: `tagTermContentConfig` in the recipe registry via
-`createTermContentType` (records under `taxonomies/tag/`), the **curated
-front per D5** (`pinned: string[]`, `description`, `image` on the record;
-`Group.kind` untouched until 24e), the `terms` thunk consumed for label
-override + tree read, term page metadata / breadcrumb / children on
-`/tags/[tag]`, `feature {term}` (featured `by-date` v2 → v3), the
-`christmas-cookies` seed gains term records. Facts to validate first: the T8
-verdict (24a close-out) for the self-reference edge, the 24b close-out
-below (stale reads return the old value, not `null` — T5), `TagPage`'s
-union shape (`label` from recipes first), and `featuredRecipeContentConfig`'s
-current `referencedBy` wiring. Real repo: `reindex` after 24b lands is the
-user's and is **mandatory** (T5).
+**#144 landed** 2026-09-17 (`c581f222`) and the real repo was reindexed the
+same day.
+
+**Next PR: 24c** — `agent/24c-term-records` off `main` at `c581f222`
+(draft PR against `main`). Scope: `tagTermContentConfig` in the recipe
+registry via `createTermContentType` (records under `taxonomies/tag/`), the
+**curated front per D5** (`pinned: string[]` of recipe slugs, `description`,
+`image` on the record; `Group.kind` untouched until 24e), record label
+override + tree read through a site reader (**not** the `terms` thunk, T17),
+term page metadata / breadcrumb / children on `/tags/[tag]`, `feature {term}`
+(featured `by-date` v2 → v3, `unknown_term` 422), the `christmas-cookies`
+seed gains three hand-written term records. **Read side only**: no term
+write seat, CLI, MCP or browser form (24e / backlog). Zero engine files
+change. Section below.
 
 ## Phase detail
 
@@ -1224,6 +1258,388 @@ real repo needs one `reindex` (T5, mandatory).
 **Follow-ups filed:** read-side spec guard in `readAggregate` (Deferred);
 `GroupSearchEntry.tags` + `group:`/`tag:` parity are 24d's as planned;
 `Group.kind` narrowing 24e (D5).
+
+### PR 24c — Term records `agent/24c-term-records` 🟡 in progress (← `main`)
+
+Worktree `.claude/worktrees/agent-24c`, base `main` at `c581f222` (the #144
+merge). The recipe site adopts the engine's term-record content type (24a,
+`createTermContentType`) so a `tag` can carry a label, a description, an
+image, a parent and a curated front, and `feature` gains a third target.
+**Zero engine files change.** Decisions taken in the plan-mode session
+(2026-09-17):
+
+- **Read side only.** 24c ships records → pages, tree, breadcrumb, pinned
+  front, `feature {term}`, and the `christmas-cookies` seed as hand-written
+  `term.json` files. Every term _write_ (create/update/rename/merge/assign)
+  lands with 24e's seats, CLI and MCP; there is **no browser form** for term
+  records in 24c (backlog row).
+- **`pinned` names recipe slugs only.** Pinned recipes render first in
+  pinned order, then the remaining carriers newest-first, then groups. A
+  pinned slug that does not carry the tag is ignored at render time (24e's
+  `term_update` validates).
+- **No `terms` thunk on the site taxonomy configs** (deviation from the
+  roadmap line). `recipeContentConfig.ts:53` and `groupContentConfig.ts:76`
+  read `taxonomies: [recipeTagTaxonomy]` directly, so `recipeTagTaxonomy →
+tagTermContentConfig → featuredRecipeContentConfig → recipeContentConfig →
+recipeTagTaxonomy` would throw a TDZ `ReferenceError` the first time a
+  module imports a taxonomy module before a content config (24d's
+  `/search/terms` would). Site readers name `tagTermContentConfig` directly;
+  `TaxonomyConfig.terms` stays declared and unread (T17; a 24f cleanup
+  candidate).
+- **No site `buildIndexValue` extension.** Nothing in 24c reads
+  `description` or `pinned` off the term _index_; the page reads the record
+  by slug and the tree already carries `label/parent/image`. 24e decides
+  whether `term_list` wants them indexed.
+- **`unknown_term` is 422**, like `unknown_recipe`/`unknown_group`
+  (`curation/http.ts:52-67`, pinned in `test/curationHttp.test.ts:40-66`).
+  D7 said 404; corrected there.
+
+#### Facts (validated 2026-09-17, read-only, on `main` = `c581f222`)
+
+**Engine (24a, unchanged).** `packages/cms/taxonomies/termContentType.ts`:
+`createTermContentType({taxonomy, directory, uploadsDirectory?,
+buildIndexValue?(data, refs, base)})` → `ContentTypeConfig<Term,
+TermIndexValue, TermIndexKey>`; `contentType "tag-terms"`, `dataDirectory
+"<dir>/data"`, `indexDirectory "<dir>/index"`, `dataFilename "term.json"`;
+`Term {label, date, description?, image?, parent?, [k]: unknown}` (open);
+`TermIndexValue {label, date, parent?, image?, parentLabel?}`;
+self-referencing `references` (`parent`, borrows `label`) and
+`referencedBy`; `aggregates: [termTreeAggregate()]`. `tree.ts`: `TermTree =
+Record<slug, {label, parent?, children: slug[], image?}>`, `name: "tree"`,
+`version: "1"`, a single linking pass (a hand-edited cycle terminates with
+both nodes present; a self-parent is dropped from its own children; a
+dangling parent is kept on the child). No tree reader helper exists;
+`createCachedAggregateRead({config, aggregateConfig: termTreeAggregate()})`
+and `readAggregate` work (the tag is `aggregate:tag-terms:tree`). The terms
+fold never applies a record label, and a record-only term yields no terms
+row and no by-term key — the join is the site's. `uploadsDirectory` →
+`<content>/<uploadsDirectory>/<slug>/uploads/<file>`. Typing: a config typed
+`ContentTypeConfig<TagTerm, TagTermIndexValue, TermIndexKey>` accepts the
+spread of the engine's config with no cast as long as every added field is
+optional (probed with the compiler API). Reads create LMDB directories
+(`environmentCache.ts:114-117`), so the first `/tags` render on a content
+directory creates `taxonomies/tag/aggregates/tree/` (T18).
+
+**Registry.** `editor/controller/contentTypes.ts:30-46` — four configs,
+append-only, imported by no config (T3). Pins:
+`test/revalidateDerived.test.ts:108-123` (`toEqual`, ends `"item:groups"`),
+`test/derivedPaths.test.ts:130-151` (`toEqual`, ends `/groups/aggregates`).
+`successConfigs.ts:204` throws for an unlisted type on a **curation write**
+(nothing writes `tag-terms` through that layer in 24c). Maintenance page
+`settings/maintenance/page.tsx:27-37` hand-wires three rebuild buttons.
+`rebuildFixtureIndexes.ts:77` skips a type whose `indexDirectory` is absent
+in a fixture; LMDB `open` creates `data.mdb` inside an existing directory.
+
+**Featured.** `featuredRecipeContentConfig.ts:51-62` `references` to
+recipes (`["name","image"]`) and groups (`["name","kind"]`); the carriers
+hold `referencedBy` (`recipeContentConfig.ts:28-33`,
+`groupContentConfig.ts:77-79`). `buildFeaturedRecipeIndexValue.ts` assigns
+seven keys unconditionally. `paginationConfigs.ts:127-180`:
+`FeaturedRecipeListEntry` and `featuredRecipesByDate` **`version: "2"`**
+(pinned inside `specVersions` "recipe pagination configs", versions
+`["1","2"]`). Seat `curation/featured.ts`: `FeaturedRow.name = recipeName ??
+groupName`, `requireTarget` reads the target data file via
+`readContentFileOrNull` (`UnknownRecipeError`/`UnknownGroupError`, no
+force), `feature` spreads only the set key and commits `Feature
+recipe|group: <slug>`. Schema `curation/schema.ts:~343-355`
+`FeaturedInputSchema` XOR `recipe|group` via `.refine` (message unpinned).
+Form `Form/FeaturedRecipe/index.tsx` ToggleGroup
+`data-testid="featured-target"` with two items, only the active input
+mounted; `parseFeaturedRecipeFormData.ts` refine;
+`featuredRecipeFormState.ts` errors; `actions/featuredRecipes.ts:34-44`.
+Homepage strip `Homepage/route.tsx:66-88` filters on `recipeName ||
+groupName` then maps to `{kind:"recipe"}|{kind:"group"}`;
+`FeaturedStrip.tsx:19-27` union; `Homepage/index.tsx:76-78` hero = recipes
+only; `List/FeaturedRecipe/{index,GroupCard}.tsx` (`GroupCard` renders
+"Group not found" when nameless); `FeaturedRecipeDetailPage/index.tsx:27-39`
+two variants; editor + export `featured-recipe/[slug]/page.tsx` branch on
+`group`. CLI `cli/commands/featured.ts` (`--recipe|--group` XOR at 44-48;
+list `tags` recipe/group), `cli/index.ts:129` usage line; MCP
+`mcp/registry.ts:609-620` `feature` embeds `FeaturedInputSchema`. Errors:
+`curation/errors.ts` (`CurationErrorCode`, `CurationErrorDetails`,
+`toErrorObject` 250-298), `curation/http.ts:54` status map,
+`cli/backend/http.ts:109-119` `rehydrate` copies `groups`. Tests:
+`test/featured.test.ts` (harness 57-84), `test/christmasCookies.test.ts:268-276`
+`featured_list` row via `toMatchObject`, `test/mcp.test.ts:286-303`,
+Playwright `featured-recipes.spec.ts` (toggle pattern at 1127-1133).
+
+**Tag pages.** `common/components/TagPage/routes.tsx` (`tagIndexRoute`,
+`tagRoute` 404 when neither carrier has the slug, `generateTagStaticParams`
+union + `_`), `shared.tsx` (`TagPage({label, recipes, groups})`,
+`TagIndexPage`); four route files re-export only (no `generateMetadata`).
+Readers `data/readRecipeTagIndex.ts` (`recipeTagReads`),
+`data/readGroupTagIndex.ts` (`groupTagReads`), `data/readGroupItem.ts`
+(`groupItems`, module scope). `test/exportStaticParams.test.ts` mocks by
+module path (`readRecipeTagIndex`, `readGroupTagIndex`, `readGroupItem`;
+T14). Images: `GroupImage/index.tsx` `getTransformedGroupImageProps` +
+`getGroupUploadPath` (`filesystemDirectories.ts:64-70`) is the pattern;
+`GroupThumbnailPlaceholder` exists.
+
+**Fixture.** `christmas-cookies`: 10 recipes (tags cookies 8, dessert 8,
+baked 9, christmas 4, breakfast/dinner/quick 1), no groups, no featured, no
+images, 18 tracked files; used only by `test/christmasCookies.test.ts` and
+`test/mcp.test.ts` (no Playwright spec). The three linzer recipes are the
+three newest cookies (`linzer-cookies` > `chocolate-hazelnut-linzer-cookies`
+
+> `apricot-linzer-cookies`). `editor/.gitignore:64-66` ignores `*/groups/`
+> with two negations; no `taxonomies/` rule. The real content repo's
+> `.gitignore` is hand-written (T6).
+
+**Curation import allow-list** (`test/curation.test.ts:~1184`) names
+`recipe-website-common/controller/(…|data/readGroups)$`;
+`curation/featured.ts` importing `tagTermContentConfig` fails until it is
+added (T15).
+
+#### Design (decided)
+
+**C1 — Types, term config, featured edge.**
+
+- `common/controller/types.ts`: `import type {Term, TermIndexValue,
+TermIndexKey} from "@discontent/cms/taxonomies/termContentType"`; `export
+interface TagTerm extends Term {pinned?: string[]}` (recipe slugs, ordered);
+  `export type TagTermIndexValue = TermIndexValue`; `export type
+TagTermEntryKey = TermIndexKey`. `FeaturedRecipe.term?: string`;
+  `FeaturedRecipeEntryValue` gains `term?, termLabel?, termImage?`.
+- New `common/controller/tagTermContentConfig.ts`: `const base =
+createTermContentType({taxonomy: "tag", directory: "taxonomies/tag",
+uploadsDirectory: "uploads/tag-term"})`; `export const tagTermContentConfig:
+ContentTypeConfig<TagTerm, TagTermIndexValue, TagTermEntryKey> = {...base,
+referencedBy: [...(base.referencedBy ?? []), {config: () =>
+featuredRecipeContentConfig, indexField: "term"}]}`. Doc comment: why the
+  taxonomy modules do **not** import this (T17); the module imports
+  `featuredRecipeContentConfig` for the thunk only (the same cycle recipes
+  and groups already have with featured, T2). No `version:` literal (T19).
+- `featuredRecipeContentConfig.ts:51-62`: third `references` entry
+  `{config: () => tagTermContentConfig, dataField: "term", fields: ["label",
+"image"]}`. `buildFeaturedRecipeIndexValue.ts`: `borrowed<TagTerm>(refs,
+"term")`; add `term`, `termLabel`, `termImage` **spread only when set**
+  (existing stored values stay byte-identical; the seven existing keys stay
+  assigned).
+- `paginationConfigs.ts`: `FeaturedRecipeListEntry` gains the three;
+  `featuredRecipesByDate.version` `"2"` → `"3"` with a comment; `project`
+  copies them (spread-only). Pin: `specVersions` "recipe pagination configs"
+  → `["1","3"]`, re-snapshot.
+- `common/controller/filesystemDirectories.ts`: `getTermUploadsBasePath`,
+  `getTermUploadsPath`, `getTermUploadPath` after the group trio (path
+  `uploads/tag-term/<slug>/uploads/<file>`).
+
+**C2 — Registry, maintenance, readers, join.**
+
+- `editor/controller/contentTypes.ts`: append `tagTermContentConfig` last.
+  Pins: `revalidateDerived.test.ts:108-123` append
+  `"aggregate:tag-terms:tree", "item:tag-terms"`;
+  `derivedPaths.test.ts:130-151` append `"/taxonomies/tag/index",
+"/taxonomies/tag/pagination", "/taxonomies/tag/aggregates"`.
+- New `editor/controller/actions/tagTerms.ts` (`"use server"`):
+  `rebuildTermIndex()` = `rebuildIndex({config: tagTermContentConfig,
+contentDirectory})` + `revalidateDerivedState([tagTermContentConfig,
+featuredRecipeContentConfig])`, mirroring `actions/groups.ts:168-199`;
+  the maintenance page gains a fourth form "Reload Term Database". No
+  `successConfigs` entry (nothing writes `tag-terms` through curation in
+  24c; leave a comment there naming the future entry's
+  `dependentItemBasePaths`).
+- New `common/controller/data/readTagTerms.ts` (module scope): `export const
+tagTermReads = {items: createCachedItemRead<TagTerm, TagTermIndexValue,
+TagTermEntryKey>({config: tagTermContentConfig}), tree:
+createCachedAggregateRead({config: tagTermContentConfig, aggregateConfig:
+termTreeAggregate()})}` (typed `TermTree`). Mock by that export name (T14).
+- New `common/controller/tagVocabulary.ts` (pure, no Next imports):
+  `mergeTagVocabulary({recipeTerms, groupTerms, tree})` → sorted-by-slug
+  `{slug, label, count}[]` (recipe label, then group label, **record label
+  overrides both**; counts summed; tree-only slugs at count 0);
+  `breadcrumbOf(tree, slug)` root-first walking `parent` with a visited set;
+  `childrenOf(tree, slug, counts)` in `children` order with counts;
+  `applyPinned(items, pinned?)` pinned slugs first in pinned order, only
+  those present, the rest in existing order; `TermPageData {slug, label,
+description?, image?, breadcrumb, children, recipes, groups}`.
+- New `common/controller/data/readTermPage.ts`: `readTagVocabulary()` (three
+  cached reads) and `resolveTermPage(slug): Promise<TermPageData | null>`
+  (both `byTerm`s, tree, `tagTermReads.items.read(slug)`; `null` when no
+  carrier **and** no record; label = record ?? recipe fold ?? group fold ??
+  slug; recipes = `applyPinned(recipeItems, record?.pinned)`).
+
+**C3 — Tag routes and page.**
+
+- `TagPage/routes.tsx`: `tagIndexRoute` → `readTagVocabulary()`; `tagRoute`
+  → `resolveTermPage`, `notFound()` on `null`; new `generateTagMetadata`
+  (`{title: label, description?}`); `generateTagStaticParams` = by-term keys
+  ∪ tree keys, `_` placeholder kept (T10). Both `[tag]/page.tsx` files add
+  `export const generateMetadata = generateTagMetadata`.
+- `TagPage/shared.tsx`: `TagPage` takes `TermPageData`; extract
+  `TermPageBody` (heading = label; `TermImage` when `image`; description as
+  Markdown via the renderer the group detail page uses; breadcrumb links to
+  `/tags/<slug>`; children as `Badge` chips with counts, same markup as
+  `TagIndexPage`; `RecipeList` (already pinned-ordered); then the groups
+  section as today). `TagIndexPage` unchanged (count-0 rows render as-is;
+  "Holiday 0" is expected).
+- New `common/components/TermImage/index.tsx`: twin of `GroupImage` with
+  `src: /uploads/tag-term/<slug>/uploads/<image>` and `getTermUploadPath`.
+- Editor-only: the term page gets a "Feature" link to
+  `/featured-recipe/new?term=<slug>` (no edit button — no form in 24c).
+  Requires the `?term=` preselection in the new page (mirrors `?group=`).
+
+**C4 — `feature {term}`.**
+
+- `curation/errors.ts`: `"unknown_term"` code, `UnknownTermError(terms:
+string[])` (no force hint), `CurationErrorDetails.terms?`, `ErrorObject`
+  `terms?`, `toErrorObject` spread; `curation/http.ts:54` `unknown_term` in
+  the 422 group; `cli/backend/http.ts:117` `rehydrate` copies `terms`. Pin:
+  `test/curationHttp.test.ts:40-66` `unknown_term: 422`.
+- `curation/schema.ts`: `FeaturedInputSchema` gains `term:
+z.string().min(1).optional()`, refine `[recipe, group,
+term].filter(Boolean).length === 1`, message "Name exactly one of `recipe`,
+  `group` or `term`".
+- `curation/featured.ts`: `FeaturedRow.term?`, `FeaturedWriteResult.term?`;
+  `listFeatured` name `recipeName ?? groupName ?? termLabel`, spread `term`;
+  `requireTarget` third branch reading `tagTermContentConfig` via
+  `readContentFileOrNull` → `UnknownTermError([slug])`; `feature` spreads
+  `term`, commits `Feature term: <slug>`. Allow-list: add
+  `tagTermContentConfig` (T15).
+- CLI `cli/commands/featured.ts`: `--term`, usage `(--recipe s | --group s |
+--term s)`, exactly-one check, `format` and list `tags` gain `term`;
+  `cli/index.ts:129` usage. MCP `feature` title/description name the three;
+  the schema follows.
+- Strip and cards: `Homepage/route.tsx` filter adds `|| entry.termLabel`,
+  map adds `{kind: "term", slug, label, image?, date}`; `FeaturedStrip.tsx`
+  union + branch; new `List/FeaturedRecipe/TermCard.tsx` (GroupCard's
+  silhouette, link `/tags/<slug>`, `TermImage` else
+  `GroupThumbnailPlaceholder`, no kind badge, `testId="featured-term-card"`,
+  "Term not found" when nameless); `List/FeaturedRecipe/index.tsx` `term`
+  branch before the group one; the hero stays recipes-only.
+- Detail: `FeaturedRecipeDetailPage/index.tsx` third variant `{kind: "term",
+term: TermPageData}` rendering `TermPageBody` + an "Open term" link; editor
+  and export `featured-recipe/[slug]/page.tsx` add the `term` branch
+  (`resolveTermPage`, `notFound()` on null) in body and `generateMetadata`.
+- Form: `Form/FeaturedRecipe/index.tsx` `FeatureTarget` gains `"term"`, seed
+  order term > group > recipe, third `ToggleGroupItem value="term"`, branch
+  renders a `TextInput name="term"` (no picker);
+  `parseFeaturedRecipeFormData.ts` `term` trimmed through `tagSlug`, refine
+  count-of-three, message "Choose a recipe, a group or a term";
+  `featuredRecipeFormState.ts` `term?`; `actions/featuredRecipes.ts` spreads
+  `term`; `featured-recipe/new/page.tsx` + `form.tsx` accept `?term=`.
+
+**C5 — Fixture seed, ignore rule, tests, docs.**
+
+- `editor/.gitignore`: `/playwright/fixtures/test-content/*/taxonomies/` +
+  `!/playwright/fixtures/test-content/christmas-cookies/taxonomies/` (the
+  `groups/` pair's shape; T18).
+- Seed (own commit, T6): hand-write
+  `christmas-cookies/taxonomies/tag/data/{dessert,cookies,holiday}/term.json`
+  — `dessert` root `{label: "Dessert", date, description}`; `cookies`
+  `{label: "Cookies", date, parent: "dessert", description, pinned:
+["apricot-linzer-cookies", "chocolate-hazelnut-linzer-cookies",
+"linzer-cookies"]}` (the reverse of date order so the reorder is visible);
+  `holiday` root, record-only (no carriers). `christmas` stays record-less
+  (the hybrid control). Distinct epoch-ms dates. Then `mkdir -p
+…/christmas-cookies/taxonomies/tag/index` and run `pnpm tsx
+scripts/build-fixture-indexes.ts` (editor) — creates `index/` and
+  `aggregates/tree/`; every fixture's `featured-recipes/pagination` churns
+  from the v3 bump. Commit all fixture files together, separately from code.
+- Unit tests: new `test/tagTerms.test.ts` — (a) the pure join rules (record
+  label wins, zero-count record-only slug, pinned reorder ignoring absent
+  slugs, breadcrumb root-first with a cycle guard, children with counts);
+  (b) engine in a tmpdir (harness from `test/featured.test.ts:57-84`):
+  `createContent` a term, `feature(ctx, {term})` borrows
+  `termLabel`/`termImage`, renaming the term via `updateContent` rewrites
+  the feature's data-file `term` and index `termLabel` (term → featured
+  edge, T8 pattern), `unknown_term` with `details.terms`, two-of-three
+  refused; (c) a tripwire that `vi.resetModules()` then imports
+  `recipeTagTaxonomy` and `groupTagTaxonomy` **first** (guards T17 for 24d).
+  `test/featured.test.ts` term cases beside the group ones.
+  `test/exportStaticParams.test.ts`: mock `readTagTerms` (`tagTermReads:
+{items: {read: vi.fn()}, tree: {read}}`, default `null`), new case "a
+  tree-only slug is emitted". Pins in C1/C2/C4.
+- Playwright: `tag-pages.spec.ts` second `describe` on
+  `resetData("christmas-cookies")`: `/tags/cookies` heading "Cookies"
+  (record beats fold), description visible, breadcrumb "Dessert", first
+  three cards in pinned order; `/tags/dessert` shows a "Cookies 8" child
+  chip; `/tags/holiday` is 200 with the empty state; `/tags` lists
+  "Holiday 0". `featured-recipes.spec.ts`: sign in, `/featured-recipe/new`,
+  "Term" toggle, fill "cookies", submit → `featured-term-card` "Cookies"
+  linking `/tags/cookies`; hero unchanged.
+- Docs: `incremental-regeneration.md` §11.2 one line (term records adopted
+  by the recipe site; no engine change).
+
+#### Steps (Opus implementer, in order)
+
+1. C1 → C2 → C3 → C4 in order (each compiles before the next); C5's ignore
+   rule, tests and doc line with the code. Commit code as one or more
+   `24c:` commits.
+2. Seed the fixture (hand-written `term.json`s, `mkdir index`, the
+   regenerate script) and commit **all** fixture churn separately (T6):
+   `24c: seed term records`.
+3. Gates below; report verbatim, plus the before/after check that an
+   untouched fixture's `featured-recipes/index` values are byte-identical
+   apart from the pagination reprojection.
+
+#### Tests
+
+Listed in C5. Behavioural gates: `tag-pages.spec.ts` (existing counts + the
+new `christmas-cookies` describe), `featured-recipes.spec.ts` (+ the term
+case), `api-write.spec.ts` (the featured schema with the third key),
+`groups.spec.ts` (unchanged).
+
+#### Gates (in `.claude/worktrees/agent-24c`)
+
+```
+pnpm --filter recipe-editor typecheck
+pnpm --filter recipe-website exec tsc --noEmit
+pnpm exec vitest run                      # 583 at base + new cases
+pnpm exec lint-staged --diff main         # via a script file (T12)
+pnpm --filter recipe-editor e2e-dev -- tag-pages.spec.ts featured-recipes.spec.ts api-write.spec.ts groups.spec.ts   # setsid nohup (T12)
+git status --porcelain websites/recipe-website/editor/playwright/fixtures   # clean after the suite except the seeded fixture
+```
+
+The stdout-purity grep from 23b is unchanged by this phase (the CLI gains a
+flag, no new output path).
+
+#### Risks → mitigations
+
+- **Import-order TDZ (T17).** Any value import from a taxonomy module that
+  reaches a content config throws on the first taxonomy-first import. The
+  tripwire test in `tagTerms.test.ts` imports the two taxonomy modules first
+  after `vi.resetModules()`.
+- **Byte drift in featured index values.** `termLabel: undefined` written
+  by an unconditional assignment would change stored objects for every
+  existing feature; spread only when set, and diff one untouched fixture's
+  `featured-recipes/index` before and after.
+- **Fixture directories the suite creates (T18).** The first `/tags` render
+  on any fixture creates `taxonomies/tag/aggregates/tree/`; without the
+  ignore pair every Playwright run dirties fourteen fixtures. The ignore
+  rule lands with the code, the carve-out with the seed.
+- **`readTagTerms` at module scope under the `next/cache` stub (T14).**
+  `exportStaticParams.test.ts` must mock the new reader module by path
+  before importing the routes.
+- **Pinned slugs that are not carriers.** Ignored at render (`applyPinned`
+  keeps only slugs present in the carrier list); 24e's `term_update`
+  validates on write.
+- **`christmas-cookies` replay tests.** `test/christmasCookies.test.ts` and
+  `test/mcp.test.ts` copy the fixture; the seeded `taxonomies/` tree rides
+  along and must not change any pinned `GroupRow`/`featured_list` row (the
+  seed adds no feature).
+
+#### Not in 24c
+
+Any `term_*` seat/CLI/API/MCP (24e); a browser form for term records
+(backlog); search (`tag:` expansion, `/search/terms`,
+`SearchContext.allTags` — 24d; a record-only term does not appear in browse
+chips until then, T11); `Group.kind` narrowing (24e); skill prose; the real
+repo's reindex and its hand-written `.gitignore` lines
+(`/taxonomies/tag/{index,pagination,aggregates}`) — the user's after 24c
+lands.
+
+#### Verification
+
+- `pnpm exec vitest run` green; `specVersions` shows featured `["1","3"]`;
+  `revalidateDerived` and `derivedPaths` recipe pins extended by exactly the
+  term type's entries; `test/tagTerms.test.ts` green including the term →
+  featured rename case and the import-order tripwire; `/tags/cookies` on
+  `christmas-cookies` renders "Cookies", the description, the "Dessert"
+  breadcrumb and the pinned order; `/tags/holiday` renders with no carriers;
+  `/tags/nope` 404s; a term feature renders on the homepage strip and its
+  detail page; `recipes feature --term cookies` and MCP `feature {term}`
+  succeed, `--term ghost` is `unknown_term` 422; draft PR against `main`
+  with CI green; close-out below; memory updated.
 
 ## Verification (epic-level)
 
