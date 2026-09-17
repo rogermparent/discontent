@@ -98,12 +98,15 @@ import {
 } from "@discontent/cms/pagination/database";
 import { updatePaginationIndexes } from "@discontent/cms/pagination/updatePaginationIndexes";
 import { writeSortedEntryTo } from "@discontent/cms/pagination/writeSortedEntry";
+import { byTermAggregate } from "@discontent/cms/taxonomies/aggregates";
 import buildRecipeIndexValue from "recipe-website-common/controller/buildIndexValue";
-import { recipesByTag } from "recipe-website-common/controller/aggregateConfigs";
 import { featuredRecipeContentConfig } from "recipe-website-common/controller/featuredRecipeContentConfig";
 import { recipesByDate } from "recipe-website-common/controller/paginationConfigs";
 import recipeContentConfig from "recipe-website-common/controller/recipeContentConfig";
-import type { TagIndexEntry } from "recipe-website-common/controller/aggregateConfigs";
+import {
+  recipeTagTaxonomy,
+  type TagIndexEntry,
+} from "recipe-website-common/controller/recipeTagTaxonomy";
 import type {
   FeaturedRecipeEntryKey,
   FeaturedRecipeEntryValue,
@@ -418,7 +421,12 @@ async function performWrite(
 function reportByTag(perPage: number) {
   const db = getAggregateDatabase(
     recipeContentConfig,
-    recipesByTag,
+    /*
+     * Derived rather than imported since 24b: the by-term aggregate is a
+     * function of the taxonomy declaration, and naming it here is how this
+     * report keeps reading the same record the site writes.
+     */
+    byTermAggregate(recipeTagTaxonomy),
     contentDirectory,
   );
   const record = readAggregateRecord<Record<string, TagIndexEntry>>(db);
@@ -428,7 +436,7 @@ function reportByTag(perPage: number) {
   }
   const sizes = Object.entries(record.value).map(([slug, entry]) => ({
     slug,
-    count: entry.recipes.length,
+    count: entry.items.length,
   }));
   sizes.sort((a, b) => b.count - a.count);
   const overflowing = sizes.filter((tag) => tag.count > perPage);

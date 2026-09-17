@@ -16,19 +16,15 @@
  * priority; these results are unranked and newest-first, which is the same
  * order every other list surface uses. Recorded as deferred in the phase doc.
  */
-import { readAggregate } from "@discontent/cms/aggregates/readAggregate";
+import { readTaxonomyTerms } from "@discontent/cms/taxonomies/read";
 import {
   fieldMatches,
   fold,
   matchesFilter,
   parseQuery,
 } from "recipe-website-common/components/SearchForm/queryLanguage";
-import { recipeTags } from "recipe-website-common/controller/aggregateConfigs";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
-import type {
-  RecipeEntryKey,
-  RecipeEntryValue,
-} from "recipe-website-common/controller/types";
+import { recipeTagTaxonomy } from "recipe-website-common/controller/recipeTagTaxonomy";
 import type { CurationContext } from "./context";
 import { readAllRecipeRows, type RecipeRow } from "./recipes";
 
@@ -78,24 +74,23 @@ export async function searchRecipes(
 }
 
 /**
- * Every tag in the corpus.
+ * Every tag in the corpus, as labels.
  *
- * `readAggregate` rather than `getAllTags()`: the latter reads through
+ * `readTaxonomyTerms` rather than `getAllTags()`: the latter reads through
  * `unstable_cache` and throws `incrementalCache missing` outside Next (fact 4),
- * and it also cannot take a content directory. `null` means the aggregate has
- * never been folded — an unbuilt content directory reads as no tags.
+ * and it also cannot take a content directory. It is the Node-safe half of the
+ * same folded value the site's cached read wraps. `null` means the aggregate
+ * has never been folded — an unbuilt content directory reads as no tags.
+ *
+ * Mapped to `label` so `/api/tags`, `recipes tags` and the MCP `tag_list` go on
+ * answering with the strings a curator types, unchanged in shape by 24b. The
+ * slugs and counts the fold also carries are `/tags`' business.
  */
 export async function listTags(ctx: CurationContext): Promise<string[]> {
-  return (
-    (await readAggregate<
-      RecipeEntryValue,
-      RecipeEntryKey,
-      Set<string>,
-      string[]
-    >({
-      config: recipeContentConfig,
-      aggregateConfig: recipeTags,
-      contentDirectory: ctx.contentDirectory,
-    })) ?? []
-  );
+  const terms = await readTaxonomyTerms({
+    config: recipeContentConfig,
+    taxonomy: recipeTagTaxonomy,
+    contentDirectory: ctx.contentDirectory,
+  });
+  return (terms ?? []).map((term) => term.label);
 }

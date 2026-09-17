@@ -215,6 +215,16 @@ export interface Group {
    * none — the cards fall back to a member's photo and then to a placeholder.
    */
   image?: string;
+  /**
+   * The group's terms, as bare strings (24b/D3).
+   *
+   * The *same* vocabulary recipes carry — one `tag` vocabulary per site, and
+   * every type that wants in declares participation (`groupTagTaxonomy`). The
+   * strings are normalised at write time and never slugs: the taxonomy folds
+   * them into `groups/aggregates/{tags,by-tag}`, and `/tags/<slug>` unions the
+   * recipes and the groups carrying a term.
+   */
+  tags?: string[];
   items: GroupItem[];
   [key: string]: unknown;
 }
@@ -246,6 +256,14 @@ export interface GroupEntryValue {
    * no key.
    */
   image?: string;
+  /**
+   * On the index because a fold reads the index value and never a data file
+   * (24b): `groupTagTaxonomy` could not see a `tags` the data file alone
+   * carried. Set only when the group has some, so an untagged group stores no
+   * key at all and every value written before 24b re-indexes to the bytes
+   * already on disk (T16).
+   */
+  tags?: string[];
   items: GroupEntryItem[];
 }
 

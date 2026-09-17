@@ -38,6 +38,34 @@ export interface GroupListEntry {
 }
 
 /**
+ * One group as every list surface carries it.
+ *
+ * Its own named function since 24b, because there are two declarations that
+ * must project identically: this pagination index, and `groupTagTaxonomy`,
+ * whose by-term rows `GroupList` renders on a tag page. Two copies that could
+ * drift is exactly what a shared row shape must not be.
+ */
+export function projectGroupListEntry({
+  key: [date],
+  value,
+  id,
+}: {
+  key: GroupEntryKey;
+  value: GroupEntryValue;
+  id: string;
+}): GroupListEntry {
+  return {
+    slug: id,
+    date,
+    name: value.name,
+    kind: value.kind,
+    image: value.image,
+    itemCount: value.items.length,
+    groupCount: value.items.filter((item) => Boolean(item.group)).length,
+  };
+}
+
+/**
  * Groups by date, newest first.
  *
  * Its own module rather than a field inside `groupContentConfig.ts` — the
@@ -71,15 +99,7 @@ export const groupsByDate: PaginationIndexConfig<
    * it from `entry.key` — the same shape recipes and featured recipes use.
    */
   key: ({ key: [date], id }) => [date, id],
-  project: ({ key: [date], value, id }) => ({
-    slug: id,
-    date,
-    name: value.name,
-    kind: value.kind,
-    image: value.image,
-    itemCount: value.items.length,
-    groupCount: value.items.filter((item) => Boolean(item.group)).length,
-  }),
+  project: projectGroupListEntry,
 };
 
 export default groupsByDate;

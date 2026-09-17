@@ -1,9 +1,9 @@
 import type { ContentTypeConfig } from "@discontent/cms/content/types";
-import { recipeTags, recipesByTag } from "./aggregateConfigs";
 import buildRecipeIndexValue from "./buildIndexValue";
 import createDefaultSlug from "./createSlug";
 import { featuredRecipeContentConfig } from "./featuredRecipeContentConfig";
 import { recipesByDate } from "./paginationConfigs";
+import { recipeTagTaxonomy } from "./recipeTagTaxonomy";
 import { Recipe, RecipeEntryKey, RecipeEntryValue } from "./types";
 
 /**
@@ -39,13 +39,18 @@ export const recipeContentConfig: ContentTypeConfig<
    */
   paginationIndexes: [recipesByDate],
   /*
-   * The tag cloud, materialized at write time instead of folded per render.
+   * The tag cloud and the inverted tag index, materialized at write time
+   * instead of folded per render — and since 24b *derived* rather than
+   * hand-written. One declaration replaces the `recipeTags` / `recipesByTag`
+   * pair: the engine expands it into the same two aggregates under the same
+   * two names (`tags`, `by-tag`), so no cache tag and no LMDB directory moved.
    *
    * `RecipeEntryValue` already carried `tags` for the search corpus, so this
    * is not an index-shape change and forces no rebuild — the fixtures only
-   * need the aggregate record itself, which `build-fixture-indexes.ts` writes.
+   * need the aggregate records themselves, which `build-fixture-indexes.ts`
+   * writes.
    */
-  aggregates: [recipeTags, recipesByTag],
+  taxonomies: [recipeTagTaxonomy],
 };
 
 export default recipeContentConfig;

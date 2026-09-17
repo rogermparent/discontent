@@ -93,16 +93,52 @@ describe("declared spec versions", () => {
     `);
   });
 
-  it("recipe aggregate configs", () => {
+  /*
+   * Replaces the `aggregateConfigs.ts` block this test used to carry (24b). The
+   * `recipeTags` / `recipesByTag` pair is gone; the site declares the
+   * vocabulary and the engine derives both folds from it — under the same two
+   * names, at a bumped version, because the terms value's *shape* moved from
+   * `string[]` to `TaxonomyTerm[]`.
+   */
+  it("recipe tag taxonomy", () => {
     expect(
       readConfigModule(
-        "websites/recipe-website/common/controller/aggregateConfigs.ts",
+        "websites/recipe-website/common/controller/recipeTagTaxonomy.ts",
       ),
     ).toMatchInlineSnapshot(`
       {
-        "hash": "58a62281af838fe1",
+        "hash": "cef0801bdc1a96ef",
+        "versions": [
+          "2",
+        ],
+      }
+    `);
+  });
+
+  it("group tag taxonomy", () => {
+    expect(
+      readConfigModule(
+        "websites/recipe-website/common/controller/groupTagTaxonomy.ts",
+      ),
+    ).toMatchInlineSnapshot(`
+      {
+        "hash": "287df9893bac4e82",
         "versions": [
           "1",
+        ],
+      }
+    `);
+  });
+
+  it("project tag taxonomy", () => {
+    expect(
+      readConfigModule(
+        "packages/projects-collection/controller/projectTagTaxonomy.ts",
+      ),
+    ).toMatchInlineSnapshot(`
+      {
+        "hash": "53b3f8688ec0823d",
+        "versions": [
           "1",
         ],
       }
@@ -123,7 +159,7 @@ describe("declared spec versions", () => {
       ),
     ).toMatchInlineSnapshot(`
       {
-        "hash": "98b88511abc2b4ef",
+        "hash": "3e55db6867df4a9c",
         "versions": [
           "3",
         ],

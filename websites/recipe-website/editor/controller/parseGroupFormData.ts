@@ -1,6 +1,7 @@
 import { ZodSafeParseResult, z } from "zod";
 import parseFormData from "@discontent/cms/forms/parseFormData";
 import dateEpochSchema from "@discontent/cms/forms/schema/dateEpoch";
+import { normalizeTags } from "recipe-website-common/controller/normalizeTags";
 import type { GroupItem } from "recipe-website-common/controller/types";
 
 /** Blank text is absent text — the form always submits the input, empty or not. */
@@ -49,6 +50,18 @@ const GroupFormSchema = z.object({
   clearImage: z.coerce.boolean(),
   date: z.optional(dateEpochSchema),
   slug: z.string().optional(),
+  /*
+   * The tag chips (24b). `.default([])` for exactly the reason `items` has one:
+   * `FormData` cannot represent an empty array, so a group whose every chip was
+   * removed submits no `tags[...]` key at all and the parsed value would be
+   * `undefined` — a validation failure on the one edit that means "clear them".
+   *
+   * Normalised here rather than trusted from the client: the chips input
+   * normalises as it commits, but a hand-forged post is the reason this runs
+   * server-side, and the same function the curation seat uses is what keeps the
+   * two write paths naming terms identically.
+   */
+  tags: z.array(z.string()).default([]).transform(normalizeTags),
   /*
    * `.default([])` is load-bearing (T11): `FormData` cannot represent an empty
    * array, so a group with every row removed submits no `items[...]` key at all

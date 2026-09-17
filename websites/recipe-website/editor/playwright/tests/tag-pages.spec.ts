@@ -83,6 +83,60 @@ test.describe("Tag pages", () => {
     );
   });
 
+  /*
+   * The 24b claim, end to end: one vocabulary, two carriers. The
+   * `three-recipes-groups` fixture tags one recipe and one group `midweek`,
+   * so the term's page lists both — and the tag index counts both.
+   */
+  test.describe("a tag page lists a group", () => {
+    test.beforeEach(async ({ resetData }) => {
+      await resetData("three-recipes-groups");
+    });
+
+    test("shows the recipe and the group carrying the same tag", async ({
+      page,
+    }) => {
+      await page.goto("/tags/midweek");
+      await expect(
+        page.getByRole("heading", { name: "midweek", exact: true }),
+      ).toBeVisible();
+
+      await expect(cards(page)).toHaveCount(1);
+      await expect(cards(page).first()).toContainText("Third Recipe");
+
+      await expect(
+        page.getByRole("heading", { name: "Groups", exact: true }),
+      ).toBeVisible();
+      const groups = page.getByTestId("group-list").getByRole("listitem");
+      await expect(groups).toHaveCount(1);
+      await expect(groups.first()).toContainText("Weeknight Favourites");
+    });
+
+    test("counts both carriers on the tag index", async ({ page }) => {
+      await page.goto("/tags");
+      const chip = page
+        .getByTestId("tag-index")
+        .getByRole("link", { name: /midweek/ });
+      await expect(chip).toHaveAttribute("href", "/tags/midweek");
+      expect((await chip.innerText()).replace(/\s+/g, " ").trim()).toBe(
+        "midweek 2",
+      );
+    });
+
+    test("the group's own chip points at the tag page", async ({ page }) => {
+      await page.goto("/group/weeknight-favourites");
+      /*
+       * Scoped to the group's own tag row, not the page: a member recipe on
+       * this page carries the same term, and its card renders a chip of its
+       * own through `RecipeCardTagHint`.
+       */
+      const chip = page
+        .getByLabel("Tags")
+        .getByRole("link", { name: "midweek", exact: true });
+      await expect(chip).toHaveAttribute("href", "/tags/midweek");
+    });
+  });
+
   test.describe("every chip in the app points at a tag page", () => {
     test("the homepage browse row", async ({ page }) => {
       await page.goto("/");

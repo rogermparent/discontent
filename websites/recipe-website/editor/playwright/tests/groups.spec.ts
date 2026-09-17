@@ -637,6 +637,74 @@ test.describe("Groups", () => {
     });
   });
 
+  test.describe("tagging", () => {
+    /*
+     * The group form's chips (24b/T13). `ChipsInput` is the same component the
+     * recipe form uses, driven here by a plain `useState` adapter because this
+     * form is uncontrolled `FormData` — so the accessible names ("Add a tag",
+     * "Remove tag midweek") are the recipe form's, which is what these
+     * locators rely on.
+     */
+    test("adds a tag on create, and the detail page shows it", async ({
+      page,
+      resetData,
+      baseURL,
+    }) => {
+      await resetData("three-recipes");
+      await page.goto("/group/new");
+      await fillSignInForm(page);
+      await markdownEditorReady(page, "description");
+
+      await page.getByLabel("Name").fill("Fast Ones");
+      const input = page.getByLabel("Add a tag");
+      await input.fill("midweek");
+      await input.press("Enter");
+      await expect(
+        page.getByRole("button", { name: "Remove tag midweek" }),
+      ).toBeVisible();
+
+      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await expect(page).toHaveURL(baseURL + "/group/fast-ones");
+
+      const chip = page
+        .getByLabel("Tags")
+        .getByRole("link", { name: "midweek", exact: true });
+      await expect(chip).toHaveAttribute("href", "/tags/midweek");
+
+      /* And the write reached the derived record the tag page reads. */
+      await page.goto("/tags/midweek");
+      await expect(
+        page.getByTestId("group-list").getByRole("listitem"),
+      ).toHaveCount(1);
+    });
+
+    test("removing the last chip clears the group's tags", async ({
+      page,
+      resetData,
+      baseURL,
+    }) => {
+      await resetData("three-recipes-groups");
+      await page.goto("/group/weeknight-favourites/edit");
+      await fillSignInForm(page);
+      await markdownEditorReady(page, "description");
+
+      await page.getByRole("button", { name: "Remove tag midweek" }).click();
+      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await expect(page).toHaveURL(baseURL + "/group/weeknight-favourites");
+      /*
+       * The whole row goes, not just the chip — and it is the row that is
+       * asserted, because a member recipe on this page still carries the term
+       * and still draws a chip on its card.
+       */
+      await expect(page.getByLabel("Tags")).toHaveCount(0);
+
+      /* The term still exists — a recipe carries it — but lists no group. */
+      await page.goto("/tags/midweek");
+      await expect(page.getByTestId("group-list")).toHaveCount(0);
+      await expect(searchCards(page)).toHaveCount(1);
+    });
+  });
+
   test.describe("editing", () => {
     test.beforeEach(async ({ page, resetData }) => {
       await resetData("three-recipes-groups");

@@ -4,6 +4,7 @@ import createDefaultGroupSlug from "./createGroupSlug";
 import { featuredRecipeContentConfig } from "./featuredRecipeContentConfig";
 import { groupsByGroup, groupsByRecipe } from "./groupAggregateConfigs";
 import { groupsByDate } from "./groupPaginationConfig";
+import { groupTagTaxonomy } from "./groupTagTaxonomy";
 import { Group, GroupEntryKey, GroupEntryValue } from "./types";
 
 /**
@@ -65,6 +66,14 @@ export const groupContentConfig: ContentTypeConfig<
    * arrived after it.
    */
   aggregates: [groupsByRecipe, groupsByGroup],
+  /*
+   * Groups join the site's one `tag` vocabulary (24b/D4). Appended *after* the
+   * declared aggregates, which is the order `aggregatesOf` fixes and
+   * `revalidateDerived.test.ts` pins with `toEqual` (T4): `by-recipe`,
+   * `by-group`, then this taxonomy's `tags` and `by-tag`. Appending is safe;
+   * reordering is not.
+   */
+  taxonomies: [groupTagTaxonomy],
   referencedBy: [
     { config: () => featuredRecipeContentConfig, indexField: "group" },
   ],

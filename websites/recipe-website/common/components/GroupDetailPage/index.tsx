@@ -14,7 +14,7 @@ import type { ResolvedGroupItem } from "../../controller/data/resolveGroupItems"
 import { groupKindLabel } from "../../util/groupKindLabel";
 import { GroupImage } from "../GroupImage";
 import { groupCountLabel } from "../../util/groupCountLabel";
-import { groupSearchHref } from "../SearchForm/queryLanguage";
+import { groupSearchHref, tagSearchHref } from "../SearchForm/queryLanguage";
 import { GroupAppearsIn } from "./GroupAppearsIn";
 import { GroupItems } from "./GroupItems";
 
@@ -55,7 +55,7 @@ export default function GroupDetailPage({
   items,
   actions,
 }: GroupDetailPageProps) {
-  const { name, kind, description, image } = group;
+  const { name, kind, description, image, tags } = group;
   return (
     <PageMain>
       <PageSection maxWidth="4xl" grow>
@@ -86,6 +86,23 @@ export default function GroupDetailPage({
             </Link>
           )}
         </div>
+        {/*
+          The group's terms (24b), rendered exactly as a recipe's are — same
+          badge, same `tagSearchHref`, so a chip on a group and a chip on a
+          recipe land on the same page of the same vocabulary.
+        */}
+        {tags && tags.length > 0 && (
+          <div
+            className="mb-4 flex flex-row flex-wrap items-center gap-1.5 print:hidden"
+            aria-label="Tags"
+          >
+            {tags.map((tag) => (
+              <Badge key={tag} asChild variant="secondary">
+                <Link href={tagSearchHref(tag)}>{tag}</Link>
+              </Badge>
+            ))}
+          </div>
+        )}
         {/*
           The group's own picture (22h), between the meta row and the prose —
           the same place a recipe's heading image sits relative to its

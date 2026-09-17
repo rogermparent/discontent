@@ -14,7 +14,7 @@ import { Group, GroupEntryValue } from "./types";
  * so there is no second parameter to declare.
  */
 export default function buildGroupIndexValue(group: Group): GroupEntryValue {
-  const { name, kind, image, items } = group;
+  const { name, kind, image, tags, items } = group;
   return {
     name,
     kind,
@@ -25,6 +25,14 @@ export default function buildGroupIndexValue(group: Group): GroupEntryValue {
      * existed, which is the kind of difference a stored hash notices.
      */
     ...(image ? { image } : {}),
+    /*
+     * Spread for the same reason `image` is, and the reason matters more here
+     * (T16): every group written before 24b carries no tags at all, and a
+     * `tags` key that appeared as `undefined` on all of them would move every
+     * stored value the day this landed — which is a rebuild of every group
+     * index, and a `toEqual` pin away from being noticed.
+     */
+    ...(tags && tags.length > 0 ? { tags } : {}),
     /*
      * `label` is an unconditional key and `group` a spread one, deliberately
      * (T40): every item written before 23c carried `{recipe, label}` with

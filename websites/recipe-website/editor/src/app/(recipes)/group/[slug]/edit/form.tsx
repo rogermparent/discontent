@@ -12,10 +12,12 @@ export default function EditGroupForm({
   group,
   slug,
   defaultImage,
+  allTags,
 }: {
   group: Group;
   slug: string;
   defaultImage?: StaticImageProps;
+  allTags?: string[];
 }) {
   const initialState = { message: "", errors: {} } as GroupFormState;
   const [state, dispatch] = useActionState(
@@ -32,6 +34,7 @@ export default function EditGroupForm({
           group={group}
           slug={slug}
           defaultImage={defaultImage}
+          allTags={allTags}
         />
         <div id="missing-fields-error" aria-live="polite" aria-atomic="true">
           {state.message && (

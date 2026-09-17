@@ -111,6 +111,14 @@ describe("derivedTagsOfAll", () => {
       "pagination:groups:by-date",
       "aggregate:groups:by-recipe",
       "aggregate:groups:by-group",
+      /*
+       * Declared aggregates first, then the taxonomy's pair in declaration
+       * order (T4/24b). Groups joined the site's tag vocabulary, so the two
+       * derived aggregates the engine builds from that one declaration land
+       * here — appended, which is the only safe direction.
+       */
+      "aggregate:groups:tags",
+      "aggregate:groups:by-tag",
       "item:groups",
     ]);
   });
@@ -126,6 +134,10 @@ describe("derivedTagsOfAll", () => {
     // symmetric one.
     expect(derivedTagsOfAll(portfolioContentTypes)).toEqual([
       "pagination:projects:by-date",
+      /* Projects declared the tag vocabulary at 24b — one line in the config,
+       * and `/tags` has something to read and something to invalidate it. */
+      "aggregate:projects:tags",
+      "aggregate:projects:by-tag",
       "item:projects",
       "item:pages",
     ]);
@@ -247,6 +259,8 @@ describe("rebuild seats", () => {
       "pagination:groups:by-date",
       "aggregate:groups:by-recipe",
       "aggregate:groups:by-group",
+      "aggregate:groups:tags",
+      "aggregate:groups:by-tag",
       "item:groups",
       "pagination:featured-recipes:by-date",
       "item:featured-recipes",
@@ -308,10 +322,20 @@ describe("rebuild seats", () => {
 
     expect(fired).toEqual([
       "pagination:projects:by-date",
+      "aggregate:projects:tags",
+      "aggregate:projects:by-tag",
       "item:projects",
       "item:pages",
     ]);
-    // Still no aggregate anywhere in portfolio — F29 adopted pagination only.
-    expect(fired.some((tag) => tag.startsWith("aggregate:"))).toBe(false);
+    /*
+     * Portfolio's first aggregates, and it declared none of them by hand: F29
+     * adopted pagination only, and 24b added a `taxonomies` line that the
+     * engine expands into this pair. `pages` still declares nothing, which is
+     * what keeps this a mixed case rather than a symmetric one.
+     */
+    expect(fired.filter((tag) => tag.startsWith("aggregate:"))).toEqual([
+      "aggregate:projects:tags",
+      "aggregate:projects:by-tag",
+    ]);
   });
 });
