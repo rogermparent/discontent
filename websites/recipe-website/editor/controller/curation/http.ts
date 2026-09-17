@@ -53,6 +53,13 @@ export function statusFor(code: CurationErrorCode): number {
     /* Same reasoning, other content type: well-formed body, absent target. */
     case "unknown_group":
     /*
+     * And a third (24c). A `term` naming no record is the same reading again —
+     * the body parsed and its content named nothing — and not a 404, because
+     * the *request* is what is being declined rather than the resource being
+     * missing. An earlier draft of D7 said 404; this is the correction.
+     */
+    case "unknown_term":
+    /*
      * And again for a shape rather than an absence (23c): the body parsed, the
      * slugs all exist, and the arrangement they ask for is one this server
      * declines to store. Unlike the two above, no `?force=1` gets past it.

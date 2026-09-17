@@ -126,7 +126,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   group show <group>
   group list [--limit 20] [--offset 0]
   group delete <group> [--yes]
-  feature (--recipe s | --group s) [--note N] [--date d] [--slug s]
+  feature (--recipe s | --group s | --term s) [--note N] [--date d] [--slug s]
   unfeature <slug> [--yes]
   featured list [--limit 20] [--offset 0]
   reindex [contentType]

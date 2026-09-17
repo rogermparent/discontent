@@ -597,7 +597,7 @@ export function createRecipeServer(
       title: "List featured entries",
       description:
         "The homepage strip, newest first. Each row's `slug` is the entry's own, and " +
-        "`recipe` or `group` names what it points at.",
+        "`recipe`, `group` or `term` names what it points at.",
       inputSchema: z.strictObject({ limit: Limit, offset: Offset }),
       annotations: READ_ONLY,
     },
@@ -608,11 +608,13 @@ export function createRecipeServer(
   server.registerTool(
     "feature",
     {
-      title: "Feature a recipe or a group",
+      title: "Feature a recipe, a group or a term",
       description:
-        "Put one target on the homepage. Name exactly one of `recipe` or `group`; the " +
-        "target must exist. Pass an explicit `slug` when featuring several things at " +
-        "once, since the default slug has one-second resolution.",
+        "Put one target on the homepage. Name exactly one of `recipe`, `group` or " +
+        "`term`; the target must exist. A `term` is a term *record*'s slug — a tag " +
+        "that only exists as a string on recipes has no record to borrow a label " +
+        "from and is refused. Pass an explicit `slug` when featuring several things " +
+        "at once, since the default slug has one-second resolution.",
       inputSchema: FeaturedInputSchema,
       annotations: WRITES,
     },

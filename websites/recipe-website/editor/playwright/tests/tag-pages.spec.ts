@@ -137,6 +137,105 @@ test.describe("Tag pages", () => {
     });
   });
 
+  /*
+   * The 24c claim, end to end: a term **record** on top of the folds.
+   *
+   * The `christmas-cookies` fixture carries three hand-written `term.json`s —
+   * `dessert` (root), `cookies` (child of dessert, with a pinned front) and
+   * `holiday` (a root with no carriers at all). `christmas` is deliberately
+   * left record-less as the hybrid's control: it is a page either way.
+   */
+  test.describe("a term record decorates its page", () => {
+    test.beforeEach(async ({ resetData }) => {
+      await resetData("christmas-cookies");
+    });
+
+    test("the record's label, description and breadcrumb beat the fold", async ({
+      page,
+    }) => {
+      await page.goto("/tags/cookies");
+      /* "Cookies", not the carriers' lowercase "cookies". */
+      await expect(
+        page.getByRole("heading", { name: "Cookies", exact: true }),
+      ).toBeVisible();
+      await expect(page.getByTestId("term-description")).toContainText(
+        "Small, sweet",
+      );
+      await expect(
+        page.getByTestId("term-breadcrumb").getByRole("link"),
+      ).toHaveText([/Dessert/]);
+      await expect(
+        page.getByTestId("term-breadcrumb").getByRole("link"),
+      ).toHaveAttribute("href", "/tags/dessert");
+    });
+
+    test("the pinned recipes lead, in the record's order", async ({ page }) => {
+      await page.goto("/tags/cookies");
+      await expect(cards(page)).toHaveCount(8);
+      /*
+       * The record pins the three linzers in the *reverse* of date order, which
+       * is what makes the reorder visible: newest-first would put
+       * `linzer-cookies` first.
+       */
+      await expect(cards(page).nth(0)).toContainText("Apricot Linzer Cookies");
+      await expect(cards(page).nth(1)).toContainText(
+        "Chocolate Hazelnut Linzer Cookies",
+      );
+      await expect(cards(page).nth(2)).toContainText("Linzer Cookies");
+      /* Then the rest, still newest first. */
+      await expect(cards(page).nth(3)).toContainText("Gingerbread Cookies");
+    });
+
+    test("a parent lists its narrower terms with counts", async ({ page }) => {
+      await page.goto("/tags/dessert");
+      const child = page
+        .getByTestId("term-children")
+        .getByRole("link", { name: /Cookies/ });
+      await expect(child).toHaveAttribute("href", "/tags/cookies");
+      expect((await child.innerText()).replace(/\s+/g, " ").trim()).toBe(
+        "Cookies 8",
+      );
+    });
+
+    test("a record with no carriers is a real page, not a 404", async ({
+      page,
+    }) => {
+      const response = await page.goto("/tags/holiday");
+      expect(response?.status()).toBe(200);
+      await expect(
+        page.getByRole("heading", { name: "Holiday", exact: true }),
+      ).toBeVisible();
+      /* The empty state, under the record's own label. */
+      await expect(
+        page.getByText("No recipes are tagged Holiday."),
+      ).toBeVisible();
+    });
+
+    test("the tag index lists a record-only term at zero", async ({ page }) => {
+      await page.goto("/tags");
+      const chip = page
+        .getByTestId("tag-index")
+        .getByRole("link", { name: /Holiday/ });
+      await expect(chip).toHaveAttribute("href", "/tags/holiday");
+      expect((await chip.innerText()).replace(/\s+/g, " ").trim()).toBe(
+        "Holiday 0",
+      );
+    });
+
+    test("a tag with no record still renders from the fold", async ({
+      page,
+    }) => {
+      /* The hybrid's control: `christmas` has carriers and no record. */
+      await page.goto("/tags/christmas");
+      await expect(
+        page.getByRole("heading", { name: "christmas", exact: true }),
+      ).toBeVisible();
+      await expect(cards(page)).toHaveCount(4);
+      await expect(page.getByTestId("term-breadcrumb")).toHaveCount(0);
+      await expect(page.getByTestId("term-description")).toHaveCount(0);
+    });
+  });
+
   test.describe("every chip in the app points at a tag page", () => {
     test("the homepage browse row", async ({ page }) => {
       await page.goto("/");

@@ -322,7 +322,8 @@ describe("gitRevert", () => {
     expect(result.rebuilt).toEqual(
       recipeContentTypes.map((config) => config.contentType),
     );
-    expect(result.rebuilt).toHaveLength(4);
+    /* Five since 24c, when the registry gained the `tag-terms` records. */
+    expect(result.rebuilt).toHaveLength(5);
     expect(bulkChanges).toBe(1);
 
     expect(await pathExists(created.path)).toBe(false);
@@ -409,7 +410,8 @@ describe("gitRestore", () => {
 
     expect(result.commit).not.toBeNull();
     expect(result.message).toBe(`Restore recipe naan to ${short}`);
-    expect(result.rebuilt).toHaveLength(4);
+    /* Five since 24c, when the registry gained the `tag-terms` records. */
+    expect(result.rebuilt).toHaveLength(5);
     expect(bulkChanges).toBe(1);
 
     expect((await readRecipeFile("naan")).name).toBe("Naan");

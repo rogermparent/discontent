@@ -4,6 +4,7 @@ import createDefaultFeaturedRecipeSlug from "./createFeaturedRecipeSlug";
 import { groupContentConfig } from "./groupContentConfig";
 import { featuredRecipesByDate } from "./paginationConfigs";
 import { recipeContentConfig } from "./recipeContentConfig";
+import { tagTermContentConfig } from "./tagTermContentConfig";
 import {
   FeaturedRecipe,
   FeaturedRecipeEntryKey,
@@ -58,6 +59,22 @@ export const featuredRecipeContentConfig: ContentTypeConfig<
       config: () => groupContentConfig,
       dataField: "group",
       fields: ["name", "kind"],
+    },
+    /*
+     * The third target (24c): a **term record**. Its module imports this one
+     * for its own `referencedBy` thunk, so the pair is circular exactly as the
+     * two above are, and the thunk is what keeps it importable.
+     *
+     * `label` and `image`, where groups lend `name` and `kind` and no image. A
+     * term's picture is its own — there is no member to fall back on and so no
+     * render-time read worth preferring to a borrow — and it has no "kind" to
+     * badge. The list is again both the payload and the trigger: renaming or
+     * re-picturing a term reprojects every feature of it.
+     */
+    {
+      config: () => tagTermContentConfig,
+      dataField: "term",
+      fields: ["label", "image"],
     },
   ],
 };

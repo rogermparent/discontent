@@ -5,6 +5,7 @@ import { groupItems } from "recipe-website-common/controller/data/readGroupItem"
 import { getGroupBySlug } from "recipe-website-common/controller/data/readGroups";
 import { recipeItems } from "recipe-website-common/controller/data/readRecipeItem";
 import { resolveGroupItems } from "recipe-website-common/controller/data/resolveGroupItems";
+import { resolveTermPage } from "recipe-website-common/controller/data/readTermPage";
 import { deleteFeaturedRecipe } from "../../../../../controller/actions/featuredRecipes";
 import { Button } from "@discontent/component-library/components/ui/button";
 import FeaturedRecipeDetailPage from "recipe-website-common/components/FeaturedRecipeDetailPage";
@@ -33,6 +34,16 @@ export async function generateMetadata({
    * rather than a throw, so the title degrades to the slug exactly as the
    * recipe branch below does.
    */
+  /*
+   * A featured term (24c), before the group branch for the reason the cards
+   * check the newer field first. `resolveTermPage` is `null` for a slug with no
+   * record and no carriers, so the title degrades to the slug exactly as the
+   * two branches below do.
+   */
+  if (featuredRecipe.term) {
+    const term = await resolveTermPage(featuredRecipe.term);
+    return { title: term?.label || featuredRecipe.term || slug };
+  }
   if (featuredRecipe.group) {
     const group = await groupItems.read(featuredRecipe.group);
     return { title: group?.name || featuredRecipe.group || slug };
@@ -63,7 +74,13 @@ export default async function FeaturedRecipePage({
     }
     throw e;
   }
-  const { date, recipe: recipeSlug, group: groupSlug, note } = featuredRecipe;
+  const {
+    date,
+    recipe: recipeSlug,
+    group: groupSlug,
+    term: termSlug,
+    note,
+  } = featuredRecipe;
 
   const deleteFeaturedRecipeWithSlug = deleteFeaturedRecipe.bind(
     null,
@@ -82,13 +99,33 @@ export default async function FeaturedRecipePage({
         formId="delete-featured-recipe-form"
         itemLabel="feature"
         title="Remove this feature?"
-        description={`The ${groupSlug ? "group" : "recipe"} itself is not deleted — only its place on the homepage.`}
+        description={`The ${termSlug ? "term" : groupSlug ? "group" : "recipe"} itself is not deleted — only its place on the homepage.`}
       />
       <Button asChild size="sm">
         <Link href={`/featured-recipe/${slug}/edit`}>Edit</Link>
       </Button>
     </>
   );
+
+  /*
+   * A featured term (24c). `resolveTermPage` answers `null` when the slug has
+   * no record *and* no carriers — which 404s the feature's page, the same
+   * answer the two branches below give a feature whose target is gone. A record
+   * that was deleted while its tag is still on recipes is not gone in that
+   * sense: the term page still renders, under the fold's label.
+   */
+  if (termSlug) {
+    const term = await resolveTermPage(termSlug);
+    if (!term) notFound();
+    return (
+      <FeaturedRecipeDetailPage
+        kind="term"
+        term={term}
+        note={note}
+        actions={actions}
+      />
+    );
+  }
 
   /*
    * A featured group (22g). `getGroupBySlug` is the raw read and throws ENOENT

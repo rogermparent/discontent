@@ -18,8 +18,8 @@ import slugify from "@sindresorhus/slugify";
 import createDefaultFeaturedRecipeSlug from "recipe-website-common/controller/createFeaturedRecipeSlug";
 import { useCurrentTimezone } from "@discontent/cms/hooks/useCurrentTimezone";
 
-/** What a feature can point at (22g). Exactly one, decided by the toggle. */
-type FeatureTarget = "recipe" | "group";
+/** What a feature can point at (22g/24c). Exactly one, decided by the toggle. */
+type FeatureTarget = "recipe" | "group" | "term";
 
 export default function FeaturedRecipeFields({
   featuredRecipe,
@@ -30,14 +30,17 @@ export default function FeaturedRecipeFields({
   state?: FeaturedRecipeFormState;
   slug?: string;
 }) {
-  const { recipe, group, date, note } = featuredRecipe || {};
+  const { recipe, group, term, date, note } = featuredRecipe || {};
   const currentTimezone = useCurrentTimezone();
   /*
-   * Seeded from the record, so editing a featured group opens on Group with the
-   * group already selected, and everything written before 22g opens on Recipe.
+   * Seeded from the record, newest field first: editing a featured term opens
+   * on Term, a featured group on Group, and everything written before 22g — all
+   * of which carries `recipe` and nothing else — on Recipe. The order is the
+   * same "check the newer discriminator" rule the cards and the routes follow,
+   * for the same reason: it needs no migration of what is already on disk.
    */
   const [target, setTarget] = useState<FeatureTarget>(
-    group ? "group" : "recipe",
+    term ? "term" : group ? "group" : "recipe",
   );
   const [defaultDate] = useState<number>(() => Date.now());
   const [defaultSlug] = useState<string>(() =>
@@ -69,6 +72,7 @@ export default function FeaturedRecipeFields({
         >
           <ToggleGroupItem value="recipe">Recipe</ToggleGroupItem>
           <ToggleGroupItem value="group">Group</ToggleGroupItem>
+          <ToggleGroupItem value="term">Term</ToggleGroupItem>
         </ToggleGroup>
       </div>
       {/*
@@ -87,6 +91,23 @@ export default function FeaturedRecipeFields({
           defaultValue={recipe}
           errors={state?.errors?.recipe}
           required
+        />
+      ) : target === "term" ? (
+        /*
+         * A plain text field, not a picker (24c). There is no term *list* to
+         * pick from in this phase — the records are written by 24e's seats and
+         * the CLI, and the field's job is to name one. The parser puts what is
+         * typed through `tagSlug`, so "Christmas Cookies" and
+         * `christmas-cookies` both reach the seat as the same slug, and the
+         * seat refuses one with no record.
+         */
+        <TextInput
+          label="Term"
+          name="term"
+          id="featured-recipe-form-term"
+          defaultValue={term}
+          placeholder="christmas-cookies"
+          errors={state?.errors?.term ?? state?.errors?.recipe}
         />
       ) : (
         <GroupSelectInput

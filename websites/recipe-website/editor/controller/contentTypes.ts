@@ -26,6 +26,7 @@ import { pageContentConfig } from "@discontent/pages-collection/controller/pageC
 import { featuredRecipeContentConfig } from "recipe-website-common/controller/featuredRecipeContentConfig";
 import { groupContentConfig } from "recipe-website-common/controller/groupContentConfig";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
+import { tagTermContentConfig } from "recipe-website-common/controller/tagTermContentConfig";
 
 export const recipeContentTypes: AnyContentTypeConfig[] = [
   recipeContentConfig,
@@ -43,6 +44,18 @@ export const recipeContentTypes: AnyContentTypeConfig[] = [
    * arrangement with the smallest blast radius.
    */
   groupContentConfig,
+  /*
+   * The `tag` vocabulary's term records (24c), appended for the same reason
+   * groups were: the order shows up in `derivedContentPaths` and
+   * `derivedTagsOfAll`, both pinned, and appending is the only direction that
+   * moves nothing already in those lists.
+   *
+   * Position is free here too. Term records are referenced *by* featured
+   * recipes and reference only themselves, and `createReferenceResolver` reads
+   * the referenced item's **data file** rather than its index — so a fixture or
+   * export rebuild resolves the same values whichever end it reaches first.
+   */
+  tagTermContentConfig,
 ];
 
 export default recipeContentTypes;

@@ -69,6 +69,28 @@ export function getGroupUploadPath(
   return join(getGroupUploadsPath(contentDirectory, slug), filename);
 }
 
+/*
+ * The term twins of the two trios above (24c). `uploads/tag-term/<slug>` is
+ * what `tagTermContentConfig`'s `uploadsDirectory` declares, so the engine's
+ * write path and these read paths agree by construction — the same arrangement
+ * groups got at 22h, with the content type's own stem in the middle segment.
+ */
+export function getTermUploadsBasePath(contentDirectory: string, slug: string) {
+  return join(contentDirectory, "uploads", "tag-term", slug);
+}
+
+export function getTermUploadsPath(contentDirectory: string, slug: string) {
+  return join(getTermUploadsBasePath(contentDirectory, slug), "uploads");
+}
+
+export function getTermUploadPath(
+  contentDirectory: string,
+  slug: string,
+  filename: string,
+) {
+  return join(getTermUploadsPath(contentDirectory, slug), filename);
+}
+
 export function getFeaturedRecipesBaseDirectory(
   providedContentDirectory?: string,
 ) {

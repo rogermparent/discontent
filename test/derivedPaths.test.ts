@@ -147,6 +147,16 @@ describe("derivedContentPaths", () => {
         "/groups/index",
         "/groups/pagination",
         "/groups/aggregates",
+        /*
+         * The term records' three (24c), from the same one line in the
+         * registry. `taxonomies/tag/` rather than a top-level directory,
+         * because `createTermContentType` takes the vocabulary's home as its
+         * `directory` and derives `indexDirectory` from it — so a second
+         * vocabulary would land beside this one rather than at the root.
+         */
+        "/taxonomies/tag/index",
+        "/taxonomies/tag/pagination",
+        "/taxonomies/tag/aggregates",
       ]);
     });
 

@@ -7,6 +7,8 @@ export interface FeaturedRecipeFormErrors extends Record<
   recipe?: string[];
   /** 22g: the group picker's own errors, when the toggle is on Group. */
   group?: string[];
+  /** 24c: the term field's own errors, when the toggle is on Term. */
+  term?: string[];
   date?: string[];
   note?: string[];
   slug?: string[];

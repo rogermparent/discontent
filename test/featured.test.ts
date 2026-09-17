@@ -25,13 +25,18 @@ import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
+import { createContent } from "@discontent/cms/content/createContent";
 import { readContentIndex } from "@discontent/cms/content/readContentIndex";
 
 import { featuredRecipeContentConfig } from "../websites/recipe-website/common/controller/featuredRecipeContentConfig";
+import { tagTermContentConfig } from "../websites/recipe-website/common/controller/tagTermContentConfig";
 import type {
   FeaturedRecipe,
   FeaturedRecipeEntryKey,
   FeaturedRecipeEntryValue,
+  TagTerm,
+  TagTermEntryKey,
+  TagTermIndexValue,
 } from "../websites/recipe-website/common/controller/types";
 
 import type {
@@ -179,9 +184,39 @@ describe("feature", () => {
     });
   });
 
-  it("refuses both targets and neither", async () => {
+  it("writes only the term key, and the index borrows the record's label", async () => {
+    /*
+     * The third target (24c). Same shape as the two above, and the same claim:
+     * one key on disk, the borrowed value on the index, no data read at list
+     * time. The record is created through the engine directly because term
+     * records have no curation seat until 24e.
+     */
+    await createContent<TagTerm, TagTermIndexValue, TagTermEntryKey>({
+      config: tagTermContentConfig,
+      slug: "cookies",
+      data: { label: "Cookies", date: 1_700_000_000_000 },
+      contentDirectory,
+    });
+    await feature(ctx, { term: "cookies", slug: "cookies-feature" });
+
+    const stored = await readFeaturedFile("cookies-feature");
+    expect(Object.keys(stored).sort()).toEqual(["date", "term"]);
+    expect(stored.term).toBe("cookies");
+
+    expect(await readIndexValue("cookies-feature")).toMatchObject({
+      term: "cookies",
+      termLabel: "Cookies",
+    });
+  });
+
+  it("refuses two targets and none", async () => {
     await expect(
       feature(ctx, { recipe: "naan", group: "weeknights", slug: "both" }),
+    ).rejects.toMatchObject({ code: "validation" });
+
+    /* And the same for the pair the third target makes (24c). */
+    await expect(
+      feature(ctx, { recipe: "naan", term: "cookies", slug: "both-term" }),
     ).rejects.toMatchObject({ code: "validation" });
 
     await expect(feature(ctx, { slug: "neither" })).rejects.toMatchObject({
@@ -207,6 +242,18 @@ describe("feature", () => {
     ).rejects.toMatchObject({
       code: "unknown_group",
       details: { groups: ["ghost-group"] },
+    });
+
+    /*
+     * And a term with no *record* (24c) — which a tag carried by recipes but
+     * defined by nobody also is, deliberately: the card borrows the record's
+     * label, so there is nothing to borrow.
+     */
+    await expect(
+      feature(ctx, { term: "ghost-term", slug: "ghost-feature" }),
+    ).rejects.toMatchObject({
+      code: "unknown_term",
+      details: { terms: ["ghost-term"] },
     });
 
     /* Nothing was written on the way to either refusal. */

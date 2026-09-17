@@ -46,6 +46,8 @@ describe("statusFor", () => {
       slug_conflict: 409,
       unknown_recipe: 422,
       unknown_group: 422,
+      /* 24c, and the correction to D7's draft, which said 404. */
+      unknown_term: 422,
       group_cycle: 422,
       import_failed: 502,
       no_git_identity: 500,

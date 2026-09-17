@@ -969,7 +969,8 @@ describe("deleteRecipe", () => {
 describe("reindex", () => {
   it("names every registered type, and rejects one that is not registered", async () => {
     expect(await reindex(ctx)).toEqual({
-      rebuilt: ["recipes", "featured-recipes", "pages", "groups"],
+      /* `tag-terms` appended at 24c, from the one line added to the registry. */
+      rebuilt: ["recipes", "featured-recipes", "pages", "groups", "tag-terms"],
     });
     expect(await reindex(ctx, "groups")).toEqual({ rebuilt: ["groups"] });
     await expect(reindex(ctx, "widgets")).rejects.toMatchObject({
@@ -1189,7 +1190,11 @@ const ALLOWED: RegExp[] = [
   /^@discontent\/cms\/git\/commit$/,
   /* `featuredRecipeContentConfig` and its default slug joined at 23a (D5): a
    * content config and a pure string builder, neither of which touches Next. */
-  /^recipe-website-common\/controller\/(types|recipeContentConfig|groupContentConfig|featuredRecipeContentConfig|createSlug|createGroupSlug|createFeaturedRecipeSlug|normalizeTags|recipeTagTaxonomy|groupTagTaxonomy|tagSlug|data\/read|data\/readGroups)$/,
+  /* `tagTermContentConfig` joined at 24c, for the same standing the other three
+   * content configs have: a config module that imports the engine's term kind
+   * and one thunk, and touches no Next API. `feature --term` reads a term
+   * record's data file through it. */
+  /^recipe-website-common\/controller\/(types|recipeContentConfig|groupContentConfig|featuredRecipeContentConfig|tagTermContentConfig|createSlug|createGroupSlug|createFeaturedRecipeSlug|normalizeTags|recipeTagTaxonomy|groupTagTaxonomy|tagSlug|data\/read|data\/readGroups)$/,
   /^recipe-website-common\/components\/SearchForm\/queryLanguage$/,
   /^recipe-website-common\/util\/[^/]+$/,
   /^\.\.?\//,

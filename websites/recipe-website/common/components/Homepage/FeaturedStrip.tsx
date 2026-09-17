@@ -5,6 +5,7 @@ import type { MassagedRecipeEntry } from "../../controller/data/read";
 import type { GroupKind } from "../../controller/types";
 import { RecipeListItem } from "../List";
 import { GroupCard } from "../List/FeaturedRecipe/GroupCard";
+import { TermCard } from "../List/FeaturedRecipe/TermCard";
 import { RecipeGrid } from "../List/shared";
 
 /**
@@ -24,7 +25,13 @@ export type FeaturedStripEntry =
       name: string;
       groupKind?: GroupKind;
       date: number;
-    };
+    }
+  /**
+   * A featured term record (24c). A third member rather than a widened group
+   * entry: a term card has an image of its own and no kind badge, where a group
+   * card has a badge and picks its picture at render time.
+   */
+  | { kind: "term"; slug: string; label: string; image?: string; date: number };
 
 /**
  * The homepage's "Featured Recipes" strip — recipes and groups in one row.
@@ -59,11 +66,18 @@ export function FeaturedStrip({
             key={
               entry.kind === "recipe"
                 ? `${index}-recipe-${entry.recipe.slug}`
-                : `${index}-group-${entry.slug}`
+                : `${index}-${entry.kind}-${entry.slug}`
             }
           >
             {entry.kind === "recipe" ? (
               <RecipeListItem {...entry.recipe} />
+            ) : entry.kind === "term" ? (
+              <TermCard
+                slug={entry.slug}
+                label={entry.label}
+                image={entry.image}
+                date={entry.date}
+              />
             ) : (
               <GroupCard
                 slug={entry.slug}

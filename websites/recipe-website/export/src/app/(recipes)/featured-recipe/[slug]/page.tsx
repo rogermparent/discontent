@@ -5,6 +5,7 @@ import { groupItems } from "recipe-website-common/controller/data/readGroupItem"
 import { getGroupBySlug } from "recipe-website-common/controller/data/readGroups";
 import { recipeItems } from "recipe-website-common/controller/data/readRecipeItem";
 import { resolveGroupItems } from "recipe-website-common/controller/data/resolveGroupItems";
+import { resolveTermPage } from "recipe-website-common/controller/data/readTermPage";
 import FeaturedRecipeDetailPage from "recipe-website-common/components/FeaturedRecipeDetailPage";
 
 export async function generateMetadata({
@@ -21,6 +22,12 @@ export async function generateMetadata({
       notFound();
     }
     throw e;
+  }
+  /* A featured term (24c) — see the editor's twin for why it is checked first
+   * and why a missing record degrades to the slug. */
+  if (featuredRecipe.term) {
+    const term = await resolveTermPage(featuredRecipe.term);
+    return { title: term?.label || featuredRecipe.term || slug };
   }
   /* A featured group (22g) — see the editor's twin for why this read is the
    * cached one and why a missing group degrades to the slug. */
@@ -54,9 +61,20 @@ export default async function FeaturedRecipePage({
     }
     throw e;
   }
-  const { recipe: recipeSlug, group: groupSlug, note } = featuredRecipe;
+  const {
+    recipe: recipeSlug,
+    group: groupSlug,
+    term: termSlug,
+    note,
+  } = featuredRecipe;
 
   /* The same body as the editor's, minus the actions — see that file. */
+  if (termSlug) {
+    const term = await resolveTermPage(termSlug);
+    if (!term) notFound();
+    return <FeaturedRecipeDetailPage kind="term" term={term} note={note} />;
+  }
+
   if (groupSlug) {
     let group;
     try {

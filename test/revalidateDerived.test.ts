@@ -120,6 +120,19 @@ describe("derivedTagsOfAll", () => {
       "aggregate:groups:tags",
       "aggregate:groups:by-tag",
       "item:groups",
+      /*
+       * The `tag` vocabulary's term records (24c), appended after groups the
+       * same way groups were appended after pages. Two entries and no
+       * pagination one, because a term type declares one aggregate — the
+       * `tree` — and no paginated index: a vocabulary is browsed through
+       * `/tags`, which reads the folds, not through numbered pages.
+       *
+       * They appeared here from one line in `contentTypes.ts` and no edit to
+       * the reset route, which is the property F21b bought and the reason this
+       * expectation is the only thing 24c had to change.
+       */
+      "aggregate:tag-terms:tree",
+      "item:tag-terms",
     ]);
   });
 

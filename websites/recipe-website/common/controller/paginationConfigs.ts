@@ -103,6 +103,18 @@ export interface FeaturedRecipeListEntry {
   group?: string;
   groupName?: string;
   groupKind?: GroupKind;
+  /**
+   * The term half (24c). A third mutually exclusive target, and the card
+   * branches on `term` before it branches on `group`.
+   *
+   * `termImage` is borrowed where `groupKind`'s sibling image was not: a term's
+   * picture is its own, with no member thumbnail to fall back on, so a
+   * projection that did not carry it would leave the card with nothing to show
+   * but the placeholder.
+   */
+  term?: string;
+  termLabel?: string;
+  termImage?: string;
 }
 
 /**
@@ -124,8 +136,15 @@ export const featuredRecipesByDate: PaginationIndexConfig<
    * `"2"` since 22g: the projection gained `group`, `groupName` and `groupKind`,
    * so every page projected by a `"1"` build is missing the three fields a
    * featured *group* card renders and has to be reprojected.
+   *
+   * `"3"` since 24c, for the identical reason one step along: the projection
+   * gained `term`, `termLabel` and `termImage`, so a page projected by a `"2"`
+   * build cannot render a featured *term* card. Every stored page reprojects
+   * once at the next write — which is what the fixture regeneration in this
+   * phase is, and why the real repo's `reindex` is mandatory rather than
+   * housekeeping (T5).
    */
-  version: "2",
+  version: "3",
   key: ({ key: [date], id }) => [date, id],
   project: ({ key: [date], value, id }) => ({
     slug: id,
@@ -137,6 +156,15 @@ export const featuredRecipesByDate: PaginationIndexConfig<
     group: value.group,
     groupName: value.groupName,
     groupKind: value.groupKind,
+    /*
+     * Spread, where the eight above are assigned, for the reason
+     * `buildFeaturedRecipeIndexValue` gives at length: the index value these
+     * read from carries the three keys only when set, and a projection that
+     * put `term: undefined` on every recipe row would undo that one layer up.
+     */
+    ...(value.term ? { term: value.term } : {}),
+    ...(value.termLabel ? { termLabel: value.termLabel } : {}),
+    ...(value.termImage ? { termImage: value.termImage } : {}),
   }),
 };
 
