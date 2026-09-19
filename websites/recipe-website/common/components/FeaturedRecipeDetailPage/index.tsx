@@ -5,6 +5,8 @@ import { buttonVariants } from "@discontent/component-library/components/ui/butt
 import Markdown from "@discontent/component-library/components/Markdown";
 import type { Group, Recipe } from "recipe-website-common/controller/types";
 import type { ResolvedGroupItem } from "recipe-website-common/controller/data/resolveGroupItems";
+import type { TermPageData } from "recipe-website-common/controller/tagVocabulary";
+import { TermPageBody } from "../TagPage/shared";
 import { ReactNode } from "react";
 import {
   PageMain,
@@ -36,6 +38,12 @@ export type FeaturedRecipeDetailPageProps = {
       /** Resolved in the *route*, because only a route may be async. */
       items: ResolvedGroupItem[];
     }
+  /**
+   * A featured term record (24c). Resolved in the route for the same reason the
+   * group's items are — `resolveTermPage` reads four cached values — and handed
+   * over whole, so this page renders the term exactly as `/tags/<slug>` does.
+   */
+  | { kind: "term"; term: TermPageData }
 );
 
 /**
@@ -65,6 +73,40 @@ export default function FeaturedRecipeDetailPage(
   props: FeaturedRecipeDetailPageProps,
 ) {
   const { note, actions } = props;
+
+  /*
+   * The term variant (24c), and it really is the *same* body `/tags/<slug>`
+   * renders — `TermPageBody`, not a second arrangement of the same fields. A
+   * feature of a term is a pin of the term: the reader arrived from a card and
+   * expects the page, and "Open term" is here for the affordances the frame
+   * leaves out rather than for content this page withholds.
+   */
+  if (props.kind === "term") {
+    const { term } = props;
+    return (
+      <PageMain>
+        <FeatureNote note={note} />
+        <PageSection maxWidth="4xl" grow>
+          <TermPageBody term={term} />
+        </PageSection>
+        <PageActions>
+          {actions}
+          <Link
+            href={`/tags/${term.slug}`}
+            className={buttonVariants({ variant: "secondary", size: "sm" })}
+          >
+            Open term
+          </Link>
+          <Link
+            href="/featured-recipes"
+            className={buttonVariants({ variant: "default", size: "sm" })}
+          >
+            Back to Featured Recipes
+          </Link>
+        </PageActions>
+      </PageMain>
+    );
+  }
 
   if (props.kind === "group") {
     const { group, groupSlug, items } = props;

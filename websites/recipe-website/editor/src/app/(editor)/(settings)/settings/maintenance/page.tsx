@@ -1,6 +1,7 @@
 import { rebuildRecipeIndex } from "recipe-editor/controller/actions";
 import { rebuildFeaturedRecipeIndex } from "recipe-editor/controller/actions/featuredRecipes";
 import { rebuildGroupIndex } from "recipe-editor/controller/actions/groups";
+import { rebuildTermIndex } from "recipe-editor/controller/actions/tagTerms";
 import { auth, signIn } from "@/auth";
 import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
 import {
@@ -33,6 +34,15 @@ export default async function MaintenancePage() {
               </form>
               <form action={rebuildGroupIndex}>
                 <SubmitButton>Reload Groups Database</SubmitButton>
+              </form>
+              {/*
+                The `tag` vocabulary's term records (24c). Its own button rather
+                than a line on one of the three above, because a term rebuild
+                touches a different keyspace — and because it is the *only*
+                server action term records have until 24e gives them seats.
+              */}
+              <form action={rebuildTermIndex}>
+                <SubmitButton>Reload Term Database</SubmitButton>
               </form>
             </div>
           </SettingsCard>

@@ -614,7 +614,8 @@ describe("git", () => {
     const reverted = await call("git_revert", { hash });
     expect(reverted.isError).toBe(false);
     expect(reverted.data.commit).toBeTruthy();
-    expect(reverted.data.rebuilt).toHaveLength(4);
+    /* Five since 24c, when the registry gained the `tag-terms` records. */
+    expect(reverted.data.rebuilt).toHaveLength(5);
     /* `write()` folds `afterWrite`'s stale-editor hint in, as every write does. */
     expect(reverted.data.warnings).toEqual([
       expect.stringContaining(STALE_EDITOR_HINT),

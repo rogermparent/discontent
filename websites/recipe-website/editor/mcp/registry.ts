@@ -270,7 +270,7 @@ const INSTRUCTIONS = `Manage and search a recipe website's content.
 
 Recipe rows from recipe_search and recipe_list are compact — {slug, name, date, tags, totalTime, image?} — to keep results small; pass \`fields\` to add description, ingredients, prepTime or cookTime, and use recipe_get for a whole recipe. Slugs are the identity of everything: recipe slugs, group slugs, and a featured entry's own slug (which is not its target's).
 
-Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?}}; the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, group_cycle, import_failed, no_git_identity, not_a_repo, dirty_tree, git_conflict, bad_revision, unauthenticated, usage and internal. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
+Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?, terms?}}; the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, unknown_term, group_cycle, import_failed, no_git_identity, not_a_repo, dirty_tree, git_conflict, bad_revision, unauthenticated, usage and internal. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
 
 Writes commit to the content repository, one commit each. Deletes (recipe_delete, group_delete, unfeature) are not undoable from here.
 
@@ -597,7 +597,7 @@ export function createRecipeServer(
       title: "List featured entries",
       description:
         "The homepage strip, newest first. Each row's `slug` is the entry's own, and " +
-        "`recipe` or `group` names what it points at.",
+        "`recipe`, `group` or `term` names what it points at.",
       inputSchema: z.strictObject({ limit: Limit, offset: Offset }),
       annotations: READ_ONLY,
     },
@@ -608,11 +608,13 @@ export function createRecipeServer(
   server.registerTool(
     "feature",
     {
-      title: "Feature a recipe or a group",
+      title: "Feature a recipe, a group or a term",
       description:
-        "Put one target on the homepage. Name exactly one of `recipe` or `group`; the " +
-        "target must exist. Pass an explicit `slug` when featuring several things at " +
-        "once, since the default slug has one-second resolution.",
+        "Put one target on the homepage. Name exactly one of `recipe`, `group` or " +
+        "`term`; the target must exist. A `term` is a term *record*'s slug — a tag " +
+        "that only exists as a string on recipes has no record to borrow a label " +
+        "from and is refused. Pass an explicit `slug` when featuring several things " +
+        "at once, since the default slug has one-second resolution.",
       inputSchema: FeaturedInputSchema,
       annotations: WRITES,
     },

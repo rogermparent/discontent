@@ -193,6 +193,20 @@ const SUCCESS_CONFIGS: Record<
   },
   pages: { write: pageSuccessConfig, delete: pageDeleteSuccessConfig },
   groups: { write: groupSuccessConfig, delete: groupDeleteSuccessConfig },
+  /*
+   * No `tag-terms` entry, and its absence is a decision rather than an omission
+   * (24c). This table is consulted by `revalidateContentWrite` on a **curation**
+   * write, and nothing writes term records through that layer in this phase:
+   * 24c is read-side only, the records arrive as hand-written `term.json` files
+   * and the one server action they have is a rebuild, which calls
+   * `revalidateDerivedState` directly. An entry here now would be a mapping no
+   * call site reaches, and `successConfigFor` throwing for an unlisted type is
+   * what would catch the mistake if that stopped being true.
+   *
+   * 24e's `term_create`/`term_update`/`term_delete` seats are what add it, and
+   * its `dependentItemBasePaths` are the featured entries that borrow a term's
+   * label — `/featured-recipe` — plus `/tags` for the term's own page.
+   */
 };
 
 export function successConfigFor(

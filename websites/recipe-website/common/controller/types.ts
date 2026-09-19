@@ -1,3 +1,9 @@
+import type {
+  Term,
+  TermIndexKey,
+  TermIndexValue,
+} from "@discontent/cms/taxonomies/termContentType";
+
 export type Ingredient = {
   ingredient: string;
   type?: "heading";
@@ -87,6 +93,50 @@ export interface RecipeEntry {
 }
 
 /**
+ * A `tag` term's own record (24c/D2) — the engine's `Term`, with one field on
+ * top.
+ *
+ * `Term` is an **open** record for exactly this: a vocabulary is site-level,
+ * and the arrangement below is the recipe site's business and not the engine's.
+ * Everything else — `label`, `date`, `description`, `image`, `parent` — is the
+ * engine's, so `createTermContentType`'s `buildIndexValue` and its
+ * self-referencing parent edge go on working untouched.
+ *
+ * **Records are optional, and that is the hybrid D3 chose.** A tag with
+ * carriers and no record is still a tag: the folds derive it from the carriers'
+ * strings and `/tags/<slug>` renders it under the fold's label. A record with
+ * no carriers still gets a page. Adopting this moved nothing already on disk.
+ */
+export interface TagTerm extends Term {
+  /**
+   * An ordered, hand-picked head of the term's recipes (D5 option 2).
+   *
+   * **Recipe slugs only, and the order is the point.** The pinned ones render
+   * first in this order, then the term's remaining recipes newest-first, then
+   * its groups — so a "collection" is a term with a curated front rather than a
+   * second content type. A slug that does not actually carry the tag is ignored
+   * at render time (`applyPinned` keeps only what the carrier list holds); 24e's
+   * `term_update` is what refuses to store one in the first place.
+   */
+  pinned?: string[];
+}
+
+/**
+ * The term index value is the engine's, unextended (24c).
+ *
+ * Nothing here reads `description` or `pinned` off the *index*: the term page
+ * reads the record by slug, and the tree aggregate already carries
+ * `label`/`parent`/`image`. Indexing them would be a second copy to keep in
+ * step for no reader, which is why `tagTermContentConfig` passes no
+ * `buildIndexValue` extension at all. 24e decides whether `term_list` wants
+ * them, and that is an additive change to this alias.
+ */
+export type TagTermIndexValue = TermIndexValue;
+
+/** `[date, slug]`, the shape every content type in this repo keys by. */
+export type TagTermEntryKey = TermIndexKey;
+
+/**
  * One thing pinned to the homepage strip: a recipe, or — since 22g — a group.
  *
  * **Exactly one of `recipe` and `group` is set.** That is a form-level
@@ -101,6 +151,13 @@ export interface RecipeEntry {
 export interface FeaturedRecipe {
   recipe?: string; // Recipe slug/id reference
   group?: string; // Group slug/id reference (22g)
+  /**
+   * A term record's slug (24c). The third target, and the paragraph above holds
+   * for it word for word: the invariant is "exactly one", it is enforced by the
+   * form's refine and by `FeaturedInputSchema`, and the engine still indexes a
+   * record naming none or several without complaint.
+   */
+  term?: string;
   date: number;
   note?: string;
   [key: string]: unknown;
@@ -137,6 +194,25 @@ export interface FeaturedRecipeEntryValue {
    */
   groupName?: string;
   groupKind?: GroupKind;
+  /**
+   * The term half (24c), borrowed from the term *record* through the third
+   * `references` declaration — optional for the same reasons the two above are,
+   * plus the one the group half added: an entry featuring a recipe has no term
+   * to borrow from.
+   *
+   * Unlike a group, a term does have an image of its own, so this borrows one:
+   * `termImage` is a bare filename under `uploads/tag-term/<slug>/uploads/`,
+   * the same shape `recipeImage` has. There is no member-thumbnail fallback to
+   * make a render-time read worth preferring — a term either has a picture or
+   * shows the placeholder.
+   *
+   * **Written only when set** (T16). Assigning `undefined` here would rewrite
+   * every featured entry already on disk, which is precisely what the byte
+   * check on this phase was for.
+   */
+  term?: string;
+  termLabel?: string;
+  termImage?: string;
 }
 
 export interface FeaturedRecipeEntry {

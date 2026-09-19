@@ -12,8 +12,14 @@
  * that the target exists**. Unlike a group's items, a dangling feature is not a
  * legitimate state: `resolveReferences` borrows the target's name for the card,
  * so a feature of nothing renders as a nameless card that no write will ever
- * repair. That is why there is no `--force` here (D5) and why the two failures
- * are `unknown_recipe` / `unknown_group` rather than warnings.
+ * repair. That is why there is no `--force` here (D5) and why the three
+ * failures are `unknown_recipe` / `unknown_group` / `unknown_term` rather than
+ * warnings.
+ *
+ * Three targets since 24c, and the third is a **term record** rather than a
+ * tag: the card borrows the record's label and picture, so `--term cookies`
+ * features the vocabulary entry and refuses a slug that only exists as a string
+ * on some recipes.
  *
  * Featuring an already-featured target *is* allowed: the form allows it, the
  * strip shows the six newest, and "feature this again" is a real curator move.
@@ -27,6 +33,7 @@ import createDefaultFeaturedRecipeSlug from "recipe-website-common/controller/cr
 import { featuredRecipeContentConfig } from "recipe-website-common/controller/featuredRecipeContentConfig";
 import { groupContentConfig } from "recipe-website-common/controller/groupContentConfig";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
+import { tagTermContentConfig } from "recipe-website-common/controller/tagTermContentConfig";
 import type {
   FeaturedRecipe,
   FeaturedRecipeEntryKey,
@@ -37,9 +44,17 @@ import type {
   Recipe,
   RecipeEntryKey,
   RecipeEntryValue,
+  TagTerm,
+  TagTermEntryKey,
+  TagTermIndexValue,
 } from "recipe-website-common/controller/types";
 import { featuredPath, featuredUrl, type CurationContext } from "./context";
-import { NotFoundError, UnknownGroupError, UnknownRecipeError } from "./errors";
+import {
+  NotFoundError,
+  UnknownGroupError,
+  UnknownRecipeError,
+  UnknownTermError,
+} from "./errors";
 import { FeaturedInputSchema, parseInput } from "./schema";
 
 export interface FeaturedRow {
@@ -47,6 +62,8 @@ export interface FeaturedRow {
   date: number;
   recipe?: string;
   group?: string;
+  /** A term record's slug (24c) — the third mutually exclusive target. */
+  term?: string;
   note?: string;
   /** The target's current name, borrowed through the index. */
   name?: string;
@@ -66,6 +83,7 @@ export interface FeaturedWriteResult {
   url: string;
   recipe?: string;
   group?: string;
+  term?: string;
 }
 
 async function readFeatured(
@@ -109,9 +127,10 @@ export async function listFeatured(
       date,
       ...(value.recipe ? { recipe: value.recipe } : {}),
       ...(value.group ? { group: value.group } : {}),
+      ...(value.term ? { term: value.term } : {}),
       ...(value.note ? { note: value.note } : {}),
-      ...((value.recipeName ?? value.groupName)
-        ? { name: value.recipeName ?? value.groupName }
+      ...((value.recipeName ?? value.groupName ?? value.termLabel)
+        ? { name: value.recipeName ?? value.groupName ?? value.termLabel }
         : {}),
     }),
   });
@@ -121,7 +140,7 @@ export async function listFeatured(
 /** The existence check `checkRecipes` does for items, for the one target. */
 async function requireTarget(
   ctx: CurationContext,
-  target: { recipe?: string; group?: string },
+  target: { recipe?: string; group?: string; term?: string },
 ): Promise<void> {
   if (target.recipe) {
     const recipe = await readContentFileOrNull<
@@ -147,6 +166,27 @@ async function requireTarget(
       contentDirectory: ctx.contentDirectory,
     });
     if (!group) throw new UnknownGroupError([target.group]);
+    return;
+  }
+  if (target.term) {
+    /*
+     * The **record**, not the tag. A bare tag with carriers and no record is an
+     * ordinary state and the term's page renders for it — but a feature borrows
+     * the record's `label` and `image`, so featuring a term nobody has written
+     * a record for would produce exactly the nameless card this check exists to
+     * prevent. `feature --term` therefore means "feature this vocabulary
+     * entry", and 24e's `term_create` is how one comes into being.
+     */
+    const term = await readContentFileOrNull<
+      TagTerm,
+      TagTermIndexValue,
+      TagTermEntryKey
+    >({
+      config: tagTermContentConfig,
+      slug: target.term,
+      contentDirectory: ctx.contentDirectory,
+    });
+    if (!term) throw new UnknownTermError([target.term]);
   }
 }
 
@@ -173,6 +213,7 @@ export async function feature(
   const data: FeaturedRecipe = {
     ...(input.recipe ? { recipe: input.recipe } : {}),
     ...(input.group ? { group: input.group } : {}),
+    ...(input.term ? { term: input.term } : {}),
     date,
     ...(input.note ? { note: input.note } : {}),
   };
@@ -189,7 +230,9 @@ export async function feature(
     author: ctx.author,
     commitMessage: input.recipe
       ? `Feature recipe: ${input.recipe}`
-      : `Feature group: ${input.group}`,
+      : input.group
+        ? `Feature group: ${input.group}`
+        : `Feature term: ${input.term}`,
   });
   ctx.onWrite?.({
     contentType: featuredRecipeContentConfig.contentType,
@@ -205,6 +248,7 @@ export async function feature(
     url: featuredUrl(slug),
     ...(input.recipe ? { recipe: input.recipe } : {}),
     ...(input.group ? { group: input.group } : {}),
+    ...(input.term ? { term: input.term } : {}),
   };
 }
 

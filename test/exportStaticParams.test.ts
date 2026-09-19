@@ -29,6 +29,8 @@ const readAllGroupIds = vi.fn<() => Promise<string[]>>();
 const readTagIndex = vi.fn<() => Promise<Record<string, unknown> | null>>();
 const readGroupTagIndex =
   vi.fn<() => Promise<Record<string, unknown> | null>>();
+/* The term records' tree (24c) — the third source `/tags/[tag]` unions. */
+const readTermTree = vi.fn<() => Promise<Record<string, unknown> | null>>();
 
 /*
  * Mocked at the data layer rather than stubbed at the LMDB layer: these modules
@@ -116,6 +118,26 @@ vi.mock("recipe-website-common/controller/data/readGroupTagIndex", () => ({
   groupTagReads: {
     terms: { read: async () => [] },
     byTerm: { read: () => readGroupTagIndex() },
+  },
+  default: {},
+}));
+
+/*
+ * The term **records** (24c), mocked by module path for the same two reasons as
+ * the two above (T14): `readTagTerms.ts` builds a cached item read and a cached
+ * aggregate read at *module scope*, so importing the route for its params
+ * function would call `unstable_cache`, which the `next/cache` stub does not
+ * provide — and the export name is `tagTermReads`, so a factory exporting
+ * anything else would mock nothing and let the real module read a content
+ * directory that is not there.
+ *
+ * `items.read` answers `null` by default: a term page's *params* never ask for
+ * a record, and the cases below that do set it explicitly.
+ */
+vi.mock("recipe-website-common/controller/data/readTagTerms", () => ({
+  tagTermReads: {
+    items: { read: async () => null },
+    tree: { read: () => readTermTree() },
   },
   default: {},
 }));
@@ -224,6 +246,7 @@ describe("a dynamic export route never emits zero params", () => {
   it("/tags/[tag] emits a placeholder for a corpus with no tags", async () => {
     readTagIndex.mockResolvedValue({});
     readGroupTagIndex.mockResolvedValue({});
+    readTermTree.mockResolvedValue({});
     const { generateTagStaticParams } =
       await import("../websites/recipe-website/common/components/TagPage/routes");
     expect(await generateTagStaticParams()).toEqual([{ tag: "_" }]);
@@ -238,6 +261,7 @@ describe("a dynamic export route never emits zero params", () => {
   it("/tags/[tag] emits the union of the recipe and group vocabularies", async () => {
     readTagIndex.mockResolvedValue({ dessert: {}, quick: {} });
     readGroupTagIndex.mockResolvedValue({ quick: {}, weeknight: {} });
+    readTermTree.mockResolvedValue({});
     const { generateTagStaticParams } =
       await import("../websites/recipe-website/common/components/TagPage/routes");
     expect(await generateTagStaticParams()).toEqual([
@@ -251,8 +275,42 @@ describe("a dynamic export route never emits zero params", () => {
   it("/tags/[tag] emits a group-only tag when no recipe carries one", async () => {
     readTagIndex.mockResolvedValue({});
     readGroupTagIndex.mockResolvedValue({ weeknight: {} });
+    readTermTree.mockResolvedValue({});
     const { generateTagStaticParams } =
       await import("../websites/recipe-website/common/components/TagPage/routes");
     expect(await generateTagStaticParams()).toEqual([{ tag: "weeknight" }]);
+  });
+
+  /*
+   * The third source (24c). A term someone has written a *record* for and not
+   * yet assigned to anything carries no fold key at all, and it still has a
+   * page — `/tags` lists it at count 0 and the export has to emit it, or that
+   * link 404s. This is the case the two `byTerm` keysets alone cannot see.
+   */
+  it("/tags/[tag] emits a term that only a record defines", async () => {
+    readTagIndex.mockResolvedValue({ dessert: {} });
+    readGroupTagIndex.mockResolvedValue({});
+    readTermTree.mockResolvedValue({
+      dessert: { label: "Dessert", children: ["cookies"] },
+      cookies: { label: "Cookies", parent: "dessert", children: [] },
+      holiday: { label: "Holiday", children: [] },
+    });
+    const { generateTagStaticParams } =
+      await import("../websites/recipe-website/common/components/TagPage/routes");
+    expect(await generateTagStaticParams()).toEqual([
+      { tag: "dessert" },
+      { tag: "cookies" },
+      { tag: "holiday" },
+    ]);
+  });
+
+  /* And the placeholder still wins when all three are empty. */
+  it("/tags/[tag] emits a placeholder when no source has anything", async () => {
+    readTagIndex.mockResolvedValue({});
+    readGroupTagIndex.mockResolvedValue({});
+    readTermTree.mockResolvedValue(null);
+    const { generateTagStaticParams } =
+      await import("../websites/recipe-website/common/components/TagPage/routes");
+    expect(await generateTagStaticParams()).toEqual([{ tag: "_" }]);
   });
 });

@@ -21,6 +21,18 @@ export type CurationErrorCode =
   /** A slug that named no group: featuring one, and from 23c a group item. */
   | "unknown_group"
   /**
+   * A slug that named no term **record** (24c): featuring one today, and from
+   * 24e every seat that takes a term.
+   *
+   * Never forceable, and for the sharper version of the reason `unknown_group`
+   * is not when it comes from `feature`: a tag with no record is an ordinary
+   * state — the folds derive the term from its carriers and the page renders —
+   * so a `term` slug that resolves to nothing is not "a term not written yet",
+   * it is a *record* that does not exist, and a feature of it would borrow a
+   * label that was never borrowed.
+   */
+  | "unknown_term"
+  /**
    * A sub-group item that would put a group inside itself (23c/D17).
    *
    * Never forceable, unlike `unknown_recipe` / `unknown_group`: a dangling slug
@@ -82,6 +94,7 @@ export interface CurationErrorDetails {
   issues?: { path: string; message: string }[];
   recipes?: string[];
   groups?: string[];
+  terms?: string[];
 }
 
 export class CurationError extends Error {
@@ -145,6 +158,26 @@ export class UnknownGroupError extends CurationError {
       { groups },
     );
     this.name = "UnknownGroupError";
+  }
+}
+
+/**
+ * A slug that named no term **record** (24c).
+ *
+ * No `forceHint` parameter at all, where `UnknownGroupError` takes one: the
+ * only caller is `feature`, which has no `--force` on any of its three targets,
+ * and 24e's term seats will not gain one either — a dangling *assignment* is a
+ * bare string on a carrier and never reaches this error, while a dangling
+ * *record reference* is the state nothing repairs.
+ */
+export class UnknownTermError extends CurationError {
+  constructor(terms: string[]) {
+    super(
+      "unknown_term",
+      `No term record at ${terms.length === 1 ? "slug" : "slugs"}: ${terms.join(", ")}.`,
+      { terms },
+    );
+    this.name = "UnknownTermError";
   }
 }
 
@@ -255,6 +288,7 @@ export interface ErrorObject {
     issues?: { path: string; message: string }[];
     recipes?: string[];
     groups?: string[];
+    terms?: string[];
   };
 }
 
@@ -294,6 +328,7 @@ export function toErrorObject(error: unknown): ErrorObject {
         ...(error.details.issues ? { issues: error.details.issues } : {}),
         ...(error.details.recipes ? { recipes: error.details.recipes } : {}),
         ...(error.details.groups ? { groups: error.details.groups } : {}),
+        ...(error.details.terms ? { terms: error.details.terms } : {}),
       },
     };
   }

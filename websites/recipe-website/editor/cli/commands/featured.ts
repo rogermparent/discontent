@@ -24,10 +24,11 @@ import {
 const featureCommand: CommandDef<FeaturedWriteResult> = {
   name: "feature",
   usage:
-    "recipes feature (--recipe s | --group s) [--note N] [--date d] [--slug s]",
+    "recipes feature (--recipe s | --group s | --term s) [--note N] [--date d] [--slug s]",
   options: {
     recipe: { type: "string" },
     group: { type: "string" },
+    term: { type: "string" },
     note: { type: "string" },
     date: { type: "string" },
     slug: { type: "string" },
@@ -36,14 +37,18 @@ const featureCommand: CommandDef<FeaturedWriteResult> = {
   async run({ backend, options }) {
     const recipe = stringOption(options, "recipe");
     const group = stringOption(options, "group");
+    /* A term *record*'s slug (24c), not a bare tag — see `requireTarget`. */
+    const term = stringOption(options, "term");
     /*
      * Caught here as well as in the schema so the message names the *flags* a
      * person typed rather than the JSON keys they became — the schema's refine
-     * is still what guards the API and the MCP tool.
+     * is still what guards the API and the MCP tool. Counting rather than
+     * comparing since 24c, for the reason `FeaturedInputSchema` gives: a
+     * `!==` on two booleans says "exactly one" only for two flags.
      */
-    if (Boolean(recipe) === Boolean(group)) {
+    if ([recipe, group, term].filter(Boolean).length !== 1) {
       throw new UsageError(
-        "feature needs exactly one of --recipe <slug> or --group <slug>.",
+        "feature needs exactly one of --recipe <slug>, --group <slug> or --term <slug>.",
       );
     }
     const note = stringOption(options, "note");
@@ -52,6 +57,7 @@ const featureCommand: CommandDef<FeaturedWriteResult> = {
     return backend.feature({
       ...(recipe ? { recipe } : {}),
       ...(group ? { group } : {}),
+      ...(term ? { term } : {}),
       ...(note ? { note } : {}),
       ...(date ? { date } : {}),
       ...(slug ? { slug } : {}),
@@ -59,7 +65,7 @@ const featureCommand: CommandDef<FeaturedWriteResult> = {
   },
   format: (result) =>
     [
-      `Featured ${result.recipe ?? result.group}`,
+      `Featured ${result.recipe ?? result.group ?? result.term}`,
       `  ${result.url}`,
       `  ${result.path}`,
     ].join("\n"),
@@ -104,11 +110,11 @@ const featuredList: CommandDef<FeaturedListResult> = {
       result.featured.map((entry) => ({
         slug: entry.slug,
         /* The borrowed name, or the slug when the reference dangles. */
-        name: entry.name ?? entry.recipe ?? entry.group ?? "",
+        name: entry.name ?? entry.recipe ?? entry.group ?? entry.term ?? "",
         date: entry.date,
         tags: [
-          entry.recipe ? "recipe" : "group",
-          entry.recipe ?? entry.group ?? "",
+          entry.recipe ? "recipe" : entry.term ? "term" : "group",
+          entry.recipe ?? entry.group ?? entry.term ?? "",
         ],
       })),
     );

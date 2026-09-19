@@ -1919,6 +1919,15 @@ own pair under its own cache tag, and the union is two `readAggregate`s in the r
 a group does not invalidate a page that lists only recipes, and a fourth carrier is a third read
 and no new state.
 
+**F33's term records (24c), also with no engine change.** The recipe site adopted
+`createTermContentType` as `tag-terms` (`taxonomies/tag/{data,index}`, the `tree` aggregate, the
+self-referencing parent edge) and added one edge of its own — a featured entry may point at a
+term, borrowing its `label` and `image` — so a tag can now carry a description, a picture, a
+parent and a curated `pinned` front. The record stays **optional**: a tag with carriers and no
+record renders exactly as it did, and a record with no carriers is a page at count 0. The join of
+the two carrier folds, the tree and the record happens in the route, which is the same read-time
+union the paragraph above describes, one source wider.
+
 **F21 removed the per-adoption overhead, which is why it went first.** A content type declaring
 its first index used to mean also remembering three hand-maintained lists — the `.gitignore`
 writers, the cache-reset seat, and the fixture rebuild — each of which fails _silently_ when

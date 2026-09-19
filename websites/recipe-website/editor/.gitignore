@@ -64,6 +64,15 @@ next-env.d.ts
 /playwright/fixtures/test-content/*/groups/
 !/playwright/fixtures/test-content/three-recipes-groups/groups/
 !/playwright/fixtures/test-content/nested-groups/groups/
+# And again for the `tag` vocabulary's term records (24c), in the same shape and
+# for the same reason: the first `/tags` render on any fixture opens the term
+# index and the `tree` aggregate, so a Playwright run would otherwise dirty
+# every fixture with a `taxonomies/tag/{index,aggregates}` nobody wrote.
+# `christmas-cookies` is the one fixture whose term records are real content, so
+# it is carved back out — and both lines name `taxonomies/` rather than
+# `taxonomies/**` for the ordering reason above.
+/playwright/fixtures/test-content/*/taxonomies/
+!/playwright/fixtures/test-content/christmas-cookies/taxonomies/
 # `three-recipes-groups` gains a `pages` artifact, because 22b's export-build
 # check points `CONTENT_DIRECTORY` straight at this fixture — so the export
 # opens every environment it reads, right here, rather than in a copy. Named per

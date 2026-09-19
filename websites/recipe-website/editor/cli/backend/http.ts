@@ -117,6 +117,9 @@ function rehydrate(status: number, statusText: string, body: unknown): Error {
     if (Array.isArray(source.groups)) {
       details.groups = source.groups as string[];
     }
+    if (Array.isArray(source.terms)) {
+      details.terms = source.terms as string[];
+    }
     return new CurationError(
       source.code as CurationErrorCode,
       source.message as string,

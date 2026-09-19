@@ -4,6 +4,7 @@ import type { FeaturedRecipeListEntry } from "../../../controller/paginationConf
 import { RecipeImage } from "../../RecipeImage";
 import Markdown from "@discontent/component-library/components/Markdown";
 import { GroupCard } from "./GroupCard";
+import { TermCard } from "./TermCard";
 import {
   RecipeCard,
   RecipeCardLink,
@@ -41,13 +42,25 @@ function FeatureFooter({ slug, note }: { slug: string; note?: string }) {
 }
 
 /**
- * One entry of the featured index, as whichever card it points at (22g).
+ * One entry of the featured index, as whichever card it points at (22g/24c).
  *
- * `group` is the discriminator, and it is the only one: an entry sets exactly
- * one of `recipe`/`group`, so checking the newer field keeps every record
- * written before 22g on the recipe branch with no migration.
+ * The **newer** fields are the discriminators, checked newest-first: an entry
+ * sets exactly one of `recipe`/`group`/`term`, so testing `term` and then
+ * `group` keeps every record written before each phase on the branch it has
+ * always taken, with no migration and no stored field to add.
  */
 function FeaturedRecipeListItem(entry: FeaturedRecipeListEntry) {
+  if (entry.term) {
+    return (
+      <TermCard
+        slug={entry.term}
+        label={entry.termLabel}
+        image={entry.termImage}
+        date={entry.date}
+        footer={<FeatureFooter slug={entry.slug} note={entry.note} />}
+      />
+    );
+  }
   if (entry.group) {
     return (
       <GroupCard

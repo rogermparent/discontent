@@ -1,6 +1,11 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import { groupTagReads } from "../../controller/data/readGroupTagIndex";
-import { recipeTagReads } from "../../controller/data/readRecipeTagIndex";
+import { buttonVariants } from "@discontent/component-library/components/ui/button";
+import {
+  readTagVocabulary,
+  readTermPageSlugs,
+  resolveTermPage,
+} from "../../controller/data/readTermPage";
 import { TagIndexPage, TagPage } from "./shared";
 
 /**
@@ -8,77 +13,103 @@ import { TagIndexPage, TagPage } from "./shared";
  * all four route files.
  *
  * Every one of them reads folded values, so a request that renders a tag page
- * costs two cache lookups rather than a corpus scan — and the export builds
- * every tag page from a single read of each.
+ * costs a handful of cache lookups rather than a corpus scan — and the export
+ * builds every tag page from a single read of each.
  *
- * **Two carriers, one vocabulary** (24b/D4). Recipes and groups each declare
- * the same `tag` taxonomy, so each has its own `tags` / `by-tag` pair under its
- * own cache tag, and the union happens *here*, at read time. That is the shape
- * the whole epic turns on: a third carrier is a third read and no new derived
- * state, and tagging a group does not invalidate a page that lists only
- * recipes.
+ * **Three sources, one vocabulary** (24b/24c/D4). Recipes and groups each
+ * declare the same `tag` taxonomy and each has its own `tags` / `by-tag` pair
+ * under its own cache tag; the term *records* are a third content type with a
+ * tree of their own. The join happens in `readTermPage.ts`, at read time. That
+ * is the shape the whole epic turns on: a fourth carrier is a fourth read and
+ * no new derived state, and tagging a group does not invalidate a page that
+ * lists only recipes.
  */
 
-/** `/tags` — the full tag list, both carriers' counts summed. */
+/** `/tags` — the full tag list, every carrier's counts summed, records included. */
 export async function tagIndexRoute() {
-  const [recipeTerms, groupTerms] = await Promise.all([
-    recipeTagReads.terms.read(),
-    groupTagReads.terms.read(),
-  ]);
-
-  /*
-   * Recipes first, so a slug both carry prints the recipes' label — the corpus
-   * is overwhelmingly recipes, and one label has to win a slug collision
-   * somewhere (F8's first-label-wins rule, applied across carriers instead of
-   * within one).
-   */
-  const merged = new Map<string, { label: string; count: number }>();
-  for (const term of recipeTerms ?? []) {
-    merged.set(term.slug, { label: term.label, count: term.count });
-  }
-  for (const term of groupTerms ?? []) {
-    const existing = merged.get(term.slug);
-    if (existing) existing.count += term.count;
-    else merged.set(term.slug, { label: term.label, count: term.count });
-  }
-
-  const tags = [...merged.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([slug, { label, count }]) => ({ slug, label, count }));
-  return <TagIndexPage tags={tags} />;
+  return <TagIndexPage tags={await readTagVocabulary()} />;
 }
 
-/** `/tags/[tag]` — one tag's recipes, then its groups. */
+/** `/tags/[tag]` — one term: its record, its recipes, then its groups. */
 export async function tagRoute({
   params,
 }: {
   params: Promise<{ tag: string }>;
 }) {
   const { tag } = await params;
-  const [byRecipeTag, byGroupTag] = await Promise.all([
-    recipeTagReads.byTerm.read(),
-    groupTagReads.byTerm.read(),
-  ]);
-  const recipes = byRecipeTag?.[tag];
-  const groups = byGroupTag?.[tag];
+  const term = await resolveTermPage(tag);
   /*
    * An unknown tag is a 404, not an empty tag page — and "unknown" now means
-   * *neither* carrier has the slug. Each folded value only holds slugs
-   * something actually carries, so a group-only tag is a real page and a slug
-   * missing from both means the URL is wrong.
+   * *no carrier and no record*. Each folded value only holds slugs something
+   * actually carries, and the tree only slugs someone has defined, so a slug
+   * missing from all three means the URL is wrong.
    */
-  if (!recipes && !groups) notFound();
+  if (!term) notFound();
+  return <TagPage term={term} />;
+}
+
+/**
+ * The editor's `/tags/[tag]` — the same page, plus the one affordance a
+ * read-only export has no use for (24c).
+ *
+ * A **Feature** link and nothing else. There is deliberately no Edit button:
+ * term records have no browser form in this phase, and every write lands with
+ * 24e's seats, CLI and MCP — so an Edit button would be a promise the editor
+ * cannot keep. Featuring, by contrast, already works: the target is a slug, the
+ * form takes one, and `?term=` preselects it exactly as `?group=` does.
+ *
+ * Its own export rather than a prop on `tagRoute`, because a Next page module
+ * exports a function and cannot pass it arguments — the editor's route file
+ * re-exports this one and the export's re-exports the plain one.
+ */
+export async function editorTagRoute({
+  params,
+}: {
+  params: Promise<{ tag: string }>;
+}) {
+  const { tag } = await params;
+  const term = await resolveTermPage(tag);
+  if (!term) notFound();
   return (
     <TagPage
-      label={recipes?.label ?? groups?.label ?? tag}
-      recipes={recipes?.items ?? []}
-      groups={groups?.items ?? []}
+      term={term}
+      actions={
+        <Link
+          href={`/featured-recipe/new?term=${term.slug}`}
+          className={buttonVariants({ variant: "secondary", size: "sm" })}
+        >
+          Feature
+        </Link>
+      }
     />
   );
 }
 
 /**
- * Every tag page the export should emit — the union of both carriers' keys.
+ * The tab title and the description search engines print (24c).
+ *
+ * Its own export rather than folded into `tagRoute`, because Next wants the two
+ * as separate module exports — and both route files re-export this beside the
+ * page so a term's record actually reaches the document head. A term with no
+ * record falls back to the fold's label, so every page that had a title before
+ * still has the same one.
+ */
+export async function generateTagMetadata({
+  params,
+}: {
+  params: Promise<{ tag: string }>;
+}) {
+  const { tag } = await params;
+  const term = await resolveTermPage(tag);
+  if (!term) return { title: tag };
+  return {
+    title: term.label,
+    ...(term.description ? { description: term.description } : {}),
+  };
+}
+
+/**
+ * Every tag page the export should emit — the union of all three sources.
  *
  * Never empty. `output: "export"` rejects a dynamic route whose params come
  * back empty — "Page … is missing generateStaticParams()" — and a corpus with
@@ -88,14 +119,7 @@ export async function tagRoute({
  * is the same guard `createPaginatedIndexRoute` uses for numbered pages (T10).
  */
 export async function generateTagStaticParams(): Promise<{ tag: string }[]> {
-  const [byRecipeTag, byGroupTag] = await Promise.all([
-    recipeTagReads.byTerm.read(),
-    groupTagReads.byTerm.read(),
-  ]);
-  const slugs = new Set([
-    ...Object.keys(byRecipeTag ?? {}),
-    ...Object.keys(byGroupTag ?? {}),
-  ]);
-  if (slugs.size === 0) return [{ tag: "_" }];
-  return [...slugs].map((tag) => ({ tag }));
+  const slugs = await readTermPageSlugs();
+  if (slugs.length === 0) return [{ tag: "_" }];
+  return slugs.map((tag) => ({ tag }));
 }

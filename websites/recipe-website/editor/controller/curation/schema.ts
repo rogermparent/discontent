@@ -239,26 +239,33 @@ export const GroupPatchSchema = z.strictObject({
 export type GroupPatch = z.infer<typeof GroupPatchSchema>;
 
 /**
- * What `feature` accepts: exactly one target, and the three fields around it.
+ * What `feature` accepts: exactly one target of **three** (24c), and the three
+ * fields around it.
  *
- * The XOR is a `.refine` rather than a union of two object schemas, so a body
- * naming both — or neither — fails as one message on one field, exactly as
- * `parseFeaturedRecipeFormData`'s refine does for the form. It reports on
- * `recipe` for the same reason that one does: it is the side a caller who named
- * nothing is looking at.
+ * The rule is a `.refine` rather than a union of object schemas, so a body
+ * naming two — or none — fails as one message on one field, exactly as
+ * `parseFeaturedRecipeFormData`'s refine does for the form. Counting rather
+ * than comparing, now that there are three: `Boolean(a) !== Boolean(b)` says
+ * "exactly one" only for a pair. It reports on `recipe` for the same reason it
+ * always has: it is the side a caller who named nothing is looking at.
  */
 export const FeaturedInputSchema = z
   .strictObject({
     recipe: z.string().min(1).optional(),
     group: z.string().min(1).optional(),
+    /** A term record's slug (24c) — not a bare tag: the record must exist. */
+    term: z.string().min(1).optional(),
     note: z.string().optional(),
     date: EpochSchema.optional(),
     slug: z.string().optional(),
   })
-  .refine((data) => Boolean(data.recipe) !== Boolean(data.group), {
-    message: "Name exactly one of `recipe` or `group`",
-    path: ["recipe"],
-  });
+  .refine(
+    (data) => [data.recipe, data.group, data.term].filter(Boolean).length === 1,
+    {
+      message: "Name exactly one of `recipe`, `group` or `term`",
+      path: ["recipe"],
+    },
+  );
 
 export type FeaturedInput = z.infer<typeof FeaturedInputSchema>;
 

@@ -38,6 +38,7 @@ function buildFeaturedRecipeData(
   return {
     ...(parsed.recipe && { recipe: parsed.recipe }),
     ...(parsed.group && { group: parsed.group }),
+    ...(parsed.term && { term: parsed.term }),
     date,
     note: parsed.note,
   };

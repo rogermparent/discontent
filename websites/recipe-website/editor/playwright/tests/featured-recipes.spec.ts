@@ -1264,3 +1264,136 @@ test.describe("Featured groups", () => {
     ).toBeVisible();
   });
 });
+
+/**
+ * A featured entry that points at a **term record** (24c) — the third target.
+ *
+ * Written rather than seeded, unlike the group case: `christmas-cookies` has
+ * the term records but no features, and the write is itself the thing worth
+ * proving. There is no term *picker* (term records have no browser form until
+ * 24e), so the field is free text and the parser slugifies what is typed.
+ */
+test.describe("Featured terms", () => {
+  const featuredSection = (page: Page) =>
+    page
+      .locator("h2", { hasText: "Featured Recipes" })
+      .locator("xpath=ancestor::*[1]");
+
+  test("features a term from the form and shows it in the strip", async ({
+    page,
+    baseURL,
+    resetData,
+  }) => {
+    await resetData("christmas-cookies");
+    await page.goto("/featured-recipe/new");
+    await fillSignInForm(page);
+    await markdownEditorReady(page, "note");
+
+    await page
+      .getByTestId("featured-target")
+      .getByText("Term", { exact: true })
+      .click();
+    /* The recipe picker is unmounted, not hidden — the same invariant 22g set. */
+    await expect(
+      page.getByRole("button", { name: "Select Recipe", exact: true }),
+    ).toHaveCount(0);
+
+    await page.getByLabel("Term", { exact: true }).fill("cookies");
+    await page.getByRole("button", { name: "Submit", exact: true }).click();
+
+    await expect(page).toHaveURL(baseURL + "/");
+    const card = featuredSection(page).getByTestId("featured-term-card");
+    await expect(card).toHaveCount(1);
+    /* The **record's** label, borrowed onto the index — not the slug. */
+    await expect(card.getByText("Cookies", { exact: true })).toBeVisible();
+    /* The card is a way into the term, not into the feature. */
+    await expect(card.getByRole("link").first()).toHaveAttribute(
+      "href",
+      "/tags/cookies",
+    );
+
+    /*
+     * The hero is unchanged: `HeroBench` renders a recipe's whole record, so a
+     * featured *term* is not a hero candidate and the eyebrow stays "Latest".
+     */
+    await expect(
+      page.getByRole("region", { name: "Latest recipe" }),
+    ).toBeVisible();
+  });
+
+  test("the term page's Feature button preselects the term", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("christmas-cookies");
+    await page.goto("/tags/cookies");
+    await signIn(page);
+
+    await page.getByRole("link", { name: "Feature", exact: true }).click();
+    await expect(page).toHaveURL(/\/featured-recipe\/new\?term=cookies/);
+
+    await expect(
+      page.getByTestId("featured-target").locator('[data-state="on"]'),
+    ).toHaveText("Term");
+    await expect(page.getByLabel("Term", { exact: true })).toHaveValue(
+      "cookies",
+    );
+  });
+
+  test("the feature's own page renders the term", async ({
+    page,
+    baseURL,
+    resetData,
+  }) => {
+    await resetData("christmas-cookies");
+    await page.goto("/featured-recipe/new?term=cookies");
+    await fillSignInForm(page);
+    await markdownEditorReady(page, "note");
+    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    /*
+     * The redirect, awaited before anything navigates away: a `goto` issued
+     * while the write is still in flight aborts it, and the index page then
+     * renders its empty state. The trap `recipe-item-records.spec.ts`
+     * documents, and the one this test hit first time out.
+     */
+    await expect(page).toHaveURL(baseURL + "/");
+
+    await page.goto("/featured-recipes");
+    await page
+      .getByTestId("featured-term-card")
+      .getByRole("link", { name: "View Feature", exact: true })
+      .click();
+
+    await expect(
+      page.getByRole("heading", { name: "Cookies", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByTestId("term-description")).toBeVisible();
+    /* Everything the frame leaves out is one click away. */
+    await page.getByRole("link", { name: "Open term", exact: true }).click();
+    await expect(page).toHaveURL(/\/tags\/cookies$/);
+  });
+
+  /*
+   * The form deliberately does *not* check that the record exists — it is the
+   * curation seat that refuses a term with no record (`unknown_term`, pinned in
+   * `test/tagTerms.test.ts`), exactly as it is the seat and not the form that
+   * refuses an unknown recipe. What the form guarantees is the "exactly one"
+   * rule, and that is what this checks.
+   */
+  test("refuses a form with no target at all", async ({ page, resetData }) => {
+    await resetData("christmas-cookies");
+    await page.goto("/featured-recipe/new");
+    await fillSignInForm(page);
+    await markdownEditorReady(page, "note");
+
+    await page
+      .getByTestId("featured-target")
+      .getByText("Term", { exact: true })
+      .click();
+    await page.getByRole("button", { name: "Submit", exact: true }).click();
+
+    await expect(
+      page.getByText("Choose a recipe, a group or a term"),
+    ).toBeVisible();
+  });
+});

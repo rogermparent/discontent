@@ -62,30 +62,44 @@ export async function homepageRoute() {
    * homepage would be a hole rather than information. `/featured-recipes`
    * deliberately differs — it renders the dangle as "Group not found", because
    * that page is where a curator goes to fix one.
+   *
+   * `termLabel` joins the same rule at 24c: one condition per borrowed name,
+   * and a deleted term record drops off the homepage exactly as a deleted group
+   * does.
    */
   const featured: FeaturedStripEntry[] = featuredHead.items
     .slice(0, STRIP_SIZE)
-    .filter((entry) => entry.recipeName || entry.groupName)
-    .map(
-      (entry): FeaturedStripEntry =>
-        entry.group && entry.groupName
-          ? {
-              kind: "group",
-              slug: entry.group,
-              name: entry.groupName,
-              groupKind: entry.groupKind,
-              date: entry.date,
-            }
-          : {
-              kind: "recipe",
-              recipe: {
-                slug: entry.recipe!,
-                date: entry.date,
-                name: entry.recipeName!,
-                image: entry.recipeImage,
-              } satisfies MassagedRecipeEntry,
-            },
-    );
+    .filter((entry) => entry.recipeName || entry.groupName || entry.termLabel)
+    .map((entry): FeaturedStripEntry => {
+      /* Newest discriminator first, as the card list does — see that file. */
+      if (entry.term && entry.termLabel) {
+        return {
+          kind: "term",
+          slug: entry.term,
+          label: entry.termLabel,
+          ...(entry.termImage ? { image: entry.termImage } : {}),
+          date: entry.date,
+        };
+      }
+      if (entry.group && entry.groupName) {
+        return {
+          kind: "group",
+          slug: entry.group,
+          name: entry.groupName,
+          groupKind: entry.groupKind,
+          date: entry.date,
+        };
+      }
+      return {
+        kind: "recipe",
+        recipe: {
+          slug: entry.recipe!,
+          date: entry.date,
+          name: entry.recipeName!,
+          image: entry.recipeImage,
+        } satisfies MassagedRecipeEntry,
+      };
+    });
 
   return (
     <Homepage
