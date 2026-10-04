@@ -15,6 +15,10 @@
  * `ingredents:` would be written verbatim into `recipe.json` and never noticed.
  */
 import { createIngredient } from "recipe-website-common/util/parseIngredients";
+import {
+  DRINK_METHODS,
+  type DrinkSpec,
+} from "recipe-website-common/controller/types";
 import type {
   GroupItem,
   Ingredient,
@@ -100,6 +104,33 @@ const SourceSchema = z.strictObject({
   author: z.string().optional(),
 });
 
+const optionalTrimmed = z
+  .string()
+  .optional()
+  .transform((value) => value?.trim() || undefined);
+
+/**
+ * The drink spec (25a). Strict like everything here, so a `glas` typo fails
+ * rather than landing in `recipe.json`. Blank parts are dropped, and a block
+ * with nothing left becomes `null` — which `buildRecipeWrite`'s `put` treats as
+ * "clear", so in a patch `{}` and `null` mean the same thing and neither ever
+ * stores an empty object (D3/D4). It is a whole-object value: a patch's `drink`
+ * replaces the stored one, it does not merge into it.
+ */
+export const DrinkSpecSchema = z
+  .strictObject({
+    method: z.enum(DRINK_METHODS).optional(),
+    glass: optionalTrimmed,
+    ice: optionalTrimmed,
+    garnish: optionalTrimmed,
+  })
+  .transform((drink): DrinkSpec | null => {
+    const kept = Object.fromEntries(
+      Object.entries(drink).filter(([, value]) => value !== undefined),
+    ) as DrinkSpec;
+    return Object.keys(kept).length > 0 ? kept : null;
+  });
+
 export const RecipeInputSchema = z.strictObject({
   name: z.string().min(1, "A recipe needs a name"),
   slug: z.string().optional(),
@@ -114,6 +145,7 @@ export const RecipeInputSchema = z.strictObject({
   instructions: z.array(InstructionInputSchema).optional(),
   timelines: z.array(TimelineSchema).optional(),
   source: SourceSchema.optional(),
+  drink: DrinkSpecSchema.optional(),
   /** Downloaded into the recipe's uploads directory, never stored verbatim. */
   imageImportUrl: z.string().optional(),
   /** A video the site links rather than hosts. */
@@ -143,6 +175,8 @@ export const RecipePatchSchema = z.strictObject({
   instructions: z.array(InstructionInputSchema).nullable().optional(),
   timelines: z.array(TimelineSchema).nullable().optional(),
   source: SourceSchema.nullable().optional(),
+  /** Replaces the whole spec; `null` — or an all-blank object — clears it. */
+  drink: DrinkSpecSchema.nullable().optional(),
   imageImportUrl: z.string().nullable().optional(),
   videoUrl: z.string().nullable().optional(),
   videoImportUrl: z.string().nullable().optional(),

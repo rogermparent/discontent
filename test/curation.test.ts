@@ -258,6 +258,75 @@ describe("updateRecipe", () => {
 });
 
 /* ------------------------------------------------------------------ */
+/* Drink spec (25a)                                                    */
+/* ------------------------------------------------------------------ */
+
+describe("drink spec", () => {
+  it("round-trips on create, trimmed, with blank parts dropped", async () => {
+    await createRecipe(ctx, {
+      name: "Daiquiri",
+      drink: { method: "shake", glass: "  coupe ", ice: "", garnish: "lime" },
+    });
+    expect((await readRecipeFile("daiquiri")).drink).toEqual({
+      method: "shake",
+      glass: "coupe",
+      garnish: "lime",
+    });
+    expect((await getRecipe(ctx, "daiquiri")).recipe.drink?.glass).toBe(
+      "coupe",
+    );
+  });
+
+  it("stores no block at all when every part is blank", async () => {
+    await createRecipe(ctx, {
+      name: "Not A Drink",
+      drink: { glass: " ", garnish: "" },
+    });
+    expect(await readRecipeFile("not-a-drink")).not.toHaveProperty("drink");
+  });
+
+  it("rejects an unknown key inside the spec, and an unknown method", async () => {
+    await expect(
+      createRecipe(ctx, { name: "Typo", drink: { glas: "coupe" } }),
+    ).rejects.toMatchObject({ code: "validation" });
+    await expect(
+      createRecipe(ctx, { name: "Swizzle", drink: { method: "swizzle" } }),
+    ).rejects.toMatchObject({ code: "validation" });
+  });
+
+  it("replaces the whole spec on patch, keeps it when omitted, clears on null or {}", async () => {
+    await createRecipe(ctx, {
+      name: "Martini",
+      drink: { method: "stir", glass: "martini", garnish: "olive" },
+    });
+
+    /* Omitted: untouched. */
+    await updateRecipe(ctx, "martini", { description: "Cold." });
+    expect((await readRecipeFile("martini")).drink).toEqual({
+      method: "stir",
+      glass: "martini",
+      garnish: "olive",
+    });
+
+    /* Present: replaces rather than merges — the olive is gone. */
+    await updateRecipe(ctx, "martini", {
+      drink: { method: "stir", glass: "coupe" },
+    });
+    expect((await readRecipeFile("martini")).drink).toEqual({
+      method: "stir",
+      glass: "coupe",
+    });
+
+    await updateRecipe(ctx, "martini", { drink: null });
+    expect(await readRecipeFile("martini")).not.toHaveProperty("drink");
+
+    await updateRecipe(ctx, "martini", { drink: { ice: "up" } });
+    await updateRecipe(ctx, "martini", { drink: { ice: "  " } });
+    expect(await readRecipeFile("martini")).not.toHaveProperty("drink");
+  });
+});
+
+/* ------------------------------------------------------------------ */
 /* 6. Import                                                           */
 /* ------------------------------------------------------------------ */
 

@@ -1,4 +1,5 @@
 import type {
+  DrinkSpec,
   Ingredient,
   InstructionEntry,
   RecipeSource,
@@ -35,6 +36,7 @@ export type RecipeFormData = {
   recipeYield?: string;
   videoUrl?: string;
   source?: RecipeSource;
+  drink?: DrinkSpec;
 };
 
 export type RecipeFormState = ContentFormState<

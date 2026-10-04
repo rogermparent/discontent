@@ -22,7 +22,28 @@ import { VideoPlayerProvider } from "@discontent/component-library/components/Vi
 import { DurationInput } from "@discontent/component-library/components/Form/inputs/Duration";
 import { useCurrentTimezone } from "@discontent/cms/hooks/useCurrentTimezone";
 
+import { SelectInput } from "@discontent/component-library/components/Form/inputs/Select";
+import {
+  DRINK_METHODS,
+  DRINK_METHOD_LABELS,
+} from "recipe-website-common/controller/types";
+
 import { yieldToolbarItems } from "./RecipeMarkdown/lexicalToolbar";
+
+/** The free-text half of the drink spec, with the common values offered. */
+const DRINK_TEXT_FIELDS = [
+  {
+    key: "glass",
+    label: "Glass",
+    suggestions: ["coupe", "martini", "rocks", "highball", "wine", "mug"],
+  },
+  {
+    key: "ice",
+    label: "Ice",
+    suggestions: ["up", "cubes", "crushed", "large cube"],
+  },
+  { key: "garnish", label: "Garnish", suggestions: undefined },
+] as const;
 
 export default function RecipeFields({
   recipe,
@@ -173,6 +194,64 @@ export default function RecipeFields({
           )}
         </form.Field>
       </div>
+      {/*
+        The drink spec (25a). Collapsed unless the recipe already is a drink, so
+        a food recipe's form looks as it always has. Same submit shape as
+        `source` below: `drink.method` etc., nested by lodash `set`, and an
+        all-blank block parses back to no `drink` at all.
+      */}
+      <details className="py-1 my-1" open={Boolean(recipe?.drink)}>
+        <summary className="text-sm font-semibold">Drink</summary>
+        <div className="flex flex-col flex-nowrap">
+          <form.Field name="drink.method">
+            {(field) => (
+              <SelectInput
+                label="Method"
+                name="drink.method"
+                id="recipe-form-drink-method"
+                value={field.state.value}
+                onChange={(e) => field.handleChange(e.target.value)}
+                errors={state?.errors?.drink}
+              >
+                <option value="">—</option>
+                {DRINK_METHODS.map((method) => (
+                  <option key={method} value={method}>
+                    {DRINK_METHOD_LABELS[method]}
+                  </option>
+                ))}
+              </SelectInput>
+            )}
+          </form.Field>
+          {DRINK_TEXT_FIELDS.map(({ key, label, suggestions }) => (
+            <form.Field key={key} name={`drink.${key}`}>
+              {(field) => (
+                <>
+                  <TextInput
+                    label={label}
+                    name={`drink.${key}`}
+                    id={`recipe-form-drink-${key}`}
+                    value={field.state.value}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    onBlur={field.handleBlur}
+                    list={
+                      suggestions
+                        ? `recipe-form-drink-${key}-options`
+                        : undefined
+                    }
+                  />
+                  {suggestions && (
+                    <datalist id={`recipe-form-drink-${key}-options`}>
+                      {suggestions.map((value) => (
+                        <option key={value} value={value} />
+                      ))}
+                    </datalist>
+                  )}
+                </>
+              )}
+            </form.Field>
+          ))}
+        </div>
+      </details>
       <details className="py-1 my-1" open>
         <summary className="text-sm font-semibold">Advanced</summary>
         <div className="flex flex-col flex-nowrap">

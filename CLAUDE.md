@@ -51,6 +51,9 @@ survives a cleared context.
 - `websites/recipe-website/docs/agent-taxonomy.md` — the universal-taxonomy
   epic (24a–24f: the engine kind, site adoption, term records, search, seats,
   close-out): decisions, traps, gate results.
+- `websites/recipe-website/docs/agent-mixology.md` — epic 25, the drinks
+  track: the `drink` spec on recipes, drink styles as tag terms, bar
+  inventory.
 - `websites/recipe-website/docs/ui-overhaul.md` — the UI roadmap.
 - `packages/cms/docs/incremental-regeneration.md` — how the engine
   invalidates and rebuilds derived state.

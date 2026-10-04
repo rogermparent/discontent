@@ -51,6 +51,40 @@ export interface RecipeSource {
   author?: string;
 }
 
+/**
+ * How a drink is mixed (25a/D1), in the order the form offers them. A tuple so
+ * both write paths' `z.enum` can be built from it.
+ */
+export const DRINK_METHODS = ["shake", "stir", "build", "blend"] as const;
+
+export type DrinkMethod = (typeof DRINK_METHODS)[number];
+
+/** What the card and the form's select show for each method. */
+export const DRINK_METHOD_LABELS: Record<DrinkMethod, string> = {
+  shake: "Shaken",
+  stir: "Stirred",
+  build: "Built",
+  blend: "Blended",
+};
+
+/**
+ * The bar spec of a drink (25a/D1) — the four things a bartender reads before
+ * the ingredients. Its *presence* is what makes a recipe render as a drink.
+ *
+ * Like `source`, it lives on the data file only and never on
+ * `RecipeEntryValue`, so it needed no index change. Every part is optional and
+ * none is ever stored blank: both write paths trim, drop empty strings, and
+ * drop the whole block when nothing is left (D3). The garnish lives here
+ * rather than in `ingredients` (D2), so the ingredient list is what goes *in*
+ * the drink.
+ */
+export interface DrinkSpec {
+  method?: DrinkMethod;
+  glass?: string;
+  ice?: string;
+  garnish?: string;
+}
+
 export interface Recipe {
   name: string;
   date: number;
@@ -66,6 +100,7 @@ export interface Recipe {
   timelines?: Timeline[];
   tags?: string[];
   source?: RecipeSource;
+  drink?: DrinkSpec;
   [key: string]: unknown;
 }
 
