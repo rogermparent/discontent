@@ -45,10 +45,16 @@ export function createCachedPaginationReads<
   const { config, paginationConfig } = options;
   const contentDirectory = options.contentDirectory || getContentDirectory();
   const tags = paginationTags(config.contentType, paginationConfig.name);
+  /*
+   * `version` for the reason the aggregate reads give: `.next/cache` survives
+   * `next build`, so without it a page cached under an older item shape is
+   * served unchanged after the shape moves.
+   */
   const keyBase = [
     "pagination",
     config.contentType,
     paginationConfig.name,
+    paginationConfig.version,
     contentDirectory,
   ];
   const readOptions = { config, paginationConfig, contentDirectory };
