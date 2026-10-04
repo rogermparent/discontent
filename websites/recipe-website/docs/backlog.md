@@ -7,6 +7,8 @@ it gets a phase in the epic's own doc and is struck here.
 
 > **Epic 23 (Recipe MCP) is in `agent-mcp.md`** (landed on `main`
 > 2026-09-16). **Epic 24 (universal taxonomy) is in `agent-taxonomy.md`.**
+> **Epic 25 (mixology: drink spec, drink styles, bar inventory) is in
+> `agent-mixology.md`.**
 > Rows are struck here as an epic's phases pick them up; the struck rows
 > below name the phase.
 

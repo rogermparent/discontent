@@ -33,6 +33,12 @@ export interface RecipeFormValues {
    * collapses an untouched block back to no `source` at all.
    */
   source: { url: string; name: string; author: string };
+  /**
+   * The drink spec (25a), flat empty strings for the same reason `source` is:
+   * the inputs are always mounted, and `parseRecipeFormData` collapses an
+   * all-blank block back to no `drink`. `method` is `""` for "not set".
+   */
+  drink: { method: string; glass: string; ice: string; garnish: string };
 }
 
 export function recipeToFormValues(
@@ -56,6 +62,12 @@ export function recipeToFormValues(
       url: recipe?.source?.url ?? "",
       name: recipe?.source?.name ?? "",
       author: recipe?.source?.author ?? "",
+    },
+    drink: {
+      method: recipe?.drink?.method ?? "",
+      glass: recipe?.drink?.glass ?? "",
+      ice: recipe?.drink?.ice ?? "",
+      garnish: recipe?.drink?.garnish ?? "",
     },
   };
 }

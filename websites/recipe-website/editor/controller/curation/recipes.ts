@@ -226,6 +226,7 @@ export function buildRecipeWrite(
   put("cookTime", input.cookTime);
   put("totalTime", input.totalTime);
   put("source", input.source);
+  put("drink", input.drink);
   put("timelines", input.timelines);
 
   if (input.tags === null) {

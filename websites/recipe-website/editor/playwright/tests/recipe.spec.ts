@@ -236,6 +236,75 @@ test.describe("Single Recipe View", () => {
     });
   });
 
+  test.describe("drink spec", () => {
+    // 25a. The Drink section is collapsed on a new recipe and opens itself on
+    // one that already has a spec; the round trip through *edit* is what pins
+    // the prefill, and clearing every input is what pins that a blank block
+    // never reaches disk (the card disappears rather than rendering empty).
+    test("renders the spec card, prefills it on edit, and drops it when cleared", async ({
+      page,
+      resetData,
+    }) => {
+      await resetData("one-recipe");
+      await page.goto("/new-recipe");
+      await fillSignInForm(page);
+      await markdownEditorReady(page, "description");
+
+      const form = page.locator("#recipe-form");
+      await page.getByLabel("Name").first().fill("Daiquiri");
+      await form.locator("summary", { hasText: "Drink" }).click();
+      await form.locator('[name="drink.method"]').selectOption("shake");
+      await form.locator('[name="drink.glass"]').fill("coupe");
+      await form.locator('[name="drink.ice"]').fill("up");
+      await form.locator('[name="drink.garnish"]').fill("lime wheel");
+
+      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await expect(
+        page.getByRole("heading", { level: 1, name: "Daiquiri" }),
+      ).toBeVisible();
+
+      const card = page.getByTestId("drink-spec");
+      await expect(card).toContainText("Shaken");
+      await expect(card).toContainText("coupe");
+      await expect(card).toContainText("up");
+      await expect(card).toContainText("lime wheel");
+
+      await page.getByRole("link", { name: "Edit", exact: true }).click();
+      await expect(page.getByText("Editing Recipe: Daiquiri")).toBeVisible({
+        timeout: 10_000,
+      });
+      await markdownEditorReady(page, "description");
+      const method = page.locator('#recipe-form [name="drink.method"]');
+      await expect(method).toBeVisible();
+      await expect(method).toHaveValue("shake");
+      await expect(
+        page.locator('#recipe-form [name="drink.garnish"]'),
+      ).toHaveValue("lime wheel");
+
+      await method.selectOption("");
+      for (const key of ["glass", "ice", "garnish"]) {
+        await page.locator(`#recipe-form [name="drink.${key}"]`).fill("");
+      }
+      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await expect(
+        page.getByRole("heading", { level: 1, name: "Daiquiri" }),
+      ).toBeVisible();
+      await expect(page.getByTestId("drink-spec")).toHaveCount(0);
+    });
+
+    test("renders no card for a recipe without a spec", async ({
+      page,
+      resetData,
+    }) => {
+      await resetData("two-pages");
+      await page.goto("/recipe/recipe-6");
+      await expect(
+        page.getByRole("heading", { level: 1, name: "Recipe 6" }),
+      ).toBeVisible();
+      await expect(page.getByTestId("drink-spec")).toHaveCount(0);
+    });
+  });
+
   test.describe("hero meta bar", () => {
     test("renders Prep · Cook · Total in the hero", async ({
       page,

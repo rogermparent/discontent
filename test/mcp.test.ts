@@ -133,6 +133,11 @@ describe("the MCP registry over an in-memory transport", () => {
     /* `strictObject` all the way down: a typo'd key is a rejection, not a write. */
     expect(schema.additionalProperties).toBe(false);
     expect(schema.properties?.recipe.properties?.name).toBeDefined();
+    /* A transformed schema (25a) still advertises its input shape. */
+    expect(schema.properties?.recipe.properties?.drink).toMatchObject({
+      additionalProperties: false,
+      properties: { method: { enum: ["shake", "stir", "build", "blend"] } },
+    });
 
     expect(
       tools.find((tool) => tool.name === "recipe_search")?.annotations,

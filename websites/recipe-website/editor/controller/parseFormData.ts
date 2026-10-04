@@ -2,6 +2,10 @@ import { ZodSafeParseResult, z } from "zod";
 import parseFormData from "@discontent/cms/forms/parseFormData";
 import dateEpochSchema from "@discontent/cms/forms/schema/dateEpoch";
 import { normalizeTags } from "recipe-website-common/controller/normalizeTags";
+import {
+  DRINK_METHODS,
+  type DrinkSpec,
+} from "recipe-website-common/controller/types";
 
 const durationSchema = z
   .object({
@@ -99,6 +103,30 @@ const sourceSchema = z
     };
   });
 
+/**
+ * The drink spec (25a/D3). Four always-mounted inputs in the form's Drink
+ * section, so an untouched block arrives as four empty strings — trimmed to
+ * `undefined` one by one, and the block itself to `undefined` when nothing is
+ * left, exactly as `sourceSchema` keeps an empty `source` off disk. Unlike
+ * `source` no single part decides existence: a garnish alone is a spec.
+ */
+const drinkSchema = z
+  .object({
+    method: z.enum(DRINK_METHODS).or(z.literal("")).optional(),
+    glass: z.string().optional(),
+    ice: z.string().optional(),
+    garnish: z.string().optional(),
+  })
+  .transform((arg): DrinkSpec | undefined => {
+    const drink: DrinkSpec = {
+      method: arg?.method || undefined,
+      glass: arg?.glass?.trim() || undefined,
+      ice: arg?.ice?.trim() || undefined,
+      garnish: arg?.garnish?.trim() || undefined,
+    };
+    return Object.values(drink).some(Boolean) ? drink : undefined;
+  });
+
 const RecipeFormSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
@@ -116,6 +144,7 @@ const RecipeFormSchema = z.object({
   totalTime: durationSchema.optional(),
   recipeYield: z.string().optional(),
   source: sourceSchema.optional(),
+  drink: drinkSchema.optional(),
   tags: z
     .array(z.string())
     .optional()

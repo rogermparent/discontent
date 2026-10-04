@@ -114,6 +114,23 @@ Tag vocabulary (lowercase, keep it small):
 - speed — `quick` (≤ 30 minutes total)
 - cuisine — one lowercase word (`thai`, `italian`, …)
 
+**Drinks.** A cocktail or mocktail carries a `drink` spec, which the recipe
+page renders as a Method · Glass · Ice · Garnish card:
+
+```json
+recipe_create {"recipe": {"name": "Daiquiri", "tags": ["drink", "rum", "sour"], "drink": {"method": "shake", "glass": "coupe", "ice": "up", "garnish": "lime wheel"}, "ingredients": ["2 oz white rum", "3/4 oz lime juice", "3/4 oz simple syrup"], "instructions": ["Shake hard with ice; double-strain."]}}
+```
+
+Every part is optional; `method` is one of `shake`, `stir`, `build`,
+`blend`. The **garnish goes in `drink.garnish`, never in `ingredients`**, and
+glass and method go in the spec rather than restated as the first
+instruction. Name each ingredient **generic first, brand in parens** —
+`"2 oz gin (Hendrick's)"` — so what is in the bottle stays searchable. Tag
+`drink`, the base spirit, and one style (`sour`, `collins`, `stirred`,
+`built`, `highball`, `batch`); `low-abv` or `zero-proof` where it applies. In
+a `recipe_update` patch, `drink` **replaces** the whole spec rather than
+merging into it, and `null` (or an empty object) removes it.
+
 ## 7. Group them
 
 ```json
