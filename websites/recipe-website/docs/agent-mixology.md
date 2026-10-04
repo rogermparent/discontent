@@ -5,8 +5,9 @@
 > reading this file. **Read this file first** before planning any `25x`
 > phase. Update the roadmap **Status** column and the **Next** line at every
 > phase boundary. Each phase gets its own plan-mode pass seeded from this doc.
-> **25a is in review (draft PR, `agent/25a-drink-spec` ← `main` `8bd91a96`);
-> 25b (content) follows its merge.** Epic 24's doc, `agent-taxonomy.md`, is
+> **25a is merged (#146 → `main` `14846959`, 2026-10-04); 25b (content) is
+> done in the real content repo (2026-10-04), plus six tea drinks on top. 25c
+> (bar inventory) is next, after 24d.** Epic 24's doc, `agent-taxonomy.md`, is
 > cited by number with a `24-` prefix (`24-D5`); epic 22's and 23's the same
 > way (`22-D6`, `23-D13`).
 
@@ -144,15 +145,16 @@ and `pinned` orders its drinks.
 | Step    | Branch / where                     | Status  | Scope                                                                                                                                                      |
 | ------- | ---------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1       | real content repo                  | ✅ done | 12 drinks via `recipes create` (2026-10-03)                                                                                                                |
-| **25a** | `agent/25a-drink-spec` ← `main`    | 🟡 PR   | `Recipe.drink` (D1–D4): type, form section, both parsers, curation schemas, card, skill, this doc (M)                                                      |
-| 25b     | real content repo (no code)        | ⏸️      | `drink` on the 12, garnish headings out, style tags; hand-written `drink` term tree with ratio descriptions; reindex the tag taxonomy (S code / M content) |
-| 25c     | `agent/25c-bar-inventory` ← `main` | ⏸️      | Bar inventory + "can make now / one bottle away" — after 24d (search resolver), ideally 24e (term writes) (L)                                              |
+| 25a     | `agent/25a-drink-spec` ← `main`    | ✅ done | `Recipe.drink` (D1–D4): type, form section, both parsers, curation schemas, card, skill, this doc (M)                                                      |
+| 25b     | real content repo (no code)        | ✅ done | `drink` on the 12, garnish headings out, style tags; hand-written `drink` term tree with ratio descriptions; reindex the tag taxonomy (S code / M content) |
+| **25c** | `agent/25c-bar-inventory` ← `main` | 🟡 next | Bar inventory + "can make now / one bottle away" — after 24d (search resolver), ideally 24e (term writes) (L)                                              |
 
-**Next: 25b**, once the 25a PR merges.
+**Next: 25c**, in its own plan-mode pass once 24d (search resolver) has
+landed — see its sketch below for the open questions and the inventory seed.
 
 ## Phase detail
 
-### 25a — Drink spec `agent/25a-drink-spec` 🟡 (← `main` `8bd91a96`)
+### 25a — Drink spec `agent/25a-drink-spec` ✅ done (← `main` `8bd91a96`)
 
 Worktree `.claude/worktrees/agent-25a`.
 
@@ -172,6 +174,9 @@ dropped, unknown key and bad method rejected, patch replace / keep / `null` /
 card, edit prefill, clear → no card, no card on a plain recipe); the four
 form baselines in `visual.spec.ts` regenerated (T3).
 
+**Merged 2026-10-04** as #146 → `main` `14846959`, all 12 CI checks green;
+remote branch deleted.
+
 Gate results (2026-10-04): both typechecks clean; vitest 34 files / 616
 tests; Playwright `recipe edit new-recipe api-write accessibility` 102 passed
 on port 3125 with the four T5 image-import failures, which then passed on
@@ -188,7 +193,7 @@ pnpm exec vitest run
 pnpm --filter recipe-editor e2e-dev -- recipe.spec.ts edit.spec.ts new-recipe.spec.ts api-write.spec.ts accessibility.spec.ts visual.spec.ts
 ```
 
-### 25b — Content (after 25a merges; real content repo)
+### 25b — Content ✅ done (real content repo)
 
 Run the CLI from the updated main checkout (T2).
 
@@ -213,6 +218,35 @@ Run the CLI from the updated main checkout (T2).
    (breadcrumb, narrower chips, description, pinned drinks) and
    `/recipe/cosmopolitan` (card, no Garnish heading).
 
+**Close-out (2026-10-04).** Content repo branch `uraninite`, unpushed (the
+user's). Every write was rehearsed first on a scratch copy of the affected
+recipes.
+
+- 12 `Update recipe:` commits (`e2d75b4…794fe46`). Garnish heading + line
+  removed from 11 (sangria never had one); eight standalone "Garnish with …"
+  steps dropped. Technique steps that mention the garnish stay (the
+  Cosmopolitan's expressed twist, the Bloody Mary's "stir and garnish").
+  Mulled wine has no `method` — warming in a pan is none of the four — and
+  `ice: "none, served warm"`. Elderflower Collins' glass is `collins`.
+- `967791b` — nine term records, root `drink` first, one minute apart from
+  `2026-10-04T00:00Z`. The root has no `pinned`; its page lists every drink.
+- `recipes reindex tag-terms` on the user's go-ahead; the `tree` aggregate
+  read back with `drink` as the root and the eight styles under it. The
+  running editor was not reachable from the job session, so its Reload is
+  the user's.
+- `tag:drink` still returns the 12 (17 after the tea drinks below).
+
+**Tea drinks (2026-10-04, same session, user's pick).** The user added teas
+(green, black, hibiscus, chamomile), dried lavender, non-alcoholic Gnista and
+orange bitters to what they have, and chose six recipes: Hibiscus Gnista
+Highball, Chamomile Collins, Black Tea Sour, Green Tea Sake Highball,
+Lavender Syrup, Lavender Gnista Tonic (`a9b11e6…4702030`). Plus `1 dash
+orange bitters, optional` on Cucumber Martini, Saketini and Vermouth Tonic
+(`7b4e89d…25ac612`). Conventions they set: `tea` as the base tag; infusions
+and cold brews as a named instruction group, so the ingredient list is what
+goes in the glass; the syrup is tagged `syrup` with no `drink` spec. No
+bitters on zero-proof drinks — bitters are mostly alcohol.
+
 ### 25c — Bar inventory (sketch; its own plan pass)
 
 After 24d and ideally 24e. Must match on the **generic** ingredient (the
@@ -220,7 +254,13 @@ brand in parens is ignored). Open questions for that plan: generic-name
 extraction from free-text lines vs. explicit ingredient terms (a second
 vocabulary reverses 24's "one vocabulary" and needs a decision); inventory as
 a content type vs. a settings document; optional lines ("…, optional") and
-"to top" mixers.
+"to top" mixers; **intermediate components** — an infusion ("chamomile-infused
+vodka") or a house syrup ("lavender syrup") is makeable from inventory
+rather than owned, so "can make now" has to follow one level of recipe.
+
+Inventory seed: the bottles, syrups and mixers the step-1 and tea recipes
+name, plus the user's additions on 2026-10-04 — teas (green, black,
+hibiscus, chamomile), dried lavender, non-alcoholic Gnista, orange bitters.
 
 ## Deferred
 
