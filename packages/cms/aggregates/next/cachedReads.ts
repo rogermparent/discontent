@@ -44,7 +44,22 @@ export function createCachedAggregateRead<
   const reader = cache(
     unstable_cache(
       () => readAggregate<TIndexValue, TKey, TAccumulator, TValue>(readOptions),
-      ["aggregate", config.contentType, aggregateConfig.name, contentDirectory],
+      /*
+       * `version` is in the key because Next's data cache outlives a build:
+       * `.next/cache` survives `next build`, so a production server started
+       * after a value-shape change would otherwise be handed the old shape
+       * under the same name — a `string[]` where `{slug, label, count}[]` is
+       * expected, which is how 24b's `terms` crashed the homepage. A version
+       * bump is already the contract for a shape change; this makes it a new
+       * cache entry too.
+       */
+      [
+        "aggregate",
+        config.contentType,
+        aggregateConfig.name,
+        aggregateConfig.version,
+        contentDirectory,
+      ],
       { tags: [tags.value] },
     ),
   );
