@@ -7,9 +7,10 @@
 > phase boundary. Each phase gets its own plan-mode pass seeded from this doc.
 > **25a is merged (#146 → `main` `14846959`, 2026-10-04); 25b (content) is
 > done in the real content repo (2026-10-04), plus six tea drinks on top. 25c
-> ("What can I make?", `/make`) is in review; 25d (the editor's shared
-> inventory) and 25e (sourced imports) follow — planned 2026-10-05, ahead of
-> 24d, which they don't touch.** Epic 24's doc, `agent-taxonomy.md`, is
+> ("What can I make?", `/make`) and 25d (the editor's shared inventory) are
+> merged (#149 → `6fda55ac`, #150 → `68ef8f6e`, 2026-10-05) and the real
+> repo's `recipes` index is rebuilt with their fields; 25e (sourced imports)
+> is next — planned 2026-10-05, ahead of 24d, which none of them touch.** Epic 24's doc, `agent-taxonomy.md`, is
 > cited by number with a `24-` prefix (`24-D5`); epic 22's and 23's the same
 > way (`22-D6`, `23-D13`).
 
@@ -230,17 +231,21 @@ a default; `set --file` reads the page's Export text or JSON.
 
 ## Roadmap
 
-| Step    | Branch / where                     | Status    | Scope                                                                                                                                                      |
-| ------- | ---------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1       | real content repo                  | ✅ done   | 12 drinks via `recipes create` (2026-10-03)                                                                                                                |
-| 25a     | `agent/25a-drink-spec` ← `main`    | ✅ done   | `Recipe.drink` (D1–D4): type, form section, both parsers, curation schemas, card, skill, this doc (M)                                                      |
-| 25b     | real content repo (no code)        | ✅ done   | `drink` on the 12, garnish headings out, style tags; hand-written `drink` term tree with ratio descriptions; reindex the tag taxonomy (S code / M content) |
-| **25c** | `agent/25c-make` ← `main`          | 🟡 review | Matching (D9), index fields (D8), `/make` in both apps with a browser inventory (D10), ⌘K row, term-page link (L)                                          |
-| 25d     | `agent/25d-shared-inventory` ← 25c | 🟡 review | Editor's shared list `inventory/on-hand.json`: curation module, action, API, CLI, MCP seats (`inventory_set` held back), skill (M)                         |
-| 25e     | real content repo (no code)        | ⬜        | ~100 sourced drink imports ("Drink (Site)", shared drink tag), sourced versions of the 18 house drinks, seed the shared inventory, reindex (L content)     |
+| Step    | Branch / where                     | Status  | Scope                                                                                                                                                      |
+| ------- | ---------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1       | real content repo                  | ✅ done | 12 drinks via `recipes create` (2026-10-03)                                                                                                                |
+| 25a     | `agent/25a-drink-spec` ← `main`    | ✅ done | `Recipe.drink` (D1–D4): type, form section, both parsers, curation schemas, card, skill, this doc (M)                                                      |
+| 25b     | real content repo (no code)        | ✅ done | `drink` on the 12, garnish headings out, style tags; hand-written `drink` term tree with ratio descriptions; reindex the tag taxonomy (S code / M content) |
+| 25c     | `agent/25c-make` ← `main`          | ✅ done | Matching (D9), index fields (D8), `/make` in both apps with a browser inventory (D10), ⌘K row, term-page link (L)                                          |
+| 25d     | `agent/25d-shared-inventory` ← 25c | ✅ done | Editor's shared list `inventory/on-hand.json`: curation module, action, API, CLI, MCP seats (`inventory_set` held back), skill (M)                         |
+| **25e** | real content repo (no code)        | 🟡 next | ~100 sourced drink imports ("Drink (Site)", shared drink tag), sourced versions of the 18 house drinks, seed the shared inventory, reindex (L content)     |
 
-**Now: 25c and 25d in review (25d stacked on 25c); 25e (content) after both
-merge.** 24d hadn't started when 25c was
+**Now: 25e (content).** 25c and 25d merged 2026-10-05 (#149, #150; both
+CI runs needed a rerun of shards whose `next dev` timed out reaching Google
+Fonts — no test failed), and `recipes reindex recipes` ran against the real
+repo from the merged code: 298 heading lines on 120 recipes and recipe links
+on 11 are now on the index. The importer's browser `User-Agent` (for Imbibe)
+is PR #151. 24d hadn't started when 25c was
 planned and 25c edits none of its files; after 24d lands, the one-line
 follow-up is to pass the term resolver to `/make`'s `matchesFilter` so
 `tag:drink` includes the narrower styles (every drink carries `drink` anyway).
@@ -340,7 +345,7 @@ and cold brews as a named instruction group, so the ingredient list is what
 goes in the glass; the syrup is tagged `syrup` with no `drink` spec. No
 bitters on zero-proof drinks — bitters are mostly alcohol.
 
-### 25c — "What can I make?" `agent/25c-make` 🟡 review (← `main` `7aeb3230`)
+### 25c — "What can I make?" `agent/25c-make` ✅ done (← `main` `7aeb3230`; #149 → `6fda55ac`)
 
 Planned 2026-10-05 with Roger: generic ("What can I make with…"), scoped by
 the search language (`tag:drink` default), no masthead link — entry points are
@@ -374,7 +379,7 @@ search-corpus-split recipe tree featured-recipes tag-pages`) 175/175 — three
 tests (two palette Enter/click navigations, one featured click-through) timed
 out at 5 s on a `next dev` cold compile once and passed alone on rerun.
 
-### 25d — Shared inventory `agent/25d-shared-inventory` 🟡 review (← 25c `eee4dc8f`)
+### 25d — Shared inventory `agent/25d-shared-inventory` ✅ done (← 25c `eee4dc8f`; #150 → `68ef8f6e`)
 
 - **Curation:** `editor/controller/curation/inventory.ts` — `readInventory`,
   `patchInventory`, `setInventory`, `makeable` (D10/D11); schemas
@@ -411,17 +416,19 @@ copies the list.
 `recipe_import {dryRun: true}` per candidate domain, then `curl` to tell a
 block from a missing recipe:
 
-| Source                                                                          | Result                                                                                |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| acouplecooks.com, thekitchn.com, loveandlemons.com                              | ✅ import cleanly (JSON-LD Recipe, `source` with author)                              |
-| liquor.com, foodandwine.com, thespruceeats.com, allrecipes.com, seriouseats.com | ❌ 403 to any non-browser fetch, even with a browser UA (Dotdash Meredith bot wall)   |
-| imbibemagazine.com                                                              | ⚠️ has a Recipe in JSON-LD, but 403s Node's default `fetch` UA; a browser UA gets 200 |
-| punchdrink.com, diffordsguide.com                                               | ❌ 200, but no Recipe in JSON-LD                                                      |
+| Source                                                                          | Result                                                                                                                   |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| acouplecooks.com, thekitchn.com, loveandlemons.com                              | ✅ import cleanly (JSON-LD Recipe, `source` with author)                                                                 |
+| liquor.com, foodandwine.com, thespruceeats.com, allrecipes.com, seriouseats.com | ❌ 403 to any non-browser fetch, even with a browser UA (Dotdash Meredith bot wall)                                      |
+| imbibemagazine.com                                                              | ✅ with #151: 403s Node's default UA, so the importer now asks as a browser; its `recipeIngredient` objects are read too |
+| punchdrink.com, diffordsguide.com                                               | ❌ 200, but no Recipe in JSON-LD                                                                                         |
 
 So "Margarita (Liquor.com)" as planned isn't reachable; the two-version
-pairs come from acouplecooks / The Kitchn / Love and Lemons. Imbibe would
-need the importer to send a browser `User-Agent` (`importRecipeData.ts:220`)
-— a decision for the user, not taken here.
+pairs come from acouplecooks / The Kitchn / Love and Lemons, and Imbibe once
+#151 lands. The user chose (2026-10-05) to have the importer send a browser
+`User-Agent` (`RECIPE_FETCH_HEADERS` in `importRecipeData.ts`); Imbibe's
+JSON-LD then also needed object-shaped `recipeIngredient` entries read
+(`ingredientText`). Neither gets past the Dotdash wall.
 
 Inventory seed for 25e: the bottles, syrups and mixers the step-1 and tea
 recipes name, plus the user's additions on 2026-10-04 — teas (green, black,
