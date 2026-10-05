@@ -15,6 +15,7 @@ import {
   Wrench,
   Database,
   FilePlus,
+  GlassWater,
 } from "lucide-react";
 
 export type DestinationGroup = "Browse" | "Setup" | "Content" | "System";
@@ -76,6 +77,13 @@ export const NAV_DESTINATIONS: NavDestination[] = [
     icon: Layers,
     group: "Browse",
     keywords: ["meal plan", "meal plans", "collection", "collections"],
+  },
+  {
+    name: "What can I make?",
+    href: "/make",
+    icon: GlassWater,
+    group: "Browse",
+    keywords: ["make", "inventory", "bar", "drinks", "on hand", "pantry"],
   },
 
   // Owner destinations — mirror editor's SettingsNav (NAV_GROUPS).

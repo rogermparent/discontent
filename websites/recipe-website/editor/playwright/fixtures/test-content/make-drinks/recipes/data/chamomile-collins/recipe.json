@@ -1,0 +1,35 @@
+{
+  "name": "Chamomile Collins",
+  "description": "Chamomile-infused vodka, lemon and soda.",
+  "tags": [
+    "drink",
+    "vodka",
+    "collins"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"2\" /> oz chamomile-infused vodka"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"3/4\" /> oz lemon juice"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1/2\" /> oz simple syrup"
+    },
+    {
+      "ingredient": "Club soda, to top"
+    }
+  ],
+  "drink": {
+    "method": "shake",
+    "glass": "collins",
+    "ice": "cubes"
+  },
+  "date": 1790000360000,
+  "recipeYield": "1 drink",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

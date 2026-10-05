@@ -75,8 +75,16 @@ function addMultipliersToIngredient(input: string): string {
     .join("");
 }
 
-export function createIngredient(inputLine: string): Ingredient | undefined {
-  const trimmedInputLine = inputLine
+/**
+ * A pasted line's cleanup, before any markup goes in: leading bullets gone,
+ * unicode fractions spaced off their whole number and decomposed to `1/2`,
+ * runs of spaces collapsed.
+ *
+ * Exported for `ingredientNames` (25c), which reads the same lines for their
+ * names and has to see them the way the form stored them.
+ */
+export function normalizeIngredientText(inputLine: string): string {
+  return inputLine
     .replace(/^[ \t\r\n\f*\-•▪]*/, "")
     .trim()
     .replaceAll(
@@ -86,6 +94,10 @@ export function createIngredient(inputLine: string): Ingredient | undefined {
     .normalize("NFKD")
     .replaceAll("⁄", "/")
     .replaceAll(/ +/g, " ");
+}
+
+export function createIngredient(inputLine: string): Ingredient | undefined {
+  const trimmedInputLine = normalizeIngredientText(inputLine);
 
   if (trimmedInputLine) {
     const isHeading = detectHeading(trimmedInputLine);

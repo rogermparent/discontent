@@ -1,0 +1,33 @@
+{
+  "name": "Hand Pies",
+  "description": "Jam in a flaky crust.",
+  "tags": [
+    "dessert"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "Filling",
+      "type": "heading"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> cup jam"
+    },
+    {
+      "ingredient": "Dough",
+      "type": "heading"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"2\" /> cups flour"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> cup butter"
+    }
+  ],
+  "date": 1790000420000,
+  "recipeYield": "1 drink",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

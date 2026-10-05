@@ -1,0 +1,62 @@
+import {
+  fieldMatches,
+  fold,
+  matchesFilter,
+  parseQuery,
+  type FilterableRecipe,
+} from "../SearchForm/queryLanguage";
+
+/** What `/make` scopes to when nothing says otherwise. */
+export const DEFAULT_MAKE_QUERY = "tag:drink";
+
+/**
+ * Every free-text word must appear somewhere — name, description, a tag or an
+ * ingredient. A copy of `curation/search.ts`'s `matchesFreeText`, which lives
+ * in the editor and so can't be imported from here; both use the browser's own
+ * `fieldMatches`, so `/make?q=choc` narrows exactly as `recipes search choc`
+ * does.
+ */
+function matchesFreeText(recipe: FilterableRecipe, text: string): boolean {
+  const words = fold(text).split(/\s+/).filter(Boolean);
+  return words.every(
+    (word) =>
+      fieldMatches(recipe.name, word) ||
+      (recipe.description ? fieldMatches(recipe.description, word) : false) ||
+      (recipe.tags ?? []).some((tag) => fieldMatches(tag, word)) ||
+      (recipe.ingredients ?? []).some((line) => fieldMatches(line, word)),
+  );
+}
+
+/**
+ * The recipes a scope query selects: the filter (`tag:drink -tag:batch`) and
+ * every free-text word. No FlexSearch — this is a narrowing, not a ranking.
+ */
+export function scopeRecipes<T extends FilterableRecipe>(
+  recipes: T[],
+  query: string,
+): T[] {
+  const { text, filter } = parseQuery(query);
+  return recipes.filter(
+    (recipe) => matchesFilter(recipe, filter) && matchesFreeText(recipe, text),
+  );
+}
+
+/** The most-carried tags among `recipes`, for the quick-pick chips. */
+export function topTags(
+  recipes: FilterableRecipe[],
+  limit: number,
+  exclude: string[] = [],
+): string[] {
+  const skip = new Set(exclude.map(fold));
+  const counts = new Map<string, number>();
+  for (const recipe of recipes) {
+    for (const tag of recipe.tags ?? []) {
+      if (skip.has(fold(tag))) continue;
+      counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([tag]) => tag);
+}

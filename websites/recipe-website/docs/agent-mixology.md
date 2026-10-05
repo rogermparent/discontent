@@ -7,7 +7,9 @@
 > phase boundary. Each phase gets its own plan-mode pass seeded from this doc.
 > **25a is merged (#146 → `main` `14846959`, 2026-10-04); 25b (content) is
 > done in the real content repo (2026-10-04), plus six tea drinks on top. 25c
-> (bar inventory) is next, after 24d.** Epic 24's doc, `agent-taxonomy.md`, is
+> ("What can I make?", `/make`) is in review; 25d (the editor's shared
+> inventory) and 25e (sourced imports) follow — planned 2026-10-05, ahead of
+> 24d, which they don't touch.** Epic 24's doc, `agent-taxonomy.md`, is
 > cited by number with a `24-` prefix (`24-D5`); epic 22's and 23's the same
 > way (`22-D6`, `23-D13`).
 
@@ -32,7 +34,9 @@ I have?". The track is run as small steps with a plan-mode pass between each.
   card (method · glass · ice · garnish) on the recipe page, and drink
   **styles** (sour, collins, …) as browsable term pages whose descriptions
   carry the ratio.
-- **Step 3 = 25c.** Bar inventory and "can make now / one bottle away".
+- **Step 3 = 25c–25e.** "What can I make with…": `/make` with a browser
+  inventory (25c), the editor's shared list (25d), and ~100 sourced drink
+  imports to filter (25e).
 
 ## Execution model
 
@@ -118,6 +122,53 @@ Per F3. Root term `drink` ("Drinks") with children `sour`, `collins`,
 Markdown description carries the ratio/technique — the learning reference —
 and `pinned` orders its drinks.
 
+### D8 — Two stored index fields, no FlexSearch change (25c)
+
+`buildRecipeIndexValue` gains `ingredientHeadings` (line indexes) and
+`ingredientRecipeLinks` (`{line, slug}` per `/recipe/<slug>` link, relative
+or absolute on any host), both written **only when non-empty** so every other
+recipe re-indexes to its old bytes. They ride `/search/all` to the browser —
+flattening loses a heading's `type` and a link's target, and `/make` sees only
+the index. Neither is a FlexSearch field, so `SEARCH_DB_NAME` is unbumped.
+Until the real repo is reindexed, readers fall back to `detectHeading` (which
+misses 146 of 298 real headings — `Filling`, `Dough`, …) and to name matching.
+
+### D9 — Matching rules (25c)
+
+Two pure files, both run in the browser and (25d) on the server:
+`common/util/ingredientNames.ts` turns a line — or an inventory item, through
+the same `toName` — into words: quantity, unit and `of` stripped (a unit only
+after a quantity or before `of`), cut at the first top-level comma, brands in
+parentheses and `such as X` kept as **aliases**, `(or X)` and `or`/`/` as
+alternatives (a one-word left part inherits the right's tail: "lemon or lime
+juice"), `X-infused Y` → Y plus a **loose** X, compounds joined
+(`ginger beer`), synonyms folded (`club soda`/`seltzer`/`soda` → `soda water`,
+`tonic` → `tonic water`), descriptive words dropped, naive singular, `@na` for
+non-alcoholic/zero-proof/alcohol-free (never "virgin"). Optional: garnish /
+to-taste / `optional` lines and anything under a garnish/optional/to-serve
+heading. Staples: water, ice.
+
+`common/util/makeable.ts`: an item meets a line by an unambiguous alias
+(checked first, so `Gnista` meets "non-alcoholic aperitif (Gnista)"; `Toschi`
+names five syrups and meets none), else — with the **NA guard** both ways —
+generic⊂specific by word tail either way (a lone vague head like `syrup`,
+`liqueur`, `tea` never stands for a longer name), a **derived form** (`lime` →
+`lime juice`, `hibiscus` → `hibiscus tea`, `garlic` → `garlic clove`; not
+bitters), or loosely for an infusion's flavour. An unmet line can be met by
+making a recipe it links or names exactly (whole corpus, one level, never
+itself). Distance = missing required lines; buckets 0/1/2/further; "Buy next"
+ranks by one-away recipes unlocked, then two-away helped, top 5.
+
+### D10 — Inventory storage: the export never reads a shared list (25c/25d)
+
+The export is browser-only: `localStorage` `make-inventory-v1` holds an
+overlay `{added, removed}` (empty `shared` there, so `added` is the list) and
+`make-last-query` the scope. **No export route or file exposes the editor's
+list** — 25d's `inventory/on-hand.json` is not a content type, so no index,
+registry entry or build ever sees it. Plain-text import/export (one per line;
+a comma line, bullets, checkboxes, `#` comments, JSON array or `{items}`
+accepted; 80 chars, 500 items) is the bridge between sites and browsers.
+
 ## Traps (T-list)
 
 - **T1 — `getByLabel` matches substrings.** The Drink inputs are labelled
@@ -136,21 +187,41 @@ and `pinned` orders its drinks.
   so with `PLAYWRIGHT_PORT` set to anything else four image-import tests in
   `new-recipe.spec.ts` fail (`:192`, `:1296`, `:1351`, `:1403`) for no reason
   of the change's. They pass on 3019.
+- **T6 — `build-fixture-indexes.ts` skips a fixture with no index
+  directory.** It rebuilds only indexes that exist (opening one creates it), so
+  a brand-new fixture of bare `recipe.json` files stays unindexed and every
+  page reads an empty corpus. `mkdir -p <fixture>/recipes/index` first. The
+  run also rewrites every other fixture's `.mdb` bytes: revert all but the
+  ones whose meaning changed (25c kept `linked-recipes` and the new
+  `make-drinks`).
+- **T7 — FlexSearch's document type takes no tuples and no interfaces.**
+  Every `MassagedRecipeEntry` field reaches `index.update()`, whose
+  `DocumentData` has an index signature: a `[number, string][]` or an
+  `interface`-typed object fails to typecheck. Index fields headed for the
+  browser are plain `type` aliases of objects (`IngredientRecipeLink`).
+- **T8 — `tag:` takes the tag string, not the slug or the label.** It matches
+  by word prefix, so `tag:slow-cooker` misses "slow cooker" and a record's
+  label "Drinks" misses `drink`. The term page's `/make` link uses a carrier's
+  own tag string whose `tagSlug` is the term's.
 - **T4 — MCP advertises the transformed schema's input side.** `DrinkSpecSchema`
   is a `.transform`; `test/mcp.test.ts` pins that `recipe_create`'s
   `inputSchema` still shows `drink` as a strict object with the method enum.
 
 ## Roadmap
 
-| Step    | Branch / where                     | Status  | Scope                                                                                                                                                      |
-| ------- | ---------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1       | real content repo                  | ✅ done | 12 drinks via `recipes create` (2026-10-03)                                                                                                                |
-| 25a     | `agent/25a-drink-spec` ← `main`    | ✅ done | `Recipe.drink` (D1–D4): type, form section, both parsers, curation schemas, card, skill, this doc (M)                                                      |
-| 25b     | real content repo (no code)        | ✅ done | `drink` on the 12, garnish headings out, style tags; hand-written `drink` term tree with ratio descriptions; reindex the tag taxonomy (S code / M content) |
-| **25c** | `agent/25c-bar-inventory` ← `main` | 🟡 next | Bar inventory + "can make now / one bottle away" — after 24d (search resolver), ideally 24e (term writes) (L)                                              |
+| Step    | Branch / where                     | Status    | Scope                                                                                                                                                      |
+| ------- | ---------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1       | real content repo                  | ✅ done   | 12 drinks via `recipes create` (2026-10-03)                                                                                                                |
+| 25a     | `agent/25a-drink-spec` ← `main`    | ✅ done   | `Recipe.drink` (D1–D4): type, form section, both parsers, curation schemas, card, skill, this doc (M)                                                      |
+| 25b     | real content repo (no code)        | ✅ done   | `drink` on the 12, garnish headings out, style tags; hand-written `drink` term tree with ratio descriptions; reindex the tag taxonomy (S code / M content) |
+| **25c** | `agent/25c-make` ← `main`          | 🟡 review | Matching (D9), index fields (D8), `/make` in both apps with a browser inventory (D10), ⌘K row, term-page link (L)                                          |
+| 25d     | `agent/25d-shared-inventory` ← 25c | ⬜ next   | Editor's shared list `inventory/on-hand.json`: curation module, action, API, CLI, MCP seats (`inventory_set` held back), skill (M)                         |
+| 25e     | real content repo (no code)        | ⬜        | ~100 sourced drink imports ("Drink (Site)", shared drink tag), sourced versions of the 18 house drinks, seed the shared inventory, reindex (L content)     |
 
-**Next: 25c**, in its own plan-mode pass once 24d (search resolver) has
-landed — see its sketch below for the open questions and the inventory seed.
+**Now: 25c in review; 25d builds on it.** 24d hadn't started when 25c was
+planned and 25c edits none of its files; after 24d lands, the one-line
+follow-up is to pass the term resolver to `/make`'s `matchesFilter` so
+`tag:drink` includes the narrower styles (every drink carries `drink` anyway).
 
 ## Phase detail
 
@@ -247,19 +318,42 @@ and cold brews as a named instruction group, so the ingredient list is what
 goes in the glass; the syrup is tagged `syrup` with no `drink` spec. No
 bitters on zero-proof drinks — bitters are mostly alcohol.
 
-### 25c — Bar inventory (sketch; its own plan pass)
+### 25c — "What can I make?" `agent/25c-make` 🟡 review (← `main` `7aeb3230`)
 
-After 24d and ideally 24e. Must match on the **generic** ingredient (the
-brand in parens is ignored). Open questions for that plan: generic-name
-extraction from free-text lines vs. explicit ingredient terms (a second
-vocabulary reverses 24's "one vocabulary" and needs a decision); inventory as
-a content type vs. a settings document; optional lines ("…, optional") and
-"to top" mixers; **intermediate components** — an infusion ("chamomile-infused
-vodka") or a house syrup ("lavender syrup") is makeable from inventory
-rather than owned, so "can make now" has to follow one level of recipe.
+Planned 2026-10-05 with Roger: generic ("What can I make with…"), scoped by
+the search language (`tag:drink` default), no masthead link — entry points are
+a ⌘K "Go to" row and a "What can I make with these?" link on term pages. The
+open questions from the sketch were settled as: names extracted from the
+free-text lines (D9) rather than a second vocabulary; storage per D10;
+optional lines and "to top" mixers per D9; intermediate components via the
+one-level sub-recipe rule, which also covers infusions loosely.
 
-Inventory seed: the bottles, syrups and mixers the step-1 and tea recipes
-name, plus the user's additions on 2026-10-04 — teas (green, black,
+- **Pure core:** `common/util/ingredientNames.ts`, `makeable.ts`,
+  `inventoryText.ts`; `normalizeIngredientText` split out of
+  `createIngredient` so names see lines as the form stored them.
+  `editor/scripts/measure-ingredient-names.ts` (read-only, opens no index —
+  safe on the live repo) prints each line beside its requirement.
+- **Index:** D8. `linked-recipes` regenerated; new fixture `make-drinks`.
+- **UI:** `common/components/MakePage/` (`useInventory` in `useListMode`'s
+  shape; inventory `<aside>` with a disclosure on narrow screens, chips with
+  sibling remove buttons, `<datalist>` from `suggestNames`; import/export
+  `Dialog`; ticker; Buy next; Can make / One away / Two away / Further). Routes
+  `make/page.tsx` in both apps inside `<Suspense>` (`useSearchParams`). The
+  only `SearchContext` change is `export` on `fetchIngredients`.
+
+**Gate results (2026-10-05):** both typechecks clean; `vitest` 726/726
+(+ `ingredientNames` 73, `makeable` 20, `inventoryText` 13, index fields 2);
+`recipe-website build` against a scratch copy of `make-drinks` — `/make`
+prerendered static (`○`), `/search/all` carries both fields; Playwright
+`make.spec.ts` 14/14; `visual.spec` `make-page` baseline added (palette
+baselines unmoved — the new row is below their crop); `command-palette.spec`
+36/36 and the gate's eight specs (`accessibility visual search
+search-corpus-split recipe tree featured-recipes tag-pages`) 175/175 — three
+tests (two palette Enter/click navigations, one featured click-through) timed
+out at 5 s on a `next dev` cold compile once and passed alone on rerun.
+
+Inventory seed for 25e: the bottles, syrups and mixers the step-1 and tea
+recipes name, plus the user's additions on 2026-10-04 — teas (green, black,
 hibiscus, chamomile), dried lavender, non-alcoholic Gnista, orange bitters.
 
 ## Deferred
@@ -280,3 +374,7 @@ hibiscus, chamomile), dried lavender, non-alcoholic Gnista, orange bitters.
 - `common/components/Form/index.tsx` — the Drink section.
 - `editor/controller/parseFormData.ts` — `drinkSchema`.
 - `editor/controller/curation/schema.ts` — `DrinkSpecSchema`.
+- `common/util/ingredientNames.ts`, `common/util/makeable.ts`,
+  `common/util/inventoryText.ts` — 25c's matching and inventory text (D9/D10).
+- `common/components/MakePage/` — `/make` (both apps' `make/page.tsx` mount it).
+- `editor/scripts/measure-ingredient-names.ts` — what the parser makes of a corpus.

@@ -170,6 +170,26 @@ function capDescription(text: string): string {
   ).trimEnd();
 }
 
+/**
+ * Slugs of the recipes a line links to, `/recipe/<slug>` — relative, or
+ * absolute on any host (`http://uraninite:3000/recipe/…` is in the corpus).
+ * Read from the raw markdown, because `flattenMarkdown` keeps a link's text
+ * and drops its target.
+ */
+export function recipeLinkSlugs(markdown: string): string[] {
+  const slugs: string[] = [];
+  for (const match of markdown.matchAll(
+    /\]\(\s*(?:https?:\/\/[^/\s)]+)?\/recipe\/([^/\s)#?]+)/g,
+  )) {
+    try {
+      slugs.push(decodeURIComponent(match[1]));
+    } catch {
+      slugs.push(match[1]);
+    }
+  }
+  return slugs;
+}
+
 export default function buildRecipeIndexValue(
   recipe: Recipe,
 ): RecipeEntryValue {
@@ -186,6 +206,19 @@ export default function buildRecipeIndexValue(
   const flatDescription = description
     ? capDescription(flattenMarkdown(description))
     : undefined;
+  /*
+   * The two "What can I make?" fields (25c/D8): which lines are headings, and
+   * which name another recipe. Both are lost by flattening — a heading's
+   * `type` and a link's target — and `/make` runs in the browser over the
+   * index alone. Set only when non-empty, so a recipe with neither re-indexes
+   * to the bytes already on disk (T16).
+   */
+  const ingredientHeadings = ingredients?.flatMap(({ type }, line) =>
+    type === "heading" ? [line] : [],
+  );
+  const ingredientRecipeLinks = ingredients?.flatMap(({ ingredient }, line) =>
+    recipeLinkSlugs(ingredient).map((slug) => ({ line, slug })),
+  );
   return {
     name,
     description: flatDescription || undefined,
@@ -197,5 +230,7 @@ export default function buildRecipeIndexValue(
     prepTime: prepTime || undefined,
     cookTime: cookTime || undefined,
     totalTime: totalTime || undefined,
+    ...(ingredientHeadings?.length ? { ingredientHeadings } : {}),
+    ...(ingredientRecipeLinks?.length ? { ingredientRecipeLinks } : {}),
   };
 }
