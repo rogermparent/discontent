@@ -35,6 +35,11 @@ import type {
 } from "../../controller/curation/git";
 import type { ImportResult } from "../../controller/curation/importRecipe";
 import type {
+  InventoryResult,
+  InventoryWriteResult,
+  MakeableResult,
+} from "../../controller/curation/inventory";
+import type {
   RecipeDetail,
   RecipeListResult,
   RecipeWriteResult,
@@ -59,6 +64,9 @@ export type {
   GroupListResult,
   GroupWriteResult,
   ImportResult,
+  InventoryResult,
+  InventoryWriteResult,
+  MakeableResult,
   PushResult,
   RecipeDetail,
   RecipeListResult,
@@ -150,6 +158,24 @@ export interface CuratorBackend {
   listTags(): Promise<string[]>;
 
   reindex(contentType?: string): Promise<ReindexResult>;
+
+  /* --- inventory (25d) --------------------------------------------------- */
+
+  /**
+   * The editor's shared list of what's on hand, and what it can make.
+   *
+   * On the seam so the CLI, the MCP tools and `--remote` all reach the same
+   * file. `setInventory` replaces the list whole and is the one write the
+   * agent's seats hold back (D11); `patchInventory` takes an `{add, remove}`
+   * diff.
+   */
+  getInventory(): Promise<InventoryResult>;
+  patchInventory(raw: unknown): Promise<InventoryWriteResult>;
+  setInventory(raw: unknown): Promise<InventoryWriteResult>;
+  inventoryMakeable(options?: {
+    query?: string;
+    limit?: number;
+  }): Promise<MakeableResult>;
 
   /* --- git (23d/D23) ----------------------------------------------------- */
 

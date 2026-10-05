@@ -279,4 +279,42 @@ describe("the CLI as a process", () => {
     },
     TIMEOUT,
   );
+
+  /*
+   * 25d. A bare `inventory` is `inventory list` — the one table command with
+   * a default — and the items are positionals, quoted when they have spaces.
+   */
+  it(
+    "keeps the inventory: bare list, add, and make as one object each",
+    async () => {
+      const empty = await run(["inventory", "--json"]);
+      expect(empty.exitCode).toBe(0);
+      expect(JSON.parse(empty.stdout)).toMatchObject({ items: [] });
+
+      const added = await run([
+        "inventory",
+        "add",
+        "simple syrup",
+        "Gnista",
+        "--json",
+      ]);
+      expect(added.exitCode).toBe(0);
+      expect(JSON.parse(added.stdout)).toMatchObject({
+        items: ["Gnista", "simple syrup"],
+        changed: true,
+      });
+
+      const make = await run(["inventory", "make", "-tag:drink", "--json"]);
+      expect(make.exitCode).toBe(0);
+      expect(JSON.parse(make.stdout)).toMatchObject({
+        query: "-tag:drink",
+        inventory: 2,
+      });
+
+      const usage = await run(["inventory", "add", "--json"]);
+      expect(usage.exitCode).not.toBe(0);
+      expect(JSON.parse(usage.stdout).error.code).toBe("usage");
+    },
+    TIMEOUT,
+  );
 });

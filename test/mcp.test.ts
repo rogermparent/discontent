@@ -516,6 +516,59 @@ describe("the MCP registry over an in-memory transport", () => {
       code: "not_found",
     });
   });
+
+  /* ---------------------------------------------------------------- */
+  /* 11. Inventory (25d)                                               */
+  /* ---------------------------------------------------------------- */
+
+  it("keeps the shared inventory and says what it makes", async () => {
+    await call("recipe_create", {
+      recipe: {
+        name: "Gin and Tonic",
+        tags: ["drink"],
+        ingredients: ["2 oz gin", "Tonic water, to top"],
+      },
+    });
+
+    expect((await call("inventory_get")).data).toMatchObject({ items: [] });
+
+    const added = await call("inventory_add", { items: ["gin", "Gnista"] });
+    expect(added.isError).toBe(false);
+    expect(added.data).toMatchObject({
+      items: ["gin", "Gnista"],
+      added: ["gin", "Gnista"],
+      changed: true,
+    });
+    /* Nothing caches the list, so there is no stale editor to warn about. */
+    expect(added.data.warnings).toBeUndefined();
+
+    const before = await call("inventory_makeable", {});
+    expect(before.data).toMatchObject({
+      query: "tag:drink",
+      oneAway: [{ slug: "gin-and-tonic", missing: ["tonic water"] }],
+    });
+
+    await call("inventory_add", { items: ["tonic"] });
+    await call("inventory_remove", { items: ["Gnista"] });
+    const after = await call("inventory_makeable", { query: "tag:drink" });
+    expect(after.data).toMatchObject({
+      inventory: 2,
+      canMake: [{ slug: "gin-and-tonic", name: "Gin and Tonic" }],
+    });
+
+    const replaced = await call("inventory_set", { items: ["vodka"] });
+    expect(replaced.data).toMatchObject({
+      items: ["vodka"],
+      removed: ["gin", "tonic"],
+    });
+
+    /* The tool's own schema refuses it, in the SDK's shape (T28). */
+    const tooLong = await client.callTool({
+      name: "inventory_add",
+      arguments: { items: ["x".repeat(81)] },
+    });
+    expect(tooLong.isError).toBe(true);
+  });
 });
 
 /* ------------------------------------------------------------------ */

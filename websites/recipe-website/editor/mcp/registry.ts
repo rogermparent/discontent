@@ -56,6 +56,9 @@ import {
   GroupInputSchema,
   GroupItemInputSchema,
   GroupPatchSchema,
+  InventoryItemSchema,
+  InventoryMakeQuerySchema,
+  InventorySetSchema,
   RecipeInputSchema,
   RecipePatchSchema,
 } from "../controller/curation/schema";
@@ -93,6 +96,11 @@ export const TOOL_NAMES = [
   "feature",
   "unfeature",
   "reindex",
+  "inventory_get",
+  "inventory_add",
+  "inventory_remove",
+  "inventory_set",
+  "inventory_makeable",
   "git_status",
   "git_log",
   "git_show",
@@ -650,6 +658,89 @@ export function createRecipeServer(
     },
     async ({ contentType }) =>
       write(backend, () => backend.reindex(contentType)),
+  );
+
+  /* --- inventory (25d) --------------------------------------------------- */
+
+  server.registerTool(
+    "inventory_get",
+    {
+      title: "What's on hand",
+      description:
+        "The site's shared list of what is on hand — bottles, mixers, fruit, pantry " +
+        "items — as people write them (`vodka`, `Gnista`, `lime`). Matching is on the " +
+        "generic name, so a brand is worth adding only when a recipe names it.",
+      inputSchema: z.strictObject({}),
+      annotations: READ_ONLY,
+    },
+    async () => read(() => backend.getInventory()),
+  );
+
+  server.registerTool(
+    "inventory_add",
+    {
+      title: "Add to what's on hand",
+      description:
+        "Add items to the shared list, one commit. Items already there are skipped. " +
+        "Write the generic name first (`aperitif (Gnista)` or just `Gnista`), the way " +
+        "recipe lines are written.",
+      inputSchema: z.strictObject({
+        items: z.array(InventoryItemSchema).min(1).max(500),
+      }),
+      annotations: WRITES,
+    },
+    async ({ items }) =>
+      write(backend, () => backend.patchInventory({ add: items }), {
+        notify: false,
+      }),
+  );
+
+  server.registerTool(
+    "inventory_remove",
+    {
+      title: "Remove from what's on hand",
+      description:
+        "Remove items from the shared list (matched case- and accent-insensitively), " +
+        "one commit. Items not on the list are ignored.",
+      inputSchema: z.strictObject({
+        items: z.array(InventoryItemSchema).min(1).max(500),
+      }),
+      annotations: WRITES,
+    },
+    async ({ items }) =>
+      write(backend, () => backend.patchInventory({ remove: items }), {
+        notify: false,
+      }),
+  );
+
+  server.registerTool(
+    "inventory_set",
+    {
+      title: "Replace what's on hand",
+      description:
+        "Replace the whole shared list with `items`, one commit. Everything not named " +
+        "is dropped — prefer inventory_add and inventory_remove.",
+      inputSchema: InventorySetSchema,
+      annotations: DESTRUCTIVE_WRITE,
+    },
+    async (args) =>
+      write(backend, () => backend.setInventory(args), { notify: false }),
+  );
+
+  server.registerTool(
+    "inventory_makeable",
+    {
+      title: "What can I make?",
+      description:
+        "Judge the shared list against recipes in `query`'s scope (the search " +
+        "language; `tag:drink` by default): which can be made now, which are one or " +
+        "two items short and what's missing, how many are further, and what to buy " +
+        "next. A line can be met by making another recipe first (`makeFirst`). The " +
+        "same rules the site's /make page uses.",
+      inputSchema: InventoryMakeQuerySchema,
+      annotations: READ_ONLY,
+    },
+    async (args) => read(() => backend.inventoryMakeable(args)),
   );
 
   /* --- git --------------------------------------------------------------- */

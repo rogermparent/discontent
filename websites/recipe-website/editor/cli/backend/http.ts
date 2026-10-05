@@ -45,6 +45,9 @@ import type {
   GroupWriteResult,
   ImportOptions,
   ImportResult,
+  InventoryResult,
+  InventoryWriteResult,
+  MakeableResult,
   PushResult,
   RecipeDetail,
   RecipeListResult,
@@ -316,6 +319,23 @@ export function createHttpBackend({
         "DELETE",
         `/api/featured/${encodeURIComponent(slug)}`,
       );
+    },
+
+    getInventory() {
+      return call<InventoryResult>("GET", "/api/inventory");
+    },
+    patchInventory(raw) {
+      return call<InventoryWriteResult>("PATCH", "/api/inventory", {
+        body: raw,
+      });
+    },
+    setInventory(raw) {
+      return call<InventoryWriteResult>("PUT", "/api/inventory", { body: raw });
+    },
+    inventoryMakeable(options = {}) {
+      return call<MakeableResult>("GET", "/api/inventory/make", {
+        query: options,
+      });
     },
 
     /* The route answers `{tags}`; the seam's shape is the bare list. */
