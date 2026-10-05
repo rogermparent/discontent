@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   extractAuthorName,
   importRecipeData,
+  RECIPE_FETCH_HEADERS,
 } from "recipe-website-common/util/importRecipeData";
 
 const PAGE_URL = "https://www.example.com/recipes/naan";
@@ -77,6 +78,41 @@ describe("importRecipeData source", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("asks for the page as a browser would", async () => {
+    /* Imbibe 403s Node's default agent and serves a browser (25e probe). */
+    const fetchStub = stubFetch(recipeHtml({ author: "Pooja Makhijani" }));
+    await importRecipeData(PAGE_URL);
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchStub.mock.calls[0] as unknown as [
+      string,
+      { headers: Record<string, string> },
+    ];
+    expect(url).toBe(PAGE_URL);
+    expect(init.headers).toBe(RECIPE_FETCH_HEADERS);
+    expect(init.headers["user-agent"]).toMatch(/^Mozilla\/5\.0 .*Chrome\//);
+    expect(init.headers.accept).toContain("text/html");
+  });
+
+  it("reads ingredients published as objects, and skips unreadable ones", async () => {
+    stubFetch(
+      recipeHtml({
+        recipeIngredient: [
+          { ingredient: "1 1/2 oz. white rum", ingredient_link: "" },
+          "3/4 oz lime juice",
+          { text: "1/4 oz maraschino liqueur" },
+          42,
+          { unrelated: true },
+        ],
+      }),
+    );
+    const imported = await importRecipeData(PAGE_URL);
+    expect(imported?.ingredients?.map((line) => line.ingredient)).toEqual([
+      '<Multiplyable baseNumber="1 1/2" /> oz. white rum',
+      '<Multiplyable baseNumber="3/4" /> oz lime juice',
+      '<Multiplyable baseNumber="1/4" /> oz maraschino liqueur',
+    ]);
   });
 
   it("carries an author given as a string", async () => {
