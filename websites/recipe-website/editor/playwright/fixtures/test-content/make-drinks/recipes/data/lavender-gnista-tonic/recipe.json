@@ -1,0 +1,32 @@
+{
+  "name": "Lavender Gnista Tonic",
+  "description": "A zero-proof tonic with a little lavender syrup.",
+  "tags": [
+    "drink",
+    "zero-proof",
+    "highball"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1 1/2\" /> oz non-alcoholic aperitif (Gnista)"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1/4\" /> oz [lavender syrup](/recipe/lavender-syrup)"
+    },
+    {
+      "ingredient": "Tonic water, to top"
+    }
+  ],
+  "drink": {
+    "method": "build",
+    "glass": "wine",
+    "ice": "cubes"
+  },
+  "date": 1790000240000,
+  "recipeYield": "1 drink",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

@@ -6,7 +6,10 @@ import type {
   TagVocabularyEntry,
   TermPageData,
 } from "../../controller/tagVocabulary";
+import type { RecipeListEntry } from "../../controller/paginationConfigs";
+import { tagSlug } from "../../controller/tagSlug";
 import { EmptyState } from "../EmptyState";
+import { quoteQueryValue } from "../SearchForm/queryLanguage";
 import { GroupThumbnail } from "../GroupThumbnail";
 import RecipeList from "../List";
 import GroupList from "../List/Group";
@@ -56,6 +59,22 @@ function TermChips({
       ))}
     </div>
   );
+}
+
+/**
+ * `/make` scoped to this term (25c).
+ *
+ * The `tag:` value is a carrier's own tag string, not the slug or the label:
+ * `tag:` matches tag strings by word prefix, so the slug `slow-cooker` misses
+ * "slow cooker" and a record's label "Drinks" misses `drink`. The slug is the
+ * fallback, and right whenever the two coincide.
+ */
+function makeHref(slug: string, recipes: RecipeListEntry[]): string {
+  const tag =
+    recipes
+      .flatMap((recipe) => recipe.tags ?? [])
+      .find((candidate) => tagSlug(candidate) === slug) ?? slug;
+  return `/make?q=${encodeURIComponent(`tag:${quoteQueryValue(tag)}`)}`;
 }
 
 /**
@@ -122,6 +141,17 @@ export function TermPageBody({ term }: { term: TermPageData }) {
           </h2>
           <TermChips terms={children} testId="term-children" />
         </div>
+      )}
+      {recipes.length > 0 && (
+        <p className="my-3 text-sm">
+          <Link
+            href={makeHref(slug, recipes)}
+            className="underline underline-offset-4 hover:text-primary"
+            data-testid="term-make-link"
+          >
+            What can I make with these?
+          </Link>
+        </p>
       )}
       {recipes.length > 0 ? (
         /*

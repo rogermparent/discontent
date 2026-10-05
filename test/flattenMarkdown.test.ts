@@ -115,3 +115,50 @@ describe("the indexed description's cap", () => {
     expect(result).toHaveLength(160);
   });
 });
+
+describe("the 25c ingredient index fields", () => {
+  it("records heading lines and /recipe/ links", () => {
+    const value = buildRecipeIndexValue({
+      name: "Lavender Gnista Tonic",
+      date: 1,
+      ingredients: [
+        { ingredient: "Drink", type: "heading" },
+        {
+          ingredient:
+            '<Multiplyable baseNumber="1/4" /> oz [lavender syrup](/recipe/lavender-syrup)',
+        },
+        {
+          ingredient:
+            "[Tonkatsu Sauce](http://uraninite:3000/recipe/homemade-tonkatsu-sauce)",
+        },
+        {
+          ingredient:
+            "[salsa taquera](https://www.brianlagerstrom.com/recipes/salsa-taquera)",
+        },
+        { ingredient: "Garnish", type: "heading" },
+      ],
+    } as Recipe);
+    expect(value.ingredients).toEqual([
+      "Drink",
+      "1/4 oz lavender syrup",
+      "Tonkatsu Sauce",
+      "salsa taquera",
+      "Garnish",
+    ]);
+    expect(value.ingredientHeadings).toEqual([0, 4]);
+    expect(value.ingredientRecipeLinks).toEqual([
+      { line: 1, slug: "lavender-syrup" },
+      { line: 2, slug: "homemade-tonkatsu-sauce" },
+    ]);
+  });
+
+  it("stores neither key when there is nothing to record", () => {
+    const value = buildRecipeIndexValue({
+      name: "Vodka Soda",
+      date: 1,
+      ingredients: [{ ingredient: "2 oz vodka" }],
+    } as Recipe);
+    expect(Object.keys(value)).not.toContain("ingredientHeadings");
+    expect(Object.keys(value)).not.toContain("ingredientRecipeLinks");
+  });
+});

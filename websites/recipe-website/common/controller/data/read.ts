@@ -1,7 +1,12 @@
 import { readContentFile } from "@discontent/cms/content/readContentFile";
 import { readContentIndex } from "@discontent/cms/content/readContentIndex";
 import { recipeContentConfig } from "../recipeContentConfig";
-import { Recipe, RecipeEntryKey, RecipeEntryValue } from "../types";
+import {
+  IngredientRecipeLink,
+  Recipe,
+  RecipeEntryKey,
+  RecipeEntryValue,
+} from "../types";
 import { recipeTagReads } from "./readRecipeTagIndex";
 
 export type MassagedRecipeEntry = {
@@ -29,6 +34,10 @@ export type MassagedRecipeEntry = {
   prepTime?: number;
   cookTime?: number;
   totalTime?: number;
+  /** Heading line indexes, for `/make` (25c). Rides on `/search/all`. */
+  ingredientHeadings?: number[];
+  /** Lines' recipe links, for `/make` (25c). Rides on `/search/all`. */
+  ingredientRecipeLinks?: IngredientRecipeLink[];
 };
 
 export interface ReadRecipeIndexResult {
@@ -93,6 +102,8 @@ export async function getRecipes({
         prepTime,
         cookTime,
         totalTime,
+        ingredientHeadings,
+        ingredientRecipeLinks,
       },
     }) => ({
       date,
@@ -105,6 +116,8 @@ export async function getRecipes({
       prepTime,
       cookTime,
       totalTime,
+      ingredientHeadings,
+      ingredientRecipeLinks,
     }),
   });
 

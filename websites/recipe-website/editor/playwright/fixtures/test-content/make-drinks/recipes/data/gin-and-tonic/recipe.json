@@ -1,0 +1,32 @@
+{
+  "name": "Gin and Tonic",
+  "description": "The highball everyone knows.",
+  "tags": [
+    "drink",
+    "gin",
+    "highball"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"2\" /> oz gin"
+    },
+    {
+      "ingredient": "Tonic water, to top"
+    },
+    {
+      "ingredient": "Lime wedge, for garnish"
+    }
+  ],
+  "drink": {
+    "method": "build",
+    "glass": "highball",
+    "ice": "cubes"
+  },
+  "date": 1790000120000,
+  "recipeYield": "1 drink",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

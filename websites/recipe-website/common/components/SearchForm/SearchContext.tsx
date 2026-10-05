@@ -182,7 +182,7 @@ async function fetchAllRecipes(): Promise<MassagedRecipeEntry[]> {
  * conditional fetch, and an ordinary page load that finds a current index in
  * IndexedDB never makes it.
  */
-async function fetchIngredients(): Promise<Record<string, string[]>> {
+export async function fetchIngredients(): Promise<Record<string, string[]>> {
   const res = await fetch("/search/ingredients");
   return res.json();
 }

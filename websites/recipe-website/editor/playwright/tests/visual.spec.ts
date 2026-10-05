@@ -306,4 +306,19 @@ test.describe("Visual baselines @visual", () => {
       maxDiffPixelRatio: 0.05,
     });
   });
+
+  // `/make` with a few items in: the inventory panel, quick picks, ticker,
+  // "Buy next" and the bucketed grids, all in one shot (25c).
+  test("make page with an inventory", async ({ page, resetData }) => {
+    await resetData("make-drinks");
+    await page.goto("/make");
+    await expect(page.getByTestId("make-ticker")).toHaveText(/can make/i, {
+      timeout: 20_000,
+    });
+    const input = page.getByTestId("inventory-input");
+    await input.fill("vodka, simple syrup, gin, tonic, Gnista");
+    await input.press("Enter");
+    await expect(page.getByTestId("make-can")).toContainText("Gin and Tonic");
+    await snapshotPage(page, "make-page.png");
+  });
 });

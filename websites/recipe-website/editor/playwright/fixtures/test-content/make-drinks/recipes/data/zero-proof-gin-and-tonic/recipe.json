@@ -1,0 +1,29 @@
+{
+  "name": "Zero-Proof G&T",
+  "description": "A non-alcoholic gin and tonic.",
+  "tags": [
+    "drink",
+    "zero-proof",
+    "highball"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"2\" /> oz non-alcoholic gin"
+    },
+    {
+      "ingredient": "Tonic water, to top"
+    }
+  ],
+  "drink": {
+    "method": "build",
+    "glass": "highball",
+    "ice": "cubes"
+  },
+  "date": 1790000180000,
+  "recipeYield": "1 drink",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

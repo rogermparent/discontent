@@ -1,0 +1,32 @@
+{
+  "name": "Vodka Sour",
+  "description": "Vodka, lime and simple syrup, shaken hard.",
+  "tags": [
+    "drink",
+    "vodka",
+    "sour"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"2\" /> oz vodka"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"3/4\" /> oz lime juice"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"3/4\" /> oz simple syrup"
+    }
+  ],
+  "drink": {
+    "method": "shake",
+    "glass": "coupe",
+    "ice": "up"
+  },
+  "date": 1790000060000,
+  "recipeYield": "1 drink",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

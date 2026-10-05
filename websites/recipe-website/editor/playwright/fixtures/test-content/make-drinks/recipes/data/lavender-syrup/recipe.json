@@ -1,0 +1,25 @@
+{
+  "name": "Lavender Syrup",
+  "description": "Sugar, water and dried lavender.",
+  "tags": [
+    "syrup"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> cup sugar"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> cup water"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> tbsp dried culinary lavender"
+    }
+  ],
+  "date": 1790000300000,
+  "recipeYield": "1 drink",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

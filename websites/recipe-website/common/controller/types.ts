@@ -119,7 +119,26 @@ export interface RecipeEntryValue {
   prepTime?: number;
   cookTime?: number;
   totalTime?: number;
+  /**
+   * Indexes into `ingredients` of the lines that are headings (25c/D8).
+   * Stored, never tokenized; absent when there are none — and on any index
+   * built before 25c, which is why readers fall back to `detectHeading`.
+   */
+  ingredientHeadings?: number[];
+  /**
+   * Each `/recipe/<slug>` link in a line (25c/D8), so `/make` can offer
+   * "make lavender syrup first". Absent when there are none.
+   */
+  ingredientRecipeLinks?: IngredientRecipeLink[];
 }
+
+/**
+ * A line's link to another recipe. An object rather than a `[line, slug]`
+ * tuple, and a `type` rather than an `interface`, because the value rides to
+ * the browser's FlexSearch store, whose document type takes neither a tuple
+ * nor an interface (no implicit index signature).
+ */
+export type IngredientRecipeLink = { line: number; slug: string };
 
 export interface RecipeEntry {
   key: RecipeEntryKey;
