@@ -6,8 +6,7 @@ import {
   type FilterableRecipe,
 } from "../SearchForm/queryLanguage";
 
-/** What `/make` scopes to when nothing says otherwise. */
-export const DEFAULT_MAKE_QUERY = "tag:drink";
+export { DEFAULT_MAKE_QUERY } from "../../util/makeable";
 
 /**
  * Every free-text word must appear somewhere — name, description, a tag or an

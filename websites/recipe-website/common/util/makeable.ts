@@ -19,6 +19,12 @@ import {
   type Requirement,
 } from "./ingredientNames";
 
+/**
+ * What "What can I make?" scopes to when nothing says otherwise — on `/make`
+ * and in `inventory_makeable` alike.
+ */
+export const DEFAULT_MAKE_QUERY = "tag:drink";
+
 /** The slice of a recipe the matcher reads — structurally `MassagedRecipeEntry`. */
 export interface MakeRecipe {
   slug: string;

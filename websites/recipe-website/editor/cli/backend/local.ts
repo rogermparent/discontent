@@ -17,6 +17,7 @@ import * as featured from "../../controller/curation/featured";
 import * as git from "../../controller/curation/git";
 import * as groups from "../../controller/curation/groups";
 import { importAndCreate } from "../../controller/curation/importRecipe";
+import * as inventory from "../../controller/curation/inventory";
 import * as recipes from "../../controller/curation/recipes";
 import { reindex } from "../../controller/curation/reindex";
 import { listTags, searchRecipes } from "../../controller/curation/search";
@@ -195,6 +196,17 @@ export function createLocalBackend({
 
     /* `rebuildIndex` writes LMDB only and never commits: no identity needed. */
     reindex: (contentType) => reindex(ctx, contentType),
+
+    getInventory: () => inventory.readInventory(ctx),
+    async patchInventory(raw) {
+      await guard();
+      return inventory.patchInventory(ctx, raw);
+    },
+    async setInventory(raw) {
+      await guard();
+      return inventory.setInventory(ctx, raw);
+    },
+    inventoryMakeable: (options) => inventory.makeable(ctx, options ?? {}),
 
     gitStatus: () => git.gitStatus(ctx),
     gitLog: (options) => git.gitLog(ctx, options),

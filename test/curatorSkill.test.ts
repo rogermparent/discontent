@@ -50,6 +50,8 @@ const HELD_BACK = [
   "git_revert",
   "git_restore",
   "git_push",
+  /* 25d: replaces the whole shared inventory — add/remove are the seats. */
+  "inventory_set",
 ] as const;
 
 const EXPECTED_ALLOWED = TOOL_NAMES.filter(
@@ -58,7 +60,7 @@ const EXPECTED_ALLOWED = TOOL_NAMES.filter(
 
 /** Anything backticked that is shaped like one of this server's tool names. */
 const TOOL_SHAPED =
-  /^(recipe|group|git|tag|featured)_[a-z_]+$|^(feature|unfeature|reindex)$/;
+  /^(recipe|group|git|tag|featured|inventory)_[a-z_]+$|^(feature|unfeature|reindex)$/;
 
 /** `## Heading` … up to the next `## `, or the end. */
 function section(markdown: string, heading: string): string {

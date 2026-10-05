@@ -1,7 +1,7 @@
 ---
 name: recipe-curator
-description: Find, import, cite and group recipes for the recipe website — meal plans, collections, nested collections and the homepage strip — through the `recipes` MCP tools. Use for asks like "plan dinners for the week", "import this recipe", "make a collection of …", "put it on the homepage".
-allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__recipe_import, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__tag_list, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, WebSearch, Bash(pnpm --silent recipes:*)
+description: Find, import, cite and group recipes for the recipe website — meal plans, collections, nested collections, the homepage strip and the shared list of what's on hand — through the `recipes` MCP tools. Use for asks like "plan dinners for the week", "import this recipe", "make a collection of …", "put it on the homepage", "I bought Gnista", "what can I make?".
+allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__recipe_import, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__tag_list, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__inventory_get, mcp__recipes__inventory_add, mcp__recipes__inventory_remove, mcp__recipes__inventory_makeable, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, WebSearch, Bash(pnpm --silent recipes:*)
 ---
 
 # Recipe curator
@@ -131,6 +131,25 @@ instruction. Name each ingredient **generic first, brand in parens** —
 a `recipe_update` patch, `drink` **replaces** the whole spec rather than
 merging into it, and `null` (or an empty object) removes it.
 
+**Importing a drink from a site.** `recipe_import {url, dryRun: true}`, then
+normalize the dry run and `recipe_create` it — with `source` and
+`imageImportUrl` from the dry run, so the citation survives in one commit:
+
+- **Name** `"Margarita (Liquor.com)"`, **slug** `margarita-liquor-com`. Two
+  sites' versions of one drink are two recipes; both carry a shared drink tag
+  (`margarita`) so `/tags/margarita` lists them side by side.
+- **Tags:** `drink`, the base spirit, one style, `low-abv`/`zero-proof` where
+  it applies, and the shared drink tag.
+- **Units:** ounce(s) and fl oz → `oz`; ml → oz at 30 ml = 1 oz, rounded to
+  the nearest ¼; ASCII fractions (`1 1/2`, never `1½`).
+- **Lines:** generic name first, brand in parens; drop "freshly squeezed";
+  garnish lines out of `ingredients` and into `drink.garnish`; method, glass
+  and ice into `drink`.
+- **House syrups** link their recipe — `"1/2 oz [lavender syrup](/recipe/lavender-syrup)"`
+  — so "what can I make" can offer to make it first.
+- **Description:** one or two sentences in the site's voice; the full
+  citation stays in `source`, never in the description.
+
 ## 7. Group them
 
 ```json
@@ -164,7 +183,32 @@ the default has one-second resolution. `featured_list` shows the strip.
 `group_update` fixes a name, description or kind and never touches the items,
 so a plan cannot be lost to a rename; `group_remove_item` drops one row.
 
-## 8. Report
+## 8. What's on hand
+
+The site keeps one shared list of what is on hand (bottles, mixers, fruit,
+pantry items) and judges recipes against it — the same rules as its "What can
+I make?" page.
+
+```json
+inventory_get {}
+inventory_add {"items": ["Gnista", "orange bitters"]}
+inventory_remove {"items": ["vodka"]}
+inventory_makeable {"query": "tag:drink", "limit": 20}
+```
+
+`inventory_get` → `{items, path}`. `inventory_add` and `inventory_remove` →
+`{items, path, added, removed, changed}`, one commit each, and `changed:
+false` when the list already said so. Write items the way recipe lines are
+written: **generic name** (`lime`, `simple syrup`, `non-alcoholic gin`), or a
+brand alone when it means one thing (`Gnista`). `inventory_makeable` →
+`{query, inventory, total, canMake, oneAway, twoAway, further, buyNext}`:
+each row is `{slug, name, missing?, makeFirst?}` (`makeFirst` names a recipe,
+such as a house syrup, that meets a line once made), and `buyNext` ranks
+`{item, label, unlocks, helps}` by how many recipes one more item would make
+possible. Change the list **only when the ask says so** ("I bought Gnista",
+"I'm out of vodka").
+
+## 9. Report
 
 A `Day | Recipe | Time | Source` table (`Recipe` linking `/recipe/<slug>`),
 then the `/group/<slug>` links, then anything rejected and why. Restate any
@@ -178,8 +222,8 @@ and `git_file_at` read one back). End with: push from `/git` when ready.
 ## Held back
 
 `recipe_delete`, `group_delete`, `unfeature`, `reindex`, `git_revert`,
-`git_restore` and `git_push` are not pre-approved and are not part of this
-skill — do not call them, and do not ask for them to be approved. If a write
+`git_restore`, `git_push` and `inventory_set` (which replaces the whole
+inventory) are not pre-approved and are not part of this skill — do not call them, and do not ask for them to be approved. If a write
 goes wrong, find its commit with `git_log` and report the hash and the path:
 undoing it with `git_revert` or `git_restore`, and pushing, are the user's
 calls. Never pass `overwrite` or `force`, and never put `RECIPE_API_TOKEN` on

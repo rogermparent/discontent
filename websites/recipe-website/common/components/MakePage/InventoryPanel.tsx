@@ -1,6 +1,12 @@
 "use client";
 
-import { useId, useMemo, useState, type RefObject } from "react";
+import {
+  useId,
+  useMemo,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { ChevronDown, X } from "lucide-react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { Input } from "@discontent/component-library/components/ui/input";
@@ -23,18 +29,39 @@ const MAX_SUGGESTIONS = 300;
  */
 export function InventoryPanel({
   inventory,
+  shared,
+  pending,
   suggestions,
   inputRef,
   dialogOpen,
   onDialogOpenChange,
 }: {
   inventory: Inventory;
+  /**
+   * The editor's shared list (25d), when there is one. With it, each chip
+   * says where it comes from — shared, or added on this browser (`+`) — and
+   * shared items this browser removed are listed as hidden, with Undo.
+   */
+  shared?: string[];
+  /** The "N changes on this browser — Save / Discard" bar, if any. */
+  pending?: ReactNode;
   suggestions: string[];
   inputRef: RefObject<HTMLInputElement | null>;
   dialogOpen: boolean;
   onDialogOpenChange: (open: boolean) => void;
 }) {
-  const { have, add, remove, setHave } = inventory;
+  const { have, add, remove, setHave, overlay } = inventory;
+  const sharedKeys = useMemo(
+    () => (shared ? new Set(shared.map(inventoryKey)) : undefined),
+    [shared],
+  );
+  const hidden = useMemo(
+    () =>
+      sharedKeys
+        ? overlay.removed.filter((item) => sharedKeys.has(inventoryKey(item)))
+        : [],
+    [overlay.removed, sharedKeys],
+  );
   const [open, setOpen] = useState(true);
   const [draft, setDraft] = useState("");
   const panelId = useId();
@@ -116,9 +143,31 @@ export function InventoryPanel({
             {have.map((item) => (
               <li
                 key={inventoryKey(item)}
-                className="inline-flex items-center rounded-full bg-secondary text-secondary-foreground text-xs"
+                data-source={
+                  sharedKeys
+                    ? sharedKeys.has(inventoryKey(item))
+                      ? "shared"
+                      : "browser"
+                    : undefined
+                }
+                className={cn(
+                  "inline-flex items-center rounded-full bg-secondary text-secondary-foreground text-xs",
+                  sharedKeys &&
+                    !sharedKeys.has(inventoryKey(item)) &&
+                    "ring-1 ring-primary/60",
+                )}
               >
-                <span className="pl-2.5 pr-1 py-1">{item}</span>
+                <span className="pl-2.5 pr-1 py-1">
+                  {sharedKeys && !sharedKeys.has(inventoryKey(item)) && (
+                    <>
+                      <span aria-hidden className="mr-0.5 font-bold">
+                        +
+                      </span>
+                      <span className="sr-only">(this browser) </span>
+                    </>
+                  )}
+                  {item}
+                </span>
                 <button
                   type="button"
                   aria-label={`Remove ${item}`}
@@ -131,6 +180,36 @@ export function InventoryPanel({
             ))}
           </ul>
         )}
+        {hidden.length > 0 && (
+          <div>
+            <h3 className="mb-1 text-xs font-semibold text-muted-foreground">
+              Hidden on this browser
+            </h3>
+            <ul
+              className="flex flex-wrap gap-1.5"
+              data-testid="inventory-hidden"
+              aria-label="Shared items hidden on this browser"
+            >
+              {hidden.map((item) => (
+                <li
+                  key={inventoryKey(item)}
+                  className="inline-flex items-center rounded-full border border-dashed text-xs text-muted-foreground"
+                >
+                  <span className="pl-2.5 pr-1 py-1 line-through">{item}</span>
+                  <button
+                    type="button"
+                    aria-label={`Undo hiding ${item}`}
+                    className="mr-1 rounded-full px-1.5 py-0.5 text-foreground underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                    onClick={() => add([item])}
+                  >
+                    Undo
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {pending}
         <div className="flex flex-wrap gap-2">
           <ImportExportDialog
             have={have}

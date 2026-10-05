@@ -169,6 +169,27 @@ registry entry or build ever sees it. Plain-text import/export (one per line;
 a comma line, bullets, checkboxes, `#` comments, JSON array or `{items}`
 accepted; 80 chars, 500 items) is the bridge between sites and browsers.
 
+The editor (25d) layers that overlay on a committed list,
+`<content>/inventory/on-hand.json` = `{"items": [...]}` (sorted, so it diffs
+line by line), read **only for a signed-in session** — a guest's `/make` is
+the export's page, and every `/api/inventory*` verb, GET included, goes
+through `requireCurationContext`. A browser's changes reach it as an
+`{add, remove}` diff (never the whole list, so a save can't drop what someone
+else added), one commit each. Nothing caches the file, so no write
+revalidates anything and the CLI/MCP writes carry no stale-editor hint.
+
+### D11 — Inventory seats: four pre-approved, `inventory_set` held back (25d)
+
+`inventory_get`, `inventory_add`, `inventory_remove` and `inventory_makeable`
+join the curator's pre-approved tools (25 now: settings, skill frontmatter,
+CLAUDE.md); `inventory_set` is registered but held back with the other
+destructive seats — it replaces the whole list. `inventory_makeable` scopes
+through `searchRecipes` (so 24d's resolver reaches it) and judges with the
+same `analyzeMakeable` the page runs, over index values read with the two D8
+fields. CLI: `recipes inventory [list|add <item…>|remove <item…>|set --file
+f|make [<query…>]]`; a bare `inventory` is `list`, the one table command with
+a default; `set --file` reads the page's Export text or JSON.
+
 ## Traps (T-list)
 
 - **T1 — `getByLabel` matches substrings.** The Drink inputs are labelled
@@ -215,10 +236,11 @@ accepted; 80 chars, 500 items) is the bridge between sites and browsers.
 | 25a     | `agent/25a-drink-spec` ← `main`    | ✅ done   | `Recipe.drink` (D1–D4): type, form section, both parsers, curation schemas, card, skill, this doc (M)                                                      |
 | 25b     | real content repo (no code)        | ✅ done   | `drink` on the 12, garnish headings out, style tags; hand-written `drink` term tree with ratio descriptions; reindex the tag taxonomy (S code / M content) |
 | **25c** | `agent/25c-make` ← `main`          | 🟡 review | Matching (D9), index fields (D8), `/make` in both apps with a browser inventory (D10), ⌘K row, term-page link (L)                                          |
-| 25d     | `agent/25d-shared-inventory` ← 25c | ⬜ next   | Editor's shared list `inventory/on-hand.json`: curation module, action, API, CLI, MCP seats (`inventory_set` held back), skill (M)                         |
+| 25d     | `agent/25d-shared-inventory` ← 25c | 🟡 review | Editor's shared list `inventory/on-hand.json`: curation module, action, API, CLI, MCP seats (`inventory_set` held back), skill (M)                         |
 | 25e     | real content repo (no code)        | ⬜        | ~100 sourced drink imports ("Drink (Site)", shared drink tag), sourced versions of the 18 house drinks, seed the shared inventory, reindex (L content)     |
 
-**Now: 25c in review; 25d builds on it.** 24d hadn't started when 25c was
+**Now: 25c and 25d in review (25d stacked on 25c); 25e (content) after both
+merge.** 24d hadn't started when 25c was
 planned and 25c edits none of its files; after 24d lands, the one-line
 follow-up is to pass the term resolver to `/make`'s `matchesFilter` so
 `tag:drink` includes the narrower styles (every drink carries `drink` anyway).
@@ -351,6 +373,55 @@ baselines unmoved — the new row is below their crop); `command-palette.spec`
 search-corpus-split recipe tree featured-recipes tag-pages`) 175/175 — three
 tests (two palette Enter/click navigations, one featured click-through) timed
 out at 5 s on a `next dev` cold compile once and passed alone on rerun.
+
+### 25d — Shared inventory `agent/25d-shared-inventory` 🟡 review (← 25c `eee4dc8f`)
+
+- **Curation:** `editor/controller/curation/inventory.ts` — `readInventory`,
+  `patchInventory`, `setInventory`, `makeable` (D10/D11); schemas
+  `InventoryPatchSchema`, `InventorySetSchema`, `InventoryMakeQuerySchema`.
+  Node-only, inside the D8 allow-list (`util/*` is how it reaches the matcher;
+  `DEFAULT_MAKE_QUERY` moved to `util/makeable.ts` for that).
+- **Seats:** `CuratorBackend` gains four methods (local + HTTP);
+  `api/inventory` (GET/PATCH/PUT) and `api/inventory/make`, all
+  authenticated; `cli/commands/inventory.ts`; five MCP tools (D11).
+- **Editor UI:** `make/page.tsx` reads the list for a session only and passes
+  `shared` + the `saveInventoryChanges` action; chips carry
+  `data-source="shared"|"browser"`, hidden shared items list with Undo, and
+  `SharedChanges` offers Save / Discard.
+- **Skill:** "8. What's on hand" and the drink-import checklist (naming
+  "Drink (Site)", units, house-syrup links); held-back list gains
+  `inventory_set`.
+
+**Gate results (2026-10-05):** both typechecks clean; `vitest` (+
+`inventory.test.ts` 13 incl. the export-boundary check; `mcp`, `cliJson`,
+`curatorSkill` extended); CLI smoke on a scratch git copy of `make-drinks` —
+`inventory add` made one commit `Update inventory: +Gnista +tonic water
++sugar +lavender`, `list`, `make` and `make tag:zero-proof --json` agree with
+the page's rules; `vitest` 741/741; Playwright `make.spec.ts` 18/18 (+4:
+guest sees nothing and the API answers 401, signed-in shows the shared list,
+hide-and-undo, save-and-reload) and the gate's eleven specs (`accessibility
+command-palette visual search search-corpus-split recipe tree
+featured-recipes tag-pages api-write mcp-http`) 238/238 clean;
+`recipe-website build` from a content dir that _contains_
+`inventory/on-hand.json` — `/make` static, nothing in `export/out` names or
+copies the list.
+
+### 25e — source probe (2026-10-05, dry runs only, nothing written)
+
+`recipe_import {dryRun: true}` per candidate domain, then `curl` to tell a
+block from a missing recipe:
+
+| Source                                                                          | Result                                                                                |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| acouplecooks.com, thekitchn.com, loveandlemons.com                              | ✅ import cleanly (JSON-LD Recipe, `source` with author)                              |
+| liquor.com, foodandwine.com, thespruceeats.com, allrecipes.com, seriouseats.com | ❌ 403 to any non-browser fetch, even with a browser UA (Dotdash Meredith bot wall)   |
+| imbibemagazine.com                                                              | ⚠️ has a Recipe in JSON-LD, but 403s Node's default `fetch` UA; a browser UA gets 200 |
+| punchdrink.com, diffordsguide.com                                               | ❌ 200, but no Recipe in JSON-LD                                                      |
+
+So "Margarita (Liquor.com)" as planned isn't reachable; the two-version
+pairs come from acouplecooks / The Kitchn / Love and Lemons. Imbibe would
+need the importer to send a browser `User-Agent` (`importRecipeData.ts:220`)
+— a decision for the user, not taken here.
 
 Inventory seed for 25e: the bottles, syrups and mixers the step-1 and tea
 recipes name, plus the user's additions on 2026-10-04 — teas (green, black,
