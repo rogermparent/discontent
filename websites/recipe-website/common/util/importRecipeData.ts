@@ -29,7 +29,8 @@ type AuthorLD = string | { name?: string } | (string | { name?: string })[];
 interface RecipeLD {
   name: string;
   description: string;
-  recipeIngredient: string[];
+  /** Strings per schema.org — but see `ingredientText` for what sites send. */
+  recipeIngredient: unknown[];
   image?: string[];
   video?: string | { contentUrl?: string; embedUrl?: string; url?: string };
   recipeInstructions: {
@@ -202,6 +203,46 @@ function isVideoUrl(url: string): boolean {
   }
 }
 
+/**
+ * One `recipeIngredient` entry as text.
+ *
+ * schema.org says each is a string, and nearly every site agrees. Imbibe's
+ * plugin publishes `{"ingredient": "1 ½ oz. white rum", "ingredient_link": ""}`
+ * instead, which reached `decodeHTML` as an object and threw — so an object
+ * with a string `ingredient`, `text` or `name` is read for that, and anything
+ * else is skipped rather than failing the whole import.
+ */
+export function ingredientText(entry: unknown): string | undefined {
+  if (typeof entry === "string") return entry;
+  if (entry && typeof entry === "object") {
+    for (const key of ["ingredient", "text", "name"] as const) {
+      const value = (entry as Record<string, unknown>)[key];
+      if (typeof value === "string") return value;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The headers a recipe page is requested with: a desktop browser's.
+ *
+ * Some recipe sites answer Node's default `fetch` with a 403 and serve the
+ * same page to a browser — Imbibe is the one the 25e source probe found
+ * (`docs/agent-mixology.md`). Asking as a browser gets the page and its
+ * JSON-LD; it does **not** get past a real bot wall: the Dotdash Meredith
+ * sites (liquor.com, Allrecipes, Serious Eats, …) still answer 403.
+ *
+ * Only the page fetch sends these. Image downloads go through the engine's
+ * own `fetch` in `packages/cms/content/filesystem.ts`, and the image hosts the
+ * probe tried serve Node's default agent fine.
+ */
+export const RECIPE_FETCH_HEADERS: Readonly<Record<string, string>> = {
+  "user-agent":
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+  accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "accept-language": "en-US,en;q=0.9",
+};
+
 export async function importRecipeData(
   rawUrl: string,
 ): Promise<Partial<ImportedRecipe> | undefined> {
@@ -217,7 +258,10 @@ export async function importRecipeData(
     };
   }
 
-  const response = await fetch(url, { next: { revalidate: 300 } });
+  const response = await fetch(url, {
+    headers: RECIPE_FETCH_HEADERS,
+    next: { revalidate: 300 },
+  });
 
   const text = await response.text();
   const recipeObject = findRecipeObjectInText(text);
@@ -261,7 +305,9 @@ export async function importRecipeData(
     cookTime: parseDurationToMinutes(cookTime),
     totalTime: parseDurationToMinutes(totalTime),
     ingredients: recipeIngredient
-      ?.map((ingredientLine) => createIngredient(decodeText(ingredientLine)))
+      ?.map(ingredientText)
+      .filter((line): line is string => !!line)
+      .map((ingredientLine) => createIngredient(decodeText(ingredientLine)))
       .filter(Boolean) as Ingredient[],
     instructions: recipeInstructions?.map((entry) => {
       // Handle string-based instructions
