@@ -22,7 +22,9 @@ import {
   toggleTagTerm,
 } from "../SearchForm/queryLanguage";
 import { SearchSkeleton } from "../SearchForm/SearchSkeleton";
+import { inventoryKey } from "../../util/inventoryText";
 import { InventoryPanel } from "./InventoryPanel";
+import { SharedChanges, type InventoryDiff } from "./SharedChanges";
 import { BuyNextList, MakeResults } from "./MakeResults";
 import { MakeTicker } from "./MakeTicker";
 import { DEFAULT_MAKE_QUERY, scopeRecipes, topTags } from "./scope";
@@ -42,11 +44,21 @@ const DRINK_TAG = "drink";
  * can deep-link to `/make?q=tag:<slug>` without touching the search box's
  * state.
  *
- * `shared` is 25d's: the editor's committed list, which this browser's
- * changes overlay. The export passes none, and the browser's list is all
- * there is.
+ * `shared` and `saveShared` are 25d's: the editor's committed list, which
+ * this browser's changes overlay, and the action that commits those changes.
+ * The export passes neither — and neither does the editor for a guest — so
+ * the browser's list is all there is.
  */
-export function MakePage({ shared }: { shared?: string[] }) {
+export function MakePage({
+  shared,
+  saveShared,
+}: {
+  shared?: string[];
+  saveShared?: (diff: {
+    add: string[];
+    remove: string[];
+  }) => Promise<{ items: string[] } | { error: string }>;
+}) {
   const searchParams = useSearchParams();
   const urlQuery = searchParams.get("q");
   const [lastQuery, rememberQuery] = useLastMakeQuery();
@@ -65,8 +77,26 @@ export function MakePage({ shared }: { shared?: string[] }) {
     [rememberQuery],
   );
 
-  const sharedItems = useMemo(() => shared ?? [], [shared]);
+  /* After a save, the list the server answered with — until the next load
+   * brings the same list back as `shared`. */
+  const [savedShared, setSavedShared] = useState<string[] | undefined>();
+  const effectiveShared = savedShared ?? shared;
+  const sharedItems = useMemo(() => effectiveShared ?? [], [effectiveShared]);
   const inventory = useInventory(sharedItems);
+  /* What this browser would change about the shared list, or nothing when
+   * there is no shared list to change. */
+  const pendingDiff = useMemo<InventoryDiff | undefined>(() => {
+    if (!effectiveShared) return undefined;
+    const keys = new Set(effectiveShared.map(inventoryKey));
+    return {
+      add: inventory.overlay.added.filter(
+        (item) => !keys.has(inventoryKey(item)),
+      ),
+      remove: inventory.overlay.removed.filter((item) =>
+        keys.has(inventoryKey(item)),
+      ),
+    };
+  }, [effectiveShared, inventory.overlay]);
   const inputRef = useRef<HTMLInputElement>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const queryInputId = useId();
@@ -192,6 +222,22 @@ export function MakePage({ shared }: { shared?: string[] }) {
       <div className="flex flex-col gap-6 lg:flex-row">
         <InventoryPanel
           inventory={inventory}
+          shared={effectiveShared}
+          pending={
+            pendingDiff && saveShared ? (
+              <SharedChanges
+                diff={pendingDiff}
+                onDiscard={inventory.discard}
+                onSave={async (diff) => {
+                  const result = await saveShared(diff);
+                  if ("error" in result) return result.error;
+                  setSavedShared(result.items);
+                  inventory.discard();
+                  return undefined;
+                }}
+              />
+            ) : undefined
+          }
           suggestions={suggestions}
           inputRef={inputRef}
           dialogOpen={dialogOpen}

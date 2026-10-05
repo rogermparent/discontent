@@ -303,6 +303,47 @@ export const FeaturedInputSchema = z
 
 export type FeaturedInput = z.infer<typeof FeaturedInputSchema>;
 
+/* --- inventory (25d) ----------------------------------------------------- */
+
+/**
+ * One thing on hand, as a person writes it — "vodka", "Gnista", "lime". The
+ * same limits the browser's import applies (`inventoryText.ts`), so a list
+ * that round-trips through Export → `inventory set` cannot be refused here.
+ */
+export const InventoryItemSchema = z.string().trim().min(1).max(80);
+
+/** At most 500 items, the import cap. */
+const InventoryItems = z.array(InventoryItemSchema).max(500);
+
+/**
+ * `{add?, remove?}` — a diff, which is what both the browser's "Save to
+ * shared list" and an agent's "I bought Gnista" are. Remove applies first,
+ * then add, so an item in both ends up present.
+ */
+export const InventoryPatchSchema = z
+  .strictObject({
+    add: InventoryItems.optional(),
+    remove: InventoryItems.optional(),
+  })
+  .refine((data) => (data.add?.length ?? 0) + (data.remove?.length ?? 0) > 0, {
+    message: "Name at least one item to `add` or `remove`",
+    path: ["add"],
+  });
+
+export type InventoryPatch = z.infer<typeof InventoryPatchSchema>;
+
+/** `{items}` — the whole list, replaced. Held back from the agent's seats. */
+export const InventorySetSchema = z.strictObject({ items: InventoryItems });
+
+/**
+ * What to judge the list against: a search-language scope (`tag:drink` when
+ * absent) and how many rows each bucket answers with.
+ */
+export const InventoryMakeQuerySchema = z.strictObject({
+  query: z.string().optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+});
+
 /* --- git (23d/D23) ------------------------------------------------------- */
 
 /**

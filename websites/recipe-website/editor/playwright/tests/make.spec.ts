@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "../support/test";
-import { openPalette } from "../support/helpers";
+import { openPalette, signIn } from "../support/helpers";
 import { expectNoViolations } from "../support/a11y";
 
 /*
@@ -220,5 +220,78 @@ test.describe("What can I make?", () => {
     await addItems(page, "vodka, simple syrup, gin, tonic");
     await expect(section(page, "make-can")).toBeVisible();
     await expectNoViolations(page);
+  });
+});
+
+/*
+ * 25d: the editor's shared list. `make-drinks` carries
+ * `inventory/on-hand.json` = gin + tonic water — which only a signed-in
+ * session may see.
+ */
+test.describe("What can I make? — the shared list", () => {
+  test.beforeEach(async ({ resetData }) => {
+    await resetData("make-drinks");
+  });
+
+  const chips = (page: Page) => page.getByTestId("inventory-chips");
+
+  async function signInToMake(page: Page) {
+    await page.goto("/");
+    await signIn(page);
+    await page.goto("/make");
+    await ready(page);
+  }
+
+  test("a guest sees none of it, and neither does the API", async ({
+    page,
+    request,
+  }) => {
+    await page.goto("/make");
+    await ready(page);
+    await expect(chips(page)).toHaveCount(0);
+    await expect(page.getByText("Start with what you have")).toBeVisible();
+
+    expect((await request.get("/api/inventory")).status()).toBe(401);
+    expect((await request.get("/api/inventory/make")).status()).toBe(401);
+  });
+
+  test("signed in, the shared list shows and counts", async ({ page }) => {
+    await signInToMake(page);
+    await expect(chips(page).locator("[data-source='shared']")).toHaveCount(2);
+    await expect(chips(page)).toContainText("tonic water");
+    await expect(section(page, "make-can")).toContainText("Gin and Tonic");
+    await expect(page.getByTestId("inventory-pending")).toHaveCount(0);
+  });
+
+  test("hiding a shared item here can be undone", async ({ page }) => {
+    await signInToMake(page);
+    await page.getByRole("button", { name: "Remove gin" }).click();
+    const hidden = page.getByTestId("inventory-hidden");
+    await expect(hidden).toContainText("gin");
+    await expect(page.getByTestId("inventory-pending")).toContainText(
+      "1 change on this browser",
+    );
+    await page.getByRole("button", { name: "Undo hiding gin" }).click();
+    await expect(hidden).toHaveCount(0);
+    await expect(page.getByTestId("inventory-pending")).toHaveCount(0);
+  });
+
+  test("saving this browser's changes persists them", async ({ page }) => {
+    await signInToMake(page);
+    await addItems(page, "lime");
+    await expect(chips(page).locator("[data-source='browser']")).toHaveText(
+      /lime/,
+    );
+    const pending = page.getByTestId("inventory-pending");
+    await expect(pending).toContainText("1 change on this browser");
+    await pending.getByRole("button", { name: "Save to shared list" }).click();
+    await expect(pending).toHaveCount(0);
+
+    /* A fresh browser signed in as the same person sees it as shared. */
+    await page.evaluate(() => localStorage.clear());
+    await page.reload();
+    await ready(page);
+    await expect(chips(page).locator("[data-source='shared']")).toHaveCount(3);
+    await expect(chips(page)).toContainText("lime");
   });
 });

@@ -39,6 +39,7 @@ import {
 import { gitCommands } from "./commands/git";
 import { groupCommands } from "./commands/group";
 import { importCommand } from "./commands/import";
+import { inventoryCommands } from "./commands/inventory";
 import { listCommand } from "./commands/list";
 import { reindexCommand } from "./commands/reindex";
 import { searchCommand } from "./commands/search";
@@ -94,6 +95,16 @@ const SUBCOMMAND_TABLES: Record<string, Record<string, CommandDef<unknown>>> = {
   group: groupCommands,
   featured: featuredCommands,
   git: gitCommands,
+  inventory: inventoryCommands,
+};
+
+/**
+ * What a table command means with no subcommand. Only `inventory` has one:
+ * `recipes inventory` reads as "show me the list", where a bare `group` or
+ * `git` names no obvious action and stays a usage error.
+ */
+const DEFAULT_SUBCOMMANDS: Record<string, string> = {
+  inventory: "list",
 };
 
 /** Own properties only, so `recipes toString x` is not a `Function`. */
@@ -130,6 +141,11 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   unfeature <slug> [--yes]
   featured list [--limit 20] [--offset 0]
   reindex [contentType]
+  inventory [list]
+  inventory add <item…>
+  inventory remove <item…>
+  inventory set --file <list.txt|list.json>
+  inventory make [<query…>] [--limit 20]
   git status
   git log [--type recipe|group|featured] [--slug s] [--limit 30] [--offset 0]
   git show <hash> [--max-chars 50000]
@@ -306,9 +322,14 @@ export async function main(argv: string[]): Promise<number> {
     }
 
     const table = subcommandTableFor(command);
+    const chosen =
+      subcommand ??
+      (Object.hasOwn(DEFAULT_SUBCOMMANDS, command)
+        ? DEFAULT_SUBCOMMANDS[command]
+        : undefined);
     const definition = table
-      ? subcommand
-        ? table[subcommand]
+      ? chosen && Object.hasOwn(table, chosen)
+        ? table[chosen]
         : undefined
       : COMMANDS[command];
 
