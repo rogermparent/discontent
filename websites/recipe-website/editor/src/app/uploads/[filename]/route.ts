@@ -4,6 +4,7 @@ import { ReadStream } from "fs";
 import { open } from "fs/promises";
 import { notFound } from "next/navigation";
 import { NextRequest, NextResponse } from "next/server";
+import { uploadHeaders } from "recipe-editor/controller/uploadContentType";
 import { resolve } from "path";
 
 /**
@@ -41,7 +42,7 @@ export async function GET(
     const stream = ReadStream.toWeb(
       handle.createReadStream(),
     ) as ReadableStream;
-    return new NextResponse(stream);
+    return new NextResponse(stream, { headers: uploadHeaders(filename) });
   } catch (e) {
     if (e instanceof Error && "code" in e && e.code === "ENOENT") {
       notFound();

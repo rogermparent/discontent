@@ -91,6 +91,40 @@ afterEach(async () => {
   await rm(contentDirectory, { recursive: true, force: true });
 });
 
+interface StubImage {
+  /** `null` sends no content-type at all. Default `image/jpeg`. */
+  type?: string | null;
+  status?: number;
+  body?: string;
+}
+
+/**
+ * A tiny web: `images` answer as images (to `GET` and `HEAD` alike, as real
+ * `Response`s, since `fetchImageFile` reads status, headers and the body
+ * stream), and every other URL answers with `html`.
+ */
+function stubWeb(html: string, images: Record<string, StubImage> = {}) {
+  const fetchStub = vi.fn(async (input: string | URL, init?: RequestInit) => {
+    const image = images[String(input)];
+    if (!image) {
+      return new Response(html, {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }
+    const type = image.type === undefined ? "image/jpeg" : image.type;
+    return new Response(
+      init?.method === "HEAD" ? null : (image.body ?? "jpeg bytes"),
+      {
+        status: image.status ?? 200,
+        headers: type ? { "content-type": type } : {},
+      },
+    );
+  });
+  vi.stubGlobal("fetch", fetchStub);
+  return fetchStub;
+}
+
 function readRecipeFile(slug: string): Promise<Recipe> {
   return readJson(join(contentDirectory, "recipes/data", slug, "recipe.json"));
 }
@@ -208,6 +242,7 @@ describe("updateRecipe", () => {
   });
 
   it("merges a patch, clears with null, and moves the index key on a date change", async () => {
+    stubWeb("", { "https://example.com/pictures/stew.jpg?w=800": {} });
     const created = await createRecipe(ctx, {
       name: "Stew",
       description: "Stewy.",
@@ -238,6 +273,75 @@ describe("updateRecipe", () => {
       slug: "stew",
       date: Date.parse("2026-05-04"),
     });
+  });
+
+  it("downloads the image itself and names it from the content type (26a)", async () => {
+    /*
+     * The Kitchn's Cloudinary URLs (T9): an encoded asset path in one segment,
+     * no extension. `fetchImageFile` keeps the last decoded part and adds the
+     * extension the content type implies.
+     */
+    const url =
+      "https://cdn.example.com/image/upload/f_jpg,w_1500,ar_16:9/k%2FPhoto%2FRecipes%2F2024%2Fbloody-mary-441_1";
+    const fetchStub = stubWeb("", { [url]: { body: "the jpeg" } });
+    await createRecipe(ctx, { name: "Bloody Mary", imageImportUrl: url });
+
+    expect((await readRecipeFile("bloody-mary")).image).toBe(
+      "bloody-mary-441_1.jpg",
+    );
+    expect(
+      await readFile(
+        join(
+          contentDirectory,
+          "uploads/recipe/bloody-mary/uploads/bloody-mary-441_1.jpg",
+        ),
+        "utf8",
+      ),
+    ).toBe("the jpeg");
+    /* One download: the engine is handed a File, it does not fetch again. */
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses an image URL that answers with HTML, and writes nothing", async () => {
+    stubWeb("<html>Not found</html>");
+    await expect(
+      createRecipe(ctx, {
+        name: "Stew",
+        imageImportUrl: "https://example.com/missing.jpg",
+      }),
+    ).rejects.toMatchObject({ code: "import_failed" });
+    expect(
+      await pathExists(join(contentDirectory, "recipes/data", "stew")),
+    ).toBe(false);
+  });
+
+  it("clears the image with imageImportUrl: null and with clearImage (26a)", async () => {
+    stubWeb("", {
+      "https://example.com/a.png": { type: "image/png" },
+      "https://example.com/b.png": { type: "image/png" },
+    });
+    const uploads = join(contentDirectory, "uploads/recipe/stew/uploads");
+
+    await createRecipe(ctx, {
+      name: "Stew",
+      imageImportUrl: "https://example.com/a.png",
+    });
+    expect((await readRecipeFile("stew")).image).toBe("a.png");
+    expect(await pathExists(join(uploads, "a.png"))).toBe(true);
+
+    /* Before 26a this kept the image: `null ?? undefined` read as "unchanged". */
+    await updateRecipe(ctx, "stew", { imageImportUrl: null });
+    expect("image" in (await readRecipeFile("stew"))).toBe(false);
+    expect(await pathExists(join(uploads, "a.png"))).toBe(false);
+
+    await updateRecipe(ctx, "stew", {
+      imageImportUrl: "https://example.com/b.png",
+    });
+    expect((await readRecipeFile("stew")).image).toBe("b.png");
+    await updateRecipe(ctx, "stew", { clearImage: true });
+    expect("image" in (await readRecipeFile("stew"))).toBe(false);
+    expect(await pathExists(join(uploads, "b.png"))).toBe(false);
+    expect((await readRecipeFile("stew")).clearImage).toBeUndefined();
   });
 
   it("renames when the patch names a free slug", async () => {
@@ -351,23 +455,27 @@ function recipeHtml(extra: Record<string, unknown> = {}): string {
   ].join("");
 }
 
-function stubFetch(html: string) {
-  const fetchStub = vi.fn(async () => ({ text: async () => html }));
-  vi.stubGlobal("fetch", fetchStub);
-  return fetchStub;
-}
+const NAAN_IMAGE = "https://cdn.example.com/img/naan.jpg?w=1200";
 
 describe("importAndCreate", () => {
   it("dry-runs without writing and reports the image it would fetch", async () => {
-    stubFetch(recipeHtml());
+    const fetchStub = stubWeb(recipeHtml(), { [NAAN_IMAGE]: {} });
     const result = await importAndCreate(ctx, PAGE_URL, { dryRun: true });
 
     expect(result).toMatchObject({ dryRun: true, url: PAGE_URL, slug: "naan" });
     if (!("dryRun" in result)) throw new Error("expected a dry run");
+    /* From a HEAD probe (26a): the name a real run would store, no download. */
     expect(result.image).toEqual({
-      importUrl: "https://cdn.example.com/img/naan.jpg?w=1200",
+      importUrl: NAAN_IMAGE,
       filename: "naan.jpg",
+      status: 200,
+      contentType: "image/jpeg",
     });
+    expect(result.recipe.image).toBe("naan.jpg");
+    const imageCalls = fetchStub.mock.calls.filter(
+      ([url]) => String(url) === NAAN_IMAGE,
+    );
+    expect(imageCalls.map(([, init]) => init?.method)).toEqual(["HEAD"]);
     expect(result.recipe.source?.url).toBe(PAGE_URL);
     /* Nothing on disk: no data directory at all. */
     expect(
@@ -376,7 +484,9 @@ describe("importAndCreate", () => {
   });
 
   it("writes the citation, the image filename and no import scaffolding", async () => {
-    stubFetch(recipeHtml({ publisher: { name: "Example Kitchen" } }));
+    stubWeb(recipeHtml({ publisher: { name: "Example Kitchen" } }), {
+      [NAAN_IMAGE]: {},
+    });
     const result = await importAndCreate(ctx, PAGE_URL, {
       tags: ["Bread", "bread"],
       slug: "garlic-naan",
@@ -396,13 +506,57 @@ describe("importAndCreate", () => {
     /* Fact 9: `Recipe` has an index signature, so these would have persisted. */
     expect(stored.imageImportUrl).toBeUndefined();
     expect(stored.videoImportUrl).toBeUndefined();
+    expect(stored.images).toBeUndefined();
+  });
+
+  it("maps recipeYield, which used to be read and never set (26a)", async () => {
+    stubWeb(recipeHtml({ recipeYield: ["8", "8 flatbreads"] }), {
+      [NAAN_IMAGE]: {},
+    });
+    await importAndCreate(ctx, PAGE_URL);
+    expect((await readRecipeFile("naan")).recipeYield).toBe("8 flatbreads");
+  });
+
+  it("takes an --image override over the page's best image", async () => {
+    const other = "https://cdn.example.com/img/other.png";
+    stubWeb(recipeHtml(), { [other]: { type: "image/png" } });
+    await importAndCreate(ctx, PAGE_URL, { image: other });
+    expect((await readRecipeFile("naan")).image).toBe("other.png");
   });
 
   it("is an import_failed when the page carries no Recipe node", async () => {
-    stubFetch("<html><head></head><body>no json-ld here</body></html>");
+    stubWeb("<html><head></head><body>no json-ld here</body></html>");
     await expect(importAndCreate(ctx, PAGE_URL)).rejects.toMatchObject({
       code: "import_failed",
     });
+  });
+
+  it("dry-runs an SEO-only page as partial, and creates from it only when allowed", async () => {
+    const seoPage = [
+      "<html><head>",
+      "<title>Paper Plane | Example Drinks</title>",
+      '<meta property="og:site_name" content="Example Drinks">',
+      '<meta property="og:description" content="Equal parts, shaken.">',
+      `<meta property="og:image" content="${NAAN_IMAGE}">`,
+      "</head><body></body></html>",
+    ].join("");
+    stubWeb(seoPage, { [NAAN_IMAGE]: {} });
+
+    const dry = await importAndCreate(ctx, PAGE_URL, { dryRun: true });
+    if (!("dryRun" in dry)) throw new Error("expected a dry run");
+    expect(dry.partial).toBe(true);
+    expect(dry.recipe).toMatchObject({
+      name: "Paper Plane",
+      description: "Equal parts, shaken.",
+      image: "naan.jpg",
+      source: { url: PAGE_URL, name: "Example Drinks" },
+    });
+
+    await expect(importAndCreate(ctx, PAGE_URL)).rejects.toMatchObject({
+      code: "import_failed",
+    });
+    await importAndCreate(ctx, PAGE_URL, { allowPartial: true });
+    expect((await readRecipeFile("paper-plane")).name).toBe("Paper Plane");
   });
 });
 

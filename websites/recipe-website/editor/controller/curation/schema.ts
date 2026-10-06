@@ -177,7 +177,10 @@ export const RecipePatchSchema = z.strictObject({
   source: SourceSchema.nullable().optional(),
   /** Replaces the whole spec; `null` — or an all-blank object — clears it. */
   drink: DrinkSpecSchema.nullable().optional(),
+  /** A URL replaces the image; `null` clears it, as `clearImage` does (26a). */
   imageImportUrl: z.string().nullable().optional(),
+  /** Remove the image. Loses to an `imageImportUrl` in the same patch. */
+  clearImage: z.boolean().optional(),
   videoUrl: z.string().nullable().optional(),
   videoImportUrl: z.string().nullable().optional(),
 });

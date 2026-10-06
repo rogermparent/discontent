@@ -7,13 +7,23 @@
  * importer's two `*ImportUrl` fields into an upload spec and a stored value
  * (fact 9), supplying a name when the page had none, and a dry run — which is
  * how the curator skill inspects a candidate before deciding to keep it.
+ *
+ * Since 26a a video host goes through yt-dlp first (`../ytdlp`, the mapper the
+ * form uses too), and a page with no Recipe node comes back as the importer's
+ * SEO fallback, `partial: true` — which a dry run reports and a create refuses
+ * unless asked (`allowPartial`).
  */
-import path from "node:path";
-import { importRecipeData } from "recipe-website-common/util/importRecipeData";
+import {
+  importRecipeData,
+  isVideoUrl,
+  type ImportedRecipe,
+} from "recipe-website-common/util/importRecipeData";
 import type {
   Recipe,
   RecipeSource,
 } from "recipe-website-common/controller/types";
+import type { ImageProbe } from "../imageImport";
+import { fetchYtdlpMetadata, ytdlpToRecipe } from "../ytdlp";
 import type { CurationContext } from "./context";
 import { ImportError, ValidationError } from "./errors";
 import {
@@ -28,8 +38,10 @@ export interface ImportDryRunResult {
   dryRun: true;
   url: string;
   slug: string;
+  /** The page had no Recipe node: name, description and image only. */
+  partial?: true;
   recipe: Recipe;
-  image?: { importUrl: string; filename: string };
+  image?: ImageProbe;
   video?: string;
 }
 
@@ -39,11 +51,28 @@ export interface ImportCreateResult extends RecipeWriteResult {
 
 export type ImportResult = ImportDryRunResult | ImportCreateResult;
 
+/**
+ * A video page through yt-dlp, or `undefined` when yt-dlp is missing or fails
+ * — the caller then falls back to the importer's bare link (and `--name`).
+ */
+async function importVideo(
+  url: string,
+): Promise<Partial<ImportedRecipe> | undefined> {
+  const result = await fetchYtdlpMetadata(url);
+  return result.status === "success"
+    ? ytdlpToRecipe(result.metadata, url)
+    : undefined;
+}
+
 /** The importer's own return, with "nothing here" turned into an error. */
-export async function importFromUrl(url: string) {
+export async function importFromUrl(
+  url: string,
+): Promise<Partial<ImportedRecipe>> {
   let imported;
   try {
-    imported = await importRecipeData(url);
+    imported =
+      (isVideoUrl(url) ? await importVideo(url) : undefined) ??
+      (await importRecipeData(url));
   } catch (error) {
     throw new ImportError(
       `Could not fetch ${url}: ${error instanceof Error ? error.message : String(error)}`,
@@ -58,21 +87,27 @@ export async function importFromUrl(url: string) {
 /**
  * The importer's shape, as this layer's input.
  *
- * A video-host URL returns no name at all — `importRecipeData` short-circuits
- * to `{videoImportUrl, source}` for YouTube and friends — so `--name` is the
- * only way to import one, and saying so is more useful than a zod issue on a
- * field the caller never wrote.
+ * A video-host URL without yt-dlp returns no name at all — `importRecipeData`
+ * short-circuits to `{videoImportUrl, source}` for YouTube and friends — so
+ * `--name` is the only way to import one, and saying so is more useful than a
+ * zod issue on a field the caller never wrote.
  */
 export function importedToInput(
-  imported: Awaited<ReturnType<typeof importFromUrl>>,
-  { tags, slug, name }: { tags?: string[]; slug?: string; name?: string } = {},
+  imported: Partial<ImportedRecipe>,
+  {
+    tags,
+    slug,
+    name,
+    image,
+  }: { tags?: string[]; slug?: string; name?: string; image?: string } = {},
 ): RecipeInput {
   const resolvedName = name ?? imported.name;
   if (!resolvedName) {
     throw new ValidationError(
-      "The imported page carries no recipe name (video hosts never do) — pass --name to supply one.",
+      "The imported page carries no recipe name (a video host without yt-dlp never does) — pass --name to supply one.",
     );
   }
+  const imageImportUrl = image ?? imported.imageImportUrl;
   const raw = {
     name: resolvedName,
     ...(slug ? { slug } : {}),
@@ -87,9 +122,7 @@ export function importedToInput(
     ...(imported.ingredients ? { ingredients: imported.ingredients } : {}),
     ...(imported.instructions ? { instructions: imported.instructions } : {}),
     ...(imported.source ? { source: imported.source } : {}),
-    ...(imported.imageImportUrl
-      ? { imageImportUrl: imported.imageImportUrl }
-      : {}),
+    ...(imageImportUrl ? { imageImportUrl } : {}),
     ...(imported.videoImportUrl
       ? { videoImportUrl: imported.videoImportUrl }
       : {}),
@@ -104,29 +137,45 @@ export async function importAndCreate(
     tags,
     slug,
     name,
+    image,
     dryRun = false,
     overwrite = false,
+    allowPartial = false,
   }: {
     tags?: string[];
     slug?: string;
     name?: string;
+    /** Use this image URL instead of the page's best one. */
+    image?: string;
     dryRun?: boolean;
     overwrite?: boolean;
+    /** Create from an SEO-only (no Recipe node) page anyway. */
+    allowPartial?: boolean;
   } = {},
 ): Promise<ImportResult> {
   const imported = await importFromUrl(url);
-  const input = importedToInput(imported, { tags, slug, name });
+  const partial = imported.partial === true;
+  if (partial && !dryRun && !allowPartial) {
+    throw new ImportError(
+      `No schema.org Recipe found at ${url} — only its title, description and image. ` +
+        "Dry-run it to see them, or pass --allow-partial to create from them anyway.",
+    );
+  }
+  const input = importedToInput(imported, { tags, slug, name, image });
 
   if (dryRun) {
     /*
      * Everything a real import would compute, and nothing written: no
      * `createContent`, so no data file, no index entry and no commit. The
-     * recipe shown is the *shaped* one — parsed ingredients, resolved image
-     * filename — because what the caller is deciding is whether that is worth
-     * keeping.
+     * recipe shown is the *shaped* one — parsed ingredients, the image's final
+     * filename from a `HEAD` probe — because what the caller is deciding is
+     * whether that is worth keeping.
      */
     const date = input.date ?? Date.now();
-    const { data } = buildRecipeWrite(input, { date });
+    const { data, image: probe } = await buildRecipeWrite(input, {
+      date,
+      probe: true,
+    });
     return {
       dryRun: true,
       url,
@@ -135,15 +184,9 @@ export async function importAndCreate(
        * cannot advertise a slug the real run would not use.
        */
       slug: resolveCreateSlug(input),
+      ...(partial ? { partial: true as const } : {}),
       recipe: data,
-      ...(input.imageImportUrl
-        ? {
-            image: {
-              importUrl: input.imageImportUrl,
-              filename: path.parse(new URL(input.imageImportUrl).pathname).base,
-            },
-          }
-        : {}),
+      ...(probe ? { image: probe } : {}),
       ...(data.video ? { video: data.video } : {}),
     };
   }

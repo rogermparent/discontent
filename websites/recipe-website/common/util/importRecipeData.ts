@@ -1,12 +1,21 @@
 import {
   Ingredient,
   Instruction,
+  InstructionEntry,
   InstructionGroup,
   Recipe,
   RecipeSource,
 } from "../controller/types";
 import { createIngredient } from "./parseIngredients";
 import { hostnameLabel } from "./hostnameLabel";
+import {
+  parseRecipePage,
+  TOP_IMAGES,
+  type ImageCandidate,
+  type JsonLdNode,
+  type PageMeta,
+  type ParsedRecipePage,
+} from "./pageMetadata";
 import { fromHtml } from "hast-util-from-html";
 import { toMdast } from "hast-util-to-mdast";
 import { toMarkdown } from "mdast-util-to-markdown";
@@ -26,18 +35,27 @@ function decodeText(html: string) {
  */
 type AuthorLD = string | { name?: string } | (string | { name?: string })[];
 
+type InstructionLD =
+  | string
+  | {
+      text?: string;
+      itemListElement?: ({ name?: string; text?: string } | string)[];
+      name?: string;
+    };
+
+/**
+ * What the mapper reads off a Recipe node. Every field is checked before use:
+ * the node is whatever the page published (`JsonLdNode`), not this shape.
+ */
 interface RecipeLD {
-  name: string;
-  description: string;
+  name?: string;
+  description?: string;
   /** Strings per schema.org — but see `ingredientText` for what sites send. */
-  recipeIngredient: unknown[];
-  image?: string[];
+  recipeIngredient?: unknown[];
   video?: string | { contentUrl?: string; embedUrl?: string; url?: string };
-  recipeInstructions: {
-    text?: string;
-    itemListElement: { name?: string; text?: string }[];
-    name?: string;
-  }[];
+  /** An array per schema.org; one string on some sites (Imbibe, 26a). */
+  recipeInstructions?: InstructionLD[] | InstructionLD;
+  recipeYield?: unknown;
   prepTime?: string;
   cookTime?: string;
   totalTime?: string;
@@ -76,7 +94,7 @@ export function extractAuthorName(author?: AuthorLD): string | undefined {
  * (D7): the same fact, in a field the site can render and a query can read,
  * rather than prose glued to the front of the user's own description.
  */
-function buildSource(
+export function buildSource(
   url: string,
   publisherName?: string,
   author?: string,
@@ -88,53 +106,17 @@ function buildSource(
   };
 }
 
-type UnknownLD = Record<string, unknown> | UnknownLD[] | RecipeLD;
-
 export interface ImportedRecipe extends Recipe {
   imageImportUrl?: string;
   videoImportUrl?: string;
-}
-
-const findRecipeInObject = (jsonLDObject: UnknownLD): RecipeLD | undefined => {
-  if (Array.isArray(jsonLDObject)) {
-    for (const childObject of jsonLDObject) {
-      const foundRecipe = findRecipeInObject(childObject);
-      if (foundRecipe) {
-        return foundRecipe;
-      }
-    }
-  } else {
-    if (jsonLDObject && typeof jsonLDObject === "object") {
-      if ("@type" in jsonLDObject) {
-        const ldType = jsonLDObject["@type"];
-        const isRecipe =
-          ldType &&
-          (Array.isArray(ldType)
-            ? ldType.findIndex((typeString) => typeString === "Recipe") !== -1
-            : ldType === "Recipe");
-        if (isRecipe) {
-          return jsonLDObject as unknown as RecipeLD;
-        }
-      }
-      return findRecipeInObject(Object.values(jsonLDObject) as UnknownLD);
-    }
-  }
-};
-
-function findRecipeObjectInText(text: string): RecipeLD | undefined {
-  const jsonLDRegex = /<script.*?ld\+json.*?>([\s\S]*?)<\/script>/gms;
-
-  let jsonLDTextSearch;
-  while ((jsonLDTextSearch = jsonLDRegex.exec(text)) !== null) {
-    const jsonLDTextMatch = jsonLDTextSearch?.[1];
-    if (jsonLDTextMatch) {
-      const jsonLDObject: UnknownLD = JSON.parse(jsonLDTextMatch);
-      const foundRecipe = findRecipeInObject(jsonLDObject);
-      if (foundRecipe) {
-        return foundRecipe;
-      }
-    }
-  }
+  /**
+   * The page had no Recipe node, so this is its title, description and best
+   * image only — the SEO fallback (26a). A form can start from it; the
+   * curation layer refuses to *create* from it without `allowPartial`.
+   */
+  partial?: boolean;
+  /** The page's top image candidates, best first (`imageImportUrl` is `[0]`). */
+  images?: ImageCandidate[];
 }
 
 function createStep({
@@ -158,10 +140,6 @@ function createStep({
   };
 }
 
-function getImageUrl(input: string | { url: string }) {
-  return typeof input === "string" ? input : input.url;
-}
-
 function getVideoUrl(
   input: string | { contentUrl?: string; embedUrl?: string; url?: string },
 ) {
@@ -173,7 +151,7 @@ function getVideoUrl(
 const parseDurationToMinutes = (
   duration: string | undefined,
 ): number | undefined => {
-  if (!duration) return undefined;
+  if (!duration || typeof duration !== "string") return undefined;
   const matches = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?/);
   if (!matches) return undefined;
   const hours = matches[1] ? parseInt(matches[1], 10) : 0;
@@ -181,8 +159,8 @@ const parseDurationToMinutes = (
   return hours * 60 + minutes;
 };
 
-// Helper function to detect if URL is a video platform URL
-function isVideoUrl(url: string): boolean {
+/** A video platform: imported through yt-dlp where it is available. */
+export function isVideoUrl(url: string): boolean {
   try {
     const urlObj = new URL(url);
     const videoHosts = [
@@ -233,9 +211,8 @@ export function ingredientText(entry: unknown): string | undefined {
  * JSON-LD; it does **not** get past a real bot wall: the Dotdash Meredith
  * sites (liquor.com, Allrecipes, Serious Eats, …) still answer 403.
  *
- * Only the page fetch sends these. Image downloads go through the engine's
- * own `fetch` in `packages/cms/content/filesystem.ts`, and the image hosts the
- * probe tried serve Node's default agent fine.
+ * Image downloads follow the same plain-then-browser order since 26a
+ * (`editor/controller/imageImport.ts`).
  */
 export const RECIPE_FETCH_HEADERS: Readonly<Record<string, string>> = {
   "user-agent":
@@ -243,6 +220,14 @@ export const RECIPE_FETCH_HEADERS: Readonly<Record<string, string>> = {
   accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
   "accept-language": "en-US,en;q=0.9",
 };
+
+export interface FetchedPage {
+  html: string;
+  status: number;
+  ok: boolean;
+  /** Where the page ended up after redirects. */
+  finalUrl: string;
+}
 
 /**
  * Fetch a recipe page as Node first, and as a browser only after a 403.
@@ -253,17 +238,207 @@ export const RECIPE_FETCH_HEADERS: Readonly<Record<string, string>> = {
  * fingerprint is not Chrome's. Asking plainly first keeps every site that
  * worked before the browser headers did.
  */
-async function fetchRecipePage(url: string): Promise<string> {
-  const response = await fetch(url, { next: { revalidate: 300 } });
-  if (response.status !== 403) {
-    return response.text();
+export async function fetchRecipePage(url: string): Promise<FetchedPage> {
+  let response = await fetch(url, { next: { revalidate: 300 } });
+  if (response.status === 403) {
+    response = await fetch(url, {
+      headers: RECIPE_FETCH_HEADERS,
+      next: { revalidate: 300 },
+    });
   }
-  const retry = await fetch(url, {
-    headers: RECIPE_FETCH_HEADERS,
-    next: { revalidate: 300 },
-  });
-  return retry.text();
+  /* Test stubs (and nothing real) omit `status`: read that as a 200. */
+  const status = response.status ?? 200;
+  return {
+    html: await response.text(),
+    status,
+    ok: status >= 200 && status < 300,
+    finalUrl: response.url || url,
+  };
 }
+
+export { parseRecipePage };
+export type { ImageCandidate, ParsedRecipePage };
+
+/**
+ * `recipeYield` in any of its shapes, as the one string the form shows.
+ *
+ * Sites send a number (`10`), a string (`"8 flatbreads"`) or an array that
+ * repeats itself with and without the unit (`["8", "8 flatbreads"]`). The
+ * array's first entry that says more than a bare number is the useful one.
+ */
+export function yieldText(value: unknown): string | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "string") return decodeName(value);
+  if (Array.isArray(value)) {
+    const entries = value
+      .map(yieldText)
+      .filter((entry): entry is string => !!entry);
+    return entries.find((entry) => !/^[\d\s./-]+$/.test(entry)) ?? entries[0];
+  }
+  return undefined;
+}
+
+/**
+ * Instructions published as one string (Imbibe's alcohol-free negroni) as
+ * steps: one per line if it has lines, else one per sentence.
+ */
+export function splitInstructionText(text: string): Instruction[] {
+  const decoded = decodeText(text).replaceAll(/ +/g, " ");
+  let parts = decoded
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (parts.length <= 1) {
+    parts = decoded
+      .split(/(?<=[.!?])\s+(?=[A-Z0-9"“(])/)
+      .map((sentence) => sentence.trim())
+      .filter(Boolean);
+  }
+  return parts.map((part) => ({ text: part }));
+}
+
+function mapInstructions(
+  recipeInstructions: RecipeLD["recipeInstructions"],
+): InstructionEntry[] | undefined {
+  if (!recipeInstructions) return undefined;
+  if (typeof recipeInstructions === "string") {
+    return splitInstructionText(recipeInstructions);
+  }
+  const entries = Array.isArray(recipeInstructions)
+    ? recipeInstructions
+    : [recipeInstructions];
+  return entries.flatMap((entry): InstructionEntry[] => {
+    // Handle string-based instructions
+    if (typeof entry === "string") {
+      return [createStep({ text: entry })];
+    }
+    if (!entry || typeof entry !== "object") return [];
+    // Handle instruction groups with itemListElement
+    if (Array.isArray(entry.itemListElement)) {
+      const { name, itemListElement } = entry;
+      return [
+        {
+          name: name && decodeText(name),
+          instructions: itemListElement.map((item) =>
+            typeof item === "string"
+              ? createStep({ text: item }) // Handle nested string-based instructions
+              : createStep(item),
+          ),
+        } as InstructionGroup,
+      ];
+    }
+    // Handle standard instruction objects
+    return [createStep(entry)];
+  });
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** The page's own best guess at a title, without the " | Site Name" tail. */
+function seoName(meta: PageMeta): string | undefined {
+  if (meta.ogTitle) return decodeName(meta.ogTitle);
+  if (!meta.title) return undefined;
+  const title = meta.siteName
+    ? meta.title.replace(
+        new RegExp(`\\s*[|·–—-]\\s*${escapeRegExp(meta.siteName)}\\s*$`),
+        "",
+      )
+    : meta.title;
+  return decodeName(title);
+}
+
+/**
+ * The mapping, separated from the fetch so `inspect` (26b) can run it over a
+ * page it has already parsed.
+ *
+ * With no Recipe node this is the SEO fallback: the page's title, description
+ * and best image, marked `partial` — or `undefined` when the page offers none
+ * of the three, or answered with an error status (a 404 page's title is not a
+ * recipe name).
+ */
+export function mapRecipePage(
+  url: string,
+  page: ParsedRecipePage,
+  { ok = true }: { ok?: boolean } = {},
+): Partial<ImportedRecipe> | undefined {
+  const { recipeNodes, meta, images } = page;
+  const recipeObject = recipeNodes[0] as RecipeLD | undefined;
+  const topImages = images.slice(0, TOP_IMAGES);
+  const bestImage = topImages[0]?.url;
+
+  if (!recipeObject) {
+    if (!ok) return undefined;
+    const name = seoName(meta);
+    const rawDescription = meta.ogDescription ?? meta.description;
+    const description = rawDescription ? decodeName(rawDescription) : undefined;
+    if (!name && !description && !bestImage) return undefined;
+    return {
+      partial: true,
+      name,
+      description,
+      imageImportUrl: bestImage,
+      images: topImages,
+      source: buildSource(
+        url,
+        meta.siteName ? decodeName(meta.siteName) : undefined,
+        meta.author ? decodeName(meta.author) : undefined,
+      ),
+    };
+  }
+
+  const {
+    name,
+    description,
+    recipeIngredient,
+    recipeInstructions,
+    recipeYield,
+    video,
+    prepTime,
+    cookTime,
+    totalTime,
+    author,
+    publisher,
+  } = recipeObject;
+
+  const videoURL = video ? getVideoUrl(video) : undefined;
+
+  const newDescription =
+    typeof description === "string" && description
+      ? decodeText(description)
+      : undefined;
+
+  return {
+    name: typeof name === "string" ? decodeText(name) : seoName(meta),
+    imageImportUrl: bestImage,
+    images: topImages,
+    videoImportUrl: videoURL,
+    description: newDescription,
+    source: buildSource(
+      url,
+      typeof publisher?.name === "string"
+        ? decodeName(publisher.name)
+        : undefined,
+      extractAuthorName(author),
+    ),
+    prepTime: parseDurationToMinutes(prepTime),
+    cookTime: parseDurationToMinutes(cookTime),
+    totalTime: parseDurationToMinutes(totalTime),
+    recipeYield: yieldText(recipeYield),
+    ingredients: Array.isArray(recipeIngredient)
+      ? (recipeIngredient
+          .map(ingredientText)
+          .filter((line): line is string => !!line)
+          .map((ingredientLine) => createIngredient(decodeText(ingredientLine)))
+          .filter(Boolean) as Ingredient[])
+      : undefined,
+    instructions: mapInstructions(recipeInstructions),
+  };
+}
+
+/** Re-exported so a caller holding parsed nodes needs no second import. */
+export type { JsonLdNode };
 
 export async function importRecipeData(
   rawUrl: string,
@@ -273,80 +448,16 @@ export async function importRecipeData(
 
   // Check if the URL is a video platform URL
   if (isVideoUrl(url)) {
-    // For video URLs, return a simple recipe with the video URL
+    /*
+     * The bare link. yt-dlp runs server-side (`editor/controller/ytdlp.ts`),
+     * and both of its callers try it before falling back to this.
+     */
     return {
       videoImportUrl: url,
       source: buildSource(url),
     };
   }
 
-  const text = await fetchRecipePage(url);
-  const recipeObject = findRecipeObjectInText(text);
-
-  // Return undefined early if no recipe is found
-  if (!recipeObject) {
-    return undefined;
-  }
-
-  const {
-    name,
-    description,
-    recipeIngredient,
-    recipeInstructions,
-    image,
-    video,
-    prepTime,
-    cookTime,
-    totalTime,
-    author,
-    publisher,
-  } = recipeObject;
-
-  const imageURL =
-    image && getImageUrl(Array.isArray(image) ? image[0] : image);
-  const videoURL = video && getVideoUrl(video);
-
-  const newDescription = description ? decodeText(description) : undefined;
-
-  const massagedData: Partial<ImportedRecipe> = {
-    name: decodeText(name),
-    imageImportUrl: imageURL,
-    videoImportUrl: videoURL,
-    description: newDescription,
-    source: buildSource(
-      url,
-      publisher?.name ? decodeName(publisher.name) : undefined,
-      extractAuthorName(author),
-    ),
-    prepTime: parseDurationToMinutes(prepTime),
-    cookTime: parseDurationToMinutes(cookTime),
-    totalTime: parseDurationToMinutes(totalTime),
-    ingredients: recipeIngredient
-      ?.map(ingredientText)
-      .filter((line): line is string => !!line)
-      .map((ingredientLine) => createIngredient(decodeText(ingredientLine)))
-      .filter(Boolean) as Ingredient[],
-    instructions: recipeInstructions?.map((entry) => {
-      // Handle string-based instructions
-      if (typeof entry === "string") {
-        return createStep({ text: entry });
-      }
-      // Handle instruction groups with itemListElement
-      if ("itemListElement" in entry) {
-        const { name, itemListElement } = entry;
-        return {
-          name: name && decodeText(name),
-          instructions: itemListElement.map((item) =>
-            typeof item === "string"
-              ? createStep({ text: item }) // Handle nested string-based instructions
-              : createStep(item),
-          ),
-        } as InstructionGroup;
-      }
-      // Handle standard instruction objects
-      return createStep(entry);
-    }),
-  };
-
-  return massagedData;
+  const { html, ok } = await fetchRecipePage(url);
+  return mapRecipePage(url, parseRecipePage(html, url), { ok });
 }
