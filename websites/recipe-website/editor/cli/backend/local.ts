@@ -17,6 +17,8 @@ import * as featured from "../../controller/curation/featured";
 import * as git from "../../controller/curation/git";
 import * as groups from "../../controller/curation/groups";
 import { importAndCreate } from "../../controller/curation/importRecipe";
+import { inspectUrl } from "../../controller/curation/inspect";
+import { setRecipeImage } from "../../controller/curation/recipeImage";
 import * as inventory from "../../controller/curation/inventory";
 import * as recipes from "../../controller/curation/recipes";
 import { reindex } from "../../controller/curation/reindex";
@@ -139,13 +141,21 @@ export function createLocalBackend({
       if (!options.dryRun) await guard();
       return importAndCreate(ctx, url, options);
     },
-    async createRecipe(raw, options = {}) {
+    /* Reads a page and nothing else: no identity, no write. */
+    inspect: (url) => inspectUrl(url),
+    async createRecipe(raw, { dryRun, ...options } = {}) {
+      if (dryRun) return recipes.previewCreateRecipe(ctx, raw);
       await guard();
       return recipes.createRecipe(ctx, raw, options);
     },
-    async updateRecipe(slug, raw) {
+    async updateRecipe(slug, raw, { dryRun } = {}) {
+      if (dryRun) return recipes.previewUpdateRecipe(ctx, slug, raw);
       await guard();
       return recipes.updateRecipe(ctx, slug, raw);
+    },
+    async setRecipeImage(slug, input) {
+      await guard();
+      return setRecipeImage(ctx, slug, input);
     },
     getRecipe: (slug) => recipes.getRecipe(ctx, slug),
     listRecipes: (options) => recipes.listRecipes(ctx, options),

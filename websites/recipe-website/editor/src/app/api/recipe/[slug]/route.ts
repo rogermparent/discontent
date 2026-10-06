@@ -15,11 +15,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { recipeItems } from "recipe-website-common/controller/data/readRecipeItem";
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
 import {
+  boolParam,
   errorResponse,
   readJsonBody,
 } from "recipe-editor/controller/curation/http";
 import {
   deleteRecipe,
+  previewUpdateRecipe,
   updateRecipe,
 } from "recipe-editor/controller/curation/recipes";
 
@@ -62,6 +64,10 @@ export async function PUT(
     const { slug } = await params;
     const ctx = await requireCurationContext(request);
     const body = await readJsonBody(request);
+    /* `?dryRun=1` (26b): what the patch would write, written nowhere. */
+    if (boolParam(new URL(request.url), "dryRun")) {
+      return Response.json(await previewUpdateRecipe(ctx, slug, body));
+    }
     return Response.json(await updateRecipe(ctx, slug, body));
   } catch (error) {
     return errorResponse(error);

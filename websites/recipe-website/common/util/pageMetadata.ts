@@ -28,7 +28,7 @@ export interface PageMeta {
   canonical?: string;
 }
 
-export type ImageSource = "jsonld" | "og" | "twitter" | "img";
+export type ImageSource = "jsonld" | "og" | "twitter" | "img" | "ytdlp";
 
 export interface ImageCandidate {
   url: string;

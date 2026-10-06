@@ -34,6 +34,11 @@ import type {
   SyncStatus,
 } from "../../controller/curation/git";
 import type { ImportResult } from "../../controller/curation/importRecipe";
+import type { InspectResult } from "../../controller/curation/inspect";
+import type {
+  RecipeImageInput,
+  RecipeImageResult,
+} from "../../controller/curation/recipeImage";
 import type {
   InventoryResult,
   InventoryWriteResult,
@@ -41,6 +46,7 @@ import type {
 } from "../../controller/curation/inventory";
 import type {
   RecipeDetail,
+  RecipeDryRunResult,
   RecipeListResult,
   RecipeWriteResult,
 } from "../../controller/curation/recipes";
@@ -64,11 +70,15 @@ export type {
   GroupListResult,
   GroupWriteResult,
   ImportResult,
+  InspectResult,
   InventoryResult,
   InventoryWriteResult,
   MakeableResult,
   PushResult,
   RecipeDetail,
+  RecipeDryRunResult,
+  RecipeImageInput,
+  RecipeImageResult,
   RecipeListResult,
   RecipeWriteResult,
   ReindexResult,
@@ -86,19 +96,39 @@ export interface ImportOptions {
   tags?: string[];
   slug?: string;
   name?: string;
+  /** Use this image URL instead of the page's best one (26b). */
+  image?: string;
   dryRun?: boolean;
   overwrite?: boolean;
+  /** Create from an SEO-only page — no Recipe node — anyway (26a/D3). */
+  allowPartial?: boolean;
 }
 
 export interface CuratorBackend {
   kind: "local" | "http";
 
   importRecipe(url: string, options?: ImportOptions): Promise<ImportResult>;
+  /**
+   * A page, read and not written (26b): the mapped import, a create-ready
+   * draft, the raw JSON-LD, its SEO metadata, ranked images and — for a video
+   * host — yt-dlp's metadata.
+   */
+  inspect(url: string): Promise<InspectResult>;
+  /** `dryRun` validates and resolves without writing (26b). */
   createRecipe(
     raw: unknown,
-    options?: { overwrite?: boolean },
-  ): Promise<RecipeWriteResult>;
-  updateRecipe(slug: string, raw: unknown): Promise<RecipeWriteResult>;
+    options?: { overwrite?: boolean; dryRun?: boolean },
+  ): Promise<RecipeWriteResult | RecipeDryRunResult>;
+  updateRecipe(
+    slug: string,
+    raw: unknown,
+    options?: { dryRun?: boolean },
+  ): Promise<RecipeWriteResult | RecipeDryRunResult>;
+  /** Set (from a URL or a `File`) or clear one recipe's image, one commit (26b). */
+  setRecipeImage(
+    slug: string,
+    input: RecipeImageInput,
+  ): Promise<RecipeImageResult>;
   getRecipe(slug: string): Promise<RecipeDetail>;
   listRecipes(options?: {
     limit?: number;

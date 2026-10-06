@@ -23,6 +23,7 @@ import {
 import {
   createRecipe,
   listRecipes,
+  previewCreateRecipe,
 } from "recipe-editor/controller/curation/recipes";
 import { searchRecipes } from "recipe-editor/controller/curation/search";
 
@@ -55,6 +56,10 @@ export async function POST(request: Request) {
     const url = new URL(request.url);
     const ctx = await requireCurationContext(request);
     const body = await readJsonBody(request);
+    /* `?dryRun=1` (26b): validate and resolve, write nothing. */
+    if (boolParam(url, "dryRun")) {
+      return Response.json(await previewCreateRecipe(ctx, body));
+    }
     const result = await createRecipe(ctx, body, {
       overwrite: boolParam(url, "overwrite"),
     });

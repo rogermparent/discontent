@@ -25,8 +25,10 @@ const ImportBodySchema = z.strictObject({
   tags: z.array(z.string()).optional(),
   slug: z.string().optional(),
   name: z.string().optional(),
+  image: z.string().optional(),
   dryRun: z.boolean().optional(),
   overwrite: z.boolean().optional(),
+  allowPartial: z.boolean().optional(),
 });
 
 export async function POST(request: Request) {

@@ -15,7 +15,9 @@
 // rules out the network cases, because `fetch` cannot be stubbed in a child.
 
 import { execa } from "execa";
-import { mkdtemp, rm, writeFile } from "fs-extra";
+import { mkdtemp, pathExists, readFile, rm, writeFile } from "fs-extra";
+import { createServer, type Server } from "http";
+import type { AddressInfo } from "net";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import simpleGit from "simple-git";
@@ -316,5 +318,203 @@ describe("the CLI as a process", () => {
       expect(JSON.parse(usage.stdout).error.code).toBe("usage");
     },
     TIMEOUT,
+  );
+});
+
+/*
+ * 26b. The import tooling through real processes, against a static server
+ * this test starts on 127.0.0.1 — `fetch` cannot be stubbed in a child, and
+ * these must not touch the network.
+ */
+describe("import tooling as a process (26b)", () => {
+  let server: Server;
+  let origin: string;
+  let scratch: string;
+
+  beforeAll(async () => {
+    scratch = await mkdtemp(join(tmpdir(), "cli-26b-"));
+    server = createServer((request, response) => {
+      const page = (body: string) => {
+        response.writeHead(200, { "content-type": "text/html" });
+        response.end(body);
+      };
+      switch (request.url) {
+        case "/paper-plane.html":
+          return page(
+            [
+              "<html><head>",
+              "<title>Paper Plane | Test Bar</title>",
+              `<script type="application/ld+json">${JSON.stringify({
+                "@type": "Recipe",
+                name: "Paper Plane",
+                recipeIngredient: ["3/4 oz bourbon", "3/4 oz Aperol"],
+                recipeInstructions: "Shake with ice. Strain into a coupe.",
+                recipeYield: 1,
+                image: [`${origin}/plane-225x225.png`, `${origin}/plane.png`],
+              })}</script>`,
+              "</head><body></body></html>",
+            ].join(""),
+          );
+        case "/plane.png":
+        case "/plane-225x225.png":
+          response.writeHead(200, { "content-type": "image/png" });
+          return response.end("png bytes");
+        default:
+          response.writeHead(404, { "content-type": "text/html" });
+          return response.end("<html>Not found</html>");
+      }
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(scratch, { recursive: true, force: true });
+  });
+
+  async function commitCount() {
+    return Number(
+      (
+        await simpleGit({ baseDir: contentDirectory }).raw([
+          "rev-list",
+          "--count",
+          "HEAD",
+        ])
+      ).trim(),
+    );
+  }
+
+  it(
+    "inspects a page: a markup-free draft and the full-size image first",
+    async () => {
+      const result = await run([
+        "inspect",
+        `${origin}/paper-plane.html`,
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed).toMatchObject({ status: 200, partial: false });
+      expect(parsed.images[0].url).toBe(`${origin}/plane.png`);
+      expect(parsed.draft).toEqual({
+        name: "Paper Plane",
+        recipeYield: "1",
+        ingredients: ["3/4 oz bourbon", "3/4 oz Aperol"],
+        instructions: ["Shake with ice.", "Strain into a coupe."],
+        source: { url: `${origin}/paper-plane.html`, name: "127.0.0.1" },
+        imageImportUrl: `${origin}/plane.png`,
+      });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "runs the tweak loop: dry-run --out, edit, create --dry-run, create",
+    async () => {
+      const before = await commitCount();
+      const draftPath = join(scratch, "d.json");
+      const dry = await run([
+        "import",
+        `${origin}/paper-plane.html`,
+        "--dry-run",
+        "--out",
+        draftPath,
+        "--json",
+      ]);
+      expect(dry.exitCode).toBe(0);
+      /* A dry run wrote nothing, so it warns about no stale editor either. */
+      expect(dry.stderr).not.toContain("stale");
+      expect(JSON.parse(dry.stdout).image).toMatchObject({
+        filename: "plane.png",
+        contentType: "image/png",
+      });
+
+      const draft = JSON.parse(await readFile(draftPath, "utf8"));
+      draft.name = "Paper Plane (Test Bar)";
+      draft.tags = ["drink"];
+      draft.drink = { method: "shake", glass: "coupe" };
+      await writeFile(draftPath, JSON.stringify(draft));
+
+      const check = await run([
+        "create",
+        "--file",
+        draftPath,
+        "--dry-run",
+        "--json",
+      ]);
+      expect(check.exitCode).toBe(0);
+      expect(JSON.parse(check.stdout)).toMatchObject({
+        dryRun: true,
+        slug: "paper-plane-test-bar",
+        conflict: false,
+        recipe: { image: "plane.png", drink: { method: "shake" } },
+      });
+      expect(await commitCount()).toBe(before);
+
+      const created = await run(["create", "--file", draftPath, "--json"]);
+      expect(created.exitCode).toBe(0);
+      expect(JSON.parse(created.stdout).slug).toBe("paper-plane-test-bar");
+      expect(await commitCount()).toBe(before + 1);
+      expect(
+        await readFile(
+          join(
+            contentDirectory,
+            "uploads/recipe/paper-plane-test-bar/uploads/plane.png",
+          ),
+          "utf8",
+        ),
+      ).toBe("png bytes");
+    },
+    TIMEOUT * 2,
+  );
+
+  it(
+    "sets an image from a file and clears it, one commit each",
+    async () => {
+      const picture = join(scratch, "new photo.jpg");
+      await writeFile(picture, "jpeg bytes");
+      const repo = simpleGit({ baseDir: contentDirectory });
+      const before = await commitCount();
+
+      const set = await run([
+        "image",
+        "first-recipe",
+        "--file",
+        picture,
+        "--json",
+      ]);
+      expect(set.exitCode).toBe(0);
+      expect(JSON.parse(set.stdout)).toMatchObject({
+        slug: "first-recipe",
+        image: "new-photo.jpg",
+      });
+      expect(await commitCount()).toBe(before + 1);
+      expect((await repo.log({ maxCount: 1 })).latest?.message).toBe(
+        "Update recipe image: first-recipe",
+      );
+      const uploadsDir = join(
+        contentDirectory,
+        "uploads/recipe/first-recipe/uploads",
+      );
+      expect(await readFile(join(uploadsDir, "new-photo.jpg"), "utf8")).toBe(
+        "jpeg bytes",
+      );
+
+      const cleared = await run(["image", "first-recipe", "--clear", "--json"]);
+      expect(cleared.exitCode).toBe(0);
+      expect(JSON.parse(cleared.stdout)).toMatchObject({
+        image: null,
+        previous: "new-photo.jpg",
+      });
+      expect(await commitCount()).toBe(before + 2);
+      expect(await pathExists(join(uploadsDir, "new-photo.jpg"))).toBe(false);
+
+      const usage = await run(["image", "first-recipe", "--json"]);
+      expect(JSON.parse(usage.stdout).error.code).toBe("usage");
+    },
+    TIMEOUT * 2,
   );
 });

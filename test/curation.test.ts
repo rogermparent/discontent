@@ -49,11 +49,15 @@ import { SlugConflictError } from "../websites/recipe-website/editor/controller/
 import { feature } from "../websites/recipe-website/editor/controller/curation/featured";
 import * as groups from "../websites/recipe-website/editor/controller/curation/groups";
 import { importAndCreate } from "../websites/recipe-website/editor/controller/curation/importRecipe";
+import { inspectUrl } from "../websites/recipe-website/editor/controller/curation/inspect";
+import { setRecipeImage } from "../websites/recipe-website/editor/controller/curation/recipeImage";
 import {
   createRecipe,
   deleteRecipe,
   getRecipe,
   listRecipes,
+  previewCreateRecipe,
+  previewUpdateRecipe,
   updateRecipe,
 } from "../websites/recipe-website/editor/controller/curation/recipes";
 import { reindex } from "../websites/recipe-website/editor/controller/curation/reindex";
@@ -1504,5 +1508,195 @@ describe("D8 import boundary", () => {
       }
     }
     expect(violations).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 14. 26b: inspect, drafts, dry runs, the image seat                  */
+/* ------------------------------------------------------------------ */
+
+describe("inspect and drafts (26b)", () => {
+  it("returns a markup-free draft, the raw node, the meta and ranked images", async () => {
+    const base = "https://cdn.example.com/wp-content/uploads/naan";
+    stubWeb(
+      recipeHtml({
+        image: [`${base}-225x225.jpg`, `${base}.jpg`],
+        recipeIngredient: [
+          "1 1/2 cups flour",
+          "For the topping:",
+          "2 tbsp ghee",
+        ],
+        recipeInstructions: [
+          { text: "Mix." },
+          {
+            "@type": "HowToSection",
+            name: "Cook",
+            itemListElement: [{ text: "Griddle." }],
+          },
+        ],
+        recipeYield: ["8", "8 flatbreads"],
+      }).replace(
+        "<html><head>",
+        '<html><head><meta property="og:site_name" content="Example Kitchen">',
+      ),
+    );
+    const result = await inspectUrl(PAGE_URL);
+
+    expect(result).toMatchObject({
+      url: PAGE_URL,
+      status: 200,
+      partial: false,
+      meta: { siteName: "Example Kitchen" },
+    });
+    expect(result.images.map((image) => image.url)).toEqual([`${base}.jpg`]);
+    expect(result.jsonLd).toMatchObject({ "@type": "Recipe", name: "Naan" });
+    expect(result.draft).toEqual({
+      name: "Naan",
+      description: "South Asia's classic yeasted flatbread.",
+      recipeYield: "8 flatbreads",
+      ingredients: ["1 1/2 cups flour", "For the topping:", "2 tbsp ghee"],
+      instructions: [
+        "Mix.",
+        { name: "Cook", instructions: [{ text: "Griddle." }] },
+      ],
+      source: { url: PAGE_URL, name: "example.com" },
+      imageImportUrl: `${base}.jpg`,
+    });
+    /* The draft is what `create` takes — it creates the importer's record. */
+    stubWeb("", { [`${base}.jpg`]: {} });
+    await createRecipe(ctx, result.draft);
+    const stored = await readRecipeFile("naan");
+    expect(stored.ingredients?.[0].ingredient).toBe(
+      '<Multiplyable baseNumber="1 1/2" /> cups flour',
+    );
+    expect(stored.ingredients?.[1]).toEqual({
+      ingredient: "For the topping:",
+      type: "heading",
+    });
+  });
+
+  it("answers a page with no recipe with what it has, and truncates a huge node", async () => {
+    stubWeb("<html><head><title>Nothing here</title></head></html>");
+    const bare = await inspectUrl(PAGE_URL);
+    expect(bare.partial).toBe(true);
+    expect(bare.draft).toEqual({
+      name: "Nothing here",
+      source: { url: PAGE_URL, name: "example.com" },
+    });
+
+    stubWeb(recipeHtml({ notes: "x".repeat(25_000) }));
+    const big = await inspectUrl(PAGE_URL);
+    expect(typeof big.jsonLd).toBe("string");
+    expect(big.jsonLd as string).toMatch(/\[truncated, \d+ characters\]$/);
+  });
+
+  it("puts the same draft on an import dry run, overrides applied", async () => {
+    stubWeb(recipeHtml(), { [NAAN_IMAGE]: {} });
+    const result = await importAndCreate(ctx, PAGE_URL, {
+      dryRun: true,
+      tags: ["bread"],
+      slug: "my-naan",
+    });
+    if (!("dryRun" in result)) throw new Error("expected a dry run");
+    expect(result.draft).toMatchObject({
+      name: "Naan",
+      slug: "my-naan",
+      tags: ["bread"],
+      ingredients: ["1 1/2 cups flour"],
+      imageImportUrl: NAAN_IMAGE,
+    });
+  });
+});
+
+describe("create and update dry runs (26b)", () => {
+  it("resolves the slug, reports a conflict, and writes nothing", async () => {
+    stubWeb("", { [NAAN_IMAGE]: {} });
+    const fresh = await previewCreateRecipe(ctx, {
+      name: "Garlic Naan",
+      imageImportUrl: NAAN_IMAGE,
+    });
+    expect(fresh).toMatchObject({
+      dryRun: true,
+      slug: "garlic-naan",
+      conflict: false,
+      recipe: { name: "Garlic Naan", image: "naan.jpg" },
+      image: { filename: "naan.jpg", status: 200 },
+    });
+    expect(
+      await pathExists(join(contentDirectory, "recipes/data/garlic-naan")),
+    ).toBe(false);
+
+    await createRecipe(ctx, { name: "Stew" });
+    expect(await previewCreateRecipe(ctx, { name: "Stew" })).toMatchObject({
+      slug: "stew",
+      conflict: true,
+    });
+  });
+
+  it("previews a patch, a rename onto a taken slug, and a missing recipe", async () => {
+    await createRecipe(ctx, { name: "Stew", description: "Stewy." });
+    await createRecipe(ctx, { name: "Soup" });
+
+    const preview = await previewUpdateRecipe(ctx, "stew", {
+      description: "Stewier.",
+      slug: "soup",
+    });
+    expect(preview).toMatchObject({
+      slug: "soup",
+      previousSlug: "stew",
+      conflict: true,
+      recipe: { name: "Stew", description: "Stewier." },
+    });
+    expect((await readRecipeFile("stew")).description).toBe("Stewy.");
+
+    await expect(
+      previewUpdateRecipe(ctx, "nope", { name: "Nope" }),
+    ).rejects.toMatchObject({ code: "not_found" });
+  });
+});
+
+describe("setRecipeImage (26b)", () => {
+  const uploads = () => join(contentDirectory, "uploads/recipe/stew/uploads");
+
+  it("sets from a URL, replaces with a File, and clears", async () => {
+    await createRecipe(ctx, { name: "Stew" });
+    stubWeb("", { "https://example.com/a.png": { type: "image/png" } });
+
+    const fromUrl = await setRecipeImage(ctx, "stew", {
+      url: "https://example.com/a.png",
+    });
+    expect(fromUrl).toMatchObject({ slug: "stew", image: "a.png" });
+    expect(await pathExists(join(uploads(), "a.png"))).toBe(true);
+
+    const fromFile = await setRecipeImage(ctx, "stew", {
+      file: new File(["png"], "My Photo.png", { type: "image/png" }),
+    });
+    expect(fromFile).toMatchObject({
+      image: "My-Photo.png",
+      previous: "a.png",
+    });
+    expect(await pathExists(join(uploads(), "a.png"))).toBe(false);
+    expect(await readFile(join(uploads(), "My-Photo.png"), "utf8")).toBe("png");
+    expect((await readRecipeFile("stew")).image).toBe("My-Photo.png");
+
+    const cleared = await setRecipeImage(ctx, "stew", { clear: true });
+    expect(cleared).toMatchObject({ image: null, previous: "My-Photo.png" });
+    expect("image" in (await readRecipeFile("stew"))).toBe(false);
+    expect(await pathExists(join(uploads(), "My-Photo.png"))).toBe(false);
+  });
+
+  it("refuses a non-image file, an empty choice, and a missing recipe", async () => {
+    await createRecipe(ctx, { name: "Stew" });
+    await expect(
+      setRecipeImage(ctx, "stew", {
+        file: new File(["#!/bin/sh"], "run.sh", { type: "text/x-sh" }),
+      }),
+    ).rejects.toMatchObject({ code: "validation" });
+    await expect(
+      setRecipeImage(ctx, "stew", {} as never),
+    ).rejects.toMatchObject({ code: "validation" });
+    await expect(
+      setRecipeImage(ctx, "nope", { clear: true }),
+    ).rejects.toMatchObject({ code: "not_found" });
   });
 });

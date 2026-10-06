@@ -18,7 +18,7 @@ import { mkdtemp, rm, writeFile } from "fs-extra";
 import { tmpdir } from "os";
 import { join } from "path";
 import simpleGit from "simple-git";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
@@ -568,6 +568,112 @@ describe("the MCP registry over an in-memory transport", () => {
       arguments: { items: ["x".repeat(81)] },
     });
     expect(tooLong.isError).toBe(true);
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* 26b: page_inspect, dry runs, recipe_set_image                     */
+  /* ---------------------------------------------------------------- */
+
+  it("inspects a page without writing, and dry-runs a create without a warning", async () => {
+    const page = [
+      "<html><head>",
+      `<script type="application/ld+json">${JSON.stringify({
+        "@type": "Recipe",
+        name: "Naan",
+        recipeIngredient: ["1 1/2 cups flour"],
+        image: "https://cdn.example.com/naan.jpg",
+      })}</script>`,
+      "</head></html>",
+    ].join("");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) =>
+        init?.method === "HEAD"
+          ? new Response(null, { headers: { "content-type": "image/jpeg" } })
+          : new Response(page, { headers: { "content-type": "text/html" } }),
+      ),
+    );
+    try {
+      const inspected = await call("page_inspect", {
+        url: "https://www.example.com/naan",
+      });
+      expect(inspected.isError).toBe(false);
+      expect(inspected.data).toMatchObject({
+        partial: false,
+        draft: {
+          name: "Naan",
+          ingredients: ["1 1/2 cups flour"],
+          imageImportUrl: "https://cdn.example.com/naan.jpg",
+        },
+        images: [{ url: "https://cdn.example.com/naan.jpg", from: "jsonld" }],
+      });
+
+      const dry = await call("recipe_create", {
+        recipe: inspected.data.draft as Record<string, unknown>,
+        dryRun: true,
+      });
+      expect(dry.isError).toBe(false);
+      expect(dry.data).toMatchObject({
+        dryRun: true,
+        slug: "naan",
+        conflict: false,
+        recipe: { image: "naan.jpg" },
+      });
+      /* Nothing was written, so nothing is stale. */
+      expect(dry.data.warnings).toBeUndefined();
+      expect((await call("recipe_list")).data.total).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("sets an image from a local path, clears it, and wants exactly one source", async () => {
+    await createCake();
+    const picture = join(contentDirectory, "..", `cake-${Date.now()}.png`);
+    await writeFile(picture, "png bytes");
+    try {
+      const set = await call("recipe_set_image", {
+        slug: "chocolate-cake",
+        path: picture,
+      });
+      expect(set.isError).toBe(false);
+      expect(set.data).toMatchObject({
+        slug: "chocolate-cake",
+        image: expect.stringMatching(/^cake-\d+\.png$/),
+      });
+      /* A write: the stale-editor hint rides it, as on every other write. */
+      expect(set.data.warnings).toEqual([expect.stringContaining("stale")]);
+
+      const cleared = await call("recipe_set_image", {
+        slug: "chocolate-cake",
+        clear: true,
+      });
+      expect(cleared.data).toMatchObject({ image: null });
+      const detail = await call("recipe_get", {
+        slug: "chocolate-cake",
+        fields: ["image"],
+      });
+      expect(detail.data.recipe).toEqual({});
+
+      const both = await client.callTool({
+        name: "recipe_set_image",
+        arguments: {
+          slug: "chocolate-cake",
+          clear: true,
+          url: "https://x/y.png",
+        },
+      });
+      expect(both.isError).toBe(true);
+
+      expect(
+        await callError("recipe_set_image", {
+          slug: "chocolate-cake",
+          path: join(contentDirectory, "notes.txt"),
+        }),
+      ).toMatchObject({ code: "validation" });
+    } finally {
+      await rm(picture, { force: true });
+    }
   });
 });
 

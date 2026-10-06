@@ -449,6 +449,91 @@ export async function updateRecipe(
   return { slug, date, path: recipePath(ctx, slug), url: recipeUrl(slug) };
 }
 
+/**
+ * What a create or update would write, and nothing written (26b).
+ *
+ * `conflict` is reported rather than thrown — the dry run's job is to say what
+ * the real call would do, and "this slug is taken" is part of that answer, not
+ * a reason to withhold the rest. The image is `HEAD`-probed for the filename a
+ * real write would store (`probeImageFile`).
+ */
+export interface RecipeDryRunResult {
+  dryRun: true;
+  slug: string;
+  /** Something already lives at `slug`: a create needs `overwrite`, a rename fails. */
+  conflict: boolean;
+  /** The record that would be written to `recipe.json`. */
+  recipe: Recipe;
+  image?: ImageProbe;
+  /** An update that renames: the slug it moves from. */
+  previousSlug?: string;
+}
+
+async function slugIsTaken(ctx: CurationContext, slug: string) {
+  return exists(
+    getContentItemDirectory(
+      recipeContentConfig as unknown as ContentTypeConfig,
+      slug,
+      ctx.contentDirectory,
+    ),
+  );
+}
+
+export async function previewCreateRecipe(
+  ctx: CurationContext,
+  raw: unknown,
+): Promise<RecipeDryRunResult> {
+  const input = parseInput(RecipeInputSchema, raw);
+  const slug = resolveCreateSlug(input);
+  const date = input.date ?? Date.now();
+  const { data, image } = await buildRecipeWrite(input, { date, probe: true });
+  return {
+    dryRun: true,
+    slug,
+    conflict: await slugIsTaken(ctx, slug),
+    recipe: data,
+    ...(image ? { image } : {}),
+  };
+}
+
+export async function previewUpdateRecipe(
+  ctx: CurationContext,
+  currentSlug: string,
+  rawPatch: unknown,
+): Promise<RecipeDryRunResult> {
+  const patch = parseInput(RecipePatchSchema, rawPatch);
+  const current = await readContentFileOrNull<
+    Recipe,
+    RecipeEntryValue,
+    RecipeEntryKey
+  >({
+    config: recipeContentConfig,
+    slug: currentSlug,
+    contentDirectory: ctx.contentDirectory,
+  });
+  if (!current) {
+    throw new NotFoundError(`No recipe at slug "${currentSlug}"`, currentSlug);
+  }
+  const slug = patch.slug ? slugify(patch.slug) : currentSlug;
+  if (!slug) {
+    throw new ValidationError(`"${patch.slug}" does not slugify to anything.`);
+  }
+  const date = patch.date ?? current.date ?? Date.now();
+  const { data, image } = await buildRecipeWrite(patch, {
+    date,
+    current,
+    probe: true,
+  });
+  return {
+    dryRun: true,
+    slug,
+    conflict: slug !== currentSlug && (await slugIsTaken(ctx, slug)),
+    recipe: data,
+    ...(image ? { image } : {}),
+    ...(slug !== currentSlug ? { previousSlug: currentSlug } : {}),
+  };
+}
+
 async function deleteRecipeIfPresent(
   ctx: CurationContext,
   slug: string,

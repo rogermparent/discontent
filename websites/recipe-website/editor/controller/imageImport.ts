@@ -12,7 +12,10 @@
  * Node-safe (D8): the curation layer and the form's server action both call it.
  */
 import { RECIPE_FETCH_HEADERS } from "recipe-website-common/util/importRecipeData";
-import { ImportError } from "./curation/errors";
+import { openAsBlob } from "node:fs";
+import { stat } from "node:fs/promises";
+import path from "node:path";
+import { ImportError, ValidationError } from "./curation/errors";
 
 /** Generous for a photo; small enough that a mistaken video URL fails fast. */
 export const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
@@ -231,4 +234,82 @@ export async function probeImageFile(url: string): Promise<ImageProbe> {
     return { ...probe, error: `Over the ${MAX_IMAGE_BYTES}-byte cap` };
   }
   return probe;
+}
+
+/** Extension → media type, the inverse of `EXTENSIONS`, for local files. */
+const TYPES_BY_EXTENSION: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  avif: "image/avif",
+  svg: "image/svg+xml",
+  bmp: "image/bmp",
+  tif: "image/tiff",
+  tiff: "image/tiff",
+  heic: "image/heic",
+  heif: "image/heif",
+  ico: "image/x-icon",
+};
+
+function typeForName(name: string): string | undefined {
+  return TYPES_BY_EXTENSION[name.split(".").pop()?.toLowerCase() ?? ""];
+}
+
+/**
+ * The checks `fetchImageFile` makes, for a `File` that arrived some other way
+ * (26b): a multipart upload, or a local path read by `readImageFile`. Returns
+ * the file renamed to a safe name, or throws `ValidationError`.
+ */
+export function checkImageFile(file: File): File {
+  const type = file.type.split(";")[0].trim().toLowerCase();
+  if (!type.startsWith("image/") && !IMAGE_EXTENSION.test(file.name)) {
+    throw new ValidationError(
+      `${file.name || "The upload"} is not an image (type ${type || "missing"}).`,
+    );
+  }
+  if (file.size === 0) {
+    throw new ValidationError(`${file.name || "The upload"} is empty.`);
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    throw new ValidationError(
+      `${file.name} is ${file.size} bytes, over the ${MAX_IMAGE_BYTES}-byte cap.`,
+    );
+  }
+  const name = imageFilename(
+    `file:///${encodeURIComponent(file.name)}`,
+    type || typeForName(file.name),
+  );
+  return name === file.name
+    ? file
+    : new File([file], name, { type: file.type || typeForName(name) || "" });
+}
+
+/**
+ * A local image file as a `File` (26b): the CLI's `image --file` and the MCP
+ * tool's `path`. Only image extensions are read — the MCP tool runs wherever
+ * the server does, and a path seat that would read any file is not one to
+ * pre-approve.
+ */
+export async function readImageFile(filePath: string): Promise<File> {
+  const name = path.basename(filePath);
+  if (!IMAGE_EXTENSION.test(name)) {
+    throw new ValidationError(`${filePath} does not name an image file.`);
+  }
+  let size: number;
+  try {
+    size = (await stat(filePath)).size;
+  } catch (error) {
+    throw new ValidationError(
+      `Could not read ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (size > MAX_IMAGE_BYTES) {
+    throw new ValidationError(
+      `${filePath} is ${size} bytes, over the ${MAX_IMAGE_BYTES}-byte cap.`,
+    );
+  }
+  const blob = await openAsBlob(filePath, { type: typeForName(name) });
+  return checkImageFile(new File([blob], name, { type: blob.type }));
 }
