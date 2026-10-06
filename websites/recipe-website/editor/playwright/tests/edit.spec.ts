@@ -343,6 +343,42 @@ test.describe("Recipe Edit View", () => {
         );
       });
 
+      test("should replace a recipe image from an image URL (26c)", async ({
+        page,
+        baseURL,
+      }) => {
+        await expect(page.getByText("Editing Recipe: Recipe 6")).toBeVisible();
+        await expect(page.getByRole("img").first()).toHaveAttribute(
+          "src",
+          "/image/uploads/recipe/recipe-6/uploads/recipe-6-test-image.png/recipe-6-test-image-w3840q75.webp",
+        );
+
+        const imageUrl = new URL("/uploads/url-import-image.png", baseURL!)
+          .href;
+        await page.getByLabel("Image URL").fill(imageUrl);
+        await expect(
+          page.getByRole("img", {
+            name: "Direct link to image which will be imported.",
+          }),
+        ).toHaveAttribute("src", imageUrl);
+
+        await page.getByRole("button", { name: "Submit", exact: true }).click();
+
+        await expect(
+          page.getByRole("heading", { level: 1, name: "Recipe 6" }),
+        ).toBeVisible();
+        await expect(page.getByRole("img").first()).toHaveAttribute(
+          "src",
+          "/image/uploads/recipe/recipe-6/uploads/url-import-image.png/url-import-image-w3840q75.webp",
+        );
+
+        /* The old file is gone with the old reference. */
+        const old = await page.request.get(
+          "/uploads/recipe/recipe-6/uploads/recipe-6-test-image.png",
+        );
+        expect(old.status()).toBe(404);
+      });
+
       test("should be able to set a recipe image on a recipe without an image", async ({
         page,
       }) => {

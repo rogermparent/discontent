@@ -335,6 +335,20 @@ describe("importRecipeData mapping (26a)", () => {
     });
   });
 
+  it("strips the site name from og:title as well as <title>", async () => {
+    stubFetch(
+      [
+        "<html><head>",
+        '<meta property="og:site_name" content="PUNCH">',
+        '<meta property="og:title" content="Paper Plane Cocktail Recipe | Punch">',
+        "</head><body></body></html>",
+      ].join(""),
+    );
+    expect((await importRecipeData(PAGE_URL))?.name).toBe(
+      "Paper Plane Cocktail Recipe",
+    );
+  });
+
   it("does not build a partial import from an error page", async () => {
     vi.stubGlobal(
       "fetch",

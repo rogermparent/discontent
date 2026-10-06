@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Two Pictures Toast | Fixture Kitchen</title>
+    <!--
+      26c: a recipe page with two real images on this fixture server, so the
+      new-recipe form's image picker has a choice to offer. The ImageObject's
+      stated size ranks the PNG first; the WebP is the second candidate.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org/",
+        "@type": "Recipe",
+        "name": "Two Pictures Toast",
+        "description": "A fixture with two candidate images.",
+        "image": [
+          {
+            "@type": "ImageObject",
+            "url": "http://localhost:3019/uploads/recipe-imported-image-566x566.png",
+            "width": 1600,
+            "height": 1200
+          },
+          "http://localhost:3019/uploads/pork-carnitas.webp"
+        ],
+        "recipeIngredient": ["2 slices bread", "1 tbsp butter"],
+        "recipeInstructions": [{ "text": "Toast the bread and butter it." }]
+      }
+    </script>
+  </head>
+  <body>
+    <h1>Two Pictures Toast</h1>
+  </body>
+</html>

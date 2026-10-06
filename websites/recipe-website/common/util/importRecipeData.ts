@@ -336,17 +336,21 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** The page's own best guess at a title, without the " | Site Name" tail. */
+/**
+ * The page's own best guess at a title, without the " | Site Name" tail —
+ * which sites put on `og:title` as often as on `<title>` (PUNCH: "Paper Plane
+ * Cocktail Recipe | PUNCH").
+ */
 function seoName(meta: PageMeta): string | undefined {
-  if (meta.ogTitle) return decodeName(meta.ogTitle);
-  if (!meta.title) return undefined;
+  const raw = meta.ogTitle ?? meta.title;
+  if (!raw) return undefined;
   const title = meta.siteName
-    ? meta.title.replace(
-        new RegExp(`\\s*[|·–—-]\\s*${escapeRegExp(meta.siteName)}\\s*$`),
+    ? raw.replace(
+        new RegExp(`\\s*[|·–—-]\\s*${escapeRegExp(meta.siteName)}\\s*$`, "i"),
         "",
       )
-    : meta.title;
-  return decodeName(title);
+    : raw;
+  return decodeName(title) ?? decodeName(raw);
 }
 
 /**

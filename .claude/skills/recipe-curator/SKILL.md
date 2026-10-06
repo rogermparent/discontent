@@ -1,7 +1,7 @@
 ---
 name: recipe-curator
 description: Find, import, cite and group recipes for the recipe website — meal plans, collections, nested collections, the homepage strip and the shared list of what's on hand — through the `recipes` MCP tools. Use for asks like "plan dinners for the week", "import this recipe", "make a collection of …", "put it on the homepage", "I bought Gnista", "what can I make?".
-allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__page_inspect, mcp__recipes__recipe_import, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__recipe_set_image, mcp__recipes__tag_list, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__inventory_get, mcp__recipes__inventory_add, mcp__recipes__inventory_remove, mcp__recipes__inventory_makeable, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, WebSearch, Bash(pnpm --silent recipes:*)
+allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__page_inspect, mcp__recipes__recipe_import, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__recipe_set_image, mcp__recipes__tag_list, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__inventory_get, mcp__recipes__inventory_add, mcp__recipes__inventory_remove, mcp__recipes__inventory_makeable, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, WebSearch, WebFetch, Bash(pnpm --silent recipes:*)
 ---
 
 # Recipe curator
@@ -75,37 +75,95 @@ result hit a site that blocks Anthropic's crawler (BBC Good Food today):
 rephrase, or name another site. The importer's own fetch is unaffected, so a
 URL you already have is still fair game.
 
-## 5. Dry-run every candidate
+## 5. Inspect every candidate
 
 ```json
-recipe_import {"url": "https://www.budgetbytes.com/vegetarian-chili/", "dryRun": true}
+page_inspect {"url": "https://www.budgetbytes.com/vegetarian-chili/"}
 ```
 
-Writes nothing; returns `{dryRun: true, url, slug, recipe, image?, video?}`
-with `recipe.{ingredients, instructions, prepTime, cookTime, totalTime,
-recipeYield, source{url, name?, author?}}` (minutes) and no `warnings`.
+Reads the page and writes nothing. Returns `{url, finalUrl, status, partial,
+recipe, draft, jsonLd, meta, images, video?}`:
+
+- `draft` — the recipe as a **create-ready** `recipe_create` payload: plain
+  ingredient lines (no markup, ASCII fractions as the page gave them),
+  instructions, `recipeYield`, times in minutes, `source{url, name?,
+author?}` and `imageImportUrl` set to the best image. `tags`, `slug` and
+  `drink` are yours to add.
+- `images` — up to ten `{url, width?, height?, from}` candidates, best first:
+  full-size originals rank above their WordPress crops, and the page's
+  metadata images above its body images.
+- `jsonLd` and `meta` — the raw Recipe node and the page's title,
+  description, OpenGraph and author, for anything the draft left out.
+- `video` — for a YouTube (or other video) URL: yt-dlp's title, channel, full
+  description, chapters and thumbnails.
+
 **Reject a candidate when:**
 
-- the call fails with `code: "import_failed"` (no JSON-LD recipe on the page
-  — a wrong URL and a 404 look identical, so just drop it);
-- `recipe.ingredients` or `recipe.instructions` is empty or absent;
-- `recipe.totalTime` exceeds the ask's limit — or is missing while the ask has
+- the call fails with `code: "import_failed"` (the page could not be fetched
+  at all), or `status` is not 2xx, or there is no `draft`;
+- `draft.ingredients` or `draft.instructions` is empty or absent and you are
+  not going to fill them in (see partial pages below);
+- `draft.totalTime` exceeds the ask's limit — or is missing while the ask has
   one, in which case drop it and **say so in the report**.
 
-A YouTube URL imports through the video path (`videoUrl` + `source`); use one
-only when the ask allows videos. Dedupe against step 3 by `slug`.
+Dedupe against step 3 by name and source URL. `recipe_import {"url": …,
+"dryRun": true}` is the same read with the stored form beside the draft; use
+`page_inspect` unless you want that.
 
-## 6. Import the keepers
+## 6. Inspect, draft, create
+
+Take the candidate's `draft`, edit it, check it, write it:
 
 ```json
-recipe_import {"url": "https://www.budgetbytes.com/vegetarian-chili/", "tags": ["vegetarian", "dinner"]}
+recipe_create {"recipe": {"name": "Vegetarian Chili", "tags": ["vegetarian", "dinner"], "ingredients": ["1 Tbsp olive oil", "2 cloves garlic"], "instructions": ["Sauté the garlic."], "source": {"url": "https://www.budgetbytes.com/vegetarian-chili/", "name": "Budget Bytes"}, "imageImportUrl": "https://www.budgetbytes.com/wp-content/uploads/2022/01/Vegetarian-Chili.jpg"}, "dryRun": true}
 ```
 
-Returns `{slug, date, path, url, source?, warnings?}`. On
-`code: "slug_conflict"` the recipe already exists — use that slug, never
-`overwrite`. `source.url` is the citation the importer filled in: never strip
-or edit it. `recipe_update {"slug": …, "patch": {"tags": […]}}` fixes tags on
-a recipe **this run** imported; `recipe_create` takes a dictated recipe.
+The dry run returns `{dryRun: true, slug, conflict, recipe, image?}` and
+writes nothing: `recipe` is the record that would be stored, `image.filename`
+the name the picture would get (with `image.error` if it would be refused).
+On `conflict: true` the recipe already exists — use that slug, never
+`overwrite`. Then the same call without `dryRun` writes it, one commit, and
+returns `{slug, date, path, url, warnings?}`.
+
+The checklist, applied to the draft before the dry run:
+
+1. **Keep `source` exactly as the draft has it** — it is the citation. Never
+   strip or edit `source.url`.
+2. **Tags** from the vocabulary below; read `tag_list` first.
+3. **Image**: keep `imageImportUrl` (`images[0]`) unless it is a logo, a
+   step photo or a tiny crop — then pick another from `images`. A picture can
+   also be fixed later (below).
+4. **Lines**: drop "freshly squeezed" and similar padding; keep the page's
+   quantities and units otherwise.
+5. **Drinks**: the rules in "Drinks" below — garnish, method, glass and ice
+   into `drink`, units to `oz`, the "Drink (Site)" name.
+
+`recipe_update {"slug": …, "patch": {"tags": […]}}` fixes a recipe **this
+run** created (`dryRun` works there too); `recipe_create` also takes a
+dictated recipe.
+
+**Video recipes.** A YouTube URL's `page_inspect` carries `video.description`
+(often the full ingredient list and method) and `video.chapters`. Build
+`ingredients` and `instructions` from those, keep the draft's `name`,
+channel `source` and thumbnail image, and keep `videoImportUrl` — the page
+embeds the video. Use one only when the ask allows videos.
+
+**Partial pages.** `partial: true` means the page has no Recipe JSON-LD: the
+draft is only its title, description, best image and source. Either read the
+page yourself (WebFetch) and fill in `ingredients` and `instructions` before
+creating — the citation stays the draft's `source` — or skip it and say so in
+the report. Never create a recipe with no ingredients.
+
+**Fixing an image later:**
+
+```json
+recipe_set_image {"slug": "vegetarian-chili", "url": "https://…/better.jpg"}
+recipe_set_image {"slug": "vegetarian-chili", "clear": true}
+```
+
+Exactly one of `url`, `path` (a local image file) or `clear`; one commit,
+`Update recipe image: <slug>`, returns `{slug, image, previous?}`. The image
+must be a real image under 15 MB — an HTML page at an image URL is refused.
 
 Tag vocabulary (lowercase, keep it small):
 
@@ -131,9 +189,8 @@ instruction. Name each ingredient **generic first, brand in parens** —
 a `recipe_update` patch, `drink` **replaces** the whole spec rather than
 merging into it, and `null` (or an empty object) removes it.
 
-**Importing a drink from a site.** `recipe_import {url, dryRun: true}`, then
-normalize the dry run and `recipe_create` it — with `source` and
-`imageImportUrl` from the dry run, so the citation survives in one commit:
+**Importing a drink from a site** is the same inspect → draft → create, with
+these edits to the draft:
 
 - **Name** `"Margarita (Liquor.com)"`, **slug** `margarita-liquor-com`. Two
   sites' versions of one drink are two recipes; both carry a shared drink tag
@@ -234,7 +291,20 @@ a command line.
 When the `recipes` server is not connected, the same operations exist as
 `pnpm --silent recipes <command> … --json`, run **from the repo root**
 (`--silent` keeps pnpm's banner out of the JSON). `pnpm --silent recipes --help`
-lists the commands; the flags mirror the tool inputs. Never pass `--author`,
+lists the commands; the flags mirror the tool inputs:
+
+- `page_inspect` → `pnpm --silent recipes inspect <url> --json` (`--out d.json`
+  writes just the draft);
+- `recipe_import {dryRun}` → `pnpm --silent recipes import <url> --dry-run --out d.json --json`
+  (`--image <url>` picks another image);
+- `recipe_create {recipe, dryRun}` → `pnpm --silent recipes create --file d.json --dry-run --json`,
+  then the same without `--dry-run`;
+- `recipe_update {slug, patch}` → `pnpm --silent recipes update <slug> --file patch.json --json`;
+- `recipe_set_image` → `pnpm --silent recipes image <slug> --url <image-url> --json`
+  (or `--file <path>`, or `--clear`).
+
+The draft file is the loop: inspect or dry-run into `d.json`, edit it, check
+it with `create --dry-run`, then create. Never pass `--author`,
 `--remote`, `--editor-url`, `--notify`, `--overwrite`, `--force` or
 `--content-dir` — the environment chooses the target, and a flag would let a
 fallback run write somewhere the tools would not.

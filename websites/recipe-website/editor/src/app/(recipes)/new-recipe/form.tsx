@@ -45,6 +45,17 @@ export default function NewOrImportRecipeForm({
             {message}
           </div>
         ) : null}
+        {recipe?.partial ? (
+          /* The SEO fallback (26a/D3): name, description, image and source
+           * only — the ingredients and steps are the user's to fill in. */
+          <div
+            role="status"
+            className="my-1 rounded bg-muted px-2 py-1 text-sm text-muted-foreground"
+          >
+            No recipe data on this page — filled from its title, description and
+            image.
+          </div>
+        ) : null}
         <TextInput name="import" label="Import from URL" />
         <SubmitButton>Import</SubmitButton>
       </form>
