@@ -224,7 +224,8 @@ export function ingredientText(entry: unknown): string | undefined {
 }
 
 /**
- * The headers a recipe page is requested with: a desktop browser's.
+ * The headers a recipe page is re-requested with after a 403: a desktop
+ * browser's.
  *
  * Some recipe sites answer Node's default `fetch` with a 403 and serve the
  * same page to a browser — Imbibe is the one the 25e source probe found
@@ -243,6 +244,27 @@ export const RECIPE_FETCH_HEADERS: Readonly<Record<string, string>> = {
   "accept-language": "en-US,en;q=0.9",
 };
 
+/**
+ * Fetch a recipe page as Node first, and as a browser only after a 403.
+ *
+ * Neither identity works everywhere. Imbibe 403s Node's default agent, while
+ * Cloudflare-fronted sites (A Couple Cooks) serve Node and answer a Chrome
+ * `User-Agent` with a 403 "Just a moment…" challenge, since the request's TLS
+ * fingerprint is not Chrome's. Asking plainly first keeps every site that
+ * worked before the browser headers did.
+ */
+async function fetchRecipePage(url: string): Promise<string> {
+  const response = await fetch(url, { next: { revalidate: 300 } });
+  if (response.status !== 403) {
+    return response.text();
+  }
+  const retry = await fetch(url, {
+    headers: RECIPE_FETCH_HEADERS,
+    next: { revalidate: 300 },
+  });
+  return retry.text();
+}
+
 export async function importRecipeData(
   rawUrl: string,
 ): Promise<Partial<ImportedRecipe> | undefined> {
@@ -258,12 +280,7 @@ export async function importRecipeData(
     };
   }
 
-  const response = await fetch(url, {
-    headers: RECIPE_FETCH_HEADERS,
-    next: { revalidate: 300 },
-  });
-
-  const text = await response.text();
+  const text = await fetchRecipePage(url);
   const recipeObject = findRecipeObjectInText(text);
 
   // Return undefined early if no recipe is found
