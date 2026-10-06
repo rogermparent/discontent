@@ -28,6 +28,8 @@ import simpleGit, { SimpleGit } from "simple-git";
 import { z } from "zod";
 import parseRecipeFormData, { ParsedRecipeFormData } from "../parseFormData";
 import { recipeContentTypes } from "../contentTypes";
+import { ImportError } from "../curation/errors";
+import { fetchImageFile } from "../imageImport";
 import type { EditorContentConfig } from "@discontent/cms/content/editorContentConfig";
 import { createGenericActions } from "@discontent/cms/content/genericActions";
 import { authenticateUser } from "./shared";
@@ -58,14 +60,42 @@ function formDataFromParsed(parsed: ParsedRecipeFormData): RecipeFormData {
   };
 }
 
-function buildRecipeData(
+/**
+ * The image an `imageImportUrl` names, downloaded and checked (26a), or
+ * `undefined` when the form sends no import URL or something that beats it.
+ *
+ * Memoized per parsed submission: the generic actions call `buildCreateData`
+ * and `buildCreateUploads` separately, and both reach `buildRecipeData`, so
+ * without this every save would download the image twice.
+ */
+const importedImages = new WeakMap<
+  ParsedRecipeFormData,
+  Promise<File | undefined>
+>();
+
+function importedImage(
+  parsed: ParsedRecipeFormData,
+): Promise<File | undefined> {
+  const { image, clearImage, imageImportUrl } = parsed;
+  if ((image && image.size > 0) || clearImage || !imageImportUrl) {
+    return Promise.resolve(undefined);
+  }
+  let pending = importedImages.get(parsed);
+  if (!pending) {
+    pending = fetchImageFile(imageImportUrl);
+    importedImages.set(parsed, pending);
+  }
+  return pending;
+}
+
+async function buildRecipeData(
   parsed: ParsedRecipeFormData,
   date: number,
   currentRecipeData?: Recipe | null,
-): {
+): Promise<{
   data: Recipe;
   uploads: Record<string, UploadSpec>;
-} {
+}> {
   const {
     name,
     description,
@@ -77,7 +107,6 @@ function buildRecipeData(
     clearVideo,
     videoUrl,
     videoImportUrl,
-    imageImportUrl,
     prepTime,
     cookTime,
     totalTime,
@@ -100,11 +129,17 @@ function buildRecipeData(
             ? undefined
             : currentRecipeData?.video;
 
+  /*
+   * The import URL is fetched here, not by the engine: `fetchImageFile` checks
+   * the status, the type and the size, and names the file with a real
+   * extension (T9). The engine then streams it like any other upload.
+   */
+  const imported = await importedImage(parsed);
+
   const uploads: Record<string, UploadSpec> = {
     image: {
-      file: image ?? undefined,
+      file: image && image.size > 0 ? image : imported,
       clearFile: clearImage,
-      fileImportUrl: imageImportUrl,
       existingFile: currentRecipeData?.image,
     },
     video: {
@@ -122,8 +157,8 @@ function buildRecipeData(
       ? image.name
       : clearImage
         ? undefined
-        : imageImportUrl
-          ? new URL(imageImportUrl).pathname.split("/").pop()
+        : imported
+          ? imported.name
           : currentRecipeData?.image;
   const videoFileName = video && video.size > 0 ? video.name : videoValue;
 
@@ -182,7 +217,7 @@ const recipeEditorConfig: EditorContentConfig<
   async buildCreateData(parsed) {
     const date: number = parsed.date || Date.now();
     const slug = slugify(parsed.slug || createDefaultSlug(parsed));
-    const { data } = buildRecipeData(parsed, date);
+    const { data } = await buildRecipeData(parsed, date);
     return { slug, data };
   },
 
@@ -193,12 +228,12 @@ const recipeEditorConfig: EditorContentConfig<
     });
     const slug = slugify(parsed.slug || createDefaultSlug(parsed));
     const date = parsed.date || currentDate || Date.now();
-    const { data } = buildRecipeData(parsed, date, currentRecipeData);
+    const { data } = await buildRecipeData(parsed, date, currentRecipeData);
     return { slug, data };
   },
 
   async buildCreateUploads(parsed) {
-    const { uploads } = buildRecipeData(parsed, 0);
+    const { uploads } = await buildRecipeData(parsed, 0);
     return uploads;
   },
 
@@ -207,7 +242,7 @@ const recipeEditorConfig: EditorContentConfig<
       slug: currentSlug,
       contentDirectory,
     });
-    const { uploads } = buildRecipeData(parsed, 0, currentRecipeData);
+    const { uploads } = await buildRecipeData(parsed, 0, currentRecipeData);
     return uploads;
   },
 
@@ -247,10 +282,45 @@ const recipeEditorConfig: EditorContentConfig<
 };
 
 const recipeActions = createGenericActions(recipeEditorConfig);
-export const createRecipe = recipeActions.create;
-export const overwriteRecipe = recipeActions.overwriteCreate;
-export const updateRecipe = recipeActions.update;
-export const overwriteUpdateRecipe = recipeActions.overwriteUpdate;
+
+/**
+ * An image import that fails (`fetchImageFile`'s `ImportError`) as a form
+ * message rather than a crashed action.
+ *
+ * The generic actions build the data and uploads *outside* their own
+ * try/catch, and they live in `@discontent/cms`, which portfolio shares; so the
+ * catch is here, around the four recipe writes, with the submitted values
+ * handed back so nothing typed is lost.
+ */
+function reportImageImportErrors<Args extends [...unknown[], FormData]>(
+  action: (...args: Args) => Promise<RecipeFormState>,
+) {
+  return async (...args: Args): Promise<RecipeFormState> => {
+    try {
+      return await action(...args);
+    } catch (error) {
+      if (!(error instanceof ImportError)) throw error;
+      const formData = args[args.length - 1] as FormData;
+      const parsed = parseRecipeFormData(formData);
+      return {
+        message: `Could not import the image: ${error.message}`,
+        errors: {},
+        ...(parsed.success
+          ? { formData: formDataFromParsed(parsed.data) }
+          : {}),
+      } as RecipeFormState;
+    }
+  };
+}
+
+export const createRecipe = reportImageImportErrors(recipeActions.create);
+export const overwriteRecipe = reportImageImportErrors(
+  recipeActions.overwriteCreate,
+);
+export const updateRecipe = reportImageImportErrors(recipeActions.update);
+export const overwriteUpdateRecipe = reportImageImportErrors(
+  recipeActions.overwriteUpdate,
+);
 export const deleteRecipe = recipeActions.delete;
 
 const remoteSchema = z.object({

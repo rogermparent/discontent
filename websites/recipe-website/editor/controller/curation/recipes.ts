@@ -25,7 +25,6 @@ import type {
 } from "@discontent/cms/content/types";
 import { updateContent } from "@discontent/cms/content/updateContent";
 import { exists } from "fs-extra";
-import path from "node:path";
 import {
   matchesFilter,
   parseQuery,
@@ -40,6 +39,11 @@ import type {
   RecipeEntryKey,
   RecipeEntryValue,
 } from "recipe-website-common/controller/types";
+import {
+  fetchImageFile,
+  probeImageFile,
+  type ImageProbe,
+} from "../imageImport";
 import { recipePath, recipeUrl, type CurationContext } from "./context";
 import { NotFoundError, SlugConflictError, ValidationError } from "./errors";
 import {
@@ -188,13 +192,14 @@ export async function listRecipes(
 
 /**
  * Shape a recipe data file and its upload specs, mirroring `buildRecipeData`
- * (`controller/actions/index.ts:56`).
+ * (`controller/actions/index.ts:61`).
  *
  * Three things this has to get right, all of them mirrored from there:
  *
- * - **`image` is a bare filename**, derived from the import URL's basename —
- *   the same value `getUploadInfo` writes into the uploads directory, which is
- *   what makes the two agree about what file the recipe points at.
+ * - **`image` is the downloaded file's name.** Since 26a the image is fetched
+ *   here (`fetchImageFile`) and handed to the engine as a `File`, so the name
+ *   stored is the name written — a checked, extension-bearing one, not the
+ *   URL's raw last segment. That is why this is `async`.
  * - **`video` is a URL string or a filename**, and `videoUrl` beats
  *   `videoImportUrl` beats what the recipe already had. The CLI never downloads
  *   a video, exactly as the editor never does.
@@ -202,14 +207,25 @@ export async function listRecipes(
  *   signature, so `imageImportUrl` would be written to `recipe.json` verbatim
  *   and re-imported on every subsequent edit (fact 9).
  *
- * `null` clears, `undefined` leaves alone — the patch contract. On a create
- * there is no `current`, so the two are indistinguishable and both mean "not
- * set".
+ * `null` clears, `undefined` leaves alone — the patch contract, which since 26a
+ * includes `imageImportUrl: null` (and `clearImage: true`). On a create there is
+ * no `current`, so the two are indistinguishable and both mean "not set".
+ *
+ * `probe: true` is the dry run's mode: the image is `HEAD`-probed for the name
+ * it would get rather than downloaded, and `image` reports what was found.
  */
-export function buildRecipeWrite(
+export async function buildRecipeWrite(
   input: RecipeInput | RecipePatch,
-  { date, current }: { date: number; current?: Recipe | null },
-): { data: Recipe; uploads: Record<string, UploadSpec> } {
+  {
+    date,
+    current,
+    probe = false,
+  }: { date: number; current?: Recipe | null; probe?: boolean },
+): Promise<{
+  data: Recipe;
+  uploads: Record<string, UploadSpec>;
+  image?: ImageProbe;
+}> {
   const data: Recipe = current
     ? ({ ...current } as Recipe)
     : ({ name: "", date } as Recipe);
@@ -248,11 +264,30 @@ export function buildRecipeWrite(
   }
 
   const imageImportUrl = input.imageImportUrl ?? undefined;
-  const image = imageImportUrl
-    ? path.parse(new URL(imageImportUrl).pathname).base
-    : current?.image;
-  if (image) data.image = image;
-  else delete data.image;
+  const clearImage =
+    !imageImportUrl &&
+    (input.imageImportUrl === null ||
+      ("clearImage" in input && input.clearImage === true));
+
+  let imageUpload: UploadSpec = { existingFile: current?.image };
+  let image: ImageProbe | undefined;
+  if (imageImportUrl) {
+    if (probe) {
+      image = await probeImageFile(imageImportUrl);
+      data.image = image.filename;
+    } else {
+      const file = await fetchImageFile(imageImportUrl);
+      data.image = file.name;
+      imageUpload = { file, existingFile: current?.image };
+    }
+  } else if (clearImage) {
+    delete data.image;
+    imageUpload = { clearFile: true, existingFile: current?.image };
+  } else if (current?.image) {
+    data.image = current.image;
+  } else {
+    delete data.image;
+  }
 
   const video =
     input.videoUrl === null || input.videoImportUrl === null
@@ -268,21 +303,18 @@ export function buildRecipeWrite(
   delete data.imageImportUrl;
   delete data.videoImportUrl;
   delete data.videoUrl;
+  delete data.clearImage;
 
   return {
     data,
     /*
      * Only `image`. The editor also declares a `video` upload because its form
-     * has a file input; nothing here can hand over a `File`, and declaring the
-     * field with no file would ask `processUploadChanges` to carry an existing
-     * one forward for no reason.
+     * has a file input; nothing here can hand over a video `File`, and
+     * declaring the field with no file would ask `processUploadChanges` to
+     * carry an existing one forward for no reason.
      */
-    uploads: {
-      image: {
-        fileImportUrl: imageImportUrl,
-        existingFile: current?.image,
-      },
-    },
+    uploads: { image: imageUpload },
+    ...(image ? { image } : {}),
   };
 }
 
@@ -304,7 +336,7 @@ export async function createRecipe(
   const input = parseInput(RecipeInputSchema, raw);
   const slug = resolveCreateSlug(input);
   const date = input.date ?? Date.now();
-  const { data, uploads } = buildRecipeWrite(input, { date });
+  const { data, uploads } = await buildRecipeWrite(input, { date });
 
   if (overwrite) {
     /*
@@ -392,7 +424,7 @@ export async function updateRecipe(
   }
 
   const date = patch.date ?? current.date ?? Date.now();
-  const { data, uploads } = buildRecipeWrite(patch, { date, current });
+  const { data, uploads } = await buildRecipeWrite(patch, { date, current });
 
   const result = await updateContent<Recipe, RecipeEntryValue, RecipeEntryKey>({
     config: recipeContentConfig,

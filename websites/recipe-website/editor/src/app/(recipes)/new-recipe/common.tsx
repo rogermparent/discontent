@@ -1,7 +1,9 @@
 import {
   ImportedRecipe,
   importRecipeData,
+  isVideoUrl,
 } from "recipe-website-common/util/importRecipeData";
+import { ytdlpToRecipe } from "recipe-editor/controller/ytdlp";
 import { fetchYtdlpMetadata } from "./ytdlp";
 
 export interface RecipeActionState {
@@ -11,38 +13,13 @@ export interface RecipeActionState {
   recipe?: Partial<ImportedRecipe>;
 }
 
-function isYouTubeUrl(url: string): boolean {
-  try {
-    const { hostname } = new URL(url);
-    return hostname.includes("youtube.com") || hostname.includes("youtu.be");
-  } catch {
-    return false;
-  }
-}
-
 /**
- * The `*Imported from [url](url)*` line this used to open with is gone (D7):
- * the citation is carried by `source` instead, which the detail page renders
- * and the form can edit. What the prefix never covered — the channel and the
- * video's own description — still belongs here.
+ * The form's import: yt-dlp for a video host, the page importer otherwise.
+ *
+ * The video mapping is `ytdlpToRecipe`, the same one the curation layer uses
+ * (26a), so a video imported here and one imported with `recipes import` carry
+ * the same name, description, citation and thumbnail.
  */
-function formatYouTubeDescription(
-  description?: string,
-  channel?: string,
-): string | undefined {
-  const segments: string[] = [];
-  if (channel) {
-    segments.push(`Channel: ${channel}`);
-  }
-  if (description) {
-    segments.push(description);
-  }
-  if (segments.length === 0) {
-    return undefined;
-  }
-  return segments.join("\n\n---\n\n");
-}
-
 export async function reduceRecipeImport(
   _state: RecipeActionState | null,
   url: string | null,
@@ -52,27 +29,10 @@ export async function reduceRecipeImport(
   }
   try {
     if (typeof url === "string") {
-      if (isYouTubeUrl(url)) {
+      if (isVideoUrl(url)) {
         const result = await fetchYtdlpMetadata(url);
         if (result.status === "success") {
-          const { metadata } = result;
-          return {
-            url,
-            recipe: {
-              name: metadata.title,
-              description: formatYouTubeDescription(
-                metadata.description,
-                metadata.channel,
-              ),
-              source: {
-                url,
-                name: "YouTube",
-                author: metadata.channel,
-              },
-              videoImportUrl: metadata.webpage_url,
-              imageImportUrl: metadata.thumbnail,
-            } as Partial<ImportedRecipe>,
-          };
+          return { url, recipe: ytdlpToRecipe(result.metadata, url) };
         }
         const message =
           result.status === "not-found"

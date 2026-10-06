@@ -234,3 +234,116 @@ describe("importRecipeData source", () => {
     expect(imported?.description).toBeUndefined();
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* 26a: what 25e found missing                                         */
+/* ------------------------------------------------------------------ */
+
+describe("importRecipeData mapping (26a)", () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("maps recipeYield from a number, a string, or a self-repeating array", async () => {
+    stubFetch(recipeHtml({ recipeYield: 10 }));
+    expect((await importRecipeData(PAGE_URL))?.recipeYield).toBe("10");
+    stubFetch(recipeHtml({ recipeYield: "4 servings" }));
+    expect((await importRecipeData(PAGE_URL))?.recipeYield).toBe("4 servings");
+    stubFetch(recipeHtml({ recipeYield: ["8", "8 flatbreads"] }));
+    expect((await importRecipeData(PAGE_URL))?.recipeYield).toBe(
+      "8 flatbreads",
+    );
+    stubFetch(recipeHtml({ recipeYield: ["2"] }));
+    expect((await importRecipeData(PAGE_URL))?.recipeYield).toBe("2");
+  });
+
+  it("splits instructions given as one string into steps", async () => {
+    /* Imbibe's alcohol-free negroni threw on this before 26a. */
+    stubFetch(
+      recipeHtml({
+        recipeInstructions:
+          "Add all ingredients to a mixing glass with ice. Stir until chilled. Strain into a rocks glass over a large cube.",
+      }),
+    );
+    expect((await importRecipeData(PAGE_URL))?.instructions).toEqual([
+      { text: "Add all ingredients to a mixing glass with ice." },
+      { text: "Stir until chilled." },
+      { text: "Strain into a rocks glass over a large cube." },
+    ]);
+
+    stubFetch(
+      recipeHtml({
+        recipeInstructions: "<p>Shake hard.</p><p>Double strain. Garnish.</p>",
+      }),
+    );
+    expect((await importRecipeData(PAGE_URL))?.instructions).toEqual([
+      { text: "Shake hard." },
+      { text: "Double strain. Garnish." },
+    ]);
+  });
+
+  it("skips a malformed JSON-LD block and reads the good one after it", async () => {
+    const html = [
+      "<html><head>",
+      '<script type="application/ld+json">{"@type": "WebSite", "name": </script>',
+      recipeHtml()
+        .replace("<html><head>", "")
+        .replace("</head><body></body></html>", ""),
+      "</head><body></body></html>",
+    ].join("");
+    stubFetch(html);
+    expect((await importRecipeData(PAGE_URL))?.name).toBe("Naan");
+  });
+
+  it("takes the best-ranked image, not image[0]", async () => {
+    const base = "https://www.example.com/wp-content/uploads/naan";
+    stubFetch(
+      recipeHtml({
+        image: [`${base}-225x225.jpg`, `${base}-500x375.jpg`, `${base}.jpg`],
+      }),
+    );
+    const imported = await importRecipeData(PAGE_URL);
+    expect(imported?.imageImportUrl).toBe(`${base}.jpg`);
+    expect(imported?.images?.map((image) => image.url)).toEqual([
+      `${base}.jpg`,
+    ]);
+  });
+
+  it("falls back to the page's SEO metadata when there is no Recipe node", async () => {
+    stubFetch(
+      [
+        "<html><head>",
+        "<title>Paper Plane Cocktail Recipe | PUNCH</title>",
+        '<meta property="og:site_name" content="PUNCH">',
+        '<meta name="description" content="A modern classic.">',
+        '<meta property="og:image" content="https://punchdrink.com/img/plane.jpg">',
+        '<meta name="author" content="Sam Ross">',
+        "</head><body></body></html>",
+      ].join(""),
+    );
+    expect(await importRecipeData(PAGE_URL)).toEqual({
+      partial: true,
+      name: "Paper Plane Cocktail Recipe",
+      description: "A modern classic.",
+      imageImportUrl: "https://punchdrink.com/img/plane.jpg",
+      images: [{ url: "https://punchdrink.com/img/plane.jpg", from: "og" }],
+      source: { url: PAGE_URL, name: "PUNCH", author: "Sam Ross" },
+    });
+  });
+
+  it("does not build a partial import from an error page", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        status: 404,
+        text: async () =>
+          "<html><head><title>Page not found</title></head></html>",
+      })),
+    );
+    expect(await importRecipeData(PAGE_URL)).toBeUndefined();
+  });
+});

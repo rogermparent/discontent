@@ -54,6 +54,10 @@ survives a cleared context.
 - `websites/recipe-website/docs/agent-mixology.md` — epic 25, the drinks
   track: the `drink` spec on recipes, drink styles as tag terms, bar
   inventory.
+- `websites/recipe-website/docs/agent-import-tools.md` — epic 26, import
+  tooling (26a–26c: page parsing and image ranking, the SEO fallback, yt-dlp
+  server-side, checked image downloads, `inspect` / drafts / the `image`
+  seat, the import UI): decisions, traps, gate results.
 - `websites/recipe-website/docs/ui-overhaul.md` — the UI roadmap.
 - `packages/cms/docs/incremental-regeneration.md` — how the engine
   invalidates and rebuilds derived state.
