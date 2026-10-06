@@ -9,8 +9,10 @@
 > done in the real content repo (2026-10-04), plus six tea drinks on top. 25c
 > ("What can I make?", `/make`) and 25d (the editor's shared inventory) are
 > merged (#149 → `6fda55ac`, #150 → `68ef8f6e`, 2026-10-05) and the real
-> repo's `recipes` index is rebuilt with their fields; 25e (sourced imports)
-> is next — planned 2026-10-05, ahead of 24d, which none of them touch.** Epic 24's doc, `agent-taxonomy.md`, is
+> repo's `recipes` index is rebuilt with their fields. 25e (sourced imports)
+> is done (2026-10-05 overnight): 104 cited recipes in the content repo,
+> unpushed, plus the importer fix #152 (→ `d7eb7dda`). None of the epic
+> touches 24d.** Epic 24's doc, `agent-taxonomy.md`, is
 > cited by number with a `24-` prefix (`24-D5`); epic 22's and 23's the same
 > way (`22-D6`, `23-D13`).
 
@@ -191,6 +193,24 @@ fields. CLI: `recipes inventory [list|add <item…>|remove <item…>|set --file
 f|make [<query…>]]`; a bare `inventory` is `list`, the one table command with
 a default; `set --file` reads the page's Export text or JSON.
 
+### D12 — Sourced drinks: "Drink (Site)", `<tag>-<site>`, a shared drink tag (25e)
+
+A published drink is imported as its own recipe, never merged into a house
+one. Name `"<Drink> (<Label>)"`, slug `<tag>-<site key>`
+(`margarita-acouplecooks`, `zero-proof-aperol-spritz-acouplecooks`). Tags in
+order: `drink`, one or two bases from a fixed list (`vodka gin rum tequila
+whiskey brandy sake wine vermouth liqueur tea`; mezcal → tequila,
+bourbon/rye → whiskey, pisco/cognac → brandy, prosecco → wine), one style,
+`low-abv`/`zero-proof`, and the shared drink tag, so `/tags/margarita` lists
+every version side by side. `source` carries the citation and its `name` is
+the site's label ("A Couple Cooks", not the importer's hostname fallback).
+House originals keep their slugs and gain `house` plus the shared tag of
+their sourced counterpart. Syrups that drinks call for are recipes too
+(`simple-syrup-acouplecooks`, `honey-syrup-acouplecooks`, the house
+`lavender-syrup`), tagged `syrup` and the shared tag with no `drink` spec, and
+lines link them. A zero-proof version of a classic gets its own tag
+(`virgin-mojito`, `zero-proof-aperol-spritz`), not the classic's.
+
 ## Traps (T-list)
 
 - **T1 — `getByLabel` matches substrings.** The Drink inputs are labelled
@@ -225,27 +245,50 @@ a default; `set --file` reads the page's Export text or JSON.
   by word prefix, so `tag:slow-cooker` misses "slow cooker" and a record's
   label "Drinks" misses `drink`. The term page's `/make` link uses a carrier's
   own tag string whose `tagSlug` is the term's.
+- **T9 — The Kitchn's image URLs have no filename.** They are Cloudinary
+  URLs ending in an encoded, extension-less segment
+  (`…/ar_16:9/k%2FPhoto%2FRecipes%2F…%2Fbloody-mary-441_1`), and
+  `writeUploadFile` takes the last segment verbatim as the filename. Decode
+  the `%2F`s and append `.jpg` (`…/k/Photo/Recipes/…/bloody-mary-441_1.jpg`):
+  Cloudinary serves both, and the second stores as `bloody-mary-441_1.jpg`
+  (checked at 25e: a 1500×844 JPEG). Separately, the importer takes
+  `image[0]`, which on WordPress recipe sites (acouplecooks, Love and Lemons)
+  is the smallest crop (225×225 / 500×500); strip `-\d+x\d+` before the
+  extension for the full-size image.
+- **T10 — No single request identity works for every site.** Imbibe 403s
+  Node's default `fetch`; Cloudflare in front of acouplecooks 403s a Chrome
+  `User-Agent` (a "Just a moment…" challenge — the TLS fingerprint isn't
+  Chrome's). #151 broke acouplecooks; #152 asks plainly first and as a
+  browser only after a 403. The Kitchn served ~13 recipe pages in a row and
+  then 403'd both identities — after a 200-sitemap harvest the same evening —
+  so space imports to that site out.
+- **T11 — The `recipes` MCP server in a worktree session points at the
+  worktree.** It resolves `editor/content` relative to the session, and a
+  worktree has no content symlink: `git_status` answers `isRepo: false` and
+  `inventory_get` an empty list at
+  `.claude/worktrees/<name>/…/editor/content/inventory/on-hand.json`. Reads
+  are harmless (nothing is created), but a write would land in the wrong
+  place. From a worktree, use the CLI with `--content-dir`.
 - **T4 — MCP advertises the transformed schema's input side.** `DrinkSpecSchema`
   is a `.transform`; `test/mcp.test.ts` pins that `recipe_create`'s
   `inputSchema` still shows `drink` as a strict object with the method enum.
 
 ## Roadmap
 
-| Step    | Branch / where                     | Status  | Scope                                                                                                                                                      |
-| ------- | ---------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1       | real content repo                  | ✅ done | 12 drinks via `recipes create` (2026-10-03)                                                                                                                |
-| 25a     | `agent/25a-drink-spec` ← `main`    | ✅ done | `Recipe.drink` (D1–D4): type, form section, both parsers, curation schemas, card, skill, this doc (M)                                                      |
-| 25b     | real content repo (no code)        | ✅ done | `drink` on the 12, garnish headings out, style tags; hand-written `drink` term tree with ratio descriptions; reindex the tag taxonomy (S code / M content) |
-| 25c     | `agent/25c-make` ← `main`          | ✅ done | Matching (D9), index fields (D8), `/make` in both apps with a browser inventory (D10), ⌘K row, term-page link (L)                                          |
-| 25d     | `agent/25d-shared-inventory` ← 25c | ✅ done | Editor's shared list `inventory/on-hand.json`: curation module, action, API, CLI, MCP seats (`inventory_set` held back), skill (M)                         |
-| **25e** | real content repo (no code)        | 🟡 next | ~100 sourced drink imports ("Drink (Site)", shared drink tag), sourced versions of the 18 house drinks, seed the shared inventory, reindex (L content)     |
+| Step | Branch / where                     | Status  | Scope                                                                                                                                                      |
+| ---- | ---------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | real content repo                  | ✅ done | 12 drinks via `recipes create` (2026-10-03)                                                                                                                |
+| 25a  | `agent/25a-drink-spec` ← `main`    | ✅ done | `Recipe.drink` (D1–D4): type, form section, both parsers, curation schemas, card, skill, this doc (M)                                                      |
+| 25b  | real content repo (no code)        | ✅ done | `drink` on the 12, garnish headings out, style tags; hand-written `drink` term tree with ratio descriptions; reindex the tag taxonomy (S code / M content) |
+| 25c  | `agent/25c-make` ← `main`          | ✅ done | Matching (D9), index fields (D8), `/make` in both apps with a browser inventory (D10), ⌘K row, term-page link (L)                                          |
+| 25d  | `agent/25d-shared-inventory` ← 25c | ✅ done | Editor's shared list `inventory/on-hand.json`: curation module, action, API, CLI, MCP seats (`inventory_set` held back), skill (M)                         |
+| 25e  | real content repo (+ #152)         | ✅ done | 104 sourced imports (100 drinks, 4 syrups) as "Drink (Site)" with shared drink tags (D12), 18 house drinks tagged, shared inventory seeded (L content)     |
 
-**Now: 25e (content).** 25c and 25d merged 2026-10-05 (#149, #150; both
-CI runs needed a rerun of shards whose `next dev` timed out reaching Google
-Fonts — no test failed), and `recipes reindex recipes` ran against the real
-repo from the merged code: 298 heading lines on 120 recipes and recipe links
-on 11 are now on the index. The importer's browser `User-Agent` (for Imbibe)
-is PR #151. 24d hadn't started when 25c was
+**Now: the epic's roadmap is done.** 25e landed overnight 2026-10-05 (below):
+the content repo's branch `uraninite` gained 123 commits, unpushed —
+pushing it is the user's call — and a running editor needs Settings →
+Maintenance → Reload. What's left is the Deferred list, chiefly the parser
+findings 25e measured. 24d hadn't started when 25c was
 planned and 25c edits none of its files; after 24d lands, the one-line
 follow-up is to pass the term resolver to `/make`'s `matchesFilter` so
 `tag:drink` includes the narrower styles (every drink carries `drink` anyway).
@@ -434,8 +477,132 @@ Inventory seed for 25e: the bottles, syrups and mixers the step-1 and tea
 recipes name, plus the user's additions on 2026-10-04 — teas (green, black,
 hibiscus, chamomile), dried lavender, non-alcoholic Gnista, orange bitters.
 
+### 25e — Sourced drink imports ✅ done (real content repo, 2026-10-05 overnight, + #152)
+
+Run unattended (the user asked for overnight progress with no check-ins), with
+the CLI from worktree `agent-import-ua` and `--content-dir
+/home/roger/Projects/recipe-content`. Scratch scripts and every intermediate
+file were in the job's `tmp/25e/`.
+
+1. **Harvest.** Every source had a reachable sitemap, so no web searches
+   were needed: acouplecooks `post-sitemap{,2–5}.xml` (3,781 URLs), Imbibe
+   `recipe-sitemap{,2–4}.xml` (3,452), Love and Lemons
+   `post-sitemap{,2}.xml` (1,867), and The Kitchn's monthly
+   `sitemap-YYYY-MM.xml` (203 files, 43,097 URLs — it answers a browser
+   UA after all). Picks were made by hand from slug greps: up to two sites
+   per drink, with acouplecooks first and an alternate for each pair.
+2. **Dry runs** (115 candidates, about 10 s apart). The first one found the
+   #151 regression (T10). It was fixed as **#152** (plain request first,
+   browser headers only after a 403; unit tests for plain-first, retry on 403
+   and no retry on 410; CI green; merged `d7eb7dda`) before anything was
+   written. 104 accepted, 11 rejected:
+   - Imbibe vodka collins and gin fizz: no Recipe JSON-LD on those older
+     pages. Imbibe alcohol-free negroni: the importer throws
+     `recipeInstructions?.map is not a function`, because its instructions
+     are a bare string (Deferred).
+   - The Kitchn cape codder: an article with no Recipe. Then The Kitchn
+     answered 403 to both identities (T10), so its kalimotxo, lavender
+     lemonade, Hibiscus Earl Grey iced tea, iced green tea, tea hot toddy,
+     NA sangria and mint julep mocktail were dropped rather than retried.
+3. **Normalize.** Four parallel subagents, one per group, wrote `recipe_create`
+   payloads only (D12, the skill's drink-import checklist, T9's image
+   rewrites) and rejected nothing. Their judgement calls:
+   - acouplecooks' "Sake Cocktail" is a Sake Southside, and its "Elderflower
+     Cocktail" is vodka + St-Germain + tonic, named "Elderflower Tonic". Both
+     keep their keys' slugs and tags.
+   - Imbibe's "Green Tea Mojito" has no rum and is tagged `zero-proof`.
+   - Greyhounds are `gin`, because both pages put gin first. Amaretto sours
+     also carry `whiskey` (bourbon is a real second base).
+   - The Kitchn's 0-minute times became 5. Batch yields are estimated from
+     volumes.
+4. **Create**, one commit each. The four syrups went first (other lines link
+   them), then one Kitchn recipe alone for T9, then the rest. 104 of 104
+   succeeded: no failures, no slug conflicts, no `--overwrite`.
+
+**Counts.** 104 recipes: 100 drinks and 4 syrups. By site: acouplecooks 56,
+Imbibe 21, Love and Lemons 18, The Kitchn 9. By pick group: sours 25,
+built/highball 20, stirred 16, batch/warm 10, spritz 9, tea 8, collins 7,
+zero-proof 5, syrups 4. **41 two-site pairs**: amaretto sour, Aperol spritz,
+bee's knees, bloody mary, boulevardier, cosmopolitan, cucumber martini,
+daiquiri, dark 'n' stormy, dirty martini, French 75, gimlet, gin and tonic,
+greyhound, hibiscus margarita, hibiscus tea, hot toddy, Hugo spritz, Irish
+coffee, lavender syrup, lemon drop, Manhattan, margarita, martini, mojito,
+Moscow mule, mulled wine, negroni, old fashioned, paloma, pisco sour, ranch
+water, sangria, sea breeze, sidecar, Tom Collins, Vesper, vodka tonic, whiskey
+sour, white sangria, white wine spritzer.
+
+**House drinks.** All 18 originals gained `house`. Twelve also gained a
+counterpart's shared tag:
+
+| House original                                                                                                     | Shared tag      |
+| ------------------------------------------------------------------------------------------------------------------ | --------------- |
+| cosmopolitan, lemon-drop, elderflower-collins, cucumber-martini, bloody-mary, mulled-wine, sangria, lavender-syrup | their own slugs |
+| zero-proof-gin-and-tonic                                                                                           | `gin-and-tonic` |
+| spicy-mango-mule                                                                                                   | `moscow-mule`   |
+| black-tea-sour                                                                                                     | `vodka-sour`    |
+| chamomile-collins                                                                                                  | `vodka-collins` |
+
+No published counterpart: saketini, cucumber-elderflower-sake-spritz,
+vermouth-tonic, green-tea-sake-highball, hibiscus-gnista-highball,
+lavender-gnista-tonic. In the same patches, two house syrup lines were linked:
+Lavender Gnista Tonic → `/recipe/lavender-syrup` and Black Tea Sour →
+`/recipe/simple-syrup-acouplecooks`.
+
+**Inventory.** One `inventory add` commit with the 23 items the plan named.
+It went through the CLI rather than MCP, because of T11.
+
+**Verification.**
+
+- **Index** (read-only LMDB walk): `tag:drink` 17 → 117. All 104 new recipes
+  are on the index with `source.url`. 42 index rows carry
+  `ingredientRecipeLinks` and 8 carry `ingredientHeadings`.
+- **Pairs:** `search tag:<t>` for every shared tag lists both sourced
+  versions, plus the house original where there is one.
+- **Makeable** (`inventory make tag:drink`): 117 judged. Before → after the
+  imports:
+
+  | Measure | Before (17 drinks) | After (117 drinks) |
+  | ------- | ------------------ | ------------------ |
+  | canMake | 5                  | 5                  |
+  | oneAway | 10                 | 20                 |
+  | twoAway | 2                  | 20                 |
+  | further | 0                  | 52                 |
+
+  canMake is bloody-mary, cosmopolitan, cucumber-martini, lemon-drop and
+  saketini. buyNext: soda water (unlocks 6), tonic water (4), simple syrup
+  (3, helps 7), ginger beer (2), gin (1, helps 8). A linked simple syrup still
+  counts as missing, because its recipe needs sugar, which isn't on the list
+  (D9's one-level rule, working as designed).
+
+- **Repo:** `git status` clean on `uraninite`. 762 → 885 commits = 1
+  inventory + 104 creates + 18 updates.
+
+**Parser findings** (`measure-ingredient-names.ts --tag drink`, not fixed):
+
+- **"X or Y" with a shared head word doubles it:**
+  - "simple syrup or maple syrup" → `simple syrup syrup or maple syrup`
+  - "vodka or citron vodka" → `vodka vodka or citron vodka`
+  - "sweet or semi-sweet red vermouth" → `sweet sweet red vermouth or …`
+- **Distribution invents a name:** "honey or maple syrup" → `honey syrup or
+maple syrup`, which would match honey syrup.
+- **Words lost or mis-split:**
+  - "hot sauce" → `sauce`
+  - "1/2 cup plus 2 tablespoons white sugar" → `plus tablespoon white sugar`
+  - "1 (46- to 48-oz) bottle or can tomato juice" → `or can tomato juice`
+  - "1 recipe lavender syrup" → `recipe lavender syrup` ("recipe" isn't a
+    unit)
+- **The soda alias reaches too far:** "grapefruit soda" →
+  `grapefruit soda water`.
+- **Fine:** "…, to top" mixers normalize well (club soda / sparkling /
+  seltzer → `soda water`). Brands land in `aka`. No line is marked `@na`.
+
 ## Deferred
 
+- The 25e parser findings above.
+- Importer: `recipeInstructions` given as one string (Imbibe's alcohol-free
+  negroni); prefer the largest JSON-LD `image` over `image[0]` (T9); label
+  `source.name` from a site map rather than the hostname fallback.
+- The Kitchn picks dropped at 25e once it 403'd (T10).
 - oz ↔ ml toggle; "make it for N" batching with a dilution note.
 - A bar-side view (large type, wake lock).
 - More drinks from step 1's deferred list (Sake Cosmo, Sake Bloody Mary, Red
