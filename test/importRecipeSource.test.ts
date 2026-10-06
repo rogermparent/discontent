@@ -80,12 +80,37 @@ describe("importRecipeData source", () => {
     vi.unstubAllGlobals();
   });
 
-  it("asks for the page as a browser would", async () => {
-    /* Imbibe 403s Node's default agent and serves a browser (25e probe). */
+  it("asks for the page plainly first", async () => {
+    /* Cloudflare challenges a Chrome UA from Node (A Couple Cooks, 25e). */
     const fetchStub = stubFetch(recipeHtml({ author: "Pooja Makhijani" }));
-    await importRecipeData(PAGE_URL);
+    const imported = await importRecipeData(PAGE_URL);
+    expect(imported?.name).toBe("Naan");
     expect(fetchStub).toHaveBeenCalledTimes(1);
     const [url, init] = fetchStub.mock.calls[0] as unknown as [
+      string,
+      { headers?: Record<string, string> },
+    ];
+    expect(url).toBe(PAGE_URL);
+    expect(init.headers).toBeUndefined();
+  });
+
+  it("asks again as a browser after a 403", async () => {
+    /* Imbibe 403s Node's default agent and serves a browser (25e probe). */
+    const fetchStub = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 403,
+        text: async () => "<html>Forbidden</html>",
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        text: async () => recipeHtml(),
+      });
+    vi.stubGlobal("fetch", fetchStub);
+    const imported = await importRecipeData(PAGE_URL);
+    expect(imported?.name).toBe("Naan");
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+    const [url, init] = fetchStub.mock.calls[1] as unknown as [
       string,
       { headers: Record<string, string> },
     ];
@@ -93,6 +118,16 @@ describe("importRecipeData source", () => {
     expect(init.headers).toBe(RECIPE_FETCH_HEADERS);
     expect(init.headers["user-agent"]).toMatch(/^Mozilla\/5\.0 .*Chrome\//);
     expect(init.headers.accept).toContain("text/html");
+  });
+
+  it("does not retry any other failure", async () => {
+    const fetchStub = vi.fn(async () => ({
+      status: 410,
+      text: async () => "<html>Gone</html>",
+    }));
+    vi.stubGlobal("fetch", fetchStub);
+    expect(await importRecipeData(PAGE_URL)).toBeUndefined();
+    expect(fetchStub).toHaveBeenCalledTimes(1);
   });
 
   it("reads ingredients published as objects, and skips unreadable ones", async () => {
