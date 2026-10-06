@@ -26,6 +26,7 @@ import type { ImageProbe } from "../imageImport";
 import { fetchYtdlpMetadata, ytdlpToRecipe } from "../ytdlp";
 import type { CurationContext } from "./context";
 import { ImportError, ValidationError } from "./errors";
+import { toDraft, type RecipeDraft } from "./inspect";
 import {
   buildRecipeWrite,
   createRecipe,
@@ -41,6 +42,11 @@ export interface ImportDryRunResult {
   /** The page had no Recipe node: name, description and image only. */
   partial?: true;
   recipe: Recipe;
+  /**
+   * The same import as a create-ready `RecipeInput` (26b): plain lines, no
+   * markup, the image as a URL. Edit it and pass it to `create`.
+   */
+  draft: RecipeDraft;
   image?: ImageProbe;
   video?: string;
 }
@@ -186,6 +192,15 @@ export async function importAndCreate(
       slug: resolveCreateSlug(input),
       ...(partial ? { partial: true as const } : {}),
       recipe: data,
+      draft: {
+        ...toDraft(imported),
+        name: input.name,
+        ...(slug ? { slug } : {}),
+        ...(input.tags ? { tags: input.tags } : {}),
+        ...(input.imageImportUrl
+          ? { imageImportUrl: input.imageImportUrl }
+          : {}),
+      },
       ...(probe ? { image: probe } : {}),
       ...(data.video ? { video: data.video } : {}),
     };

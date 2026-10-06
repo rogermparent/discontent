@@ -1,7 +1,9 @@
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { test, expect } from "../support/test";
+import { fixturePath } from "../support/tasks";
 
 const execFileAsync = promisify(execFile);
 
@@ -619,6 +621,111 @@ test.describe("JSON write API", () => {
     const body = await wrong.json();
     expect(body.error.code).toBe("validation");
     expect(Array.isArray(body.error.issues)).toBe(true);
+  });
+
+  test("inspects a page without writing, and only with a token (26b)", async ({
+    request,
+    baseURL,
+  }) => {
+    const url = new URL("/uploads/blackstone-nachos.html", baseURL!).href;
+    const anonymous = await request.post("/api/inspect", { data: { url } });
+    expect(anonymous.status()).toBe(401);
+
+    const response = await request.post("/api/inspect", {
+      headers: auth(),
+      data: { url },
+    });
+    expect(response.status()).toBe(200);
+    const result = await response.json();
+    expect(result.partial).toBe(false);
+    expect(result.draft.name).toBe("Blackstone Griddle Grilled Nachos");
+    /* Plain lines: no multiplier markup in a draft. */
+    expect(JSON.stringify(result.draft.ingredients)).not.toContain(
+      "Multiplyable",
+    );
+    expect(result.images[0].url).toContain("recipe-imported-image-566x566.png");
+    expect(result.jsonLd["@type"]).toBe("Recipe");
+
+    /* Read-only: the corpus is still empty. */
+    const list = await request.get("/api/recipes");
+    expect((await list.json()).total).toBe(0);
+  });
+
+  test("sets a recipe's image by URL and by upload, clears it, and dry-runs a create (26b)", async ({
+    request,
+    baseURL,
+  }) => {
+    await request.post("/api/recipes", {
+      headers: auth(),
+      data: { name: "Image Test" },
+    });
+    const seat = "/api/recipe/image-test/image";
+
+    const anonymous = await request.put(seat, { data: { clear: true } });
+    expect(anonymous.status()).toBe(401);
+
+    const byUrl = await request.put(seat, {
+      headers: auth(),
+      data: {
+        url: new URL("/uploads/recipe-imported-image-566x566.png", baseURL!)
+          .href,
+      },
+    });
+    expect(byUrl.status()).toBe(200);
+    expect(await byUrl.json()).toMatchObject({
+      slug: "image-test",
+      image: "recipe-imported-image-566x566.png",
+    });
+
+    const byUpload = await request.put(seat, {
+      headers: auth(),
+      multipart: {
+        file: {
+          name: "upload.png",
+          mimeType: "image/png",
+          buffer: readFileSync(
+            fixturePath("images", "recipe-6-test-image.png"),
+          ),
+        },
+      },
+    });
+    expect(byUpload.status()).toBe(200);
+    expect(await byUpload.json()).toMatchObject({
+      image: "upload.png",
+      previous: "recipe-imported-image-566x566.png",
+    });
+    /* The record the editor serves already says so: revalidated in-process. */
+    const record = await request.get("/api/recipe/image-test");
+    expect((await record.json()).image).toBe("upload.png");
+
+    const notAnImage = await request.put(seat, {
+      headers: auth(),
+      multipart: {
+        file: {
+          name: "notes.txt",
+          mimeType: "text/plain",
+          buffer: Buffer.from("hi"),
+        },
+      },
+    });
+    expect(notAnImage.status()).toBe(400);
+
+    const cleared = await request.put(seat, {
+      headers: auth(),
+      data: { clear: true },
+    });
+    expect(await cleared.json()).toMatchObject({ image: null });
+
+    const dry = await request.post("/api/recipes?dryRun=1", {
+      headers: auth(),
+      data: { name: "Image Test" },
+    });
+    expect(dry.status()).toBe(200);
+    expect(await dry.json()).toMatchObject({
+      dryRun: true,
+      slug: "image-test",
+      conflict: true,
+    });
   });
 
   /**

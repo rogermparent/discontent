@@ -60,7 +60,7 @@ const EXPECTED_ALLOWED = TOOL_NAMES.filter(
 
 /** Anything backticked that is shaped like one of this server's tool names. */
 const TOOL_SHAPED =
-  /^(recipe|group|git|tag|featured|inventory)_[a-z_]+$|^(feature|unfeature|reindex)$/;
+  /^(recipe|group|git|tag|featured|inventory|page)_[a-z_]+$|^(feature|unfeature|reindex)$/;
 
 /** `## Heading` … up to the next `## `, or the end. */
 function section(markdown: string, heading: string): string {

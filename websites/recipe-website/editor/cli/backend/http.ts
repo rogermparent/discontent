@@ -45,11 +45,14 @@ import type {
   GroupWriteResult,
   ImportOptions,
   ImportResult,
+  InspectResult,
   InventoryResult,
   InventoryWriteResult,
   MakeableResult,
   PushResult,
   RecipeDetail,
+  RecipeDryRunResult,
+  RecipeImageResult,
   RecipeListResult,
   RecipeWriteResult,
   ReindexResult,
@@ -67,6 +70,8 @@ type Query = Record<string, string | number | boolean | undefined>;
 
 interface CallOptions {
   body?: unknown;
+  /** A multipart body (26b's image upload), sent as-is instead of JSON. */
+  form?: FormData;
   query?: Query;
 }
 
@@ -145,7 +150,7 @@ export function createHttpBackend({
   async function call<TResult>(
     method: string,
     path: string,
-    { body, query }: CallOptions = {},
+    { body, form, query }: CallOptions = {},
   ): Promise<TResult> {
     const url = new URL(`${root}${path}`);
     for (const [key, value] of Object.entries(query ?? {})) {
@@ -162,7 +167,12 @@ export function createHttpBackend({
       response = await fetch(url, {
         method,
         headers,
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        /* A FormData body sets its own multipart content-type and boundary. */
+        ...(form
+          ? { body: form }
+          : body === undefined
+            ? {}
+            : { body: JSON.stringify(body) }),
       });
     } catch (error) {
       /*
@@ -200,18 +210,44 @@ export function createHttpBackend({
         body: { url, ...options },
       });
     },
-    createRecipe(raw, options = {}) {
-      return call<RecipeWriteResult>("POST", "/api/recipes", {
-        body: raw,
-        query: { overwrite: options.overwrite ? 1 : undefined },
-      });
+    inspect(url) {
+      return call<InspectResult>("POST", "/api/inspect", { body: { url } });
     },
-    updateRecipe(slug, raw) {
-      return call<RecipeWriteResult>(
+    createRecipe(raw, options = {}) {
+      return call<RecipeWriteResult | RecipeDryRunResult>(
+        "POST",
+        "/api/recipes",
+        {
+          body: raw,
+          query: {
+            overwrite: options.overwrite ? 1 : undefined,
+            dryRun: options.dryRun ? 1 : undefined,
+          },
+        },
+      );
+    },
+    updateRecipe(slug, raw, options = {}) {
+      return call<RecipeWriteResult | RecipeDryRunResult>(
         "PUT",
         `/api/recipe/${encodeURIComponent(slug)}`,
-        { body: raw },
+        { body: raw, query: { dryRun: options.dryRun ? 1 : undefined } },
       );
+    },
+    /*
+     * A file goes up as multipart (`file`); a URL or a clear as JSON. The route
+     * takes both, so the server checks a local file exactly as it checks a
+     * fetched one.
+     */
+    setRecipeImage(slug, input) {
+      const path = `/api/recipe/${encodeURIComponent(slug)}/image`;
+      if (input.file) {
+        const form = new FormData();
+        form.set("file", input.file, input.file.name);
+        return call<RecipeImageResult>("PUT", path, { form });
+      }
+      return call<RecipeImageResult>("PUT", path, {
+        body: input.url ? { url: input.url } : { clear: true },
+      });
     },
     /**
      * `GET /api/recipe/<slug>` returns the *record*, not the envelope.

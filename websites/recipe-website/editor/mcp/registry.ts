@@ -43,6 +43,7 @@ import { McpServer, type CallToolResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { CuratorBackend } from "../cli/backend/types";
 import { toErrorObject } from "../controller/curation/errors";
+import { readImageFile } from "../controller/imageImport";
 import type { RecipeRow } from "../controller/curation/recipes";
 import {
   FeaturedInputSchema,
@@ -79,9 +80,11 @@ export const TOOL_NAMES = [
   "recipe_search",
   "recipe_list",
   "recipe_get",
+  "page_inspect",
   "recipe_import",
   "recipe_create",
   "recipe_update",
+  "recipe_set_image",
   "recipe_delete",
   "tag_list",
   "group_list",
@@ -376,19 +379,41 @@ export function createRecipeServer(
   );
 
   server.registerTool(
+    "page_inspect",
+    {
+      title: "Inspect a page before importing it",
+      description:
+        "Read a recipe page and write nothing. Returns the mapped import (`recipe`), " +
+        "a create-ready `draft` (plain ingredient lines, the best image URL, the " +
+        "source) to edit and pass to recipe_create, the raw JSON-LD Recipe node, the " +
+        "page's SEO metadata, up to ten ranked `images` to choose from, and — for a " +
+        "video host — yt-dlp's `video` metadata (full description, chapters, " +
+        "thumbnails). `partial: true` means the page had no Recipe node: the draft is " +
+        "only its title, description and image.",
+      inputSchema: z.strictObject({ url: z.string().min(1) }),
+      annotations: READ_ONLY,
+    },
+    async ({ url }) => read(() => backend.inspect(url)),
+  );
+
+  server.registerTool(
     "recipe_import",
     {
       title: "Import a recipe from a URL",
       description:
         "Fetch a page, extract its recipe and write it, keeping the source as " +
-        "provenance. `dryRun` returns what would be written without writing it.",
+        "provenance. `dryRun` returns what would be written — and a create-ready " +
+        "`draft` — without writing it. `image` replaces the page's best image URL. " +
+        "A page with no Recipe node is refused unless `allowPartial`.",
       inputSchema: z.strictObject({
         url: z.string().min(1),
         tags: z.array(z.string()).optional(),
         slug: z.string().optional(),
         name: z.string().optional(),
+        image: z.string().min(1).optional(),
         dryRun: z.boolean().optional(),
         overwrite: z.boolean().optional(),
+        allowPartial: z.boolean().optional(),
       }),
       annotations: WRITES,
     },
@@ -404,15 +429,24 @@ export function createRecipeServer(
       title: "Create a recipe",
       description:
         "Write a new recipe. Ingredients and instructions accept prose strings as well " +
-        "as objects. `overwrite` replaces an existing recipe at the same slug.",
+        "as objects. `overwrite` replaces an existing recipe at the same slug. " +
+        "`dryRun` validates and returns the resolved slug, whether it is taken, the " +
+        "record that would be stored and the image's filename — writing nothing.",
       inputSchema: z.strictObject({
         recipe: RecipeInputSchema,
         overwrite: z.boolean().optional(),
+        dryRun: z.boolean().optional(),
       }),
       annotations: WRITES,
     },
-    async ({ recipe, overwrite }) =>
-      write(backend, () => backend.createRecipe(recipe, { overwrite })),
+    async ({ recipe, overwrite, dryRun }) =>
+      write(
+        backend,
+        () => backend.createRecipe(recipe, { overwrite, dryRun }),
+        {
+          notify: dryRun !== true,
+        },
+      ),
   );
 
   server.registerTool(
@@ -421,15 +455,55 @@ export function createRecipeServer(
       title: "Update a recipe",
       description:
         "Patch a recipe: an omitted key is left alone, an explicit null clears it. " +
-        "`patch.slug` renames (and moves the page).",
+        "`patch.slug` renames (and moves the page). `dryRun` returns the record the " +
+        "patch would produce without writing it.",
       inputSchema: z.strictObject({
         slug: Slug,
         patch: RecipePatchSchema,
+        dryRun: z.boolean().optional(),
       }),
       annotations: IDEMPOTENT_WRITE,
     },
-    async ({ slug, patch }) =>
-      write(backend, () => backend.updateRecipe(slug, patch)),
+    async ({ slug, patch, dryRun }) =>
+      write(backend, () => backend.updateRecipe(slug, patch, { dryRun }), {
+        notify: dryRun !== true,
+      }),
+  );
+
+  server.registerTool(
+    "recipe_set_image",
+    {
+      title: "Set or clear a recipe's image",
+      description:
+        "Replace a recipe's image from a `url` (downloaded and checked: it must be an " +
+        "image, under 15 MB) or a local `path` (read by this server's process), or " +
+        "`clear` it — exactly one. One commit, `Update recipe image: <slug>`, so " +
+        "git can undo it.",
+      inputSchema: z
+        .strictObject({
+          slug: Slug,
+          url: z.string().min(1).optional(),
+          path: z.string().min(1).optional(),
+          clear: z.literal(true).optional(),
+        })
+        .refine(
+          ({ url, path, clear }) =>
+            [url, path, clear].filter((value) => value !== undefined).length ===
+            1,
+          { message: "Pass exactly one of `url`, `path` or `clear`" },
+        ),
+      annotations: WRITES,
+    },
+    async ({ slug, url, path }) =>
+      write(backend, async () => {
+        if (url) return backend.setRecipeImage(slug, { url });
+        if (path) {
+          return backend.setRecipeImage(slug, {
+            file: await readImageFile(path),
+          });
+        }
+        return backend.setRecipeImage(slug, { clear: true });
+      }),
   );
 
   server.registerTool(

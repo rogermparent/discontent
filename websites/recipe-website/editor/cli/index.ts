@@ -38,7 +38,9 @@ import {
 } from "./commands/featured";
 import { gitCommands } from "./commands/git";
 import { groupCommands } from "./commands/group";
+import { imageCommand } from "./commands/image";
 import { importCommand } from "./commands/import";
+import { inspectCommand } from "./commands/inspect";
 import { inventoryCommands } from "./commands/inventory";
 import { listCommand } from "./commands/list";
 import { reindexCommand } from "./commands/reindex";
@@ -70,9 +72,11 @@ const GLOBAL_VALUE_FLAGS = new Set([
 ]);
 
 const COMMANDS: Record<string, CommandDef<unknown>> = {
+  inspect: inspectCommand,
   import: importCommand,
   create: createCommand,
   update: updateCommand,
+  image: imageCommand,
   show: showCommand,
   list: listCommand,
   search: searchCommand,
@@ -118,9 +122,12 @@ function subcommandTableFor(
 
 const USAGE = `Usage: pnpm recipes <command> [options]
 
-  import <url> [--tags a,b] [--slug s] [--name N] [--dry-run] [--overwrite]
-  create (--file recipe.json | --stdin) [--overwrite]
-  update <slug> (--file patch.json | --stdin)
+  inspect <url> [--out draft.json]
+  import <url> [--tags a,b] [--slug s] [--name N] [--image <url>]
+               [--dry-run [--out draft.json]] [--overwrite] [--allow-partial]
+  create (--file recipe.json | --stdin) [--overwrite] [--dry-run]
+  update <slug> (--file patch.json | --stdin) [--dry-run]
+  image <slug> (--url <image-url> | --file <path> | --clear)
   show <slug>
   list [--tag t] [--limit 20] [--offset 0]
   search <query…>
@@ -177,12 +184,18 @@ Environment:
   RECIPE_EDITOR_URL    Same as --editor-url
   RECIPE_AUTHOR        "Name <email>" for local commits; same as --author
   CONTENT_DIRECTORY    Local content directory; same as --content-dir
+  YTDLP_PATH           yt-dlp binary for video imports (else the Settings
+                       page's path, else \`yt-dlp\` on the PATH)
 
 A bearer token over plain HTTP is only safe on localhost or a trusted LAN. Put
 the editor behind TLS before using --remote across the internet.
 
 Author resolution: --author > RECIPE_AUTHOR > the content repo's git identity.
 Content directory: --content-dir > CONTENT_DIRECTORY > ./content.
+
+The tweak loop: \`inspect <url> --out d.json\` (or \`import <url> --dry-run --out
+d.json\`), edit d.json, \`create --file d.json --dry-run\`, then \`create --file
+d.json\`. Fix a picture later with \`image <slug> --url|--file|--clear\`.
 
 Piping --json: run it as \`pnpm --silent recipes …\`. Without --silent, pnpm
 prints its own script banner on stdout ahead of the object, so the stream is
@@ -380,7 +393,9 @@ export async function main(argv: string[]): Promise<number> {
 
     emit(definition, result, json);
 
-    if (definition.write && backend.afterWrite) {
+    /* A dry run wrote nothing: no stale-editor hint, no `--notify` (26b). */
+    const dryRun = (result as { dryRun?: unknown } | null)?.dryRun === true;
+    if (definition.write && !dryRun && backend.afterWrite) {
       const hint = await backend.afterWrite();
       if (hint) warn(hint);
     }
