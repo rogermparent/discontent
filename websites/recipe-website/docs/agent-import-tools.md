@@ -185,7 +185,15 @@ error page); `test/curation.test.ts` (Cloudinary create through
 `clearImage`, probed dry run, yield, `--image` override, partial dry run vs
 create).
 
-Gate results: _pending._
+Gate results (2026-10-06): both typechecks clean; vitest 42 files / 788 tests, all
+green (the new `pageMetadata` 12, `imageImport` 12, `ytdlp` 7;
+`importRecipeSource` 23; `curation` 58); Playwright `new-recipe ytdlp-import
+edit api-write recipe` 86 passed on 3019. A live `import --dry-run` of an
+acouplecooks page (read-only, scratch content dir) took
+`Paper-Plane-Cocktail-003.jpg` — the full-size original, not the 225×225
+crop — and mapped `recipeYield: "1 drink"`. (Spec filters need a path:
+a bare `recipe` matches every spec under `recipe-website/` and runs all
+572.)
 
 ## Deferred
 
