@@ -69,7 +69,7 @@ export default function RecipeFields({
     form.store,
     (s) => (s.values.prepTime || 0) + (s.values.cookTime || 0),
   );
-  const { imageImportUrl, videoImportUrl, video } = recipe || {};
+  const { imageImportUrl, videoImportUrl, video, images } = recipe || {};
 
   const currentTimezone = useCurrentTimezone();
 
@@ -124,6 +124,8 @@ export default function RecipeFields({
         defaultImage={defaultImage}
         errors={state?.errors?.image}
         imageToImport={imageImportUrl}
+        candidates={images}
+        allowUrl
       />
       <VideoInput
         label="Video"

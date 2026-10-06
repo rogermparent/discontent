@@ -60,7 +60,10 @@ test.describe("New Recipe View", () => {
         );
 
         await page.getByRole("button", { name: "Submit", exact: true }).click();
-        await expect(page.getByLabel("Multiply")).toBeVisible();
+        // The submit downloads the page's image from kingarthurbaking.com.
+        await expect(page.getByLabel("Multiply")).toBeVisible({
+          timeout: 10_000,
+        });
 
         // …and survives the write, rendered as the citation under the
         // description rather than as an "Imported from" line inside it (D7).
@@ -114,7 +117,10 @@ test.describe("New Recipe View", () => {
         );
 
         await page.getByRole("button", { name: "Submit", exact: true }).click();
-        await expect(page.getByLabel("Multiply")).toBeVisible();
+        // The submit downloads the page's image from kingarthurbaking.com.
+        await expect(page.getByLabel("Multiply")).toBeVisible({
+          timeout: 10_000,
+        });
 
         await expect(
           page
@@ -152,7 +158,10 @@ test.describe("New Recipe View", () => {
         await expect(form.getByTitle("Total Time Minutes")).toHaveValue("");
 
         await page.getByRole("button", { name: "Submit", exact: true }).click();
-        await expect(page.getByLabel("Multiply")).toBeVisible();
+        // The submit downloads the page's image from kingarthurbaking.com.
+        await expect(page.getByLabel("Multiply")).toBeVisible({
+          timeout: 10_000,
+        });
 
         await expect(page.getByText("Prep", { exact: true })).toHaveCount(0);
         await expect(page.getByText("Cook", { exact: true })).toHaveCount(0);
@@ -175,7 +184,10 @@ test.describe("New Recipe View", () => {
         await expect(form.getByTitle("Total Time Minutes")).toHaveValue("0");
 
         await page.getByRole("button", { name: "Submit", exact: true }).click();
-        await expect(page.getByLabel("Multiply")).toBeVisible();
+        // The submit downloads the page's image from kingarthurbaking.com.
+        await expect(page.getByLabel("Multiply")).toBeVisible({
+          timeout: 10_000,
+        });
 
         // The meta strip drops zero-valued prep/cook (no "0 min" noise) and
         // shows just the total that was specified.
@@ -1400,6 +1412,94 @@ Sprinkle`,
         );
       });
 
+      test("should import the image chosen in the picker (26c)", async ({
+        page,
+        baseURL,
+      }) => {
+        const fullTestURL = new URL("/uploads/picker.html", baseURL!);
+        await page.getByLabel("Import from URL").fill(fullTestURL.href);
+        await page.getByRole("button", { name: "Import", exact: true }).click();
+
+        const form = page.locator("#recipe-form");
+        await expect(form.locator('[name="name"]')).toHaveValue(
+          "Two Pictures Toast",
+        );
+
+        /* Best first: the PNG states the larger size, so it starts chosen. */
+        const picker = page.getByRole("group", {
+          name: "Choose an image from the page",
+        });
+        await expect(picker.getByRole("radio")).toHaveCount(2);
+        await expect(
+          picker.getByRole("radio", {
+            name: /recipe-imported-image-566x566\.png/,
+          }),
+        ).toBeChecked();
+
+        await picker.getByRole("img", { name: "pork-carnitas.webp" }).click();
+        await expect(
+          picker.getByRole("radio", { name: /pork-carnitas\.webp/ }),
+        ).toBeChecked();
+        await expect(
+          form.getByRole("img", {
+            name: "Direct link to image which will be imported.",
+          }),
+        ).toHaveAttribute(
+          "src",
+          new URL("/uploads/pork-carnitas.webp", baseURL!).href,
+        );
+
+        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await expect(page.getByLabel("Multiply")).toBeVisible({
+          timeout: 10_000,
+        });
+        await expect(page.getByRole("img").first()).toHaveAttribute(
+          "src",
+          "/image/uploads/recipe/two-pictures-toast/uploads/pork-carnitas.webp/pork-carnitas-w3840q75.webp",
+        );
+      });
+
+      test("should fill the form from a page's SEO metadata, and say so (26c)", async ({
+        page,
+        baseURL,
+      }) => {
+        const fullTestURL = new URL("/uploads/seo-only.html", baseURL!);
+        await page.getByLabel("Import from URL").fill(fullTestURL.href);
+        await page.getByRole("button", { name: "Import", exact: true }).click();
+
+        await expect(
+          page.getByText(
+            "No recipe data on this page — filled from its title, description and image.",
+          ),
+        ).toBeVisible();
+
+        const form = page.locator("#recipe-form");
+        await expect(form.locator('[name="name"]')).toHaveValue(
+          "Paper Plane Cocktail",
+        );
+        await expect(form.locator('[name="description"]')).toHaveValue(
+          /Equal parts bourbon, Aperol, amaro and lemon/,
+        );
+        await expect(form.locator('[name="source.url"]')).toHaveValue(
+          fullTestURL.href,
+        );
+        await expect(form.locator('[name="source.name"]')).toHaveValue(
+          "Fixture Bar",
+        );
+        await expect(
+          form.getByRole("img", {
+            name: "Direct link to image which will be imported.",
+          }),
+        ).toHaveAttribute(
+          "src",
+          new URL("/uploads/recipe-imported-image-566x566.png", baseURL!).href,
+        );
+        /* One candidate is no choice: no picker. */
+        await expect(
+          page.getByRole("group", { name: "Choose an image from the page" }),
+        ).toHaveCount(0);
+      });
+
       test("should be able to import a recipe with a singular image", async ({
         page,
         baseURL,
@@ -1531,7 +1631,10 @@ Sprinkle`,
 
         await page.getByRole("button", { name: "Submit", exact: true }).click();
 
-        await expect(page.getByLabel("Multiply")).toBeVisible();
+        // The submit downloads the page's image from kingarthurbaking.com.
+        await expect(page.getByLabel("Multiply")).toBeVisible({
+          timeout: 10_000,
+        });
       });
 
       test("should replace ingredients when pasting multiple times", async ({

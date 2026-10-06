@@ -173,6 +173,34 @@ one to pre-approve. Pre-approved because `git revert` undoes it. The HTTP
 backend uploads `--file` as multipart (`call`'s `form` option), so a picture
 on this machine reaches a remote editor.
 
+### D11 — The form: a picker, a notice, an "Image URL" field (26c)
+
+`ImageInput` (`common/components/Form/Image/index.tsx`) gains `candidates`
+(the import's `images`) and `allowUrl`. With two or more candidates it shows a
+`fieldset` "Choose an image from the page" — a radio per image, visually a
+thumbnail grid, the radio's name the image's filename — starting on
+`images[0]`. "Image URL" is a text field that previews what is typed. Both feed
+**one** hidden `imageImportUrl` (a typed URL beats the picker; a file upload
+beats both, as before), which `buildRecipeData` downloads through
+`fetchImageFile` on create and edit alike — so set-image-from-URL on edit
+needed no server change. `allowUrl` is on for the recipe form only: the group
+form shares the component and parses no import URL. A partial import shows
+"No recipe data on this page — filled from its title, description and image."
+above the form (`role="status"`). The label "Image URL" leaves T1 intact:
+every existing `getByLabel("Image")` passes `exact: true`.
+
+### D12 — The skill: inspect → draft → create (26c)
+
+`SKILL.md` §5 is "Inspect every candidate" (`page_inspect`, reject rules on
+the draft) and §6 "Inspect, draft, create": take `draft`, apply a five-point
+checklist (keep `source`, tags, image choice from `images`, line cleanup, the
+25e drink rules), `recipe_create {dryRun}` then `recipe_create`. Video
+recipes build lines from `video.description`/`chapters`; a partial page is
+filled by reading it (WebFetch — added to the skill's own `allowed-tools`,
+not to project settings) or skipped; `recipe_set_image` fixes a picture later.
+The Fallback section maps each new tool to its CLI line. `.mcp.json` passes
+`YTDLP_PATH` through to the stdio server.
+
 ## Traps (T-list)
 
 - **T1 — `execa` doesn't load in the CLI.** It is ESM-only; the CLI runs under
@@ -198,18 +226,29 @@ on this machine reaches a remote editor.
 - **T5 — A shell or `-c` script that mentions "git" twice is refused** by
   the worktree sandbox, and so is a long heredoc. Write helper scripts to the
   job's `tmp/` and run them (memory already notes the first half).
-- **T6 — A bare spec name in the Playwright filter is a path regex.** Use
-  `tests/recipe.spec`, not `recipe`.
+- **T6 — Playwright filters are path regexes, and `pnpm e2e-dev --` eats
+  flags.** A bare `recipe` matches every spec under `recipe-website/` (572
+  tests); write `tests/recipe.spec`. And `pnpm e2e-dev -- …` hands Playwright
+  a literal `--`, after which `--update-snapshots` and `-g` are read as file
+  filters and silently do nothing — regenerate baselines with `pnpm exec
+playwright test --project=e2e tests/visual.spec --update-snapshots -g "…"`.
+- **T7 — The King Arthur naan submits are network-bound.** Five
+  `new-recipe.spec.ts` tests submit `naan*.html`, which downloads
+  `naan-3.jpg` from kingarthurbaking.com — and since 26c the browser fetches
+  the page's ten picker thumbnails from the same host at the same time. Four
+  finished just past the 5 s `Multiply` wait on a loaded machine (the recipe
+  had rendered — see the failure screenshot). They wait 10 s now, like the
+  other image-import tests, and the thumbnails are `loading="lazy"`.
 
 ## Roadmap
 
 | Step | Branch                           | Status | Scope                                                                                                                |
 | ---- | -------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------- |
 | 26a  | `agent/26a-import-core` ← `main` | ✅     | Page parsing + ranking (D1, D2), importer gaps, SEO fallback (D3), yt-dlp server-side (D4), image fetch (D5–D7) (L)  |
-| 26b  | `agent/26b-curation-ops` ← 26a   | 🟡     | `inspect`, `import --dry-run` draft/`--out`/`--image`/`--allow-partial`, `create/update --dry-run`, `image` seat (L) |
-| 26c  | `agent/26c-skill-ui` ← 26b       |        | Skill "Inspect, draft, create"; image picker, SEO notice, image-from-URL on edit; Playwright; docs close-out (M)     |
+| 26b  | `agent/26b-curation-ops` ← 26a   | ✅     | `inspect`, `import --dry-run` draft/`--out`/`--image`/`--allow-partial`, `create/update --dry-run`, `image` seat (L) |
+| 26c  | `agent/26c-skill-ui` ← 26b       | ✅     | Skill "Inspect, draft, create"; image picker, SEO notice, image-from-URL on edit; Playwright; docs close-out (M)     |
 
-**Now: 26b.** 26a merged as #154 → `main` `450ee60d` (2026-10-06).
+**Now: the roadmap is done** (2026-10-06). 26a merged as #154 → `main` `450ee60d`, 26b as #155 → `e363804a`, and 26c is the PR that carries this line. What's left is the Deferred list.
 
 ## Phase detail
 
@@ -244,7 +283,7 @@ crop — and mapped `recipeYield: "1 drink"`. (Spec filters need a path:
 a bare `recipe` matches every spec under `recipe-website/` and runs all
 572.)
 
-### 26b — Curation ops `agent/26b-curation-ops` 🟡 (← `main` `450ee60d`)
+### 26b — Curation ops `agent/26b-curation-ops` ✅ done (← `main` `450ee60d`; #155 → `e363804a`)
 
 New: `editor/controller/curation/{inspect,recipeImage}.ts`;
 `editor/cli/commands/{inspect,image}.ts`; `src/app/api/inspect/route.ts`;
@@ -275,6 +314,66 @@ multipart, a text upload 400, clear; `POST /api/recipes?dryRun=1` conflict).
 Gate results (2026-10-06): both typechecks clean; vitest 42 files / 800
 tests (`curation` 65, `cliJson` 12, `mcp` 26); Playwright `api-write
 mcp-http new-recipe ytdlp-import edit recipe` 96 passed on 3019.
+
+### 26c — Skill, UI, docs `agent/26c-skill-ui` ✅ (← `main` `e363804a`)
+
+Changed: `common/components/Form/{Image/index,index}.tsx` (D11);
+`editor/src/app/(recipes)/new-recipe/form.tsx` (the notice);
+`.claude/skills/recipe-curator/SKILL.md` (D12); `.mcp.json`;
+`agent-mixology.md` (Deferred → done); this doc. Fixtures:
+`importable-uploads/uploads/{picker,seo-only}.html`,
+`two-pages/uploads/url-import-image.png`.
+
+Tests: Playwright `new-recipe.spec.ts` (the picker starts on the stated-size
+PNG, choosing the WebP changes the preview and the created recipe's image;
+an SEO-only page pre-fills name, description, source and image, shows the
+notice and no picker); `edit.spec.ts` (an "Image URL" replaces recipe-6's
+picture and the old upload 404s); `visual.spec.ts` baselines for the forms
+the new field moves. `examples.md` gains a third worked transcript — the
+headless import below, real calls and real JSON.
+
+Also in 26c: `og:title` loses a trailing " | Site Name" the way `<title>`
+already did (PUNCH's "Paper Plane Cocktail Recipe | PUNCH"), pinned in
+`importRecipeSource.test.ts`.
+
+Gate results (2026-10-06): both typechecks clean; vitest 42 files / 801
+tests; Playwright `new-recipe edit visual accessibility ytdlp-import
+command-palette recipe` 152 run: 143 passed, the five T3-style form baselines
+failing as expected (only "Image URL" moved them — regenerated, nothing
+else) and four naan submits just past 5 s (T7); after the fixes the
+`new-recipe edit visual accessibility ytdlp-import` rerun was 103 passed.
+
+## Verification (end to end, 2026-10-06)
+
+1. **Live `inspect`**, read-only, seconds apart:
+   - acouplecooks Paper Plane: `status 200`, `images[0]` the full-size
+     `Paper-Plane-Cocktail-003.jpg` (800×1000), no markup in `draft`.
+   - YouTube `lfK15ESkoUU` (Just One Cookbook's katsudon) through yt-dlp:
+     `video.description` 2 086 characters, 8 chapters, 42 thumbnails; the
+     draft has the title, `maxresdefault.jpg` and
+     `source {name: "YouTube", author: "Just One Cookbook"}`.
+   - punchdrink.com Paper Plane (no JSON-LD): `partial: true`, title,
+     description, OpenGraph image, `source.name` "PUNCH" (the title suffix
+     then still on — fixed in 26c, above).
+2. **The tweak loop** on a scratch git copy of `three-recipes`:
+   `import --dry-run --out d.json` (no commit) → edit (name, tags, `drink`,
+   garnish out) → `create --dry-run` (no commit, `conflict: false`) →
+   `create --file` (commit 2, the full-size image in `uploads/`) →
+   `image --file x.png` (commit 3, `Update recipe image: …`, only `x.png`
+   left) → `image --clear` (commit 4, `uploads/` empty). The stale-editor
+   hint printed three times — once per write, never for a dry run.
+3. **Kitchn-style URL:** the page still 403s (25-T10), but the Cloudinary
+   CDN serves: `image <slug> --url …/k%2FPhoto%2FRecipes%2F2023-11-bloody-mary%2Fbloody-mary-441_1`
+   stored `bloody-mary-441_1.jpg`, a 1500×844 JPEG, no rewrite.
+4. **Editor (`next dev`):** the Playwright picker test (choose the second
+   candidate → the created recipe's image) and the edit test (an "Image
+   URL" replaces recipe-6's picture, the old upload 404s) are this step,
+   automated.
+5. **Skill:** a headless `/recipe-curator import this recipe <acouplecooks
+url>` with an absolute scratch `CONTENT_DIRECTORY` and no
+   `--allowedTools`: `page_inspect` → `recipe_create {dryRun}` (the draft
+   plus the drink checklist) → `recipe_create` → `git_log`; one commit with
+   the full-size image; 11 turns, 35 s, no permission denials.
 
 ## Deferred
 

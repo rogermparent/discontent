@@ -1,7 +1,7 @@
 # Worked transcripts
 
 Real tool calls and real (abbreviated — long arrays cut with `…`) JSON,
-captured from two headless `/recipe-curator` runs (`claude -p`, 2026-09-15)
+captured from headless `/recipe-curator` runs (`claude -p`, 2026-09-15, and the import at the end on 2026-10-06)
 against scratch copies of Playwright fixture content directories, each turned
 into a git repo first. Timestamps, hashes and absolute paths differ from run to
 run; the step headings match [SKILL.md](SKILL.md). Each block is the call as
@@ -256,3 +256,64 @@ recipe data on the page), the creamy tomato pasta (overlapped with the orzo),
 the quesadillas (billed as a snack). Four commits on `main`, listed newest
 first; the `warnings` line restated as "the running editor is stale until
 Settings → Maintenance → Reload"; push from `/git` when ready.
+
+## An import: "import this recipe https://www.acouplecooks.com/paper-plane-cocktail/"
+
+Corpus: a scratch git copy of the `three-recipes` fixture (`CONTENT_DIRECTORY`
+absolute, no `--allowedTools`), captured 2026-10-06 after 26b. The whole run
+is inspect → draft → dry run → create: 11 turns, 35 s, no permission denials.
+
+### 1. Where do writes go?
+
+```
+git_status {}
+{"isRepo": true, "branch": "main", "ahead": 0, "behind": 0, "remotes": [], "dirty": false, "log": [{"hash": "f8f21c56…", "message": "Initial commit", …}], …}
+recipe_list {"limit": 1}
+{"total": 3, "more": true, "recipes": [{"slug": "third-recipe", "name": "Third Recipe", "date": 1767734340692}]}
+recipe_get {"slug": "third-recipe", "fields": ["name"]}
+{"slug": "third-recipe", "path": "/…/scratch-skill/recipes/data/third-recipe/recipe.json", "url": "/recipe/third-recipe", "recipe": {"name": "Third Recipe"}}
+```
+
+### 3. Reuse first
+
+```
+recipe_search {"query": "paper plane"}
+{"query": {"raw": "paper plane", …}, "total": 0, "recipes": []}
+tag_list {}
+{"tags": []}
+```
+
+### 5. Inspect the candidate
+
+```
+page_inspect {"url": "https://www.acouplecooks.com/paper-plane-cocktail/"}
+{"url": "https://www.acouplecooks.com/paper-plane-cocktail/", "finalUrl": "…", "status": 200, "partial": false, "recipe": {…}, "draft": {"name": "Paper Plane Cocktail", "description": "The Paper Plane cocktail is a modern classic that's a must try! …", "recipeYield": "1 drink", "prepTime": 5, "totalTime": 5, "ingredients": ["1 ounce (2 tablespoons) bourbon whiskey", "1 ounce (2 tablespoons) Aperol", "1 ounce (2 tablespoons) Italian amaro (like Nonino Quintessentia or other brand)", "1 ounce (2 tablespoons) fresh lemon juice", "For the garnish: Lemon peel"], "instructions": ["Add the bourbon, Aperol, amaro, and lemon juice to a cocktail shaker. Fill it with ice and shake it until cold.", "Strain into a cocktail glass. If desired, garnish with a lemon peel."], "source": {"url": "https://www.acouplecooks.com/paper-plane-cocktail/", "name": "acouplecooks.com", "author": "Sonja Overhiser"}, "imageImportUrl": "https://www.acouplecooks.com/wp-content/uploads/2020/06/Paper-Plane-Cocktail-003.jpg"}, "jsonLd": {…}, "meta": {…}, "images": [{"url": "…/Paper-Plane-Cocktail-003.jpg", "width": 800, "height": 1000, "from": "jsonld"}, …10 total]}
+```
+
+`images[0]` is the full-size original, not the 225×225 crop the page lists
+first.
+
+### 6. Inspect, draft, create
+
+The draft with the checklist applied — the "Drink (Site)" name and slug,
+tags, the `drink` spec with the garnish moved out of `ingredients`, `oz`, and
+`source` and `imageImportUrl` kept as the draft had them — checked first:
+
+```
+recipe_create {"recipe": {"name": "Paper Plane (A Couple Cooks)", "slug": "paper-plane-a-couple-cooks", "description": "The Paper Plane cocktail is a modern classic that's a must try! …", "recipeYield": "1 drink", "prepTime": 5, "totalTime": 5, "tags": ["drink", "bourbon", "sour", "paper-plane"], "drink": {"method": "shake", "glass": "cocktail glass", "ice": "up", "garnish": "lemon peel"}, "ingredients": ["1 oz bourbon", "1 oz Aperol", "1 oz amaro (Amaro Nonino Quintessentia)", "1 oz lemon juice"], "instructions": ["Add the bourbon, Aperol, amaro and lemon juice to a cocktail shaker. Fill it with ice and shake until cold.", "Strain into the glass and garnish with the lemon peel, if desired."], "source": {"url": "https://www.acouplecooks.com/paper-plane-cocktail/", "name": "acouplecooks.com", "author": "Sonja Overhiser"}, "imageImportUrl": "https://www.acouplecooks.com/wp-content/uploads/2020/06/Paper-Plane-Cocktail-003.jpg"}, "dryRun": true}
+{"dryRun": true, "slug": "paper-plane-a-couple-cooks", "conflict": false, "recipe": {"name": "Paper Plane (A Couple Cooks)", …, "image": "Paper-Plane-Cocktail-003.jpg"}, "image": {"importUrl": "…", "filename": "Paper-Plane-Cocktail-003.jpg", "status": 200, "contentType": "image/jpeg"}}
+recipe_create {"recipe": {…the same…}}
+{"slug": "paper-plane-a-couple-cooks", "date": 1791324430733, "path": "/…/scratch-skill/recipes/data/paper-plane-a-couple-cooks/recipe.json", "url": "/recipe/paper-plane-a-couple-cooks", "warnings": ["A running editor is stale until Settings → Maintenance → Reload. …"]}
+```
+
+### 9. Report
+
+```
+git_log {"type": "recipe", "slug": "paper-plane-a-couple-cooks"}
+{"commits": [{"hash": "3b468375…", "message": "Create recipe: paper-plane-a-couple-cooks", "files": ["recipes/data/paper-plane-a-couple-cooks/recipe.json", "uploads/recipe/paper-plane-a-couple-cooks/uploads/Paper-Plane-Cocktail-003.jpg"]}], "hasMore": false}
+```
+
+The report: the scratch directory and branch, a `Recipe | Time | Source` row,
+the edits made to the page's version (name, units, garnish into the card,
+tags, image), the stale-editor warning in plain words, the commit, and "no
+remote, nothing to push".

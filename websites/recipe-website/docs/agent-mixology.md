@@ -599,8 +599,11 @@ maple syrup`, which would match honey syrup.
 ## Deferred
 
 - The 25e parser findings above.
-- Importer: `recipeInstructions` given as one string (Imbibe's alcohol-free
-  negroni); prefer the largest JSON-LD `image` over `image[0]` (T9); label
+- ~~Importer: `recipeInstructions` given as one string (Imbibe's alcohol-free
+  negroni); prefer the largest JSON-LD `image` over `image[0]` (T9)~~ — importer
+  gaps → **epic 26 done** (`agent-import-tools.md`): string instructions,
+  `recipeYield`, ranked images, extension-bearing filenames, the SEO
+  fallback, `inspect` drafts and the `image` seat. Still open: label
   `source.name` from a site map rather than the hostname fallback.
 - The Kitchn picks dropped at 25e once it 403'd (T10).
 - oz ↔ ml toggle; "make it for N" batching with a dilution note.
