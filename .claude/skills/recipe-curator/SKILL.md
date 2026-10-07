@@ -58,11 +58,15 @@ tag_list {}
 
 Rows are compact by default — `{slug, name, date, tags?, totalTime?, image?}`
 — and `fields` opens up the four above; `recipe_get` is for `instructions`
-and `source`. Free-text words are ANDed and match at a **word start with your
-word as the prefix** ("cookie" finds "cookies", not the other way round), so
-search **one or two words at a time**, not a sentence. Results are unranked,
-newest first. Read `tag_list` before inventing a tag. Typed terms: `tag:x`,
-`-tag:x`, `ingredient:x`, `name:x`, `description:x`, `time:<=45` (bare
+and `source`. Free-text words match at a **word start with your word as the
+prefix** ("cookie" finds "cookies", not the other way round). A row needs
+**any** of the words, and results are **ranked**: a word in the name counts
+most, then tags, ingredients and description, and ties go newest first. So
+`lime gin` puts the gin-and-lime drinks first and the rest after. Use a few
+key words, not a sentence, and narrow with typed terms. Read `tag_list`
+before inventing a tag. Typed terms: `tag:x`, `-tag:x`, `ingredient:x`,
+`name:x`, `description:x`, `source:x` (a site's name or host, e.g.
+`source:imbibe`), `time:<=45` (bare
 `time:30` means ≤ 30), `before:`/`after:`, `AND`/`OR`/`NOT`, parentheses. A
 recipe with no timing never matches a `time:` query. **`group:` works only in
 the browser's search box** — for membership use `group_get`. **Prefer an

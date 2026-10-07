@@ -12,9 +12,13 @@
  * `matchesFilter` to narrow what comes back. A CLI that ran only
  * `matchesFilter` would answer `search "chocolate"` with the entire corpus.
  *
- * What is deliberately *not* reproduced is ranking. FlexSearch orders by field
- * priority; these results are unranked and newest-first, which is the same
- * order every other list surface uses. Recorded as deferred in the phase doc.
+ * **Ranked, and OR, since 27d (D12).** Until then every word had to match and
+ * rows came back newest-first, so "lime gin" missed every drink that said
+ * only one of them, and the curator skill searched one word at a time. Now a
+ * row needs at least one word, and rows sort by a score — the browser's field
+ * priority made explicit: name 4, tags 3, ingredients 2, description 1, the
+ * best field per word, summed over the words — then newest first. Typed terms
+ * (`tag:`, `source:`, negations) still narrow exactly as before.
  */
 import { readTaxonomyTerms } from "@discontent/cms/taxonomies/read";
 import {
@@ -34,23 +38,39 @@ export interface SearchResult {
   recipes: RecipeRow[];
 }
 
+/** A word's worth in each field: the browser's field order, as numbers. */
+export const FIELD_WEIGHTS = {
+  name: 4,
+  tags: 3,
+  ingredients: 2,
+  description: 1,
+} as const;
+
 /**
- * Every word must appear somewhere — name, description, a tag or an ingredient.
+ * How well a row answers the free text: for each word, the weight of the best
+ * field it appears in (0 if none), summed.
  *
  * `fieldMatches` is the browser's own prefix-at-word-start matcher, exported
- * from `queryLanguage.ts` for exactly this (fact 3), so `search "choc"` narrows
- * here the way it narrows while it is being typed there.
+ * from `queryLanguage.ts` for exactly this (fact 3), so `search "choc"` finds
+ * here what it finds while it is being typed there. A row scoring 0 matched no
+ * word and is not a result.
  */
-export function matchesFreeText(row: RecipeRow, text: string): boolean {
+export function scoreFreeText(row: RecipeRow, text: string): number {
   const words = fold(text).split(/\s+/).filter(Boolean);
-  if (words.length === 0) return true;
-  return words.every(
-    (word) =>
-      fieldMatches(row.name, word) ||
-      (row.description ? fieldMatches(row.description, word) : false) ||
-      (row.tags ?? []).some((tag) => fieldMatches(tag, word)) ||
-      (row.ingredients ?? []).some((line) => fieldMatches(line, word)),
-  );
+  let score = 0;
+  for (const word of words) {
+    if (fieldMatches(row.name, word)) score += FIELD_WEIGHTS.name;
+    else if ((row.tags ?? []).some((tag) => fieldMatches(tag, word))) {
+      score += FIELD_WEIGHTS.tags;
+    } else if (
+      (row.ingredients ?? []).some((line) => fieldMatches(line, word))
+    ) {
+      score += FIELD_WEIGHTS.ingredients;
+    } else if (row.description && fieldMatches(row.description, word)) {
+      score += FIELD_WEIGHTS.description;
+    }
+  }
+  return score;
 }
 
 export async function searchRecipes(
@@ -61,11 +81,20 @@ export async function searchRecipes(
   const query = raw ?? "";
   const { text, filter, hasAdvancedSyntax } = parseQuery(query);
   const rows = await readAllRecipeRows(ctx);
-  const matched = rows.filter(
-    (row) =>
-      (filter ? matchesFilter(row, filter) : true) &&
-      matchesFreeText(row, text),
-  );
+  const hasText = fold(text).trim().length > 0;
+
+  const scored: { row: RecipeRow; score: number }[] = [];
+  for (const row of rows) {
+    if (filter && !matchesFilter(row, filter)) continue;
+    /* No free text: typed terms alone decide, and every row they keep scores 0. */
+    const score = hasText ? scoreFreeText(row, text) : 0;
+    if (hasText && score === 0) continue;
+    scored.push({ row, score });
+  }
+  /* Best first, then newest — the order `readAllRecipeRows` already has. */
+  scored.sort((a, b) => b.score - a.score || b.row.date - a.row.date);
+
+  const matched = scored.map(({ row }) => row);
   return {
     query: { raw: query, text, hasAdvancedSyntax },
     total: matched.length,

@@ -3,7 +3,7 @@ import { test, expect, type Page } from "../support/test";
 const SEARCH_TIMEOUT = 20_000;
 
 /** Mirrors SearchContext's constants — see the note on each test below. */
-const SEARCH_DB_NAME = "recipe-search-v2";
+const SEARCH_DB_NAME = "recipe-search-v3";
 const POPULATED_VERSION_KEY = `search-populated-version:${SEARCH_DB_NAME}`;
 /** The un-namespaced key shipped before the fix. A stale one must stay inert. */
 const LEGACY_POPULATED_VERSION_KEY = "search-populated-version";

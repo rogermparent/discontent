@@ -342,3 +342,43 @@ test.describe("Search — the group: field", () => {
     await expect(page.getByTestId("group-results")).toHaveCount(0);
   });
 });
+
+/**
+ * `source:` (27d) — provenance as a filter, over the two fields the corpus
+ * carries for it. The search corpus has no cited recipe, so one arrives over
+ * the API, the way an import would.
+ */
+test.describe("Search — source:", () => {
+  test.beforeEach(async ({ page, request, resetData, createApiToken }) => {
+    await resetData("search-corpus");
+    const token = await createApiToken();
+    const created = await request.post("/api/recipes", {
+      headers: { authorization: `Bearer ${token}` },
+      data: {
+        name: "Last Word (Imbibe)",
+        tags: ["drink"],
+        source: { url: "https://imbibemagazine.com/recipe/last-word/" },
+      },
+    });
+    expect(created.status()).toBe(201);
+    await page.goto("/search");
+    await expect(ticker(page)).toHaveText(/ALL 68 RECIPES/i, {
+      timeout: SEARCH_TIMEOUT,
+    });
+  });
+
+  test("finds a recipe by its site's label and by its host", async ({
+    page,
+  }) => {
+    await searchFor(page, "source:imbibe");
+    await expect(listItems(page)).toHaveCount(1, { timeout: SEARCH_TIMEOUT });
+    expect(await cardNames(page)).toEqual(["Last Word (Imbibe)"]);
+
+    await searchFor(page, "source:imbibemagazine.com");
+    await expect(listItems(page)).toHaveCount(1, { timeout: SEARCH_TIMEOUT });
+
+    /* Negated, it keeps everything else. */
+    await searchFor(page, "-source:imbibe");
+    await expect(ticker(page)).toHaveText(/67/, { timeout: SEARCH_TIMEOUT });
+  });
+});

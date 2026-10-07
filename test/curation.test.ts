@@ -609,6 +609,87 @@ describe("searchRecipes", () => {
     ]);
   });
 
+  it("ORs free-text words and ranks name > tags > ingredients > description (27d)", async () => {
+    await createRecipe(ctx, {
+      name: "Gimlet",
+      tags: ["drink", "gin"],
+      ingredients: ["2 oz gin", "3/4 oz lime juice"],
+    });
+    await createRecipe(ctx, {
+      name: "Gin and Tonic",
+      tags: ["drink", "gin"],
+      ingredients: ["2 oz gin", "4 oz tonic water", "1 lime wedge"],
+    });
+    await createRecipe(ctx, {
+      name: "Daiquiri",
+      tags: ["drink", "rum"],
+      ingredients: ["2 oz white rum", "1 oz lime juice"],
+    });
+    await createRecipe(ctx, {
+      name: "Lime Pickle",
+      tags: ["condiment"],
+      ingredients: ["10 limes", "salt"],
+    });
+
+    const result = await searchRecipes(ctx, "lime gin");
+    const slugs = result.recipes.map((row) => row.slug);
+    /* Either word is enough: the rum drink and the pickle are in. */
+    expect(slugs).toHaveLength(4);
+    /*
+     * Gin and Tonic: gin in the name (4) + lime in an ingredient (2) = 6;
+     * Gimlet: gin as a tag (3) + lime in an ingredient (2) = 5;
+     * Lime Pickle: lime in the name (4); Daiquiri: lime in an ingredient (2).
+     */
+    expect(slugs).toEqual([
+      "gin-and-tonic",
+      "gimlet",
+      "lime-pickle",
+      "daiquiri",
+    ]);
+  });
+
+  it("breaks a score tie newest first", async () => {
+    const result = await searchRecipes(ctx, "dessert");
+    /* Both are tagged dessert (3 each); the salad was created last. */
+    expect(result.recipes.map((row) => row.slug)).toEqual([
+      "quick-salad",
+      "chocolate-cake",
+    ]);
+  });
+
+  it("filters by source: label or host, and leaves source-less rows out (27d)", async () => {
+    await createRecipe(ctx, {
+      name: "Last Word",
+      tags: ["drink"],
+      source: { url: "https://imbibemagazine.com/recipe/last-word/" },
+    });
+    await createRecipe(ctx, {
+      name: "Margarita",
+      tags: ["drink"],
+      source: {
+        url: "https://www.acouplecooks.com/margarita/",
+        name: "A Couple Cooks",
+      },
+    });
+
+    const imbibe = await searchRecipes(ctx, "source:imbibe");
+    expect(imbibe.recipes.map((row) => row.slug)).toEqual(["last-word"]);
+    expect(imbibe.recipes[0]).toMatchObject({
+      sourceName: "Imbibe",
+      sourceHost: "imbibemagazine.com",
+    });
+    const byHost = await searchRecipes(ctx, "source:acouplecooks");
+    expect(byHost.recipes.map((row) => row.slug)).toEqual(["margarita"]);
+    const byName = await searchRecipes(ctx, 'source:"a couple"');
+    expect(byName.recipes.map((row) => row.slug)).toEqual(["margarita"]);
+    expect((await searchRecipes(ctx, "-source:imbibe tag:drink")).total).toBe(
+      1,
+    );
+    /* A row with no source carries neither key at all. */
+    const plain = await searchRecipes(ctx, "choc");
+    expect(plain.recipes[0]).not.toHaveProperty("sourceName");
+  });
+
   it("honours a bare-word negation", async () => {
     const result = await searchRecipes(ctx, "-beef");
     expect(result.recipes.map((row) => row.slug).sort()).toEqual([
