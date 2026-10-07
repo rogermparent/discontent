@@ -1,5 +1,5 @@
 import { RecipeSource } from "../../controller/types";
-import { hostnameLabel } from "../../util/hostnameLabel";
+import { siteLabel } from "../../util/siteNames";
 
 /**
  * The citation under a recipe's description (D6/22a).
@@ -17,7 +17,7 @@ export function SourceLine({ source }: { source?: RecipeSource }) {
   if (!source?.url) {
     return null;
   }
-  const label = source.name || hostnameLabel(source.url) || source.url;
+  const label = source.name || siteLabel(source.url) || source.url;
   return (
     <p
       data-testid="recipe-source"

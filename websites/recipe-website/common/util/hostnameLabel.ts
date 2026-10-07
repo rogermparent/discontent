@@ -2,9 +2,9 @@
  * The human label for a URL when nothing better is known:
  * `https://www.example.com/x` → `example.com`. Undefined for a non-URL.
  *
- * Shared by the importer (which stores it as `source.name` when the page
- * carries no publisher) and the citation line (which falls back to it for a
- * hand-entered source with no name).
+ * The last resort behind `siteLabel` (`siteNames.ts`), which the importer
+ * (for `source.name` when the page names no site) and the citation line (for a
+ * hand-entered source with no name) both call.
  */
 export function hostnameLabel(url: string): string | undefined {
   try {

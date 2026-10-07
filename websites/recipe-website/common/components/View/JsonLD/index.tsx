@@ -2,6 +2,7 @@ import { Recipe as JsonLDRecipe, WithContext } from "schema-dts";
 import { Recipe } from "../../../controller/types";
 import { flattenMarkdown } from "recipe-website-common/controller/buildIndexValue";
 import { getWebsiteRoot } from "@discontent/cms/util/getWebsiteRoot";
+import { minutesToDuration } from "recipe-website-common/util/isoDuration";
 
 function buildJsonLDIngredients(
   recipe: Recipe,
@@ -55,20 +56,67 @@ export function buildJsonLDInstructions(
   return recipeInstructions as JsonLDRecipe["recipeInstructions"];
 }
 
+/** A site-relative path made absolute; an absolute URL passed through. */
+function absoluteUrl(src: string): string {
+  return /^https?:\/\//.test(src) ? src : getWebsiteRoot() + src;
+}
+
+/**
+ * The recipe as schema.org JSON-LD. `image` and `video` are the sources the
+ * page itself renders (a transformed image path; `resolveRecipeVideoSrc`'s
+ * URL or upload path), made absolute here.
+ *
+ * Since 26d it carries what the recipe stores beyond the lists: the
+ * description (flattened, as the index flattens it), the yield, the times as
+ * ISO-8601 durations, the video, and — for a drink — `recipeCategory: "Drink"`
+ * and its method as `cookingMethod`.
+ */
 export function buildRecipeJsonLD(
   recipe: Recipe,
   image: string | undefined,
+  video?: string,
 ): JsonLDRecipe {
   const { name } = recipe;
 
   const jsonLD: WithContext<JsonLDRecipe> = {
     "@context": "https://schema.org",
     "@type": "Recipe",
-    image: getWebsiteRoot() + image,
+    ...(image ? { image: absoluteUrl(image) } : {}),
     name,
     recipeIngredient: buildJsonLDIngredients(recipe),
     recipeInstructions: buildJsonLDInstructions(recipe),
   };
+
+  const description = recipe.description
+    ? flattenMarkdown(recipe.description)
+    : "";
+  if (description) jsonLD.description = description;
+
+  if (recipe.recipeYield) jsonLD.recipeYield = recipe.recipeYield;
+
+  /* `totalTime` falls back to prep + cook, exactly as the page shows it. */
+  const prepTime = minutesToDuration(recipe.prepTime);
+  const cookTime = minutesToDuration(recipe.cookTime);
+  const totalTime = minutesToDuration(
+    recipe.totalTime || (recipe.prepTime || 0) + (recipe.cookTime || 0),
+  );
+  if (prepTime) jsonLD.prepTime = prepTime;
+  if (cookTime) jsonLD.cookTime = cookTime;
+  if (totalTime) jsonLD.totalTime = totalTime;
+
+  if (video) {
+    jsonLD.video = {
+      "@type": "VideoObject",
+      name,
+      contentUrl: absoluteUrl(video),
+    };
+  }
+
+  /* A drink spec's presence is what makes a recipe a drink (25a/D1). */
+  if (recipe.drink) {
+    jsonLD.recipeCategory = "Drink";
+    if (recipe.drink.method) jsonLD.cookingMethod = recipe.drink.method;
+  }
 
   // schema.org keywords: a comma-separated list of the recipe's tags.
   if (recipe.tags && recipe.tags.length > 0) {
@@ -88,11 +136,13 @@ export function buildRecipeJsonLD(
 export function RecipeJsonLD({
   recipe,
   image,
+  video,
 }: {
   recipe: Recipe;
   image?: string;
+  video?: string;
 }) {
-  const recipeJsonLD = buildRecipeJsonLD(recipe, image);
+  const recipeJsonLD = buildRecipeJsonLD(recipe, image, video);
   return (
     <script
       type="application/ld+json"

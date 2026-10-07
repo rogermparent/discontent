@@ -66,7 +66,11 @@ export async function RecipeView({
   return (
     <MultiplierProvider>
       <VideoPlayerProvider>
-        <RecipeJsonLD recipe={recipe} image={recipeImageProps?.props.src} />
+        <RecipeJsonLD
+          recipe={recipe}
+          image={recipeImageProps?.props.src}
+          video={resolveRecipeVideoSrc(slug, video)}
+        />
         <div className="w-full h-full p-2 print:p-0 grow flex flex-col flex-nowrap">
           <div className="container mx-auto lg:flex lg:flex-row justify-center print:w-full print:max-w-full">
             <div className="aspect-[16/10] w-full lg:aspect-auto lg:h-96 lg:max-w-96 lg:mr-4 print:hidden relative">

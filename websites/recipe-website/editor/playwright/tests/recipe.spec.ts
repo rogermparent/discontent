@@ -1,4 +1,5 @@
 import { test, expect } from "../support/test";
+import type { Page } from "@playwright/test";
 import {
   checkNamesInOrder,
   fillSignInForm,
@@ -6,6 +7,15 @@ import {
   deleteWithConfirm,
 } from "../support/helpers";
 import { snapshotPage } from "../support/visual";
+
+/** The recipe page's `<script type="application/ld+json">`, parsed. */
+async function recipeJsonLD(page: Page): Promise<Record<string, unknown>> {
+  const text = await page
+    .locator('script[type="application/ld+json"]')
+    .first()
+    .textContent();
+  return JSON.parse(text ?? "{}");
+}
 
 test.describe("Single Recipe View", () => {
   test.describe("with seven items", () => {
@@ -269,6 +279,14 @@ test.describe("Single Recipe View", () => {
       await expect(card).toContainText("up");
       await expect(card).toContainText("lime wheel");
 
+      // 26d: the page's JSON-LD says it is a drink, and how it is mixed.
+      expect(await recipeJsonLD(page)).toMatchObject({
+        "@type": "Recipe",
+        name: "Daiquiri",
+        recipeCategory: "Drink",
+        cookingMethod: "shake",
+      });
+
       await page.getByRole("link", { name: "Edit", exact: true }).click();
       await expect(page.getByText("Editing Recipe: Daiquiri")).toBeVisible({
         timeout: 10_000,
@@ -328,6 +346,13 @@ test.describe("Single Recipe View", () => {
       await expect(
         page.getByText("1 hr 10 min", { exact: true }),
       ).toBeVisible();
+
+      // 26d: the same times reach the JSON-LD as ISO-8601 durations.
+      expect(await recipeJsonLD(page)).toMatchObject({
+        prepTime: "PT10M",
+        cookTime: "PT1H",
+        totalTime: "PT1H10M",
+      });
     });
   });
 });

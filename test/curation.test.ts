@@ -750,14 +750,12 @@ describe("groups", () => {
 
   it("imports the group's image from a URL and keeps it through an item edit", async () => {
     /*
-     * The engine fetches the file itself (`writeUploadFile`), so the stub hands
-     * back a body stream rather than HTML — this is the *upload* fetch, not the
-     * importer's page fetch.
+     * Since 26d the group's image goes through `fetchImageFile`, as a
+     * recipe's does: one checked download, handed to the engine as a `File`.
      */
-    const fetchStub = vi.fn(async () => ({
-      body: new Blob(["not really a png"]).stream(),
-    }));
-    vi.stubGlobal("fetch", fetchStub);
+    const fetchStub = stubWeb("", {
+      "https://cdn.example.com/img/cover.png?w=1200": { type: "image/png" },
+    });
 
     await groups.createGroup(ctx, {
       name: "Weeknights",
@@ -775,6 +773,8 @@ describe("groups", () => {
     expect(stored.image).toBe("cover.png");
     /* `Group` has an index signature, so an input-only key would have persisted. */
     expect(stored.imageImportUrl).toBeUndefined();
+    /* One download: the engine is handed a File, it does not fetch again. */
+    expect(fetchStub).toHaveBeenCalledTimes(1);
 
     /*
      * `writeItems` spreads the record it read, so the picture survives every
@@ -787,6 +787,38 @@ describe("groups", () => {
         join(contentDirectory, "uploads/group/weeknights/uploads/cover.png"),
       ),
     ).toBe(true);
+  });
+
+  it("names an extension-less image from its content type (26d)", async () => {
+    /* 25e-T9 for groups: a Cloudinary-style URL with no extension. */
+    const url =
+      "https://cdn.example.com/image/upload/f_jpg,w_1500/k%2FPhoto%2Fcover-1";
+    stubWeb("", { [url]: { body: "the jpeg" } });
+    await groups.createGroup(ctx, { name: "Weeknights", imageImportUrl: url });
+
+    expect((await readGroupFile("weeknights")).image).toBe("cover-1.jpg");
+    expect(
+      await readFile(
+        join(contentDirectory, "uploads/group/weeknights/uploads/cover-1.jpg"),
+        "utf8",
+      ),
+    ).toBe("the jpeg");
+  });
+
+  it("refuses an image URL that answers with HTML, and writes nothing (26d)", async () => {
+    stubWeb("<html>Not found</html>");
+    await expect(
+      groups.createGroup(ctx, {
+        name: "Weeknights",
+        imageImportUrl: "https://example.com/missing.jpg",
+      }),
+    ).rejects.toMatchObject({ code: "import_failed" });
+    expect(
+      await pathExists(join(contentDirectory, "groups/data", "weeknights")),
+    ).toBe(false);
+    expect(
+      await pathExists(join(contentDirectory, "uploads/group/weeknights")),
+    ).toBe(false);
   });
 
   it("rejects unknown keys", async () => {
@@ -1134,10 +1166,9 @@ describe("updateGroup", () => {
   });
 
   it("clears the picture on null and carries it forward otherwise", async () => {
-    const fetchStub = vi.fn(async () => ({
-      body: new Blob(["not really a png"]).stream(),
-    }));
-    vi.stubGlobal("fetch", fetchStub);
+    stubWeb("<html>Not an image</html>", {
+      "https://cdn.example.com/img/cover.png?w=1200": { type: "image/png" },
+    });
     await groups.createGroup(ctx, {
       name: "Pictured",
       slug: "pictured",
@@ -1151,6 +1182,15 @@ describe("updateGroup", () => {
 
     /* An unrelated patch leaves the file and the field where they were. */
     await groups.updateGroup(ctx, "pictured", { name: "Still Pictured" });
+    expect((await readGroupFile("pictured")).image).toBe("cover.png");
+    expect(await pathExists(uploaded)).toBe(true);
+
+    /* A refused replacement throws before the write: the old picture stays. */
+    await expect(
+      groups.updateGroup(ctx, "pictured", {
+        imageImportUrl: "https://example.com/page.html",
+      }),
+    ).rejects.toMatchObject({ code: "import_failed" });
     expect((await readGroupFile("pictured")).image).toBe("cover.png");
     expect(await pathExists(uploaded)).toBe(true);
 
@@ -1548,6 +1588,8 @@ describe("inspect and drafts (26b)", () => {
       partial: false,
       meta: { siteName: "Example Kitchen" },
     });
+    /* No category signals on this page: no `suggestedTags` key at all. */
+    expect("suggestedTags" in result).toBe(false);
     expect(result.images.map((image) => image.url)).toEqual([`${base}.jpg`]);
     expect(result.jsonLd).toMatchObject({ "@type": "Recipe", name: "Naan" });
     expect(result.draft).toEqual({
@@ -1559,7 +1601,7 @@ describe("inspect and drafts (26b)", () => {
         "Mix.",
         { name: "Cook", instructions: [{ text: "Griddle." }] },
       ],
-      source: { url: PAGE_URL, name: "example.com" },
+      source: { url: PAGE_URL, name: "Example Kitchen" },
       imageImportUrl: `${base}.jpg`,
     });
     /* The draft is what `create` takes — it creates the importer's record. */
@@ -1573,6 +1615,39 @@ describe("inspect and drafts (26b)", () => {
       ingredient: "For the topping:",
       type: "heading",
     });
+  });
+
+  it("lifts the page's categories to suggestedTags, never into the draft (26d)", async () => {
+    stubWeb(
+      recipeHtml({
+        recipeCategory: "Main Course",
+        recipeCuisine: ["Indian"],
+        keywords: "naan, flatbread, Indian",
+      }),
+      { [NAAN_IMAGE]: {} },
+    );
+    const result = await inspectUrl(PAGE_URL);
+    expect(result.suggestedTags).toEqual([
+      "main course",
+      "indian",
+      "naan",
+      "flatbread",
+    ]);
+    expect(result.draft?.tags).toBeUndefined();
+    expect(result.recipe?.suggestedTags).toBeUndefined();
+
+    const dryRun = await importAndCreate(ctx, PAGE_URL, { dryRun: true });
+    if (!("dryRun" in dryRun)) throw new Error("expected a dry run");
+    expect(dryRun.suggestedTags).toEqual(result.suggestedTags);
+    expect(dryRun.recipe.tags).toBeUndefined();
+    expect(dryRun.draft.tags).toBeUndefined();
+    expect(dryRun.recipe.suggestedTags).toBeUndefined();
+
+    /* A real import stores none of them either. */
+    await importAndCreate(ctx, PAGE_URL);
+    const stored = await readRecipeFile("naan");
+    expect(stored.tags).toBeUndefined();
+    expect(stored.suggestedTags).toBeUndefined();
   });
 
   it("answers a page with no recipe with what it has, and truncates a huge node", async () => {

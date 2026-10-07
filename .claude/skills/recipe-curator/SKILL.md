@@ -82,13 +82,16 @@ page_inspect {"url": "https://www.budgetbytes.com/vegetarian-chili/"}
 ```
 
 Reads the page and writes nothing. Returns `{url, finalUrl, status, partial,
-recipe, draft, jsonLd, meta, images, video?}`:
+recipe, draft, suggestedTags?, jsonLd, meta, images, video?}`:
 
 - `draft` — the recipe as a **create-ready** `recipe_create` payload: plain
   ingredient lines (no markup, ASCII fractions as the page gave them),
   instructions, `recipeYield`, times in minutes, `source{url, name?,
 author?}` and `imageImportUrl` set to the best image. `tags`, `slug` and
   `drink` are yours to add.
+- `suggestedTags` — the page's own `recipeCategory`, `recipeCuisine`,
+  `cookingMethod` and `keywords`, normalized, at most ten. Hints, never
+  applied: the draft carries no `tags`.
 - `images` — up to ten `{url, width?, height?, from}` candidates, best first:
   full-size originals rank above their WordPress crops, and the page's
   metadata images above its body images.
@@ -129,7 +132,10 @@ The checklist, applied to the draft before the dry run:
 
 1. **Keep `source` exactly as the draft has it** — it is the citation. Never
    strip or edit `source.url`.
-2. **Tags** from the vocabulary below; read `tag_list` first.
+2. **Tags** from the vocabulary below; read `tag_list` first. Pick from
+   `suggestedTags` only what matches a term already in `tag_list` (or the
+   vocabulary below) — a site's "Main Course" or "easy dinner" is not a tag
+   here.
 3. **Image**: keep `imageImportUrl` (`images[0]`) unless it is a logo, a
    step photo or a tiny crop — then pick another from `images`. A picture can
    also be fixed later (below).

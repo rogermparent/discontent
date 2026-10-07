@@ -386,7 +386,8 @@ export function createRecipeServer(
         "Read a recipe page and write nothing. Returns the mapped import (`recipe`), " +
         "a create-ready `draft` (plain ingredient lines, the best image URL, the " +
         "source) to edit and pass to recipe_create, the raw JSON-LD Recipe node, the " +
-        "page's SEO metadata, up to ten ranked `images` to choose from, and — for a " +
+        "page's SEO metadata, up to ten ranked `images` to choose from, the page's own " +
+        "categories and keywords as `suggestedTags` (hints, never applied), and — for a " +
         "video host — yt-dlp's `video` metadata (full description, chapters, " +
         "thumbnails). `partial: true` means the page had no Recipe node: the draft is " +
         "only its title, description and image.",

@@ -603,16 +603,24 @@ maple syrup`, which would match honey syrup.
   negroni); prefer the largest JSON-LD `image` over `image[0]` (T9)~~ — importer
   gaps → **epic 26 done** (`agent-import-tools.md`): string instructions,
   `recipeYield`, ranked images, extension-bearing filenames, the SEO
-  fallback, `inspect` drafts and the `image` seat. Still open: label
-  `source.name` from a site map rather than the hostname fallback.
+  fallback, `inspect` drafts and the `image` seat. ~~Still open: label
+  `source.name` from a site map rather than the hostname fallback.~~ **Done by
+  26d**: publisher → `og:site_name` → `KNOWN_SITES` → hostname
+  (`common/util/siteNames.ts`).
 - The Kitchn picks dropped at 25e once it 403'd (T10).
 - oz ↔ ml toggle; "make it for N" batching with a dilution note.
 - A bar-side view (large type, wake lock).
 - More drinks from step 1's deferred list (Sake Cosmo, Sake Bloody Mary, Red
   Snapper ZP, Ginger Mule ZP, the spritzes and sodas); a syrup-pairing chart
   as a term description or page.
-- JSON-LD `recipeCategory` / `cookingMethod`; the importer mapping
-  `recipeYield`, `recipeCategory`, `cookingMethod` (an existing gap, F6).
+- ~~JSON-LD `recipeCategory` / `cookingMethod`; the importer mapping
+  `recipeYield`, `recipeCategory`, `cookingMethod` (an existing gap, F6).~~
+  **Done by 26d** (`agent-import-tools.md`): the export's JSON-LD carries
+  `recipeCategory: "Drink"` and `cookingMethod` from `drink.method` (plus
+  description, yield, ISO times, video); the importer reads category,
+  cuisine, method and keywords into `suggestedTags` — hints, never tags.
+  (`recipeYield` landed in 26a.) Glass and ice stay out: schema.org has no
+  field for them.
 
 ## Key files
 

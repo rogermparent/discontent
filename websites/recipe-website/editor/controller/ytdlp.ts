@@ -14,7 +14,7 @@
 import { readSettings } from "@discontent/cms/settings";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { hostnameLabel } from "recipe-website-common/util/hostnameLabel";
+import { siteLabel } from "recipe-website-common/util/siteNames";
 import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
 
 export interface YtdlpThumbnail {
@@ -219,7 +219,7 @@ function videoSiteName(meta: YtdlpMetadata, url: string): string {
   if (/(^|\.)(youtube\.com|youtu\.be)$/.test(host)) return SITE_NAMES.youtube;
   const extractor = meta.extractor?.split(":")[0]?.toLowerCase();
   if (extractor && SITE_NAMES[extractor]) return SITE_NAMES[extractor];
-  return meta.extractor_key || hostnameLabel(url) || host;
+  return meta.extractor_key || siteLabel(url) || host;
 }
 
 /**

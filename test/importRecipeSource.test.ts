@@ -15,7 +15,10 @@ import {
   extractAuthorName,
   importRecipeData,
   RECIPE_FETCH_HEADERS,
+  suggestTags,
+  SUGGESTED_TAGS_LIMIT,
 } from "recipe-website-common/util/importRecipeData";
+import { siteLabel } from "recipe-website-common/util/siteNames";
 
 const PAGE_URL = "https://www.example.com/recipes/naan";
 
@@ -206,6 +209,39 @@ describe("importRecipeData source", () => {
     });
   });
 
+  it("prefers og:site_name to the hostname when there is no publisher (26d)", async () => {
+    stubFetch(
+      recipeHtml().replace(
+        "<html><head>",
+        '<html><head><meta property="og:site_name" content="Example &amp; Co">',
+      ),
+    );
+    const imported = await importRecipeData(PAGE_URL);
+    expect(imported?.source?.name).toBe("Example & Co");
+  });
+
+  it("still prefers the publisher to og:site_name", async () => {
+    stubFetch(
+      recipeHtml({ publisher: { name: "King Arthur Baking" } }).replace(
+        "<html><head>",
+        '<html><head><meta property="og:site_name" content="KAB">',
+      ),
+    );
+    const imported = await importRecipeData(PAGE_URL);
+    expect(imported?.source?.name).toBe("King Arthur Baking");
+  });
+
+  it("names a known site with neither a publisher nor a site name (26d)", async () => {
+    stubFetch(recipeHtml());
+    const url = "https://www.acouplecooks.com/paper-plane-cocktail/";
+    const imported = await importRecipeData(url);
+    expect(imported?.source).toEqual({
+      url,
+      name: "A Couple Cooks",
+      author: undefined,
+    });
+  });
+
   it("no longer prefixes the description with 'Imported from' (D7)", async () => {
     stubFetch(recipeHtml());
     const imported = await importRecipeData(PAGE_URL);
@@ -228,7 +264,7 @@ describe("importRecipeData source", () => {
     expect(fetchStub).not.toHaveBeenCalled();
     expect(imported?.source).toEqual({
       url: videoUrl,
-      name: "youtube.com",
+      name: "YouTube",
       author: undefined,
     });
     expect(imported?.description).toBeUndefined();
@@ -359,5 +395,72 @@ describe("importRecipeData mapping (26a)", () => {
       })),
     );
     expect(await importRecipeData(PAGE_URL)).toBeUndefined();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 26d: site names and suggested tags                                  */
+/* ------------------------------------------------------------------ */
+
+describe("siteLabel", () => {
+  it("names the known hosts, with or without www.", () => {
+    expect(siteLabel("https://www.thekitchn.com/x")).toBe("The Kitchn");
+    expect(siteLabel("https://punchdrink.com/recipes/paper-plane/")).toBe(
+      "PUNCH",
+    );
+    expect(siteLabel("https://youtu.be/abc")).toBe("YouTube");
+  });
+
+  it("falls back to the bare hostname, and to undefined for a non-URL", () => {
+    expect(siteLabel("https://www.example.com/x")).toBe("example.com");
+    expect(siteLabel("not a url")).toBeUndefined();
+  });
+});
+
+describe("suggestedTags", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("reads strings, comma lists and arrays, normalized and de-duplicated", () => {
+    expect(
+      suggestTags({
+        recipeCategory: "Cocktail",
+        recipeCuisine: ["American", "  Italian "],
+        cookingMethod: "Shaken",
+        keywords: "paper plane, bourbon cocktail, Cocktail, Aperol",
+      }),
+    ).toEqual([
+      "cocktail",
+      "american",
+      "italian",
+      "shaken",
+      "paper plane",
+      "bourbon cocktail",
+      "aperol",
+    ]);
+  });
+
+  it("ignores what is not text and caps the list", () => {
+    expect(suggestTags({ recipeCategory: 42, keywords: { a: 1 } })).toEqual([]);
+    const many = Array.from({ length: 30 }, (_, i) => `tag ${i}`);
+    expect(suggestTags({ keywords: many })).toHaveLength(SUGGESTED_TAGS_LIMIT);
+    /* Categories survive the cap; keywords are what it cuts. */
+    expect(suggestTags({ recipeCategory: "Drink", keywords: many })[0]).toBe(
+      "drink",
+    );
+  });
+
+  it("rides on the import but never in its tags", async () => {
+    stubFetch(
+      recipeHtml({ recipeCategory: ["Drinks"], keywords: "gin, sour" }),
+    );
+    const imported = await importRecipeData(PAGE_URL);
+    expect(imported?.suggestedTags).toEqual(["drinks", "gin", "sour"]);
+    expect(imported?.tags).toBeUndefined();
+  });
+
+  it("is absent when the page offers no signals", async () => {
+    stubFetch(recipeHtml());
+    const imported = await importRecipeData(PAGE_URL);
+    expect(imported && "suggestedTags" in imported).toBe(false);
   });
 });

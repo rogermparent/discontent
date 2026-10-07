@@ -59,6 +59,11 @@ export interface InspectResult {
   recipe?: Partial<ImportedRecipe>;
   /** `recipe` as a `RecipeInput`: plain lines, no markup, best image. */
   draft?: RecipeDraft;
+  /**
+   * The page's category, cuisine, method and keywords as candidate tags
+   * (26d). Never in `draft`: the curator picks them against `tag_list`.
+   */
+  suggestedTags?: string[];
   /** The raw Recipe node, cut at `JSON_LD_LIMIT` characters (then a string). */
   jsonLd?: JsonLdNode | string;
   meta?: PageMeta;
@@ -213,8 +218,9 @@ export async function inspectUrl(rawUrl: string): Promise<InspectResult> {
   }
   const parsed = parseRecipePage(page.html, page.finalUrl);
   const recipe = mapRecipePage(url, parsed, { ok: page.ok });
-  /* `images` rides on the mapped recipe for the form; here it is top-level. */
-  const { images: _images, partial, ...mapped } = recipe ?? {};
+  /* `images` and `suggestedTags` ride on the mapped recipe for the form; here
+   * they are top-level. */
+  const { images: _images, partial, suggestedTags, ...mapped } = recipe ?? {};
   void _images;
 
   return {
@@ -223,6 +229,7 @@ export async function inspectUrl(rawUrl: string): Promise<InspectResult> {
     status: page.status,
     partial: partial === true,
     ...(recipe ? { recipe: mapped, draft: toDraft(mapped) } : {}),
+    ...(suggestedTags?.length ? { suggestedTags } : {}),
     ...(parsed.recipeNodes[0]
       ? { jsonLd: truncateJsonLd(parsed.recipeNodes[0]) }
       : {}),

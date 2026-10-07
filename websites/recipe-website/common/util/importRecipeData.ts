@@ -7,7 +7,9 @@ import {
   RecipeSource,
 } from "../controller/types";
 import { createIngredient } from "./parseIngredients";
-import { hostnameLabel } from "./hostnameLabel";
+import { siteLabel } from "./siteNames";
+import { parseDurationToMinutes } from "./isoDuration";
+import { normalizeTags } from "../controller/normalizeTags";
 import {
   parseRecipePage,
   TOP_IMAGES,
@@ -61,6 +63,10 @@ interface RecipeLD {
   totalTime?: string;
   author?: AuthorLD;
   publisher?: { name?: string };
+  recipeCategory?: unknown;
+  recipeCuisine?: unknown;
+  cookingMethod?: unknown;
+  keywords?: unknown;
 }
 
 /** Entities only — the value is rendered as plain text, never as markdown. */
@@ -93,17 +99,57 @@ export function extractAuthorName(author?: AuthorLD): string | undefined {
  * `*Imported from [url](url)*` description prefix this importer used to write
  * (D7): the same fact, in a field the site can render and a query can read,
  * rather than prose glued to the front of the user's own description.
+ *
+ * The name falls back publisher → `og:site_name` → a known site's proper name
+ * → the bare hostname (26d), so a page with no publisher still reads as
+ * "A Couple Cooks" rather than "acouplecooks.com".
  */
 export function buildSource(
   url: string,
   publisherName?: string,
   author?: string,
+  siteName?: string,
 ): RecipeSource {
   return {
     url,
-    name: publisherName || hostnameLabel(url),
+    name: publisherName || siteName || siteLabel(url),
     author,
   };
+}
+
+/** How many `suggestedTags` an import hands back, at most. */
+export const SUGGESTED_TAGS_LIMIT = 10;
+
+/** A schema.org text-or-list field as its entries: arrays and comma lists. */
+function textEntries(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.split(",").flatMap((entry) => decodeName(entry) ?? []);
+  }
+  if (Array.isArray(value)) return value.flatMap(textEntries);
+  return [];
+}
+
+/**
+ * The page's own category signals — `recipeCategory`, `recipeCuisine`,
+ * `cookingMethod`, `keywords` — as normalized candidate tags (26d).
+ *
+ * Suggestions only: they never reach `tags` or a draft, so a site's "Main
+ * Course" does not enter the vocabulary unless the curator picks it against
+ * `tag_list`. Categories come first and keywords last, since keyword lists run
+ * long and SEO-flavoured and the cap should cut them, not the categories.
+ */
+export function suggestTags(recipe: {
+  recipeCategory?: unknown;
+  recipeCuisine?: unknown;
+  cookingMethod?: unknown;
+  keywords?: unknown;
+}): string[] {
+  return normalizeTags([
+    ...textEntries(recipe.recipeCategory),
+    ...textEntries(recipe.recipeCuisine),
+    ...textEntries(recipe.cookingMethod),
+    ...textEntries(recipe.keywords),
+  ]).slice(0, SUGGESTED_TAGS_LIMIT);
 }
 
 export interface ImportedRecipe extends Recipe {
@@ -117,6 +163,11 @@ export interface ImportedRecipe extends Recipe {
   partial?: boolean;
   /** The page's top image candidates, best first (`imageImportUrl` is `[0]`). */
   images?: ImageCandidate[];
+  /**
+   * The page's category, cuisine, method and keywords as candidate tags
+   * (`suggestTags`). Never applied: the curator picks from them.
+   */
+  suggestedTags?: string[];
 }
 
 function createStep({
@@ -146,18 +197,6 @@ function getVideoUrl(
   if (typeof input === "string") return input;
   return input.contentUrl || input.embedUrl || input.url;
 }
-
-// Function to parse ISO 8601 duration strings to minutes
-const parseDurationToMinutes = (
-  duration: string | undefined,
-): number | undefined => {
-  if (!duration || typeof duration !== "string") return undefined;
-  const matches = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?/);
-  if (!matches) return undefined;
-  const hours = matches[1] ? parseInt(matches[1], 10) : 0;
-  const minutes = matches[2] ? parseInt(matches[2], 10) : 0;
-  return hours * 60 + minutes;
-};
 
 /** A video platform: imported through yt-dlp where it is available. */
 export function isVideoUrl(url: string): boolean {
@@ -372,6 +411,8 @@ export function mapRecipePage(
   const topImages = images.slice(0, TOP_IMAGES);
   const bestImage = topImages[0]?.url;
 
+  const siteName = meta.siteName ? decodeName(meta.siteName) : undefined;
+
   if (!recipeObject) {
     if (!ok) return undefined;
     const name = seoName(meta);
@@ -386,8 +427,9 @@ export function mapRecipePage(
       images: topImages,
       source: buildSource(
         url,
-        meta.siteName ? decodeName(meta.siteName) : undefined,
+        undefined,
         meta.author ? decodeName(meta.author) : undefined,
+        siteName,
       ),
     };
   }
@@ -405,6 +447,7 @@ export function mapRecipePage(
     author,
     publisher,
   } = recipeObject;
+  const suggestedTags = suggestTags(recipeObject);
 
   const videoURL = video ? getVideoUrl(video) : undefined;
 
@@ -425,6 +468,7 @@ export function mapRecipePage(
         ? decodeName(publisher.name)
         : undefined,
       extractAuthorName(author),
+      siteName,
     ),
     prepTime: parseDurationToMinutes(prepTime),
     cookTime: parseDurationToMinutes(cookTime),
@@ -438,6 +482,7 @@ export function mapRecipePage(
           .filter(Boolean) as Ingredient[])
       : undefined,
     instructions: mapInstructions(recipeInstructions),
+    ...(suggestedTags.length > 0 ? { suggestedTags } : {}),
   };
 }
 
