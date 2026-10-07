@@ -3373,10 +3373,12 @@ repo, after the stack lands — is the epic's last checkbox and stays theirs.
 
 ## Deferred
 
-- **`--image <local file>` on the CLI** (from the 22h row): a local file
+- ~~**`--image <local file>` on the CLI** (from the 22h row): a local file
   upload has no JSON transport; an MCP tool could carry base64 (a
   `recipe_set_image {slug, base64}` seat), decided against for this epic —
-  the skill imports by URL and `imageImportUrl` covers group covers.
+  the skill imports by URL and `imageImportUrl` covers group covers.~~
+  **Done by 26b** (`agent-import-tools.md` D10): the CLI's `image <slug>
+--file`; `recipe_set_image` stays URL-only.
 - **Featured dedupe**: `feature` does not refuse an already-featured target
   (D5). If agents double-feature in practice, add an `already_featured`
   code or return the existing slug.
@@ -3390,9 +3392,10 @@ repo, after the stack lands — is the epic's last checkbox and stays theirs.
   stopped the `recipe_search` description advertising it and the skill
   points at `group_get`; making it work server-side means decorating rows
   with the `by-group` aggregate at query time. Backlog row.
-- **Stale-editor hint after a CLI `--dry-run`**: the MCP path omits it
+- ~~**Stale-editor hint after a CLI `--dry-run`**: the MCP path omits it
   (`recipe_import` passes `notify: dryRun !== true`); the CLI still prints
-  it. Backlog row, narrowed at 23f.
+  it. Backlog row, narrowed at 23f.~~ **Done by 26b**: `cli/index.ts` skips
+  `afterWrite` on a dry run.
 - **Read-only tokens / an HTTP `.mcp.json` entry**: every API token is
   full-write (backlog "API token hygiene"), so a remote `recipes` entry in
   `.mcp.json` would hand the skill a write token in a file that is committed;

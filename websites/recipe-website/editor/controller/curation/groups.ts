@@ -13,7 +13,6 @@
  * not found" — which is why `--force` downgrades the error to a warning rather
  * than being refused.
  */
-import path from "path";
 import { createContent } from "@discontent/cms/content/createContent";
 import { deleteContent } from "@discontent/cms/content/deleteContent";
 import { readContentFileOrNull } from "@discontent/cms/content/readContentFile";
@@ -41,6 +40,7 @@ import type {
   RecipeEntryKey,
   RecipeEntryValue,
 } from "recipe-website-common/controller/types";
+import { fetchImageFile } from "../imageImport";
 import { groupPath, groupUrl, type CurationContext } from "./context";
 import {
   GroupCycleError,
@@ -351,16 +351,16 @@ export async function createGroup(
   const warnings = await checkItems(ctx, slug, items, force);
 
   /*
-   * The file name the record will carry, derived from the URL exactly as
-   * `buildRecipeData` derives it — the engine's `getUploadInfo` takes the
-   * basename of the same pathname, so deriving it here is restating what the
-   * write will do rather than deciding it. `imageImportUrl` itself never lands
-   * on disk: it is an input-only key, and `data` is what gets written.
+   * Fetched here, as `buildRecipeWrite` fetches a recipe's (26d): the status and
+   * type checks run, and the name stored is the checked, extension-bearing one
+   * the `File` carries — the name written. A bad URL throws `ImportError` before
+   * anything touches disk. `imageImportUrl` itself never lands on disk: it is an
+   * input-only key, and `data` is what gets written.
    */
-  const imageImportUrl = input.imageImportUrl;
-  const image = imageImportUrl
-    ? path.parse(new URL(imageImportUrl).pathname).base
+  const imageFile = input.imageImportUrl
+    ? await fetchImageFile(input.imageImportUrl)
     : undefined;
+  const image = imageFile?.name;
 
   /*
    * Normalised here, exactly as `buildRecipeWrite` does it (`recipes.ts`), so
@@ -393,9 +393,7 @@ export async function createGroup(
      * the same reason `buildRecipeData`'s curation twin declares `image` and
      * nothing else.
      */
-    ...(imageImportUrl
-      ? { uploads: { image: { fileImportUrl: imageImportUrl } } }
-      : {}),
+    ...(imageFile ? { uploads: { image: { file: imageFile } } } : {}),
   });
   ctx.onWrite?.({
     contentType: groupContentConfig.contentType,
@@ -478,9 +476,11 @@ export async function updateGroup(
     else delete data.tags;
   }
 
-  const imageImportUrl = patch.imageImportUrl ?? undefined;
-  const image = imageImportUrl
-    ? path.parse(new URL(imageImportUrl).pathname).base
+  const imageFile = patch.imageImportUrl
+    ? await fetchImageFile(patch.imageImportUrl)
+    : undefined;
+  const image = imageFile
+    ? imageFile.name
     : patch.imageImportUrl === null
       ? undefined
       : current.image;
@@ -493,7 +493,7 @@ export async function updateGroup(
 
   const uploads: Record<string, UploadSpec> = {
     image: {
-      fileImportUrl: imageImportUrl,
+      file: imageFile,
       clearFile: patch.imageImportUrl === null,
       existingFile: current.image,
     },

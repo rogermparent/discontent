@@ -201,6 +201,41 @@ not to project settings) or skipped; `recipe_set_image` fixes a picture later.
 The Fallback section maps each new tool to its CLI line. `.mcp.json` passes
 `YTDLP_PATH` through to the stdio server.
 
+### D13 — `source.name`: publisher → `og:site_name` → known site → hostname (26d)
+
+`buildSource(url, publisher, author, siteName)` takes the page's
+`og:site_name` as the second choice for a full Recipe page too, not just for
+the SEO fallback; then `siteLabel(url)` (`common/util/siteNames.ts`), a small
+`KNOWN_SITES` map in the spellings the content repo already carries (A
+Couple Cooks, Imbibe, Love and Lemons, The Kitchn, PUNCH, YouTube), then the
+bare hostname. The citation line's fallback for a hand-entered source with
+no name, and yt-dlp's last resort, call `siteLabel` too. The map is a
+fallback, not an override: a page that names itself keeps its own name (T8).
+
+### D14 — Category signals are suggestions, never tags (26d)
+
+`recipeCategory`, `recipeCuisine`, `cookingMethod` and `keywords` (string,
+comma list or array, any mix) become `suggestedTags` — `normalizeTags`,
+de-duplicated, categories before keywords, at most
+`SUGGESTED_TAGS_LIMIT` (10). They ride on `ImportedRecipe` (the form ignores
+them), are lifted to the top of `InspectResult` and `ImportDryRunResult`,
+and reach neither `tags`, the `draft`, nor the stored record. A site's "Main
+Course" or a chamomile toddy's "dessert" would otherwise enter the shared
+vocabulary unasked; the skill's §6 picks only what `tag_list` already has.
+
+### D15 — The export's JSON-LD says what the recipe stores (26d)
+
+`buildRecipeJsonLD(recipe, image, video?)` adds `description` (through
+`flattenMarkdown`, as the index flattens it), `recipeYield`,
+`prepTime`/`cookTime`/`totalTime` as ISO-8601 (`minutesToDuration` in
+`common/util/isoDuration.ts`, beside the parser it now shares with the
+importer; `totalTime` falls back to prep + cook as the page does), `video`
+as a `VideoObject` with an absolute `contentUrl`, and for a recipe with a
+`drink` spec `recipeCategory: "Drink"` and `cookingMethod` from
+`drink.method`. `image` is omitted when there is none — it used to be
+`"<root>undefined"`. Glass, ice and garnish have no schema.org field and
+stay out.
+
 ## Traps (T-list)
 
 - **T1 — `execa` doesn't load in the CLI.** It is ESM-only; the CLI runs under
@@ -239,6 +274,13 @@ playwright test --project=e2e tests/visual.spec --update-snapshots -g "…"`.
   finished just past the 5 s `Multiply` wait on a loaded machine (the recipe
   had rendered — see the failure screenshot). They wait 10 s now, like the
   other image-import tests, and the thumbnails are `loading="lazy"`.
+- **T8 — Imbibe's own publisher is "Imbibe Magazine".** Live `inspect` of
+  `imbibemagazine.com/recipe/chamomile-toddy/` carries a JSON-LD publisher
+  and `og:site_name` both reading "Imbibe Magazine", so a fresh import cites
+  that — as it did before 26d — while the repo's 21 Imbibe recipes say
+  "Imbibe" because 25e normalized them by hand. `KNOWN_SITES` cannot help:
+  it is the fallback below the page's own name (D13). Edit the draft's
+  `source.name` if the spelling matters.
 
 ## Roadmap
 
@@ -247,8 +289,9 @@ playwright test --project=e2e tests/visual.spec --update-snapshots -g "…"`.
 | 26a  | `agent/26a-import-core` ← `main` | ✅     | Page parsing + ranking (D1, D2), importer gaps, SEO fallback (D3), yt-dlp server-side (D4), image fetch (D5–D7) (L)  |
 | 26b  | `agent/26b-curation-ops` ← 26a   | ✅     | `inspect`, `import --dry-run` draft/`--out`/`--image`/`--allow-partial`, `create/update --dry-run`, `image` seat (L) |
 | 26c  | `agent/26c-skill-ui` ← 26b       | ✅     | Skill "Inspect, draft, create"; image picker, SEO notice, image-from-URL on edit; Playwright; docs close-out (M)     |
+| 26d  | `agent/26d-import-tail` ← `main` | ✅     | Group images through `fetchImageFile`; `source.name` order (D13); `suggestedTags` (D14); JSON-LD out (D15); docs (S) |
 
-**Now: the roadmap is done** (2026-10-06). 26a merged as #154 → `main` `450ee60d`, 26b as #155 → `e363804a`, and 26c is the PR that carries this line. What's left is the Deferred list.
+**Now: the roadmap is done** (2026-10-06). 26a merged as #154 → `main` `450ee60d`, 26b as #155 → `e363804a`, 26c as #156 → `f1ca8303`, and 26d — the tail — is the PR that carries this line. The Deferred list is empty.
 
 ## Phase detail
 
@@ -343,6 +386,49 @@ failing as expected (only "Image URL" moved them — regenerated, nothing
 else) and four naan submits just past 5 s (T7); after the fixes the
 `new-recipe edit visual accessibility ytdlp-import` rerun was 103 passed.
 
+### 26d — Import tail and hygiene `agent/26d-import-tail` ✅ (← `main` `f1ca8303`)
+
+Picked from the Deferred lists epic 26 had already settled, one small PR.
+
+Changed: `editor/controller/curation/groups.ts` (create and update fetch the
+image with `fetchImageFile`, hand the engine a `File`, store `file.name`; a
+bad URL is `import_failed` before anything is written; `null` still clears);
+`common/util/{siteNames (new),isoDuration (new),importRecipeData,hostnameLabel}.ts`
+(D13, D14); `common/components/View/{JsonLD/index,index,SourceLine}.tsx`
+(D15, D13); `editor/controller/{ytdlp,curation/inspect,curation/importRecipe}.ts`;
+`editor/mcp/registry.ts` (`page_inspect` mentions `suggestedTags`); the
+skill's §5/§6; both READMEs' test sections (Playwright, port 3019, the T6
+flag caveat, a pointer to `CLAUDE.md`); `backlog.md` (three rows struck),
+`agent-mcp.md` and `agent-mixology.md` Deferred.
+
+Tests: `curation.test.ts` — group images through a real-`Response` stub (one
+download; an extension-less URL stored as `cover-1.jpg`; an HTML answer is
+`import_failed` with no data or upload directory; a refused replacement on
+update leaves the old picture; `null` clears), `suggestedTags` on `inspect`
+and the import dry run and never on the record; `importRecipeSource.test.ts`
+— `og:site_name` beats the hostname, the publisher beats `og:site_name`, a
+known host with neither, `siteLabel`, `suggestTags`' three shapes, cap and
+order; `recipeJsonLD.test.ts` (new) — ISO durations both ways, yield,
+description, total fallback, omitted fields, drink category/method, video;
+Playwright `recipe.spec.ts` reads the page's JSON-LD (the Daiquiri's
+`recipeCategory`/`cookingMethod`, baked potatoes' `PT10M`/`PT1H`/`PT1H10M`).
+
+Gate results (2026-10-06): both typechecks clean; vitest 43 files / 821
+tests; Playwright `recipe api-write new-recipe groups` 100 run on 3019: 96
+passed, and the four failures — three naan/carnitas submits waiting on
+`Multiply` (T7, with vitest running alongside) and `groups.spec` "Search
+within this group" — all passed rerun alone (5 passed).
+
+Live checks: `inspect` of acouplecooks' Paper Plane (`og:site_name`, no
+JSON-LD publisher) cites "A Couple Cooks" with `suggestedTags` `drink,
+cocktails, shaken, paper plane cocktail` and no `tags` in the draft; Love
+and Lemons' margarita the same shape (`cocktail, mexican, …`); Imbibe's
+chamomile toddy is T8. In a git-inited scratch copy of `linked-recipes`,
+`group create --image-url` with acouplecooks' `Paper-Plane-Cocktail-003.jpg`
+stored that name (an 800×1000 JPEG) in one commit, and `--image-url` to the
+recipe page itself was `import_failed` ("is not an image (content-type
+text/html)") with no group directory and no commit.
+
 ## Verification (end to end, 2026-10-06)
 
 1. **Live `inspect`**, read-only, seconds apart:
@@ -377,8 +463,9 @@ url>` with an absolute scratch `CONTENT_DIRECTORY` and no
 
 ## Deferred
 
-- Groups still import their image through the engine's `fileImportUrl`
-  (unchecked). Moving `groups.ts` onto `fetchImageFile` is a few lines.
+- ~~Groups still import their image through the engine's `fileImportUrl`
+  (unchecked). Moving `groups.ts` onto `fetchImageFile` is a few lines.~~
+  **Done by 26d.**
 
 ## Key files
 
@@ -391,3 +478,7 @@ url>` with an absolute scratch `CONTENT_DIRECTORY` and no
   `importAndCreate`.
 - `editor/controller/curation/inspect.ts` — `inspectUrl`, `toDraft`.
 - `editor/controller/curation/recipeImage.ts` — `setRecipeImage`.
+- `common/util/siteNames.ts` — `KNOWN_SITES`, `siteLabel` (26d).
+- `common/util/isoDuration.ts` — `parseDurationToMinutes`,
+  `minutesToDuration` (26d).
+- `common/components/View/JsonLD/index.tsx` — `buildRecipeJsonLD` (26d).

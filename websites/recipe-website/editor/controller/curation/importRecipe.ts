@@ -47,6 +47,8 @@ export interface ImportDryRunResult {
    * markup, the image as a URL. Edit it and pass it to `create`.
    */
   draft: RecipeDraft;
+  /** The page's own category signals (26d) — see `InspectResult`. */
+  suggestedTags?: string[];
   image?: ImageProbe;
   video?: string;
 }
@@ -201,6 +203,9 @@ export async function importAndCreate(
           ? { imageImportUrl: input.imageImportUrl }
           : {}),
       },
+      ...(imported.suggestedTags?.length
+        ? { suggestedTags: imported.suggestedTags }
+        : {}),
       ...(probe ? { image: probe } : {}),
       ...(data.video ? { video: data.video } : {}),
     };

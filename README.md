@@ -33,21 +33,37 @@ The [Recipe Website](websites/recipe-website) is the most complete implementatio
 
 ## Running Tests
 
-### E2E Tests (Cypress)
+### E2E tests (Playwright)
 
-End-to-end tests are available for the recipe editor. Tests can run against the dev server (`e2e-dev`) or an optimized production build (`e2e-start`). `e2e-dev` is useful for rapid iteration, while `e2e-start` is faster and closer to production.
+The editor's end-to-end suite is **Playwright** (`websites/recipe-website/editor/playwright/tests/`).
+It starts its own server on port **3019** (`PLAYWRIGHT_PORT` overrides it), so
+it never collides with a `next dev` on 3000, and it resets scratch fixture
+content per test — it never touches the real content repo.
 
 ```sh
-cd websites/recipe-website/editor
+cd websites/recipe-website/editor/
 
-# Against the dev server
-pnpm e2e-dev            # Interactive (Cypress UI)
-pnpm e2e-dev:headless   # Headless (for CI)
-
-# Against a production build (run build first)
-pnpm build
-pnpm e2e-start          # Interactive (Cypress UI)
-pnpm e2e-start:headless # Headless (for CI)
+pnpm e2e-dev            # against `next dev` (e2e + mobile projects)
+pnpm e2e-dev:headed     # the same, in Playwright's UI mode
+pnpm e2e-dev:update     # regenerate screenshot baselines
+pnpm e2e-start          # build, then run against `next start` (closer to production)
+pnpm e2e-shard          # blob reporter, for sharded CI runs (`e2e-merge` joins them)
+pnpm e2e-codegen        # record a test against a running server on 3019
 ```
 
-See [cypress/README.md](websites/recipe-website/editor/cypress/README.md) for more details about the e2e test suite.
+To run one spec, or pass Playwright flags, call it directly:
+
+```sh
+pnpm exec playwright test --project=e2e tests/recipe.spec
+pnpm exec playwright test --project=e2e tests/visual.spec --update-snapshots -g "home"
+```
+
+Two caveats: a spec filter is a path regex, so write `tests/recipe.spec`
+(a bare `recipe` matches every spec); and `pnpm e2e-dev -- …` hands
+Playwright a literal `--`, after which flags such as `-g` and
+`--update-snapshots` are read as file filters and silently do nothing.
+
+The unit suite is Vitest, run from the repo root with `pnpm exec vitest run`.
+The full gate list (typechecks, Vitest, Playwright) and the worktree setup
+the e2e suite needs are under "Verification" and "Worktrees" in
+[`CLAUDE.md`](CLAUDE.md).
