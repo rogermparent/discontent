@@ -6,10 +6,19 @@ import { rebuildAllIndexes } from "recipe-editor/controller/actions";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { ensureSymlink } from "fs-extra";
 import { resolve } from "path";
+import {
+  EXPORT_UNAVAILABLE_MESSAGE,
+  getExportDirectory,
+  isExportAvailable,
+} from "./availability";
 
 export async function buildExport() {
+  /* Before the rebuild below, which would otherwise run for nothing. */
+  if (!(await isExportAvailable())) {
+    return EXPORT_UNAVAILABLE_MESSAGE;
+  }
   const contentDirectory = getContentDirectory();
-  const exportDirectory = resolve("..", "export");
+  const exportDirectory = getExportDirectory();
 
   /*
    * The export reads the pagination index and nothing self-heals it: a content

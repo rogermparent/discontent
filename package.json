@@ -11,6 +11,7 @@
     "test": "vitest",
     "recipes": "pnpm --filter recipe-editor recipes",
     "mcp": "pnpm --filter recipe-editor mcp",
+    "deploy:pi": "bash scripts/deploy-pi.sh",
     "lint:diff": "lint-staged",
     "lint:diff:write": "lint-staged -c lint-staged.write.config.mjs"
   },

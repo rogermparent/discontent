@@ -10,12 +10,10 @@
 
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded.
 
-**Now:** the roadmap is done. 27a (#159), 27b (#161) and 27c (#162) are
-merged, and 27d is #163. The real content repo
-(`/home/roger/Projects/recipe-content`, branch `uraninite`) carries 78 new
-unpushed commits from this epic: the `shaken` term, 76 retags and the
-migration. That makes 315 ahead of `uraninite/uraninite`. Pushing is Roger's
-(see "Hand-off").
+**Now:** the epic is closed. 27a (#159), 27b (#161), 27c (#162) and 27d
+(#163) are merged (main `a7b9d1bc`). Roger pushed the content repo's 78
+epic commits to the Pi on 2026-10-07 (`uraninite` at `b078b49`, 0/0). The Pi
+then moved to the container deploy in `deploy-pi.md`.
 
 ## Context
 
@@ -512,37 +510,22 @@ indexes have not. Its `/git` page and Settings → Maintenance show "Content
 changed outside the editor — Rebuild indexes" until someone clicks the button.
 This is the stamp from D3.
 
-**Optional: rebuild automatically.** Add a `post-receive` hook in the Pi's
-content repository (`.git/hooks/post-receive`, executable) that asks the
-running editor to reindex, using a write token minted on the Pi
-(`pnpm create-token -e you@… -n post-receive`):
-
-```sh
-#!/bin/sh
-curl -fsS -X POST http://localhost:3000/api/reindex \
-  -H "Authorization: Bearer $(cat /home/pi/.recipe-reindex-token)" \
-  -H "Content-Type: application/json" -d '{}' >/dev/null \
-  || echo "reindex request failed; use Rebuild indexes in the editor" >&2
-```
-
-A full reindex also stamps HEAD, so the banner clears. Keep the token file
-readable only by the user the hook runs as, since `/api/reindex` needs a write
-token.
+**Rebuilt automatically (since the Pi deploy).** `pnpm deploy:pi --setup`
+installs `deploy/pi/post-receive` as the Pi content repo's hook. It asks the
+running editor to reindex in the background, using the `pi-deploy` write token
+in `~/recipe-editor/hook.env`. A full reindex also stamps HEAD, so the banner
+clears. That rebuild takes about 15 s on the Pi with current code. To build
+them on the workstation instead, use `git push -o no-reindex uraninite` and
+then `pnpm deploy:pi --sync-index`, which swaps them in (see `deploy-pi.md`).
 
 ## Hand-off (end of epic, 2026-10-07)
 
-The content repo is clean and its indexes are stamped. To publish to the Pi:
-
-```
-cd /home/roger/Projects/recipe-content
-git fetch uraninite && git status   # 315 ahead, 0 behind as of the epic
-git push uraninite uraninite
-```
-
-Then rebuild on the Pi: its `/git` page or Settings → Maintenance will show
-"Content changed outside the editor — Rebuild indexes", so click it (or set
-up the `post-receive` hook above). The three descriptions the migration
-reported (D13) are a person's call.
+Done: Roger pushed the 315 commits to the Pi and rebuilt there on
+2026-10-07 (`uraninite` at `b078b49`, 0/0). Later pushes reindex through the
+hook above. Still a person's call: the three recipes the migration skipped
+(D13), each with two candidate source links —
+`blueberry-cheesecake-baked-oatmeal`, `key-lime-pie` and
+`salted-caramel-apple-pie-bars`.
 
 ## Deferred
 

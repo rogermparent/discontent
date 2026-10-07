@@ -944,6 +944,9 @@ importers:
       sharp:
         specifier: 0.34.5
         version: 0.34.5
+      simple-git:
+        specifier: ^3.30.0
+        version: 3.30.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -1008,9 +1011,6 @@ importers:
       schema-dts:
         specifier: ^1.1.5
         version: 1.1.5
-      simple-git:
-        specifier: ^3.30.0
-        version: 3.30.0
       tailwindcss:
         specifier: ^4.1.18
         version: 4.1.18

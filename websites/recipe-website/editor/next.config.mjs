@@ -11,7 +11,9 @@ const nextConfig = {
   serverExternalPackages: ["lmdb"],
   experimental: {
     serverActions: {
-      bodySizeLimit: "10mb",
+      // Uploads come straight from phone cameras on the LAN (the Pi editor
+      // ran with this as a local edit), and a few photos exceed 10 MB.
+      bodySizeLimit: "100mb",
     },
   },
 };

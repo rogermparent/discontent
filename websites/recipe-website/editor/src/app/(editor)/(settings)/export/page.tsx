@@ -1,5 +1,6 @@
 import { auth, signIn } from "@/auth";
 import { Exporters } from "./exporter";
+import { EXPORT_UNAVAILABLE_MESSAGE, isExportAvailable } from "./availability";
 import {
   PageMain,
   PageSection,
@@ -17,7 +18,16 @@ export default async function SettingsPage() {
     <PageMain>
       <PageSection maxWidth="4xl" grow>
         <PageHeading>Export</PageHeading>
-        <Exporters />
+        {(await isExportAvailable()) ? (
+          <Exporters />
+        ) : (
+          <p
+            className="p-2 text-muted-foreground"
+            data-testid="export-unavailable"
+          >
+            {EXPORT_UNAVAILABLE_MESSAGE}
+          </p>
+        )}
       </PageSection>
     </PageMain>
   );
