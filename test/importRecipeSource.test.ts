@@ -297,6 +297,19 @@ describe("importRecipeData mapping (26a)", () => {
     expect((await importRecipeData(PAGE_URL))?.recipeYield).toBe("2");
   });
 
+  it("drops Imbibe's bare-number yield, and keeps one that says what it counts (27c)", async () => {
+    const imbibe = "https://imbibemagazine.com/recipe/daiquiri/";
+    stubFetch(recipeHtml({ recipeYield: "10" }));
+    expect((await importRecipeData(imbibe))?.recipeYield).toBeUndefined();
+    stubFetch(recipeHtml({ recipeYield: 4 }));
+    expect((await importRecipeData(imbibe))?.recipeYield).toBeUndefined();
+    stubFetch(recipeHtml({ recipeYield: "2 drinks" }));
+    expect((await importRecipeData(imbibe))?.recipeYield).toBe("2 drinks");
+    /* Every other site's bare number stands, as above. */
+    stubFetch(recipeHtml({ recipeYield: "10" }));
+    expect((await importRecipeData(PAGE_URL))?.recipeYield).toBe("10");
+  });
+
   it("splits instructions given as one string into steps", async () => {
     /* Imbibe's alcohol-free negroni threw on this before 26a. */
     stubFetch(

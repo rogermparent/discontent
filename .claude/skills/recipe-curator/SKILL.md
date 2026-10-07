@@ -147,6 +147,8 @@ The checklist, applied to the draft before the dry run:
    quantities and units otherwise.
 5. **Drinks**: the rules in "Drinks" below — garnish, method, glass and ice
    into `drink`, units to `oz`, the "Drink (Site)" name.
+6. **Yield**: check `recipeYield` against the volumes. A cocktail of about
+   3 oz makes 1, not "10"; drop or fix a yield the ingredients don't support.
 
 `recipe_update {"slug": …, "patch": {"tags": […]}}` fixes a recipe **this
 run** created (`dryRun` works there too); `recipe_create` also takes a
@@ -186,7 +188,7 @@ Tag vocabulary (lowercase, keep it small):
 page renders as a Method · Glass · Ice · Garnish card:
 
 ```json
-recipe_create {"recipe": {"name": "Daiquiri", "tags": ["drink", "rum", "sour"], "drink": {"method": "shake", "glass": "coupe", "ice": "up", "garnish": "lime wheel"}, "ingredients": ["2 oz white rum", "3/4 oz lime juice", "3/4 oz simple syrup"], "instructions": ["Shake hard with ice; double-strain."]}}
+recipe_create {"recipe": {"name": "Daiquiri", "tags": ["drink", "rum", "sour", "shaken"], "drink": {"method": "shake", "glass": "coupe", "ice": "up", "garnish": "lime wheel"}, "ingredients": ["2 oz white rum", "3/4 oz lime juice", "3/4 oz simple syrup"], "instructions": ["Shake hard with ice; double-strain."]}}
 ```
 
 Every part is optional; `method` is one of `shake`, `stir`, `build`,
@@ -195,7 +197,11 @@ glass and method go in the spec rather than restated as the first
 instruction. Name each ingredient **generic first, brand in parens** —
 `"2 oz gin (Hendrick's)"` — so what is in the bottle stays searchable. Tag
 `drink`, the base spirit, and one style (`sour`, `collins`, `stirred`,
-`built`, `highball`, `batch`); `low-abv` or `zero-proof` where it applies. In
+`built`, `highball`, `batch`); `low-abv` or `zero-proof` where it applies.
+Every drink whose `method` is `shake` **also** gets `shaken`. It names the
+method, not a style, so a sour carries both `sour` and `shaken`, and a shaken
+drink with no citrus (espresso martini, French martini, alexanders) carries
+`shaken` and no `sour`. "Shaken but not sour" is `tag:shaken -tag:sour`. In
 a `recipe_update` patch, `drink` **replaces** the whole spec rather than
 merging into it, and `null` (or an empty object) removes it.
 
@@ -205,8 +211,8 @@ these edits to the draft:
 - **Name** `"Margarita (Liquor.com)"`, **slug** `margarita-liquor-com`. Two
   sites' versions of one drink are two recipes; both carry a shared drink tag
   (`margarita`) so `/tags/margarita` lists them side by side.
-- **Tags:** `drink`, the base spirit, one style, `low-abv`/`zero-proof` where
-  it applies, and the shared drink tag.
+- **Tags:** `drink`, the base spirit, one style, `shaken` if the method is
+  shake, `low-abv`/`zero-proof` where it applies, and the shared drink tag.
 - **Units:** ounce(s) and fl oz → `oz`; ml → oz at 30 ml = 1 oz, rounded to
   the nearest ¼; ASCII fractions (`1 1/2`, never `1½`).
 - **Lines:** generic name first, brand in parens; drop "freshly squeezed";

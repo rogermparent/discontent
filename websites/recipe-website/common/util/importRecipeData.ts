@@ -7,7 +7,7 @@ import {
   RecipeSource,
 } from "../controller/types";
 import { createIngredient } from "./parseIngredients";
-import { siteLabel } from "./siteNames";
+import { dropsBareYield, siteLabel } from "./siteNames";
 import { parseDurationToMinutes } from "./isoDuration";
 import { normalizeTags } from "../controller/normalizeTags";
 import {
@@ -318,6 +318,18 @@ export function yieldText(value: unknown): string | undefined {
 }
 
 /**
+ * `yieldText`, minus a bare number from a site whose bare numbers are wrong
+ * (`SITE_QUIRKS`, 27c). A yield that says what it counts survives.
+ */
+function siteYield(url: string, value: unknown): string | undefined {
+  const text = yieldText(value);
+  if (text && dropsBareYield(url) && /^[\d\s./-]+$/.test(text)) {
+    return undefined;
+  }
+  return text;
+}
+
+/**
  * Instructions published as one string (Imbibe's alcohol-free negroni) as
  * steps: one per line if it has lines, else one per sentence.
  */
@@ -473,7 +485,7 @@ export function mapRecipePage(
     prepTime: parseDurationToMinutes(prepTime),
     cookTime: parseDurationToMinutes(cookTime),
     totalTime: parseDurationToMinutes(totalTime),
-    recipeYield: yieldText(recipeYield),
+    recipeYield: siteYield(url, recipeYield),
     ingredients: Array.isArray(recipeIngredient)
       ? (recipeIngredient
           .map(ingredientText)

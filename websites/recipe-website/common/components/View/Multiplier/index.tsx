@@ -8,6 +8,7 @@ import { Recipe } from "../../../controller/types";
 import { useMultiplier } from "./Provider";
 import { Multiplyable } from "./Multiplyable";
 import StyledMarkdown from "@discontent/component-library/components/Markdown";
+import { UnitToggle, useUnits } from "../Units";
 
 /**
  * Quick-scale presets. Clicking one writes its value straight into the custom
@@ -30,13 +31,23 @@ export function MultiplierInput() {
   const [{ input }, setMultiplier] = useMultiplier();
   // Empty / "1" both mean the default single batch; that's the selected preset.
   const current = input && input.trim() !== "" ? input : "1";
+  /*
+   * Parts are a ratio, and a ratio does not scale (27c): the scaler stays
+   * where it was, greyed, so switching back to oz or ml finds it unchanged.
+   */
+  const { mode } = useUnits();
+  const parts = mode === "parts";
 
   return (
     <div className="flex flex-row flex-wrap items-center gap-2 print:hidden">
       <div
         role="group"
         aria-label="Scale"
-        className="inline-flex rounded-md bg-muted p-0.5"
+        aria-disabled={parts || undefined}
+        className={cn(
+          "inline-flex rounded-md bg-muted p-0.5",
+          parts && "opacity-50",
+        )}
       >
         {PRESETS.map(({ value, label, name }) => (
           <button
@@ -44,9 +55,10 @@ export function MultiplierInput() {
             type="button"
             aria-label={name}
             aria-pressed={current === value}
+            disabled={parts}
             onClick={() => setMultiplier(value)}
             className={cn(
-              "rounded-sm px-2.5 py-1 font-mono text-sm tabular-nums transition-colors",
+              "rounded-sm px-2.5 py-1 font-mono text-sm tabular-nums transition-colors disabled:cursor-not-allowed",
               current === value
                 ? "bg-card text-foreground shadow-xs"
                 : "text-muted-foreground hover:text-foreground",
@@ -58,18 +70,28 @@ export function MultiplierInput() {
       </div>
       <label
         htmlFor="multiplier"
-        className="flex items-center gap-1.5 font-mono text-[0.7rem] uppercase tracking-wide text-muted-foreground [&_input]:w-16 [&_input]:text-center [&_input]:tabular-nums"
+        className={cn(
+          "flex items-center gap-1.5 font-mono text-[0.7rem] uppercase tracking-wide text-muted-foreground [&_input]:w-16 [&_input]:text-center [&_input]:tabular-nums",
+          parts && "opacity-50",
+        )}
       >
         Multiply
         <TextInput
           id="multiplier"
           name="multiplier"
           value={input ?? ""}
+          disabled={parts}
           onChange={(e: ChangeEvent<HTMLInputElement>) => {
             setMultiplier(e.target.value);
           }}
         />
       </label>
+      <UnitToggle />
+      {parts && (
+        <span className="font-mono text-[0.7rem] text-muted-foreground">
+          parts don&apos;t scale
+        </span>
+      )}
     </div>
   );
 }
