@@ -375,8 +375,11 @@ case "$mode" in
 
   rollback)
     need_token
-    previous=$(pi "awk '{print \$2}' $PI_DIR/deployed.log 2>/dev/null" \
-      | awk -v cur="$(running_tag)" '$0 != cur {p = $0} END {print p}')
+    # Each read on its own: a `$(running_tag)` inside the pipe below would run
+    # ssh there, and ssh would swallow the log arriving on stdin.
+    current=$(running_tag)
+    deployed=$(pi "awk '{print \$2}' $PI_DIR/deployed.log 2>/dev/null")
+    previous=$(awk -v cur="$current" '$0 != cur {p = $0} END {print p}' <<<"$deployed")
     [ -n "$previous" ] || die "no earlier tag in deployed.log"
     ship_indexes=0
     push_pi_files
