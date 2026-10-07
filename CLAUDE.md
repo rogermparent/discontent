@@ -62,6 +62,10 @@ survives a cleared context.
 - `websites/recipe-website/docs/agent-epic-27.md` — epic 27 (27a–27d: CI
   hygiene, Pi content sync and token scopes, bar tools, search ranking and
   the legacy "Imported from" migration): decisions, traps, gate results.
+- `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
+  editor image built here, run on the Pi `uraninite` with `docker run`,
+  indexes built here and swapped in; setup, rollback, traps, and the proposed
+  workstation/mirror roles.
 - `websites/recipe-website/docs/ui-overhaul.md` — the UI roadmap.
 - `packages/cms/docs/incremental-regeneration.md` — how the engine
   invalidates and rebuilds derived state.

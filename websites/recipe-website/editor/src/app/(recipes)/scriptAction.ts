@@ -4,8 +4,12 @@ import { execa } from "execa";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { unstable_noStore } from "next/cache";
 import { auth, signIn } from "@/auth";
-import { resolve } from "path";
 import { Readable } from "stream";
+import {
+  EXPORT_UNAVAILABLE_MESSAGE,
+  getExportDirectory,
+  isExportAvailable,
+} from "@/app/(editor)/(settings)/export/availability";
 
 let currentStream: ReadableStream | undefined;
 
@@ -23,8 +27,11 @@ export async function commandAction(
   if (currentStream) {
     return "A build is already currently running!";
   }
+  if (!(await isExportAvailable())) {
+    return EXPORT_UNAVAILABLE_MESSAGE;
+  }
   const contentDirectory = getContentDirectory();
-  const cwd = resolve("..", "export");
+  const cwd = getExportDirectory();
   const newBuild = execa({
     cwd: cwd,
     all: true,

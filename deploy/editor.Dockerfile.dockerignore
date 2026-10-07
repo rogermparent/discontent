@@ -1,0 +1,30 @@
+# deploy/editor.Dockerfile's own context filter (BuildKit reads
+# `<Dockerfile>.dockerignore` instead of the root .dockerignore, which belongs
+# to the test harness). The `manifests` stage copies the whole context, so
+# anything left in here is hashed on every build.
+**/node_modules
+.git
+.claude
+**/.next
+**/out
+**/dist
+**/.env
+**/.env.*
+**/test-content
+**/test-settings
+**/test-remotes
+**/test-clones
+**/playwright-report
+**/test-results
+**/blob-reports
+websites/recipe-website/*/content
+websites/recipe-website/editor/settings
+websites/recipe-website/export
+websites/portfolio
+websites/resume-builder
+packages/cms/demo/test-content
+# Not part of the app: editing them should not rerun `next build`.
+deploy
+scripts
+**/docs
+CLAUDE.md
