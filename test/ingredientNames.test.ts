@@ -128,6 +128,38 @@ describe("parseIngredientLine — every real drink line", () => {
   });
 });
 
+describe("parseIngredientLine — 25f's parser findings, fixed (27c)", () => {
+  it.each([
+    /* A left side that is already a whole name borrows nothing. */
+    ["simple syrup or maple syrup", "simple syrup or maple syrup"],
+    ["1/2 oz honey or maple syrup", "honey or maple syrup"],
+    /* The borrowed tail never repeats the left word. */
+    ["2 oz vodka or citron vodka", "vodka or citron vodka"],
+    [
+      "1 oz sweet or semi-sweet red vermouth",
+      "sweet red vermouth or semi sweet red vermouth",
+    ],
+    /* …and the classic distribution still distributes. */
+    ["3/4 oz lemon or lime juice", "lemon juice or lime juice"],
+    /* Compounds are paired before `hot` is dropped as descriptive. */
+    ["2 dashes hot sauce", "hot sauce"],
+    ["1 cup hot water", "water"],
+    /* A `plus|and <qty> <unit>` chain is all amount. */
+    ["1/2 cup plus 2 tablespoons white sugar", "white sugar"],
+    ["1 cup and 1 tablespoon flour", "flour"],
+    /* `unit or unit`: either container. */
+    ["1 (46- to 48-oz) bottle or can tomato juice", "tomato juice"],
+    /* `recipe` and `batch` are units. */
+    ["1 recipe lavender syrup", "lavender syrup"],
+    ["1 batch simple syrup", "simple syrup"],
+    /* A flavoured soda is its own bottle; a bare one is soda water. */
+    ["4 oz grapefruit soda", "grapefruit soda"],
+    ["Splash of soda", "soda water"],
+  ])("%s → %s", (line, expected) => {
+    expect(label(line)).toBe(expected);
+  });
+});
+
 describe("parseIngredientLine — quantities, units and alternatives", () => {
   it.each([
     ["1/4 to 1/2 oz vodka", "vodka"],

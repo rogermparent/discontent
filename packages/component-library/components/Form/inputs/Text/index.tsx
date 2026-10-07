@@ -13,6 +13,7 @@ export function TextInput({
   errors,
   list,
   value,
+  disabled,
 }: {
   name: string;
   id?: string;
@@ -24,6 +25,7 @@ export function TextInput({
   errors?: string[];
   list?: string;
   value?: string;
+  disabled?: boolean;
 }) {
   return (
     <FieldWrapper label={label} id={id}>
@@ -38,6 +40,7 @@ export function TextInput({
         placeholder={placeholder}
         list={list}
         value={value}
+        disabled={disabled}
       />
     </FieldWrapper>
   );

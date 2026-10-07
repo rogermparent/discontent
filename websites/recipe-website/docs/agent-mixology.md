@@ -211,6 +211,13 @@ their sourced counterpart. Syrups that drinks call for are recipes too
 lines link them. A zero-proof version of a classic gets its own tag
 (`virgin-mojito`, `zero-proof-aperol-spritz`), not the classic's.
 
+**Styles:** `sour`, `collins`, `stirred`, `built`, `highball`, `batch`. Since
+27c (`agent-epic-27.md` D1), every drink whose `drink.method` is `shake` also
+carries `shaken`. That tag names the method rather than a style, so a sour
+carries `sour` and `shaken`, a citrus-free shaken drink (espresso martini,
+French martini, alexanders) carries `shaken` alone, and "shaken but not sour"
+is `tag:shaken -tag:sour`.
+
 ## Traps (T-list)
 
 - **T1 — `getByLabel` matches substrings.** The Drink inputs are labelled
@@ -587,7 +594,8 @@ It went through the CLI rather than MCP, because of T11.
 - **Repo:** `git status` clean on `uraninite`. 762 → 885 commits = 1
   inventory + 104 creates + 18 updates.
 
-**Parser findings** (`measure-ingredient-names.ts --tag drink`, not fixed):
+**Parser findings** (`measure-ingredient-names.ts --tag drink`). **All fixed by
+27c** (`agent-epic-27.md` D7), each with a regression test:
 
 - **"X or Y" with a shared head word doubles it:**
   - "simple syrup or maple syrup" → `simple syrup syrup or maple syrup`

@@ -10,8 +10,9 @@
 
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded.
 
-**Now:** 27a and 27b committed on stacked local branches (pushes fail, T2);
-27c in progress on `agent/27c-bar-tools`.
+**Now:** 27a merged (#159). 27b is in review as #161. 27c is on
+`agent/27c-bar-tools`, stacked on 27b. The real content repo has 77 new
+unpushed commits from 27c (the `shaken` term and 76 retags).
 
 ## Context
 
@@ -179,6 +180,97 @@ two, so the CLI tried to reach an editor at the URL "uraninite". `push`,
   stamping it on every request would rewrite (and for a tracked `users/`,
   commit) a file per API call.
 
+### D7 — Parser fixes, each with its 25f finding as the test (27c)
+
+`common/util/ingredientNames.ts`; the cases are in `test/ingredientNames.test.ts`
+"25f's parser findings, fixed":
+
+- **`inheritTails` doesn't lend to a whole name.** It skips a compound left side
+  ("simple syrup or maple syrup") and a `STANDALONE` word (honey, agave, sugar,
+  molasses, salt, milk, cream, butter, egg, coffee, espresso, ice, water). The
+  borrowed tail also drops the left word itself, so "vodka or citron vodka"
+  stays `vodka` and "sweet or semi-sweet red vermouth" reads
+  `sweet red vermouth`. "lemon or lime juice" still distributes.
+- **`toName` pairs compounds before dropping descriptive words**, and `hot
+sauce` is a compound. A second pairing pass keeps the old behaviour for
+  pairs a descriptive word sat between ("egg, large white").
+- **`stripAmount` handles chains and alternatives.** It follows a `plus|and
+<qty> <unit>` chain, but only when both a quantity and a unit follow, so
+  "salt and 2 eggs" keeps its second item. It also takes `unit or unit`
+  ("bottle or can").
+- **`UNITS` gains `recipe` and `batch`.**
+- **The soda synonym leaves flavoured sodas alone** (grapefruit, lemon, lime,
+  cherry, ginger, …).
+
+Real repo, read-only, 2026-10-07:
+
+- `measure-ingredient-names.ts --tag drink`: every recorded finding comes out
+  right, "heavy cream or half and half" is no longer mangled, and the corpus
+  name set is unchanged. Only counts moved, because "plus" chains now resolve.
+- `inventory make tag:drink`, before and after: canMake 5 → 5, oneAway 31 → 31.
+  Two oneAway drinks name what they lack more cleanly:
+  - lavender lemonade: `recipe lavender syrup` → `lavender syrup`
+  - vodka gimlet: `simple syrup syrup or …` → `simple syrup or maple syrup`
+
+### D8 — oz · ml · parts: the unit moves into the tag at render time (27c)
+
+`common/util/barUnits.ts` (pure, `test/barUnits.test.ts`), and
+`View/Units` (`UnitProvider`, `UnitToggle`) beside `MultiplierProvider`.
+
+- **How it works.** Before rendering, `markOunces` rewrites
+  `<Multiplyable baseNumber="x" /> oz` (also `ounce`, `ounces`) to
+  `<Multiplyable baseNumber="x" unit="oz" />`, and `Multiplyable` reads the
+  mode from context. Stored data never changes.
+- **Only oz lines change.** Dashes, tsp, an egg white and a `(1:1)` ratio
+  render the same in every mode.
+- **oz** is exactly today's output.
+- **ml** is ×30 including the multiplier, rounded to the nearest 5 and never
+  below 5.
+- **parts** is `amount ÷ smallest oz amount` as a simple fraction ("2 2/3
+  parts", "1 part"). The multiplier is ignored, and the scaler greys out with
+  "parts don't scale".
+- **When the toggle shows.** It appears only when the recipe has an oz line,
+  and parts needs two. The choice is kept in `localStorage`
+  (`recipe-unit-mode`, try/catch), read after mount so the server HTML always
+  says oz.
+- **Batching note.** When the multiplier is above 1 and `drink.method` is shake
+  or stir, the ingredients card says "Batching? Stir in about N … water". N is
+  the scaled oz total × 25% (shake) or 20% (stir), to the quarter ounce, shown
+  in ml in ml mode.
+
+### D9 — Focus view: an overlay inside the recipe view's providers (27c)
+
+`View/FocusView`. "Bar view" shows on a recipe with a `drink` spec or the
+`drink` tag, and "Cook view" on everything else; the button sits beside the
+bookmark. It is a full-screen `role="dialog"` rendered inside the recipe view,
+so it shares the multiplier and unit mode (and carries the scaler and toggle
+itself). Common code, so the export has it too.
+
+- **Content:** the drink spec bar, ingredients in large type, and numbered
+  steps that tap off (`aria-pressed`, struck through).
+- **Wake lock:** `navigator.wakeLock.request("screen")`, feature-detected. It is
+  re-acquired on `visibilitychange` (browsers drop it when the tab hides) and
+  released on close. "· screen stays on" shows while the lock is held.
+- **Exit:** Esc or Close. The page doesn't scroll behind the overlay, and the
+  overlay is hidden in print.
+
+### D10 — `shaken` on the real repo, and Imbibe's bare yields (27c)
+
+- **The term record** `taxonomies/tag/data/shaken/term.json` (parent `drink`)
+  is written by a script through the engine's `commitContentChanges`, because
+  no CLI writes term records yet. Its description says it names a method and
+  gives `tag:shaken -tag:sour`.
+- **Retagging (D1):** all 76 `method: shake` drinks gain `shaken`, one
+  `recipes update` commit each after a dry run on two of them. The four
+  citrus-free ones swap their wrong style (`sour` on the espresso martinis
+  and French martini, `built` on the brandy alexander) for it. A full reindex
+  followed, so tag-terms is rebuilt and HEAD stamped. `list --tag shaken` → 76,
+  and `search "tag:shaken -tag:sour"` → 20.
+- **Imbibe's yields.** `SITE_QUIRKS` in `siteNames.ts` names Imbibe's
+  bare-number `recipeYield` (a CMS default, "10" on one-drink cocktails), and
+  `mapRecipePage` drops it; "2 drinks" survives. The skill's import checklist
+  gains "check `recipeYield` against the volumes".
+
 ## Traps (T-list)
 
 ### T1 — The sandbox refuses git in compound or scripted commands
@@ -190,16 +282,18 @@ the Edit tool rather than with a script that names git anywhere. Pushing to a
 URL other than `origin`'s (the renamed repository's own URL) is refused as a
 "remote repoint".
 
-### T2 — `origin` was renamed: pushes answer 500
+### T2 — `origin` was renamed, and pushes 500'd for a while
 
-On 2026-10-07 every push to `rogermparent/content-engine` answered
+For about half an hour on 2026-10-07, every push to
+`rogermparent/content-engine` answered
 `remote rejected … (Internal Server Error)`, and the push output said the
-repository had moved to `rogermparent/discontent`. Pushing to the new URL
-answered 500 too. Fetches still work through the redirect. Roger's fix:
-`git remote set-url origin git@github.com:rogermparent/discontent.git` in the
-main checkout. Until pushes work again, the 27x branches stay local and
-stacked (`27b` on `27a`, and so on), and are merged in order once they can
-be pushed.
+repository had moved to `rogermparent/discontent`. Pushes to the new URL
+failed the same way. The outage was transient: the same `origin` push went
+through later that hour, and the redirect has carried every push since. While
+pushes were down, 27b was committed stacked on 27a and both were pushed once
+they could be. The old remote URL still works through GitHub's redirect.
+Roger can update it at leisure:
+`git remote set-url origin git@github.com:rogermparent/discontent.git`.
 
 ### T3 — `simple-git`'s `raw` resolves when git exits 1 without stderr
 
@@ -223,16 +317,23 @@ after the initial commit.
 
 ## Roadmap
 
-| Phase | Scope                               | Branch                 | Status                  |
-| ----- | ----------------------------------- | ---------------------- | ----------------------- |
-| 27a   | CI and repo hygiene                 | `agent/27a-ci-hygiene` | ✅ local, unpushed (T2) |
-| 27b   | Pi content sync and token hygiene   | `agent/27b-pi-sync`    | ✅ local, unpushed (T2) |
-| 27c   | Bar tools                           | `agent/27c-bar-tools`  | 🟡                      |
-| 27d   | Search quality and legacy migration | `agent/27d-search`     |                         |
+| Phase | Scope                               | Branch                 | Status               |
+| ----- | ----------------------------------- | ---------------------- | -------------------- |
+| 27a   | CI and repo hygiene                 | `agent/27a-ci-hygiene` | ✅ #159 → `7446c599` |
+| 27b   | Pi content sync and token hygiene   | `agent/27b-pi-sync`    | ✅ #161              |
+| 27c   | Bar tools                           | `agent/27c-bar-tools`  | 🟡                   |
+| 27d   | Search quality and legacy migration | `agent/27d-search`     |                      |
 
 ## Phase detail
 
-### 27a — CI and repo hygiene `agent/27a-ci-hygiene` 🟡 (← `main` `5e454114`)
+### 27a — CI and repo hygiene `agent/27a-ci-hygiene` ✅ (← `main` `5e454114`; #159 → `7446c599`)
+
+Gates: #159 was green on every job, and its lint job reported "6 files", which
+is the branch's own six. The throwaway draft #160 pinned
+`Dockerfile.playwright` to v1.58.0, and every container job failed at "Check
+the image matches @playwright/test" with
+`::error::Playwright image tag v1.58.0 does not match @playwright/test v1.59.1`
+(run 37646324540). #160 was then closed and its branch deleted.
 
 - **Actions on Node 24.** Each action was checked at its `releases/latest`
   and its `action.yml` `runs.using` on 2026-10-07: `checkout@v7`,
@@ -287,6 +388,24 @@ D2–D6. Gates, 2026-10-07:
   (T4).
 - `/git`'s visual baseline is untouched: Initialize stamps HEAD, so no banner
   shows there.
+
+### 27c — Bar tools `agent/27c-bar-tools` 🟡 (stacked on 27b)
+
+D7–D10. Gates, 2026-10-07:
+
+- Both typechecks clean. `TextInput` gained a pass-through `disabled` for the
+  greyed scaler.
+- vitest: 44 files, 866 tests, adding `barUnits` and the parser and Imbibe-yield
+  cases.
+- Playwright `recipe`, `make`, `yield`, `visual` and `mobile` passed with no
+  baseline past the 2% threshold, so none was regenerated.
+- New `bar-tools.spec.ts`:
+  - ml: 60/25/25, and 120/45/45 at 2×; the mode survives a reload.
+  - parts: 2 2/3 / 1 / 1 at 2×, with the scaler disabled.
+  - The batching note at 4×: about 3 1/2 oz.
+  - The bar view: spec, big type, a stubbed wake lock held while open and
+    released on Esc, and steps that tap off.
+  - "Cook view" on food, with no unit toggle.
 
 ## Syncing with uraninite
 
@@ -349,3 +468,6 @@ token.
   `editor/src/app/api/git/{fetch,pull}/route.ts`; `editor/src/users/index.ts`;
   `editor/scripts/{create,revoke}-token.ts`; `editor/mcp/{registry,http}.ts`;
   `editor/cli/commands/git.ts` (27b).
+- `common/util/{ingredientNames,barUnits,siteNames,importRecipeData}.ts`;
+  `common/components/View/{Units,FocusView,Ingredients,Multiplier}/`;
+  `editor/playwright/tests/bar-tools.spec.ts`; `test/barUnits.test.ts` (27c).

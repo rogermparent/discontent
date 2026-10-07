@@ -2,8 +2,18 @@
 
 import React, { useState } from "react";
 
-import { Ingredient } from "../../../controller/types";
+import Fraction from "fraction.js";
+import { DrinkSpec, Ingredient } from "../../../controller/types";
 import { Multiplyable } from "../Multiplier/Multiplyable";
+import { useMultiplier } from "../Multiplier/Provider";
+import { useUnits } from "../Units";
+import {
+  dilutionOunces,
+  formatOunces,
+  markOunces,
+  ouncesToMl,
+  sumOunces,
+} from "../../../util/barUnits";
 import StyledMarkdown from "@discontent/component-library/components/Markdown";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { Checkbox } from "@discontent/component-library/components/ui/checkbox";
@@ -25,19 +35,67 @@ export function IngredientItem({ ingredient, type }: Ingredient) {
 
   // Otherwise, render the standard ingredient item. The Checkbox is a labelable
   // control, so clicking anywhere in the wrapping label toggles it.
+  // `markOunces` moves an amount's `oz` into its tag so the unit toggle can
+  // rewrite both (27c); the stored line is untouched.
   return (
     <li>
       <label className="my-2 flex flex-row flex-nowrap items-center gap-2 print:h-auto">
         <Checkbox className="m-2 shrink-0" />
         <StyledMarkdown components={{ Multiplyable }}>
-          {ingredient}
+          {markOunces(ingredient)}
         </StyledMarkdown>
       </label>
     </li>
   );
 }
 
-export function Ingredients({ ingredients }: { ingredients?: Ingredient[] }) {
+/**
+ * "Batching? Stir in about N oz water…" (27c) — shown when a shaken or stirred
+ * drink is scaled up, because a batch made ahead gets no dilution from the
+ * shaker. N is the scaled volume of the oz lines times ~20% (stirred) or ~25%
+ * (shaken), in the reader's unit (ml stays ml; parts, which do not scale,
+ * never get here because the multiplier is off).
+ */
+export function BatchingNote({
+  ingredients,
+  drink,
+}: {
+  ingredients: Ingredient[];
+  drink?: DrinkSpec;
+}) {
+  const [{ multiplier }] = useMultiplier();
+  const { mode } = useUnits();
+  const method = drink?.method;
+  if (method !== "shake" && method !== "stir") return null;
+  if (!multiplier || multiplier.compare(1) <= 0 || mode === "parts") {
+    return null;
+  }
+  const total = sumOunces(ingredients.map(({ ingredient }) => ingredient));
+  if (total.compare(0) <= 0) return null;
+  const water = dilutionOunces(total.mul(multiplier), method);
+  if (water <= 0) return null;
+  const amount =
+    mode === "ml"
+      ? `${ouncesToMl(water)} ml`
+      : `${formatOunces(new Fraction(water))} oz`;
+  return (
+    <p
+      data-testid="batching-note"
+      className="my-2 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground print:hidden"
+    >
+      Batching? Stir in about {amount} water (~20% dilution stirred / ~25%
+      shaken), chill, and pour over ice or serve up.
+    </p>
+  );
+}
+
+export function Ingredients({
+  ingredients,
+  drink,
+}: {
+  ingredients?: Ingredient[];
+  drink?: DrinkSpec;
+}) {
   // Reset clears the checklist by remounting the list (the checkboxes are
   // uncontrolled, so remounting returns them to their default unchecked state).
   const [resetKey, setResetKey] = useState(0);
@@ -75,6 +133,7 @@ export function Ingredients({ ingredients }: { ingredients?: Ingredient[] }) {
             <IngredientItem key={i} ingredient={ingredient} type={type} />
           ))}
         </ul>
+        <BatchingNote ingredients={ingredients} drink={drink} />
       </section>
     )
   );

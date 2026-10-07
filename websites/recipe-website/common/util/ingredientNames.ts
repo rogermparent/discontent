@@ -150,6 +150,9 @@ const UNITS = [
   "knob",
   "inch",
   "sheet",
+  /* `1 recipe lavender syrup`, `1 batch simple syrup` (27c). */
+  "recipe",
+  "batch",
 ];
 
 /** Longest first, so `fl oz` wins over `fl`… and `tbsp` over `t`. */
@@ -170,6 +173,11 @@ const QUANTITY_RE = new RegExp(
 );
 const UNIT_RE = new RegExp(
   String.raw`^(?:${UNIT_PATTERN})(?:e?s)?\.?(?=\s|$|\()\s*`,
+  "i",
+);
+/** ` or can` / `/can` after a unit: the second of two containers (27c). */
+const UNIT_OR_RE = new RegExp(
+  String.raw`^(?:or|\/)\s*(?:${UNIT_PATTERN})(?:e?s)?\.?(?=\s|$|\()\s*`,
   "i",
 );
 const UNIT_OF_RE = new RegExp(
@@ -272,6 +280,8 @@ const DESCRIPTIVE = new Set([
  * not the tail of `ginger beer`, `cream` not of `sour cream`.
  */
 const COMPOUNDS = new Set([
+  /* Paired *before* `hot` is dropped as descriptive (27c), or it reads `sauce`. */
+  "hot sauce",
   "ginger beer",
   "ginger ale",
   "root beer",
@@ -305,8 +315,13 @@ const SYNONYMS: [RegExp, string][] = [
   [/\bsparkling (?:mineral )?water\b/g, "soda water"],
   [/\bseltzer(?: water)?\b/g, "soda water"],
   [/\bcarbonated water\b/g, "soda water"],
+  /*
+   * A bare "soda" is soda water; a *flavoured* one is its own bottle. The
+   * fruit list joined at 27c, when "grapefruit soda" came out as
+   * `grapefruit soda water` and so matched an inventory's soda water.
+   */
   [
-    /(?<!\b(?:baking|cream|caustic|lemon lime|orange|grape|of) )\bsoda\b(?! water)/g,
+    /(?<!\b(?:baking|cream|caustic|lemon lime|orange|grape|grapefruit|lemon|lime|cherry|ginger|pineapple|mango|raspberry|strawberry|peach|apple|pear|italian|of) )\bsoda\b(?! water)/g,
     "soda water",
   ],
   [/\btonic\b(?! water)/g, "tonic water"],
@@ -407,22 +422,40 @@ export function toName(text: string): IngredientName {
   for (const [pattern, replacement] of SYNONYMS) {
     folded = folded.replace(pattern, replacement);
   }
-  const tokens = folded
-    .split(" ")
-    .filter((word) => word && !DESCRIPTIVE.has(word) && !/^\d+$/.test(word))
-    .map(singular);
-  /* Connecting words left at the edges by the cuts above say nothing. */
-  while (tokens.length > 1 && /^(?:of|and|the|a|an|with)$/.test(tokens[0])) {
-    tokens.shift();
+  /*
+   * Compounds are paired *before* descriptive words are dropped (27c): `hot`
+   * is descriptive in "hot water" and half the name in "hot sauce". A word a
+   * compound claims is kept whatever list it is on; the rest are filtered.
+   */
+  const raw = folded.split(" ").filter((word) => word && !/^\d+$/.test(word));
+  const paired: string[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const pair =
+      i + 1 < raw.length ? `${singular(raw[i])} ${singular(raw[i + 1])}` : "";
+    if (pair && COMPOUNDS.has(pair)) {
+      paired.push(pair);
+      i++;
+    } else if (!DESCRIPTIVE.has(raw[i])) {
+      paired.push(singular(raw[i]));
+    }
   }
+  /* Connecting words left at the edges by the cuts above say nothing. */
+  while (paired.length > 1 && /^(?:of|and|the|a|an|with)$/.test(paired[0])) {
+    paired.shift();
+  }
+  /*
+   * A second pass for pairs a descriptive word sat between: "egg, large
+   * white" is `egg large white` before the cut and `egg white` after it, and
+   * the old order (cut, then pair) paired it — so this keeps doing so.
+   */
   const words: string[] = [];
-  for (let i = 0; i < tokens.length; i++) {
-    const pair = `${tokens[i]} ${tokens[i + 1]}`;
-    if (i + 1 < tokens.length && COMPOUNDS.has(pair)) {
+  for (let i = 0; i < paired.length; i++) {
+    const pair = `${paired[i]} ${paired[i + 1]}`;
+    if (i + 1 < paired.length && COMPOUNDS.has(pair)) {
       words.push(pair);
       i++;
     } else {
-      words.push(tokens[i]);
+      words.push(paired[i]);
     }
   }
   return { words, na };
@@ -512,14 +545,33 @@ function stripAmount(text: string): string {
   }
 
   if (hadQuantity) {
-    const unit = UNIT_RE.exec(rest);
-    if (unit) {
-      const after = rest
-        .slice(unit[0].length)
+    /*
+     * A unit, then (27c) any `plus|and <qty> <unit>` that follows it — "1/2 cup
+     * plus 2 tablespoons white sugar" was `plus tablespoon white sugar`. Only
+     * a quantity *and* a unit continue the chain, so "1 cup salt and 2 eggs"
+     * keeps its second ingredient for the comma/alternative steps to see.
+     */
+    for (let guard = 0; guard < 4; guard++) {
+      const unit = UNIT_RE.exec(rest);
+      if (!unit) break;
+      let after = rest.slice(unit[0].length);
+      /* "1 bottle or can tomato juice": either container (27c). */
+      const orUnit = UNIT_OR_RE.exec(after);
+      if (orUnit) after = after.slice(orUnit[0].length);
+      after = after
         .replace(/^\(+[^()]*\d[^()]*\)+\s*/, "")
         .replace(/^of\s+/i, "");
       /* "4 cloves": the unit *is* the name. */
-      if (after.trim() && !/^[,(]/.test(after.trim())) rest = after;
+      if (!after.trim() || /^[,(]/.test(after.trim())) break;
+      rest = after;
+
+      const chain = /^(?:plus|and|\+)\s+/i.exec(rest);
+      if (!chain) break;
+      const more = QUANTITY_RE.exec(rest.slice(chain[0].length));
+      if (!more || more[0].length === 0) break;
+      const next = rest.slice(chain[0].length + more[0].length);
+      if (!UNIT_RE.test(next)) break;
+      rest = next;
     }
   } else {
     const unitOf = UNIT_OF_RE.exec(rest);
@@ -547,16 +599,49 @@ function splitAlternatives(text: string): string[] {
 }
 
 /**
+ * Single words that name a whole ingredient, so they never borrow a tail:
+ * "honey or maple syrup" is honey, not `honey syrup` (27c).
+ */
+const STANDALONE = new Set([
+  "honey",
+  "agave",
+  "sugar",
+  "molasses",
+  "salt",
+  "milk",
+  "cream",
+  "butter",
+  "egg",
+  "coffee",
+  "espresso",
+  "ice",
+  "water",
+]);
+
+/**
  * `lemon or lime juice` names two juices: a one-word left part inherits what
  * follows the right part's first word.
+ *
+ * Not when the left part is already a whole name (27c): a compound ("simple
+ * syrup or maple syrup" was `simple syrup syrup`) or a `STANDALONE` word
+ * ("honey or maple syrup" was `honey syrup`). And the borrowed tail drops the
+ * left word itself, so "vodka or citron vodka" stays `vodka` and "sweet or
+ * semi-sweet red vermouth" reads `sweet red vermouth`, not `sweet sweet …`.
  */
 function inheritTails(names: IngredientName[]): IngredientName[] {
   const out = names.map((name) => ({ ...name, words: [...name.words] }));
   for (let i = out.length - 2; i >= 0; i--) {
     const next = out[i + 1];
-    if (out[i].words.length === 1 && next.words.length >= 2) {
-      out[i].words.push(...next.words.slice(1));
+    const [left] = out[i].words;
+    if (
+      out[i].words.length !== 1 ||
+      next.words.length < 2 ||
+      left.includes(" ") ||
+      STANDALONE.has(left)
+    ) {
+      continue;
     }
+    out[i].words.push(...next.words.slice(1).filter((word) => word !== left));
   }
   return out;
 }
