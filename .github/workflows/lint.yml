@@ -6,26 +6,35 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
+      # Full history, so the merge base with main exists locally. A shallow
+      # clone plus a fetch of main has main's tip but no common ancestor,
+      # which is why this job used to diff against the tip.
       - name: Check out current branch
-        uses: actions/checkout@v4
-      - name: Fetch main
-        run: git fetch origin main
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         name: Install pnpm
         with:
           run_install: false
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install
 
-      - name: Runt lint-staged
-        run: pnpm exec lint-staged --diff origin/main
+      # Against the merge base, not main's tip: `--diff origin/main` linted
+      # the whole main…branch gap (≈1200 files before promotion — eslint was
+      # SIGKILLed on #136's run, and a formatting slip anywhere in the gap
+      # failed every PR). The merge base limits it to the branch's own
+      # changes; on main itself it is HEAD, and nothing is linted.
+      - name: Run lint-staged on the branch's own changes
+        run: pnpm exec lint-staged --diff "$(git merge-base origin/main HEAD)"
 
   # The unit suite gates `test/projectSecurity.test.ts` and
   # `test/resolveWithin.test.ts` — the tests the path-traversal argument rests
@@ -36,16 +45,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out current branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         name: Install pnpm
         with:
           run_install: false
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -63,16 +73,17 @@ jobs:
         site: [websites/recipe-website/editor, websites/portfolio/editor]
     steps:
       - name: Check out current branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         name: Install pnpm
         with:
           run_install: false
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
