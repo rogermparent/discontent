@@ -273,6 +273,12 @@ lines link them. A zero-proof version of a classic gets its own tag
   is a `.transform`; `test/mcp.test.ts` pins that `recipe_create`'s
   `inputSchema` still shows `drink` as a strict object with the method enum.
 
+- **T12 — An instruction group's steps must be objects.** At the top level
+  `instructions` takes bare strings, but inside `{name, instructions}` each
+  step must be `{"text": …}` (`InstructionGroupSchema` in
+  `curation/schema.ts`), or the create fails `validation` on
+  `instructions.N`. Seven of 25f's 77 payloads tripped it.
+
 ## Roadmap
 
 | Step | Branch / where                     | Status  | Scope                                                                                                                                                      |
@@ -283,6 +289,7 @@ lines link them. A zero-proof version of a classic gets its own tag
 | 25c  | `agent/25c-make` ← `main`          | ✅ done | Matching (D9), index fields (D8), `/make` in both apps with a browser inventory (D10), ⌘K row, term-page link (L)                                          |
 | 25d  | `agent/25d-shared-inventory` ← 25c | ✅ done | Editor's shared list `inventory/on-hand.json`: curation module, action, API, CLI, MCP seats (`inventory_set` held back), skill (M)                         |
 | 25e  | real content repo (+ #152)         | ✅ done | 104 sourced imports (100 drinks, 4 syrups) as "Drink (Site)" with shared drink tags (D12), 18 house drinks tagged, shared inventory seeded (L content)     |
+| 25f  | real content repo                  | ✅ done | Batch 2: 77 sourced drinks (rum/tiki, whiskey, gin and tequila classics, vodka and sake, spritzes, zero-proof) through 26b's `inspect` drafts (M content)  |
 
 **Now: the epic's roadmap is done.** 25e landed overnight 2026-10-05 (below):
 the content repo's branch `uraninite` gained 123 commits, unpushed —
@@ -292,6 +299,9 @@ findings 25e measured. 24d hadn't started when 25c was
 planned and 25c edits none of its files; after 24d lands, the one-line
 follow-up is to pass the term resolver to `/make`'s `matchesFilter` so
 `tag:drink` includes the narrower styles (every drink carries `drink` anyway).
+
+**25f** (2026-10-06, at the user's "autonomously grab another batch of drink
+recipes") added 77 more on `uraninite`, also unpushed — see its section.
 
 ## Phase detail
 
@@ -596,6 +606,62 @@ maple syrup`, which would match honey syrup.
 - **Fine:** "…, to top" mixers normalize well (club soda / sparkling /
   seltzer → `soda water`). Brands land in `aka`. No line is marked `@na`.
 
+### 25f — Sourced drinks, batch 2 ✅ done (real content repo, 2026-10-06)
+
+Run unattended, right after 26d merged, with the CLI from worktree
+`agent-26d` (`main` `b67ed645`) and `--content-dir
+/home/roger/Projects/recipe-content`. Scratch files were in the job's
+`tmp/drinks2/`.
+
+1. **Harvest.** The 25e sitemaps again: acouplecooks `post-sitemap{,2–5}`,
+   Imbibe `recipe-sitemap{,2–4}`, Love and Lemons `post-sitemap{,2}` — 9,103
+   URLs. The Kitchn was skipped (T10). A wish-list of ~110 classics was
+   matched against slugs, minus the 117 drinks already in the repo, with up
+   to two sites per drink and acouplecooks first.
+2. **Inspect** (79 pages, read-only, ~4 s apart): every page answered 200
+   with a Recipe node and ingredients, and none was partial.
+3. **Normalize.** Five parallel subagents, one per group, wrote
+   `recipe_create` payloads from each `draft` against a written spec (D12 plus
+   the skill's checklist). A validator then checked slug, name, label, tag
+   order/bases/style, units, fractions, markup, garnish lines, digits in
+   steps, syrup links and thumbnails. Hand fixes after that:
+   - Lime Rickey became the zero-proof soda-fountain drink, because Gin Rickey
+     is its own recipe.
+   - Brands moved behind generics: `coffee liqueur (Kahlua)`, `elderflower
+liqueur (St-Germain)`, `raspberry liqueur (Chambord)`.
+   - A page's bare author ("Sonja") was restored after a subagent expanded it.
+   - Two rejects: Michelada (a beer base is outside D12's fixed list), and
+     acouplecooks' hot apple cider, which is the same recipe as its mulled
+     cider.
+4. **Dry runs** of all 77: 70 clean at first. The other seven failed
+   `validation` on bare-string steps _inside_ an instruction group (T12),
+   and were clean once fixed. No conflicts; every image probed to a real
+   filename.
+5. **Create**, one commit each: 77 of 77 succeeded, 885 → 962 commits, tree
+   clean.
+
+**Counts.** 77 drinks: acouplecooks 60, Imbibe 10, Love and Lemons 7. By
+group: rum 10, whiskey/brandy 15, gin 15, tequila/vodka/sake 21, spritz and
+zero-proof 16. **13 new two-site pairs**: bellini, clover club,
+espresso martini, jungle bird, last word, limoncello spritz, mimosa, mint
+julep, negroni sbagliato, paper plane, penicillin, sazerac, watermelon
+margarita. Zero-proof
+additions: Shirley Temple, Arnold Palmer (`tea`), Lime Rickey, Mulled Cider.
+
+**Verification.** `tag:drink` 117 → 194; `search tag:<shared>` lists both
+versions for every new pair. `inventory make tag:drink`: canMake 5 (unchanged
+— the same five), oneAway 20 → 31, twoAway 52, further 106; buyNext is still
+soda water (unlocks 7), then tonic water and simple syrup.
+
+**Judgement calls left as they are.**
+
+- Espresso and French martinis are `sour`, because D12's styles have no
+  "shaken, no citrus" slot.
+- Brandy Alexander is `built` for the same reason (a shaken cream drink).
+- A caipirinha is `built`, but the page shakes it.
+- Imbibe's single-drink pages all publish `recipeYield: "10"`; it was
+  overridden to "1 drink" by hand (Deferred).
+
 ## Deferred
 
 - The 25e parser findings above.
@@ -607,6 +673,11 @@ maple syrup`, which would match honey syrup.
   `source.name` from a site map rather than the hostname fallback.~~ **Done by
   26d**: publisher → `og:site_name` → `KNOWN_SITES` → hostname
   (`common/util/siteNames.ts`).
+- Imbibe publishes `recipeYield: "10"` on single-drink pages (25f found it
+  on all ten it imported); the importer could ignore a bare yield that
+  disagrees with single-serving volumes, or the skill could say to check it.
+- A style for shaken, citrus-free drinks (espresso martini, French martini,
+  Alexanders) — D12's six styles force them into `sour` or `built` (25f).
 - The Kitchn picks dropped at 25e once it 403'd (T10).
 - oz ↔ ml toggle; "make it for N" batching with a dilution note.
 - A bar-side view (large type, wake lock).
