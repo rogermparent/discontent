@@ -2,6 +2,7 @@ import { Recipe, RecipeEntryValue } from "./types";
 import { hostnameLabel } from "../util/hostnameLabel";
 import { siteLabel } from "../util/siteNames";
 import { compiler } from "markdown-to-jsx/react";
+import { normalizeLineEndings } from "@discontent/component-library/components/Markdown/normalize";
 
 import type { JSX } from "react";
 
@@ -103,7 +104,8 @@ function flattenNode(node: unknown): string {
  * data — neither of which can render markup.
  */
 export function flattenMarkdown(input: string): string {
-  const compiled = compiler(input, {
+  /* CRLF can hang the compiler outright; see normalizeLineEndings. */
+  const compiled = compiler(normalizeLineEndings(input), {
     wrapper: null,
   }) as unknown as JSX.Element[];
 

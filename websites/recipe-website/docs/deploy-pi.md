@@ -120,10 +120,11 @@ deploy rebuilds them. **By default the Pi rebuilds them itself**
 (`POST /api/reindex`). With current code that took 15 s there, and the editor
 keeps serving meanwhile.
 
-The editor on the old systemd setup (`b5715e60`, before epics 23–27) was a
-different story. On 2026-10-07 its refresh never finished: the unit had used
-21 min 36 s of CPU when it was killed. Running current code is what fixed
-"the database refresh is taking forever".
+On 2026-10-07, the old systemd setup's refresh never finished: the unit had
+used 21 min 36 s of CPU when it was killed. That was the CRLF markdown hang
+(see Traps), not the Pi's speed, and current code hit it too until
+`normalizeLineEndings` landed. With the fix, a full rebuild takes 8 s on the
+workstation and about 16 s on the Pi.
 
 **Shipping indexes from the workstation** is there for when the Pi is slow or
 busy (`--ship-indexes` on a deploy, `--sync-index` alone):
@@ -236,18 +237,76 @@ config file above and in the Pi's `hook.env`. To revoke it:
 - **Don't run a host-side `pnpm recipes` against `~/recipes` on the Pi while
   the container is up.** Different PID namespaces confuse LMDB's stale-reader
   check. Use the API or MCP over HTTP (`RECIPE_API_URL=http://uraninite:3000`).
-- **An untracked recipe sits on the Pi.**
-  `recipes/data/creamy-soup-blueprint-lagerstrom` and its uploads, from
-  2026-10-05 14:19, were never committed, which looks like a failed import on
-  the old editor. While they're there, `--sync-index` refuses and falls back.
-  Committing or removing them is Roger's call.
+- **A malformed recipe made every rebuild spin forever.**
+  `creamy-soup-blueprint-lagerstrom` was a 2026-10-05 import on the old editor
+  that never got committed: no ingredients, `recipeYield: ""`, and a
+  3,104-character description. With it present, a full rebuild pinned one core
+  and never finished, on the workstation and on the Pi alike. That is also
+  what used the old unit's 21 min of CPU on 2026-10-07. At cutover it was
+  moved, untouched, to `~/recipe-editor/quarantine/` on the Pi, after which
+  the rebuild took 16 s.
+
+  **Root cause:** markdown-to-jsx 9.6.1's `compiler()` never returns on CRLF
+  text shaped "ordered item, continuation line, blank line", for example
+  `"1. A\r\nb\r\n\r\nd"`. `parseList` advances by `findLineEnd(...) + 1`, and
+  `findLineEnd` answers the `\r` of a `\r\n` pair even when called from its
+  `\n`, so the position never moves. Its `parser()` normalises line endings,
+  but `compiler()` doesn't.
+
+  **Fix:** `normalizeLineEndings`
+  (`packages/component-library/components/Markdown/normalize.ts`), applied in
+  `flattenMarkdown` (indexing) and `StyledMarkdown` (every render, which would
+  otherwise hang that recipe's page too). With it, the same rebuild takes 8 s.
+  Test: `test/markdownCrlf.test.tsx`.
+
+- **Health before indexes is wrong.** The first cutover checked `/` straight
+  after starting the new container. `/` renders from indexes the _old_ code
+  had laid out, so it answered 500 (`slugify: Expected a string, got
+undefined`), and with no earlier tag there was nothing to roll back to. The
+  deploy now waits on `/api/auth/providers` (no index), then rebuilds, then
+  requires `/` to answer 200, and rolls back if any step fails.
 - **The sandbox** refuses a command whose text names git together with a `cd`,
   a heredoc, a loop or `GIT_SHA`. The deploy script and helper script files
   get around that.
 
 ## Gate results (2026-10-07)
 
-Gate results are filled in at cutover; see below.
+- **Repo (#164):** both typechecks clean, vitest 45 files and 877 tests,
+  Playwright `settings-nav` 8/8, CI green (12 checks).
+- **Build:** arm64.
+  - Cold: 57–93 s. Cached: 3 s.
+  - The base image is 1.30 GB, a 363 MB zstd stream.
+  - The app is 76 MB, a 19 MB zstd stream.
+- **Ship:** the first base took 281 s. The app is sent and assembled on the
+  Pi in 69 s. A whole-image `docker save` took 266 s.
+- **Trial** at :3001 on a scratch clone:
+  - `/` 200, sharp renders images on arm64;
+  - reindex 15 s;
+  - `tag:shaken -tag:sour` 20, `source:imbibe` 31, `tag:drink` 194, 643
+    recipes;
+  - a write commits with the token user as author and the Pi's git identity
+    (`Roger Parent`) as committer;
+  - `/git` fetch reaches tourmaline (after the `GIT_SSH_COMMAND` fix);
+  - yt-dlp 2026.08.19 and deno 2.9.7 run;
+  - `docker stop` takes 2 s;
+  - indexes built on amd64 and swapped in give the same counts with
+    `indexStale: false`.
+
+## Cutover (2026-10-07)
+
+- **Before:** the deploy token was minted and committed (`503865d`), merged
+  with the Pi's new recipe (`f2fe931`), and pushed (`bb0fb16`, 0/0).
+  `--setup` ran.
+- **`pnpm deploy:pi` from main `60c7adca`:**
+  1. It stopped and disabled the old unit cleanly and started the container.
+  2. It then failed its health check (the "health before indexes" trap). The
+     manual reindex that followed spun on the malformed recipe (that trap
+     too) until the recipe was quarantined and the container restarted.
+  3. After that, the reindex took 16 s on the real content. `/` returned 200,
+     search counts matched the trial, and `indexStale` was false.
+- **Hook:** `post-receive` was run by hand with a fake ref line. The
+  background reindex re-stamped HEAD within about 14 s, and
+  `-o no-reindex` skips it.
 
 ## Next: workstation and mirror roles, automatic sync (proposed)
 

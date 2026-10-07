@@ -193,27 +193,46 @@ build_indexes() {
   printf '%s %s\n' "$workdir/indexes.tar.zst" "$pi_head"
 }
 
+# A full rebuild is ~16 s on the Pi. The cap turns a rebuild that spins (as
+# one malformed recipe once made it do) into a failed deploy, not an hour's
+# wait; restarting the container is what then stops the spinning request.
+REINDEX_TIMEOUT=${REINDEX_TIMEOUT:-600}
+
 reindex_remote() {
   need_token
   step "Rebuild indexes on the Pi"
   local start=$SECONDS
-  curl -fsS --max-time 3600 -X POST "$PI_URL/api/reindex" \
+  curl -fsS --max-time "$REINDEX_TIMEOUT" -X POST "$PI_URL/api/reindex" \
     -H @<(printf 'Authorization: Bearer %s\n' "$PI_TOKEN") \
-    -H 'Content-Type: application/json' -d '{}' | sed 's/^/   /'
+    -H 'Content-Type: application/json' -d '{}' | sed 's/^/   /' \
+    || return 1
   echo
   note "reindexed on the Pi in $((SECONDS - start)) s"
 }
 
-wait_healthy() {
-  step "Health check $PI_URL/ (the home page reads the indexes)"
-  local deadline=$((SECONDS + 90))
-  until curl -fsS -o /dev/null --max-time 10 "$PI_URL/"; do
+# Poll <path> until it answers 2xx, for up to <seconds>.
+wait_for() {
+  local path=$1 limit=$2 deadline=$((SECONDS + $2))
+  until curl -fsS -o /dev/null --max-time 10 "$PI_URL$path"; do
     if [ "$SECONDS" -ge "$deadline" ]; then
+      note "$PI_URL$path did not answer within $limit s"
       return 1
     fi
     sleep 2
   done
-  note "up"
+}
+
+# Two checks, either side of the indexes. `/api/auth/providers` answers as
+# soon as Next is up and reads no index; `/` renders from the indexes, so it
+# is only meaningful once they match the code — after a schema change it 500s
+# until the rebuild (the first cutover failed exactly so).
+wait_up() {
+  step "Wait for $PI_URL"
+  wait_for /api/auth/providers 90 && note "up"
+}
+wait_healthy() {
+  step "Health check $PI_URL/ (renders from the indexes)"
+  wait_for / 60 && note "healthy"
 }
 
 # Stop the old systemd unit the first time, so :3000 is free. Its `pnpm run
@@ -234,33 +253,38 @@ retire_old_unit() {
 }
 
 # Run <tag> on the Pi; with an index archive, swap it in while nothing runs.
+# Sets SWAPPED=1 when the archive went in.
 switch_to() {
-  local to=$1 archive=${2:-} commit=${3:-} swapped=0
+  local to=$1 archive=${2:-} commit=${3:-}
+  SWAPPED=0
   step "Switch the Pi to recipe-editor:$to"
-  local from
-  from=$(running_tag)
   retire_old_unit
   if [ -n "$archive" ]; then
     scp -q "$archive" "$PI_HOST:recipe-editor/indexes.tar.zst"
     pi "docker stop -t 15 recipe-editor >/dev/null 2>&1 || true"
     if pi "$PI_DIR/swap-index.sh $PI_DIR/indexes.tar.zst $commit" | sed 's/^/   /'; then
-      swapped=1
+      SWAPPED=1
     fi
     pi "rm -f $PI_DIR/indexes.tar.zst"
   fi
   pi "$PI_DIR/run.sh $to" | sed 's/^/   /'
   pi "echo \"\$(date -Is) $to\" >> $PI_DIR/deployed.log"
-  if ! wait_healthy; then
-    pi "docker logs --tail 80 recipe-editor" 2>&1 | sed 's/^/   | /'
-    if [ -n "$from" ] && [ "$from" != "$to" ]; then
-      note "unhealthy; rolling back to $from"
-      pi "$PI_DIR/run.sh $from && echo \"\$(date -Is) $from rollback\" >> $PI_DIR/deployed.log"
-      wait_healthy || true
-      reindex_remote || true
-    fi
-    die "recipe-editor:$to did not come up"
+}
+
+# The failed deploy's logs, then the previous tag back (rebuilt indexes, as
+# its code may lay them out differently), then stop.
+fail_deploy() {
+  local to=$1 from=$2
+  pi "docker logs --tail 80 recipe-editor" 2>&1 | sed 's/^/   | /'
+  if [ -n "$from" ] && [ "$from" != "$to" ]; then
+    step "Roll back to recipe-editor:$from"
+    pi "$PI_DIR/run.sh $from && echo \"\$(date -Is) $from rollback\" >> $PI_DIR/deployed.log" \
+      | sed 's/^/   /'
+    wait_up && reindex_remote && wait_healthy || note "the rollback is unhealthy too; see docker logs"
+  else
+    note "no earlier tag to roll back to; the old unit is: ssh $PI_HOST 'docker rm -f recipe-editor && systemctl --user enable --now recipe-editor.service'"
   fi
-  SWAPPED=$swapped
+  die "recipe-editor:$to failed"
 }
 
 prune_images() {
@@ -287,8 +311,8 @@ prune_images() {
 # --sync-index) took ~43 s end to end and a restart, but leaves the Pi's
 # CPU and SD card alone — worth it when the Pi is slow or busy.
 index_and_switch() {
-  local to=$1 built archive commit
-  SWAPPED=0
+  local to=$1 from built archive commit
+  from=$(running_tag)
   if [ "$ship_indexes" = 1 ]; then
     step "Build the Pi's indexes here"
     if built=$(build_indexes); then
@@ -301,11 +325,13 @@ index_and_switch() {
   if [ -n "${archive:-}" ]; then
     rm -rf "$(dirname "$archive")"
   fi
+  wait_up || fail_deploy "$to" "$from"
   if [ "$SWAPPED" = 1 ]; then
     note "indexes shipped from $(hostname) and swapped in"
   else
-    reindex_remote
+    reindex_remote || fail_deploy "$to" "$from"
   fi
+  wait_healthy || fail_deploy "$to" "$from"
 }
 
 # --- modes -------------------------------------------------------------------
