@@ -10,8 +10,8 @@
 
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded.
 
-**Now:** the roadmap is done. 27a (#159) and 27b (#161) are merged. 27c is
-#162, and 27d's PR follows once #162 merges. The real content repo
+**Now:** the roadmap is done. 27a (#159), 27b (#161) and 27c (#162) are
+merged, and 27d is #163. The real content repo
 (`/home/roger/Projects/recipe-content`, branch `uraninite`) carries 78 new
 unpushed commits from this epic: the `shaken` term, 76 retags and the
 migration. That makes 315 ahead of `uraninite/uraninite`. Pushing is Roger's
@@ -390,8 +390,8 @@ after the initial commit.
 | ----- | ----------------------------------- | ---------------------- | -------------------- |
 | 27a   | CI and repo hygiene                 | `agent/27a-ci-hygiene` | ✅ #159 → `7446c599` |
 | 27b   | Pi content sync and token hygiene   | `agent/27b-pi-sync`    | ✅ #161 → `950b6bc2` |
-| 27c   | Bar tools                           | `agent/27c-bar-tools`  | ✅ #162              |
-| 27d   | Search quality and legacy migration | `agent/27d-search`     | ✅ (PR after #162)   |
+| 27c   | Bar tools                           | `agent/27c-bar-tools`  | ✅ #162 → `474aa61c` |
+| 27d   | Search quality and legacy migration | `agent/27d-search`     | ✅ #163              |
 
 ## Phase detail
 
