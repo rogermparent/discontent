@@ -86,6 +86,11 @@ export type CurationErrorCode =
    * mystery. No local path throws it.
    */
   | "unauthenticated"
+  /**
+   * HTTP-only like `unauthenticated` (27b/D6): the caller is known, but its
+   * token is read-scoped and the route writes.
+   */
+  | "forbidden"
   | "usage"
   | "internal";
 
@@ -270,6 +275,15 @@ export class UnauthenticatedError extends CurationError {
   constructor(message = "Authentication required") {
     super("unauthenticated", message);
     this.name = "UnauthenticatedError";
+  }
+}
+
+export class ForbiddenError extends CurationError {
+  constructor(
+    message = "This token is read-only; the request needs a write-scoped token.",
+  ) {
+    super("forbidden", message);
+    this.name = "ForbiddenError";
   }
 }
 

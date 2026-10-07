@@ -218,7 +218,7 @@ export function createLocalBackend({
     },
     inventoryMakeable: (options) => inventory.makeable(ctx, options ?? {}),
 
-    gitStatus: () => git.gitStatus(ctx),
+    gitStatus: (options) => git.gitStatus(ctx, options),
     gitLog: (options) => git.gitLog(ctx, options),
     gitShow: (hash, options) => git.gitShow(ctx, hash, options),
     gitFileAt: (ref) => git.gitFileAt(ctx, ref),
@@ -238,6 +238,12 @@ export function createLocalBackend({
       return git.gitRestore(ctx, ref);
     },
     gitPush: (options) => git.gitPush(ctx, options),
+    gitFetch: (options) => git.gitFetch(ctx, options),
+    /* A pull can make a merge commit, so it preflights like revert does. */
+    async gitPull(options) {
+      await guard();
+      return git.gitPull(ctx, options);
+    },
 
     /*
      * Spread rather than a property that returns `undefined`: the seam declares

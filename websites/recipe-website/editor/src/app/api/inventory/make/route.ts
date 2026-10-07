@@ -15,7 +15,7 @@ import { makeable } from "recipe-editor/controller/curation/inventory";
 
 export async function GET(request: Request) {
   try {
-    const ctx = await requireCurationContext(request);
+    const ctx = await requireCurationContext(request, { need: "read" });
     const url = new URL(request.url);
     const query = url.searchParams.get("query");
     const limit = intParam(url, "limit");

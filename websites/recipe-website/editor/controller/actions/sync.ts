@@ -7,8 +7,15 @@
  * `controller/curation/git.ts`, which is plain Node and therefore reachable
  * from a route handler, the CLI and the MCP registry (T22). What stays here is
  * what only a *page* needs: the `auth()` gate, `revalidatePath("/git")`, and
- * the fetch/pull/sync/merge/conflict flows, which are interactive by nature and
- * have no agent-facing seat (D22).
+ * the fetch/pull/sync/merge/conflict flows, which are interactive by nature
+ * (D22). Since 27b agents have their own fetch and pull (`gitFetch`,
+ * `gitPull`), which never leave a merge half-done; resolving a conflict stays
+ * the page's, because that is a person's job.
+ *
+ * Every path below that moves the tree rebuilds **every** index
+ * (`rebuildAllIndexes`, epic-27 D2). They used to rebuild recipes and featured
+ * only, which left groups, term records and pages describing the tree from
+ * before the pull.
  *
  * The wrappers below are deliberately shape-preserving: `getCommitDiff` still
  * answers with its error *as the diff string* and `getCommitLogPage` still
@@ -31,9 +38,10 @@ import {
   gitPush,
   gitShow,
   gitStatus,
+  indexFreshness,
   mergeInProgress,
 } from "../curation/git";
-import { rebuildRecipeIndex } from "./index";
+import { rebuildAllIndexes } from "./index";
 import type {
   CommitLogPage,
   SyncStatus,
@@ -72,6 +80,30 @@ function normalizeError(e: unknown): string {
 /** Read the cheap sync status for the page. Auth is enforced by the route. */
 export async function getSyncStatus(): Promise<SyncStatus> {
   return gitStatus(readCtx());
+}
+
+/**
+ * Whether the indexes describe HEAD, for the stale-index banner (27b/D3).
+ *
+ * Its own read rather than `getSyncStatus().indexStale` because Settings →
+ * Maintenance shows the banner too, and has no use for the rest of a status.
+ */
+export async function getIndexFreshness() {
+  return indexFreshness(readCtx());
+}
+
+/**
+ * The banner's one button: rebuild every index, which also stamps HEAD.
+ *
+ * Auth-gated here because it is a form action a page renders; the two pages
+ * that show it are revalidated so the banner goes away on the next render.
+ */
+export async function rebuildIndexesAction(): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) return;
+  await rebuildAllIndexes();
+  revalidatePath("/git");
+  revalidatePath("/settings/maintenance");
 }
 
 async function doFetch(git: SimpleGit, remote?: string): Promise<void> {
@@ -114,6 +146,13 @@ async function doPull(
           "No upstream configured. Choose a remote and use “Set upstream & push” first.",
       };
     }
+    /*
+     * A conflicted pull can *resolve*: git prints the CONFLICT lines on stdout
+     * and exits 1, and `simple-git`'s `raw` only rejects on stderr (epic-27
+     * T3). So ask the repository, or the caller rebuilds every index over
+     * files full of conflict markers.
+     */
+    if (await mergeInProgress(contentDirectory)) return { conflict: true };
     return { conflict: false };
   } catch (e) {
     const inMerge = await mergeInProgress(contentDirectory);
@@ -171,7 +210,7 @@ async function doSync(
       revalidatePath("/git");
       return null;
     }
-    await rebuildRecipeIndex();
+    await rebuildAllIndexes();
   }
 
   if (await mergeInProgress(contentDirectory)) {
@@ -217,7 +256,7 @@ export async function remoteCommandAction(
           revalidatePath("/git");
           return null;
         }
-        await rebuildRecipeIndex();
+        await rebuildAllIndexes();
         break;
       }
       case "push": {
@@ -310,7 +349,7 @@ export async function commitMerge(
     return normalizeError(e);
   }
 
-  await rebuildRecipeIndex();
+  await rebuildAllIndexes();
   revalidatePath("/git");
   return null;
 }
@@ -335,7 +374,7 @@ export async function abortMerge(
     return normalizeError(e);
   }
 
-  await rebuildRecipeIndex();
+  await rebuildAllIndexes();
   revalidatePath("/git");
   return null;
 }
@@ -364,7 +403,7 @@ export async function commitWorkingChanges(
     return normalizeError(e);
   }
 
-  await rebuildRecipeIndex();
+  await rebuildAllIndexes();
   revalidatePath("/git");
   return null;
 }

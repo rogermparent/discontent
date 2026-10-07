@@ -60,7 +60,7 @@ describe("authenticateRequest", () => {
         requestWith({ authorization: `Bearer ${token}` }),
         contentDirectory,
       ),
-    ).toBe("admin@nextmail.com");
+    ).toEqual({ email: "admin@nextmail.com", scope: "write" });
     expect(auth).not.toHaveBeenCalled();
   });
 
@@ -70,7 +70,7 @@ describe("authenticateRequest", () => {
         requestWith({ authorization: `bearer ${token}` }),
         contentDirectory,
       ),
-    ).toBe("admin@nextmail.com");
+    ).toEqual({ email: "admin@nextmail.com", scope: "write" });
   });
 
   it("falls back to the session when the token is bad", async () => {
@@ -80,15 +80,16 @@ describe("authenticateRequest", () => {
         requestWith({ authorization: "Bearer rcp_deadbeef_nope" }),
         contentDirectory,
       ),
-    ).toBe("someone@example.com");
+    ).toEqual({ email: "someone@example.com", scope: "write" });
     expect(auth).toHaveBeenCalled();
   });
 
   it("falls back to the session when there is no header at all", async () => {
     auth.mockResolvedValue({ user: { email: "someone@example.com" } });
-    expect(await authenticateRequest(requestWith(), contentDirectory)).toBe(
-      "someone@example.com",
-    );
+    expect(await authenticateRequest(requestWith(), contentDirectory)).toEqual({
+      email: "someone@example.com",
+      scope: "write",
+    });
   });
 
   it("answers null when neither credential is present", async () => {
@@ -96,5 +97,26 @@ describe("authenticateRequest", () => {
     expect(
       await authenticateRequest(requestWith(), contentDirectory),
     ).toBeNull();
+  });
+
+  it("answers a read token's scope, and a session as write (27b)", async () => {
+    const readToken = await addTokenToUser(
+      contentDirectory,
+      "admin@nextmail.com",
+      "reader",
+      { scope: "read" },
+    );
+    expect(
+      await authenticateRequest(
+        requestWith({ authorization: `Bearer ${readToken}` }),
+        contentDirectory,
+      ),
+    ).toEqual({ email: "admin@nextmail.com", scope: "read" });
+
+    auth.mockResolvedValue({ user: { email: "someone@example.com" } });
+    expect(await authenticateRequest(requestWith(), contentDirectory)).toEqual({
+      email: "someone@example.com",
+      scope: "write",
+    });
   });
 });

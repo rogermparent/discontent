@@ -21,7 +21,7 @@ export async function GET(
   { params }: { params: Promise<{ hash: string }> },
 ) {
   try {
-    const ctx = await requireCurationContext(request);
+    const ctx = await requireCurationContext(request, { need: "read" });
     const { hash } = await params;
     const maxChars = intParam(new URL(request.url), "maxChars");
     return Response.json(

@@ -604,6 +604,91 @@ test.describe("Git content", () => {
       ).toBeVisible();
     });
 
+    test("should flag a push received from elsewhere, and Rebuild indexes clears it (27b)", async ({
+      page,
+      resetData,
+      initializeContentGit,
+      pushIntoContent,
+    }) => {
+      await resetData();
+      await initializeContentGit();
+      await page.goto("/git");
+      await fillSignInForm(page);
+      /* Initialize stamped HEAD, so a freshly tracked repo shows no banner. */
+      await expect(page.getByTestId("index-stale-banner")).toHaveCount(0);
+
+      await pushIntoContent("from-the-laptop", "From The Laptop");
+
+      await page.goto("/");
+      await expect(page.getByText("From The Laptop")).toHaveCount(0);
+
+      await page.goto("/git");
+      const banner = page.getByTestId("index-stale-banner");
+      await expect(banner).toContainText("Content changed outside the editor");
+
+      const rebuilt = page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().includes("/git"),
+      );
+      await banner.getByRole("button", { name: "Rebuild indexes" }).click();
+      await rebuilt;
+      await expect(page.getByTestId("index-stale-banner")).toHaveCount(0);
+
+      await page.goto("/");
+      await expect(
+        page.getByTestId("recipe-list").getByText("From The Laptop"),
+      ).toBeVisible();
+    });
+
+    test("should pull over the API, rebuilding every index (27b)", async ({
+      page,
+      request,
+      resetData,
+      initializeContentGit,
+      createBareRemote,
+      addRemoteAndPush,
+      cloneFromRemote,
+      addRecipeInClone,
+      pushClone,
+      createApiToken,
+    }) => {
+      await resetData();
+      /*
+       * Before the initial commit: a token is a write to `users/<email>`, and
+       * minted after it, that file is an uncommitted change — which is exactly
+       * what a pull refuses (`dirty_tree`).
+       */
+      const token = await createApiToken();
+      const headers = { authorization: `Bearer ${token}` };
+      await initializeContentGit();
+      const remote = await createBareRemote();
+      await addRemoteAndPush(remote);
+      const clone = await cloneFromRemote(remote);
+      await addRecipeInClone(clone, "from-the-pi", "From The Pi");
+      await pushClone(clone);
+
+      const status = await request.get("/api/git/status?fetch=1", { headers });
+      expect(await status.json()).toMatchObject({ behind: 1, diverged: false });
+
+      const pulled = await request.post("/api/git/pull", { headers, data: {} });
+      expect(pulled.status()).toBe(200);
+      expect(await pulled.json()).toMatchObject({
+        merged: true,
+        fastForward: true,
+        newCommits: 1,
+      });
+
+      await page.goto("/");
+      await expect(
+        page.getByTestId("recipe-list").getByText("From The Pi"),
+      ).toBeVisible();
+      expect(
+        (await (await request.get("/api/git/status", { headers })).json())
+          .indexStale,
+      ).toBe(false);
+    });
+
     test("should push local changes", async ({
       page,
       resetData,

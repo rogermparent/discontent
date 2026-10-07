@@ -121,6 +121,49 @@ describe("the MCP registry over an in-memory transport", () => {
   /* 1. The advertised surface                                         */
   /* ---------------------------------------------------------------- */
 
+  it("advertises only the read-only tools to a read-scoped session (27b)", async () => {
+    const readOnly = createRecipeServer(backend, { readOnly: true });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const reader = new Client({ name: "mcp-read-test", version: "0" });
+    await Promise.all([
+      readOnly.connect(serverTransport),
+      reader.connect(clientTransport),
+    ]);
+    try {
+      const { tools } = await reader.listTools();
+      const names = tools.map((tool) => tool.name);
+      expect(names.length).toBeGreaterThan(0);
+      for (const tool of tools) {
+        expect(tool.annotations?.readOnlyHint, tool.name).toBe(true);
+      }
+      expect(names).toEqual(
+        expect.arrayContaining([
+          "recipe_search",
+          "recipe_get",
+          "git_status",
+          "git_fetch",
+        ]),
+      );
+      for (const write of [
+        "recipe_create",
+        "git_pull",
+        "git_push",
+        "reindex",
+      ]) {
+        expect(names).not.toContain(write);
+      }
+      /* And the full list is exactly the read-only half plus the rest. */
+      const { tools: all } = await client.listTools();
+      expect(
+        all.filter((tool) => tool.annotations?.readOnlyHint === true).length,
+      ).toBe(names.length);
+    } finally {
+      await reader.close();
+      await readOnly.close();
+    }
+  });
+
   it("advertises exactly the tools it claims to, strictly typed", async () => {
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name)).toEqual([...TOOL_NAMES]);

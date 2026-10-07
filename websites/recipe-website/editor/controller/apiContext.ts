@@ -20,7 +20,7 @@ import { revalidateDerivedState } from "@discontent/cms/content/next/revalidateD
 import { revalidatePath } from "next/cache";
 import type { CurationContext } from "./curation/context";
 import { recipeContentTypes } from "./contentTypes";
-import { UnauthenticatedError } from "./curation/errors";
+import { ForbiddenError, UnauthenticatedError } from "./curation/errors";
 import { successConfigFor } from "./successConfigs";
 import { authenticateRequest } from "./apiAuth";
 
@@ -79,16 +79,30 @@ export function readContext(
  * A throw rather than a returned `Response` so a route body is one `try` with
  * one `errorResponse` catch (T17): the guard, the parse and the curation call
  * all fail the same way.
+ *
+ * `need` is what the route does (27b/D6). It defaults to `write`, so a route
+ * that forgets to say stays as strict as every route was before scopes; the
+ * authenticated GETs, `inspect` and `git/fetch` ask for `read`. A read-scoped
+ * token on a write route is 403 `forbidden`, not 401 — it *is* authenticated.
  */
 export async function requireCurationContext(
   request: Request,
+  { need = "write" }: { need?: "read" | "write" } = {},
 ): Promise<CurationContext> {
   const contentDirectory = getContentDirectory();
-  const email = await authenticateRequest(request, contentDirectory);
-  if (!email) {
+  const identity = await authenticateRequest(request, contentDirectory);
+  if (!identity) {
     throw new UnauthenticatedError(
       "Authentication required: send an API token as `Authorization: Bearer rcp_…`, or sign in.",
     );
   }
-  return curationContextFor(email, contentDirectory);
+  if (need === "write" && identity.scope !== "write") {
+    throw new ForbiddenError(
+      "This API token is read-only, and this request writes. Mint a write token with `pnpm create-token` (without --read-only).",
+    );
+  }
+  return {
+    ...curationContextFor(identity.email, contentDirectory),
+    scope: identity.scope,
+  };
 }

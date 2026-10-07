@@ -18,7 +18,7 @@ export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
-    const ctx = await requireCurationContext(request);
+    const ctx = await requireCurationContext(request, { need: "read" });
     const url = new URL(request.url);
     const ref = parseInput(GitFileQuerySchema, {
       type: url.searchParams.get("type") ?? undefined,

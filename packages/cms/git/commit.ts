@@ -2,6 +2,7 @@ import { join } from "path";
 import { access } from "fs-extra";
 import simpleGit from "simple-git";
 import { getContentDirectory } from "../fs/getContentDirectory";
+import { advanceIndexedHead, readHead } from "./indexStamp";
 
 export async function directoryIsGitRepo(contentDirectory: string) {
   try {
@@ -19,6 +20,12 @@ export async function commitChanges(
   paths?: string[],
 ) {
   const git = simpleGit({ baseDir: contentDirectory });
+  /*
+   * The engine keeps its indexes current on every write, so this commit does
+   * not make them stale: carry the index stamp forward if it named the HEAD
+   * this commit lands on (`indexStamp.ts`).
+   */
+  const previousHead = await readHead(contentDirectory);
   await git.add(paths && paths.length > 0 ? paths : "./*");
 
   if (author) {
@@ -28,6 +35,7 @@ export async function commitChanges(
   } else {
     await git.commit(message);
   }
+  await advanceIndexedHead(contentDirectory, previousHead);
 }
 
 /**

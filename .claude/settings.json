@@ -32,7 +32,8 @@
       "mcp__recipes__git_log",
       "mcp__recipes__git_show",
       "mcp__recipes__git_file_at",
-      "mcp__recipes__git_diff"
+      "mcp__recipes__git_diff",
+      "mcp__recipes__git_fetch"
     ]
   }
 }

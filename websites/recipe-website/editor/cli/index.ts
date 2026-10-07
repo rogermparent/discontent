@@ -153,14 +153,16 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   inventory remove <item…>
   inventory set --file <list.txt|list.json>
   inventory make [<query…>] [--limit 20]
-  git status
+  git status [--fetch]
+  git fetch [<remote>]
+  git pull [<remote>]
   git log [--type recipe|group|featured] [--slug s] [--limit 30] [--offset 0]
   git show <hash> [--max-chars 50000]
   git file <type> <slug> <rev>
   git diff <from> [<to>] [--path p]
   git revert <hash> [--yes]
   git restore <type> <slug> <rev> [--yes]
-  git push [--remote r] [--set-upstream]
+  git push [<remote>] [--set-upstream]
 
 Globals: --json  --content-dir <dir>  --author "Name <email>"  --help
 Remote:  --remote <url>  |  --notify [--editor-url <url>]

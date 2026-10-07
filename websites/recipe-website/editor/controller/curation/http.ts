@@ -35,6 +35,8 @@ export function statusFor(code: CurationErrorCode): number {
       return 400;
     case "unauthenticated":
       return 401;
+    case "forbidden":
+      return 403;
     case "not_found":
       return 404;
     case "slug_conflict":

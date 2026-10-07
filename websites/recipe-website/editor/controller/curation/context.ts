@@ -50,6 +50,13 @@ export interface CurationContext {
   contentDirectory: string;
   author?: Author;
   /**
+   * What the caller may do, when a token decided it (27b/D6). Set only by
+   * `requireCurationContext`; the CLI and stdio MCP leave it unset, which
+   * means unrestricted — they run as whoever owns the content directory. The
+   * MCP-over-HTTP route reads it to register only the read-only tools.
+   */
+  scope?: "read" | "write";
+  /**
    * Called after every successful write, with the engine's own result.
    *
    * The seat the API routes fill with `revalidateContentWrite` (D9), and the

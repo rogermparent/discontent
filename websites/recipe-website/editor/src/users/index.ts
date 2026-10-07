@@ -24,12 +24,26 @@
  * what makes verification a lookup rather than a hash of every stored token.
  * Comparison is `timingSafeEqual` over the two digests.
  *
- * Revocation in v1 is deleting the `{id, …}` object from the record's `tokens`
- * array by hand; there is no script and the phase doc says so.
+ * Revocation is `scripts/revoke-token.ts` (27b), which removes the `{id, …}`
+ * object from the record's `tokens` array by id or by name.
+ *
+ * ## Scopes (27b/D6)
+ *
+ * A token is `read` or `write`. A row with no `scope` is `write`: every token
+ * minted before scopes existed was full-write, and silently demoting them would
+ * break the agents holding them. A `read` token passes the GET routes, `inspect`
+ * and `git fetch`, and gets 403 `forbidden` from everything that writes; its MCP
+ * session lists only the read-only tools.
+ *
+ * There is deliberately no `lastUsedAt`: the user record lives in the content
+ * directory, so stamping it on every request would rewrite (and, for a tracked
+ * `users/`, commit) a file per API call.
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
+
+export type TokenScope = "read" | "write";
 
 export interface ApiToken {
   /** 8 hex characters. Public — it travels in the token and identifies the row. */
@@ -38,6 +52,18 @@ export interface ApiToken {
   hash: string;
   name: string;
   createdAt: string;
+  /** Absent means `write` — every token before 27b was full-write. */
+  scope?: TokenScope;
+}
+
+/** Who a token authenticates as, and what it may do. */
+export interface TokenIdentity {
+  email: string;
+  scope: TokenScope;
+}
+
+export function scopeOf(token: Pick<ApiToken, "scope">): TokenScope {
+  return token.scope === "read" ? "read" : "write";
 }
 
 export interface UserRecord {
@@ -149,7 +175,7 @@ function digestsMatch(a: string, b: string): boolean {
 }
 
 /**
- * The email a bearer token belongs to, or `null`.
+ * The user a bearer token belongs to, and the token's scope — or `null`.
  *
  * A scan over `users/*` rather than an index: this repo's user set is a handful
  * of files, and an index would be a second thing to keep in sync with the
@@ -159,7 +185,7 @@ function digestsMatch(a: string, b: string): boolean {
 export async function findUserByToken(
   contentDirectory: string,
   token: string,
-): Promise<string | null> {
+): Promise<TokenIdentity | null> {
   const parsed = parseToken(token);
   if (!parsed) return null;
   const secretHash = hashSecret(parsed.secret);
@@ -169,10 +195,41 @@ export async function findUserByToken(
     if (!user?.tokens) continue;
     for (const stored of user.tokens) {
       if (stored.id !== parsed.id) continue;
-      if (digestsMatch(stored.hash, secretHash)) return user.email ?? email;
+      if (digestsMatch(stored.hash, secretHash)) {
+        return { email: user.email ?? email, scope: scopeOf(stored) };
+      }
     }
   }
   return null;
+}
+
+/**
+ * Remove a user's tokens by id or by name, returning the rows removed.
+ *
+ * By name removes *every* token with that name — two laptops both called
+ * "laptop" are one revocation, which is what someone typing a name means. An
+ * empty answer is not an error here; the script decides what to say about it.
+ */
+export async function removeTokensFromUser(
+  contentDirectory: string,
+  email: string,
+  match: { id?: string; name?: string },
+): Promise<ApiToken[]> {
+  if (!match.id && !match.name) {
+    throw new Error("Name a token to revoke, by id or by name.");
+  }
+  const user = await readUser(contentDirectory, email);
+  if (!user) {
+    throw new Error(`No user at ${userFilePath(contentDirectory, email)}.`);
+  }
+  const matches = (token: ApiToken) =>
+    match.id ? token.id === match.id : token.name === match.name;
+  const removed = (user.tokens ?? []).filter(matches);
+  if (removed.length > 0) {
+    user.tokens = (user.tokens ?? []).filter((token) => !matches(token));
+    await writeUser(contentDirectory, user);
+  }
+  return removed;
 }
 
 /** Append a token to a user, returning the token string to print once. */
@@ -180,6 +237,7 @@ export async function addTokenToUser(
   contentDirectory: string,
   email: string,
   name: string,
+  { scope = "write" }: { scope?: TokenScope } = {},
 ): Promise<string> {
   const user = await readUser(contentDirectory, email);
   if (!user) {
@@ -190,7 +248,14 @@ export async function addTokenToUser(
   const { token, id, hash } = generateToken();
   user.tokens = [
     ...(user.tokens ?? []),
-    { id, hash, name, createdAt: new Date().toISOString() },
+    {
+      id,
+      hash,
+      name,
+      createdAt: new Date().toISOString(),
+      /* Omitted for write, so a write row reads exactly as it always has. */
+      ...(scope === "read" ? { scope } : {}),
+    },
   ];
   await writeUser(contentDirectory, user);
   return token;

@@ -22,6 +22,7 @@ import {
   mkdtemp,
   outputFile,
   pathExists,
+  readFile,
   readJson,
   remove,
   rm,
@@ -39,16 +40,24 @@ import type { CurationContext } from "../websites/recipe-website/editor/controll
 import { recipeContentTypes } from "../websites/recipe-website/editor/controller/contentTypes";
 import {
   gitDiff,
+  gitFetch,
   gitFileAt,
   gitLog,
+  gitPull,
   gitPush,
   gitRestore,
   gitRevert,
   gitShow,
   gitStatus,
+  indexFreshness,
   labelForPath,
 } from "../websites/recipe-website/editor/controller/curation/git";
-import { createGroup } from "../websites/recipe-website/editor/controller/curation/groups";
+import { reindex } from "../websites/recipe-website/editor/controller/curation/reindex";
+import { searchRecipes } from "../websites/recipe-website/editor/controller/curation/search";
+import {
+  createGroup,
+  listGroups,
+} from "../websites/recipe-website/editor/controller/curation/groups";
 import {
   createRecipe,
   updateRecipe,
@@ -561,6 +570,244 @@ describe("gitPush", () => {
       code: "git_conflict",
       message: expect.stringContaining("Push rejected"),
     });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 7b. Fetch, pull and the index stamp (27b)                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Another instance of the app — the Pi — sharing a bare remote with this one.
+ *
+ * `ctx`'s repository pushes first, so both start from the same commit with
+ * upstreams set. The returned helpers commit straight into the other clone,
+ * the way a second editor's writes would arrive.
+ */
+async function piPair() {
+  const remote = await scratchDir("pi-remote-");
+  await simpleGit().raw(["init", "--bare", remote]);
+  await git.addRemote("uraninite", remote);
+  await reindex(ctx);
+  await gitPush(ctx, { remote: "uraninite", setUpstream: true });
+
+  const clone = await scratchDir("pi-clone-");
+  await simpleGit().clone(remote, clone);
+  const pi = simpleGit({ baseDir: clone });
+  await pi.addConfig("user.email", "pi@uraninite.test");
+  await pi.addConfig("user.name", "Pi Editor");
+  await pi.addConfig("commit.gpgsign", "false");
+
+  async function piWrite(relative: string, data: unknown, message: string) {
+    await outputFile(join(clone, relative), `${JSON.stringify(data)}\n`);
+    await pi.add(".");
+    await pi.commit(message);
+    await pi.push();
+  }
+  return { clone, pi, piWrite };
+}
+
+describe("gitFetch / gitPull", () => {
+  it("fast-forwards the Pi's recipe and group in, and every index sees them", async () => {
+    const { piWrite } = await piPair();
+    await piWrite(
+      "recipes/data/gimlet/recipe.json",
+      { name: "Gimlet", date: 1_790_000_000_000, tags: ["drink"] },
+      "Add Gimlet",
+    );
+    await piWrite(
+      "groups/data/gin-drinks/group.json",
+      {
+        name: "Gin drinks",
+        date: 1_790_000_000_001,
+        kind: "collection",
+        items: [{ recipe: "gimlet" }],
+      },
+      "Add Gin drinks",
+    );
+
+    /* Stale until fetched: the remote refs here have not moved yet. */
+    expect((await gitStatus(ctx)).behind).toBe(0);
+    const fetched = await gitFetch(ctx);
+    expect(fetched).toMatchObject({
+      remote: "uraninite",
+      upstream: expect.stringMatching(/^uraninite\//),
+      ahead: 0,
+      behind: 2,
+      diverged: false,
+    });
+    expect(fetched.fetchedAt).toEqual(expect.any(String));
+
+    const pulled = await gitPull(ctx);
+    expect(pulled).toMatchObject({
+      merged: true,
+      fastForward: true,
+      newCommits: 2,
+    });
+    expect(pulled.rebuilt).toEqual(
+      expect.arrayContaining(["recipes", "groups"]),
+    );
+    expect(bulkChanges).toBe(1);
+
+    expect((await searchRecipes(ctx, "tag:drink")).recipes).toEqual([
+      expect.objectContaining({ slug: "gimlet" }),
+    ]);
+    /* The groups index too — the one the old narrow rebuild never touched. */
+    expect((await listGroups(ctx)).groups).toEqual([
+      expect.objectContaining({ slug: "gin-drinks", itemCount: 1 }),
+    ]);
+    expect((await gitStatus(ctx)).indexStale).toBe(false);
+  });
+
+  it("merges when both sides moved, and says so before and after", async () => {
+    const { piWrite } = await piPair();
+    await createRecipe(ctx, { name: "Daiquiri" });
+    await piWrite(
+      "recipes/data/gimlet/recipe.json",
+      { name: "Gimlet", date: 1_790_000_000_000 },
+      "Add Gimlet",
+    );
+
+    const status = await gitStatus(ctx, { fetch: true });
+    expect(status).toMatchObject({ ahead: 1, behind: 1, diverged: true });
+
+    const pulled = await gitPull(ctx);
+    expect(pulled).toMatchObject({
+      merged: true,
+      fastForward: false,
+      newCommits: 1,
+    });
+    expect((await gitStatus(ctx)).ahead).toBe(2);
+    expect((await searchRecipes(ctx, "gimlet")).total).toBe(1);
+    expect((await searchRecipes(ctx, "daiquiri")).total).toBe(1);
+  });
+
+  it("aborts a conflict, names the file, and leaves the tree as it was", async () => {
+    await createRecipe(ctx, { name: "Naan", description: "Base." });
+    const { clone, pi } = await piPair();
+    const before = await head();
+
+    /* The same line, changed two ways: a conflict git cannot resolve. */
+    const target = join(clone, "recipes/data/naan/recipe.json");
+    await writeFile(
+      target,
+      (await readFile(target, "utf8")).replace("Base.", "From the Pi."),
+    );
+    await pi.add(".");
+    await pi.commit("Pi edit");
+    await pi.push();
+    /* Not the name: a rename moves the slug, and a moved file cannot conflict. */
+    await updateRecipe(ctx, "naan", { description: "From here." });
+    const local = await head();
+
+    await expect(gitPull(ctx)).rejects.toMatchObject({
+      code: "git_conflict",
+      message: expect.stringContaining("recipes/data/naan/recipe.json"),
+    });
+    expect(await head()).toBe(local);
+    expect(local).not.toBe(before);
+    expect((await git.status()).isClean()).toBe(true);
+    expect(await pathExists(join(contentDirectory, ".git", "MERGE_HEAD"))).toBe(
+      false,
+    );
+    expect((await readRecipeFile("naan")).description).toBe("From here.");
+  });
+
+  it("answers merged: false when there is nothing to bring in", async () => {
+    await piPair();
+    expect(await gitPull(ctx)).toMatchObject({
+      merged: false,
+      newCommits: 0,
+      rebuilt: [],
+    });
+    expect(bulkChanges).toBe(0);
+  });
+
+  it("refuses a dirty tree, but a fetch does not care", async () => {
+    await piPair();
+    await writeFile(join(contentDirectory, "scratch.txt"), "half done\n");
+    await expect(gitPull(ctx)).rejects.toMatchObject({ code: "dirty_tree" });
+    await expect(gitFetch(ctx)).resolves.toMatchObject({ behind: 0 });
+  });
+
+  it("needs an upstream or a remote to pull from", async () => {
+    await expect(gitPull(ctx)).rejects.toMatchObject({ code: "validation" });
+  });
+});
+
+describe("the index stamp", () => {
+  it("is stale until a full rebuild records HEAD", async () => {
+    expect(await indexFreshness(ctx)).toMatchObject({
+      indexedHead: null,
+      stale: true,
+    });
+    await reindex(ctx);
+    expect(await indexFreshness(ctx)).toEqual({
+      indexedHead: await head(),
+      head: await head(),
+      stale: false,
+    });
+  });
+
+  it("is carried forward by the engine's own writes", async () => {
+    await reindex(ctx);
+    await createRecipe(ctx, { name: "Naan" });
+    await updateRecipe(ctx, "naan", { name: "Garlic naan" });
+    expect((await gitStatus(ctx)).indexStale).toBe(false);
+  });
+
+  it("goes stale when HEAD moves behind the engine's back, and a rebuild clears it", async () => {
+    await reindex(ctx);
+    await outputFile(
+      join(contentDirectory, "recipes/data/by-hand/recipe.json"),
+      `${JSON.stringify({ name: "By hand", date: 1 })}\n`,
+    );
+    await git.add(".");
+    await git.commit("A commit from a shell");
+    expect((await gitStatus(ctx)).indexStale).toBe(true);
+
+    /* An engine write on top of a stale stamp does not pretend to repair it. */
+    await createRecipe(ctx, { name: "Naan" });
+    expect((await gitStatus(ctx)).indexStale).toBe(true);
+
+    await reindex(ctx);
+    expect((await gitStatus(ctx)).indexStale).toBe(false);
+  });
+
+  it("is a one-type rebuild's to leave alone", async () => {
+    await reindex(ctx, "groups");
+    expect((await indexFreshness(ctx)).stale).toBe(true);
+  });
+
+  it("catches a push received into this repository (the Pi's updateInstead)", async () => {
+    await git.addConfig("receive.denyCurrentBranch", "updateInstead");
+    await reindex(ctx);
+    const branch = (await git.status()).current as string;
+
+    const laptop = await scratchDir("laptop-");
+    await simpleGit().clone(contentDirectory, laptop);
+    const other = simpleGit({ baseDir: laptop });
+    await other.addConfig("user.email", "laptop@test.local");
+    await other.addConfig("user.name", "Laptop");
+    await other.addConfig("commit.gpgsign", "false");
+    await outputFile(
+      join(laptop, "recipes/data/negroni/recipe.json"),
+      `${JSON.stringify({ name: "Negroni", date: 1, tags: ["drink"] })}\n`,
+    );
+    await other.add(".");
+    await other.commit("Add Negroni");
+    await other.push("origin", branch);
+
+    /* The working tree moved; the indexes did not. */
+    expect(
+      await pathExists(join(contentDirectory, "recipes/data/negroni")),
+    ).toBe(true);
+    expect((await gitStatus(ctx)).indexStale).toBe(true);
+    expect((await searchRecipes(ctx, "tag:drink")).total).toBe(0);
+
+    await reindex(ctx);
+    expect((await gitStatus(ctx)).indexStale).toBe(false);
+    expect((await searchRecipes(ctx, "tag:drink")).total).toBe(1);
   });
 });
 

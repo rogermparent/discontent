@@ -26,9 +26,13 @@ import type {
   GitFileRef,
   GitLogOptions,
   GitLogResult,
+  GitFetchOptions,
+  GitPullOptions,
   GitPushOptions,
   GitRestoreRef,
   GitWriteResult,
+  FetchResult,
+  PullResult,
   PushResult,
   ShowResult,
   SyncStatus,
@@ -57,11 +61,14 @@ export type {
   DiffResult,
   FeaturedListResult,
   FeaturedWriteResult,
+  FetchResult,
   FileAtResult,
   GitDiffOptions,
+  GitFetchOptions,
   GitFileRef,
   GitLogOptions,
   GitLogResult,
+  GitPullOptions,
   GitPushOptions,
   GitRestoreRef,
   GitWriteResult,
@@ -74,6 +81,7 @@ export type {
   InventoryResult,
   InventoryWriteResult,
   MakeableResult,
+  PullResult,
   PushResult,
   RecipeDetail,
   RecipeDryRunResult,
@@ -214,11 +222,12 @@ export interface CuratorBackend {
    *
    * On the seam for the same reason every other read is: a `--remote` run must
    * see the history of the corpus it writes to, not of whatever directory
-   * happens to be under the CLI. The `/git` page's fetch, pull, merge,
-   * conflict, branch and remote flows stay page-only — they are interactive by
-   * nature and there is nothing an agent would do with half a merge.
+   * happens to be under the CLI. The `/git` page's merge, conflict, branch and
+   * remote flows stay page-only — they are interactive by nature and there is
+   * nothing an agent would do with half a merge. Fetch and pull joined in 27b,
+   * with a pull that aborts rather than leave a conflict behind.
    */
-  gitStatus(): Promise<SyncStatus>;
+  gitStatus(options?: { fetch?: boolean }): Promise<SyncStatus>;
   gitLog(options?: GitLogOptions): Promise<GitLogResult>;
   gitShow(hash: string, options?: { maxChars?: number }): Promise<ShowResult>;
   gitFileAt(ref: GitFileRef): Promise<FileAtResult>;
@@ -227,6 +236,10 @@ export interface CuratorBackend {
   gitRestore(ref: GitRestoreRef): Promise<GitWriteResult>;
   /** Changes nothing locally, so no `afterWrite` follows it (T50). */
   gitPush(options?: GitPushOptions): Promise<PushResult>;
+  /** Moves remote-tracking refs only: no `afterWrite` either. */
+  gitFetch(options?: GitFetchOptions): Promise<FetchResult>;
+  /** Merges and rebuilds every index; a write like revert and restore. */
+  gitPull(options?: GitPullOptions): Promise<PullResult>;
 
   /**
    * Run after a command whose `write` flag is set; the string it resolves to is

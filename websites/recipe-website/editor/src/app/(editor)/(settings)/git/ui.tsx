@@ -9,6 +9,7 @@ import { CreateBranchForm } from "./CreateBranchForm";
 import { RemoteSelector } from "./RemoteSelector";
 import { CreateRemoteForm } from "./CreateRemoteForm";
 import type { SyncStatus } from "./types";
+import { IndexStaleBanner } from "../IndexStaleBanner";
 import {
   PageMain,
   PageSection,
@@ -33,6 +34,7 @@ function GitPageWithoutGit() {
 function GitPageWithGit({ status }: { status: SyncStatus }) {
   return (
     <>
+      <IndexStaleBanner />
       <SyncPanel status={status} />
 
       {status.merge.inProgress && <ConflictResolver merge={status.merge} />}

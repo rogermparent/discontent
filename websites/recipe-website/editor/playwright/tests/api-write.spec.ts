@@ -70,6 +70,50 @@ test.describe("JSON write API", () => {
     expect((await created.json()).slug).toBe("sneaky");
   });
 
+  test("a read-only token reads but cannot write, and a revoked one is 401 (27b)", async ({
+    request,
+    createApiToken,
+    revokeApiToken,
+  }) => {
+    const reader = await createApiToken(
+      "admin@nextmail.com",
+      "dashboard",
+      "read",
+    );
+    const asReader = { authorization: `Bearer ${reader}` };
+
+    const inventory = await request.get("/api/inventory", {
+      headers: asReader,
+    });
+    expect(inventory.status()).toBe(200);
+    expect(
+      (await request.get("/api/git/status", { headers: asReader })).status(),
+    ).toBe(200);
+
+    const write = await request.post("/api/recipes", {
+      headers: asReader,
+      data: { name: "Sneaky" },
+    });
+    expect(write.status()).toBe(403);
+    expect((await write.json()).error.code).toBe("forbidden");
+    expect(
+      (
+        await request.post("/api/reindex", { headers: asReader, data: {} })
+      ).status(),
+    ).toBe(403);
+
+    /* The write token minted in beforeEach still writes. */
+    const created = await request.post("/api/recipes", {
+      headers: auth(),
+      data: { name: "Allowed" },
+    });
+    expect(created.status()).toBe(201);
+
+    expect(await revokeApiToken("admin@nextmail.com", "dashboard")).toBe(1);
+    const revoked = await request.get("/api/inventory", { headers: asReader });
+    expect(revoked.status()).toBe(401);
+  });
+
   test("a created recipe renders immediately, with no cache reload", async ({
     request,
     page,

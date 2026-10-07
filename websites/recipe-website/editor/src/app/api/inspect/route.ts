@@ -25,7 +25,7 @@ const InspectBodySchema = z.strictObject({
 
 export async function POST(request: Request) {
   try {
-    await requireCurationContext(request);
+    await requireCurationContext(request, { need: "read" });
     const { url } = parseInput(InspectBodySchema, await readJsonBody(request));
     if (!URL.canParse(url)) {
       throw new ValidationError(`"${url}" is not a URL`);

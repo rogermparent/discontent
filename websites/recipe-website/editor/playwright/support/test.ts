@@ -9,7 +9,12 @@ type Fixtures = {
   initializeContentGit: () => Promise<void>;
   getContentGitLog: () => Promise<string[]>;
   copyFixtures: (fixtureName: string) => Promise<void>;
-  createApiToken: (email?: string, name?: string) => Promise<string>;
+  createApiToken: (
+    email?: string,
+    name?: string,
+    scope?: "read" | "write",
+  ) => Promise<string>;
+  revokeApiToken: (email?: string, name?: string) => Promise<number>;
   readFeaturedRecipeIndexDigest: () => Promise<string>;
   makeRecipeUnreadable: (slug: string) => Promise<void>;
   writeSettings: (settings: Record<string, unknown>) => Promise<void>;
@@ -27,6 +32,7 @@ type Fixtures = {
     name: string,
   ) => Promise<void>;
   pushClone: (cloneDir: string) => Promise<void>;
+  pushIntoContent: (slug: string, name: string) => Promise<void>;
   getRemoteLog: (remoteUrl: string) => Promise<string[]>;
 };
 
@@ -62,6 +68,10 @@ export const test = base.extend<Fixtures>({
    */
   createApiToken: async ({}, use) => {
     await use(tasks.createApiToken);
+  },
+  /* Same: the next request re-reads the user file, so nothing to expire. */
+  revokeApiToken: async ({}, use) => {
+    await use(tasks.revokeApiToken);
   },
   readFeaturedRecipeIndexDigest: async ({}, use) => {
     await use(tasks.readFeaturedRecipeIndexDigest);
@@ -100,6 +110,14 @@ export const test = base.extend<Fixtures>({
   },
   pushClone: async ({}, use) => {
     await use(tasks.pushClone);
+  },
+  /*
+   * Deliberately *no* cache invalidation, unlike `makeRecipeUnreadable`: the
+   * point is that the editor is not told, and the stale-index banner is how
+   * it finds out (27b).
+   */
+  pushIntoContent: async ({}, use) => {
+    await use(tasks.pushIntoContent);
   },
   getRemoteLog: async ({}, use) => {
     await use(tasks.getRemoteLog);
