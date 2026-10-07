@@ -244,7 +244,10 @@ config file above and in the Pi's `hook.env`. To revoke it:
   and never finished, on the workstation and on the Pi alike. That is also
   what used the old unit's 21 min of CPU on 2026-10-07. At cutover it was
   moved, untouched, to `~/recipe-editor/quarantine/` on the Pi, after which
-  the rebuild took 16 s.
+  the rebuild took 16 s. Once the fix below was deployed it was moved back,
+  still untracked: the Pi reindexes in 12 s with it present (644 recipes), and
+  its page renders in 1.2 s. Committing it is Roger's call. Until then,
+  `--sync-index` refuses the dirty tree and falls back to rebuilding on the Pi.
 
   **Root cause:** markdown-to-jsx 9.6.1's `compiler()` never returns on CRLF
   text shaped "ordered item, continuation line, blank line", for example
@@ -261,8 +264,8 @@ config file above and in the Pi's `hook.env`. To revoke it:
 
 - **Health before indexes is wrong.** The first cutover checked `/` straight
   after starting the new container. `/` renders from indexes the _old_ code
-  had laid out, so it answered 500 (`slugify: Expected a string, got
-undefined`), and with no earlier tag there was nothing to roll back to. The
+  had laid out, so it answered 500 (slugify's "Expected a string, got
+  undefined"), and with no earlier tag there was nothing to roll back to. The
   deploy now waits on `/api/auth/providers` (no index), then rebuilds, then
   requires `/` to answer 200, and rolls back if any step fails.
 - **The sandbox** refuses a command whose text names git together with a `cd`,
@@ -307,6 +310,16 @@ undefined`), and with no earlier tag there was nothing to roll back to. The
 - **Hook:** `post-receive` was run by hand with a fake ref line. The
   background reindex re-stamped HEAD within about 14 s, and
   `-o no-reindex` skips it.
+- **`pnpm deploy:pi` from main `8d0d5c25` (#165):**
+  - build 51 s, base reused, app sent and assembled in 46 s;
+  - waited for the server, reindexed in 18 s, `/` healthy;
+  - about 2.5 min end to end.
+- **Rollback drill:** the first `--rollback` found nothing to run: `ssh`
+  inside a pipe had swallowed `deployed.log` from stdin. Fixed in #166.
+  1. `--rollback` then went to `60c7adca` (reindex 15 s, healthy, same
+     counts).
+  2. `pnpm deploy:pi` came forward to `8d0d5c25` ("already on the Pi", so
+     just the switch).
 
 ## Next: workstation and mirror roles, automatic sync (proposed)
 
