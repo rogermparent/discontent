@@ -33,7 +33,7 @@ const EXAMPLES_PATH = join(SKILL_DIR, "examples.md");
 const SETTINGS_PATH = resolve(__dirname, "../.claude/settings.json");
 
 /**
- * The seven tools the skill does not get.
+ * The nine tools the skill does not get.
  *
  * Spelled out rather than derived, because annotations do not carry it: five
  * are `destructiveHint`, but `reindex` is an idempotent write and `git_push`
@@ -52,6 +52,11 @@ const HELD_BACK = [
   "git_push",
   /* 25d: replaces the whole shared inventory — add/remove are the seats. */
   "inventory_set",
+  /*
+   * 27b: a merge moves the whole corpus and rebuilds everything — held back
+   * like `git_push`, its mirror. `git_fetch` is not: it moves only remote refs.
+   */
+  "git_pull",
 ] as const;
 
 const EXPECTED_ALLOWED = TOOL_NAMES.filter(

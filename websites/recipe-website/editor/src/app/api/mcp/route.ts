@@ -40,7 +40,12 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   let ctx: CurationContext;
   try {
-    ctx = await requireCurationContext(request);
+    /*
+     * `read`, so a read-scoped token can connect at all (27b/D6). What it can
+     * then *do* is decided by the tool list: `handleMcpRequest` registers only
+     * the read-only tools for a read-scoped context.
+     */
+    ctx = await requireCurationContext(request, { need: "read" });
   } catch (error) {
     return errorResponse(error);
   }

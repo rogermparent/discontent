@@ -49,6 +49,8 @@ import type {
   InventoryResult,
   InventoryWriteResult,
   MakeableResult,
+  FetchResult,
+  PullResult,
   PushResult,
   RecipeDetail,
   RecipeDryRunResult,
@@ -391,8 +393,10 @@ export function createHttpBackend({
      * included — a content repository's history names files, branches and
      * remotes, and is not public the way a recipe page is.
      */
-    gitStatus() {
-      return call<SyncStatus>("GET", "/api/git/status");
+    gitStatus(options = {}) {
+      return call<SyncStatus>("GET", "/api/git/status", {
+        query: { fetch: options.fetch ? 1 : undefined },
+      });
     },
     gitLog(options = {}) {
       return call<GitLogResult>("GET", "/api/git/log", {
@@ -424,6 +428,12 @@ export function createHttpBackend({
     },
     gitPush(options = {}) {
       return call<PushResult>("POST", "/api/git/push", { body: options });
+    },
+    gitFetch(options = {}) {
+      return call<FetchResult>("POST", "/api/git/fetch", { body: options });
+    },
+    gitPull(options = {}) {
+      return call<PullResult>("POST", "/api/git/pull", { body: options });
     },
 
     /* The server revalidated in the same request; there is nothing to report. */

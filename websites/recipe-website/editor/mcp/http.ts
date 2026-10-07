@@ -91,21 +91,26 @@ export async function handleMcpRequest(
    */
   const backend = createLocalBackend({ ...ctx, inProcess: true });
 
-  const handler = createMcpHandler(() => createRecipeServer(backend), {
-    /*
-     * No keepalive comments. Every stream this serves carries one frame and
-     * closes immediately, so the 15 s default would only ever fire on a
-     * response that has already ended.
-     */
-    keepAliveMs: 0,
-    /*
-     * `console.error`, never stdout: the stdio server shares this registry and
-     * its stdout belongs to the protocol (T21), and the grep that enforces that
-     * covers this directory.
-     */
-    onerror: (error) =>
-      console.error(`recipes MCP (http): ${error.stack ?? error.message}`),
-  });
+  /* A read-scoped token sees only the read-only tools (27b/D6). */
+  const readOnly = ctx.scope === "read";
+  const handler = createMcpHandler(
+    () => createRecipeServer(backend, { readOnly }),
+    {
+      /*
+       * No keepalive comments. Every stream this serves carries one frame and
+       * closes immediately, so the 15 s default would only ever fire on a
+       * response that has already ended.
+       */
+      keepAliveMs: 0,
+      /*
+       * `console.error`, never stdout: the stdio server shares this registry and
+       * its stdout belongs to the protocol (T21), and the grep that enforces that
+       * covers this directory.
+       */
+      onerror: (error) =>
+        console.error(`recipes MCP (http): ${error.stack ?? error.message}`),
+    },
+  );
 
   return handler.fetch(request);
 }

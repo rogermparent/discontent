@@ -18,33 +18,38 @@
  * nothing intercepts these routes; every write handler calls this itself. Fact
  * 1 of the phase doc: there is no middleware.
  */
-import { findUserByToken } from "../src/users";
+import { findUserByToken, type TokenIdentity } from "../src/users";
 import { authenticateUser } from "./actions/shared";
 
 const BEARER = /^Bearer\s+(.+)$/i;
 
 /**
- * The authenticated user's email, or `null`.
+ * Who is asking and what they may do, or `null`.
  *
  * `null` rather than a throw: a GET route may want to know who is asking
  * without refusing an anonymous reader, and the write routes turn `null` into
  * the one 401 shape through `UnauthenticatedError`.
+ *
+ * A token carries its own scope (27b/D6). A signed-in session is always
+ * `write`: it is a person at the editor, who can already do everything the
+ * forms can.
  */
 export async function authenticateRequest(
   request: Request,
   contentDirectory: string,
-): Promise<string | null> {
+): Promise<TokenIdentity | null> {
   const header = request.headers.get("authorization");
   const match = header ? BEARER.exec(header.trim()) : null;
   if (match) {
-    const email = await findUserByToken(contentDirectory, match[1].trim());
+    const identity = await findUserByToken(contentDirectory, match[1].trim());
     /*
      * A *present but wrong* bearer token still falls through to the session.
      * The alternative — refusing outright — would make a stale token in an
      * agent's environment mask a perfectly good browser session, and the token
      * check has already cost nothing.
      */
-    if (email) return email;
+    if (identity) return identity;
   }
-  return authenticateUser();
+  const email = await authenticateUser();
+  return email ? { email, scope: "write" } : null;
 }

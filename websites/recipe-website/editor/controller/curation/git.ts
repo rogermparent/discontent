@@ -37,7 +37,7 @@
  * cannot be imported here and the D8 boundary test enforces that.
  */
 import path from "path";
-import { access } from "fs-extra";
+import { access, stat } from "fs-extra";
 import simpleGit, {
   type DefaultLogFields,
   type SimpleGit,
@@ -46,6 +46,10 @@ import simpleGit, {
 import { getUploadsBaseDirectory } from "@discontent/cms/content/filesystem";
 import type { ContentTypeConfig } from "@discontent/cms/content/types";
 import { directoryIsGitRepo } from "@discontent/cms/git/commit";
+import {
+  readIndexFreshness,
+  type IndexFreshness,
+} from "@discontent/cms/git/indexStamp";
 import { featuredRecipeContentConfig } from "recipe-website-common/controller/featuredRecipeContentConfig";
 import { groupContentConfig } from "recipe-website-common/controller/groupContentConfig";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
@@ -108,6 +112,25 @@ export interface SyncStatus {
   dirty: boolean;
   /** Number of uncommitted changed files (for the warning copy). */
   dirtyCount: number;
+  /**
+   * Both sides have commits the other lacks, so a pull will make a merge
+   * commit rather than fast-forward (27b). As fresh as `fetchedAt`.
+   */
+  diverged: boolean;
+  /**
+   * When the remote-tracking refs were last fetched — `FETCH_HEAD`'s mtime, as
+   * ISO. `ahead`/`behind` are only as fresh as this; absent if never fetched.
+   */
+  fetchedAt?: string;
+  /**
+   * HEAD moved without a full index rebuild — a pull from a shell, a push
+   * received into this repository, a checkout behind the editor's back — or no
+   * rebuild has been recorded yet (27b/D3). The `/git` page and Settings →
+   * Maintenance show a "Rebuild indexes" banner while it is true.
+   */
+  indexStale: boolean;
+  /** The commit the indexes were last fully rebuilt from, when recorded. */
+  indexedHead?: string;
   log: CommitSummary[];
   /** More commits exist beyond the first page. */
   hasMore: boolean;
@@ -164,6 +187,30 @@ export interface GitWriteResult {
 export interface PushResult {
   remote: string;
   branch: string;
+}
+
+export interface FetchResult {
+  /** The remote fetched, or `null` when every remote was (no upstream set). */
+  remote: string | null;
+  upstream?: string;
+  ahead: number;
+  behind: number;
+  diverged: boolean;
+  fetchedAt?: string;
+}
+
+export interface PullResult {
+  /** The remote-tracking ref merged, e.g. `uraninite/main`. */
+  from: string;
+  /** False when there was nothing to bring in. */
+  merged: boolean;
+  /** HEAD simply moved forward; no merge commit was made. */
+  fastForward: boolean;
+  /** Commits the pull brought in (the remote's side, not counting a merge commit). */
+  newCommits: number;
+  head: string;
+  /** The content types whose indexes were rebuilt afterwards. */
+  rebuilt: string[];
 }
 
 /* --- the type table ------------------------------------------------------ */
@@ -287,6 +334,47 @@ export async function mergeInProgress(
 }
 
 /**
+ * `git fetch --prune`, from the remote that matters (27b).
+ *
+ * An explicit `remote` is fetched as asked. Otherwise the upstream's remote,
+ * because that is the one `ahead`/`behind` are measured against; with no
+ * upstream, every remote. Answers with the remote fetched, or `null` for "all"
+ * or "there were none". `--prune` so a branch deleted on the Pi does not linger
+ * here as a remote-tracking ref.
+ */
+async function fetchRemote(
+  git: SimpleGit,
+  remote?: string,
+): Promise<string | null> {
+  if (remote) {
+    await git.raw(["fetch", "--prune", remote]);
+    return remote;
+  }
+  const tracking = (await git.status()).tracking?.split("/")[0];
+  if (tracking) {
+    await git.raw(["fetch", "--prune", tracking]);
+    return tracking;
+  }
+  if ((await git.getRemotes()).length === 0) return null;
+  await git.raw(["fetch", "--prune", "--all"]);
+  return null;
+}
+
+/** When the last fetch ran: `FETCH_HEAD`'s mtime, or undefined if never. */
+async function fetchedAtOf(
+  contentDirectory: string,
+): Promise<string | undefined> {
+  try {
+    const { mtime } = await stat(
+      path.join(contentDirectory, ".git", "FETCH_HEAD"),
+    );
+    return mtime.toISOString();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Map a tracked path to a friendly label for the conflict resolver.
  *
  * The upload branch reads `uploads/<type>/<slug>/…`, which is where uploads
@@ -329,6 +417,8 @@ export const EMPTY_STATUS: SyncStatus = {
   merge: { inProgress: false, conflicted: [], resolvedCount: 0 },
   dirty: false,
   dirtyCount: 0,
+  diverged: false,
+  indexStale: false,
   log: [],
   hasMore: false,
 };
@@ -422,13 +512,23 @@ async function requireCleanTree(
  *
  * The one seat that never throws: `isRepo: false` is a legitimate answer — a
  * deployment that does not track its content with git — and the page's whole
- * empty state is built on it.
+ * empty state is built on it. With `fetch` it is no longer quite that: a fetch
+ * that fails (no network, a remote that refuses) throws, because an answer
+ * that silently fell back to stale refs would be the thing `fetch` was asked to
+ * prevent.
+ *
+ * `ahead`/`behind` are only as fresh as the last fetch, which is what
+ * `fetchedAt` is for; `fetch: true` makes them current first (27b).
  */
-export async function gitStatus(ctx: CurationContext): Promise<SyncStatus> {
+export async function gitStatus(
+  ctx: CurationContext,
+  { fetch = false }: { fetch?: boolean } = {},
+): Promise<SyncStatus> {
   const { contentDirectory } = ctx;
   if (!(await directoryIsGitRepo(contentDirectory))) return EMPTY_STATUS;
 
   const git = getGit(contentDirectory);
+  if (fetch) await fetchRemote(git);
   const status = await git.status();
   const inMerge = await mergeInProgress(contentDirectory);
   const remotesRaw = await git.getRemotes(true);
@@ -464,6 +564,9 @@ export async function gitStatus(ctx: CurationContext): Promise<SyncStatus> {
     status.not_added.length +
     status.renamed.length;
 
+  const freshness = await readIndexFreshness(contentDirectory);
+  const fetchedAt = await fetchedAtOf(contentDirectory);
+
   return {
     isRepo: true,
     branch: status.current ?? undefined,
@@ -480,9 +583,24 @@ export async function gitStatus(ctx: CurationContext): Promise<SyncStatus> {
     },
     dirty: !inMerge && dirtyCount > 0,
     dirtyCount,
+    diverged: status.ahead > 0 && status.behind > 0,
+    ...(fetchedAt ? { fetchedAt } : {}),
+    indexStale: freshness.stale,
+    ...(freshness.indexedHead ? { indexedHead: freshness.indexedHead } : {}),
     log,
     hasMore,
   };
+}
+
+/**
+ * Whether the indexes describe HEAD (27b/D3).
+ *
+ * The engine's own `readIndexFreshness`, under the name the plan and the
+ * routes use. `stale` is true when HEAD moved without a full rebuild, or when
+ * no rebuild was ever recorded; it is false outside a repository.
+ */
+export function indexFreshness(ctx: CurationContext): Promise<IndexFreshness> {
+  return readIndexFreshness(ctx.contentDirectory);
 }
 
 export interface GitLogOptions {
@@ -902,9 +1020,177 @@ export async function gitPush(
     const message = messageOf(error);
     if (/rejected|non-fast-forward|fetch first/i.test(message)) {
       throw new GitConflictError(
-        "Push rejected — the remote has commits you don't have. Pull first to merge, then push.",
+        "Push rejected — the remote has commits you don't have. Run git pull (or Pull on the editor's Git page) to merge them, then push.",
       );
     }
     throw error;
   }
+}
+
+export interface GitFetchOptions {
+  remote?: string;
+}
+
+/**
+ * Bring the remote's refs up to date, and nothing else (27b/D4).
+ *
+ * The working tree, the branch and the indexes are untouched — only
+ * `refs/remotes/*` and `FETCH_HEAD` move — which is why this is the git seat an
+ * agent may run unasked, and why a read-scoped token may run it (D6). It does
+ * not refuse a dirty tree for the same reason: there is nothing for
+ * uncommitted work to collide with.
+ *
+ * Answers with what the fetch was for: where this branch now stands against
+ * its upstream.
+ */
+export async function gitFetch(
+  ctx: CurationContext,
+  { remote }: GitFetchOptions = {},
+): Promise<FetchResult> {
+  const safeRemote =
+    remote === undefined ? undefined : assertArgument(remote, "remote");
+  const git = await requireRepo(ctx);
+  const fetched = await fetchRemote(git, safeRemote);
+  const status = await git.status();
+  const fetchedAt = await fetchedAtOf(ctx.contentDirectory);
+  return {
+    remote: fetched,
+    ...(status.tracking ? { upstream: status.tracking } : {}),
+    ahead: status.ahead,
+    behind: status.behind,
+    diverged: status.ahead > 0 && status.behind > 0,
+    ...(fetchedAt ? { fetchedAt } : {}),
+  };
+}
+
+export interface GitPullOptions {
+  remote?: string;
+}
+
+/**
+ * Fetch, then merge the upstream into the current branch (27b/D4).
+ *
+ * **Merge, never rebase**, and through `merge` rather than `pull` so the user's
+ * `pull.rebase` cannot change what happens — the `/git` page learned that the
+ * hard way (its `--no-rebase` comment). A fast-forward when the branch has
+ * nothing of its own, a merge commit when both sides moved.
+ *
+ * **A conflict is never left behind.** An agent cannot resolve one, and a
+ * half-merged tree would block every other write (`dirty_tree`). So on any
+ * failure the merge is aborted — the tree was clean going in, which is what
+ * makes that safe — and `git_conflict` names the files, for a person to pull
+ * from the `/git` page, where the resolver is.
+ *
+ * On success every index is rebuilt and `onBulkChange` fires, exactly as after
+ * a revert: files moved that the engine never wrote. The rebuild also stamps
+ * the new HEAD, which is what clears the stale-index banner.
+ */
+export async function gitPull(
+  ctx: CurationContext,
+  { remote }: GitPullOptions = {},
+): Promise<PullResult> {
+  const safeRemote =
+    remote === undefined ? undefined : assertArgument(remote, "remote");
+  const git = await requireRepo(ctx);
+  const status = await requireCleanTree(ctx, git);
+  const trackingRemote = status.tracking?.split("/")[0];
+
+  let from: string;
+  if (
+    status.tracking &&
+    (safeRemote === undefined || safeRemote === trackingRemote)
+  ) {
+    from = status.tracking;
+  } else if (safeRemote && status.current) {
+    from = `${safeRemote}/${status.current}`;
+  } else {
+    throw new ValidationError(
+      "No upstream configured: pass `remote`, or set one with git push --set-upstream.",
+      [{ path: "remote", message: "No upstream to pull from" }],
+    );
+  }
+  await fetchRemote(git, from.split("/")[0]);
+
+  const before = String(await git.revparse(["HEAD"])).trim();
+  const newCommits = Number(
+    String(
+      await git.raw(["rev-list", "--count", `HEAD..${from}`]).catch(() => ""),
+    ).trim() || Number.NaN,
+  );
+  if (!Number.isFinite(newCommits)) {
+    throw new BadRevisionError(
+      `${from} does not exist after the fetch — is the branch on the remote?`,
+    );
+  }
+  if (newCommits === 0) {
+    return {
+      from,
+      merged: false,
+      fastForward: false,
+      newCommits: 0,
+      head: before,
+      rebuilt: [],
+    };
+  }
+
+  /*
+   * A count, not `merge-base --is-ancestor`: that answers through its exit
+   * code alone, and `simple-git`'s `raw` resolves an exit 1 that printed
+   * nothing — so every pull read as a fast-forward (T3).
+   */
+  const fastForward =
+    Number(
+      String(await git.raw(["rev-list", "--count", `${from}..HEAD`])).trim(),
+    ) === 0;
+
+  /*
+   * Success is judged by the repository afterwards, not by whether `raw`
+   * rejected: a conflicted merge prints its CONFLICT lines on stdout and exits
+   * 1, and `simple-git` resolves that (T3) — the first draft of this seat
+   * answered `merged: true` with the tree left mid-merge.
+   */
+  let failure: unknown = null;
+  try {
+    await git
+      .env({ ...process.env, ...authorEnv(ctx) })
+      .raw(["merge", "--no-edit", from]);
+  } catch (error) {
+    failure = error;
+  }
+  const after = await git.status().catch(() => null);
+  if (
+    failure !== null ||
+    (await mergeInProgress(ctx.contentDirectory)) ||
+    (after?.conflicted.length ?? 0) > 0
+  ) {
+    const conflicted = after?.conflicted ?? [];
+    const error = failure ?? new Error("the merge did not complete");
+    /*
+     * The same rule for the undo: `merge --abort` is tried, and the tree is
+     * checked rather than the call trusted. `reset --hard` is safe because
+     * `requireCleanTree` proved there was nothing uncommitted to lose.
+     */
+    await git.raw(["merge", "--abort"]).catch(() => undefined);
+    if (
+      (await mergeInProgress(ctx.contentDirectory)) ||
+      !(await git.status()).isClean()
+    ) {
+      await git.raw(["reset", "--hard", "HEAD"]);
+    }
+    throw new GitConflictError(
+      conflicted.length > 0
+        ? `Pulling ${from} conflicts in ${conflicted.join(", ")}, so nothing was changed. Pull from the editor's Git page to resolve them.`
+        : `Pulling ${from} failed, so nothing was changed: ${messageOf(error).split("\n")[0].trim()}`,
+    );
+  }
+
+  const head = String(await git.revparse(["HEAD"])).trim();
+  return {
+    from,
+    merged: true,
+    fastForward,
+    newCommits,
+    head,
+    rebuilt: await rebuildAfterRewind(ctx),
+  };
 }

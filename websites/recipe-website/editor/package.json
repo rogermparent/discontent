@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "create-user": "tsx ./scripts/create-user.ts",
     "create-token": "tsx ./scripts/create-token.ts",
+    "revoke-token": "tsx ./scripts/revoke-token.ts",
     "recipes": "tsx ./cli/index.ts",
     "mcp": "tsx ./mcp/server.ts",
     "e2e-dev": "playwright test --project=e2e --project=mobile",

@@ -401,6 +401,18 @@ export const GitPushSchema = z.strictObject({
   setUpstream: z.boolean().optional(),
 });
 
+/** `git fetch` and `git pull` (27b): which remote, defaulting to the upstream's. */
+export const GitFetchSchema = z.strictObject({
+  remote: z.string().min(1).optional(),
+});
+
+export const GitPullSchema = GitFetchSchema;
+
+/** `git status --fetch`: refresh the remote refs first, so ahead/behind are current. */
+export const GitStatusQuerySchema = z.strictObject({
+  fetch: z.boolean().optional(),
+});
+
 export const GitDiffQuerySchema = z.strictObject({
   from: z.string().min(1),
   to: z.string().min(1).optional(),

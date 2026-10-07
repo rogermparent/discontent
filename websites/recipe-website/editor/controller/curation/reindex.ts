@@ -10,8 +10,15 @@
  *
  * `cascadeDependents: false` for the all-types pass, because the loop already
  * covers every type and the default would rebuild featured recipes twice.
+ *
+ * The all-types pass is also the one that writes the index stamp (27b): it is
+ * the only rebuild that leaves *every* index describing the tree, so it is the
+ * only one entitled to say which commit that tree was. HEAD is read before the
+ * loop, so a commit that lands mid-rebuild is not claimed as indexed. A
+ * one-type rebuild leaves the stamp alone.
  */
 import { rebuildIndex } from "@discontent/cms/content/rebuildIndex";
+import { readHead, writeIndexedHead } from "@discontent/cms/git/indexStamp";
 import { recipeContentTypes } from "../contentTypes";
 import type { CurationContext } from "./context";
 import { NotFoundError } from "./errors";
@@ -40,6 +47,7 @@ export async function reindex(
     return { rebuilt: [config.contentType] };
   }
 
+  const head = await readHead(ctx.contentDirectory);
   for (const config of recipeContentTypes) {
     await rebuildIndex({
       config,
@@ -47,5 +55,6 @@ export async function reindex(
       cascadeDependents: false,
     });
   }
+  await writeIndexedHead(ctx.contentDirectory, head);
   return { rebuilt: recipeContentTypes.map((config) => config.contentType) };
 }

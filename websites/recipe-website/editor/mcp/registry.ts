@@ -39,7 +39,11 @@
  * ingredient lists nobody asked for. Rows are `{slug, name, date, tags,
  * totalTime, image?}` and `fields` opts back into the rest one name at a time.
  */
-import { McpServer, type CallToolResult } from "@modelcontextprotocol/server";
+import {
+  McpServer,
+  type CallToolResult,
+  type RegisteredTool,
+} from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { CuratorBackend } from "../cli/backend/types";
 import { toErrorObject } from "../controller/curation/errors";
@@ -48,12 +52,15 @@ import type { RecipeRow } from "../controller/curation/recipes";
 import {
   FeaturedInputSchema,
   GitDiffQuerySchema,
+  GitFetchSchema,
   GitFileQuerySchema,
   GitHashSchema,
   GitLogQuerySchema,
+  GitPullSchema,
   GitPushSchema,
   GitRestoreSchema,
   GitRevertSchema,
+  GitStatusQuerySchema,
   GroupInputSchema,
   GroupItemInputSchema,
   GroupPatchSchema,
@@ -112,6 +119,8 @@ export const TOOL_NAMES = [
   "git_revert",
   "git_restore",
   "git_push",
+  "git_fetch",
+  "git_pull",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -281,17 +290,24 @@ const INSTRUCTIONS = `Manage and search a recipe website's content.
 
 Recipe rows from recipe_search and recipe_list are compact — {slug, name, date, tags, totalTime, image?} — to keep results small; pass \`fields\` to add description, ingredients, prepTime or cookTime, and use recipe_get for a whole recipe. Slugs are the identity of everything: recipe slugs, group slugs, and a featured entry's own slug (which is not its target's).
 
-Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?, terms?}}; the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, unknown_term, group_cycle, import_failed, no_git_identity, not_a_repo, dirty_tree, git_conflict, bad_revision, unauthenticated, usage and internal. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
+Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?, terms?}}; the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, unknown_term, group_cycle, import_failed, no_git_identity, not_a_repo, dirty_tree, git_conflict, bad_revision, unauthenticated, forbidden, usage and internal. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
 
 Writes commit to the content repository, one commit each. Deletes (recipe_delete, group_delete, unfeature) are not undoable from here.
 
-The git tools read and rewind that repository. git_log, git_show, git_file_at and git_diff read history; \`type\` is recipe, group or featured. git_revert and git_restore make a new commit and rebuild every index — they need a clean working tree (dirty_tree otherwise) and neither is undoable from here. git_push sends the branch to its remote and changes nothing locally.`;
+The git tools read and rewind that repository. git_log, git_show, git_file_at and git_diff read history; \`type\` is recipe, group or featured. git_revert and git_restore make a new commit and rebuild every index — they need a clean working tree (dirty_tree otherwise) and neither is undoable from here. git_push sends the branch to its remote and changes nothing locally. git_fetch refreshes the remote refs and nothing else, so run it (or git_status with fetch: true) before trusting ahead/behind. git_pull merges the upstream in and rebuilds every index; a conflict is aborted and answered with git_conflict, for a person to resolve in the editor's Git page. If git_status says indexStale, run reindex.`;
 
 /* --- the registry -------------------------------------------------------- */
 
 export interface RecipeServerInfo {
   name?: string;
   version?: string;
+  /**
+   * Register only the tools annotated `readOnlyHint: true` (27b/D6) — what a
+   * read-scoped API token gets over MCP-over-HTTP. Filtered by annotation, not
+   * by which wrapper a tool's handler uses: `git_push` answers through `read`
+   * (it writes no file, T50) and is still a write.
+   */
+  readOnly?: boolean;
 }
 
 export function createRecipeServer(
@@ -306,9 +322,24 @@ export function createRecipeServer(
     { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
   );
 
+  /*
+   * Every registration goes through here so the handles can be kept: the SDK
+   * answers `tools/list` from what is registered, so a read-only session drops
+   * its writes with `remove()` after the fact rather than branching at each of
+   * the call sites below.
+   */
+  const registered: RegisteredTool[] = [];
+  const register = ((...args: unknown[]) => {
+    const tool = (server.registerTool as (...a: unknown[]) => RegisteredTool)(
+      ...args,
+    );
+    registered.push(tool);
+    return tool;
+  }) as typeof server.registerTool;
+
   /* --- recipes ----------------------------------------------------------- */
 
-  server.registerTool(
+  register(
     "recipe_search",
     {
       title: "Search recipes",
@@ -334,7 +365,7 @@ export function createRecipeServer(
       }),
   );
 
-  server.registerTool(
+  register(
     "recipe_list",
     {
       title: "List recipes",
@@ -358,7 +389,7 @@ export function createRecipeServer(
       }),
   );
 
-  server.registerTool(
+  register(
     "recipe_get",
     {
       title: "Get a recipe",
@@ -378,7 +409,7 @@ export function createRecipeServer(
       }),
   );
 
-  server.registerTool(
+  register(
     "page_inspect",
     {
       title: "Inspect a page before importing it",
@@ -397,7 +428,7 @@ export function createRecipeServer(
     async ({ url }) => read(() => backend.inspect(url)),
   );
 
-  server.registerTool(
+  register(
     "recipe_import",
     {
       title: "Import a recipe from a URL",
@@ -424,7 +455,7 @@ export function createRecipeServer(
       }),
   );
 
-  server.registerTool(
+  register(
     "recipe_create",
     {
       title: "Create a recipe",
@@ -450,7 +481,7 @@ export function createRecipeServer(
       ),
   );
 
-  server.registerTool(
+  register(
     "recipe_update",
     {
       title: "Update a recipe",
@@ -471,7 +502,7 @@ export function createRecipeServer(
       }),
   );
 
-  server.registerTool(
+  register(
     "recipe_set_image",
     {
       title: "Set or clear a recipe's image",
@@ -507,7 +538,7 @@ export function createRecipeServer(
       }),
   );
 
-  server.registerTool(
+  register(
     "recipe_delete",
     {
       title: "Delete a recipe",
@@ -520,7 +551,7 @@ export function createRecipeServer(
     async ({ slug }) => write(backend, () => backend.deleteRecipe(slug)),
   );
 
-  server.registerTool(
+  register(
     "tag_list",
     {
       title: "List tags",
@@ -534,7 +565,7 @@ export function createRecipeServer(
 
   /* --- groups ------------------------------------------------------------ */
 
-  server.registerTool(
+  register(
     "group_list",
     {
       title: "List groups",
@@ -546,7 +577,7 @@ export function createRecipeServer(
       read(() => backend.listGroups({ limit, offset })),
   );
 
-  server.registerTool(
+  register(
     "group_get",
     {
       title: "Get a group",
@@ -559,7 +590,7 @@ export function createRecipeServer(
     async ({ slug }) => read(() => backend.getGroup(slug)),
   );
 
-  server.registerTool(
+  register(
     "group_create",
     {
       title: "Create a group",
@@ -579,7 +610,7 @@ export function createRecipeServer(
       write(backend, () => backend.createGroup(group, { force })),
   );
 
-  server.registerTool(
+  register(
     "group_update",
     {
       title: "Update a group",
@@ -597,7 +628,7 @@ export function createRecipeServer(
       write(backend, () => backend.updateGroup(slug, patch)),
   );
 
-  server.registerTool(
+  register(
     "group_set_items",
     {
       title: "Replace a group's items",
@@ -616,7 +647,7 @@ export function createRecipeServer(
       write(backend, () => backend.setGroupItems(group, items, { force })),
   );
 
-  server.registerTool(
+  register(
     "group_add_item",
     {
       title: "Add a recipe or a group to a group",
@@ -640,7 +671,7 @@ export function createRecipeServer(
       ),
   );
 
-  server.registerTool(
+  register(
     "group_remove_item",
     {
       title: "Remove a recipe or a group from a group",
@@ -659,7 +690,7 @@ export function createRecipeServer(
       ),
   );
 
-  server.registerTool(
+  register(
     "group_delete",
     {
       title: "Delete a group",
@@ -674,7 +705,7 @@ export function createRecipeServer(
 
   /* --- featured ---------------------------------------------------------- */
 
-  server.registerTool(
+  register(
     "featured_list",
     {
       title: "List featured entries",
@@ -688,7 +719,7 @@ export function createRecipeServer(
       read(() => backend.listFeatured({ limit, offset })),
   );
 
-  server.registerTool(
+  register(
     "feature",
     {
       title: "Feature a recipe, a group or a term",
@@ -704,7 +735,7 @@ export function createRecipeServer(
     async (args) => write(backend, () => backend.feature(args)),
   );
 
-  server.registerTool(
+  register(
     "unfeature",
     {
       title: "Remove a featured entry",
@@ -719,7 +750,7 @@ export function createRecipeServer(
 
   /* --- maintenance ------------------------------------------------------- */
 
-  server.registerTool(
+  register(
     "reindex",
     {
       title: "Rebuild indexes",
@@ -737,7 +768,7 @@ export function createRecipeServer(
 
   /* --- inventory (25d) --------------------------------------------------- */
 
-  server.registerTool(
+  register(
     "inventory_get",
     {
       title: "What's on hand",
@@ -751,7 +782,7 @@ export function createRecipeServer(
     async () => read(() => backend.getInventory()),
   );
 
-  server.registerTool(
+  register(
     "inventory_add",
     {
       title: "Add to what's on hand",
@@ -770,7 +801,7 @@ export function createRecipeServer(
       }),
   );
 
-  server.registerTool(
+  register(
     "inventory_remove",
     {
       title: "Remove from what's on hand",
@@ -788,7 +819,7 @@ export function createRecipeServer(
       }),
   );
 
-  server.registerTool(
+  register(
     "inventory_set",
     {
       title: "Replace what's on hand",
@@ -802,7 +833,7 @@ export function createRecipeServer(
       write(backend, () => backend.setInventory(args), { notify: false }),
   );
 
-  server.registerTool(
+  register(
     "inventory_makeable",
     {
       title: "What can I make?",
@@ -820,22 +851,25 @@ export function createRecipeServer(
 
   /* --- git --------------------------------------------------------------- */
 
-  server.registerTool(
+  register(
     "git_status",
     {
       title: "Git status",
       description:
         "Whether the content directory is a Git repository, and where it stands: " +
-        "branch, upstream, ahead/behind, uncommitted changes, remotes, and the most " +
-        "recent commits. `isRepo: false` means this deployment does not track its " +
-        "content with Git, and no other git tool will work.",
-      inputSchema: z.strictObject({}),
+        "branch, upstream, ahead/behind (`diverged` when both), uncommitted changes, " +
+        "remotes, the most recent commits, and `indexStale` — HEAD moved without a " +
+        "full rebuild, so run reindex. ahead/behind are as of `fetchedAt`; pass " +
+        "`fetch: true` to refresh them first. `isRepo: false` means this deployment " +
+        "does not track its content with Git, and no other git tool will work.",
+      inputSchema: GitStatusQuerySchema,
       annotations: READ_ONLY,
     },
-    async () => read(() => backend.gitStatus()),
+    async ({ fetch }) =>
+      read(() => backend.gitStatus(fetch ? { fetch: true } : {})),
   );
 
-  server.registerTool(
+  register(
     "git_log",
     {
       title: "Git log",
@@ -850,7 +884,7 @@ export function createRecipeServer(
     async (args) => read(() => backend.gitLog(args)),
   );
 
-  server.registerTool(
+  register(
     "git_show",
     {
       title: "Show a commit",
@@ -869,7 +903,7 @@ export function createRecipeServer(
       ),
   );
 
-  server.registerTool(
+  register(
     "git_file_at",
     {
       title: "Read an item at a revision",
@@ -883,7 +917,7 @@ export function createRecipeServer(
     async (args) => read(() => backend.gitFileAt(args)),
   );
 
-  server.registerTool(
+  register(
     "git_diff",
     {
       title: "Diff two revisions",
@@ -896,7 +930,7 @@ export function createRecipeServer(
     async (args) => read(() => backend.gitDiff(args)),
   );
 
-  server.registerTool(
+  register(
     "git_revert",
     {
       title: "Revert a commit",
@@ -911,7 +945,7 @@ export function createRecipeServer(
     async ({ hash }) => write(backend, () => backend.gitRevert(hash)),
   );
 
-  server.registerTool(
+  register(
     "git_restore",
     {
       title: "Restore an item to a revision",
@@ -926,7 +960,7 @@ export function createRecipeServer(
     async (args) => write(backend, () => backend.gitRestore(args)),
   );
 
-  server.registerTool(
+  register(
     "git_push",
     {
       title: "Push the content branch",
@@ -945,6 +979,49 @@ export function createRecipeServer(
      */
     async (args) => read(() => backend.gitPush(args)),
   );
+
+  register(
+    "git_fetch",
+    {
+      title: "Fetch the remote",
+      description:
+        "Refresh the remote-tracking refs, then answer where this branch stands: " +
+        "ahead/behind its upstream, `diverged` when both sides have commits, and " +
+        "`fetchedAt`. Moves no content and no index, so it is always safe to run — " +
+        "git_status's ahead/behind is only as fresh as the last fetch. Pass `remote` " +
+        "to fetch one that is not the upstream's.",
+      inputSchema: GitFetchSchema,
+      /*
+       * Read-only in the sense the hint means for a curator: the content, the
+       * branch and the indexes are untouched — only `refs/remotes/*` move
+       * (D6). That is also what keeps it in a read-scoped session.
+       */
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async (args) => read(() => backend.gitFetch(args)),
+  );
+
+  register(
+    "git_pull",
+    {
+      title: "Pull from the remote",
+      description:
+        "Fetch, then merge the upstream into the current branch (never rebase) and " +
+        "rebuild every index. Answers {from, merged, fastForward, newCommits, head, " +
+        "rebuilt}. Refuses a dirty tree. A conflict is aborted — the tree is left " +
+        "exactly as it was — and answered with git_conflict naming the files; " +
+        "resolving it is a person's job in the editor's Git page.",
+      inputSchema: GitPullSchema,
+      annotations: WRITES,
+    },
+    async (args) => write(backend, () => backend.gitPull(args)),
+  );
+
+  if (info.readOnly) {
+    for (const tool of registered) {
+      if (tool.annotations?.readOnlyHint !== true) tool.remove();
+    }
+  }
 
   return server;
 }

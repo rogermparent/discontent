@@ -1,7 +1,7 @@
 ---
 name: recipe-curator
 description: Find, import, cite and group recipes for the recipe website — meal plans, collections, nested collections, the homepage strip and the shared list of what's on hand — through the `recipes` MCP tools. Use for asks like "plan dinners for the week", "import this recipe", "make a collection of …", "put it on the homepage", "I bought Gnista", "what can I make?".
-allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__page_inspect, mcp__recipes__recipe_import, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__recipe_set_image, mcp__recipes__tag_list, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__inventory_get, mcp__recipes__inventory_add, mcp__recipes__inventory_remove, mcp__recipes__inventory_makeable, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, WebSearch, WebFetch, Bash(pnpm --silent recipes:*)
+allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__page_inspect, mcp__recipes__recipe_import, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__recipe_set_image, mcp__recipes__tag_list, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__inventory_get, mcp__recipes__inventory_add, mcp__recipes__inventory_remove, mcp__recipes__inventory_makeable, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, mcp__recipes__git_fetch, WebSearch, WebFetch, Bash(pnpm --silent recipes:*)
 ---
 
 # Recipe curator
@@ -21,8 +21,12 @@ recipe_list {"limit": 1}
 recipe_get {"slug": "<the slug from that row>"}
 ```
 
-`git_status` → `{isRepo, branch, upstream, ahead, behind, dirty, remotes,
-log}`: `isRepo: true` means every write becomes a commit on that branch.
+`git_status` → `{isRepo, branch, upstream, ahead, behind, diverged,
+fetchedAt, dirty, indexStale, remotes, log}`: `isRepo: true` means every write
+becomes a commit on that branch. `ahead`/`behind` are only as fresh as
+`fetchedAt`; `git_fetch {}` (or `git_status {"fetch": true}`) refreshes them
+and touches nothing else. If `behind` > 0 the remote has recipes this copy
+lacks — mention it, since pulling is the user's call.
 `recipe_list` → `{total, more, recipes}`; `recipe_get` →
 `{slug, path, url, recipe}`, whose absolute `path` names the resolved content
 directory — that answers "where" without reading the environment or shelling
@@ -285,11 +289,12 @@ and `git_file_at` read one back). End with: push from `/git` when ready.
 ## Held back
 
 `recipe_delete`, `group_delete`, `unfeature`, `reindex`, `git_revert`,
-`git_restore`, `git_push` and `inventory_set` (which replaces the whole
-inventory) are not pre-approved and are not part of this skill — do not call them, and do not ask for them to be approved. If a write
+`git_restore`, `git_push`, `git_pull` and `inventory_set` (which replaces the
+whole inventory) are not pre-approved and are not part of this skill — do not call them, and do not ask for them to be approved. If a write
 goes wrong, find its commit with `git_log` and report the hash and the path:
-undoing it with `git_revert` or `git_restore`, and pushing, are the user's
-calls. Never pass `overwrite` or `force`, and never put `RECIPE_API_TOKEN` on
+undoing it with `git_revert` or `git_restore`, and pulling or pushing, are the
+user's calls. If `git_status` reports `indexStale: true`, say so in the report
+and suggest a reindex; do not run one. Never pass `overwrite` or `force`, and never put `RECIPE_API_TOKEN` on
 a command line.
 
 ## Fallback (CLI)

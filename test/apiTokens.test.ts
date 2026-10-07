@@ -27,6 +27,7 @@ import {
   listUserEmails,
   parseToken,
   readUser,
+  removeTokensFromUser,
   userFilePath,
   writeUser,
 } from "../websites/recipe-website/editor/src/users";
@@ -119,12 +120,14 @@ describe("findUserByToken", () => {
       "phone",
     );
 
-    expect(await findUserByToken(contentDirectory, tokenA)).toBe(
-      "a@example.com",
-    );
-    expect(await findUserByToken(contentDirectory, tokenB)).toBe(
-      "b@example.com",
-    );
+    expect(await findUserByToken(contentDirectory, tokenA)).toEqual({
+      email: "a@example.com",
+      scope: "write",
+    });
+    expect(await findUserByToken(contentDirectory, tokenB)).toEqual({
+      email: "b@example.com",
+      scope: "write",
+    });
   });
 
   it("stores only the hash, and rejects a tampered secret", async () => {
@@ -181,14 +184,97 @@ describe("findUserByToken", () => {
       "two",
     );
 
-    expect(await findUserByToken(contentDirectory, first)).toBe(
-      "a@example.com",
-    );
-    expect(await findUserByToken(contentDirectory, second)).toBe(
-      "a@example.com",
-    );
+    expect(await findUserByToken(contentDirectory, first)).toEqual({
+      email: "a@example.com",
+      scope: "write",
+    });
+    expect(await findUserByToken(contentDirectory, second)).toEqual({
+      email: "a@example.com",
+      scope: "write",
+    });
     expect(
       (await readUser(contentDirectory, "a@example.com"))?.tokens,
     ).toHaveLength(2);
+  });
+});
+
+describe("scopes and revocation (27b)", () => {
+  beforeEach(async () => {
+    await writeUser(contentDirectory, {
+      email: "a@example.com",
+      password: "hashed",
+    });
+  });
+
+  it("mints a read token that authenticates as read, and stores the scope", async () => {
+    const token = await addTokenToUser(
+      contentDirectory,
+      "a@example.com",
+      "dashboard",
+      { scope: "read" },
+    );
+    expect(await findUserByToken(contentDirectory, token)).toEqual({
+      email: "a@example.com",
+      scope: "read",
+    });
+    const stored = await readUser(contentDirectory, "a@example.com");
+    expect(stored!.tokens![0].scope).toBe("read");
+  });
+
+  it("reads a row with no scope — every token before 27b — as write", async () => {
+    const { token, id, hash } = generateToken();
+    await writeUser(contentDirectory, {
+      email: "a@example.com",
+      password: "hashed",
+      tokens: [{ id, hash, name: "old", createdAt: "2026-09-01T00:00:00Z" }],
+    });
+    expect(await findUserByToken(contentDirectory, token)).toEqual({
+      email: "a@example.com",
+      scope: "write",
+    });
+  });
+
+  it("does not write a scope for a write token, so the row reads as before", async () => {
+    await addTokenToUser(contentDirectory, "a@example.com", "cli");
+    const stored = await readUser(contentDirectory, "a@example.com");
+    expect(stored!.tokens![0]).not.toHaveProperty("scope");
+  });
+
+  it("revokes by id, leaving the others working", async () => {
+    const keep = await addTokenToUser(contentDirectory, "a@example.com", "a");
+    const drop = await addTokenToUser(contentDirectory, "a@example.com", "b");
+
+    const removed = await removeTokensFromUser(
+      contentDirectory,
+      "a@example.com",
+      { id: parseToken(drop)!.id },
+    );
+    expect(removed.map((token) => token.name)).toEqual(["b"]);
+    expect(await findUserByToken(contentDirectory, drop)).toBeNull();
+    expect(await findUserByToken(contentDirectory, keep)).not.toBeNull();
+  });
+
+  it("revokes every token with a name, and answers [] for one that matches nothing", async () => {
+    const one = await addTokenToUser(contentDirectory, "a@example.com", "pi");
+    const two = await addTokenToUser(contentDirectory, "a@example.com", "pi");
+
+    expect(
+      await removeTokensFromUser(contentDirectory, "a@example.com", {
+        name: "pi",
+      }),
+    ).toHaveLength(2);
+    expect(await findUserByToken(contentDirectory, one)).toBeNull();
+    expect(await findUserByToken(contentDirectory, two)).toBeNull();
+    expect(
+      await removeTokensFromUser(contentDirectory, "a@example.com", {
+        name: "pi",
+      }),
+    ).toEqual([]);
+  });
+
+  it("refuses to guess which token: neither id nor name is an error", async () => {
+    await expect(
+      removeTokensFromUser(contentDirectory, "a@example.com", {}),
+    ).rejects.toThrow(/by id or by name/);
   });
 });

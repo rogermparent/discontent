@@ -12,8 +12,9 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import simpleGit from "simple-git";
 import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
+import { writeIndexedHead } from "@discontent/cms/git/indexStamp";
 import { recipeContentTypes } from "../../controller/contentTypes";
-import { addTokenToUser } from "../../src/users";
+import { addTokenToUser, removeTokensFromUser } from "../../src/users";
 
 const projectRoot = resolve(__dirname, "..", "..");
 const testContentDir = resolve(projectRoot, "test-content");
@@ -55,8 +56,17 @@ export async function resetData(fixture?: string): Promise<void> {
 export async function createApiToken(
   email = "admin@nextmail.com",
   name = "playwright",
+  scope: "read" | "write" = "write",
 ): Promise<string> {
-  return addTokenToUser(testContentDir, email, name);
+  return addTokenToUser(testContentDir, email, name, { scope });
+}
+
+/** `scripts/revoke-token.ts`'s seat, by name (27b). Returns how many went. */
+export async function revokeApiToken(
+  email = "admin@nextmail.com",
+  name = "playwright",
+): Promise<number> {
+  return (await removeTokensFromUser(testContentDir, email, { name })).length;
 }
 
 /**
@@ -126,6 +136,12 @@ export async function initializeContentGit(): Promise<void> {
     derivedContentPaths(recipeContentTypes),
   );
   await git.add(".").commit("Initial commit");
+  /*
+   * The fixture's prebuilt indexes describe exactly what was just committed,
+   * so record that — as the editor's own Initialize does (27b). Without it
+   * every `/git` visit would show the stale-index banner.
+   */
+  await writeIndexedHead(testContentDir);
 }
 
 export async function writeSettings(
@@ -211,6 +227,26 @@ export async function editRecipeInClone(
   data.name = name;
   await outputJSON(file, data);
   await simpleGit(cloneDir).add(".").commit(`Update recipe: ${slug}`);
+}
+
+/**
+ * A push that lands *in* the content repository, as one lands on the Pi (27b).
+ *
+ * The content repo takes `receive.denyCurrentBranch updateInstead`, a scratch
+ * clone of it commits a recipe, and pushes straight back: the working tree
+ * moves and the editor is told nothing — exactly the case the stale-index
+ * banner exists for.
+ */
+export async function pushIntoContent(
+  slug: string,
+  name: string,
+): Promise<void> {
+  const content = simpleGit(testContentDir);
+  await content.addConfig("receive.denyCurrentBranch", "updateInstead");
+  const branch = (await content.status()).current ?? "main";
+  const cloneDir = await cloneFromRemote(testContentDir, "laptop");
+  await addRecipeInClone(cloneDir, slug, name);
+  await simpleGit(cloneDir).push("origin", branch);
 }
 
 /** Push a clone's commits back to its remote. */

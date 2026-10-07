@@ -1454,7 +1454,9 @@ const ALLOWED: RegExp[] = [
    * `readTaxonomyTerms`, which is `readAggregate` underneath and touches no
    * Next API — the same standing the `aggregates/` prefix above has. */
   /^@discontent\/cms\/taxonomies\/[^/]+$/,
-  /^@discontent\/cms\/git\/commit$/,
+  /* `indexStamp` joined at 27b: the HEAD the indexes were built from, read
+   * and written with `simple-git` and `fs` alone — the standing `commit` has. */
+  /^@discontent\/cms\/git\/(commit|indexStamp)$/,
   /* `featuredRecipeContentConfig` and its default slug joined at 23a (D5): a
    * content config and a pure string builder, neither of which touches Next. */
   /* `tagTermContentConfig` joined at 24c, for the same standing the other three

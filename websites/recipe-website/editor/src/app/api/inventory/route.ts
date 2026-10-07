@@ -24,7 +24,7 @@ import {
 
 export async function GET(request: Request) {
   try {
-    const ctx = await requireCurationContext(request);
+    const ctx = await requireCurationContext(request, { need: "read" });
     return Response.json(await readInventory(ctx));
   } catch (error) {
     return errorResponse(error);

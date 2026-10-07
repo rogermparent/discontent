@@ -4,8 +4,9 @@
  *     CONTENT_DIRECTORY=<dir> pnpm create-token -e you@example.com -n laptop
  *
  * Prints the token **once** — only its SHA-256 is stored, so there is nothing
- * to print a second time. Revoke by deleting the matching `{id, …}` object from
- * the `tokens` array in `<dir>/users/<email>`.
+ * to print a second time. `--read-only` mints a `read` token (27b/D6): GET
+ * routes, `inspect`, `git fetch` and the read-only MCP tools, nothing that
+ * writes. Revoke with `pnpm revoke-token -e <email> --id <id>`.
  *
  * The shape follows `create-user.ts` deliberately (same `parseArgs` options,
  * same `read` prompts, same `require.main` guard): these are the two scripts an
@@ -20,6 +21,7 @@ import { addTokenToUser, userFilePath } from "../src/users";
 const options: ParseArgsOptionsConfig = {
   email: { type: "string", short: "e" },
   name: { type: "string", short: "n" },
+  "read-only": { type: "boolean" },
   help: { type: "boolean", short: "h" },
 } as const;
 
@@ -29,8 +31,10 @@ export async function createToken(): Promise<void> {
     const typedValues = values as {
       email?: string;
       name?: string;
+      "read-only"?: boolean;
       help?: boolean;
     };
+    const scope = typedValues["read-only"] ? "read" : "write";
 
     if (typedValues.help) {
       console.log(`
@@ -39,6 +43,7 @@ Usage: pnpm create-token [options]
 Options:
   -e, --email <email>  The user the token authenticates as
   -n, --name <name>    A label for the token (e.g. "laptop", "curator skill")
+      --read-only      Mint a read token: no write route accepts it
   -h, --help           Show this help message
 
 The content directory comes from CONTENT_DIRECTORY (or ./content).
@@ -64,9 +69,11 @@ bearer token on plain HTTP is acceptable only on localhost or a trusted LAN.
     if (!name) throw new Error("Token name is required");
 
     const contentDirectory = getContentDirectory();
-    const token = await addTokenToUser(contentDirectory, email, name);
+    const token = await addTokenToUser(contentDirectory, email, name, {
+      scope,
+    });
 
-    console.log(`✅ Token created for ${email} (${name})`);
+    console.log(`✅ ${scope} token created for ${email} (${name})`);
     console.log(
       `📁 Stored (hashed) in: ${userFilePath(contentDirectory, email)}`,
     );

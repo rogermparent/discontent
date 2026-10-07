@@ -9,7 +9,9 @@ import {
   PageSection,
   PageHeading,
 } from "recipe-website-common/components/PageLayout";
+import { rebuildIndexesAction } from "recipe-editor/controller/actions/sync";
 import { SettingsCard } from "../../SettingsCard";
+import { IndexStaleBanner } from "../../IndexStaleBanner";
 
 export default async function MaintenancePage() {
   const user = await auth();
@@ -20,12 +22,21 @@ export default async function MaintenancePage() {
     <PageMain>
       <PageSection maxWidth="4xl" grow>
         <PageHeading>Maintenance</PageHeading>
+        <IndexStaleBanner />
         <div className="space-y-6">
           <SettingsCard
             title="Search index"
-            description="Rebuild the recipe indexes if listings drift out of sync with the content on disk."
+            description="Rebuild the indexes if listings drift out of sync with the content on disk. After a pull or a change from outside the editor, rebuild all of them."
           >
             <div className="flex flex-col gap-4">
+              {/*
+                Every index, and the HEAD stamp the banner above reads (27b).
+                The per-type buttons below stay for the narrow repairs they
+                were made for.
+              */}
+              <form action={rebuildIndexesAction}>
+                <SubmitButton>Rebuild all indexes</SubmitButton>
+              </form>
               <form action={rebuildRecipeIndex}>
                 <SubmitButton>Reload Recipe Database</SubmitButton>
               </form>

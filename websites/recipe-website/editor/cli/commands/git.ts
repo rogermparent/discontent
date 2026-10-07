@@ -2,7 +2,7 @@
  * The `git` sub-table — the content repository's history from the terminal
  * (23d/D23).
  *
- * Five reads and three writes, and the split in how they *print* is the whole
+ * Five reads and three writes (plus 27b's `fetch` and `pull`), and the split in how they *print* is the whole
  * design: `log` is a row table because a person scans it, `show` and `diff`
  * print the raw patch because that is what a pager and `grep` want, and `file`
  * prints JSON because its answer is a record rather than prose. With `--json`
@@ -16,9 +16,11 @@ import { UsageError } from "../../controller/curation/errors";
 import { formatJsonBlock, formatRows } from "../output";
 import type {
   DiffResult,
+  FetchResult,
   FileAtResult,
   GitLogResult,
   GitWriteResult,
+  PullResult,
   PushResult,
   ShowResult,
   SyncStatus,
@@ -44,22 +46,42 @@ function requireType(value: string | undefined, command: string): string {
   return value;
 }
 
+/** "ahead 1, behind 2 (diverged) — fetched 2026-10-07T…" */
+function aheadBehind(result: {
+  ahead: number;
+  behind: number;
+  diverged: boolean;
+  fetchedAt?: string;
+}): string {
+  return `ahead ${result.ahead}, behind ${result.behind}${
+    result.diverged ? " (diverged — a pull will merge)" : ""
+  }${result.fetchedAt ? ` — as of the fetch at ${result.fetchedAt}` : " — never fetched"}`;
+}
+
 const gitStatus: CommandDef<SyncStatus> = {
   name: "git status",
-  usage: "recipes git status",
-  options: {},
-  run: ({ backend }) => backend.gitStatus(),
+  usage: "recipes git status [--fetch]",
+  options: {
+    fetch: { type: "boolean" },
+  },
+  run: ({ backend, options }) =>
+    backend.gitStatus(booleanOption(options, "fetch") ? { fetch: true } : {}),
   format(result) {
     if (!result.isRepo) return "Not a Git repository.";
     const lines = [
       `branch ${result.branch ?? "(unborn)"}${
         result.upstream ? ` → ${result.upstream}` : " (no upstream)"
       }`,
-      `ahead ${result.ahead}, behind ${result.behind}`,
+      aheadBehind(result),
       result.dirty
         ? `${result.dirtyCount} uncommitted change${result.dirtyCount === 1 ? "" : "s"}`
         : "clean",
     ];
+    if (result.indexStale) {
+      lines.push(
+        "indexes stale: HEAD moved without a full rebuild — run `recipes reindex`",
+      );
+    }
     if (result.merge.inProgress) {
       lines.push(
         `merge in progress: ${result.merge.conflicted.length} conflicted, ${result.merge.resolvedCount} resolved`,
@@ -216,24 +238,70 @@ const gitRestore: CommandDef<GitWriteResult> = {
 
 const gitPush: CommandDef<PushResult> = {
   name: "git push",
-  usage: "recipes git push [--remote r] [--set-upstream]",
+  usage: "recipes git push [<remote>] [--set-upstream]",
   options: {
-    remote: { type: "string" },
     "set-upstream": { type: "boolean" },
   },
   /*
    * Not `write: true`. Nothing in the content directory changed, so a running
    * editor's caches are exactly as correct as they were a moment ago and the
    * stale-editor hint would be noise (T50).
+   *
+   * The git remote is a positional, as in git itself (27b/T2). It was
+   * `--remote r`, which is also the CLI's *global* `--remote <editor URL>`:
+   * `parseArgs` merged the two, so `git push --remote uraninite` tried to reach
+   * an editor at the URL "uraninite".
    */
-  async run({ backend, options }) {
-    const remote = stringOption(options, "remote");
+  async run({ backend, positionals, options }) {
+    const remote = positionals[0];
     return backend.gitPush({
       ...(remote ? { remote } : {}),
       ...(booleanOption(options, "set-upstream") ? { setUpstream: true } : {}),
     });
   },
   format: (result) => `Pushed ${result.branch} to ${result.remote}`,
+};
+
+const gitFetch: CommandDef<FetchResult> = {
+  name: "git fetch",
+  usage: "recipes git fetch [<remote>]",
+  options: {},
+  /* Not `write: true`: only remote-tracking refs move, never the content. */
+  async run({ backend, positionals }) {
+    const remote = positionals[0];
+    return backend.gitFetch(remote ? { remote } : {});
+  },
+  format: (result) =>
+    [
+      `fetched ${result.remote ?? "every remote"}${
+        result.upstream ? ` (upstream ${result.upstream})` : ""
+      }`,
+      aheadBehind(result),
+    ].join("\n"),
+};
+
+const gitPull: CommandDef<PullResult> = {
+  name: "git pull",
+  usage: "recipes git pull [<remote>]",
+  options: {},
+  /*
+   * `write: true`: a pull moves the content and rebuilds every index, so a
+   * running editor is stale afterwards exactly as after a revert.
+   */
+  write: true,
+  async run({ backend, positionals }) {
+    const remote = positionals[0];
+    return backend.gitPull(remote ? { remote } : {});
+  },
+  format(result) {
+    if (!result.merged) return `Already up to date with ${result.from}.`;
+    return [
+      `${result.fastForward ? "Fast-forwarded" : "Merged"} ${result.newCommits} commit${
+        result.newCommits === 1 ? "" : "s"
+      } from ${result.from} → ${result.head.slice(0, 7)}`,
+      `  rebuilt: ${result.rebuilt.join(", ")}`,
+    ].join("\n");
+  },
 };
 
 export const gitCommands: Record<string, CommandDef<unknown>> = {
@@ -245,6 +313,8 @@ export const gitCommands: Record<string, CommandDef<unknown>> = {
   revert: gitRevert,
   restore: gitRestore,
   push: gitPush,
+  fetch: gitFetch,
+  pull: gitPull,
 };
 
 export default gitCommands;

@@ -19,7 +19,7 @@ export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
-    const ctx = await requireCurationContext(request);
+    const ctx = await requireCurationContext(request, { need: "read" });
     const url = new URL(request.url);
     const from = url.searchParams.get("from");
     const to = url.searchParams.get("to");

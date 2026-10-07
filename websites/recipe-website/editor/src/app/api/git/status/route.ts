@@ -18,8 +18,10 @@ export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
-    const ctx = await requireCurationContext(request);
-    return Response.json(await gitStatus(ctx));
+    const ctx = await requireCurationContext(request, { need: "read" });
+    /* `?fetch=1` refreshes the remote refs first (27b) — read-level, D6. */
+    const fetch = new URL(request.url).searchParams.get("fetch") === "1";
+    return Response.json(await gitStatus(ctx, { fetch }));
   } catch (error) {
     return errorResponse(error);
   }

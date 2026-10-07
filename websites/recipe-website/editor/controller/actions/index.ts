@@ -9,6 +9,7 @@ import { revalidateDerivedState } from "@discontent/cms/content/next/revalidateD
 import type { UploadSpec } from "@discontent/cms/content/types";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { directoryIsGitRepo } from "@discontent/cms/git/commit";
+import { writeIndexedHead } from "@discontent/cms/git/indexStamp";
 import { writeFile } from "fs-extra";
 import { revalidatePath } from "next/cache";
 import { join } from "node:path";
@@ -29,6 +30,7 @@ import { z } from "zod";
 import parseRecipeFormData, { ParsedRecipeFormData } from "../parseFormData";
 import { recipeContentTypes } from "../contentTypes";
 import { ImportError } from "../curation/errors";
+import { reindex } from "../curation/reindex";
 import { fetchImageFile } from "../imageImport";
 import type { EditorContentConfig } from "@discontent/cms/content/editorContentConfig";
 import { createGenericActions } from "@discontent/cms/content/genericActions";
@@ -338,8 +340,8 @@ export async function rebuildRecipeIndex() {
    * A P3 gap, found while giving featured recipes the same seat: this fired
    * only `revalidatePath("/")` and no tags at all, so a rebuild reprojected
    * every page and the site went on serving the old ones. Worst on the git
-   * branch-switch path, where `rebuildRecipeIndex` is how the whole corpus is
-   * meant to change over.
+   * branch-switch path, which called this until 27b moved it to
+   * `rebuildAllIndexes`.
    *
    * The argument is the blast radius, stated once: **the two configs this
    * rebuild moves.** `rebuildIndex` cascades to dependents by default (D1), so
@@ -369,9 +371,12 @@ export async function rebuildRecipeIndex() {
  *
  * The seat `rebuildRecipeIndex` could not become. That one is pinned by
  * `test/revalidateDerived.test.ts` as a *narrow* seat — recipes and the
- * featured recipes its cascade reaches, and deliberately nothing else — and it
- * is what the git branch-switch path calls, where widening it would drop the
- * whole cache on every checkout for no reason.
+ * featured recipes its cascade reaches, and deliberately nothing else. It used
+ * to be what the git branch-switch path called, on the argument that widening
+ * it would drop the whole cache on every checkout for no reason; but a checkout
+ * swaps groups and term records too, and a cache that survives it is the wrong
+ * one (D2). Nothing in the app calls it since 27b; the test still pins its
+ * shape.
  *
  * What needed a wider one was the export (T9/22b): `buildExport` called
  * `rebuildRecipeIndex` to self-heal a content directory that predates an index,
@@ -380,15 +385,15 @@ export async function rebuildRecipeIndex() {
  * same class of bug §13 keeps producing, and the fix is to ask the registry
  * rather than to name two more configs here.
  *
- * `cascadeDependents: false` because the loop already covers every type. The
- * default is true, and leaving it on would rebuild featured recipes twice —
- * once as the recipe rebuild's cascade, once on its own pass.
+ * Since 27b it is also what every tree-moving path calls — pull, sync, merge,
+ * abort, commit-working-changes, branch checkout and Settings → Maintenance.
+ * Those used to call the narrow seat, so a pull that brought in groups or term
+ * records left those indexes describing the old tree (`agent-epic-27.md` D2).
+ * The loop is `reindex`'s all-types pass, which also stamps the HEAD it
+ * indexed — the stamp the stale-index banner reads.
  */
 export async function rebuildAllIndexes() {
-  const contentDirectory = getContentDirectory();
-  for (const config of recipeContentTypes) {
-    await rebuildIndex({ config, contentDirectory, cascadeDependents: false });
-  }
+  await reindex({ contentDirectory: getContentDirectory() });
   /* One call over the whole registry: everything moved, so everything expires. */
   revalidateDerivedState(recipeContentTypes);
 }
@@ -482,8 +487,8 @@ const commandHandlers: Record<
     if (!branch) {
       throw new Error("Invalid branch");
     }
+    /* The rebuild follows in `branchCommandAction`, once, for checkout only. */
     await git.checkout(branch);
-    await rebuildRecipeIndex();
   },
   async delete({ git, branch }) {
     if (!branch) {
@@ -542,7 +547,12 @@ export async function branchCommandAction(
       throw e;
     }
   }
-  await rebuildRecipeIndex();
+  /*
+   * A checkout swaps the whole tree, so every index is stale (D2). Deleting a
+   * branch moves nothing on disk; it used to rebuild anyway, and twice for a
+   * checkout (once in the handler, once here).
+   */
+  if (command === "checkout") await rebuildAllIndexes();
   revalidatePath("/git");
   return null;
 }
@@ -585,6 +595,12 @@ export async function initializeContentGit() {
     await git.commit(INITIAL_COMMIT_MESSAGE, {
       "--author": `${email} <${email}>`,
     });
+    /*
+     * The indexes already described these files before there was a
+     * repository; the first commit names them, so stamp it (27b) rather than
+     * greet a freshly initialized repo with the stale-index banner.
+     */
+    await writeIndexedHead(contentDirectory);
   }
   revalidatePath("/git");
 }
