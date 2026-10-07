@@ -1,4 +1,6 @@
 import { Recipe, RecipeEntryValue } from "./types";
+import { hostnameLabel } from "../util/hostnameLabel";
+import { siteLabel } from "../util/siteNames";
 import { compiler } from "markdown-to-jsx/react";
 
 import type { JSX } from "react";
@@ -232,5 +234,23 @@ export default function buildRecipeIndexValue(
     totalTime: totalTime || undefined,
     ...(ingredientHeadings?.length ? { ingredientHeadings } : {}),
     ...(ingredientRecipeLinks?.length ? { ingredientRecipeLinks } : {}),
+    ...sourceFields(recipe.source),
+  };
+}
+
+/**
+ * `sourceName` and `sourceHost` for the `source:` filter (27d/D11), each only
+ * when there is something to say — `source:imbibe` finds a recipe by its
+ * label, `source:imbibemagazine` by its host.
+ */
+function sourceFields(
+  source: Recipe["source"],
+): Pick<RecipeEntryValue, "sourceName" | "sourceHost"> {
+  if (!source?.url) return {};
+  const sourceName = source.name?.trim() || siteLabel(source.url);
+  const sourceHost = hostnameLabel(source.url);
+  return {
+    ...(sourceName ? { sourceName } : {}),
+    ...(sourceHost ? { sourceHost } : {}),
   };
 }

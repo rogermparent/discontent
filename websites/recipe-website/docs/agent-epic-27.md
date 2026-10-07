@@ -10,9 +10,12 @@
 
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded.
 
-**Now:** 27a merged (#159). 27b is in review as #161. 27c is on
-`agent/27c-bar-tools`, stacked on 27b. The real content repo has 77 new
-unpushed commits from 27c (the `shaken` term and 76 retags).
+**Now:** the roadmap is done. 27a (#159) and 27b (#161) are merged. 27c is
+#162, and 27d's PR follows once #162 merges. The real content repo
+(`/home/roger/Projects/recipe-content`, branch `uraninite`) carries 78 new
+unpushed commits from this epic: the `shaken` term, 76 retags and the
+migration. That makes 315 ahead of `uraninite/uraninite`. Pushing is Roger's
+(see "Hand-off").
 
 ## Context
 
@@ -271,6 +274,72 @@ itself). Common code, so the export has it too.
   `mapRecipePage` drops it; "2 drinks" survives. The skill's import checklist
   gains "check `recipeYield` against the volumes".
 
+### D11 — `source:` is two stored fields, filtered like `group:` (27d)
+
+- **The fields.** `buildRecipeIndexValue` adds `sourceName` (`source.name`, else
+  `siteLabel(url)`) and `sourceHost` (`hostnameLabel(url)`) to
+  `RecipeEntryValue`, each only when a recipe has a source, so a recipe without
+  one re-indexes to the same bytes. That is also why no fixture index moved:
+  no fixture recipe has a source.
+- **Where they flow.** `getRecipes` maps them onto the `/search/all` corpus and
+  `toRecipeRow` onto the curation rows (spread, so source-less rows gain no
+  keys in `--json`). They are stored, never tokenized: `source:` is a typed
+  filter (`matchesFilter`, label or host at a word start), and like `group:`
+  it is absent from the bare-negation `"any"` field.
+- **`SEARCH_DB_NAME` is `recipe-search-v3`**, with the spec's copy moved too.
+  No `map:` store changed, but no browser should go on filtering `source:`
+  over documents stored before the fields existed.
+
+### D12 — The server search ORs and ranks (27d)
+
+`curation/search.ts` `scoreFreeText`:
+
+- **Score:** for each word, the weight of the best field it matches (name 4,
+  tags 3, ingredients 2, description 1) with the browser's prefix-at-word-start
+  `fieldMatches`, summed. A row needs a score above 0.
+- **Order:** score descending, then date descending.
+- **Unchanged:** typed terms narrow exactly as before, and an empty free text
+  keeps every row the filter keeps, newest first.
+- **Docs:** the `recipe_search` description and the skill's search paragraph
+  now say "any word, ranked" instead of "one or two words at a time".
+- **`/make`** keeps its own AND copy (`MakePage/scope.ts`), which is right for
+  narrowing a make list.
+
+On the real repo, `search "lime gin"` returns 182 rows with the gin-and-lime
+drinks first. Lime Rickey and Shirley Temple rank high too, because `gin` is
+a prefix of "ginger" (ginger ale or beer). The browser matches the same way.
+
+### D13 — The legacy "Imported from" migration, one commit (27d)
+
+`editor/scripts/migrate-imported-from.ts <content-dir> [--dry-run]`
+(`test/migrateImportedFrom.test.ts` runs it on a scratch repo built from the
+`make-drinks` fixture, one recipe per real-world shape).
+
+- **Scope:** only recipes with no `source`. A recipe whose first line parses
+  gets `source {url, name: siteLabel(url)}`.
+- **Stripping:** the line goes, then the blank lines after it, then a `---`
+  rule if the old importer wrote one, then the blanks after that. If nothing
+  remains, the description is dropped.
+- **Shapes read:** the standard line (`\r` or not), the YouTube importer's
+  `*Imported from* [*url*](url)`, an unemphasised `Imported from [label](url)`,
+  and a bare URL.
+- **Left alone and reported:** two links, a link plus a second URL, and a
+  malformed link.
+- **One commit** through `commitContentChanges`, then a full reindex (which
+  stamps HEAD).
+
+Real run, 2026-10-07: the dry run found **278 candidates** (the plan's count
+was 273). It migrated **275**, all of them without a `source`, and skipped 3:
+
+- `blueberry-cheesecake-baked-oatmeal`: a page and a video;
+- `key-lime-pie`: a video and a site link;
+- `salted-caramel-apple-pie-bars`: a link with no `](`.
+
+That is content commit `b078b490`, "Move legacy 'Imported from' lines into
+source (275 recipes)". Afterwards only those three descriptions start with
+"Imported from", `source:imbibe` lists 31 recipes, and the repo is clean and
+stamped.
+
 ## Traps (T-list)
 
 ### T1 — The sandbox refuses git in compound or scripted commands
@@ -320,9 +389,9 @@ after the initial commit.
 | Phase | Scope                               | Branch                 | Status               |
 | ----- | ----------------------------------- | ---------------------- | -------------------- |
 | 27a   | CI and repo hygiene                 | `agent/27a-ci-hygiene` | ✅ #159 → `7446c599` |
-| 27b   | Pi content sync and token hygiene   | `agent/27b-pi-sync`    | ✅ #161              |
-| 27c   | Bar tools                           | `agent/27c-bar-tools`  | 🟡                   |
-| 27d   | Search quality and legacy migration | `agent/27d-search`     |                      |
+| 27b   | Pi content sync and token hygiene   | `agent/27b-pi-sync`    | ✅ #161 → `950b6bc2` |
+| 27c   | Bar tools                           | `agent/27c-bar-tools`  | ✅ #162              |
+| 27d   | Search quality and legacy migration | `agent/27d-search`     | ✅ (PR after #162)   |
 
 ## Phase detail
 
@@ -407,6 +476,18 @@ D7–D10. Gates, 2026-10-07:
     released on Esc, and steps that tap off.
   - "Cook view" on food, with no unit toggle.
 
+### 27d — Search quality `agent/27d-search` (stacked on 27c)
+
+D11–D13. Gates, 2026-10-07:
+
+- Both typechecks clean.
+- vitest: 45 files, 877 tests, adding OR-ranking, score ties, `source:` in
+  `curation` and `queryLanguage`, and the migration on a scratch repo.
+- Playwright `search*`: 74/74, including the new "Search — source:" spec (a
+  cited recipe created over the API, found by label and host, and negated).
+- Real repo: the migration (D13), `source:imbibe` → 31 and `lime gin` → ranked
+  (D12).
+
 ## Syncing with uraninite
 
 `uraninite` is the Raspberry Pi editor: a non-bare clone of the content repo
@@ -447,6 +528,21 @@ curl -fsS -X POST http://localhost:3000/api/reindex \
 A full reindex also stamps HEAD, so the banner clears. Keep the token file
 readable only by the user the hook runs as, since `/api/reindex` needs a write
 token.
+
+## Hand-off (end of epic, 2026-10-07)
+
+The content repo is clean and its indexes are stamped. To publish to the Pi:
+
+```
+cd /home/roger/Projects/recipe-content
+git fetch uraninite && git status   # 315 ahead, 0 behind as of the epic
+git push uraninite uraninite
+```
+
+Then rebuild on the Pi: its `/git` page or Settings → Maintenance will show
+"Content changed outside the editor — Rebuild indexes", so click it (or set
+up the `post-receive` hook above). The three descriptions the migration
+reported (D13) are a person's call.
 
 ## Deferred
 

@@ -29,6 +29,8 @@ export const FILTER_FIELDS = [
   "name",
   "description",
   "group",
+  /* Where a recipe came from (27d): its site's label or its hostname. */
+  "source",
   "time",
   "before",
   "after",
@@ -435,6 +437,9 @@ export interface FilterableRecipe {
   prepTime?: number;
   cookTime?: number;
   totalTime?: number;
+  /** `source.name` (or the known-site label) and the bare hostname (27d). */
+  sourceName?: string;
+  sourceHost?: string;
 }
 
 /**
@@ -532,6 +537,14 @@ export function matchesFilter(
           return (recipe.groups ?? []).some((group) =>
             fieldMatches(group, value),
           );
+        case "source":
+          /*
+           * Either half: `source:imbibe` by the label, `source:acouplecooks` by
+           * the host (whose label is "A Couple Cooks", two words). Like groups,
+           * absent from `"any"` — a bare `-imbibe` is about the recipe's own
+           * words, not its provenance.
+           */
+          return anyMatches([recipe.sourceName, recipe.sourceHost], value);
         case "any":
           /*
            * Groups are deliberately absent here. `"any"` is what a *negated

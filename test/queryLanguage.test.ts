@@ -167,6 +167,60 @@ describe("parseQuery — free text vs typed terms", () => {
   });
 });
 
+describe("the source: field (27d)", () => {
+  const imbibe: FilterableRecipe = {
+    name: "Last Word (Imbibe)",
+    sourceName: "Imbibe",
+    sourceHost: "imbibemagazine.com",
+  };
+  const couple: FilterableRecipe = {
+    name: "Margarita (A Couple Cooks)",
+    sourceName: "A Couple Cooks",
+    sourceHost: "acouplecooks.com",
+  };
+  const house: FilterableRecipe = { name: "House Negroni" };
+  const names = (raw: string) => {
+    const { filter } = parseQuery(raw);
+    return [imbibe, couple, house]
+      .filter((recipe) => matchesFilter(recipe, filter))
+      .map((recipe) => recipe.name);
+  };
+
+  it("parses as a typed text leaf", () => {
+    expect(spanless(parseQuery("source:imbibe").filter)).toEqual({
+      type: "text",
+      field: "source",
+      value: "imbibe",
+    });
+  });
+
+  it("matches the label or the host, at a word start", () => {
+    expect(names("source:imbibe")).toEqual(["Last Word (Imbibe)"]);
+    expect(names("source:acouplecooks")).toEqual([
+      "Margarita (A Couple Cooks)",
+    ]);
+    expect(names("source:cooks")).toEqual(["Margarita (A Couple Cooks)"]);
+    expect(names('source:"a couple"')).toEqual(["Margarita (A Couple Cooks)"]);
+  });
+
+  it("negates, and a recipe with no source is never a match", () => {
+    expect(names("-source:imbibe")).toEqual([
+      "Margarita (A Couple Cooks)",
+      "House Negroni",
+    ]);
+    expect(names("source:house")).toEqual([]);
+  });
+
+  it("is not something a bare negated word reaches", () => {
+    /* `-imbibe` is about the recipe's own words; the name says Imbibe. */
+    expect(names("-imbibe")).toEqual([
+      "Margarita (A Couple Cooks)",
+      "House Negroni",
+    ]);
+    expect(names("-cooks")).toEqual(["Last Word (Imbibe)", "House Negroni"]);
+  });
+});
+
 describe("parseQuery — the group: field", () => {
   it("parses a group term as an ordinary text leaf", () => {
     const parsed = parseQuery("group:weeknight-favourites");

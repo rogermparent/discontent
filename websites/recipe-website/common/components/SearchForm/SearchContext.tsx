@@ -78,8 +78,13 @@ const RECENT_SEARCHES_KEY = "search-recent";
  * `NotFoundError`. A new name is the only thing that forces a clean create; the
  * `POPULATED_VERSION_KEY` check below can't help, because it gates *populating*
  * a database that has already been opened with the wrong schema.
+ *
+ * v3 (27d): the stored documents gained `sourceName`/`sourceHost` for the
+ * `source:` filter. They are stored rather than indexed, so no `map:` store is
+ * missing — the bump is so no browser keeps filtering `source:` over documents
+ * stored before the fields existed, whatever its populated-version key says.
  */
-const SEARCH_DB_NAME = "recipe-search-v2";
+const SEARCH_DB_NAME = "recipe-search-v3";
 
 /**
  * Corpus version last populated into `SEARCH_DB_NAME`.

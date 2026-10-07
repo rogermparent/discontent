@@ -130,6 +130,14 @@ export interface RecipeEntryValue {
    * "make lavender syrup first". Absent when there are none.
    */
   ingredientRecipeLinks?: IngredientRecipeLink[];
+  /**
+   * Where the recipe came from, for the `source:` search field (27d/D11):
+   * `source.name` or the known-site label, and the bare hostname. Both are
+   * absent on a recipe with no `source`, so one re-indexes to the bytes
+   * already on disk. Stored, never tokenized — `source:` is a filter.
+   */
+  sourceName?: string;
+  sourceHost?: string;
 }
 
 /**

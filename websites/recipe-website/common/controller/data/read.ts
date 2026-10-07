@@ -38,6 +38,9 @@ export type MassagedRecipeEntry = {
   ingredientHeadings?: number[];
   /** Lines' recipe links, for `/make` (25c). Rides on `/search/all`. */
   ingredientRecipeLinks?: IngredientRecipeLink[];
+  /** For the `source:` filter (27d). Ride on `/search/all`; never tokenized. */
+  sourceName?: string;
+  sourceHost?: string;
 };
 
 export interface ReadRecipeIndexResult {
@@ -104,6 +107,8 @@ export async function getRecipes({
         totalTime,
         ingredientHeadings,
         ingredientRecipeLinks,
+        sourceName,
+        sourceHost,
       },
     }) => ({
       date,
@@ -118,6 +123,8 @@ export async function getRecipes({
       totalTime,
       ingredientHeadings,
       ingredientRecipeLinks,
+      sourceName,
+      sourceHost,
     }),
   });
 

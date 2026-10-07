@@ -102,6 +102,12 @@ export function toRecipeRow(
     prepTime: value.prepTime,
     cookTime: value.cookTime,
     totalTime: value.totalTime,
+    /*
+     * For `source:` (27d). Spread, so a row with no source has no keys for
+     * them at all and `--json` output reads exactly as it did.
+     */
+    ...(value.sourceName ? { sourceName: value.sourceName } : {}),
+    ...(value.sourceHost ? { sourceHost: value.sourceHost } : {}),
   };
 }
 

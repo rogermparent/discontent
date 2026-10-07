@@ -344,9 +344,12 @@ export function createRecipeServer(
     {
       title: "Search recipes",
       description:
-        "Free-text search over the corpus, newest first. Supports the site's query " +
-        "language: tag:, ingredient:, name:, description:, time:, before:, " +
-        "after:, and a leading - to negate a term.",
+        "Ranked free-text search: a recipe matches if it has any of the words " +
+        "(prefix at a word start), best first — a word in the name counts most, then " +
+        "tags, ingredients, description — and ties newest first. Supports the site's " +
+        "query language: tag:, ingredient:, name:, description:, source: (a site's " +
+        "name or host), time:, before:, after:, and a leading - to negate a term; " +
+        "typed terms narrow exactly.",
       inputSchema: z.strictObject({
         query: z.string().min(1),
         limit: Limit,

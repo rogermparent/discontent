@@ -45,6 +45,7 @@ const FIELD_HINTS: Record<FilterField, string> = {
   name: "match the recipe name only",
   description: "match the description",
   group: "recipes in a meal plan or collection — group:<slug>",
+  source: "where a recipe came from — source:imbibe",
   time: "total minutes — time:<30",
   before: "added before a date — before:2026-01-01",
   after: "added on or after a date",
