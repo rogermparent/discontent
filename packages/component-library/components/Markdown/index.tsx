@@ -2,6 +2,7 @@ import Markdown, { MarkdownToJSX } from "markdown-to-jsx/react";
 import Link from "next/link";
 import { ReactNode, ElementType } from "react";
 import { Url } from "url";
+import { normalizeLineEndings } from "./normalize";
 
 function MarkdownLink({
   href,
@@ -53,7 +54,7 @@ export default function StyledMarkdown({
         wrapper,
       }}
     >
-      {children}
+      {normalizeLineEndings(children)}
     </Markdown>
   );
 }
