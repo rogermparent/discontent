@@ -58,6 +58,9 @@ survives a cleared context.
   tooling (26a–26c: page parsing and image ranking, the SEO fallback, yt-dlp
   server-side, checked image downloads, `inspect` / drafts / the `image`
   seat, the import UI): decisions, traps, gate results.
+- `websites/recipe-website/docs/agent-epic-27.md` — epic 27 (27a–27d: CI
+  hygiene, Pi content sync and token scopes, bar tools, search ranking and
+  the legacy "Imported from" migration): decisions, traps, gate results.
 - `websites/recipe-website/docs/ui-overhaul.md` — the UI roadmap.
 - `packages/cms/docs/incremental-regeneration.md` — how the engine
   invalidates and rebuilds derived state.
