@@ -53,6 +53,8 @@ import {
   labelForPath,
 } from "../websites/recipe-website/editor/controller/curation/git";
 import { reindex } from "../websites/recipe-website/editor/controller/curation/reindex";
+import { gitSync } from "../websites/recipe-website/editor/controller/curation/sync";
+import { readSyncState } from "@discontent/cms/git/syncState";
 import { searchRecipes } from "../websites/recipe-website/editor/controller/curation/search";
 import {
   createGroup,
@@ -935,5 +937,172 @@ describe("on a mirror (EDITOR_ROLE=mirror)", () => {
     const before = await head();
     await expect(gitPull(ctx)).rejects.toMatchObject({ code: "forbidden" });
     expect(await head()).toBe(before);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 11. gitSync — the workstation syncs a mirror (epic 28, 28b)        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A mirror the way the Pi is one: a non-bare clone of this repository with
+ * `receive.denyCurrentBranch updateInstead`, added here as `uraninite` and
+ * tracked as the upstream. Its own writes are plain commits in its tree.
+ */
+async function mirrorPair() {
+  await reindex(ctx);
+  const mirrorDir = await scratchDir("mirror-");
+  await simpleGit().clone(contentDirectory, mirrorDir);
+  const mirror = simpleGit({ baseDir: mirrorDir });
+  await mirror.addConfig("user.email", "pi@uraninite.test");
+  await mirror.addConfig("user.name", "Pi Editor");
+  await mirror.addConfig("commit.gpgsign", "false");
+  await mirror.addConfig("receive.denyCurrentBranch", "updateInstead");
+  await git.addRemote("uraninite", mirrorDir);
+  await git.fetch("uraninite");
+  const branch = (await git.status()).current as string;
+  await git.raw(["branch", "--set-upstream-to", `uraninite/${branch}`]);
+
+  async function mirrorWrite(relative: string, data: unknown, message: string) {
+    await outputFile(join(mirrorDir, relative), `${JSON.stringify(data)}\n`);
+    await mirror.add(".");
+    await mirror.commit(message);
+  }
+  const mirrorHead = () =>
+    mirror.revparse(["HEAD"]).then((value) => value.trim());
+  return { mirrorDir, mirror, mirrorWrite, mirrorHead, branch };
+}
+
+describe("gitSync", () => {
+  it("answers nothing when both sides match, and records it", async () => {
+    await mirrorPair();
+    const result = await gitSync(ctx);
+    expect(result).toMatchObject({
+      remote: "uraninite",
+      outcome: "nothing",
+      pulled: 0,
+      pushed: 0,
+    });
+    expect(result.steps.map((step) => [step.step, step.status])).toEqual([
+      ["preflight", "ok"],
+      ["fetch", "ok"],
+      ["merge", "skipped"],
+      ["media", "skipped"],
+      ["push", "skipped"],
+    ]);
+    expect((await readSyncState(contentDirectory)).uraninite).toMatchObject({
+      outcome: "nothing",
+      consecutiveFailures: 0,
+      lastSuccess: expect.any(String),
+    });
+  });
+
+  it("brings the mirror's commit in and indexes it", async () => {
+    const { mirrorWrite } = await mirrorPair();
+    await mirrorWrite(
+      "recipes/data/gimlet/recipe.json",
+      { name: "Gimlet", date: 1_790_000_000_000, tags: ["drink"] },
+      "Add Gimlet",
+    );
+    const result = await gitSync(ctx);
+    expect(result).toMatchObject({ outcome: "synced", pulled: 1, pushed: 0 });
+    expect((await searchRecipes(ctx, "tag:drink")).recipes).toEqual([
+      expect.objectContaining({ slug: "gimlet" }),
+    ]);
+    expect(bulkChanges).toBe(1);
+  });
+
+  it("sends the workstation's commit to the mirror's working tree", async () => {
+    const { mirrorHead, mirrorDir } = await mirrorPair();
+    await createRecipe(ctx, { name: "Naan" });
+    const result = await gitSync(ctx);
+    expect(result).toMatchObject({ outcome: "synced", pulled: 0, pushed: 1 });
+    expect(await mirrorHead()).toBe(await head());
+    /* updateInstead: the file is in the mirror's tree, not only its refs. */
+    expect(
+      await pathExists(join(mirrorDir, "recipes/data/naan/recipe.json")),
+    ).toBe(true);
+  });
+
+  it("merges both sides and pushes the merge back", async () => {
+    const { mirrorWrite, mirrorHead } = await mirrorPair();
+    await createRecipe(ctx, { name: "Daiquiri" });
+    await mirrorWrite(
+      "recipes/data/gimlet/recipe.json",
+      { name: "Gimlet", date: 1_790_000_000_000 },
+      "Add Gimlet",
+    );
+    const result = await gitSync(ctx);
+    expect(result).toMatchObject({ outcome: "synced", pulled: 1 });
+    /* Ours plus the merge commit. */
+    expect(result.pushed).toBe(2);
+    expect(await mirrorHead()).toBe(await head());
+    expect((await searchRecipes(ctx, "gimlet")).total).toBe(1);
+    expect((await searchRecipes(ctx, "daiquiri")).total).toBe(1);
+  });
+
+  it("aborts a conflict, changes nothing, and counts the failure", async () => {
+    await createRecipe(ctx, { name: "Naan", description: "Base." });
+    const { mirrorDir, mirror } = await mirrorPair();
+    /* mirrorPair cloned after the Naan commit, so both sides have it. */
+    const target = join(mirrorDir, "recipes/data/naan/recipe.json");
+    await writeFile(
+      target,
+      (await readFile(target, "utf8")).replace("Base.", "From the Pi."),
+    );
+    await mirror.add(".");
+    await mirror.commit("Pi edit");
+    await updateRecipe(ctx, "naan", { description: "From here." });
+    const before = await head();
+
+    const first = await gitSync(ctx);
+    expect(first.outcome).toBe("conflict");
+    expect(first.message).toContain("recipes/data/naan/recipe.json");
+    expect(await head()).toBe(before);
+    expect((await git.status()).isClean()).toBe(true);
+    expect(first.state.consecutiveFailures).toBe(1);
+
+    const second = await gitSync(ctx);
+    expect(second.state.consecutiveFailures).toBe(2);
+  });
+
+  it("reports a dirty mirror when its tree refuses the push", async () => {
+    const { mirrorDir, mirrorHead } = await mirrorPair();
+    await outputFile(join(mirrorDir, ".gitignore"), "edited on the Pi\n");
+    const mirrorBefore = await mirrorHead();
+    await createRecipe(ctx, { name: "Naan" });
+    const result = await gitSync(ctx);
+    expect(result.outcome).toBe("mirror_dirty");
+    expect(await mirrorHead()).toBe(mirrorBefore);
+  });
+
+  it("reports an unreachable mirror", async () => {
+    await mirrorPair();
+    await git.remote([
+      "set-url",
+      "uraninite",
+      join(tmpdir(), "no-such-mirror"),
+    ]);
+    const result = await gitSync(ctx);
+    expect(result.outcome).toBe("unreachable");
+    expect(result.steps.at(-1)).toMatchObject({
+      step: "fetch",
+      status: "failed",
+    });
+  });
+
+  it("refuses an unknown remote, and refuses outright on a mirror", async () => {
+    await mirrorPair();
+    await expect(gitSync(ctx, { remote: "nowhere" })).rejects.toMatchObject({
+      code: "validation",
+    });
+    const previous = process.env.EDITOR_ROLE;
+    process.env.EDITOR_ROLE = "mirror";
+    try {
+      await expect(gitSync(ctx)).rejects.toMatchObject({ code: "forbidden" });
+    } finally {
+      if (previous === undefined) delete process.env.EDITOR_ROLE;
+      else process.env.EDITOR_ROLE = previous;
+    }
   });
 });

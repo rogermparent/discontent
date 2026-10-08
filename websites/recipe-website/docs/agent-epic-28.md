@@ -14,8 +14,8 @@ Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴
 · 📝 proposed.
 
 **Now:** plan approved 2026-10-07 (#167), with D4 reworked as event-driven
-sync (see "Decisions (Roger)" at the end). 28a (roles) is in review; 28b is
-next.
+sync (see "Decisions (Roger)" at the end). 28a (roles, #168) and 28b (the
+`gitSync` seat, stacked on 28a) are in review; 28c is next.
 
 ## Context
 
@@ -302,7 +302,7 @@ The stale-index banner stays as the fallback if a rebuild fails.
 | Phase | Scope                                                                                                      | Branch                  | Status |
 | ----- | ---------------------------------------------------------------------------------------------------------- | ----------------------- | ------ |
 | 28a   | Roles: `EDITOR_ROLE`, mirror UI (D2)                                                                       | `agent/28a-roles`       | 🟡     |
-| 28b   | Sync seat + CLI/API/MCP + sync state (D3)                                                                  | `agent/28b-sync-seat`   | 📝     |
+| 28b   | Sync seat + CLI/API/MCP + sync state (D3)                                                                  | `agent/28b-sync-seat`   | 🟡     |
 | 28c   | Event-driven sync, watcher reindex, notifications, Mirrors card, mirror view, settings follow (D4–D7, D12) | `agent/28c-sync-events` | 📝     |
 | 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                                             | `agent/28d-media-prep`  | 📝     |
 | 28e   | git-annex for large files (D9), media step live                                                            | `agent/28e-annex`       | 📝     |
@@ -380,6 +380,45 @@ Gates: vitest on scratch repos (the 27b pattern — a bare-ish "mirror" with
 ahead (push); diverged clean merge; conflict (aborted, tree clean, outcome
 `conflict`); mirror dirty; raced (mirror commits between fetch and push);
 remote unreachable. Playwright: `/api/git/sync` over HTTP with a token.
+
+**As built (2026-10-07):**
+
+- `controller/curation/sync.ts` `gitSync` runs the steps preflight → fetch →
+  merge (`gitPull`) → media (skipped) → push. Expected failures come back as
+  an `outcome` with a `message` and per-step detail; misuse throws (403 on a
+  mirror, 422 for an unknown remote, no repository).
+- **It pushes itself, not through `gitPush`.** That seat's `/rejected/`
+  pattern also matches the `updateInstead` refusal of a dirty mirror
+  ("[remote rejected] … unstaged changes"), and would report it as "the
+  remote has commits you don't have".
+- `packages/cms/git/syncState.ts` keeps, per remote, in
+  `.git/discontent-sync.json`: `lastAttempt`, `lastSuccess`, `outcome`,
+  `message` and `consecutiveFailures`. A success resets the failure count;
+  `raced` neither adds to it nor resets it.
+- **Over the wire, only `remote` is accepted** (`GitSyncSchema`). The
+  mirror's ssh host and directory, used for the mirror-dirty preflight, come
+  from the local CLI flags (`--ssh-host`, `--mirror-dir`) or, from 28c, the
+  workstation's own settings, so a request cannot choose a host to ssh to.
+- The ssh call uses `execFile`, not `execa`: execa is ESM-only and the CLI
+  runs under `tsx` as CommonJS (the reason `ytdlp.ts` gives). The first draft
+  used execa and broke every CLI command at startup (T1).
+- `git_sync` is held back in `.claude/settings.json`, the skill, its test and
+  `CLAUDE.md`.
+- Deferred to 28c: `/api/git/status` gaining `sync`, since the Mirrors card
+  is what reads it.
+
+Gates:
+
+- Both typechecks clean.
+- vitest: 47 files, 896 tests. The 8 `gitSync` scratch-repo cases cover:
+  nothing to do; mirror ahead; workstation ahead (and the file lands in the
+  mirror's tree); diverged clean merge (pushed = ours + the merge); conflict
+  (aborted, HEAD unchanged, tree clean, the failure count goes 1 → 2); dirty
+  mirror; unreachable; unknown remote and mirror-role refusal.
+- **`raced` is not covered.** A commit between fetch and push can't be
+  arranged deterministically; it is classified from git's non-fast-forward
+  message.
+- Playwright `git.spec` "should sync both ways over the API (28b)" passes.
 
 ### 28c — Event-driven sync and visibility
 

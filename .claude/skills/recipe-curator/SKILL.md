@@ -299,7 +299,7 @@ and `git_file_at` read one back). End with: push from `/git` when ready.
 ## Held back
 
 `recipe_delete`, `group_delete`, `unfeature`, `reindex`, `git_revert`,
-`git_restore`, `git_push`, `git_pull` and `inventory_set` (which replaces the
+`git_restore`, `git_push`, `git_pull`, `git_sync` and `inventory_set` (which replaces the
 whole inventory) are not pre-approved and are not part of this skill — do not call them, and do not ask for them to be approved. If a write
 goes wrong, find its commit with `git_log` and report the hash and the path:
 undoing it with `git_revert` or `git_restore`, and pulling or pushing, are the

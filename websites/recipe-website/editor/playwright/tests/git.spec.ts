@@ -641,6 +641,63 @@ test.describe("Git content", () => {
       ).toBeVisible();
     });
 
+    test("should sync both ways over the API (28b)", async ({
+      page,
+      request,
+      resetData,
+      initializeContentGit,
+      createBareRemote,
+      addRemoteAndPush,
+      cloneFromRemote,
+      addRecipeInClone,
+      pushClone,
+      createApiToken,
+    }) => {
+      await resetData();
+      /* Before the initial commit, for the reason the pull test gives. */
+      const token = await createApiToken();
+      const headers = { authorization: `Bearer ${token}` };
+      await initializeContentGit();
+      const remote = await createBareRemote();
+      await addRemoteAndPush(remote);
+      const clone = await cloneFromRemote(remote);
+      await addRecipeInClone(clone, "from-the-pi", "From The Pi");
+      await pushClone(clone);
+
+      const inbound = await request.post("/api/git/sync", {
+        headers,
+        data: {},
+      });
+      expect(inbound.status()).toBe(200);
+      expect(await inbound.json()).toMatchObject({
+        outcome: "synced",
+        pulled: 1,
+        pushed: 0,
+      });
+      await page.goto("/");
+      await expect(
+        page.getByTestId("recipe-list").getByText("From The Pi"),
+      ).toBeVisible();
+
+      const created = await request.post("/api/recipes", {
+        headers,
+        data: { name: "From Here" },
+      });
+      expect(created.status()).toBe(201);
+      const outbound = await request.post("/api/git/sync", {
+        headers,
+        data: {},
+      });
+      expect(await outbound.json()).toMatchObject({
+        outcome: "synced",
+        pulled: 0,
+        pushed: 1,
+      });
+
+      const again = await request.post("/api/git/sync", { headers, data: {} });
+      expect(await again.json()).toMatchObject({ outcome: "nothing" });
+    });
+
     test("should pull over the API, rebuilding every index (27b)", async ({
       page,
       request,

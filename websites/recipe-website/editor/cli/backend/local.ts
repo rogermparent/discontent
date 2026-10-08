@@ -15,6 +15,7 @@ import { assertCommitIdentity } from "../../controller/curation/author";
 import type { CurationContext } from "../../controller/curation/context";
 import * as featured from "../../controller/curation/featured";
 import * as git from "../../controller/curation/git";
+import { gitSync } from "../../controller/curation/sync";
 import * as groups from "../../controller/curation/groups";
 import { importAndCreate } from "../../controller/curation/importRecipe";
 import { inspectUrl } from "../../controller/curation/inspect";
@@ -243,6 +244,11 @@ export function createLocalBackend({
     async gitPull(options) {
       await guard();
       return git.gitPull(ctx, options);
+    },
+    /* A sync can merge, so it preflights the identity like a pull. */
+    async gitSync(options) {
+      await guard();
+      return gitSync(ctx, options);
     },
 
     /*

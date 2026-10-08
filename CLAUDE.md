@@ -28,7 +28,7 @@ groups and features recipes through the **`recipes` MCP server** — `.mcp.json`
 registers it, `.claude/settings.json` pre-approves its 28 non-destructive
 tools, and the skill's frontmatter lists the same 28. Held back, deliberately:
 `recipe_delete`, `group_delete`, `unfeature`, `reindex`, `git_revert`,
-`git_restore`, `git_push`, `git_pull`, `inventory_set`. `git_fetch` is
+`git_restore`, `git_push`, `git_pull`, `git_sync`, `inventory_set`. `git_fetch` is
 pre-approved: it moves only remote-tracking refs. The server reads `CONTENT_DIRECTORY` (or
 `RECIPE_API_URL` for a running editor, with `RECIPE_API_TOKEN`); with neither
 set it writes — and commits — to the real content repo through that symlink.

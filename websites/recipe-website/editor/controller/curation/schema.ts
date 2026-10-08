@@ -408,6 +408,14 @@ export const GitFetchSchema = z.strictObject({
 
 export const GitPullSchema = GitFetchSchema;
 
+/**
+ * `git sync {remote?}` (epic 28, D3). The mirror's ssh host and directory for
+ * the mirror-dirty preflight are *not* accepted over the wire: they come from
+ * the workstation's own configuration (28c) or the local CLI's flags, so a
+ * request cannot choose what this process ssh-es to.
+ */
+export const GitSyncSchema = GitFetchSchema;
+
 /** `git status --fetch`: refresh the remote refs first, so ahead/behind are current. */
 export const GitStatusQuerySchema = z.strictObject({
   fetch: z.boolean().optional(),
