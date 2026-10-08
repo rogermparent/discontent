@@ -23,6 +23,7 @@ import BookmarkButton from "../BookmarkButton";
 import { resolveRecipeVideoSrc } from "../../controller/recipeVideo";
 import { formatDurationLong } from "../../util/formatDuration";
 import { tagSearchHref } from "../SearchForm/queryLanguage";
+import { RecipeCardPlaceholder } from "../List/shared";
 
 export async function RecipeView({
   recipe,
@@ -81,8 +82,20 @@ export async function RecipeView({
           <div className="w-full h-full p-2 print:p-0 grow flex flex-col flex-nowrap">
             <div className="container mx-auto lg:flex lg:flex-row justify-center print:w-full print:max-w-full">
               <div className="aspect-[16/10] w-full lg:aspect-auto lg:h-96 lg:max-w-96 lg:mr-4 print:hidden relative">
-                {recipeImageProps && (
+                {recipeImageProps ? (
                   <img {...recipeImageProps.props} alt={`Photo of ${name}`} />
+                ) : (
+                  image &&
+                  !video && (
+                    /* Named, but not on this editor (D10): not copied here
+                       yet, or dropped. A monogram, not an empty frame. */
+                    <div
+                      className="absolute inset-0 overflow-hidden rounded-md"
+                      data-testid="recipe-image-missing"
+                    >
+                      <RecipeCardPlaceholder name={name} />
+                    </div>
+                  )
                 )}
                 {video && (
                   <VideoPlayer

@@ -39,8 +39,12 @@ test.describe("Mirrors card", () => {
     await pushClone(clone);
 
     await mirror.getByRole("button", { name: "Sync now" }).click();
+    /* A whole sync — fetch, merge, every index rebuilt, revalidation — and,
+     * on a CI shard where nothing before it compiled these modules, a cold
+     * `next dev` compile: the button was still "Syncing…" at 5 s. */
     await expect(mirror.getByTestId("mirror-outcome")).toContainText(
       "synced (in 1, out 0)",
+      { timeout: 30_000 },
     );
     await page.goto("/");
     await expect(

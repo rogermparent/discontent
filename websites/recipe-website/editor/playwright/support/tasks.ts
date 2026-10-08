@@ -111,6 +111,22 @@ export async function makeRecipeUnreadable(slug: string): Promise<void> {
   );
 }
 
+/**
+ * Delete a recipe's uploaded file behind the app's back (28d, D10): the
+ * recipe still names it, as on a mirror that has not received it yet.
+ */
+export async function removeRecipeUpload(
+  slug: string,
+  filename: string,
+): Promise<void> {
+  await remove(
+    resolve(testContentDir, "uploads", "recipe", slug, "uploads", filename),
+  );
+  await remove(
+    resolve(testContentDir, "transformed-images", "uploads", "recipe", slug),
+  );
+}
+
 export async function copyFixtures(fixtureName: string): Promise<void> {
   const fixtureDir = fixturePath("test-content", fixtureName);
   await remove(fixtureDir);

@@ -6,8 +6,6 @@ import {
   type FilterableRecipe,
 } from "../SearchForm/queryLanguage";
 
-export { DEFAULT_MAKE_QUERY } from "../../util/makeable";
-
 /**
  * Every free-text word must appear somewhere — name, description, a tag or an
  * ingredient. A copy of `curation/search.ts`'s `matchesFreeText`, which lives
@@ -38,24 +36,4 @@ export function scopeRecipes<T extends FilterableRecipe>(
   return recipes.filter(
     (recipe) => matchesFilter(recipe, filter) && matchesFreeText(recipe, text),
   );
-}
-
-/** The most-carried tags among `recipes`, for the quick-pick chips. */
-export function topTags(
-  recipes: FilterableRecipe[],
-  limit: number,
-  exclude: string[] = [],
-): string[] {
-  const skip = new Set(exclude.map(fold));
-  const counts = new Map<string, number>();
-  for (const recipe of recipes) {
-    for (const tag of recipe.tags ?? []) {
-      if (skip.has(fold(tag))) continue;
-      counts.set(tag, (counts.get(tag) ?? 0) + 1);
-    }
-  }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, limit)
-    .map(([tag]) => tag);
 }

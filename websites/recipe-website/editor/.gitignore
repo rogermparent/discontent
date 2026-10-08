@@ -68,11 +68,13 @@ next-env.d.ts
 # for the same reason: the first `/tags` render on any fixture opens the term
 # index and the `tree` aggregate, so a Playwright run would otherwise dirty
 # every fixture with a `taxonomies/tag/{index,aggregates}` nobody wrote.
-# `christmas-cookies` is the one fixture whose term records are real content, so
-# it is carved back out — and both lines name `taxonomies/` rather than
+# `christmas-cookies` and `make-drinks` (28g: a `drink` tree for `/make`'s tag
+# picker) are the fixtures whose term records are real content, so they are
+# carved back out — and the lines name `taxonomies/` rather than
 # `taxonomies/**` for the ordering reason above.
 /playwright/fixtures/test-content/*/taxonomies/
 !/playwright/fixtures/test-content/christmas-cookies/taxonomies/
+!/playwright/fixtures/test-content/make-drinks/taxonomies/
 # `three-recipes-groups` gains a `pages` artifact, because 22b's export-build
 # check points `CONTENT_DIRECTORY` straight at this fixture — so the export
 # opens every environment it reads, right here, rather than in a copy. Named per

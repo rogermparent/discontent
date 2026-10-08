@@ -51,6 +51,7 @@ export function RecipeListItem({
               alt="Recipe thumbnail"
               className={recipeCardImageClassName}
               {...standardRecipeImageProps}
+              fallback={<RecipeCardPlaceholder name={name} />}
             />
           ) : (
             <RecipeCardPlaceholder name={name} />

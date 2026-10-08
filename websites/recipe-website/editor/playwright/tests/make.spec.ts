@@ -34,19 +34,29 @@ test.describe("What can I make?", () => {
     await resetData("make-drinks");
   });
 
-  test("defaults to drinks and asks what you have", async ({ page }) => {
+  test("a first visit scopes to every recipe and asks what you have", async ({
+    page,
+  }) => {
     await page.goto("/make");
     await ready(page);
-    /* The two G&Ts are honestly two away from nothing: gin (or its
-     * non-alcoholic twin) and tonic. */
+    await expect(ticker(page)).toHaveText(/^7 recipes/i);
+    await expect(page.getByTestId("make-query")).toHaveValue("");
+    await expect(page.getByText("Start with what you have")).toBeVisible();
+    /* `drink` is a root like any other now (28g), labelled by its record. */
+    await expect(
+      page
+        .getByRole("group", { name: "Top-level tags" })
+        .getByRole("button", { name: "Drinks", exact: true, pressed: false }),
+    ).toBeVisible();
+  });
+
+  test("drinks: the two G&Ts are two away from nothing", async ({ page }) => {
+    await page.goto("/make?q=tag:drink");
+    await ready(page);
+    /* Gin (or its non-alcoholic twin) and tonic. */
     await expect(ticker(page)).toHaveText(
       /5 recipes · 0 can make · 0 one away · 2 two away · “tag:drink”/i,
     );
-    await expect(page.getByTestId("make-query")).toHaveValue("tag:drink");
-    await expect(page.getByText("Start with what you have")).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Drinks", pressed: true }),
-    ).toBeVisible();
   });
 
   test("adding items moves cards between sections", async ({ page }) => {
@@ -157,10 +167,13 @@ test.describe("What can I make?", () => {
     await expect(page.getByTestId("make-query")).toHaveValue("tag:zero-proof");
   });
 
-  test("the scope is remembered, and a chip narrows it", async ({ page }) => {
+  test("the scope is remembered, and chips narrow it", async ({ page }) => {
     await page.goto("/make");
     await ready(page);
-    await page.getByRole("button", { name: "highball", exact: true }).click();
+    await page.getByRole("button", { name: "Drinks", exact: true }).click();
+    await expect(page.getByTestId("make-query")).toHaveValue("tag:drink");
+    await page.getByRole("button", { name: "Narrower tags of Drinks" }).click();
+    await page.getByRole("button", { name: "Highball", exact: true }).click();
     await expect(page.getByTestId("make-query")).toHaveValue(
       "tag:drink tag:highball",
     );
@@ -172,6 +185,56 @@ test.describe("What can I make?", () => {
     await expect(page.getByTestId("make-query")).toHaveValue(
       "tag:drink tag:highball",
     );
+  });
+
+  test("a root expands to its children, most used first", async ({ page }) => {
+    await page.goto("/make");
+    await ready(page);
+    const toggle = page.getByRole("button", {
+      name: "Narrower tags of Drinks",
+    });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const children = page.getByRole("group", {
+      name: "Narrower tags of Drinks",
+    });
+    await expect(children.getByRole("button")).toHaveText([
+      /^Highball/,
+      /^Zero-proof/,
+      /^Collins/,
+      /^Sour/,
+    ]);
+    /* A child alone narrows the scope, and its root stays open for it. */
+    await children.getByRole("button", { name: "Zero-proof" }).click();
+    await expect(page.getByTestId("make-query")).toHaveValue("tag:zero-proof");
+    await expect(ticker(page)).toHaveText(/^2 recipes/i);
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    /* Closing is the person's call, selection or not. */
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(children).toHaveCount(0);
+  });
+
+  test("tag search finds a child by name, with its breadcrumb", async ({
+    page,
+  }) => {
+    await page.goto("/make");
+    await ready(page);
+    const search = page.getByRole("combobox", { name: "Find a tag" });
+    await search.fill("zero");
+    const option = page.getByRole("option", { name: /Zero-proof/ });
+    await expect(option).toContainText("Drinks › Zero-proof");
+    await search.press("ArrowDown");
+    await search.press("Enter");
+    await expect(page.getByTestId("make-query")).toHaveValue("tag:zero-proof");
+    await expect(search).toHaveValue("");
+    await expect(ticker(page)).toHaveText(/^2 recipes/i);
+
+    /* Picking a tag already in scope leaves the scope alone. */
+    await search.fill("zero-pr");
+    await page.getByRole("option", { name: /Zero-proof/ }).click();
+    await expect(page.getByTestId("make-query")).toHaveValue("tag:zero-proof");
   });
 
   test("stored headings are never listed as missing", async ({ page }) => {
@@ -216,6 +279,13 @@ test.describe("What can I make?", () => {
     await page.goto("/make");
     await ready(page);
     await expectNoViolations(page);
+
+    /* 28g: an open tree and an open tag list. */
+    await page.getByRole("button", { name: "Narrower tags of Drinks" }).click();
+    await page.getByRole("combobox", { name: "Find a tag" }).fill("h");
+    await expect(page.getByRole("listbox", { name: "Tags" })).toBeVisible();
+    await expectNoViolations(page);
+    await page.getByRole("combobox", { name: "Find a tag" }).press("Escape");
 
     await addItems(page, "vodka, simple syrup, gin, tonic");
     await expect(section(page, "make-can")).toBeVisible();

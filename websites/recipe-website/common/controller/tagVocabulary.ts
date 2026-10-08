@@ -187,3 +187,42 @@ export function applyPinned<TItem extends { slug: string }>(
 
   return [...head, ...items.filter((item) => !taken.has(item.slug))];
 }
+
+/**
+ * A tag as `/make`'s picker needs it (epic 28, 28g): the slug its chip puts
+ * in the query, the label it prints, and the parent it hangs under.
+ *
+ * `parent` is kept only when it names a term the vocabulary has and the walk
+ * up from here never comes back: a hand-edited cycle (`A.parent = B`,
+ * `B.parent = A`) would otherwise leave both terms with a parent and neither
+ * reachable from a root, so neither would ever show. Each term in a cycle
+ * becomes a root instead.
+ */
+export interface TagOption {
+  slug: string;
+  label: string;
+  parent?: string;
+}
+
+export function tagOptions(
+  vocabulary: TagVocabularyEntry[],
+  tree: TermTree | null | undefined,
+): TagOption[] {
+  const known = new Set(vocabulary.map((entry) => entry.slug));
+  function cycles(slug: string): boolean {
+    const seen = new Set<string>([slug]);
+    let current = tree?.[slug]?.parent;
+    while (current && known.has(current)) {
+      if (seen.has(current)) return true;
+      seen.add(current);
+      current = tree?.[current]?.parent;
+    }
+    return false;
+  }
+  return vocabulary.map(({ slug, label }) => {
+    const parent = tree?.[slug]?.parent;
+    return parent && known.has(parent) && !cycles(slug)
+      ? { slug, label, parent }
+      : { slug, label };
+  });
+}

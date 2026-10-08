@@ -1,4 +1,5 @@
 /* eslint-disable @next/next/no-img-element */
+import type { ReactNode } from "react";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { TransformedStaticImageProps } from "@discontent/next-static-image/src";
 import { getRecipeUploadPath } from "../../controller/filesystemDirectories";
@@ -37,9 +38,17 @@ export async function getTransformedRecipeImageProps({
   });
 }
 
-export async function RecipeImage(inputProps: TransformedStaticImageProps) {
+/**
+ * `fallback` renders when the recipe names a photo this editor cannot read —
+ * not copied here yet, or dropped (epic 28, D10) — instead of an empty frame.
+ */
+export async function RecipeImage({
+  fallback,
+  ...inputProps
+}: TransformedStaticImageProps & { fallback?: ReactNode }) {
   const image = await getTransformedRecipeImageProps(inputProps);
   if (image) {
     return <img {...image.props} alt={inputProps.alt} />;
   }
+  return fallback;
 }

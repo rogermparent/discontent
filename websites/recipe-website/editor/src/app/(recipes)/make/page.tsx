@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { auth } from "@/auth";
 import { MakePage } from "recipe-website-common/components/MakePage";
+import { readTagOptions } from "recipe-website-common/controller/data/readTermPage";
 import {
   PageMain,
   PageSection,
@@ -19,9 +20,14 @@ import { readInventory } from "recipe-editor/controller/curation/inventory";
  */
 export default async function Make() {
   const session = await auth();
-  const shared = session?.user?.email
-    ? (await readInventory({ contentDirectory: getContentDirectory() })).items
-    : undefined;
+  const [shared, tags] = await Promise.all([
+    session?.user?.email
+      ? readInventory({ contentDirectory: getContentDirectory() }).then(
+          (inventory) => inventory.items,
+        )
+      : undefined,
+    readTagOptions(),
+  ]);
   return (
     <PageMain>
       <PageSection grow maxWidth="none" className="max-w-7xl mx-auto">
@@ -29,6 +35,7 @@ export default async function Make() {
             export's `next build` refuses the page. */}
         <Suspense fallback={<SearchSkeleton />}>
           <MakePage
+            tags={tags}
             shared={shared}
             saveShared={shared ? saveInventoryChanges : undefined}
           />

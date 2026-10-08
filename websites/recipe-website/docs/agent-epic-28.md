@@ -308,11 +308,11 @@ The stale-index banner stays as the fallback if a rebuild fails.
 | 28a   | Roles: `EDITOR_ROLE`, mirror UI (D2)                                                      | `agent/28a-roles`        | ✅ #168           |
 | 28b   | Sync seat + CLI/API/MCP + sync state (D3)                                                 | `agent/28b-sync-seat`    | ✅ #170           |
 | 28c   | Event-driven sync, watcher reindex, notifications, Mirrors card, mirror view (D4–D6, D12) | `agent/28c-sync-events`  | ✅ #171, fix #172 |
-| 28c2  | Site settings follow the workstation (D7)                                                 | `agent/28c2-settings`    | 🟡                |
-| 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                            | `agent/28d-media-prep`   | 📝                |
-| 28e   | git-annex for large files (D9), media step live                                           | `agent/28e-annex`        | 🟡                |
+| 28c2  | Site settings follow the workstation (D7)                                                 | `agent/28c2-settings`    | ✅ #175           |
+| 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                            | `agent/28d-media-prep`   | ✅ #177           |
+| 28e   | git-annex for large files (D9), media step live                                           | `agent/28e-annex`        | ✅ #178 (scratch) |
 | 28f   | Close-out: two-machine run, drills, docs, memory                                          | `agent/28f-close`        | 📝                |
-| 28g   | Make page: tag tree (parents expand to children) + tag search                             | `agent/28g-make-tags`    | 📝                |
+| 28g   | Make page: tag tree (parents expand to children) + tag search                             | `agent/28g-make-tags`    | ✅ #176           |
 | 28h   | Housekeeping: self-hosted fonts, `next` pin alignment, needless-reindex fix               | `agent/28h-housekeeping` | ✅ #174           |
 
 Order: 28a and 28b are independent and could run in parallel; 28c needs both;
@@ -720,15 +720,52 @@ D7, as built:
   workstation needs `MIRROR_SYNC_TOKEN` in its environment. The session's
   workstation editor sets it from the deploy config.
 
-### 28d — Media groundwork
+### 28d — Media groundwork (2026-10-08)
 
-- Missing upload → placeholder in `next-static-image` / the recipe card and
-  page; the transformed-image route 404s cleanly (D10).
-- Normalise CRLF on write for imported descriptions and instructions (the
-  render-side fix from #165 stays; this keeps new data clean).
+**D10, missing media.**
 
-Gates: vitest for the placeholder decision and CRLF normalisation;
-Playwright with a recipe whose upload file is deleted in test content.
+- **Mapped first.**
+  - Every upload route already answered 404 on ENOENT: `/image/[...]`,
+    `/uploads/recipe/…` and `/uploads/[filename]`.
+  - The server transform (`getTransformedUploadImageProps`) already caught
+    sharp's error and returned nothing.
+  - The gap was rendering: a recipe naming a missing photo drew an empty
+    frame (cards, featured cards, the detail hero), and client-rendered
+    cards drew a broken `<img>` for a variant that was never made.
+- **Server side.** `RecipeImage` takes a `fallback`, which the list card and
+  the featured card pass as the monogram (`RecipeCardPlaceholder`). The
+  featured card also shows the monogram when there is no photo at all, as
+  the list card always did. The detail hero shows the monogram
+  (`data-testid="recipe-image-missing"`) when a photo is named but unreadable
+  and there is no video.
+- **Client side.** `RecipeImage/PureRecipeImage.tsx` wraps
+  `getPureStaticImageProps` with an `onError` that swaps in the fallback.
+  `ClientList` and `SearchList` use it. These lists render after a client
+  fetch, so the handler is attached in time.
+- **Not done:** the command palette's and group results' small thumbnails
+  still use `PureStaticImage` directly (a broken thumbnail, not a broken
+  card). They can get the same wrapper if a mirror ever drops media.
+
+**CRLF on write.**
+
+- `normalizeRecipeText` (`common/util/recipeText.ts`) runs
+  `normalizeLineEndings` over the description, every step's text and every
+  group's name. It is applied where both recipe builders return:
+  `buildRecipeWrite` (the curation seats: API, MCP, CLI and import) and
+  `buildRecipeData` (the form's server actions).
+- The form path matters as much as import: a browser textarea submits `\r\n`
+  for every newline.
+- Read-side normalisation stays where it was, for files written before this.
+
+**Tests.**
+
+- `test/recipeText.test.ts`: the helper, and `createRecipe` and
+  `updateRecipe` storing `\n`.
+- `missing-media.spec`, on `two-pages` with Recipe 6's upload deleted: the
+  hero monogram, the original's 404, and a search card with no broken
+  image.
+- Also green: `recipe.spec`, `featured-recipes.spec` (one cold-start timeout,
+  passed on rerun) and `visual.spec` (no baseline changes).
 
 ### 28e — git-annex for large files (2026-10-08, scratch only)
 
@@ -811,6 +848,54 @@ yet`.
 Both instances on main, event-driven sync healthy for a day, the drills
 from 28c/28e recorded here, `deploy-pi.md` and `agent-epic-27.md`'s "Syncing
 with uraninite" pointed at the new flow, memory updated.
+
+### 28g — Make page tags (2026-10-08)
+
+- **Data.** `tagOptions(vocabulary, tree)` (`common/controller/tagVocabulary.ts`)
+  adds each term's `parent`, kept only when the parent is a known term and
+  the walk up never loops. Every term of a hand-edited cycle becomes a root,
+  so none of them disappears. `readTagOptions()` (`readTermPage.ts`) is the
+  same three cached reads as `/tags`. Both `/make` routes call it on the
+  server; the export does so at build time.
+- **Tree reads** are pure, in `MakePage/tagTree.ts`.
+  - A recipe uses a term when it carries the term or anything under it,
+    matched by folded slug or label, so a root's count is the recipes in
+    scope anywhere in its subtree.
+  - Roots: those used in scope, most used first, at most 12, plus the root
+    of anything selected.
+  - A root's children: those used in scope or selected, most used first.
+- **UI.**
+  - `TagPicks` replaces "Quick picks" with the root chips, labelled by the
+    vocabulary. The real `drink` record says "Drinks", so the old relabel is
+    simply the data now.
+  - A root with children has a chevron toggle (`aria-expanded`,
+    "Narrower tags of <root>") that opens a row of its children. Every chip
+    toggles `tag:<slug>`.
+  - A selected child opens its root until the person closes it.
+  - Each chip's count is visual only (`aria-hidden`), so the accessible name
+    stays the tag.
+- **`TagSearch`** is an ARIA 1.2 combobox ("Find a tag"). It searches labels
+  and slugs of tags some recipe carries, prefix matches first. Each option
+  shows its breadcrumb ("Drinks › Zero-proof") and corpus count. Enter or
+  click adds the tag unless the scope already has it.
+- **`DRINK_TAG` is gone, and a first visit scopes to every recipe.** The last
+  scope is still remembered. `DEFAULT_MAKE_QUERY` (`tag:drink`) stays for
+  `inventory make` and `inventory_makeable`; only the page changed.
+  `scope.ts` lost `topTags`.
+- **Out of scope, as planned:** a parent matching recipes that carry only a
+  child (24d's resolver). Chips put the slug in the query, and the real
+  vocabulary is all slugs (152 tags, checked 2026-10-08).
+- **Fixture.** `make-drinks` gains term records (`drink` "Drinks" with
+  Sour, Collins, Highball and Zero-proof under it) and their indexes, built
+  with `recipes reindex` on a scratch copy. `.gitignore` carves the
+  fixture's `taxonomies/` out, as for `christmas-cookies`.
+- **Tests.**
+  - `test/makeTags.test.ts`: parents, cycles, subtree usage, roots, children,
+    breadcrumb, search.
+  - `make.spec`: the first visit, drinks via `?q=`, chips narrowing,
+    expand/collapse and child order, the search combobox, and axe with the
+    tree and list open.
+  - The `make-page` baseline regenerated (all recipes now, so it is taller).
 
 ### 28h — Housekeeping (2026-10-08)
 

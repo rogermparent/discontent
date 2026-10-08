@@ -1,5 +1,5 @@
 import { MassagedRecipeEntry } from "../../controller/data/read";
-import { PureStaticImage } from "@discontent/next-static-image/src/Pure";
+import { PureRecipeImage } from "../RecipeImage/PureRecipeImage";
 import {
   RecipeCard,
   RecipeCardLink,
@@ -22,13 +22,14 @@ export function ClientListItem({
       <RecipeCardLink href={`/recipe/${slug}`}>
         <RecipeCardImageContainer>
           {image ? (
-            <PureStaticImage
+            <PureRecipeImage
               slug={slug}
               image={image}
               alt="Recipe thumbnail"
               width={400}
               height={600}
               className={recipeCardImageClassName}
+              fallback={<RecipeCardPlaceholder name={name} />}
             />
           ) : (
             <RecipeCardPlaceholder name={name} />
