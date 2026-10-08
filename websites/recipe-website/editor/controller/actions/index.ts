@@ -1,6 +1,7 @@
 "use server";
 
 import { isMirror, mirrorRefusal } from "recipe-website-common/config/role";
+import { normalizeRecipeText } from "recipe-website-common/util/recipeText";
 import { auth } from "@/auth";
 import slugify from "@sindresorhus/slugify";
 import { deleteContent } from "@discontent/cms/content/deleteContent";
@@ -183,7 +184,8 @@ async function buildRecipeData(
     drink,
   };
 
-  return { data, uploads };
+  /* A textarea submits `\r\n`; store `\n` (28d). */
+  return { data: normalizeRecipeText(data), uploads };
 }
 
 const recipeEditorConfig: EditorContentConfig<
