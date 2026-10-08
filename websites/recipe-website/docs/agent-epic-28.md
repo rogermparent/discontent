@@ -4,7 +4,8 @@
 > in-repo so a fresh session (with cleared context) can rebuild the picture by
 > reading this file. **Read this file first** before touching instance roles,
 > the content-sync paths (`controller/curation/git.ts`, `actions/sync.ts`, the
-> `git` CLI and MCP seats), the sync timer, or how uploads are stored. Update
+> `git` CLI and MCP seats), the sync runner and ref watcher, or how uploads
+> are stored. Update
 > the roadmap **Status** column and the **Now** line at every phase boundary.
 > Earlier epics are cited by number with a prefix (`27-D3`, `26-D5`).
 > `deploy-pi.md` is the companion doc for how the Pi runs.
@@ -12,8 +13,8 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 📝 plan only, awaiting Roger's review of the decisions marked
-**(Roger)** below. Nothing is built yet.
+**Now:** plan approved 2026-10-07, with D4 reworked as event-driven sync
+(see "Decisions (Roger)" at the end). 28a is next; nothing is built yet.
 
 ## Context
 
@@ -83,9 +84,9 @@ At today's rate plain git is fine for years. It stops being fine with video
 history the Pi must repack in 3.7 GB of RAM) or with a many-fold increase in
 photographed recipes. Hence phases 28d–28e.
 
-## Decisions (proposed — each marked **(Roger)** needs a yes/no)
+## Decisions
 
-### D1 — The workstation drives sync; mirrors never push **(Roger)**
+### D1 — The workstation drives sync; mirrors never push — accepted
 
 Hub and spoke. One sync loop, on the workstation: fetch the mirror, merge it
 in, push the result back. Mirrors commit locally and are pulled from; they
@@ -124,7 +125,7 @@ The **workstation** shows a "Mirrors" card on `/git` (D6).
 ### D3 — One sync seat, `gitSync`, with named steps **(design)**
 
 A new curation seat (`controller/curation/sync.ts`) used by the CLI, the API,
-the timer and the workstation's `/git` button alike:
+the workstation's event-driven runner (D4) and its `/git` button alike:
 
 1. `preflight` — local tree clean, no merge in progress; mirror reachable;
    mirror tree clean (`ssh <host> git -C <dir> status --porcelain`, so an
@@ -135,8 +136,8 @@ the timer and the workstation's `/git` button alike:
    half-merged for an unattended run. Rebuilds local indexes (8 s).
 4. `media` — no-op until 28e; then `git annex copy` both ways (D9).
 5. `push` if ahead — plain push; the Pi's hook reindexes. A non-fast-forward
-   rejection (the Pi committed between fetch and push) is `raced`, retried on
-   the next tick, not an error.
+   rejection (the Pi committed between fetch and push) is `raced`; that same
+   commit's ping (D4) triggers the retry, so it is not an error.
 6. `notify` — revalidate the local editor if it is up (`RECIPE_EDITOR_URL`);
    failure to reach it is not a sync failure.
 
@@ -151,59 +152,92 @@ it is per-repo and never committed). Surfaces:
 
 A conflict is never auto-resolved. The person opens `/git` on the
 workstation, presses Pull (the interactive `doPull`, which leaves the merge
-for the resolver), resolves, commits; the next tick pushes it.
+for the resolver), resolves, commits; that commit triggers the push (D4).
 
-### D4 — Unattended sync runs from a systemd user timer **(Roger)**
+### D4 — Sync is event-driven, not timed — Roger, 2026-10-07
 
-`deploy/workstation/recipe-sync.{service,timer}` running
-`scripts/recipe-sync.sh` (flock'd so ticks never overlap; config from the
-existing `~/.config/recipe-deploy/uraninite.env`). It runs the CLI, so it does
-not need the workstation editor to be up.
+Roger: "Workstation should sync with mirrors on startup and after any change
+rather than a timer." So the sync runs **inside the workstation editor
+process**, which owns the content repo anyway — no systemd timer, no linger.
 
-- Interval: **every 5 min**, plus `systemctl --user start recipe-sync` on
-  demand and a `/git` "Sync now" button. A tick with nothing new is a fetch and
-  a status read — no rebuild on either side.
-- `loginctl enable-linger roger` (no sudo for one's own user, normally) so it
-  runs without a desktop session — **(Roger)**: yes, or only while logged in.
-- Installed by `pnpm deploy:pi --setup-sync`, removed by `--remove-sync`.
+**Triggers on the workstation** (all feed one runner):
 
-### D5 — Telling Roger **(Roger)**
+1. **Startup** — Next's `instrumentation.ts` `register()` schedules a sync
+   once the server is up. This is also the catch-up for anything that
+   happened while the workstation editor was down.
+2. **Any local change** — a watcher (`fs.watch`, i.e. inotify) on the content
+   repo's `.git` directory, filtered to `HEAD`, `refs/heads/<branch>` and
+   `packed-refs`, so it sees every commit however it was made: the editor, the
+   `recipes` CLI, an agent over MCP, or `git commit` in a shell.
+3. **A mirror's ping** — `POST /api/git/sync` from the mirror (below).
+4. **"Sync now"** on `/git`.
 
-A new conflict, a dirty mirror, or N consecutive failures → a desktop
-notification on tourmaline (`notify-send`, once per new state, not per tick)
-and a banner on the workstation's `/git` and Maintenance. Phone push (ntfy or
-similar) is out of scope unless Roger wants it.
+**The runner** debounces triggers (~3 s, so a bulk retag is one sync),
+serialises runs (one at a time, plus a `.git/discontent-sync.lock` file lock
+so a dev server and a production server on the same repo cannot both sync),
+and coalesces: a trigger that arrives mid-run queues exactly one more run.
+The sync's own merge moves HEAD; the runner records the HEAD it produced and
+ignores the watcher event for it.
 
-### D6 — What each side can see
+**Triggers on a mirror:** the mirror's editor runs the same watcher, and on a
+local change (or its own startup) it **pings** the workstation:
+`POST ${WORKSTATION_URL}/api/git/sync` with `WORKSTATION_SYNC_TOKEN` (a write
+token minted on the workstation; the users file it lives in syncs to the
+mirror like any other content). The ping is fire-and-forget with a short
+timeout. If the workstation is down, the mirror records "workstation not
+reached" for its `/git` (D6) and the workstation's startup sync catches up.
+The mirror never merges or pushes on its own.
 
-- **Workstation `/git`**: a Mirrors card per remote — last attempt, last
-  success, outcome, the mirror's ahead/behind, "Sync now", and on conflict the
-  steps to resolve.
+**Opt-in by configuration:** the runner only starts when the workstation's
+settings list at least one mirror (D6), and the pinger only when
+`WORKSTATION_URL` is set. Dev checkouts, tests and the Playwright servers do
+neither.
+
+**Consequence:** sync happens only while the workstation editor is running.
+Running it as a systemd user service (so it is up whenever tourmaline is) is
+under Deferred; it is Roger's call, not part of this design.
+
+### D5 — Telling Roger — accepted
+
+A new conflict, a dirty mirror, or three consecutive failures → a desktop
+notification on tourmaline (`notify-send` from the editor process, once per
+new state, not per run) and a banner on the workstation's `/git` and
+Maintenance. No phone push.
+
+### D6 — What each side can see — accepted
+
+- **Workstation `/git`**: a Mirrors card per mirror — last trigger and why
+  (startup / local change / ping / manual), last success, outcome, the
+  mirror's ahead/behind, "Sync now", and on conflict the steps to resolve.
+  The mirror list (`remote`, `sshHost`, `dir`, `url`) is workstation settings,
+  edited in that card; `uraninite` is seeded by `pnpm deploy:pi --setup`.
 - **Mirror `/git`**: "Synced by tourmaline" with ahead/behind against `origin`
   after a fetch (the mirror can read the workstation, it just doesn't write),
-  local commits waiting, and "Pull from workstation".
+  local commits waiting, the last ping and whether it reached the
+  workstation, "Ask workstation to sync" (a ping) and "Pull from workstation".
 
-### D7 — Site settings follow the workstation **(Roger)**
+### D7 — Site settings follow the workstation — accepted
 
 Theme, presets, footer note and contact are site identity, but live per
-instance outside the content repo, so the Pi's copy froze at setup. Proposal:
-`pnpm deploy:pi` (and `--setup-sync`'s timer, on change) copies the
-workstation's site keys to the mirror's `settings.json` (never `ytdlpPath`),
+instance outside the content repo, so the Pi's copy froze at setup.
+`pnpm deploy:pi`, and each sync whose workstation settings changed since the
+last one, copies the workstation's site keys to the mirror's `settings.json`
+(never `ytdlpPath`),
 and a mirror shows Site details / Appearance read-only ("edited on the
 workstation"). _Alternative:_ move site settings into the content repo so git
 syncs them — cleaner long-term, but it changes the settings store for every
 site on the engine; noted under Deferred.
 
-### D8 — The static site stays manual **(Roger)**
+### D8 — The static site stays manual — accepted
 
 Auto-building or auto-deploying the public export after a sync would put
 anything typed on the Pi live without review. Keep Export a deliberate
 workstation action; at most, the Mirrors card says "N commits since the last
 export".
 
-### D9 — Large media: git-annex for big files only, in a late phase **(Roger)**
+### D9 — Large media: git-annex for big files only, in a late phase — accepted
 
-Recommended shape, if Roger agrees in principle:
+The shape:
 
 - **Only large files are annexed**: `.gitattributes`
   `annex.largefiles=(largerthan=5mb) or (mimetype=video/*)`. Recipe JSON and
@@ -231,9 +265,8 @@ _Alternative considered:_ a content-addressed `media/` store outside git,
 synced with rsync. Simpler tooling, but it re-invents copy tracking, has no
 history at all, and Roger already has annex installed and wants it.
 
-If Roger says no to annex: **(Roger)** remove the four dormant hooks so
-`git annex pre-commit .` stops running on every editor commit (the uuid and
-`git-annex` branch are harmless and can stay).
+Until 28e lands, the dormant hooks on tourmaline stay as they are; 28e makes
+them live.
 
 ### D10 — The editor tolerates missing media
 
@@ -242,25 +275,37 @@ recipe whose upload is absent (not yet copied, or dropped) renders a
 placeholder rather than a broken image or a sharp error, and the transform
 route answers 404 cleanly.
 
-### D11 — Phone originals get a size policy **(Roger)**
+### D11 — Phone originals are kept as uploaded — accepted
 
-Most of today's bulk is 7–8 MB phone photos stored as uploaded. Options:
-keep originals (status quo; annex absorbs them under D9's 5 MB rule), or
-downscale on upload to a cap (e.g. 3000 px long edge, q90 — roughly 1 MB)
-with sharp, which already runs. Recommendation: **keep originals and let
-annex hold the big ones** — deleting resolution is irreversible; a cap can be
-added later.
+Most of today's bulk is 7–8 MB phone photos stored as uploaded. They stay
+that way; annex holds the big ones under D9's 5 MB rule. Downscaling on
+upload (e.g. 3000 px long edge, q90, roughly 1 MB) is irreversible and can be
+added later if wanted.
+
+### D12 — A HEAD move the editor didn't make triggers a reindex
+
+The same watcher as D4, on every instance (workstation and mirror). When
+HEAD moves and the index stamp (`27-D3`) no longer matches, after the
+debounce and with no rebuild already running, the editor rebuilds its own
+indexes and revalidates. The editor's own commits advance the stamp
+(`advanceIndexedHead`), so they never trigger it.
+
+This covers a push arriving on the Pi, a `git commit` in a shell on either
+machine (Roger's `f0e2c71` on the Pi, which needed a manual reindex), and a
+CLI write while the editor runs. It replaces the Pi's `post-receive` hook:
+28c removes the hook from `--setup` and the Pi, so there is one mechanism.
+The stale-index banner stays as the fallback if a rebuild fails.
 
 ## Roadmap
 
-| Phase | Scope                                                                              | Branch                 | Status           |
-| ----- | ---------------------------------------------------------------------------------- | ---------------------- | ---------------- |
-| 28a   | Roles: `EDITOR_ROLE`, mirror UI (D2)                                               | `agent/28a-roles`      | 📝               |
-| 28b   | Sync seat + CLI/API/MCP + sync state (D3)                                          | `agent/28b-sync-seat`  | 📝               |
-| 28c   | Unattended sync, notifications, Mirrors card, mirror view, settings follow (D4–D7) | `agent/28c-sync-timer` | 📝               |
-| 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                     | `agent/28d-media-prep` | 📝               |
-| 28e   | git-annex for large files (D9), media step live                                    | `agent/28e-annex`      | 📝 (gated on D9) |
-| 28f   | Close-out: two-machine run, drills, docs, memory                                   | `agent/28f-close`      | 📝               |
+| Phase | Scope                                                                                                      | Branch                  | Status |
+| ----- | ---------------------------------------------------------------------------------------------------------- | ----------------------- | ------ |
+| 28a   | Roles: `EDITOR_ROLE`, mirror UI (D2)                                                                       | `agent/28a-roles`       | 📝     |
+| 28b   | Sync seat + CLI/API/MCP + sync state (D3)                                                                  | `agent/28b-sync-seat`   | 📝     |
+| 28c   | Event-driven sync, watcher reindex, notifications, Mirrors card, mirror view, settings follow (D4–D7, D12) | `agent/28c-sync-events` | 📝     |
+| 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                                             | `agent/28d-media-prep`  | 📝     |
+| 28e   | git-annex for large files (D9), media step live                                                            | `agent/28e-annex`       | 📝     |
+| 28f   | Close-out: two-machine run, drills, docs, memory                                                           | `agent/28f-close`       | 📝     |
 
 Order: 28a and 28b are independent and could run in parallel; 28c needs both;
 28d needs nothing; 28e needs 28b's media step and 28d. Each phase is its own
@@ -306,20 +351,50 @@ ahead (push); diverged clean merge; conflict (aborted, tree clean, outcome
 `conflict`); mirror dirty; raced (mirror commits between fetch and push);
 remote unreachable. Playwright: `/api/git/sync` over HTTP with a token.
 
-### 28c — Unattended sync and visibility
+### 28c — Event-driven sync and visibility
 
-- `scripts/recipe-sync.sh` + `deploy/workstation/recipe-sync.{service,timer}`;
-  `pnpm deploy:pi --setup-sync` / `--remove-sync`; journal logs.
-- Desktop notification on state change (D5).
-- Workstation `/git` Mirrors card + banner; mirror `/git` read-out and "Pull
-  from workstation" (D6).
-- Site settings follow the workstation (D7), if accepted.
+- **Ref watcher** (`packages/cms/git/watchRefs.ts`): one per process
+  (a `globalThis` singleton, so Next's dev reloads don't stack watchers),
+  watching the content repo's `.git` directory for `HEAD`, the current
+  branch's ref and `packed-refs`; debounced; started from the editor's
+  `instrumentation.ts` `register()` (Node runtime only, never during
+  `next build`).
+- **Reindex on foreign HEAD moves** (D12), every role.
+- **Workstation runner** (D4): triggers (startup, watcher, ping, manual) →
+  debounce → lock → `gitSync` per configured mirror → state, notification.
+  Mirror list in workstation settings; Mirrors card to view and edit it.
+- **Mirror pinger** (D4): watcher + startup → `POST
+${WORKSTATION_URL}/api/git/sync`; last-ping state for `/git`.
+  `WORKSTATION_URL` and `WORKSTATION_SYNC_TOKEN` go in the Pi's `.env`,
+  written by `pnpm deploy:pi --setup` (the token minted on the workstation,
+  plaintext only there and in that file).
+- **`--setup` changes**: write the two variables; remove the `post-receive`
+  hook (D12 replaces it); seed the workstation's mirror list with
+  `uraninite`.
+- Desktop notification on state change (D5); Mirrors card and banner on the
+  workstation's `/git`; read-out, "Ask workstation to sync" and "Pull from
+  workstation" on the mirror's (D6).
+- Site settings follow the workstation (D7).
 
-Gates: script unit-tested against scratch repos (dry runs); Playwright for
-both `/git` variants; then **real**: install the timer, make one recipe edit
-on each side, watch both converge within two ticks, `indexStale` false on
-both; a conflict drill on **scratch** content only (two scratch clones, never
-the real repo).
+Gates:
+
+- vitest: the runner's debounce, serialisation, coalescing and
+  ignore-own-HEAD logic with a fake clock; the watcher against a scratch repo
+  (commit → one event; the editor's own commit → no reindex; shell commit →
+  reindex); the pinger with a stub server (down → recorded, not thrown).
+- Playwright: both `/git` variants; a scratch "mirror" repo and
+  `POST /api/git/sync` end to end.
+- **Real**, on both machines:
+  - start the workstation editor → it syncs at startup;
+  - edit a recipe on the Pi → it reaches the workstation within seconds;
+  - edit one on the workstation → it reaches the Pi;
+  - `git commit` in a shell on the Pi → the Pi reindexes on its own and the
+    workstation syncs it;
+  - stop the workstation editor, edit on the Pi, start it again → caught up
+    at startup;
+  - `indexStale` false on both throughout.
+- A conflict drill on **scratch** content only (two scratch clones, never the
+  real repo).
 
 ### 28d — Media groundwork
 
@@ -331,7 +406,7 @@ the real repo).
 Gates: vitest for the placeholder decision and CRLF normalisation;
 Playwright with a recipe whose upload file is deleted in test content.
 
-### 28e — git-annex for large files (only if D9 is accepted)
+### 28e — git-annex for large files
 
 - `.gitattributes` with the largefiles rule; `annex.numcopies 2`.
 - git-annex standalone arm64 in the image (build-platform stage, checksum).
@@ -347,25 +422,35 @@ run with one test video on the Pi, synced, rendered on both, then removed.
 
 ### 28f — Close-out
 
-Both instances on main, timer installed and healthy for a day, the drills
+Both instances on main, event-driven sync healthy for a day, the drills
 from 28c/28e recorded here, `deploy-pi.md` and `agent-epic-27.md`'s "Syncing
 with uraninite" pointed at the new flow, memory updated.
 
 ## Risks and traps known up front
 
-- **Concurrent writers.** The workstation editor may commit while a tick is
+- **Concurrent writers.** The workstation editor may commit while a sync is
   merging. `gitPull` requires a clean tree and the editor's writes are one
-  commit each, so the window is small; the tick reports `error` and retries.
-  The flock stops ticks overlapping each other.
+  commit each, so the window is small. The run reports `error`, and that
+  commit's own watcher event queues the retry. The lock stops runs
+  overlapping, even across two server processes.
 - **Rebuild cost per change.** Every merge rebuilds all indexes on both sides
-  (8 s + ~12 s). Fine at a 5-minute cadence; incremental reindex after a pull
-  is under Deferred if it ever is not.
+  (8 s + ~12 s), now per change rather than per tick. The debounce absorbs
+  bursts. Incremental reindex after a pull is under Deferred, should a full
+  rebuild per change ever be too much.
 - **A bad record stalls rebuilds.** The CRLF hang (#165) froze every rebuild
-  for two days unnoticed. 28b's timeout on the Pi reindex (already 600 s in
-  `deploy-pi.sh`) and 28c's "N consecutive failures" notification make the
-  next one visible.
-- **Linger off.** Without `enable-linger`, the timer only runs while Roger is
-  logged in on tourmaline.
+  for two days unnoticed. 28c's "three consecutive failures" notification and
+  a timeout on each rebuild make the next one visible.
+- **The workstation editor must be running.** Sync, and the Pi's pings, need
+  it up. The startup sync catches up anything missed, and the mirror shows
+  "workstation not reached".
+- **Missed watcher events.** inotify works on the Pi's bind mount (one kernel)
+  and loses nothing in normal use. A missed event is caught by the next
+  change, the next startup, or "Sync now". There is no polling fallback, per
+  D4.
+- **Loops.** The sync's merge and push move HEAD on both sides. The runner
+  ignores its own HEAD, and the mirror's pinger ignores HEAD moves that came
+  from a push, which D12's stamp check can tell apart. The scratch-repo tests
+  must show that one change leads to exactly one sync.
 - **The sandbox** (agent sessions): commands naming git with `cd`, heredocs,
   loops or `.`-sourcing are refused; use script files (see `deploy-pi.md`).
 
@@ -376,18 +461,24 @@ with uraninite" pointed at the new flow, memory updated.
 - Batching `rebuildIndex`'s per-item LMDB commits.
 - Phone notifications.
 - A second mirror (the loop is per-remote already).
-- Pi-initiated "ask the workstation to sync now" (the Pi would need to reach
-  the workstation editor's API).
+- Running the workstation editor as a systemd user service, so sync runs
+  whenever tourmaline is up (Roger's call).
 - Aligning the `next` 16.1.1 pins in `component-library`/`next-static-image`
   (~260 MB off the Pi image; `deploy-pi.md` Traps).
 
-## Open decisions for Roger (summary)
+## Decisions (Roger, 2026-10-07)
 
-1. **D1** Hub and spoke: the workstation drives sync, mirrors never push.
-2. **D4** 5-minute systemd user timer; enable linger, or only while logged in.
-3. **D5** Desktop notification on tourmaline enough, or phone push too.
-4. **D7** Site settings follow the workstation (copied, read-only on the Pi).
-5. **D8** Static export stays manual.
-6. **D9** git-annex for files over 5 MB and video, unlocked mode, in 28e — or
-   not now, in which case remove the four dormant hooks.
-7. **D11** Keep phone originals as uploaded (recommended), or cap on upload.
+"Workstation should sync with mirrors on startup and after any change rather
+than a timer. Everything else recommended."
+
+1. **D1** Hub and spoke: accepted.
+2. **D4** No timer. Sync runs on workstation startup and after any change:
+   local commits through a ref watcher, mirror commits through a ping.
+3. **D5** Desktop notification only: accepted.
+4. **D7** Site settings follow the workstation: accepted.
+5. **D8** Static export stays manual: accepted.
+6. **D9** git-annex for files over 5 MB and video, in 28e: accepted.
+7. **D11** Keep phone originals: accepted.
+
+D12, reindexing when a HEAD move wasn't made by the editor, was added with
+the D4 rework, since it serves "after any change".
