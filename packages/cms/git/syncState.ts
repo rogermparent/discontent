@@ -57,6 +57,22 @@ export interface MirrorSyncState {
   /** Commits brought in / sent on the last attempt. */
   pulled?: number;
   pushed?: number;
+  /** The last time site settings were sent to this mirror (D7). */
+  settings?: SettingsPushState;
+}
+
+/**
+ * D7: the workstation sends its site settings after a sync when they changed
+ * since the last send. `hash` is what the mirror last accepted; a failed send
+ * keeps the previous hash and records `error`, so the next sync tries again.
+ */
+export interface SettingsPushState {
+  /** ISO time of the last attempt. */
+  at: string;
+  /** The hash of the site settings the mirror last accepted. */
+  hash?: string;
+  /** Why the last attempt failed, if it did. */
+  error?: string;
 }
 
 export type SyncStateFile = Record<string, MirrorSyncState>;
@@ -119,8 +135,45 @@ export async function recordSyncAttempt(
       : (previous?.consecutiveFailures ?? 0) + (failed ? 1 : 0),
     ...(attempt.pulled !== undefined ? { pulled: attempt.pulled } : {}),
     ...(attempt.pushed !== undefined ? { pushed: attempt.pushed } : {}),
+    ...(previous?.settings ? { settings: previous.settings } : {}),
   };
   file[attempt.remote] = next;
+  await writeStateFile(contentDirectory, file);
+  return next;
+}
+
+/**
+ * Record a site-settings send to `remote` (D7). Only a mirror that has a sync
+ * record gets one: settings follow a sync, never stand alone.
+ */
+export async function recordSettingsPush(
+  contentDirectory: string,
+  remote: string,
+  push: { hash?: string; error?: string; at?: Date },
+): Promise<SettingsPushState | undefined> {
+  const file = await readSyncState(contentDirectory);
+  const previous = file[remote];
+  if (!previous) return undefined;
+  const settings: SettingsPushState = {
+    at: (push.at ?? new Date()).toISOString(),
+    ...(push.error
+      ? {
+          ...(previous.settings?.hash ? { hash: previous.settings.hash } : {}),
+          error: push.error,
+        }
+      : push.hash
+        ? { hash: push.hash }
+        : {}),
+  };
+  file[remote] = { ...previous, settings };
+  await writeStateFile(contentDirectory, file);
+  return settings;
+}
+
+async function writeStateFile(
+  contentDirectory: string,
+  file: SyncStateFile,
+): Promise<void> {
   try {
     const path = await statePath(contentDirectory);
     const temporary = `${path}.${process.pid}.tmp`;
@@ -129,5 +182,4 @@ export async function recordSyncAttempt(
   } catch {
     /* See the module comment. */
   }
-  return next;
 }

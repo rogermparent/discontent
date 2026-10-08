@@ -98,6 +98,21 @@ export async function MirrorsCard({ remotes }: { remotes: RemoteSummary[] }) {
                   sends it to {name}.
                 </p>
               )}
+              {entry?.settings && (
+                <p
+                  className={clsx(
+                    "text-xs",
+                    entry.settings.error
+                      ? "text-warning"
+                      : "text-muted-foreground",
+                  )}
+                  data-testid="mirror-settings"
+                >
+                  {entry.settings.error
+                    ? `Site settings not sent: ${entry.settings.error}`
+                    : `Site settings sent ${when(entry.settings.at)}`}
+                </p>
+              )}
               <div className="flex flex-row gap-2 mt-2">
                 <form action={syncMirrorNowAction}>
                   <input type="hidden" name="remote" value={name} />

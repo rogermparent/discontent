@@ -5,6 +5,8 @@ import {
   PageSection,
   PageHeading,
 } from "recipe-website-common/components/PageLayout";
+import { isMirror } from "recipe-website-common/config/role";
+import { MirrorSettingsNotice } from "../MirrorSettingsNotice";
 import { SiteDetailsForm } from "./SiteDetailsForm";
 
 export default async function SettingsPage() {
@@ -15,11 +17,13 @@ export default async function SettingsPage() {
     });
   }
   const settings = await readSettings();
+  const mirror = isMirror();
   return (
     <PageMain>
       <PageSection maxWidth="4xl" grow>
         <PageHeading>Site details</PageHeading>
-        <SiteDetailsForm settings={settings} />
+        {mirror && <MirrorSettingsNotice />}
+        <SiteDetailsForm settings={settings} readOnly={mirror} />
       </PageSection>
     </PageMain>
   );

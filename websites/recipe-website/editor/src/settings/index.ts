@@ -35,6 +35,11 @@ export interface Settings extends ThemedSettings {
    * sync. Per instance, like the rest of this file; a mirror ignores it.
    */
   mirrors?: string[];
+  /**
+   * Where each mirror's editor answers, by remote name, when its remote's ssh
+   * host on :3000 is wrong (D7: site settings are sent there after a sync).
+   */
+  mirrorUrls?: Record<string, string>;
 }
 
 export type { NamedPreset };
