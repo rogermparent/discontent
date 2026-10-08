@@ -999,7 +999,7 @@ Roger deployed `98d7e939` (`! pnpm deploy:pi`: base re-sent in 189 s, app
   - `install` writes `~/.config/recipe-deploy/workstation.env` (mode 600:
     `CONTENT_DIRECTORY`, `SETTINGS_DIRECTORY`, `MIRROR_SYNC_TOKEN` from the
     deploy config's `PI_TOKEN`, `PORT`) and `recipe-workstation.service`,
-    builds if needed, then enables and starts it.
+    builds, then enables and starts it.
   - `update` runs `git pull --ff-only`, `pnpm install`, a build, a restart
     and a health check.
   - Also `restart`, `stop`, `status`, `logs` and `uninstall`.

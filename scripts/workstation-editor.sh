@@ -3,7 +3,7 @@
 # whenever tourmaline is up instead of while a terminal stays open.
 #
 #     scripts/workstation-editor.sh install   write the env file (once) and the
-#                                             unit, build if needed, enable + start
+#                                             unit, build, enable + start
 #     scripts/workstation-editor.sh update    git pull --ff-only, pnpm install,
 #                                             build, restart, health-check
 #     scripts/workstation-editor.sh restart | stop | status | logs
@@ -129,7 +129,8 @@ case "$cmd" in
     step "Unit"
     write_unit
     systemctl --user daemon-reload
-    [ -d "$editor/.next" ] || build
+    # Always: a checkout's .next can be from an older commit than its source.
+    build
     if ! systemctl --user is-active --quiet "$UNIT" && ! port_free; then
       die ":$(port) is taken by another process — stop the editor running there first"
     fi
