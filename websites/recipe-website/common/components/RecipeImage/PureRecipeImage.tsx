@@ -1,7 +1,7 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
 import { useState, type ReactNode } from "react";
-import Image from "next/image";
 import { getPureStaticImageProps } from "@discontent/next-static-image/src/Pure";
 
 /**
@@ -13,6 +13,9 @@ import { getPureStaticImageProps } from "@discontent/next-static-image/src/Pure"
  * dropped it — that URL is a 404 and the card showed a broken image. An
  * `onError` swaps in `fallback` instead. These lists render after a client
  * fetch, so the handler is attached before the request settles.
+ *
+ * `uploadsDirectory` as in `PureStaticImage` — `uploads/group` for a
+ * group's picture; recipe uploads by default.
  */
 export function PureRecipeImage({
   slug,
@@ -21,6 +24,7 @@ export function PureRecipeImage({
   width,
   height,
   className,
+  uploadsDirectory,
   fallback,
 }: {
   slug: string;
@@ -29,6 +33,7 @@ export function PureRecipeImage({
   width: number;
   height: number;
   className?: string;
+  uploadsDirectory?: string;
   fallback: ReactNode;
 }) {
   const [failed, setFailed] = useState(false);
@@ -40,13 +45,14 @@ export function PureRecipeImage({
     width,
     height,
     className,
+    ...(uploadsDirectory ? { uploadsDirectory } : {}),
   });
-  return (
-    <Image
-      {...props}
-      alt={alt}
-      unoptimized={true}
-      onError={() => setFailed(true)}
-    />
-  );
+  /*
+   * A plain <img> with exactly what `PureStaticImage`'s `unoptimized` image
+   * rendered (no srcset): next/image given an `onError` re-assigns
+   * `img.src = img.src` on mount, to catch an error that fired before
+   * hydration, and that turns the attribute into an absolute URL.
+   */
+  const { srcSet: _srcSet, sizes: _sizes, ...attributes } = props;
+  return <img {...attributes} alt={alt} onError={() => setFailed(true)} />;
 }

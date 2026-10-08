@@ -123,6 +123,12 @@ RUN set -eu; \
 # annexed, every `git add` and checkout the editor makes runs git-annex — the
 # image must carry it whether or not anything is annexed yet.
 #
+# Its `runshell` writes two ssh shims into ~/.ssh on first run (for being
+# ssh'd *into*, which never happens to the container; transfers go to the Pi
+# host) and exits when that fails — and the container's ~/.ssh is a read-only
+# mount, so every git-annex call failed (found after the 28e deploy). The
+# patch writes them only when ~/.ssh is writable.
+#
 # Upstream publishes only `current/`, so the version and each architecture's
 # checksum are pinned here (the sha256 is the key in the tarball's `.info`
 # file). A new upstream release makes this download fail its check rather than
@@ -144,6 +150,9 @@ RUN set -eu; \
     mkdir -p /out; \
     tar -C /out -xzf "$asset"; \
     test -x /out/git-annex.linux/git-annex; \
+    sed -i 's|if \[ -e "$HOME/.ssh" \]; then|if [ -w "$HOME/.ssh" ]; then|' \
+      /out/git-annex.linux/runshell; \
+    test "$(grep -c 'if \[ -w "$HOME/.ssh" \]; then' /out/git-annex.linux/runshell)" = 2; \
     echo "$GIT_ANNEX_VERSION" > /out/git-annex.linux/VERSION.pinned
 
 # Everything but the app: OS, node, deno, yt-dlp, git-annex and the target's
