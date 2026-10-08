@@ -13,13 +13,16 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** the overnight session (2026-10-08) is under way. 28a–28c are merged
-(#168, #170, #171, fix #172) and the real two-machine run passed. 28h is
-merged (#174); 28c2 (settings follow, D7) is in review, then 28g. The
-workstation editor runs from `.claude/worktrees/workstation-run-2` (see
-"Overnight session"). **The Pi is still on `8fdc52ca`:** the session's
-`pnpm deploy:pi` was refused by Claude Code's permission classifier, so Pi
-deploys wait for Roger.
+**Now:** the overnight session (2026-10-08) is done, and every phase is
+merged: 28h #174, 28c2 #175, 28g #176, 28d #177 and 28e #178 (scratch only),
+on top of 28a–28c (#168, #170, #171, #172). The 28f drills passed (see
+28f). Waiting on Roger (see "28f → For Roger"):
+
+- **Deploy the Pi.** It is still on `8fdc52ca`, because the session's
+  `pnpm deploy:pi` was refused by Claude Code's permission classifier.
+- **Take the workstation editor back.** It runs from
+  `.claude/worktrees/workstation-run-2` at `75576fa5`.
+- **Activate git-annex,** when he chooses.
 
 ## Context
 
@@ -311,7 +314,7 @@ The stale-index banner stays as the fallback if a rebuild fails.
 | 28c2  | Site settings follow the workstation (D7)                                                 | `agent/28c2-settings`    | ✅ #175           |
 | 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                            | `agent/28d-media-prep`   | ✅ #177           |
 | 28e   | git-annex for large files (D9), media step live                                           | `agent/28e-annex`        | ✅ #178 (scratch) |
-| 28f   | Close-out: two-machine run, drills, docs, memory                                          | `agent/28f-close`        | 📝                |
+| 28f   | Close-out: two-machine run, drills, docs, memory                                          | `agent/28f-close`        | ✅ (this PR)      |
 | 28g   | Make page: tag tree (parents expand to children) + tag search                             | `agent/28g-make-tags`    | ✅ #176           |
 | 28h   | Housekeeping: self-hosted fonts, `next` pin alignment, needless-reindex fix               | `agent/28h-housekeeping` | ✅ #174           |
 
@@ -790,8 +793,9 @@ not run.
   (and not `annex-ignore`).
   - Tourmaline's long-dormant annex (uuid, no rule) and the Pi's
     non-annexed clone therefore sync exactly as before. The real runs after
-    the merge say `media: skipped — uraninite has no git-annex repository
-yet`.
+    the merge say `media: skipped — uraninite is annex-ignored`: git-annex
+    set `remote.uraninite.annex-ignore=true` on tourmaline by itself back in
+    its dormant days, and `annex-activate.sh` step 3 clears it.
 - **Pointers into files.**
   - A push into a checked-out branch (`updateInstead`) checks files out
     without git-annex's post-checkout hook, so content that arrived just
@@ -843,11 +847,103 @@ yet`.
 `scripts/annex-activate.sh --dry-run`, then `--apply`
 (`--migrate-existing` for the mp4).
 
-### 28f — Close-out
+### 28f — Close-out (2026-10-08)
 
-Both instances on main, event-driven sync healthy for a day, the drills
-from 28c/28e recorded here, `deploy-pi.md` and `agent-epic-27.md`'s "Syncing
-with uraninite" pointed at the new flow, memory updated.
+**Real drills.** The workstation was at `75576fa5` (all of the above) and
+the Pi at `8fdc52ca` (28c + #172). Each drill used one recipe named
+`zz-drill-…`, deleted at the end. Afterwards both repos were at `fb9ea64`,
+clean, with no drill left.
+
+| Drill                                                                    | Path                                                                       | Time                                         |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------- | -------------------------------------------- |
+| Shell commit on the Pi (`git commit` over ssh, not the editor)           | Pi watcher → D12 reindex → ping → workstation sync → workstation serves it | **35.4 s** to the workstation's repo and API |
+| …then deleted through the Pi's API                                       | Pi commit → ping → sync                                                    | **8.9 s**                                    |
+| Workstation editor down → create on the Pi (API, 201) → start the editor | startup sync (`synced`)                                                    | **8.3 s** from start (2.2 s to healthy)      |
+| …then deleted through the Pi's API                                       | ping → sync                                                                | **7.8 s**                                    |
+
+- The shell commit's 35 s is mostly the Pi rebuilding its indexes before it
+  pings: its image predates 28h's settle, but the D12 path is the same.
+- `GET /api/recipe/<slug>` on the Pi reads the file, so it answered at once;
+  index freshness was checked through `/api/git/status` instead.
+
+**Pi health after the drills.** `/` 200, `indexStale: false`,
+`/api/git/push` 403 (mirror). Image `recipe-editor:8fdc52ca`.
+
+**Workstation after each restart.** `/api/auth/providers` 200,
+`[instance] workstation … syncing uraninite`, and a token
+`POST /api/git/sync` answered `nothing`. Its steps: preflight ok, fetch ok,
+merge and push skipped, media skipped (annex-ignored).
+
+**Not yet live, because the Pi wasn't deployed:**
+
+- **D7.** The workstation sends the site settings after every sync and gets
+  404, since the Pi lacks `PUT /api/settings/site`. Each sync logs
+  `[sync] uraninite site settings: failed — 404` and retries. The first sync
+  after a deploy sends them, and the Mirrors card then says "Site settings
+  sent".
+- **28d** placeholders and **28g** on the Pi's own pages.
+- **git-annex in the Pi's image.** The next deploy re-ships the base once,
+  because the lockfile changed in 28h (one `next`); the git-annex layer comes
+  with it.
+
+**How the session ran the workstation editor.**
+
+- It runs from a worktree, because the session can't run git in the main
+  checkout: `.claude/worktrees/workstation-run-2` at `75576fa5`, started
+  detached on :3000.
+- It runs with `CONTENT_DIRECTORY=~/Projects/recipe-content`,
+  `SETTINGS_DIRECTORY=<main checkout>/websites/recipe-website/editor/settings`,
+  and `MIRROR_SYNC_TOKEN` taken from the deploy config's `PI_TOKEN`.
+- Roger's terminal-run editor wasn't running when the session started:
+  nothing listened on :3000, so there was nothing to stop.
+- Builds alternated between two worktrees, `workstation-run` and
+  `workstation-run-2`, because the sandbox refuses git in a worktree other
+  than its own. Each new build was made from `pi-deploy` with
+  `git worktree add`, and the old one removed once idle.
+
+#### For Roger
+
+1. **Deploy the Pi:** `pnpm deploy:pi` from a clean `origin/main` (e.g. in
+   `.claude/worktrees/pi-deploy`, detached at `75576fa5`). The base re-ships
+   once (lockfile and git-annex). Afterwards the next sync sends the site
+   settings (D7). Check the Mirrors card on `/git`.
+2. **Take the workstation editor back.**
+   - Stop the session's one:
+     `kill -TERM -- -$(cat ~/.claude/jobs/b97c24ab/ws-editor.pid)`, or find
+     the `next-server` whose cwd is under `workstation-run-2`.
+   - In the main checkout: `git pull`, then `pnpm install` and `pnpm build`
+     (`pnpm --filter recipe-editor build`).
+   - Then
+     `cd websites/recipe-website/editor && MIRROR_SYNC_TOKEN=<the pi-deploy token> pnpm run start -H 0.0.0.0`.
+     Without `MIRROR_SYNC_TOKEN`, D7 records "MIRROR_SYNC_TOKEN is not set"
+     and sends nothing. Setting it in `editor/.env` works too.
+   - Then `git worktree remove .claude/worktrees/workstation-run-2` (and
+     `pi-deploy` when done with it).
+3. **git-annex, when wanted:** deploy first, then
+   `ssh uraninite sudo apt install git-annex`, then
+   `scripts/annex-activate.sh --dry-run`, then `--apply`
+   (`--migrate-existing` for the 12.8 MB mp4).
+4. **Small things.**
+   - `~/.ssh/known_hosts` line 27 has a stale `localhost` host key: ssh to
+     localhost fails verification. The session left it alone.
+   - `docker image rm annex-assets-check:local` is a throwaway image from
+     checking the git-annex download.
+
+**Overnight notes worth keeping.**
+
+- **The 28h font switch changed what CI renders.** The old mobile baseline
+  matched CI's fallback-font render, so `recipe-mobile` was retaken from the
+  CI artifact rather than this machine.
+- **`next/font/local` names the family after the loader's const** in dev,
+  and `declarations: [{prop: "font-family"}]` doesn't change what the
+  variable points at under Turbopack. Portfolio's smoke test asserts the
+  loaded face instead of a name.
+- **The mirrors-card "Sync now" check needed 30 s on a cold CI shard**, when
+  28g's extra tests reshuffled the shards: the button was still "Syncing…"
+  at 5 s.
+- **Branches merged from `origin/main` twice** to clear doc-table
+  conflicts. Per-phase doc edits touch neighbouring roadmap rows, so expect
+  that when several phase PRs are open at once.
 
 ### 28g — Make page tags (2026-10-08)
 
