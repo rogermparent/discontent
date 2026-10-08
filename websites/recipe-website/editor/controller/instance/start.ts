@@ -6,7 +6,9 @@
  * - **watches the content repository's refs** (`watchRefs`), and
  * - **reindexes when HEAD moved without the editor** (D12): a push received
  *   from the workstation, a `git commit` in a shell, a CLI write. The
- *   editor's own commits advance the index stamp, so they never trigger it.
+ *   editor's own commits advance the index stamp, so they never trigger it
+ *   (the stamp is re-read after a short settle, since it lands just after
+ *   HEAD moves).
  *
  * A **workstation** with mirrors in its settings also runs the **sync
  * runner** (D4): at startup, after every HEAD move that was not its own, on
@@ -86,6 +88,32 @@ function createMutex() {
 let activeSyncs = 0;
 
 /**
+ * How long a stale stamp must stay stale before D12 calls it foreign. The
+ * editor's own commit moves HEAD first and advances the stamp just after
+ * (`advanceIndexedHead`); on the Pi that gap can outlast the watcher's
+ * debounce, and the editor rebuilt its indexes after its own writes.
+ */
+export const FOREIGN_SETTLE_MS = 2000;
+
+/**
+ * D12: rebuild the indexes if HEAD moved without the editor. A stale stamp is
+ * re-read after `settleMs`, so a commit the editor is still finishing is not
+ * mistaken for a foreign one. Answers whether it rebuilt.
+ */
+export async function reindexWhenForeign(
+  contentDirectory: string,
+  { settleMs = FOREIGN_SETTLE_MS }: { settleMs?: number } = {},
+): Promise<boolean> {
+  if (!(await readIndexFreshness(contentDirectory)).stale) return false;
+  await new Promise((resolve) => setTimeout(resolve, settleMs));
+  if (!(await readIndexFreshness(contentDirectory)).stale) return false;
+  console.info("[instance] HEAD moved outside the editor; reindexing");
+  await reindex({ contentDirectory });
+  await refreshEditor();
+  return true;
+}
+
+/**
  * Sync one mirror on the workstation, the way every trigger does: inside the
  * process mutex and the repository lock, with the ssh preflight read off the
  * remote's URL. Used by the runner and by `/api/git/sync`.
@@ -148,11 +176,7 @@ async function start(): Promise<Instance | undefined> {
    */
   const reindexIfForeign = createCoalescedTask(
     async () => {
-      const { stale } = await readIndexFreshness(contentDirectory);
-      if (!stale) return;
-      console.info("[instance] HEAD moved outside the editor; reindexing");
-      await reindex({ contentDirectory });
-      await refreshEditor();
+      await reindexWhenForeign(contentDirectory);
     },
     { blocked: () => activeSyncs > 0 },
   );

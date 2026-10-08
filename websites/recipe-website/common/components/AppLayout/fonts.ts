@@ -1,14 +1,4 @@
-import {
-  Archivo,
-  Public_Sans,
-  Spline_Sans_Mono,
-  Space_Grotesk,
-  Inter,
-  JetBrains_Mono,
-  Bitter,
-  Source_Sans_3,
-  IBM_Plex_Mono,
-} from "next/font/google";
+import localFont from "next/font/local";
 import type { FontPairingOption } from "@discontent/component-library/theming";
 
 /*
@@ -18,6 +8,12 @@ import type { FontPairingOption } from "@discontent/component-library/theming";
  * loaded *here*; the theming engine only switches among them by pointing the
  * --ff-display/-body/-mono roles at a pairing's suffixed vars (see
  * packages/component-library/theming/fonts.ts + derive.ts).
+ *
+ * The files are vendored latin subsets from Google Fonts (all OFL; see
+ * fonts/OFL.txt). next/font/google fetched them at build time, so every
+ * build, CI shard and Pi image depended on fonts.gstatic.com answering.
+ * Variable families are one file with a weight range; IBM Plex Mono is
+ * static, one file per weight.
  *
  * The menu used to live in the shared package, which made it a global
  * allow-list: another site's pairing key was silently rewritten to "bench" by
@@ -33,57 +29,64 @@ import type { FontPairingOption } from "@discontent/component-library/theming";
  */
 
 // --- bench (default): Archivo / Public Sans / Spline Sans Mono ---
-const benchDisplay = Archivo({
-  subsets: ["latin"],
+const benchDisplay = localFont({
+  src: "./fonts/archivo-latin.woff2",
+  weight: "500 700",
   variable: "--ff-display-bench",
-  weight: ["500", "600", "700"],
   display: "swap",
 });
-const benchBody = Public_Sans({
-  subsets: ["latin"],
+const benchBody = localFont({
+  src: "./fonts/public-sans-latin.woff2",
+  weight: "100 900",
   variable: "--ff-body-bench",
   display: "swap",
 });
-const benchMono = Spline_Sans_Mono({
-  subsets: ["latin"],
+const benchMono = localFont({
+  src: "./fonts/spline-sans-mono-latin.woff2",
+  weight: "300 700",
   variable: "--ff-mono-bench",
   display: "swap",
 });
 
 // --- grotesk: Space Grotesk / Inter / JetBrains Mono ---
-const groteskDisplay = Space_Grotesk({
-  subsets: ["latin"],
+const groteskDisplay = localFont({
+  src: "./fonts/space-grotesk-latin.woff2",
+  weight: "500 700",
   variable: "--ff-display-grotesk",
-  weight: ["500", "600", "700"],
   display: "swap",
 });
-const groteskBody = Inter({
-  subsets: ["latin"],
+const groteskBody = localFont({
+  src: "./fonts/inter-latin.woff2",
+  weight: "100 900",
   variable: "--ff-body-grotesk",
   display: "swap",
 });
-const groteskMono = JetBrains_Mono({
-  subsets: ["latin"],
+const groteskMono = localFont({
+  src: "./fonts/jetbrains-mono-latin.woff2",
+  weight: "100 800",
   variable: "--ff-mono-grotesk",
   display: "swap",
 });
 
 // --- slab: Bitter / Source Sans 3 / IBM Plex Mono ---
-const slabDisplay = Bitter({
-  subsets: ["latin"],
+const slabDisplay = localFont({
+  src: "./fonts/bitter-latin.woff2",
+  weight: "500 700",
   variable: "--ff-display-slab",
-  weight: ["500", "600", "700"],
   display: "swap",
 });
-const slabBody = Source_Sans_3({
-  subsets: ["latin"],
+const slabBody = localFont({
+  src: "./fonts/source-sans-3-latin.woff2",
+  weight: "200 900",
   variable: "--ff-body-slab",
   display: "swap",
 });
-const slabMono = IBM_Plex_Mono({
-  subsets: ["latin"],
+const slabMono = localFont({
+  src: [
+    { path: "./fonts/ibm-plex-mono-400-latin.woff2", weight: "400" },
+    { path: "./fonts/ibm-plex-mono-500-latin.woff2", weight: "500" },
+  ],
   variable: "--ff-mono-slab",
-  weight: ["400", "500"],
   display: "swap",
 });
 

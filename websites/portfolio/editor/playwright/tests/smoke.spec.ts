@@ -32,6 +32,7 @@ test.describe("Harness", () => {
         foreground: root.getPropertyValue("--foreground").trim(),
         headerHeight: root.getPropertyValue("--header-height").trim(),
         display: root.getPropertyValue("--ff-display").trim(),
+        marginalia: root.getPropertyValue("--ff-display-marginalia").trim(),
       };
     });
 
@@ -51,9 +52,19 @@ test.describe("Harness", () => {
     // silently resolved to ui-sans-serif via the --ff-*-fallback chain — a
     // green build, a rendered page, and the wrong font.
     //
-    // The computed value is the resolved family ("Fraunces", "Fraunces
-    // Fallback"), not the var() name, which is the stronger thing to assert.
-    expect(tokens.display).toContain("Fraunces");
+    // The computed value is the resolved family list, not the var() name,
+    // which is the stronger thing to assert: the display role resolves to the
+    // marginalia pairing's face, and that face is a webfont this page loaded.
+    // (Its name is next/font's business: next/font/local, since 28h, calls it
+    // after the loader's const, `marginaliaDisplay`, in dev.)
+    expect(tokens.marginalia).not.toBe("");
+    expect(tokens.display).toBe(tokens.marginalia);
+    const family = tokens.display.split(",")[0].replace(/["']/g, "").trim();
+    const faces = await page.evaluate(
+      async (name) => (await document.fonts.load(`32px "${name}"`)).length,
+      family,
+    );
+    expect(faces).toBeGreaterThan(0);
 
     // And the body actually takes the token, rather than a stray slate.
     const bodyColor = await page.evaluate(
