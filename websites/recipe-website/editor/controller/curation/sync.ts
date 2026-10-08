@@ -18,7 +18,11 @@
  *    every index and fires `onBulkChange`, and aborts a conflict, leaving the
  *    tree as it was → `conflict`. Never auto-resolved: a person pulls from
  *    `/git`, where the resolver is.
- * 4. `media` — nothing yet; git-annex content moves here in 28e.
+ * 4. `media` — git-annex content both ways and the `git-annex` branch
+ *    (`annex.ts`, 28e), once both sides are annexed; `skipped` before.
+ *    A failure here does not stop the push — the commits still go, the
+ *    mirror shows a placeholder for content it lacks (D10) — but the
+ *    outcome is `error`, so it is seen and retried.
  * 5. `push` when we have commits the mirror doesn't. The mirror's
  *    `updateInstead` refusing because its tree is dirty → `mirror_dirty`; a
  *    non-fast-forward (it committed after our fetch) → `raced`, which the
@@ -47,6 +51,7 @@ import {
   NotARepoError,
   ValidationError,
 } from "./errors";
+import { syncMedia } from "./annex";
 import { gitPull, mergeInProgress } from "./git";
 import { directoryIsGitRepo } from "@discontent/cms/git/commit";
 
@@ -294,11 +299,13 @@ export async function gitSync(
   }
 
   /* 4. media -------------------------------------------------------------- */
+  const media = await syncMedia(ctx.contentDirectory, target);
   steps.push({
     step: "media",
-    status: "skipped",
-    detail: "no large-media store yet",
+    status: media.status,
+    ...(media.detail ? { detail: media.detail } : {}),
   });
+  const mediaMoved = (media.received ?? 0) + (media.sent ?? 0);
 
   /* 5. push --------------------------------------------------------------- */
   const ahead = await count(git, `${remoteBranch}..HEAD`).catch(() => 0);
@@ -341,5 +348,13 @@ export async function gitSync(
     }
   }
 
-  return finish(pulled > 0 || pushed > 0 ? "synced" : "nothing");
+  if (media.status === "failed") {
+    return finish(
+      "error",
+      `Commits synced, but copying media with ${target} failed: ${media.detail}`,
+    );
+  }
+  return finish(
+    pulled > 0 || pushed > 0 || mediaMoved > 0 ? "synced" : "nothing",
+  );
 }
