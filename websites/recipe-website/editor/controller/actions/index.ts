@@ -1,5 +1,6 @@
 "use server";
 
+import { isMirror, mirrorRefusal } from "recipe-website-common/config/role";
 import { auth } from "@/auth";
 import slugify from "@sindresorhus/slugify";
 import { deleteContent } from "@discontent/cms/content/deleteContent";
@@ -407,6 +408,7 @@ export async function createRemote(
   if (!session?.user?.email) {
     return "Authentication required";
   }
+  if (isMirror()) return mirrorRefusal("managing remotes");
 
   const contentDirectory = getContentDirectory();
   const result = remoteSchema.safeParse({
@@ -454,6 +456,7 @@ export async function createBranch(
   if (!session?.user?.email) {
     return "Authentication required";
   }
+  if (isMirror()) return mirrorRefusal("managing branches");
 
   const contentDirectory = getContentDirectory();
   const branchName = formData.get("branchName") as string;
@@ -513,6 +516,7 @@ export async function branchCommandAction(
   if (!session?.user?.email) {
     return "Authentication required";
   }
+  if (isMirror()) return mirrorRefusal("managing branches");
 
   const contentDirectory = getContentDirectory();
   const command = formData.get("command");

@@ -13,8 +13,9 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** plan approved 2026-10-07, with D4 reworked as event-driven sync
-(see "Decisions (Roger)" at the end). 28a is next; nothing is built yet.
+**Now:** plan approved 2026-10-07 (#167), with D4 reworked as event-driven
+sync (see "Decisions (Roger)" at the end). 28a (roles) is in review; 28b is
+next.
 
 ## Context
 
@@ -300,7 +301,7 @@ The stale-index banner stays as the fallback if a rebuild fails.
 
 | Phase | Scope                                                                                                      | Branch                  | Status |
 | ----- | ---------------------------------------------------------------------------------------------------------- | ----------------------- | ------ |
-| 28a   | Roles: `EDITOR_ROLE`, mirror UI (D2)                                                                       | `agent/28a-roles`       | 📝     |
+| 28a   | Roles: `EDITOR_ROLE`, mirror UI (D2)                                                                       | `agent/28a-roles`       | 🟡     |
 | 28b   | Sync seat + CLI/API/MCP + sync state (D3)                                                                  | `agent/28b-sync-seat`   | 📝     |
 | 28c   | Event-driven sync, watcher reindex, notifications, Mirrors card, mirror view, settings follow (D4–D7, D12) | `agent/28c-sync-events` | 📝     |
 | 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                                             | `agent/28d-media-prep`  | 📝     |
@@ -331,6 +332,35 @@ Gates: both typechecks; vitest for role parsing and the action guards;
 Playwright — a `mirror` project (same specs subset, `EDITOR_ROLE=mirror` in
 the web server env) covering the settings nav, `/git` without Push/branches,
 and Export absent; the existing suite unchanged under the default role.
+
+**As built (2026-10-07):**
+
+- `recipe-website-common/config/role.ts`: `getEditorRole`, `isMirror`,
+  `getWorkstationName` (the host of `WORKSTATION_URL`, else "the
+  workstation") and `mirrorRefusal`.
+- A second Playwright web server was rejected: it would share
+  `test-content`. Instead, a TEST_MODE-only route,
+  `/settings/test-editor-role?role=…`, sets a process-wide override on
+  `globalThis`; it has to live there because route handlers and pages are
+  separate bundles.
+- The settings layout `await connection()`s, so the role is never fixed at
+  build time.
+- On `/git`, a mirror keeps Fetch and "Pull from <workstation>" (disabled
+  while it has commits of its own) and loses Sync, Push, Set upstream,
+  branches and remotes. Server actions and the `gitPush` / merging-`gitPull`
+  seats refuse as well, so the API, the CLI over HTTP and MCP are covered too.
+- Export goes through `exportUnavailableReason()`, which checks the role
+  first and the missing package second.
+
+Gates:
+
+- Both typechecks clean.
+- vitest: 47 files, 888 tests. That adds `editorRole.test.ts` and three
+  mirror cases in `curationGit` (push refused, fast-forward allowed, merging
+  pull refused). The D8 boundary test now allows `config/role`.
+- Playwright: `mirror-role.spec` 4/4; `settings-nav` and the git specs pass.
+  On a cold `next dev`, two long specs timed out while routes compiled for the
+  first time; both passed once warm.
 
 ### 28b — Sync seat
 

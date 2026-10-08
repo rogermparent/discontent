@@ -884,3 +884,56 @@ describe("labelForPath", () => {
     expect(labelForPath(".gitignore")).toBe(".gitignore");
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* 10. A mirror never pushes and never merges (epic 28, 28a)          */
+/* ------------------------------------------------------------------ */
+
+describe("on a mirror (EDITOR_ROLE=mirror)", () => {
+  let previousRole: string | undefined;
+  beforeEach(() => {
+    previousRole = process.env.EDITOR_ROLE;
+  });
+  afterEach(() => {
+    if (previousRole === undefined) delete process.env.EDITOR_ROLE;
+    else process.env.EDITOR_ROLE = previousRole;
+  });
+
+  it("refuses to push", async () => {
+    await piPair();
+    process.env.EDITOR_ROLE = "mirror";
+    await createRecipe(ctx, { name: "Scone" });
+    await expect(gitPush(ctx)).rejects.toMatchObject({
+      code: "forbidden",
+      message: expect.stringContaining("This editor is a mirror"),
+    });
+  });
+
+  it("fast-forwards what the workstation pushed", async () => {
+    const { piWrite } = await piPair();
+    await piWrite(
+      "recipes/data/gimlet/recipe.json",
+      { name: "Gimlet", date: 1_790_000_000_000 },
+      "Add Gimlet",
+    );
+    process.env.EDITOR_ROLE = "mirror";
+    expect(await gitPull(ctx)).toMatchObject({
+      merged: true,
+      fastForward: true,
+    });
+  });
+
+  it("refuses a pull that would merge its own commits", async () => {
+    const { piWrite } = await piPair();
+    await piWrite(
+      "recipes/data/gimlet/recipe.json",
+      { name: "Gimlet", date: 1_790_000_000_000 },
+      "Add Gimlet",
+    );
+    process.env.EDITOR_ROLE = "mirror";
+    await createRecipe(ctx, { name: "Daiquiri" });
+    const before = await head();
+    await expect(gitPull(ctx)).rejects.toMatchObject({ code: "forbidden" });
+    expect(await head()).toBe(before);
+  });
+});

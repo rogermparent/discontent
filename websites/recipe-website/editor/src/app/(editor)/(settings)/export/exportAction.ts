@@ -6,16 +6,13 @@ import { rebuildAllIndexes } from "recipe-editor/controller/actions";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { ensureSymlink } from "fs-extra";
 import { resolve } from "path";
-import {
-  EXPORT_UNAVAILABLE_MESSAGE,
-  getExportDirectory,
-  isExportAvailable,
-} from "./availability";
+import { exportUnavailableReason, getExportDirectory } from "./availability";
 
 export async function buildExport() {
   /* Before the rebuild below, which would otherwise run for nothing. */
-  if (!(await isExportAvailable())) {
-    return EXPORT_UNAVAILABLE_MESSAGE;
+  const unavailable = await exportUnavailableReason();
+  if (unavailable) {
+    return unavailable;
   }
   const contentDirectory = getContentDirectory();
   const exportDirectory = getExportDirectory();

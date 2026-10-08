@@ -129,7 +129,9 @@ COPY --from=assets /out/yt-dlp /usr/local/bin/yt-dlp
 COPY --from=assets /etc/passwd /etc/group /etc/
 COPY --from=assets --chown=1000:1000 /home/editor /home/editor
 COPY --from=deps /app /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 \
+# EDITOR_ROLE=mirror (epic 28, D2): this image is the editor-only copy; it
+# never exports, pushes, or manages branches and remotes.
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 EDITOR_ROLE=mirror \
     YTDLP_PATH=/usr/local/bin/yt-dlp \
     CONTENT_DIRECTORY=/content SETTINGS_DIRECTORY=/settings \
     HOME=/home/editor PORT=3000

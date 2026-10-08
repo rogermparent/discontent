@@ -6,9 +6,8 @@ import { unstable_noStore } from "next/cache";
 import { auth, signIn } from "@/auth";
 import { Readable } from "stream";
 import {
-  EXPORT_UNAVAILABLE_MESSAGE,
+  exportUnavailableReason,
   getExportDirectory,
-  isExportAvailable,
 } from "@/app/(editor)/(settings)/export/availability";
 
 let currentStream: ReadableStream | undefined;
@@ -27,8 +26,9 @@ export async function commandAction(
   if (currentStream) {
     return "A build is already currently running!";
   }
-  if (!(await isExportAvailable())) {
-    return EXPORT_UNAVAILABLE_MESSAGE;
+  const unavailable = await exportUnavailableReason();
+  if (unavailable) {
+    return unavailable;
   }
   const contentDirectory = getContentDirectory();
   const cwd = getExportDirectory();

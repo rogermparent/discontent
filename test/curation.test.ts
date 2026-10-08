@@ -1546,6 +1546,9 @@ const ALLOWED: RegExp[] = [
    * record's data file through it. */
   /^recipe-website-common\/controller\/(types|recipeContentConfig|groupContentConfig|featuredRecipeContentConfig|tagTermContentConfig|createSlug|createGroupSlug|createFeaturedRecipeSlug|normalizeTags|recipeTagTaxonomy|groupTagTaxonomy|tagSlug|data\/read|data\/readGroups)$/,
   /^recipe-website-common\/components\/SearchForm\/queryLanguage$/,
+  /* The instance role (epic 28, 28a): reads `process.env` and `globalThis`
+   * only, so a mirror's git seats can refuse to push or merge. */
+  /^recipe-website-common\/config\/role$/,
   /^recipe-website-common\/util\/[^/]+$/,
   /^\.\.?\//,
   /^\.\.\/contentTypes$/,

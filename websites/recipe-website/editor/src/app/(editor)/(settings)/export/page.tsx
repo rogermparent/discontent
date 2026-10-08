@@ -1,6 +1,6 @@
 import { auth, signIn } from "@/auth";
 import { Exporters } from "./exporter";
-import { EXPORT_UNAVAILABLE_MESSAGE, isExportAvailable } from "./availability";
+import { exportUnavailableReason } from "./availability";
 import {
   PageMain,
   PageSection,
@@ -14,18 +14,19 @@ export default async function SettingsPage() {
       redirectTo: `/export`,
     });
   }
+  const unavailable = await exportUnavailableReason();
   return (
     <PageMain>
       <PageSection maxWidth="4xl" grow>
         <PageHeading>Export</PageHeading>
-        {(await isExportAvailable()) ? (
+        {!unavailable ? (
           <Exporters />
         ) : (
           <p
             className="p-2 text-muted-foreground"
             data-testid="export-unavailable"
           >
-            {EXPORT_UNAVAILABLE_MESSAGE}
+            {unavailable}
           </p>
         )}
       </PageSection>

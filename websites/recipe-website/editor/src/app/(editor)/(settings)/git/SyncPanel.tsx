@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import clsx from "clsx";
 import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
+import type { EditorRole } from "recipe-website-common/config/role";
 import {
   remoteCommandAction,
   commitWorkingChanges,
@@ -21,7 +22,23 @@ function AheadBehind({ ahead, behind }: { ahead: number; behind: number }) {
   );
 }
 
-export function SyncPanel({ status }: { status: SyncStatus }) {
+/**
+ * `role` (epic 28, D2): a mirror never pushes — the workstation pulls its
+ * commits and pushes its own back — so it gets Fetch and "Pull from
+ * <workstation>" only, and Pull only when it has nothing of its own waiting
+ * (a pull then is a fast-forward; a merge happens on the workstation, never
+ * here). The server actions refuse the rest regardless (`requireWorkstation`).
+ */
+export function SyncPanel({
+  status,
+  role = "workstation",
+  workstationName = "the workstation",
+}: {
+  status: SyncStatus;
+  role?: EditorRole;
+  workstationName?: string;
+}) {
+  const mirror = role === "mirror";
   const {
     branch,
     detached,
@@ -59,6 +76,16 @@ export function SyncPanel({ status }: { status: SyncStatus }) {
   } else if (dirty) {
     statusMessage = `${dirtyCount} uncommitted change${dirtyCount === 1 ? "" : "s"}. Commit before syncing.`;
     tone = "warn";
+  } else if (mirror && !upstream) {
+    statusMessage = `No upstream — this mirror pulls from ${workstationName}; \`pnpm deploy:pi --setup\` sets it up.`;
+    tone = "warn";
+  } else if (mirror && diverged) {
+    statusMessage = `Diverged — ${workstationName} merges both sides when it next syncs.`;
+    tone = "warn";
+  } else if (mirror && ahead > 0) {
+    statusMessage = `${ahead} change${ahead === 1 ? "" : "s"} here waiting for ${workstationName} to sync.`;
+  } else if (mirror && behind > 0) {
+    statusMessage = `${behind} change${behind === 1 ? "" : "s"} from ${workstationName} to pull.`;
   } else if (!upstream) {
     statusMessage = hasRemote
       ? "No upstream configured. Choose a remote and set the upstream."
@@ -76,7 +103,7 @@ export function SyncPanel({ status }: { status: SyncStatus }) {
     tone = "ok";
   }
 
-  const needsRemoteChoice = !upstream && hasRemote;
+  const needsRemoteChoice = !mirror && !upstream && hasRemote;
 
   return (
     <section className="border border-border rounded-md p-4 my-3 bg-card/40">
@@ -144,7 +171,28 @@ export function SyncPanel({ status }: { status: SyncStatus }) {
           )}
 
           <div className="flex flex-row flex-wrap gap-2">
-            {upstream ? (
+            {mirror ? (
+              <>
+                <SubmitButton
+                  name="command"
+                  value="pull"
+                  disabled={blocked || !upstream || ahead > 0}
+                  pendingChildren="Pulling…"
+                >
+                  Pull from {workstationName}
+                </SubmitButton>
+                <SubmitButton
+                  size="sm"
+                  variant="outline"
+                  name="command"
+                  value="fetch"
+                  disabled={detached || !upstream}
+                  pendingChildren="Fetching…"
+                >
+                  Fetch
+                </SubmitButton>
+              </>
+            ) : upstream ? (
               <>
                 <SubmitButton
                   name="command"
