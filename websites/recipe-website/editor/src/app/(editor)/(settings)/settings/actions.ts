@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { parseTheme } from "@discontent/component-library/theming";
 import type { ContactLinks } from "recipe-website-common/config/site";
+import { isMirror, mirrorRefusal } from "recipe-website-common/config/role";
 import { auth } from "@/auth";
 import {
   readSettings,
@@ -11,17 +12,16 @@ import {
   type NamedPreset,
   type Settings,
 } from "@/settings";
+import { getInstance } from "../../../../../controller/instance/start";
+import { CONTACT_KEYS } from "../../../../../controller/instance/siteSettings";
 
-/** The contact keys the Site details form edits, in display order. */
-const CONTACT_KEYS: (keyof ContactLinks)[] = [
-  "email",
-  "website",
-  "instagram",
-  "youtube",
-  "twitter",
-  "facebook",
-  "github",
-];
+/** On a mirror, site settings arrive from the workstation (epic 28, D7). */
+const MIRROR_REFUSAL = () => mirrorRefusal("editing site settings");
+
+/** After a workstation save, sync so the mirrors get the new settings (D7). */
+function settingsSaved() {
+  getInstance()?.runner?.request("settings");
+}
 
 export interface SettingsActionState {
   message: string;
@@ -45,6 +45,15 @@ export async function updateSettings(
   // Merge onto existing settings: a given form only submits its own fields, so
   // we preserve every field it doesn't carry (e.g. the Tools form leaves the
   // saved theme untouched, and the Theme editor leaves ytdlpPath untouched).
+  if (
+    isMirror() &&
+    (formData.has("theme") ||
+      formData.has("footerNote") ||
+      CONTACT_KEYS.some((key) => formData.has(`contact.${key}`)))
+  ) {
+    return { message: MIRROR_REFUSAL(), success: false };
+  }
+
   const existing = await readSettings();
   const next: Settings = { ...existing };
 
@@ -86,6 +95,7 @@ export async function updateSettings(
     await writeSettings(next);
     // The site default is injected in the root layout, so refresh every route.
     revalidatePath("/", "layout");
+    settingsSaved();
     return { message: "Settings saved.", success: true };
   } catch {
     return { message: "Failed to save settings.", success: false };
@@ -106,6 +116,8 @@ export async function savePreset(
     return { success: false, message: "Authentication required" };
   }
 
+  if (isMirror()) return { success: false, message: MIRROR_REFUSAL() };
+
   const trimmed = name.trim();
   if (!trimmed) {
     return { success: false, message: "A preset name is required." };
@@ -125,6 +137,7 @@ export async function savePreset(
   try {
     await writeSettings(next);
     revalidatePath("/", "layout");
+    settingsSaved();
     return { success: true };
   } catch {
     return { success: false, message: "Failed to save preset." };
@@ -138,6 +151,8 @@ export async function deletePreset(id: string): Promise<PresetActionResult> {
     return { success: false, message: "Authentication required" };
   }
 
+  if (isMirror()) return { success: false, message: MIRROR_REFUSAL() };
+
   const existing = await readSettings();
   const next: Settings = {
     ...existing,
@@ -147,6 +162,7 @@ export async function deletePreset(id: string): Promise<PresetActionResult> {
   try {
     await writeSettings(next);
     revalidatePath("/", "layout");
+    settingsSaved();
     return { success: true };
   } catch {
     return { success: false, message: "Failed to delete preset." };

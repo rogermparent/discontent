@@ -1,5 +1,6 @@
 import { test, expect } from "../support/test";
 import { fillSignInForm, signIn } from "../support/helpers";
+import { createApiToken, readSettings } from "../support/tasks";
 import type { APIRequestContext } from "@playwright/test";
 
 /*
@@ -94,6 +95,87 @@ test.describe("Mirror role", () => {
     /* History stays: a mirror can still read and revert. */
     await expect(page.getByText("Commit history")).toBeVisible();
   });
+
+  test.describe("site settings follow the workstation (D7)", () => {
+    test.afterEach(async ({ writeSettings }) => {
+      await writeSettings({});
+    });
+
+    test("Site details and Appearance are read-only", async ({
+      page,
+      resetData,
+      writeSettings,
+    }) => {
+      await resetData("three-recipes");
+      await writeSettings({ footerNote: "From the workstation." });
+      await page.goto("/settings");
+      await fillSignInForm(page);
+
+      await expect(page.getByTestId("settings-read-only")).toHaveText(
+        "Edited on the workstation. This mirror receives them after each sync.",
+      );
+      await expect(page.getByLabel("Footer note")).toHaveValue(
+        "From the workstation.",
+      );
+      await expect(page.getByLabel("Footer note")).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Save" })).toHaveCount(0);
+
+      await page.goto("/settings/theme");
+      await expect(page.getByTestId("settings-read-only")).toBeVisible();
+      const theme = page.getByTestId("theme-read-only");
+      await expect(theme).toHaveAttribute("disabled", "");
+      await expect(theme).toHaveAttribute("inert", "");
+      await expect(theme.locator("button").first()).toBeDisabled();
+    });
+
+    test("PUT /api/settings/site takes the site keys, and only those", async ({
+      page,
+      request,
+      resetData,
+      writeSettings,
+    }) => {
+      await resetData("three-recipes");
+      await writeSettings({ ytdlpPath: "/opt/yt-dlp" });
+      const token = await createApiToken();
+      const headers = { authorization: `Bearer ${token}` };
+
+      expect(
+        (
+          await request.put("/api/settings/site", {
+            data: { footerNote: "Nope." },
+          })
+        ).status(),
+      ).toBe(401);
+      const refused = await request.put("/api/settings/site", {
+        headers,
+        data: { footerNote: "Sneaky.", ytdlpPath: "/tmp/evil" },
+      });
+      expect(refused.status()).toBe(400);
+      expect((await refused.json()).error.message).toContain(
+        "refused: ytdlpPath",
+      );
+
+      const accepted = await request.put("/api/settings/site", {
+        headers,
+        data: {
+          footerNote: "Typed on tourmaline.",
+          contact: { email: "cook@example.com" },
+        },
+      });
+      expect(accepted.status()).toBe(200);
+      expect(await accepted.json()).toMatchObject({ ok: true });
+
+      await page.goto("/");
+      const footer = page.getByRole("contentinfo");
+      await expect(footer.getByText("Typed on tourmaline.")).toBeVisible();
+      await expect(footer.getByRole("link", { name: "Email" })).toBeVisible();
+      expect(await readSettings()).toEqual({
+        ytdlpPath: "/opt/yt-dlp",
+        footerNote: "Typed on tourmaline.",
+        contact: { email: "cook@example.com" },
+      });
+    });
+  });
 });
 
 test.describe("Workstation role (the default)", () => {
@@ -107,5 +189,18 @@ test.describe("Workstation role (the default)", () => {
         .getByRole("complementary", { name: "Settings" })
         .getByTestId("editor-role"),
     ).toHaveText("Workstation");
+  });
+
+  test("refuses site settings sent to it (D7)", async ({
+    request,
+    resetData,
+  }) => {
+    await resetData("three-recipes");
+    const token = await createApiToken();
+    const response = await request.put("/api/settings/site", {
+      headers: { authorization: `Bearer ${token}` },
+      data: { footerNote: "Not here." },
+    });
+    expect(response.status()).toBe(403);
   });
 });

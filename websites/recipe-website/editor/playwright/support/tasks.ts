@@ -152,6 +152,15 @@ export async function writeSettings(
   });
 }
 
+/** The test server's settings.json as written, `{}` when there is none. */
+export async function readSettings(): Promise<Record<string, unknown>> {
+  try {
+    return await readJSON(resolve(testSettingsDir, "settings.json"));
+  } catch {
+    return {};
+  }
+}
+
 export async function loadGitFixture(fixture: string): Promise<void> {
   await remove(testContentDir);
   const fixtureBundlePath = fixturePath("git-test-content", fixture);
