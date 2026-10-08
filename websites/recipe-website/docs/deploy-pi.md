@@ -73,8 +73,10 @@ The container, `recipe-editor`:
   passwd name (`editor`) irrelevant to ssh;
 - `--init`, `--restart unless-stopped`, `--stop-timeout 15`.
 
-The image sets `CONTENT_DIRECTORY=/content`, `SETTINGS_DIRECTORY=/settings`
-and `YTDLP_PATH=/usr/local/bin/yt-dlp`, and runs `node …/next start` directly.
+The image sets `CONTENT_DIRECTORY=/content`, `SETTINGS_DIRECTORY=/settings`,
+`YTDLP_PATH=/usr/local/bin/yt-dlp` and `EDITOR_ROLE=mirror` (epic 28: no
+export, no push, no branch or remote management; see `agent-epic-28.md`), and
+runs `node …/next start` directly.
 
 ## Image and shipping
 

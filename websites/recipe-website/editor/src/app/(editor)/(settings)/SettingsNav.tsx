@@ -14,11 +14,18 @@ import {
   Database,
 } from "lucide-react";
 import { cn } from "@discontent/component-library/lib/utils";
+import type { EditorRole } from "recipe-website-common/config/role";
 
 interface NavItem {
   name: string;
   href: string;
   icon: ComponentType<{ className?: string }>;
+  /**
+   * Workstation-only (epic 28, D2): Export builds the static site, and Tools
+   * holds only the yt-dlp path, which the mirror image's `YTDLP_PATH`
+   * overrides. A mirror leaves both out.
+   */
+  workstationOnly?: boolean;
 }
 
 /**
@@ -45,8 +52,18 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     label: "System",
     items: [
       { name: "Content Sync", href: "/git", icon: FolderSync },
-      { name: "Export", href: "/export", icon: Download },
-      { name: "Tools", href: "/settings/tools", icon: Wrench },
+      {
+        name: "Export",
+        href: "/export",
+        icon: Download,
+        workstationOnly: true,
+      },
+      {
+        name: "Tools",
+        href: "/settings/tools",
+        icon: Wrench,
+        workstationOnly: true,
+      },
       { name: "Maintenance", href: "/settings/maintenance", icon: Database },
     ],
   },
@@ -67,14 +84,39 @@ const labelClass =
 const rowClass =
   "flex items-center gap-2.5 rounded-md border-l-2 border-transparent px-3 py-2 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent/60";
 
-/** The recipe editor's settings nav body, shared by the aside and the drawer. */
-export function SettingsNav() {
+/**
+ * The recipe editor's settings nav body, shared by the aside and the drawer.
+ * `role` and `workstationName` come from the server layout, which reads the
+ * environment; this is a client component and cannot.
+ */
+export function SettingsNav({
+  role = "workstation",
+  workstationName,
+}: {
+  role?: EditorRole;
+  workstationName?: string;
+}) {
   const pathname = usePathname();
+  const groups = NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter(
+      (item) => role === "workstation" || !item.workstationOnly,
+    ),
+  }));
   return (
     <div className="flex h-full flex-col py-4">
-      <p className={cn(labelClass, "mb-4")}>Settings</p>
+      <p className={cn(labelClass, "mb-1")}>Settings</p>
+      <p
+        className="mb-4 px-3 text-xs text-muted-foreground"
+        data-testid="editor-role"
+        data-role={role}
+      >
+        {role === "mirror"
+          ? `Mirror of ${workstationName ?? "the workstation"}`
+          : "Workstation"}
+      </p>
       <nav className="flex-1 space-y-6 px-2">
-        {NAV_GROUPS.map((group) => (
+        {groups.map((group) => (
           <div key={group.label} className="space-y-1">
             <p className={labelClass}>{group.label}</p>
             <div className="flex flex-col gap-0.5">

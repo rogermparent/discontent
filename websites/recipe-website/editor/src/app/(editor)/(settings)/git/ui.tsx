@@ -11,6 +11,11 @@ import { CreateRemoteForm } from "./CreateRemoteForm";
 import type { SyncStatus } from "./types";
 import { IndexStaleBanner } from "../IndexStaleBanner";
 import {
+  getEditorRole,
+  getWorkstationName,
+  type EditorRole,
+} from "recipe-website-common/config/role";
+import {
   PageMain,
   PageSection,
   PageHeading,
@@ -31,11 +36,26 @@ function GitPageWithoutGit() {
   );
 }
 
-function GitPageWithGit({ status }: { status: SyncStatus }) {
+function GitPageWithGit({
+  status,
+  role,
+}: {
+  status: SyncStatus;
+  role: EditorRole;
+}) {
+  /*
+   * A mirror (epic 28, D2) keeps one branch and one remote, both set up by
+   * `pnpm deploy:pi`; branch and remote management are the workstation's.
+   */
+  const mirror = role === "mirror";
   return (
     <>
       <IndexStaleBanner />
-      <SyncPanel status={status} />
+      <SyncPanel
+        status={status}
+        role={role}
+        workstationName={getWorkstationName()}
+      />
 
       {status.merge.inProgress && <ConflictResolver merge={status.merge} />}
 
@@ -51,33 +71,37 @@ function GitPageWithGit({ status }: { status: SyncStatus }) {
         </div>
       </details>
 
-      <details className="my-4">
-        <summary className="text-lg font-bold cursor-pointer">
-          Advanced: branches
-        </summary>
-        <div className="mt-2">
-          <BranchSelector branches={status.branches} />
-          <div className="pl-1 my-3">
-            <h3 className="font-bold border-b border-border">New Branch</h3>
-            <CreateBranchForm />
-          </div>
-        </div>
-      </details>
-
-      <details className="my-4">
-        <summary className="text-lg font-bold cursor-pointer">
-          Advanced: remotes
-        </summary>
-        <div className="mt-2">
-          <RemoteSelector remotes={status.remotes} />
-          <details className="pl-1 my-3">
-            <summary className="font-bold border-b border-border cursor-pointer">
-              New Remote
+      {!mirror && (
+        <>
+          <details className="my-4">
+            <summary className="text-lg font-bold cursor-pointer">
+              Advanced: branches
             </summary>
-            <CreateRemoteForm />
+            <div className="mt-2">
+              <BranchSelector branches={status.branches} />
+              <div className="pl-1 my-3">
+                <h3 className="font-bold border-b border-border">New Branch</h3>
+                <CreateBranchForm />
+              </div>
+            </div>
           </details>
-        </div>
-      </details>
+
+          <details className="my-4">
+            <summary className="text-lg font-bold cursor-pointer">
+              Advanced: remotes
+            </summary>
+            <div className="mt-2">
+              <RemoteSelector remotes={status.remotes} />
+              <details className="pl-1 my-3">
+                <summary className="font-bold border-b border-border cursor-pointer">
+                  New Remote
+                </summary>
+                <CreateRemoteForm />
+              </details>
+            </div>
+          </details>
+        </>
+      )}
     </>
   );
 }
@@ -89,7 +113,7 @@ export async function GitUI() {
       <PageSection maxWidth="4xl" grow>
         <PageHeading>Content Sync</PageHeading>
         {status.isRepo ? (
-          <GitPageWithGit status={status} />
+          <GitPageWithGit status={status} role={getEditorRole()} />
         ) : (
           <GitPageWithoutGit />
         )}

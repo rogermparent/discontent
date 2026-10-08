@@ -22,6 +22,7 @@
  * swallows failures into an empty page, because the components render those
  * values directly and `git.spec.ts` is the gate that says so.
  */
+import { isMirror, mirrorRefusal } from "recipe-website-common/config/role";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import simpleGit, { SimpleGit } from "simple-git";
@@ -243,6 +244,24 @@ export async function remoteCommandAction(
   const command = formData.get("command");
   const remote = (formData.get("remote") as string) || undefined;
   const git = getGit(contentDirectory);
+
+  /*
+   * A mirror (epic 28, D1/D2) fetches and fast-forwards; it never pushes and
+   * never merges — the workstation does both. The page hides these buttons;
+   * this is the guard.
+   */
+  if (isMirror()) {
+    if (
+      command === "push" ||
+      command === "pushSetUpstream" ||
+      command === "sync"
+    ) {
+      return mirrorRefusal("pushing and syncing");
+    }
+    if (command === "pull" && (await git.status()).ahead > 0) {
+      return mirrorRefusal("merging this mirror's own changes");
+    }
+  }
 
   try {
     switch (command) {

@@ -54,9 +54,11 @@ import { featuredRecipeContentConfig } from "recipe-website-common/controller/fe
 import { groupContentConfig } from "recipe-website-common/controller/groupContentConfig";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
 import type { CurationContext } from "./context";
+import { isMirror, mirrorRefusal } from "recipe-website-common/config/role";
 import {
   BadRevisionError,
   DirtyTreeError,
+  ForbiddenError,
   GitConflictError,
   NotARepoError,
   NotFoundError,
@@ -983,6 +985,8 @@ export async function gitPush(
   ctx: CurationContext,
   { remote, setUpstream }: GitPushOptions = {},
 ): Promise<PushResult> {
+  /* A mirror never pushes; the workstation pulls from it (epic 28, D1). */
+  if (isMirror()) throw new ForbiddenError(mirrorRefusal("pushing"));
   const safeRemote =
     remote === undefined ? undefined : assertArgument(remote, "remote");
   const git = await requireRepo(ctx);
@@ -1093,6 +1097,15 @@ export async function gitPull(
     remote === undefined ? undefined : assertArgument(remote, "remote");
   const git = await requireRepo(ctx);
   const status = await requireCleanTree(ctx, git);
+  /*
+   * On a mirror a pull is only ever a fast-forward: with commits of its own
+   * waiting it would merge, and merges happen on the workstation (epic 28, D1).
+   */
+  if (isMirror() && status.ahead > 0) {
+    throw new ForbiddenError(
+      mirrorRefusal("merging this mirror's own changes"),
+    );
+  }
   const trackingRemote = status.tracking?.split("/")[0];
 
   let from: string;
