@@ -5,8 +5,8 @@
 > reading this file. **Read this file first** before touching instance roles,
 > the content-sync paths (`controller/curation/git.ts`, `actions/sync.ts`, the
 > `git` CLI and MCP seats), the sync runner and ref watcher, or how uploads
-> are stored. Update
-> the roadmap **Status** column and the **Now** line at every phase boundary.
+> are stored. Update the roadmap **Status** column and the **Now** line at
+> every phase boundary.
 > Earlier epics are cited by number with a prefix (`27-D3`, `26-D5`).
 > `deploy-pi.md` is the companion doc for how the Pi runs.
 
