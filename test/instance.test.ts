@@ -15,7 +15,10 @@ import simpleGit, { type SimpleGit } from "simple-git";
 
 import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
-import { readIndexFreshness } from "@discontent/cms/git/indexStamp";
+import {
+  readIndexFreshness,
+  writeIndexedHead,
+} from "@discontent/cms/git/indexStamp";
 import { readSyncState } from "@discontent/cms/git/syncState";
 import { watchRefs } from "@discontent/cms/git/watchRefs";
 
@@ -35,6 +38,7 @@ import {
 } from "../websites/recipe-website/editor/controller/instance/pinger";
 import {
   getInstance,
+  reindexWhenForeign,
   startInstance,
 } from "../websites/recipe-website/editor/controller/instance/start";
 
@@ -379,6 +383,32 @@ describe("pingWorkstation", () => {
 /* ------------------------------------------------------------------ */
 /* End to end                                                          */
 /* ------------------------------------------------------------------ */
+
+describe("reindexWhenForeign", () => {
+  it("leaves a commit alone whose stamp catches up during the settle", async () => {
+    const dir = await scratchDir("settle-");
+    const repo = await initRepo(dir);
+    await reindex({ contentDirectory: dir });
+    /* An editor commit, caught between moving HEAD and advancing the stamp. */
+    await shellCommit(repo, dir, "recipes/data/own/recipe.json");
+    expect((await readIndexFreshness(dir)).stale).toBe(true);
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const check = reindexWhenForeign(dir, { settleMs: 300 });
+    await writeIndexedHead(dir);
+    expect(await check).toBe(false);
+    expect(info).not.toHaveBeenCalled();
+    info.mockRestore();
+  });
+
+  it("rebuilds after a commit whose stamp stays behind", async () => {
+    const dir = await scratchDir("foreign-");
+    const repo = await initRepo(dir);
+    await reindex({ contentDirectory: dir });
+    await shellCommit(repo, dir, "recipes/data/shell/recipe.json");
+    expect(await reindexWhenForeign(dir, { settleMs: 50 })).toBe(true);
+    expect((await readIndexFreshness(dir)).stale).toBe(false);
+  });
+});
 
 describe("the instance", () => {
   it("reindexes on its own when HEAD moves outside the editor (D12)", async () => {

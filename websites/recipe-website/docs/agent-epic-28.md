@@ -13,10 +13,11 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** plan approved 2026-10-07 (#167), with D4 reworked as event-driven
-sync (see "Decisions (Roger)" at the end). 28a (#168) and 28b (#170) are
-merged; 28c (event-driven sync) is in review, then its real two-machine
-run; 28c2 (settings follow, D7) is next.
+**Now:** the overnight session (2026-10-08) is under way. 28a–28c are merged
+(#168, #170, #171, fix #172) and the real two-machine run passed. 28h
+(housekeeping) is in review; 28c2 (settings follow, D7) is next. The
+workstation editor runs from `.claude/worktrees/workstation-run` (see
+"Overnight session").
 
 ## Context
 
@@ -310,7 +311,7 @@ The stale-index banner stays as the fallback if a rebuild fails.
 | 28e   | git-annex for large files (D9), media step live                                           | `agent/28e-annex`        | 📝                |
 | 28f   | Close-out: two-machine run, drills, docs, memory                                          | `agent/28f-close`        | 📝                |
 | 28g   | Make page: tag tree (parents expand to children) + tag search                             | `agent/28g-make-tags`    | 📝                |
-| 28h   | Housekeeping: self-hosted fonts, `next` pin alignment, needless-reindex fix               | `agent/28h-housekeeping` | 📝                |
+| 28h   | Housekeeping: self-hosted fonts, `next` pin alignment, needless-reindex fix               | `agent/28h-housekeeping` | 🟡                |
 
 Order: 28a and 28b are independent and could run in parallel; 28c needs both;
 28d needs nothing; 28e needs 28b's media step and 28d. Each phase is its own
@@ -699,6 +700,30 @@ run with one test video on the Pi, synced, rendered on both, then removed.
 Both instances on main, event-driven sync healthy for a day, the drills
 from 28c/28e recorded here, `deploy-pi.md` and `agent-epic-27.md`'s "Syncing
 with uraninite" pointed at the new flow, memory updated.
+
+### 28h — Housekeeping (2026-10-08)
+
+- **Fonts.** The latin `woff2` subsets are vendored under
+  `common/components/AppLayout/fonts/` (recipe: 10 files, about 300 KB) and
+  `websites/portfolio/common/components/AppLayout/fonts/` (8 files), each
+  directory with an `OFL.txt` carrying every family's copyright line. Both
+  `fonts.ts` use `next/font/local`, with the same `--ff-*` literals.
+  - Variable families are one file each, declared with their weight range
+    (`weight: "500 700"`); IBM Plex Mono and DM Mono are static, one file per
+    weight. Fraunces keeps its SOFT, WONK and opsz axes.
+  - Downloaded by asking the Google Fonts CSS2 API with a Chrome UA, which
+    is what `next/font/google` did at build time.
+  - Visual gate: 21 of 22 baselines passed unchanged. Only the tiny
+    "Show 7 more" crop (`search-reveal-control`) differed by anti-aliasing
+    and was regenerated after a look.
+- **`next` pins.** `component-library` and `next-static-image` move to 16.1.6
+  like everything else, so the lockfile carries one `next`.
+- **Needless reindex.** `reindexWhenForeign` (`controller/instance/start.ts`)
+  re-reads freshness after `FOREIGN_SETTLE_MS` (2 s) before calling a HEAD
+  move foreign. The editor's commit moves HEAD, then `advanceIndexedHead`
+  writes the stamp; on the Pi that gap could outlast the watcher's 1.5 s
+  debounce. Tested in `test/instance.test.ts`: a stamp written during the
+  settle means no rebuild, and one that stays behind means a rebuild.
 
 ## Risks and traps known up front
 
