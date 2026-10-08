@@ -10,6 +10,9 @@ import { RemoteSelector } from "./RemoteSelector";
 import { CreateRemoteForm } from "./CreateRemoteForm";
 import type { SyncStatus } from "./types";
 import { IndexStaleBanner } from "../IndexStaleBanner";
+import { SyncAttentionBanner } from "../SyncAttentionBanner";
+import { MirrorsCard } from "./MirrorsCard";
+import { WorkstationCard } from "./WorkstationCard";
 import {
   getEditorRole,
   getWorkstationName,
@@ -51,11 +54,13 @@ function GitPageWithGit({
   return (
     <>
       <IndexStaleBanner />
+      <SyncAttentionBanner />
       <SyncPanel
         status={status}
         role={role}
         workstationName={getWorkstationName()}
       />
+      {mirror ? <WorkstationCard /> : <MirrorsCard remotes={status.remotes} />}
 
       {status.merge.inProgress && <ConflictResolver merge={status.merge} />}
 

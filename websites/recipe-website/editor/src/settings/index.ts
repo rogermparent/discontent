@@ -29,6 +29,12 @@ export interface Settings extends ThemedSettings {
   footerNote?: string;
   /** Owner social/contact links rendered in the footer brand block (PR 13). */
   contact?: ContactLinks;
+  /**
+   * The content repository's remotes that are mirrors this workstation syncs
+   * (epic 28, D4/D6), e.g. `["uraninite"]`. Empty or absent: no automatic
+   * sync. Per instance, like the rest of this file; a mirror ignores it.
+   */
+  mirrors?: string[];
 }
 
 export type { NamedPreset };

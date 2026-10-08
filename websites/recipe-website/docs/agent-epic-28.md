@@ -14,8 +14,9 @@ Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴
 · 📝 proposed.
 
 **Now:** plan approved 2026-10-07 (#167), with D4 reworked as event-driven
-sync (see "Decisions (Roger)" at the end). 28a (roles, #168) and 28b (the
-`gitSync` seat, stacked on 28a) are in review; 28c is next.
+sync (see "Decisions (Roger)" at the end). 28a (#168) and 28b (#170) are
+merged; 28c (event-driven sync) is in review, then its real two-machine
+run; 28c2 (settings follow, D7) is next.
 
 ## Context
 
@@ -299,14 +300,15 @@ The stale-index banner stays as the fallback if a rebuild fails.
 
 ## Roadmap
 
-| Phase | Scope                                                                                                      | Branch                  | Status |
-| ----- | ---------------------------------------------------------------------------------------------------------- | ----------------------- | ------ |
-| 28a   | Roles: `EDITOR_ROLE`, mirror UI (D2)                                                                       | `agent/28a-roles`       | 🟡     |
-| 28b   | Sync seat + CLI/API/MCP + sync state (D3)                                                                  | `agent/28b-sync-seat`   | 🟡     |
-| 28c   | Event-driven sync, watcher reindex, notifications, Mirrors card, mirror view, settings follow (D4–D7, D12) | `agent/28c-sync-events` | 📝     |
-| 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                                             | `agent/28d-media-prep`  | 📝     |
-| 28e   | git-annex for large files (D9), media step live                                                            | `agent/28e-annex`       | 📝     |
-| 28f   | Close-out: two-machine run, drills, docs, memory                                                           | `agent/28f-close`       | 📝     |
+| Phase | Scope                                                                                     | Branch                  | Status  |
+| ----- | ----------------------------------------------------------------------------------------- | ----------------------- | ------- |
+| 28a   | Roles: `EDITOR_ROLE`, mirror UI (D2)                                                      | `agent/28a-roles`       | ✅ #168 |
+| 28b   | Sync seat + CLI/API/MCP + sync state (D3)                                                 | `agent/28b-sync-seat`   | ✅ #170 |
+| 28c   | Event-driven sync, watcher reindex, notifications, Mirrors card, mirror view (D4–D6, D12) | `agent/28c-sync-events` | 🟡      |
+| 28c2  | Site settings follow the workstation (D7)                                                 | `agent/28c2-settings`   | 📝      |
+| 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                            | `agent/28d-media-prep`  | 📝      |
+| 28e   | git-annex for large files (D9), media step live                                           | `agent/28e-annex`       | 📝      |
+| 28f   | Close-out: two-machine run, drills, docs, memory                                          | `agent/28f-close`       | 📝      |
 
 Order: 28a and 28b are independent and could run in parallel; 28c needs both;
 28d needs nothing; 28e needs 28b's media step and 28d. Each phase is its own
@@ -464,6 +466,74 @@ Gates:
   - `indexStale` false on both throughout.
 - A conflict drill on **scratch** content only (two scratch clones, never the
   real repo).
+
+**As built (2026-10-07):**
+
+- **Split.** D7 (settings follow) moved to 28c2: it needs a way to write the
+  mirror's settings from the workstation, which is its own design, and 28c is
+  big enough without it.
+- **`packages/cms/git/watchRefs.ts`.** `fs.watch` on the git directory and on
+  `refs/heads/` (recursive), not on files, because git renames `<ref>.lock`
+  into place. Events are only a hint: after a 1.5 s debounce HEAD is read and
+  compared with the last one seen, so a burst of commits is one callback and
+  a lock file coming and going is none.
+- **`controller/instance/`.**
+  - `runner.ts`: the debounced (3 s), serialised, coalescing queue. It drops
+    the HEAD its own run produced, `noteOwnHead` covers syncs that ran
+    outside it, and `runNow` serves pings and the button.
+  - `lock.ts`: `.git/discontent-sync.lock` via `O_EXCL`, taken over from a
+    dead pid or after 15 minutes.
+  - `mirrors.ts`: reads the ssh host and directory off the remote's own URL
+    (`uraninite:recipes`).
+  - `refresh.ts` with `/api/internal/refresh`: background work can't call
+    `revalidateTag` outside a request, so it asks the editor over loopback,
+    guarded by a secret that lives only in the process.
+  - `notify.ts`: `notify-send`, once per new attention state.
+  - `pinger.ts`: the mirror's POST to `/api/git/sync`, recorded in
+    `.git/discontent-ping.json`.
+  - `start.ts`: wires it all together.
+- **Starting it.** `src/instrumentation.ts` `register()` starts the instance:
+  Node runtime only, never in `next build`, and off under TEST_MODE unless
+  `INSTANCE_EVENTS=on`. The state is a `globalThis` singleton.
+- **The workstation runner always exists.** The mirror list is read on each
+  run, so a mirror added on `/git` syncs without a restart.
+- **`/api/git/sync` goes through the instance when one is running**, queued
+  behind any run in progress and under the lock, and notes the HEAD it
+  produced.
+- **Pings fire on every HEAD move on the mirror.** Whether a move was a local
+  commit or an incoming push can't be told reliably. A redundant ping costs
+  one fetch that answers `nothing`, and `nothing` pushes nothing, so it can't
+  loop. This replaces the "Loops" plan in Risks.
+- **No new token.** Tokens live in the content repo's `users/` file, which
+  syncs, so the Pi's `WORKSTATION_SYNC_TOKEN` is the existing `pi-deploy`
+  token. `--setup` writes it, and the workstation URL, to the Pi's `.env`.
+- **The `post-receive` hook is gone** (`deploy/pi/post-receive` deleted;
+  `--setup` removes it from the Pi), because D12 covers a received push.
+- **`/git`.** The workstation gets a Mirrors card (add a remote as a mirror,
+  Sync now, last outcome and message, and conflict guidance), and a mirror
+  gets a "Synced by" card (last ping, "Ask … to sync"). A
+  `SyncAttentionBanner` shows on `/git` and Maintenance for a conflict, a
+  dirty mirror, or three failures in a row.
+
+Gates:
+
+- Both typechecks clean.
+- vitest: 48 files, 908 tests. `test/instance.test.ts` adds 12:
+  - runner debounce, coalescing, own-HEAD and `runNow`;
+  - `sshTargetOf`;
+  - the watcher on a burst of commits;
+  - lock contention and takeover;
+  - ping recorded, and unreachable recorded rather than thrown;
+  - end to end on scratch repos: a shell commit reindexed with no one asking
+    (D12), and a workstation commit reaching its mirror with no one asking
+    (D4).
+- One fix during the gates: under the full suite's load the D4 test's last
+  recorded outcome was sometimes `nothing`, because the startup run landed
+  after the commit. The test now asserts convergence and no failures.
+- Playwright: `mirrors-card.spec` 2/2 (add a remote, Sync now brings a
+  mirror's recipe in; a mirror's card). `git.spec`, `mirror-role` and
+  `settings-nav` pass after renaming the card's button to "Add mirror": a
+  bare "Add" collided with the remotes form's button in an existing test.
 
 ### 28d — Media groundwork
 

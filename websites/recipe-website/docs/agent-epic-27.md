@@ -510,13 +510,13 @@ indexes have not. Its `/git` page and Settings → Maintenance show "Content
 changed outside the editor — Rebuild indexes" until someone clicks the button.
 This is the stamp from D3.
 
-**Rebuilt automatically (since the Pi deploy).** `pnpm deploy:pi --setup`
-installs `deploy/pi/post-receive` as the Pi content repo's hook. It asks the
-running editor to reindex in the background, using the `pi-deploy` write token
-in `~/recipe-editor/hook.env`. A full reindex also stamps HEAD, so the banner
-clears. That rebuild takes about 15 s on the Pi with current code. To build
-them on the workstation instead, use `git push -o no-reindex uraninite` and
-then `pnpm deploy:pi --sync-index`, which swaps them in (see `deploy-pi.md`).
+**Rebuilt automatically, and synced automatically (epic 28).** Each editor
+watches its content repository's refs and reindexes whenever HEAD moves
+without it — a received push included — so the banner clears on its own
+(about 15 s on the Pi). The workstation editor syncs its mirrors at startup
+and after every change on either side; this manual order is the fallback. See
+`agent-epic-28.md`. (The `post-receive` hook that did the reindex between the
+Pi deploy and epic 28 is gone; `pnpm deploy:pi --setup` removes it.)
 
 ## Hand-off (end of epic, 2026-10-07)
 
