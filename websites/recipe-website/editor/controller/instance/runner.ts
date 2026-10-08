@@ -18,7 +18,13 @@
  * with fake timers and no git.
  */
 
-export type SyncTrigger = "startup" | "change" | "ping" | "manual";
+export type SyncTrigger =
+  | "startup"
+  | "change"
+  | "ping"
+  | "manual"
+  /** The workstation's site settings were saved (D7). */
+  | "settings";
 
 export interface RunnerOptions<T> {
   run: (triggers: SyncTrigger[]) => Promise<T>;
@@ -152,6 +158,9 @@ export function createSyncRunner<T>({
       disposed = true;
       if (timer) clearTimeout(timer);
       timer = undefined;
+      /* A queued rerun never starts now, so `idle()` must not wait for it. */
+      rerun = false;
+      settleIdle();
     },
   };
 }

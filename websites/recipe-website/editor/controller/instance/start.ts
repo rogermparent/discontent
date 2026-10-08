@@ -40,6 +40,7 @@ import { mirrorTargets } from "./mirrors";
 import { attentionKey, attentionText, desktopNotify } from "./notify";
 import { pingWorkstation, workstationConfig, type PingState } from "./pinger";
 import { refreshEditor } from "./refresh";
+import { pushSiteSettings } from "./siteSettings";
 import { createCoalescedTask, type CoalescedTask } from "./coalesce";
 import { createSyncRunner, type SyncRunner, type SyncTrigger } from "./runner";
 
@@ -134,7 +135,7 @@ export async function syncMirror(
   return exclusive(async () => {
     activeSyncs += 1;
     try {
-      return await withRepoLock(contentDirectory, () =>
+      const result = await withRepoLock(contentDirectory, () =>
         gitSync(
           { contentDirectory, onBulkChange: () => void refreshEditor() },
           {
@@ -145,6 +146,20 @@ export async function syncMirror(
           },
         ),
       );
+      /* D7: a mirror that is in step gets the site settings too. */
+      if (
+        target &&
+        (result.outcome === "nothing" || result.outcome === "synced")
+      ) {
+        const sent = await pushSiteSettings(contentDirectory, target);
+        if (sent.status === "sent" || sent.status === "failed") {
+          console.info(
+            `[sync] ${target.remote} site settings: ${sent.status}` +
+              (sent.status === "failed" ? ` — ${sent.error}` : ""),
+          );
+        }
+      }
+      return result;
     } finally {
       activeSyncs -= 1;
       /* A HEAD move that arrived mid-sync gets its re-check now. */

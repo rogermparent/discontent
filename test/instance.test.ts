@@ -19,7 +19,10 @@ import {
   readIndexFreshness,
   writeIndexedHead,
 } from "@discontent/cms/git/indexStamp";
-import { readSyncState } from "@discontent/cms/git/syncState";
+import {
+  readSyncState,
+  recordSyncAttempt,
+} from "@discontent/cms/git/syncState";
 import { watchRefs } from "@discontent/cms/git/watchRefs";
 
 import { recipeContentTypes } from "../websites/recipe-website/editor/controller/contentTypes";
@@ -28,6 +31,12 @@ import { createRecipe } from "../websites/recipe-website/editor/controller/curat
 import { createSyncRunner } from "../websites/recipe-website/editor/controller/instance/runner";
 import { createCoalescedTask } from "../websites/recipe-website/editor/controller/instance/coalesce";
 import { sshTargetOf } from "../websites/recipe-website/editor/controller/instance/mirrors";
+import {
+  applySiteSettings,
+  mirrorEditorUrl,
+  parseSiteSettings,
+  pushSiteSettings,
+} from "../websites/recipe-website/editor/controller/instance/siteSettings";
 import {
   LockBusyError,
   withRepoLock,
@@ -57,6 +66,7 @@ const ENV_KEYS = [
   "WORKSTATION_URL",
   "WORKSTATION_SYNC_TOKEN",
   "EDITOR_INTERNAL_URL",
+  "MIRROR_SYNC_TOKEN",
 ];
 
 async function scratchDir(prefix: string): Promise<string> {
@@ -106,7 +116,12 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  getInstance()?.close();
+  /* Close, then let a run already in flight finish writing to the scratch
+   * repo's .git before it is deleted. */
+  const instance = getInstance();
+  instance?.close();
+  await instance?.runner?.idle();
+  await instance?.pinger?.idle();
   vi.useRealTimers();
   await closeCachedEnvironments();
   for (const key of ENV_KEYS) {
@@ -377,6 +392,143 @@ describe("pingWorkstation", () => {
     const state = await pingWorkstation(dir, { timeoutMs: 3_000 });
     expect(state.ok).toBe(false);
     expect(state.message).toContain("not reached");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Site settings follow the workstation (D7)                           */
+/* ------------------------------------------------------------------ */
+
+describe("site settings follow the workstation (D7)", () => {
+  const theme = {
+    accentHue: 30,
+    neutral: "warm",
+    radius: 0.5,
+    fontPairing: "bench",
+  };
+
+  it("takes only the site keys, trimmed, and refuses everything else", () => {
+    expect(() => parseSiteSettings({ ytdlpPath: "/usr/bin/yt-dlp" })).toThrow(
+      /refused: ytdlpPath/,
+    );
+    expect(() => parseSiteSettings({ mirrors: ["x"] })).toThrow(/mirrors/);
+    expect(() => parseSiteSettings({ contact: { myspace: "x" } })).toThrow(
+      /contact\.myspace/,
+    );
+    expect(() => parseSiteSettings({ theme: "not a theme" })).toThrow(/theme/);
+    expect(
+      parseSiteSettings({
+        footerNote: "  Cooked at home.  ",
+        contact: { email: " a@b.c ", github: "" },
+        presets: [],
+      }),
+    ).toEqual({ footerNote: "Cooked at home.", contact: { email: "a@b.c" } });
+  });
+
+  it("replaces the site keys and keeps this instance's own", () => {
+    expect(
+      applySiteSettings(
+        {
+          ytdlpPath: "/opt/yt-dlp",
+          footerNote: "old",
+          contact: { email: "old@x" },
+        },
+        { footerNote: "new" },
+      ),
+    ).toEqual({ ytdlpPath: "/opt/yt-dlp", footerNote: "new" });
+  });
+
+  it("finds the mirror's editor on its ssh host, or the override", () => {
+    const target = {
+      remote: "uraninite",
+      sshHost: "uraninite",
+      dir: "recipes",
+    };
+    expect(mirrorEditorUrl(target, {})).toBe("http://uraninite:3000");
+    expect(
+      mirrorEditorUrl(target, {
+        mirrorUrls: { uraninite: "https://pi.example:8443/" },
+      }),
+    ).toBe("https://pi.example:8443");
+    expect(mirrorEditorUrl({ remote: "usb" }, {})).toBeUndefined();
+  });
+
+  let server: Server | undefined;
+  afterEach(async () => {
+    await new Promise<void>((resolve) =>
+      server ? server.close(() => resolve()) : resolve(),
+    );
+    server = undefined;
+  });
+
+  it("sends once per change, retries a failure, and survives sync records", async () => {
+    const dir = await scratchDir("settings-push-");
+    await initRepo(dir);
+    const settingsDir = await scratchDir("settings-");
+    process.env.SETTINGS_DIRECTORY = settingsDir;
+    const bodies: unknown[] = [];
+    let fail = false;
+    server = createServer((request, response) => {
+      let raw = "";
+      request.on("data", (chunk) => (raw += chunk));
+      request.on("end", () => {
+        expect(request.method).toBe("PUT");
+        expect(request.url).toBe("/api/settings/site");
+        expect(request.headers.authorization).toBe("Bearer rcp_mirror");
+        bodies.push(JSON.parse(raw));
+        response.statusCode = fail ? 500 : 200;
+        response.setHeader("content-type", "application/json");
+        response.end(
+          JSON.stringify(fail ? { error: { message: "disk full" } } : {}),
+        );
+      });
+    });
+    await new Promise<void>((resolve) => server!.listen(0, resolve));
+    const port = (server.address() as { port: number }).port;
+    const writeWorkstationSettings = (footerNote: string) =>
+      writeFile(
+        join(settingsDir, "settings.json"),
+        JSON.stringify({
+          ytdlpPath: "/opt/yt-dlp",
+          mirrors: ["uraninite"],
+          mirrorUrls: { uraninite: `http://127.0.0.1:${port}` },
+          theme,
+          footerNote,
+        }),
+      );
+    const target = { remote: "uraninite" };
+    await recordSyncAttempt(dir, { remote: "uraninite", outcome: "nothing" });
+
+    await writeWorkstationSettings("First");
+    expect((await pushSiteSettings(dir, target)).status).toBe("skipped");
+    expect((await readSyncState(dir)).uraninite?.settings?.error).toMatch(
+      /MIRROR_SYNC_TOKEN/,
+    );
+
+    process.env.MIRROR_SYNC_TOKEN = "rcp_mirror";
+    expect((await pushSiteSettings(dir, target)).status).toBe("sent");
+    expect(bodies).toEqual([{ theme, footerNote: "First" }]);
+    expect((await pushSiteSettings(dir, target)).status).toBe("unchanged");
+    expect(bodies).toHaveLength(1);
+
+    /* A sync attempt rewrites the record but keeps what was sent. */
+    await recordSyncAttempt(dir, { remote: "uraninite", outcome: "synced" });
+    expect((await pushSiteSettings(dir, target)).status).toBe("unchanged");
+
+    await writeWorkstationSettings("Second");
+    fail = true;
+    const failed = await pushSiteSettings(dir, target);
+    expect(failed).toEqual({ status: "failed", error: "500: disk full" });
+    expect((await readSyncState(dir)).uraninite?.settings).toMatchObject({
+      error: "500: disk full",
+    });
+
+    fail = false;
+    expect((await pushSiteSettings(dir, target)).status).toBe("sent");
+    expect(bodies).toHaveLength(3);
+    expect((await readSyncState(dir)).uraninite?.settings?.error).toBe(
+      undefined,
+    );
   });
 });
 

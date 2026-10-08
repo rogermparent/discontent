@@ -23,8 +23,17 @@ const CONTACT_FIELDS: { key: string; label: string; placeholder?: string }[] = [
  * One form spans two uniform cards — "Footer note" and "Contact & social" — with
  * the single Save at the end. Posts to the shared `updateSettings`, which
  * merge-preserves other fields.
+ *
+ * `readOnly` on a mirror (epic 28, D7): the fields show the workstation's
+ * values, disabled, and there is no Save.
  */
-export function SiteDetailsForm({ settings }: { settings: Settings }) {
+export function SiteDetailsForm({
+  settings,
+  readOnly = false,
+}: {
+  settings: Settings;
+  readOnly?: boolean;
+}) {
   const [state, formAction] = useActionState(updateSettings, null);
   return (
     <form action={formAction} className="space-y-6">
@@ -38,39 +47,44 @@ export function SiteDetailsForm({ settings }: { settings: Settings }) {
         </div>
       )}
 
-      <SettingsCard
-        title="Footer note"
-        description="Shown in the footer colophon next to the copyright."
-      >
-        <TextInput
-          label="Footer note"
-          name="footerNote"
-          defaultValue={settings.footerNote ?? ""}
-          placeholder="e.g. Handwritten in a warm kitchen."
-        />
-      </SettingsCard>
-
-      <SettingsCard
-        title="Contact & social"
-        description="Each filled link shows as an icon in the footer. Leave blank to hide."
-      >
-        {CONTACT_FIELDS.map((field) => (
+      <fieldset disabled={readOnly} className="min-w-0 space-y-6">
+        <SettingsCard
+          title="Footer note"
+          description="Shown in the footer colophon next to the copyright."
+        >
           <TextInput
-            key={field.key}
-            label={field.label}
-            name={`contact.${field.key}`}
-            defaultValue={
-              settings.contact?.[field.key as keyof typeof settings.contact] ??
-              ""
-            }
-            placeholder={field.placeholder}
+            label="Footer note"
+            name="footerNote"
+            defaultValue={settings.footerNote ?? ""}
+            placeholder="e.g. Handwritten in a warm kitchen."
           />
-        ))}
-      </SettingsCard>
+        </SettingsCard>
 
-      <div className="flex flex-row flex-nowrap gap-1">
-        <SubmitButton>Save</SubmitButton>
-      </div>
+        <SettingsCard
+          title="Contact & social"
+          description="Each filled link shows as an icon in the footer. Leave blank to hide."
+        >
+          {CONTACT_FIELDS.map((field) => (
+            <TextInput
+              key={field.key}
+              label={field.label}
+              name={`contact.${field.key}`}
+              defaultValue={
+                settings.contact?.[
+                  field.key as keyof typeof settings.contact
+                ] ?? ""
+              }
+              placeholder={field.placeholder}
+            />
+          ))}
+        </SettingsCard>
+      </fieldset>
+
+      {!readOnly && (
+        <div className="flex flex-row flex-nowrap gap-1">
+          <SubmitButton>Save</SubmitButton>
+        </div>
+      )}
     </form>
   );
 }

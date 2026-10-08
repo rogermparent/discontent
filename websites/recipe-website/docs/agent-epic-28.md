@@ -14,10 +14,12 @@ Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴
 · 📝 proposed.
 
 **Now:** the overnight session (2026-10-08) is under way. 28a–28c are merged
-(#168, #170, #171, fix #172) and the real two-machine run passed. 28h
-(housekeeping) is in review; 28c2 (settings follow, D7) is next. The
-workstation editor runs from `.claude/worktrees/workstation-run` (see
-"Overnight session").
+(#168, #170, #171, fix #172) and the real two-machine run passed. 28h is
+merged (#174); 28c2 (settings follow, D7) is in review, then 28g. The
+workstation editor runs from `.claude/worktrees/workstation-run-2` (see
+"Overnight session"). **The Pi is still on `8fdc52ca`:** the session's
+`pnpm deploy:pi` was refused by Claude Code's permission classifier, so Pi
+deploys wait for Roger.
 
 ## Context
 
@@ -306,12 +308,12 @@ The stale-index banner stays as the fallback if a rebuild fails.
 | 28a   | Roles: `EDITOR_ROLE`, mirror UI (D2)                                                      | `agent/28a-roles`        | ✅ #168           |
 | 28b   | Sync seat + CLI/API/MCP + sync state (D3)                                                 | `agent/28b-sync-seat`    | ✅ #170           |
 | 28c   | Event-driven sync, watcher reindex, notifications, Mirrors card, mirror view (D4–D6, D12) | `agent/28c-sync-events`  | ✅ #171, fix #172 |
-| 28c2  | Site settings follow the workstation (D7)                                                 | `agent/28c2-settings`    | 📝                |
+| 28c2  | Site settings follow the workstation (D7)                                                 | `agent/28c2-settings`    | ✅ #175           |
 | 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                            | `agent/28d-media-prep`   | 📝                |
 | 28e   | git-annex for large files (D9), media step live                                           | `agent/28e-annex`        | 📝                |
 | 28f   | Close-out: two-machine run, drills, docs, memory                                          | `agent/28f-close`        | 📝                |
 | 28g   | Make page: tag tree (parents expand to children) + tag search                             | `agent/28g-make-tags`    | 🟡                |
-| 28h   | Housekeeping: self-hosted fonts, `next` pin alignment, needless-reindex fix               | `agent/28h-housekeeping` | 🟡                |
+| 28h   | Housekeeping: self-hosted fonts, `next` pin alignment, needless-reindex fix               | `agent/28h-housekeeping` | ✅ #174           |
 
 Order: 28a and 28b are independent and could run in parallel; 28c needs both;
 28d needs nothing; 28e needs 28b's media step and 28d. Each phase is its own
@@ -670,6 +672,53 @@ Gates:
   mirror's recipe in; a mirror's card). `git.spec`, `mirror-role` and
   `settings-nav` pass after renaming the card's button to "Add mirror": a
   bare "Add" collided with the remotes form's button in an existing test.
+
+### 28c2 — Site settings follow the workstation (2026-10-08)
+
+D7, as built:
+
+- **Mirror side: `PUT /api/settings/site`** (`src/app/api/settings/site`).
+  - Needs a write token, and answers 403 on a workstation.
+  - The body is the complete set of site keys (`theme`, `presets`,
+    `footerNote`, `contact`), so a key left out is one the workstation
+    cleared. Any other key (`ytdlpPath`, `mirrors`, a typo) is a 400, never
+    silently dropped.
+  - Every other key of the mirror's settings is kept.
+  - Validation is `parseSiteSettings` (`controller/instance/siteSettings.ts`):
+    `parseTheme` for the theme and each preset, and the footer's seven contact
+    keys.
+- **Workstation side: `pushSiteSettings`**, called by `syncMirror` after
+  every `nothing` or `synced` outcome. That covers every trigger: the runner,
+  "Sync now" and a mirror's ping.
+  - It sends only when the hash of the site keys differs from the one the
+    mirror last accepted, kept as `settings: {at, hash?, error?}` on the
+    mirror's record in `.git/discontent-sync.json`. `recordSyncAttempt`
+    carries it forward.
+  - A failure keeps the old hash and records `error`, so the next sync
+    retries.
+  - **URL:** the remote's ssh host on :3000 (`uraninite:recipes` →
+    `http://uraninite:3000`), or `settings.mirrorUrls[<remote>]`.
+  - **Token:** `MIRROR_SYNC_TOKEN` in the workstation's environment. The Pi's
+    write-scoped `pi-deploy` token works, since `users/` syncs. Without a
+    token or a URL nothing is sent, and the reason is recorded once.
+  - The Mirrors card shows "Site settings sent <time>", or why not.
+- **Saving settings on the workstation requests a sync** (trigger
+  `settings`), so a footer change reaches the mirror within seconds rather
+  than at the next content change.
+- **Mirror UI.** Site details shows the fields disabled with no Save, and
+  Appearance renders the editor inside a disabled, `inert` fieldset. Both
+  carry "Edited on <workstation>. This mirror receives them after each
+  sync." `updateSettings` (for site keys), `savePreset` and `deletePreset`
+  refuse on a mirror with `mirrorRefusal`.
+- **Tests.**
+  - `test/instance.test.ts`: parse (refusals, trimming), apply (keeps
+    `ytdlpPath`), URL derivation, and a send against a local server covering
+    no token, sent, unchanged, survives a sync record, failed (500), retried.
+  - `mirror-role.spec`: the read-only pages; the route's 401/400/200 and the
+    footer rendering after a PUT; the workstation's 403.
+- **Not yet live:** the Pi needs a deploy of this (the route is new), and the
+  workstation needs `MIRROR_SYNC_TOKEN` in its environment. The session's
+  workstation editor sets it from the deploy config.
 
 ### 28d — Media groundwork
 
