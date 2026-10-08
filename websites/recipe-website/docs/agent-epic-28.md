@@ -323,9 +323,17 @@ Roger's answers (2026-10-07):
 
 - **Annex:** code, image and scratch tests only. Activation on the real repos
   waits for him (a dry-runnable script is left ready).
-- **Workstation editor:** the session may take it over. Stop the terminal-run
-  `pnpm run start -H 0.0.0.0` in the main checkout and run build + start
-  detached after each merge that changes the editor.
+- **Workstation editor:** the session may take it over. The session can't
+  run git in the main checkout, so the editor runs from a second worktree,
+  `.claude/worktrees/workstation-run`, detached at `origin/main`, with
+  `CONTENT_DIRECTORY=~/Projects/recipe-content`,
+  `SETTINGS_DIRECTORY=<main checkout>/websites/recipe-website/editor/settings`
+  and the main checkout's `.env.local` and `.env` copied in.
+  - The session stops the terminal-run `pnpm run start -H 0.0.0.0`, then
+    builds and starts detached on :3000 (`setsid nohup`, logs in the job
+    directory), and again after each merge that changes the editor.
+  - Morning hand-back: stop it, then `git pull`, `pnpm build` and
+    `pnpm run start -H 0.0.0.0` in the main checkout.
 - **D7:** the workstation pushes site settings to the mirror.
 - **Extras:** self-hosted fonts, `next` pin alignment, the needless-reindex
   fix, a cleanup list for Roger, and a new item, the make page's tags (28g).
