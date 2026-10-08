@@ -10,6 +10,7 @@ import {
   RecipeCardLink,
   RecipeCardImageContainer,
   RecipeCardName,
+  RecipeCardPlaceholder,
   RecipeCardDate,
   RecipeGrid,
   recipeCardImageClassName,
@@ -92,14 +93,17 @@ function FeaturedRecipeCard({
     <RecipeCard>
       <RecipeCardLink href={`/recipe/${recipeSlug}`}>
         <RecipeCardImageContainer>
-          {recipeImage && (
+          {recipeImage ? (
             <RecipeImage
               slug={recipeSlug}
               image={recipeImage}
               alt="Recipe thumbnail"
               className={recipeCardImageClassName}
               {...standardRecipeImageProps}
+              fallback={<RecipeCardPlaceholder name={recipeName} />}
             />
+          ) : (
+            <RecipeCardPlaceholder name={recipeName} />
           )}
         </RecipeCardImageContainer>
         <RecipeCardName className="line-clamp-2">{recipeName}</RecipeCardName>

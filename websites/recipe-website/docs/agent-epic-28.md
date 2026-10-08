@@ -309,7 +309,7 @@ The stale-index banner stays as the fallback if a rebuild fails.
 | 28b   | Sync seat + CLI/API/MCP + sync state (D3)                                                 | `agent/28b-sync-seat`    | ✅ #170           |
 | 28c   | Event-driven sync, watcher reindex, notifications, Mirrors card, mirror view (D4–D6, D12) | `agent/28c-sync-events`  | ✅ #171, fix #172 |
 | 28c2  | Site settings follow the workstation (D7)                                                 | `agent/28c2-settings`    | 🟡                |
-| 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                            | `agent/28d-media-prep`   | 📝                |
+| 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                            | `agent/28d-media-prep`   | 🟡                |
 | 28e   | git-annex for large files (D9), media step live                                           | `agent/28e-annex`        | 📝                |
 | 28f   | Close-out: two-machine run, drills, docs, memory                                          | `agent/28f-close`        | 📝                |
 | 28g   | Make page: tag tree (parents expand to children) + tag search                             | `agent/28g-make-tags`    | 📝                |
@@ -720,15 +720,52 @@ D7, as built:
   workstation needs `MIRROR_SYNC_TOKEN` in its environment. The session's
   workstation editor sets it from the deploy config.
 
-### 28d — Media groundwork
+### 28d — Media groundwork (2026-10-08)
 
-- Missing upload → placeholder in `next-static-image` / the recipe card and
-  page; the transformed-image route 404s cleanly (D10).
-- Normalise CRLF on write for imported descriptions and instructions (the
-  render-side fix from #165 stays; this keeps new data clean).
+**D10, missing media.**
 
-Gates: vitest for the placeholder decision and CRLF normalisation;
-Playwright with a recipe whose upload file is deleted in test content.
+- **Mapped first.**
+  - Every upload route already answered 404 on ENOENT: `/image/[...]`,
+    `/uploads/recipe/…` and `/uploads/[filename]`.
+  - The server transform (`getTransformedUploadImageProps`) already caught
+    sharp's error and returned nothing.
+  - The gap was rendering: a recipe naming a missing photo drew an empty
+    frame (cards, featured cards, the detail hero), and client-rendered
+    cards drew a broken `<img>` for a variant that was never made.
+- **Server side.** `RecipeImage` takes a `fallback`, which the list card and
+  the featured card pass as the monogram (`RecipeCardPlaceholder`). The
+  featured card also shows the monogram when there is no photo at all, as
+  the list card always did. The detail hero shows the monogram
+  (`data-testid="recipe-image-missing"`) when a photo is named but unreadable
+  and there is no video.
+- **Client side.** `RecipeImage/PureRecipeImage.tsx` wraps
+  `getPureStaticImageProps` with an `onError` that swaps in the fallback.
+  `ClientList` and `SearchList` use it. These lists render after a client
+  fetch, so the handler is attached in time.
+- **Not done:** the command palette's and group results' small thumbnails
+  still use `PureStaticImage` directly (a broken thumbnail, not a broken
+  card). They can get the same wrapper if a mirror ever drops media.
+
+**CRLF on write.**
+
+- `normalizeRecipeText` (`common/util/recipeText.ts`) runs
+  `normalizeLineEndings` over the description, every step's text and every
+  group's name. It is applied where both recipe builders return:
+  `buildRecipeWrite` (the curation seats: API, MCP, CLI and import) and
+  `buildRecipeData` (the form's server actions).
+- The form path matters as much as import: a browser textarea submits `\r\n`
+  for every newline.
+- Read-side normalisation stays where it was, for files written before this.
+
+**Tests.**
+
+- `test/recipeText.test.ts`: the helper, and `createRecipe` and
+  `updateRecipe` storing `\n`.
+- `missing-media.spec`, on `two-pages` with Recipe 6's upload deleted: the
+  hero monogram, the original's 404, and a search card with no broken
+  image.
+- Also green: `recipe.spec`, `featured-recipes.spec` (one cold-start timeout,
+  passed on rerun) and `visual.spec` (no baseline changes).
 
 ### 28e — git-annex for large files
 

@@ -1,6 +1,6 @@
 import { MassagedRecipeEntry } from "../../controller/data/read";
 import { Fragment, ReactNode } from "react";
-import { PureStaticImage } from "@discontent/next-static-image/src/Pure";
+import { PureRecipeImage } from "../RecipeImage/PureRecipeImage";
 import { CardTags } from "./CardTags";
 import { fold } from "../SearchForm/queryLanguage";
 import {
@@ -90,13 +90,14 @@ export function SearchListItem({
     <>
       <RecipeCardImageContainer>
         {image ? (
-          <PureStaticImage
+          <PureRecipeImage
             slug={slug}
             image={image}
             alt="Recipe thumbnail"
             width={400}
             height={600}
             className={recipeCardImageClassName}
+            fallback={<RecipeCardPlaceholder name={name} />}
           />
         ) : (
           <RecipeCardPlaceholder name={name} />
