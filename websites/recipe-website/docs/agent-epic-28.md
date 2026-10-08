@@ -300,20 +300,125 @@ The stale-index banner stays as the fallback if a rebuild fails.
 
 ## Roadmap
 
-| Phase | Scope                                                                                     | Branch                  | Status  |
-| ----- | ----------------------------------------------------------------------------------------- | ----------------------- | ------- |
-| 28a   | Roles: `EDITOR_ROLE`, mirror UI (D2)                                                      | `agent/28a-roles`       | ✅ #168 |
-| 28b   | Sync seat + CLI/API/MCP + sync state (D3)                                                 | `agent/28b-sync-seat`   | ✅ #170 |
-| 28c   | Event-driven sync, watcher reindex, notifications, Mirrors card, mirror view (D4–D6, D12) | `agent/28c-sync-events` | 🟡      |
-| 28c2  | Site settings follow the workstation (D7)                                                 | `agent/28c2-settings`   | 📝      |
-| 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                            | `agent/28d-media-prep`  | 📝      |
-| 28e   | git-annex for large files (D9), media step live                                           | `agent/28e-annex`       | 📝      |
-| 28f   | Close-out: two-machine run, drills, docs, memory                                          | `agent/28f-close`       | 📝      |
+| Phase | Scope                                                                                     | Branch                   | Status            |
+| ----- | ----------------------------------------------------------------------------------------- | ------------------------ | ----------------- |
+| 28a   | Roles: `EDITOR_ROLE`, mirror UI (D2)                                                      | `agent/28a-roles`        | ✅ #168           |
+| 28b   | Sync seat + CLI/API/MCP + sync state (D3)                                                 | `agent/28b-sync-seat`    | ✅ #170           |
+| 28c   | Event-driven sync, watcher reindex, notifications, Mirrors card, mirror view (D4–D6, D12) | `agent/28c-sync-events`  | ✅ #171, fix #172 |
+| 28c2  | Site settings follow the workstation (D7)                                                 | `agent/28c2-settings`    | 📝                |
+| 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                            | `agent/28d-media-prep`   | 📝                |
+| 28e   | git-annex for large files (D9), media step live                                           | `agent/28e-annex`        | 📝                |
+| 28f   | Close-out: two-machine run, drills, docs, memory                                          | `agent/28f-close`        | 📝                |
+| 28g   | Make page: tag tree (parents expand to children) + tag search                             | `agent/28g-make-tags`    | 📝                |
+| 28h   | Housekeeping: self-hosted fonts, `next` pin alignment, needless-reindex fix               | `agent/28h-housekeeping` | 📝                |
 
 Order: 28a and 28b are independent and could run in parallel; 28c needs both;
 28d needs nothing; 28e needs 28b's media step and 28d. Each phase is its own
 PR, merged on green CI under the standing grant; the Pi is redeployed with
 `pnpm deploy:pi` after any phase that changes the editor.
+
+## Overnight session (planned 2026-10-07)
+
+Roger's answers (2026-10-07):
+
+- **Annex:** code, image and scratch tests only. Activation on the real repos
+  waits for him (a dry-runnable script is left ready).
+- **Workstation editor:** the session may take it over. Stop the terminal-run
+  `pnpm run start -H 0.0.0.0` in the main checkout and run build + start
+  detached after each merge that changes the editor.
+- **D7:** the workstation pushes site settings to the mirror.
+- **Extras:** self-hosted fonts, `next` pin alignment, the needless-reindex
+  fix, a cleanup list for Roger, and a new item, the make page's tags (28g).
+
+### Order
+
+Each step is its own PR, merged on green CI, then the Pi is redeployed
+(`pnpm deploy:pi`) and the workstation editor rebuilt and restarted when the
+editor changed.
+
+1. **28h housekeeping first.** It makes every later CI run and Pi ship
+   cheaper.
+   - Fonts: vendor the nine latin `woff2` files (OFL) under
+     `common/components/AppLayout/fonts/` and switch `fonts.ts` to
+     `next/font/local` with the same `--ff-*` variables; same for portfolio.
+     This ends the shard-4 `next/font/google` flake.
+   - `next` pins: `component-library` and `next-static-image` go from 16.1.1
+     to 16.1.6. That's a lockfile change, so the Pi base image is re-sent
+     once (about 260 MB smaller afterwards).
+   - Needless reindex: the watcher fires before the editor's own commit
+     advances the stamp. Before reindexing, re-read freshness after a short
+     settle (about 2 s), so an own commit is never treated as foreign.
+2. **28c2, settings follow (D7).**
+   - A mirror route, `PUT /api/settings/site` (write token): it takes `theme`,
+     `presets`, `footerNote` and `contact`, refuses `ytdlpPath`, and works on
+     a mirror only.
+   - The workstation runner, after a sync, sends the site keys when they
+     changed since the last send (a hash kept in sync state), to the mirror's
+     URL. That URL is the remote's host on :3000, overridable per mirror in
+     settings.
+   - A mirror's Site details and Appearance pages become read-only, with
+     "edited on <workstation>".
+   - Drill: change the footer note on the workstation; it appears on the Pi.
+3. **28g, make page tags.**
+   - The two `/make` routes read the tag vocabulary on the server
+     (`readTagVocabulary()`: term records plus bare tags, with `parent`) and
+     pass it to `<MakePage/>`.
+   - The flat "Quick picks" row becomes **top-level tags** (roots, ordered by
+     use in the current scope; `drink` is one, no longer special). A root
+     with children expands to show them; picking either toggles `tag:` in
+     the query.
+   - A **tag search** combobox finds any tag, parent or child, shown with its
+     breadcrumb, and adds it to the query.
+   - `DRINK_TAG` and the "Drinks" relabel go. Judgment call: a first visit
+     defaults to all recipes instead of `tag:drink`, and the remembered last
+     query still applies.
+   - Out of scope: a parent matching recipes tagged only with a child (24d's
+     resolver). Today every drink also carries `drink`.
+   - Tests: `make.spec` updates (the `Drinks`-pressed and chip-narrowing
+     cases), new expand and search cases, the `make-page` visual baseline,
+     and axe.
+4. **28d, media groundwork.** A placeholder for a missing upload (D10), and
+   CRLF normalised when imported text is saved.
+5. **28e, annex, scratch only.**
+   - git-annex's standalone arm64 build in the image (build-platform stage,
+     checksum), the `media` step in `gitSync`, `.gitattributes` and
+     `numcopies` support, and scratch-repo tests (a large file both ways, a
+     refused drop).
+   - Also `scripts/annex-activate.sh --dry-run|--apply` for the real repos,
+     **not run**.
+6. **28f, close-out.**
+   - Real drills: a shell commit on the Pi (the Pi reindexes, the
+     workstation syncs it); workstation editor down → edit on the Pi → start
+     → caught up.
+   - Docs, memory, and the morning report.
+
+### Stop rules
+
+- **Never** touch the real content repos beyond what the editors do: no
+  annex init, no `.gitattributes` commit, no history rewrite, no force-push.
+  Drills use one clearly named temporary recipe, created and then deleted.
+- **A red CI that isn't the known font flake:** fix it or stop that step.
+  Don't merge red.
+- **Workstation editor:** always leave it running. If a build fails, restart
+  the last good build and say so. Logs go to the job directory.
+- **If something needs Roger,** leave it written up in the report rather
+  than guessing.
+
+### For Roger to run (the session can't, from its sandbox)
+
+13 old worktrees and the merged `agent/*` branches, from the main checkout:
+
+```
+for w in agent-24c agent-25a agent-25c agent-25d agent-26 agent-26d agent-27 \
+         agent-import-ua fix-search-populated-version pagination-43 \
+         portfolio-rebuild settings-polish sticky-chrome; do
+  git worktree remove ".claude/worktrees/$w"
+done
+git branch --merged main --format='%(refname:short)' | grep -v '^main$' | xargs git branch -d
+```
+
+(`pi-deploy` is this session's worktree; remove it after the overnight
+run.)
 
 ## Phase detail
 
