@@ -57,6 +57,7 @@ import {
   GitHashSchema,
   GitLogQuerySchema,
   GitPullSchema,
+  GitSyncSchema,
   GitPushSchema,
   GitRestoreSchema,
   GitRevertSchema,
@@ -121,6 +122,7 @@ export const TOOL_NAMES = [
   "git_push",
   "git_fetch",
   "git_pull",
+  "git_sync",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -1018,6 +1020,23 @@ export function createRecipeServer(
       annotations: WRITES,
     },
     async (args) => write(backend, () => backend.gitPull(args)),
+  );
+
+  register(
+    "git_sync",
+    {
+      title: "Sync with a mirror",
+      description:
+        "From the workstation: fetch the mirror's remote, merge its commits in " +
+        "(never rebase), and push ours back (epic 28). Answers {remote, branch, " +
+        "outcome, message?, pulled, pushed, steps, head, state}; outcome is " +
+        "nothing, synced, conflict (aborted, tree unchanged — a person resolves " +
+        "it in the Git page), mirror_dirty, raced, unreachable, blocked or error. " +
+        "Refused on a mirror.",
+      inputSchema: GitSyncSchema,
+      annotations: WRITES,
+    },
+    async (args) => write(backend, () => backend.gitSync(args)),
   );
 
   if (info.readOnly) {

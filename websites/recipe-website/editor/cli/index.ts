@@ -156,6 +156,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   git status [--fetch]
   git fetch [<remote>]
   git pull [<remote>]
+  git sync [<remote>] [--ssh-host <host> --mirror-dir <dir>]
   git log [--type recipe|group|featured] [--slug s] [--limit 30] [--offset 0]
   git show <hash> [--max-chars 50000]
   git file <type> <slug> <rev>

@@ -23,6 +23,7 @@ import type {
   PullResult,
   PushResult,
   ShowResult,
+  SyncResult,
   SyncStatus,
 } from "../backend/types";
 import { confirm } from "./delete";
@@ -304,6 +305,46 @@ const gitPull: CommandDef<PullResult> = {
   },
 };
 
+const gitSync: CommandDef<SyncResult> = {
+  name: "git sync",
+  usage: "recipes git sync [<remote>] [--ssh-host <host> --mirror-dir <dir>]",
+  options: {
+    "ssh-host": { type: "string" },
+    "mirror-dir": { type: "string" },
+  },
+  /*
+   * Epic 28, D3: fetch the mirror, merge its commits in (a conflict is
+   * aborted, never resolved), push ours back. `write: true` because a merge
+   * rebuilds every index. `--ssh-host`/`--mirror-dir` add the mirror-dirty
+   * preflight (local backend only; a remote editor uses its own settings).
+   */
+  write: true,
+  async run({ backend, positionals, options }) {
+    const remote = positionals[0];
+    const sshHost = stringOption(options, "ssh-host");
+    const dir = stringOption(options, "mirror-dir");
+    return backend.gitSync({
+      ...(remote ? { remote } : {}),
+      ...(sshHost || dir ? { mirror: { sshHost, dir } } : {}),
+    });
+  },
+  format(result) {
+    const lines = [
+      `${result.outcome}: ${result.branch} ⇄ ${result.remote}` +
+        (result.pulled || result.pushed
+          ? ` (in ${result.pulled}, out ${result.pushed})`
+          : ""),
+    ];
+    if (result.message) lines.push(`  ${result.message}`);
+    for (const step of result.steps) {
+      lines.push(
+        `  ${step.step}: ${step.status}${step.detail ? ` — ${step.detail}` : ""}`,
+      );
+    }
+    return lines.join("\n");
+  },
+};
+
 export const gitCommands: Record<string, CommandDef<unknown>> = {
   status: gitStatus,
   log: gitLog,
@@ -315,6 +356,7 @@ export const gitCommands: Record<string, CommandDef<unknown>> = {
   push: gitPush,
   fetch: gitFetch,
   pull: gitPull,
+  sync: gitSync,
 };
 
 export default gitCommands;

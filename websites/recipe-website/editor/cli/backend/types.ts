@@ -37,6 +37,10 @@ import type {
   ShowResult,
   SyncStatus,
 } from "../../controller/curation/git";
+import type {
+  GitSyncOptions,
+  SyncResult,
+} from "../../controller/curation/sync";
 import type { ImportResult } from "../../controller/curation/importRecipe";
 import type { InspectResult } from "../../controller/curation/inspect";
 import type {
@@ -71,6 +75,7 @@ export type {
   GitPullOptions,
   GitPushOptions,
   GitRestoreRef,
+  GitSyncOptions,
   GitWriteResult,
   GroupDetail,
   GroupItemRef,
@@ -92,6 +97,7 @@ export type {
   ReindexResult,
   SearchResult,
   ShowResult,
+  SyncResult,
   SyncStatus,
 };
 
@@ -240,6 +246,11 @@ export interface CuratorBackend {
   gitFetch(options?: GitFetchOptions): Promise<FetchResult>;
   /** Merges and rebuilds every index; a write like revert and restore. */
   gitPull(options?: GitPullOptions): Promise<PullResult>;
+  /**
+   * Fetch the mirror, merge it in, push back (epic 28, D3). A write: a merge
+   * rebuilds every index. Expected failures are an `outcome`, not a throw.
+   */
+  gitSync(options?: GitSyncOptions): Promise<SyncResult>;
 
   /**
    * Run after a command whose `write` flag is set; the string it resolves to is

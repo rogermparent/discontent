@@ -57,6 +57,8 @@ const HELD_BACK = [
    * like `git_push`, its mirror. `git_fetch` is not: it moves only remote refs.
    */
   "git_pull",
+  /* Epic 28: a sync merges and pushes — both of the above at once. */
+  "git_sync",
 ] as const;
 
 const EXPECTED_ALLOWED = TOOL_NAMES.filter(

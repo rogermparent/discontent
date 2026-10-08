@@ -52,6 +52,7 @@ import type {
   FetchResult,
   PullResult,
   PushResult,
+  SyncResult,
   RecipeDetail,
   RecipeDryRunResult,
   RecipeImageResult,
@@ -434,6 +435,12 @@ export function createHttpBackend({
     },
     gitPull(options = {}) {
       return call<PullResult>("POST", "/api/git/pull", { body: options });
+    },
+    /* Only `remote` crosses the wire (GitSyncSchema): the server knows its mirrors. */
+    gitSync(options = {}) {
+      return call<SyncResult>("POST", "/api/git/sync", {
+        body: options.remote ? { remote: options.remote } : {},
+      });
     },
 
     /* The server revalidated in the same request; there is nothing to report. */
