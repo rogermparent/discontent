@@ -34,6 +34,7 @@ import createDefaultSlug from "recipe-website-common/controller/createSlug";
 import type { MassagedRecipeEntry } from "recipe-website-common/controller/data/read";
 import { normalizeTags } from "recipe-website-common/controller/normalizeTags";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
+import { normalizeRecipeText } from "recipe-website-common/util/recipeText";
 import type {
   Recipe,
   RecipeEntryKey,
@@ -312,7 +313,8 @@ export async function buildRecipeWrite(
   delete data.clearImage;
 
   return {
-    data,
+    /* `\n` line endings in the markdown fields (28d), whatever the source. */
+    data: normalizeRecipeText(data),
     /*
      * Only `image`. The editor also declares a `video` upload because its form
      * has a file input; nothing here can hand over a video `File`, and
