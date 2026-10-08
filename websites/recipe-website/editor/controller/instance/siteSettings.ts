@@ -191,7 +191,12 @@ export type SettingsPushOutcome =
   | { status: "sent"; hash: string }
   | { status: "unchanged" }
   | { status: "skipped"; reason: string }
-  | { status: "failed"; error: string };
+  | {
+      status: "failed";
+      error: string;
+      /** The same error as the last attempt's: already logged once. */
+      repeated: boolean;
+    };
 
 /**
  * Send the workstation's site settings to one mirror if they changed since
@@ -254,5 +259,7 @@ export async function pushSiteSettings(
     target.remote,
     error ? { error } : { hash },
   );
-  return error ? { status: "failed", error } : { status: "sent", hash };
+  return error
+    ? { status: "failed", error, repeated: previous?.error === error }
+    : { status: "sent", hash };
 }

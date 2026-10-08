@@ -153,7 +153,12 @@ export async function syncMirror(
         (result.outcome === "nothing" || result.outcome === "synced")
       ) {
         const sent = await pushSiteSettings(contentDirectory, target);
-        if (sent.status === "sent" || sent.status === "failed") {
+        /* A failure is logged when it changes, not on every sync: a mirror
+         * on an older image answered 404 to each one until redeployed. */
+        if (
+          sent.status === "sent" ||
+          (sent.status === "failed" && !sent.repeated)
+        ) {
           console.info(
             `[sync] ${target.remote} site settings: ${sent.status}` +
               (sent.status === "failed" ? ` — ${sent.error}` : ""),

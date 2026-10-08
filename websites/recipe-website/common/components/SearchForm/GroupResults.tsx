@@ -1,6 +1,6 @@
 "use client";
 
-import { PureStaticImage } from "@discontent/next-static-image/src/Pure";
+import { PureRecipeImage } from "../RecipeImage/PureRecipeImage";
 import { GroupThumbnailPlaceholder } from "../GroupThumbnail/Placeholder";
 import GroupList from "../List/Group";
 import { recipeCardImageClassName } from "../List/shared";
@@ -73,7 +73,7 @@ export function GroupResults() {
          */
         renderThumbnail={(group) =>
           group.image ? (
-            <PureStaticImage
+            <PureRecipeImage
               uploadsDirectory="uploads/group"
               slug={group.slug}
               image={group.image}
@@ -81,6 +81,7 @@ export function GroupResults() {
               width={400}
               height={600}
               className={recipeCardImageClassName}
+              fallback={<GroupThumbnailPlaceholder />}
             />
           ) : (
             <GroupThumbnailPlaceholder />

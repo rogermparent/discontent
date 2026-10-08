@@ -13,16 +13,19 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** the overnight session (2026-10-08) is done, and every phase is
-merged: 28h #174, 28c2 #175, 28g #176, 28d #177 and 28e #178 (scratch only),
-on top of 28a–28c (#168, #170, #171, #172). The 28f drills passed (see
-28f). Waiting on Roger (see "28f → For Roger"):
+**Now:** every phase is merged (28a–28h, #168–#179), and Roger deployed the
+Pi at `98d7e939` on 2026-10-08. D7 is live: the footer-note drill took 6.2 s
+there and 2.7 s to remove. 28i (in review) follows up after that deploy:
 
-- **Deploy the Pi.** It is still on `8fdc52ca`, because the session's
-  `pnpm deploy:pi` was refused by Claude Code's permission classifier.
-- **Take the workstation editor back.** It runs from
-  `.claude/worktrees/workstation-run-2` at `75576fa5`.
-- **Activate git-annex,** when he chooses.
+- **git-annex in the Pi's container:** its `runshell` failed on the
+  read-only `~/.ssh` mount, and is patched.
+- **Settings send:** a failure is logged once, not on every sync.
+- **Thumbnails:** group results get the missing-photo fallback (not the
+  palette; see 28i).
+- **Workstation editor:** now a systemd user service
+  (`pnpm workstation install|update`).
+
+Next: git-annex activation (Roger) once 28i is deployed.
 
 ## Context
 
@@ -306,17 +309,18 @@ The stale-index banner stays as the fallback if a rebuild fails.
 
 ## Roadmap
 
-| Phase | Scope                                                                                     | Branch                   | Status            |
-| ----- | ----------------------------------------------------------------------------------------- | ------------------------ | ----------------- |
-| 28a   | Roles: `EDITOR_ROLE`, mirror UI (D2)                                                      | `agent/28a-roles`        | ✅ #168           |
-| 28b   | Sync seat + CLI/API/MCP + sync state (D3)                                                 | `agent/28b-sync-seat`    | ✅ #170           |
-| 28c   | Event-driven sync, watcher reindex, notifications, Mirrors card, mirror view (D4–D6, D12) | `agent/28c-sync-events`  | ✅ #171, fix #172 |
-| 28c2  | Site settings follow the workstation (D7)                                                 | `agent/28c2-settings`    | ✅ #175           |
-| 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                            | `agent/28d-media-prep`   | ✅ #177           |
-| 28e   | git-annex for large files (D9), media step live                                           | `agent/28e-annex`        | ✅ #178 (scratch) |
-| 28f   | Close-out: two-machine run, drills, docs, memory                                          | `agent/28f-close`        | ✅ (this PR)      |
-| 28g   | Make page: tag tree (parents expand to children) + tag search                             | `agent/28g-make-tags`    | ✅ #176           |
-| 28h   | Housekeeping: self-hosted fonts, `next` pin alignment, needless-reindex fix               | `agent/28h-housekeeping` | ✅ #174           |
+| Phase | Scope                                                                                     | Branch                          | Status            |
+| ----- | ----------------------------------------------------------------------------------------- | ------------------------------- | ----------------- |
+| 28a   | Roles: `EDITOR_ROLE`, mirror UI (D2)                                                      | `agent/28a-roles`               | ✅ #168           |
+| 28b   | Sync seat + CLI/API/MCP + sync state (D3)                                                 | `agent/28b-sync-seat`           | ✅ #170           |
+| 28c   | Event-driven sync, watcher reindex, notifications, Mirrors card, mirror view (D4–D6, D12) | `agent/28c-sync-events`         | ✅ #171, fix #172 |
+| 28c2  | Site settings follow the workstation (D7)                                                 | `agent/28c2-settings`           | ✅ #175           |
+| 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                            | `agent/28d-media-prep`          | ✅ #177           |
+| 28e   | git-annex for large files (D9), media step live                                           | `agent/28e-annex`               | ✅ #178 (scratch) |
+| 28f   | Close-out: two-machine run, drills, docs, memory                                          | `agent/28f-close`               | ✅ (this PR)      |
+| 28g   | Make page: tag tree (parents expand to children) + tag search                             | `agent/28g-make-tags`           | ✅ #176           |
+| 28h   | Housekeeping: self-hosted fonts, `next` pin alignment, needless-reindex fix               | `agent/28h-housekeeping`        | ✅ #174           |
+| 28i   | After the deploy: annex in the container, log-once, thumbnails, workstation service       | `agent/28i-workstation-service` | 🟡                |
 
 Order: 28a and 28b are independent and could run in parallel; 28c needs both;
 28d needs nothing; 28e needs 28b's media step and 28d. Each phase is its own
@@ -944,6 +948,68 @@ merge and push skipped, media skipped (annex-ignored).
 - **Branches merged from `origin/main` twice** to clear doc-table
   conflicts. Per-phase doc edits touch neighbouring roadmap rows, so expect
   that when several phase PRs are open at once.
+
+### 28i — After the deploy (2026-10-08)
+
+Roger deployed `98d7e939` (`! pnpm deploy:pi`: base re-sent in 189 s, app
+76 s, reindex 18 s, healthy). Checks after the deploy:
+
+- **D7 drill.** A footer note set in the workstation's settings was on the
+  Pi's homepage **6.2 s** after a sync, and gone **2.7 s** after removal.
+  The Mirrors card now says "Site settings sent".
+- **The shell-commit drill again,** now that the Pi has 28h's settle:
+  **25.5 s** to the workstation (35.4 s before), deletion 9.4 s.
+- **The make page on the Pi** serves 28g ("Find a tag").
+- **git-annex in the container failed.**
+  - `git annex version` there answered `runshell: cannot create
+/home/editor/.ssh/git-annex-shell.46: Read-only file system`.
+  - The standalone `runshell` writes two ssh shims into `~/.ssh` on first
+    run and exits when it can't. The container mounts `~/.ssh` read-only.
+  - Harmless while nothing is annexed. After activation, `* filter=annex`
+    would make every git add and checkout on the Pi fail.
+  - **Fixed in the image:** the `assets` stage seds `runshell` to write the
+    shims only when `~/.ssh` is writable (`-w` for `-e`, checked to match
+    twice). The shims are for being ssh'd _into_, which the container never
+    is.
+  - **Verified on an amd64 build of the stage.** As uid 1000, with a
+    read-only `~/.ssh`, `git annex version` works. An annexed repo then took
+    `git add` and a commit, the large file stored as a 100-byte pointer.
+  - The 28e scratch tests ran tourmaline's git-annex, never the image's,
+    which is how this got through.
+
+**In this PR:**
+
+- **The `runshell` patch,** as above.
+- **Log once.** `pushSiteSettings` marks a failure `repeated` when the error
+  matches the last one, and `syncMirror` logs only new failures. Before the
+  deploy, each sync logged the Pi's 404.
+- **Thumbnails.** `PureRecipeImage` takes `uploadsDirectory`, and group
+  results use it (falling back to the group placeholder).
+  - It renders a plain `<img>` with the attributes `PureStaticImage`'s
+    `unoptimized` image had. Given an `onError`, next/image re-assigns
+    `img.src = img.src` on mount, which made the attribute absolute (caught
+    by `groups.spec`).
+  - **Not the command palette:** swapping a row's thumbnail for the icon
+    when its variant 404s broke cmdk's Enter-opens-the-top-row
+    (`command-palette.spec`, reproduced twice; passes without the swap).
+    The palette keeps `PureStaticImage`, whose broken image is 36 px and
+    cosmetic.
+- **Workstation service.** `scripts/workstation-editor.sh`, or
+  `pnpm workstation <cmd>`:
+  - `install` writes `~/.config/recipe-deploy/workstation.env` (mode 600:
+    `CONTENT_DIRECTORY`, `SETTINGS_DIRECTORY`, `MIRROR_SYNC_TOKEN` from the
+    deploy config's `PI_TOKEN`, `PORT`) and `recipe-workstation.service`,
+    builds if needed, then enables and starts it.
+  - `update` runs `git pull --ff-only`, `pnpm install`, a build, a restart
+    and a health check.
+  - Also `restart`, `stop`, `status`, `logs` and `uninstall`.
+  - The unit runs the checkout the script lives in (the main checkout),
+    with `node … next start -H 0.0.0.0 -p ${PORT}` (node, not pnpm, for
+    SIGTERM) and the PATH install ran with (git, git-annex, ssh,
+    notify-send). It starts with the user session (`default.target`); to
+    run at boot without a login, `loginctl enable-linger`, which is Roger's
+    call.
+  - This replaces the session's detached editor and the terminal-run one.
 
 ### 28g — Make page tags (2026-10-08)
 

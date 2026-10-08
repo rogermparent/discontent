@@ -518,14 +518,23 @@ describe("site settings follow the workstation (D7)", () => {
     await writeWorkstationSettings("Second");
     fail = true;
     const failed = await pushSiteSettings(dir, target);
-    expect(failed).toEqual({ status: "failed", error: "500: disk full" });
+    expect(failed).toEqual({
+      status: "failed",
+      error: "500: disk full",
+      repeated: false,
+    });
+    /* The same failure again is marked repeated, so it is not logged twice. */
+    expect(await pushSiteSettings(dir, target)).toMatchObject({
+      status: "failed",
+      repeated: true,
+    });
     expect((await readSyncState(dir)).uraninite?.settings).toMatchObject({
       error: "500: disk full",
     });
 
     fail = false;
     expect((await pushSiteSettings(dir, target)).status).toBe("sent");
-    expect(bodies).toHaveLength(3);
+    expect(bodies).toHaveLength(4);
     expect((await readSyncState(dir)).uraninite?.settings?.error).toBe(
       undefined,
     );
