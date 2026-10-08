@@ -23,6 +23,7 @@ import { recipeContentTypes } from "../websites/recipe-website/editor/controller
 import { reindex } from "../websites/recipe-website/editor/controller/curation/reindex";
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
 import { createSyncRunner } from "../websites/recipe-website/editor/controller/instance/runner";
+import { createCoalescedTask } from "../websites/recipe-website/editor/controller/instance/coalesce";
 import { sshTargetOf } from "../websites/recipe-website/editor/controller/instance/mirrors";
 import {
   LockBusyError,
@@ -205,6 +206,48 @@ describe("createSyncRunner", () => {
     const answer = runner.runNow("manual");
     release();
     expect(await answer).toBe(2);
+  });
+});
+
+/*
+ * The D12 regression from the first real two-machine run: on the Pi a
+ * rebuild takes 15–25 s, a push landed during one, and the early return
+ * dropped it — the stamp stayed a commit behind.
+ */
+describe("createCoalescedTask", () => {
+  it("runs once more for calls made while it runs, never dropping them", async () => {
+    let release!: () => void;
+    let runs = 0;
+    const task = createCoalescedTask(async () => {
+      runs += 1;
+      if (runs === 1) await new Promise<void>((r) => (release = r));
+    });
+    const first = task();
+    await vi.waitFor(() => expect(runs).toBe(1));
+    void task();
+    void task();
+    void task();
+    release();
+    await first;
+    expect(runs).toBe(2);
+  });
+
+  it("defers a call while blocked, and kick() runs it", async () => {
+    let blocked = true;
+    let runs = 0;
+    const task = createCoalescedTask(
+      async () => {
+        runs += 1;
+      },
+      { blocked: () => blocked },
+    );
+    await task();
+    expect(runs).toBe(0);
+    blocked = false;
+    await task.kick();
+    expect(runs).toBe(1);
+    await task.kick();
+    expect(runs).toBe(1);
   });
 });
 

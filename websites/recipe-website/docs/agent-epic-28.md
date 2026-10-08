@@ -530,6 +530,28 @@ Gates:
 - One fix during the gates: under the full suite's load the D4 test's last
   recorded outcome was sometimes `nothing`, because the startup run landed
   after the commit. The test now asserts convergence and no failures.
+- **Real two-machine run (2026-10-07).** The Pi was on `c5eb2faa` (mirror),
+  and tourmaline's editor was rebuilt and restarted on main by Roger, with
+  `uraninite` added on `/git`.
+  - The first API sync answered `nothing` (preflight, fetch, merge skipped,
+    push skipped).
+  - A temporary recipe created on the Pi was on tourmaline **13 s** later.
+    Deleting it on tourmaline removed it from the Pi **15 s** later.
+  - Both repos ended at `872159c`, the Pi's tree clean. Tourmaline recorded
+    `synced` with 0 failures, and the Pi's ping got `synced`.
+- **Bug the run found (fixed in the follow-up PR, T1-28c).** The Pi reindexed
+  once, but its stamp stayed at `e0c9e8a` while HEAD was `872159c`, so the
+  deletion's push landed during a rebuild (15–25 s on the Pi) and was
+  dropped: `reindexIfForeign` returned early while busy, and nothing
+  re-checked afterwards.
+  - `controller/instance/coalesce.ts` now coalesces: a call while running, or
+    while a sync is in progress, means exactly one more run, and each sync's
+    `finally` kicks any deferred check.
+  - The Pi's stamp was put right with one manual reindex.
+  - Unit-tested with a fake task, because the race needs a slow rebuild.
+- **Not yet driven for real:** a shell commit on the Pi (same mechanism as a
+  received push), and catching up after the workstation editor was down.
+  Both are covered by the scratch-repo tests; they're for 28f's drills.
 - Playwright: `mirrors-card.spec` 2/2 (add a remote, Sync now brings a
   mirror's recipe in; a mirror's card). `git.spec`, `mirror-role` and
   `settings-nav` pass after renaming the card's button to "Add mirror": a

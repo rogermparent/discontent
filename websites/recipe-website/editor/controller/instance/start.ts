@@ -38,6 +38,7 @@ import { mirrorTargets } from "./mirrors";
 import { attentionKey, attentionText, desktopNotify } from "./notify";
 import { pingWorkstation, workstationConfig, type PingState } from "./pinger";
 import { refreshEditor } from "./refresh";
+import { createCoalescedTask, type CoalescedTask } from "./coalesce";
 import { createSyncRunner, type SyncRunner, type SyncTrigger } from "./runner";
 
 export interface Instance {
@@ -46,6 +47,8 @@ export interface Instance {
   runner?: SyncRunner<SyncResult[]>;
   pinger?: SyncRunner<PingState>;
   watcher?: RefWatcher;
+  /** D12's reindex; kicked after every sync in case one was deferred. */
+  reindexIfForeign?: CoalescedTask;
   /** Run `fn` exclusively with every other sync in this process. */
   exclusive<T>(fn: () => Promise<T>): Promise<T>;
   close(): void;
@@ -79,6 +82,9 @@ function createMutex() {
   };
 }
 
+/** Syncs in progress in this process; D12's reindex waits them out. */
+let activeSyncs = 0;
+
 /**
  * Sync one mirror on the workstation, the way every trigger does: inside the
  * process mutex and the repository lock, with the ssh preflight read off the
@@ -97,19 +103,26 @@ export async function syncMirror(
   const target = remote
     ? targets.find((candidate) => candidate.remote === remote)
     : targets[0];
-  return exclusive(() =>
-    withRepoLock(contentDirectory, () =>
-      gitSync(
-        { contentDirectory, onBulkChange: () => void refreshEditor() },
-        {
-          ...(remote ? { remote } : target ? { remote: target.remote } : {}),
-          ...(target?.sshHost
-            ? { mirror: { sshHost: target.sshHost, dir: target.dir } }
-            : {}),
-        },
-      ),
-    ),
-  );
+  return exclusive(async () => {
+    activeSyncs += 1;
+    try {
+      return await withRepoLock(contentDirectory, () =>
+        gitSync(
+          { contentDirectory, onBulkChange: () => void refreshEditor() },
+          {
+            ...(remote ? { remote } : target ? { remote: target.remote } : {}),
+            ...(target?.sshHost
+              ? { mirror: { sshHost: target.sshHost, dir: target.dir } }
+              : {}),
+          },
+        ),
+      );
+    } finally {
+      activeSyncs -= 1;
+      /* A HEAD move that arrived mid-sync gets its re-check now. */
+      void getInstance()?.reindexIfForeign?.kick();
+    }
+  });
 }
 
 export async function startInstance(): Promise<Instance | undefined> {
@@ -129,22 +142,20 @@ async function start(): Promise<Instance | undefined> {
   const exclusive = createMutex();
 
   /* --- D12: reindex when HEAD moved without the editor ------------------ */
-  let reindexing = false;
-  async function reindexIfForeign(): Promise<void> {
-    if (reindexing || instance.runner?.busy) return;
-    const { stale } = await readIndexFreshness(contentDirectory);
-    if (!stale) return;
-    reindexing = true;
-    try {
+  /*
+   * Coalesced, never dropped: a HEAD move that lands mid-rebuild (or mid-sync,
+   * whose merge rebuilds anyway) is re-checked once the rebuild is done.
+   */
+  const reindexIfForeign = createCoalescedTask(
+    async () => {
+      const { stale } = await readIndexFreshness(contentDirectory);
+      if (!stale) return;
       console.info("[instance] HEAD moved outside the editor; reindexing");
       await reindex({ contentDirectory });
       await refreshEditor();
-    } catch (error) {
-      console.error("[instance] reindex failed:", error);
-    } finally {
-      reindexing = false;
-    }
-  }
+    },
+    { blocked: () => activeSyncs > 0 },
+  );
 
   /* --- D4/D5: the workstation's runner ---------------------------------- */
   const attention = new Map<string, string | null>();
@@ -183,8 +194,6 @@ async function start(): Promise<Instance | undefined> {
         throw error;
       }
     }
-    /* A rebuild skipped while the run was busy gets its turn now. */
-    void reindexIfForeign();
     return results;
   }
 
@@ -192,6 +201,7 @@ async function start(): Promise<Instance | undefined> {
     role,
     contentDirectory,
     exclusive,
+    reindexIfForeign,
     close() {
       instance.watcher?.close();
       instance.runner?.dispose();
