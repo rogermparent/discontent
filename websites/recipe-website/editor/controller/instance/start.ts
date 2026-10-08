@@ -33,6 +33,7 @@ import {
   type EditorRole,
 } from "recipe-website-common/config/role";
 import { readSettings } from "../../src/settings";
+import { updateAnnexedWorktree } from "../curation/annex";
 import { reindex } from "../curation/reindex";
 import { gitSync, type SyncResult } from "../curation/sync";
 import { LockBusyError, withRepoLock } from "./lock";
@@ -270,6 +271,9 @@ async function start(): Promise<Instance | undefined> {
 
   instance.watcher = await watchRefs(contentDirectory, {
     onChange: async (head) => {
+      /* Annexed content that arrived with a push (28e) becomes real files
+       * before the reindex reads them. */
+      await updateAnnexedWorktree(contentDirectory);
       await reindexIfForeign();
       instance.runner?.headMoved(head);
       instance.pinger?.request("change");

@@ -310,7 +310,7 @@ The stale-index banner stays as the fallback if a rebuild fails.
 | 28c   | Event-driven sync, watcher reindex, notifications, Mirrors card, mirror view (D4–D6, D12) | `agent/28c-sync-events`  | ✅ #171, fix #172 |
 | 28c2  | Site settings follow the workstation (D7)                                                 | `agent/28c2-settings`    | ✅ #175           |
 | 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                            | `agent/28d-media-prep`   | ✅ #177           |
-| 28e   | git-annex for large files (D9), media step live                                           | `agent/28e-annex`        | 📝                |
+| 28e   | git-annex for large files (D9), media step live                                           | `agent/28e-annex`        | ✅ #178 (scratch) |
 | 28f   | Close-out: two-machine run, drills, docs, memory                                          | `agent/28f-close`        | 📝                |
 | 28g   | Make page: tag tree (parents expand to children) + tag search                             | `agent/28g-make-tags`    | ✅ #176           |
 | 28h   | Housekeeping: self-hosted fonts, `next` pin alignment, needless-reindex fix               | `agent/28h-housekeeping` | ✅ #174           |
@@ -767,19 +767,81 @@ D7, as built:
 - Also green: `recipe.spec`, `featured-recipes.spec` (one cold-start timeout,
   passed on rerun) and `visual.spec` (no baseline changes).
 
-### 28e — git-annex for large files
+### 28e — git-annex for large files (2026-10-08, scratch only)
 
-- `.gitattributes` with the largefiles rule; `annex.numcopies 2`.
-- git-annex standalone arm64 in the image (build-platform stage, checksum).
-- `git annex init uraninite` on the Pi (`--setup` step); the D3 `media` step
-  live; the `git-annex` branch pushed/fetched with the content branch.
-- Migrate the existing mp4; leave history alone.
-- Docs: what a person does by hand (`git annex whereis`, `get`, `drop` with
-  numcopies).
+Roger's call: code, image and scratch tests tonight; the real repositories
+are activated by him with `scripts/annex-activate.sh`, which the session did
+not run.
 
-Gates: vitest on scratch annex repos (a large file added on the mirror
-arrives on the workstation and vice versa; numcopies refuses a drop); a real
-run with one test video on the Pi, synced, rendered on both, then removed.
+- **The `media` step** (`controller/curation/annex.ts`, step 4 of `gitSync`)
+  runs after the merge and before the commit push:
+  1. `git annex merge` folds the fetched `git-annex` branches in (a union
+     merge, never a conflict);
+  2. `git annex copy --from <mirror> --fast` and `--to <mirror> --fast`
+     move the content;
+  3. `git push <mirror> git-annex:synced/git-annex` hands over the location
+     log. Not the mirror's own `git-annex`, which moves there too.
+  - Never `git annex sync`, whose `.variant-*` resolution would break D3.
+  - A failed media step doesn't stop the commit push (the mirror shows a
+    placeholder, D10), but the outcome is `error`, so it is seen and
+    retried. Content moving counts as `synced`.
+- **Dormant until both sides are annexed.** The step is `skipped` unless
+  this repository has `annex.uuid` and `remote.<mirror>.annex-uuid` is set
+  (and not `annex-ignore`).
+  - Tourmaline's long-dormant annex (uuid, no rule) and the Pi's
+    non-annexed clone therefore sync exactly as before. The real runs after
+    the merge say `media: skipped — uraninite has no git-annex repository
+yet`.
+- **Pointers into files.**
+  - A push into a checked-out branch (`updateInstead`) checks files out
+    without git-annex's post-checkout hook, so content that arrived just
+    before is still a pointer in the mirror's tree.
+  - Every instance now runs `git annex smudge --update` on each HEAD move,
+    before D12's reindex (`updateAnnexedWorktree`, a no-op without annex).
+  - Found by the scratch test, which is why the hook is on the watcher and
+    not in `gitSync`: it is the mirror's tree, and the mirror's editor owns
+    it.
+- **Image.** `deploy/editor.Dockerfile` downloads the standalone build in
+  the build-platform `assets` stage and puts `/opt/git-annex.linux` last on
+  `PATH`, so the system git still wins.
+  - The download is checked against pinned per-arch sha256s, version
+    `10.20261006`. Upstream only publishes `current/`, so a new release fails
+    the check until the three ARGs are updated from the tarball's `.info`.
+  - Built locally for arm64 (`--target assets`): checksum OK.
+  - Needed even before activation: `git annex init` writes `* filter=annex`
+    into `.git/info/attributes`, after which every git add and checkout in
+    that repository runs git-annex.
+- **Pi host.** ssh transfers run `git-annex-shell` on the host, not in the
+  container, so the Pi needs `sudo apt install git-annex`. The activation
+  script checks for it.
+- **`scripts/annex-activate.sh --dry-run | --apply [--migrate-existing]`.**
+  - Checks: annex here, `git-annex-shell` on the Pi, git-annex in the
+    container, both trees clean, in sync.
+  - Then, each step only if not done:
+    1. init here;
+    2. init on the Pi;
+    3. set `remote.uraninite.annex-uuid` (the switch);
+    4. `numcopies 2`;
+    5. commit the `.gitattributes` rule
+       `* annex.largefiles=(largerthan=5mb) or (mimetype=video/*)`;
+    6. optionally re-add files already over the rule (today the one 12.8 MB
+       mp4); history keeps the old blobs.
+  - It was syntax-checked, but **not run**, not even `--dry-run`, which
+    fetches from the real remote. ssh to localhost for a scratch run failed
+    on a stale `localhost` host key in `~/.ssh/known_hosts` (line 27), which
+    the session left alone.
+- **Tests** (`test/annex.test.ts`, skipped where git-annex is absent, as in
+  CI's container):
+  - a workstation file's content reaches the mirror's annex and becomes a
+    real file after `updateAnnexedWorktree`;
+  - a mirror upload arrives as a real file, and a second sync is `nothing`;
+  - `drop` below `numcopies` 2 is refused even with the mirror's copy;
+  - a one-sided annex syncs with the step skipped.
+
+**For Roger, to activate:** deploy (so the image has git-annex), then
+`ssh uraninite sudo apt install git-annex`, then
+`scripts/annex-activate.sh --dry-run`, then `--apply`
+(`--migrate-existing` for the mp4).
 
 ### 28f — Close-out
 

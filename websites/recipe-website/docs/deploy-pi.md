@@ -107,6 +107,16 @@ runs `node …/next start` directly.
   - Rollback works by tag as with any image: `recipe-editor:<sha>`.
   - `--target runtime` builds the whole image in one go, for a local look.
 
+**git-annex (28e).** The image carries git-annex's standalone build at
+`/opt/git-annex.linux` (last on `PATH`), downloaded in the `assets` stage and
+checked against a pinned sha256 per architecture. Upstream publishes only
+`current/`, so when it releases, the build fails the check: update
+`GIT_ANNEX_VERSION` and both `GIT_ANNEX_SHA256_*` ARGs from
+`https://downloads.kitenet.net/git-annex/linux/current/git-annex-standalone-<arch>.tar.gz.info`
+(the key's hash). The Pi _host_ needs `git-annex` too (`apt install`), since
+ssh transfers run `git-annex-shell` there. Activation is
+`scripts/annex-activate.sh`; see `agent-epic-28.md` → 28e.
+
 The export package is not in the image, so the Export page says "Exporting
 isn't available in this deployment — run it from a full checkout." in place of
 its buttons. That's `src/app/(editor)/(settings)/export/availability.ts`, and

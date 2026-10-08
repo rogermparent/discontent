@@ -117,7 +117,36 @@ RUN set -eu; \
     grep " $asset\$" SHA2-256SUMS | sha256sum -c -; \
     install -D -m 755 "$asset" /out/yt-dlp
 
-# Everything but the app: OS, node, deno, yt-dlp and the target's
+# git-annex's standalone build (epic 28, D9), for the same reasons as yt-dlp:
+# no emulation and no runtime packages. `git annex init` writes `* filter=annex`
+# into the repository's .git/info/attributes, so once the content repository is
+# annexed, every `git add` and checkout the editor makes runs git-annex — the
+# image must carry it whether or not anything is annexed yet.
+#
+# Upstream publishes only `current/`, so the version and each architecture's
+# checksum are pinned here (the sha256 is the key in the tarball's `.info`
+# file). A new upstream release makes this download fail its check rather than
+# change silently: update all three ARGs from
+# https://downloads.kitenet.net/git-annex/linux/current/git-annex-standalone-<arch>.tar.gz.info
+ARG GIT_ANNEX_VERSION=10.20261006
+ARG GIT_ANNEX_SHA256_ARM64=5fb9d1695b98aa0d6ca5d02563762197fc62e6e5f0b97b29496a4ba19f0ef62d
+ARG GIT_ANNEX_SHA256_AMD64=88ea73c9bb8fb751916e0e4a0a8f489a7476f9b9e861fd2cce2601a77f4f409d
+RUN set -eu; \
+    case "$TARGETARCH" in \
+      arm64) sum="$GIT_ANNEX_SHA256_ARM64" ;; \
+      amd64) sum="$GIT_ANNEX_SHA256_AMD64" ;; \
+      *) echo "no git-annex build for $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    asset="git-annex-standalone-${TARGETARCH}.tar.gz"; \
+    cd /tmp; \
+    curl -fsSLo "$asset" "https://downloads.kitenet.net/git-annex/linux/current/$asset"; \
+    echo "$sum  $asset" | sha256sum -c -; \
+    mkdir -p /out; \
+    tar -C /out -xzf "$asset"; \
+    test -x /out/git-annex.linux/git-annex; \
+    echo "$GIT_ANNEX_VERSION" > /out/git-annex.linux/VERSION.pinned
+
+# Everything but the app: OS, node, deno, yt-dlp, git-annex and the target's
 # node_modules. `pnpm deploy:pi` tags it `recipe-editor-base:<image id>` and
 # sends it to the Pi only when the Pi lacks that tag — in practice, when the
 # lockfile changes.
@@ -126,6 +155,7 @@ LABEL org.opencontainers.image.title="recipe-editor-base"
 COPY --from=target-node /usr/local/bin/node /usr/local/bin/node
 COPY --from=target-deno /deno /usr/local/bin/deno
 COPY --from=assets /out/yt-dlp /usr/local/bin/yt-dlp
+COPY --from=assets /out/git-annex.linux /opt/git-annex.linux
 COPY --from=assets /etc/passwd /etc/group /etc/
 COPY --from=assets --chown=1000:1000 /home/editor /home/editor
 COPY --from=deps /app /app
@@ -134,7 +164,8 @@ COPY --from=deps /app /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 EDITOR_ROLE=mirror \
     YTDLP_PATH=/usr/local/bin/yt-dlp \
     CONTENT_DIRECTORY=/content SETTINGS_DIRECTORY=/settings \
-    HOME=/home/editor PORT=3000
+    HOME=/home/editor PORT=3000 \
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/git-annex.linux
 USER 1000:1000
 WORKDIR /app/websites/recipe-website/editor
 EXPOSE 3000
