@@ -308,11 +308,11 @@ The stale-index banner stays as the fallback if a rebuild fails.
 | 28a   | Roles: `EDITOR_ROLE`, mirror UI (D2)                                                      | `agent/28a-roles`        | ✅ #168           |
 | 28b   | Sync seat + CLI/API/MCP + sync state (D3)                                                 | `agent/28b-sync-seat`    | ✅ #170           |
 | 28c   | Event-driven sync, watcher reindex, notifications, Mirrors card, mirror view (D4–D6, D12) | `agent/28c-sync-events`  | ✅ #171, fix #172 |
-| 28c2  | Site settings follow the workstation (D7)                                                 | `agent/28c2-settings`    | 🟡                |
-| 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                            | `agent/28d-media-prep`   | 🟡                |
+| 28c2  | Site settings follow the workstation (D7)                                                 | `agent/28c2-settings`    | ✅ #175           |
+| 28d   | Media groundwork: missing-media tolerance (D10), CRLF on write                            | `agent/28d-media-prep`   | ✅ #177           |
 | 28e   | git-annex for large files (D9), media step live                                           | `agent/28e-annex`        | 📝                |
 | 28f   | Close-out: two-machine run, drills, docs, memory                                          | `agent/28f-close`        | 📝                |
-| 28g   | Make page: tag tree (parents expand to children) + tag search                             | `agent/28g-make-tags`    | 📝                |
+| 28g   | Make page: tag tree (parents expand to children) + tag search                             | `agent/28g-make-tags`    | ✅ #176           |
 | 28h   | Housekeeping: self-hosted fonts, `next` pin alignment, needless-reindex fix               | `agent/28h-housekeeping` | ✅ #174           |
 
 Order: 28a and 28b are independent and could run in parallel; 28c needs both;
@@ -786,6 +786,54 @@ run with one test video on the Pi, synced, rendered on both, then removed.
 Both instances on main, event-driven sync healthy for a day, the drills
 from 28c/28e recorded here, `deploy-pi.md` and `agent-epic-27.md`'s "Syncing
 with uraninite" pointed at the new flow, memory updated.
+
+### 28g — Make page tags (2026-10-08)
+
+- **Data.** `tagOptions(vocabulary, tree)` (`common/controller/tagVocabulary.ts`)
+  adds each term's `parent`, kept only when the parent is a known term and
+  the walk up never loops. Every term of a hand-edited cycle becomes a root,
+  so none of them disappears. `readTagOptions()` (`readTermPage.ts`) is the
+  same three cached reads as `/tags`. Both `/make` routes call it on the
+  server; the export does so at build time.
+- **Tree reads** are pure, in `MakePage/tagTree.ts`.
+  - A recipe uses a term when it carries the term or anything under it,
+    matched by folded slug or label, so a root's count is the recipes in
+    scope anywhere in its subtree.
+  - Roots: those used in scope, most used first, at most 12, plus the root
+    of anything selected.
+  - A root's children: those used in scope or selected, most used first.
+- **UI.**
+  - `TagPicks` replaces "Quick picks" with the root chips, labelled by the
+    vocabulary. The real `drink` record says "Drinks", so the old relabel is
+    simply the data now.
+  - A root with children has a chevron toggle (`aria-expanded`,
+    "Narrower tags of <root>") that opens a row of its children. Every chip
+    toggles `tag:<slug>`.
+  - A selected child opens its root until the person closes it.
+  - Each chip's count is visual only (`aria-hidden`), so the accessible name
+    stays the tag.
+- **`TagSearch`** is an ARIA 1.2 combobox ("Find a tag"). It searches labels
+  and slugs of tags some recipe carries, prefix matches first. Each option
+  shows its breadcrumb ("Drinks › Zero-proof") and corpus count. Enter or
+  click adds the tag unless the scope already has it.
+- **`DRINK_TAG` is gone, and a first visit scopes to every recipe.** The last
+  scope is still remembered. `DEFAULT_MAKE_QUERY` (`tag:drink`) stays for
+  `inventory make` and `inventory_makeable`; only the page changed.
+  `scope.ts` lost `topTags`.
+- **Out of scope, as planned:** a parent matching recipes that carry only a
+  child (24d's resolver). Chips put the slug in the query, and the real
+  vocabulary is all slugs (152 tags, checked 2026-10-08).
+- **Fixture.** `make-drinks` gains term records (`drink` "Drinks" with
+  Sour, Collins, Highball and Zero-proof under it) and their indexes, built
+  with `recipes reindex` on a scratch copy. `.gitignore` carves the
+  fixture's `taxonomies/` out, as for `christmas-cookies`.
+- **Tests.**
+  - `test/makeTags.test.ts`: parents, cycles, subtree usage, roots, children,
+    breadcrumb, search.
+  - `make.spec`: the first visit, drinks via `?q=`, chips narrowing,
+    expand/collapse and child order, the search combobox, and axe with the
+    tree and list open.
+  - The `make-page` baseline regenerated (all recipes now, so it is taller).
 
 ### 28h — Housekeeping (2026-10-08)
 

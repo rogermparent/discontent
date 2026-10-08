@@ -3,10 +3,10 @@
 import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Badge } from "@discontent/component-library/components/ui/badge";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { Input } from "@discontent/component-library/components/ui/input";
 import type { MassagedRecipeEntry } from "../../controller/data/read";
+import type { TagOption } from "../../controller/tagVocabulary";
 import {
   analyzeMakeable,
   prepareCorpus,
@@ -27,12 +27,31 @@ import { InventoryPanel } from "./InventoryPanel";
 import { SharedChanges, type InventoryDiff } from "./SharedChanges";
 import { BuyNextList, MakeResults } from "./MakeResults";
 import { MakeTicker } from "./MakeTicker";
-import { DEFAULT_MAKE_QUERY, scopeRecipes, topTags } from "./scope";
+import { scopeRecipes } from "./scope";
+import { TagPicks } from "./TagPicks";
+import { TagSearch } from "./TagSearch";
+import { buildTagIndex, subtreeUsage } from "./tagTree";
 import { useInventory, useLastMakeQuery } from "./useInventory";
 
-/** Quick-pick tag chips after "Drinks". */
-const QUICK_PICK_COUNT = 10;
-const DRINK_TAG = "drink";
+/**
+ * A first visit's scope: every recipe (28g). It was `tag:drink` while drinks
+ * were the only thing with an inventory story; the tag picker makes any
+ * scope one click away, so the page no longer guesses. The last scope used is
+ * still remembered, and `inventory make` keeps its own drinks default.
+ */
+const FIRST_VISIT_QUERY = "";
+
+/** Without a vocabulary from the route, every carried tag is a root. */
+function corpusTagOptions(recipes: MassagedRecipeEntry[]): TagOption[] {
+  const seen = new Map<string, TagOption>();
+  for (const recipe of recipes) {
+    for (const tag of recipe.tags ?? []) {
+      const key = fold(tag).trim();
+      if (key && !seen.has(key)) seen.set(key, { slug: tag, label: tag });
+    }
+  }
+  return [...seen.values()];
+}
 
 /**
  * `/make` — "What can I make with…" (25c).
@@ -40,9 +59,12 @@ const DRINK_TAG = "drink";
  * Everything happens in the browser, over the corpus `SearchProvider` already
  * holds plus the ingredient lines (the same `["recipe-ingredients"]` query, so
  * a search that fetched them first shares the fetch). The scope is the search
- * language — `tag:drink` by default — kept in its own `?q=`, so a term page
- * can deep-link to `/make?q=tag:<slug>` without touching the search box's
- * state.
+ * language — every recipe on a first visit — kept in its own `?q=`, so a term
+ * page can deep-link to `/make?q=tag:<slug>` without touching the search
+ * box's state.
+ *
+ * `tags` is the vocabulary with its tree (28g), read on the server by both
+ * routes: the root chips, their children, and the tag search come from it.
  *
  * `shared` and `saveShared` are 25d's: the editor's committed list, which
  * this browser's changes overlay, and the action that commits those changes.
@@ -50,9 +72,11 @@ const DRINK_TAG = "drink";
  * the browser's list is all there is.
  */
 export function MakePage({
+  tags,
   shared,
   saveShared,
 }: {
+  tags?: TagOption[];
   shared?: string[];
   saveShared?: (diff: {
     add: string[];
@@ -64,7 +88,7 @@ export function MakePage({
   const [lastQuery, rememberQuery] = useLastMakeQuery();
   const [typed, setTyped] = useState<string | null>(null);
   const query =
-    typed ?? urlQuery ?? (lastQuery == null ? DEFAULT_MAKE_QUERY : lastQuery);
+    typed ?? urlQuery ?? (lastQuery == null ? FIRST_VISIT_QUERY : lastQuery);
 
   const setQuery = useCallback(
     (next: string) => {
@@ -136,15 +160,18 @@ export function MakePage({
     () => new Set(positiveTagValues(parseQuery(query).filter)),
     [query],
   );
-  const chips = useMemo(() => {
-    const picks = topTags(scoped, QUICK_PICK_COUNT, [DRINK_TAG]);
-    for (const tag of selectedTags) {
-      if (tag !== DRINK_TAG && !picks.some((pick) => fold(pick) === tag)) {
-        picks.push(tag);
-      }
-    }
-    return [DRINK_TAG, ...picks];
-  }, [scoped, selectedTags]);
+  const tagIndex = useMemo(
+    () => buildTagIndex(tags ?? corpusTagOptions(corpus)),
+    [tags, corpus],
+  );
+  const scopeUsage = useMemo(
+    () => subtreeUsage(scoped, tagIndex),
+    [scoped, tagIndex],
+  );
+  const corpusUsage = useMemo(
+    () => subtreeUsage(corpus, tagIndex),
+    [corpus, tagIndex],
+  );
 
   let body;
   if (failed) {
@@ -257,30 +284,21 @@ export function MakePage({
             autoComplete="off"
             spellCheck={false}
           />
-          <div
-            className="my-2 flex flex-wrap gap-1.5"
-            role="group"
-            aria-label="Quick picks"
-          >
-            {chips.map((tag) => {
-              const pressed = selectedTags.has(fold(tag));
-              return (
-                <Badge
-                  key={tag}
-                  asChild
-                  variant={pressed ? "default" : "secondary"}
-                >
-                  <button
-                    type="button"
-                    aria-pressed={pressed}
-                    onClick={() => setQuery(toggleTagTerm(query, tag))}
-                  >
-                    {tag === DRINK_TAG ? "Drinks" : tag}
-                  </button>
-                </Badge>
-              );
-            })}
-          </div>
+          <TagSearch
+            index={tagIndex}
+            corpusUsage={corpusUsage}
+            onPick={(slug) => {
+              if (!selectedTags.has(fold(slug))) {
+                setQuery(toggleTagTerm(query, slug));
+              }
+            }}
+          />
+          <TagPicks
+            index={tagIndex}
+            usage={scopeUsage}
+            selected={selectedTags}
+            onToggle={(slug) => setQuery(toggleTagTerm(query, slug))}
+          />
           <MakeTicker
             total={scoped.length}
             canMake={analysis.canMake.length}

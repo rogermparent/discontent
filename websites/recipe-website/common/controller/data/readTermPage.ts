@@ -6,6 +6,8 @@ import {
   breadcrumbOf,
   childrenOf,
   mergeTagVocabulary,
+  tagOptions,
+  type TagOption,
   type TagVocabularyEntry,
   type TermPageData,
 } from "../tagVocabulary";
@@ -34,6 +36,22 @@ export async function readTagVocabulary(): Promise<TagVocabularyEntry[]> {
     tagTermReads.tree.read(),
   ]);
   return mergeTagVocabulary({ recipeTerms, groupTerms, tree });
+}
+
+/**
+ * `/make`'s tag picker (28g): the same vocabulary as `/tags`, with each term's
+ * parent from the tree, so the page can show roots and expand them.
+ */
+export async function readTagOptions(): Promise<TagOption[]> {
+  const [recipeTerms, groupTerms, tree] = await Promise.all([
+    recipeTagReads.terms.read(),
+    groupTagReads.terms.read(),
+    tagTermReads.tree.read(),
+  ]);
+  return tagOptions(
+    mergeTagVocabulary({ recipeTerms, groupTerms, tree }),
+    tree,
+  );
 }
 
 /**
