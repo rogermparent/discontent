@@ -430,12 +430,33 @@ else
   echo "   settings: already there"
 fi
 PI_SETUP
-    printf 'RECIPE_REINDEX_TOKEN=%s\n' "$PI_TOKEN" \
-      | pi "umask 077 && cat > $PI_DIR/hook.env"
-    note "hook.env: written"
-    scp -q deploy/pi/post-receive "$PI_HOST:recipes/.git/hooks/post-receive"
-    pi "chmod +x $PI_CONTENT/.git/hooks/post-receive && git -C $PI_CONTENT config receive.advertisePushOptions true"
-    note "post-receive hook installed; push options on"
-    step "Setup done; next: pnpm deploy:pi"
+    # Epic 28 (D4): the mirror pings the workstation after every change. The
+    # token is the deploy token — tokens live in the content repo's users/
+    # file, which both editors share, so it is valid on either.
+    WORKSTATION_URL=${WORKSTATION_URL:-http://$(hostname -s):3000}
+    printf 'WORKSTATION_URL=%s\nWORKSTATION_SYNC_TOKEN=%s\n' \
+      "$WORKSTATION_URL" "$PI_TOKEN" \
+      | pi "cd $PI_DIR && umask 077 \
+          && { grep -v -E '^(WORKSTATION_URL|WORKSTATION_SYNC_TOKEN)=' .env || true; } > .env.new \
+          && cat >> .env.new && mv .env.new .env && chmod 600 .env"
+    note ".env: WORKSTATION_URL=$WORKSTATION_URL and its token"
+    # D12 replaces the post-receive hook: the editor's ref watcher reindexes
+    # whenever HEAD moves without it, a received push included.
+    pi "if grep -q 'post-receive for the Pi' $PI_CONTENT/.git/hooks/post-receive 2>/dev/null; then
+          rm $PI_CONTENT/.git/hooks/post-receive
+          echo '   post-receive hook removed (the editor reindexes itself now)'
+        fi
+        rm -f $PI_DIR/hook.env $PI_DIR/hook.log"
+    # The workstation's side: the Pi's remote in this checkout's editor
+    # settings, so the workstation editor syncs it. Meaningful when run from
+    # the checkout that editor runs from (the main one).
+    settings_file=websites/recipe-website/editor/settings/settings.json
+    mkdir -p "$(dirname "$settings_file")"
+    [ -s "$settings_file" ] || echo '{}' >"$settings_file"
+    jq --arg remote "$CONTENT_REMOTE" \
+      '.mirrors = (((.mirrors // []) + [$remote]) | unique)' \
+      "$settings_file" >"$settings_file.new" && mv "$settings_file.new" "$settings_file"
+    note "workstation: $CONTENT_REMOTE is a mirror in $repo_root/$settings_file"
+    step "Setup done; next: pnpm deploy:pi (the Pi reads .env when its container starts)"
     ;;
 esac

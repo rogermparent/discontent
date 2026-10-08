@@ -47,7 +47,6 @@ CONTENT_REMOTE=uraninite           # that clone's name for the Pi
 | `scripts/deploy-pi.sh`                  | workstation | `pnpm deploy:pi`                                                    |
 | `deploy/pi/run.sh`                      | Pi          | `docker run` with the mounts; replaces any running container        |
 | `deploy/pi/swap-index.sh`               | Pi          | swaps shipped indexes in, only at the commit they describe          |
-| `deploy/pi/post-receive`                | Pi          | content-repo hook: background reindex after a push                  |
 
 Every deploy copies `run.sh` and `swap-index.sh` to `~/recipe-editor/`, so the
 repo copies are the ones to edit. On the Pi:
@@ -55,11 +54,9 @@ repo copies are the ones to edit. On the Pi:
 ```
 ~/recipe-editor/
   run.sh  swap-index.sh
-  .env            AUTH_SECRET only (600), from the old checkout's .env.local
-  hook.env        RECIPE_REINDEX_TOKEN for the hook (600)
+  .env            AUTH_SECRET, WORKSTATION_URL, WORKSTATION_SYNC_TOKEN (600)
   settings/       SETTINGS_DIRECTORY, seeded from the old checkout, minus ytdlpPath
   deployed.log    "<date> <tag>" per switch — what --rollback reads
-  hook.log        the hook's failures, if any
 ~/recipes/        the content repo, mounted at /content
 ```
 
@@ -162,9 +159,14 @@ end it took 43 s (clone 4 s, reindex 8 s, ship, swap, restart and health
   `AUTH_SECRET="…" # comment`, and `docker --env-file` would keep the quotes
   and the comment, so only the value is taken;
 - seeds `settings/` from the old checkout's settings, dropping `ytdlpPath`;
-- writes `hook.env` from `PI_TOKEN`, piped over ssh;
-- installs `~/recipes/.git/hooks/post-receive` and sets
-  `receive.advertisePushOptions true`, so `git push -o no-reindex` works.
+- (epic 28) appends `WORKSTATION_URL` (default `http://<this host>:3000`)
+  and `WORKSTATION_SYNC_TOKEN` (`PI_TOKEN` again: tokens live in the content
+  repo's `users/` file, so the same one is valid on the workstation) to
+  `.env`, so the mirror pings the workstation after each change;
+- (epic 28) removes the old `post-receive` hook and `hook.env`; the editor's
+  own ref watcher reindexes when a push arrives (`agent-epic-28.md`, D12);
+- (epic 28) adds `CONTENT_REMOTE` to this checkout's editor settings
+  (`mirrors`), so the workstation editor syncs the Pi.
 
 The first `pnpm deploy:pi` then stops and **disables** the old
 `recipe-editor.service` user unit, without deleting it. It runs
@@ -176,7 +178,8 @@ on, so a plain stop times out at 90 s and can leave `next-server` holding
 `pnpm create-token -e rogermparent@gmail.com -n pi-deploy` against the real
 content repo (write scope, id `c624dc6c`). It was committed there as "Add
 pi-deploy API token" and pushed to the Pi. The plaintext exists only in the
-config file above and in the Pi's `hook.env`. To revoke it:
+config file above and in the Pi's `.env` (as `WORKSTATION_SYNC_TOKEN`, since
+epic 28). Revoking it stops both deploys and the mirror's pings. To revoke it:
 `pnpm revoke-token -e rogermparent@gmail.com --name pi-deploy`.
 
 ## Rollback

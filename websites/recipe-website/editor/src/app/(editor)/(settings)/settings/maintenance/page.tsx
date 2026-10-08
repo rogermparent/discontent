@@ -12,6 +12,7 @@ import {
 import { rebuildIndexesAction } from "recipe-editor/controller/actions/sync";
 import { SettingsCard } from "../../SettingsCard";
 import { IndexStaleBanner } from "../../IndexStaleBanner";
+import { SyncAttentionBanner } from "../../SyncAttentionBanner";
 
 export default async function MaintenancePage() {
   const user = await auth();
@@ -23,6 +24,7 @@ export default async function MaintenancePage() {
       <PageSection maxWidth="4xl" grow>
         <PageHeading>Maintenance</PageHeading>
         <IndexStaleBanner />
+        <SyncAttentionBanner />
         <div className="space-y-6">
           <SettingsCard
             title="Search index"
