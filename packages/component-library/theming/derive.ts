@@ -1,12 +1,14 @@
 /*
  * Theme → concrete OKLCH tokens for light and dark.
  *
- * Everything here rides the contrast curve fixed in PR 1: the accent's lightness
- * and chroma are constant (light --primary L≈0.53, dark L≈0.70) and only the
- * *hue* moves, so any accent choice keeps its ~4.5:1 against its foreground. The
- * neutral family only shifts hue/chroma at fixed lightnesses, so backgrounds and
- * text keep their contrast too. That's the guarantee the accessibility suite
- * leans on — change these lightnesses and you must re-check WCAG in both modes.
+ * Everything here rides the contrast curve fixed in PR 1: the accent's chroma is
+ * constant and its lightness nearly so (light --primary L 0.53, dipping to 0.50
+ * only in the cyan/teal band — see `lightPrimaryLightness`; dark L 0.70), so
+ * any accent hue keeps ≥ 4.5:1 against its foreground. The neutral family only
+ * shifts hue/chroma at fixed lightnesses, so backgrounds and text keep their
+ * contrast too. `contrast.ts` computes WCAG ratios and `test/theming.test.ts`
+ * sweeps every hue in both modes — change these lightnesses and that sweep is
+ * what tells you, alongside the accessibility suite.
  *
  * derive() returns a *partial* token map per mode: only the tokens a knob owns.
  * Un-owned tokens (destructive, chart-*) fall through to styles/theme.css.
@@ -84,11 +86,41 @@ function deriveNeutral(spec: NeutralSpec, mode: "light" | "dark"): TokenMap {
   };
 }
 
-/** Accent tokens for one mode, from a hue. L/C are fixed by the contrast curve. */
+/*
+ * The cyan/teal dip (epic 30b). At a constant L 0.53 the light --primary falls
+ * under AA against its near-white foreground from about hue 156 to 226 — worst
+ * 4.31:1 at 189, and portfolio's "oxide" preset (195) sits in it. Light L dips
+ * by a raised cosine centred on that band and is exactly 0.53 everywhere
+ * outside it, so every other hue — the default 50 and all four recipe presets
+ * (50/150/250/265) included — keeps its value and its visual baselines.
+ *
+ * Fitted with `contrastRatio` to the smallest depth that keeps every hue at
+ * ≥ 4.6:1 (AA plus a margin for renderer rounding); the half-width stops at
+ * hue 150 so the "sage" preset's edge is untouched. `test/theming.test.ts`
+ * sweeps all 360 hues against it.
+ */
+const BAND_CENTRE = 191;
+const BAND_HALF_WIDTH = 41;
+const BAND_DEPTH = 0.03;
+
+/** 0 outside the band, rising smoothly to 1 at its centre. */
+function bandWeight(h: number): number {
+  let distance = Math.abs(h - BAND_CENTRE) % 360;
+  if (distance > 180) distance = 360 - distance;
+  if (distance >= BAND_HALF_WIDTH) return 0;
+  return 0.5 * (1 + Math.cos((Math.PI * distance) / BAND_HALF_WIDTH));
+}
+
+/** Light --primary lightness for a hue: 0.53, less the band's dip. */
+export function lightPrimaryLightness(hue: number): number {
+  return 0.53 - BAND_DEPTH * bandWeight(normalizeHue(hue));
+}
+
+/** Accent tokens for one mode, from a hue. C is fixed; L follows the curve. */
 function deriveAccent(hue: number, mode: "light" | "dark"): TokenMap {
   const h = normalizeHue(hue);
   if (mode === "light") {
-    const primary = ok(0.53, 0.16, h);
+    const primary = ok(lightPrimaryLightness(h), 0.16, h);
     const primaryFg = ok(0.99, 0.01, 85); // warm near-white, constant
     const ring = ok(0.58, 0.13, h);
     const accent = ok(0.95, 0.03, h);

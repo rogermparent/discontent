@@ -50,11 +50,11 @@ Sources: `docs/agent-curation.md` (Deferred, and the D/T lists it names),
 
 ## UI
 
-| Candidate                                                         | Why                                                                                                                      | Recorded at                    |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------ |
-| PR 2c — per-component theme overrides; owner presets for visitors | ⏸️ deferred at the roadmap table; "skipped for now", not pending.                                                        | ui-overhaul roadmap row 2c     |
-| Cyan/teal accent band under AA                                    | Recorded at PR 7 and still open as a curve redesign; the one concrete UI candidate 21c's close-out could name.           | ui-overhaul PR 7, PR 21c       |
-| `SidebarLayout` under sticky-chrome policy                        | Left on `top-[var(--header-height)]` because portfolio's masthead does not follow the policy; switch both in one change. | ui-overhaul Reader chrome pass |
+| Candidate                                                         | Why                                                                                                                                                                                    | Recorded at                    |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| PR 2c — per-component theme overrides; owner presets for visitors | ⏸️ deferred at the roadmap table; "skipped for now", not pending.                                                                                                                      | ui-overhaul roadmap row 2c     |
+| ~~Cyan/teal accent band under AA~~                                | ~~Recorded at PR 7 and still open as a curve redesign.~~ **Done by 30b** (`agent-epic-30.md` D2: a band-only dip in light `--primary`, swept over all hues in `test/theming.test.ts`). | ui-overhaul PR 7, PR 21c       |
+| `SidebarLayout` under sticky-chrome policy                        | Left on `top-[var(--header-height)]` because portfolio's masthead does not follow the policy; switch both in one change.                                                               | ui-overhaul Reader chrome pass |
 
 ## Repo, CI and docs
 

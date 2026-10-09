@@ -871,6 +871,14 @@ deferred (PR 7 = surgical dark-token nudges only). Built-in presets (hues 50/150
 250/265) and the two custom hues all sit outside the band, so nothing ships under
 AA today; a teal _custom_ accent is the only way to hit it.
 
+> **Closed by epic 30b** (`agent-epic-30.md`, D2). The gap was wider than
+> recorded (hues ~156–226), and portfolio's "oxide" preset (195) sat in it, so
+> a shipped preset did fail. Light `--primary` L now dips by a raised cosine
+> centred on 191 (half-width 41, depth 0.03, so 0.50 at the centre) and is
+> exactly 0.53 everywhere else. No recipe preset or baseline moved.
+> `contrast.ts` computes WCAG ratios, and `test/theming.test.ts` sweeps all
+> 360 hues in both modes.
+
 ## Improvement Tour (PR 9–12)
 
 A tour back through the shipped surfaces to raise them toward proven recipe-site
@@ -885,7 +893,7 @@ pattern). Base of the stack: `ui/09-header` off `test/editor-server-isolation`
 - **Select/Checkbox → Radix consolidation** — punted across PRs 1/3/5/6; the
   native `name`-submitting controls still bypass the Radix `ui/*` primitives. A
   real cleanup PR (don't let the PR-1 note overstate it).
-- **Light-mode teal-band contrast gap** — the accent curve dips ~4.31:1 at hue
+- ~~**Light-mode teal-band contrast gap**~~ (**closed by epic 30b**) — the accent curve dips ~4.31:1 at hue
   ~165–215 (from PR 7's deferred note); an accent-curve redesign that would shift
   light baselines.
 - **Export search parity** — `/search/all` + `/search/version` are editor-only,
@@ -1905,8 +1913,9 @@ above is done, superseded or deferred; the only thing not done is PR 2c, which
 is explicitly "skipped for now" rather than pending. That is worth saying plainly
 because the next pass has no obvious next step to inherit: a further pass would
 have to be about something this roadmap does not currently name — the cyan/teal
-accent band that dips under AA (recorded at PR 7 and still open as a curve
-redesign) is the one concrete candidate, and everything else would be new scope.
+accent band that dipped under AA (recorded at PR 7; closed by epic 30b as a
+band-only dip, not a curve redesign) was the one concrete candidate, and
+everything else would be new scope.
 
 ## Reader chrome pass
 
