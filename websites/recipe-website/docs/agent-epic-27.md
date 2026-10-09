@@ -456,7 +456,7 @@ D2–D6. Gates, 2026-10-07:
 - `/git`'s visual baseline is untouched: Initialize stamps HEAD, so no banner
   shows there.
 
-### 27c — Bar tools `agent/27c-bar-tools` 🟡 (stacked on 27b)
+### 27c — Bar tools `agent/27c-bar-tools` ✅ #162
 
 D7–D10. Gates, 2026-10-07:
 
@@ -522,10 +522,11 @@ Pi deploy and epic 28 is gone; `pnpm deploy:pi --setup` removes it.)
 
 Done: Roger pushed the 315 commits to the Pi and rebuilt there on
 2026-10-07 (`uraninite` at `b078b49`, 0/0). Later pushes reindex through the
-hook above. Still a person's call: the three recipes the migration skipped
+hook above. ~~Still a person's call: the three recipes the migration skipped
 (D13), each with two candidate source links —
 `blueberry-cheesecake-baked-oatmeal`, `key-lime-pie` and
-`salted-caramel-apple-pie-bars`.
+`salted-caramel-apple-pie-bars`.~~ **Done by 30d** (`agent-epic-30.md`):
+Tablespoon, Brian Lagerstrom (Roger's pick) and Sally's Baking Addiction.
 
 ## Deferred
 

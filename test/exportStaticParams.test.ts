@@ -21,7 +21,18 @@
 // on a fresh corpus"); the Phase 0 spike ran into it. These tests are the
 // red-before/green-after in a form that runs in a second rather than a build.
 
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, outputFile, rm } from "fs-extra";
+import { tmpdir } from "os";
+import { join } from "path";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const readAllRecipeIds = vi.fn<() => Promise<string[]>>();
 const readAllFeaturedRecipeIds = vi.fn<() => Promise<string[]>>();
@@ -312,5 +323,70 @@ describe("a dynamic export route never emits zero params", () => {
     const { generateTagStaticParams } =
       await import("../websites/recipe-website/common/components/TagPage/routes");
     expect(await generateTagStaticParams()).toEqual([{ tag: "_" }]);
+  });
+});
+
+/*
+ * F30. An empty keyspace is an empty corpus only when the index exists: a
+ * content directory whose data was never indexed reads as empty too, and an
+ * export that took the placeholder there would emit no content pages and pass.
+ */
+describe("a dynamic export route fails loudly on a missing index", () => {
+  let contentDirectory: string;
+  const previous = process.env.CONTENT_DIRECTORY;
+
+  beforeEach(async () => {
+    contentDirectory = await mkdtemp(join(tmpdir(), "export-params-"));
+    process.env.CONTENT_DIRECTORY = contentDirectory;
+  });
+
+  afterEach(async () => {
+    if (previous === undefined) delete process.env.CONTENT_DIRECTORY;
+    else process.env.CONTENT_DIRECTORY = previous;
+    await rm(contentDirectory, { recursive: true, force: true });
+  });
+
+  it("/recipe/[slug] throws when recipes exist and their index does not", async () => {
+    readAllRecipeIds.mockResolvedValue([]);
+    await outputFile(
+      join(contentDirectory, "recipes/data/pie/recipe.json"),
+      "{}",
+    );
+    await outputFile(
+      join(contentDirectory, "recipes/data/cake/recipe.json"),
+      "{}",
+    );
+    const { generateStaticParams } =
+      await import("../websites/recipe-website/export/src/app/(recipes)/recipe/[slug]/page");
+    await expect(generateStaticParams()).rejects.toThrow(
+      "content has 2 items but no index — run `pnpm recipes reindex`",
+    );
+  });
+
+  it("/group/[slug] throws when groups exist and their index does not", async () => {
+    readAllGroupIds.mockResolvedValue([]);
+    await outputFile(
+      join(contentDirectory, "groups/data/week/group.json"),
+      "{}",
+    );
+    const { generateStaticParams } =
+      await import("../websites/recipe-website/export/src/app/(recipes)/group/[slug]/page");
+    await expect(generateStaticParams()).rejects.toThrow("no index");
+  });
+
+  /* A built index that is genuinely empty is still an ordinary empty corpus. */
+  it("/featured-recipe/[slug] keeps the placeholder when the index exists", async () => {
+    readAllFeaturedRecipeIds.mockResolvedValue([]);
+    await outputFile(
+      join(contentDirectory, "featured-recipes/data/x/featured-recipe.json"),
+      "{}",
+    );
+    await outputFile(
+      join(contentDirectory, "featured-recipes/pagination/by-date/data.mdb"),
+      "",
+    );
+    const { generateStaticParams } =
+      await import("../websites/recipe-website/export/src/app/(recipes)/featured-recipe/[slug]/page");
+    expect(await generateStaticParams()).toEqual([{ slug: "_" }]);
   });
 });

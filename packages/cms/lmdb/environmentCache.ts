@@ -1,6 +1,6 @@
 import { open, type Key, type RootDatabase } from "lmdb";
-import { statSync } from "fs";
-import { resolve } from "path";
+import { existsSync, statSync } from "fs";
+import { join, resolve } from "path";
 
 /*
  * Opening an LMDB environment maps its file; closing it unmaps. Paying that per
@@ -108,6 +108,20 @@ function fileSignature(path: string): string {
   } catch {
     return "";
   }
+}
+
+/**
+ * Whether an environment has been written at `path` — its data file exists.
+ *
+ * Every *reader* checks this before `openCachedEnvironment`, because opening
+ * creates (F30): a read against a content directory with no index would
+ * otherwise materialize an empty environment and answer "the corpus is empty",
+ * which in a static export means every content page silently vanishes from the
+ * build. Sync, so the synchronous readers can use it too. Writers don't check:
+ * creating the environment is what they are there to do.
+ */
+export function environmentExists(path: string): boolean {
+  return existsSync(join(path, "data.mdb"));
 }
 
 /**

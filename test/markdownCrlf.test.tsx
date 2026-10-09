@@ -29,4 +29,20 @@ describe("CRLF markdown", () => {
     expect(container.querySelector("ol li")?.textContent).toContain("A");
     expect(container.textContent).toContain("d");
   });
+
+  /*
+   * 30a: 38 real recipes put an ingredient-style `{type: "heading", name}` in
+   * `instructions`, so a step renders with `text` undefined. Before the CRLF
+   * fix that rendered nothing; after it, `.replace` on undefined 500'd the
+   * page and failed the export.
+   */
+  it("StyledMarkdown renders nothing, without throwing, for missing text", () => {
+    const missing = undefined as unknown as string;
+    const { container } = render(<StyledMarkdown>{missing}</StyledMarkdown>);
+    expect(container.textContent).toBe("");
+  });
+
+  it("flattenMarkdown flattens missing text to an empty string", () => {
+    expect(flattenMarkdown(undefined as unknown as string)).toBe("");
+  });
 });

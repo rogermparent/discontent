@@ -1,6 +1,8 @@
 import type { Key } from "lmdb";
+import { environmentExists } from "../lmdb/environmentCache";
 import {
   getPaginationDatabase,
+  getPaginationDirectory,
   numberedPageCount,
   readMeta,
   versionOf,
@@ -18,8 +20,14 @@ export async function readPaginationMeta<TIndexValue, TKey extends Key, TItem>(
   options: ReadPaginationMetaOptions<TIndexValue, TKey, TItem>,
 ): Promise<PaginationMetaResult> {
   const { config, paginationConfig, contentDirectory } = options;
-  const db = getPaginationDatabase(config, paginationConfig, contentDirectory);
-  const meta = readMeta(db);
+  // Not opened unless it exists: opening would create it (F30).
+  const meta = environmentExists(
+    getPaginationDirectory(config, paginationConfig, contentDirectory),
+  )
+    ? readMeta(
+        getPaginationDatabase(config, paginationConfig, contentDirectory),
+      )
+    : undefined;
 
   if (!meta) {
     return {

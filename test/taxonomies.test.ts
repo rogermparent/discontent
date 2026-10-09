@@ -44,7 +44,10 @@ import {
   type TermIndexKey,
   type TermIndexValue,
 } from "@discontent/cms/taxonomies/termContentType";
-import type { TermTree } from "@discontent/cms/taxonomies/tree";
+import {
+  termTreeAggregate,
+  type TermTree,
+} from "@discontent/cms/taxonomies/tree";
 import type {
   TaxonomyByTerm,
   TaxonomyConfig,
@@ -442,11 +445,11 @@ describe("taxonomy reads", () => {
         aggregateConfig: termsAggregate(bumped),
         contentDirectory,
       }),
-    ).not.toBeNull();
+    ).toBeNull();
     /*
-     * The *value* is still readable — `readAggregate` does not compare spec
-     * hashes — but `updateAggregates` rewrites it on the next pass, which is
-     * where the version earns its keep.
+     * The stored value was folded under the old spec, so it reads as never
+     * folded (30a's read-side guard) — and `updateAggregates` rewrites it on
+     * the next pass, which is where the version earns its keep.
      */
     const results = await foldNotes({
       ...baseConfig,
@@ -530,7 +533,9 @@ function readTermFile(slug: string): Promise<Term> {
 function readTree(): Promise<TermTree | null> {
   return readAggregate({
     config: termConfig,
-    aggregateConfig: { name: "tree" } as AggregateConfig,
+    /* The real config: a read compares spec hashes since 30a, so a bare
+     * `{name}` stand-in would read as never folded. */
+    aggregateConfig: termTreeAggregate() as unknown as AggregateConfig,
     contentDirectory,
   });
 }

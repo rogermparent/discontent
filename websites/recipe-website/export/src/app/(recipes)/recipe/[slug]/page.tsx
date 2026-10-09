@@ -2,6 +2,9 @@ import { notFound } from "next/navigation";
 import { recipeItems } from "recipe-website-common/controller/data/readRecipeItem";
 import { RecipeView } from "recipe-website-common/components/View";
 import { readAllRecipeIds } from "recipe-website-common/controller/data/readRecipePages";
+import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
+import { recipesByDate } from "recipe-website-common/controller/paginationConfigs";
+import { staticSlugParams } from "../../../../staticSlugParams";
 import {
   PageMain,
   PageSection,
@@ -42,13 +45,8 @@ export default async function Recipe({
  * all of it away and keep the slug; the keyspace *is* the slug list.
  */
 export async function generateStaticParams() {
-  const slugs = await readAllRecipeIds();
   /*
-   * Never empty — the same guard `/featured-recipe/[slug]` carries, and for the
-   * same reason. An empty array is rejected by `output: "export"`, so a corpus
-   * with no recipes at all could not be exported; the route `notFound()`s the
-   * placeholder and a 404 body is written.
+   * Never empty, and loud when the index is missing: see `staticSlugParams`.
    */
-  if (slugs.length === 0) return [{ slug: "_" }];
-  return slugs.map((slug) => ({ slug }));
+  return staticSlugParams(readAllRecipeIds, recipeContentConfig, recipesByDate);
 }
