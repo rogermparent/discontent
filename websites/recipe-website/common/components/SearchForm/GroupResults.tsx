@@ -23,6 +23,11 @@ export function GroupResults() {
 
   if (matchedGroups.length === 0) return null;
 
+  /* The list hands back its own entry; the borrowed photo is on the corpus's. */
+  const thumbnails = new Map(
+    matchedGroups.map((group) => [group.slug, group.thumbnail]),
+  );
+
   return (
     <section
       className="my-4 flex flex-col gap-2"
@@ -64,19 +69,27 @@ export function GroupResults() {
          * the assumption the recipe search cards have always made
          * (`SearchList`), at the same 400×600.
          *
-         * And there is no member fallback here: picking a member's photo means
-         * walking `items[].recipe` through the cached item reads, which is
-         * server-only. The corpus carries the group's own image (D14) and
-         * nothing else, so a group without one shows the placeholder where a
-         * server-rendered card would borrow. Deferred: a precomputed
-         * `thumbnail` on the corpus.
+         * The member fallback the server card has comes precomputed (30c): the
+         * corpus's `thumbnail` is the same walk `GroupThumbnail` runs, resolved
+         * when `/search/groups` is built, so the precedence matches — own image,
+         * else a member's (or a sub-group's) photo, else the placeholder. The
+         * member's variant exists for the same reason: its recipe card, or the
+         * group's server card, rendered it at the same 400×600.
          */
-        renderThumbnail={(group) =>
-          group.image ? (
+        renderThumbnail={(group) => {
+          const borrowed = thumbnails.get(group.slug);
+          const picture = group.image
+            ? {
+                uploadsDirectory: "uploads/group",
+                slug: group.slug,
+                image: group.image,
+              }
+            : borrowed;
+          return picture ? (
             <PureRecipeImage
-              uploadsDirectory="uploads/group"
-              slug={group.slug}
-              image={group.image}
+              uploadsDirectory={picture.uploadsDirectory}
+              slug={picture.slug}
+              image={picture.image}
               alt={group.name}
               width={400}
               height={600}
@@ -85,8 +98,8 @@ export function GroupResults() {
             />
           ) : (
             <GroupThumbnailPlaceholder />
-          )
-        }
+          );
+        }}
         // The free text, never the raw query — the same rule the recipe cards
         // follow, so `group:x` cannot go on to <mark> the word "x".
         highlightQuery={parsedQuery.text}
