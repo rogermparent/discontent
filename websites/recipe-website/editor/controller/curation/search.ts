@@ -19,14 +19,22 @@
  * priority made explicit: name 4, tags 3, ingredients 2, description 1, the
  * best field per word, summed over the words — then newest first. Typed terms
  * (`tag:`, `source:`, negations) still narrow exactly as before.
+ *
+ * **`group:` since 30a.** Membership lives in the groups, not on the recipe
+ * rows, so rows are decorated with it before filtering — the browser's rule,
+ * from the same corpus `/search/groups` serves — and only when the query has
+ * a `group:` term, so every other search reads no groups at all.
  */
 import { readTaxonomyTerms } from "@discontent/cms/taxonomies/read";
 import {
   fieldMatches,
+  filterTerms,
   fold,
   matchesFilter,
   parseQuery,
+  type FilterNode,
 } from "recipe-website-common/components/SearchForm/queryLanguage";
+import { getGroupSearchCorpus } from "recipe-website-common/controller/data/readGroupSearchCorpus";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
 import { recipeTagTaxonomy } from "recipe-website-common/controller/recipeTagTaxonomy";
 import type { CurationContext } from "./context";
@@ -73,6 +81,36 @@ export function scoreFreeText(row: RecipeRow, text: string): number {
   return score;
 }
 
+/** Whether any leaf of the filter is a `group:` term, negated or not. */
+function hasGroupTerm(filter: FilterNode | undefined): boolean {
+  return filterTerms(filter).some(
+    ({ node }) => node.type === "text" && node.field === "group",
+  );
+}
+
+/**
+ * Recipe slug → the strings a `group:` term may match: each membership
+ * contributes the group's slug and its name, so `group:weeknight-favourites`
+ * and `group:weeknight` both find it. `SearchContext`'s `groupsByRecipe`, on
+ * the same corpus — transitive through sub-groups, as the browser's is.
+ */
+async function readGroupsByRecipe(
+  ctx: CurationContext,
+): Promise<Map<string, string[]>> {
+  const groups = await getGroupSearchCorpus({
+    contentDirectory: ctx.contentDirectory,
+  });
+  const map = new Map<string, string[]>();
+  for (const group of groups) {
+    for (const slug of group.recipes) {
+      const existing = map.get(slug);
+      if (existing) existing.push(group.slug, group.name);
+      else map.set(slug, [group.slug, group.name]);
+    }
+  }
+  return map;
+}
+
 export async function searchRecipes(
   ctx: CurationContext,
   raw: string,
@@ -82,10 +120,17 @@ export async function searchRecipes(
   const { text, filter, hasAdvancedSyntax } = parseQuery(query);
   const rows = await readAllRecipeRows(ctx);
   const hasText = fold(text).trim().length > 0;
+  const groupsByRecipe = hasGroupTerm(filter)
+    ? await readGroupsByRecipe(ctx)
+    : null;
 
   const scored: { row: RecipeRow; score: number }[] = [];
   for (const row of rows) {
-    if (filter && !matchesFilter(row, filter)) continue;
+    /* Matched decorated, returned as read: the result rows keep their shape. */
+    const candidate = groupsByRecipe
+      ? { ...row, groups: groupsByRecipe.get(row.slug) }
+      : row;
+    if (filter && !matchesFilter(candidate, filter)) continue;
     /* No free text: typed terms alone decide, and every row they keep scores 0. */
     const score = hasText ? scoreFreeText(row, text) : 0;
     if (hasText && score === 0) continue;

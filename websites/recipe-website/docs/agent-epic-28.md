@@ -1114,14 +1114,17 @@ Roger deployed `98d7e939` (`! pnpm deploy:pi`: base re-sent in 189 s, app
 ## Deferred
 
 - Site settings in the content repo (instead of D7's copy).
-- Incremental reindex after a pull (diff → per-item updates).
-- Batching `rebuildIndex`'s per-item LMDB commits.
+- ~~Incremental reindex after a pull (diff → per-item updates).~~ → epic 29
+  (`agent-epic-29.md` 29b–29d), planned and ⏸️ deferred after 29a.
+- ~~Batching `rebuildIndex`'s per-item LMDB commits.~~ **Done by 29a**
+  (`agent-epic-29.md` D2: one transaction per content index).
 - Phone notifications.
 - A second mirror (the loop is per-remote already).
-- Running the workstation editor as a systemd user service, so sync runs
-  whenever tourmaline is up (Roger's call).
-- Aligning the `next` 16.1.1 pins in `component-library`/`next-static-image`
-  (~260 MB off the Pi image; `deploy-pi.md` Traps).
+- ~~Running the workstation editor as a systemd user service, so sync runs
+  whenever tourmaline is up (Roger's call).~~ **Done in 28i**
+  (`recipe-workstation.service`).
+- ~~Aligning the `next` 16.1.1 pins in `component-library`/`next-static-image`
+  (~260 MB off the Pi image; `deploy-pi.md` Traps).~~ **Done in 28h.**
 
 ## Decisions (Roger, 2026-10-07)
 

@@ -1,6 +1,12 @@
 import type { Key } from "lmdb";
 import { getContentDirectory } from "../fs/getContentDirectory";
-import { getContentDatabase, getIndexCount, readFromIndex } from "./database";
+import { environmentExists } from "../lmdb/environmentCache";
+import {
+  getContentDatabase,
+  getIndexCount,
+  getIndexDirectory,
+  readFromIndex,
+} from "./database";
 import type {
   ContentTypeConfig,
   ReadContentIndexOptions,
@@ -37,6 +43,11 @@ export async function readContentIndex<
   } = options;
 
   const contentDirectory = providedContentDirectory || getContentDirectory();
+
+  // Unbuilt reads as empty and stays unbuilt: opening would create it (F30).
+  if (!environmentExists(getIndexDirectory(config, contentDirectory))) {
+    return { entries: [], total: 0, more: false };
+  }
 
   const db = getContentDatabase<TIndexValue, TKey>(
     config as ContentTypeConfig,

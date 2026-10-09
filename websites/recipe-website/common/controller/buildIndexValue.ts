@@ -104,6 +104,12 @@ function flattenNode(node: unknown): string {
  * data — neither of which can render markup.
  */
 export function flattenMarkdown(input: string): string {
+  /*
+   * Text can be missing at runtime whatever the type says: an ingredient-style
+   * heading in `instructions` reaches the JSON-LD with `text` undefined, which
+   * flattened to "" until the CRLF fix made it a `.replace` on undefined (30a).
+   */
+  if (typeof input !== "string") return "";
   /* CRLF can hang the compiler outright; see normalizeLineEndings. */
   const compiled = compiler(normalizeLineEndings(input), {
     wrapper: null,

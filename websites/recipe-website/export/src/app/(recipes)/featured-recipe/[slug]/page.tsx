@@ -1,12 +1,15 @@
 import { notFound } from "next/navigation";
 import { getFeaturedRecipeBySlug } from "recipe-website-common/controller/data/readFeaturedRecipes";
 import { readAllFeaturedRecipeIds } from "recipe-website-common/controller/data/readFeaturedRecipePages";
+import { featuredRecipeContentConfig } from "recipe-website-common/controller/featuredRecipeContentConfig";
+import { featuredRecipesByDate } from "recipe-website-common/controller/paginationConfigs";
 import { groupItems } from "recipe-website-common/controller/data/readGroupItem";
 import { getGroupBySlug } from "recipe-website-common/controller/data/readGroups";
 import { recipeItems } from "recipe-website-common/controller/data/readRecipeItem";
 import { resolveGroupItems } from "recipe-website-common/controller/data/resolveGroupItems";
 import { resolveTermPage } from "recipe-website-common/controller/data/readTermPage";
 import FeaturedRecipeDetailPage from "recipe-website-common/components/FeaturedRecipeDetailPage";
+import { staticSlugParams } from "../../../../staticSlugParams";
 
 export async function generateMetadata({
   params,
@@ -129,10 +132,13 @@ export default async function FeaturedRecipePage({
  * fails outright rather than emitting a site with no featured recipes in it.
  * §12.3 recorded this as a latent defect; it is reproducible, and this is the
  * fix. The placeholder names no feature, and the route `notFound()`s it exactly
- * as it would at runtime, so the export writes a 404 body there.
+ * as it would at runtime, so the export writes a 404 body there. A missing
+ * index with features on disk fails the build instead (F30).
  */
 export async function generateStaticParams() {
-  const slugs = await readAllFeaturedRecipeIds();
-  if (slugs.length === 0) return [{ slug: "_" }];
-  return slugs.map((slug) => ({ slug }));
+  return staticSlugParams(
+    readAllFeaturedRecipeIds,
+    featuredRecipeContentConfig,
+    featuredRecipesByDate,
+  );
 }

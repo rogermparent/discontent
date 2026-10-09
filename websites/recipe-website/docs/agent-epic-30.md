@@ -16,7 +16,8 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 30-plan (this doc). Next: 30a, engine hygiene.
+**Now:** 30-plan merged (#184). 30a is in review (`agent/30a-hygiene`). 30d's content
+writes are done, with 13 content commits, none pushed. Next: 30b.
 
 ## Context
 
@@ -81,13 +82,13 @@ A worktree's MCP server points at the worktree, which has no content
 
 ## Roadmap
 
-| Phase   | Scope                                                                                             | Branch               | Status |
-| ------- | ------------------------------------------------------------------------------------------------- | -------------------- | ------ |
-| 30-plan | This doc, CLAUDE.md entry                                                                         | `agent/30-plan`      | 🟡     |
-| 30a     | F30 reader guard, export fail-loud, aggregate spec guard, `group:` in `recipe_search`, stale docs | `agent/30a-hygiene`  | 📝     |
-| 30b     | Accent contrast, band only                                                                        | `agent/30b-contrast` | 📝     |
-| 30c     | Group thumbnails from the corpus (⌘K, `/search`)                                                  | `agent/30c-thumbs`   | 📝     |
-| 30d     | Content round on the real content repo (no code PR)                                               | — (+ docs PR)        | 📝     |
+| Phase   | Scope                                                                                             | Branch               | Status     |
+| ------- | ------------------------------------------------------------------------------------------------- | -------------------- | ---------- |
+| 30-plan | This doc, CLAUDE.md entry                                                                         | `agent/30-plan`      | ✅ #184    |
+| 30a     | F30 reader guard, export fail-loud, aggregate spec guard, `group:` in `recipe_search`, stale docs | `agent/30a-hygiene`  | 🟡         |
+| 30b     | Accent contrast, band only                                                                        | `agent/30b-contrast` | 📝         |
+| 30c     | Group thumbnails from the corpus (⌘K, `/search`)                                                  | `agent/30c-thumbs`   | 📝         |
+| 30d     | Content round on the real content repo (no code PR)                                               | — (+ docs PR)        | ✅ content |
 
 **Order.** 30-plan → 30a → 30b → 30c, each a PR off `origin/main`, merged on
 green CI under the standing grant. 30d is independent of the code and can run
@@ -146,6 +147,50 @@ deferred items done in 27c, the 27c heading in `agent-epic-27.md`,
 - `recipes search 'group:<real group>' --json` against a scratch clone returns
   its members;
 - Playwright `git.spec` and the search specs; CI green.
+
+#### 30a results (2026-10-09)
+
+- **Unit.** Both typechecks are clean. vitest: the new reader test (seven
+  readers, no directory left behind), the aggregate twin, the spec-guard
+  test, `group:` in `searchRecipes`, and the export fail-loud cases.
+  - Two existing tests pinned the old behaviour and changed with it:
+    `taxonomies.test.ts` "goes back to null when the stored spec version
+    moves" now expects `null`, as its title always said; its `readTree`
+    helper reads with the real `termTreeAggregate()` instead of a bare
+    `{name}`.
+  - The D8 boundary allows `data/readGroupSearchCorpus`, which is CLI-safe
+    by construction.
+- **Spec hashes on disk.** Every aggregate in the 16 Playwright fixtures (38)
+  and in the real repo (7) matches its current spec, so the read-side guard
+  blanks nothing.
+- **Export, no indexes** (a fresh clone of the real repo):
+  - `next build` fails at "Collecting page data" with "recipes: content has 645
+    items but no index — run `pnpm recipes reindex`" (featured: 20).
+  - `recipes/` still holds only `data/` afterwards.
+- **Export, after `recipes reindex`:** 943 pages generated in 29.8 s
+  (warm cache).
+  - On the way, it found a regression from 2459a0fc (2026-10-07, the CRLF
+    fix): 38 real recipes carry ingredient-style `{type: "heading", name}`
+    entries in `instructions`.
+  - `Markdown` and `flattenMarkdown` (JSON-LD) now called `.replace` on their
+    undefined `text`, so those pages 500 in the editor and fail the export.
+    origin/main failed identically.
+  - Fixed here: both pass missing text through, which renders nothing, as
+    before.
+- **`group:`** on the scratch clone, with two groups made there:
+  - `group:gate-sours` → 2;
+  - `group:"gate sours"` → 2;
+  - `group:gate-parent` (the sub-group plus one recipe) → 3;
+  - `tag:drink -group:gate-sours` → 193 of 195.
+- **Playwright, partial.** The run was stopped at 48/104 at Roger's request
+  (machine load ~27 on 8 cores from other jobs).
+  - 40 passed.
+  - 2 `search-live` failures came from stopping the server.
+  - 6 were 5–10 s UI timeouts with no server error: 5 in `git.spec` (each
+    creates a recipe and waits for its page) and one typing timeout in
+    `search-autocomplete`.
+  - One more was a sign-in timeout on the first test during the cold compile.
+  - None of these is confirmed or ruled out locally; CI is the rerun.
 
 ### 30b — Accent contrast, band only
 
@@ -245,6 +290,51 @@ create, one commit per write, no push. Fetching follows D5.
 recipes and the syrup term page. A docs PR afterwards updates
 `agent-mixology.md` Deferred, `agent-epic-27.md` Hand-off and this doc.
 
+#### 30d results (2026-10-09)
+
+`~/Projects/recipe-content` went from `0cf3d95` to `4648a11`: 13 writes, one
+commit each, every write dry-run first and checked with `show`. Not pushed.
+`tag:drink` went from 194 to 203.
+
+- **Skipped-migration recipes:**
+  - `blueberry-cheesecake-baked-oatmeal` (`b1a52be`): Tablespoon, plus
+    `videoUrl`.
+  - `key-lime-pie` (`2321684`): Brian Lagerstrom; description `null`.
+  - `salted-caramel-apple-pie-bars` (`3ca40d1`): Sally's Baking Addiction.
+  - The patch field is `videoUrl`; `video` is rejected.
+- **Drinks** (none skipped):
+  - `red-snapper-acouplecooks` (`b1f996a`);
+  - `sake-bloody-mary-imbibe` (`eb511c6`), Imbibe's "Bloody Samurai";
+  - `sake-cosmopolitan-thedrinkkings` (`bddc137`), from a web search, since
+    none of the three preferred sites has one;
+  - `virgin-moscow-mule-texanerin` (`4579532`), from a web search, since none
+    of them has a non-alcoholic mule.
+- **The Kitchn is back.** A single `inspect` at 13:32 answered 200. Five picks
+  were imported 65 s or more apart, with the T9 image fix:
+  - `hibiscus-earl-grey-iced-tea-thekitchn` (`9b07163`);
+  - `iced-green-tea-thekitchn` (`fc55bf4`);
+  - `tea-hot-toddy-thekitchn` (`b245707`);
+  - `non-alcoholic-sangria-thekitchn` (`e7e3aea`);
+  - `mint-julep-mocktail-thekitchn` (`649886d`).
+  - Kalimotxo was skipped: The Kitchn's page is an article with no recipe
+    data, and `kalimotxo-acouplecooks` exists.
+- **Syrup chart:**
+  - Written as the `syrup` tag term (`4648a11`, label "Syrups"), through
+    `createContent` with `tagTermContentConfig`, which writes the record and
+    the tree aggregate and commits. No CLI or MCP writes term records yet
+    (24e).
+  - **List form, not a table.** markdown-to-jsx does emit a `<table>`, but
+    `.markdown-body` has no table styles and Tailwind preflight strips
+    borders and padding.
+  - The chart covers simple syrup (56 drinks), honey (8) and lavender (2). A
+    closing line names the syrups drinks use with no recipe yet (maple 21,
+    elderflower 5, …).
+- **Open for Roger:**
+  - `Sake-Cosmo-9.jpg` is 9.7 MB (3695×4873), the largest image in the repo.
+  - Pushing the content repo.
+  - The workstation service has been inactive since 10-08, so the editor
+    render check is still to do.
+
 ## Verification (every code PR)
 
 ```
@@ -267,3 +357,21 @@ the main checkout, and `editor/.next` removed before the first Playwright run.
   image or the icon up front, never swap.
 - **T3 — Content writes go to the real repo.** 30d is the only phase that
   touches `~/Projects/recipe-content`; tests and scripts never point there.
+
+Found on the way:
+
+- **T4 — Next's data cache outlives a build.** An export built once against
+  an unindexed directory cached empty aggregate reads in `.next/cache`. A
+  rebuild after reindexing reused them: 740 pages instead of 943, with no
+  tag pages. `rm -rf export/.next` between such builds. A cold image cache
+  also times out the image-heavy pages (60 s); the second run passes.
+- **T5 — the importer's 403 retry doubles a request.** On a 403, `inspect`
+  retries at once with browser headers, which is two requests to one host
+  within a second, against D5. 30d fetched such pages once with `curl` and
+  the importer's headers, and inspected the local copy.
+- **T6 — instruction headings.** 38 recipes put `{type: "heading"}` in
+  `instructions`, a shape only `Ingredient` declares. Renderers must tolerate
+  a step with no `text`. Converting them to instruction groups is a content
+  follow-up.
+- **T7 — the dry-run image check reports no size.** A 9.7 MB photo went in
+  unnoticed (30d).

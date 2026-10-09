@@ -193,11 +193,10 @@ test.describe("Accessibility across preset themes (axe)", () => {
 
 // Off-preset custom themes built via the knob→deriveTheme path exercise AA at
 // accent hues + neutral pairings no built-in preset uses (berry 320, amber 25 —
-// on opposite sides of the wheel). NB: this expanded sweep also surfaced that the
-// light-mode accent curve dips just under AA in the cyan/teal band (~hue 165–215,
-// worst ~4.31:1 at 190) — a pre-existing curve limitation left as a documented
-// follow-up (fixing it is a curve redesign, out of PR 7 scope; see
-// docs/ui-overhaul.md). These two hues sit comfortably outside that band.
+// on opposite sides of the wheel), plus teal 190 in the cyan/teal band. This
+// sweep is what surfaced that band dipping just under AA (worst ~4.31:1 at 190);
+// epic 30b darkened the light accent there only, and `test/theming.test.ts` now
+// checks every hue. The teal theme keeps axe rendering the band itself.
 const CUSTOM_THEMES: Array<{ label: string; theme: Theme }> = [
   {
     label: "berry-gray",
@@ -216,6 +215,21 @@ const CUSTOM_THEMES: Array<{ label: string; theme: Theme }> = [
       neutral: "warm",
       radius: 0.5,
       fontPairing: "grotesk",
+      defaultMode: "system",
+    },
+  },
+  /*
+   * The cyan/teal band (epic 30b): the one place the light accent used to fall
+   * under AA (~4.31:1 at 190). Kept here so axe renders the band, not just the
+   * unit sweep in `test/theming.test.ts`.
+   */
+  {
+    label: "teal-cool",
+    theme: {
+      accentHue: 190,
+      neutral: "cool",
+      radius: 0.5,
+      fontPairing: "bench",
       defaultMode: "system",
     },
   },

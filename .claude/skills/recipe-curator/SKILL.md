@@ -66,11 +66,10 @@ most, then tags, ingredients and description, and ties go newest first. So
 key words, not a sentence, and narrow with typed terms. Read `tag_list`
 before inventing a tag. Typed terms: `tag:x`, `-tag:x`, `ingredient:x`,
 `name:x`, `description:x`, `source:x` (a site's name or host, e.g.
-`source:imbibe`), `time:<=45` (bare
-`time:30` means ≤ 30), `before:`/`after:`, `AND`/`OR`/`NOT`, parentheses. A
-recipe with no timing never matches a `time:` query. **`group:` works only in
-the browser's search box** — for membership use `group_get`. **Prefer an
-existing recipe over a new import.**
+`source:imbibe`), `group:x` (a group's slug or name, sub-groups included),
+`time:<=45` (bare `time:30` means ≤ 30), `before:`/`after:`,
+`AND`/`OR`/`NOT`, parentheses. A recipe with no timing never matches a
+`time:` query. **Prefer an existing recipe over a new import.**
 
 ## 4. Find candidates on the web
 

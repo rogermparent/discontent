@@ -1,6 +1,12 @@
 import type { Key } from "lmdb";
-import { getAggregateDatabase, readAggregateRecord } from "./database";
-import type { AggregateOptions } from "./types";
+import { environmentExists } from "../lmdb/environmentCache";
+import {
+  computeAggregateSpecHash,
+  getAggregateDatabase,
+  getAggregateDirectory,
+  readAggregateRecord,
+} from "./database";
+import type { AggregateConfig, AggregateOptions } from "./types";
 
 /**
  * The stored value, in O(1) — one key read, no corpus load.
@@ -10,6 +16,12 @@ import type { AggregateOptions } from "./types";
  * value, since "no tags yet" and "nobody has folded the tags" are different
  * states and only one of them is worth repairing. Callers that just want to
  * render write `?? []`.
+ *
+ * A record folded under a different spec — the aggregate's `version` was
+ * bumped since — also reads as `null`: the stored value was produced by a fold
+ * that no longer exists, so "never computed" is the true answer and a wrong
+ * value is not (24-T5). An unbuilt environment is not opened at all, because
+ * opening creates it (F30).
  *
  * A read never triggers the pass. That is the same rule pagination reads
  * follow, and for the same reason: a read may be inside a static export or on
@@ -33,9 +45,20 @@ export async function readAggregate<
   options: AggregateOptions<TIndexValue, TKey, TAccumulator, TValue>,
 ): Promise<TValue | null> {
   const { config, aggregateConfig, contentDirectory } = options;
+  if (
+    !environmentExists(
+      getAggregateDirectory(config, aggregateConfig, contentDirectory),
+    )
+  ) {
+    return null;
+  }
   const db = getAggregateDatabase(config, aggregateConfig, contentDirectory);
   const record = readAggregateRecord<TValue>(db);
-  return record ? record.value : null;
+  if (!record) return null;
+  const specHash = computeAggregateSpecHash(
+    aggregateConfig as unknown as AggregateConfig<never, Key, never, never>,
+  );
+  return record.specHash === specHash ? record.value : null;
 }
 
 export default readAggregate;
