@@ -219,6 +219,21 @@ const CUSTOM_THEMES: Array<{ label: string; theme: Theme }> = [
       defaultMode: "system",
     },
   },
+  /*
+   * The cyan/teal band (epic 30b): the one place the light accent used to fall
+   * under AA (~4.31:1 at 190). Kept here so axe renders the band, not just the
+   * unit sweep in `test/theming.test.ts`.
+   */
+  {
+    label: "teal-cool",
+    theme: {
+      accentHue: 190,
+      neutral: "cool",
+      radius: 0.5,
+      fontPairing: "bench",
+      defaultMode: "system",
+    },
+  },
 ];
 
 test.describe("Accessibility across custom themes (axe)", () => {
