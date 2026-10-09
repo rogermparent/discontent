@@ -3,7 +3,7 @@ import type { Key } from "lmdb";
 import { hashValue } from "../pagination/hash";
 import { syncPaginationItems } from "../pagination/syncContentItems";
 import type { SyncPaginationItem } from "../pagination/types";
-import { getContentDatabase, removeFromIndex, writeToIndex } from "./database";
+import { getContentDatabase } from "./database";
 import {
   getDataDirectory,
   readContentFromFilesystem,
@@ -199,6 +199,12 @@ async function updateDependentsForSpec(options: {
   const items: SyncPaginationItem<Record<string, unknown>, Key>[] = [];
   const updatedSlugs: string[] = [];
   const touchedPaths: string[] = [];
+  /* Written in one transaction after the loop (29a), not one commit each. */
+  const indexWrites: {
+    remove?: Key;
+    key: Key;
+    value: Record<string, unknown>;
+  }[] = [];
 
   const candidates = indexField
     ? await findViaIndex(db, indexField, targetSlug)
@@ -261,8 +267,11 @@ async function updateDependentsForSpec(options: {
          * dependent sits in the index twice, which is a latent orphan the
          * rename path had until now.
          */
-        if (keyMoved) await removeFromIndex(db, oldKey);
-        await writeToIndex(db, newKey, newValue);
+        indexWrites.push({
+          remove: keyMoved ? oldKey : undefined,
+          key: newKey,
+          value: newValue,
+        });
         items.push({ id: slug, entry: { key: newKey, value: newValue } });
       }
 
@@ -278,6 +287,15 @@ async function updateDependentsForSpec(options: {
         }`,
       );
     }
+  }
+
+  if (indexWrites.length > 0) {
+    await db.transaction(() => {
+      for (const { remove, key, value } of indexWrites) {
+        if (remove !== undefined) db.removeSync(remove);
+        db.putSync(key, value);
+      }
+    });
   }
 
   if (updatedSlugs.length === 0) return { touchedPaths };

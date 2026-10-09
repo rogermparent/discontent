@@ -16,6 +16,10 @@
  * only one entitled to say which commit that tree was. HEAD is read before the
  * loop, so a commit that lands mid-rebuild is not claimed as indexed. A
  * one-type rebuild leaves the stamp alone.
+ *
+ * `timings` (29a) is wall-clock milliseconds per type rebuilt, plus `total`,
+ * so `--json` and `/api/reindex` can say where a slow sync went without a
+ * profiler.
  */
 import { rebuildIndex } from "@discontent/cms/content/rebuildIndex";
 import { readHead, writeIndexedHead } from "@discontent/cms/git/indexStamp";
@@ -25,6 +29,11 @@ import { NotFoundError } from "./errors";
 
 export interface ReindexResult {
   rebuilt: string[];
+  timings?: Record<string, number>;
+}
+
+function elapsed(start: number): number {
+  return Math.round(performance.now() - start);
 }
 
 export async function reindex(
@@ -43,18 +52,31 @@ export async function reindex(
       );
     }
     /* One type named: let the cascade reach whatever borrows from it. */
+    const start = performance.now();
     await rebuildIndex({ config, contentDirectory: ctx.contentDirectory });
-    return { rebuilt: [config.contentType] };
+    const total = elapsed(start);
+    return {
+      rebuilt: [config.contentType],
+      timings: { [config.contentType]: total, total },
+    };
   }
 
+  const start = performance.now();
+  const timings: Record<string, number> = {};
   const head = await readHead(ctx.contentDirectory);
   for (const config of recipeContentTypes) {
+    const typeStart = performance.now();
     await rebuildIndex({
       config,
       contentDirectory: ctx.contentDirectory,
       cascadeDependents: false,
     });
+    timings[config.contentType] = elapsed(typeStart);
   }
   await writeIndexedHead(ctx.contentDirectory, head);
-  return { rebuilt: recipeContentTypes.map((config) => config.contentType) };
+  timings.total = elapsed(start);
+  return {
+    rebuilt: recipeContentTypes.map((config) => config.contentType),
+    timings,
+  };
 }

@@ -1,7 +1,7 @@
 import type { Key } from "lmdb";
 import { readdir } from "fs-extra";
 import { getContentDirectory } from "../fs/getContentDirectory";
-import { getContentDatabase, writeToIndex } from "./database";
+import { getContentDatabase } from "./database";
 import {
   getContentFilePath,
   getDataDirectory,
@@ -122,6 +122,10 @@ async function updateReferencesViaFileScan<
     return result;
   }
 
+  /* Written in one transaction after the loop (29a), not one commit each. */
+  const indexWrites: { key: TReferencingKey; value: TReferencingIndexValue }[] =
+    [];
+
   for (const slug of slugDirectories) {
     try {
       const data = await readContentFromFilesystem<TReferencingData>(
@@ -148,14 +152,11 @@ async function updateReferencesViaFileScan<
         );
 
         // Update the index entry
-        const db = getContentDatabase<TReferencingIndexValue, TReferencingKey>(
-          config as ContentTypeConfig,
-          contentDirectory,
-        );
         const refs = await resolveReferences({ config, data, resolver });
-        const indexKey = config.buildIndexKey(slug, data);
-        const indexValue = config.buildIndexValue(data, refs);
-        await writeToIndex(db, indexKey, indexValue);
+        indexWrites.push({
+          key: config.buildIndexKey(slug, data),
+          value: config.buildIndexValue(data, refs),
+        });
 
         result.updatedCount++;
         result.updatedSlugs.push(slug);
@@ -172,6 +173,16 @@ async function updateReferencesViaFileScan<
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  if (indexWrites.length > 0) {
+    const db = getContentDatabase<TReferencingIndexValue, TReferencingKey>(
+      config as ContentTypeConfig,
+      contentDirectory,
+    );
+    await db.transaction(() => {
+      for (const { key, value } of indexWrites) db.putSync(key, value);
+    });
   }
 
   return result;
