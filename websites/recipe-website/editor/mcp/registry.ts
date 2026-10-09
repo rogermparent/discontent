@@ -350,7 +350,8 @@ export function createRecipeServer(
         "(prefix at a word start), best first — a word in the name counts most, then " +
         "tags, ingredients, description — and ties newest first. Supports the site's " +
         "query language: tag:, ingredient:, name:, description:, source: (a site's " +
-        "name or host), time:, before:, after:, and a leading - to negate a term; " +
+        "name or host), group: (a group's slug or name, sub-groups included), " +
+        "time:, before:, after:, and a leading - to negate a term; " +
         "typed terms narrow exactly.",
       inputSchema: z.strictObject({
         query: z.string().min(1),

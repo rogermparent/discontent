@@ -1,8 +1,11 @@
 import { notFound } from "next/navigation";
 import { getGroupBySlug } from "recipe-website-common/controller/data/readGroups";
 import { readAllGroupIds } from "recipe-website-common/controller/data/readGroupPages";
+import { groupContentConfig } from "recipe-website-common/controller/groupContentConfig";
+import { groupsByDate } from "recipe-website-common/controller/groupPaginationConfig";
 import { resolveGroupItems } from "recipe-website-common/controller/data/resolveGroupItems";
 import GroupDetailPage from "recipe-website-common/components/GroupDetailPage";
+import { staticSlugParams } from "../../../../staticSlugParams";
 
 export async function generateMetadata({
   params,
@@ -59,10 +62,9 @@ export default async function GroupPage({
  * site that has not made one, and without this the build fails outright rather
  * than emitting a site with no groups in it. The placeholder names no group,
  * and the route `notFound()`s it exactly as it would at runtime, so the export
- * writes a 404 body there.
+ * writes a 404 body there. A missing index with groups on disk fails the
+ * build instead (F30).
  */
 export async function generateStaticParams() {
-  const slugs = await readAllGroupIds();
-  if (slugs.length === 0) return [{ slug: "_" }];
-  return slugs.map((slug) => ({ slug }));
+  return staticSlugParams(readAllGroupIds, groupContentConfig, groupsByDate);
 }

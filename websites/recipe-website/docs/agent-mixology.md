@@ -672,7 +672,7 @@ soda water (unlocks 7), then tonic water and simple syrup.
 
 ## Deferred
 
-- The 25e parser findings above.
+- ~~The 25e parser findings above.~~ **Done by 27c** (`agent-epic-27.md` D7).
 - ~~Importer: `recipeInstructions` given as one string (Imbibe's alcohol-free
   negroni); prefer the largest JSON-LD `image` over `image[0]` (T9)~~ — importer
   gaps → **epic 26 done** (`agent-import-tools.md`): string instructions,
@@ -681,14 +681,19 @@ soda water (unlocks 7), then tonic water and simple syrup.
   `source.name` from a site map rather than the hostname fallback.~~ **Done by
   26d**: publisher → `og:site_name` → `KNOWN_SITES` → hostname
   (`common/util/siteNames.ts`).
-- Imbibe publishes `recipeYield: "10"` on single-drink pages (25f found it
+- ~~Imbibe publishes `recipeYield: "10"` on single-drink pages (25f found it
   on all ten it imported); the importer could ignore a bare yield that
-  disagrees with single-serving volumes, or the skill could say to check it.
-- A style for shaken, citrus-free drinks (espresso martini, French martini,
-  Alexanders) — D12's six styles force them into `sour` or `built` (25f).
+  disagrees with single-serving volumes, or the skill could say to check it.~~
+  **Done by 27c** (`agent-epic-27.md` D10: `SITE_QUIRKS` drops it, and the
+  skill checks yields).
+- ~~A style for shaken, citrus-free drinks (espresso martini, French martini,
+  Alexanders) — D12's six styles force them into `sour` or `built` (25f).~~
+  **Done by 27c** (`agent-epic-27.md` D10: the `shaken` method tag).
 - The Kitchn picks dropped at 25e once it 403'd (T10).
-- oz ↔ ml toggle; "make it for N" batching with a dilution note.
-- A bar-side view (large type, wake lock).
+- ~~oz ↔ ml toggle; "make it for N" batching with a dilution note.~~ **Done
+  by 27c** (`agent-epic-27.md` D8: oz · ml · parts, and the batching note).
+- ~~A bar-side view (large type, wake lock).~~ **Done by 27c**
+  (`agent-epic-27.md` D9: the focus view).
 - More drinks from step 1's deferred list (Sake Cosmo, Sake Bloody Mary, Red
   Snapper ZP, Ginger Mule ZP, the spritzes and sodas); a syrup-pairing chart
   as a term description or page.

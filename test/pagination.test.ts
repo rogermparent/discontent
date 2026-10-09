@@ -3,13 +3,17 @@
 // The repo default is jsdom; these tests open real LMDB environments in a
 // temporary directory, which needs node.
 
-import { mkdtemp, rename, rm } from "fs-extra";
+import { mkdtemp, pathExists, rename, rm } from "fs-extra";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Key } from "lmdb";
 
-import { getContentDatabase } from "@discontent/cms/content/database";
+import {
+  getContentDatabase,
+  getIndexDirectory,
+} from "@discontent/cms/content/database";
+import { readContentIndex } from "@discontent/cms/content/readContentIndex";
 import type { ContentTypeConfig } from "@discontent/cms/content/types";
 import {
   clearPaginationChanges,
@@ -21,6 +25,7 @@ import {
   PAGED,
   PAGE_SUMMARY,
   getPaginationDatabase,
+  getPaginationDirectory,
 } from "@discontent/cms/pagination/database";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 import { readAllIds } from "@discontent/cms/pagination/readAllIds";
@@ -946,6 +951,46 @@ describe("cheap enumerations", () => {
     expect(meta).toMatchObject({ total: 0, headPage: 0, numberedPages: [] });
     expect(await page(0)).toBeNull();
     expect((await head()).items).toEqual([]);
+  });
+
+  /*
+   * F30. Opening an LMDB environment creates it, so a reader that opened an
+   * unbuilt index answered "empty" *and* left an empty environment behind —
+   * which a static export took as an empty corpus, emitting no content pages
+   * and passing. Every reader now answers empty without creating anything.
+   */
+  it("reads an unbuilt index as empty without creating it", async () => {
+    const options = {
+      config: noteConfig,
+      paginationConfig: byDate,
+      contentDirectory,
+    };
+
+    expect(await readAllIds(options)).toEqual([]);
+    expect(await readPaginationMeta(options)).toMatchObject({
+      total: 0,
+      headPage: 0,
+      numberedPages: [],
+    });
+    expect(await readPage({ ...options, pageIndex: 0 })).toBeNull();
+    expect(await readHead(options)).toMatchObject({ items: [], total: 0 });
+    expect(await readAfter(options)).toMatchObject({
+      items: [],
+      nextCursor: null,
+    });
+    expect(await readItemPage({ ...options, id: "note-0" })).toBeNull();
+    expect(
+      await readContentIndex({ config: noteConfig, contentDirectory }),
+    ).toEqual({ entries: [], total: 0, more: false });
+
+    expect(
+      await pathExists(
+        getPaginationDirectory(noteConfig, byDate, contentDirectory),
+      ),
+    ).toBe(false);
+    expect(
+      await pathExists(getIndexDirectory(noteConfig, contentDirectory)),
+    ).toBe(false);
   });
 });
 

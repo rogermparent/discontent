@@ -54,7 +54,15 @@ export default function StyledMarkdown({
         wrapper,
       }}
     >
-      {normalizeLineEndings(children)}
+      {/*
+       * Only a string is normalised. Content can reach here with no text at
+       * all — 38 recipes carry an ingredient-style `{type: "heading", name}`
+       * entry in `instructions`, which renders its step with `text`
+       * undefined — and markdown-to-jsx renders that as nothing, which is what
+       * those pages did before the CRLF fix made it a `.replace` on undefined
+       * and every one of them a 500 (found by epic 30a's export gate).
+       */}
+      {typeof children === "string" ? normalizeLineEndings(children) : children}
     </Markdown>
   );
 }

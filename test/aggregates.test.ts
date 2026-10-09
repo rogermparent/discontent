@@ -8,7 +8,10 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { getAggregateDatabase } from "@discontent/cms/aggregates/database";
+import {
+  getAggregateDatabase,
+  getAggregateDirectory,
+} from "@discontent/cms/aggregates/database";
 import { readAggregate } from "@discontent/cms/aggregates/readAggregate";
 import type { AggregateConfig } from "@discontent/cms/aggregates/types";
 import { updateAggregates } from "@discontent/cms/aggregates/updateAggregates";
@@ -328,6 +331,36 @@ describe("readAggregate", () => {
   it("does not compute on read", async () => {
     await putNote("a", { title: "A", date: day(1), tags: ["x"] });
     expect(await tagsOf()).toBeNull();
+  });
+
+  /* F30: opening creates, so an unbuilt aggregate is never opened by a read. */
+  it("does not create the environment it reads", async () => {
+    expect(await tagsOf()).toBeNull();
+    expect(
+      await pathExists(
+        getAggregateDirectory(taggedConfig, noteTags, contentDirectory),
+      ),
+    ).toBe(false);
+  });
+
+  /*
+   * 24-T5. A record folded under an older spec is a value produced by a fold
+   * that no longer exists. It reads as never folded — repairable — rather than
+   * as a wrong value nothing would ever correct.
+   */
+  it("reads a record folded under another spec as null", async () => {
+    await putNote("a", { title: "A", date: day(1), tags: ["x"] });
+    await updateAggregates({ config: taggedConfig, contentDirectory });
+    expect(await tagsOf()).toEqual(["x"]);
+
+    const rebumped = { ...noteTags, version: "2" };
+    expect(
+      await readAggregate({
+        config: { ...baseConfig, aggregates: [rebumped] },
+        aggregateConfig: rebumped,
+        contentDirectory,
+      }),
+    ).toBeNull();
   });
 });
 

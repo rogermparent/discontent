@@ -456,7 +456,7 @@ D2–D6. Gates, 2026-10-07:
 - `/git`'s visual baseline is untouched: Initialize stamps HEAD, so no banner
   shows there.
 
-### 27c — Bar tools `agent/27c-bar-tools` 🟡 (stacked on 27b)
+### 27c — Bar tools `agent/27c-bar-tools` ✅ #162
 
 D7–D10. Gates, 2026-10-07:
 

@@ -1,9 +1,11 @@
 import type { Key } from "lmdb";
+import { environmentExists } from "../lmdb/environmentCache";
 import {
   LOOKUP,
   PAGED,
   SORTED,
   getPaginationDatabase,
+  getPaginationDirectory,
   pagedPageRange,
   readMeta,
   versionOf,
@@ -29,6 +31,42 @@ const EMPTY_META: PaginationMeta = {
 };
 
 type Database = ReturnType<typeof getPaginationDatabase>;
+
+/**
+ * The index's environment, or null when it has never been built.
+ *
+ * Checked before opening because opening creates (F30): an unbuilt index
+ * reads as empty and stays unbuilt, instead of materializing an empty
+ * environment that then looks like a built, empty one.
+ */
+function openIfBuilt<TIndexValue, TKey extends Key, TItem>({
+  config,
+  paginationConfig,
+  contentDirectory,
+}: PaginationIndexOptions<TIndexValue, TKey, TItem>): Database | null {
+  const path = getPaginationDirectory(
+    config,
+    paginationConfig,
+    contentDirectory,
+  );
+  return environmentExists(path)
+    ? getPaginationDatabase(config, paginationConfig, contentDirectory)
+    : null;
+}
+
+/** An empty page, for an index that has not been built. */
+function emptyPage<TItem>(pageIndex: number | null): PaginationPage<TItem> {
+  return {
+    items: [],
+    pageIndex,
+    headPage: EMPTY_META.headPage,
+    total: 0,
+    olderPage: null,
+    newerPage: null,
+    nextCursor: null,
+    version: versionOf(EMPTY_META),
+  };
+}
 
 /** One page's items, in display order, from a single forward range seek. */
 function seekPage<TItem>(
@@ -65,8 +103,9 @@ function cursorFor(db: Database, id: string | null): Key[] | null {
 export async function readPage<TIndexValue, TKey extends Key, TItem>(
   options: ReadPageOptions<TIndexValue, TKey, TItem>,
 ): Promise<PaginationPage<TItem> | null> {
-  const { config, paginationConfig, contentDirectory, pageIndex } = options;
-  const db = getPaginationDatabase(config, paginationConfig, contentDirectory);
+  const { pageIndex } = options;
+  const db = openIfBuilt(options);
+  if (!db) return null;
   const meta = readMeta(db);
   if (!meta || meta.total === 0) return null;
   const { headPage } = meta;
@@ -101,9 +140,10 @@ export async function readPage<TIndexValue, TKey extends Key, TItem>(
 export async function readHead<TIndexValue, TKey extends Key, TItem>(
   options: ReadHeadOptions<TIndexValue, TKey, TItem>,
 ): Promise<PaginationPage<TItem>> {
-  const { config, paginationConfig, contentDirectory } = options;
+  const { paginationConfig } = options;
   const newestFirst = paginationConfig.newestFirst ?? true;
-  const db = getPaginationDatabase(config, paginationConfig, contentDirectory);
+  const db = openIfBuilt(options);
+  if (!db) return emptyPage(EMPTY_META.headPage);
   const meta = readMeta(db) ?? EMPTY_META;
   const { headPage } = meta;
 
@@ -148,15 +188,10 @@ export async function readHead<TIndexValue, TKey extends Key, TItem>(
 export async function readAfter<TIndexValue, TKey extends Key, TItem>(
   options: ReadAfterOptions<TIndexValue, TKey, TItem>,
 ): Promise<PaginationPage<TItem>> {
-  const {
-    config,
-    paginationConfig,
-    contentDirectory,
-    after,
-    limit = 20,
-  } = options;
+  const { paginationConfig, after, limit = 20 } = options;
   const newestFirst = paginationConfig.newestFirst ?? true;
-  const db = getPaginationDatabase(config, paginationConfig, contentDirectory);
+  const db = openIfBuilt(options);
+  if (!db) return emptyPage(null);
   const meta = readMeta(db) ?? EMPTY_META;
 
   const bounds = after
@@ -202,9 +237,9 @@ export async function readAfter<TIndexValue, TKey extends Key, TItem>(
 export async function readItemPage<TIndexValue, TKey extends Key, TItem>(
   options: PaginationIndexOptions<TIndexValue, TKey, TItem> & { id: string },
 ): Promise<number | null> {
-  const { config, paginationConfig, contentDirectory, id } = options;
-  const db = getPaginationDatabase(config, paginationConfig, contentDirectory);
-  const lookup = db.get([LOOKUP, id]) as PaginationLookup | undefined;
+  const db = openIfBuilt(options);
+  if (!db) return null;
+  const lookup = db.get([LOOKUP, options.id]) as PaginationLookup | undefined;
   return lookup?.pageIndex ?? null;
 }
 

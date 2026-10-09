@@ -690,6 +690,38 @@ describe("searchRecipes", () => {
     expect(plain.recipes[0]).not.toHaveProperty("sourceName");
   });
 
+  /*
+   * 30a. Membership lives on the groups, so rows used to carry none: `group:x`
+   * matched nothing and `-group:x` matched everything. Slug or name, as in the
+   * browser, and transitive through a sub-group.
+   */
+  it("filters by group: slug or name, and negates it (30a)", async () => {
+    await groups.createGroup(ctx, {
+      name: "Weeknight Favourites",
+      kind: "collection",
+      items: ["chocolate-cake", "beef-stew"],
+    });
+    await groups.createGroup(ctx, {
+      name: "Party Menus",
+      kind: "collection",
+      items: [{ group: "weeknight-favourites" }],
+    });
+
+    const bySlug = await searchRecipes(ctx, "group:weeknight-favourites");
+    expect(bySlug.recipes.map((row) => row.slug).sort()).toEqual([
+      "beef-stew",
+      "chocolate-cake",
+    ]);
+    const byName = await searchRecipes(ctx, 'group:"weeknight favourites"');
+    expect(byName.total).toBe(2);
+    const nested = await searchRecipes(ctx, "group:party-menus");
+    expect(nested.total).toBe(2);
+    const negated = await searchRecipes(ctx, "-group:weeknight-favourites");
+    expect(negated.recipes.map((row) => row.slug)).toEqual(["quick-salad"]);
+    /* Matched on, not returned: result rows keep their shape. */
+    expect(bySlug.recipes[0]).not.toHaveProperty("groups");
+  });
+
   it("honours a bare-word negation", async () => {
     const result = await searchRecipes(ctx, "-beef");
     expect(result.recipes.map((row) => row.slug).sort()).toEqual([
@@ -1555,6 +1587,10 @@ const ALLOWED: RegExp[] = [
    * record's data file through it. */
   /^recipe-website-common\/controller\/(types|recipeContentConfig|groupContentConfig|featuredRecipeContentConfig|tagTermContentConfig|createSlug|createGroupSlug|createFeaturedRecipeSlug|normalizeTags|recipeTagTaxonomy|groupTagTaxonomy|tagSlug|data\/read|data\/readGroups)$/,
   /^recipe-website-common\/components\/SearchForm\/queryLanguage$/,
+  /* The group search corpus joined at 30a, for `group:` in `searchRecipes`:
+   * CLI-safe by construction (its T5/D8 note) — `readAllIds` and
+   * `readContentFile` over configs already on this list, no `unstable_cache`. */
+  /^recipe-website-common\/controller\/data\/readGroupSearchCorpus$/,
   /* The instance role (epic 28, 28a): reads `process.env` and `globalThis`
    * only, so a mirror's git seats can refuse to push or merge. */
   /^recipe-website-common\/config\/role$/,
@@ -1635,6 +1671,10 @@ describe("D8 import boundary", () => {
       );
       for (const statement of source.split(";")) {
         if (!statement.includes("recipe-website-common/controller/data/read")) {
+          continue;
+        }
+        /* The one Node-safe value module under `data/` (30a, allow-list above). */
+        if (statement.includes("controller/data/readGroupSearchCorpus")) {
           continue;
         }
         if (!/\bimport\s+type\b/.test(statement)) {

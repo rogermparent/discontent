@@ -371,9 +371,11 @@ None of this is built yet. A sketch for the epic that would do it:
   The Pi stays usable offline: its own edits commit locally and ride the next
   pull.
 
-- **Faster rebuilds everywhere.** `rebuildIndex` awaits one `put` per item, so
+- ~~**Faster rebuilds everywhere.** `rebuildIndex` awaits one `put` per item, so
   each item is its own LMDB commit. Batching them, one transaction per type,
-  should cut the rebuild on the SD card further.
+  should cut the rebuild on the SD card further.~~ **Done by 29a**
+  (`agent-epic-29.md`: one transaction per content index; the Pi's reindex
+  went from 13.5 s to 2.5 s).
 - **Open questions:**
   - the conflict UX when nobody is at the workstation;
   - whether the Pi should ever push (today it never does);

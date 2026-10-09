@@ -1,5 +1,11 @@
 import type { Key } from "lmdb";
-import { PAGED, SORTED, getPaginationDatabase } from "./database";
+import { environmentExists } from "../lmdb/environmentCache";
+import {
+  PAGED,
+  SORTED,
+  getPaginationDatabase,
+  getPaginationDirectory,
+} from "./database";
 import type { PaginationIndexOptions } from "./types";
 
 /**
@@ -13,6 +19,14 @@ export async function readAllIds<TIndexValue, TKey extends Key, TItem>(
   options: PaginationIndexOptions<TIndexValue, TKey, TItem>,
 ): Promise<string[]> {
   const { config, paginationConfig, contentDirectory } = options;
+  // Unbuilt reads as empty and stays unbuilt: opening would create it (F30).
+  if (
+    !environmentExists(
+      getPaginationDirectory(config, paginationConfig, contentDirectory),
+    )
+  ) {
+    return [];
+  }
   const db = getPaginationDatabase(config, paginationConfig, contentDirectory);
   const ids: string[] = [];
   for (const key of db.getKeys({ start: [SORTED], end: [PAGED] })) {
