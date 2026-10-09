@@ -14,12 +14,12 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** the plan is merged (#181). 29a (batched atomic rebuild) is in
-review: on tourmaline a full reindex went from 12.1 s to 1.7 s (min,
-in-process, 644 recipes) and from 690 commits to 11, with identical index
-dumps. **Waiting on Roger** to deploy it to the Pi (`! pnpm deploy:pi`) so
-the Pi can be measured against its 13.5 s baseline; then the decision rule
-says whether 29b–29d run.
+**Now:** epic 29 is **closed at 29a** (2026-10-09). The batched atomic
+rebuild (#182) is deployed on the Pi (`a23a488c`, the same tree as merge
+9a888d64). A full reindex there went from 13.5 s to 2.5 s (median), and on
+tourmaline to 0.46–0.64 s. Both are inside the decision rule, so 29b–29d
+(incremental reindex) are ⏸️ deferred. The full plan for them stays below,
+along with the trigger for reopening it.
 
 ## Context
 
@@ -115,13 +115,14 @@ someone asks for a rebuild, they get one.
 
 ## Roadmap
 
-| Phase   | Scope                                                         | Branch                  | Status  |
-| ------- | ------------------------------------------------------------- | ----------------------- | ------- |
-| 29-plan | This doc, CLAUDE.md entry                                     | `agent/29-plan`         | ✅ #181 |
-| 29a     | Batched atomic full rebuild (D2), timings, measure/dump tools | `agent/29a-batched`     | 🟡      |
-| 29b     | Engine incremental API, index version (D5) — if go            | `agent/29b-incremental` | 📝      |
-| 29c     | Editor seat `reindexChanged`, wiring, index lock — if go      | `agent/29c-seat`        | 📝      |
-| 29d     | Revalidation, docs, Pi drill — if go                          | `agent/29d-close`       | 📝      |
+| Phase    | Scope                                                         | Branch                  | Status       |
+| -------- | ------------------------------------------------------------- | ----------------------- | ------------ |
+| 29-plan  | This doc, CLAUDE.md entry                                     | `agent/29-plan`         | ✅ #181      |
+| 29a      | Batched atomic full rebuild (D2), timings, measure/dump tools | `agent/29a-batched`     | ✅ #182      |
+| 29-close | Pi measured, decision recorded, docs                          | `agent/29-close`        | ✅ (this PR) |
+| 29b      | Engine incremental API, index version (D5) — if go            | `agent/29b-incremental` | ⏸️           |
+| 29c      | Editor seat `reindexChanged`, wiring, index lock — if go      | `agent/29c-seat`        | ⏸️           |
+| 29d      | Revalidation, docs, Pi drill — if go                          | `agent/29d-close`       | ⏸️           |
 
 Each phase is its own PR off `origin/main`, merged on green CI under the
 standing grant. Pi deploys are Roger's (`! pnpm deploy:pi`): the permission
@@ -217,7 +218,39 @@ on tourmaline, under heavy load from other jobs (load average 20–35), so
 - **Pi baseline** (758e9ec7, before 29a; `curl` time for
   `POST /api/reindex`, which includes revalidation): 12.7, 13.9, 14.7, 13.5,
   10.7 s — **median 13.5 s**, min 10.7 s.
-- **Pi after 29a:** pending Roger's deploy.
+- **Pi after 29a** (`a23a488c`, deployed by Roger 2026-10-09): the deploy's
+  own reindex, run cold just after the container started, took 4.1 s
+  (`timings.total`; recipes 3.4 s). Then five `POST /api/reindex`: 3.41,
+  2.55, 2.21, 2.16, 2.71 s — **median 2.55 s**, min 2.16 s (from 13.5 s and
+  10.7 s). Server-side `timings.total`: 3.36, 2.51, 2.18, 2.14, 2.68 s; of
+  that, recipes is 1.6–2.6 s, featured ~250 ms, groups ~120 ms.
+- **Workstation re-measured** (2026-10-09, load average ~10 rather than
+  20–35): total **min 455 ms, median 644 ms** (recipes 401 / 552 ms); peak
+  heap 73 MiB.
+- **Not run:** the `28-D12` push drill (push to the Pi, time it to
+  "reindexing done"). Pushing to the content repo is Roger's. It is now
+  bounded by the watcher's ~3 s debounce plus a ~2.5 s rebuild, from about
+  3 s plus 13.5 s before.
+
+#### Decision (2026-10-09): stop at 29a
+
+The Pi is at 2.5 s (rule: ≤ ~3 s) and the workstation at 0.5–0.6 s (rule:
+≤ ~1 s), so 29b–29d are deferred. What is left of a reindex is CPU,
+roughly linear in the corpus: ~1.2 ms per recipe on a loaded tourmaline,
+~3.5 ms on the Pi. Incremental would only pay off again at a much larger
+corpus.
+
+**Reopen 29b–29d when** a full reindex on the Pi passes ~5 s (at the current
+rate, roughly 1,300+ recipes), or when heap during a rebuild becomes a
+problem there (436 MiB at 20k on tourmaline). Start by re-running
+`measure-reindex.ts` and re-reading the risks below; the plan in 29b–29d
+still applies.
+
+**Separately, not a reindex problem:** the CLI reindex
+(`pnpm recipes reindex`) still pays ~8 s of tsx startup before any work.
+`deploy-pi.sh --ship-indexes` uses it. Shipping indexes was already the
+slower path (43 s against 15 s in place), and with an in-place rebuild now
+at 2.5 s there is even less reason to choose it.
 
 ### The decision rule
 
