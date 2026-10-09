@@ -126,8 +126,9 @@ its buttons. That's `src/app/(editor)/(settings)/export/availability.ts`, and
 
 Index layouts change with the code (27d's `sourceName`, for one), so every
 deploy rebuilds them. **By default the Pi rebuilds them itself**
-(`POST /api/reindex`). With current code that took 15 s there, and the editor
-keeps serving meanwhile.
+(`POST /api/reindex`). Since epic 29 that takes about 2.5 s there (15 s
+before), and the editor keeps serving the old indexes until the new ones
+commit.
 
 On 2026-10-07, the old systemd setup's refresh never finished: the unit had
 used 21 min 36 s of CPU when it was killed. That was the CRLF markdown hang
@@ -139,9 +140,11 @@ workstation and about 16 s on the Pi.
 of one synced commit per item (`agent-epic-29.md`, D2). Before it, on
 758e9ec7, five `POST /api/reindex` on the Pi took 12.7, 13.9, 14.7, 13.5 and
 10.7 s (median 13.5 s). On the workstation the in-process reindex went from
-12.1 s to 1.7 s (min, 644 recipes, a loaded host). The Pi's number after the
-29a deploy goes here. The CLI's own ~8 s tsx startup is separate, and still
-paid by `--ship-indexes`' `pnpm recipes reindex`.
+12.1 s to 1.7 s (min, 644 recipes, a loaded host). After the
+29a deploy (`a23a488c`, 2026-10-09): five runs took 3.41, 2.55, 2.21, 2.16
+and 2.71 s (median 2.55 s), and the deploy's own cold reindex 4 s. The CLI's
+own ~8 s tsx startup is separate, and still paid by `--ship-indexes`'
+`pnpm recipes reindex`.
 
 **Shipping indexes from the workstation** is there for when the Pi is slow or
 busy (`--ship-indexes` on a deploy, `--sync-index` alone):

@@ -67,8 +67,9 @@ survives a cleared context.
   pings), reindex on foreign HEAD moves, git-annex for large media; phases
   28a–28f.
 - `websites/recipe-website/docs/agent-epic-29.md` — epic 29: faster reindex —
-  a batched, atomic full rebuild and its measurements (29a), then incremental
-  reindex from the git diff (29b–29d) only if the numbers still justify it.
+  a batched, atomic full rebuild and its measurements (29a, Pi 13.5 s →
+  2.5 s); incremental reindex from the git diff (29b–29d) is planned but
+  deferred, with the trigger for reopening it.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
