@@ -70,6 +70,10 @@ survives a cleared context.
   a batched, atomic full rebuild and its measurements (29a, Pi 13.5 s →
   2.5 s); incremental reindex from the git diff (29b–29d) is planned but
   deferred, with the trigger for reopening it.
+- `websites/recipe-website/docs/agent-epic-30.md` — epic 30: readers that
+  never create indexes (F30) and other engine hygiene, accent contrast in the
+  cyan/teal band, group thumbnails on ⌘K and `/search` from the corpus, and a
+  content round under a polite-scraping rule (30a–30d).
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
