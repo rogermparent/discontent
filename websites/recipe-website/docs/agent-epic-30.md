@@ -16,10 +16,12 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 30-plan (#184), 30a (#185) and 30b (#186) are merged. 30c is in
-review (`agent/30c-thumbs`, #187). 30d's content writes are done, with 13
-content commits, none pushed. Left: merge 30c, and two items for Roger (the
-dev-editor screenshot of the thumbnails, and the content push).
+**Now:** epic 30 is **closed** (2026-10-09). 30-plan (#184), 30a (#185), 30b
+(#186) and 30c (#187) are merged; CI was green on every one, all four Recipe
+e2e shards included. 30d's 13 content commits (`0cf3d95` → `4648a11`) are not
+pushed. Two items are left for Roger: the content push, and a look at the ⌘K /
+`/search` group thumbnails on a running editor (the dev-editor screenshot was
+held back for machine load). F32 is the recorded follow-up.
 
 ## Context
 
@@ -89,7 +91,7 @@ A worktree's MCP server points at the worktree, which has no content
 | 30-plan | This doc, CLAUDE.md entry                                                                         | `agent/30-plan`      | ✅ #184    |
 | 30a     | F30 reader guard, export fail-loud, aggregate spec guard, `group:` in `recipe_search`, stale docs | `agent/30a-hygiene`  | ✅ #185    |
 | 30b     | Accent contrast, band only                                                                        | `agent/30b-contrast` | ✅ #186    |
-| 30c     | Group thumbnails from the corpus (⌘K, `/search`)                                                  | `agent/30c-thumbs`   | 🟡 #187    |
+| 30c     | Group thumbnails from the corpus (⌘K, `/search`)                                                  | `agent/30c-thumbs`   | ✅ #187    |
 | 30d     | Content round on the real content repo (no code PR)                                               | — (+ docs PR)        | ✅ content |
 
 **Order.** 30-plan → 30a → 30b → 30c, each a PR off `origin/main`, merged on
