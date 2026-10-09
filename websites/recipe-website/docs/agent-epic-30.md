@@ -16,8 +16,10 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 30-plan merged (#184). 30a is in review (`agent/30a-hygiene`). 30d's content
-writes are done, with 13 content commits, none pushed. Next: 30b.
+**Now:** 30-plan (#184), 30a (#185) and 30b (#186) are merged. 30c is in
+review (`agent/30c-thumbs`, #187). 30d's content writes are done, with 13
+content commits, none pushed. Left: merge 30c, and two items for Roger (the
+dev-editor screenshot of the thumbnails, and the content push).
 
 ## Context
 
@@ -85,9 +87,9 @@ A worktree's MCP server points at the worktree, which has no content
 | Phase   | Scope                                                                                             | Branch               | Status     |
 | ------- | ------------------------------------------------------------------------------------------------- | -------------------- | ---------- |
 | 30-plan | This doc, CLAUDE.md entry                                                                         | `agent/30-plan`      | ✅ #184    |
-| 30a     | F30 reader guard, export fail-loud, aggregate spec guard, `group:` in `recipe_search`, stale docs | `agent/30a-hygiene`  | 🟡         |
-| 30b     | Accent contrast, band only                                                                        | `agent/30b-contrast` | 📝         |
-| 30c     | Group thumbnails from the corpus (⌘K, `/search`)                                                  | `agent/30c-thumbs`   | 📝         |
+| 30a     | F30 reader guard, export fail-loud, aggregate spec guard, `group:` in `recipe_search`, stale docs | `agent/30a-hygiene`  | ✅ #185    |
+| 30b     | Accent contrast, band only                                                                        | `agent/30b-contrast` | ✅ #186    |
+| 30c     | Group thumbnails from the corpus (⌘K, `/search`)                                                  | `agent/30c-thumbs`   | 🟡 #187    |
 | 30d     | Content round on the real content repo (no code PR)                                               | — (+ docs PR)        | ✅ content |
 
 **Order.** 30-plan → 30a → 30b → 30c, each a PR off `origin/main`, merged on
@@ -220,6 +222,29 @@ baselines untouched; axe passes at hue 190 (recipe and portfolio
 `accessibility.spec`); CI green. Closes `ui-overhaul.md`'s PR 7 note and
 `backlog.md`'s contrast row.
 
+#### 30b results (2026-10-09)
+
+- **The curve:** `L(h) = 0.53 − 0.03 · bump(h)`, a raised cosine centred on
+  191 with half-width 41. It is zero at 150, so the "sage"/pine preset doesn't
+  move.
+  - Fitted with `contrastRatio` as the shallowest dip that keeps every hue at
+    4.6:1 or better (half-width 41 needs 0.028; 0.03 was taken for margin).
+  - Before: worst 4.31:1 at 189, with 156–226 under 4.6.
+- **Checks that needed no change:**
+  - dark primary: worst 6.31:1;
+  - accent pairs: 10.8:1 or better;
+  - `--ring` against the background: worst 3.63:1, against the 3:1 bar.
+- **Unit:** `test/theming.test.ts` (22 tests) sweeps all 360 hues × three
+  neutrals × both modes, and pins hue 50's accent tokens byte for byte.
+- **Baselines:**
+  - Recipe visual baselines are untouched: hue 50 and the four presets don't
+    move.
+  - Portfolio's visual spec renders marginalia (335), so no baseline there
+    moved either.
+- **CI:** green, including both sites' `accessibility.spec` (portfolio sweeps
+  oxide; recipe gains the hue-190 "teal-cool" theme). Not run locally: e2e
+  was on hold on the machine.
+
 ### 30c — Group thumbnails from the corpus
 
 What lacks a member-photo fallback today: the client-rendered `/search` group
@@ -247,6 +272,23 @@ sub-group's image; no photo → no field; the 6-candidate cap);
 `command-palette.spec` including Enter-opens-the-top-row; the `/search`
 groups spec; a dev-editor screenshot of a member photo on a group without its
 own image; CI green.
+
+#### 30c results (2026-10-09)
+
+- **One walk.** `common/controller/groupThumbnailCandidates.ts` is the
+  extracted walk.
+  - `GroupThumbnail` runs it over the cached reads.
+  - `getGroupSearchCorpus` runs it over its records map, and reads each recipe
+    at most once.
+- **Unit:** `test/groupSearchCorpus.test.ts` (6) adds "descends into a
+  sub-group without a picture" to the planned cases. Curation, groups and
+  exportStaticParams pass (111), and both typechecks are clean.
+- **No baseline moved by construction.** No visual spec loads a fixture with
+  groups.
+- **`command-palette.spec` and the search specs:** CI only, since local e2e
+  was on hold.
+- **Still to do:** the dev-editor screenshot. It needs a running editor, which
+  was held back for machine load.
 
 #### F32 — array references (follow-up, not in this epic)
 

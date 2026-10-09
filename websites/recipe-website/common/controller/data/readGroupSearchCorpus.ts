@@ -2,11 +2,16 @@ import { readContentFile } from "@discontent/cms/content/readContentFile";
 import { readAllIds } from "@discontent/cms/pagination/readAllIds";
 import { groupContentConfig } from "../groupContentConfig";
 import { groupsByDate, type GroupListEntry } from "../groupPaginationConfig";
+import { collectThumbnailCandidates } from "../groupThumbnailCandidates";
+import { recipeContentConfig } from "../recipeContentConfig";
 import type {
   Group,
   GroupEntryKey,
   GroupEntryValue,
   GroupKind,
+  Recipe,
+  RecipeEntryKey,
+  RecipeEntryValue,
 } from "../types";
 
 /**
@@ -27,11 +32,25 @@ export interface GroupSearchEntry {
    * The group's own picture, when it has one (22h/D14) — the whole reason the
    * field is on the index as well as the data file. A `/search` card is
    * rendered on the client and can run no server walk, so this is the only
-   * picture it can draw; a group without one shows the placeholder there, where
-   * a server-rendered card would fall back to a member's photo.
+   * picture of its own it can draw.
    */
   image?: string;
+  /**
+   * The member photo a group without `image` borrows (30c) — what the server
+   * `GroupThumbnail` would draw, found by the same walk, so ⌘K and `/search`
+   * stop showing a placeholder where `/groups` shows a photo. `uploadsDirectory`
+   * says whose upload it is: a recipe's, or a sub-group's own picture. Absent
+   * when the group has an image of its own, or nothing in the walk has one.
+   */
+  thumbnail?: GroupSearchThumbnail;
   recipes: string[];
+}
+
+/** A borrowed picture: whose uploads it lives under, and its file name. */
+export interface GroupSearchThumbnail {
+  uploadsDirectory: "uploads/recipe" | "uploads/group";
+  slug: string;
+  image: string;
 }
 
 /**
@@ -97,20 +116,49 @@ export async function getGroupSearchCorpus({
    * keyspace's and not whichever read settled first — `sort` is stable, and two
    * groups sharing a date have to land in a fixed order.
    */
-  const entries = slugs
+  const present = slugs
     .map((slug) => [slug, records.get(slug)] as const)
-    .filter((pair): pair is [string, Group] => pair[1] !== undefined)
-    .map(
-      ([slug, group]): GroupSearchEntry => ({
+    .filter((pair): pair is [string, Group] => pair[1] !== undefined);
+
+  /*
+   * One read per recipe however many groups borrow from it. The memo holds the
+   * promise, so two groups walking the same recipe share one read.
+   */
+  const recipeImages = new Map<string, Promise<string | undefined>>();
+  const recipeImage = (slug: string) => {
+    let read = recipeImages.get(slug);
+    if (!read) {
+      read = readContentFile<Recipe, RecipeEntryValue, RecipeEntryKey>({
+        config: recipeContentConfig,
+        slug,
+        contentDirectory,
+      }).then(
+        (recipe) => recipe.image || undefined,
+        /* A dangling member has no picture; that is not an error here. */
+        () => undefined,
+      );
+      recipeImages.set(slug, read);
+    }
+    return read;
+  };
+
+  const entries = await Promise.all(
+    present.map(async ([slug, group]): Promise<GroupSearchEntry> => {
+      const thumbnail = group.image
+        ? undefined
+        : await resolveThumbnail(slug, group, records, recipeImage);
+      return {
         slug,
         date: group.date,
         name: group.name,
         kind: group.kind,
         description: group.description,
         image: group.image,
+        ...(thumbnail ? { thumbnail } : {}),
         recipes: expandRecipes(slug, records),
-      }),
-    );
+      };
+    }),
+  );
 
   /*
    * Newest first, matching every other group surface (`/groups`, the homepage
@@ -120,6 +168,46 @@ export async function getGroupSearchCorpus({
    * promise the rail and the palette both rely on.
    */
   return entries.sort((a, b) => b.date - a.date);
+}
+
+/**
+ * The first member photo for a group without one of its own (30c).
+ *
+ * `collectThumbnailCandidates` is `GroupThumbnail`'s walk, run over the records
+ * this document already holds instead of the cached reads: at most six
+ * candidates, read in order, first picture wins — so the answer is the server
+ * card's, the group's own first, not whichever read settled first. A sub-group
+ * candidate already carries its picture.
+ */
+async function resolveThumbnail(
+  slug: string,
+  group: Group,
+  records: Map<string, Group>,
+  recipeImage: (slug: string) => Promise<string | undefined>,
+): Promise<GroupSearchThumbnail | undefined> {
+  const candidates = await collectThumbnailCandidates(
+    slug,
+    group.items ?? [],
+    (child) => records.get(child),
+  );
+  for (const candidate of candidates) {
+    if (candidate.kind === "group") {
+      return {
+        uploadsDirectory: "uploads/group",
+        slug: candidate.slug,
+        image: candidate.image,
+      };
+    }
+    const image = await recipeImage(candidate.slug);
+    if (image) {
+      return {
+        uploadsDirectory: "uploads/recipe",
+        slug: candidate.slug,
+        image,
+      };
+    }
+  }
+  return undefined;
 }
 
 /**

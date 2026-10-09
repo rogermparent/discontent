@@ -35,6 +35,10 @@ import {
   CommandShortcut,
 } from "@discontent/component-library/components/ui/command";
 import { MassagedRecipeEntry } from "../../controller/data/read";
+import type {
+  GroupSearchEntry,
+  GroupSearchThumbnail,
+} from "../../controller/data/readGroupSearchCorpus";
 import { SEARCH_DEBOUNCE_MS, useSearch } from "../SearchForm/SearchContext";
 import {
   appendFilterTerm,
@@ -61,6 +65,20 @@ const MAX_RECIPE_ROWS = 5;
  * thing that pushed "See all results" out of view.
  */
 const MAX_GROUP_ROWS = 3;
+
+/** A group row's picture: its own, else the member photo it borrowed (30c). */
+function groupPicture(
+  group: GroupSearchEntry,
+): GroupSearchThumbnail | undefined {
+  if (group.image) {
+    return {
+      uploadsDirectory: "uploads/group",
+      slug: group.slug,
+      image: group.image,
+    };
+  }
+  return group.thumbnail;
+}
 /** cmdk `value` prefix for a recent-search row; the ⌫ handler keys off it. */
 const RECENT_PREFIX = "recent:";
 /**
@@ -590,7 +608,27 @@ export function CommandPalette({
                   }}
                 >
                   <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
-                    <Layers className="size-4 text-muted-foreground" />
+                    {/*
+                      The group's own picture, else the member photo the corpus
+                      borrowed for it (30c), else the icon. Decided up front and
+                      never swapped on an image error: replacing a row's child
+                      re-registers the cmdk item, which is what broke
+                      Enter-opens-the-top-row in 28i (30-T2).
+                    */}
+                    {(() => {
+                      const picture = groupPicture(group);
+                      return picture ? (
+                        <PureStaticImage
+                          {...picture}
+                          alt=""
+                          width={400}
+                          height={600}
+                          className="size-full object-cover"
+                        />
+                      ) : (
+                        <Layers className="size-4 text-muted-foreground" />
+                      );
+                    })()}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate">
