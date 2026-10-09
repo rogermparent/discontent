@@ -1316,11 +1316,20 @@ describe("deleteRecipe", () => {
 
 describe("reindex", () => {
   it("names every registered type, and rejects one that is not registered", async () => {
-    expect(await reindex(ctx)).toEqual({
+    const all = await reindex(ctx);
+    expect(all.rebuilt).toEqual([
       /* `tag-terms` appended at 24c, from the one line added to the registry. */
-      rebuilt: ["recipes", "featured-recipes", "pages", "groups", "tag-terms"],
-    });
-    expect(await reindex(ctx, "groups")).toEqual({ rebuilt: ["groups"] });
+      "recipes",
+      "featured-recipes",
+      "pages",
+      "groups",
+      "tag-terms",
+    ]);
+    /* 29a: one timing per type rebuilt, plus the whole pass. */
+    expect(Object.keys(all.timings ?? {})).toEqual([...all.rebuilt, "total"]);
+    const one = await reindex(ctx, "groups");
+    expect(one.rebuilt).toEqual(["groups"]);
+    expect(Object.keys(one.timings ?? {})).toEqual(["groups", "total"]);
     await expect(reindex(ctx, "widgets")).rejects.toMatchObject({
       code: "not_found",
     });

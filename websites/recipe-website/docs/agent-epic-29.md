@@ -14,9 +14,12 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** plan written (2026-10-08). 29a (batched atomic rebuild, plus
-measurement) is next. 29b–29d run only if 29a's numbers say go (see
-[the decision rule](#the-decision-rule)).
+**Now:** the plan is merged (#181). 29a (batched atomic rebuild) is in
+review: on tourmaline a full reindex went from 12.1 s to 1.7 s (min,
+in-process, 644 recipes) and from 690 commits to 11, with identical index
+dumps. **Waiting on Roger** to deploy it to the Pi (`! pnpm deploy:pi`) so
+the Pi can be measured against its 13.5 s baseline; then the decision rule
+says whether 29b–29d run.
 
 ## Context
 
@@ -112,13 +115,13 @@ someone asks for a rebuild, they get one.
 
 ## Roadmap
 
-| Phase   | Scope                                                         | Branch                  | Status |
-| ------- | ------------------------------------------------------------- | ----------------------- | ------ |
-| 29-plan | This doc, CLAUDE.md entry                                     | `agent/29-plan`         | 🟡     |
-| 29a     | Batched atomic full rebuild (D2), timings, measure/dump tools | `agent/29a-batched`     | 📝     |
-| 29b     | Engine incremental API, index version (D5) — if go            | `agent/29b-incremental` | 📝     |
-| 29c     | Editor seat `reindexChanged`, wiring, index lock — if go      | `agent/29c-seat`        | 📝     |
-| 29d     | Revalidation, docs, Pi drill — if go                          | `agent/29d-close`       | 📝     |
+| Phase   | Scope                                                         | Branch                  | Status  |
+| ------- | ------------------------------------------------------------- | ----------------------- | ------- |
+| 29-plan | This doc, CLAUDE.md entry                                     | `agent/29-plan`         | ✅ #181 |
+| 29a     | Batched atomic full rebuild (D2), timings, measure/dump tools | `agent/29a-batched`     | 🟡      |
+| 29b     | Engine incremental API, index version (D5) — if go            | `agent/29b-incremental` | 📝      |
+| 29c     | Editor seat `reindexChanged`, wiring, index lock — if go      | `agent/29c-seat`        | 📝      |
+| 29d     | Revalidation, docs, Pi drill — if go                          | `agent/29d-close`       | 📝      |
 
 Each phase is its own PR off `origin/main`, merged on green CI under the
 standing grant. Pi deploys are Roger's (`! pnpm deploy:pi`): the permission
@@ -179,6 +182,42 @@ and `updateReferences.ts`.
   the same again, plus `.timings`; and a `28-D12` push timed from the push to
   "reindexing" done.
 - The numbers go here and into `deploy-pi.md`.
+
+#### 29a results (2026-10-08)
+
+Measured with `scripts/measure-reindex.ts` (in-process, so no tsx startup)
+on tourmaline, under heavy load from other jobs (load average 20–35), so
+**min** is the number to read; medians are given too. "Old" is
+`origin/main` at `385e4f4d`'s engine files swapped back in for the run.
+
+| Corpus                    | Old: total min / median | New: total min / median | Commits old → new | Peak heap old → new |
+| ------------------------- | ----------------------- | ----------------------- | ----------------- | ------------------- |
+| Real copy (644 recipes)   | 12.1 s / 13.7 s         | 1.68 s / 1.90 s         | 690 → 11          | 60 → 64 MiB         |
+| Seeded 5k (200 featured)  | 112.8 s (1 run)         | 8.7 s / 11.4 s          | 5221 → 11         | 62 → 228 MiB        |
+| Seeded 20k (500 featured) | not run (~8 min)        | 23.5 s / 25.9 s         | — → 11            | — → 436 MiB         |
+
+- **Equivalence (D3):** the dump sha is identical before and after —
+  `ca9e27a0…` on the real copy (2,732 entries in 15 environments) and
+  `51aec332…` on 5k. Two old-engine rebuilds of the real copy also dump
+  identically, so the dump is deterministic.
+- **Commits:** 11 per full reindex, whatever the corpus: one per content
+  index (5), two per pagination index (3 × 2: the sorted keyspace, then the
+  walk). Aggregates wrote nothing — their values did not change.
+- **What's left is CPU**, roughly linear at ~1.2 ms per recipe (the recipe
+  index value's markdown and React work, the pagination projection). Per
+  type at 644 (min): recipes 1.44 s, featured 56 ms, groups 55 ms, tag-terms
+  23 ms, pages 9 ms.
+- **Heap grows with the corpus** now, because a type's entries are held
+  until its transaction (and the pagination rebuild materializes its range,
+  as it always did): 228 MiB at 5k, 436 MiB at 20k. Irrelevant at 644; at
+  20k on the Pi it would want watching.
+- **Tests:** `test/rebuildIndexAtomic.test.ts` (5). Its reader test fails on
+  the old engine — it saw counts 0, 1, 2, … during the rebuild — and passes
+  on the new.
+- **Pi baseline** (758e9ec7, before 29a; `curl` time for
+  `POST /api/reindex`, which includes revalidation): 12.7, 13.9, 14.7, 13.5,
+  10.7 s — **median 13.5 s**, min 10.7 s.
+- **Pi after 29a:** pending Roger's deploy.
 
 ### The decision rule
 

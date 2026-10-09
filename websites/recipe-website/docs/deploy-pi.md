@@ -135,6 +135,14 @@ used 21 min 36 s of CPU when it was killed. That was the CRLF markdown hang
 `normalizeLineEndings` landed. With the fix, a full rebuild takes 8 s on the
 workstation and about 16 s on the Pi.
 
+**Epic 29 (29a)** made a full rebuild one write transaction per index instead
+of one synced commit per item (`agent-epic-29.md`, D2). Before it, on
+758e9ec7, five `POST /api/reindex` on the Pi took 12.7, 13.9, 14.7, 13.5 and
+10.7 s (median 13.5 s). On the workstation the in-process reindex went from
+12.1 s to 1.7 s (min, 644 recipes, a loaded host). The Pi's number after the
+29a deploy goes here. The CLI's own ~8 s tsx startup is separate, and still
+paid by `--ship-indexes`' `pnpm recipes reindex`.
+
 **Shipping indexes from the workstation** is there for when the Pi is slow or
 busy (`--ship-indexes` on a deploy, `--sync-index` alone):
 

@@ -93,6 +93,33 @@ export function getIndexCount<TIndexValue = unknown, TKey extends Key = Key>(
 }
 
 /**
+ * Replace every entry in the index with `entries`, in one write transaction.
+ *
+ * What a full rebuild writes through (epic 29, D2). The clear and the puts
+ * commit together, so a reader — in this process or another — sees the old
+ * index or the new one and never an empty or half-written one; and the
+ * rebuild pays one synced commit instead of one per item, which was most of
+ * its wall-clock time (`agent-epic-29.md`, "Measured").
+ *
+ * `clearSync` nests: inside an open write transaction lmdb-js runs it inline
+ * (`transactionSync` with flags that skip the child transaction), so the drop
+ * is part of this commit rather than one of its own. Nothing in the callback
+ * awaits — the entries are collected before the transaction opens.
+ */
+export async function replaceIndex<
+  TIndexValue = unknown,
+  TKey extends Key = Key,
+>(
+  db: RootDatabase<TIndexValue, TKey>,
+  entries: readonly { key: TKey; value: TIndexValue }[],
+): Promise<void> {
+  await db.transaction(() => {
+    db.clearSync();
+    for (const { key, value } of entries) db.putSync(key, value);
+  });
+}
+
+/**
  * Drop all entries from the index (for rebuilding)
  */
 export async function dropIndex<TIndexValue = unknown, TKey extends Key = Key>(

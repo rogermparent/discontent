@@ -67,27 +67,6 @@ async function rebuildSortedKeyspace<TIndexValue, TKey extends Key, TItem>(
 ): Promise<void> {
   const { config, paginationConfig, contentDirectory } = options;
 
-  /*
-   * The flag goes down before anything is destroyed. A crash from here on
-   * leaves an index that is visibly mid-rebuild rather than one that looks
-   * complete and is not.
-   */
-  await db.put(META_KEY, {
-    total: 0,
-    headPage: 0,
-    perPage: paginationConfig.perPage,
-    specHash,
-    updatedAt: Date.now(),
-    rebuildInProgress: true,
-  });
-
-  const stale = [...db.getKeys({ start: [SORTED], end: [META] })];
-  if (stale.length > 0) {
-    await db.transaction(() => {
-      for (const key of stale) db.remove(key);
-    });
-  }
-
   const contentDb = getContentDatabase<TIndexValue, TKey>(
     config,
     contentDirectory || getContentDirectory(),
@@ -100,8 +79,26 @@ async function rebuildSortedKeyspace<TIndexValue, TKey extends Key, TItem>(
   const entries: { key: TKey; value: TIndexValue }[] = [
     ...contentDb.getRange({}),
   ];
+  const stale = [...db.getKeys({ start: [SORTED], end: [META] })];
 
+  /*
+   * One commit (29a): the flag, the removes and the rewrite. These were three
+   * awaited commits; together they cannot be seen half-done at all. The flag
+   * still goes down, because the paged keyspace is only rebuilt by the walk
+   * after this, in a transaction of its own — a crash between the two leaves
+   * an index that is visibly mid-rebuild rather than one that looks complete
+   * and is not.
+   */
   await db.transaction(() => {
+    db.put(META_KEY, {
+      total: 0,
+      headPage: 0,
+      perPage: paginationConfig.perPage,
+      specHash,
+      updatedAt: Date.now(),
+      rebuildInProgress: true,
+    });
+    for (const key of stale) db.remove(key);
     for (const { key, value } of entries) {
       writeSortedEntryTo(db, paginationConfig, getId(paginationConfig, key), {
         key,
