@@ -149,10 +149,13 @@ test.describe("Bar tools", () => {
     await expect(view.getByTestId("wake-lock-status")).toBeVisible();
     await expect.poll(held).toBe(1);
 
-    /* Steps tap off. */
-    const step = view.getByRole("button", { name: /Make it\./ });
-    await step.click();
-    await expect(step).toHaveAttribute("aria-pressed", "true");
+    /* Steps and ingredients are checklists, as on the page. */
+    const step = view.getByRole("checkbox", { name: /Make it\./ });
+    await view.getByText(/Make it\./).click();
+    await expect(step).toBeChecked();
+    const ingredient = view.getByRole("checkbox", { name: /2 oz vodka/ });
+    await ingredient.click();
+    await expect(ingredient).toBeChecked();
 
     await page.keyboard.press("Escape");
     await expect(view).toHaveCount(0);

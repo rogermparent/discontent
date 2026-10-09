@@ -84,6 +84,10 @@ export interface PageActionsProps {
 
 /**
  * Consistent styling for page action buttons (edit, delete, etc.)
+ *
+ * Wraps: a recipe's five actions (Delete · Edit · Copy · Feature · Group) need
+ * about 380px in one row, so on a narrower phone an unwrapped row pushed the
+ * whole page sideways — the overlays opened from it included.
  */
 export function PageActions({ children, className }: PageActionsProps) {
   return (
@@ -91,7 +95,7 @@ export function PageActions({ children, className }: PageActionsProps) {
       <hr className="w-full border-border print:hidden" />
       <div
         className={cn(
-          "flex flex-row justify-center px-4 py-2 print:hidden gap-2",
+          "flex flex-row flex-wrap justify-center px-4 py-2 print:hidden gap-2",
           className,
         )}
       >

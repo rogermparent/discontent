@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import StyledMarkdown from "@discontent/component-library/components/Markdown";
 import { Button } from "@discontent/component-library/components/ui/button";
+import { Checkbox } from "@discontent/component-library/components/ui/checkbox";
 import { cn } from "@discontent/component-library/lib/utils";
 import type {
   DrinkSpec,
@@ -22,6 +23,10 @@ import { Multiplyable } from "../Multiplier/Multiplyable";
  * `MultiplierProvider` and `UnitProvider` — whatever the reader scaled or
  * switched to on the page is what the big type shows, and the scaler is here
  * too. Common code, so the editor and the export both have it.
+ *
+ * Ingredients and steps are checklists, like the page's: tick an ingredient
+ * off as it is gathered, a step as it is done. Each step's whole card is the
+ * checkbox's label, so a tap anywhere on it still ticks it.
  *
  * The screen stays on while it is open: a `screen` wake lock, feature-detected
  * (Firefox and older Safari have none, and the view works the same without
@@ -48,6 +53,12 @@ function flattenSteps(
 }
 
 const markdownComponents = { Multiplyable };
+
+/*
+ * The page's checklists, sized for a counter: a box big enough to hit with a
+ * floury thumb, nudged down to sit on the first line of the big type.
+ */
+const focusCheckboxClassName = "mt-1 size-7 sm:mt-1.5 [&_svg]:size-5";
 
 /** Hold the screen awake while mounted; answer whether a lock is held. */
 function useScreenWakeLock(): boolean {
@@ -103,6 +114,7 @@ function FocusOverlay({
 }: FocusViewProps & { label: string; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const [done, setDone] = useState<Set<number>>(() => new Set());
+  const [gathered, setGathered] = useState<Set<number>>(() => new Set());
   const awake = useScreenWakeLock();
   const steps = flattenSteps(instructions);
 
@@ -121,13 +133,18 @@ function FocusOverlay({
     };
   }, [onClose]);
 
-  const toggle = (index: number) =>
-    setDone((previous) => {
-      const next = new Set(previous);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
-      return next;
-    });
+  /* One checklist each: ingredients gathered, steps done. */
+  const toggleIn =
+    (setChecked: React.Dispatch<React.SetStateAction<Set<number>>>) =>
+    (index: number) =>
+      setChecked((previous) => {
+        const next = new Set(previous);
+        if (next.has(index)) next.delete(index);
+        else next.add(index);
+        return next;
+      });
+  const toggleStep = toggleIn(setDone);
+  const toggleIngredient = toggleIn(setGathered);
 
   return (
     <div
@@ -179,9 +196,23 @@ function FocusOverlay({
                   </li>
                 ) : (
                   <li key={i}>
-                    <StyledMarkdown components={markdownComponents}>
-                      {markOunces(ingredient)}
-                    </StyledMarkdown>
+                    <label
+                      className={cn(
+                        "flex cursor-pointer flex-row items-start gap-3 transition-opacity",
+                        gathered.has(i) && "opacity-40 line-through",
+                      )}
+                    >
+                      <Checkbox
+                        checked={gathered.has(i)}
+                        onCheckedChange={() => toggleIngredient(i)}
+                        className={focusCheckboxClassName}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <StyledMarkdown components={markdownComponents}>
+                          {markOunces(ingredient)}
+                        </StyledMarkdown>
+                      </span>
+                    </label>
                   </li>
                 ),
               )}
@@ -200,15 +231,21 @@ function FocusOverlay({
                         {step.group}
                       </h3>
                     )}
-                  <button
-                    type="button"
-                    aria-pressed={done.has(i)}
-                    onClick={() => toggle(i)}
+                  {/*
+                    The whole card is the checkbox's label, so a tap anywhere on
+                    it still ticks the step off — with a visible box to say so.
+                  */}
+                  <label
                     className={cn(
-                      "flex w-full flex-row gap-4 rounded-md border border-border bg-card p-4 text-left text-xl transition-opacity sm:text-2xl",
+                      "flex w-full cursor-pointer flex-row items-start gap-4 rounded-md border border-border bg-card p-4 text-left text-xl transition-opacity sm:text-2xl",
                       done.has(i) && "opacity-40 line-through",
                     )}
                   >
+                    <Checkbox
+                      checked={done.has(i)}
+                      onCheckedChange={() => toggleStep(i)}
+                      className={focusCheckboxClassName}
+                    />
                     <span className="min-w-[2ch] shrink-0 font-mono tabular-nums text-muted-foreground">
                       {i + 1}
                     </span>
@@ -220,7 +257,7 @@ function FocusOverlay({
                         {step.text}
                       </StyledMarkdown>
                     </span>
-                  </button>
+                  </label>
                 </li>
               ))}
             </ol>
