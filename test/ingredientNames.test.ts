@@ -203,7 +203,9 @@ describe("parseIngredientLine — quantities, units and alternatives", () => {
       "lemon juice or lime juice",
     );
     expect(label("2 oz dark or light rum")).toBe("dark rum or light rum");
-    expect(label("1 green onion/scallion")).toBe("green onion or scallion");
+    expect(label("2 cups milk or cream")).toBe("milk or cream");
+    /* Scallion is a green onion (32j), so the two alternatives are one. */
+    expect(label("1 green onion/scallion")).toBe("green onion");
     expect(label("2 oz vodka and/or gin")).toBe("vodka or gin");
     expect(label("tonkatsu sauce ((or make my Homemade Tonkatsu Sauce))")).toBe(
       "tonkatsu sauce",
@@ -211,8 +213,17 @@ describe("parseIngredientLine — quantities, units and alternatives", () => {
     expect(label("2 oz gin (or vodka)")).toBe("gin or vodka");
   });
 
-  it("never splits on and", () => {
-    expect(label("Salt and pepper")).toBe("salt and pepper");
+  it("never splits on and, except salt and pepper (32j)", () => {
+    expect(label("1 cup half and half")).toBe("half and half");
+    expect(label("2 cups macaroni and cheese")).toBe("macaroni and cheese");
+    expect(
+      parseIngredientLine("Salt and pepper").map(requirementLabel),
+    ).toEqual(["salt", "pepper"]);
+    expect(
+      parseIngredientLine(
+        "1 tsp kosher salt & freshly ground black pepper",
+      ).map(requirementLabel),
+    ).toEqual(["kosher salt", "ground black pepper"]);
   });
 
   it("drops measures in parentheses but keeps names as aliases", () => {
@@ -305,5 +316,67 @@ describe("toName", () => {
     expect(singular("bitters")).toBe("bitters");
     expect(singular("citrus")).toBe("citrus");
     expect(singular("glass")).toBe("glass");
+  });
+});
+
+describe("parseIngredientLine — food lines (32j)", () => {
+  /* Lines from the real corpus's dinners, as 25c's matcher misread them. */
+  it.each([
+    /* A prep phrase without a comma. */
+    ["1 large onion cut into wedges", "onion"],
+    [
+      "8 tablespoons (113g) unsalted butter at room temperature",
+      "unsalted butter",
+    ],
+    ["3 1/4 cups flour plus more for kneading", "flour"],
+    ['1 1/2 pound stewing beef trimmed and cut into 1" cubes', "stewing beef"],
+    ["Lemon juice to taste", "lemon juice"],
+    ["2 teaspoons salt or to taste", "salt"],
+    [
+      "4 Tbsp light olive oil (or any cooking oil, divided)",
+      "light olive oil or any cooking oil",
+    ],
+    /* Remarks in parentheses that say how much. */
+    ["1/2 cup milk (or more as needed)", "milk"],
+    ["1 tbsp. (or more) fresh lemon juice", "lemon juice"],
+    ["2 Tbsp sugar (adjust to taste)", "sugar"],
+    /* "or more" before a name is a choice. */
+    [
+      "2-3 Tbsp ghee (or margarine, or more butter)",
+      "ghee or margarine or butter",
+    ],
+    /* How a cut comes. */
+    ["2 boneless, skinless chicken breasts", "chicken breast"],
+    ["8 bone-in, skin-on chicken thighs", "chicken thigh"],
+    ["3 lbs chicken thighs boneless, skinless", "chicken thigh"],
+    /* An amount in two units. */
+    ["3.5lb/1.5kg bone in pork butt", "pork butt"],
+    ["1 cup/240ml milk", "milk"],
+    /* Food synonyms. */
+    ["2 scallions, thinly sliced", "green onion"],
+    ["1 can garbanzo beans, drained", "chickpea"],
+    ["1 cup confectioners' sugar", "powdered sugar"],
+    ["2 courgettes", "zucchini"],
+    ["1 cup double cream", "heavy cream"],
+    ["1 lb hamburger meat", "ground beef"],
+    ["1 tsp bicarbonate of soda", "baking soda"],
+    ["2 red chillies", "red chili"],
+    ["1 cup Greek yoghurt", "greek yogurt"],
+    /* Flavoured salts stay whole; "ancho chile" stays as the drinks write it. */
+    ["1/2 tsp celery salt", "celery salt"],
+    ["1/2 oz ancho chile liqueur", "ancho chile liqueur"],
+  ])("%s → %s", (line, expected) => {
+    expect(label(line)).toBe(expected);
+  });
+
+  it("marks cool and lukewarm water as staples", () => {
+    expect(only("1 cup cool water").staple).toBe(true);
+    expect(only("300g lukewarm water").staple).toBe(true);
+  });
+
+  it("splits salt and pepper, keeping the line optional when it is", () => {
+    const [salt, pepper] = parseIngredientLine("Salt and pepper to taste");
+    expect([salt.optional, pepper.optional]).toEqual([true, true]);
+    expect(requirementLabel(pepper)).toBe("pepper");
   });
 });

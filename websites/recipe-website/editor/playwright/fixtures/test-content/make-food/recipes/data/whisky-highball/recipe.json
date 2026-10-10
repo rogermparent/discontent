@@ -1,0 +1,23 @@
+{
+  "name": "Whisky Highball",
+  "description": "Whisky and soda, tall.",
+  "tags": [
+    "drink",
+    "highball"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "2 oz whisky"
+    },
+    {
+      "ingredient": "Soda water, to top"
+    }
+  ],
+  "date": 1792000420000,
+  "recipeYield": "2 servings",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

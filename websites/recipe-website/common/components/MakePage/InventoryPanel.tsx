@@ -12,8 +12,93 @@ import { Button } from "@discontent/component-library/components/ui/button";
 import { Input } from "@discontent/component-library/components/ui/input";
 import { cn } from "@discontent/component-library/lib/utils";
 import { inventoryKey, parseInventoryText } from "../../util/inventoryText";
-import type { Inventory } from "./useInventory";
+import type { Inventory, MakeSettings } from "./useInventory";
 import { ImportExportDialog } from "./ImportExportDialog";
+
+/**
+ * "Assume I always have" (32j): the staples the matcher counts as on hand —
+ * salt, black pepper, water and ice until edited — kept in this browser
+ * beside the list. Folded away by default; the summary says how many.
+ */
+function StaplesEditor({ settings }: { settings: MakeSettings }) {
+  const { staples, setStaples, resetStaples, defaultStaples } = settings;
+  const [draft, setDraft] = useState("");
+  const inputId = useId();
+  return (
+    <details className="rounded-md border px-3 py-2" data-testid="staples">
+      <summary className="cursor-pointer text-xs font-semibold">
+        Assume I always have ({staples.length})
+      </summary>
+      <div className="mt-2 flex flex-col gap-2">
+        {staples.length > 0 && (
+          <ul
+            className="flex flex-wrap gap-1.5"
+            aria-label="Assumed on hand"
+            data-testid="staples-chips"
+          >
+            {staples.map((item) => (
+              <li
+                key={inventoryKey(item)}
+                className="inline-flex items-center rounded-full border text-xs"
+              >
+                <span className="pl-2.5 pr-1 py-0.5">{item}</span>
+                <button
+                  type="button"
+                  aria-label={`Stop assuming ${item}`}
+                  className="mr-1 rounded-full p-0.5 hover:bg-foreground/10 focus-visible:outline-2 focus-visible:outline-ring"
+                  onClick={() =>
+                    setStaples(
+                      staples.filter(
+                        (kept) => inventoryKey(kept) !== inventoryKey(item),
+                      ),
+                    )
+                  }
+                >
+                  <X aria-hidden className="size-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <form
+          className="flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const { items } = parseInventoryText(draft);
+            if (items.length > 0) setStaples([...staples, ...items]);
+            setDraft("");
+          }}
+        >
+          <label htmlFor={inputId} className="sr-only">
+            Add to what I always have
+          </label>
+          <Input
+            id={inputId}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="e.g. olive oil"
+            autoComplete="off"
+            className="h-8 text-xs"
+          />
+          <Button type="submit" size="sm" variant="outline" className="h-8">
+            Add
+          </Button>
+        </form>
+        {!defaultStaples && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="self-start h-7 px-2 text-xs"
+            onClick={resetStaples}
+          >
+            Reset to salt, pepper, water, ice
+          </Button>
+        )}
+      </div>
+    </details>
+  );
+}
 
 /** Most suggestions put in the datalist; the browser filters as you type. */
 const MAX_SUGGESTIONS = 300;
@@ -35,8 +120,11 @@ export function InventoryPanel({
   inputRef,
   dialogOpen,
   onDialogOpenChange,
+  settings,
 }: {
   inventory: Inventory;
+  /** The staples to edit (32j); none, no editor. */
+  settings?: MakeSettings;
   /**
    * The editor's shared list (25d), when there is one. With it, each chip
    * says where it comes from — shared, or added on this browser (`+`) — and
@@ -210,6 +298,7 @@ export function InventoryPanel({
           </div>
         )}
         {pending}
+        {settings && <StaplesEditor settings={settings} />}
         <div className="flex flex-wrap gap-2">
           <ImportExportDialog
             have={have}

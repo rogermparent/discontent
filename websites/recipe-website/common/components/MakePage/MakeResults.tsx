@@ -12,9 +12,25 @@ import type {
 import SearchList from "../SearchList";
 import { RecipeCardLink } from "../List/shared";
 
-/** The line under a card: what to make first, and what's missing. */
+/**
+ * The line under a card: what to make first, what a close item stands in
+ * for (32j: "≈ onion for shallot"), and what's missing. With close matches
+ * not counted, a close line is missing too, and says what came near.
+ */
 function MatchNote({ match }: { match: RecipeMatch }) {
-  if (match.via.length === 0 && match.missing.length === 0) return null;
+  if (
+    match.via.length === 0 &&
+    match.missing.length === 0 &&
+    match.close.length === 0
+  ) {
+    return null;
+  }
+  const nearBy = new Map(
+    match.close.map(({ requirement, item }) => [requirement, item]),
+  );
+  const counted = match.close.filter(
+    ({ requirement }) => !match.missing.includes(requirement),
+  );
   return (
     <div className="mx-2 my-1 flex flex-col gap-0.5 text-xs">
       {match.via.map(({ slug, name }) => (
@@ -22,9 +38,27 @@ function MatchNote({ match }: { match: RecipeMatch }) {
           Make {name.toLowerCase()} first
         </p>
       ))}
+      {counted.map(({ requirement, item }) => (
+        <p
+          key={`${requirement.line}-${requirementLabel(requirement)}`}
+          data-testid="make-close"
+          className="text-muted-foreground"
+        >
+          <span aria-hidden>≈ </span>
+          <span className="sr-only">Close match: </span>
+          {item} for {requirementLabel(requirement)}
+        </p>
+      ))}
       {match.missing.length > 0 && (
         <p data-testid="make-missing" className="font-medium">
-          Missing: {match.missing.map(requirementLabel).join(", ")}
+          Missing:{" "}
+          {match.missing
+            .map((requirement) => {
+              const near = nearBy.get(requirement);
+              const label = requirementLabel(requirement);
+              return near ? `${label} (close: ${near})` : label;
+            })
+            .join(", ")}
         </p>
       )}
     </div>

@@ -210,6 +210,11 @@ export interface MakeableRow {
   missing?: string[];
   /** Recipes to make first ("lavender-syrup"), by slug. */
   makeFirst?: string[];
+  /**
+   * Lines met only by a close item (32j), counted as had: what the line
+   * needs, and the list's entry standing in for it.
+   */
+  close?: { needs: string; have: string }[];
 }
 
 export interface MakeableResult {
@@ -238,6 +243,14 @@ function toRow(match: RecipeMatch): MakeableRow {
     ...(match.via.length > 0
       ? { makeFirst: match.via.map(({ slug }) => slug) }
       : {}),
+    ...(match.close.length > 0
+      ? {
+          close: match.close.map(({ requirement, item }) => ({
+            needs: requirementLabel(requirement),
+            have: item,
+          })),
+        }
+      : {}),
   };
 }
 
@@ -262,7 +275,11 @@ async function readMakeCorpus(ctx: CurationContext): Promise<MakeRecipe[]> {
   return entries;
 }
 
-/** What the shared list can make in `query`'s scope (`tag:drink` by default). */
+/**
+ * What the shared list can make in `query`'s scope — every recipe by default
+ * (32j) — with `DEFAULT_STAPLES` assumed and close matches counted as had,
+ * as `/make` does out of the box.
+ */
 export async function makeable(
   ctx: CurationContext,
   raw: unknown = {},

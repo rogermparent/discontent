@@ -3,7 +3,7 @@
  * (25d), the seat behind `inventory_makeable` over `--remote`.
  *
  * Authenticated like its parent: the answer is the list, restated as recipes.
- * `query` is the search language (`tag:drink` when absent); `limit` caps each
+ * `query` is the search language (every recipe when absent); `limit` caps each
  * bucket's rows.
  */
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
