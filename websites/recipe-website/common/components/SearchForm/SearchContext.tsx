@@ -14,8 +14,11 @@ import { Document } from "flexsearch";
 import IdxDB from "flexsearch/db/indexeddb";
 import { MassagedRecipeEntry } from "../../controller/data/read";
 import type { GroupSearchEntry } from "../../controller/data/readGroupSearchCorpus";
+import type { SearchTerm } from "../../controller/data/readTermPage";
+import { buildTagExpansion } from "../../controller/tagExpansion";
 import {
   fieldMatches,
+  filterTerms,
   filterUsesField,
   fold,
   matchesFilter,
@@ -203,6 +206,16 @@ async function fetchGroups(): Promise<GroupSearchEntry[]> {
   return res.json();
 }
 
+/**
+ * Every term, with its parent and count (31b): the one "all terms" list, and
+ * the tree `tag:` expands through. Fetched unconditionally beside the groups,
+ * for the same reason — the rail renders from it before anything is typed.
+ */
+async function fetchTerms(): Promise<SearchTerm[]> {
+  const res = await fetch("/search/terms");
+  return res.json();
+}
+
 async function fetchIndexVersion(): Promise<string> {
   const res = await fetch("/search/version");
   const { version } = (await res.json()) as { version: string };
@@ -222,8 +235,13 @@ export interface SearchContextValue {
   inputValue: string | undefined;
   searchedRecipes: MassagedRecipeEntry[] | undefined;
   allRecipes: MassagedRecipeEntry[];
-  /** Unique tags across the whole corpus, sorted alphabetically. */
+  /**
+   * Every term something carries, as labels, sorted — from `/search/terms`
+   * (31b), the one list the rail, autocomplete, ⌘K and `BrowseChips` read.
+   */
   allTags: string[];
+  /** Every term with its parent and count, record-only terms included (31b). */
+  allTerms: SearchTerm[];
   /** Every group, newest first — the browse rail and the group strip read this. */
   allGroups: GroupSearchEntry[];
   /**
@@ -379,6 +397,19 @@ export function SearchProvider({ children }: SearchProviderProps) {
   // let the pipeline move rather than leaving `group:` pending forever.
   const groupsSettled = groupsQuery.isSuccess || groupsQuery.isError;
 
+  // Step 3b′: fetch the terms (31b). The same unconditional fetch, and the same
+  // settled-not-successful gate: a failed fetch lets `tag:` fall back to its
+  // plain prefix match rather than pending forever.
+  const termsQuery = useQuery({
+    queryKey: ["terms"],
+    queryFn: fetchTerms,
+    staleTime: Infinity,
+  });
+  const allTerms = useMemo(() => termsQuery.data ?? [], [termsQuery.data]);
+  const termsSettled = termsQuery.isSuccess || termsQuery.isError;
+  // `tag:dessert` also reaches everything under `dessert` in the tree.
+  const tagResolver = useMemo(() => buildTagExpansion(allTerms), [allTerms]);
+
   /**
    * Recipe slug → the group strings a `group:` term may match: each membership
    * contributes both the group's slug and its name, so
@@ -419,16 +450,18 @@ export function SearchProvider({ children }: SearchProviderProps) {
     [recipesQuery.data, decorateGroups],
   );
 
-  // Unique corpus tags, sorted — drives the filter rail and tag suggestions.
-  const allTags = useMemo(() => {
-    const set = new Set<string>();
-    for (const recipe of displayRecipes) {
-      if (recipe.tags) {
-        for (const tag of recipe.tags) set.add(tag);
-      }
-    }
-    return Array.from(set).sort();
-  }, [displayRecipes]);
+  // Every carried term's label, sorted — the filter rail and tag suggestions.
+  // From `/search/terms` rather than a scan of the corpus (24-T11): the same
+  // list the forms and `/tags` show, with a record's label where one exists.
+  // A record nothing carries yet is left out — a chip for it finds nothing.
+  const allTags = useMemo(
+    () =>
+      allTerms
+        .filter((term) => term.count > 0)
+        .map((term) => term.label)
+        .sort(),
+    [allTerms],
+  );
 
   // Step 3b: trust, but verify.
   //
@@ -490,6 +523,14 @@ export function SearchProvider({ children }: SearchProviderProps) {
   // so this only decides whether the *results* may be shown before it lands.
   const filterNeedsGroups = useMemo(
     () => filterUsesField(filter, "group"),
+    [filter],
+  );
+  // And for terms: only a typed `tag:` expands, so only that waits.
+  const filterNeedsTerms = useMemo(
+    () =>
+      filterTerms(filter).some(
+        ({ node }) => node.type === "text" && node.field === "tag",
+      ),
     [filter],
   );
   const ingredientsQuery = useQuery({
@@ -636,7 +677,9 @@ export function SearchProvider({ children }: SearchProviderProps) {
     if (filterNeedsIngredients && !ingredientsSettled) return undefined;
     // Same for `group:` and the group document.
     if (filterNeedsGroups && !groupsSettled) return undefined;
-    return base.filter((recipe) => matchesFilter(recipe, filter));
+    // And for `tag:` and the term tree it expands through.
+    if (filterNeedsTerms && !termsSettled) return undefined;
+    return base.filter((recipe) => matchesFilter(recipe, filter, tagResolver));
   }, [
     searchText,
     filter,
@@ -647,6 +690,9 @@ export function SearchProvider({ children }: SearchProviderProps) {
     ingredientsSettled,
     filterNeedsGroups,
     groupsSettled,
+    filterNeedsTerms,
+    termsSettled,
+    tagResolver,
   ]);
 
   /**
@@ -681,7 +727,8 @@ export function SearchProvider({ children }: SearchProviderProps) {
   const isSearching =
     (!!searchText && (!indexPopulated || searchedRecipes === undefined)) ||
     (filterNeedsIngredients && !ingredientsSettled) ||
-    (filterNeedsGroups && !groupsSettled);
+    (filterNeedsGroups && !groupsSettled) ||
+    (filterNeedsTerms && !termsSettled);
 
   const setInputValue = useCallback((value: string) => {
     writeSession(INPUT_KEY, value);
@@ -745,10 +792,11 @@ export function SearchProvider({ children }: SearchProviderProps) {
     versionQuery.refetch();
     recipesQuery.refetch();
     groupsQuery.refetch();
+    termsQuery.refetch();
     // Only refetches if it is currently enabled, which is what we want: there
     // is nothing to retry when nothing wanted the ingredients.
     ingredientsQuery.refetch();
-  }, [versionQuery, recipesQuery, groupsQuery, ingredientsQuery]);
+  }, [versionQuery, recipesQuery, groupsQuery, termsQuery, ingredientsQuery]);
 
   // Surface failures from the version check, either corpus fetch. The
   // ingredients belong here rather than being swallowed: without them the index
@@ -770,6 +818,7 @@ export function SearchProvider({ children }: SearchProviderProps) {
       searchedRecipes,
       allRecipes,
       allTags,
+      allTerms,
       allGroups,
       groupsSettled,
       matchedGroups,
@@ -796,6 +845,7 @@ export function SearchProvider({ children }: SearchProviderProps) {
       searchedRecipes,
       allRecipes,
       allTags,
+      allTerms,
       allGroups,
       groupsSettled,
       matchedGroups,

@@ -4,6 +4,7 @@ import { Badge } from "@discontent/component-library/components/ui/badge";
 import Markdown from "@discontent/component-library/components/Markdown";
 import type {
   TagVocabularyEntry,
+  TermHierarchyNode,
   TermPageData,
 } from "../../controller/tagVocabulary";
 import type { RecipeListEntry } from "../../controller/paginationConfigs";
@@ -229,11 +230,55 @@ export function TagPage({
 }
 
 /** The full tag list — every tag, with how many things carry it. */
-export function TagIndexPage({ tags }: { tags: TagVocabularyEntry[] }) {
+/**
+ * One branch of `/tags`' tree (31b): the term with its subtree total — what
+ * `tag:<term>` finds, descendants included — then its children, indented.
+ */
+function TermBranch({ node }: { node: TermHierarchyNode }) {
+  return (
+    <li>
+      <Link
+        href={`/tags/${node.slug}`}
+        className="underline-offset-2 hover:underline"
+      >
+        {node.label}
+      </Link>
+      <span className="ml-1.5 font-mono text-[0.7em] text-muted-foreground">
+        {node.total}
+      </span>
+      {node.children.length > 0 && (
+        <ul className="ml-4 border-l border-border pl-3">
+          {node.children.map((child) => (
+            <TermBranch key={child.slug} node={child} />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+export function TagIndexPage({
+  tags,
+  tree = [],
+}: {
+  tags: TagVocabularyEntry[];
+  /** The hierarchy's roots (31b); absent or empty when no term has a parent. */
+  tree?: TermHierarchyNode[];
+}) {
   return (
     <PageMain>
       <PageSection grow>
         <PageHeading>Tags</PageHeading>
+        {tree.length > 0 && (
+          <nav aria-label="Tags by kind" className="mb-6">
+            <h2 className="mb-2 font-display text-lg font-semibold">By kind</h2>
+            <ul className="flex flex-col gap-1 text-sm" data-testid="tag-tree">
+              {tree.map((node) => (
+                <TermBranch key={node.slug} node={node} />
+              ))}
+            </ul>
+          </nav>
+        )}
         {tags.length > 0 ? (
           <div
             className="flex flex-row flex-wrap items-center gap-2"

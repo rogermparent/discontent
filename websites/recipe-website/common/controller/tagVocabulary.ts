@@ -156,6 +156,61 @@ export function childrenOf(
   );
 }
 
+/** One node of `/tags`' tree (31b): a term, its subtree total, its children. */
+export interface TermHierarchyNode extends TagVocabularyEntry {
+  /** Distinct carriers of this term or anything under it. */
+  total: number;
+  children: TermHierarchyNode[];
+}
+
+/**
+ * The hierarchy `/tags` draws (31b): every root that has children, with each
+ * node's **distinct** carriers across its subtree — a recipe tagged both
+ * `cookies` and `linzer-cookies` counts once under `cookies`, which is what
+ * `tag:cookies` now returns. Terms outside any hierarchy are left to the flat
+ * list below it.
+ *
+ * `carriers(slug)` is a term's own carriers as opaque keys (the reader passes
+ * `recipe:<slug>` and `group:<slug>`). The walk keeps a visited set, so a
+ * hand-edited cycle terminates, as the tree's own fold does.
+ */
+export function termHierarchy(
+  tree: TermTree | null | undefined,
+  counts: Map<string, TagVocabularyEntry>,
+  carriers: (slug: string) => string[],
+): TermHierarchyNode[] {
+  if (!tree) return [];
+  const build = (slug: string, seen: Set<string>): TermHierarchyNode | null => {
+    if (seen.has(slug)) return null;
+    const visiting = new Set(seen).add(slug);
+    const entry = counts.get(slug) ?? {
+      slug,
+      label: tree[slug]?.label ?? slug,
+      count: 0,
+    };
+    const children = (tree[slug]?.children ?? [])
+      .filter((child) => child !== slug)
+      .map((child) => build(child, visiting))
+      .filter((node): node is TermHierarchyNode => node !== null);
+    const reached = new Set(carriers(slug));
+    const collect = (node: TermHierarchyNode) => {
+      for (const key of carriers(node.slug)) reached.add(key);
+      node.children.forEach(collect);
+    };
+    children.forEach(collect);
+    return { ...entry, total: reached.size, children };
+  };
+  return Object.entries(tree)
+    .filter(
+      ([slug, node]) =>
+        node.children.some((child) => child !== slug) &&
+        (!node.parent || !tree[node.parent] || node.parent === slug),
+    )
+    .map(([slug]) => build(slug, new Set()))
+    .filter((node): node is TermHierarchyNode => node !== null)
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
 /**
  * The curated front: pinned items first, in the pinned order, then the rest.
  *

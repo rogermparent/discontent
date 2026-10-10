@@ -182,6 +182,36 @@ Per `24-D6`.
 `search-autocomplete`, `command-palette`, `tag-pages`, `make`,
 `search-query-language`.
 
+**Built (31b).**
+
+- `common/controller/tagExpansion.ts`: `buildTagExpansion(terms)` →
+  `expandTerm("tag", value)`, the folded slug and label of the named term and
+  of its whole subtree, cached per value. It is **additive**: `matchesFilter`
+  keeps the prefix match and also accepts a tag in the expansion. A leaf still
+  answers with its own two spellings, so a record labelled "Christmas Cookies"
+  reaches carriers tagged `christmas-cookies`. A hand-edited cycle terminates,
+  and a term is never its own child (`24-T8`).
+- `/search/terms` (editor route and export `force-static` twin) serves
+  `readSearchTerms()`: `{slug, label, parent?, count}` for every term.
+  `/search/version` is unchanged: it gates only the recipe corpus, and terms are
+  fetched fresh like groups.
+- `SearchContext` fetches `/search/terms` and holds a `tag:` result until it
+  settles, as it does for `group:`. `allTags` is the labels of terms with
+  `count > 0`, and the corpus `Set` is gone. `allTerms` is exposed too.
+- The server's resolver (`curation/tagResolver.ts`) merges **both carrier
+  folds and the tree**, not the tree alone, so a carried-only term reconciles
+  slug and label exactly as the browser's does. It is read only when the query
+  has a `tag:` term. `recipe_search` and `list --tag` use it.
+- `/make`'s `scopeRecipes` takes the resolver, so a parent chip scopes to the
+  recipes its subtree count promises.
+- `getAllTags()` is retired. `readTagLabels()` (labels of the merged
+  vocabulary with uses, in slug order) feeds the five form pages and the
+  homepage's browse chips.
+- `/tags` gains a "By kind" tree (`data-testid="tag-tree"`): roots that have
+  children, each with its **distinct** carriers across the subtree
+  (`termHierarchy`). The flat list below is unchanged. "Narrower" chips were
+  already on `/tags/[tag]` from 24c.
+
 ### 31c — 24e: term seats and tooling
 
 Per `24-D7`, with D4 and D5 above.

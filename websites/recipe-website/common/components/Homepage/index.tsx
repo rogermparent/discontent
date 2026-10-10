@@ -2,7 +2,8 @@ import Link from "next/link";
 import RecipeList from "../List";
 import GroupList from "../List/Group";
 import { GroupThumbnail } from "../GroupThumbnail";
-import { MassagedRecipeEntry, getAllTags } from "../../controller/data/read";
+import { MassagedRecipeEntry } from "../../controller/data/read";
+import { readTagLabels } from "../../controller/data/readTermPage";
 import type { GroupListEntry } from "../../controller/groupPaginationConfig";
 import { recipeItems } from "../../controller/data/readRecipeItem";
 import { Recipe } from "../../controller/types";
@@ -98,7 +99,7 @@ export default async function Homepage({
    * which is the difference between a homepage with no hero and a 500.
    */
   const [tags, heroRecipe] = await Promise.all([
-    getAllTags(),
+    readTagLabels(),
     heroSlug
       ? recipeItems.read(heroSlug).catch(() => undefined)
       : Promise.resolve<Recipe | undefined>(undefined),
