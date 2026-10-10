@@ -20,7 +20,7 @@ this week"_, search the web, import recipes **with a citation**, tag them, and
 group them into a **meal plan** the user can see in the site now and later.
 
 Writes land in a content directory — locally the `editor/content` symlink →
-the separate `recipe-content` git repo (437 recipes at the time of writing) —
+the separate `recipe-content` git repo (437 recipes at the time of writing, now 665) —
 and, in a later phase, on a live editor server over HTTP.
 
 Decisions already made with the user (2026-09-03):

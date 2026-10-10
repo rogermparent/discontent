@@ -418,10 +418,11 @@ describe("import order", () => {
      * → recipeTagTaxonomy`), the first import that touched a taxonomy module
      * *first* would read a `const` in its temporal dead zone and throw.
      *
-     * That is why `TaxonomyConfig.terms` stays declared and unread and why site
-     * readers name `tagTermContentConfig` directly. 24d adds `/search/terms`,
-     * which would be the import that discovers this the hard way; this case is
-     * what discovers it here instead.
+     * That is why no taxonomy config points at its term records (32a dropped
+     * the never-read `TaxonomyConfig.terms` thunk) and why site readers name
+     * `tagTermContentConfig` directly. A new reader such as 24d's
+     * `/search/terms` would be the import that discovers this the hard way;
+     * this case is what discovers it here instead.
      */
     vi.resetModules();
     const [recipeTaxonomy, groupTaxonomy] = await Promise.all([
