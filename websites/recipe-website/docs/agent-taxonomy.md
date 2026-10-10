@@ -41,7 +41,7 @@ annotated lists with a cover — and the open question of how much of
 Today the site has tags but no taxonomy: `Recipe.tags` is a bare `string[]`,
 two hand-written aggregates fold it into a tag list and a by-tag map, `/tags`
 and `/tags/[tag]` render those, `tag:` searches it, and the real corpus of 437
-recipes (now 665) carries **two tags in total**. Groups, portfolio projects and the demo
+recipes carries **two tags in total**. Groups, portfolio projects and the demo
 each have their own partial version of the same thing, and nothing shares
 code. This epic makes taxonomy an **engine kind**: a content type declares
 which of its index-value fields is a vocabulary, and the engine derives the
@@ -477,8 +477,8 @@ groups`; featured `by-date` v2 → v3 at 24c; editor restart at 24c (new
   one after 24c.
 - **Risks → mitigations**: by-term record size after the backfill (~437 × 5 ×
   ~150 B ≈ 300 KB > the 150 KB threshold → slim `project` first, then F8b;
-  at the 665 recipes of epic 32 the same estimate is ≈ 500 KB, which 32e
-  measures);
+  a jq simulation of the real repo at 665 recipes put it at ≈ 197 KB
+  (> 150 KB); 32e measures it);
   invalidation fan-out unchanged from F28; an export placeholder per route
   family (T10); `specVersions` churn (the safe direction); tool-name regex
   (additive); `GroupInputSchema` strictness (declare `tags` in input **and**

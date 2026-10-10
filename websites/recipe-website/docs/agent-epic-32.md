@@ -106,7 +106,7 @@ the food corpus is a content call: 32k, run only on Roger's explicit go.
 
 | Phase    | Scope                                                                    | Size    | Branch                     | Status            |
 | -------- | ------------------------------------------------------------------------ | ------- | -------------------------- | ----------------- |
-| 32-plan  | Epic doc + CLAUDE.md line, backlog marks                                 | docs    | `agent/32-plan`            | 🟡 this PR        |
+| 32-plan  | Epic doc + CLAUDE.md line, backlog marks                                 | docs    | `agent/32-plan`            | ✅ #197           |
 | 32a      | Hygiene                                                                  | S       | `agent/32a-hygiene`        | 🟡 #198           |
 | 32b      | Features follow a deleted term/group                                     | S–M     | `agent/32b-delete-feature` | 📝 planned        |
 | 32c      | Term image upload, full parity                                           | M–L     | `agent/32c-term-image`     | 📝 planned        |
@@ -632,10 +632,10 @@ epic.
 To be filled per phase (PR, merge sha, gates), with the 32e measurement and
 the end-to-end checks at 32-close.
 
-| Phase   | PR   | Merge | Gates                                                                                                         |
-| ------- | ---- | ----- | ------------------------------------------------------------------------------------------------------------- |
-| 32-plan |      |       |                                                                                                               |
-| 32a     | #198 |       | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI |
+| Phase   | PR   | Merge      | Gates                                                                                                         |
+| ------- | ---- | ---------- | ------------------------------------------------------------------------------------------------------------- |
+| 32-plan | #197 | `dafc6834` | docs only; CI 12/12                                                                                           |
+| 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI |
 
 ### 32a — Hygiene
 
@@ -656,7 +656,9 @@ the end-to-end checks at 32-close.
 - **The stale F32 comments** in `common/controller/types.ts` (the `GroupItem`
   docblock, plus the same claim on `groupName`) now say that renames follow
   since 31d, deletes dangle, and array edges borrow nothing (`31-D1`).
-- **Corpus numbers.** Places where "437 recipes" reads as the present now add
-  "now 665". The 24a by-term size risk gains the 665-recipe estimate
-  (≈ 500 KB, for 32e). Historical facts and measurements are unchanged.
+- **Corpus numbers.** `agent-curation.md`'s intro now reads "437 recipes at
+  the time of writing, now 665". The 24a by-term size risk gains the current
+  figure: a jq simulation of the real repo at 665 recipes put it at ≈ 197 KB
+  (> 150 KB), driven by the 208 drinks × 5–6 tags; 32e measures it. The
+  "two tags in total" sentences are historical and stay as written.
 - `specVersions` didn't move: none of the edited modules is pinned.
