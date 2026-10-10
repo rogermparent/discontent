@@ -24,11 +24,14 @@
  * or update may carry an uploaded file too (`TermWriteOptions`), which is how
  * the browser form sends one.
  *
- * **One update per carrier** (24-D7, D9's accepted cost): every carrier write
- * goes through `updateRecipe` / `updateGroup`, the same seats `recipe_update`
- * and `group_update` use, so normalisation, index keys, aggregates, dependents
- * and the commit are theirs. A bulk assign over N carriers is N commits — the
- * batched commit is a possible F34, not this.
+ * **One update per carrier, one commit per seat** (24-D7; F34, 32d): every
+ * carrier write goes through `updateRecipe` / `updateGroup`, the same seats
+ * `recipe_update` and `group_update` use, so normalisation, index keys,
+ * aggregates and dependents are theirs. The commit is not: `assignTerm`,
+ * `renameTerm`, `mergeTerm` and `deleteTerm` run inside `withBatchCommit`
+ * (`batch.ts`), so a bulk assign over N carriers — or a merge's carriers,
+ * children and features — is one commit, and a failure part-way commits what
+ * landed as `… (partial)` (D3).
  *
  * **Matching is by slug.** A carrier carries a term when any of its tags
  * slugs to the term's slug (`tagSlug`, the fold's own identity), so
@@ -97,7 +100,14 @@ import {
   fetchImageFile,
   largeImageWarning,
 } from "../imageImport";
-import { termPath, termUrl, type CurationContext } from "./context";
+import { withBatchCommit, countsTail } from "./batch";
+import {
+  batchOptions,
+  collectBatch,
+  termPath,
+  termUrl,
+  type CurationContext,
+} from "./context";
 import {
   CurationError,
   NotFoundError,
@@ -490,14 +500,20 @@ async function retagCarrier(
   return "updated";
 }
 
-/** Re-tag a list of known carriers, reporting the ones that moved by type. */
+/**
+ * Re-tag a list of known carriers, reporting the ones that moved by type.
+ *
+ * `moved` is filled as each carrier lands rather than returned at the end, so
+ * a batch message read after a failure part-way (`withBatchCommit`'s partial)
+ * counts the carriers that were written.
+ */
 async function retagAll(
   ctx: CurationContext,
   carriers: Carrier[],
   transform: (tags: readonly string[]) => string[],
+  moved: { recipes: string[]; groups: string[] } = { recipes: [], groups: [] },
 ): Promise<{ recipes: string[]; groups: string[] }> {
-  const recipes: string[] = [];
-  const groups: string[] = [];
+  const { recipes, groups } = moved;
   for (const carrier of carriers) {
     const outcome = await retagCarrier(
       ctx,
@@ -655,7 +671,9 @@ async function writeTermRecord(
     contentDirectory: ctx.contentDirectory,
     author: ctx.author,
     commitMessage,
+    ...batchOptions(ctx),
   });
+  collectBatch(ctx, result);
   ctx.onWrite?.({
     contentType: tagTermContentConfig.contentType,
     kind: "update",
@@ -701,7 +719,9 @@ async function deleteTermRecord(
     contentDirectory: ctx.contentDirectory,
     author: ctx.author,
     commitMessage: `Delete term: ${slug}`,
+    ...batchOptions(ctx),
   });
+  collectBatch(ctx, result);
   ctx.onWrite?.({
     contentType: tagTermContentConfig.contentType,
     kind: "delete",
@@ -1009,7 +1029,9 @@ export async function updateTerm(
 
 /**
  * Tag (`add`) and untag (`remove`) carriers of one `type` — recipes unless
- * said otherwise — one update each.
+ * said otherwise — one update each, one commit for the lot (F34):
+ * `Assign term: cookies (+5 recipes)`, `Unassign term: cookies (-2 recipes)`,
+ * or both counts when a call adds and removes.
  *
  * No record is required: assigning a term nobody has described yet is how a
  * bare tag has always come into being, and `term_create` can describe it
@@ -1047,22 +1069,30 @@ export async function assignTerm(
   const report = (outcome: "updated" | "unchanged" | "missing", s: string) =>
     result[outcome].push(s);
 
-  for (const carrier of dedupe(input.add ?? [])) {
-    report(
-      await retagCarrier(ctx, type, carrier, (tags) =>
+  let added = 0;
+  let removed = 0;
+  const message = () =>
+    `${added === 0 && removed > 0 ? "Unassign" : "Assign"} term: ${slug}` +
+    countsTail([
+      [added, type, "+"],
+      [removed, type, "-"],
+    ]);
+  await withBatchCommit(ctx, message, async (batchCtx) => {
+    for (const carrier of dedupe(input.add ?? [])) {
+      const outcome = await retagCarrier(batchCtx, type, carrier, (tags) =>
         carries(tags, slug) ? [...tags] : [...tags, tag],
-      ),
-      carrier,
-    );
-  }
-  for (const carrier of dedupe(input.remove ?? [])) {
-    report(
-      await retagCarrier(ctx, type, carrier, (tags) =>
+      );
+      if (outcome === "updated") added += 1;
+      report(outcome, carrier);
+    }
+    for (const carrier of dedupe(input.remove ?? [])) {
+      const outcome = await retagCarrier(batchCtx, type, carrier, (tags) =>
         tags.filter((t) => tagSlug(t) !== slug),
-      ),
-      carrier,
-    );
-  }
+      );
+      if (outcome === "updated") removed += 1;
+      report(outcome, carrier);
+    }
+  });
   return result;
 }
 
@@ -1073,8 +1103,11 @@ export async function assignTerm(
  * The record moves through `updateContent` with a new slug, so its children's
  * `parent` and every feature's `term` follow by reference (24-T8, proven at
  * 24a) — no hierarchy code here. The carriers are rewritten one update each to
- * the new carrier string. Renaming onto a term that already exists — a record
- * or carriers — is `slug_conflict`; that is `term_merge`.
+ * the new carrier string, and the record and carriers land as one commit
+ * (F34): `Rename term: a → b (5 recipes, 1 group)`, or the bare
+ * `Rename term: a → b` when only the record moved. Renaming onto a term that
+ * already exists — a record or carriers — is `slug_conflict`; that is
+ * `term_merge`.
  */
 export async function renameTerm(
   ctx: CurationContext,
@@ -1122,18 +1155,30 @@ export async function renameTerm(
       : input.to);
   const tag = carrierTag(to, label);
 
-  if (record) {
-    await writeTermRecord(ctx, {
-      currentSlug: slug,
-      slug: to,
-      current: record,
-      data: { ...record, label },
-      commitMessage: `Rename term: ${slug} → ${to}`,
-    });
-  }
-  const moved = await retagAll(ctx, own, (tags) =>
-    retag(tags, new Set([slug]), tag),
-  );
+  const moved = { recipes: [] as string[], groups: [] as string[] };
+  const message = () =>
+    `Rename term: ${slug} → ${to}` +
+    countsTail([
+      [moved.recipes.length, "recipe"],
+      [moved.groups.length, "group"],
+    ]);
+  await withBatchCommit(ctx, message, async (batchCtx) => {
+    if (record) {
+      await writeTermRecord(batchCtx, {
+        currentSlug: slug,
+        slug: to,
+        current: record,
+        data: { ...record, label },
+        commitMessage: `Rename term: ${slug} → ${to}`,
+      });
+    }
+    await retagAll(
+      batchCtx,
+      own,
+      (tags) => retag(tags, new Set([slug]), tag),
+      moved,
+    );
+  });
 
   return {
     from: slug,
@@ -1163,6 +1208,9 @@ export async function renameTerm(
  *   are re-pointed at `into` (or unfeatured, when `into` is already
  *   featured), `from`'s pinned recipes join the end of `into`'s, and
  *   `from`'s record is deleted.
+ *
+ * Every write lands in one commit (F34), counted in its message:
+ * `Merge term: a → b (5 recipes, 2 children, 1 feature)`.
  */
 export async function mergeTerm(
   ctx: CurationContext,
@@ -1193,22 +1241,64 @@ export async function mergeTerm(
 
   const intoLabel = intoRecord?.label ?? vocabulary.bySlug.get(into)?.label;
   const tag = carrierTag(into, intoLabel);
-  const moved = await retagAll(ctx, fromCarriers, (tags) =>
-    retag(tags, new Set([from]), tag),
-  );
 
   const result: TermMergeResult = {
     from,
     into,
     tag,
-    ...moved,
+    recipes: [],
+    groups: [],
     recordMoved: false,
     deleted: false,
     reparented: [],
     featured: [],
     unfeatured: [],
   };
-  if (!fromRecord) return result;
+  const message = () =>
+    `Merge term: ${from} → ${into}` +
+    countsTail([
+      [result.recipes.length, "recipe"],
+      [result.groups.length, "group"],
+      [result.reparented.length, "child"],
+      [result.featured.length + result.unfeatured.length, "feature"],
+    ]);
+  await withBatchCommit(ctx, message, (batchCtx) =>
+    mergeTermWrites(batchCtx, {
+      result,
+      fromRecord,
+      intoRecord,
+      intoLabel,
+      fromCarriers,
+    }),
+  );
+  return result;
+}
+
+/** `mergeTerm`'s writes, inside its batch; they fill `result` as they land. */
+async function mergeTermWrites(
+  ctx: CurationContext,
+  {
+    result,
+    fromRecord,
+    intoRecord,
+    intoLabel,
+    fromCarriers,
+  }: {
+    result: TermMergeResult;
+    fromRecord: TagTerm | null;
+    intoRecord: TagTerm | null;
+    intoLabel: string | undefined;
+    fromCarriers: Carrier[];
+  },
+): Promise<void> {
+  const { from, into, tag } = result;
+  await retagAll(
+    ctx,
+    fromCarriers,
+    (tags) => retag(tags, new Set([from]), tag),
+    result,
+  );
+  if (!fromRecord) return;
 
   if (!intoRecord) {
     await writeTermRecord(ctx, {
@@ -1219,7 +1309,7 @@ export async function mergeTerm(
       commitMessage: `Merge term: ${from} → ${into}`,
     });
     result.recordMoved = true;
-    return result;
+    return;
   }
 
   /* `into` and its ancestors, so no child of `from` is hung beneath itself. */
@@ -1261,11 +1351,11 @@ export async function mergeTerm(
   Object.assign(result, await repointFeatures(ctx, from, into));
   await deleteTermRecord(ctx, from, fromRecord);
   result.deleted = true;
-  return result;
 }
 
 /**
- * Every featured entry naming term `from`, pointed at `into`, one commit each.
+ * Every featured entry naming term `from`, pointed at `into` — one commit
+ * each, or none of their own inside a caller's batch (F34).
  *
  * Unless `into` is already featured: re-pointing would then put it on the
  * strip twice, the duplicate `feature` refuses without `again` (31-D2), so
@@ -1309,7 +1399,9 @@ async function repointFeatures(
       contentDirectory: ctx.contentDirectory,
       author: ctx.author,
       commitMessage: `Feature term: ${into} (was ${from})`,
+      ...batchOptions(ctx),
     });
+    collectBatch(ctx, result);
     ctx.onWrite?.({
       contentType: featuredRecipeContentConfig.contentType,
       kind: "update",
@@ -1332,6 +1424,10 @@ async function repointFeatures(
  * parent is already featured — so the strip never keeps a card for a term
  * that is gone. All of that happens before the record goes, so a failure
  * part-way leaves the record and whatever still names it intact.
+ *
+ * One commit for all of it (F34): `Delete term: cookies (5 recipes, 1 child,
+ * 1 feature)`, or the bare `Delete term: cookies` when only the record went.
+ * A failure part-way commits what landed as `… (partial)` (D3).
  */
 export async function deleteTerm(
   ctx: CurationContext,
@@ -1354,39 +1450,56 @@ export async function deleteTerm(
     );
   }
 
-  const removed = await retagAll(ctx, own, (tags) =>
-    retag(tags, new Set([slug])),
-  );
-  const reparented: { slug: string; parent?: string }[] = [];
-  if (record) {
-    for (const row of await readTermRows(ctx)) {
-      if (row.parent !== slug || row.slug === slug) continue;
-      const child = await reparent(ctx, row.slug, record.parent);
-      if (child) reparented.push(child);
-    }
-  }
-  /*
-   * A parent is a record when it is set (`assertParent`), but check: a
-   * feature must name a record, and one that does not is the nameless card.
-   * A carried-only term can have no features of its own, so this finds only
-   * one left dangling by an older delete, and takes it off.
-   */
-  const parent =
-    record?.parent && (await readTerm(ctx, record.parent))
-      ? record.parent
-      : undefined;
-  const features = parent
-    ? await repointFeatures(ctx, slug, parent)
-    : {
-        featured: [],
-        unfeatured: await unfeatureTarget(ctx, { term: slug }),
-      };
-  if (record) await deleteTermRecord(ctx, slug, record);
-  return {
+  const result: TermDeleteResult = {
     slug,
-    deleted: Boolean(record),
-    ...removed,
-    reparented,
-    ...features,
+    deleted: false,
+    recipes: [],
+    groups: [],
+    reparented: [],
+    featured: [],
+    unfeatured: [],
   };
+  const message = () =>
+    `Delete term: ${slug}` +
+    countsTail([
+      [result.recipes.length, "recipe"],
+      [result.groups.length, "group"],
+      [result.reparented.length, "child"],
+      [result.featured.length + result.unfeatured.length, "feature"],
+    ]);
+  await withBatchCommit(ctx, message, async (batchCtx) => {
+    await retagAll(
+      batchCtx,
+      own,
+      (tags) => retag(tags, new Set([slug])),
+      result,
+    );
+    if (record) {
+      for (const row of await readTermRows(batchCtx)) {
+        if (row.parent !== slug || row.slug === slug) continue;
+        const child = await reparent(batchCtx, row.slug, record.parent);
+        if (child) result.reparented.push(child);
+      }
+    }
+    /*
+     * A parent is a record when it is set (`assertParent`), but check: a
+     * feature must name a record, and one that does not is the nameless card.
+     * A carried-only term can have no features of its own, so this finds only
+     * one left dangling by an older delete, and takes it off.
+     */
+    const parent =
+      record?.parent && (await readTerm(batchCtx, record.parent))
+        ? record.parent
+        : undefined;
+    if (parent) {
+      Object.assign(result, await repointFeatures(batchCtx, slug, parent));
+    } else {
+      result.unfeatured = await unfeatureTarget(batchCtx, { term: slug });
+    }
+    if (record) {
+      await deleteTermRecord(batchCtx, slug, record);
+      result.deleted = true;
+    }
+  });
+  return result;
 }
