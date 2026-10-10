@@ -18,6 +18,7 @@ import { useCurrentTimezone } from "@discontent/cms/hooks/useCurrentTimezone";
 import type { StaticImageProps } from "@discontent/next-static-image/src";
 import { ImageInput } from "recipe-website-common/components/Form/Image";
 import { RecipeSelectInput } from "recipe-website-common/components/Form/inputs/RecipeSelect";
+import { GroupSelectInput } from "recipe-website-common/components/Form/inputs/GroupSelect";
 import createDefaultGroupSlug from "recipe-website-common/controller/createGroupSlug";
 import { normalizeTag } from "recipe-website-common/controller/normalizeTags";
 import type { GroupFormState } from "recipe-website-common/controller/groupFormState";
@@ -31,9 +32,13 @@ import type { Group, GroupItem } from "recipe-website-common/controller/types";
  * rows 1-2 changed content", remounting the `RecipeSelectInput`s and throwing
  * away their fetched recipe names. It cannot be the recipe slug either: a meal
  * plan may list the same recipe twice, and a fresh row has no slug at all.
+ *
+ * `isGroup` says which picker the row shows. It cannot be read off `group`: a
+ * fresh "Add group" row has `group: ""`, as falsy as a recipe row's absent one.
  */
 type ItemRow = GroupItem & {
   id: number;
+  isGroup: boolean;
 };
 
 const KIND_OPTIONS: Array<{ value: string; label: string }> = [
@@ -71,7 +76,7 @@ export default function GroupFields({
 
   const [rows, setRows] = useState<ItemRow[]>(() =>
     (items && items.length > 0 ? items : [{ recipe: "" }]).map(
-      (item, index) => ({ ...item, id: index }),
+      (item, index) => ({ ...item, id: index, isGroup: "group" in item }),
     ),
   );
 
@@ -116,11 +121,12 @@ export default function GroupFields({
    * function of state — and it still only ever goes up, so an id can never
    * collide with a live key.
    */
-  const addRow = () =>
+  const addRow = (isGroup: boolean) =>
     setRows((current) => [
       ...current,
       {
-        recipe: "",
+        ...(isGroup ? { group: "" } : { recipe: "" }),
+        isGroup,
         id: current.reduce((max, row) => Math.max(max, row.id), -1) + 1,
       },
     ]);
@@ -193,32 +199,28 @@ export default function GroupFields({
         {rows.map((row, index) => (
           <div
             key={row.id}
-            data-testid={row.group ? "group-item-group-row" : "group-item-row"}
+            data-testid={
+              row.isGroup ? "group-item-group-row" : "group-item-row"
+            }
             className="rounded-lg border border-border p-2"
           >
             <div className="flex flex-row flex-nowrap items-start justify-between gap-2">
               <div className="grow">
-                {row.group ? (
+                {row.isGroup ? (
                   /*
-                   * A sub-group row is carried, not edited (23c/D18). The form
-                   * has no group picker — adding one is deferred, and would
-                   * make this component's server action need the cycle check
-                   * (T38) — but the parser reads what the form submits, so a
-                   * row the page dropped would be a sub-group silently deleted
-                   * by an edit that only meant to fix a typo. The hidden input
-                   * is what keeps it.
+                   * A sub-group row has a picker since epic 31 (it was carried
+                   * read-only from 23c/D18). The picker is the same one the
+                   * featured form uses, and a dangling slug keeps an option of
+                   * its own, so an edit never drops a sub-group it did not
+                   * touch. The server action runs the curation seat's cycle
+                   * check (T38) before writing.
                    */
-                  <>
-                    <input
-                      type="hidden"
-                      name={`items[${index}].group`}
-                      value={row.group}
-                    />
-                    <p className="py-2 text-sm">
-                      <span className="font-semibold">{`Group ${index + 1}: `}</span>
-                      <span className="font-mono">{row.group}</span>
-                    </p>
-                  </>
+                  <GroupSelectInput
+                    label={`Group ${index + 1}`}
+                    name={`items[${index}].group`}
+                    id={`group-form-item-${row.id}-group`}
+                    defaultValue={row.group || undefined}
+                  />
                 ) : (
                   <RecipeSelectInput
                     label={`Recipe ${index + 1}`}
@@ -233,7 +235,7 @@ export default function GroupFields({
                 size="sm"
                 variant="ghost"
                 aria-label={
-                  row.group
+                  row.isGroup
                     ? `Remove group ${index + 1}`
                     : `Remove recipe ${index + 1}`
                 }
@@ -257,10 +259,19 @@ export default function GroupFields({
             />
           </div>
         ))}
-        <div>
-          <Button type="button" size="sm" onClick={addRow}>
+        <div className="flex flex-row flex-wrap gap-2">
+          <Button type="button" size="sm" onClick={() => addRow(false)}>
             <Plus />
             Add recipe
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => addRow(true)}
+          >
+            <Plus />
+            Add group
           </Button>
         </div>
       </fieldset>

@@ -1,5 +1,5 @@
 import { readJsonInput } from "../input";
-import { formatJsonBlock } from "../output";
+import { formatImageProbe, formatJsonBlock, formatWarnings } from "../output";
 import type { RecipeDryRunResult, RecipeWriteResult } from "../backend/types";
 import { booleanOption, stringOption, type CommandDef } from "./types";
 
@@ -10,9 +10,8 @@ export function formatDryRun(result: RecipeDryRunResult): string {
     result.conflict
       ? `conflict: something already lives at ${result.slug}`
       : undefined,
-    result.image
-      ? `image: ${result.image.filename}${result.image.error ? ` (${result.image.error})` : ""}`
-      : undefined,
+    result.image ? formatImageProbe(result.image) : undefined,
+    ...formatWarnings(result.warnings),
     formatJsonBlock(result.recipe),
   ]
     .filter(Boolean)
@@ -43,7 +42,12 @@ export const createCommand: CommandDef<RecipeWriteResult | RecipeDryRunResult> =
     },
     format(result) {
       if ("dryRun" in result) return formatDryRun(result);
-      return `Created ${result.slug}\n  ${result.url}\n  ${result.path}`;
+      return [
+        `Created ${result.slug}`,
+        `  ${result.url}`,
+        `  ${result.path}`,
+        ...formatWarnings(result.warnings),
+      ].join("\n");
     },
   };
 

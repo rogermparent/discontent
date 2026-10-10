@@ -1,6 +1,7 @@
 import { UsageError } from "../../controller/curation/errors";
 import { readJsonInput } from "../input";
 import type { RecipeDryRunResult, RecipeWriteResult } from "../backend/types";
+import { formatWarnings } from "../output";
 import { formatDryRun } from "./create";
 import { booleanOption, stringOption, type CommandDef } from "./types";
 
@@ -27,7 +28,12 @@ export const updateCommand: CommandDef<RecipeWriteResult | RecipeDryRunResult> =
     },
     format(result) {
       if ("dryRun" in result) return formatDryRun(result);
-      return `Updated ${result.slug}\n  ${result.url}\n  ${result.path}`;
+      return [
+        `Updated ${result.slug}`,
+        `  ${result.url}`,
+        `  ${result.path}`,
+        ...formatWarnings(result.warnings),
+      ].join("\n");
     },
   };
 

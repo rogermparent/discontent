@@ -44,6 +44,7 @@ import type {
   CurationContext,
 } from "../websites/recipe-website/editor/controller/curation/context";
 import {
+  AlreadyFeaturedError,
   SlugConflictError,
   toErrorObject,
 } from "../websites/recipe-website/editor/controller/curation/errors";
@@ -87,6 +88,10 @@ afterEach(async () => {
   }
   await rm(contentDirectory, { recursive: true, force: true });
 });
+
+function featuredDirectory(slug: string): string {
+  return join(contentDirectory, "featured-recipes/data", slug);
+}
 
 function readFeaturedFile(slug: string): Promise<FeaturedRecipe> {
   return readJson(
@@ -274,15 +279,38 @@ describe("feature", () => {
     expect((await readFeaturedFile("pinned-naan")).date).toBe(result.date);
 
     const before = Date.now();
-    const defaulted = await feature(ctx, { recipe: "naan", slug: "now" });
+    const defaulted = await feature(ctx, {
+      recipe: "naan",
+      slug: "now",
+      again: true,
+    });
     expect(defaulted.date).toBeGreaterThanOrEqual(before);
   });
 
-  it("allows a second feature of the same target, but not of the same slug", async () => {
+  it("refuses a second feature of the same target unless `again` (epic 31, D2)", async () => {
     await feature(ctx, { group: "weeknights", slug: "first" });
-    /* Re-featuring is a real curator move; the strip shows the six newest. */
-    await feature(ctx, { group: "weeknights", slug: "second" });
-    expect((await listFeatured(ctx)).total).toBe(2);
+    await feature(ctx, { recipe: "naan", slug: "naan-first" });
+
+    /* `slug_conflict`, naming the entry that already holds the target. */
+    for (const target of [{ group: "weeknights" }, { recipe: "naan" }]) {
+      const refused = await feature(ctx, { ...target, slug: "dupe" }).catch(
+        (error) => error,
+      );
+      expect(refused).toBeInstanceOf(AlreadyFeaturedError);
+      expect(toErrorObject(refused).error).toMatchObject({
+        code: "slug_conflict",
+        slug: "group" in target ? "first" : "naan-first",
+      });
+    }
+    expect(await pathExists(featuredDirectory("dupe"))).toBe(false);
+
+    /* A recipe and a group with the same slug are different targets. */
+    await createRecipe(ctx, { name: "Weeknights", slug: "weeknights" });
+    await feature(ctx, { recipe: "weeknights", slug: "recipe-weeknights" });
+
+    /* Re-featuring on purpose is a real curator move. */
+    await feature(ctx, { group: "weeknights", slug: "second", again: true });
+    expect((await listFeatured(ctx)).total).toBe(4);
 
     /*
      * T26 as an error rather than a clobber. The engine's own
@@ -292,6 +320,7 @@ describe("feature", () => {
     const conflict = await feature(ctx, {
       group: "weeknights",
       slug: "second",
+      again: true,
     }).catch((error) => error);
     expect(conflict).toBeInstanceOf(SlugConflictError);
     expect(conflict.slug).toBe("second");

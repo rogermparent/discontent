@@ -550,6 +550,43 @@ describe("gitPush", () => {
     expect(await gitPush(ctx)).toEqual({ remote: "origin", branch });
   });
 
+  it("answers a repository with no remote as validation, before running git (epic 31)", async () => {
+    await createRecipe(ctx, { name: "Naan" });
+    const refused = await gitPush(ctx).catch((error) => error);
+    expect(refused).toMatchObject({
+      code: "validation",
+      message: expect.stringContaining("no remote"),
+    });
+  });
+
+  it("names the remotes there are when the asked-for one is not among them", async () => {
+    await bareRemote();
+    await createRecipe(ctx, { name: "Naan" });
+    await expect(
+      gitPush(ctx, { remote: "uraninite", setUpstream: true }),
+    ).rejects.toMatchObject({
+      code: "validation",
+      message: expect.stringContaining("remotes: origin"),
+    });
+  });
+
+  it("pushes to the only remote when it is not called origin", async () => {
+    const remote = await scratchDir("git-remote-");
+    await simpleGit().raw(["init", "--bare", remote]);
+    await git.addRemote("uraninite", remote);
+    await createRecipe(ctx, { name: "Naan" });
+    const branch = (await git.status()).current as string;
+    expect(await gitPush(ctx)).toEqual({ remote: "uraninite", branch });
+  });
+
+  it("maps a tracked remote that has gone away to validation", async () => {
+    const remote = await bareRemote();
+    await createRecipe(ctx, { name: "Naan" });
+    await gitPush(ctx, { setUpstream: true });
+    await rm(remote, { recursive: true, force: true });
+    await expect(gitPush(ctx)).rejects.toMatchObject({ code: "validation" });
+  });
+
   it("reports a non-fast-forward rejection as a conflict", async () => {
     const remote = await bareRemote();
     await createRecipe(ctx, { name: "Naan" });

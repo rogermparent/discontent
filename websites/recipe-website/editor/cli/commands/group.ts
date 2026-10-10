@@ -8,7 +8,7 @@
  */
 import { UsageError } from "../../controller/curation/errors";
 import { readJsonInput } from "../input";
-import { formatRows } from "../output";
+import { formatRows, formatWarnings } from "../output";
 import type {
   DeleteResult,
   GroupDetail,
@@ -46,7 +46,7 @@ function formatWrite(verb: string, result: GroupWriteResult): string {
     `${verb} ${result.slug}`,
     `  ${result.url}`,
     `  ${result.path}`,
-    ...(result.warnings ?? []).map((warning) => `  ! ${warning}`),
+    ...formatWarnings(result.warnings),
   ].join("\n");
 }
 

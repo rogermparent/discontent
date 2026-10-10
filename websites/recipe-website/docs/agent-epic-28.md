@@ -320,7 +320,7 @@ The stale-index banner stays as the fallback if a rebuild fails.
 | 28f   | Close-out: two-machine run, drills, docs, memory                                          | `agent/28f-close`               | ✅ (this PR)      |
 | 28g   | Make page: tag tree (parents expand to children) + tag search                             | `agent/28g-make-tags`           | ✅ #176           |
 | 28h   | Housekeeping: self-hosted fonts, `next` pin alignment, needless-reindex fix               | `agent/28h-housekeeping`        | ✅ #174           |
-| 28i   | After the deploy: annex in the container, log-once, thumbnails, workstation service       | `agent/28i-workstation-service` | 🟡                |
+| 28i   | After the deploy: annex in the container, log-once, thumbnails, workstation service       | `agent/28i-workstation-service` | ✅ (merged)       |
 
 Order: 28a and 28b are independent and could run in parallel; 28c needs both;
 28d needs nothing; 28e needs 28b's media step and 28d. Each phase is its own

@@ -21,8 +21,12 @@
  * features the vocabulary entry and refuses a slug that only exists as a string
  * on some recipes.
  *
- * Featuring an already-featured target *is* allowed: the form allows it, the
- * strip shows the six newest, and "feature this again" is a real curator move.
+ * Featuring an already-featured target is refused (epic 31, D2): an agent
+ * that features "the new drinks" twice fills the strip with duplicates. The
+ * refusal is `slug_conflict` naming the entry that holds it; `again: true`
+ * features it a second time on purpose, the real curator move this used to
+ * allow by default. The browser form runs the same check
+ * (`actions/featuredRecipes.ts`).
  */
 import { createContent } from "@discontent/cms/content/createContent";
 import { deleteContent } from "@discontent/cms/content/deleteContent";
@@ -50,6 +54,7 @@ import type {
 } from "recipe-website-common/controller/types";
 import { featuredPath, featuredUrl, type CurationContext } from "./context";
 import {
+  AlreadyFeaturedError,
   NotFoundError,
   UnknownGroupError,
   UnknownRecipeError,
@@ -190,12 +195,53 @@ async function requireTarget(
   }
 }
 
+/**
+ * The featured entry that already points at `target`, if any: one walk of the
+ * covering index, no data files. The strip is short, so the whole index is read.
+ */
+export async function findFeatured(
+  contentDirectory: string,
+  target: { recipe?: string; group?: string; term?: string },
+): Promise<string | undefined> {
+  const { entries } = await readContentIndex<
+    FeaturedRecipeEntryValue,
+    FeaturedRecipeEntryKey,
+    { slug: string; match: boolean }
+  >({
+    config: featuredRecipeContentConfig,
+    limit: Number.MAX_SAFE_INTEGER,
+    contentDirectory,
+    map: ({ key: [, slug], value }) => ({
+      slug,
+      match: target.recipe
+        ? value.recipe === target.recipe
+        : target.group
+          ? value.group === target.group
+          : !!target.term && value.term === target.term,
+    }),
+  });
+  return entries.find((entry) => entry.match)?.slug;
+}
+
 export async function feature(
   ctx: CurationContext,
   raw: unknown,
 ): Promise<FeaturedWriteResult> {
   const input = parseInput(FeaturedInputSchema, raw);
   await requireTarget(ctx, input);
+  if (!input.again) {
+    const existing = await findFeatured(ctx.contentDirectory, input);
+    if (existing) {
+      throw new AlreadyFeaturedError(
+        input.recipe
+          ? `Recipe ${input.recipe}`
+          : input.group
+            ? `Group ${input.group}`
+            : `Term ${input.term}`,
+        existing,
+      );
+    }
+  }
 
   const date = input.date ?? Date.now();
   /*

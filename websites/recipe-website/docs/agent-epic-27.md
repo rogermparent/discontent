@@ -530,11 +530,12 @@ Tablespoon, Brian Lagerstrom (Roger's pick) and Sally's Baking Addiction.
 
 ## Deferred
 
-- **Server-side `group:` in `recipe_search`.** Backlog says it was picked up by
-  24d (D6), but `curation/search.ts` rows still carry no group membership, and
-  `group:<slug>` matches nothing from the CLI or MCP. Found while writing 27b's
-  pull test, which checks the groups index through `listGroups` instead. Fold
-  it into 27d's search work if it fits; otherwise it stays here.
+- ~~**Server-side `group:` in `recipe_search`.** Backlog says it was picked up
+  by 24d (D6), but `curation/search.ts` rows still carry no group membership,
+  and `group:<slug>` matches nothing from the CLI or MCP. Found while writing
+  27b's pull test, which checks the groups index through `listGroups` instead.
+  Fold it into 27d's search work if it fits; otherwise it stays here.~~ **Done
+  by 30a** (`agent-epic-30.md`).
 
 ## Key files
 

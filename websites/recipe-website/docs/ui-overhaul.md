@@ -896,8 +896,10 @@ pattern). Base of the stack: `ui/09-header` off `test/editor-server-isolation`
 - ~~**Light-mode teal-band contrast gap**~~ (**closed by epic 30b**) — the accent curve dips ~4.31:1 at hue
   ~165–215 (from PR 7's deferred note); an accent-curve redesign that would shift
   light baselines.
-- **Export search parity** — `/search/all` + `/search/version` are editor-only,
-  so the FlexSearch filter/browse experience is missing in the static export.
+- ~~**Export search parity** — `/search/all` + `/search/version` are
+  editor-only, so the FlexSearch filter/browse experience is missing in the
+  static export.~~ **Done**: the export serves its own `force-static` twins of
+  the search documents (`export/src/app/(recipes)/search/*`).
 - **PR 2c** — per-component raw-token overrides + exposing owner presets to
   public visitors (deferred).
 - **"Jump to recipe / ingredients"** anchor buttons on long detail pages
