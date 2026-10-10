@@ -641,7 +641,7 @@ the end-to-end checks at 32-close.
 | 32f     | #199   |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                                      |
 | 32h     | #201   |            | typechecks ✅ (recipe, export, portfolio); vitest 1058/1058; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI |
 | 32g     | #202   |            | typechecks ✅; vitest 1068/1068 (56 files); Playwright `groups` + `yield` + `recipe` 47/47 (build); export `next build` ✅; CI      |
-| 32j     | #PRNUM |            | GATES32J                                                                                                                            |
+| 32j     | #PRNUM |            | typechecks ✅; vitest 1134/1134 (56 files); Playwright not a local gate (see entry) — CI's Recipe shards                            |
 
 ### 32a — Hygiene
 
@@ -1193,7 +1193,19 @@ swapped in for "before").
   drilling side → quick, a close match shown and turned off (with axe), the
   salt staple removed and reset, and courgette / "cut into" read loosely.
 
-**Gates.** GATES32J
+**Gates.**
+
+- typechecks: recipe-editor and the export (`tsc --noEmit`) ✅, after
+  merging origin/main at 32c (#203);
+- vitest 1134/1134 (56 files), under the heavy slot, after the merge;
+- Playwright: the local `make.spec` + `search-autocomplete.spec` run
+  (`PLAYWRIGHT_BUILD=1`) sat in the heavy slot for ~28 minutes waiting for
+  memory, and the orchestrator killed it. An orphaned child then ran all
+  39 tests to the end with no failure reported, but it was killed before the
+  summary, and its `test-content` was removed mid-run, so it doesn't count
+  as a gate. CI's four Recipe shards are the e2e gate for this phase, by the
+  orchestrator's call.
+- `specVersions` didn't move: none of the edited modules is pinned.
 
 **Deferred.**
 
