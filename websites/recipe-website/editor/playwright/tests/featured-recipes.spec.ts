@@ -824,6 +824,10 @@ test.describe("Featured Recipes", () => {
         await page.getByLabel("Slug").clear();
         await page.getByLabel("Slug").fill("feature-41");
         await page.getByLabel("Date (UTC)").fill("2024-04-10T12:00");
+        /* `recipe-01` is already featured: a deliberate duplicate (epic 31, D2). */
+        await page
+          .getByLabel("Feature it again, even if it is already featured")
+          .check();
         await page.getByRole("button", { name: "Submit", exact: true }).click();
         await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
 

@@ -887,7 +887,9 @@ test.describe("Groups", () => {
        */
       const groupRow = page.getByTestId("group-item-group-row");
       await expect(groupRow).toHaveCount(1);
-      await expect(groupRow.getByLabel("Group 1")).toHaveValue("week-of-may-4");
+      await expect(groupRow.getByLabel("Group 1", { exact: true })).toHaveValue(
+        "week-of-may-4",
+      );
       await expect(
         page.getByRole("button", { name: "Remove group 1" }),
       ).toBeVisible();
@@ -942,7 +944,7 @@ test.describe("Groups", () => {
       await page.getByRole("button", { name: "Add group" }).click();
       const groupRow = page.getByTestId("group-item-group-row");
       await expect(groupRow).toHaveCount(1);
-      const picker = groupRow.getByLabel("Group 2");
+      const picker = groupRow.getByLabel("Group 2", { exact: true });
       await expect(
         picker.locator("option", { hasText: "Week of May 4" }),
       ).toHaveCount(1);

@@ -15,8 +15,8 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 31-plan is in review; 31a is next, and 31f (content) starts in the
-background.
+**Now:** 31-plan is merged (#190); 31a is in review, 31b is built on its
+own branch, and 31f (content) runs in the background.
 
 ## Context
 
@@ -107,16 +107,16 @@ open and the reason is recorded here.
 
 ## Roadmap
 
-| Phase    | Scope                                                                                                    | Branch                  | Status |
-| -------- | -------------------------------------------------------------------------------------------------------- | ----------------------- | ------ |
-| 31-plan  | This doc, CLAUDE.md entry, taxonomy roadmap note                                                         | `agent/31-plan`         | 🟡     |
-| 31a      | Image size in dry runs, polite 403 retry, feature dedupe, push with no remote, "Add group", tables, docs | `agent/31a-polish`      | ⏸️     |
-| 31b      | 24d: hierarchy-aware `tag:`, `/search/terms`, one "all terms" list, term-page tree                       | `agent/31b-term-search` | ⏸️     |
-| 31c      | 24e: `curation/terms.ts`, API, `recipes term …`, 8 MCP tools, skill v3, `Group.kind` narrowing           | `agent/31c-term-seats`  | ⏸️     |
-| 31d      | F32: group items follow renames                                                                          | `agent/31d-f32-renames` | ⏸️     |
-| 31e      | Term edit form `/tags/<slug>/edit`                                                                       | `agent/31e-term-form`   | ⏸️     |
-| 31f      | Content: 38 heading conversions, 7 spritzes and sodas (real content repo, no code PR)                    | — (results in 31-close) | ⏸️     |
-| 31-close | Results, roadmap/backlog strikes, morning checklist                                                      | `agent/31-close`        | ⏸️     |
+| Phase    | Scope                                                                                                    | Branch                  | Status  |
+| -------- | -------------------------------------------------------------------------------------------------------- | ----------------------- | ------- |
+| 31-plan  | This doc, CLAUDE.md entry, taxonomy roadmap note                                                         | `agent/31-plan`         | ✅ #190 |
+| 31a      | Image size in dry runs, polite 403 retry, feature dedupe, push with no remote, "Add group", tables, docs | `agent/31a-polish`      | 🟡      |
+| 31b      | 24d: hierarchy-aware `tag:`, `/search/terms`, one "all terms" list, term-page tree                       | `agent/31b-term-search` | ⏸️      |
+| 31c      | 24e: `curation/terms.ts`, API, `recipes term …`, 8 MCP tools, skill v3, `Group.kind` narrowing           | `agent/31c-term-seats`  | ⏸️      |
+| 31d      | F32: group items follow renames                                                                          | `agent/31d-f32-renames` | ⏸️      |
+| 31e      | Term edit form `/tags/<slug>/edit`                                                                       | `agent/31e-term-form`   | ⏸️      |
+| 31f      | Content: 38 heading conversions, 7 spritzes and sodas (real content repo, no code PR)                    | — (results in 31-close) | ⏸️      |
+| 31-close | Results, roadmap/backlog strikes, morning checklist                                                      | `agent/31-close`        | ⏸️      |
 
 **Order.** 31-plan → 31a → 31b → 31c → 31d → 31e, with 31f in parallel as a
 background subagent. 31c depends on 31b's resolver and 31e on 31c; 31d is
@@ -152,6 +152,29 @@ finished, the rest are skipped and recorded here.
 
 **Gate:** unit tests per item; full vitest; both typechecks; Playwright
 `featured-recipes`, `groups`, `new-recipe`, `tag-pages`, `git`.
+
+**Built (31a).** Calls made while building, beyond the plan:
+
+- The recipe form's **image import** retries a 403 at once too, not only
+  `/new-recipe`'s page fetch: it is the same browser form with a person
+  waiting. Explicit `ForbiddenRetry` fields beat the environment's, so
+  `RECIPE_FETCH_403_DELAY_MS=off` still turns the form's retry off.
+- `largeImageWarning` names the URL and both sizes ("is 9.7 MB, over 2.0 MB").
+  The image seat (`recipes image`) and group writes with `imageImportUrl`
+  warn too, so every download path reports.
+- Feature dedupe is checked on **create** only in the browser form; an edit
+  rewrites its own entry. The form's override is a "Feature it again"
+  checkbox under Advanced. `findFeatured` reads the whole featured index (it
+  is short).
+- `gitPush` with no upstream now pushes to **the only remote** when there is
+  exactly one, rather than assuming `origin` (the real repo's only remote is
+  `uraninite`). An asked-for remote that does not exist names the ones that
+  do. `mcp.test.ts`'s "push with no remote" case moved from `internal` to
+  `validation`.
+- An existing sub-group row in the group form is now a picker, not a
+  read-only hidden input, so it can be changed as well as removed. The
+  `groups.spec` case that read "Group 1: week-of-may-4" checks the select's
+  value instead.
 
 ### 31b — 24d: hierarchy-aware search
 
