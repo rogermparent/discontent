@@ -1,0 +1,34 @@
+{
+  "name": "Chicken Fried Rice",
+  "description": "Leftover rice, eggs and chicken.",
+  "tags": [
+    "dinner"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "2 cups cooked rice"
+    },
+    {
+      "ingredient": "2 eggs, beaten"
+    },
+    {
+      "ingredient": "1 cup diced chicken thighs"
+    },
+    {
+      "ingredient": "2 scallions, sliced"
+    },
+    {
+      "ingredient": "2 tablespoons soy sauce"
+    },
+    {
+      "ingredient": "1 tablespoon vegetable oil"
+    }
+  ],
+  "date": 1792000120000,
+  "recipeYield": "2 servings",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

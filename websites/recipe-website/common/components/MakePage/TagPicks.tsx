@@ -40,22 +40,33 @@ function TagChip({
 
 /**
  * `/make`'s top-level tags (epic 28, 28g): the vocabulary's roots, ordered
- * by how many recipes in scope sit under each. A root with children has a
- * toggle that shows them in a row of their own; every chip, parent or child,
- * toggles `tag:<slug>` in the scope. A root with a selected child opens by
- * itself, so a pick is always visible.
+ * by how many recipes sit under each. A root with children has a toggle that
+ * shows them in a row of their own; every chip, parent or child, toggles
+ * `tag:<slug>` in the scope. A root with a selected child opens by itself, so
+ * a pick is always visible.
+ *
+ * 32j: `usage` counts the scope *without* the tag picks (the kind and any
+ * typed terms stay), so the top row holds still while the picks drill down;
+ * the **Refine** row is the drill-down — `refinementsInScope` over the scope
+ * itself, less whatever an open row of children already shows.
  */
 export function TagPicks({
   index,
   usage,
   selected,
   onToggle,
+  refinements = [],
+  scopeUsage,
 }: {
   index: TagIndex;
   usage: Map<string, number>;
   /** Folded `tag:` values the scope selects. */
   selected: Set<string>;
   onToggle: (slug: string) => void;
+  /** Tags that would narrow the scope further, best first (32j). */
+  refinements?: string[];
+  /** `subtreeUsage` of the scope itself: the Refine chips' counts. */
+  scopeUsage?: Map<string, number>;
 }) {
   const id = useId();
   /* What the person chose; a selected child opens its root until closed. */
@@ -70,7 +81,12 @@ export function TagPicks({
         )),
   );
 
-  if (roots.length === 0) return null;
+  const showing = new Set(
+    openRoots.flatMap((root) => childrenInScope(index, usage, selected, root)),
+  );
+  const refine = refinements.filter((slug) => !showing.has(slug));
+
+  if (roots.length === 0 && refine.length === 0) return null;
   return (
     <div className="my-2 flex flex-col gap-1.5">
       <div
@@ -133,6 +149,30 @@ export function TagPicks({
           ))}
         </div>
       ))}
+      {refine.length > 0 && (
+        <div
+          className="flex flex-wrap items-center gap-1.5"
+          role="group"
+          aria-labelledby={`${id}-refine`}
+          data-testid="make-refine"
+        >
+          <span
+            id={`${id}-refine`}
+            className="text-xs font-semibold text-muted-foreground"
+          >
+            Refine
+          </span>
+          {refine.map((slug) => (
+            <TagChip
+              key={slug}
+              label={index.get(slug)?.label ?? slug}
+              count={(scopeUsage ?? usage).get(slug) ?? 0}
+              pressed={false}
+              onToggle={() => onToggle(slug)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -214,11 +214,32 @@ describe("makeable", () => {
     });
   });
 
-  it("judges the shared list against tag:drink by default", async () => {
+  it("judges the shared list against every recipe by default (32j)", async () => {
     await patchInventory(ctx, {
       add: ["vodka", "simple syrup", "Gnista", "tonic", "sugar", "lavender"],
     });
     const result = await makeable(ctx);
+    expect(result).toMatchObject({
+      query: "",
+      inventory: 6,
+      total: 4,
+      canMake: [
+        {
+          slug: "lavender-gnista-tonic",
+          makeFirst: ["lavender-syrup"],
+        },
+        { slug: "lavender-syrup", name: "Lavender Syrup" },
+      ],
+      oneAway: [{ slug: "vodka-sour", missing: ["lime juice"] }],
+      twoAway: [{ slug: "hand-pies", missing: ["jam", "flour"] }],
+    });
+  });
+
+  it("narrows to drinks with tag:drink", async () => {
+    await patchInventory(ctx, {
+      add: ["vodka", "simple syrup", "Gnista", "tonic", "sugar", "lavender"],
+    });
+    const result = await makeable(ctx, { query: "tag:drink" });
     expect(result).toMatchObject({
       query: "tag:drink",
       inventory: 6,
@@ -244,6 +265,32 @@ describe("makeable", () => {
     const result = await makeable(ctx, { query: "tag:dessert" });
     expect(result.oneAway).toEqual([
       { slug: "hand-pies", name: "Hand Pies", missing: ["flour"] },
+    ]);
+  });
+
+  it("assumes the staples and counts a close match, naming it (32j)", async () => {
+    await createRecipe(ctx, {
+      name: "Shallot Rice",
+      tags: ["side"],
+      ingredients: [
+        "1 shallot, minced",
+        "1 cup long-grain rice",
+        "2 tablespoons olive oil",
+        "1 tsp kosher salt",
+        "1/4 tsp freshly ground black pepper",
+      ],
+    });
+    await patchInventory(ctx, { add: ["onion", "rice", "vegetable oil"] });
+    const result = await makeable(ctx, { query: "-tag:drink" });
+    expect(result.canMake).toEqual([
+      {
+        slug: "shallot-rice",
+        name: "Shallot Rice",
+        close: [
+          { needs: "shallot", have: "onion" },
+          { needs: "olive oil", have: "vegetable oil" },
+        ],
+      },
     ]);
   });
 

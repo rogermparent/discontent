@@ -30,17 +30,27 @@ import { MakeTicker } from "./MakeTicker";
 import { scopeRecipes } from "./scope";
 import { TagPicks } from "./TagPicks";
 import { TagSearch } from "./TagSearch";
-import { buildTagIndex, subtreeUsage } from "./tagTree";
+import { buildTagIndex, refinementsInScope, subtreeUsage } from "./tagTree";
 import { buildTagExpansion } from "../../controller/tagExpansion";
-import { useInventory, useLastMakeQuery } from "./useInventory";
+import {
+  useInventory,
+  useLastMakeQuery,
+  useMakeSettings,
+} from "./useInventory";
+import { KindSwitch } from "./KindSwitch";
+import { kindOfQuery, MAKE_KINDS, withKind, withoutTagPicks } from "./kinds";
 
 /**
  * A first visit's scope: every recipe (28g). It was `tag:drink` while drinks
  * were the only thing with an inventory story; the tag picker makes any
  * scope one click away, so the page no longer guesses. The last scope used is
- * still remembered, and `inventory make` keeps its own drinks default.
+ * still remembered — the kind switch (32j) shows a remembered `tag:drink` as
+ * the Drinks segment chosen — and `inventory make` has the same "" default.
  */
 const FIRST_VISIT_QUERY = "";
+
+/** Refine chips at most (32j). */
+const REFINE_LIMIT = 12;
 
 /** Without a vocabulary from the route, every carried tag is a root. */
 function corpusTagOptions(recipes: MassagedRecipeEntry[]): TagOption[] {
@@ -125,6 +135,8 @@ export function MakePage({
   const inputRef = useRef<HTMLInputElement>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const queryInputId = useId();
+  const closeToggleId = useId();
+  const settings = useMakeSettings();
 
   const { allRecipes, status, error, retry } = useSearch();
   const ingredientsQuery = useQuery({
@@ -159,9 +171,14 @@ export function MakePage({
     () => scopeRecipes(corpus, query, tagResolver),
     [corpus, query, tagResolver],
   );
+  const { countClose, staples } = settings;
   const analysis = useMemo(
-    () => analyzeMakeable(scoped, prepared, inventory.have),
-    [scoped, prepared, inventory.have],
+    () =>
+      analyzeMakeable(scoped, prepared, inventory.have, {
+        countClose,
+        staples,
+      }),
+    [scoped, prepared, inventory.have, countClose, staples],
   );
 
   const pending =
@@ -180,6 +197,50 @@ export function MakePage({
   const corpusUsage = useMemo(
     () => subtreeUsage(corpus, tagIndex),
     [corpus, tagIndex],
+  );
+  /* 32j: the top row counts the scope without the tag picks, so it holds
+   * still; the Refine row drills down within the scope itself. */
+  const baseQuery = useMemo(() => withoutTagPicks(query), [query]);
+  const baseUsage = useMemo(
+    () =>
+      baseQuery === query
+        ? scopeUsage
+        : subtreeUsage(scopeRecipes(corpus, baseQuery, tagResolver), tagIndex),
+    [baseQuery, query, scopeUsage, corpus, tagResolver, tagIndex],
+  );
+  const refinements = useMemo(
+    () =>
+      refinementsInScope(
+        tagIndex,
+        scopeUsage,
+        scoped.length,
+        selectedTags,
+        REFINE_LIMIT,
+      ),
+    [tagIndex, scopeUsage, scoped.length, selectedTags],
+  );
+
+  /* The kind switch: shown when some kind splits the corpus, with what each
+   * would hold if chosen now. */
+  const currentKind = useMemo(() => kindOfQuery(query), [query]);
+  const kindSplits = useMemo(
+    () =>
+      MAKE_KINDS.some((kind) => {
+        if (!kind.query) return false;
+        const count = scopeRecipes(corpus, kind.query, tagResolver).length;
+        return count > 0 && count < corpus.length;
+      }),
+    [corpus, tagResolver],
+  );
+  const kindCounts = useMemo(
+    () =>
+      new Map(
+        MAKE_KINDS.map((kind) => [
+          kind.id,
+          scopeRecipes(corpus, withKind(query, kind), tagResolver).length,
+        ]),
+      ),
+    [corpus, query, tagResolver],
   );
 
   let body;
@@ -223,7 +284,7 @@ export function MakePage({
     body = (
       <EmptyState
         title="Start with what you have"
-        message="Add the bottles, mixers and fruit on hand, and what you can make shows up here."
+        message="Add what's in your kitchen or bar — produce, pantry staples, bottles — and what you can make shows up here."
         action={
           <div className="flex flex-wrap justify-center gap-2">
             <Button type="button" onClick={() => inputRef.current?.focus()}>
@@ -278,6 +339,7 @@ export function MakePage({
           inputRef={inputRef}
           dialogOpen={dialogOpen}
           onDialogOpenChange={setDialogOpen}
+          settings={settings}
         />
         <div className="min-w-0 grow">
           <label htmlFor={queryInputId} className="text-sm font-semibold">
@@ -289,10 +351,18 @@ export function MakePage({
             className="mt-1 font-mono"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="tag:drink -tag:batch"
+            placeholder="tag:quick chicken"
             autoComplete="off"
             spellCheck={false}
           />
+          {kindSplits && (
+            <KindSwitch
+              kinds={MAKE_KINDS}
+              current={currentKind}
+              counts={kindCounts}
+              onChange={(kind) => setQuery(withKind(query, kind))}
+            />
+          )}
           <TagSearch
             index={tagIndex}
             corpusUsage={corpusUsage}
@@ -304,9 +374,11 @@ export function MakePage({
           />
           <TagPicks
             index={tagIndex}
-            usage={scopeUsage}
+            usage={baseUsage}
             selected={selectedTags}
             onToggle={(slug) => setQuery(toggleTagTerm(query, slug))}
+            refinements={refinements}
+            scopeUsage={scopeUsage}
           />
           <MakeTicker
             total={scoped.length}
@@ -316,6 +388,20 @@ export function MakePage({
             query={query}
             pending={pending}
           />
+          <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              id={closeToggleId}
+              type="checkbox"
+              data-testid="make-count-close"
+              className="size-3.5 accent-primary"
+              checked={countClose}
+              onChange={(event) => settings.setCountClose(event.target.checked)}
+            />
+            <label htmlFor={closeToggleId}>
+              Count close matches (≈) as had — onion for a shallot, olive oil
+              for vegetable oil
+            </label>
+          </div>
           {body}
         </div>
       </div>

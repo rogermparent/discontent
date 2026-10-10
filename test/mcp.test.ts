@@ -637,8 +637,20 @@ describe("the MCP registry over an in-memory transport", () => {
     /* Nothing caches the list, so there is no stale editor to warn about. */
     expect(added.data.warnings).toBeUndefined();
 
+    /* Every recipe by default (32j); `tag:drink` narrows. */
     const before = await call("inventory_makeable", {});
     expect(before.data).toMatchObject({
+      query: "",
+      oneAway: expect.arrayContaining([
+        {
+          slug: "gin-and-tonic",
+          name: "Gin and Tonic",
+          missing: ["tonic water"],
+        },
+      ]),
+    });
+    const drinks = await call("inventory_makeable", { query: "tag:drink" });
+    expect(drinks.data).toMatchObject({
       query: "tag:drink",
       oneAway: [{ slug: "gin-and-tonic", missing: ["tonic water"] }],
     });

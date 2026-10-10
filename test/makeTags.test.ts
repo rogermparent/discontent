@@ -1,7 +1,8 @@
 // @vitest-environment node
 //
 // Epic 28, 28g: `/make`'s tag picker — the vocabulary with parents, and the
-// pure tree reads the page renders from.
+// pure tree reads the page renders from. 32j: Refine chips and the kind
+// switch.
 
 import { describe, expect, it } from "vitest";
 import { tagOptions } from "../websites/recipe-website/common/controller/tagVocabulary";
@@ -9,10 +10,17 @@ import {
   breadcrumb,
   buildTagIndex,
   childrenInScope,
+  refinementsInScope,
   rootsInScope,
   searchTags,
   subtreeUsage,
 } from "../websites/recipe-website/common/components/MakePage/tagTree";
+import {
+  kindOfQuery,
+  MAKE_KINDS,
+  withKind,
+  withoutTagPicks,
+} from "../websites/recipe-website/common/components/MakePage/kinds";
 
 const vocabulary = [
   { slug: "drink", label: "Drinks", count: 5 },
@@ -109,6 +117,71 @@ describe("the tag tree", () => {
     ]);
   });
 
+  it("refines a pick with its children first, then what co-occurs (32j)", () => {
+    /* Drinks picked: its children by use, then `gin` beside them. */
+    const drinks = recipes.slice(0, 4);
+    const scoped = subtreeUsage(drinks, index);
+    expect(
+      refinementsInScope(index, scoped, drinks.length, new Set(["drink"]), 12),
+    ).toEqual(["highball", "zero-proof", "sour", "gin"]);
+    expect(
+      refinementsInScope(index, scoped, drinks.length, new Set(["drink"]), 2),
+    ).toEqual(["highball", "zero-proof"]);
+    /* A child picked: never it or its root; `highball` is on both, so it
+     * would change nothing. */
+    const zeroProof = recipes.slice(1, 3);
+    expect(
+      refinementsInScope(
+        index,
+        subtreeUsage(zeroProof, index),
+        zeroProof.length,
+        new Set(["zero-proof"]),
+        12,
+      ),
+    ).toEqual([]);
+    /* Nothing picked, nothing to refine. */
+    expect(refinementsInScope(index, scoped, 4, new Set(), 12)).toEqual([]);
+  });
+
+  it("drills down a flat food vocabulary by co-occurrence (32j)", () => {
+    const food = [
+      { name: "Shallot Rice Pilaf", tags: ["side", "vegetarian"] },
+      { name: "Roasted Vegetables", tags: ["side", "vegetarian", "quick"] },
+      { name: "Lemon Garlic Chicken", tags: ["dinner", "quick"] },
+      { name: "Chicken Fried Rice", tags: ["dinner"] },
+      { name: "Lentil Soup", tags: ["dinner", "vegetarian", "soup"] },
+    ];
+    const flat = buildTagIndex(
+      ["side", "vegetarian", "quick", "dinner", "soup"].map((slug) => ({
+        slug,
+        label: slug,
+      })),
+    );
+    const vegetarian = food.filter((recipe) =>
+      recipe.tags.includes("vegetarian"),
+    );
+    expect(
+      refinementsInScope(
+        flat,
+        subtreeUsage(vegetarian, flat),
+        vegetarian.length,
+        new Set(["vegetarian"]),
+        12,
+      ),
+    ).toEqual(["side", "dinner", "quick", "soup"]);
+    /* Side picked too: of the two left, only one is quick. */
+    const sides = vegetarian.filter((recipe) => recipe.tags.includes("side"));
+    expect(
+      refinementsInScope(
+        flat,
+        subtreeUsage(sides, flat),
+        sides.length,
+        new Set(["vegetarian", "side"]),
+        12,
+      ),
+    ).toEqual(["quick"]);
+  });
+
   it("searches labels and slugs, prefix first, used tags only", () => {
     expect(searchTags(index, usage, "zero", 8).map((n) => n.slug)).toEqual([
       "zero-proof",
@@ -118,5 +191,50 @@ describe("the tag tree", () => {
     ]);
     expect(searchTags(index, usage, "holi", 8)).toEqual([]);
     expect(searchTags(index, usage, "", 8)).toEqual([]);
+  });
+});
+
+describe("the kind switch (32j)", () => {
+  const [anything, food, drinks] = MAKE_KINDS;
+
+  it("is site config: anything, food (not a drink) and drinks", () => {
+    expect(MAKE_KINDS.map(({ id, query }) => [id, query])).toEqual([
+      ["any", ""],
+      ["food", "-tag:drink"],
+      ["drinks", "tag:drink"],
+    ]);
+  });
+
+  it("reads the kind back from the query", () => {
+    expect(kindOfQuery("")).toBe(anything);
+    expect(kindOfQuery("tag:vegetarian chicken")).toBe(anything);
+    expect(kindOfQuery("-tag:drink tag:vegetarian")).toBe(food);
+    expect(kindOfQuery("tag:quick NOT tag:drink")).toBe(food);
+    expect(kindOfQuery("tag:Drink tag:highball")).toBe(drinks);
+    /* Inside an OR it is a choice of the person's, not a kind. */
+    expect(kindOfQuery("tag:drink OR tag:dessert")).toBe(anything);
+  });
+
+  it("switches the kind and keeps the picks and the words", () => {
+    expect(withKind("tag:vegetarian chicken", food)).toBe(
+      "-tag:drink tag:vegetarian chicken",
+    );
+    expect(withKind("-tag:drink tag:vegetarian", drinks)).toBe(
+      "tag:drink tag:vegetarian",
+    );
+    expect(withKind("tag:drink tag:highball", anything)).toBe("tag:highball");
+    expect(withKind("", drinks)).toBe("tag:drink");
+    expect(withKind("tag:a OR tag:b", food)).toBe(
+      "-tag:drink (tag:a OR tag:b)",
+    );
+  });
+
+  it("drops the tag picks for the top row, never the kind", () => {
+    expect(withoutTagPicks("-tag:drink tag:side tag:quick")).toBe("-tag:drink");
+    expect(withoutTagPicks("tag:drink tag:highball")).toBe("tag:drink");
+    expect(withoutTagPicks("tag:side -tag:quick ingredient:rice")).toBe(
+      "-tag:quick ingredient:rice",
+    );
+    expect(withoutTagPicks("")).toBe("");
   });
 });

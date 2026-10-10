@@ -11,8 +11,10 @@
  *
  * It is heuristic by nature. Every word list lives here, in one tested file,
  * and `editor/scripts/measure-ingredient-names.ts` prints what it makes of the
- * real corpus — re-run it before tuning a list. Drinks are the target; food
- * lines are best-effort.
+ * real corpus — re-run it before tuning a list. Drinks were the first target;
+ * 32j made food lines first-class (trailing prep phrases, food synonyms, salt
+ * and pepper, the close-match data at the end), and `measure-makeable.ts`
+ * counts what a pantry makes of the real corpus.
  *
  * Pure, and safe in the browser: the `/make` page runs it over the whole
  * corpus on the client.
@@ -172,7 +174,12 @@ const QUANTITY_RE = new RegExp(
   "i",
 );
 const UNIT_RE = new RegExp(
-  String.raw`^(?:${UNIT_PATTERN})(?:e?s)?\.?(?=\s|$|\()\s*`,
+  String.raw`^(?:${UNIT_PATTERN})(?:e?s)?\.?(?=\s|$|\(|\/)\s*`,
+  "i",
+);
+/** `/1.5kg` after `3.5lb`: the same amount in other units (32j). */
+const UNIT_ALT_RE = new RegExp(
+  String.raw`^\/\s*${NUMBER}\s*(?:${UNIT_PATTERN})(?:e?s)?\.?(?=\s|$|\()\s*`,
   "i",
 );
 /** ` or can` / `/can` after a unit: the second of two containers (27c). */
@@ -216,6 +223,10 @@ const DESCRIPTIVE = new Set([
   "hot",
   "warm",
   "boiling",
+  /* Water's temperatures (32j): "cool water" is a staple. */
+  "cool",
+  "lukewarm",
+  "tepid",
   "brewed",
   "room",
   "temperature",
@@ -307,10 +318,52 @@ const COMPOUNDS = new Set([
   "triple sec",
   "sour mix",
   "sparkling wine",
+  /*
+   * Flavoured salts are their own jar (32j): with salt assumed on hand, a
+   * Bloody Mary's celery salt must not come for free.
+   */
+  "celery salt",
+  "garlic salt",
+  "onion salt",
+  "seasoned salt",
 ]);
 
-/** Different words for the same bottle, rewritten before anything else. */
+/**
+ * Different words for the same thing, rewritten before anything else. The
+ * pattern sees the text folded, apostrophes gone and punctuation spaced
+ * (`confectioners' sugar` is `confectioners sugar`), before singulars.
+ *
+ * Food first (32j): British and American names, and the spellings people
+ * type. `bicarbonate of soda` must be read before the bare-`soda` rule below
+ * turns it into soda water. `chile` stays as written — "ancho chile" is a
+ * pepper the drinks name that way — and only `chilli`/`chilies` fold to
+ * `chili`.
+ */
 const SYNONYMS: [RegExp, string][] = [
+  [/\b(?:scallions?|spring onions?)\b/g, "green onion"],
+  [/\b(?:fresh coriander|coriander (?:leaf|leaves))\b/g, "cilantro"],
+  [/\b(?:garbanzo beans?|garbanzos?|chick peas?)\b/g, "chickpea"],
+  [/\b(?:confectioners?|powdered|icing) sugar\b/g, "powdered sugar"],
+  [/\b(?:caster|castor) sugar\b/g, "superfine sugar"],
+  [/\bcourgettes?\b/g, "zucchini"],
+  [/\baubergines?\b/g, "eggplant"],
+  [
+    /\b(?:heavy whipping cream|double cream|whipping cream|thickened cream)\b/g,
+    "heavy cream",
+  ],
+  [/\b(?:minced beef|beef mince)\b/g, "ground beef"],
+  [/\bhamburger(?: meat)?\b(?! buns?\b| rolls?\b| patt)/g, "ground beef"],
+  [/\b(?:sweet peppers?|capsicums?)\b/g, "bell pepper"],
+  [/\bcorn starch\b/g, "cornstarch"],
+  [/\brocket\b/g, "arugula"],
+  [/\bprawns?\b/g, "shrimp"],
+  [
+    /\b(?:bicarbonate of soda|bicarb soda|bicarb|sodium bicarbonate)\b/g,
+    "baking soda",
+  ],
+  [/\b(?:chillies|chilies|chillis|chilli)\b/g, "chili"],
+  [/\byoghurts?\b/g, "yogurt"],
+  [/\bevoo\b/g, "extra virgin olive oil"],
   [/\bclub soda\b/g, "soda water"],
   [/\bsparkling (?:mineral )?water\b/g, "soda water"],
   [/\bseltzer(?: water)?\b/g, "soda water"],
@@ -443,6 +496,12 @@ export function toName(text: string): IngredientName {
   while (paired.length > 1 && /^(?:of|and|the|a|an|with)$/.test(paired[0])) {
     paired.shift();
   }
+  while (
+    paired.length > 1 &&
+    /^(?:of|and|or|the|a|an|with)$/.test(paired[paired.length - 1])
+  ) {
+    paired.pop();
+  }
   /*
    * A second pass for pairs a descriptive word sat between: "egg, large
    * white" is `egg large white` before the cut and `egg white` after it, and
@@ -531,6 +590,57 @@ function topLevelComma(text: string): number {
 
 const SUCH_AS_RE = /\b(?:such as|like|e\.g\.?)\s+([^,()]+)/i;
 
+/**
+ * Remarks in parentheses that say how much or how, never what (32j). Gone
+ * before the amount is read: `1 tbsp. (or more) lemon juice` kept its unit
+ * because a parenthesis after it reads as "the unit is the name".
+ */
+const NOISE_PARENTHESES_RE =
+  /\(\s*(?:or (?:more|less|so)|(?:or |adjust )?to taste|divided|(?:or |more )?as needed|softened|melted|(?:at )?room temperature)\s*\)/gi;
+
+/**
+ * How a cut of meat comes, written before the name and often with a comma
+ * of its own — `2 boneless, skinless chicken thighs` read `boneless` (32j).
+ */
+const BONE_AND_SKIN_RE =
+  /\b(?:bone[\s-]?in|skin[\s-]?on|boneless|skinless)\b\s*,?\s*/gi;
+
+/**
+ * What a line says after the name without a comma (32j): `onion cut into
+ * wedges`, `butter at room temperature`, `flour plus more for kneading`. Cut
+ * only after a letter, so a leading "melted butter" keeps its name (and
+ * `DESCRIPTIVE` drops the word).
+ */
+const TRAILING_PREP_RE =
+  /(?<=\p{L})\s+(?:cut into|cut in|for serving|to serve|(?:or |adjust )?to taste|plus (?:more|extra)|divided|(?:at )?room temperature|softened|melted|peeled and|trimmed and|or (?:more|less)|(?:or |if |as )needed)\b.*$/iu;
+
+/** `ghee or margarine or more butter`: the last choice is butter. */
+const OR_MORE_NAME_RE = /\bor more\s+(?=\p{L})(?!as\b|if\b|to\b|for\b)/giu;
+
+/**
+ * The choices inside `(or …)`, without the remarks that ride along (32j):
+ * `(or margarine, or more butter)` is margarine or butter, `(or any cooking
+ * oil, divided)` is any cooking oil, `(or more as needed)` is nothing.
+ */
+function alternativeParts(text: string): string[] {
+  return text
+    .split(/\s*,\s*(?:or\s+)?/)
+    .map((part) =>
+      part
+        .replace(/^more\s+(?=\p{L})(?!as\b|if\b|to\b|for\b)/iu, "")
+        .replace(TRAILING_PREP_RE, "")
+        .trim(),
+    )
+    .filter(
+      (part) =>
+        part &&
+        !/^(?:more|less|so|divided|as needed|if needed|to taste)\b/i.test(part),
+    );
+}
+
+/** `salt and pepper`, `kosher salt & black pepper`: two things to have. */
+const SALT_AND_PEPPER_RE = /^(.*?\bsalt)\s+(?:and|&)\s+(.*?\bpepper)$/i;
+
 /** Strip the quantity, any parenthetical measure after it, the unit, and `of`. */
 function stripAmount(text: string): string {
   let rest = text;
@@ -558,6 +668,8 @@ function stripAmount(text: string): string {
       /* "1 bottle or can tomato juice": either container (27c). */
       const orUnit = UNIT_OR_RE.exec(after);
       if (orUnit) after = after.slice(orUnit[0].length);
+      const altUnit = UNIT_ALT_RE.exec(after);
+      if (altUnit) after = after.slice(altUnit[0].length);
       after = after
         .replace(/^\(+[^()]*\d[^()]*\)+\s*/, "")
         .replace(/^of\s+/i, "");
@@ -708,7 +820,12 @@ export function parseIngredientLine(
     optional = true;
   }
 
-  // 3–4. Quantity, unit, `of`.
+  // 3–4. Remarks that say nothing about what (32j), then quantity, unit, `of`.
+  text = text
+    .replace(NOISE_PARENTHESES_RE, " ")
+    .replace(BONE_AND_SKIN_RE, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   text = stripAmount(text);
 
   // 5. Comma: the head is the name; the tail may say "such as X".
@@ -721,6 +838,7 @@ export function parseIngredientLine(
     if (suchAs) aliases.push(suchAs[1].trim());
   }
   head = head.replace(/\s*\b(?:such as|like|e\.g\.?)\s+[^,()]*/i, " ");
+  head = head.replace(TRAILING_PREP_RE, "");
 
   // 6. Parentheticals: brands become aliases, `(or X)` an alternative.
   const { outside, groups } = splitParentheses(head);
@@ -732,7 +850,7 @@ export function parseIngredientLine(
       group,
     );
     if (or) {
-      alternativeTexts.push(or[1]);
+      alternativeTexts.push(...alternativeParts(or[1]));
     } else if (
       !/\d/.test(group) &&
       /* `(minced)`, `(chopped)` describe; they don't name. */
@@ -762,9 +880,21 @@ export function parseIngredientLine(
     ].filter((req) => req.alternatives.length > 0);
   }
 
-  // 8–9. Alternatives, then words.
+  // 8. Salt and pepper: the one `and` that names two things (32j).
+  const saltAndPepper = SALT_AND_PEPPER_RE.exec(outside);
+  if (saltAndPepper && alternativeTexts.length === 0) {
+    return [saltAndPepper[1], saltAndPepper[2]]
+      .map((part) =>
+        requirement(index, line, [toName(part)], aliases, optional),
+      )
+      .filter((req) => req.alternatives.length > 0);
+  }
+
+  // 9. Alternatives, then words.
   const names = inheritTails(
-    splitAlternatives(outside).map((part) => toName(stripAmount(part))),
+    splitAlternatives(outside.replace(OR_MORE_NAME_RE, "or ")).map((part) =>
+      toName(stripAmount(part)),
+    ),
   );
   for (const alternative of alternativeTexts) {
     names.push(toName(stripAmount(alternative)));
@@ -802,3 +932,100 @@ export function parseIngredientList(
 export function isGenericHead(word: string): boolean {
   return GENERIC_HEADS.has(word);
 }
+
+// --- close matches (32j) ---------------------------------------------------
+//
+// The data behind `makeable.ts`'s close tier: names that would do in a pinch.
+// Written as text and run through `toName` here, at the end of the module, so
+// the lists read as people write them and still meet lines word for word.
+
+const words = (name: string): string[] => toName(name).words;
+
+/**
+ * Substitutes, either way round. A member names an item or a line when it is
+ * the name's tail: `olive oil` names `extra virgin olive oil`, `onion` names
+ * `red onion`.
+ */
+export const CLOSE_GROUPS: string[][][] = [
+  [
+    "olive oil",
+    "vegetable oil",
+    "canola oil",
+    "neutral oil",
+    "cooking oil",
+    "sunflower oil",
+    "safflower oil",
+    "avocado oil",
+    "grapeseed oil",
+    "peanut oil",
+    "corn oil",
+  ],
+  ["shallot", "onion"],
+  ["butter", "margarine", "ghee"],
+  ["broth", "stock", "bouillon"],
+  ["sour cream", "yogurt", "creme fraiche"],
+].map((group) => group.map(words));
+
+/** One way only: whoever has eggs has egg whites, not the reverse. */
+export const CLOSE_PAIRS: [string[], string[]][] = [
+  ["egg", "egg white"],
+  ["egg", "egg yolk"],
+].map(([from, to]) => [words(from), words(to)]);
+
+/**
+ * Last words that name different things in different names, so sharing one
+ * is no sign of closeness: black pepper is not bell pepper, black beans are
+ * not green beans.
+ */
+export const CLOSE_HEAD_EXCLUDED = new Set([
+  "pepper",
+  "bean",
+  "leaf",
+  "flake",
+  "paste",
+  "chip",
+  "seed",
+  "seasoning",
+  "salt",
+  "spice",
+  "bitters",
+  "vermouth",
+]);
+
+/**
+ * Kinds a name may carry or drop: `parmesan` is `parmesan cheese`, `vanilla`
+ * is close to `vanilla extract`, `garlic` to `garlic powder`. Only kinds
+ * whose modifier is rarely an ingredient of its own: `vinegar`, `wine`,
+ * `noodle`, `squash` and `seed` are out, or rice would be close to rice
+ * vinegar and spaghetti to spaghetti squash.
+ */
+export const CLASS_NOUNS = new Set([
+  "cheese",
+  "pepper",
+  "chili",
+  "lettuce",
+  "rice",
+  "pasta",
+  "powder",
+  "extract",
+]);
+
+/**
+ * Words one edit apart that are different things, sorted pairs joined with
+ * `|`. The typo rule also needs one side to be unusual in the corpus, so this
+ * only catches the pairs that guard misses.
+ */
+export const CONFUSABLE_WORDS = new Set(
+  [
+    ["cherry", "sherry"],
+    ["butter", "bitter"],
+    ["mustard", "custard"],
+    ["coffee", "toffee"],
+    ["tomato", "potato"],
+    ["paste", "pasta"],
+    ["chive", "chile"],
+    ["steak", "steam"],
+    ["lager", "later"],
+    ["cider", "rider"],
+  ].map((pair) => [...pair].sort().join("|")),
+);

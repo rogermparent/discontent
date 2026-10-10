@@ -457,8 +457,9 @@ export type InventoryPatch = z.infer<typeof InventoryPatchSchema>;
 export const InventorySetSchema = z.strictObject({ items: InventoryItems });
 
 /**
- * What to judge the list against: a search-language scope (`tag:drink` when
- * absent) and how many rows each bucket answers with.
+ * What to judge the list against: a search-language scope (every recipe when
+ * absent; `tag:drink` narrows to drinks) and how many rows each bucket
+ * answers with.
  */
 export const InventoryMakeQuerySchema = z.strictObject({
   query: z.string().optional(),

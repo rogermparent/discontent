@@ -228,4 +228,16 @@ describe("the recipe-curator skill's allow-lists", () => {
       );
     }
   });
+
+  it("asks 'what can I make?' of every recipe, not just drinks (32j)", () => {
+    const onHand = section(skill, "8. What's on hand");
+    /* The first `inventory_makeable` example is the default: no scope. */
+    const first = /inventory_makeable (\{[^\n]*\})/.exec(onHand);
+    expect(first, "no inventory_makeable example").not.toBeNull();
+    expect(JSON.parse((first as RegExpExecArray)[1])).not.toHaveProperty(
+      "query",
+    );
+    expect(onHand).toContain("dinner or drink");
+    expect(onHand).toContain("`-tag:drink` for food");
+  });
 });

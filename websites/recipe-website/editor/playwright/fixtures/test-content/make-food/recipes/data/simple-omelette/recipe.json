@@ -1,0 +1,22 @@
+{
+  "name": "Simple Omelette",
+  "description": "Three eggs, a pan, two minutes.",
+  "ingredients": [
+    {
+      "ingredient": "3 large eggs"
+    },
+    {
+      "ingredient": "1 tablespoon butter"
+    },
+    {
+      "ingredient": "Salt and pepper"
+    }
+  ],
+  "date": 1792000180000,
+  "recipeYield": "2 servings",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

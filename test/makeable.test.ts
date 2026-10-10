@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { parseIngredientLine } from "recipe-website-common/util/ingredientNames";
+import {
+  parseIngredientLine,
+  requirementLabel,
+} from "recipe-website-common/util/ingredientNames";
 import {
   analyzeMakeable,
+  closeTo,
+  DEFAULT_STAPLES,
   parseInventoryItem,
   prepareCorpus,
   satisfies,
@@ -359,5 +364,231 @@ describe("suggestNames", () => {
       "water",
       "ice",
     ]);
+  });
+});
+
+/*
+ * 32j: dinner as well as drinks. Loose line reading, food synonyms, salt and
+ * pepper as staples, and the close tier, which is reported separately and
+ * never changes what the strict rules say.
+ */
+describe("food (32j)", () => {
+  const close = (item: string, line: string, corpus?: MakeRecipe[]) => {
+    const [requirement] = parseIngredientLine(line);
+    return closeTo(
+      parseInventoryItem(item),
+      requirement,
+      corpus ? prepareCorpus(corpus).words : undefined,
+    );
+  };
+
+  it("reads a food line however it trails off", () => {
+    expect(meets("onion", "1 large onion cut into wedges")).toBe(true);
+    expect(meets("butter", "8 tbsp unsalted butter at room temperature")).toBe(
+      true,
+    );
+    expect(meets("flour", "3 cups flour plus more for kneading")).toBe(true);
+    expect(meets("chicken thighs", "2 boneless, skinless chicken thighs")).toBe(
+      true,
+    );
+    expect(meets("chicken thigh", "8 bone-in, skin-on chicken thighs")).toBe(
+      true,
+    );
+    expect(meets("milk", "1/2 cup milk (or more as needed)")).toBe(true);
+    expect(meets("lemon", "1 tbsp. (or more) fresh lemon juice")).toBe(true);
+    expect(
+      meets("butter", "2-3 Tbsp ghee (or margarine, or more butter)"),
+    ).toBe(true);
+    expect(meets("olive oil", "4 Tbsp olive oil, divided")).toBe(true);
+  });
+
+  it("gives an A-or-B line both as alternatives", () => {
+    expect(meets("margarine", "2 tbsp butter or margarine")).toBe(true);
+    expect(meets("butter", "2 tbsp butter or margarine")).toBe(true);
+  });
+
+  it("folds food synonyms on both sides", () => {
+    expect(meets("scallions", "2 green onions, sliced")).toBe(true);
+    expect(meets("spring onion", "1 scallion")).toBe(true);
+    expect(meets("fresh coriander", "1/4 cup cilantro leaves")).toBe(true);
+    expect(meets("garbanzo beans", "1 can chickpeas, drained")).toBe(true);
+    expect(meets("icing sugar", "1 cup confectioners' sugar")).toBe(true);
+    expect(meets("courgette", "1 zucchini, sliced")).toBe(true);
+    expect(meets("aubergine", "1 eggplant")).toBe(true);
+    expect(meets("double cream", "1 cup heavy whipping cream")).toBe(true);
+    expect(meets("hamburger", "1 lb ground beef")).toBe(true);
+    expect(meets("hamburger buns", "1 lb ground beef")).toBe(false);
+    expect(meets("bicarbonate of soda", "1 tsp baking soda")).toBe(true);
+    expect(meets("bicarbonate of soda", "Club soda, to top")).toBe(false);
+  });
+
+  it("keeps a flavoured salt its own jar", () => {
+    expect(meets("salt", "1/2 tsp celery salt")).toBe(false);
+    expect(meets("salt", "1 tsp kosher salt")).toBe(true);
+  });
+
+  it("finds a close match by substitute, head, kind or typo", () => {
+    expect(close("onion", "1 shallot, minced")).toBe(true);
+    expect(close("olive oil", "2 tbsp vegetable oil")).toBe(true);
+    expect(close("extra virgin olive oil", "1 cup neutral oil")).toBe(true);
+    expect(close("chicken stock", "2 cups chicken broth")).toBe(true);
+    expect(close("eggs", "2 egg yolks")).toBe(true);
+    expect(close("brown rice", "1 cup white rice")).toBe(true);
+    expect(close("cheddar cheese", "1 cup parmesan cheese")).toBe(true);
+    expect(close("parmesan", "1/2 cup grated parmesan cheese")).toBe(true);
+    expect(close("garlic", "1 tsp garlic powder")).toBe(true);
+    expect(close("mozarella", "1 cup shredded mozzarella")).toBe(true);
+  });
+
+  it("is never close on a vague or ambiguous word, or the wrong way round", () => {
+    expect(close("juice", "1 oz lime juice")).toBe(false);
+    expect(close("lemon juice", "1 oz lime juice")).toBe(false);
+    expect(close("oil", "2 tbsp olive oil")).toBe(false);
+    expect(close("black pepper", "1 red bell pepper")).toBe(false);
+    expect(close("black beans", "1 cup green beans")).toBe(false);
+    expect(close("egg white", "2 eggs")).toBe(false);
+    expect(close("rice", "1 tbsp rice vinegar")).toBe(false);
+    expect(close("spaghetti", "1 spaghetti squash")).toBe(false);
+    expect(close("non-alcoholic gin", "2 oz old tom gin")).toBe(false);
+  });
+
+  it("allows a typo only when one side is unusual", () => {
+    const corpus: MakeRecipe[] = [
+      { slug: "a", name: "A", ingredients: ["2 tomatoes", "1 cup yogurt"] },
+      { slug: "b", name: "B", ingredients: ["3 potatoes", "1 cup yogurt"] },
+      { slug: "c", name: "C", ingredients: ["1 tomato", "1 potato"] },
+    ];
+    /* Both words used freely: two vegetables, not a typo. */
+    expect(close("potatos", "2 tomatoes", corpus)).toBe(false);
+    /* A spelling the corpus never uses. */
+    expect(close("yoghurtt", "1 cup yogurt", corpus)).toBe(false);
+    expect(close("yogurtt", "1 cup yogurt", corpus)).toBe(true);
+    /* Known pairs never, whatever the counts. */
+    expect(close("cherries", "1 oz sherry")).toBe(false);
+    expect(close("custard", "1 tbsp mustard")).toBe(false);
+  });
+
+  const dinner: MakeRecipe[] = [
+    {
+      slug: "shallot-rice-pilaf",
+      name: "Shallot Rice Pilaf",
+      ingredients: [
+        "1 shallot, minced",
+        "1 cup long-grain white rice",
+        "2 cups vegetable broth",
+        "2 tablespoons butter",
+        "1 teaspoon kosher salt",
+        "1/4 teaspoon freshly ground black pepper",
+      ],
+    },
+    {
+      slug: "simple-omelette",
+      name: "Simple Omelette",
+      ingredients: ["3 large eggs", "1 tablespoon butter", "Salt and pepper"],
+    },
+    {
+      slug: "roasted-vegetables",
+      name: "Roasted Vegetables",
+      ingredients: [
+        "1 zucchini cut into half-moons",
+        "1 red onion cut into wedges",
+        "2 tablespoons olive oil",
+        "1 teaspoon salt",
+      ],
+    },
+  ];
+  const slugs = (matches: { recipe: MakeRecipe }[]) =>
+    matches.map((match) => match.recipe.slug);
+
+  it("assumes salt, black pepper, water and ice unless told otherwise", () => {
+    expect(DEFAULT_STAPLES).toEqual(["salt", "black pepper", "water", "ice"]);
+    const result = analyzeMakeable(dinner, dinner, ["eggs", "butter"]);
+    expect(slugs(result.canMake)).toEqual(["simple-omelette"]);
+
+    const without = analyzeMakeable(dinner, dinner, ["eggs", "butter"], {
+      staples: ["black pepper"],
+    });
+    expect(slugs(without.oneAway)).toEqual(["simple-omelette"]);
+    expect(without.oneAway[0].missing.map(requirementLabel)).toEqual(["salt"]);
+  });
+
+  it("counts a close line as had by default, and reports it", () => {
+    const result = analyzeMakeable(dinner, dinner, [
+      "onion",
+      "rice",
+      "vegetable stock",
+      "butter",
+    ]);
+    const pilaf = result.canMake.find(
+      (match) => match.recipe.slug === "shallot-rice-pilaf",
+    );
+    expect(pilaf?.missing).toEqual([]);
+    expect(
+      pilaf?.close.map(({ requirement, item }) => [requirement.text, item]),
+    ).toEqual([
+      ["1 shallot, minced", "onion"],
+      ["2 cups vegetable broth", "vegetable stock"],
+    ]);
+  });
+
+  it("with close matches off, a close line is missing and still reported", () => {
+    const result = analyzeMakeable(
+      dinner,
+      dinner,
+      ["onion", "rice", "vegetable broth", "butter"],
+      { countClose: false },
+    );
+    expect(slugs(result.canMake)).toEqual([]);
+    const pilaf = result.oneAway.find(
+      (match) => match.recipe.slug === "shallot-rice-pilaf",
+    );
+    expect(pilaf?.missing.map((r) => r.text)).toEqual(["1 shallot, minced"]);
+    expect(pilaf?.close.map(({ item }) => item)).toEqual(["onion"]);
+    expect(result.buyNext).toContainEqual(
+      expect.objectContaining({ item: "shallot", unlocks: 1 }),
+    );
+  });
+
+  it("reads a prep phrase and a British name in the same recipe", () => {
+    const result = analyzeMakeable(dinner, dinner, [
+      "courgette",
+      "red onion",
+      "olive oil",
+    ]);
+    expect(slugs(result.canMake)).toEqual(["roasted-vegetables"]);
+    expect(result.canMake[0].close).toEqual([]);
+  });
+
+  it("leaves the strict drink buckets alone", () => {
+    const drinks: MakeRecipe[] = [
+      {
+        slug: "vodka-sour",
+        name: "Vodka Sour",
+        ingredients: ["2 oz vodka", "3/4 oz lime juice", "3/4 oz simple syrup"],
+      },
+      {
+        slug: "zero-proof-gin-and-tonic",
+        name: "Zero-Proof G&T",
+        ingredients: ["2 oz non-alcoholic gin", "Tonic water, to top"],
+      },
+      {
+        slug: "lavender-gnista-tonic",
+        name: "Lavender Gnista Tonic",
+        ingredients: [
+          "1 1/2 oz non-alcoholic aperitif (Gnista)",
+          "1/4 oz lavender syrup",
+          "Tonic water, to top",
+        ],
+      },
+    ];
+    const inventory = ["vodka", "lemon juice", "gin", "tonic", "syrup"];
+    const strict = analyzeMakeable(drinks, drinks, inventory, {
+      countClose: false,
+    });
+    const loose = analyzeMakeable(drinks, drinks, inventory);
+    for (const bucket of ["canMake", "oneAway", "twoAway"] as const) {
+      expect(slugs(loose[bucket])).toEqual(slugs(strict[bucket]));
+    }
+    expect(loose.oneAway.flatMap((match) => match.close)).toEqual([]);
   });
 });

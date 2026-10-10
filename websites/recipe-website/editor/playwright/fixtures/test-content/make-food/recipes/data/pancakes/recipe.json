@@ -1,0 +1,31 @@
+{
+  "name": "Pancakes",
+  "description": "Saturday pancakes.",
+  "ingredients": [
+    {
+      "ingredient": "1 1/2 cups all-purpose flour"
+    },
+    {
+      "ingredient": "1 tablespoon sugar"
+    },
+    {
+      "ingredient": "2 teaspoons baking powder"
+    },
+    {
+      "ingredient": "1 1/4 cups milk"
+    },
+    {
+      "ingredient": "1 egg"
+    },
+    {
+      "ingredient": "3 tablespoons melted butter"
+    }
+  ],
+  "date": 1792000300000,
+  "recipeYield": "2 servings",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

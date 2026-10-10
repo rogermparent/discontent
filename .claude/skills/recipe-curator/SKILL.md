@@ -300,15 +300,19 @@ Deleting one leaves its rows in place, shown as missing.
 
 ## 8. What's on hand
 
-The site keeps one shared list of what is on hand (bottles, mixers, fruit,
-pantry items) and judges recipes against it — the same rules as its "What can
-I make?" page.
+The site keeps one shared list of what is on hand (pantry items, produce,
+bottles, mixers) and judges recipes against it — the same rules as its "What
+can I make?" page. "What can I make?" means **any** recipe, dinner or drink:
+`inventory_makeable` with no `query` judges every recipe; narrow it only when
+the ask does — `tag:drink` for drinks, `-tag:drink` for food, or any search
+(`tag:vegetarian`, `chicken`).
 
 ```json
 inventory_get {}
 inventory_add {"items": ["Gnista", "orange bitters"]}
 inventory_remove {"items": ["vodka"]}
-inventory_makeable {"query": "tag:drink", "limit": 20}
+inventory_makeable {"limit": 20}
+inventory_makeable {"query": "-tag:drink tag:quick", "limit": 20}
 ```
 
 `inventory_get` → `{items, path}`. `inventory_add` and `inventory_remove` →
@@ -317,10 +321,13 @@ false` when the list already said so. Write items the way recipe lines are
 written: **generic name** (`lime`, `simple syrup`, `non-alcoholic gin`), or a
 brand alone when it means one thing (`Gnista`). `inventory_makeable` →
 `{query, inventory, total, canMake, oneAway, twoAway, further, buyNext}`:
-each row is `{slug, name, missing?, makeFirst?}` (`makeFirst` names a recipe,
-such as a house syrup, that meets a line once made), and `buyNext` ranks
-`{item, label, unlocks, helps}` by how many recipes one more item would make
-possible. Change the list **only when the ask says so** ("I bought Gnista",
+each row is `{slug, name, missing?, makeFirst?, close?}` (`makeFirst` names a
+recipe, such as a house syrup, that meets a line once made; `close` lists
+`{needs, have}` lines met by a near enough item — onion for a shallot, olive
+oil for vegetable oil — which count as had, so say so when you report them),
+and `buyNext` ranks `{item, label, unlocks, helps}` by how many recipes one
+more item would make possible. Salt, black pepper, water and ice count as on
+hand; don't add them. Change the list **only when the ask says so** ("I bought Gnista",
 "I'm out of vodka").
 
 ## 9. Report

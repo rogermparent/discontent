@@ -1,0 +1,30 @@
+{
+  "name": "Roasted Vegetables",
+  "description": "Whatever is in the crisper, hot oven.",
+  "tags": [
+    "side",
+    "vegetarian",
+    "quick"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "1 zucchini cut into half-moons"
+    },
+    {
+      "ingredient": "1 red onion cut into wedges"
+    },
+    {
+      "ingredient": "2 tablespoons olive oil"
+    },
+    {
+      "ingredient": "1 teaspoon salt"
+    }
+  ],
+  "date": 1792000240000,
+  "recipeYield": "2 servings",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

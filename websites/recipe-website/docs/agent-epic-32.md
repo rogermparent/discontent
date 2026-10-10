@@ -114,7 +114,7 @@ the food corpus is a content call: 32k, run only on Roger's explicit go.
 | 32e      | 24g: measure, then split the by-term record                              | L       | `agent/32e-by-term`        | 📝 planned        |
 | 32f      | Ingredient completion in search                                          | S–M     | `agent/32f-ingredient-ac`  | 🟡 #199           |
 | 32g      | Meal-plan item `scale` + `?scale` on recipe pages                        | M       | `agent/32g-plan-scale`     | 📝 planned        |
-| 32j      | Make anything: kind switch, refine drill-down, loose ingredient matching | M–L     | `agent/32j-make-any`       | 📝 planned        |
+| 32j      | Make anything: kind switch, refine drill-down, loose ingredient matching | M–L     | `agent/32j-make-any`       | 🟡 #PRNUM         |
 | 32h      | `SidebarLayout` + portfolio masthead on sticky-chrome                    | S       | `agent/32h-sticky-sidebar` | 🟡 #201           |
 | 32i      | Term aliases, search-only (droppable)                                    | L       | `agent/32i-aliases`        | 📝 planned        |
 | 32k      | Food vocabulary for the corpus (content; Roger's go needed)              | content | —                          | ⏸️ awaiting Roger |
@@ -632,13 +632,14 @@ epic.
 To be filled per phase (PR, merge sha, gates), with the 32e measurement and
 the end-to-end checks at 32-close.
 
-| Phase   | PR   | Merge      | Gates                                                                                                                               |
-| ------- | ---- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| 32-plan | #197 | `dafc6834` | docs only; CI 12/12                                                                                                                 |
-| 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI                       |
-| 32b     | #200 |            | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI                           |
-| 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                                      |
-| 32h     | #201 |            | typechecks ✅ (recipe, export, portfolio); vitest 1058/1058; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI |
+| Phase   | PR     | Merge      | Gates                                                                                                                               |
+| ------- | ------ | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 32-plan | #197   | `dafc6834` | docs only; CI 12/12                                                                                                                 |
+| 32a     | #198   |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI                       |
+| 32b     | #200   |            | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI                           |
+| 32f     | #199   |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                                      |
+| 32h     | #201   |            | typechecks ✅ (recipe, export, portfolio); vitest 1058/1058; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI |
+| 32j     | #PRNUM |            | GATES32J                                                                                                                            |
 
 ### 32a — Hygiene
 
@@ -835,3 +836,200 @@ groups: delete unfeatures, other features stay.
   and isn't caused by this diff. CI's portfolio job uses `next dev`, so the
   build is never exercised there either.
 - `specVersions` didn't move: none of the edited modules is pinned.
+
+### 32j — Make anything: kind switch, refine drill-down, loose matching
+
+**The page.**
+
+- **Kind switch** (`MakePage/kinds.ts`, `KindSwitch.tsx`). `MAKE_KINDS` is
+  site config in `common/`: Anything `""`, Food `-tag:drink`, Drinks
+  `tag:drink`. The kind lives in `?q=` like everything else.
+  - `withKind` takes every kind's top-level terms out, puts the chosen one in
+    front and keeps the picks and words. A remaining top-level `OR` is
+    wrapped in parentheses.
+  - `kindOfQuery` reads the kind back: the most specific kind whose terms are
+    all ANDed at the top level. A `tag:drink` inside an `OR` is the person's,
+    not a kind.
+  - The negated tag needed no query-language change: `-tag:drink` already
+    parsed and evaluated, through the 31b resolver, so it excludes the whole
+    drink subtree.
+  - The control is a fieldset of native radios ("Kind of recipe"). Arrow keys
+    work, and the "Drinks" tag chip keeps its button name to itself. Each
+    radio is transparent and covers its segment.
+  - Each segment shows what it would hold now (count `aria-hidden`).
+  - The switch only shows when some kind splits the corpus (0 < n < all).
+  - A remembered `tag:drink` reads as the Drinks segment checked (item 6).
+- **Refine chips** (`tagTree.ts` `refinementsInScope`). They show after a
+  pick:
+  - a picked tag's tree children first;
+  - then the tags that co-occur most in the scope;
+  - never a pick or an ancestor of one;
+  - never a tag on ≥ 90% of the scope (it would change nothing);
+  - at most 12, and none when the scope is 0–1 recipes.
+
+  **Decision: the top-level row now counts the scope without the tag picks**
+  (`withoutTagPicks`: the kind and any typed terms stay). The top row holds
+  still while picks drill down, and on a flat vocabulary the Refine row isn't
+  a re-sorted copy of it. A Refine chip already shown in an open children row
+  is left out, so no tag has two buttons. The 28g specs pass unchanged.
+
+- **Close toggle** under the ticker, "Count close matches (≈) as had", on by
+  default.
+  - A card shows `≈ onion for shallot` (`make-close`).
+  - With the toggle off, the line is missing and says
+    `Missing: shallot (close: onion)`.
+- **"Assume I always have"** is a folded editor in the inventory panel:
+  chips, add, and "Reset to salt, pepper, water, ice".
+  `useMakeSettings` keeps both settings in `localStorage`
+  (`make-settings-v1`). It stores only what was changed, so a better default
+  still reaches anyone who never touched it.
+- **Wording.** The empty state says "what's in your kitchen or bar — produce,
+  pantry staples, bottles". The scope placeholder is `tag:quick chicken`.
+
+**Matching** (`ingredientNames.ts`, `makeable.ts`).
+
+- **Lines.** These line fixes all came from the real corpus's dinner lines
+  (`measure-ingredient-names.ts --all` on a scratch clone):
+  - trailing prep phrases are cut ("cut into …", "at room temperature",
+    "plus more …", "divided", "to taste", "trimmed and …", "or as needed",
+    and others);
+  - remark parentheses are dropped before the amount (`(or more)` kept
+    `tbsp` as the name);
+  - `boneless, skinless` no longer wins the comma cut (it read `boneless`);
+  - `(or margarine, or more butter)` gives margarine or butter;
+  - an amount in two units (`3.5lb/1.5kg`, `1 cup/240ml`) reads as one
+    amount;
+  - "cool", "lukewarm" and "tepid" are descriptive, so the water is a
+    staple;
+  - trailing connectives are trimmed;
+  - **salt and pepper** split into two requirements. It is the one `and`
+    that names two things; "half and half" and "macaroni and cheese" stay
+    whole.
+  - "A or B" lines already gave both alternatives (now tested with food).
+- **Food synonyms**: scallion / spring onion → green onion; fresh coriander →
+  cilantro; garbanzo → chickpea; confectioners' / icing → powdered sugar;
+  caster → superfine; courgette → zucchini; aubergine → eggplant; double /
+  whipping → heavy cream; hamburger (not buns) / beef mince → ground beef;
+  sweet pepper / capsicum → bell pepper; rocket → arugula; prawn → shrimp;
+  bicarbonate of soda → baking soda (read before the bare-soda rule);
+  chilli → chili; yoghurt → yogurt; evoo.
+  - `chile` is left alone. Folding it would relabel the drinks test's "ancho
+    chile liqueur".
+  - **Flavoured salts are compounds** (celery, garlic, onion, seasoned salt).
+    With salt assumed on hand, a Bloody Mary's celery salt must not come for
+    free.
+- **Staples.** `DEFAULT_STAPLES = salt, black pepper, water, ice`, matched
+  like inventory items. `black pepper` meets "pepper" and `salt` meets
+  "kosher salt". A one-word staple also meets the water/ice lines
+  `STAPLES` marks. `analyzeMakeable(…, { staples })` takes the page's
+  edited list. `suggestNames` still skips only water and ice.
+- **Close tier** (`closeTo`). It is tried only after the strict rules and a
+  sub-recipe have failed, and is reported as `RecipeMatch.close:
+{requirement, item}[]`. `countClose` defaults to `true`; when false, close
+  lines are also in `missing`. The rules, as data at the end of
+  `ingredientNames.ts`:
+  - curated substitute groups: the oils, shallot/onion,
+    butter/margarine/ghee, broth/stock/bouillon, sour cream/yogurt/crème
+    fraîche;
+  - one-way pairs: egg → egg white / yolk;
+  - same non-generic head on two longer names, except ambiguous heads:
+    pepper, bean, leaf, flake, paste, chip, seed, seasoning, salt, spice,
+    bitters, vermouth;
+  - class-noun drop: parmesan ↔ parmesan cheese, garlic → garlic powder.
+    vinegar, wine, noodle, squash and seed are out: rice ≠ rice vinegar,
+    spaghetti ≠ spaghetti squash;
+  - typo: one word one edit apart, 5+ letters, re-run through the strict
+    rules. Allowed only when the item's word is one the corpus never uses or
+    the line's word is rare (≤ 2), and never for known pairs (cherry/sherry,
+    tomato/potato, mustard/custard …).
+
+  The no-alcohol guard and `GENERIC_HEADS` hold: "juice" is never close to
+  "lime juice", and "lemon juice" is never close to "lime juice".
+
+- **Strict results didn't change for drinks** except through the staples:
+  Paloma, Salty Dog and Frozen Margarita no longer miss their rim salt.
+  `make-drinks`' specs and every existing matcher test pass unchanged.
+  Three label tests changed on purpose: "green onion/scallion" is one name
+  now, and "Salt and pepper" is two.
+
+**Default query `""`** for `inventory_makeable`, `recipes inventory make` and
+`/api/inventory/make`; `tag:drink` still narrows. Rows gain
+`close?: {needs, have}[]`, and the CLI prints `close: onion for shallot`.
+Wording changed in all of these:
+
+- MCP `inventory_makeable` (every recipe, `-tag:drink` for food, staples,
+  `close`) and `inventory_get` (pantry first);
+- CLI usage and docblock, the schema and route comments;
+- SKILL.md §8: "what can I make?" means any recipe, the first example has no
+  `query`, plus the row shape and the staples.
+
+`curatorSkill.test.ts` pins the §8 wording.
+
+**Real corpus** (read-only scratch clone of `recipe-content` at its HEAD,
+665 recipes, `scripts/measure-makeable.ts`, new and read-only; main's matcher
+swapped in for "before").
+
+- **Food**: 457 non-drink recipes, 1 unjudged. Pantry: onion, garlic,
+  chicken thighs, rice, butter, olive oil, eggs, flour, milk, lemon.
+
+  |                           | can make | one away     | two away | further |
+  | ------------------------- | -------- | ------------ | -------- | ------- |
+  | before (main)             | 0        | 8            | 16       | 432     |
+  | after, close off          | 5        | 13           | 27       | 411     |
+  | after, close on (default) | 5        | 15 (2 via ≈) | 35       | 401     |
+
+  Most of the gain is salt as a staple. Five tortilla, flatbread and noodle
+  recipes were blocked only on it. The close tier adds egg → egg yolk and
+  olive oil → vegetable / canola / neutral oil. The corpus is heavy on baking
+  and drink syrups, and real dinners need more than ten items, so most stay
+  "further".
+
+- **Drinks** (no regression check): 208 drinks with a 20-item bar.
+
+  |                  | can make | one away | two away | further |
+  | ---------------- | -------- | -------- | -------- | ------- |
+  | before           | 35       | 55       | 60       | 58      |
+  | after, close off | 35       | 58       | 58       | 57      |
+  | after, close on  | 37       | 59       | 58       | 54      |
+
+  No drink got further away. The close matches are white rum for dark, aged
+  and pineapple rum.
+
+**Tests.**
+
+- `makeable.test.ts` "food (32j)":
+  - prep phrases, A-or-B, synonyms on both sides, flavoured salt;
+  - close by substitute / head / kind / typo, never on vague, ambiguous or
+    wrong-way names;
+  - the typo guard;
+  - staples on and edited;
+  - close counted, reported and turned off;
+  - strict drink buckets unchanged with the tier on.
+- `ingredientNames.test.ts`: 27 food lines, cool water, salt and pepper.
+- `makeTags.test.ts`: Refine (children first, ubiquity, a flat food
+  vocabulary), `kindOfQuery`, `withKind`, `withoutTagPicks`.
+- `inventory.test.ts`: the "" default, `tag:drink` narrowing, and a close
+  row.
+- `mcp.test.ts`: the default and `tag:drink`.
+- `curatorSkill.test.ts`: the §8 wording.
+- **Playwright** `make.spec.ts` gained a "dinner as well as drinks" describe
+  on the new `make-food` fixture:
+  - six food recipes, tagged (side, vegetarian, dinner, quick) and
+    untagged, plus two drinks;
+  - indexes built with `recipes reindex` on a scratch copy;
+  - no term records, so a flat vocabulary like the real food.
+
+  Five cases: the kind switch (including a remembered `tag:drink`), Refine
+  drilling side → quick, a close match shown and turned off (with axe), the
+  salt staple removed and reset, and courgette / "cut into" read loosely.
+
+**Gates.** GATES32J
+
+**Deferred.**
+
+- Tagging the food corpus (32k, Roger's).
+- `tequila blanco` read as a kind of tequila: word order, a drinks
+  follow-up.
+- Synonyms for broth/stock, which stay close-tier on purpose.
+- A shared, editor-side staples list. The list stays per browser, like the
+  overlay.

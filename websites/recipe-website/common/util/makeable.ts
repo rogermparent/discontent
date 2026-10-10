@@ -8,6 +8,11 @@
  */
 import {
   aliasKey,
+  CLASS_NOUNS,
+  CLOSE_GROUPS,
+  CLOSE_HEAD_EXCLUDED,
+  CLOSE_PAIRS,
+  CONFUSABLE_WORDS,
   DERIVED_FORMS,
   isGenericHead,
   nameKey,
@@ -20,10 +25,19 @@ import {
 } from "./ingredientNames";
 
 /**
- * What "What can I make?" scopes to when nothing says otherwise — on `/make`
- * and in `inventory_makeable` alike.
+ * What `inventory_makeable`, `recipes inventory make` and `/api/inventory/make`
+ * scope to when nothing says otherwise: every recipe (32j). It was
+ * `tag:drink` while drinks were the only thing with an inventory story;
+ * `/make` dropped that default at 28g, and `tag:drink` still narrows.
  */
-export const DEFAULT_MAKE_QUERY = "tag:drink";
+export const DEFAULT_MAKE_QUERY = "";
+
+/**
+ * What everyone has, assumed on hand unless the person says otherwise (32j):
+ * a dinner recipe is never blocked on salt and pepper. `/make` keeps an
+ * editable copy in the browser; the server seats use this one.
+ */
+export const DEFAULT_STAPLES = ["salt", "black pepper", "water", "ice"];
 
 /** The slice of a recipe the matcher reads — structurally `MassagedRecipeEntry`. */
 export interface MakeRecipe {
@@ -119,18 +133,153 @@ export function satisfies(
         if (contains(name.words, alternative.words)) return true;
         continue;
       }
-      if (namesMatch(name.words, alternative.words)) return true;
-      const last = alternative.words[alternative.words.length - 1];
-      if (
-        alternative.words.length > 1 &&
-        DERIVED_FORMS.has(last) &&
-        namesMatch(name.words, alternative.words.slice(0, -1))
-      ) {
-        return true;
-      }
+      if (strictWords(name.words, alternative.words)) return true;
     }
   }
   return false;
+}
+
+/** The generic/specific and derived-form rules, on words alone. */
+function strictWords(item: string[], line: string[]): boolean {
+  if (namesMatch(item, line)) return true;
+  const last = line[line.length - 1];
+  return (
+    line.length > 1 &&
+    DERIVED_FORMS.has(last) &&
+    namesMatch(item, line.slice(0, -1))
+  );
+}
+
+// --- close matches (32j) ---------------------------------------------------
+
+/** How often each word appears across the corpus's requirement names. */
+export type WordCounts = Map<string, number>;
+
+/** A word seen this often or less may be the corpus's own typo. */
+const RARE_WORD = 2;
+
+/** At most one insertion, deletion or substitution apart. */
+function withinOneEdit(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i++;
+      j++;
+      continue;
+    }
+    if (++edits > 1) return false;
+    if (a.length > b.length) i++;
+    else if (b.length > a.length) j++;
+    else {
+      i++;
+      j++;
+    }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
+/**
+ * The same word, typed differently: one edit apart, both 5+ letters, not a
+ * known pair of different things (`cherry`/`sherry`, `tomato`/`potato`) —
+ * and only when one side is unusual. The item's word is one the corpus never
+ * uses (the person's spelling), or the line's word is rare (the corpus's
+ * typo). Two words the corpus uses freely are two things.
+ */
+function typoOf(
+  itemWord: string,
+  lineWord: string,
+  counts: WordCounts | undefined,
+): boolean {
+  if (itemWord === lineWord) return false;
+  if (itemWord.length < 5 || lineWord.length < 5) return false;
+  if (itemWord.includes(" ") || lineWord.includes(" ")) return false;
+  if (!withinOneEdit(itemWord, lineWord)) return false;
+  if (CONFUSABLE_WORDS.has([itemWord, lineWord].sort().join("|"))) {
+    return false;
+  }
+  if (!counts) return true;
+  return !counts.has(itemWord) || (counts.get(lineWord) ?? 0) <= RARE_WORD;
+}
+
+/** Some member is the tail of `words`: `olive oil` names `extra virgin olive oil`. */
+function memberOf(members: string[][], words: string[]): boolean {
+  return members.some((member) => isTail(member, words));
+}
+
+/**
+ * Close, not the same: a name that would do in a pinch, or the same name
+ * typed differently. Tried only once the strict rules have failed. Any rule:
+ *
+ * - **substitutes** — curated groups (`olive oil` / `vegetable oil`,
+ *   `shallot` / `onion`, `broth` / `stock`) and one-way pairs (`egg` →
+ *   `egg white`);
+ * - **same head** — two longer names ending in the same noun (`brown rice`
+ *   for `white rice`, `cheddar cheese` for `parmesan cheese`), unless the noun
+ *   is vague (`juice`, `syrup`) or names different things (`pepper`, `bean`);
+ * - **class noun** — the name without its kind (`parmesan` for
+ *   `parmesan cheese`, `vanilla` for `vanilla extract`), either way;
+ * - **typo** — the strict rules again, one word allowed one edit
+ *   (`mozarella`, `parmesean`, `tomatoe`).
+ *
+ * The no-alcohol guard holds, and a lone vague word (`juice`, `oil`) still
+ * never stands for a longer name: `juice` is not close to `lime juice`.
+ */
+export function closeTo(
+  item: InventoryItem,
+  requirement: Requirement,
+  counts?: WordCounts,
+): boolean {
+  if (requirement.loose) return false;
+  for (const alternative of requirement.alternatives) {
+    for (const name of item.names) {
+      if (name.na !== alternative.na) continue;
+      if (name.words.length === 1 && isGenericHead(name.words[0])) continue;
+      if (closeWords(name.words, alternative.words, counts)) return true;
+    }
+  }
+  return false;
+}
+
+function closeWords(
+  have: string[],
+  line: string[],
+  counts: WordCounts | undefined,
+): boolean {
+  for (const group of CLOSE_GROUPS) {
+    if (memberOf(group, have) && memberOf(group, line)) return true;
+  }
+  for (const [from, to] of CLOSE_PAIRS) {
+    if (isTail(from, have) && isTail(to, line)) return true;
+  }
+  const head = have[have.length - 1];
+  if (
+    have.length > 1 &&
+    line.length > 1 &&
+    head === line[line.length - 1] &&
+    !isGenericHead(head) &&
+    !CLOSE_HEAD_EXCLUDED.has(head)
+  ) {
+    return true;
+  }
+  const classDrop = (long: string[], short: string[]) =>
+    long.length === short.length + 1 &&
+    CLASS_NOUNS.has(long[long.length - 1]) &&
+    short.every((word, i) => long[i] === word);
+  if (classDrop(line, have) || classDrop(have, line)) return true;
+  /* One word typed differently: rewrite it to the line's, then the strict
+   * rules decide. */
+  let typos = 0;
+  const rewritten = have.map((word) => {
+    const match = line.find((lineWord) => typoOf(word, lineWord, counts));
+    if (!match) return word;
+    typos += 1;
+    return match;
+  });
+  return typos === 1 && strictWords(rewritten, line);
 }
 
 // --- corpus ----------------------------------------------------------------
@@ -147,6 +296,8 @@ export interface PreparedCorpus {
   /** `nameKey` of a recipe's name (parentheticals dropped) → slugs. */
   byName: Map<string, string[]>;
   aliases: AliasIndex;
+  /** Words across every requirement name: the close tier's typo guard. */
+  words: WordCounts;
 }
 
 export function prepareRecipe(recipe: MakeRecipe): PreparedRecipe {
@@ -169,12 +320,18 @@ export function prepareCorpus(corpus: MakeRecipe[]): PreparedCorpus {
   const recipes = new Map<string, PreparedRecipe>();
   const byName = new Map<string, string[]>();
   const aliases: AliasIndex = new Map();
+  const words: WordCounts = new Map();
   for (const recipe of corpus) {
     const prepared = prepareRecipe(recipe);
     recipes.set(recipe.slug, prepared);
     const key = nameKey(toName(recipe.name.replace(/\([^()]*\)/g, " ")));
     byName.set(key, [...(byName.get(key) ?? []), recipe.slug]);
     for (const requirement of prepared.requirements) {
+      for (const name of requirement.alternatives) {
+        for (const word of name.words) {
+          words.set(word, (words.get(word) ?? 0) + 1);
+        }
+      }
       const meaning = nameKey(requirement.alternatives[0]);
       for (const alias of requirement.aliasKeys) {
         const meanings = aliases.get(alias) ?? new Set<string>();
@@ -183,7 +340,7 @@ export function prepareCorpus(corpus: MakeRecipe[]): PreparedCorpus {
       }
     }
   }
-  return { recipes, byName, aliases };
+  return { recipes, byName, aliases, words };
 }
 
 // --- analysis --------------------------------------------------------------
@@ -195,14 +352,36 @@ export interface ViaRecipe {
   name: string;
 }
 
+/** A line only an inventory item close to it meets (32j). */
+export interface CloseMatch {
+  requirement: Requirement;
+  /** The inventory entry, as written: "onion" for "1 shallot". */
+  item: string;
+}
+
 export interface RecipeMatch {
   recipe: MakeRecipe;
-  /** Required lines the inventory doesn't meet, even through a sub-recipe. */
+  /**
+   * Required lines counted against the recipe: not met, even through a
+   * sub-recipe — plus the close ones when close matches don't count.
+   */
   missing: Requirement[];
   /** Lines met by making a recipe first: "Make lavender syrup first". */
   via: ViaRecipe[];
+  /**
+   * Lines met only by a close item, counted or not: when `countClose` is
+   * off, each is in `missing` as well.
+   */
+  close: CloseMatch[];
   /** `missing.length`; an alternative group counts once. */
   distance: number;
+}
+
+export interface MakeableOptions {
+  /** Count a close match as had (default `true`; `/make`'s toggle). */
+  countClose?: boolean;
+  /** Assumed on hand, matched like inventory items (default `DEFAULT_STAPLES`). */
+  staples?: string[];
 }
 
 export interface BuyNext {
@@ -230,14 +409,37 @@ export interface MakeableAnalysis {
 
 const BUY_NEXT_LIMIT = 5;
 
+/**
+ * A staple meets a line as an item would — `salt` meets "kosher salt",
+ * `black pepper` meets "pepper" — and a one-word staple also meets the water
+ * and ice lines `STAPLES` marks: `water` meets "tap water", which a vague
+ * word could never stand for as an item.
+ */
+function stapleMeets(
+  staple: InventoryItem,
+  requirement: Requirement,
+  aliases: AliasIndex,
+): boolean {
+  if (satisfies(staple, requirement, aliases)) return true;
+  if (!requirement.staple) return false;
+  return staple.names.some(
+    (name) =>
+      name.words.length === 1 &&
+      requirement.alternatives.some((alternative) =>
+        alternative.words.join(" ").split(" ").includes(name.words[0]),
+      ),
+  );
+}
+
 function isMet(
   requirement: Requirement,
   items: InventoryItem[],
+  staples: InventoryItem[],
   aliases: AliasIndex,
 ): boolean {
   return (
-    requirement.staple ||
-    items.some((item) => satisfies(item, requirement, aliases))
+    items.some((item) => satisfies(item, requirement, aliases)) ||
+    staples.some((staple) => stapleMeets(staple, requirement, aliases))
   );
 }
 
@@ -245,10 +447,12 @@ function isMet(
 function directlyMakeable(
   prepared: PreparedRecipe,
   items: InventoryItem[],
+  staples: InventoryItem[],
   aliases: AliasIndex,
 ): boolean {
   return prepared.requirements.every(
-    (requirement) => requirement.optional || isMet(requirement, items, aliases),
+    (requirement) =>
+      requirement.optional || isMet(requirement, items, staples, aliases),
   );
 }
 
@@ -268,9 +472,11 @@ export function analyzeMakeable(
   scoped: MakeRecipe[],
   corpus: MakeRecipe[] | PreparedCorpus,
   inventory: string[],
+  { countClose = true, staples = DEFAULT_STAPLES }: MakeableOptions = {},
 ): MakeableAnalysis {
   const prepared = Array.isArray(corpus) ? prepareCorpus(corpus) : corpus;
   const items = inventory.map(parseInventoryItem);
+  const stapleItems = staples.map(parseInventoryItem);
   const subMakeable = new Map<string, boolean>();
   const canMakeSub = (slug: string): boolean => {
     let known = subMakeable.get(slug);
@@ -279,7 +485,7 @@ export function analyzeMakeable(
       known =
         !!sub &&
         sub.requirements.length > 0 &&
-        directlyMakeable(sub, items, prepared.aliases);
+        directlyMakeable(sub, items, stapleItems, prepared.aliases);
       subMakeable.set(slug, known);
     }
     return known;
@@ -302,9 +508,10 @@ export function analyzeMakeable(
     }
     const missing: Requirement[] = [];
     const via: ViaRecipe[] = [];
+    const close: CloseMatch[] = [];
     for (const requirement of entry.requirements) {
       if (requirement.optional) continue;
-      if (isMet(requirement, items, prepared.aliases)) continue;
+      if (isMet(requirement, items, stapleItems, prepared.aliases)) continue;
       const candidates = [
         ...(entry.links.get(requirement.line) ?? []),
         ...requirement.alternatives.flatMap(
@@ -318,14 +525,22 @@ export function analyzeMakeable(
           slug: sub,
           name: prepared.recipes.get(sub)?.recipe.name ?? sub,
         });
-      } else {
-        missing.push(requirement);
+        continue;
       }
+      const near = items.find((item) =>
+        closeTo(item, requirement, prepared.words),
+      );
+      if (near) {
+        close.push({ requirement, item: near.text });
+        if (countClose) continue;
+      }
+      missing.push(requirement);
     }
     const match: RecipeMatch = {
       recipe,
       missing,
       via,
+      close,
       distance: missing.length,
     };
     if (missing.length === 0) analysis.canMake.push(match);
