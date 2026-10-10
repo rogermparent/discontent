@@ -86,13 +86,17 @@ export function SidebarLayout({
           aria-label={label}
           className="relative hidden w-56 shrink-0 self-stretch border-r border-sidebar-border bg-sidebar text-sidebar-foreground before:absolute before:inset-y-0 before:right-full before:w-screen before:bg-sidebar before:content-[''] lg:block"
         >
-          {/* Deliberately still `--header-height`, not the reader chrome pass's
-              `--sticky-chrome-offset`: this kit component serves both sites, and
-              only recipe's masthead follows that policy. Offsetting by the
-              policy var would drop portfolio's sidebar to 0 under a masthead
-              that is still pinned. Whoever gives portfolio's masthead
-              `.sticky-chrome` should switch this in the same change. */}
-          <div className="sticky top-[var(--header-height)]">{sidebar}</div>
+          {/* `sticky-chrome` (never `sticky` — see theme.css): both sites'
+              mastheads follow the sticky-chrome policy, so the rail pins under
+              the masthead when there's room and releases in lockstep with it
+              on a short viewport or under "Off" (a rail taller than a short
+              viewport would otherwise hide its last links until the page
+              ends). Released, the box is static and `top` is inert, which is
+              why it can keep reading `--header-height` rather than the offset
+              var — the same convention as recipe's Ingredients header. */}
+          <div className="sticky-chrome top-[var(--header-height)]">
+            {sidebar}
+          </div>
         </aside>
         <main className="min-w-0 flex-1">{children}</main>
       </div>

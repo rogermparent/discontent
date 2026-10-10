@@ -37,6 +37,19 @@ test.describe("Site chrome", () => {
     expect(headerHeight).toBe(56); // 3.5rem at the default root size
   });
 
+  test("the masthead releases on a short viewport", async ({ page }) => {
+    // The shared sticky-chrome policy (theme.css): portfolio has no toggle, so
+    // it is always "auto" — released below 600px of viewport height, like a
+    // phone held sideways. The class, not a `sticky` utility, is what reads it.
+    await page.setViewportSize({ width: 851, height: 393 });
+    await page.goto("/");
+    const header = page.getByRole("banner");
+    await expect(header).toHaveCSS("position", "static");
+
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await expect(header).toHaveCSS("position", "sticky");
+  });
+
   test("the wordmark links home and the nav is reachable", async ({ page }) => {
     await page.goto("/");
     const banner = page.getByRole("banner");

@@ -2013,14 +2013,19 @@ split-screen or short desktop window has it too.
       is house usage — see `globals.css` and the Owner-chrome pass above);
       visible label "Sticky headers", because "chrome" is jargon to a reader.
       Commented at the definition so nobody "fixes" one of the two.
-- [ ] **`SidebarLayout` deliberately left alone.** Retiring its
+- [x] **`SidebarLayout` deliberately left alone** (until 32h). Retiring its
       `top-[var(--header-height)]` for the policy offset was considered and
       rejected: it is a kit component serving both sites, and only recipe's
       masthead follows the policy, so the swap would drop portfolio's settings
       sidebar to 0 under a masthead that is still pinned. Low urgency either way
       — the aside is `lg:block`, so it is never on screen on a landscape phone.
       Switch it in the same change that gives portfolio's masthead
-      `.sticky-chrome`. Noted at the call site.
+      `.sticky-chrome`. Noted at the call site. **Done in epic 32h**
+      (`agent-epic-32.md`): portfolio's masthead carries `.sticky-chrome`
+      (always `auto`, no toggle), and the rail is
+      `.sticky-chrome top-[var(--header-height)]`, releasing with the masthead
+      like the Ingredients header. Portfolio's index plate stays plain `sticky`
+      and now offsets by `--sticky-chrome-offset`.
 - [x] **Export app needed no sync.** It shares `theme.css` via its `globals.css`
       and the same `AppLayout`, so its hand-duplicated `@media print` block was
       untouched — the policy lives in one place.

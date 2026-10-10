@@ -10,15 +10,15 @@
  *
  * Lives beside its consumer rather than in the component library on purpose: a
  * sticky-header preference is a recipe product decision. Portfolio has its own
- * `AppLayout` with an identical sticky masthead and can adopt the `.sticky-chrome`
- * class (which *is* shared, in styles/theme.css) without inheriting the toggle.
+ * `AppLayout`, whose masthead carries the `.sticky-chrome` class (which *is*
+ * shared, in styles/theme.css) without the toggle, so it is always `auto`.
  * If it ever wants the toggle too, promote this the way `prePaint.ts` was
  * promoted in portfolio-rebuild PR 01b.
  */
 
 /**
- * Whether the masthead and the Ingredients header pin to the top while
- * scrolling. `auto` releases them below 600px of viewport height — see the
+ * Whether the masthead, the Ingredients header and the settings sidebar pin to
+ * the top while scrolling. `auto` releases them below 600px of viewport height — see the
  * sticky-chrome policy in packages/component-library/styles/theme.css.
  */
 export type StickyChrome = "auto" | "always" | "off";
