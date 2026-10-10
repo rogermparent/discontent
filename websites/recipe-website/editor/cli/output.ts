@@ -39,6 +39,27 @@ export function warn(message: string): void {
   process.stderr.write(`${message}\n`);
 }
 
+/** A result's `warnings`, as the indented `! …` lines a human format ends with. */
+export function formatWarnings(warnings: string[] | undefined): string[] {
+  return (warnings ?? []).map((warning) => `  ! ${warning}`);
+}
+
+/**
+ * A dry run's image line: the name it would be stored under, its size when the
+ * server declared one, and why a real write would refuse it.
+ */
+export function formatImageProbe(image: {
+  filename: string;
+  bytes?: number;
+  error?: string;
+}): string {
+  const size =
+    image.bytes === undefined
+      ? ""
+      : `, ${(image.bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `image: ${image.filename}${size}${image.error ? ` (${image.error})` : ""}`;
+}
+
 /* --- human formats ------------------------------------------------------- */
 
 export function formatDate(epoch: number): string {

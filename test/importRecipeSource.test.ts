@@ -12,7 +12,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DEFAULT_403_DELAY_MS,
   extractAuthorName,
+  forbiddenRetryFromEnv,
   importRecipeData,
   RECIPE_FETCH_HEADERS,
   suggestTags,
@@ -97,9 +99,8 @@ describe("importRecipeData source", () => {
     expect(init.headers).toBeUndefined();
   });
 
-  it("asks again as a browser after a 403", async () => {
-    /* Imbibe 403s Node's default agent and serves a browser (25e probe). */
-    const fetchStub = vi
+  function forbiddenThenOk() {
+    return vi
       .fn()
       .mockResolvedValueOnce({
         status: 403,
@@ -109,8 +110,20 @@ describe("importRecipeData source", () => {
         status: 200,
         text: async () => recipeHtml(),
       });
+  }
+
+  it("asks again as a browser after a 403, 15 s later (epic 31, D3)", async () => {
+    /* Imbibe 403s Node's default agent and serves a browser (25e probe). */
+    vi.useFakeTimers();
+    const fetchStub = forbiddenThenOk();
     vi.stubGlobal("fetch", fetchStub);
-    const imported = await importRecipeData(PAGE_URL);
+    const pending = importRecipeData(PAGE_URL);
+    /* The polite gap: nothing more goes to the host until it has passed. */
+    await vi.advanceTimersByTimeAsync(DEFAULT_403_DELAY_MS - 1);
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    const imported = await pending;
+    vi.useRealTimers();
     expect(imported?.name).toBe("Naan");
     expect(fetchStub).toHaveBeenCalledTimes(2);
     const [url, init] = fetchStub.mock.calls[1] as unknown as [
@@ -121,6 +134,43 @@ describe("importRecipeData source", () => {
     expect(init.headers).toBe(RECIPE_FETCH_HEADERS);
     expect(init.headers["user-agent"]).toMatch(/^Mozilla\/5\.0 .*Chrome\//);
     expect(init.headers.accept).toContain("text/html");
+  });
+
+  it("retries at once for the browser form (delayMs: 0)", async () => {
+    const fetchStub = forbiddenThenOk();
+    vi.stubGlobal("fetch", fetchStub);
+    const imported = await importRecipeData(PAGE_URL, { delayMs: 0 });
+    expect(imported?.name).toBe("Naan");
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+  });
+
+  it("never retries with RECIPE_FETCH_403_DELAY_MS=off", async () => {
+    vi.stubEnv("RECIPE_FETCH_403_DELAY_MS", "off");
+    const fetchStub = forbiddenThenOk();
+    vi.stubGlobal("fetch", fetchStub);
+    expect(await importRecipeData(PAGE_URL)).toBeUndefined();
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+    vi.unstubAllEnvs();
+  });
+
+  it("reads RECIPE_FETCH_403_DELAY_MS", () => {
+    expect(forbiddenRetryFromEnv(undefined)).toEqual({
+      delayMs: 15_000,
+      enabled: true,
+    });
+    expect(forbiddenRetryFromEnv("0")).toEqual({ delayMs: 0, enabled: true });
+    expect(forbiddenRetryFromEnv("2500")).toEqual({
+      delayMs: 2500,
+      enabled: true,
+    });
+    expect(forbiddenRetryFromEnv(" OFF ")).toEqual({
+      delayMs: 0,
+      enabled: false,
+    });
+    expect(forbiddenRetryFromEnv("soon")).toEqual({
+      delayMs: 15_000,
+      enabled: true,
+    });
   });
 
   it("does not retry any other failure", async () => {

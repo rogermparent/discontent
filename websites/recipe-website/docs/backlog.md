@@ -10,7 +10,8 @@ it gets a phase in the epic's own doc and is struck here.
 > **Epic 25 (mixology: drink spec, drink styles, bar inventory) is in
 > `agent-mixology.md`.** **Epic 26 (import tooling) is in
 > `agent-import-tools.md`.** **Epic 27 (CI hygiene, Pi sync, bar tools,
-> search quality) is in `agent-epic-27.md`.**
+> search quality) is in `agent-epic-27.md`.** **Epic 31 (the taxonomy
+> finished, F32 renames, curation polish) is in `agent-epic-31.md`.**
 > Rows are struck here as an epic's phases pick them up; the struck rows
 > below name the phase.
 
@@ -29,7 +30,7 @@ Sources: `docs/agent-curation.md` (Deferred, and the D/T lists it names),
 | ~~Client-side member-thumbnail fallback on `/search` group cards~~          | ~~A search-result group card shows its own image or the placeholder.~~ **Done by 30c** (`agent-epic-30.md` D1: the corpus carries a `thumbnail` from `GroupThumbnail`'s own walk).                                                                                                       | agent-curation Deferred (22g/22h)                    |
 | ~~⌘K rows with thumbnails~~                                                 | ~~Palette rows are text-only.~~ Recipe rows gained photos earlier; group rows **done by 30c** (own image, else the corpus `thumbnail`, else the icon — no `onError` swap).                                                                                                               | agent-curation Deferred (22h)                        |
 | ~~Group tags / tag pages~~                                                  | ~~Groups carry no tags, so `tag:` search and `/tags/*` never reach a collection.~~ **Picked up by 24b** (`agent-taxonomy.md`, D4: groups gain `tags` in the shared vocabulary).                                                                                                          | agent-curation Deferred                              |
-| Browser form for term records                                               | 24c ships term records read-only (pages, tree, breadcrumb, pinned front, `feature {term}`); 24e's seats, CLI and MCP are the write path. A `/tags/<slug>/edit` form (label, description, image, parent, pinned) is deferred until something needs it outside the skill.                  | agent-taxonomy 24c (D5, D7)                          |
+| Browser form for term records (picked up by 31e)                            | 24c ships term records read-only (pages, tree, breadcrumb, pinned front, `feature {term}`); 24e's seats, CLI and MCP are the write path. A `/tags/<slug>/edit` form (label, description, image, parent, pinned) is deferred until something needs it outside the skill.                  | agent-taxonomy 24c (D5, D7)                          |
 | Per-item servings for meal plans                                            | A plan lists recipes; it cannot say "2× this one" — the scaler has nothing to read.                                                                                                                                                                                                      | agent-curation Deferred                              |
 | Featured recipes as a group kind                                            | `featured` is its own type with its own index (v2, 22g); folding it into groups would retire one index and one form. Revisit with `agent-taxonomy.md` **D5** (groups after taxonomy), decided at 24b.                                                                                    | agent-curation Deferred                              |
 | ~~`source:` search field (+ `SEARCH_DB_NAME` bump, fixture regen)~~         | ~~Provenance (22a) is stored but not searchable.~~ **Done by 27d** (`agent-epic-27.md` D11: `sourceName`/`sourceHost`, `recipe-search-v3`; no fixture carries a source, so none moved).                                                                                                  | agent-curation Deferred, D6                          |
@@ -43,10 +44,10 @@ Sources: `docs/agent-curation.md` (Deferred, and the D/T lists it names),
 
 ## Engine
 
-| Candidate                                             | Why                                                                                                                                                                                 | Recorded at                                                               |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| **F32 — array references** (`path: "items[].recipe"`) | The reference machinery is scalar-only (D3); group cards cannot follow renames or borrow member thumbnails through the index. Add an F-row to §10 and a §11.4 entry when picked up. | agent-curation Deferred; incremental-regeneration §10 (last rows F29/F31) |
-| Ingredient completion in the search field             | 21c completes fields and tags only; ingredients are a conditional fetch (F4a), so completing them means a loading state inside a keystroke.                                         | ui-overhaul PR 21c                                                        |
+| Candidate                                 | Why                                                                                                                                                                                 | Recorded at                                                               |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| **F32 — array references** (renames: 31d) | The reference machinery is scalar-only (D3); group cards cannot follow renames or borrow member thumbnails through the index. Add an F-row to §10 and a §11.4 entry when picked up. | agent-curation Deferred; incremental-regeneration §10 (last rows F29/F31) |
+| Ingredient completion in the search field | 21c completes fields and tags only; ingredients are a conditional fetch (F4a), so completing them means a loading state inside a keystroke.                                         | ui-overhaul PR 21c                                                        |
 
 ## UI
 

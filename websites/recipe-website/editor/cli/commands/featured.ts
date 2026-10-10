@@ -24,7 +24,7 @@ import {
 const featureCommand: CommandDef<FeaturedWriteResult> = {
   name: "feature",
   usage:
-    "recipes feature (--recipe s | --group s | --term s) [--note N] [--date d] [--slug s]",
+    "recipes feature (--recipe s | --group s | --term s) [--note N] [--date d] [--slug s] [--again]",
   options: {
     recipe: { type: "string" },
     group: { type: "string" },
@@ -32,6 +32,7 @@ const featureCommand: CommandDef<FeaturedWriteResult> = {
     note: { type: "string" },
     date: { type: "string" },
     slug: { type: "string" },
+    again: { type: "boolean" },
   },
   write: true,
   async run({ backend, options }) {
@@ -61,6 +62,7 @@ const featureCommand: CommandDef<FeaturedWriteResult> = {
       ...(note ? { note } : {}),
       ...(date ? { date } : {}),
       ...(slug ? { slug } : {}),
+      ...(booleanOption(options, "again") ? { again: true } : {}),
     });
   },
   format: (result) =>
