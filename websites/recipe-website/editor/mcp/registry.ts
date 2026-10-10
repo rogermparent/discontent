@@ -99,11 +99,12 @@ export const TOOL_NAMES = [
   "recipe_set_image",
   "recipe_delete",
   "tag_list",
-  /* The vocabulary's records and carriers (31c): 38 → 46. */
+  /* The vocabulary's records and carriers (31c): 38 → 46; 32c's image: 47. */
   "term_list",
   "term_get",
   "term_create",
   "term_update",
+  "term_set_image",
   "term_assign",
   "term_rename",
   "term_merge",
@@ -663,6 +664,43 @@ export function createRecipeServer(
     },
     async ({ slug, patch }) =>
       write(backend, () => backend.updateTerm(slug, patch)),
+  );
+
+  register(
+    "term_set_image",
+    {
+      title: "Set or clear a term's picture",
+      description:
+        "recipe_set_image for a term record: replace its picture from a `url` " +
+        "(downloaded and checked: it must be an image, under 15 MB) or a local " +
+        "`path` (read by this server's process), or `clear` it — exactly one. The " +
+        "term needs a record (term_create). One commit, `Update term image: " +
+        "<slug>`, so git can undo it.",
+      inputSchema: z
+        .strictObject({
+          slug: Slug,
+          url: z.string().min(1).optional(),
+          path: z.string().min(1).optional(),
+          clear: z.literal(true).optional(),
+        })
+        .refine(
+          ({ url, path, clear }) =>
+            [url, path, clear].filter((value) => value !== undefined).length ===
+            1,
+          { message: "Pass exactly one of `url`, `path` or `clear`" },
+        ),
+      annotations: WRITES,
+    },
+    async ({ slug, url, path }) =>
+      write(backend, async () => {
+        if (url) return backend.setTermImage(slug, { url });
+        if (path) {
+          return backend.setTermImage(slug, {
+            file: await readImageFile(path),
+          });
+        }
+        return backend.setTermImage(slug, { clear: true });
+      }),
   );
 
   register(

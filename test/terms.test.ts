@@ -17,7 +17,7 @@
 import { mkdtemp, pathExists, readJson, rm } from "fs-extra";
 import { tmpdir } from "os";
 import { join } from "path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 import { createContent } from "@discontent/cms/content/createContent";
@@ -46,6 +46,7 @@ import {
   createGroup,
   updateGroup,
 } from "../websites/recipe-website/editor/controller/curation/groups";
+import { setTermImage } from "../websites/recipe-website/editor/controller/curation/recipeImage";
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
 import { searchRecipes } from "../websites/recipe-website/editor/controller/curation/search";
 import {
@@ -270,6 +271,205 @@ describe("createTerm / updateTerm", () => {
     expect(await codeOf(updateTerm(ctx, "ghost", {}))).toMatchObject({
       code: "not_found",
     });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 1b. Pictures (32c, D2: everything a recipe picture takes)           */
+/* ------------------------------------------------------------------ */
+
+describe("term pictures (32c)", () => {
+  const uploads = (slug: string) =>
+    join(contentDirectory, "uploads/tag-term", slug, "uploads");
+  const png = (name: string, body: BlobPart = "png") =>
+    new File([body], name, { type: "image/png" });
+
+  /** `fetch` answering every URL with a small PNG, counting the calls. */
+  function stubImageFetch() {
+    const fetchStub = vi.fn(
+      async (_input: string | URL, init?: RequestInit) =>
+        new Response(init?.method === "HEAD" ? null : "fetched png", {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchStub);
+    return fetchStub;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("setTermImage sets from a URL, replaces with a File, and clears", async () => {
+    await createTerm(ctx, { label: "Cookies" });
+    stubImageFetch();
+    const events: ContentWriteEvent[] = [];
+    const watched = {
+      contentDirectory,
+      onWrite: (e: ContentWriteEvent) => events.push(e),
+    };
+
+    const fromUrl = await setTermImage(watched, "cookies", {
+      url: "https://example.com/tin.png",
+    });
+    expect(fromUrl).toMatchObject({
+      slug: "cookies",
+      image: "tin.png",
+      url: "/tags/cookies",
+      path: termFile("cookies"),
+    });
+    expect(await pathExists(join(uploads("cookies"), "tin.png"))).toBe(true);
+
+    const fromFile = await setTermImage(ctx, "cookies", {
+      file: png("Cookie Tin.png"),
+    });
+    expect(fromFile).toMatchObject({
+      image: "Cookie-Tin.png",
+      previous: "tin.png",
+    });
+    expect(await pathExists(join(uploads("cookies"), "tin.png"))).toBe(false);
+    expect(await readTermFile("cookies")).toMatchObject({
+      label: "Cookies",
+      image: "Cookie-Tin.png",
+    });
+
+    const cleared = await setTermImage(watched, "cookies", { clear: true });
+    expect(cleared).toMatchObject({ image: null, previous: "Cookie-Tin.png" });
+    expect(await readTermFile("cookies")).not.toHaveProperty("image");
+    expect(await pathExists(join(uploads("cookies"), "Cookie-Tin.png"))).toBe(
+      false,
+    );
+    /* The write event the API route revalidates by: the term record's. */
+    expect(events).toEqual([
+      expect.objectContaining({ contentType: "tag-terms", kind: "update" }),
+      expect.objectContaining({ contentType: "tag-terms", kind: "update" }),
+    ]);
+
+    /* Clearing nothing writes nothing. */
+    events.length = 0;
+    expect(await setTermImage(watched, "cookies", { clear: true })).toEqual({
+      slug: "cookies",
+      image: null,
+      path: termFile("cookies"),
+      url: "/tags/cookies",
+    });
+    expect(events).toEqual([]);
+  });
+
+  it("setTermImage refuses a carried-only term, a non-image and an empty choice", async () => {
+    /* `cookies` is on two recipes but has no record to keep a picture in. */
+    expect(
+      await codeOf(setTermImage(ctx, "cookies", { file: png("a.png") })),
+    ).toMatchObject({
+      code: "not_found",
+      message: expect.stringContaining("term_create"),
+    });
+    await createTerm(ctx, { label: "Cookies" });
+    expect(
+      await codeOf(
+        setTermImage(ctx, "cookies", {
+          file: new File(["#!/bin/sh"], "run.sh", { type: "text/x-sh" }),
+        }),
+      ),
+    ).toMatchObject({ code: "validation" });
+    expect(
+      await codeOf(setTermImage(ctx, "cookies", {} as never)),
+    ).toMatchObject({ code: "validation" });
+    expect(await readTermFile("cookies")).not.toHaveProperty("image");
+  });
+
+  it("createTerm takes an uploaded file, which beats a URL", async () => {
+    const fetchStub = stubImageFetch();
+    const result = await createTerm(
+      ctx,
+      { label: "Cookies", imageImportUrl: "https://example.com/tin.png" },
+      { imageFile: png("My Tin.png") },
+    );
+    expect(result.warnings).toBeUndefined();
+    expect(fetchStub).not.toHaveBeenCalled();
+    expect((await readTermFile("cookies")).image).toBe("My-Tin.png");
+    expect(await pathExists(join(uploads("cookies"), "My-Tin.png"))).toBe(true);
+  });
+
+  it("updateTerm: a file beats a URL and a clear; null alone clears", async () => {
+    await createTerm(ctx, { label: "Cookies" }, { imageFile: png("a.png") });
+    const fetchStub = stubImageFetch();
+
+    await updateTerm(
+      ctx,
+      "cookies",
+      { imageImportUrl: "https://example.com/tin.png" },
+      { imageFile: png("b.png") },
+    );
+    expect(fetchStub).not.toHaveBeenCalled();
+    expect((await readTermFile("cookies")).image).toBe("b.png");
+
+    await updateTerm(
+      ctx,
+      "cookies",
+      { imageImportUrl: null },
+      { imageFile: png("c.png") },
+    );
+    expect((await readTermFile("cookies")).image).toBe("c.png");
+    expect(await pathExists(join(uploads("cookies"), "b.png"))).toBe(false);
+
+    /* No file: the URL is fetched, and then null clears. */
+    await updateTerm(ctx, "cookies", {
+      imageImportUrl: "https://example.com/tin.png",
+    });
+    expect(fetchStub).toHaveBeenCalled();
+    expect((await readTermFile("cookies")).image).toBe("tin.png");
+    await updateTerm(ctx, "cookies", { imageImportUrl: null });
+    expect(await readTermFile("cookies")).not.toHaveProperty("image");
+  });
+
+  it("files a refused upload under `image` and writes nothing", async () => {
+    await createTerm(ctx, { label: "Cookies", description: "Small." });
+    expect(
+      await codeOf(
+        updateTerm(
+          ctx,
+          "cookies",
+          { description: "Changed." },
+          {
+            imageFile: new File(["text"], "notes.txt", { type: "text/plain" }),
+          },
+        ),
+      ),
+    ).toMatchObject({
+      code: "validation",
+      issues: [
+        { path: "image", message: expect.stringContaining("notes.txt") },
+      ],
+    });
+    expect(await readTermFile("cookies")).toMatchObject({
+      description: "Small.",
+    });
+    expect(
+      await codeOf(
+        createTerm(
+          ctx,
+          { label: "Bars" },
+          {
+            imageFile: new File(["text"], "notes.txt", { type: "text/plain" }),
+          },
+        ),
+      ),
+    ).toMatchObject({ code: "validation", issues: [{ path: "image" }] });
+    expect(await pathExists(termFile("bars"))).toBe(false);
+  });
+
+  it("warns when an uploaded picture is over 2 MB, as a recipe's does", async () => {
+    const big = png("big.png", new Uint8Array(2_200_000));
+    const created = await createTerm(
+      ctx,
+      { label: "Cookies" },
+      { imageFile: big },
+    );
+    expect(created.warnings).toEqual([expect.stringContaining("over 2.0 MB")]);
+    const set = await setTermImage(ctx, "cookies", { file: big });
+    expect(set.warnings).toEqual([expect.stringContaining("over 2.0 MB")]);
   });
 });
 

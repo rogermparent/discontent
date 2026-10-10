@@ -47,6 +47,8 @@ import type { InspectResult } from "../../controller/curation/inspect";
 import type {
   RecipeImageInput,
   RecipeImageResult,
+  TermImageInput,
+  TermImageResult,
 } from "../../controller/curation/recipeImage";
 import type {
   InventoryResult,
@@ -113,6 +115,8 @@ export type {
   TermAssignResult,
   TermDeleteResult,
   TermDetail,
+  TermImageInput,
+  TermImageResult,
   TermListResult,
   TermMergeResult,
   TermRenameResult,
@@ -242,6 +246,11 @@ export interface CuratorBackend {
   getTerm(slug: string): Promise<TermDetail>;
   createTerm(raw: unknown): Promise<TermWriteResult>;
   updateTerm(slug: string, raw: unknown): Promise<TermWriteResult>;
+  /**
+   * Set (from a URL or a `File`) or clear one term record's picture, one
+   * commit (32c) — `setRecipeImage`'s twin.
+   */
+  setTermImage(slug: string, input: TermImageInput): Promise<TermImageResult>;
   /** Refused with `term_in_use` while carried, unless `unassign`. */
   deleteTerm(
     slug: string,

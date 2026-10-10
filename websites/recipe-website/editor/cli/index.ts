@@ -154,6 +154,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   term update <slug> [--label L] [--description D] [--parent p | --clear-parent]
               [--pin recipe … | --clear-pinned] [--image-url U | --clear-image]
               [--date d] | (--file patch.json | --stdin)
+  term image <slug> (--url <image-url> | --file <path> | --clear)
   term assign <slug> [--add carrier …] [--remove carrier …] [--type recipe|group]
   term rename <slug> <new-slug-or-label> [--label L]
   term merge <slug> <into> [--yes]

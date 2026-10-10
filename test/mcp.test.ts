@@ -832,6 +832,51 @@ describe("the MCP registry over an in-memory transport", () => {
       await rm(picture, { force: true });
     }
   });
+
+  /* 32c: term_set_image, recipe_set_image's twin for a term record. */
+  it("sets a term's picture from a local path, clears it, and needs a record", async () => {
+    const picture = join(contentDirectory, "..", `tin-${Date.now()}.png`);
+    await writeFile(picture, "png bytes");
+    try {
+      expect(
+        await callError("term_set_image", { slug: "cookies", path: picture }),
+      ).toMatchObject({ code: "not_found", slug: "cookies" });
+
+      await call("term_create", { term: { label: "Cookies" } });
+      const set = await call("term_set_image", {
+        slug: "cookies",
+        path: picture,
+      });
+      expect(set.isError).toBe(false);
+      expect(set.data).toMatchObject({
+        slug: "cookies",
+        url: "/tags/cookies",
+        image: expect.stringMatching(/^tin-\d+\.png$/),
+      });
+      expect(set.data.warnings).toEqual([expect.stringContaining("stale")]);
+      const detail = await call("term_get", { slug: "cookies" });
+      expect((detail.data.record as { image?: string }).image).toBe(
+        set.data.image,
+      );
+
+      const cleared = await call("term_set_image", {
+        slug: "cookies",
+        clear: true,
+      });
+      expect(cleared.data).toMatchObject({
+        image: null,
+        previous: set.data.image,
+      });
+
+      const both = await client.callTool({
+        name: "term_set_image",
+        arguments: { slug: "cookies", clear: true, path: picture },
+      });
+      expect(both.isError).toBe(true);
+    } finally {
+      await rm(picture, { force: true });
+    }
+  });
 });
 
 /* ------------------------------------------------------------------ */
