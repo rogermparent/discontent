@@ -607,15 +607,20 @@ Each branch is off the previous. Rebase children after a parent merges.
 | **24a** | `agent/24a-taxonomy-engine` ← `main` | ✅ done | This doc; D1 + D2 primitives in `packages/cms/taxonomies/`; `aggregatesOf` at the two seats; demo notes adopt (terms + by-term); demo term type + the self-reference proof (T8); `incremental-regeneration.md` §10 F33 + §11; epic-23 housekeeping docs (M) |
 | 24b     | `agent/24b-taxonomy-adopt` ← `main`  | ✅ done | Recipes → taxonomy (delete the pair, keep names, v2), readers, groups gain `tags` (types, index value, schemas, form, seat), portfolio declares + routes, `/tags` unions; all 15 recipe fixtures regenerated; **D5 decided** (M–L)                          |
 | 24c     | `agent/24c-term-records` ← `main`    | ✅ done | `tagTermContentConfig` in the registry, tree read + label override + curated front (`pinned`/`description`/`image`), term page metadata / breadcrumb / children, `feature {term}` (featured v3), `christmas-cookies` seed gains term records (L)            |
-| 24d     | `agent/24d-taxonomy-search` ← 24c    | 🟡 next | Resolver, `/search/terms`, one "all terms" source, hierarchical autocomplete / ⌘K, server descendant expansion + `group:` parity (L)                                                                                                                        |
-| 24e     | `agent/24e-term-seats` ← 24d         | ⏸️      | Seats / CLI / API / MCP / skill v3 + the fixture acceptance test (D7) (L)                                                                                                                                                                                   |
+| 24d     | → epic 31 (31b)                      | ⤴️ 31b  | Resolver, `/search/terms`, one "all terms" source, hierarchical autocomplete / ⌘K, server descendant expansion + `group:` parity (L)                                                                                                                        |
+| 24e     | → epic 31 (31c, 31e)                 | ⤴️ 31c  | Seats / CLI / API / MCP / skill v3 + the fixture acceptance test (D7) (L)                                                                                                                                                                                   |
 | 24f     | `agent/24f-taxonomy-closeout` ← 24e  | ⏸️      | Backfill on the real repo (content task), the real story run, by-term measurement, backlog strikes, close-out, memory (S code / L content)                                                                                                                  |
 | 24g     | conditional                          | ⏸️      | F8b partitions, only if 24f's by-term number exceeds 150 KB (L)                                                                                                                                                                                             |
 
 **#144 landed** 2026-09-17 (`c581f222`) and the real repo was reindexed the
 same day.
 
-**Next PR: 24d** — `agent/24d-taxonomy-search` stacked on
+**24d and 24e moved to epic 31** (2026-10-09): 31b is 24d, 31c is 24e, and
+31e adds a term edit form. `agent-epic-31.md` is their record; its D4
+(`term_cycle` is 422) and D5 (46 tools, 34 pre-approved) supersede the counts
+and status in D7 above. 24f's real-repo backfill and story run stay open.
+
+**Next PR (historical): 24d** — `agent/24d-taxonomy-search` stacked on
 `agent/24c-term-records` (draft PR #145; retarget to `main` after #145
 merges, 22-T20). Scope (D6): a term **resolver** over the tree (a slug → its
 descendants, from `tagTermReads.tree`), `/search/terms` = the union of the
