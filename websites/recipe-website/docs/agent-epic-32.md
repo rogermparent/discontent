@@ -765,19 +765,19 @@ epic.
 To be filled per phase (PR, merge sha, gates), with the 32e measurement and
 the end-to-end checks at 32-close.
 
-| Phase   | PR   | Merge      | Gates                                                                                                                                                                                              |
-| ------- | ---- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 32-plan | #197 | `dafc6834` | docs only; CI 12/12                                                                                                                                                                                |
-| 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI                                                                                      |
-| 32b     | #200 |            | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI                                                                                          |
-| 32c     | #203 |            | typechecks ✅; vitest 1074/1074 (56 files); Playwright `term-edit` + `api-write` 29/29 (build); CI                                                                                                 |
-| 32d     | #205 |            | typechecks ✅; vitest 1094/1094 (56 files); Playwright `git` + `api-write` not run locally (heavy slot held > 15 min), CI shards are the gate; CI                                                  |
-| 32e     | #204 |            | typechecks ✅ (recipe, export, portfolio, demo); vitest 1105/1105 (56 files) after the review fixes; Playwright not run locally (slot held > 15 min) — CI                                          |
-| 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                                                                                                     |
-| 32h     | #201 |            | typechecks ✅ (recipe, export, portfolio); vitest 1058/1058; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI                                                                |
-| 32g     | #202 |            | typechecks ✅; vitest 1068/1068 (56 files); Playwright `groups` + `yield` + `recipe` 47/47 (build); export `next build` ✅; CI                                                                     |
-| 32j     | #206 |            | typechecks ✅; vitest 1148/1148 (56 files); Playwright not a local gate (see entry) — CI's Recipe shards                                                                                           |
-| 32i     | #207 |            | typechecks ✅ (recipe, export, portfolio, demo); vitest 1139/1139 (56 files, after the review fix); Playwright `search-tags` + `search-autocomplete` + `term-edit` + `tag-pages` 43/43 (build); CI |
+| Phase   | PR   | Merge      | Gates                                                                                                                                                                                                                                              |
+| ------- | ---- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 32-plan | #197 | `dafc6834` | docs only; CI 12/12                                                                                                                                                                                                                                |
+| 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI                                                                                                                                      |
+| 32b     | #200 |            | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI                                                                                                                                          |
+| 32c     | #203 |            | typechecks ✅; vitest 1074/1074 (56 files); Playwright `term-edit` + `api-write` 29/29 (build); CI                                                                                                                                                 |
+| 32d     | #205 |            | typechecks ✅; vitest 1094/1094 (56 files); Playwright `git` + `api-write` not run locally (heavy slot held > 15 min), CI shards are the gate; CI                                                                                                  |
+| 32e     | #204 |            | typechecks ✅ (recipe, export, portfolio, demo); vitest 1105/1105 (56 files) after the review fixes; Playwright not run locally (slot held > 15 min) — CI                                                                                          |
+| 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                                                                                                                                                     |
+| 32h     | #201 |            | typechecks ✅ (recipe, export, portfolio); vitest 1058/1058; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI                                                                                                                |
+| 32g     | #202 |            | typechecks ✅; vitest 1068/1068 (56 files); Playwright `groups` + `yield` + `recipe` 47/47 (build); export `next build` ✅; CI                                                                                                                     |
+| 32j     | #206 |            | typechecks ✅; vitest 1148/1148 (56 files); Playwright not a local gate (see entry) — CI's Recipe shards                                                                                                                                           |
+| 32i     | #207 |            | typechecks ✅ (recipe, export, portfolio, demo); vitest 1193/1193 (56 files, after merging 32j); Playwright `search-tags` + `search-autocomplete` + `term-edit` + `tag-pages` 43/43, then `make` + `search-tags` 31/31 after the merge (build); CI |
 
 ### 32a — Hygiene
 
@@ -1861,6 +1861,14 @@ engine's term types moved). Full vitest in the heavy slot: 1136/1136, then 1139/
 56 files. Playwright, build+start through `heavy-pw.sh`: `search-tags` +
 `search-autocomplete` + `term-edit` + `tag-pages`, 43/43, the 3 new cases
 included. The run left the fixtures clean.
+
+**After merging `origin/main` at 32j (#206):** typechecks ✅; full vitest in
+the heavy slot 1193/1193 across 56 files; Playwright `make` + `search-tags`
+31/31 (build). 32j's new `make-food` fixture needed no regeneration. It has
+no term records, so it has no tree aggregate for the version bump to stale.
+A full `build-fixture-indexes.ts` run changed no aggregate's `data.mdb` in
+any fixture (only the usual index and pagination rewrites, discarded), so
+every tree on disk is already at version 2.
 
 **Morning checklist.** The tree's spec moved, so the real repo needs a
 `reindex` (already on the list for 32e). Until then the guarded read returns
