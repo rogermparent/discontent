@@ -29,15 +29,15 @@ type AppearsInAggregate = AggregateConfig<
 >;
 
 /**
- * The inverse of the edge the engine cannot follow: every member mapped to the
- * groups that list it.
+ * The inverse of a group's item edges: every member mapped to the groups that
+ * list it.
  *
- * Groups declare no `references` because the reference machinery is scalar-only
- * and a group's members live in an array (D3/F32), so nothing rebuilds a group
- * when a member moves — but nothing has to: this is folded from the *group*
- * index, and it is a group write that changes what it says. A recipe write
- * leaves it identical, which the aggregate layer reports as `changed: false`
- * and fires no tag for.
+ * Folded from the *group* index, so it is a group write that changes what it
+ * says. A recipe retitle leaves it identical, which the aggregate layer reports
+ * as `changed: false` and fires no tag for. A recipe **rename** moves it since
+ * F32 (epic 31): the rename rewrites each listing group's `items[].recipe` as a
+ * dependent write, and that group write re-folds this. A delete still leaves
+ * the old key (D3).
  *
  * A factory since 23c, because the fold is the same twice over: `by-recipe`
  * keys on `item.recipe` and `by-group` on `item.group`, and a copy of the
@@ -149,9 +149,9 @@ export const groupsByRecipe = appearsInAggregate({
  * on a recipe three levels down, where the reader has no row to click that
  * explains the hop. The nesting is visible by walking the pages.
  *
- * Keyed on the sub-group's slug, so it dangles exactly as `by-recipe` does: a
- * renamed or deleted child keeps its old key here until every parent is
- * re-saved (T31/T32).
+ * Keyed on the sub-group's slug, so it behaves exactly as `by-recipe` does: a
+ * renamed child moves with its parents' rewritten items (F32), and a deleted
+ * one keeps its old key here until every parent is re-saved (T31/T32).
  */
 export const groupsByGroup = appearsInAggregate({
   name: "by-group",

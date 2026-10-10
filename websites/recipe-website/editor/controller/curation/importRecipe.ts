@@ -51,6 +51,8 @@ export interface ImportDryRunResult {
   suggestedTags?: string[];
   image?: ImageProbe;
   video?: string;
+  /** An image over 2 MB (epic 31): a smaller candidate may be worth `--image`. */
+  warnings?: string[];
 }
 
 export interface ImportCreateResult extends RecipeWriteResult {
@@ -180,7 +182,11 @@ export async function importAndCreate(
      * whether that is worth keeping.
      */
     const date = input.date ?? Date.now();
-    const { data, image: probe } = await buildRecipeWrite(input, {
+    const {
+      data,
+      image: probe,
+      warnings,
+    } = await buildRecipeWrite(input, {
       date,
       probe: true,
     });
@@ -208,6 +214,7 @@ export async function importAndCreate(
         : {}),
       ...(probe ? { image: probe } : {}),
       ...(data.video ? { video: data.video } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
 

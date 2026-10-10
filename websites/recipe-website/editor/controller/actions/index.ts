@@ -86,7 +86,9 @@ function importedImage(
   }
   let pending = importedImages.get(parsed);
   if (!pending) {
-    pending = fetchImageFile(imageImportUrl);
+    /* The browser form: a person is waiting, so a 403 is retried at once
+     * (epic 31, D3). */
+    pending = fetchImageFile(imageImportUrl, { retry: { delayMs: 0 } });
     importedImages.set(parsed, pending);
   }
   return pending;

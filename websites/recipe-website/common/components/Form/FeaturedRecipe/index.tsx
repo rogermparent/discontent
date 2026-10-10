@@ -4,6 +4,7 @@ import { useState } from "react";
 import { FeaturedRecipeFormState } from "recipe-website-common/controller/featuredRecipeFormState";
 import { DateTimeInput } from "@discontent/component-library/components/Form/inputs/DateTime";
 import { TextInput } from "@discontent/component-library/components/Form/inputs/Text";
+import { CheckboxInput } from "@discontent/component-library/components/Form/inputs/Checkbox";
 import { LexicalMarkdownInput } from "@discontent/component-library/components/Form/inputs/LexicalMarkdown";
 import { RECIPE_MARKDOWN } from "@discontent/component-library/components/Form/inputs/LexicalMarkdown/transformers";
 import { Label } from "@discontent/component-library/components/Form";
@@ -150,6 +151,16 @@ export default function FeaturedRecipeFields({
             date={date}
             currentTimezone={currentTimezone}
             errors={state?.errors?.date}
+          />
+          {/*
+           * A target that is already featured is refused unless this is
+           * ticked (epic 31, D2) — the error names the entry that holds it.
+           */}
+          <CheckboxInput
+            name="again"
+            id="featured-recipe-form-again"
+            label="Feature it again, even if it is already featured"
+            errors={state?.errors?.again}
           />
         </div>
       </details>

@@ -10,7 +10,8 @@ it gets a phase in the epic's own doc and is struck here.
 > **Epic 25 (mixology: drink spec, drink styles, bar inventory) is in
 > `agent-mixology.md`.** **Epic 26 (import tooling) is in
 > `agent-import-tools.md`.** **Epic 27 (CI hygiene, Pi sync, bar tools,
-> search quality) is in `agent-epic-27.md`.**
+> search quality) is in `agent-epic-27.md`.** **Epic 31 (the taxonomy
+> finished, F32 renames, curation polish) is in `agent-epic-31.md`.**
 > Rows are struck here as an epic's phases pick them up; the struck rows
 > below name the phase.
 
@@ -43,10 +44,10 @@ Sources: `docs/agent-curation.md` (Deferred, and the D/T lists it names),
 
 ## Engine
 
-| Candidate                                             | Why                                                                                                                                                                                 | Recorded at                                                               |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| **F32 — array references** (`path: "items[].recipe"`) | The reference machinery is scalar-only (D3); group cards cannot follow renames or borrow member thumbnails through the index. Add an F-row to §10 and a §11.4 entry when picked up. | agent-curation Deferred; incremental-regeneration §10 (last rows F29/F31) |
-| Ingredient completion in the search field             | 21c completes fields and tags only; ingredients are a conditional fetch (F4a), so completing them means a loading state inside a keystroke.                                         | ui-overhaul PR 21c                                                        |
+| Candidate                                 | Why                                                                                                                                                                                 | Recorded at                                                               |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| **F32 — array references** (renames: 31d) | The reference machinery is scalar-only (D3); group cards cannot follow renames or borrow member thumbnails through the index. Add an F-row to §10 and a §11.4 entry when picked up. | agent-curation Deferred; incremental-regeneration §10 (last rows F29/F31) |
+| Ingredient completion in the search field | 21c completes fields and tags only; ingredients are a conditional fetch (F4a), so completing them means a loading state inside a keystroke.                                         | ui-overhaul PR 21c                                                        |
 
 ## UI
 

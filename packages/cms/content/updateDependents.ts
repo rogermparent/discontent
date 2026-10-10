@@ -9,6 +9,7 @@ import {
   readContentFromFilesystem,
   writeContentToFilesystem,
 } from "./filesystem";
+import { rewriteAt, slugsAt } from "./referencePath";
 import {
   borrowedFieldsOf,
   resolveReferences,
@@ -75,6 +76,12 @@ interface Candidate {
  * keeps pointing at the dead slug; only the borrowed values leave the index.
  * Rewriting it would destroy the only record of what the item pointed at, and
  * a content directory is a git repository whose history is the point.
+ *
+ * **Array references follow renames too (F32).** A spec's field may be a
+ * reference path — `items[].recipe` — and a rename rewrites every element
+ * that names the old slug, in the same write, leaving the other elements and
+ * their other keys alone (`referencePath.ts`). A delete still leaves them
+ * dangling, for the reason above.
  *
  * @example
  * ```ts
@@ -238,7 +245,7 @@ async function updateDependentsForSpec(options: {
       const oldValue = candidate.value ?? db.get(oldKey);
 
       if (renamed) {
-        data[dataFieldName] = newSlug;
+        rewriteAt(data, dataFieldName, targetSlug, newSlug);
         touchedPaths.push(
           await writeContentToFilesystem(
             dependentConfig,
@@ -335,7 +342,7 @@ async function findViaIndex(
   const entries = await db.getRange().asArray;
 
   for (const { key, value } of entries) {
-    if (value?.[indexFieldName] !== targetSlug) continue;
+    if (!slugsAt(value, indexFieldName).includes(targetSlug)) continue;
     const slug = extractSlugFromKey(key);
     if (!slug) {
       console.warn(`Could not extract a slug from index key ${String(key)}`);
@@ -349,8 +356,10 @@ async function findViaIndex(
 
 /**
  * The fallback, for a spec that declares only `dataField` and so has no field
- * in the index to scan. No config in this repo takes it; it exists so that
- * replacing the rename pass costs no reachable behaviour.
+ * in the index to scan. Since F32 the recipe site's group edges take it: a
+ * group's index value does not carry its items, so `items[].recipe` is found
+ * in the data files. It runs only on a rename — nothing is borrowed along an
+ * array edge, so no other write opens the gate.
  */
 async function findViaDataFiles(
   config: DependentConfig,
@@ -374,7 +383,9 @@ async function findViaDataFiles(
         slug,
         contentDirectory,
       );
-      if (data?.[dataFieldName] === targetSlug) candidates.push({ slug });
+      if (slugsAt(data, dataFieldName).includes(targetSlug)) {
+        candidates.push({ slug });
+      }
     } catch {
       /* Unreadable items are not dependents we can do anything about. */
     }

@@ -914,14 +914,13 @@ describe("git", () => {
       result.structuredContent as { error: { code: string; message: string } }
     ).error;
     /*
-     * Whatever git says about the missing remote, wrapped in our vocabulary —
-     * `internal`, because "there is no remote called origin" is not one of the
-     * four git codes and inventing a fifth for it is a design call 23d did not
-     * make. What matters to a caller is that it is an `{error: {code,
-     * message}}` object naming the remote, not an unhandled throw.
+     * `validation` since epic 31: a push with nowhere to go is the caller's
+     * input to fix (add a remote, or pass one), refused before git runs —
+     * the code `git_pull` already gives a missing upstream. It was `internal`
+     * from 23d, with git's own message.
      */
-    expect(error.code).toBe("internal");
-    expect(error.message).toContain("origin");
+    expect(error.code).toBe("validation");
+    expect(error.message).toContain("no remote");
   });
 });
 

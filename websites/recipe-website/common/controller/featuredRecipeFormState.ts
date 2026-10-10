@@ -12,6 +12,8 @@ export interface FeaturedRecipeFormErrors extends Record<
   date?: string[];
   note?: string[];
   slug?: string[];
+  /** Epic 31: the target is already featured — tick "Feature it again". */
+  again?: string[];
 }
 
 export type FeaturedRecipeFormState =

@@ -9,10 +9,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchImageFile,
   imageFilename,
+  LARGE_IMAGE_BYTES,
+  largeImageWarning,
   MAX_IMAGE_BYTES,
   probeImageFile,
 } from "../websites/recipe-website/editor/controller/imageImport";
-import { RECIPE_FETCH_HEADERS } from "recipe-website-common/util/importRecipeData";
+import {
+  DEFAULT_403_DELAY_MS,
+  RECIPE_FETCH_HEADERS,
+} from "recipe-website-common/util/importRecipeData";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -128,7 +133,8 @@ describe("fetchImageFile", () => {
     });
   });
 
-  it("asks again as a browser after a 403, and only then", async () => {
+  it("asks again as a browser after a 403, and only then — 15 s later", async () => {
+    vi.useFakeTimers();
     const fetchStub = vi
       .fn()
       .mockResolvedValueOnce(
@@ -136,13 +142,44 @@ describe("fetchImageFile", () => {
       )
       .mockResolvedValueOnce(respond("jpeg"));
     vi.stubGlobal("fetch", fetchStub);
-    const file = await fetchImageFile("https://x.com/a.jpg");
+    const pending = fetchImageFile("https://x.com/a.jpg");
+    await vi.advanceTimersByTimeAsync(DEFAULT_403_DELAY_MS - 1);
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    const file = await pending;
+    vi.useRealTimers();
     expect(file.name).toBe("a.jpg");
     expect(fetchStub).toHaveBeenCalledTimes(2);
     expect(fetchStub.mock.calls[0][1]?.headers).toBeUndefined();
     expect(fetchStub.mock.calls[1][1]?.headers).toMatchObject({
       "user-agent": RECIPE_FETCH_HEADERS["user-agent"],
     });
+  });
+
+  it("retries at once when asked to (the browser form)", async () => {
+    const fetchStub = vi
+      .fn()
+      .mockResolvedValueOnce(
+        respond("Forbidden", { status: 403, type: "text/html" }),
+      )
+      .mockResolvedValueOnce(respond("jpeg"));
+    vi.stubGlobal("fetch", fetchStub);
+    const file = await fetchImageFile("https://x.com/a.jpg", {
+      retry: { delayMs: 0 },
+    });
+    expect(file.name).toBe("a.jpg");
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a 403 when retrying is off", async () => {
+    const fetchStub = vi.fn(async () =>
+      respond("Forbidden", { status: 403, type: "text/html" }),
+    );
+    vi.stubGlobal("fetch", fetchStub);
+    await expect(
+      fetchImageFile("https://x.com/a.jpg", { retry: { enabled: false } }),
+    ).rejects.toMatchObject({ message: expect.stringContaining("403") });
+    expect(fetchStub).toHaveBeenCalledTimes(1);
   });
 
   it("refuses something that is not a URL without fetching", async () => {
@@ -155,7 +192,36 @@ describe("fetchImageFile", () => {
   });
 });
 
+describe("largeImageWarning", () => {
+  it("warns above 2 MB and says by how much", () => {
+    expect(largeImageWarning(undefined)).toBeUndefined();
+    expect(largeImageWarning(LARGE_IMAGE_BYTES)).toBeUndefined();
+    expect(largeImageWarning(9.7 * 1024 * 1024, "https://x.com/a.jpg")).toBe(
+      "Image https://x.com/a.jpg is 9.7 MB, over 2.0 MB — a smaller candidate would load faster",
+    );
+  });
+});
+
 describe("probeImageFile", () => {
+  it("reports the declared size, and warns above 2 MB (epic 31)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => respond(null, { length: 512_000 })),
+    );
+    const small = await probeImageFile("https://x.com/a.jpg");
+    expect(small.bytes).toBe(512_000);
+    expect(small.warning).toBeUndefined();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => respond(null, { length: LARGE_IMAGE_BYTES + 1 })),
+    );
+    const large = await probeImageFile("https://x.com/a.jpg");
+    expect(large.bytes).toBe(LARGE_IMAGE_BYTES + 1);
+    expect(large.error).toBeUndefined();
+    expect(large.warning).toMatch(/^Image is 2\.0 MB, over 2\.0 MB/);
+  });
+
   it("names the file from a HEAD request without downloading", async () => {
     const fetchStub = vi.fn(async () => respond(null, { type: "image/webp" }));
     vi.stubGlobal("fetch", fetchStub);

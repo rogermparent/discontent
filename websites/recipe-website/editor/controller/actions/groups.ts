@@ -23,6 +23,8 @@ import {
   groupDeleteSuccessConfig,
   groupSuccessConfig,
 } from "../successConfigs";
+import { assertNoGroupCycle } from "../curation/groups";
+import { GroupCycleError } from "../curation/errors";
 
 /**
  * The parsed form, as a group record plus the uploads that go with it. The one
@@ -178,12 +180,49 @@ function refuseCollection(): GroupFormState {
   };
 }
 
+/**
+ * The form's "Add group" rows can name any group (epic 31), so a write that
+ * would make a group contain itself — directly or through a sub-group — is
+ * refused here, before the generic action writes, with the curation seat's own
+ * check. `null` when the items are fine, or there is nothing to check.
+ */
+async function groupCycleError(
+  formData: FormData,
+  fallbackSlug?: string,
+): Promise<GroupFormState | null> {
+  const parsed = parseGroupFormData(formData);
+  if (!parsed.success || !(await authenticateUser())) return null;
+  const { items, name, date } = parsed.data;
+  if (!items.some((item) => item.group)) return null;
+  const slug = slugify(
+    parsed.data.slug ||
+      fallbackSlug ||
+      createDefaultGroupSlug({ name, date: date || Date.now() }),
+  );
+  try {
+    await assertNoGroupCycle(
+      { contentDirectory: getContentDirectory() },
+      slug,
+      items,
+    );
+  } catch (error) {
+    if (error instanceof GroupCycleError) {
+      return { message: error.message, errors: { items: [error.message] } };
+    }
+    throw error;
+  }
+  return null;
+}
+
 export async function createGroup(
   prevState: GroupFormState | null,
   formData: FormData,
 ): Promise<GroupFormState> {
   if (formData.get("kind") === "collection") return refuseCollection();
-  return groupActions.create(prevState, formData);
+  return (
+    (await groupCycleError(formData)) ??
+    groupActions.create(prevState, formData)
+  );
 }
 
 /**
@@ -204,7 +243,10 @@ export async function updateGroup(
     }).catch(() => null);
     if (current?.kind !== "collection") return refuseCollection();
   }
-  return groupActions.update(currentDate, currentSlug, prevState, formData);
+  return (
+    (await groupCycleError(formData, currentSlug)) ??
+    groupActions.update(currentDate, currentSlug, prevState, formData)
+  );
 }
 
 export const deleteGroup = groupActions.delete;

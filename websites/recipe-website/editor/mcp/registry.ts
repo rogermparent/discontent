@@ -507,8 +507,9 @@ export function createRecipeServer(
       title: "Update a recipe",
       description:
         "Patch a recipe: an omitted key is left alone, an explicit null clears it. " +
-        "`patch.slug` renames (and moves the page). `dryRun` returns the record the " +
-        "patch would produce without writing it.",
+        "`patch.slug` renames (and moves the page); every group item and featured " +
+        "entry naming the old slug is rewritten in the same commit. `dryRun` returns " +
+        "the record the patch would produce without writing it.",
       inputSchema: z.strictObject({
         slug: Slug,
         patch: RecipePatchSchema,
@@ -797,7 +798,8 @@ export function createRecipeServer(
       description:
         "Everything about a group except its items: name, slug (a rename), kind, date, " +
         "description, image and tags. `tags` replaces the whole list; null clears it. " +
-        "Use group_set_items for the items themselves.",
+        "A rename rewrites every parent group's item and featured entry naming it, in " +
+        "the same commit. Use group_set_items for the items themselves.",
       inputSchema: z.strictObject({
         slug: Slug,
         patch: GroupPatchSchema,
@@ -907,7 +909,9 @@ export function createRecipeServer(
         "Put one target on the homepage. Name exactly one of `recipe`, `group` or " +
         "`term`; the target must exist. A `term` is a term *record*'s slug — a tag " +
         "that only exists as a string on recipes has no record to borrow a label " +
-        "from and is refused. Pass an explicit `slug` when featuring several things " +
+        "from and is refused. A target that is already featured is refused with " +
+        "slug_conflict naming the existing entry; pass `again: true` to feature it a " +
+        "second time on purpose. Pass an explicit `slug` when featuring several things " +
         "at once, since the default slug has one-second resolution.",
       inputSchema: FeaturedInputSchema,
       annotations: WRITES,

@@ -403,8 +403,40 @@ describe("groupsByRecipe", () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* D3: no references, and what that costs                              */
+/* D3, amended by F32: renames follow, deletes dangle                  */
 /* ------------------------------------------------------------------ */
+
+describe("a renamed recipe (F32)", () => {
+  it("rewrites group.json in the rename, and the aggregate follows", async () => {
+    await seedTwoRecipesAndAGroup();
+
+    await updateContent<Recipe, unknown, RecipeEntryKey>({
+      config: recipeContentConfig,
+      slug: "beef-stew",
+      currentSlug: "stew",
+      currentIndexKey: [day(2), "stew"] as RecipeEntryKey,
+      data: { name: "Stew", date: day(2) } as Recipe,
+      contentDirectory,
+    });
+
+    /* The item moves; its label and the other item stay as they were. */
+    expect((await readGroupFile("week-of-may-4")).items).toEqual(
+      WEEK.items.map((item) =>
+        item.recipe === "stew" ? { ...item, recipe: "beef-stew" } : item,
+      ),
+    );
+    const appearsIn = await readAppearsIn();
+    expect(appearsIn?.stew).toBeUndefined();
+    expect(appearsIn?.["beef-stew"]).toEqual([
+      {
+        slug: "week-of-may-4",
+        name: "Week of May 4",
+        kind: "meal-plan",
+        label: "Mon · Dinner",
+      },
+    ]);
+  });
+});
 
 describe("a deleted recipe (D3)", () => {
   it("leaves the group's data file and the aggregate exactly as they were", async () => {
@@ -419,12 +451,11 @@ describe("a deleted recipe (D3)", () => {
     });
 
     /*
-     * Nothing rewrites `items[].recipe`: groups declare no `references` and no
-     * `referencedBy`, because the engine's reference machinery is scalar-only
-     * and cannot address an array element (F32). So the slug dangles, and both
-     * the data file and the folded value still name it. The detail page renders
-     * that as "Recipe not found: stew" rather than dropping the row — losing a
-     * day out of a meal plan silently would be the worse failure.
+     * Nothing rewrites `items[].recipe` on a delete. Since F32 a *rename*
+     * follows (above), but a delete keeps the slug: the data file and the
+     * folded value still name it, and the detail page renders "Recipe not
+     * found: stew" rather than dropping the row — losing a day out of a meal
+     * plan silently would be the worse failure.
      */
     expect(await pathExists(join(contentDirectory, "recipes/data/stew"))).toBe(
       false,

@@ -90,6 +90,15 @@ test.describe("Reference Updates", () => {
       await page.goto("/recipe/multi-featured-recipe");
       await page.getByRole("link", { name: "Feature", exact: true }).click();
       await fillMarkdownField(page, "note", "Second feature");
+      /* A deliberate second feature of the same recipe (epic 31, D2). */
+      await page
+        .getByLabel("Feature it again, even if it is already featured")
+        .check();
+      /*
+       * An explicit slug: the default has one-second resolution, and two
+       * features inside one second collide (T26) — a flake on a fast run.
+       */
+      await page.getByLabel("Slug").fill("multi-featured-second");
       await page.getByRole("button", { name: "Submit", exact: true }).click();
       await expect(page).toHaveURL(baseURL + "/");
 

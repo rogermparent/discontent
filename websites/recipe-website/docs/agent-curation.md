@@ -98,7 +98,12 @@ same procedure.)_
   pointing at a group is a **scalar** reference (`dataField: "group"`), so
   22g adds `groupContentConfig.referencedBy = [{config: () =>
 featuredRecipeContentConfig, indexField: "group"}]` (thunk). Groups still
-  declare no array `references` of their own.
+  declare no array `references` of their own. _Amended for epic 31 (31d,
+  2026-10-10):_ F32 landed for **renames only**. Groups declare
+  `references` at `items[].recipe` and `items[].group` with `fields: []`
+  (nothing borrowed), and recipes and groups declare the matching
+  `referencedBy`, so a recipe or sub-group rename rewrites every group item
+  naming it in the rename's commit. A **delete** still dangles, as above.
 - **D4 "Appears in" is an aggregate** `groupsByRecipe`
   (`Record<recipeSlug, {slug, name, kind, label?}[]>`) folded from the groups
   index, shaped like `recipesByTag` in `common/controller/aggregateConfigs.ts`.
@@ -3006,50 +3011,40 @@ build`): clean; `out/groups.html` one `group-thumbnail` with
 
 ## Deferred
 
+Struck rows are done; `backlog.md` names the phase that did each.
+
 - **F32 — array references in the engine** (`path: "items[].recipe"`):
   rename-following and thumbnail borrowing for group cards. The reference
-  machinery is scalar-only (D3). When picked up, add an F-row to the §10
-  "Rollout" engine-hygiene table in
-  `packages/cms/docs/incremental-regeneration.md` (last rows F29/F31) plus the
-  matching bold-prose entry in §11.4.
-- **`source:` search field** + `SEARCH_DB_NAME` bump + fixture regen (D6):
-  kept out of 22a so provenance needs no index-shape change.
-- **Migration script for legacy "Imported from" descriptions** (D7): existing
-  recipes keep their prefix line until a one-off script moves it into
-  `source`.
-- **`POST /api/git/push`** (D11): push stays manual from `/git`.
-- **API token hygiene** (22d): a `revoke-token` script (v1 is hand-editing
-  the `tokens` array in `users/<email>`), per-token scopes (every token is
-  a full write token today), and a `lastUsedAt` stamp on the record.
-- **Group tags / tag pages; per-item servings for meal plans; featured recipes
-  as a group kind.**
-- **CLI featured commands** (22g): `pnpm recipes` gets no `feature`
-  command; featuring a group is editor-only.
-- **Member-thumbnail fallback on client-rendered search-result group cards**
+  machinery is scalar-only (D3). **Renames picked up by epic 31 (31d)**, with
+  no borrowing (`agent-epic-31.md` D1); thumbnails came from the corpus
+  instead (30c).
+- ~~**`source:` search field** + `SEARCH_DB_NAME` bump + fixture regen (D6)~~
+  — done by 27d.
+- ~~**Migration script for legacy "Imported from" descriptions** (D7)~~ — done
+  by 27d.
+- ~~**`POST /api/git/push`** (D11)~~ — done by 23d.
+- ~~**API token hygiene** (22d)~~ — done by 27b.
+- ~~**Group tags / tag pages**~~ (done by 24b); **per-item servings for meal
+  plans; featured recipes as a group kind.**
+- ~~**CLI featured commands** (22g)~~ — done by 23a.
+- ~~**Member-thumbnail fallback on client-rendered search-result group cards**
   (22g, narrowed by 22h): since 22h a `/search` group card shows the group's
   _own_ image (from the corpus, D14) or the placeholder; the member fallback
   is done at render time on the server (22g; not through the index, so F32
   is not needed for it) and the client cannot run it. When wanted, the corpus
   could carry a precomputed `thumbnail: {uploadsDirectory, slug, image}`
   resolved from the first member with a photo — N cached reads per group at
-  corpus build.
-- **`group set-image` / a group update seat in the curation layer and CLI**
-  (22h): `group create --image-url` is create-only; an existing group takes
-  an image through the editor form. Also **`--image <local file>`** on the
-  CLI (only import-by-URL exists), and **⌘K rows with thumbnails** (text-only
-  today).
-- **README test section rewrite** (22e): it still describes Cypress; the
-  suite is Playwright. `CLAUDE.md` states the current commands.
+  corpus build.~~ — done by 30c.
+- ~~**`group set-image` / a group update seat in the curation layer and CLI**
+  (22h)~~ — done by 23a; ~~**`--image <local file>`**~~ — done by 26b;
+  ~~**⌘K rows with thumbnails**~~ — done by 28i and 30c.
+- ~~**README test section rewrite** (22e)~~ — done by 26d.
 - **Tag-vocabulary migration** (22e): the 437 existing recipes carry two tags
   in total; the skill's vocabulary (`vegetarian`, `dinner`, `quick`, …) only
   reaches recipes it imports. A one-off tagging pass would make `tag:` search
-  useful for reuse.
-- **`search` ranking and OR-by-default free text** (22e): free-text words are
-  ANDed with no relevance order, so multi-word asks need several one-word
-  searches.
-- **Stale-editor hint after `--dry-run`** (22e fact 13): the CLI prints the
-  "A running editor is stale until …" stderr hint after a dry run that wrote
-  nothing.
+  useful for reuse. (Picked up as 24f's backfill, still open.)
+- ~~**`search` ranking and OR-by-default free text** (22e)~~ — done by 27d.
+- ~~**Stale-editor hint after `--dry-run`** (22e fact 13)~~ — done by 26b.
 
 ## Key files to read first (implementers)
 

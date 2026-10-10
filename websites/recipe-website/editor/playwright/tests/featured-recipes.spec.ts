@@ -159,7 +159,11 @@ test.describe("Featured Recipes", () => {
       await signIn(page);
     });
 
-    test("should allow recipes to be featured multiple times", async ({
+    /*
+     * Epic 31 (D2): a second feature of the same recipe is refused, naming the
+     * entry that holds it, until "Feature it again" is ticked.
+     */
+    test("should feature a recipe again only when asked to", async ({
       page,
     }) => {
       await page.getByRole("link", { name: "Feature", exact: true }).click();
@@ -173,6 +177,13 @@ test.describe("Featured Recipes", () => {
       ).toBeVisible();
       await page.getByRole("link", { name: "Feature", exact: true }).click();
       await fillMarkdownField(page, "note", "Second feature");
+      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await expect(page.getByText(/Already featured as/).first()).toBeVisible();
+      await expect(page).toHaveURL(/\/featured-recipe\/new/);
+
+      await page
+        .getByLabel("Feature it again, even if it is already featured")
+        .check();
       await page.getByRole("button", { name: "Submit", exact: true }).click();
       await expect(page.getByRole("listitem")).toHaveCount(3);
 
@@ -813,6 +824,10 @@ test.describe("Featured Recipes", () => {
         await page.getByLabel("Slug").clear();
         await page.getByLabel("Slug").fill("feature-41");
         await page.getByLabel("Date (UTC)").fill("2024-04-10T12:00");
+        /* `recipe-01` is already featured: a deliberate duplicate (epic 31, D2). */
+        await page
+          .getByLabel("Feature it again, even if it is already featured")
+          .check();
         await page.getByRole("button", { name: "Submit", exact: true }).click();
         await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
 

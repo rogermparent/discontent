@@ -1,4 +1,5 @@
 import { readContentFromFilesystem } from "./filesystem";
+import { isArrayRefPath } from "./referencePath";
 import type { ContentTypeConfig } from "./types";
 
 /**
@@ -202,6 +203,21 @@ export async function resolveReferences(options: {
 
   await Promise.all(
     declarations.map(async (declaration) => {
+      /*
+       * An array path (`items[].recipe`, F32) names many slugs and borrows
+       * nothing: it exists so renames follow, and its `fields` must be empty.
+       * One that declares fields is a config error, said out loud rather than
+       * borrowed from the first element.
+       */
+      if (isArrayRefPath(declaration.dataField)) {
+        if (declaration.fields.length > 0) {
+          console.warn(
+            `${config.contentType}: array reference ${declaration.dataField} cannot borrow fields; declare \`fields: []\``,
+          );
+        }
+        resolved[declaration.dataField] = undefined;
+        return;
+      }
       const id = record?.[declaration.dataField];
       if (typeof id !== "string" || id === "") {
         resolved[declaration.dataField] = undefined;
@@ -254,6 +270,27 @@ export function borrowedFieldsOf(
     }
   }
   return [...fields];
+}
+
+/**
+ * Whether `dependent` copies any field of `config`'s items into its index.
+ *
+ * A dependent that declares references to `config` and borrows nothing through
+ * any of them (F32's `fields: []` array edges) has nothing a rebuild of
+ * `config` could make stale. A dependent with no declaration at all is
+ * assumed to borrow, which is how the cascade treated every edge before.
+ */
+export function borrowsFrom(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  dependent: ContentTypeConfig<any, any, any>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  config: ContentTypeConfig<any, any, any>,
+): boolean {
+  const declarations = (dependent.references ?? []).filter(
+    (declaration) => declaration.config().contentType === config.contentType,
+  );
+  if (declarations.length === 0) return true;
+  return declarations.some((declaration) => declaration.fields.length > 0);
 }
 
 /**
