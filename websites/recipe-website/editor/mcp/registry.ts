@@ -714,7 +714,8 @@ export function createRecipeServer(
       description:
         "Fold `slug` into `into`: every carrier is re-tagged, and the record moves to " +
         "`into` (when it has none) or is deleted after its children, features and " +
-        "pinned recipes move over. Not undoable from here.",
+        "pinned recipes move over — a feature is unfeatured instead when `into` is " +
+        "already featured. Not undoable from here.",
       inputSchema: z.strictObject({ slug: Slug, into: Slug }),
       annotations: DESTRUCTIVE_WRITE,
     },
@@ -729,8 +730,9 @@ export function createRecipeServer(
       description:
         "Delete a term record. Refused with term_in_use while recipes or groups carry " +
         "the tag, unless `unassign: true`, which removes it from each of them first. " +
-        "Its children move up to its parent; a featured entry of it is left dangling. " +
-        "Not undoable from here.",
+        "Its children move up to its parent, and so do its featured entries — or they " +
+        "are unfeatured when it has no parent or the parent is already featured " +
+        "(`featured` and `unfeatured` in the result). Not undoable from here.",
       inputSchema: z.strictObject({
         slug: Slug,
         unassign: z.boolean().optional(),
@@ -877,8 +879,9 @@ export function createRecipeServer(
     {
       title: "Delete a group",
       description:
-        "Remove a group. Its recipes are untouched; a featured entry pointing at it is " +
-        "left dangling.",
+        "Remove a group. Its recipes are untouched and items naming it in other groups " +
+        "stay, shown as missing; its featured entries are unfeatured (`unfeatured` in " +
+        "the result). Not undoable from here.",
       inputSchema: z.strictObject({ slug: Slug }),
       annotations: DESTRUCTIVE_WRITE,
     },

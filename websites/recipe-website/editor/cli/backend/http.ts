@@ -40,6 +40,7 @@ import type {
   FileAtResult,
   GitWriteResult,
   GitLogResult,
+  GroupDeleteResult,
   GroupDetail,
   GroupListResult,
   GroupWriteResult,
@@ -356,7 +357,7 @@ export function createHttpBackend({
       return call<GroupListResult>("GET", "/api/groups", { query: options });
     },
     deleteGroup(slug) {
-      return call<DeleteResult>(
+      return call<GroupDeleteResult>(
         "DELETE",
         `/api/group/${encodeURIComponent(slug)}`,
       );

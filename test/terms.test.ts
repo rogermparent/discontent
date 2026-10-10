@@ -37,7 +37,10 @@ import type {
   CurationContext,
 } from "../websites/recipe-website/editor/controller/curation/context";
 import { toErrorObject } from "../websites/recipe-website/editor/controller/curation/errors";
-import { feature } from "../websites/recipe-website/editor/controller/curation/featured";
+import {
+  feature,
+  listFeatured,
+} from "../websites/recipe-website/editor/controller/curation/featured";
 import { GIT_TYPES } from "../websites/recipe-website/editor/controller/curation/git";
 import {
   createGroup,
@@ -115,6 +118,27 @@ function termFile(slug: string): string {
 
 function readTermFile(slug: string): Promise<TagTerm> {
   return readJson(termFile(slug));
+}
+
+function featuredFile(slug: string): string {
+  return join(
+    contentDirectory,
+    "featured-recipes/data",
+    slug,
+    "featured-recipe.json",
+  );
+}
+
+function readFeaturedFile(slug: string): Promise<FeaturedRecipe> {
+  return readJson(featuredFile(slug));
+}
+
+/** The strip as the index has it: `[entry slug, term]`, oldest first. */
+async function featuredTerms(): Promise<[string, string | undefined][]> {
+  const { featured } = await listFeatured(ctx, { limit: 100 });
+  return featured
+    .map((row): [string, string | undefined] => [row.slug, row.term])
+    .reverse();
 }
 
 async function codeOf(promise: Promise<unknown>) {
@@ -504,6 +528,22 @@ describe("mergeTerm", () => {
     ).toBe("treats");
   });
 
+  it("unfeatures instead of re-pointing when the target is already featured (31-D2)", async () => {
+    await createTerm(ctx, { label: "Sweets" });
+    await createTerm(ctx, { label: "Treats" });
+    await feature(ctx, { term: "treats", slug: "treats-strip", date: 1 });
+    await feature(ctx, { term: "sweets", slug: "sweets-strip", date: 2 });
+
+    const result = await mergeTerm(ctx, "sweets", { into: "treats" });
+    expect(result).toMatchObject({
+      deleted: true,
+      featured: [],
+      unfeatured: ["sweets-strip"],
+    });
+    expect(await pathExists(featuredFile("sweets-strip"))).toBe(false);
+    expect(await featuredTerms()).toEqual([["treats-strip", "treats"]]);
+  });
+
   it("refuses itself and a target that does not exist", async () => {
     expect(
       await codeOf(mergeTerm(ctx, "cookies", { into: "cookies" })),
@@ -530,6 +570,8 @@ describe("deleteTerm", () => {
       recipes: ["linzer", "shortbread"],
       groups: [],
       reparented: [],
+      featured: [],
+      unfeatured: [],
     });
     expect(await readRecipeTags("shortbread")).toEqual(["baked"]);
     expect(await readRecipeTags("linzer")).toBeUndefined();
@@ -548,6 +590,68 @@ describe("deleteTerm", () => {
     expect(await codeOf(deleteTerm(ctx, "ghost"))).toMatchObject({
       code: "not_found",
     });
+  });
+
+  /* Epic 32, D1: a delete moves the feature to the parent, else unfeatures it. */
+
+  it("re-points the term's features at its parent", async () => {
+    await createTerm(ctx, { label: "Dessert" });
+    await createTerm(ctx, { label: "Treats", parent: "dessert" });
+    await feature(ctx, { term: "treats", slug: "treats-strip" });
+
+    expect(await deleteTerm(ctx, "treats")).toMatchObject({
+      deleted: true,
+      featured: ["treats-strip"],
+      unfeatured: [],
+    });
+    expect((await readFeaturedFile("treats-strip")).term).toBe("dessert");
+    expect(await featuredTerms()).toEqual([["treats-strip", "dessert"]]);
+  });
+
+  it("unfeatures the term's features when it has no parent", async () => {
+    await createTerm(ctx, { label: "Treats" });
+    await feature(ctx, { term: "treats", slug: "treats-strip", date: 1 });
+    await feature(ctx, {
+      term: "treats",
+      slug: "treats-again",
+      date: 2,
+      again: true,
+    });
+
+    expect(await deleteTerm(ctx, "treats")).toMatchObject({
+      deleted: true,
+      featured: [],
+      unfeatured: ["treats-again", "treats-strip"],
+    });
+    expect(await pathExists(featuredFile("treats-strip"))).toBe(false);
+    expect(await pathExists(featuredFile("treats-again"))).toBe(false);
+    expect(await featuredTerms()).toEqual([]);
+  });
+
+  it("unfeatures instead when the parent is already featured (31-D2)", async () => {
+    await createTerm(ctx, { label: "Dessert" });
+    await createTerm(ctx, { label: "Treats", parent: "dessert" });
+    await feature(ctx, { term: "dessert", slug: "dessert-strip", date: 1 });
+    await feature(ctx, { term: "treats", slug: "treats-strip", date: 2 });
+
+    expect(await deleteTerm(ctx, "treats")).toMatchObject({
+      featured: [],
+      unfeatured: ["treats-strip"],
+    });
+    /* One card for the parent, not two. */
+    expect(await featuredTerms()).toEqual([["dessert-strip", "dessert"]]);
+  });
+
+  it("leaves other terms' features alone", async () => {
+    await createTerm(ctx, { label: "Dessert" });
+    await createTerm(ctx, { label: "Treats" });
+    await feature(ctx, { term: "dessert", slug: "dessert-strip", date: 1 });
+
+    expect(await deleteTerm(ctx, "treats")).toMatchObject({
+      featured: [],
+      unfeatured: [],
+    });
+    expect(await featuredTerms()).toEqual([["dessert-strip", "dessert"]]);
   });
 });
 

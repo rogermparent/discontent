@@ -1256,10 +1256,7 @@ test.describe("Featured groups", () => {
     await expect(page.getByText("Weeknight Favourites")).toHaveCount(0);
   });
 
-  test("deleting the group leaves a 'Group not found' card", async ({
-    page,
-    resetData,
-  }) => {
+  test("deleting the group unfeatures it", async ({ page, resetData }) => {
     await resetData("three-recipes-groups");
     await page.goto("/group/weeknight-favourites");
     await signIn(page);
@@ -1267,16 +1264,13 @@ test.describe("Featured groups", () => {
     await expect(page).toHaveURL(/\/groups$/);
 
     /*
-     * A delete clears the borrowed values and leaves the reference, which is
-     * what lets the card say *which* group has gone. A card that vanished
-     * instead would make deleting a group look like it had taken the feature
-     * with it — and the feature is still there, on disk, for a curator to
-     * remove or repoint.
+     * Epic 32, D1: the delete takes the group's features with it. Until then
+     * the card stayed as "Group not found" — the nameless card `feature`
+     * refuses to make — until a curator found and removed it by hand.
      */
     await page.goto("/featured-recipes");
-    await expect(
-      page.getByTestId("featured-group-card").getByText("Group not found"),
-    ).toBeVisible();
+    await expect(page.getByTestId("featured-group-card")).toHaveCount(0);
+    await expect(page.getByText("Group not found")).toHaveCount(0);
   });
 });
 
