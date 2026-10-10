@@ -15,7 +15,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 31-plan (#190) and 31a (#191) are merged; 31b and 31d are in review. 31c and 31e are built on their own branches; 31f's content commits are done (local, unpushed).
+**Now:** 31-plan (#190), 31a (#191) and 31b (#192) are merged; 31d is in review. 31c and 31e are built on their own branches; 31f's content commits are done (local, unpushed).
 
 ## Context
 
@@ -110,8 +110,8 @@ open and the reason is recorded here.
 | -------- | -------------------------------------------------------------------------------------------------------- | ----------------------- | ---------- |
 | 31-plan  | This doc, CLAUDE.md entry, taxonomy roadmap note                                                         | `agent/31-plan`         | ✅ #190    |
 | 31a      | Image size in dry runs, polite 403 retry, feature dedupe, push with no remote, "Add group", tables, docs | `agent/31a-polish`      | ✅ #191    |
-| 31b      | 24d: hierarchy-aware `tag:`, `/search/terms`, one "all terms" list, term-page tree                       | `agent/31b-term-search` | ⏸️         |
-| 31c      | 24e: `curation/terms.ts`, API, `recipes term …`, 8 MCP tools, skill v3, `Group.kind` narrowing           | `agent/31c-term-seats`  | ⏸️         |
+| 31b      | 24d: hierarchy-aware `tag:`, `/search/terms`, one "all terms" list, term-page tree                       | `agent/31b-term-search` | ✅ #192    |
+| 31c      | 24e: `curation/terms.ts`, API, `recipes term …`, 8 MCP tools, skill v3, `Group.kind` narrowing           | `agent/31c-term-seats`  | 🟡 built   |
 | 31d      | F32: group items follow renames                                                                          | `agent/31d-f32-renames` | 🟡         |
 | 31e      | Term edit form `/tags/<slug>/edit`                                                                       | `agent/31e-term-form`   | ⏸️         |
 | 31f      | Content: 38 heading conversions, 7 spritzes and sodas (real content repo, no code PR)                    | — (results in 31-close) | ✅ content |
@@ -203,6 +203,36 @@ Per `24-D6`.
 `specVersions` and the T17 tripwire green; Playwright `search-tags`,
 `search-autocomplete`, `command-palette`, `tag-pages`, `make`,
 `search-query-language`.
+
+**Built (31b).**
+
+- `common/controller/tagExpansion.ts`: `buildTagExpansion(terms)` →
+  `expandTerm("tag", value)`, the folded slug and label of the named term and
+  of its whole subtree, cached per value. It is **additive**: `matchesFilter`
+  keeps the prefix match and also accepts a tag in the expansion. A leaf still
+  answers with its own two spellings, so a record labelled "Christmas Cookies"
+  reaches carriers tagged `christmas-cookies`. A hand-edited cycle terminates,
+  and a term is never its own child (`24-T8`).
+- `/search/terms` (editor route and export `force-static` twin) serves
+  `readSearchTerms()`: `{slug, label, parent?, count}` for every term.
+  `/search/version` is unchanged: it gates only the recipe corpus, and terms are
+  fetched fresh like groups.
+- `SearchContext` fetches `/search/terms` and holds a `tag:` result until it
+  settles, as it does for `group:`. `allTags` is the labels of terms with
+  `count > 0`, and the corpus `Set` is gone. `allTerms` is exposed too.
+- The server's resolver (`curation/tagResolver.ts`) merges **both carrier
+  folds and the tree**, not the tree alone, so a carried-only term reconciles
+  slug and label exactly as the browser's does. It is read only when the query
+  has a `tag:` term. `recipe_search` and `list --tag` use it.
+- `/make`'s `scopeRecipes` takes the resolver, so a parent chip scopes to the
+  recipes its subtree count promises.
+- `getAllTags()` is retired. `readTagLabels()` (labels of the merged
+  vocabulary with uses, in slug order) feeds the five form pages and the
+  homepage's browse chips.
+- `/tags` gains a "By kind" tree (`data-testid="tag-tree"`): roots that have
+  children, each with its **distinct** carriers across the subtree
+  (`termHierarchy`). The flat list below is unchanged. "Narrower" chips were
+  already on `/tags/[tag]` from 24c.
 
 ### 31c — 24e: term seats and tooling
 

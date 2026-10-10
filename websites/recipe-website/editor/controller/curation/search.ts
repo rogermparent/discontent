@@ -24,6 +24,11 @@
  * rows, so rows are decorated with it before filtering — the browser's rule,
  * from the same corpus `/search/groups` serves — and only when the query has
  * a `group:` term, so every other search reads no groups at all.
+ *
+ * **Hierarchy-aware `tag:` since 31b.** `tag:dessert` also finds the recipes
+ * tagged with any term under `dessert` (`tagExpansion.ts`), from the same
+ * vocabulary the browser expands with — read only when the query has a `tag:`
+ * term.
  */
 import { readTaxonomyTerms } from "@discontent/cms/taxonomies/read";
 import {
@@ -39,6 +44,7 @@ import { recipeContentConfig } from "recipe-website-common/controller/recipeCont
 import { recipeTagTaxonomy } from "recipe-website-common/controller/recipeTagTaxonomy";
 import type { CurationContext } from "./context";
 import { readAllRecipeRows, type RecipeRow } from "./recipes";
+import { readTagResolver } from "./tagResolver";
 
 export interface SearchResult {
   query: { raw: string; text: string; hasAdvancedSyntax: boolean };
@@ -81,10 +87,13 @@ export function scoreFreeText(row: RecipeRow, text: string): number {
   return score;
 }
 
-/** Whether any leaf of the filter is a `group:` term, negated or not. */
-function hasGroupTerm(filter: FilterNode | undefined): boolean {
+/** Whether any leaf of the filter is a `field:` term, negated or not. */
+export function hasFieldTerm(
+  filter: FilterNode | undefined,
+  field: "group" | "tag",
+): boolean {
   return filterTerms(filter).some(
-    ({ node }) => node.type === "text" && node.field === "group",
+    ({ node }) => node.type === "text" && node.field === field,
   );
 }
 
@@ -120,9 +129,12 @@ export async function searchRecipes(
   const { text, filter, hasAdvancedSyntax } = parseQuery(query);
   const rows = await readAllRecipeRows(ctx);
   const hasText = fold(text).trim().length > 0;
-  const groupsByRecipe = hasGroupTerm(filter)
+  const groupsByRecipe = hasFieldTerm(filter, "group")
     ? await readGroupsByRecipe(ctx)
     : null;
+  const resolver = hasFieldTerm(filter, "tag")
+    ? await readTagResolver(ctx)
+    : undefined;
 
   const scored: { row: RecipeRow; score: number }[] = [];
   for (const row of rows) {
@@ -130,7 +142,7 @@ export async function searchRecipes(
     const candidate = groupsByRecipe
       ? { ...row, groups: groupsByRecipe.get(row.slug) }
       : row;
-    if (filter && !matchesFilter(candidate, filter)) continue;
+    if (filter && !matchesFilter(candidate, filter, resolver)) continue;
     /* No free text: typed terms alone decide, and every row they keep scores 0. */
     const score = hasText ? scoreFreeText(row, text) : 0;
     if (hasText && score === 0) continue;

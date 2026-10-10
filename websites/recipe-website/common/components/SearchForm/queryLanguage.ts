@@ -21,6 +21,7 @@
  */
 
 import { tagSlug } from "../../controller/tagSlug";
+import type { TermResolver } from "../../controller/tagExpansion";
 
 /** Fields an operator may bind. Anything else is free text (rule 1). */
 export const FILTER_FIELDS = [
@@ -485,19 +486,32 @@ function nextDay(timestamp: number): number {
   ).getTime();
 }
 
+/**
+ * Does `recipe` pass `filter`?
+ *
+ * `resolver` makes `tag:` hierarchy-aware (epic 31, 31b): a term with terms
+ * under it also matches recipes that carry any of them, so `tag:dessert`
+ * finds the linzer cookies. Without one — or for a value that names no parent
+ * term — `tag:` is today's prefix match, which the expansion only ever adds to.
+ */
 export function matchesFilter(
   recipe: FilterableRecipe,
   filter?: FilterNode,
+  resolver?: TermResolver,
 ): boolean {
   if (!filter) return true;
 
   switch (filter.type) {
     case "and":
-      return filter.children.every((child) => matchesFilter(recipe, child));
+      return filter.children.every((child) =>
+        matchesFilter(recipe, child, resolver),
+      );
     case "or":
-      return filter.children.some((child) => matchesFilter(recipe, child));
+      return filter.children.some((child) =>
+        matchesFilter(recipe, child, resolver),
+      );
     case "not":
-      return !matchesFilter(recipe, filter.child);
+      return !matchesFilter(recipe, filter.child, resolver);
     case "time": {
       const minutes = recipeMinutes(recipe);
       if (minutes === undefined) return false;
@@ -523,8 +537,12 @@ export function matchesFilter(
     case "text": {
       const { field, value } = filter;
       switch (field) {
-        case "tag":
-          return (recipe.tags ?? []).some((tag) => fieldMatches(tag, value));
+        case "tag": {
+          const tags = recipe.tags ?? [];
+          if (tags.some((tag) => fieldMatches(tag, value))) return true;
+          const subtree = resolver?.expandTerm("tag", value);
+          return !!subtree && tags.some((tag) => subtree.has(fold(tag).trim()));
+        }
         case "ingredient":
           return (recipe.ingredients ?? []).some((line) =>
             fieldMatches(line, value),

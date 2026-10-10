@@ -1,6 +1,6 @@
 import CreateForm from "./form";
 import { auth, signIn } from "@/auth";
-import { getAllTags } from "recipe-website-common/controller/data/read";
+import { readTagLabels } from "recipe-website-common/controller/data/readTermPage";
 import { reduceRecipeImport } from "./common";
 import {
   PageMain,
@@ -23,7 +23,7 @@ export default async function NewRecipe({
   const initialState = importURL
     ? await reduceRecipeImport(null, importURL)
     : null;
-  const allTags = await getAllTags();
+  const allTags = await readTagLabels();
 
   return (
     <PageMain>

@@ -7,7 +7,9 @@ import {
   childrenOf,
   mergeTagVocabulary,
   tagOptions,
+  termHierarchy,
   type TagOption,
+  type TermHierarchyNode,
   type TagVocabularyEntry,
   type TermPageData,
 } from "../tagVocabulary";
@@ -39,6 +41,53 @@ export async function readTagVocabulary(): Promise<TagVocabularyEntry[]> {
 }
 
 /**
+ * `/tags`' tree (31b): the hierarchy roots with distinct subtree totals, from
+ * the tree and the two inverted maps — the reads `resolveTermPage` makes.
+ */
+export async function readTagTree(): Promise<TermHierarchyNode[]> {
+  const [byRecipeTag, byGroupTag, tree] = await Promise.all([
+    recipeTagReads.byTerm.read(),
+    groupTagReads.byTerm.read(),
+    tagTermReads.tree.read(),
+  ]);
+  if (!tree || Object.keys(tree).length === 0) return [];
+  const counts = new Map(
+    mergeTagVocabulary({
+      recipeTerms: Object.entries(byRecipeTag ?? {}).map(([slug, entry]) => ({
+        slug,
+        label: entry.label,
+        count: entry.items.length,
+      })),
+      groupTerms: Object.entries(byGroupTag ?? {}).map(([slug, entry]) => ({
+        slug,
+        label: entry.label,
+        count: entry.items.length,
+      })),
+      tree,
+    }).map((entry) => [entry.slug, entry]),
+  );
+  return termHierarchy(tree, counts, (slug) => [
+    ...(byRecipeTag?.[slug]?.items ?? []).map((item) => `recipe:${item.slug}`),
+    ...(byGroupTag?.[slug]?.items ?? []).map((item) => `group:${item.slug}`),
+  ]);
+}
+
+/**
+ * Every term something carries, as labels, in slug order (31b) — the forms'
+ * `TagsInput` suggestions and the homepage's browse chips.
+ *
+ * It replaced `getAllTags()`, which read the recipe fold alone: the server half
+ * of the one "all terms" list (24-T11) whose browser half is `/search/terms`.
+ * A group's tags and a record's label now reach both, and a record nothing
+ * carries is left out, as the rail leaves it out.
+ */
+export async function readTagLabels(): Promise<string[]> {
+  return (await readTagVocabulary())
+    .filter((entry) => entry.count > 0)
+    .map((entry) => entry.label);
+}
+
+/**
  * `/make`'s tag picker (28g): the same vocabulary as `/tags`, with each term's
  * parent from the tree, so the page can show roots and expand them.
  */
@@ -52,6 +101,35 @@ export async function readTagOptions(): Promise<TagOption[]> {
     mergeTagVocabulary({ recipeTerms, groupTerms, tree }),
     tree,
   );
+}
+
+/** One row of `/search/terms`: a term, its parent, and how many carry it. */
+export interface SearchTerm extends TagOption {
+  /** Recipes and groups carrying the term itself (not its subtree). */
+  count: number;
+}
+
+/**
+ * `/search/terms` (epic 31, 31b): every term the site has — carried, recorded,
+ * or both — with its parent from the tree and its count.
+ *
+ * The browser's one "all terms" list (24-T11): the tag rail, autocomplete, ⌘K
+ * and `BrowseChips` read its labels, and `SearchContext` builds the `tag:`
+ * expansion from its parents (`tagExpansion.ts`), so `tag:dessert` finds the
+ * linzer cookies in the browser exactly as `recipe_search` does on the server.
+ */
+export async function readSearchTerms(): Promise<SearchTerm[]> {
+  const [recipeTerms, groupTerms, tree] = await Promise.all([
+    recipeTagReads.terms.read(),
+    groupTagReads.terms.read(),
+    tagTermReads.tree.read(),
+  ]);
+  const vocabulary = mergeTagVocabulary({ recipeTerms, groupTerms, tree });
+  /* `tagOptions` maps the vocabulary in order, so the two line up by index. */
+  return tagOptions(vocabulary, tree).map((option, index) => ({
+    ...option,
+    count: vocabulary[index].count,
+  }));
 }
 
 /**

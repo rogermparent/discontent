@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { buttonVariants } from "@discontent/component-library/components/ui/button";
 import {
+  readTagTree,
   readTagVocabulary,
   readTermPageSlugs,
   resolveTermPage,
@@ -25,9 +26,13 @@ import { TagIndexPage, TagPage } from "./shared";
  * lists only recipes.
  */
 
-/** `/tags` — the full tag list, every carrier's counts summed, records included. */
+/**
+ * `/tags` — the hierarchy (31b), then the full tag list, every carrier's counts
+ * summed, records included.
+ */
 export async function tagIndexRoute() {
-  return <TagIndexPage tags={await readTagVocabulary()} />;
+  const [tags, tree] = await Promise.all([readTagVocabulary(), readTagTree()]);
+  return <TagIndexPage tags={tags} tree={tree} />;
 }
 
 /** `/tags/[tag]` — one term: its record, its recipes, then its groups. */
