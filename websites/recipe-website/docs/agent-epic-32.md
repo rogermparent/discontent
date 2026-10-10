@@ -108,7 +108,7 @@ the food corpus is a content call: 32k, run only on Roger's explicit go.
 | -------- | ------------------------------------------------------------------------ | ------- | -------------------------- | ----------------- |
 | 32-plan  | Epic doc + CLAUDE.md line, backlog marks                                 | docs    | `agent/32-plan`            | ✅ #197           |
 | 32a      | Hygiene                                                                  | S       | `agent/32a-hygiene`        | 🟡 #198           |
-| 32b      | Features follow a deleted term/group                                     | S–M     | `agent/32b-delete-feature` | 🟡 in review      |
+| 32b      | Features follow a deleted term/group                                     | S–M     | `agent/32b-delete-feature` | 🟡 #200           |
 | 32c      | Term image upload, full parity                                           | M–L     | `agent/32c-term-image`     | 📝 planned        |
 | 32d      | F34 batched commits for term assign/rename/merge                         | M–L     | `agent/32d-batch-commit`   | 📝 planned        |
 | 32e      | 24g: measure, then split the by-term record                              | L       | `agent/32e-by-term`        | 📝 planned        |
@@ -632,11 +632,11 @@ epic.
 To be filled per phase (PR, merge sha, gates), with the 32e measurement and
 the end-to-end checks at 32-close.
 
-| Phase   | PR    | Merge      | Gates                                                                                                         |
-| ------- | ----- | ---------- | ------------------------------------------------------------------------------------------------------------- |
-| 32-plan | #197  | `dafc6834` | docs only; CI 12/12                                                                                           |
-| 32a     | #198  |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI |
-| 32b     | PR32B |            | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI     |
+| Phase   | PR   | Merge      | Gates                                                                                                         |
+| ------- | ---- | ---------- | ------------------------------------------------------------------------------------------------------------- |
+| 32-plan | #197 | `dafc6834` | docs only; CI 12/12                                                                                           |
+| 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI |
+| 32b     | #200 |            | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI     |
 
 ### 32a — Hygiene
 
