@@ -698,7 +698,9 @@ soda water (unlocks 7), then tonic water and simple syrup.
   (`agent-epic-27.md` D9: the focus view).
 - More drinks from step 1's deferred list: ~~Sake Cosmo, Sake Bloody Mary, Red
   Snapper ZP, Ginger Mule ZP~~ (**done by 30d**; the mule is zero-proof, the
-  Red Snapper is the gin one); the spritzes and sodas are still open. ~~A
+  Red Snapper is the gin one); ~~the spritzes and sodas~~ **done by 31f**
+  (`agent-epic-31.md`): five of seven, with Spicy Cascara Highball and a
+  Zero-Proof Spritz skipped for want of a real source. ~~A
   syrup-pairing chart as a term description or page~~ **done by 30d**: the
   `syrup` tag term, as a list (term descriptions have no table styles).
 - ~~JSON-LD `recipeCategory` / `cookingMethod`; the importer mapping

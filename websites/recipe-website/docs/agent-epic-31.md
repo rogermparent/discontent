@@ -15,7 +15,11 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 31-plan (#190), 31a (#191), 31b (#192), 31c and 31d (#193) are merged or merging; 31e is in review; 31f's content commits are done (local, unpushed). 31-close is next.
+**Now:** epic 31 is **closed** (2026-10-10). Every phase merged on green CI:
+31-plan #190, 31a #191, 31b #192, 31d #193, 31c #194, 31e #195, and this
+close-out. 31f's 43 content commits are on the Pi already — the workstation
+editor's sync pushed each one as it landed (T5). Left for Roger: the deploy,
+a look at the new pages, and two content calls (the morning checklist below).
 
 ## Context
 
@@ -106,16 +110,16 @@ open and the reason is recorded here.
 
 ## Roadmap
 
-| Phase    | Scope                                                                                                    | Branch                  | Status     |
-| -------- | -------------------------------------------------------------------------------------------------------- | ----------------------- | ---------- |
-| 31-plan  | This doc, CLAUDE.md entry, taxonomy roadmap note                                                         | `agent/31-plan`         | ✅ #190    |
-| 31a      | Image size in dry runs, polite 403 retry, feature dedupe, push with no remote, "Add group", tables, docs | `agent/31a-polish`      | ✅ #191    |
-| 31b      | 24d: hierarchy-aware `tag:`, `/search/terms`, one "all terms" list, term-page tree                       | `agent/31b-term-search` | ✅ #192    |
-| 31c      | 24e: `curation/terms.ts`, API, `recipes term …`, 8 MCP tools, skill v3, `Group.kind` narrowing           | `agent/31c-term-seats`  | ✅         |
-| 31d      | F32: group items follow renames                                                                          | `agent/31d-f32-renames` | ✅ #193    |
-| 31e      | Term edit form `/tags/<slug>/edit`                                                                       | `agent/31e-term-form`   | 🟡         |
-| 31f      | Content: 38 heading conversions, 7 spritzes and sodas (real content repo, no code PR)                    | — (results in 31-close) | ✅ content |
-| 31-close | Results, roadmap/backlog strikes, morning checklist                                                      | `agent/31-close`        | ⏸️         |
+| Phase    | Scope                                                                                                    | Branch                  | Status       |
+| -------- | -------------------------------------------------------------------------------------------------------- | ----------------------- | ------------ |
+| 31-plan  | This doc, CLAUDE.md entry, taxonomy roadmap note                                                         | `agent/31-plan`         | ✅ #190      |
+| 31a      | Image size in dry runs, polite 403 retry, feature dedupe, push with no remote, "Add group", tables, docs | `agent/31a-polish`      | ✅ #191      |
+| 31b      | 24d: hierarchy-aware `tag:`, `/search/terms`, one "all terms" list, term-page tree                       | `agent/31b-term-search` | ✅ #192      |
+| 31c      | 24e: `curation/terms.ts`, API, `recipes term …`, 8 MCP tools, skill v3, `Group.kind` narrowing           | `agent/31c-term-seats`  | ✅ #194      |
+| 31d      | F32: group items follow renames                                                                          | `agent/31d-f32-renames` | ✅ #193      |
+| 31e      | Term edit form `/tags/<slug>/edit`                                                                       | `agent/31e-term-form`   | ✅ #195      |
+| 31f      | Content: 38 heading conversions, 7 spritzes and sodas (real content repo, no code PR)                    | — (results in 31-close) | ✅ content   |
+| 31-close | Results, roadmap/backlog strikes, morning checklist                                                      | `agent/31-close`        | ✅ (this PR) |
 
 **Order.** 31-plan → 31a → 31b → 31c → 31d → 31e, with 31f in parallel as a
 background subagent. 31c depends on 31b's resolver and 31e on 31c; 31d is
@@ -496,6 +500,29 @@ A background subagent in its own worktree `.claude/worktrees/agent-31f`
 Results go to the job's `tmp/31f-results.md`: commits, skips, and the
 `tag:drink` count before and after.
 
+**Built (31f).** 43 commits on the real repo, `ff8ace4` → `8711840`, one per
+write and every one dry-run first; `tag:drink` 203 → 208.
+
+- **Headings: 38 of 38**, exactly as D6 says. No odd shapes turned up. The
+  write path's own CRLF → LF normalisation touched a description or a step in
+  four recipes (easy-sourdough, jerk-chicken, lagerstrom-roast-turkey,
+  simplified-beef-birria-tacos); steps that already had a real `name` kept
+  it. One recipe (weeknight-pizza) hit a transient `index.lock` from the
+  workstation sync and was redone as its own commit.
+- **Drinks: 5 of 7.** `red-wine-spritzer-acouplecooks`,
+  `cascara-ginger-soda-imbibe` (Imbibe's alcohol-free "Cascara Dark &
+  Stormy"), `mermaid-lemonade-foodnetwork`, `blood-orange-spritz-foodnetwork`
+  and `cotton-candy-fizz-foodnetwork`. Food Network supplied the three the
+  four preferred sites lack; Cotton Candy Champagne is an article with no
+  recipe data, so its two lines came from the page text.
+- **Skipped:** Spicy Cascara Highball (no real recipe page exists) and the
+  Zero-Proof Spritz (the one candidate on the preferred sites is the NA Aperol
+  spritz already in the repo; The Kitchn 403'd twice and was dropped).
+- **Politeness:** 13 requests in all, sequential, ≥ 16 s apart per host. Every
+  page and image was fetched once with `curl` and served from
+  `127.0.0.1` for `inspect` and `create`, so the importer's retry and the dry
+  run's image probe never reached a site. All five images are under 500 KB.
+
 ## Shared-machine rules
 
 Other sessions run overnight on the same machine.
@@ -546,7 +573,78 @@ group. On the real repo: one commit per write, `git status` clean, and the
   `~/Projects/recipe-content`; tests and scripts never point there.
 - **T3 — A worktree's MCP server points at the worktree** (`23-T11`), so 31f
   uses the CLI with `--content-dir`.
+- **T5 — The workstation editor pushes content commits to the Pi.** Epic
+  28's event-driven sync (`recipe-workstation.service`) saw each of 31f's
+  commits land and synced it to `uraninite` within seconds ("[sync] uraninite
+  (change): synced" in its journal), so "no content push" held for this
+  session's own actions but the commits were on the Pi by morning. A content
+  task that must stay local needs the service stopped first, or a scratch
+  clone. It also took `index.lock` once, mid-write (weeknight-pizza).
+- **T6 — The shared heavy slot is the overnight bottleneck.** Other projects'
+  e2e runs held it for 10+ minutes at a time. Two local Playwright gates (31c,
+  31e's first) were cancelled after queueing that long; CI's four Recipe
+  shards run every spec on a production build and were the gate instead.
+  31e's local run later passed too (51/51).
+- **T7 — Background watchers are reaped under memory pressure.** The harness
+  stopped two `wait-pr.sh` loops when the machine ran low on memory (other
+  projects' renders). Polling with one-off status calls replaced them.
 - **T4 — `/tags/new` shadows a term slugged `new`** (31e). The static
   segment wins over `/tags/[tag]` in the editor, so such a term's page is
   unreachable there (the export, which has no `/tags/new`, still emits it).
   The same holds for `/group/new`. Nothing reserves the slug.
+
+## Results (31-close, 2026-10-10)
+
+| Phase   | PR   | Merge      | Gates                                                                                                             |
+| ------- | ---- | ---------- | ----------------------------------------------------------------------------------------------------------------- |
+| 31-plan | #190 | `d18ac381` | docs                                                                                                              |
+| 31a     | #191 | `90131083` | vitest 975/975; Playwright 167/170 → 82/82 after spec updates; CI green after one more spec (`reference-updates`) |
+| 31b     | #192 | `4fb1a402` | vitest 972/972; Playwright 109/110 → `tag-pages` 18/18; CI green                                                  |
+| 31d     | #193 | `b01821a5` | vitest 971/971; Playwright 602/604 (a T26 slug flake, fixed; `reduced-motion` timing, unrelated); CI green        |
+| 31c     | #194 | `ab0b2adf` | vitest 995/995; after merging 31a/31b/31d, 267 + 230 targeted; CI green (T6)                                      |
+| 31e     | #195 | `e3031f52` | `termForm` 21/21 + 184 targeted; CI green; Playwright `term-edit tag-pages groups` 51/51                          |
+
+**End-to-end, on a scratch clone of the real repo** (`8711840`, reindexed
+with `main`'s CLI in 1.9 s; the real repo was only read):
+
+- `recipes term list` lists every term with its record marker and parent
+  (`built < drink [record]`); `recipes term get syrup` prints the 30d chart.
+- `term get drink`: nine children (the drink styles); own 208, with
+  descendants 208 — every drink also carries `drink`.
+- A recipe tagged **only** `built` appears in `search 'tag:drink'` and
+  `list --tag drink` (209): the hierarchy reaches a child's carriers.
+- A meal plan listing that recipe twice, then a rename of the recipe: both
+  items followed, labels kept, in **one commit of two files** (the recipe and
+  the group).
+- `group create --kind collection` is refused with the `term_create` hint.
+- Three writes, three commits; tree clean.
+
+On the real repo: 43 commits since `ff8ace4` (38 updates, 5 creates), tree
+clean, and `uraninite/uraninite` already at `8711840` (T5).
+
+**Deferred, with where each lives:**
+
+- Term image **upload** in the form (the seat takes `imageImportUrl` only).
+- Batching a multi-carrier `term_assign` / rename into one commit (possible
+  F34); term `aliases`; moving a feature off a deleted term.
+- 24f: the real-repo vocabulary backfill and the real Christmas-Cookies story
+  run, then the by-term record measurement (F8b threshold).
+- F32 **borrowing** (group cards reading member fields through the index) —
+  not needed while the corpus supplies thumbnails (30c).
+- Content: a Spicy Cascara Highball if Roger has a source, a Zero-Proof
+  Spritz from The Kitchn when it answers, and whether the red wine spritzer
+  should cite the canonical `/white-wine-spritzer/` page it now redirects to.
+
+**Morning checklist for Roger:**
+
+1. `pnpm deploy:pi` — the Pi runs the editor image from before this epic;
+   no index spec moved, so no reindex is needed beyond the deploy's own.
+2. Content: nothing to push or merge — the workstation sync already put 31f's
+   commits on the Pi (T5). Glance at a converted recipe (e.g. `/recipe/gyoza`)
+   and `/tags/drink` on the Pi.
+3. Look at the new pages on a running editor: `/tags` ("By kind"),
+   `/tags/new`, `/tags/<slug>/edit`, the group form's "Add group", and the ⌘K
+   group thumbnails from epic 30.
+4. Content calls: keep or delete the two kid-party drinks
+   (`mermaid-lemonade-foodnetwork`, `cotton-candy-fizz-foodnetwork`); the
+   red-wine-spritzer citation; the Sake Cosmo image (carried from 30d).
