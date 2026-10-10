@@ -332,7 +332,45 @@ describe("aliases in the expansion", () => {
     ).toEqual(new Set(["cookies", "biscuits"]));
     expect(
       tagOptions([{ slug: "cookies", label: "Cookies", count: 2 }], tree),
-    ).toEqual([{ slug: "cookies", label: "Cookies", aliases: ["biscuits"] }]);
+    ).toEqual([
+      {
+        slug: "cookies",
+        label: "Cookies",
+        aliases: ["biscuits"],
+        record: true,
+      },
+    ]);
+  });
+
+  it("a record's own label and slug beat another term's alias (review)", () => {
+    const contested = buildTagExpansion([
+      {
+        slug: "cookies",
+        label: "Cookies",
+        aliases: ["biscuits", "british-biscuits", "bikkies"],
+        record: true,
+      },
+      { slug: "british-biscuits", label: "Biscuits", record: true },
+      /* Carried-only: the alias still beats it. */
+      { slug: "bikkies", label: "bikkies" },
+    ]);
+    const british = new Set(["british-biscuits", "biscuits"]);
+    expect(contested.expandTerm("tag", "biscuits")).toEqual(british);
+    expect(contested.expandTerm("tag", "british-biscuits")).toEqual(british);
+    expect(contested.expandTerm("tag", "bikkies")).toEqual(
+      contested.expandTerm("tag", "cookies"),
+    );
+    /* Nor does the record's spelling leak into the aliased term's expansion. */
+    expect([...(contested.expandTerm("tag", "cookies") ?? [])].sort()).toEqual(
+      ["bikkies", "cookies"].sort(),
+    );
+    const record = { name: "Digestives", tags: ["Biscuits"] };
+    expect(matchesFilter(record, filterOf('tag:"Biscuits"'), contested)).toBe(
+      true,
+    );
+    expect(matchesFilter(record, filterOf("tag:cookies"), contested)).toBe(
+      false,
+    );
   });
 });
 

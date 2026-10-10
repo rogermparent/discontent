@@ -1436,17 +1436,22 @@ fixture copy). `specVersions` didn't move.
   - `assertAliases` normalises each alias as a tag (`normalizeTag`) and
     dedupes by slug. Each alias **added** by the write may not slug to the
     term itself, to another term (a record, or a tag something carries), or
-    to another record's alias. Each clash is one `validation` issue on
-    `aliases.<i>` naming the term it hits.
+    to another record's alias, and may not be spelled like another term's
+    label (folded as `tag:` folds it, typed or slugged). Each clash is one
+    `validation` issue on `aliases.<i>` naming the term it hits.
   - `createTerm` refuses a slug that is another record's alias, and
     `renameTerm` a `to` that is (`validation` on `slug` / `to`). A rename
     onto one of the term's own aliases drops that alias.
+  - The reverse, from the review: a label spelled like another record's
+    alias is refused on `label` by `createTerm`, by `updateTerm` when the
+    label changes, and by `renameTerm` when its label changes.
   - `mergeTerm` appends `from` and `from`'s aliases to `into`'s aliases,
     inside its existing batch commit:
     - the moved record carries them when `into` had no record;
     - one write of `into`'s record covers pinned and aliases when it had one;
     - a bare `from` into a record writes that record;
-    - a bare tag into a bare tag records nothing.
+    - a bare tag into a bare tag records nothing;
+    - an alias of `from` that a third record already lists is skipped.
   - `TermMergeResult.aliases` is `into`'s list after the merge. `getTerm`
     lifts `record.aliases` to `aliases`, and `term_list` rows carry
     `aliases` when set (spread only when set, so old rows keep their exact
@@ -1469,16 +1474,28 @@ fixture copy). `specVersions` didn't move.
   carries `label`, `parent` and `image` for exactly this kind of reader. One
   more optional field kept every reader on the one read it already made. A
   site aggregate would have added a fourth source to every resolver.
-- **An alias beats a term of the same spelling in search.** The seat refuses
-  an alias that names an existing term. But nothing canonicalises carriers
-  (D5), so a recipe can come to carry the alias as a tag afterwards. If the
-  carried term won, `tag:biscuits` would suddenly shrink to that one recipe.
-  With the alias winning, it keeps meaning the canonical term, and that
-  term's expansion includes the alias spelling, so the stray carrier is found
-  too.
+- **In search, a record's own spelling beats an alias, and an alias beats a
+  carried-only term.** The seat refuses both clashes, so this is about what
+  reaches disk anyway.
+  - A record's slug and label are a curator's name for that term. Another
+    term's alias must never take them over: record B at `british-biscuits`
+    labelled "Biscuits" keeps `tag:"Biscuits"` even if `cookies` lists
+    `biscuits` (a hand edit), and B's spellings never join `cookies`'
+    expansion. This came from the review, as the blocker. `TagOption` gained
+    `record?: true` so the browser's resolver can tell, and the expansion
+    drops an alias spelling that another record owns.
+  - Nothing canonicalises carriers (D5), so a recipe can come to carry the
+    alias as a tag after it was recorded. If that carried-only term won,
+    `tag:biscuits` would suddenly shrink to the one recipe. With the alias
+    winning, it keeps meaning the canonical term, and that term's expansion
+    includes the alias spelling, so the stray carrier is found too.
 - **A real page beats an alias redirect.** `/tags/<slug>` redirects only when
   `resolveTermPage` is `null` (no record, no carriers). A slug with carriers
   of its own lists things the canonical page does not, so it keeps its page.
+  **So the two can disagree, on purpose.** When carriers also carry the
+  alias spelling as a tag, `/tags/<alias>` renders that bare carried-tag page
+  (only those carriers), while `tag:<alias>` resolves to the term (the
+  term's subtree plus those carriers).
 - **Kept aliases are not rechecked.** Re-validating the whole list on every
   update would make the term form refuse any edit once a recipe carries an
   old alias, for a state the record cannot fix. Only additions are checked.
@@ -1494,21 +1511,28 @@ fixture copy). `specVersions` didn't move.
 
 **Tests.**
 
-- `tagExpansion.test.ts` (+6):
+- `tagExpansion.test.ts` (+7):
   - an alias expands as its term does, by typed and slug spelling;
   - an alias-tagged carrier is found by the term and an ancestor;
   - an alias beats a carried term of the same spelling;
+  - a record's label and slug beat another term's alias, and don't leak into
+    its expansion (review);
   - the tree's aliases reach `buildTagExpansionFromTree` and `tagOptions`;
   - `aliasTarget` / `aliasSlugs`;
   - fixture parity: `recipe_search tag:biscuits` = `tag:cookies` =
     `matchesFilter` over the `/search/terms` vocabulary, including a recipe
     tagged `biscuits` after the alias was recorded.
-- `terms.test.ts` (+6): normalise and dedupe on create; `getTerm` /
+- `terms.test.ts` (+8): normalise and dedupe on create; `getTerm` /
   `listTerms`; the four refusals as four issues with nothing written;
   replace, null and `[]` clear, a kept alias that became a carried tag
   survives an update while adding a carried one is refused; a new term or a
   rename onto another's alias refused; a rename onto its own alias drops it;
   the merge's four record shapes, and `tag:<from>` still finding the carrier.
+  From the review: an alias spelled like another term's label refused; a new
+  label, a relabel and a rename's label spelled like an alias refused on
+  `label`, with an unchanged label not rechecked; a merge skipping an alias
+  of `from` that a third record lists.
+- `makeTags.test.ts`: `tagOptions` rows for records carry `record: true`.
 - `taxonomies.test.ts` (+1): the tree carries aliases, and no key for none.
 - `termForm.test.ts` (+2, and two cases extended): the patch and input
   shapes; the `aliases.0` issue mapping; `submitTermForm` saving, refusing on

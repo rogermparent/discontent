@@ -263,6 +263,11 @@ export interface TagOption {
    * that search, autocomplete and `/tags/<alias>` resolve to this term.
    */
   aliases?: string[];
+  /**
+   * `true` when the term has a record (32i): its own slug and label then beat
+   * any other term's alias in `tag:` (`tagExpansion.ts`). Absent otherwise.
+   */
+  record?: true;
 }
 
 export function tagOptions(
@@ -288,6 +293,7 @@ export function tagOptions(
       label,
       ...(parent && known.has(parent) && !cycles(slug) ? { parent } : {}),
       ...(node?.aliases?.length ? { aliases: node.aliases } : {}),
+      ...(node ? { record: true as const } : {}),
     };
   });
 }

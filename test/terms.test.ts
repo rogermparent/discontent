@@ -62,6 +62,7 @@ import {
   updateTerm,
 } from "../websites/recipe-website/editor/controller/curation/terms";
 import { successConfigFor } from "../websites/recipe-website/editor/controller/successConfigs";
+import { tagTermContentConfig } from "../websites/recipe-website/common/controller/tagTermContentConfig";
 
 /* ------------------------------------------------------------------ */
 /* Harness                                                             */
@@ -1059,5 +1060,56 @@ describe("term aliases (32i)", () => {
     const none = await mergeTerm(ctx, "supper", { into: "evening" });
     expect(none.aliases).toEqual([]);
     expect(await pathExists(termFile("evening"))).toBe(false);
+  });
+
+  it("an alias may not be spelled like another term's label, nor a label like an alias (review)", async () => {
+    await createTerm(ctx, { label: "Biscuits", slug: "british-biscuits" });
+    const error = await codeOf(
+      createTerm(ctx, { label: "Cookies", aliases: ["Biscuits"] }),
+    );
+    expect(error).toMatchObject({
+      code: "validation",
+      issues: [
+        {
+          path: "aliases.0",
+          message: '"Biscuits" is the label of the term "british-biscuits"',
+        },
+      ],
+    });
+    await createTerm(ctx, { label: "Cookies", aliases: ["bikkies"] });
+
+    /* The reverse: a new term, a relabel and a rename onto an alias. */
+    expect(
+      await codeOf(createTerm(ctx, { label: "Bikkies", slug: "aussie" })),
+    ).toMatchObject({ code: "validation", issues: [{ path: "label" }] });
+    expect(
+      await codeOf(updateTerm(ctx, "british-biscuits", { label: "bikkies" })),
+    ).toMatchObject({ code: "validation", issues: [{ path: "label" }] });
+    expect(
+      await codeOf(
+        renameTerm(ctx, "british-biscuits", { to: "uk", label: "Bikkies" }),
+      ),
+    ).toMatchObject({ code: "validation", issues: [{ path: "label" }] });
+    /* An unchanged label is not rechecked. */
+    await updateTerm(ctx, "british-biscuits", {
+      label: "Biscuits",
+      description: "UK.",
+    });
+    expect((await readTermFile("british-biscuits")).description).toBe("UK.");
+  });
+
+  it("a merge skips an alias of `from` that a third record already lists (review)", async () => {
+    await createTerm(ctx, { label: "Treats" });
+    await createTerm(ctx, { label: "Sweets", aliases: ["candy", "goodies"] });
+    /* Hand-written state the seat would refuse: `goodies` on two records. */
+    await createContent({
+      config: tagTermContentConfig,
+      slug: "snacks",
+      data: { label: "Snacks", date: 5_000, aliases: ["goodies"] },
+      contentDirectory,
+    });
+    const merged = await mergeTerm(ctx, "sweets", { into: "treats" });
+    expect(merged.aliases).toEqual(["candy", "sweets"]);
+    expect((await readTermFile("treats")).aliases).toEqual(["candy", "sweets"]);
   });
 });

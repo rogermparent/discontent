@@ -70,6 +70,7 @@ import { exists } from "fs-extra";
 import { featuredRecipeContentConfig } from "recipe-website-common/controller/featuredRecipeContentConfig";
 import { groupContentConfig } from "recipe-website-common/controller/groupContentConfig";
 import { groupTagTaxonomy } from "recipe-website-common/controller/groupTagTaxonomy";
+import { fold } from "recipe-website-common/components/SearchForm/queryLanguage";
 import { normalizeTag } from "recipe-website-common/controller/normalizeTags";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
 import { recipeTagTaxonomy } from "recipe-website-common/controller/recipeTagTaxonomy";
@@ -670,6 +671,37 @@ function dedupeAliases(aliases: readonly string[], own: string): string[] {
 }
 
 /**
+ * How `tag:` spells an alias (`tagExpansion.ts`): folded as typed, and folded
+ * as its slug. A label is spelled `fold(label).trim()`.
+ */
+function aliasSpellings(alias: string): string[] {
+  return [...new Set([fold(alias).trim(), fold(tagSlug(alias))])].filter(
+    Boolean,
+  );
+}
+
+function labelSpelling(label: string): string {
+  return fold(label).trim();
+}
+
+/**
+ * The record, other than `except`, one of whose aliases is spelled like
+ * `label` — so `tag:<label>` would be contested between the two.
+ */
+function labelAliasOwner(
+  rows: readonly TermIndexRow[],
+  label: string,
+  except?: string,
+): string | undefined {
+  const spelling = labelSpelling(label);
+  return rows.find(
+    (row) =>
+      row.slug !== except &&
+      row.aliases?.some((alias) => aliasSpellings(alias).includes(spelling)),
+  )?.slug;
+}
+
+/**
  * The record that lists `slug` as an alias, other than `except` — from the
  * term index, which every record write keeps current.
  */
@@ -689,9 +721,11 @@ function aliasOwner(
  * A record's new alias list, normalised as a tag is and deduplicated by slug
  * (32i, D5). Each alias **added** by this write may not slug to the term
  * itself, to another term (a record, or a tag something carries), or to
- * another record's alias: any of those would make `tag:<alias>` mean two
- * things. Every clash is one `validation` issue on `aliases.<i>`, naming the
- * term it collides with.
+ * another record's alias, and may not be spelled like another term's label
+ * (`tag:` matches labels too, so an alias "biscuits" would contest
+ * `tag:"Biscuits"` with a record of that label at another slug): any of those
+ * would make `tag:<alias>` mean two things. Every clash is one `validation`
+ * issue on `aliases.<i>`, naming the term it collides with.
  *
  * Aliases the record already has are kept without the check. Nothing
  * canonicalises a carrier's tags (D5), so a recipe can come to carry an
@@ -749,6 +783,18 @@ async function assertAliases(
         });
         continue;
       }
+      const spellings = aliasSpellings(alias);
+      const labelled = vocabulary.entries.find(
+        (entry) =>
+          entry.slug !== slug && spellings.includes(labelSpelling(entry.label)),
+      );
+      if (labelled) {
+        issues.push({
+          path,
+          message: `"${raw}" is the label of the term "${labelled.slug}"`,
+        });
+        continue;
+      }
     }
     result.push(alias);
   }
@@ -779,6 +825,28 @@ async function assertNotAlias(
       {
         path: field,
         message: `"${slug}" is an alias of the term "${owner}" — take it off the aliases of "${owner}" first`,
+      },
+    ]);
+  }
+}
+
+/**
+ * A label may not be spelled like another record's alias (32i): `tag:` would
+ * then resolve the name to that record, and this term could not be found by
+ * its own label. Checked only when the label is new or changes, so an
+ * unrelated edit never trips on a state the write did not create.
+ */
+async function assertLabelNotAlias(
+  ctx: CurationContext,
+  label: string,
+  slug: string,
+): Promise<void> {
+  const owner = labelAliasOwner(await readTermRows(ctx), label, slug);
+  if (owner) {
+    throw new ValidationError(`"${label}" is an alias of the term "${owner}"`, [
+      {
+        path: "label",
+        message: `"${label}" is an alias of the term "${owner}" — take it off the aliases of "${owner}" first`,
       },
     ]);
   }
@@ -1038,6 +1106,7 @@ export async function createTerm(
   );
   if (await exists(directory)) throw new SlugConflictError(slug);
   await assertNotAlias(ctx, slug, "slug");
+  await assertLabelNotAlias(ctx, input.label, slug);
 
   const parent = input.parent ? tagSlug(input.parent) : undefined;
   if (parent) await assertParent(ctx, slug, parent);
@@ -1114,7 +1183,12 @@ export async function updateTerm(
   const current = await requireTerm(ctx, slug);
 
   const data: TagTerm = { ...current };
-  if (patch.label !== undefined) data.label = patch.label;
+  if (patch.label !== undefined) {
+    if (labelSpelling(patch.label) !== labelSpelling(current.label)) {
+      await assertLabelNotAlias(ctx, patch.label, slug);
+    }
+    data.label = patch.label;
+  }
   if (patch.date !== undefined) data.date = patch.date;
   if (patch.description === null) delete data.description;
   else if (patch.description !== undefined) {
@@ -1326,6 +1400,9 @@ export async function renameTerm(
     (record && tagSlug(normalizeTag(record.label)) === to
       ? record.label
       : input.to);
+  if (!record || labelSpelling(label) !== labelSpelling(record.label)) {
+    await assertLabelNotAlias(ctx, label, slug);
+  }
   const tag = carrierTag(to, label);
 
   const moved = { recipes: [] as string[], groups: [] as string[] };
@@ -1490,8 +1567,14 @@ async function mergeTermWrites(
    * by the record write the merge makes anyway, so it adds no commit. With
    * no record on either side there is nowhere to keep it.
    */
+  /* Not one already listed by a third record: that would contest it. */
+  const aliasRows = await readTermRows(ctx);
+  const fromAliases = (fromRecord?.aliases ?? []).filter((alias) => {
+    const owner = aliasOwner(aliasRows, tagSlug(alias), from);
+    return owner === undefined || owner === into;
+  });
   const aliases = dedupeAliases(
-    [...(intoRecord?.aliases ?? []), ...(fromRecord?.aliases ?? []), from],
+    [...(intoRecord?.aliases ?? []), ...fromAliases, from],
     into,
   );
 
