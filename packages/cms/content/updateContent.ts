@@ -64,7 +64,7 @@ export async function defaultUpdateUploadsProcessor(
  * 5. Brings any declared pagination indexes back in step
  * 6. Brings content that borrows fields from this item back in step, including
  *    rewriting its slug references when the slug changed
- * 7. Commits the changes to git
+ * 7. Commits the changes to git (or, with `commit: false`, returns their paths)
  *
  * @example
  * ```ts
@@ -93,6 +93,7 @@ export async function updateContent<TData, TIndexValue, TKey extends Key>(
     contentDirectory: providedContentDirectory,
     author,
     commitMessage,
+    commit = true,
     uploads,
     processUploads,
   } = options;
@@ -217,7 +218,11 @@ export async function updateContent<TData, TIndexValue, TKey extends Key>(
   });
   touchedPaths.push(...dependentPaths);
 
-  // 7. Commit to git
+  // 7. Commit to git — unless the caller is batching (`commit: false`),
+  //    in which case the paths go back to it instead.
+  if (!commit) {
+    return { pagination, aggregates, dependents, touchedPaths };
+  }
   const message = commitMessage || `Update ${config.contentType}: ${slug}`;
   await commitContentChanges(message, author, touchedPaths, contentDirectory);
 

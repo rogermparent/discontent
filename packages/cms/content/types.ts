@@ -56,6 +56,13 @@ export interface ContentWriteResult {
   pagination: PaginationUpdateResult[];
   dependents: DependentWriteResult[];
   aggregates: AggregateUpdateResult[];
+  /**
+   * The paths the write would have committed, relative to the content
+   * directory — set only when the caller passed `commit: false`, which makes
+   * committing them the caller's job (F34). Absent otherwise, so a default
+   * write's result is exactly what it always was.
+   */
+  touchedPaths?: string[];
 }
 
 /**
@@ -286,6 +293,16 @@ export interface CreateContentOptions<
   /** Custom git commit message */
   commitMessage?: string;
 
+  /**
+   * `false` skips the git commit and returns the paths it would have staged as
+   * `touchedPaths` instead, so a caller making several writes can commit them
+   * together (F34, `withBatchCommit` in the recipe site's curation layer).
+   * Everything else — files, index, pagination, aggregates, dependents — still
+   * happens here. Defaults to `true`; a write that omits it behaves exactly as
+   * before.
+   */
+  commit?: boolean;
+
   /** Optional uploads to process (keyed by field name) */
   uploads?: Record<string, UploadSpec>;
 
@@ -336,6 +353,16 @@ export interface UpdateContentOptions<
   /** Custom git commit message */
   commitMessage?: string;
 
+  /**
+   * `false` skips the git commit and returns the paths it would have staged as
+   * `touchedPaths` instead, so a caller making several writes can commit them
+   * together (F34, `withBatchCommit` in the recipe site's curation layer).
+   * Everything else — files, index, pagination, aggregates, dependents — still
+   * happens here. Defaults to `true`; a write that omits it behaves exactly as
+   * before.
+   */
+  commit?: boolean;
+
   /** Optional uploads to process (keyed by field name) */
   uploads?: Record<string, UploadSpec>;
 
@@ -380,6 +407,16 @@ export interface DeleteContentOptions<
 
   /** Custom git commit message */
   commitMessage?: string;
+
+  /**
+   * `false` skips the git commit and returns the paths it would have staged as
+   * `touchedPaths` instead, so a caller making several writes can commit them
+   * together (F34, `withBatchCommit` in the recipe site's curation layer).
+   * Everything else — files, index, pagination, aggregates, dependents — still
+   * happens here. Defaults to `true`; a write that omits it behaves exactly as
+   * before.
+   */
+  commit?: boolean;
 }
 
 /**
