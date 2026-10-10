@@ -1,0 +1,32 @@
+{
+  "name": "Lemon Garlic Chicken Thighs",
+  "description": "Seared thighs, lemon and garlic.",
+  "tags": [
+    "dinner",
+    "quick"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "6 boneless, skinless chicken thighs"
+    },
+    {
+      "ingredient": "4 cloves garlic, minced"
+    },
+    {
+      "ingredient": "2 tablespoons olive oil"
+    },
+    {
+      "ingredient": "1 lemon, juiced"
+    },
+    {
+      "ingredient": "Salt and pepper to taste"
+    }
+  ],
+  "date": 1792000060000,
+  "recipeYield": "2 servings",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

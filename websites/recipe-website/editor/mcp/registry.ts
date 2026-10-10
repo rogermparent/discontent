@@ -1012,9 +1012,10 @@ export function createRecipeServer(
     {
       title: "What's on hand",
       description:
-        "The site's shared list of what is on hand — bottles, mixers, fruit, pantry " +
-        "items — as people write them (`vodka`, `Gnista`, `lime`). Matching is on the " +
-        "generic name, so a brand is worth adding only when a recipe names it.",
+        "The site's shared list of what is on hand — pantry items, produce, " +
+        "bottles, mixers — as people write them (`chicken thighs`, `vodka`, " +
+        "`Gnista`, `lime`). Matching is on the generic name, so a brand is worth " +
+        "adding only when a recipe names it.",
       inputSchema: z.strictObject({}),
       annotations: READ_ONLY,
     },
@@ -1078,10 +1079,13 @@ export function createRecipeServer(
       title: "What can I make?",
       description:
         "Judge the shared list against recipes in `query`'s scope (the search " +
-        "language; `tag:drink` by default): which can be made now, which are one or " +
-        "two items short and what's missing, how many are further, and what to buy " +
-        "next. A line can be met by making another recipe first (`makeFirst`). The " +
-        "same rules the site's /make page uses.",
+        "language; every recipe by default — `tag:drink` for drinks, `-tag:drink` " +
+        "for food): which can be made now, which are one or two items short and " +
+        "what's missing, how many are further, and what to buy next. Salt, black " +
+        "pepper, water and ice count as on hand. A line can be met by making " +
+        "another recipe first (`makeFirst`), or by a close item (`close`: " +
+        "{needs, have}, e.g. onion for a shallot), which counts as had. The same " +
+        "rules the site's /make page uses.",
       inputSchema: InventoryMakeQuerySchema,
       annotations: READ_ONLY,
     },

@@ -365,3 +365,136 @@ test.describe("What can I make? — the shared list", () => {
     await expect(chips(page)).toContainText("lime");
   });
 });
+
+/*
+ * 32j: any kind of recipe, dinner or drink, against `make-food` — six food
+ * recipes (Shallot Rice Pilaf and Roasted Vegetables tagged side and
+ * vegetarian, Lemon Garlic Chicken Thighs and Chicken Fried Rice tagged
+ * dinner, an untagged Simple Omelette and Pancakes) and two drinks (Gin and
+ * Tonic, Whisky Highball). The tags have no term records: a flat vocabulary,
+ * as the real corpus's food has.
+ */
+test.describe("What can I make? — dinner as well as drinks", () => {
+  test.beforeEach(async ({ resetData }) => {
+    await resetData("make-food");
+  });
+
+  const kinds = (page: Page) =>
+    page.getByRole("group", { name: "Kind of recipe" });
+
+  test("the kind switch scopes to food, drinks or anything", async ({
+    page,
+  }) => {
+    await page.goto("/make");
+    await ready(page);
+    await expect(ticker(page)).toHaveText(/^8 recipes/i);
+    await expect(
+      kinds(page).getByRole("radio", { name: "Anything" }),
+    ).toBeChecked();
+
+    await kinds(page).getByRole("radio", { name: "Food" }).check();
+    await expect(page.getByTestId("make-query")).toHaveValue("-tag:drink");
+    await expect(ticker(page)).toHaveText(/^6 recipes/i);
+
+    await kinds(page).getByRole("radio", { name: "Drinks" }).check();
+    await expect(page.getByTestId("make-query")).toHaveValue("tag:drink");
+    await expect(ticker(page)).toHaveText(/^2 recipes/i);
+
+    /* A remembered drinks scope reads as the Drinks segment chosen. */
+    await page.goto("/make");
+    await ready(page);
+    await expect(
+      kinds(page).getByRole("radio", { name: "Drinks" }),
+    ).toBeChecked();
+
+    await kinds(page).getByRole("radio", { name: "Anything" }).check();
+    await expect(page.getByTestId("make-query")).toHaveValue("");
+    await expect(ticker(page)).toHaveText(/^8 recipes/i);
+  });
+
+  test("refine chips drill down a tag with no children", async ({ page }) => {
+    await page.goto("/make");
+    await ready(page);
+    await kinds(page).getByRole("radio", { name: "Food" }).check();
+    const roots = page.getByRole("group", { name: "Top-level tags" });
+    await expect(roots.getByRole("button")).toHaveText([
+      /^dinner/,
+      /^quick/,
+      /^side/,
+      /^vegetarian/,
+    ]);
+    await expect(page.getByRole("group", { name: "Refine" })).toHaveCount(0);
+
+    await roots.getByRole("button", { name: "side", exact: true }).click();
+    await expect(page.getByTestId("make-query")).toHaveValue(
+      "-tag:drink tag:side",
+    );
+    await expect(ticker(page)).toHaveText(/^2 recipes/i);
+    /* Both sides are vegetarian, so that would change nothing. */
+    const refine = page.getByRole("group", { name: "Refine" });
+    await expect(refine.getByRole("button")).toHaveText([/^quick/]);
+    /* The top row holds still while the picks drill down. */
+    await expect(roots.getByRole("button")).toHaveCount(4);
+
+    await refine.getByRole("button", { name: "quick", exact: true }).click();
+    await expect(page.getByTestId("make-query")).toHaveValue(
+      "-tag:drink tag:side tag:quick",
+    );
+    await expect(ticker(page)).toHaveText(/^1 recipe /i);
+    await expect(refine).toHaveCount(0);
+  });
+
+  test("a close match counts, says so, and can be turned off", async ({
+    page,
+  }) => {
+    await page.goto("/make");
+    await ready(page);
+    await addItems(page, "onion, rice, vegetable broth, butter");
+
+    const can = section(page, "make-can");
+    await expect(can).toContainText("Shallot Rice Pilaf");
+    await expect(can.getByTestId("make-close")).toContainText(
+      "onion for shallot",
+    );
+
+    await page.getByLabel(/Count close matches/).uncheck();
+    await expect(can).toHaveCount(0);
+    await expect(section(page, "make-one-away")).toContainText(
+      "Missing: shallot (close: onion)",
+    );
+
+    await page.getByLabel(/Count close matches/).check();
+    await expect(section(page, "make-can")).toContainText("Shallot Rice Pilaf");
+    await expectNoViolations(page);
+  });
+
+  test("salt and pepper are assumed until you say otherwise", async ({
+    page,
+  }) => {
+    await page.goto("/make");
+    await ready(page);
+    await addItems(page, "eggs, butter");
+    await expect(section(page, "make-can")).toContainText("Simple Omelette");
+
+    await page.getByText("Assume I always have (4)").click();
+    await page.getByRole("button", { name: "Stop assuming salt" }).click();
+    await expect(page.getByText("Assume I always have (3)")).toBeVisible();
+    await expect(section(page, "make-one-away")).toContainText("Missing: salt");
+
+    await page
+      .getByRole("button", { name: "Reset to salt, pepper, water, ice" })
+      .click();
+    await expect(section(page, "make-can")).toContainText("Simple Omelette");
+  });
+
+  test("lines read loosely: prep phrases and British names", async ({
+    page,
+  }) => {
+    await page.goto("/make?q=-tag:drink");
+    await ready(page);
+    await addItems(page, "courgette, red onion, olive oil");
+    const can = section(page, "make-can");
+    await expect(can).toContainText("Roasted Vegetables");
+    await expect(can.getByTestId("make-close")).toHaveCount(0);
+  });
+});

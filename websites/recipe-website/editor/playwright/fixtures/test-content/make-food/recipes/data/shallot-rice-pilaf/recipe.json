@@ -1,0 +1,35 @@
+{
+  "name": "Shallot Rice Pilaf",
+  "description": "Rice toasted in butter with a shallot.",
+  "tags": [
+    "side",
+    "vegetarian"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "1 shallot, minced"
+    },
+    {
+      "ingredient": "1 cup long-grain white rice"
+    },
+    {
+      "ingredient": "2 cups vegetable broth"
+    },
+    {
+      "ingredient": "2 tablespoons butter"
+    },
+    {
+      "ingredient": "1 teaspoon kosher salt"
+    },
+    {
+      "ingredient": "1/4 teaspoon freshly ground black pepper"
+    }
+  ],
+  "date": 1792000000000,
+  "recipeYield": "2 servings",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "Gin and Tonic",
+  "description": "The classic highball.",
+  "tags": [
+    "drink",
+    "highball"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "2 oz gin"
+    },
+    {
+      "ingredient": "Tonic water, to top"
+    },
+    {
+      "ingredient": "Lime wedge, for garnish"
+    }
+  ],
+  "date": 1792000360000,
+  "recipeYield": "2 servings",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

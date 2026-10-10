@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { DEFAULT_STAPLES } from "../../util/makeable";
 import {
   applyOverlay,
   dedupeItems,
@@ -23,6 +24,7 @@ import {
  */
 const STORAGE_KEY = "make-inventory-v1";
 const LAST_QUERY_KEY = "make-last-query";
+const SETTINGS_KEY = "make-settings-v1";
 const LOCAL_EVENT = "make-inventory-storage";
 
 function subscribe(callback: () => void) {
@@ -56,6 +58,7 @@ function write(key: string, value: string | null) {
  * "not read yet" and the page shows a skeleton instead of an empty state. */
 const getOverlaySnapshot = () => read(STORAGE_KEY) ?? "";
 const getLastQuerySnapshot = () => read(LAST_QUERY_KEY) ?? "";
+const getSettingsSnapshot = () => read(SETTINGS_KEY) ?? "";
 const getServerSnapshot = (): string | null => null;
 
 export interface Inventory {
@@ -137,4 +140,82 @@ export function useLastMakeQuery(): [
     write(LAST_QUERY_KEY, JSON.stringify(query));
   }, []);
   return [last, remember];
+}
+
+/**
+ * `/make`'s two judgement settings (32j), per browser like the list itself:
+ * whether a close match counts as had (on by default), and what this
+ * kitchen always has (`DEFAULT_STAPLES` until edited). Each is stored only
+ * once changed, so a better default reaches everyone who never touched it.
+ */
+export interface MakeSettings {
+  countClose: boolean;
+  staples: string[];
+  /** True while `staples` is the default list. */
+  defaultStaples: boolean;
+  setCountClose: (value: boolean) => void;
+  setStaples: (items: string[]) => void;
+  resetStaples: () => void;
+}
+
+interface StoredSettings {
+  countClose?: boolean;
+  staples?: string[];
+}
+
+function parseSettings(raw: string): StoredSettings {
+  try {
+    const parsed = raw ? (JSON.parse(raw) as unknown) : {};
+    if (!parsed || typeof parsed !== "object") return {};
+    const { countClose, staples } = parsed as Record<string, unknown>;
+    const out: StoredSettings = {};
+    if (typeof countClose === "boolean") out.countClose = countClose;
+    if (Array.isArray(staples)) {
+      out.staples = staples.filter(
+        (item): item is string => typeof item === "string",
+      );
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function useMakeSettings(): MakeSettings {
+  const raw = useSyncExternalStore(
+    subscribe,
+    getSettingsSnapshot,
+    getServerSnapshot,
+  );
+  const stored = useMemo(() => parseSettings(raw ?? ""), [raw]);
+  const save = useCallback(
+    (next: StoredSettings) => {
+      const merged: StoredSettings = { ...stored, ...next };
+      const kept: StoredSettings = {};
+      if (merged.countClose !== undefined) kept.countClose = merged.countClose;
+      if (merged.staples !== undefined) kept.staples = merged.staples;
+      write(
+        SETTINGS_KEY,
+        Object.keys(kept).length > 0 ? JSON.stringify(kept) : null,
+      );
+    },
+    [stored],
+  );
+  const setCountClose = useCallback(
+    (value: boolean) => save({ countClose: value ? undefined : false }),
+    [save],
+  );
+  const setStaples = useCallback(
+    (items: string[]) => save({ staples: dedupeItems(items) }),
+    [save],
+  );
+  const resetStaples = useCallback(() => save({ staples: undefined }), [save]);
+  return {
+    countClose: stored.countClose ?? true,
+    staples: stored.staples ?? DEFAULT_STAPLES,
+    defaultStaples: stored.staples === undefined,
+    setCountClose,
+    setStaples,
+    resetStaples,
+  };
 }

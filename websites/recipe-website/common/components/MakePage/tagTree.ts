@@ -149,3 +149,55 @@ export function searchTags(
     .slice(0, limit)
     .map((hit) => hit.node);
 }
+
+/** Share of the scope a tag may cover and still narrow it. */
+const UBIQUITOUS = 0.9;
+
+/**
+ * "Refine" chips (32j): after a pick, the tags that would narrow the scope
+ * further — drill-down without a hierarchy, so it works on a flat food
+ * vocabulary as well as under `drink`.
+ *
+ * A picked tag's own children come first, most used first; then the tags
+ * that co-occur most in the scope. Never a picked tag or anything above one,
+ * and never a tag (nearly) every recipe in scope already carries — choosing
+ * it would change nothing. `usage` is `subtreeUsage` of the scope, `total`
+ * its size; `selected` holds folded `tag:` values, as `positiveTagValues`
+ * gives them.
+ */
+export function refinementsInScope(
+  index: TagIndex,
+  usage: Map<string, number>,
+  total: number,
+  selected: Set<string>,
+  limit: number,
+): string[] {
+  if (selected.size === 0 || total < 2) return [];
+  const bySpelling = new Map<string, string>();
+  for (const node of index.values()) {
+    bySpelling.set(fold(node.label), node.slug);
+    bySpelling.set(fold(node.slug), node.slug);
+  }
+  const picked = [...selected]
+    .map((value) => bySpelling.get(value))
+    .filter((slug): slug is string => !!slug);
+  const above = new Set(
+    picked.flatMap((slug) => breadcrumb(index, slug).map((node) => node.slug)),
+  );
+  const ceiling = Math.ceil(total * UBIQUITOUS);
+  const narrows = (slug: string) => {
+    const count = usage.get(slug) ?? 0;
+    return count > 0 && count < ceiling && !above.has(slug);
+  };
+  const order = byUse(usage, index);
+  const children = [
+    ...new Set(picked.flatMap((slug) => index.get(slug)?.children ?? [])),
+  ]
+    .filter(narrows)
+    .sort(order);
+  const shown = new Set(children);
+  const others = [...index.keys()]
+    .filter((slug) => !shown.has(slug) && narrows(slug))
+    .sort(order);
+  return [...children, ...others].slice(0, limit);
+}

@@ -5,7 +5,7 @@
  *   inventory add <item…>        add items (one commit)
  *   inventory remove <item…>     remove items (one commit)
  *   inventory set --file <f>     replace the list whole (one commit)
- *   inventory make [<query…>]    what the list can make (`tag:drink` default)
+ *   inventory make [<query…>]    what the list can make (every recipe by default)
  *
  * Items are positionals, one per argument — quote the ones with spaces
  * (`inventory add "simple syrup" Gnista`). `set --file` reads what `/make`'s
@@ -101,7 +101,7 @@ const setCommand: CommandDef<InventoryWriteResult> = {
 const makeCommand: CommandDef<MakeableResult> = {
   name: "inventory make",
   usage:
-    'recipes inventory make [<query…>] [--limit 20]   e.g. inventory make "tag:drink -tag:batch"',
+    "recipes inventory make [<query…>] [--limit 20]   every recipe by default; e.g. inventory make tag:drink, inventory make -tag:drink",
   options: {
     limit: { type: "string" },
   },
@@ -125,6 +125,9 @@ const makeCommand: CommandDef<MakeableResult> = {
                 row.missing ? `    missing: ${row.missing.join(", ")}` : "",
                 row.makeFirst
                   ? `    make first: ${row.makeFirst.join(", ")}`
+                  : "",
+                row.close
+                  ? `    close: ${row.close.map(({ needs, have }) => `${have} for ${needs}`).join(", ")}`
                   : "",
               ]
                 .filter(Boolean)
