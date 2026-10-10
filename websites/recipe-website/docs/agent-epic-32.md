@@ -113,7 +113,7 @@ the food corpus is a content call: 32k, run only on Roger's explicit go.
 | 32d      | F34 batched commits for term assign/rename/merge                         | M–L     | `agent/32d-batch-commit`   | 📝 planned        |
 | 32e      | 24g: measure, then split the by-term record                              | L       | `agent/32e-by-term`        | 📝 planned        |
 | 32f      | Ingredient completion in search                                          | S–M     | `agent/32f-ingredient-ac`  | 🟡 #199           |
-| 32g      | Meal-plan item `scale` + `?scale` on recipe pages                        | M       | `agent/32g-plan-scale`     | 📝 planned        |
+| 32g      | Meal-plan item `scale` + `?scale` on recipe pages                        | M       | `agent/32g-plan-scale`     | 🟡 #202           |
 | 32j      | Make anything: kind switch, refine drill-down, loose ingredient matching | M–L     | `agent/32j-make-any`       | 📝 planned        |
 | 32h      | `SidebarLayout` + portfolio masthead on sticky-chrome                    | S       | `agent/32h-sticky-sidebar` | 🟡 #201           |
 | 32i      | Term aliases, search-only (droppable)                                    | L       | `agent/32i-aliases`        | 📝 planned        |
@@ -640,6 +640,7 @@ the end-to-end checks at 32-close.
 | 32c     | #203 |            | typechecks ✅; vitest 1074/1074 (56 files); Playwright `term-edit` + `api-write` 29/29 (build); CI                                  |
 | 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                                      |
 | 32h     | #201 |            | typechecks ✅ (recipe, export, portfolio); vitest 1058/1058; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI |
+| 32g     | #202 |            | typechecks ✅; vitest 1068/1068 (56 files); Playwright `groups` + `yield` + `recipe` 47/47 (build); export `next build` ✅; CI      |
 
 ### 32a — Hygiene
 
@@ -918,3 +919,89 @@ Playwright: `term-edit.spec` (+1): `setInputFiles` on Cookies' edit form →
   and isn't caused by this diff. CI's portfolio job uses `next dev`, so the
   build is never exercised there either.
 - `specVersions` didn't move: none of the edited modules is pinned.
+
+### 32g — Meal-plan item `scale` + `?scale` on recipe pages
+
+**What changed.**
+
+- `common/util/scale.ts`: `parseScale` (what `fraction.js` reads, trimmed,
+  positive only — 0, `0/4`, negatives, `2/0` and junk are `null`),
+  `isValidScale`, `SCALE_MESSAGE`, and `formatScale` for the badge (`2×`,
+  `½×`, `1½×`, else a ≤2-place decimal: `1.2×`). One parser for the write
+  schemas, the group page and the recipe page, so a plan can't store a value
+  its own link would then ignore.
+- `GroupItem` (via `WithItemText`) gains `scale?: string`, stored trimmed but
+  otherwise as written. **Not** on `GroupEntryItem`: `buildGroupIndexValue`
+  already picks fields, so no index, fixture or spec version moved
+  (`groups.test.ts` pins the absence by keys, like `note`).
+- `GroupItemObjectSchema` validates it (`ScaleSchema()`) and refuses it on a
+  `{group}` row. `addItem` now parses its item through that schema, so the
+  seat, the `POST /api/group/[slug]/items` route (which destructures
+  `scale`), both CLI backends (the type gains `scale`; HTTP already spread
+  the options) and MCP `group_add_item` (new `scale`) share one rule.
+  `group_set_items` and `group_create` take it in the object form and the
+  shorthand.
+- CLI: `group add <g> <recipe> --scale 2`; `group show` prints
+  `Tue — First Recipe (first-recipe) ×2`; `--item slug[:label][@scale]`.
+- Form: recipe rows get a Scale field (placeholder `1`); group rows have
+  none. `parseGroupFormData` validates it (the message lands on `items`,
+  above the rows) and drops a scale a forged post puts on a group row.
+- `GroupItems` badges a scaled row beside its label
+  (`data-testid="group-item-scale"`, with an sr-only "Scale ") and passes
+  `href="/recipe/<slug>?scale=<value>"` to `RecipeListItem`, which gained an
+  optional `href`. A 1× scale, or a stored value the parser refuses, shows
+  nothing and links plainly.
+- `MultiplierProvider` seeds from `?scale` through a `ScaleFromSearchParams`
+  child: `useSearchParams` inside its own `<Suspense fallback={null}>`, a
+  `useEffect` keyed on the value, invalid values ignored. The reader's later
+  clicks win.
+- MCP descriptions and SKILL.md's item grammar name `scale`.
+
+**Decisions.**
+
+- **Shorthand grammar: the scale comes off the end first.**
+  `TRAILING_SCALE = /@([-+0-9./]+)$/`, then `slug:label` splits at the first
+  colon as before. No whitespace or letters after the `@`, so
+  `"Dinner @ 7pm"` and `"Lunch@home"` stay labels; a sign is admitted only so
+  `"stew@-1"` fails validation (`items.<n>.scale`) instead of becoming a slug.
+  A slug can contain neither `:` nor `@`. The one label it can misread is one
+  that itself ends in `@<number>`; the object form covers that. The
+  shorthand's scale is validated in `toGroupItems` (the input schema can only
+  say "a string") by re-parsing the expanded item through
+  `GroupItemObjectSchema`.
+- **Recipe rows only.** A sub-group has no quantities; a scale there would be
+  a value nothing reads, so every write path refuses it (the form silently
+  drops it, since a group row has no Scale input).
+- **The Suspense boundary wraps only the hook.** Wrapping the recipe view
+  (MakePage's shape) would make the export ship a fallback instead of the
+  recipe. A null-rendering child in its own boundary keeps the page
+  prerendered whole; the export built against a scratch copy of
+  `three-recipes-groups` and `out/recipe/first-recipe.html` carries the
+  recipe's content, with one bailout marker (this boundary). The cost: the
+  static page paints 1× and moves to 2× after hydration.
+- **MCP-level validation.** `group_add_item`'s `scale` uses `ScaleSchema()`
+  (the curation schemas are imported unchanged, per the registry's rule), so a
+  bad object-form scale is rejected before dispatch in the SDK's shape (T28);
+  a bad shorthand scale in `group_set_items` comes back as the layer's
+  `validation` with `items.<n>.scale`. `mcp.test.ts` pins both.
+- `addItem` now validates before `requireGroup`, so a bad item on a missing
+  group reports `validation` rather than `not_found`.
+
+**Tests.** `curation.test.ts`: shorthand (`@2`, `@1/2`, `@1.5`, `@` in
+prose, a colon in the label), object form trimmed, `addItem` with
+`"1 1/2"`, the resolved row; refusals (0, -1, abc, 2/0, 0/3, shorthand
+`@0`/`@-2`, object `"0"`, group rows) with nothing written. `groups.test.ts`:
+off the index, `parseScale`, `formatScale`, `parseGroupFormData` keep/drop/
+refuse. `mcp.test.ts`: add/set with scale, SDK-shape and layer-shape
+refusals. `cliJson.test.ts`: `--item …@1/2`, `group add --scale 2`, JSON and
+text `group show`, `--scale 0` refused (`TIMEOUT * 3`: five processes).
+`curationHttp.test.ts`: the route's body schema answers a bad scale with a
+400 on `scale`. `groups.spec.ts`: the form case (0 refused, then `½×` and
+`?scale=1%2F2`, read back on edit) and an API-written plan (badges, `?scale=2`
+link, recipe opens with Multiply `2`, `4 cups flour`, `8 naan`, Double batch
+pressed; `?scale=0`/`lots` ignored; `?scale=1%2F2` halves).
+
+**Gates.** typechecks ✅ (editor, export); vitest 1068/1068 (56 files) after
+merging origin/main at 32h; Playwright `groups.spec` + `yield.spec` +
+`recipe.spec` 47/47 (build, heavy slot); export `next build` ✅ (scratch
+fixture copy). `specVersions` didn't move.

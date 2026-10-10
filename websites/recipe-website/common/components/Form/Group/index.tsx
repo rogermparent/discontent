@@ -270,6 +270,20 @@ export default function GroupFields({
               id={`group-form-item-${row.id}-note`}
               defaultValue={row.note}
             />
+            {/*
+              A recipe row's multiplier (epic 32, D4): "2" for a double batch,
+              "1/2" for half. Blank is 1×. A sub-group has no quantities, so
+              its row has no Scale.
+            */}
+            {!row.isGroup && (
+              <TextInput
+                label="Scale"
+                name={`items[${index}].scale`}
+                id={`group-form-item-${row.id}-scale`}
+                defaultValue={row.scale}
+                placeholder="1"
+              />
+            )}
           </div>
         ))}
         <div className="flex flex-row flex-wrap gap-2">

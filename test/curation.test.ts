@@ -869,6 +869,108 @@ describe("groups", () => {
     expect((await readAppearsIn())?.stew).toBeUndefined();
   });
 
+  /*
+   * Epic 32, D4: a recipe row's multiplier. The shorthand is
+   * `slug[:label][@scale]`, the scale taken off the end first and only when
+   * it is written like a number, so a label with an `@` in prose survives.
+   */
+  it("stores an item's scale from the shorthand, the object form and addItem", async () => {
+    await groups.createGroup(ctx, {
+      name: "Scaled",
+      slug: "scaled",
+      items: [
+        "stew:Mon · Dinner@2",
+        "salad@1/2",
+        "stew:Dinner @ 7pm",
+        "salad:Lunch@home",
+        "stew:Mon: Dinner@1.5",
+        { recipe: "salad", label: "Thu", scale: " 3 " },
+      ],
+    });
+    expect((await readGroupFile("scaled")).items).toEqual([
+      { recipe: "stew", label: "Mon · Dinner", scale: "2" },
+      { recipe: "salad", scale: "1/2" },
+      { recipe: "stew", label: "Dinner @ 7pm" },
+      { recipe: "salad", label: "Lunch@home" },
+      { recipe: "stew", label: "Mon: Dinner", scale: "1.5" },
+      /* Trimmed, as written otherwise. */
+      { recipe: "salad", label: "Thu", scale: "3" },
+    ]);
+
+    await groups.addItem(
+      ctx,
+      "scaled",
+      { recipe: "stew" },
+      { label: "Fri", scale: "1 1/2" },
+    );
+    const detail = await groups.getGroup(ctx, "scaled");
+    expect(detail.group.items.at(-1)).toEqual({
+      recipe: "stew",
+      label: "Fri",
+      scale: "1 1/2",
+    });
+    /* The resolved row carries it too, so `group show` can print it. */
+    expect(detail.items.at(-1)).toMatchObject({
+      recipe: "stew",
+      scale: "1 1/2",
+      name: "Stew",
+    });
+  });
+
+  it("refuses a scale that is zero, negative or not a number, and one on a group row", async () => {
+    await groups.createGroup(ctx, {
+      name: "Weeknights",
+      slug: "weeknights",
+      items: ["stew"],
+    });
+    const before = await readGroupFile("weeknights");
+
+    for (const scale of ["0", "-1", "abc", "2/0", "0/3"]) {
+      await expect(
+        groups.addItem(ctx, "weeknights", { recipe: "salad" }, { scale }),
+      ).rejects.toMatchObject({
+        code: "validation",
+        details: {
+          issues: [
+            {
+              path: "scale",
+              message: "Scale must be a positive number, like 2, 1/2 or 1.5",
+            },
+          ],
+        },
+      });
+    }
+
+    /* The shorthand's scale is validated too, at the item's own path. */
+    await expect(
+      groups.setItems(ctx, "weeknights", ["stew", "salad:Tue@0"]),
+    ).rejects.toMatchObject({
+      code: "validation",
+      details: { issues: [{ path: "items.1.scale" }] },
+    });
+    await expect(
+      groups.setItems(ctx, "weeknights", ["salad@-2"]),
+    ).rejects.toMatchObject({ code: "validation" });
+    await expect(
+      groups.setItems(ctx, "weeknights", [{ recipe: "salad", scale: "0" }]),
+    ).rejects.toMatchObject({ code: "validation" });
+
+    /* A sub-group has no quantities to scale. */
+    await groups.createGroup(ctx, { name: "Other", slug: "other" });
+    await expect(
+      groups.addItem(ctx, "weeknights", { group: "other" }, { scale: "2" }),
+    ).rejects.toMatchObject({
+      code: "validation",
+      details: { issues: [{ path: "scale" }] },
+    });
+    await expect(
+      groups.setItems(ctx, "weeknights", [{ group: "other", scale: "2" }]),
+    ).rejects.toMatchObject({ code: "validation" });
+
+    /* Nothing was written by any of them. */
+    expect(await readGroupFile("weeknights")).toEqual(before);
+  });
+
   it("imports the group's image from a URL and keeps it through an item edit", async () => {
     /*
      * Since 26d the group's image goes through `fetchImageFile`, as a

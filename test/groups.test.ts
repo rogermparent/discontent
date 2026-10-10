@@ -64,6 +64,11 @@ import {
 } from "../websites/recipe-website/common/controller/groupPaginationConfig";
 import { featuredRecipesByDate } from "../websites/recipe-website/common/controller/paginationConfigs";
 import { recipeContentConfig } from "../websites/recipe-website/common/controller/recipeContentConfig";
+import {
+  formatScale,
+  parseScale,
+} from "../websites/recipe-website/common/util/scale";
+import parseGroupFormData from "../websites/recipe-website/editor/controller/parseGroupFormData";
 import type {
   FeaturedRecipe,
   FeaturedRecipeEntryKey,
@@ -525,6 +530,26 @@ describe("the stored group index value", () => {
     expect(Object.keys(readGroupIndex().get("week-of-may-4")!)).not.toContain(
       "tags",
     );
+  });
+
+  /*
+   * Epic 32, D4. `scale` is `note`'s kind of field: only the detail page
+   * reads it, from the data file, so the index never sees it and a scale
+   * edit dirties no derived page. Keys, not `toEqual`, because `toEqual`
+   * would accept an explicit `scale: undefined`.
+   */
+  it("leaves an item's scale off the index, as it leaves the note", async () => {
+    await seedTwoRecipesAndAGroup();
+    await createGroup("scaled", {
+      name: "Scaled",
+      date: day(22),
+      kind: "meal-plan",
+      items: [{ recipe: "stew", label: "Mon", scale: "2" }],
+    });
+
+    const [item] = readGroupIndex().get("scaled")!.items;
+    expect(Object.keys(item).sort()).toEqual(["label", "recipe"]);
+    expect((await readGroupFile("scaled")).items[0].scale).toBe("2");
   });
 });
 
@@ -1144,5 +1169,88 @@ describe("a featured group (22g)", () => {
 
     expect(result.dependents).toEqual([]);
     expect(storedFeaturedPageHashes()).toEqual(hashesBefore);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* A meal-plan item's scale (epic 32, D4)                              */
+/* ------------------------------------------------------------------ */
+
+describe("parseScale", () => {
+  it("reads what fraction.js reads, positive only, trimmed", () => {
+    expect(parseScale("2")?.toFraction()).toBe("2");
+    expect(parseScale("1/2")?.toFraction()).toBe("1/2");
+    expect(parseScale("1.5")?.toFraction()).toBe("3/2");
+    expect(parseScale("1 1/2")?.toFraction()).toBe("3/2");
+    expect(parseScale(" 3 ")?.toFraction()).toBe("3");
+    for (const junk of [
+      "0",
+      "0/4",
+      "-1",
+      "-1/2",
+      "abc",
+      "2x",
+      "2/0",
+      "",
+      "  ",
+    ]) {
+      expect(parseScale(junk)).toBeNull();
+    }
+    expect(parseScale(null)).toBeNull();
+    expect(parseScale(undefined)).toBeNull();
+  });
+});
+
+describe("formatScale", () => {
+  it("draws a whole number, a glyph, or a short decimal", () => {
+    const label = (value: string) => formatScale(parseScale(value)!);
+    expect(label("2")).toBe("2×");
+    expect(label("1/2")).toBe("½×");
+    expect(label("1.5")).toBe("1½×");
+    expect(label("3/4")).toBe("¾×");
+    expect(label("2 1/3")).toBe("2⅓×");
+    expect(label("6/5")).toBe("1.2×");
+    expect(label("1/7")).toBe("0.14×");
+  });
+});
+
+describe("parseGroupFormData's scale", () => {
+  function form(entries: Record<string, string>): FormData {
+    const data = new FormData();
+    data.set("name", "Week");
+    for (const [key, value] of Object.entries(entries)) data.set(key, value);
+    return data;
+  }
+
+  it("keeps a recipe row's scale, drops a blank one and a group row's", () => {
+    const result = parseGroupFormData(
+      form({
+        "items[0].recipe": "stew",
+        "items[0].scale": " 2 ",
+        "items[1].recipe": "soup",
+        "items[1].scale": "",
+        "items[2].group": "other",
+        "items[2].scale": "2",
+      }),
+    );
+    expect(result.success).toBe(true);
+    expect(result.data?.items).toEqual([
+      { recipe: "stew", scale: "2" },
+      { recipe: "soup" },
+      { group: "other" },
+    ]);
+  });
+
+  it("refuses a scale of zero or junk, on items", () => {
+    for (const scale of ["0", "-2", "lots"]) {
+      const result = parseGroupFormData(
+        form({ "items[0].recipe": "stew", "items[0].scale": scale }),
+      );
+      expect(result.success).toBe(false);
+      expect(result.error?.issues[0]).toMatchObject({
+        path: ["items", 0, "scale"],
+        message: "Scale must be a positive number, like 2, 1/2 or 1.5",
+      });
+    }
   });
 });

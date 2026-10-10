@@ -36,13 +36,20 @@ export function RecipeListItem({
   name,
   image,
   tags,
-}: MassagedRecipeEntry) {
+  href = `/recipe/${slug}`,
+}: MassagedRecipeEntry & {
+  /**
+   * Where the card goes, when it is not the bare recipe page: a meal-plan row
+   * with a scale links to `/recipe/<slug>?scale=2` (epic 32, D4).
+   */
+  href?: string;
+}) {
   return (
     <RecipeCard className="relative group">
       <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
         <BookmarkButton recipe={{ slug, date, name, image }} />
       </div>
-      <RecipeCardLink href={`/recipe/${slug}`}>
+      <RecipeCardLink href={href}>
         <RecipeCardImageContainer>
           {image ? (
             <RecipeImage

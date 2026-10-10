@@ -193,7 +193,13 @@ export interface CuratorBackend {
   addGroupItem(
     group: string,
     ref: GroupItemRef,
-    options?: { label?: string; note?: string; force?: boolean },
+    options?: {
+      label?: string;
+      note?: string;
+      /** A recipe row's multiplier, `"2"` or `"1/2"` (epic 32, D4). */
+      scale?: string;
+      force?: boolean;
+    },
   ): Promise<GroupWriteResult>;
   removeGroupItem(group: string, ref: GroupItemRef): Promise<GroupWriteResult>;
   setGroupItems(
