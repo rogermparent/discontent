@@ -64,6 +64,23 @@ import {
   createRecipe,
   updateRecipe,
 } from "../websites/recipe-website/editor/controller/curation/recipes";
+import {
+  assignTerm,
+  createTerm,
+  deleteTerm,
+  mergeTerm,
+  renameTerm,
+} from "../websites/recipe-website/editor/controller/curation/terms";
+import { feature } from "../websites/recipe-website/editor/controller/curation/featured";
+import { createContent } from "@discontent/cms/content/createContent";
+import { deleteContent } from "@discontent/cms/content/deleteContent";
+import { updateContent } from "@discontent/cms/content/updateContent";
+import { groupContentConfig } from "../websites/recipe-website/common/controller/groupContentConfig";
+import type {
+  Group,
+  GroupEntryKey,
+  GroupEntryValue,
+} from "../websites/recipe-website/common/controller/types";
 import type { Recipe } from "../websites/recipe-website/common/controller/types";
 
 /* ------------------------------------------------------------------ */
@@ -1141,5 +1158,332 @@ describe("gitSync", () => {
       if (previous === undefined) delete process.env.EDITOR_ROLE;
       else process.env.EDITOR_ROLE = previous;
     }
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Batched term writes (F34, epic 32's 32d)                           */
+/* ------------------------------------------------------------------ */
+
+describe("batched term writes (F34)", () => {
+  const recipeFile = (slug: string) => `recipes/data/${slug}/recipe.json`;
+  const groupFile = (slug: string) => `groups/data/${slug}/group.json`;
+  const termFile = (slug: string) => `taxonomies/tag/data/${slug}/term.json`;
+  const featuredFile = (slug: string) =>
+    `featured-recipes/data/${slug}/featured-recipe.json`;
+
+  /** Every commit after `since` (a hash), newest first. */
+  async function commitsSince(since: string) {
+    const { commits } = await gitLog(ctx);
+    const index = commits.findIndex((commit) => commit.hash === since);
+    return commits.slice(0, index);
+  }
+
+  async function clean(): Promise<boolean> {
+    return (await git.status()).isClean();
+  }
+
+  it("assigns a term to N recipes in one commit, with onWrite per carrier", async () => {
+    await createRecipe(ctx, { name: "Gingerbread" });
+    await createRecipe(ctx, { name: "Snickerdoodles" });
+    await createRecipe(ctx, { name: "Shortbread" });
+    await createRecipe(ctx, { name: "Sugar Cookies", tags: ["cookies"] });
+    const before = await head();
+    const events: string[] = [];
+    const watched: CurationContext = {
+      ...ctx,
+      onWrite: (event) => events.push(`${event.contentType}:${event.slug}`),
+    };
+
+    const result = await assignTerm(watched, "cookies", {
+      add: ["gingerbread", "snickerdoodles", "shortbread", "sugar-cookies"],
+    });
+
+    expect(result.updated).toEqual([
+      "gingerbread",
+      "snickerdoodles",
+      "shortbread",
+    ]);
+    expect(result.unchanged).toEqual(["sugar-cookies"]);
+    const commits = await commitsSince(before);
+    expect(commits).toHaveLength(1);
+    expect(commits[0].message).toBe("Assign term: cookies (+3 recipes)");
+    expect([...commits[0].files].sort()).toEqual(
+      ["gingerbread", "shortbread", "snickerdoodles"].map(recipeFile).sort(),
+    );
+    /* `onWrite` stays per write: the editor's invalidation needs each one. */
+    expect(events).toEqual([
+      "recipes:gingerbread",
+      "recipes:snickerdoodles",
+      "recipes:shortbread",
+    ]);
+    expect(await clean()).toBe(true);
+    expect((await readRecipeFile("shortbread")).tags).toEqual(["cookies"]);
+  });
+
+  it("counts adds and removes, and commits nothing when nothing changed", async () => {
+    await createRecipe(ctx, { name: "Naan", tags: ["bread"] });
+    await createRecipe(ctx, { name: "Scone" });
+    await createRecipe(ctx, { name: "Brioche" });
+    const before = await head();
+
+    await assignTerm(ctx, "bread", {
+      add: ["scone", "brioche"],
+      remove: ["naan"],
+    });
+    await assignTerm(ctx, "bread", { remove: ["scone", "brioche"] });
+    const afterChanges = await head();
+    await assignTerm(ctx, "bread", { add: ["naan"], remove: ["scone"] });
+    await assignTerm(ctx, "bread", { add: ["naan"] });
+    await assignTerm(ctx, "bread", { add: ["no-such-recipe"] });
+
+    const commits = await commitsSince(before);
+    expect(commits.map((commit) => commit.message)).toEqual([
+      "Assign term: bread (+1 recipe)",
+      "Unassign term: bread (-2 recipes)",
+      "Assign term: bread (+2 recipes, -1 recipe)",
+    ]);
+    /* An assign that wrote nothing made no commit. */
+    expect(await commitsSince(afterChanges)).toHaveLength(1);
+    expect(await clean()).toBe(true);
+  });
+
+  it("tags groups in one commit too", async () => {
+    await createGroup(ctx, { name: "Week One" });
+    await createGroup(ctx, { name: "Week Two" });
+    const before = await head();
+
+    await assignTerm(ctx, "plans", {
+      type: "group",
+      add: ["week-one", "week-two"],
+    });
+
+    const commits = await commitsSince(before);
+    expect(commits).toHaveLength(1);
+    expect(commits[0].message).toBe("Assign term: plans (+2 groups)");
+    expect([...commits[0].files].sort()).toEqual(
+      ["week-one", "week-two"].map(groupFile),
+    );
+  });
+
+  it("renames a term with a record and N carriers in one commit", async () => {
+    await createTerm(ctx, { label: "Cookies" });
+    await createRecipe(ctx, { name: "Gingerbread", tags: ["cookies"] });
+    await createRecipe(ctx, { name: "Shortbread", tags: ["cookies", "baked"] });
+    await createGroup(ctx, { name: "Tin", tags: ["cookies"] });
+    const before = await head();
+
+    const result = await renameTerm(ctx, "cookies", { to: "Biscuits" });
+
+    expect(result).toMatchObject({
+      slug: "biscuits",
+      recipes: ["shortbread", "gingerbread"],
+      groups: ["tin"],
+    });
+    const commits = await commitsSince(before);
+    expect(commits).toHaveLength(1);
+    expect(commits[0].message).toBe(
+      "Rename term: cookies → biscuits (2 recipes, 1 group)",
+    );
+    expect(commits[0].files).toEqual(
+      expect.arrayContaining([
+        termFile("biscuits"),
+        recipeFile("gingerbread"),
+        recipeFile("shortbread"),
+        groupFile("tin"),
+      ]),
+    );
+    expect(await clean()).toBe(true);
+    expect((await readRecipeFile("shortbread")).tags).toEqual([
+      "biscuits",
+      "baked",
+    ]);
+  });
+
+  it("keeps the bare message when a rename moves only the record", async () => {
+    await createTerm(ctx, { label: "Holiday" });
+    const before = await head();
+    await renameTerm(ctx, "holiday", { to: "festive" });
+    const commits = await commitsSince(before);
+    expect(commits.map((commit) => commit.message)).toEqual([
+      "Rename term: holiday → festive",
+    ]);
+  });
+
+  it("merges carriers, children and features in one commit", async () => {
+    await createTerm(ctx, { label: "Dessert" });
+    await createTerm(ctx, { label: "Sweets" });
+    await createTerm(ctx, { label: "Cakes", parent: "sweets" });
+    await createRecipe(ctx, { name: "Fudge", tags: ["sweets"] });
+    await createRecipe(ctx, { name: "Toffee", tags: ["sweets"] });
+    await feature(ctx, { term: "sweets", slug: "sweets-strip" });
+    const before = await head();
+
+    const result = await mergeTerm(ctx, "sweets", { into: "dessert" });
+
+    expect(result).toMatchObject({
+      deleted: true,
+      reparented: [{ slug: "cakes", parent: "dessert" }],
+      featured: ["sweets-strip"],
+    });
+    const commits = await commitsSince(before);
+    expect(commits).toHaveLength(1);
+    expect(commits[0].message).toBe(
+      "Merge term: sweets → dessert (2 recipes, 1 child, 1 feature)",
+    );
+    expect([...commits[0].files].sort()).toEqual(
+      [
+        featuredFile("sweets-strip"),
+        recipeFile("fudge"),
+        recipeFile("toffee"),
+        termFile("cakes"),
+        termFile("sweets"),
+      ].sort(),
+    );
+    expect(await clean()).toBe(true);
+  });
+
+  it("deletes with unassign — carriers, children, features, record — in one commit", async () => {
+    await createTerm(ctx, { label: "Baking" });
+    await createTerm(ctx, { label: "Bread", parent: "baking" });
+    await createTerm(ctx, { label: "Rye", parent: "bread" });
+    await createRecipe(ctx, { name: "Naan", tags: ["bread"] });
+    await createRecipe(ctx, { name: "Pita", tags: ["bread", "quick"] });
+    await feature(ctx, { term: "bread", slug: "bread-strip" });
+    const before = await head();
+
+    const result = await deleteTerm(ctx, "bread", { unassign: true });
+
+    expect(result).toMatchObject({
+      deleted: true,
+      reparented: [{ slug: "rye", parent: "baking" }],
+      featured: ["bread-strip"],
+      unfeatured: [],
+    });
+    const commits = await commitsSince(before);
+    expect(commits).toHaveLength(1);
+    expect(commits[0].message).toBe(
+      "Delete term: bread (2 recipes, 1 child, 1 feature)",
+    );
+    expect([...commits[0].files].sort()).toEqual(
+      [
+        featuredFile("bread-strip"),
+        recipeFile("naan"),
+        recipeFile("pita"),
+        termFile("bread"),
+        termFile("rye"),
+      ].sort(),
+    );
+    expect(await clean()).toBe(true);
+  });
+
+  it("commits a failure part-way as (partial), stays clean, rethrows, and reverts", async () => {
+    await createRecipe(ctx, { name: "Gingerbread" });
+    await createRecipe(ctx, { name: "Broken" });
+    await createRecipe(ctx, { name: "Shortbread" });
+    /* A data file that no longer parses, committed, so the tree starts clean. */
+    await writeFile(join(contentDirectory, recipeFile("broken")), "{ not json");
+    await git.add(recipeFile("broken"));
+    await git.commit("Break a recipe");
+    const before = await head();
+    expect(await clean()).toBe(true);
+
+    await expect(
+      assignTerm(ctx, "cookies", {
+        add: ["gingerbread", "broken", "shortbread"],
+      }),
+    ).rejects.toThrow(SyntaxError);
+
+    const commits = await commitsSince(before);
+    expect(commits).toHaveLength(1);
+    expect(commits[0].message).toBe(
+      "Assign term: cookies (+1 recipe) (partial)",
+    );
+    expect(commits[0].files).toEqual([recipeFile("gingerbread")]);
+    expect(await clean()).toBe(true);
+    expect((await readRecipeFile("gingerbread")).tags).toEqual(["cookies"]);
+    expect((await readRecipeFile("shortbread")).tags).toBeUndefined();
+
+    /* D3's point: the partial is one ordinary commit, so a revert undoes it. */
+    const reverted = await gitRevert(ctx, commits[0].hash);
+    expect(reverted.message).toBe(
+      'Revert "Assign term: cookies (+1 recipe) (partial)"',
+    );
+    expect((await readRecipeFile("gingerbread")).tags).toBeUndefined();
+    expect(await clean()).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* The engine's `commit: false` (F34)                                 */
+/* ------------------------------------------------------------------ */
+
+describe("engine writes with commit: false (F34)", () => {
+  const groupFile = (slug: string) => `groups/data/${slug}/group.json`;
+  const common = () => ({
+    config: groupContentConfig,
+    contentDirectory,
+    author: ctx.author,
+  });
+
+  it("skips the commit and returns the paths, for create, update and delete", async () => {
+    const before = await head();
+
+    const created = await createContent<Group, GroupEntryValue, GroupEntryKey>({
+      ...common(),
+      slug: "week-one",
+      data: { name: "Week One", date: 1 },
+      commit: false,
+    });
+    expect(created.touchedPaths).toEqual([groupFile("week-one")]);
+    expect(await head()).toBe(before);
+    expect((await git.status()).not_added).toContain(groupFile("week-one"));
+
+    const updated = await updateContent<Group, GroupEntryValue, GroupEntryKey>({
+      ...common(),
+      slug: "week-two",
+      currentSlug: "week-one",
+      currentIndexKey: [1, "week-one"],
+      data: { name: "Week Two", date: 1 },
+      commit: false,
+    });
+    expect(updated.touchedPaths).toEqual(
+      expect.arrayContaining([groupFile("week-two")]),
+    );
+    expect(await head()).toBe(before);
+
+    const deleted = await deleteContent<Group, GroupEntryValue, GroupEntryKey>({
+      ...common(),
+      slug: "week-two",
+      indexKey: [1, "week-two"],
+      commit: false,
+    });
+    expect(deleted.touchedPaths).toEqual(
+      expect.arrayContaining([expect.stringContaining("week-two")]),
+    );
+    expect(await head()).toBe(before);
+    /* Created and deleted without a commit between: nothing left to commit. */
+    expect((await git.status()).isClean()).toBe(true);
+  });
+
+  it("commits as before when commit is omitted, with no touchedPaths key", async () => {
+    const before = await head();
+    const result = await createContent<Group, GroupEntryValue, GroupEntryKey>({
+      ...common(),
+      slug: "week-one",
+      data: { name: "Week One", date: 1 },
+    });
+    expect(Object.keys(result).sort()).toEqual([
+      "aggregates",
+      "dependents",
+      "pagination",
+    ]);
+    expect(await head()).not.toBe(before);
+    expect((await git.status()).isClean()).toBe(true);
+    const { commits } = await gitLog(ctx, { limit: 1 });
+    expect(commits[0]).toMatchObject({
+      message: "Add new groups: week-one",
+      files: [groupFile("week-one")],
+    });
   });
 });

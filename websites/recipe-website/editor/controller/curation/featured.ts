@@ -52,7 +52,13 @@ import type {
   TagTermEntryKey,
   TagTermIndexValue,
 } from "recipe-website-common/controller/types";
-import { featuredPath, featuredUrl, type CurationContext } from "./context";
+import {
+  batchOptions,
+  collectBatch,
+  featuredPath,
+  featuredUrl,
+  type CurationContext,
+} from "./context";
 import {
   AlreadyFeaturedError,
   NotFoundError,
@@ -337,7 +343,9 @@ export async function unfeature(
     contentDirectory: ctx.contentDirectory,
     author: ctx.author,
     commitMessage: `Unfeature: ${slug}`,
+    ...batchOptions(ctx),
   });
+  collectBatch(ctx, result);
   ctx.onWrite?.({
     contentType: featuredRecipeContentConfig.contentType,
     kind: "delete",
@@ -348,8 +356,9 @@ export async function unfeature(
 }
 
 /**
- * Every featured entry of `target` taken off the strip, one commit each, and
- * their slugs returned.
+ * Every featured entry of `target` taken off the strip — one commit each, or
+ * none of their own inside a caller's batch (F34, `deleteTerm`) — and their
+ * slugs returned.
  *
  * The delete seats' half of epic 32's D1: a feature of a deleted group or of a
  * deleted, parentless term would otherwise stay on the strip as a card naming

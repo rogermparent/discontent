@@ -250,9 +250,9 @@ term_assign {"slug": "christmas-cookies", "add": ["gingerbread-cookies", "sugar-
 
 `term_create` returns `{slug, date, path, url, tag, warnings?}` — the slug
 defaults to the label's — and `tag` is the string `term_assign` writes onto
-each recipe. `term_assign` writes one commit per recipe and returns `{slug,
-type, tag, updated, unchanged, missing}`; `type: "group"` tags groups
-instead. Fix any `missing` slug, never invent one.
+each recipe. `term_assign` writes every recipe it is given as one commit
+(`Assign term: <slug> (+N recipes)`) and returns `{slug, type, tag, updated,
+unchanged, missing}`; `type: "group"` tags groups instead. Fix any `missing` slug, never invent one.
 
 **Nesting.** A term with a `parent` sits under it: create the child with
 `{"parent": "<parent slug>"}` (or `term_update {"slug": …, "patch":
@@ -267,7 +267,10 @@ with `code: "term_cycle"`, which is final.
 `pinned` (on create or update) is an ordered list of recipe slugs that lead
 the term's page; each must already carry the term. `term_rename {"slug": …,
 "to": "<new slug or label>"}` moves a term and rewrites every recipe carrying
-it, one commit each — renaming onto an existing term is `slug_conflict`.
+it, all in one commit — renaming onto an existing term is `slug_conflict`.
+If a multi-recipe term write fails part-way, what it wrote is committed as
+`… (partial)` and the error comes back: read `term_get`, then finish the job
+or report that commit's hash (see "Held back").
 
 **Meal plans.**
 

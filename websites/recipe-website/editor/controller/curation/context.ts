@@ -84,6 +84,42 @@ export interface CurationContext {
    * running editor's caches, which is what the stale-editor hint says.
    */
   onBulkChange?: () => void;
+  /**
+   * Set only inside `withBatchCommit` (`batch.ts`, F34): the writes a
+   * multi-carrier seat makes skip their own commit and leave their paths here,
+   * and the batch commits them once at the end. Never set by a transport —
+   * a caller that builds a context leaves it unset, and every write commits
+   * on its own as it always has.
+   */
+  batch?: CommitBatch;
+}
+
+/** The paths a batched write has left uncommitted so far (F34). */
+export interface CommitBatch {
+  paths: string[];
+}
+
+/**
+ * The engine option a curation write spreads into its `createContent` /
+ * `updateContent` / `deleteContent` call: `commit: false` inside a batch,
+ * nothing outside one, so an unbatched write's call is what it always was.
+ */
+export function batchOptions(ctx: CurationContext): { commit?: false } {
+  return ctx.batch ? { commit: false } : {};
+}
+
+/**
+ * Hand a write's paths to the batch, when there is one. Called right after
+ * the engine returns, before `onWrite` — so a later failure in the same batch
+ * still finds this write's paths and commits them as the partial (D3).
+ */
+export function collectBatch(
+  ctx: CurationContext,
+  result: ContentWriteResult,
+): void {
+  if (ctx.batch && result.touchedPaths) {
+    ctx.batch.paths.push(...result.touchedPaths);
+  }
 }
 
 /** Where a recipe is served in both apps. */

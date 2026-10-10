@@ -59,7 +59,7 @@ export async function defaultCreateUploadsProcessor(
  * 3. Adds an entry to the LMDB index
  * 4. Brings any declared pagination indexes back in step
  * 5. Brings any content that borrows fields from this item back in step
- * 6. Commits the changes to git
+ * 6. Commits the changes to git (or, with `commit: false`, returns their paths)
  *
  * @example
  * ```ts
@@ -85,6 +85,7 @@ export async function createContent<TData, TIndexValue, TKey extends Key>(
     contentDirectory: providedContentDirectory,
     author,
     commitMessage,
+    commit = true,
     uploads,
     processUploads = defaultCreateUploadsProcessor,
     action,
@@ -172,7 +173,11 @@ export async function createContent<TData, TIndexValue, TKey extends Key>(
   });
   touchedPaths.push(...dependentPaths);
 
-  // 6. Commit to git
+  // 6. Commit to git — unless the caller is batching (`commit: false`),
+  //    in which case the paths go back to it instead.
+  if (!commit) {
+    return { pagination, aggregates, dependents, touchedPaths };
+  }
   const message = commitMessage || `Add new ${config.contentType}: ${slug}`;
   await commitContentChanges(message, author, touchedPaths, contentDirectory);
 

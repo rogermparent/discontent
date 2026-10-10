@@ -110,7 +110,7 @@ the food corpus is a content call: 32k, run only on Roger's explicit go.
 | 32a      | Hygiene                                                                  | S       | `agent/32a-hygiene`        | 🟡 #198           |
 | 32b      | Features follow a deleted term/group                                     | S–M     | `agent/32b-delete-feature` | 🟡 #200           |
 | 32c      | Term image upload, full parity                                           | M–L     | `agent/32c-term-image`     | 🟡 #203           |
-| 32d      | F34 batched commits for term assign/rename/merge                         | M–L     | `agent/32d-batch-commit`   | 📝 planned        |
+| 32d      | F34 batched commits for term assign/rename/merge                         | M–L     | `agent/32d-batch-commit`   | 🟡 #205           |
 | 32e      | 24g: measure, then split the by-term record                              | L       | `agent/32e-by-term`        | 🟡 #204           |
 | 32f      | Ingredient completion in search                                          | S–M     | `agent/32f-ingredient-ac`  | 🟡 #199           |
 | 32g      | Meal-plan item `scale` + `?scale` on recipe pages                        | M       | `agent/32g-plan-scale`     | 🟡 #202           |
@@ -771,6 +771,7 @@ the end-to-end checks at 32-close.
 | 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI                                             |
 | 32b     | #200 |            | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI                                                 |
 | 32c     | #203 |            | typechecks ✅; vitest 1074/1074 (56 files); Playwright `term-edit` + `api-write` 29/29 (build); CI                                                        |
+| 32d     | #205 |            | typechecks ✅; vitest 1094/1094 (56 files); Playwright `git` + `api-write` not run locally (heavy slot held > 15 min), CI shards are the gate; CI         |
 | 32e     | #204 |            | typechecks ✅ (recipe, export, portfolio, demo); vitest 1105/1105 (56 files) after the review fixes; Playwright not run locally (slot held > 15 min) — CI |
 | 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                                                            |
 | 32h     | #201 |            | typechecks ✅ (recipe, export, portfolio); vitest 1058/1058; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI                       |
@@ -941,6 +942,91 @@ Playwright: `term-edit.spec` (+1): `setInputFiles` on Cookies' edit form →
 `api-write.spec` (+2): the route (404 with no record; 401 / 403 read token /
 404 unknown taxonomy; URL → upload → the term page draws it with no reload →
 400 for a non-image → clear) and `term image --file` over `--remote`.
+
+### 32d — F34: one commit per multi-carrier term write
+
+**What changed.**
+
+- **Engine** (`packages/cms/content/`): `createContent`, `updateContent` and
+  `deleteContent` take `commit?: boolean` (default `true`). With
+  `commit: false` the write does everything but the git commit — files,
+  index, pagination, aggregates, dependents — and its `ContentWriteResult`
+  carries `touchedPaths`, the paths it would have staged (relative to the
+  content directory; for a delete, the removed directories). Without it the
+  call and the result are exactly what they were: no `touchedPaths` key, the
+  same commit. F34 row in `incremental-regeneration.md`.
+- **Curation** (`editor/controller/curation/batch.ts`):
+  `withBatchCommit(ctx, message, fn)` runs `fn` with a derived context whose
+  `batch` collects paths, then makes one `commitContentChanges` with the
+  author and the deduplicated paths. `context.ts` gains `batch?:
+CommitBatch`, `batchOptions(ctx)` (spreads `commit: false` inside a batch,
+  nothing outside one) and `collectBatch(ctx, result)`. The writes that
+  honour it are the ones the four seats reach: `updateRecipe`,
+  `updateGroup`, `writeTermRecord`, `deleteTermRecord`, `repointFeatures`'
+  feature update and `unfeature` (so `unfeatureTarget` too). `onWrite` still
+  fires once per write, with that write's own result.
+- **D3, the partial.** If `fn` throws, the paths collected so far are
+  committed as `<message> (partial)` and the error is rethrown. The tree is
+  clean afterwards, and `git_revert` of the partial undoes exactly what
+  landed (tested). If that commit fails too, the seat's own error still
+  wins; the writes are then uncommitted and `git_status` shows them.
+- **Applied to** `assignTerm`, `renameTerm`, `mergeTerm` and `deleteTerm`.
+  `deleteTerm` is batched whole, with or without `unassign`, because its
+  child re-parents and feature moves were separate commits even without
+  carriers.
+- **Messages.** The tail lists the nonzero counts of what was written, so a
+  seat that wrote only its record keeps the message it always had:
+  - `Assign term: cookies (+5 recipes)`; `Unassign term: cookies (-2
+recipes)` for a remove-only call; `Assign term: bread (+2 recipes, -1
+recipe)` for both; `(+2 groups)` with `type: "group"`.
+  - `Rename term: cookies → biscuits (2 recipes, 1 group)`, or the bare
+    `Rename term: holiday → festive` when only the record moved (the old
+    record commit's message, unchanged).
+  - `Merge term: sweets → dessert (2 recipes, 1 child, 1 feature)`.
+  - `Delete term: bread (2 recipes, 1 child, 1 feature)`, or the bare
+    `Delete term: bread`.
+  - A partial counts what landed before the failure:
+    `Assign term: cookies (+1 recipe) (partial)`. The message is a thunk read
+    at commit time, and the seats fill their result as each write lands
+    (`retagAll` takes the accumulator), so the counts are right either way.
+- **Wording.** The MCP `INSTRUCTIONS` ("…land as one commit per call — a
+  failure part-way commits what was written as "… (partial)""), the
+  `term_assign` / `term_rename` / `term_merge` / `term_delete` descriptions,
+  SKILL.md (assign and rename, plus what to do with a partial — report the
+  hash; `git_revert` stays held back), `examples.md`'s report step, the
+  `terms.ts` module docblock and seat docblocks, and `agent-taxonomy.md`
+  Deferred (F34 struck, done by 32d). No test pinned the old wording.
+
+**Decisions.**
+
+- **The batch rides the context**, not a module global: `{...ctx, batch}`
+  is handed to the inner seats, so two requests in one editor process cannot
+  share a batch, and a nested `withBatchCommit` joins the outer one.
+- **`touchedPaths` only with `commit: false`.** Always returning it would
+  have changed every default result, and existing `toEqual`s on results
+  with it. The option is the only way to ask for the paths.
+- **No paths, no commit.** `commitContentChanges` reads an empty path list
+  as `./*`, so a batch that wrote nothing (an assign whose carriers already
+  had the tag) skips the commit rather than sweeping the tree.
+- **Limit of the partial.** It commits what each finished engine write
+  reported. A throw _inside_ one engine write, after it wrote a file but
+  before it returned, leaves that file uncommitted: the same as an
+  unbatched write that fails that way, and outside D3's case (a seat that
+  fails between writes).
+
+**Tests.** `curationGit.test.ts` "batched term writes (F34)" (8): an assign
+over 3 recipes (plus one unchanged) is one commit with 3 files and 3
+`onWrite` events; add/remove counts, the `Unassign` shape, and no commit for
+no-op or missing-only assigns; groups; a rename with a record, 2 recipes and
+a group; a record-only rename keeps the bare message; a merge with carriers,
+a child and a feature; a delete with `unassign`, a child and a feature; a
+partial (a committed unparseable carrier mid-list → one `(partial)` commit
+of the first carrier, clean tree, `SyntaxError` rethrown, then `gitRevert`
+of it). "engine writes with commit: false (F34)" (2): create → rename →
+delete without a commit, each returning its paths, and a default create's
+result keys and commit unchanged. `api-write.spec` (+1, the git describe):
+an assign over two recipes through the API is one commit with both files,
+the tree is clean, and one revert untags both.
 
 ### 32e — 24g: the by-term record, measured and split
 
