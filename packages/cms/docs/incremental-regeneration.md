@@ -1930,9 +1930,24 @@ and bounded invalidation per key.
   is `{keys: n}` and whose `hash` covers the per-key hashes), one record per key at `[1, key]`, and
   `Record<key, hash>` at `[2]`, which only the writer reads. The walk is unchanged: the kind
   trusts nothing it stored, and the terms aggregate needs the walk anyway. After it, each key is
-  hashed alone and compared with `[2]`, and **one transaction** writes the moved keys, removes the
-  vanished ones and rewrites `[2]` and the header. A spec change clears the environment first. A
-  pass that moved nothing writes nothing.
+  hashed alone, and **one transaction** does the rest:
+  - it reads the header, `[2]` and a key-only scan of the `[1, *]` records;
+  - it writes the keys whose hash moved or whose record is missing;
+  - it removes every stored record the new value lacks;
+  - it rewrites `[2]` and the header.
+
+  A spec change clears the environment first. A pass whose header hash matches and whose records
+  match writes nothing.
+
+- **The reads happen inside the transaction callback, and the deletes come from the records**
+  (the 32e review's B1). lmdb-js queues a `transaction` callback for a later batch. So a diff
+  read before the `await` let two overlapping passes diff against the same stale hashes, and one
+  adding `x` and one removing it could leave a `[1, x]` record that no hash listed. That ghost
+  was permanent, because the header hash matched and nothing looked again. Inside the callback
+  the reads see the write transaction. Because the delete set is the stored records minus the new
+  keys, any stray record heals on the next pass or rebuild. A stale pass can still store last,
+  as with any aggregate (no lock spans a whole pass), but what it stores is consistent and the
+  next pass corrects it.
 - **`AggregateUpdateResult.keys`**: the moved keys (added, changed or removed), present only on a
   keyed aggregate.
 - **Tags take pagination's shape.** `aggregate:<type>:<name>` is the catch-all: every read of the
@@ -1941,9 +1956,11 @@ and bounded invalidation per key.
   `revalidateAggregateResults` fires `whole` plus each moved key.
 - **Reads.** `readAggregate` reassembles the whole value, so nothing that read it broke.
   `readAggregateKey` reads the header (to check the spec) and one record.
-  `createCachedAggregateRead().readKey(k)` builds one `unstable_cache` wrapper per key on demand,
-  like pagination's `readPage`. `readTaxonomyByTermEntry` and `byTerm.readKey(slug)` are the
-  taxonomy spellings.
+  `createCachedAggregateRead().readKey(k)` builds one `unstable_cache` wrapper per read, inside
+  `React.cache`, and keeps none. This is `cachedItemRead.ts`'s pattern, not pagination's map of
+  wrappers per page, because the key comes from a public URL and a map would grow with every
+  slug a crawler invents (review B2). `readTaxonomyByTermEntry` and `byTerm.readKey(slug)` are
+  the taxonomy spellings.
 - **`keyed` is in `computeAggregateSpecHash`**, but only when it is set, because `hashValue` drops
   an `undefined` field. Every other aggregate's spec hash is byte-identical. `byTermAggregate`
   declares it and `TAXONOMY_FOLD_VERSION` went `"1"` → `"2"`, so a by-tag environment still in the

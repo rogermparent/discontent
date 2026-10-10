@@ -325,9 +325,11 @@ term's items by page.
   - New: `readAggregateKey(options, key)`, and `readTaxonomyByTermEntry` on
     top of it.
   - `createCachedAggregateRead` gains `readKey(key)`, one `unstable_cache`
-    wrapper per key, built on demand and kept, the way pagination's
-    `readPage` works. `createCachedTaxonomyReads().byTerm` therefore has
-    `read()` (whole) and `readKey(slug)`.
+    wrapper per key. (Corrected at review: the wrapper is built inside
+    `React.cache` and kept nowhere, as `cachedItemRead.ts` does. It is not
+    kept in a map the way pagination's `readPage` keeps its wrappers.)
+    `createCachedTaxonomyReads().byTerm` therefore has `read()` (whole) and
+    `readKey(slug)`.
 - **Readers move to the narrow read where they can.**
   - `resolveTermPage` reads the term's two entries with `readKey` and takes
     its breadcrumb and child counts from the two `terms` values (9.5 KB, which
@@ -1008,14 +1010,48 @@ F8b entry, the §12.13 F8b row and its note).
   fires it for a keyed aggregate.
 - **Counts from the clouds.** On a term page they equal the old row-length
   counts by construction (one walk, the same first-label rule). The clouds
-  are 9.5 KB, which `/tags` reads anyway.
+  are 9.5 KB, which `/tags` reads anyway. **The cost:** every term page now
+  also depends on the two whole term clouds, which expire on any change to a
+  count or a label (a carrier joining or leaving any term). A recipe gaining
+  a tag therefore still expires every term page through
+  `aggregate:recipes:tags`. What no longer does is the commoner write, a
+  change only to a carrier's row (its name or image), which moves `by-tag`
+  keys and never a count. Making counts per-term too, by keying the cloud,
+  would remove that dependency; it is not done here.
 - **The engine version, not the sites'.** One constant invalidates every
   site's taxonomy values (recipes, groups, projects, notes). `keyed` in the
-  spec hash is a second guard against a layout mix-up.
-- **One cached wrapper per key asked for**, kept for the process, as
-  pagination keeps one per page number. A request for an unknown
-  `/tags/<slug>` builds one too, which is the same exposure `/recipes/<n>`
-  already has. Left as is.
+  spec hash is a second guard against a layout mix-up. **The bump also
+  invalidates the non-keyed `terms` clouds, deliberately** (review note).
+  `keyed` alone would already have moved the by-term spec hash. But the
+  memo edits the pinned fold module, the bump is the convention for that,
+  and a reindex is required anyway, so keeping the clouds valid would save
+  nothing on the morning checklist. It would only save the window before the
+  reindex, in which a term page without a record 404s either way, because
+  its rows read `null`.
+- **Key wrappers are built per read, not kept** (review B2). An earlier
+  revision kept a module-scope map of one `unstable_cache` wrapper per key,
+  as pagination does per page. But `/tags/<slug>` is public on the Pi editor,
+  so a crawler could grow that map without bound. `readKey` now builds its
+  wrapper inside `React.cache` and keeps nothing, which is
+  `cachedItemRead.ts`'s pattern. Per-request dedupe is unchanged, and the
+  entries live in Next's incremental cache.
+- **Diff inside the transaction; deletes from the records** (review B1). An
+  earlier revision read the header and the hash map before
+  `await db.transaction(...)`. lmdb-js runs the callback in a later batch,
+  so two overlapping passes could diff against the same stale hashes. One
+  adding `x` and one removing it could then leave a `[1, x]` record that no
+  hash listed: a permanent ghost, because the header hash still matched and
+  the early return stopped every later pass, a reindex included.
+  - Now every read and the diff run inside the callback, which sees the
+    write transaction; LMDB serialises those across processes.
+  - The delete set is a key-only scan of the stored records minus the new
+    keys, so any stray record is removed by the next pass, rebuild or not.
+    A record the value has but the store lacks is restored the same way.
+  - The early return requires the records to match, not just the header
+    hash.
+  - What remains is common to every aggregate: a pass that folded an older
+    corpus can still store last, because no lock spans a whole pass. Its
+    result is consistent, though, and the next pass corrects it.
 
 **Tests.**
 
@@ -1030,8 +1066,13 @@ F8b entry, the §12.13 F8b row and its note).
   - `keyed` in the spec hash only when set;
   - a non-object keyed value refused, and a one-key read of an unkeyed
     aggregate refused;
-  - the memo slugging once per tag.
-- `cachedReadKeys.test.ts`: per-key wrappers, their keys and tags.
+  - the memo slugging once per tag;
+  - (review B1) a planted stray key record removed and reported by the next
+    pass with the header hash unchanged, a deleted key record restored, a
+    stray cleared by `rebuildIndex`, and two overlapping passes leaving
+    records and hashes in agreement, with the next pass converging.
+- `cachedReadKeys.test.ts`: per-key wrappers, their keys and tags, and (review
+  B2) no wrapper retained between reads.
 - `revalidateContentWrite.test.ts`: `whole` plus moved keys fire, and nothing
   fires for an unmoved keyed aggregate.
 - `exportStaticParams.test.ts`: the mocks feed `terms.read` from the same

@@ -75,19 +75,17 @@ export function createCachedAggregateRead<
   );
 
   /*
-   * Tags are fixed per wrapper, so a key's tag needs a wrapper per key — built
-   * on demand and kept, as pagination keeps one per page. The set is bounded
-   * by the keys a render asks for.
+   * Tags are fixed per `unstable_cache` wrapper, so a key's tag needs a
+   * wrapper per key — built **inside** `React.cache`, keyed by the key, and
+   * kept nowhere. That is `cachedItemRead.ts`'s pattern, and its "no reader
+   * Map" note is the reason: the key comes from the URL (`/tags/<slug>`, public
+   * on the editor), so a module-scope map of wrappers would grow with every
+   * slug a crawler invents. `unstable_cache` holds no state of its own — the
+   * entries live in the incremental cache — so this gets the per-key tag and
+   * the per-render dedupe and retains nothing past the request.
    */
-  const keyReaders = new Map<
-    string,
-    () => Promise<KeyedEntryOf<TValue> | null>
-  >();
-
-  function keyReader(key: string) {
-    const existing = keyReaders.get(key);
-    if (existing) return existing;
-    const created = cache(
+  const keyReader = cache(
+    (key: string): Promise<KeyedEntryOf<TValue> | null> =>
       unstable_cache(
         () =>
           readAggregateKey<TIndexValue, TKey, TAccumulator, TValue>({
@@ -96,11 +94,8 @@ export function createCachedAggregateRead<
           }),
         [...keyBase, "key", key],
         { tags: [tags.value, tags.key(key)] },
-      ),
-    );
-    keyReaders.set(key, created);
-    return created;
-  }
+      )(),
+  );
 
   return {
     tags,
@@ -115,7 +110,7 @@ export function createCachedAggregateRead<
      * aggregate that is not keyed.
      */
     readKey: (key: string): Promise<KeyedEntryOf<TValue> | null> =>
-      keyReader(key)(),
+      keyReader(key),
   };
 }
 

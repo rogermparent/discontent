@@ -20,7 +20,9 @@ import {
   RECORD_KEY,
   computeAggregateSpecHash,
   getAggregateDatabase,
+  keyedEntryKey,
   readAggregateRecord,
+  readKeyedEntries,
   readKeyedEntry,
   readKeyedHashes,
 } from "@discontent/cms/aggregates/database";
@@ -37,6 +39,7 @@ import type {
   AnyContentTypeConfig,
   ContentTypeConfig,
 } from "@discontent/cms/content/types";
+import { rebuildIndex } from "@discontent/cms/content/rebuildIndex";
 import { updateContent } from "@discontent/cms/content/updateContent";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 import { hashValue } from "@discontent/cms/pagination/hash";
@@ -662,6 +665,109 @@ describe("the by-term aggregate, one record per term", () => {
         key: "x",
       }),
     ).rejects.toThrow(/not keyed/);
+  });
+
+  /*
+   * The 32e review's B1. A stray key record — one the hash map does not list,
+   * left by an interleaving or any other failure — must not survive: the
+   * delete set comes from the stored records themselves, so the next pass
+   * removes it even when the header hash says nothing moved.
+   */
+  it("removes a stray key record on the next pass, and reports it", async () => {
+    await putNote("a", { title: "A", date: day(1), tags: ["x"] });
+    await foldNotes();
+    const db = byTermDb();
+    const headerHash = readAggregateRecord(db)?.hash;
+    await db.put(keyedEntryKey("ghost"), { label: "ghost", items: [] });
+    expect((await byTermOf())?.ghost).toBeDefined();
+
+    const results = await foldNotes();
+
+    expect(results[1]).toEqual({
+      name: "by-tag",
+      changed: true,
+      total: 1,
+      keys: ["ghost"],
+    });
+    expect(readKeyedEntry(db, "ghost")).toBeUndefined();
+    expect(await byTermOf()).toEqual({
+      x: { label: "x", items: [{ id: "a" }] },
+    });
+    /* The value itself never moved: the header's hash is what it was. */
+    expect(readAggregateRecord(db)?.hash).toBe(headerHash);
+  });
+
+  it("restores a key record that went missing, and reports it", async () => {
+    await putNote("a", { title: "A", date: day(1), tags: ["x", "y"] });
+    await foldNotes();
+    const db = byTermDb();
+    await db.remove(keyedEntryKey("y"));
+
+    const [results, written] = await termWrites(noteTagTaxonomy, foldNotes);
+
+    expect(results[1]).toMatchObject({ changed: true, keys: ["y"] });
+    expect(written).toEqual(["y"]);
+    expect(readKeyedEntry(db, "y")).toEqual({
+      label: "y",
+      items: [{ id: "a" }],
+    });
+  });
+
+  it("lets a full rebuild clear a stray key record", async () => {
+    /* The real write path, so `rebuildIndex` has data files to rebuild from. */
+    await createContent({
+      config: taggedConfig,
+      slug: "a",
+      data: { title: "A", date: day(1), tags: ["x"] },
+      contentDirectory,
+    });
+    await rebuildIndex({ config: taggedConfig, contentDirectory });
+    const db = byTermDb();
+    await db.put(keyedEntryKey("ghost"), { label: "ghost", items: [] });
+
+    await rebuildIndex({ config: taggedConfig, contentDirectory });
+
+    expect(readKeyedEntry(db, "ghost")).toBeUndefined();
+    expect(Object.keys((await byTermOf()) ?? {})).toEqual(["x"]);
+  });
+
+  it("leaves records and hashes agreeing after two overlapping passes, and the next pass converges", async () => {
+    /*
+     * Pass A folds a corpus where `x` exists; the corpus then loses `x`; pass
+     * B folds that. Both are in flight at once and lmdb-js runs their store
+     * transactions later, in whichever order their earlier awaits allow — here
+     * B's first, because B's terms value did not move and it never yields
+     * before storing. A's stale value then lands last. That is true of every
+     * aggregate (no lock spans a whole pass) and the next pass corrects it.
+     *
+     * What must never happen is B1's ghost: records and hash map disagreeing,
+     * so nothing ever looks again. Each store now diffs inside its own
+     * transaction, so they agree after every pass.
+     */
+    await putNote("a", { title: "A", date: day(1), tags: ["y"] });
+    await foldNotes();
+
+    await putNote("a", { title: "A", date: day(1), tags: ["x", "y"] });
+    const passA = foldNotes();
+    const contentDb = getContentDatabase<NoteIndexValue, NoteKey>(
+      baseConfig,
+      contentDirectory,
+    );
+    contentDb.putSync(
+      [day(1), "a"],
+      baseConfig.buildIndexValue({ title: "A", date: day(1), tags: ["y"] }, {}),
+    );
+    const passB = foldNotes();
+    await Promise.all([passA, passB]);
+
+    const db = byTermDb();
+    expect(Object.keys(readKeyedEntries(db)).sort()).toEqual(
+      Object.keys(readKeyedHashes(db) ?? {}).sort(),
+    );
+
+    await foldNotes();
+    expect(Object.keys((await byTermOf()) ?? {})).toEqual(["y"]);
+    expect(readKeyedEntry(db, "x")).toBeUndefined();
   });
 
   it("memoises a carrier's terms across the two folds of one pass", async () => {

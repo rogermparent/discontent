@@ -5,6 +5,7 @@ import { getContentDirectory } from "../fs/getContentDirectory";
 import { aggregatesOf } from "../taxonomies/aggregates";
 import { hashValue } from "../pagination/hash";
 import {
+  KEYED_ENTRY_PREFIX,
   KEYED_HASHES_KEY,
   RECORD_KEY,
   computeAggregateSpecHash,
@@ -205,30 +206,68 @@ async function storeKeyed(
   for (const [key, entry] of entries) hashes[key] = hashValue(entry);
   const hash = hashValue(hashes);
 
-  const previous = readAggregateRecord(db);
-  const specMoved = !previous || previous.specHash !== specHash;
-  const valueMoved = !previous || previous.hash !== hash;
-  if (!specMoved && !valueMoved) return { changed: false, keys: [] };
-
   /*
-   * After a spec change the stored hashes were made by another fold (or are
-   * missing, in the old single-record layout), so no key's hash can be
-   * trusted and every key counts as moved. The old keys are still worth
-   * reading, so a key that vanished across the change is reported too.
+   * **Every read and the diff happen inside the transaction callback**, not
+   * before it. lmdb-js queues a `transaction` callback for a later batch, so
+   * state read before the `await` can be stale by the time the callback runs:
+   * two concurrent passes would diff against the same old hashes, and one
+   * that adds key x and one that removes it could leave `[1, x]` behind with
+   * nothing listing it. That was a permanent ghost: `readAggregateKey` stale,
+   * `readAggregate` resurrecting x, and the header hash matching so nothing
+   * ever looked again. Inside the callback, reads see the write transaction,
+   * which LMDB serialises across processes too.
    */
-  const storedHashes = readKeyedHashes(db) ?? {};
-  const moved = new Set<string>();
-  for (const [key, entryHash] of Object.entries(hashes)) {
-    if (specMoved || storedHashes[key] !== entryHash) moved.add(key);
-  }
-  const removed = Object.keys(storedHashes).filter((key) => !(key in hashes));
+  return db.transaction(() => {
+    const previous = readAggregateRecord(db);
+    const specMoved = !previous || previous.specHash !== specHash;
+    const valueMoved = !previous || previous.hash !== hash;
 
-  await db.transaction(() => {
+    /*
+     * The stored key **records**, scanned by key alone, are the truth about
+     * what a reader would see. The hash map at `[2]` only says what the last
+     * pass meant to write. So the delete set is every stored record the new
+     * value lacks: a stray record from any earlier failure is removed on the
+     * next pass, a reindex included. A key the value has but the records lack
+     * is rewritten for the same reason.
+     */
+    const storedKeys = new Set<string>();
+    for (const key of db.getKeys({
+      start: [KEYED_ENTRY_PREFIX],
+      end: [KEYED_ENTRY_PREFIX + 1],
+    })) {
+      storedKeys.add(String((key as Key[])[1]));
+    }
+    const removed = [...storedKeys].filter((key) => !(key in hashes));
+    const missing = entries.some(([key]) => !storedKeys.has(key));
+
+    if (!specMoved && !valueMoved && removed.length === 0 && !missing) {
+      return { changed: false, keys: [] };
+    }
+
+    /*
+     * After a spec change the stored hashes were made by another fold (or are
+     * missing, in the old single-record layout), so no key's hash can be
+     * trusted and every key counts as moved.
+     */
+    const storedHashes = specMoved ? {} : (readKeyedHashes(db) ?? {});
+    const moved = new Set<string>();
+    for (const [key, entryHash] of Object.entries(hashes)) {
+      if (
+        specMoved ||
+        storedHashes[key] !== entryHash ||
+        !storedKeys.has(key)
+      ) {
+        moved.add(key);
+      }
+    }
+
     if (specMoved) db.clearSync();
     for (const [key, entry] of entries) {
-      if (specMoved || moved.has(key)) db.putSync(keyedEntryKey(key), entry);
+      if (moved.has(key)) db.putSync(keyedEntryKey(key), entry);
     }
-    for (const key of removed) db.removeSync(keyedEntryKey(key));
+    if (!specMoved) {
+      for (const key of removed) db.removeSync(keyedEntryKey(key));
+    }
     db.putSync(KEYED_HASHES_KEY, hashes);
     db.putSync(RECORD_KEY, {
       value: { keys: entries.length },
@@ -236,10 +275,20 @@ async function storeKeyed(
       specHash,
       updatedAt: Date.now(),
     } satisfies AggregateRecord<KeyedAggregateHeader>);
-  });
 
-  if (!valueMoved) return { changed: false, keys: [] };
-  return { changed: true, keys: [...moved, ...removed].sort() };
+    /*
+     * A spec change that leaves every value as it was is a rewrite, not news.
+     * Anything else a reader would see differently — a moved hash, a stray
+     * removed, a missing record restored — is reported, with its keys.
+     */
+    const keys = [...moved, ...removed].sort();
+    if (specMoved && !valueMoved && removed.length === 0) {
+      return { changed: false, keys: [] };
+    }
+    return keys.length > 0 || valueMoved
+      ? { changed: true, keys }
+      : { changed: false, keys: [] };
+  });
 }
 
 export default updateAggregates;

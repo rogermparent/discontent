@@ -86,14 +86,31 @@ describe("a keyed aggregate's cached reads", () => {
       aggregateConfig: { name: "by-tag", version: "2.1", keyed: true } as never,
       contentDirectory: "/content",
     });
-    // Key readers are built on first use.
     void reads.readKey("cookies").catch(() => undefined);
     void reads.readKey("cake").catch(() => undefined);
-    void reads.readKey("cookies").catch(() => undefined);
     return { keys: [...keys], tags: [...tags] };
   }
 
-  it("builds one wrapper per key, keyed by version and key", () => {
+  /*
+   * The 32e review's B2: no module-scope map of wrappers, because the key
+   * comes from the URL. A wrapper is built per call (inside `React.cache`,
+   * which dedupes within a request and is a pass-through outside one, as
+   * here) and kept nowhere, so a second read of the same key builds a second
+   * wrapper instead of finding a retained one.
+   */
+  it("retains no wrapper between reads", () => {
+    const reads = createCachedAggregateRead({
+      config,
+      aggregateConfig: { name: "by-tag", version: "2.1", keyed: true } as never,
+      contentDirectory: "/content",
+    });
+    keys.length = 0;
+    void reads.readKey("cookies").catch(() => undefined);
+    void reads.readKey("cookies").catch(() => undefined);
+    expect(keys).toHaveLength(2);
+  });
+
+  it("builds a wrapper per key read, keyed by version and key", () => {
     const built = keyedReads();
     expect(built.keys).toEqual([
       ["aggregate", "notes", "by-tag", "2.1", "/content"],
