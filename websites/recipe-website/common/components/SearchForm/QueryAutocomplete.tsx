@@ -16,10 +16,14 @@ import {
   PopoverContent,
 } from "@discontent/component-library/components/ui/popover";
 import { cn } from "@discontent/component-library/lib/utils";
-import { useSearch } from "./SearchContext";
+import { useQuery } from "@tanstack/react-query";
+import { fetchIngredients, useSearch } from "./SearchContext";
 import type { GroupSearchEntry } from "../../controller/data/readGroupSearchCorpus";
+import type { MassagedRecipeEntry } from "../../controller/data/read";
+import { prepareCorpus, suggestNames } from "../../util/makeable";
 import {
   FILTER_FIELDS,
+  anyLineMatcher,
   completionsAt,
   fold,
   quoteQueryValue,
@@ -127,30 +131,118 @@ function groupOptions(
     }));
 }
 
+/** What `ingredientOptions` completes from: names, and a check against the lines. */
+export interface IngredientSuggestions {
+  /** `suggestNames`' list, most used first. */
+  names: string[];
+  /** Would `ingredient:<folded name>` match any line? `anyLineMatcher`'s answer. */
+  matches: (needle: string) => boolean;
+}
+
+/**
+ * Ingredient names matching what has been typed after `ingredient:` (32f).
+ *
+ * The names are the Make page's (`suggestNames`), so they are *normalized*:
+ * "fresh lime juice" is offered as `lime juice` and "2 cups cherries" as
+ * `cherry`. The filter, though, matches the lines as written, and `cherry` is
+ * not a prefix of any word in "cherries". So each candidate is checked against
+ * the lines with the filter's own rule before it is offered. A suggestion that
+ * finds nothing is worse than no suggestion. Only the rows shown are checked:
+ * the loop stops at `MAX_OPTIONS`.
+ *
+ * Folded and deduped (an alias such as `Gnista` can fold to a line name), with
+ * the same "already typed" rule as tags, and quoted on the way out.
+ */
+export function ingredientOptions(
+  prefix: string,
+  { names, matches }: IngredientSuggestions,
+): CompletionOption[] {
+  const folded = fold(prefix);
+  const seen = new Set<string>();
+  const options: CompletionOption[] = [];
+  for (const name of names) {
+    const value = fold(name);
+    if (seen.has(value)) continue;
+    seen.add(value);
+    if (!value.startsWith(folded) || value === folded) continue;
+    if (!matches(value)) continue;
+    options.push({
+      key: `ingredient:${value}`,
+      label: name,
+      replacement: `ingredient:${quoteQueryValue(name)}`,
+    });
+    if (options.length >= MAX_OPTIONS) break;
+  }
+  return options;
+}
+
+/**
+ * Built once per ingredients document, and only when an `ingredient:` value
+ * first asks. A search can fetch the lines for its own reasons (a populate, an
+ * `ingredient:beef` filter), and that should not cost a pass over the corpus
+ * nobody wanted. Keyed on the document itself, which the query keeps for good.
+ */
+const suggestionsByDocument = new WeakMap<
+  Record<string, string[]>,
+  IngredientSuggestions
+>();
+
+/**
+ * The corpus `ingredientOptions` reads: the display recipes with their lines
+ * rejoined (as `MakePage` does, so stored headings stay headings), staples
+ * kept.
+ */
+function ingredientSuggestions(
+  allRecipes: MassagedRecipeEntry[],
+  ingredientsBySlug: Record<string, string[]>,
+): IngredientSuggestions {
+  const cached = suggestionsByDocument.get(ingredientsBySlug);
+  if (cached) return cached;
+  const corpus = allRecipes.map((recipe) => {
+    const ingredients = ingredientsBySlug[recipe.slug];
+    return ingredients ? { ...recipe, ingredients } : recipe;
+  });
+  const built = {
+    names: suggestNames(prepareCorpus(corpus), { includeStaples: true }),
+    matches: anyLineMatcher(Object.values(ingredientsBySlug).flat()),
+  };
+  // Not before the display corpus lands, or an empty list would stick.
+  if (allRecipes.length > 0)
+    suggestionsByDocument.set(ingredientsBySlug, built);
+  return built;
+}
+
 function optionsFor(
   completion: QueryCompletion | undefined,
   allTags: string[],
   allGroups: GroupSearchEntry[],
+  ingredients: IngredientSuggestions | undefined,
 ): CompletionOption[] {
   if (!completion) return [];
   if (completion.kind === "field") return fieldOptions(completion.prefix);
   /*
-   * Only `tag:` and `group:` have values to offer, and that is a scope decision
-   * rather than a gap. `allTags` and `allGroups` are already on the context
-   * (both fetched unconditionally), so they cost nothing; ingredients are a
-   * *conditional* fetch (F4a) that is often not in memory, so completing them
-   * would mean a loading state and a request inside a keystroke. The other
-   * fields take free text or a date, which no list can shorten.
+   * `tag:`, `group:` and `ingredient:` have values to offer. `allTags` and
+   * `allGroups` are on the context already (both fetched unconditionally), so
+   * they cost nothing. Ingredients are a *conditional* fetch (F4a) that is
+   * often not in memory, so the hook enables it only once the caret is in an
+   * `ingredient:` value, and the list says "Loading ingredients…" until it
+   * lands. That is one request per page load, not one per keystroke: it is the
+   * same `["recipe-ingredients"]` query search and `/make` use, kept forever.
+   * The other fields take free text or a date, which no list can shorten.
    */
   if (completion.field === "tag") return tagOptions(completion.prefix, allTags);
   if (completion.field === "group")
     return groupOptions(completion.prefix, allGroups);
+  if (completion.field === "ingredient" && ingredients)
+    return ingredientOptions(completion.prefix, ingredients);
   return [];
 }
 
 export interface QueryAutocomplete {
   enabled: boolean;
   open: boolean;
+  /** The caret is in an `ingredient:` value and the lines are still on their way. */
+  loading: boolean;
   listId: string;
   options: CompletionOption[];
   /** -1 when nothing is active, which is the resting state. See `onKeyDown`. */
@@ -188,8 +280,14 @@ export function useQueryAutocomplete({
    * on top of the rewrite — 21b's `insertTerm` opens the same way. */
   clearPendingSearch: () => void;
 }): QueryAutocomplete {
-  const { inputValue, setInputValue, submitSearch, allTags, allGroups } =
-    useSearch();
+  const {
+    inputValue,
+    setInputValue,
+    submitSearch,
+    allTags,
+    allGroups,
+    allRecipes,
+  } = useSearch();
   const listId = useId();
   const [caret, setCaret] = useState(0);
   const [focused, setFocused] = useState(false);
@@ -202,12 +300,40 @@ export function useQueryAutocomplete({
       enabled ? completionsAt(raw, Math.min(caret, raw.length)) : undefined,
     [enabled, raw, caret],
   );
+
+  /*
+   * The same query `SearchProvider` and `MakePage` declare, so whichever asks
+   * first fetches for all three. Enabled only while the caret is in an
+   * `ingredient:` value; once the lines are cached (`staleTime: Infinity`),
+   * a later `ingredient:` completes at once.
+   */
+  const wantsIngredients =
+    completion?.kind === "operand" && completion.field === "ingredient";
+  const ingredientsQuery = useQuery({
+    queryKey: ["recipe-ingredients"],
+    queryFn: fetchIngredients,
+    enabled: wantsIngredients,
+    staleTime: Infinity,
+  });
+  const ingredientsBySlug = ingredientsQuery.data;
+  const ingredients = useMemo(
+    () =>
+      wantsIngredients && ingredientsBySlug
+        ? ingredientSuggestions(allRecipes, ingredientsBySlug)
+        : undefined,
+    [wantsIngredients, allRecipes, ingredientsBySlug],
+  );
+  /* A failed fetch shows nothing rather than a row that never stops loading. */
+  const loading =
+    wantsIngredients && !ingredientsBySlug && !ingredientsQuery.isError;
+
   const options = useMemo(
-    () => optionsFor(completion, allTags, allGroups),
-    [completion, allTags, allGroups],
+    () => optionsFor(completion, allTags, allGroups, ingredients),
+    [completion, allTags, allGroups, ingredients],
   );
 
-  const open = enabled && focused && !dismissed && options.length > 0;
+  const open =
+    enabled && focused && !dismissed && (options.length > 0 || loading);
   /*
    * Clamped on read rather than reset in an effect: the option list is derived
    * from the query and the caret, so it can shrink under a stored index at any
@@ -332,6 +458,7 @@ export function useQueryAutocomplete({
   return {
     enabled,
     open,
+    loading,
     listId,
     options,
     activeIndex: active,
@@ -372,6 +499,12 @@ export function useQueryAutocomplete({
  * constraint that shaped the palette's recents and 21b's sibling-button chips.
  * Rows are plain elements; the pointer path is a `mousedown` that
  * `preventDefault`s so focus never leaves the field, then a click.
+ *
+ * **The loading row is not an option (32f).** It sits above the listbox as a
+ * `role="status"`, and the listbox is empty and `aria-busy` meanwhile, which is
+ * how `aria-required-children` lets a listbox wait for its options. As an
+ * `option` it could be arrowed to and "accepted", and the active-index
+ * arithmetic would have to step around it.
  */
 export function QueryAutocompleteList({
   autocomplete,
@@ -381,8 +514,17 @@ export function QueryAutocompleteList({
   /** The field itself, which the list anchors to. */
   children: ReactNode;
 }) {
-  const { open, options, activeIndex, listId, optionId, accept, onOpenChange } =
-    autocomplete;
+  const {
+    open,
+    loading,
+    options,
+    activeIndex,
+    listId,
+    optionId,
+    accept,
+    onOpenChange,
+  } = autocomplete;
+  const busy = loading && options.length === 0;
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
@@ -394,12 +536,22 @@ export function QueryAutocompleteList({
         onOpenAutoFocus={(event) => event.preventDefault()}
         onCloseAutoFocus={(event) => event.preventDefault()}
       >
+        {busy ? (
+          <p
+            role="status"
+            data-testid="query-autocomplete-loading"
+            className="px-3 py-2 text-sm text-muted-foreground"
+          >
+            Loading ingredients…
+          </p>
+        ) : null}
         <ul
           id={listId}
           role="listbox"
           aria-label="Query suggestions"
+          aria-busy={busy || undefined}
           data-testid="query-autocomplete"
-          className="max-h-72 overflow-y-auto py-1"
+          className={cn("max-h-72 overflow-y-auto", !busy && "py-1")}
         >
           {options.map((option, index) => (
             <li
