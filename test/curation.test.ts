@@ -993,12 +993,25 @@ describe("groups", () => {
     expect(detail.items[1]).toMatchObject({ recipe: "salad", name: "Salad" });
 
     /*
-     * Deleting the child leaves the row (T31): nothing rewrites a parent, the
-     * same D3 rule recipes have had since 22b.
+     * Renaming the child rewrites the parent's row in the same write (F32,
+     * epic 31); the row keeps its label.
      */
-    await groups.deleteGroup(ctx, "week-of-may-4");
+    await groups.updateGroup(ctx, "week-of-may-4", { slug: "week-one" });
+    expect((await readGroupFile("spring-menus")).items[0]).toEqual({
+      group: "week-one",
+      label: "Week 1",
+    });
     expect((await groups.getGroup(ctx, "spring-menus")).items[0]).toMatchObject(
-      { group: "week-of-may-4", missing: true },
+      { group: "week-one", name: "Week of May 4" },
+    );
+
+    /*
+     * Deleting the child leaves the row (T31): nothing rewrites a parent on a
+     * delete, the same D3 rule recipes have had since 22b.
+     */
+    await groups.deleteGroup(ctx, "week-one");
+    expect((await groups.getGroup(ctx, "spring-menus")).items[0]).toMatchObject(
+      { group: "week-one", missing: true },
     );
   });
 

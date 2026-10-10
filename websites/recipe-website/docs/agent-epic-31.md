@@ -230,6 +230,13 @@ items untouched, no index for an absent dependent type, delete stays
 dangling); groups and `curation.test.ts` T31; full vitest; typechecks;
 Playwright `groups`, `featured-recipes`, `git`, `recipe`.
 
+**Built (31d).** As planned, plus one engine call: `rebuildIndex`'s cascade
+now skips a dependent whose every declaration toward the rebuilt type has
+`fields: []` (`borrowsFrom`). Without it a recipe rebuild — every reindex —
+would have rebuilt groups too, for nothing. Groups' successful writes gained
+`dependentItemBasePaths: {groups: "/group"}` (a sub-group rename rewrites its
+parents), and recipes' gained `groups: "/group"`.
+
 ### 31e — Term edit form
 
 An editor-only form at `/tags/<slug>/edit` (and a "New term" entry on `/tags`):

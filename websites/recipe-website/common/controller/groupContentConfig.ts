@@ -2,6 +2,7 @@ import type { ContentTypeConfig } from "@discontent/cms/content/types";
 import buildGroupIndexValue from "./buildGroupIndexValue";
 import createDefaultGroupSlug from "./createGroupSlug";
 import { featuredRecipeContentConfig } from "./featuredRecipeContentConfig";
+import { recipeContentConfig } from "./recipeContentConfig";
 import { groupsByGroup, groupsByRecipe } from "./groupAggregateConfigs";
 import { groupsByDate } from "./groupPaginationConfig";
 import { groupTagTaxonomy } from "./groupTagTaxonomy";
@@ -10,15 +11,16 @@ import { Group, GroupEntryKey, GroupEntryValue } from "./types";
 /**
  * Content type configuration for groups — meal plans and collections.
  *
- * **No *array* `references` (D3).** A group's recipes live in `items[].recipe`,
- * and the engine's reference machinery is scalar-only
- * (`content/references.ts`, `updateDependents.ts`), so there is no declaration
- * that would follow them. The consequences are deliberate and bounded: a group
- * card borrows nothing from its recipes, so retitling one does not dirty it;
- * the detail page reads each recipe through the cached item read, so a retitle
- * *does* show there; and a rename or delete leaves a dangling slug the detail
- * page renders as "Recipe not found". Array references are engine follow-up
- * F32.
+ * **Array `references` that follow renames (F32, epic 31).** A group's items
+ * live in `items[].recipe` and `items[].group`. Both are declared as reference
+ * paths with `fields: []`: a group card borrows nothing from its members, so
+ * retitling a recipe does not dirty it, but **renaming** a recipe or a
+ * sub-group rewrites every item that names it, in the rename's own commit
+ * (`updateDependents`, `referencePath.ts`). A **delete** still leaves a
+ * dangling slug the detail page renders as "Recipe not found" — the history
+ * of what the group held is worth more than a tidy file (D3, amended). The
+ * detail page reads each recipe through the cached item read, so a retitle
+ * shows there without any of this.
  *
  * **One scalar edge inbound, since 22g.** A featured entry may point at a group
  * (`FeaturedRecipe.group`), which is an ordinary scalar reference, so this
@@ -74,8 +76,27 @@ export const groupContentConfig: ContentTypeConfig<
    * reordering is not.
    */
   taxonomies: [groupTagTaxonomy],
+  /*
+   * Thunks on both edges (T2): `recipeContentConfig` names this module back,
+   * and the self-edge names this very `const`. Never the registry
+   * (`contentTypes.ts`), which configs do not import.
+   */
+  references: [
+    {
+      config: () => recipeContentConfig,
+      dataField: "items[].recipe",
+      fields: [],
+    },
+    {
+      config: () => groupContentConfig,
+      dataField: "items[].group",
+      fields: [],
+    },
+  ],
   referencedBy: [
     { config: () => featuredRecipeContentConfig, indexField: "group" },
+    /* A sub-group's rename rewrites its parents' items (F32). */
+    { config: () => groupContentConfig, dataField: "items[].group" },
   ],
 };
 

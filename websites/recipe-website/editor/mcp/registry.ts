@@ -493,8 +493,9 @@ export function createRecipeServer(
       title: "Update a recipe",
       description:
         "Patch a recipe: an omitted key is left alone, an explicit null clears it. " +
-        "`patch.slug` renames (and moves the page). `dryRun` returns the record the " +
-        "patch would produce without writing it.",
+        "`patch.slug` renames (and moves the page); every group item and featured " +
+        "entry naming the old slug is rewritten in the same commit. `dryRun` returns " +
+        "the record the patch would produce without writing it.",
       inputSchema: z.strictObject({
         slug: Slug,
         patch: RecipePatchSchema,
@@ -623,7 +624,8 @@ export function createRecipeServer(
       description:
         "Everything about a group except its items: name, slug (a rename), kind, date, " +
         "description, image and tags. `tags` replaces the whole list; null clears it. " +
-        "Use group_set_items for the items themselves.",
+        "A rename rewrites every parent group's item and featured entry naming it, in " +
+        "the same commit. Use group_set_items for the items themselves.",
       inputSchema: z.strictObject({
         slug: Slug,
         patch: GroupPatchSchema,
