@@ -642,7 +642,7 @@ the end-to-end checks at 32-close.
 | 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                                                    |
 | 32h     | #201 |            | typechecks ✅ (recipe, export, portfolio); vitest 1058/1058; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI               |
 | 32g     | #202 |            | typechecks ✅; vitest 1068/1068 (56 files); Playwright `groups` + `yield` + `recipe` 47/47 (build); export `next build` ✅; CI                    |
-| 32j     | #206 |            | typechecks ✅; vitest 1134/1134 (56 files); Playwright not a local gate (see entry) — CI's Recipe shards                                          |
+| 32j     | #206 |            | typechecks ✅; vitest 1148/1148 (56 files); Playwright not a local gate (see entry) — CI's Recipe shards                                          |
 
 ### 32a — Hygiene
 
@@ -1356,7 +1356,7 @@ swapped in for "before").
   merging origin/main at 32c (#203). Review round: re-run after merging
   origin/main at 32d (#205);
 - vitest 1134/1134 (56 files), under the heavy slot, after the merge.
-  Review round: VITEST2;
+  Review round: 1148/1148 (56 files), heavy slot, after merging 32d;
 - Playwright: the local `make.spec` + `search-autocomplete.spec` run
   (`PLAYWRIGHT_BUILD=1`) sat in the heavy slot for ~28 minutes waiting for
   memory, and the orchestrator killed it. An orphaned child then ran all
