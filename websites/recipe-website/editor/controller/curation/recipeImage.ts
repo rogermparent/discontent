@@ -21,7 +21,11 @@ import type {
   RecipeEntryKey,
   RecipeEntryValue,
 } from "recipe-website-common/controller/types";
-import { fetchImageFile, checkImageFile } from "../imageImport";
+import {
+  checkImageFile,
+  fetchImageFile,
+  largeImageWarning,
+} from "../imageImport";
 import { recipePath, recipeUrl, type CurationContext } from "./context";
 import { NotFoundError, ValidationError } from "./errors";
 
@@ -38,6 +42,8 @@ export interface RecipeImageResult {
   previous?: string;
   path: string;
   url: string;
+  /** Stored, but over 2 MB (epic 31). */
+  warnings?: string[];
 }
 
 function chosen(input: Partial<Record<"url" | "file" | "clear", unknown>>) {
@@ -94,6 +100,7 @@ export async function setRecipeImage(
     upload = { clearFile: true, existingFile: current.image };
     delete data.image;
   }
+  const warning = upload.file && largeImageWarning(upload.file.size, input.url);
 
   const result = await updateContent<Recipe, RecipeEntryValue, RecipeEntryKey>({
     config: recipeContentConfig,
@@ -119,5 +126,6 @@ export async function setRecipeImage(
     ...(current.image ? { previous: current.image } : {}),
     path: recipePath(ctx, slug),
     url: recipeUrl(slug),
+    ...(warning ? { warnings: [warning] } : {}),
   };
 }

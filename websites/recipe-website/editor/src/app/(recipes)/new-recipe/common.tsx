@@ -6,6 +6,9 @@ import {
 import { ytdlpToRecipe } from "recipe-editor/controller/ytdlp";
 import { fetchYtdlpMetadata } from "./ytdlp";
 
+/** A person is waiting on the form: a 403 is retried at once (epic 31, D3). */
+const BROWSER_RETRY = { delayMs: 0 };
+
 export interface RecipeActionState {
   url?: string;
   message?: string;
@@ -41,10 +44,10 @@ export async function reduceRecipeImport(
         return {
           url,
           message,
-          recipe: await importRecipeData(url),
+          recipe: await importRecipeData(url, BROWSER_RETRY),
         };
       }
-      return { recipe: await importRecipeData(url), url };
+      return { recipe: await importRecipeData(url, BROWSER_RETRY), url };
     } else {
       return { message: "Invalid URL provided" };
     }

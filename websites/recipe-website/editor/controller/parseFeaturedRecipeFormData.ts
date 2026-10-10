@@ -44,6 +44,11 @@ const FeaturedRecipeFormSchema = z
     date: z.optional(dateEpochSchema),
     note: z.string().optional(),
     slug: z.string().optional(),
+    /** The "Feature it again" checkbox (epic 31, D2): "on" when ticked. */
+    again: z
+      .string()
+      .optional()
+      .transform((value) => value === "on"),
   })
   .refine(
     (data) => [data.recipe, data.group, data.term].filter(Boolean).length === 1,

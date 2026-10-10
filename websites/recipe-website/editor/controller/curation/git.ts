@@ -980,6 +980,12 @@ export interface GitPushOptions {
  *
  * A rejection is `git_conflict` with the page's own sentence: the remote has
  * commits this branch does not, and pulling them is a decision for a person.
+ *
+ * A remote that does not exist — no remotes at all, or a name that is not one
+ * of them — is `validation` (400) before anything runs, as `gitPull` answers a
+ * missing upstream (epic 31). Git's own "does not appear to be a git
+ * repository" / "No configured push destination" are mapped the same way, for
+ * whatever the pre-check cannot see.
  */
 export async function gitPush(
   ctx: CurationContext,
@@ -1010,18 +1016,39 @@ export async function gitPush(
         branch: status.current ?? status.tracking,
       };
     }
-    const targetRemote = safeRemote ?? "origin";
     const targetBranch = status.current;
     if (!targetBranch) {
       throw new BadRevisionError(
         "Cannot determine the current branch to push.",
       );
     }
+    const remotes = (await git.getRemotes()).map((entry) => entry.name);
+    const targetRemote =
+      safeRemote ?? (remotes.length === 1 ? remotes[0] : "origin");
+    if (!remotes.includes(targetRemote)) {
+      throw new ValidationError(
+        remotes.length === 0
+          ? "This content repository has no remote to push to: add one with git remote add."
+          : `No remote named "${targetRemote}" (remotes: ${remotes.join(", ")}): pass \`remote\`.`,
+        [{ path: "remote", message: "No such remote" }],
+      );
+    }
     await git.raw(["push", "-u", targetRemote, targetBranch]);
     return { remote: targetRemote, branch: targetBranch };
   } catch (error) {
     if (error instanceof BadRevisionError) throw error;
+    if (error instanceof ValidationError) throw error;
     const message = messageOf(error);
+    if (
+      /does not appear to be a git repository|No configured push destination/i.test(
+        message,
+      )
+    ) {
+      throw new ValidationError(
+        "No remote to push to: add one with git remote add, or pass `remote`.",
+        [{ path: "remote", message: "No such remote" }],
+      );
+    }
     if (/rejected|non-fast-forward|fetch first/i.test(message)) {
       throw new GitConflictError(
         "Push rejected — the remote has commits you don't have. Run git pull (or Pull on the editor's Git page) to merge them, then push.",
