@@ -74,6 +74,11 @@ survives a cleared context.
   never create indexes (F30) and other engine hygiene, accent contrast in the
   cyan/teal band, group thumbnails on ⌘K and `/search` from the corpus, and a
   content round under a polite-scraping rule (30a–30d).
+- `websites/recipe-website/docs/agent-epic-31.md` — epic 31: the taxonomy
+  finished (24d hierarchy-aware search, 24e term seats/CLI/MCP, a term edit
+  form), F32 group items that follow renames, curation and import polish
+  (image size, polite 403 retry, feature dedupe), and a content cleanup
+  (31a–31f).
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
