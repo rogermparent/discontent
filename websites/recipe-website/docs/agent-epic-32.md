@@ -723,6 +723,88 @@ already featured. `featured.test.ts`: `findAllFeatured` / `findFeatured` /
 `unfeatureTarget` order and events, and group delete. `curation.test.ts`
 groups: delete unfeatures, other features stay.
 
+### 32c — Term image upload, full parity
+
+**What changed.**
+
+- **The seat.** `curation/recipeImage.ts` is generalised rather than copied:
+  a private `setImage` over an `ImageTarget` (content config, commit noun,
+  not-found message, path and URL helpers), and `setRecipeImage` /
+  `setTermImage` are one line each. A recipe and a term record differ only
+  there: both are keyed `[date, slug]` and keep the picture as an `image`
+  upload. `setTermImage(ctx, slug, {url}|{file}|{clear})` commits
+  `Update term image: <slug>`. Clearing a term with no picture commits
+  nothing, and a term with carriers but no record is `not_found` ("…
+  term_create writes one"). Result types: `ImageSeatInput` / `ImageSeatResult`,
+  aliased as `RecipeImage*` (unchanged for callers) and `TermImage*`.
+- **`createTerm` / `updateTerm`** take a third, non-schema argument
+  `TermWriteOptions {imageFile?: File}`. `termImageFile` resolves the picture:
+  the file, checked with `checkImageFile`, else the URL, fetched. A file
+  beats a URL (which is then never downloaded) and, on an update, a clear,
+  the same precedence as the recipe and group forms. A refused file is
+  re-thrown as `validation` with one issue on `image` ("The image was
+  refused"), so the form shows the reason next to the file input. Both seats
+  now also return the 2 MB `largeImageWarning`, as group writes do.
+- **The form.** `TermFormSchema.image` is `z.instanceof(File)`, with 0-byte
+  files (an untouched input) turned into `undefined`. `submitTermForm` passes
+  it to the seat as `{imageFile}`; the JSON patch and input never carry it.
+  `FIELD_OF_PATH` maps `image` (beside `imageImportUrl`) to the picture.
+  `Form/Term` drops `allowFile={false}`, so the term form now has the file
+  input, the Image URL field and "Remove Image". `ImageInput` keeps the
+  `allowFile` prop, but no caller turns it off any more.
+- **Transports.**
+  - `PUT /api/taxonomies/<taxonomy>/<slug>/image`: multipart `file`, or JSON
+    `{url}` / `{clear: true}`. It is built like `api/recipe/[slug]/image`,
+    plus `assertTaxonomy`, and uses `requireCurationContext`, so it needs a
+    write-scoped token or a session.
+  - CLI `recipes term image <slug> (--url | --file | --clear)`. The command
+    is `cli/commands/term.ts` `termImage`; `setTermImage` is on the backend
+    seam (`types` / `local` / `http`). The HTTP backend uploads `--file` as
+    multipart, like `setRecipeImage`. `--help` lists the command.
+  - MCP `term_set_image {slug, url | path | clear}`: the same schema and
+    refinement as `recipe_set_image`, `WRITES` annotation, pre-approved.
+- **Tool lists.** `TOOL_NAMES` 46 → 47. `.claude/settings.json` and the
+  skill's `allowed-tools` go 34 → 35. CLAUDE.md now says 35. SKILL.md
+  mentions `term_set_image` under "Fixing an image later" and in the CLI
+  fallback mapping.
+
+**Decisions.**
+
+- **Generalise, don't copy.** The two seats would have been the same 80
+  lines with four words changed. `ImageTarget` is about 10 lines, and each
+  seat keeps its own name and docblock. The file keeps its name
+  (`recipeImage.ts`), because earlier epics' docs point at it.
+- **The form's file goes through `createTerm` / `updateTerm`, not
+  `setTermImage`.** A submit with a new picture and a new label is one
+  commit, as it is for a recipe or a group. `setTermImage` is the seat for
+  the transports that change only the picture.
+- **A file beats a clear** as well as a URL, matching
+  `actions/index.ts` / `actions/groups.ts`. The term seat's
+  `imageImportUrl: null` loses to a file in the same call.
+- **`curatorSkill.test.ts` pins the counts** (47 tools, 35 pre-approved) and
+  checks CLAUDE.md's "pre-approves its N" and "lists the same N" against them.
+  Before, nothing checked that sentence.
+
+**Tests.** `terms.test.ts` "term pictures (32c)" (6): `setTermImage` URL →
+file → clear with write events, a no-op clear, the carried-only `not_found`,
+a non-image, the empty choice; create with a file beating a URL (fetch never
+called); update where a file beats a URL and a clear, then a URL, then null;
+a refused upload filed under `image` with nothing written; the 2 MB warning.
+`termForm.test.ts` (+4): the `image` issue mapping, the 0-byte drop and the
+file kept out of the JSON, upload on create and edit (a file beating a typed
+URL, with no fetch stub), clear with an untouched file input, a refused file
+on the picture field. `imageImport.test.ts` (+3): `checkImageFile` /
+`readImageFile`. `mcp.test.ts` (+1): `term_set_image` path → clear,
+`not_found` before the record exists, two sources refused.
+`cliJson.test.ts` (+1): `term image --file` → `--url` (local server) →
+`--clear`, one commit each, with `Update term image: <slug>`, plus the
+not-found and usage errors. `curatorSkill.test.ts` (+1): the counts.
+Playwright: `term-edit.spec` (+1): `setInputFiles` on Cookies' edit form →
+`term-image` on `/tags/cookies`, record intact → "Remove Image" clears it.
+`api-write.spec` (+2): the route (404 with no record; 401 / 403 read token /
+404 unknown taxonomy; URL → upload → the term page draws it with no reload →
+400 for a non-image → clear) and `term image --file` over `--remote`.
+
 ### 32f — Ingredient completion in search
 
 - **What it does.** With the caret in an `ingredient:` value,
