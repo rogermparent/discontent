@@ -61,7 +61,7 @@ Reads are `readTaxonomyTerms` / `readTaxonomyByTerm` (`taxonomies/read`, Node-sa
 
 ### Term records
 
-`createTermContentType({ taxonomy, directory })` returns an ordinary `ContentTypeConfig` giving a vocabulary optional **records** — `term.json` per slug, holding `{ label, date, description?, image?, parent? }` plus anything the site adds. Its one novelty is a self-referencing reference edge: `parent` is a scalar slug, so renaming a parent rewrites its children and each child's index value borrows `parentLabel`. A `tree` aggregate folds `Record<slug, { label, parent?, children, image? }>` from the term index alone.
+`createTermContentType({ taxonomy, directory })` returns an ordinary `ContentTypeConfig` giving a vocabulary optional **records** — `term.json` per slug, holding `{ label, date, description?, image?, parent?, aliases? }` plus anything the site adds. Its one novelty is a self-referencing reference edge: `parent` is a scalar slug, so renaming a parent rewrites its children and each child's index value borrows `parentLabel`. A `tree` aggregate folds `Record<slug, { label, parent?, children, image?, aliases? }>` from the term index alone (version 2 since `aliases`, epic 32's 32i; what an alias means is the site's).
 
 Records are additive: a term with carriers but no record is still a term, and a record with no carriers still has a page.
 

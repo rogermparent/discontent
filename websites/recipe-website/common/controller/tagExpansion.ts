@@ -15,6 +15,23 @@ import { tagSlug } from "./tagSlug";
  * Node-safe). Matching a carried tag to a term uses `subtreeUsage`'s folding
  * (`MakePage/tagTree.ts`): by folded slug or folded label, since content
  * stores tags as slugs but a label spelling must not drop a recipe.
+ *
+ * **Aliases (32i, D5)** are a term's other spellings, and search-only: nothing
+ * rewrites a carrier's tag to the canonical term. So an alias works both ways
+ * here. `tag:<alias>` expands exactly as `tag:<term>` does (the term and its
+ * subtree), and the alias's own spellings join the expansion, so a recipe
+ * still tagged with an alias — the old slug of a merged term, or a synonym
+ * someone typed — is found by `tag:<term>` too.
+ *
+ * Which spelling wins a clash: **a record's own slug and label beat any
+ * alias**, and **an alias beats a carried-only term**. A record's label is a
+ * curator's name for that term, so another term's alias must never take it
+ * over (`tag:"Biscuits"` keeps finding the record labelled "Biscuits"). A
+ * carried-only term spelled like an alias is what a stray carrier creates
+ * when it uses the alias as a tag after it was recorded — nothing
+ * canonicalises (D5) — and it should not split the aliased term in two. The
+ * seat refuses both clashes at write time; this is the defence for what is
+ * on disk anyway.
  */
 
 /** A term's place in the hierarchy: all the expansion needs. */
@@ -22,6 +39,13 @@ export interface TermNode {
   slug: string;
   label: string;
   parent?: string;
+  /** Other spellings of this term (32i). */
+  aliases?: ReadonlyArray<string>;
+  /**
+   * The term has a record (32i). Its own slug and label then beat any other
+   * term's alias; a carried-only term's spellings do not.
+   */
+  record?: boolean;
 }
 
 export interface TermResolver {
@@ -42,10 +66,28 @@ export function buildTagExpansion(
   const bySpelling = new Map<string, string>();
   const nodes = new Map<string, TermNode>();
   const children = new Map<string, string[]>();
+  /* A record's own spellings, which no other term's alias may take. */
+  const claimed = new Map<string, string>();
   for (const term of terms) {
     nodes.set(term.slug, term);
     bySpelling.set(fold(term.label).trim(), term.slug);
     bySpelling.set(fold(term.slug), term.slug);
+    if (term.record) {
+      claimed.set(fold(term.label).trim(), term.slug);
+      claimed.set(fold(term.slug), term.slug);
+    }
+  }
+  /* An alias spelling this term may use: not another record's own. */
+  const ownAliasSpellings = (term: TermNode): string[] =>
+    aliasSpellings(term).filter((spelling) => {
+      const owner = claimed.get(spelling);
+      return owner === undefined || owner === term.slug;
+    });
+  /* After every term, so an alias beats a carried-only term's spelling. */
+  for (const term of terms) {
+    for (const spelling of ownAliasSpellings(term)) {
+      if (spelling !== fold(term.slug)) bySpelling.set(spelling, term.slug);
+    }
   }
   for (const term of terms) {
     /* A term is never its own child (24-T8), even when a hand edit says so. */
@@ -70,7 +112,10 @@ export function buildTagExpansion(
       seen.add(slug);
       spellings.add(fold(slug));
       const node = nodes.get(slug);
-      if (node) spellings.add(fold(node.label).trim());
+      if (node) {
+        spellings.add(fold(node.label).trim());
+        for (const spelling of ownAliasSpellings(node)) spellings.add(spelling);
+      }
       stack.push(...(children.get(slug) ?? []));
     }
     return spellings;
@@ -85,6 +130,21 @@ export function buildTagExpansion(
   };
 }
 
+/**
+ * An alias's folded spellings: as typed and as its slug, the two ways a
+ * carrier can spell it ("Christmas Biscuits", `christmas-biscuits`).
+ */
+function aliasSpellings(term: TermNode): string[] {
+  const spellings: string[] = [];
+  for (const alias of term.aliases ?? []) {
+    const typed = fold(alias).trim();
+    if (typed) spellings.push(typed);
+    const slug = fold(tagSlug(alias));
+    if (slug && slug !== typed) spellings.push(slug);
+  }
+  return spellings;
+}
+
 /** The same expansion from the stored tree aggregate (the Node-safe read). */
 export function buildTagExpansionFromTree(
   tree: TermTree | null | undefined,
@@ -94,6 +154,8 @@ export function buildTagExpansionFromTree(
       slug,
       label: node.label,
       ...(node.parent ? { parent: node.parent } : {}),
+      ...(node.aliases?.length ? { aliases: node.aliases } : {}),
+      record: true,
     })),
   );
 }

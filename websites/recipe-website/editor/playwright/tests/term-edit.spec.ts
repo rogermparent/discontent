@@ -202,4 +202,50 @@ test.describe("Term edit form", () => {
     const cleared = await request.get("/api/taxonomies/tag/cookies");
     expect((await cleared.json()).record.image).toBeUndefined();
   });
+
+  /* 32i (D5): aliases from the form; `/tags/<alias>` lands on the term. */
+  test("adds an alias from the chips, and /tags/<alias> redirects to the term", async ({
+    page,
+    request,
+  }) => {
+    await page.goto("/tags/cookies/edit");
+    await fillSignInForm(page);
+    await markdownEditorReady(page, "description");
+
+    const add = page.getByLabel("Add a synonym", { exact: true });
+    await add.fill("Biscuits");
+    await add.press("Enter");
+    await expect(
+      page.getByRole("button", { name: "Remove synonym Biscuits" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await page.waitForURL((url) => url.pathname === "/tags/cookies");
+
+    const stored = await request.get("/api/taxonomies/tag/cookies");
+    const body = await stored.json();
+    expect(body.aliases).toEqual(["biscuits"]);
+    /* Nothing else about the record moved. */
+    expect(body.record.parent).toBe("dessert");
+    expect(body.record.pinned).toHaveLength(3);
+
+    await page.goto("/tags/biscuits");
+    await page.waitForURL((url) => url.pathname === "/tags/cookies");
+    await expect(
+      page.getByRole("heading", { name: "Cookies", exact: true }),
+    ).toBeVisible();
+
+    /* An alias naming another term is refused on the field, nothing saved. */
+    await page.goto("/tags/cookies/edit");
+    await markdownEditorReady(page, "description");
+    await expect(
+      page.getByRole("button", { name: "Remove synonym biscuits" }),
+    ).toBeVisible();
+    await add.fill("holiday");
+    await add.press("Enter");
+    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await expect(page.getByText(/names the term "holiday"/)).toBeVisible();
+    await expect(page).toHaveURL(/\/tags\/cookies\/edit$/);
+    const after = await request.get("/api/taxonomies/tag/cookies");
+    expect((await after.json()).aliases).toEqual(["biscuits"]);
+  });
 });

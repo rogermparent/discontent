@@ -268,6 +268,9 @@ with `code: "term_cycle"`, which is final.
 the term's page; each must already carry the term. `term_rename {"slug": …,
 "to": "<new slug or label>"}` moves a term and rewrites every recipe carrying
 it, all in one commit — renaming onto an existing term is `slug_conflict`.
+`aliases` (on create or update) are other names for the term: `tag:<alias>`
+and `/tags/<alias>` reach it, and no recipe's tags change. An alias that names
+another term, or another term's alias, fails with `code: "validation"`.
 If a multi-recipe term write fails part-way, what it wrote is committed as
 `… (partial)` and the error comes back: read `term_get`, then finish the job
 or report that commit's hash (see "Held back").

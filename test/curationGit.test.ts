@@ -1337,6 +1337,8 @@ describe("batched term writes (F34)", () => {
         recipeFile("fudge"),
         recipeFile("toffee"),
         termFile("cakes"),
+        /* `sweets` becomes one of `dessert`'s aliases (32i), same commit. */
+        termFile("dessert"),
         termFile("sweets"),
       ].sort(),
     );

@@ -39,7 +39,7 @@ export const tagTermReads = {
    * The aggregate config is rebuilt here rather than reached for on the content
    * config, because `aggregates` is typed as the erased `AnyAggregateConfig`
    * and `createCachedAggregateRead` wants the value's real shape. The factory
-   * takes nothing and returns the same `{name: "tree", version: "1"}` the
+   * takes nothing and returns the same `{name: "tree", version}` the
    * config declares, so the two cannot drift: it is one definition, called
    * twice.
    */

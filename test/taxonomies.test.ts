@@ -1108,6 +1108,28 @@ describe("the term tree aggregate", () => {
     });
   });
 
+  it("carries a record's aliases (32i), and no key when it has none", async () => {
+    await createTerm("cookies", {
+      label: "Cookies",
+      date: day(1),
+      aliases: ["biscuits", "", "Christmas Biscuits"],
+    });
+    await createTerm("dessert", {
+      label: "Dessert",
+      date: day(2),
+      aliases: [],
+    });
+
+    expect(await readTree()).toEqual({
+      cookies: {
+        label: "Cookies",
+        aliases: ["biscuits", "Christmas Biscuits"],
+        children: [],
+      },
+      dessert: { label: "Dessert", children: [] },
+    });
+  });
+
   it("never makes a self-parented term its own child", async () => {
     await createTerm("a", { label: "A", date: day(1), parent: "a" });
 

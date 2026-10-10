@@ -66,8 +66,8 @@ describe("tagOptions", () => {
       },
     );
     expect(options).toEqual([
-      { slug: "a", label: "A" },
-      { slug: "b", label: "B" },
+      { slug: "a", label: "A", record: true },
+      { slug: "b", label: "B", record: true },
     ]);
   });
 });

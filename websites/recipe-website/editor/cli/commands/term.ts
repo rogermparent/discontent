@@ -106,6 +106,7 @@ const termGet: CommandDef<TermDetail> = {
       result.record?.pinned?.length
         ? `  pinned: ${list(result.record.pinned)}`
         : undefined,
+      result.aliases?.length ? `  aliases: ${list(result.aliases)}` : undefined,
       `  recipes: ${list(result.recipes)}`,
       result.groups.length > 0 ? `  groups: ${list(result.groups)}` : undefined,
     ]
@@ -118,7 +119,8 @@ const termCreate: CommandDef<TermWriteResult> = {
   name: "term create",
   usage:
     "recipes term create --label L [--slug s] [--description D] [--parent p] " +
-    "[--pin recipe …] [--image-url U] [--date d] | (--file term.json | --stdin)",
+    "[--pin recipe …] [--alias A …] [--image-url U] [--date d] | " +
+    "(--file term.json | --stdin)",
   options: {
     label: { type: "string" },
     slug: { type: "string" },
@@ -126,6 +128,8 @@ const termCreate: CommandDef<TermWriteResult> = {
     parent: { type: "string" },
     /* Repeatable, in order: the term page's curated front (24c). */
     pin: { type: "string", multiple: true },
+    /* Repeatable: other names search sends to this term (32i). */
+    alias: { type: "string", multiple: true },
     "image-url": { type: "string" },
     date: { type: "string" },
     file: { type: "string" },
@@ -137,6 +141,7 @@ const termCreate: CommandDef<TermWriteResult> = {
     const stdin = booleanOption(options, "stdin");
     const label = stringOption(options, "label");
     const pinned = stringListOption(options, "pin");
+    const aliases = stringListOption(options, "alias");
     const flags = {
       ...(label !== undefined ? { label } : {}),
       ...(stringOption(options, "slug")
@@ -149,6 +154,7 @@ const termCreate: CommandDef<TermWriteResult> = {
         ? { parent: stringOption(options, "parent") }
         : {}),
       ...(pinned.length > 0 ? { pinned } : {}),
+      ...(aliases.length > 0 ? { aliases } : {}),
       ...(stringOption(options, "image-url")
         ? { imageImportUrl: stringOption(options, "image-url") }
         : {}),
@@ -175,7 +181,8 @@ const termUpdate: CommandDef<TermWriteResult> = {
   usage:
     "recipes term update <slug> [--label L] [--description D] " +
     "[--parent p | --clear-parent] [--pin recipe … | --clear-pinned] " +
-    "[--image-url U | --clear-image] [--date d] | (--file patch.json | --stdin)",
+    "[--alias A … | --clear-aliases] [--image-url U | --clear-image] " +
+    "[--date d] | (--file patch.json | --stdin)",
   options: {
     label: { type: "string" },
     description: { type: "string" },
@@ -183,6 +190,9 @@ const termUpdate: CommandDef<TermWriteResult> = {
     "clear-parent": { type: "boolean" },
     pin: { type: "string", multiple: true },
     "clear-pinned": { type: "boolean" },
+    /* Replaces the whole list, as --pin does. */
+    alias: { type: "string", multiple: true },
+    "clear-aliases": { type: "boolean" },
     "image-url": { type: "string" },
     "clear-image": { type: "boolean" },
     date: { type: "string" },
@@ -203,6 +213,8 @@ const termUpdate: CommandDef<TermWriteResult> = {
     const clearParent = booleanOption(options, "clear-parent");
     const pinned = stringListOption(options, "pin");
     const clearPinned = booleanOption(options, "clear-pinned");
+    const aliases = stringListOption(options, "alias");
+    const clearAliases = booleanOption(options, "clear-aliases");
     const imageUrl = stringOption(options, "image-url");
     const clearImage = booleanOption(options, "clear-image");
     const date = stringOption(options, "date");
@@ -210,6 +222,7 @@ const termUpdate: CommandDef<TermWriteResult> = {
     for (const [a, b, names] of [
       [parent !== undefined, clearParent, "--parent or --clear-parent"],
       [pinned.length > 0, clearPinned, "--pin or --clear-pinned"],
+      [aliases.length > 0, clearAliases, "--alias or --clear-aliases"],
       [imageUrl !== undefined, clearImage, "--image-url or --clear-image"],
     ] as const) {
       if (a && b) throw new UsageError(`Pass either ${names}, not both.`);
@@ -224,6 +237,8 @@ const termUpdate: CommandDef<TermWriteResult> = {
       ...(clearParent ? { parent: null } : {}),
       ...(pinned.length > 0 ? { pinned } : {}),
       ...(clearPinned ? { pinned: null } : {}),
+      ...(aliases.length > 0 ? { aliases } : {}),
+      ...(clearAliases ? { aliases: null } : {}),
       ...(imageUrl !== undefined ? { imageImportUrl: imageUrl } : {}),
       ...(clearImage ? { imageImportUrl: null } : {}),
       ...(date !== undefined ? { date } : {}),
@@ -241,7 +256,8 @@ const termUpdate: CommandDef<TermWriteResult> = {
     if (!hasFlags) {
       throw new UsageError(
         "term update needs something to change: --label, --description, --parent, " +
-          "--clear-parent, --pin, --clear-pinned, --image-url, --clear-image, --date, " +
+          "--clear-parent, --pin, --clear-pinned, --alias, --clear-aliases, " +
+          "--image-url, --clear-image, --date, " +
           "or --file/--stdin. A new slug is `term rename`.",
       );
     }

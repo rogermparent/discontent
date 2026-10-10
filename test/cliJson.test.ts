@@ -469,6 +469,104 @@ describe("the CLI as a process", () => {
     },
     TIMEOUT * 4,
   );
+
+  /*
+   * 32i. `--alias` on create and update: `tag:<alias>` finds the term's
+   * carriers, `--clear-aliases` clears, a clash is a validation error. The
+   * term goes again before the case ends.
+   */
+  it(
+    "takes --alias on term create / update, and search follows it",
+    async () => {
+      const created = await run([
+        "term",
+        "create",
+        "--label",
+        "Supper",
+        "--alias",
+        "Dinner Time",
+        "--alias",
+        "evening meal",
+        "--json",
+      ]);
+      expect(created.exitCode).toBe(0);
+      await run(["term", "assign", "supper", "--add", "first-recipe"]);
+
+      const got = await run(["term", "get", "supper", "--json"]);
+      expect(JSON.parse(got.stdout)).toMatchObject({
+        aliases: ["dinner time", "evening meal"],
+      });
+      const found = await run(["search", "tag:dinner-time", "--json"]);
+      expect(found.exitCode).toBe(0);
+      expect(
+        JSON.parse(found.stdout).recipes.map(
+          (row: { slug: string }) => row.slug,
+        ),
+      ).toEqual(["first-recipe"]);
+
+      const replaced = await run([
+        "term",
+        "update",
+        "supper",
+        "--alias",
+        "tea",
+        "--json",
+      ]);
+      expect(replaced.exitCode).toBe(0);
+      expect(
+        JSON.parse((await run(["term", "get", "supper", "--json"])).stdout)
+          .record.aliases,
+      ).toEqual(["tea"]);
+
+      const both = await run([
+        "term",
+        "update",
+        "supper",
+        "--alias",
+        "x",
+        "--clear-aliases",
+        "--json",
+      ]);
+      expect(JSON.parse(both.stdout).error.code).toBe("usage");
+
+      const clash = await run([
+        "term",
+        "update",
+        "supper",
+        "--alias",
+        "supper",
+        "--json",
+      ]);
+      expect(clash.exitCode).toBe(1);
+      expect(JSON.parse(clash.stdout).error).toMatchObject({
+        code: "validation",
+        issues: [{ path: "aliases.0" }],
+      });
+
+      const cleared = await run([
+        "term",
+        "update",
+        "supper",
+        "--clear-aliases",
+        "--json",
+      ]);
+      expect(cleared.exitCode).toBe(0);
+      expect(
+        JSON.parse((await run(["term", "get", "supper", "--json"])).stdout),
+      ).not.toHaveProperty("aliases");
+
+      const deleted = await run([
+        "term",
+        "delete",
+        "supper",
+        "--unassign",
+        "--yes",
+        "--json",
+      ]);
+      expect(deleted.exitCode).toBe(0);
+    },
+    TIMEOUT * 6,
+  );
 });
 
 /*

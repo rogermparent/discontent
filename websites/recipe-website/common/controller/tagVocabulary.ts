@@ -2,6 +2,7 @@ import type { TaxonomyTerm } from "@discontent/cms/taxonomies/types";
 import type { TermTree } from "@discontent/cms/taxonomies/tree";
 import type { GroupListEntry } from "./groupPaginationConfig";
 import type { RecipeListEntry } from "./paginationConfigs";
+import { tagSlug } from "./tagSlug";
 
 /**
  * The join, as pure functions: folds + records + tree → what a page renders.
@@ -257,6 +258,16 @@ export interface TagOption {
   slug: string;
   label: string;
   parent?: string;
+  /**
+   * The record's aliases (32i, D5), absent when it has none: other spellings
+   * that search, autocomplete and `/tags/<alias>` resolve to this term.
+   */
+  aliases?: string[];
+  /**
+   * `true` when the term has a record (32i): its own slug and label then beat
+   * any other term's alias in `tag:` (`tagExpansion.ts`). Absent otherwise.
+   */
+  record?: true;
 }
 
 export function tagOptions(
@@ -275,11 +286,56 @@ export function tagOptions(
     return false;
   }
   return vocabulary.map(({ slug, label }) => {
-    const parent = tree?.[slug]?.parent;
-    return parent && known.has(parent) && !cycles(slug)
-      ? { slug, label, parent }
-      : { slug, label };
+    const node = tree?.[slug];
+    const parent = node?.parent;
+    return {
+      slug,
+      label,
+      ...(parent && known.has(parent) && !cycles(slug) ? { parent } : {}),
+      ...(node?.aliases?.length ? { aliases: node.aliases } : {}),
+      ...(node ? { record: true as const } : {}),
+    };
   });
+}
+
+/**
+ * The term a slug is an alias of (32i, D5), or `undefined` when no record
+ * lists it — what `/tags/<alias>` redirects to.
+ *
+ * Matched by slug, as every carrier string is: an alias stored as "Christmas
+ * Biscuits" answers `/tags/christmas-biscuits`. A record never redirects to
+ * itself, and when two records claim the same alias (a hand edit; the seat
+ * refuses it) the first by slug wins, so the answer is stable.
+ */
+export function aliasTarget(
+  tree: TermTree | null | undefined,
+  slug: string,
+): string | undefined {
+  for (const [term, node] of Object.entries(tree ?? {}).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  )) {
+    if (term === slug) continue;
+    if (node.aliases?.some((alias) => tagSlug(alias) === slug)) return term;
+  }
+  return undefined;
+}
+
+/**
+ * Every alias slug the tree lists that is not a term of its own — the extra
+ * pages a static export emits so `/tags/<alias>` lands somewhere (32i).
+ */
+export function aliasSlugs(
+  tree: TermTree | null | undefined,
+  taken: ReadonlySet<string>,
+): string[] {
+  const slugs = new Set<string>();
+  for (const node of Object.values(tree ?? {})) {
+    for (const alias of node.aliases ?? []) {
+      const slug = tagSlug(alias);
+      if (slug && !taken.has(slug)) slugs.add(slug);
+    }
+  }
+  return [...slugs].sort();
 }
 
 /** One choice in the term form's Parent select (31e): a record, indented. */

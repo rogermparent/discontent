@@ -337,6 +337,36 @@ describe("a dynamic export route never emits zero params", () => {
       await import("../websites/recipe-website/common/components/TagPage/routes");
     expect(await generateTagStaticParams()).toEqual([{ tag: "_" }]);
   });
+
+  /*
+   * Aliases (32i). The export emits a redirect page for each alias that is
+   * no term of its own, so `/tags/<alias>` lands; the editor's params stay
+   * the plain list (it redirects on demand).
+   */
+  it("the export's /tags/[tag] also emits each alias that is no term of its own", async () => {
+    readTagIndex.mockResolvedValue({ cookies: {}, biscuits: {} });
+    readGroupTagIndex.mockResolvedValue({});
+    readTermTree.mockResolvedValue({
+      cookies: {
+        label: "Cookies",
+        aliases: ["biscuits", "Christmas Biscuits"],
+        children: [],
+      },
+    });
+    const page =
+      await import("../websites/recipe-website/export/src/app/(recipes)/tags/[tag]/page");
+    expect(await page.generateStaticParams()).toEqual([
+      { tag: "cookies" },
+      { tag: "biscuits" },
+      { tag: "christmas-biscuits" },
+    ]);
+    const { generateTagStaticParams } =
+      await import("../websites/recipe-website/common/components/TagPage/routes");
+    expect(await generateTagStaticParams()).toEqual([
+      { tag: "cookies" },
+      { tag: "biscuits" },
+    ]);
+  });
 });
 
 /*

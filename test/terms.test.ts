@@ -62,6 +62,7 @@ import {
   updateTerm,
 } from "../websites/recipe-website/editor/controller/curation/terms";
 import { successConfigFor } from "../websites/recipe-website/editor/controller/successConfigs";
+import { tagTermContentConfig } from "../websites/recipe-website/common/controller/tagTermContentConfig";
 
 /* ------------------------------------------------------------------ */
 /* Harness                                                             */
@@ -923,3 +924,192 @@ function captured(run: () => void): unknown {
   }
   throw new Error("expected a throw");
 }
+
+/* ------------------------------------------------------------------ */
+/* Aliases (epic 32, 32i — D5)                                         */
+/* ------------------------------------------------------------------ */
+
+describe("term aliases (32i)", () => {
+  it("stores normalised aliases, deduplicated by slug, and getTerm / listTerms show them", async () => {
+    await createTerm(ctx, {
+      label: "Cookies",
+      aliases: ["Biscuits", "biscuits", " Christmas  Biscuits "],
+    });
+    expect((await readTermFile("cookies")).aliases).toEqual([
+      "biscuits",
+      "christmas biscuits",
+    ]);
+    expect(await getTerm(ctx, "cookies")).toMatchObject({
+      aliases: ["biscuits", "christmas biscuits"],
+    });
+    const { terms } = await listTerms(ctx);
+    expect(terms.find((term) => term.slug === "cookies")).toMatchObject({
+      aliases: ["biscuits", "christmas biscuits"],
+    });
+    /* A term without any keeps the exact old row shape (T16). */
+    expect(terms.find((term) => term.slug === "dinner")).toEqual({
+      slug: "dinner",
+      label: "dinner",
+      count: 1,
+      record: false,
+    });
+  });
+
+  it("refuses its own slug, another term, and another term's alias — one issue each", async () => {
+    await createTerm(ctx, { label: "Treats", aliases: ["goodies"] });
+    const error = await codeOf(
+      createTerm(ctx, {
+        label: "Cookies",
+        aliases: ["cookies", "dinner", "Treats", "goodies", "fine"],
+      }),
+    );
+    expect(error).toMatchObject({ code: "validation" });
+    expect(error.issues).toEqual([
+      { path: "aliases.0", message: '"cookies" is this term\'s own slug' },
+      {
+        path: "aliases.1",
+        message: expect.stringContaining('names the term "dinner"'),
+      },
+      {
+        path: "aliases.2",
+        message: expect.stringContaining('names the term "treats"'),
+      },
+      {
+        path: "aliases.3",
+        message: '"goodies" is already an alias of the term "treats"',
+      },
+    ]);
+    /* Nothing was written. */
+    expect(await pathExists(termFile("cookies"))).toBe(false);
+  });
+
+  it("an update replaces the list, null clears it, and a kept alias is not rechecked", async () => {
+    await createTerm(ctx, { label: "Cookies", aliases: ["biscuits"] });
+    /* The alias comes to be carried as a tag — nothing canonicalises it. */
+    await assignTerm(ctx, "biscuits", { add: ["chili"] });
+    await updateTerm(ctx, "cookies", { aliases: ["biscuits", "bikkies"] });
+    expect((await readTermFile("cookies")).aliases).toEqual([
+      "biscuits",
+      "bikkies",
+    ]);
+    /* Adding one that a carrier uses is refused, though. */
+    expect(
+      await codeOf(updateTerm(ctx, "cookies", { aliases: ["dinner"] })),
+    ).toMatchObject({ code: "validation" });
+    await updateTerm(ctx, "cookies", { aliases: null });
+    expect(await readTermFile("cookies")).not.toHaveProperty("aliases");
+    await updateTerm(ctx, "cookies", { aliases: ["bikkies"] });
+    await updateTerm(ctx, "cookies", { aliases: [] });
+    expect(await readTermFile("cookies")).not.toHaveProperty("aliases");
+  });
+
+  it("a new term may not take another term's alias as its slug", async () => {
+    await createTerm(ctx, { label: "Cookies", aliases: ["biscuits"] });
+    expect(await codeOf(createTerm(ctx, { label: "Biscuits" }))).toMatchObject({
+      code: "validation",
+      issues: [{ path: "slug", message: expect.stringContaining('"cookies"') }],
+    });
+    await createTerm(ctx, { label: "Holiday" });
+    expect(
+      await codeOf(renameTerm(ctx, "holiday", { to: "biscuits" })),
+    ).toMatchObject({ code: "validation", issues: [{ path: "to" }] });
+  });
+
+  it("a rename onto one of its own aliases drops that alias", async () => {
+    await createTerm(ctx, {
+      label: "Cookies",
+      aliases: ["biscuits", "bikkies"],
+    });
+    await renameTerm(ctx, "cookies", { to: "biscuits" });
+    expect((await readTermFile("biscuits")).aliases).toEqual(["bikkies"]);
+  });
+
+  it("a merge makes the merged-away slug an alias of the target", async () => {
+    /* Target with a record: `from` and its own aliases join `into`'s. */
+    await createTerm(ctx, { label: "Treats", aliases: ["goodies"] });
+    await createTerm(ctx, { label: "Sweets", aliases: ["candy"] });
+    await assignTerm(ctx, "sweets", { add: ["chili"] });
+    const merged = await mergeTerm(ctx, "sweets", { into: "treats" });
+    expect(merged.aliases).toEqual(["goodies", "candy", "sweets"]);
+    expect((await readTermFile("treats")).aliases).toEqual([
+      "goodies",
+      "candy",
+      "sweets",
+    ]);
+    expect(
+      (await searchRecipes(ctx, "tag:sweets", { limit: 10 })).recipes.map(
+        (row) => row.slug,
+      ),
+    ).toEqual(["chili"]);
+
+    /* Target without a record: the moved record carries the alias. */
+    await createTerm(ctx, { label: "Biscuits" });
+    const moved = await mergeTerm(ctx, "biscuits", { into: "cookies" });
+    expect(moved).toMatchObject({ recordMoved: true, aliases: ["biscuits"] });
+    expect((await readTermFile("cookies")).aliases).toEqual(["biscuits"]);
+
+    /* A bare tag into a record: the record gains it. */
+    await assignTerm(ctx, "baked", { add: ["linzer"] });
+    expect(
+      (await mergeTerm(ctx, "baked", { into: "cookies" })).aliases,
+    ).toEqual(["biscuits", "baked"]);
+
+    /* A bare tag into a bare tag: nowhere to keep it. */
+    await assignTerm(ctx, "supper", { add: ["shortbread"] });
+    await assignTerm(ctx, "evening", { add: ["shortbread"] });
+    const none = await mergeTerm(ctx, "supper", { into: "evening" });
+    expect(none.aliases).toEqual([]);
+    expect(await pathExists(termFile("evening"))).toBe(false);
+  });
+
+  it("an alias may not be spelled like another term's label, nor a label like an alias (review)", async () => {
+    await createTerm(ctx, { label: "Biscuits", slug: "british-biscuits" });
+    const error = await codeOf(
+      createTerm(ctx, { label: "Cookies", aliases: ["Biscuits"] }),
+    );
+    expect(error).toMatchObject({
+      code: "validation",
+      issues: [
+        {
+          path: "aliases.0",
+          message: '"Biscuits" is the label of the term "british-biscuits"',
+        },
+      ],
+    });
+    await createTerm(ctx, { label: "Cookies", aliases: ["bikkies"] });
+
+    /* The reverse: a new term, a relabel and a rename onto an alias. */
+    expect(
+      await codeOf(createTerm(ctx, { label: "Bikkies", slug: "aussie" })),
+    ).toMatchObject({ code: "validation", issues: [{ path: "label" }] });
+    expect(
+      await codeOf(updateTerm(ctx, "british-biscuits", { label: "bikkies" })),
+    ).toMatchObject({ code: "validation", issues: [{ path: "label" }] });
+    expect(
+      await codeOf(
+        renameTerm(ctx, "british-biscuits", { to: "uk", label: "Bikkies" }),
+      ),
+    ).toMatchObject({ code: "validation", issues: [{ path: "label" }] });
+    /* An unchanged label is not rechecked. */
+    await updateTerm(ctx, "british-biscuits", {
+      label: "Biscuits",
+      description: "UK.",
+    });
+    expect((await readTermFile("british-biscuits")).description).toBe("UK.");
+  });
+
+  it("a merge skips an alias of `from` that a third record already lists (review)", async () => {
+    await createTerm(ctx, { label: "Treats" });
+    await createTerm(ctx, { label: "Sweets", aliases: ["candy", "goodies"] });
+    /* Hand-written state the seat would refuse: `goodies` on two records. */
+    await createContent({
+      config: tagTermContentConfig,
+      slug: "snacks",
+      data: { label: "Snacks", date: 5_000, aliases: ["goodies"] },
+      contentDirectory,
+    });
+    const merged = await mergeTerm(ctx, "sweets", { into: "treats" });
+    expect(merged.aliases).toEqual(["candy", "sweets"]);
+    expect((await readTermFile("treats")).aliases).toEqual(["candy", "sweets"]);
+  });
+});

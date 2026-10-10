@@ -160,7 +160,8 @@ export interface RecipeEntry {
  *
  * `Term` is an **open** record for exactly this: a vocabulary is site-level,
  * and the arrangement below is the recipe site's business and not the engine's.
- * Everything else — `label`, `date`, `description`, `image`, `parent` — is the
+ * Everything else — `label`, `date`, `description`, `image`, `parent`, and
+ * since 32i `aliases` — is the
  * engine's, so `createTermContentType`'s `buildIndexValue` and its
  * self-referencing parent edge go on working untouched.
  *
@@ -188,7 +189,7 @@ export interface TagTerm extends Term {
  *
  * Nothing here reads `description` or `pinned` off the *index*: the term page
  * reads the record by slug, and the tree aggregate already carries
- * `label`/`parent`/`image`. Indexing them would be a second copy to keep in
+ * `label`/`parent`/`image`/`aliases` (the engine indexes `aliases`, 32i). Indexing them would be a second copy to keep in
  * step for no reader, which is why `tagTermContentConfig` passes no
  * `buildIndexValue` extension at all. 24e decides whether `term_list` wants
  * them, and that is an additive change to this alias.

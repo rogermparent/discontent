@@ -117,12 +117,14 @@ describe("termFormStateFromError", () => {
         { path: "pinned.1", message: "Recipe x does not carry it" },
         { path: "label", message: "A term needs a label" },
         { path: "imageImportUrl", message: "Bad URL" },
+        { path: "aliases.0", message: '"dinner" names the term "dinner"' },
       ]),
     );
     expect(state.errors).toEqual({
       pinned: ["Recipe x does not carry it"],
       label: ["A term needs a label"],
       image: ["Bad URL"],
+      aliases: ['"dinner" names the term "dinner"'],
     });
     expect(state.message).toBe(
       `${TERM_NOT_SAVED} Pinned recipes must carry the term "cookies".`,
@@ -235,6 +237,7 @@ describe("the FormData shapes", () => {
       description: null,
       parent: null,
       pinned: null,
+      aliases: null,
     });
     expect(
       termPatchFromForm(
@@ -243,6 +246,7 @@ describe("the FormData shapes", () => {
           description: "Sweet.",
           parent: "dessert",
           pinned: ["linzer"],
+          aliases: ["biscuits", " ", "Christmas Biscuits"],
         }),
       ),
     ).toEqual({
@@ -250,7 +254,17 @@ describe("the FormData shapes", () => {
       description: "Sweet.",
       parent: "dessert",
       pinned: ["linzer"],
+      aliases: ["biscuits", "Christmas Biscuits"],
     });
+  });
+
+  it("a create sends aliases only when there are some (32i)", () => {
+    expect(
+      termInputFromForm(parsed({ label: "Cookies", aliases: ["biscuits"] })),
+    ).toEqual({ label: "Cookies", aliases: ["biscuits"] });
+    expect(termInputFromForm(parsed({ label: "Cookies" }))).not.toHaveProperty(
+      "aliases",
+    );
   });
 
   it("an edit leaves the picture unless a URL is typed or it is removed", () => {
@@ -426,6 +440,41 @@ describe("submitTermForm", () => {
     if (outcome.ok) return;
     expect(outcome.state.errors?.pinned).toEqual(['No recipe at slug "nope"']);
     expect((await readTerm("cookies")).pinned).toBeUndefined();
+  });
+
+  it("saves aliases from the chips, and refuses one naming another term on Aliases (32i)", async () => {
+    const saved = await submitTermForm(
+      ctx,
+      { kind: "edit", slug: "cookies" },
+      form({ label: "Cookies", parent: "dessert", aliases: ["Biscuits"] }),
+    );
+    expect(saved).toEqual({ ok: true, slug: "cookies" });
+    expect((await readTerm("cookies")).aliases).toEqual(["biscuits"]);
+
+    const outcome = await submitTermForm(
+      ctx,
+      { kind: "edit", slug: "cookies" },
+      form({
+        label: "Cookies",
+        parent: "dessert",
+        aliases: ["biscuits", "christmas"],
+      }),
+    );
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.state.errors?.aliases).toEqual([
+      expect.stringContaining('names the term "christmas"'),
+    ]);
+    expect(outcome.state.formData?.aliases).toEqual(["biscuits", "christmas"]);
+    expect((await readTerm("cookies")).aliases).toEqual(["biscuits"]);
+
+    /* No chips: the edit clears them. */
+    await submitTermForm(
+      ctx,
+      { kind: "edit", slug: "cookies" },
+      form({ label: "Cookies", parent: "dessert" }),
+    );
+    expect(await readTerm("cookies")).not.toHaveProperty("aliases");
   });
 
   it("refuses a blank label on Label, on create and on edit", async () => {

@@ -363,6 +363,16 @@ export type FeaturedInput = z.infer<typeof FeaturedInputSchema>;
 const PinnedSchema = z.array(z.string().min(1));
 
 /**
+ * Other spellings that should reach the term (32i, D5): search,
+ * autocomplete and `/tags/<alias>` resolve them to it. Free text, as a tag
+ * is; the seat slugs each one and refuses one that names this term, another
+ * term, or another term's alias.
+ */
+const AliasesSchema = z.array(
+  z.string().trim().min(1, "An alias cannot be blank"),
+);
+
+/**
  * A new term **record** (`term_create`).
  *
  * `slug` defaults to the label's slug — the identity every carrier string is
@@ -377,6 +387,7 @@ export const TermInputSchema = z.strictObject({
   description: z.string().optional(),
   parent: z.string().min(1).optional(),
   pinned: PinnedSchema.optional(),
+  aliases: AliasesSchema.optional(),
   imageImportUrl: z.string().optional(),
   date: EpochSchema.optional(),
 });
@@ -397,6 +408,8 @@ export const TermPatchSchema = z.strictObject({
   parent: z.string().min(1).nullable().optional(),
   /** Replaces the whole list; `null` clears it. */
   pinned: PinnedSchema.nullable().optional(),
+  /** Replaces the whole list; `null` clears it. */
+  aliases: AliasesSchema.nullable().optional(),
   imageImportUrl: z.string().nullable().optional(),
   date: EpochSchema.optional(),
 });

@@ -1780,7 +1780,11 @@ unread — drop or keep at 24f (T17; dropped in 32a); `unknown_term` in the skil
 
 - **F32 array references** — still reserved; group cards borrowing member
   thumbnails, `items[].recipe` renames.
-- **`aliases` on term records** — `mergeTerm` covers the need in v1.
+- ~~**`aliases` on term records** — `mergeTerm` covers the need in v1.~~
+  **Done by 32i** (`agent-epic-32.md`): `Term.aliases`, carried by the term
+  index and the tree (version 2); search, autocomplete and `/tags/<alias>`
+  resolve an alias to its term, search-only (32-D5); `term_merge` records the
+  merged-away slug as an alias.
 - **Per-term pagination (F8b / 24g)** — only if 24f's measurement exceeds
   150 KB.
 - ~~**Batched multi-carrier commit** (possible F34) — `term_assign` over N

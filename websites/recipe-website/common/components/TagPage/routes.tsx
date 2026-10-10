@@ -1,12 +1,15 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { buttonVariants } from "@discontent/component-library/components/ui/button";
 import {
   readTagTree,
   readTagVocabulary,
   readTermPageSlugs,
+  readTermPageSlugsWithAliases,
+  resolveTermAlias,
   resolveTermPage,
 } from "../../controller/data/readTermPage";
+import { TagAliasRedirect } from "./AliasRedirect";
 import { TagIndexPage, TagPage } from "./shared";
 
 /**
@@ -74,9 +77,15 @@ export async function tagRoute({
    * An unknown tag is a 404, not an empty tag page — and "unknown" now means
    * *no carrier and no record*. Each folded value only holds slugs something
    * actually carries, and the tree only slugs someone has defined, so a slug
-   * missing from all three means the URL is wrong.
+   * missing from all three means the URL is wrong — unless a record lists
+   * it as an alias (32i): then the page sends the reader on. A static file
+   * cannot answer with a 3xx, so the export's page is a redirect page.
    */
-  if (!term) notFound();
+  if (!term) {
+    const target = await resolveTermAlias(tag);
+    if (!target) notFound();
+    return <TagAliasRedirect alias={tag} target={target} />;
+  }
   return <TagPage term={term} />;
 }
 
@@ -100,7 +109,12 @@ export async function editorTagRoute({
 }) {
   const { tag } = await params;
   const term = await resolveTermPage(tag);
-  if (!term) notFound();
+  if (!term) {
+    /* An alias (32i): a real redirect, which the editor's server can send. */
+    const target = await resolveTermAlias(tag);
+    if (target) redirect(`/tags/${target.slug}`);
+    notFound();
+  }
   return (
     <TagPage
       term={term}
@@ -140,7 +154,10 @@ export async function generateTagMetadata({
 }) {
   const { tag } = await params;
   const term = await resolveTermPage(tag);
-  if (!term) return { title: tag };
+  if (!term) {
+    const target = await resolveTermAlias(tag);
+    return { title: target?.label ?? tag };
+  }
   return {
     title: term.label,
     ...(term.description ? { description: term.description } : {}),
@@ -159,6 +176,20 @@ export async function generateTagMetadata({
  */
 export async function generateTagStaticParams(): Promise<{ tag: string }[]> {
   const slugs = await readTermPageSlugs();
+  if (slugs.length === 0) return [{ tag: "_" }];
+  return slugs.map((tag) => ({ tag }));
+}
+
+/**
+ * The export's params (32i): `generateTagStaticParams` plus every alias that
+ * is not a term of its own, so `/tags/<alias>` is emitted as a redirect page.
+ * The editor keeps the plain list and answers an alias on demand with a real
+ * redirect, so nothing is prerendered there that would bake one in.
+ */
+export async function generateExportTagStaticParams(): Promise<
+  { tag: string }[]
+> {
+  const slugs = await readTermPageSlugsWithAliases();
   if (slugs.length === 0) return [{ tag: "_" }];
   return slugs.map((tag) => ({ tag }));
 }
