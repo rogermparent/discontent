@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "../support/test";
+import { signIn } from "../support/helpers";
 
 /*
  * The reader chrome pass: the masthead and the Ingredients header pin when
@@ -188,6 +189,50 @@ test.describe("Sticky chrome", () => {
     await expect(page.getByRole("banner")).toBeHidden();
 
     await page.emulateMedia({ media: "screen" });
+  });
+});
+
+/*
+ * `SidebarLayout`'s rail (the kit component behind /settings, here and in
+ * portfolio) carries `.sticky-chrome` too, so it releases with the masthead.
+ * The aside is `lg:block`, so these run at desktop width, only shorter.
+ */
+const SHORT_DESKTOP = { width: 1280, height: 560 };
+
+function settingsRailPosition(page: Page): Promise<string | null> {
+  return page
+    .getByRole("complementary", { name: "Settings" })
+    .evaluate((aside) => {
+      const rail = aside.querySelector(".sticky-chrome");
+      return rail && getComputedStyle(rail).position;
+    });
+}
+
+test.describe("Sticky chrome — settings sidebar", () => {
+  test.beforeEach(async ({ resetData, page }) => {
+    await resetData("two-pages");
+    await page.goto("/");
+    await signIn(page);
+  });
+
+  test("pins on a tall viewport, releases with the masthead on a short one", async ({
+    page,
+  }) => {
+    await page.goto("/settings");
+    expect(await bannerPosition(page)).toBe("sticky");
+    expect(await settingsRailPosition(page)).toBe("sticky");
+
+    await page.setViewportSize(SHORT_DESKTOP);
+    expect(await bannerPosition(page)).toBe("static");
+    expect(await settingsRailPosition(page)).toBe("static");
+  });
+
+  test("the Off override releases it on a tall viewport", async ({ page }) => {
+    await seedStickyChrome(page, "off");
+    await page.goto("/settings");
+
+    expect(await bannerPosition(page)).toBe("static");
+    expect(await settingsRailPosition(page)).toBe("static");
   });
 });
 

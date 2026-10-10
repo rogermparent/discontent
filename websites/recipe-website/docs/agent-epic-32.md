@@ -115,7 +115,7 @@ the food corpus is a content call: 32k, run only on Roger's explicit go.
 | 32f      | Ingredient completion in search                                          | S–M     | `agent/32f-ingredient-ac`  | 🟡 #199           |
 | 32g      | Meal-plan item `scale` + `?scale` on recipe pages                        | M       | `agent/32g-plan-scale`     | 📝 planned        |
 | 32j      | Make anything: kind switch, refine drill-down, loose ingredient matching | M–L     | `agent/32j-make-any`       | 📝 planned        |
-| 32h      | `SidebarLayout` + portfolio masthead on sticky-chrome                    | S       | `agent/32h-sticky-sidebar` | 📝 planned        |
+| 32h      | `SidebarLayout` + portfolio masthead on sticky-chrome                    | S       | `agent/32h-sticky-sidebar` | 🟡 #201           |
 | 32i      | Term aliases, search-only (droppable)                                    | L       | `agent/32i-aliases`        | 📝 planned        |
 | 32k      | Food vocabulary for the corpus (content; Roger's go needed)              | content | —                          | ⏸️ awaiting Roger |
 | 32-close | Results, backlog strikes, morning checklist, memory                      | docs    | `agent/32-close`           | 📝 planned        |
@@ -632,12 +632,13 @@ epic.
 To be filled per phase (PR, merge sha, gates), with the 32e measurement and
 the end-to-end checks at 32-close.
 
-| Phase   | PR   | Merge      | Gates                                                                                                         |
-| ------- | ---- | ---------- | ------------------------------------------------------------------------------------------------------------- |
-| 32-plan | #197 | `dafc6834` | docs only; CI 12/12                                                                                           |
-| 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI |
-| 32b     | #200 |            | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI     |
-| 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                |
+| Phase   | PR   | Merge      | Gates                                                                                                                               |
+| ------- | ---- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 32-plan | #197 | `dafc6834` | docs only; CI 12/12                                                                                                                 |
+| 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI                       |
+| 32b     | #200 |            | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI                           |
+| 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                                      |
+| 32h     | #201 |            | typechecks ✅ (recipe, export, portfolio); vitest 1058/1058; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI |
 
 ### 32a — Hygiene
 
@@ -854,3 +855,65 @@ Playwright: `term-edit.spec` (+1): `setInputFiles` on Cookies' edit form →
   `search-autocomplete.spec.ts`: an `ingredient:c` → `ch` → pick case, and a
   loading case that holds `/search/ingredients` (row shown, axe clean, then
   options, then click to accept).
+
+### 32h — `SidebarLayout` and the portfolio masthead on sticky-chrome
+
+- **Portfolio's masthead** is `sticky-chrome top-0` (was `sticky top-0`).
+  Portfolio has no Sticky headers toggle and writes no `data-sticky-chrome`,
+  so it is always `auto`: pinned at 600px of viewport height and above,
+  released below. That release is the deliberate behaviour change. A new
+  `chrome.spec` case checks it at 851×393 and back at 1280×720.
+- **`SidebarLayout`'s rail** is `sticky-chrome top-[var(--header-height)]`
+  (was `sticky top-[var(--header-height)]`), and its comment says why. It
+  releases in lockstep with the masthead (short viewport, or recipe's "Off"),
+  so a rail taller than a short viewport no longer hides its last links. The
+  phase text suggested `top-[var(--sticky-chrome-offset)]`. **Decision: keep
+  `--header-height`**, the convention the Ingredients header already set. On
+  a `.sticky-chrome` element the two behave the same: position and offset
+  come from one condition, so whenever the box is sticky the offset equals
+  `--header-height`, and when it is released (static) `top` is inert. One
+  convention instead of two:
+  - `.sticky-chrome` elements read `--header-height`;
+  - plain `sticky` elements that must stay pinned after the masthead releases
+    read `--sticky-chrome-offset`.
+
+  `theme.css` now says this at the class.
+
+- **Re-checked offsets.**
+  - Portfolio `Index` plate: `top-[calc(var(--header-height)+2rem)]` becomes
+    `top-[calc(var(--sticky-chrome-offset)+2rem)]`. It stays plain `sticky`,
+    because it is content, not chrome, and it is only 13.5rem tall. Once the
+    masthead releases, it pins 2rem from the top instead of leaving a 3.5rem
+    dead band.
+  - Recipe `View/Ingredients`: already `.sticky-chrome` with `--header-height`
+    and the inert-`top` comment. Unchanged.
+- **Comments.**
+  - `theme.css`'s `.sticky-chrome` block lists all four adopters and the
+    plain-`sticky` + offset alternative.
+  - `stickyChrome.ts` no longer says portfolio "can adopt" the class, and its
+    type doc names the settings sidebar.
+- **Tests.**
+  - `sticky-chrome.spec` gains a "settings sidebar" describe with two cases:
+    - pinned at 1280×720 and released with the masthead at 1280×560;
+    - released under "Off" at 720.
+  - Portfolio's `chrome.spec` gains the short-viewport case.
+- **Baselines did not move.** Recipe `visual` was not in this run. Portfolio's
+  `visual.spec` (index, masthead, settings sidebar, postures) passed 11/11
+  unchanged at 1280×720, where everything is still pinned. A sticky box is in
+  normal flow either way.
+- **Gates.**
+  - typechecks: recipe-editor, recipe-website export and portfolio-website-editor
+    all ✅;
+  - vitest 1058/1058 after merging main (1040/1040 before), under the heavy slot;
+  - Playwright recipe `sticky-chrome.spec` + `settings-nav.spec`: 20/20,
+    `PLAYWRIGHT_BUILD=1`, heavy slot;
+  - Playwright portfolio `chrome` + `settings` + `visual`: 22/22 under the
+    heavy slot, in **dev mode** (what CI's portfolio job runs).
+- **The portfolio production build ran out of memory locally.** It hit the
+  ~4 GB V8 heap limit after ~190 s of `next build --webpack`, inside the slot,
+  with ~7 GB free. Next also warned that it inferred the workspace root as the
+  main checkout, because the worktree's `pnpm-lock.yaml` sits nested under
+  the main checkout's. That may be the cause. It wasn't investigated further
+  and isn't caused by this diff. CI's portfolio job uses `next dev`, so the
+  build is never exercised there either.
+- `specVersions` didn't move: none of the edited modules is pinned.

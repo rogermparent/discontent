@@ -249,9 +249,12 @@
 }
 
 /*
- * The one class that reads the sticky-chrome policy above. Applied to the
- * masthead and the Ingredients header (see the reader chrome pass in
- * websites/recipe-website/docs/ui-overhaul.md).
+ * The one class that reads the sticky-chrome policy above. Applied to both
+ * sites' mastheads, recipe's Ingredients header and `SidebarLayout`'s rail (see
+ * the reader chrome pass in websites/recipe-website/docs/ui-overhaul.md). An
+ * element that should stay pinned when the masthead releases keeps plain
+ * `sticky` and offsets by `--sticky-chrome-offset` instead (portfolio's index
+ * plate).
  *
  * `@layer components`, not `@utility`, and that is the whole trick. Tailwind v4
  * emits a bare `@layer components;` declaration *before* `@layer utilities`, and
