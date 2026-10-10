@@ -45,6 +45,8 @@
  *  - `rename`    the same recipe under a new slug. Gate open via `renamed`,
  *                and the one scenario that rewrites dependents' *data files*.
  *
+ * `TARGET=<slug>` overrides the recipe the three edit scenarios pick (32e).
+ *
  * **Counters lead and milliseconds follow**, with `loadavg` recorded on both
  * sides — F27's precedent, where the bytes answer was load-independent and the
  * timings were not. Both O(N) passes are therefore also run `RUNS` times (5)
@@ -79,6 +81,7 @@ import {
   getAggregateDatabase,
   readAggregateRecord,
 } from "@discontent/cms/aggregates/database";
+import { readAggregate } from "@discontent/cms/aggregates/readAggregate";
 import { updateAggregates } from "@discontent/cms/aggregates/updateAggregates";
 import {
   getContentDatabase,
@@ -248,6 +251,12 @@ async function featuredCount(): Promise<number> {
  * is the whole answer anyway.
  */
 async function targetSlug(entries: { key: RecipeEntryKey }[]): Promise<string> {
+  /*
+   * `TARGET=<slug>` picks the recipe outright (32e). A feature's target may
+   * carry no tags at all, and then a `name-edit` says nothing about the by-tag
+   * record — which is the write F8b is about.
+   */
+  if (process.env.TARGET) return process.env.TARGET;
   const middle = String(entries[Math.floor(entries.length / 2)].key[1]);
   if (SCENARIO !== "name-edit" && SCENARIO !== "rename") return middle;
   try {
@@ -417,36 +426,51 @@ async function performWrite(
   };
 }
 
-/** F8b's number: what the single by-tag record holds at this corpus size. */
-function reportByTag(perPage: number) {
-  const db = getAggregateDatabase(
-    recipeContentConfig,
-    /*
-     * Derived rather than imported since 24b: the by-term aggregate is a
-     * function of the taxonomy declaration, and naming it here is how this
-     * report keeps reading the same record the site writes.
-     */
-    byTermAggregate(recipeTagTaxonomy),
+/*
+ * F8b's number: what the by-tag aggregate holds at this corpus size. Keyed
+ * since 32e, so the whole value is reassembled from one record per term, and
+ * the per-term sizes are what a write rewrites and a term page reads.
+ */
+async function reportByTag(perPage: number) {
+  /*
+   * Derived rather than imported since 24b: the by-term aggregate is a
+   * function of the taxonomy declaration, and naming it here is how this
+   * report keeps reading the same record the site writes.
+   */
+  const aggregateConfig = byTermAggregate(recipeTagTaxonomy);
+  const value = (await readAggregate({
+    config: recipeContentConfig,
+    aggregateConfig,
     contentDirectory,
-  );
-  const record = readAggregateRecord<Record<string, TagIndexEntry>>(db);
-  if (!record) {
-    console.log("\nF8b — no by-tag record");
+  })) as Record<string, TagIndexEntry> | null;
+  if (!value) {
+    console.log("\nF8b — no by-tag record (or one folded under another spec)");
     return;
   }
-  const sizes = Object.entries(record.value).map(([slug, entry]) => ({
+  const header = readAggregateRecord(
+    getAggregateDatabase(
+      recipeContentConfig,
+      aggregateConfig,
+      contentDirectory,
+    ),
+  );
+  const sizes = Object.entries(value).map(([slug, entry]) => ({
     slug,
     count: entry.items.length,
+    bytes: Buffer.byteLength(JSON.stringify(entry)),
   }));
   sizes.sort((a, b) => b.count - a.count);
+  const bytes = sizes.map((tag) => tag.bytes).sort((a, b) => a - b);
   const overflowing = sizes.filter((tag) => tag.count > perPage);
-  console.log("\nF8b — the single by-tag aggregate at this corpus size");
+  console.log("\nF8b — the by-tag aggregate at this corpus size");
   console.log(`  tags:            ${sizes.length}`);
+  console.log(`  header:          ${JSON.stringify(header?.value)}`);
+  console.log(`  whole bytes:     ${Buffer.byteLength(JSON.stringify(value))}`);
   console.log(
-    `  record bytes:    ${Buffer.byteLength(JSON.stringify(record.value))}`,
+    `  per-term bytes:  max ${bytes[bytes.length - 1] ?? 0}, median ${bytes[Math.floor(bytes.length / 2)] ?? 0}, min ${bytes[0] ?? 0}`,
   );
   console.log(
-    `  largest tag:     ${sizes[0]?.slug ?? "—"} with ${sizes[0]?.count ?? 0} recipes (perPage ${perPage})`,
+    `  largest tag:     ${sizes[0]?.slug ?? "—"} with ${sizes[0]?.count ?? 0} recipes, ${sizes[0]?.bytes ?? 0} B (perPage ${perPage})`,
   );
   console.log(
     `  over perPage:    ${overflowing.length}  ${overflowing
@@ -517,7 +541,12 @@ async function main() {
     `  ${pad("aggregate fold", 26)} ${ms(aggregateMs)}  folded ${aggregateResults[0]?.total ?? 0}, moved ${
       aggregateResults
         .filter((result) => result.changed)
-        .map((result) => result.name)
+        .map((result) =>
+          /* A keyed aggregate (32e) also says which keys moved. */
+          result.keys
+            ? `${result.name}[${result.keys.length}: ${result.keys.join(",")}]`
+            : result.name,
+        )
         .join("+") || "none"
     }`,
   );
@@ -580,7 +609,7 @@ async function main() {
   reportRepeated("phase 2 (pagination walk)", settled.pagination);
   reportRepeated("aggregate fold", settled.aggregate);
 
-  reportByTag(recipesByDate.perPage);
+  await reportByTag(recipesByDate.perPage);
   console.log(
     `\nloadavg after:     ${loadavg()
       .map((v) => v.toFixed(2))

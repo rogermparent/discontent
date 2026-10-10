@@ -113,11 +113,24 @@ vi.mock("recipe-website-common/controller/data/readGroupsByGroup", () => ({
  */
 vi.mock("recipe-website-common/controller/data/readRecipeTagIndex", () => ({
   recipeTagReads: {
-    terms: { read: async () => [] },
+    terms: { read: () => termsFrom(readTagIndex()) },
     byTerm: { read: () => readTagIndex() },
   },
   default: {},
 }));
+
+/*
+ * The term cloud a by-term map implies: one entry per key. The params read
+ * the clouds rather than the whole by-term maps since 32e — the same slugs,
+ * folded by the same walk — so each case still states its keyset once.
+ */
+async function termsFrom(byTerm: Promise<Record<string, unknown> | null>) {
+  return Object.keys((await byTerm) ?? {}).map((slug) => ({
+    slug,
+    label: slug,
+    count: 1,
+  }));
+}
 
 /*
  * Groups carry the same vocabulary since 24b, and `/tags/[tag]`'s params are
@@ -127,7 +140,7 @@ vi.mock("recipe-website-common/controller/data/readRecipeTagIndex", () => ({
  */
 vi.mock("recipe-website-common/controller/data/readGroupTagIndex", () => ({
   groupTagReads: {
-    terms: { read: async () => [] },
+    terms: { read: () => termsFrom(readGroupTagIndex()) },
     byTerm: { read: () => readGroupTagIndex() },
   },
   default: {},

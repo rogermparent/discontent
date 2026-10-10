@@ -250,9 +250,9 @@ describe("declared spec versions", () => {
     expect(readConfigModule("packages/cms/taxonomies/aggregates.ts"))
       .toMatchInlineSnapshot(`
         {
-          "hash": "38a209cd0c85b3f4",
+          "hash": "bf96437b3dc9c7e0",
           "versions": [
-            "1",
+            "2",
           ],
         }
       `);

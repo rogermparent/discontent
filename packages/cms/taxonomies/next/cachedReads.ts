@@ -15,6 +15,11 @@ import type { TaxonomyByTerm, TaxonomyTerm } from "../types";
  * exists moves the by-term record and leaves the vocabulary byte-identical, and
  * a page rendering only the term list should not be invalidated by it.
  *
+ * `byTerm` is keyed since 32e, so it has a second read: `byTerm.readKey(slug)`
+ * is one term's row, cached per term and expired only when that term's row
+ * moves. A term page reads that; `byTerm.read()` is the whole map, expired when
+ * any term moves, for a page that genuinely needs every term (`/tags`' tree).
+ *
  * Call it at **module scope**, like `createCachedAggregateRead`: a factory
  * called per render hands back a fresh, empty memo table every time.
  *

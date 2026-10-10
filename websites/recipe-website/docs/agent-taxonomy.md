@@ -478,7 +478,8 @@ groups`; featured `by-date` v2 → v3 at 24c; editor restart at 24c (new
 - **Risks → mitigations**: by-term record size after the backfill (~437 × 5 ×
   ~150 B ≈ 300 KB > the 150 KB threshold → slim `project` first, then F8b;
   a jq simulation of the real repo at 665 recipes put it at ≈ 197 KB
-  (> 150 KB); 32e measures it);
+  (> 150 KB); 32e measured 200,805 B and split it, one record per term
+  (F35, `agent-epic-32.md`));
   invalidation fan-out unchanged from F28; an export placeholder per route
   family (T10); `specVersions` churn (the safe direction); tool-name regex
   (additive); `GroupInputSchema` strictness (declare `tags` in input **and**
@@ -540,7 +541,10 @@ groups`; featured `by-date` v2 → v3 at 24c; editor restart at 24c (new
    the tree fold already drops it from its own `children`.
 9. **T9 — By-term record size threshold** is ~150 KB (F8b, F28). 24f measures
    the real record after the backfill; over the threshold → slim `project`
-   first, then F8b partitions (24g).
+   first, then F8b partitions (24g). **Done at epic 32e** without waiting for
+   the backfill: 200,805 B at 665 recipes. `project` was already the five
+   fields a card renders, so the split went straight to the aggregate (F35:
+   one record per term, per-term cache tags).
 10. **T10 — Export placeholder per route family.** Every static route family
     keeps a `{tag: "_"}`-style placeholder so `generateStaticParams` never
     returns an empty list on an empty corpus.
@@ -613,7 +617,7 @@ Each branch is off the previous. Rebase children after a parent merges.
 | 24d     | → epic 31 (31b)                      | ✅ #192 | Resolver, `/search/terms`, one "all terms" source, hierarchical autocomplete / ⌘K, server descendant expansion + `group:` parity (L)                                                                                                                        |
 | 24e     | → epic 31 (31c, 31e)                 | ✅ #194 | Seats / CLI / API / MCP / skill v3 + the fixture acceptance test (D7) (L)                                                                                                                                                                                   |
 | 24f     | `agent/24f-taxonomy-closeout` ← 24e  | ⏸️      | Backfill on the real repo (content task), the real story run, by-term measurement, backlog strikes, close-out, memory (S code / L content)                                                                                                                  |
-| 24g     | conditional                          | ⏸️      | F8b partitions, only if 24f's by-term number exceeds 150 KB (L)                                                                                                                                                                                             |
+| 24g     | → epic 32 (32e)                      | 🟡 #204 | F8b partitions, only if 24f's by-term number exceeds 150 KB (L). Measured at 32e: 200,805 B, so it was built as F35, a keyed aggregate with one record per term (`agent-epic-32.md`)                                                                        |
 
 **#144 landed** 2026-09-17 (`c581f222`) and the real repo was reindexed the
 same day.

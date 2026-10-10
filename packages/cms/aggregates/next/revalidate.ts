@@ -30,7 +30,18 @@ export function revalidateAggregateResults(
 ): void {
   for (const result of results) {
     if (!result.changed) continue;
-    revalidateTag(aggregateTags(contentType, result.name).value, EXPIRE_NOW);
+    const tags = aggregateTags(contentType, result.name);
+    /*
+     * A keyed aggregate (32e) reports the keys that moved: the whole-value
+     * read and each of those keys' reads expire, and every other key's read
+     * stays cached. Its plain tag is the catch-all and is never fired here.
+     */
+    if (result.keys) {
+      revalidateTag(tags.whole, EXPIRE_NOW);
+      for (const key of result.keys) revalidateTag(tags.key(key), EXPIRE_NOW);
+      continue;
+    }
+    revalidateTag(tags.value, EXPIRE_NOW);
   }
 }
 

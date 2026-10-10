@@ -1,8 +1,13 @@
 import type { Key } from "lmdb";
-import { readAggregate } from "../aggregates/readAggregate";
+import { readAggregate, readAggregateKey } from "../aggregates/readAggregate";
 import type { ContentTypeConfig } from "../content/types";
 import { byTermAggregate, termsAggregate } from "./aggregates";
-import type { TaxonomyByTerm, TaxonomyConfig, TaxonomyTerm } from "./types";
+import type {
+  TaxonomyByTerm,
+  TaxonomyByTermEntry,
+  TaxonomyConfig,
+  TaxonomyTerm,
+} from "./types";
 
 /**
  * Node-safe reads of the two derived values — no Next, no React, so the CLI,
@@ -46,7 +51,12 @@ export function readTaxonomyTerms<TIndexValue, TKey extends Key, TItem>(
   });
 }
 
-/** The inverted index: every term slug mapped to its label and carriers. */
+/**
+ * The inverted index: every term slug mapped to its label and carriers.
+ *
+ * Reassembled from one record per term since 32e, so it decodes every term.
+ * A caller that wants one term reads `readTaxonomyByTermEntry`.
+ */
 export function readTaxonomyByTerm<TIndexValue, TKey extends Key, TItem>(
   options: TaxonomyReadOptions<TIndexValue, TKey, TItem>,
 ): Promise<TaxonomyByTerm<TItem> | null> {
@@ -55,5 +65,22 @@ export function readTaxonomyByTerm<TIndexValue, TKey extends Key, TItem>(
     config,
     aggregateConfig: byTermAggregate(taxonomy),
     contentDirectory,
+  });
+}
+
+/**
+ * One term's row of the inverted index — its label and carriers — in O(1)
+ * (32e). `null` when nothing carries the term, or when the taxonomy was never
+ * folded.
+ */
+export function readTaxonomyByTermEntry<TIndexValue, TKey extends Key, TItem>(
+  options: TaxonomyReadOptions<TIndexValue, TKey, TItem> & { slug: string },
+): Promise<TaxonomyByTermEntry<TItem> | null> {
+  const { config, taxonomy, contentDirectory, slug } = options;
+  return readAggregateKey({
+    config,
+    aggregateConfig: byTermAggregate(taxonomy),
+    contentDirectory,
+    key: slug,
   });
 }

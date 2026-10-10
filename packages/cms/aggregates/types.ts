@@ -90,6 +90,26 @@ export interface AggregateConfig<
   finalize?: (accumulator: TAccumulator) => TValue;
 
   /**
+   * Store the value **one record per key** rather than as one record (F8b's
+   * intent applied to this kind, 24g / epic 32e).
+   *
+   * The finalized value must then be a plain object. Each key's value is
+   * hashed and stored on its own, a write rewrites only the keys whose value
+   * moved, and `AggregateUpdateResult.keys` names them, so the write path can
+   * fire one cache tag per moved key instead of the one tag behind every
+   * reader. `readAggregate` still hands back the whole object, assembled from
+   * the keys; `readAggregateKey` reads one.
+   *
+   * For a value that is a map from something a page is about to what that
+   * page renders — an inverted index — once it is big enough that rewriting
+   * and re-hashing all of it on every write costs (F28 measured the turn at
+   * ~150 KB). `byTermAggregate` declares it.
+   *
+   * Part of the spec hash: turning it on or off changes the stored layout.
+   */
+  keyed?: true;
+
+  /**
    * Declares the shape of what the functions above produce. Bump it whenever
    * you edit one of them, and every reader recomputes instead of trusting a
    * value folded by the old shape.
@@ -117,7 +137,13 @@ export interface AggregateOptions<
   contentDirectory?: string;
 }
 
-/** What the stored record holds. One key, so a read is O(1). */
+/**
+ * What the stored record holds. One key, so a read is O(1).
+ *
+ * For a keyed aggregate this is the **header**: `value` is a
+ * `KeyedAggregateHeader`, `hash` covers every key's hash, and the keys' values
+ * are records of their own beside it (`aggregates/database.ts`).
+ */
 export interface AggregateRecord<TValue = unknown> {
   value: TValue;
   /** Of `value`. The whole basis for reporting `changed: false`. */
@@ -126,6 +152,15 @@ export interface AggregateRecord<TValue = unknown> {
   specHash: string;
   updatedAt: number;
 }
+
+/** A keyed aggregate's header value: how many keys it holds. */
+export interface KeyedAggregateHeader {
+  keys: number;
+}
+
+/** What one key of a keyed aggregate's value holds. */
+export type KeyedEntryOf<TValue> =
+  TValue extends Record<string, infer TEntry> ? TEntry : never;
 
 /**
  * What one aggregate's pass reports.
@@ -139,6 +174,12 @@ export interface AggregateUpdateResult {
   changed: boolean;
   /** Items folded. Reported for the same reason `total` is on pagination. */
   total: number;
+  /**
+   * A keyed aggregate's moved keys — added, changed or removed — sorted;
+   * empty when `changed` is false. Absent on any other aggregate, whose one
+   * value is all there is to report.
+   */
+  keys?: string[];
 }
 
 /**

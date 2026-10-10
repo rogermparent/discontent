@@ -974,6 +974,7 @@ needed F16's build-stable spec hash first.
 | **F32**  | Array reference paths (`items[].recipe`): `referencePath.ts` (`slugsAt`, `rewriteAt`); `updateDependents` finds and rewrites through them; `resolveReferences` borrows nothing along an array path; `rebuildIndex` cascades only along edges that borrow (epic 31, 31d) | a recipe rename rewrites every group item naming it, a listed-twice recipe included, in the same commit; a delete still dangles; no index appears for an absent dependent type             | **Done** — epic 31d, notes at §11.4              |
 | **F33**  | Taxonomy as an engine kind: `taxonomies` on a content type derives a terms aggregate and an inverted by-term aggregate; `createTermContentType` gives a vocabulary term records with a scalar `parent` (epic 24, `agent-taxonomy.md`)                                   | the demo's `noteTags` replaced by a declaration with `aggregates.spec.ts` unchanged, and a parent rename reaching a child's borrowed `parentLabel` — or the reason it cannot, written down | **Done** — 573 vitest, notes at §11.1            |
 | **F34**  | `commit: false` on `createContent` / `updateContent` / `deleteContent`: the write does everything but the git commit and returns `touchedPaths`, so a caller can commit several writes as one (the recipe site's `withBatchCommit`, epic 32's 32d)                      | a default write's result and commit byte-identical (no `touchedPaths` key); a multi-carrier term write is one commit, a failure part-way one `(partial)` commit on a clean tree            | **Done** — 32d, `agent-epic-32.md`               |
+| **F35**  | Keyed aggregates (`AggregateConfig.keyed`): one record per key, per-key hashes, `AggregateUpdateResult.keys`, per-key cache tags; `byTermAggregate` adopts it and term pages read one term (epic 32e, 24g — F8b's trigger crossed)                                      | a one-recipe name edit rewrites and expires only that recipe's terms, a reader of the old layout sees `null`, and the before/after is measured on the real corpus                          | **Done** — epic 32e, notes at §11.1 and §12.13   |
 
 **D1's "done when" had to be restated.** It read "a recipe rename dirties only the featured
 pages that show it", which is unachievable as written: featured recipes have no pagination
@@ -1774,6 +1775,12 @@ feature until one is.
 > the threshold. The "richest tag carries three recipes" figure above describes the Playwright
 > fixtures, not production.
 
+> **The byte trigger fired at epic 32e: 200,805 B at 665 recipes** (172 tags, `drink` on 208, after
+> the epic-25 drinks). The answer was **F35** (§11.1), one aggregate record per term, rather than
+> this entry's pagination partitions. No term page is paginated, and the cost was the record, not
+> the page count. `partitionsOf` stays deferred on its own trigger: a paginated surface that
+> outgrows one walk.
+
 **F19 — the homepage hero is an untagged item read, and it is the last thing blocking
 `paginationOnly` (item pages inside non-item pages).** `Homepage/index.tsx` renders
 `HeroBench` from `getRecipeBySlug(newest featured ?? newest recipe)` — the recipe's whole data
@@ -1877,6 +1884,10 @@ Per-term pagination is **not** part of F33: F8b already fixes that shape and its
 (~150 KB for the by-term record); the epic measures the real record after its vocabulary backfill
 and opens F8b only if the number demands it.
 
+> **The number demanded it at epic 32e (24g), and the answer was F35, not F8b's pagination
+> partitions.** The real record measured 200,805 B at 665 recipes. A term page is unpaginated, so
+> the thing to partition was the aggregate: one record per term. See F35 below.
+
 **What 24a built.** `packages/cms/taxonomies/`: `types.ts` (`TaxonomyConfig`, `TaxonomyTerm`,
 `TaxonomyByTerm`), `slug.ts` (`normalizeTerm` / `termSlug` — the site's `normalizeTag` rules and
 `tagSlug`, reimplemented because the component library is not an engine dependency), `aggregates.ts`
@@ -1906,6 +1917,64 @@ that already exists moves it, where the hand-written `Set<string>` folds it repl
 projected field still moves neither record — but the demo's `aggregates.spec.ts` case that asserted
 "nothing recorded" for a repeat tag now asserts both records moved while the rendered cloud stays
 byte-identical, which is the honest form of the claim.
+
+**F35 — keyed aggregates: the by-term record split per term (epic 32e, 24g;
+`websites/recipe-website/docs/agent-epic-32.md`).** F28 put F8b's real trigger at a by-tag record
+over ~150 KB (§12.13), and the real corpus crossed it at 665 recipes: **200,805 B**, 172 terms,
+`drink` on 208. Every write that moved any term's rows re-hashed and rewrote all of it, and fired
+the one tag behind every term page. F8b's own design partitions a _pagination_ index, and a term
+page is not paginated, so F35 applies F8b's intent to the aggregate kind instead: bounded writes
+and bounded invalidation per key.
+
+- **`AggregateConfig.keyed?: true`.** `finalize` returns a plain object, and the pass stores it in
+  the aggregate's own environment as a header at `[0]` (an ordinary `AggregateRecord` whose value
+  is `{keys: n}` and whose `hash` covers the per-key hashes), one record per key at `[1, key]`, and
+  `Record<key, hash>` at `[2]`, which only the writer reads. The walk is unchanged: the kind
+  trusts nothing it stored, and the terms aggregate needs the walk anyway. After it, each key is
+  hashed alone, and **one transaction** does the rest:
+  - it reads the header, `[2]` and a key-only scan of the `[1, *]` records;
+  - it writes the keys whose hash moved or whose record is missing;
+  - it removes every stored record the new value lacks;
+  - it rewrites `[2]` and the header.
+
+  A spec change clears the environment first. A pass whose header hash matches and whose records
+  match writes nothing.
+
+- **The reads happen inside the transaction callback, and the deletes come from the records**
+  (the 32e review's B1). lmdb-js queues a `transaction` callback for a later batch. So a diff
+  read before the `await` let two overlapping passes diff against the same stale hashes, and one
+  adding `x` and one removing it could leave a `[1, x]` record that no hash listed. That ghost
+  was permanent, because the header hash matched and nothing looked again. Inside the callback
+  the reads see the write transaction. Because the delete set is the stored records minus the new
+  keys, any stray record heals on the next pass or rebuild. A stale pass can still store last,
+  as with any aggregate (no lock spans a whole pass), but what it stores is consistent and the
+  next pass corrects it.
+- **`AggregateUpdateResult.keys`**: the moved keys (added, changed or removed), present only on a
+  keyed aggregate.
+- **Tags take pagination's shape.** `aggregate:<type>:<name>` is the catch-all: every read of the
+  aggregate carries it, and only the repair seat fires it, so `derivedTagsOf` did not move. The
+  whole-value read carries `…:whole` and one key's read carries `…:key:<k>`.
+  `revalidateAggregateResults` fires `whole` plus each moved key.
+- **Reads.** `readAggregate` reassembles the whole value, so nothing that read it broke.
+  `readAggregateKey` reads the header (to check the spec) and one record.
+  `createCachedAggregateRead().readKey(k)` builds one `unstable_cache` wrapper per read, inside
+  `React.cache`, and keeps none. This is `cachedItemRead.ts`'s pattern, not pagination's map of
+  wrappers per page, because the key comes from a public URL and a map would grow with every
+  slug a crawler invents (review B2). `readTaxonomyByTermEntry` and `byTerm.readKey(slug)` are
+  the taxonomy spellings.
+- **`keyed` is in `computeAggregateSpecHash`**, but only when it is set, because `hashValue` drops
+  an `undefined` field. Every other aggregate's spec hash is byte-identical. `byTermAggregate`
+  declares it and `TAXONOMY_FOLD_VERSION` went `"1"` → `"2"`, so a by-tag environment still in the
+  single-record layout reads as `null` (24-T5) until a reindex or that type's next write.
+- **The fold got cheaper too.** `termsOf` normalised and slugged every carrier's terms once per
+  fold, so twice a pass, and that was most of the fold's time on the real corpus. It is now
+  memoised in a `WeakMap` on the index value object the walk hands both folds.
+
+The recipe site's term page now reads its two rows with `readKey` and its counts from the two term
+clouds (the same numbers: one walk folds both). Its export params come from the clouds too, and
+so do portfolio's; portfolio's term page reads one row. `/tags`' tree is the one whole-map reader
+left, because a distinct subtree total needs every term's carriers. It is one page, under `…:whole`.
+Measured before and after at §12.13.
 
 ### 11.2 Consumers of the existing machinery
 
@@ -4296,11 +4365,45 @@ still, and the `--hot-tag` knob exists because without it there is nothing in th
 
 **Decision: F12, F18 and F8b all stay deferred, and each now names the number that would reopen it.**
 
-| item    | the trigger, written as a number                                                                                                                                                                                                                         |
-| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **F12** | **A corpus over ~20,000 items whose ordinary writes matter**, where phase 2's walk crosses 100 ms. Its ceiling is half an ordinary write: F12 cannot take a write below the aggregate fold's floor (123 ms at 20,000), because a fold has no early exit. |
-| **F18** | **D over ~50,000**, where the scan would cross 500 ms and become a write's largest single term. D is the count of hand-curated featured recipes; production has one.                                                                                     |
-| **F8b** | **A by-tag record over ~150 KB** — a single tag on roughly 1,000 recipes at this corpus's tags-per-recipe. Production is at 429 B, three orders of magnitude below it.                                                                                   |
+| item    | the trigger, written as a number                                                                                                                                                                                                                                             |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **F12** | **A corpus over ~20,000 items whose ordinary writes matter**, where phase 2's walk crosses 100 ms. Its ceiling is half an ordinary write: F12 cannot take a write below the aggregate fold's floor (123 ms at 20,000), because a fold has no early exit.                     |
+| **F18** | **D over ~50,000**, where the scan would cross 500 ms and become a write's largest single term. D is the count of hand-curated featured recipes; production has one.                                                                                                         |
+| **F8b** | **A by-tag record over ~150 KB** — a single tag on roughly 1,000 recipes at this corpus's tags-per-recipe. Production is at 429 B, three orders of magnitude below it. **Crossed at epic 32e: 200,805 B at 665 recipes; answered by F35, one record per term (note below).** |
+
+**F8b's trigger crossed at epic 32e, and F35 answered it.** The drinks track (epic 25) put five or
+six tags on each of 208 recipes, and a scratch clone of the real repo at 665 recipes measured
+**200,805 B** in the by-tag record: 172 tags, `drink` on 208, 19 tags over `perPage`. The guess at
+F28 time was "a single tag on roughly 1,000 recipes"; it took a fifth of that, spread across many
+tags. Same script, `TARGET` pointed at a six-tag drink (`amaretto-sour-acouplecooks`), so the
+`name-edit` moves the record. The default target carries no tags.
+
+| by-tag record, real corpus (665)               | before (one record)         | after (F35, one record per term)                        |
+| ---------------------------------------------- | --------------------------- | ------------------------------------------------------- |
+| bytes                                          | 200,805 (one record)        | 172 records: max 38,272 (`drink`), median 298           |
+| written by a six-tag `name-edit`               | 200,901 B, the whole record | 6 term records, 75 KB (`drink` 38 KB) + 14 KB of hashes |
+| tag pages expired by that edit                 | all 172 + `/tags`           | 6 + `/tags`                                             |
+| aggregate fold, no-op floor (min of 7, ×2)     | 22.6 / 24.3 ms              | 17.4 / 20.9 ms                                          |
+| aggregate pass, no-op (A/B, min of 21, ×2)     | 21.9 / 25.0 ms              | 15.9 / 18.3 ms                                          |
+| aggregate pass, name edit (A/B, min of 21, ×2) | 24.6 / 25.8 ms              | 17.7 / 18.0 ms                                          |
+| full `reindex` (CLI, 5 runs, min / median)     | 646 / 655 ms                | 624 / 639 ms                                            |
+
+The A/B rows come from a scratch script that ran `main`'s engine (extracted with `git archive`) and
+this branch's on fresh copies of the clone, interleaved, at load 4.5–4.6. Each run toggled the
+recipe's index-value `name` 21 times and timed `updateAggregates` alone. The fold-floor row comes
+from `measure-engine-scale.ts`, which runs one write per process, so it is noisier.
+
+**Most of the time saved is the `termsOf` memo, not the split.** The no-op pass writes nothing in
+either engine, and it dropped by about 6 ms: before, every carrier's tags were slugged once per
+fold, about 7.7 ms of each fold. What the store itself costs, the edit pass minus the no-op, was
+1–3 ms before and is 0–2 ms now, because hashing every term's value is still the same bytes. The
+write still pays one full walk and a hash of every term, since the kind re-folds rather than
+trusting what it stored.
+
+**What the split buys is bytes and invalidation.** A six-tag edit writes 89 KB, not 201 KB, and
+expires 6 term pages, not 172. A term page reads one record: 298 B for the median term, 38 KB for
+`drink`, where every term page used to decode the whole 200 KB value. The reindex did not get
+slower: it writes the 172 term records in the same single transaction.
 
 **F12's ceiling is the useful half of that table.** The early exit is an optimisation of the walk, and
 at 20,000 the walk is 112 ms of an ordinary write's 346. The other two passes are untouched: the
