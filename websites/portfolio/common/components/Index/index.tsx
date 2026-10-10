@@ -100,12 +100,19 @@ function IndexRow({
   );
 }
 
-/** The plate: the focused entry's cover. Cross-fade only. */
+/**
+ * The plate: the focused entry's cover. Cross-fade only.
+ *
+ * Plain `sticky`, not `.sticky-chrome`: the plate is content, not chrome, and it
+ * stays pinned on a short viewport. It offsets by `--sticky-chrome-offset`, which
+ * is the masthead's height while the masthead is pinned and 0 once it releases,
+ * so a released masthead doesn't strand a dead band above the plate.
+ */
 function Plate({ project }: { project?: ProjectIndexEntry }) {
   return (
     <div
       aria-hidden
-      className="sticky top-[calc(var(--header-height)+2rem)] hidden aspect-[4/3] w-full overflow-hidden rounded-md border border-border bg-muted lg:block"
+      className="sticky top-[calc(var(--sticky-chrome-offset)+2rem)] hidden aspect-[4/3] w-full overflow-hidden rounded-md border border-border bg-muted lg:block"
     >
       {project?.image ? (
         // `project.image` is a bare filename — "cover.png", not a path — so

@@ -37,8 +37,12 @@ async function SiteMasthead({ extraNavItems }: { extraNavItems?: ReactNode }) {
   const headerItems = [...defaultHeaderItems, ...(headerMenu?.items || [])];
   const { title } = getSiteConfig();
 
+  // `sticky-chrome`, never `sticky` — the class reads the shared sticky-chrome
+  // policy in theme.css, and the `sticky` utility would out-rank it. Portfolio
+  // has no Sticky headers toggle, so it is always "auto": pinned when there is
+  // room, released below 600px of viewport height. `print:hidden` still wins.
   return (
-    <header className="sticky top-0 z-40 h-[var(--header-height)] w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 print:hidden">
+    <header className="sticky-chrome top-0 z-40 h-[var(--header-height)] w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 print:hidden">
       <div className="mx-auto flex h-full w-full max-w-5xl items-center justify-between gap-4 px-4 sm:px-6">
         <Link
           href="/"
