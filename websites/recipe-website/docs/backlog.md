@@ -44,10 +44,10 @@ Sources: `docs/agent-curation.md` (Deferred, and the D/T lists it names),
 
 ## Engine
 
-| Candidate                                 | Why                                                                                                                                                                                 | Recorded at                                                               |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| **F32 — array references** (renames: 31d) | The reference machinery is scalar-only (D3); group cards cannot follow renames or borrow member thumbnails through the index. Add an F-row to §10 and a §11.4 entry when picked up. | agent-curation Deferred; incremental-regeneration §10 (last rows F29/F31) |
-| Ingredient completion in the search field | 21c completes fields and tags only; ingredients are a conditional fetch (F4a), so completing them means a loading state inside a keystroke.                                         | ui-overhaul PR 21c                                                        |
+| Candidate                                                                   | Why                                                                                                                                                                                 | Recorded at                                                               |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| **F32 — array references** (renames done by 31d #193; borrowing still open) | The reference machinery is scalar-only (D3); group cards cannot follow renames or borrow member thumbnails through the index. Add an F-row to §10 and a §11.4 entry when picked up. | agent-curation Deferred; incremental-regeneration §10 (last rows F29/F31) |
+| Ingredient completion in the search field                                   | 21c completes fields and tags only; ingredients are a conditional fetch (F4a), so completing them means a loading state inside a keystroke.                                         | ui-overhaul PR 21c                                                        |
 
 ## UI
 
