@@ -120,6 +120,22 @@ export class NotFoundError extends CurationError {
   }
 }
 
+/**
+ * The target is already on the homepage (epic 31, D2): `slug_conflict`, naming
+ * the featured entry that holds it, so `unfeature <slug>` or `again` is the
+ * caller's next move.
+ */
+export class AlreadyFeaturedError extends CurationError {
+  constructor(target: string, existing: string) {
+    super(
+      "slug_conflict",
+      `${target} is already featured as "${existing}". Pass again (--again) to feature it a second time.`,
+      { slug: existing },
+    );
+    this.name = "AlreadyFeaturedError";
+  }
+}
+
 export class ValidationError extends CurationError {
   constructor(message: string, issues?: { path: string; message: string }[]) {
     super("validation", message, issues ? { issues } : {});

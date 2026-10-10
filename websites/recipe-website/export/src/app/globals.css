@@ -33,6 +33,22 @@
   a {
     @apply underline decoration-primary/40 hover:text-primary;
   }
+
+  /*
+   * Tables (epic 31): a term description may carry one — 30d's syrup-pairing
+   * chart was the first. `StyledMarkdown` wraps each in a sideways scroller,
+   * so a wide one never widens the page on a phone.
+   */
+  table {
+    @apply my-3 border-collapse text-sm;
+  }
+  th,
+  td {
+    @apply border border-border px-2 py-1 text-left align-top;
+  }
+  thead {
+    @apply bg-muted;
+  }
 }
 
 html,

@@ -21,6 +21,18 @@ function MarkdownLink({
   );
 }
 
+/**
+ * A table in its own sideways scroller (epic 31): a wide chart scrolls inside
+ * the column instead of pushing the page past the viewport on a phone.
+ */
+function MarkdownTable({ children }: { children?: ReactNode }) {
+  return (
+    <div className="overflow-x-auto">
+      <table>{children}</table>
+    </div>
+  );
+}
+
 export default function StyledMarkdown({
   children,
   components,
@@ -45,6 +57,9 @@ export default function StyledMarkdown({
         overrides: {
           a: {
             component: MarkdownLink,
+          },
+          table: {
+            component: MarkdownTable,
           },
           ...components,
         },

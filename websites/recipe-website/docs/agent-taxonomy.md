@@ -1775,11 +1775,13 @@ unread — drop or keep at 24f (T17); `unknown_term` in the skill's prose
   carriers is N commits.
 - **`appearsInAggregate` over the inverted primitive** — re-expressible,
   not worth the churn until something else touches it.
-- **Portfolio backfill**; **ranking**; a group picker in the browser form.
-- **Read-side spec guard in `readAggregate`** (24b finding, T5) — return
+- **Portfolio backfill**; ~~**ranking**~~ (done by 27d); ~~a group picker in
+  the browser form~~ (done by 31a: "Add group" rows, `agent-epic-31.md`).
+- ~~**Read-side spec guard in `readAggregate`** (24b finding, T5) — return
   `null` when the stored spec hash differs from the config's, so a stale
   record reads as never-folded instead of as the old shape. Engine change,
-  own F-row when picked up; until then `reindex` after any version bump.
+  own F-row when picked up; until then `reindex` after any version bump.~~
+  **Done by 30a** (`agent-epic-30.md`, the aggregate spec guard).
 
 ## Key files to read first (implementers)
 

@@ -882,13 +882,14 @@ test.describe("Groups", () => {
       await markdownEditorReady(page, "description");
 
       /*
-       * Read-only, and *submitted*: the form has no group picker (T38), so the
-       * hidden input is the only thing standing between an unrelated edit and a
-       * silently deleted sub-group.
+       * A group picker since epic 31, seeded with what is on disk and
+       * *submitted*: an unrelated edit must not silently delete the sub-group.
        */
       const groupRow = page.getByTestId("group-item-group-row");
       await expect(groupRow).toHaveCount(1);
-      await expect(groupRow).toContainText("Group 1: week-of-may-4");
+      await expect(groupRow.getByLabel("Group 1", { exact: true })).toHaveValue(
+        "week-of-may-4",
+      );
       await expect(
         page.getByRole("button", { name: "Remove group 1" }),
       ).toBeVisible();
@@ -922,6 +923,65 @@ test.describe("Groups", () => {
 
       await page.goto("/group/week-of-may-4");
       await expect(page.getByTestId("appears-in")).toHaveCount(0);
+    });
+  });
+
+  /*
+   * "Add group" (epic 31): the form can nest a group, and the server action
+   * runs the curation seat's cycle check before the generic write.
+   */
+  test.describe("adding a sub-group from the form", () => {
+    test.beforeEach(async ({ resetData }) => {
+      await resetData("nested-groups");
+    });
+
+    test("adds a group row and nests the group", async ({ page, baseURL }) => {
+      await page.goto("/group/new");
+      await fillSignInForm(page);
+      await markdownEditorReady(page, "description");
+
+      await page.getByLabel("Name").fill("Summer Menus");
+      await page.getByRole("button", { name: "Add group" }).click();
+      const groupRow = page.getByTestId("group-item-group-row");
+      await expect(groupRow).toHaveCount(1);
+      const picker = groupRow.getByLabel("Group 2", { exact: true });
+      await expect(
+        picker.locator("option", { hasText: "Week of May 4" }),
+      ).toHaveCount(1);
+      await picker.selectOption("week-of-may-4");
+      await page.getByRole("button", { name: "Submit", exact: true }).click();
+
+      await expect(page).toHaveURL(baseURL + "/group/summer-menus");
+      await expect(page.getByTestId("group-item-group")).toHaveCount(1);
+      await expect(page.getByTestId("group-item-group")).toContainText(
+        "Week of May 4",
+      );
+    });
+
+    test("refuses a group that would contain itself", async ({
+      page,
+      baseURL,
+    }) => {
+      /* `spring-menus` already holds `week-of-may-4`. */
+      await page.goto("/group/week-of-may-4/edit");
+      await fillSignInForm(page);
+      await markdownEditorReady(page, "description");
+
+      await page.getByRole("button", { name: "Add group" }).click();
+      const picker = page
+        .getByTestId("group-item-group-row")
+        .last()
+        .locator("select");
+      await expect(
+        picker.locator("option", { hasText: "Spring Menus" }),
+      ).toHaveCount(1);
+      await picker.selectOption("spring-menus");
+      await page.getByRole("button", { name: "Submit", exact: true }).click();
+
+      await expect(
+        page.getByText(/put a group inside itself/).first(),
+      ).toBeVisible();
+      await expect(page).toHaveURL(baseURL + "/group/week-of-may-4/edit");
     });
   });
 

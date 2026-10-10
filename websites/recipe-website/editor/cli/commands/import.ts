@@ -1,5 +1,5 @@
 import { UsageError } from "../../controller/curation/errors";
-import { formatJsonBlock } from "../output";
+import { formatImageProbe, formatJsonBlock, formatWarnings } from "../output";
 import type { ImportResult } from "../backend/types";
 import { writeDraft } from "./inspect";
 import { booleanOption, stringOption, type CommandDef } from "./types";
@@ -53,10 +53,9 @@ export const importCommand: CommandDef<ImportResult> = {
         result.partial
           ? "partial: no Recipe node — title, description and image only"
           : undefined,
-        result.image
-          ? `image: ${result.image.filename}${result.image.error ? ` (${result.image.error})` : ""}`
-          : undefined,
+        result.image ? formatImageProbe(result.image) : undefined,
         result.video ? `video: ${result.video}` : undefined,
+        ...formatWarnings(result.warnings),
         formatJsonBlock(result.recipe),
       ]
         .filter(Boolean)
@@ -67,6 +66,7 @@ export const importCommand: CommandDef<ImportResult> = {
       `  ${result.url}`,
       `  ${result.path}`,
       result.source ? `  source: ${result.source.url}` : undefined,
+      ...formatWarnings(result.warnings),
     ]
       .filter(Boolean)
       .join("\n");
