@@ -205,8 +205,9 @@ test.describe("Tag pages", () => {
       /* Dessert's eight carriers are the cookies; each counts once. */
       const dessert = tree.locator("> li").filter({ hasText: /^Dessert/ });
       await expect(dessert).toHaveCount(1);
-      expect((await dessert.innerText()).replace(/\s+/g, " ").trim()).toBe(
-        "Dessert 8 Cookies 8",
+      /* The count sits beside the label by margin, not by a space. */
+      expect((await dessert.innerText()).replace(/\s+/g, "")).toBe(
+        "Dessert8Cookies8",
       );
       await expect(
         dessert.getByRole("link", { name: "Cookies" }),
