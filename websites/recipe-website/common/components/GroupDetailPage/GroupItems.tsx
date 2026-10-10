@@ -1,4 +1,7 @@
 import type { ReactNode } from "react";
+import { Badge } from "@discontent/component-library/components/ui/badge";
+import type { GroupItem } from "../../controller/types";
+import { formatScale, parseScale } from "../../util/scale";
 import { RecipeListItem } from "../List";
 import { GroupCard } from "../List/FeaturedRecipe/GroupCard";
 import type { ResolvedGroupItem } from ".";
@@ -24,61 +27,99 @@ import type { ResolvedGroupItem } from ".";
  * answering to it would be a lie the suite could act on — the same reason
  * `List/Group` rolls its own `<ul>`.
  *
+ * A recipe row with a `scale` (epic 32, D4) wears a "2×" badge beside its
+ * label, and its card links to `/recipe/<slug>?scale=2`, which opens the
+ * recipe already scaled. A 1× scale, or one the parser refuses (a hand-edited
+ * file), shows nothing and links plainly.
+ *
  * Its own module because 22g renders the same items inside a featured strip.
  */
 export function GroupItems({ items }: { items: ResolvedGroupItem[] }) {
   return (
     <ol className="my-4 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-      {items.map(({ item, recipe, group }, index) => (
-        <li
-          /*
-           * By position, not by slug: a meal plan may legitimately list the
-           * same recipe twice, so the slug is not a key.
-           */
-          key={`${index}-${item.group ?? item.recipe}`}
-          data-testid="group-item"
-          className="flex flex-col flex-nowrap gap-1"
-        >
-          {item.label && (
-            <p
-              className="font-mono text-xs uppercase tracking-wide text-muted-foreground"
-              data-testid="group-item-label"
-            >
-              {item.label}
-            </p>
-          )}
-          {item.group !== undefined ? (
-            group ? (
-              <GroupCard
-                slug={item.group}
-                name={group.name}
-                kind={group.kind}
-                date={group.date}
-                image={group.image}
-                items={group.items}
-                testId="group-item-group"
+      {items.map(({ item, recipe, group }, index) => {
+        const scale = scaleOf(item);
+        return (
+          <li
+            /*
+             * By position, not by slug: a meal plan may legitimately list the
+             * same recipe twice, so the slug is not a key.
+             */
+            key={`${index}-${item.group ?? item.recipe}`}
+            data-testid="group-item"
+            className="flex flex-col flex-nowrap gap-1"
+          >
+            {(item.label || scale) && (
+              <div className="flex flex-row flex-nowrap items-center justify-between gap-2">
+                {item.label && (
+                  <p
+                    className="font-mono text-xs uppercase tracking-wide text-muted-foreground"
+                    data-testid="group-item-label"
+                  >
+                    {item.label}
+                  </p>
+                )}
+                {scale && (
+                  <Badge
+                    variant="secondary"
+                    className="ml-auto font-mono tabular-nums"
+                    data-testid="group-item-scale"
+                  >
+                    <span className="sr-only">Scale </span>
+                    {scale.label}
+                  </Badge>
+                )}
+              </div>
+            )}
+            {item.group !== undefined ? (
+              group ? (
+                <GroupCard
+                  slug={item.group}
+                  name={group.name}
+                  kind={group.kind}
+                  date={group.date}
+                  image={group.image}
+                  items={group.items}
+                  testId="group-item-group"
+                />
+              ) : (
+                <MissingCard>Group not found: {item.group}</MissingCard>
+              )
+            ) : recipe ? (
+              <RecipeListItem
+                slug={item.recipe}
+                date={recipe.date}
+                name={recipe.name}
+                image={recipe.image}
+                tags={recipe.tags}
+                href={
+                  scale
+                    ? `/recipe/${item.recipe}?scale=${encodeURIComponent(scale.value)}`
+                    : undefined
+                }
               />
             ) : (
-              <MissingCard>Group not found: {item.group}</MissingCard>
-            )
-          ) : recipe ? (
-            <RecipeListItem
-              slug={item.recipe}
-              date={recipe.date}
-              name={recipe.name}
-              image={recipe.image}
-              tags={recipe.tags}
-            />
-          ) : (
-            <MissingCard>Recipe not found: {item.recipe}</MissingCard>
-          )}
-          {item.note && (
-            <p className="text-sm text-muted-foreground">{item.note}</p>
-          )}
-        </li>
-      ))}
+              <MissingCard>Recipe not found: {item.recipe}</MissingCard>
+            )}
+            {item.note && (
+              <p className="text-sm text-muted-foreground">{item.note}</p>
+            )}
+          </li>
+        );
+      })}
     </ol>
   );
+}
+
+/**
+ * A recipe row's multiplier, as the badge says it and as the link carries it
+ * — or `null` for a sub-group, no scale, 1×, or a value the parser refuses.
+ */
+function scaleOf(item: GroupItem): { label: string; value: string } | null {
+  if (item.recipe === undefined || !item.scale) return null;
+  const scale = parseScale(item.scale);
+  if (!scale || scale.equals(1)) return null;
+  return { label: formatScale(scale), value: item.scale.trim() };
 }
 
 /**

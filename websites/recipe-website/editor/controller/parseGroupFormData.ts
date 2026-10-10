@@ -3,6 +3,7 @@ import parseFormData from "@discontent/cms/forms/parseFormData";
 import dateEpochSchema from "@discontent/cms/forms/schema/dateEpoch";
 import { normalizeTags } from "recipe-website-common/controller/normalizeTags";
 import type { GroupItem } from "recipe-website-common/controller/types";
+import { SCALE_MESSAGE, isValidScale } from "recipe-website-common/util/scale";
 
 /** Blank text is absent text — the form always submits the input, empty or not. */
 const optionalText = z
@@ -29,6 +30,16 @@ const GroupItemSchema = z.object({
   group: optionalText,
   label: optionalText,
   note: optionalText,
+  /*
+   * A recipe row's multiplier (epic 32, D4), blank for none. Refused unless
+   * positive, with the message the JSON schemas use; the error lands on
+   * `items` and prints above the rows (`GroupFormErrors`). A group row has
+   * no Scale input, and the transform below drops one a forged post sends.
+   */
+  scale: optionalText.refine(
+    (value) => value === undefined || isValidScale(value),
+    { message: SCALE_MESSAGE },
+  ),
 });
 
 const GroupFormSchema = z.object({
@@ -90,10 +101,11 @@ const GroupFormSchema = z.object({
      * that no longer matches `GroupItem`'s union.
      */
     .transform((items): GroupItem[] =>
-      items.map(({ recipe, group, label, note }) => ({
+      items.map(({ recipe, group, label, note, scale }) => ({
         ...(group ? { group } : { recipe: recipe as string }),
         ...(label ? { label } : {}),
         ...(note ? { note } : {}),
+        ...(scale && !group ? { scale } : {}),
       })),
     ),
 });

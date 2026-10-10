@@ -55,7 +55,7 @@ const groupCreate: CommandDef<GroupWriteResult> = {
   usage:
     "recipes group create --name N [--kind meal-plan] [--description D] " +
     "[--slug s] [--date d] [--image-url U] [--tag t …] " +
-    "(--file items.json | --item slug[:label] … [--group-item slug[:label] …]) [--force]",
+    "(--file items.json | --item slug[:label][@scale] … [--group-item slug[:label] …]) [--force]",
   options: {
     name: { type: "string" },
     kind: { type: "string" },
@@ -270,11 +270,17 @@ function itemRef(
 const groupAdd: CommandDef<GroupWriteResult> = {
   name: "group add",
   usage:
-    "recipes group add <group> (<recipe> | --group <group>) [--label L] [--note N] [--force]",
+    "recipes group add <group> (<recipe> | --group <group>) [--label L] [--note N] " +
+    "[--scale 2] [--force]",
   options: {
     group: { type: "string" },
     label: { type: "string" },
     note: { type: "string" },
+    /*
+     * A recipe row's multiplier (epic 32, D4): "2", "1/2", "1.5". The seat
+     * validates it, and refuses it beside --group.
+     */
+    scale: { type: "string" },
     force: { type: "boolean" },
   },
   write: true,
@@ -287,6 +293,7 @@ const groupAdd: CommandDef<GroupWriteResult> = {
       {
         label: stringOption(options, "label"),
         note: stringOption(options, "note"),
+        scale: stringOption(options, "scale"),
         force: booleanOption(options, "force"),
       },
     );
@@ -358,8 +365,10 @@ const groupShow: CommandDef<GroupDetail> = {
       const body = item.missing
         ? `${target} (missing)`
         : `${item.name} (${target})`;
+      /* The multiplier as written, "2" → "×2" (epic 32, D4). */
+      const scale = item.scale ? ` ×${item.scale}` : "";
       const note = item.note ? `\n      ${item.note}` : "";
-      return `  - ${label}${body}${note}`;
+      return `  - ${label}${body}${scale}${note}`;
     });
     return [...header, ...(items.length ? items : ["  (no items)"])].join("\n");
   },
