@@ -22,8 +22,15 @@ import { getContentDatabase } from "@discontent/cms/content/database";
 import { rebuildIndex } from "@discontent/cms/content/rebuildIndex";
 import { updateContent } from "@discontent/cms/content/updateContent";
 import {
+  isArrayRefPath,
+  parseRefPath,
+  rewriteAt,
+  slugsAt,
+} from "@discontent/cms/content/referencePath";
+import {
   borrowed,
   borrowedFieldsOf,
+  borrowsFrom,
   createReferenceResolver,
   resolveReferences,
   NO_REFERENCES,
@@ -893,5 +900,283 @@ describe("declaration mechanics", () => {
     });
 
     expect(await readPostKeys()).toHaveLength(2);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Array references (F32)                                             */
+/* ------------------------------------------------------------------ */
+
+interface Song {
+  title: string;
+  date: number;
+}
+interface PlaylistItem {
+  song?: string;
+  playlist?: string;
+  label?: string;
+}
+interface Playlist {
+  name: string;
+  date: number;
+  items: PlaylistItem[];
+}
+
+/*
+ * The recipe site's group shape in miniature: items that name a song or a
+ * nested playlist, declared as reference paths that borrow nothing. The index
+ * value carries the song slugs, as the groups index carries its recipes for
+ * the "Appears in" fold.
+ */
+const playlistConfig: ContentTypeConfig<
+  Playlist,
+  { name: string; songs: string[]; date: number },
+  [number, string]
+> = {
+  contentType: "playlists",
+  dataDirectory: "playlists/data",
+  indexDirectory: "playlists/index",
+  dataFilename: "playlist.json",
+  buildIndexValue: (data) => ({
+    name: data.name,
+    songs: data.items.flatMap((item) => (item.song ? [item.song] : [])),
+    date: data.date,
+  }),
+  buildIndexKey: (slug, data) => [data.date, slug],
+  references: [
+    { config: () => songConfig, dataField: "items[].song", fields: [] },
+    {
+      config: () => playlistConfig,
+      dataField: "items[].playlist",
+      fields: [],
+    },
+  ],
+  referencedBy: [
+    { config: () => playlistConfig, dataField: "items[].playlist" },
+  ],
+};
+
+const songConfig: ContentTypeConfig<
+  Song,
+  { title: string; date: number },
+  [number, string]
+> = {
+  contentType: "songs",
+  dataDirectory: "songs/data",
+  indexDirectory: "songs/index",
+  dataFilename: "song.json",
+  buildIndexValue: (data) => ({ title: data.title, date: data.date }),
+  buildIndexKey: (slug, data) => [data.date, slug],
+  referencedBy: [{ config: () => playlistConfig, dataField: "items[].song" }],
+};
+
+describe("reference paths (F32)", () => {
+  const record = {
+    items: [
+      { song: "a", label: "Opener" },
+      { playlist: "nested" },
+      { song: "b" },
+      { song: "a", label: "Encore" },
+    ],
+    lead: "a",
+  };
+
+  it("parses, and reads every slug at a path in order, duplicates kept", () => {
+    expect(parseRefPath("items[].song")).toEqual([
+      { key: "items", array: true },
+      { key: "song", array: false },
+    ]);
+    expect(isArrayRefPath("items[].song")).toBe(true);
+    expect(isArrayRefPath("lead")).toBe(false);
+    expect(slugsAt(record, "items[].song")).toEqual(["a", "b", "a"]);
+    expect(slugsAt(record, "items[].playlist")).toEqual(["nested"]);
+    expect(slugsAt(record, "lead")).toEqual(["a"]);
+    expect(slugsAt({ items: "nope" }, "items[].song")).toEqual([]);
+    expect(slugsAt(undefined, "lead")).toEqual([]);
+  });
+
+  it("rewrites every match in place, leaving order and other keys alone (T40)", () => {
+    const copy = structuredClone(record);
+    expect(rewriteAt(copy, "items[].song", "a", "z")).toBe(2);
+    expect(copy.items).toEqual([
+      { song: "z", label: "Opener" },
+      { playlist: "nested" },
+      { song: "b" },
+      { song: "z", label: "Encore" },
+    ]);
+    /* A scalar field of the same name is a different path. */
+    expect(copy.lead).toBe("a");
+    expect(rewriteAt(copy, "lead", "a", "z")).toBe(1);
+    expect(copy.lead).toBe("z");
+    expect(rewriteAt(copy, "items[].song", "missing", "y")).toBe(0);
+  });
+});
+
+describe("array references follow renames (F32)", () => {
+  function readPlaylistFile(slug: string): Promise<Playlist> {
+    return readJson(
+      join(contentDirectory, "playlists/data", slug, "playlist.json"),
+    );
+  }
+
+  async function seed() {
+    await createContent({
+      config: songConfig,
+      slug: "a",
+      data: { title: "A", date: day(1) },
+      contentDirectory,
+    });
+    await createContent({
+      config: songConfig,
+      slug: "b",
+      data: { title: "B", date: day(2) },
+      contentDirectory,
+    });
+    await createContent({
+      config: playlistConfig,
+      slug: "nested",
+      data: { name: "Nested", date: day(3), items: [{ song: "b" }] },
+      contentDirectory,
+    });
+    await createContent({
+      config: playlistConfig,
+      slug: "mix",
+      data: {
+        name: "Mix",
+        date: day(4),
+        items: [
+          { song: "a", label: "Opener" },
+          { playlist: "nested" },
+          { song: "b" },
+          { song: "a", label: "Encore" },
+        ],
+      },
+      contentDirectory,
+    });
+  }
+
+  function renameSong(from: string, to: string, data: Song) {
+    return updateContent({
+      config: songConfig,
+      slug: to,
+      currentSlug: from,
+      currentIndexKey: [data.date, from] as [number, string],
+      data,
+      contentDirectory,
+    });
+  }
+
+  it("rewrites every item naming the old slug, a song listed twice included", async () => {
+    await seed();
+    const result = await renameSong("a", "a-side", {
+      title: "A",
+      date: day(1),
+    });
+
+    expect((await readPlaylistFile("mix")).items).toEqual([
+      { song: "a-side", label: "Opener" },
+      { playlist: "nested" },
+      { song: "b" },
+      { song: "a-side", label: "Encore" },
+    ]);
+    /* A playlist that never named it is not touched. */
+    expect((await readPlaylistFile("nested")).items).toEqual([{ song: "b" }]);
+
+    const playlists = result.dependents.find(
+      (dependent) => dependent.contentType === "playlists",
+    );
+    expect(playlists?.updatedSlugs).toEqual(["mix"]);
+
+    /* The index follows the data file. */
+    const db = getContentDatabase<{ songs: string[] }, [number, string]>(
+      playlistConfig,
+      contentDirectory,
+    );
+    const mix = [...db.getRange()].find(
+      ({ key }) => (key as [number, string])[1] === "mix",
+    );
+    expect(mix?.value.songs).toEqual(["a-side", "b", "a-side"]);
+  });
+
+  it("follows a nested playlist's rename through the self-edge", async () => {
+    await seed();
+    await updateContent({
+      config: playlistConfig,
+      slug: "nested-renamed",
+      currentSlug: "nested",
+      currentIndexKey: [day(3), "nested"] as [number, string],
+      data: { name: "Nested", date: day(3), items: [{ song: "b" }] },
+      contentDirectory,
+    });
+    expect((await readPlaylistFile("mix")).items[1]).toEqual({
+      playlist: "nested-renamed",
+    });
+  });
+
+  it("does nothing when a song changes without moving", async () => {
+    await seed();
+    const result = await updateContent({
+      config: songConfig,
+      slug: "a",
+      currentSlug: "a",
+      currentIndexKey: [day(1), "a"] as [number, string],
+      data: { title: "A (remastered)", date: day(1) },
+      contentDirectory,
+    });
+    expect(result.dependents).toEqual([]);
+  });
+
+  it("leaves items dangling on a delete", async () => {
+    await seed();
+    await deleteContent({
+      config: songConfig,
+      slug: "a",
+      indexKey: [day(1), "a"] as [number, string],
+      contentDirectory,
+    });
+    expect(slugsAt(await readPlaylistFile("mix"), "items[].song")).toEqual([
+      "a",
+      "b",
+      "a",
+    ]);
+  });
+
+  it("creates no index for a dependent type the corpus has none of", async () => {
+    await createContent({
+      config: songConfig,
+      slug: "a",
+      data: { title: "A", date: day(1) },
+      contentDirectory,
+    });
+    await renameSong("a", "a-side", { title: "A", date: day(1) });
+    expect(await pathExists(join(contentDirectory, "playlists"))).toBe(false);
+  });
+
+  it("borrows nothing: the array edge resolves to undefined and adds no trigger", async () => {
+    expect(borrowedFieldsOf(songConfig)).toEqual([]);
+    const refs = await resolveReferences({
+      config: playlistConfig,
+      data: { name: "Mix", date: 1, items: [{ song: "a" }] },
+      resolver: createReferenceResolver(contentDirectory),
+    });
+    expect(refs).toEqual({
+      "items[].song": undefined,
+      "items[].playlist": undefined,
+    });
+    expect(borrowsFrom(playlistConfig, songConfig)).toBe(false);
+    expect(borrowsFrom(postConfig, authorConfig)).toBe(true);
+  });
+
+  it("a song rebuild does not cascade into playlists, which borrow nothing", async () => {
+    await seed();
+    await rm(join(contentDirectory, "playlists/index"), {
+      recursive: true,
+      force: true,
+    });
+    await closeCachedEnvironments();
+    await rebuildIndex({ config: songConfig, contentDirectory });
+    expect(await pathExists(join(contentDirectory, "playlists/index"))).toBe(
+      false,
+    );
   });
 });

@@ -32,6 +32,13 @@ import type { ContentSuccessConfig } from "@discontent/cms/content/editorContent
  */
 export const RECIPE_DEPENDENT_ITEM_BASE_PATHS = {
   "featured-recipes": "/featured-recipe",
+  /* A rename rewrites the groups that list the recipe (F32). */
+  groups: "/group",
+};
+
+/** The groups whose items a sub-group's rename rewrote (F32). */
+export const GROUP_DEPENDENT_ITEM_BASE_PATHS = {
+  groups: "/group",
 };
 
 export const recipeSuccessConfig: ContentSuccessConfig = {
@@ -157,6 +164,7 @@ export const groupSuccessConfig: ContentSuccessConfig = {
    */
   listPaths: [],
   paginationOnly: true,
+  dependentItemBasePaths: GROUP_DEPENDENT_ITEM_BASE_PATHS,
   /* No `redirectTo`: the default is `itemBasePath + "/" + slug`. */
 };
 
