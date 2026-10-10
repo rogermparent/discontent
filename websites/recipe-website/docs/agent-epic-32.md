@@ -107,7 +107,7 @@ the food corpus is a content call: 32k, run only on Roger's explicit go.
 | Phase    | Scope                                                                    | Size    | Branch                     | Status            |
 | -------- | ------------------------------------------------------------------------ | ------- | -------------------------- | ----------------- |
 | 32-plan  | Epic doc + CLAUDE.md line, backlog marks                                 | docs    | `agent/32-plan`            | 🟡 this PR        |
-| 32a      | Hygiene                                                                  | S       | `agent/32a-hygiene`        | 📝 planned        |
+| 32a      | Hygiene                                                                  | S       | `agent/32a-hygiene`        | 🟡 #198           |
 | 32b      | Features follow a deleted term/group                                     | S–M     | `agent/32b-delete-feature` | 📝 planned        |
 | 32c      | Term image upload, full parity                                           | M–L     | `agent/32c-term-image`     | 📝 planned        |
 | 32d      | F34 batched commits for term assign/rename/merge                         | M–L     | `agent/32d-batch-commit`   | 📝 planned        |
@@ -632,6 +632,31 @@ epic.
 To be filled per phase (PR, merge sha, gates), with the 32e measurement and
 the end-to-end checks at 32-close.
 
-| Phase   | PR  | Merge | Gates |
-| ------- | --- | ----- | ----- |
-| 32-plan |     |       |       |
+| Phase   | PR   | Merge | Gates                                                                                                         |
+| ------- | ---- | ----- | ------------------------------------------------------------------------------------------------------------- |
+| 32-plan |      |       |                                                                                                               |
+| 32a     | #198 |       | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI |
+
+### 32a — Hygiene
+
+- **`TaxonomyConfig.terms` is gone** (`24-T17`), with its
+  `AnyContentTypeConfig` import. Nothing read it. The import-order tripwire in
+  `test/tagTerms.test.ts` is unchanged apart from its comment. Comments in
+  `tagTermContentConfig.ts`, `incremental-regeneration.md` (F33) and
+  `agent-taxonomy.md` (D2 snippet, T17, 24c results, follow-ups) now say the
+  field was dropped here.
+- **`unix-dgram` moved to `ignoredBuiltDependencies`** rather than just being
+  removed from `onlyBuiltDependencies`. An explicit ignore keeps pnpm from
+  listing it under "ignored builds" on every install. It is an optional native
+  dependency of `hot-shots` (through `@netlify/build`), and nothing here loads
+  it. The lockfile records neither list, so it stays valid:
+  `pnpm install --frozen-lockfile` passes, and reinstalling the package from
+  scratch leaves it unbuilt (no `build/`). CI's Playwright image is the real
+  check for the missing `gyp ERR!`.
+- **The stale F32 comments** in `common/controller/types.ts` (the `GroupItem`
+  docblock, plus the same claim on `groupName`) now say that renames follow
+  since 31d, deletes dangle, and array edges borrow nothing (`31-D1`).
+- **Corpus numbers.** Places where "437 recipes" reads as the present now add
+  "now 665". The 24a by-term size risk gains the 665-recipe estimate
+  (≈ 500 KB, for 32e). Historical facts and measurements are unchanged.
+- `specVersions` didn't move: none of the edited modules is pinned.
