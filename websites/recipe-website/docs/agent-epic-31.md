@@ -374,7 +374,7 @@ tag:christmas-cookies` = 8 → `term_get` both (own 5 / with descendants 8,
   `curatorSkill` extended; `api-write.spec.ts` gains the HTTP case.
 - **Deferred** — a batched multi-carrier commit (still N commits, possible
   F34); `aliases`; moving a featured entry off a deleted term (it dangles,
-  as a group's does).
+  as a group's does). Picked up by 32d, 32i and 32b (`agent-epic-32.md`).
 
 ### 31d — F32: group items follow renames
 
@@ -481,7 +481,7 @@ refused).
   echoed, and `GET /api/taxonomies/tag/holiday` shows no parent); and
   `christmas` gaining a record with a pinned suggestion.
 - **Deferred** — file upload for a term picture (needs an upload input on
-  `createTerm` / `updateTerm`); rename, merge, delete and assign from the
+  `createTerm` / `updateTerm`; picked up by 32c); rename, merge, delete and assign from the
   browser (CLI / MCP only); an "Add a narrower term" link (`/tags/new?parent=`).
 
 ### 31f — Content cleanup (real content repo)
@@ -625,10 +625,14 @@ clean, and `uraninite/uraninite` already at `8711840` (T5).
 **Deferred, with where each lives:**
 
 - Term image **upload** in the form (the seat takes `imageImportUrl` only).
+  **Picked up by 32c** (`agent-epic-32.md`).
 - Batching a multi-carrier `term_assign` / rename into one commit (possible
-  F34); term `aliases`; moving a feature off a deleted term.
+  F34); term `aliases`; moving a feature off a deleted term. **Picked up by
+  32d** (F34), **32i** (aliases) and **32b** (the feature follows the delete).
 - 24f: the real-repo vocabulary backfill and the real Christmas-Cookies story
-  run, then the by-term record measurement (F8b threshold).
+  run, then the by-term record measurement (F8b threshold). The measurement
+  (and the split, if over) is **picked up by 32e**; the backfill and the story
+  run stay Roger's (`32-D6`).
 - F32 **borrowing** (group cards reading member fields through the index) —
   not needed while the corpus supplies thumbnails (30c).
 - Content: a Spicy Cascara Highball if Roger has a source, a Zero-Proof
