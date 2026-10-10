@@ -45,6 +45,8 @@
  *  - `rename`    the same recipe under a new slug. Gate open via `renamed`,
  *                and the one scenario that rewrites dependents' *data files*.
  *
+ * `TARGET=<slug>` overrides the recipe the three edit scenarios pick (32e).
+ *
  * **Counters lead and milliseconds follow**, with `loadavg` recorded on both
  * sides — F27's precedent, where the bytes answer was load-independent and the
  * timings were not. Both O(N) passes are therefore also run `RUNS` times (5)
@@ -248,6 +250,12 @@ async function featuredCount(): Promise<number> {
  * is the whole answer anyway.
  */
 async function targetSlug(entries: { key: RecipeEntryKey }[]): Promise<string> {
+  /*
+   * `TARGET=<slug>` picks the recipe outright (32e). A feature's target may
+   * carry no tags at all, and then a `name-edit` says nothing about the by-tag
+   * record — which is the write F8b is about.
+   */
+  if (process.env.TARGET) return process.env.TARGET;
   const middle = String(entries[Math.floor(entries.length / 2)].key[1]);
   if (SCENARIO !== "name-edit" && SCENARIO !== "rename") return middle;
   try {

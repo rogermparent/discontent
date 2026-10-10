@@ -259,6 +259,107 @@ case. Also `mcp.test.ts` / `curatorSkill.test.ts` if wording is pinned.
 **Playwright:** `tag-pages`, `search-tags`; demo `aggregates.spec.ts`;
 portfolio tag routes.
 
+#### 32e measurement (step 1, 2026-10-10)
+
+Scratch clone of `recipe-content` at `6532d71`, reindexed with `main`'s CLI
+(`recipes --content-dir <clone> reindex`, 676 ms), then
+`measure-engine-scale.ts` on a fresh `cp -a` of it per run. A new `TARGET=<slug>`
+knob points the edit scenarios at a tagged recipe; the default target (a
+featured recipe) carries no tags, so its `name-edit` moved nothing.
+
+- **The by-tag record is 200,805 B** (200,901 B after the measured name edit):
+  172 tags, the largest `drink` with 208 recipes, 19 tags over `perPage`
+  (`drink` 208, `shaken` 77, `sour` 62, `highball` 60, `vodka` 40). **Over the
+  150 KB threshold, so 24g goes ahead.**
+- **Aggregate fold, no-op floor:** 22.6 / 24.3 ms (min of 7, two runs). F28
+  had 4.4 ms at 436 recipes with two tags in the corpus.
+- **One `name-edit` on `amaretto-sour-acouplecooks`** (six tags): the fold
+  took 35.5 / 36.9 ms and reported `moved: by-tag`. That rewrites the whole
+  200 KB record and fires the one tag behind every tag page: 172 term pages
+  plus `/tags`, for one recipe's six.
+- **Where the floor goes** (a throwaway profile, min of 7): the content-index
+  walk is 4.4 ms; each of the two taxonomy folds is about 7.7 ms, nearly all of
+  it `termsOf` normalising and slugging every tag, done once per fold; and
+  `hashValue` over the by-tag value is 4.6 ms (stringify 4.1). Reading the
+  stored 200 KB record back is 0.7 ms.
+
+#### 32e design (step 2)
+
+**A keyed aggregate: one record per key, in the same environment.** This is
+F8b's intent (bounded work and bounded invalidation per partition) applied to
+the aggregate kind, where F8b itself was about pagination partitions. It is not
+a pagination index per term: a term page is unpaginated, and nothing reads one
+term's items by page.
+
+- **`AggregateConfig.keyed?: true`.** `finalize` must return a plain object.
+  The pass stores each key's value as its own record, hashes each one, and
+  reports which keys moved. `byTermAggregate` declares it, so recipes, groups,
+  portfolio projects and the demo notes all get it with no site edit.
+- **Layout** in `<type>/aggregates/<name>/`:
+  - `[0]` is the header: an ordinary `AggregateRecord` whose `value` is
+    `{keys: n}`. Its `hash` is the hash of the per-key hashes and its
+    `specHash` is the usual one. Small, so a one-term read checks the spec for
+    free.
+  - `[1, key]` holds one key's value: `{label, items}` for a term.
+  - `[2]` holds `Record<key, hash>`, read only by the writer to diff.
+- **The write** stays one walk, because the terms aggregate and every declared
+  aggregate need it, and the kind trusts nothing it stored (§11.1). After the
+  walk, a keyed aggregate hashes each key's value, compares the hashes with
+  `[2]`, and in **one transaction** writes the keys that moved, removes the
+  keys that vanished, and rewrites `[2]` and the header. A spec change clears
+  the environment and writes everything. A pass that moved nothing writes
+  nothing, as before.
+- **`AggregateUpdateResult.keys`**, present only on a keyed aggregate: the
+  keys that moved (added, changed or removed). `changed` keeps its meaning
+  (any key moved).
+- **Cache tags** follow pagination's shape. `aggregate:<type>:<name>` stays the
+  catch-all; every cached read of the aggregate carries it, and only the
+  repair seat fires it, so `derivedTagsOf` does not change.
+  `…:whole` is on the whole-value read, and `…:key:<key>` on one key's read.
+  `revalidateAggregateResults` fires `whole` and each moved key for a keyed
+  result, and `value` for any other. So a name edit on the amaretto sour
+  invalidates six term pages and `/tags`, not 173 pages.
+- **Reads.**
+  - `readAggregate` still returns the whole value for a keyed aggregate. It
+    is assembled from `[1, *]`, so every whole-value caller keeps working.
+  - New: `readAggregateKey(options, key)`, and `readTaxonomyByTermEntry` on
+    top of it.
+  - `createCachedAggregateRead` gains `readKey(key)`, one `unstable_cache`
+    wrapper per key, built on demand and kept, the way pagination's
+    `readPage` works. `createCachedTaxonomyReads().byTerm` therefore has
+    `read()` (whole) and `readKey(slug)`.
+- **Readers move to the narrow read where they can.**
+  - `resolveTermPage` reads the term's two entries with `readKey` and takes
+    its breadcrumb and child counts from the two `terms` values (9.5 KB, which
+    `/tags` already reads). A term's `count` is its row length by
+    construction, since both folds see the same walk and the same
+    first-label rule.
+  - `readTermPageSlugs` and portfolio's `generateTagStaticParams` take their
+    slugs from `terms` too.
+  - Portfolio's `tagRoute` uses `readKey`.
+  - `readTagTree` (`/tags`) keeps the whole read, because it needs every term's
+    carriers for distinct subtree totals. It is one page under `…:whole`.
+  - The demo reads only `terms`. Search reads `terms` and the tree, never
+    by-term.
+- **Fold cost.** `termsOf` is memoised per index value and taxonomy (a
+  `WeakMap` on the value object the walk hands both folds), so the two folds
+  slug each carrier's tags once between them rather than once each.
+- **Versions.** `TAXONOMY_FOLD_VERSION` goes `"1"` → `"2"`. The by-term layout
+  moved, and the memo edits the pinned fold module. `keyed` also enters
+  `computeAggregateSpecHash` (only when set, so no other aggregate's hash
+  moves). Until a reindex, a by-tag environment in the old layout reads as
+  `null`, never computed (24-T5), never as a wrong value. The site taxonomy
+  versions stay where they are: the engine half covers it. The index stamp's
+  version includes the aggregate spec hashes, so the next HEAD-move path does a
+  full rebuild on its own.
+- **Fixtures** (T6) are regenerated in their own commit with the three
+  `build-fixture-indexes.ts` scripts (recipe, portfolio, demo).
+- **Morning checklist: the real repo needs a `reindex` after this merges**,
+  and the Pi gets one on its next deploy. Until then both taxonomy values read
+  `null`: `/tags` is empty and a term page without a record 404s, as after
+  24b. The first recipe or group write also heals its own type, because a spec
+  change rewrites everything.
+
 ### 32f — Ingredient completion in search (S–M)
 
 - `common/components/SearchForm/QueryAutocomplete.tsx` `optionsFor`
