@@ -116,7 +116,7 @@ the food corpus is a content call: 32k, run only on Roger's explicit go.
 | 32g      | Meal-plan item `scale` + `?scale` on recipe pages                        | M       | `agent/32g-plan-scale`     | 🟡 #202           |
 | 32j      | Make anything: kind switch, refine drill-down, loose ingredient matching | M–L     | `agent/32j-make-any`       | 📝 planned        |
 | 32h      | `SidebarLayout` + portfolio masthead on sticky-chrome                    | S       | `agent/32h-sticky-sidebar` | 🟡 #201           |
-| 32i      | Term aliases, search-only (droppable)                                    | L       | `agent/32i-aliases`        | 📝 planned        |
+| 32i      | Term aliases, search-only (droppable)                                    | L       | `agent/32i-aliases`        | 🟡 #207           |
 | 32k      | Food vocabulary for the corpus (content; Roger's go needed)              | content | —                          | ⏸️ awaiting Roger |
 | 32-close | Results, backlog strikes, morning checklist, memory                      | docs    | `agent/32-close`           | 📝 planned        |
 
@@ -765,17 +765,18 @@ epic.
 To be filled per phase (PR, merge sha, gates), with the 32e measurement and
 the end-to-end checks at 32-close.
 
-| Phase   | PR   | Merge      | Gates                                                                                                                                                     |
-| ------- | ---- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 32-plan | #197 | `dafc6834` | docs only; CI 12/12                                                                                                                                       |
-| 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI                                             |
-| 32b     | #200 |            | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI                                                 |
-| 32c     | #203 |            | typechecks ✅; vitest 1074/1074 (56 files); Playwright `term-edit` + `api-write` 29/29 (build); CI                                                        |
-| 32d     | #205 |            | typechecks ✅; vitest 1094/1094 (56 files); Playwright `git` + `api-write` not run locally (heavy slot held > 15 min), CI shards are the gate; CI         |
-| 32e     | #204 |            | typechecks ✅ (recipe, export, portfolio, demo); vitest 1105/1105 (56 files) after the review fixes; Playwright not run locally (slot held > 15 min) — CI |
-| 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                                                            |
-| 32h     | #201 |            | typechecks ✅ (recipe, export, portfolio); vitest 1058/1058; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI                       |
-| 32g     | #202 |            | typechecks ✅; vitest 1068/1068 (56 files); Playwright `groups` + `yield` + `recipe` 47/47 (build); export `next build` ✅; CI                            |
+| Phase   | PR   | Merge      | Gates                                                                                                                                                                        |
+| ------- | ---- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 32-plan | #197 | `dafc6834` | docs only; CI 12/12                                                                                                                                                          |
+| 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI                                                                |
+| 32b     | #200 |            | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI                                                                    |
+| 32c     | #203 |            | typechecks ✅; vitest 1074/1074 (56 files); Playwright `term-edit` + `api-write` 29/29 (build); CI                                                                           |
+| 32d     | #205 |            | typechecks ✅; vitest 1094/1094 (56 files); Playwright `git` + `api-write` not run locally (heavy slot held > 15 min), CI shards are the gate; CI                            |
+| 32e     | #204 |            | typechecks ✅ (recipe, export, portfolio, demo); vitest 1105/1105 (56 files) after the review fixes; Playwright not run locally (slot held > 15 min) — CI                    |
+| 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                                                                               |
+| 32h     | #201 |            | typechecks ✅ (recipe, export, portfolio); vitest 1058/1058; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI                                          |
+| 32g     | #202 |            | typechecks ✅; vitest 1068/1068 (56 files); Playwright `groups` + `yield` + `recipe` 47/47 (build); export `next build` ✅; CI                                               |
+| 32i     | #207 |            | typechecks ✅ (recipe, export, portfolio, demo); vitest 1136/1136 (56 files); Playwright `search-tags` + `search-autocomplete` + `term-edit` + `tag-pages` 43/43 (build); CI |
 
 ### 32a — Hygiene
 
@@ -1390,3 +1391,165 @@ pressed; `?scale=0`/`lots` ignored; `?scale=1%2F2` halves).
 merging origin/main at 32h; Playwright `groups.spec` + `yield.spec` +
 `recipe.spec` 47/47 (build, heavy slot); export `next build` ✅ (scratch
 fixture copy). `specVersions` didn't move.
+
+### 32i — Term aliases, search-only
+
+**What changed.**
+
+- **Engine** (`packages/cms/taxonomies/`). `Term.aliases?: string[]`. The
+  term index carries it (`TermIndexValue.aliases`: the non-empty strings,
+  absent when none), and the tree folds it (`TermTreeNode.aliases`).
+  `termTreeAggregate` version `"1"` → `"2"`. The engine only carries the
+  strings; what an alias means is the site's.
+- **Search.**
+  - `buildTagExpansion` (`tagExpansion.ts`) takes `aliases` on a `TermNode`.
+    Each alias's folded spellings (as typed and as its slug) map to its term,
+    so `tag:<alias>` expands exactly as `tag:<term>` does, subtree included.
+    The alias spellings also join the expansion, so a carrier still tagged
+    with an alias (a merged term's old slug, a synonym typed later) is found
+    by `tag:<term>` and by its ancestors.
+  - `tagOptions` (`tagVocabulary.ts`) carries each record's aliases from the
+    tree. Every resolver is built from it, so `/search/terms` (editor and
+    export), the server's `readTagResolver` (`recipe_search`, `list --tag`)
+    and `/make` all see aliases with no change of their own.
+  - Autocomplete: `tagCompletionOptions` (was the private `tagOptions` in
+    `QueryAutocomplete.tsx`, now exported) lists the tags first, then for
+    each alias matching the prefix offers its term's label (`also called
+<alias>`), replacing with `tag:<label>`. An alias typed in full still
+    offers its term. A term is never offered twice. `tagAliasesOf(allTerms)`
+    keeps only aliases of terms something carries, as `allTags` does.
+- **Routes.**
+  - `aliasTarget(tree, slug)` and `aliasSlugs(tree, taken)` in
+    `tagVocabulary.ts`. `resolveTermAlias` and
+    `readTermPageSlugsWithAliases` in `readTermPage.ts`.
+  - The editor's `/tags/<alias>` answers with `redirect()` (307).
+  - The export's `/tags/[tag]` uses `generateExportTagStaticParams`, which is
+    the page slugs plus every alias that is no term of its own. `tagRoute`
+    renders `TagAliasRedirect` (`TagPage/AliasRedirect.tsx`, a client
+    component) for an alias: a hoisted `<meta http-equiv="refresh" content="0;url=/tags/<term>">`
+    for a full load, `router.replace` for a client navigation, a canonical
+    link and a plain link.
+  - `generateTagMetadata` titles an alias with its term's label.
+- **Seats** (`curation/terms.ts`, `schema.ts`).
+  - `aliases` on `TermInputSchema` and `TermPatchSchema`. A patch replaces
+    the list and `null` clears it.
+  - `assertAliases` normalises each alias as a tag (`normalizeTag`) and
+    dedupes by slug. Each alias **added** by the write may not slug to the
+    term itself, to another term (a record, or a tag something carries), or
+    to another record's alias. Each clash is one `validation` issue on
+    `aliases.<i>` naming the term it hits.
+  - `createTerm` refuses a slug that is another record's alias, and
+    `renameTerm` a `to` that is (`validation` on `slug` / `to`). A rename
+    onto one of the term's own aliases drops that alias.
+  - `mergeTerm` appends `from` and `from`'s aliases to `into`'s aliases,
+    inside its existing batch commit:
+    - the moved record carries them when `into` had no record;
+    - one write of `into`'s record covers pinned and aliases when it had one;
+    - a bare `from` into a record writes that record;
+    - a bare tag into a bare tag records nothing.
+  - `TermMergeResult.aliases` is `into`'s list after the merge. `getTerm`
+    lifts `record.aliases` to `aliases`, and `term_list` rows carry
+    `aliases` when set (spread only when set, so old rows keep their exact
+    shape).
+- **Tools.**
+  - The term form has an Aliases `ChipsInput` (item label "synonym", so the
+    controls read "Add a synonym" and "Remove synonym x").
+  - `termForm.ts` parses `aliases[i]`; an edit with no chips clears them.
+    `aliases.<i>` issues land on the field.
+  - CLI: `term create --alias A …`; `term update --alias A … |
+--clear-aliases`; `term get` prints them. `--help` lists the flags.
+  - MCP: the `INSTRUCTIONS` term sentence and the `term_list` / `term_get` /
+    `term_create` / `term_update` / `term_merge` descriptions name aliases.
+    SKILL.md has one paragraph. Tool counts are unchanged.
+
+**Decisions.**
+
+- **The engine tree, not a site aggregate.** Aliases are a generic
+  vocabulary notion (a synonym, SKOS's `altLabel`), and the tree already
+  carries `label`, `parent` and `image` for exactly this kind of reader. One
+  more optional field kept every reader on the one read it already made. A
+  site aggregate would have added a fourth source to every resolver.
+- **An alias beats a term of the same spelling in search.** The seat refuses
+  an alias that names an existing term. But nothing canonicalises carriers
+  (D5), so a recipe can come to carry the alias as a tag afterwards. If the
+  carried term won, `tag:biscuits` would suddenly shrink to that one recipe.
+  With the alias winning, it keeps meaning the canonical term, and that
+  term's expansion includes the alias spelling, so the stray carrier is found
+  too.
+- **A real page beats an alias redirect.** `/tags/<slug>` redirects only when
+  `resolveTermPage` is `null` (no record, no carriers). A slug with carriers
+  of its own lists things the canonical page does not, so it keeps its page.
+- **Kept aliases are not rechecked.** Re-validating the whole list on every
+  update would make the term form refuse any edit once a recipe carries an
+  old alias, for a state the record cannot fix. Only additions are checked.
+- **The export emits a redirect page.** A static file cannot send a 3xx, so
+  the page itself does the redirect (as above). The editor's params stay the
+  plain list: it redirects on demand, and prerendering a `redirect()` at
+  build would bake one in for no gain.
+- **Aliases are normalised like tags** (lowercased, whitespace collapsed), so
+  they compare and print like the tags they stand in for.
+- **Rename does not record the old slug.** D5 asks this of `term_merge`
+  only. A rename that wanted it could pass `aliases` in a follow-up
+  `term_update`. Left as is.
+
+**Tests.**
+
+- `tagExpansion.test.ts` (+6):
+  - an alias expands as its term does, by typed and slug spelling;
+  - an alias-tagged carrier is found by the term and an ancestor;
+  - an alias beats a carried term of the same spelling;
+  - the tree's aliases reach `buildTagExpansionFromTree` and `tagOptions`;
+  - `aliasTarget` / `aliasSlugs`;
+  - fixture parity: `recipe_search tag:biscuits` = `tag:cookies` =
+    `matchesFilter` over the `/search/terms` vocabulary, including a recipe
+    tagged `biscuits` after the alias was recorded.
+- `terms.test.ts` (+6): normalise and dedupe on create; `getTerm` /
+  `listTerms`; the four refusals as four issues with nothing written;
+  replace, null and `[]` clear, a kept alias that became a carried tag
+  survives an update while adding a carried one is refused; a new term or a
+  rename onto another's alias refused; a rename onto its own alias drops it;
+  the merge's four record shapes, and `tag:<from>` still finding the carrier.
+- `taxonomies.test.ts` (+1): the tree carries aliases, and no key for none.
+- `termForm.test.ts` (+2, and two cases extended): the patch and input
+  shapes; the `aliases.0` issue mapping; `submitTermForm` saving, refusing on
+  Aliases with the echo, and clearing.
+- `queryLanguage.test.ts` (+3): `tagAliasesOf` and `tagCompletionOptions`.
+- `exportStaticParams.test.ts` (+1): the export's params add the aliases that
+  have no page of their own; the shared params don't.
+- `cliJson.test.ts` (+1): `--alias` create, `get`, `search tag:<alias>`,
+  replace, the `--alias` + `--clear-aliases` usage error, a clash, clear.
+- `mcp.test.ts` (+1): the descriptions, `term_create` with aliases →
+  `term_get` → `recipe_search tag:<alias>`, and the clash in the layer's
+  shape.
+- `curationGit.test.ts`: the merge commit now also holds `into`'s record.
+- `specVersions`: the tree fold, 1 → 2.
+- Playwright:
+  - `term-edit.spec` (+1): add an alias chip, then `/tags/biscuits` →
+    `/tags/cookies`; a clashing chip is refused on the field with nothing
+    saved.
+  - `tag-pages.spec` (+1): an alias via the API, then `/search?q=tag:biscuits`
+    shows Cookies' 8; `/tags/biscuits` redirects; a non-alias is still a 404.
+  - `search-autocomplete.spec` (+1): `tag:swe` offers "Dessert" (also called
+    sweets), accepting it gives the 3 desserts.
+
+**Fixtures** regenerated in their own commit (T6,
+`build-fixture-indexes.ts`): the tree spec moved in `christmas-cookies` and
+`make-drinks`, and the rest is the script's usual rewrite.
+
+**Gates.** Typechecks ✅: `recipe-editor`, `recipe-website`
+(export), and `tsc --noEmit` in the portfolio editor and the CMS demo (the
+engine's term types moved). Full vitest in the heavy slot: 1136/1136 across
+56 files. Playwright, build+start through `heavy-pw.sh`: `search-tags` +
+`search-autocomplete` + `term-edit` + `tag-pages`, 43/43, the 3 new cases
+included. The run left the fixtures clean.
+
+**Morning checklist.** The tree's spec moved, so the real repo needs a
+`reindex` (already on the list for 32e). Until then the guarded read returns
+`null` for the tree (30a): `/tags` loses "By kind", term pages lose their
+breadcrumb and children, and `tag:` loses its hierarchy. A term write heals
+the tree too, but the reindex is the fix. The Pi needs the same at its next
+deploy.
+
+**Deferred.** No write-time canonicalisation (D5). Rename doesn't record the
+old slug. `/tags` doesn't list aliases. The export's redirect page needs JS
+or a meta-refresh-honouring client; there's no server redirect there.
