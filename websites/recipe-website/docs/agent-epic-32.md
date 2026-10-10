@@ -7,7 +7,9 @@
 > `deleteGroup`), the term image seat, batched term commits
 > (`withBatchCommit`, `packages/cms/content/*` `commit: false`), the by-term
 > aggregate (`packages/cms/taxonomies/`), ingredient completion in search,
-> meal-plan item `scale`, `SidebarLayout`'s sticky chrome, or term aliases.
+> meal-plan item `scale`, the Make page (`common/components/MakePage/`,
+> `makeable.ts`, `ingredientNames.ts`), `SidebarLayout`'s sticky chrome, or
+> term aliases.
 > Update the roadmap **Status** column and the **Now** line at every phase
 > boundary. Earlier epics are cited by number with a prefix (`24-D6`,
 > `31-T5`). `agent-taxonomy.md` (epic 24) and `agent-epic-31.md` are the
@@ -93,27 +95,36 @@ commits, never `--admin`, never a push to `main`, never a force-push. **No
 deploys and no content pushes**; both are Roger's. Stop rules are in "How it
 runs".
 
+### D8 — Make page: type-agnostic by code (32j); food tags are content (32k, Roger's)
+
+Decided with Roger. 32j makes the Make page work for any kind of recipe on
+whatever tags exist — a kind switch, refine chips that drill down without a
+hierarchy, looser ingredient matching, a type-agnostic default query. Tagging
+the food corpus is a content call: 32k, run only on Roger's explicit go.
+
 ## Roadmap
 
-| Phase    | Scope                                                                       | Size | Branch                     | Status     |
-| -------- | --------------------------------------------------------------------------- | ---- | -------------------------- | ---------- |
-| 32-plan  | Epic doc + CLAUDE.md line, backlog marks                                    | docs | `agent/32-plan`            | 🟡 this PR |
-| 32a      | Hygiene                                                                     | S    | `agent/32a-hygiene`        | 📝 planned |
-| 32b      | Features follow a deleted term/group                                        | S–M  | `agent/32b-delete-feature` | 📝 planned |
-| 32c      | Term image upload, full parity                                              | M–L  | `agent/32c-term-image`     | 📝 planned |
-| 32d      | F34 batched commits for term assign/rename/merge                            | M–L  | `agent/32d-batch-commit`   | 📝 planned |
-| 32e      | 24g: measure, then split the by-term record                                 | L    | `agent/32e-by-term`        | 📝 planned |
-| 32f      | Ingredient completion in search                                             | S–M  | `agent/32f-ingredient-ac`  | 📝 planned |
-| 32g      | Meal-plan item `scale` + `?scale` on recipe pages                           | M    | `agent/32g-plan-scale`     | 📝 planned |
-| 32j      | Type-agnostic Make page: tag picker + drill-down, fuzzy ingredient matching | M–L  | `agent/32j-make-any`       | 📝 planned |
-| 32h      | `SidebarLayout` + portfolio masthead on sticky-chrome                       | S    | `agent/32h-sticky-sidebar` | 📝 planned |
-| 32i      | Term aliases, search-only (droppable)                                       | L    | `agent/32i-aliases`        | 📝 planned |
-| 32-close | Results, backlog strikes, morning checklist, memory                         | docs | `agent/32-close`           | 📝 planned |
+| Phase    | Scope                                                                    | Size    | Branch                     | Status            |
+| -------- | ------------------------------------------------------------------------ | ------- | -------------------------- | ----------------- |
+| 32-plan  | Epic doc + CLAUDE.md line, backlog marks                                 | docs    | `agent/32-plan`            | 🟡 this PR        |
+| 32a      | Hygiene                                                                  | S       | `agent/32a-hygiene`        | 📝 planned        |
+| 32b      | Features follow a deleted term/group                                     | S–M     | `agent/32b-delete-feature` | 📝 planned        |
+| 32c      | Term image upload, full parity                                           | M–L     | `agent/32c-term-image`     | 📝 planned        |
+| 32d      | F34 batched commits for term assign/rename/merge                         | M–L     | `agent/32d-batch-commit`   | 📝 planned        |
+| 32e      | 24g: measure, then split the by-term record                              | L       | `agent/32e-by-term`        | 📝 planned        |
+| 32f      | Ingredient completion in search                                          | S–M     | `agent/32f-ingredient-ac`  | 📝 planned        |
+| 32g      | Meal-plan item `scale` + `?scale` on recipe pages                        | M       | `agent/32g-plan-scale`     | 📝 planned        |
+| 32j      | Make anything: kind switch, refine drill-down, loose ingredient matching | M–L     | `agent/32j-make-any`       | 📝 planned        |
+| 32h      | `SidebarLayout` + portfolio masthead on sticky-chrome                    | S       | `agent/32h-sticky-sidebar` | 📝 planned        |
+| 32i      | Term aliases, search-only (droppable)                                    | L       | `agent/32i-aliases`        | 📝 planned        |
+| 32k      | Food vocabulary for the corpus (content; Roger's go needed)              | content | —                          | ⏸️ awaiting Roger |
+| 32-close | Results, backlog strikes, morning checklist, memory                      | docs    | `agent/32-close`           | 📝 planned        |
 
 **Order.** Strictly sequential, in the table's order: 32-plan → 32a → 32b → 32c
 → 32d → 32e → 32f → 32g → 32j → 32h → 32i → 32-close. 32j was added by Roger
 after the plan and runs after 32g; 32h and 32i stay last and are the phases
-dropped if time runs out (32i first, then 32h).
+dropped if time runs out (32i first, then 32h). 32k is content: it waits for
+Roger's go (D8) and is not part of the unattended sequence.
 
 ## Phase detail
 
@@ -291,11 +302,107 @@ Per D4.
 
 **Playwright:** `groups.spec.ts`, `yield.spec.ts`, plus a `?scale` case.
 
-### 32j — Type-agnostic Make page (M–L)
+### 32j — Make anything: drill-down for every kind, loose ingredient matching (M–L)
 
-Added by Roger after the plan: a tag picker with drill-down, and fuzzy
-ingredient matching. Runs after 32g. **The detail section follows in a
-separate commit.**
+Added 2026-10-10 at Roger's request: "the 'what can I make' page [should be]
+even more type-agnostic … pick different top level tags and drill down … the
+'what I have's [should] match similar ingredient lines … find any kind of
+recipe, dinner or drink."
+
+**Findings (scouted on `main` 75080cc6):**
+
+- The page has been scope-agnostic since 28g (#176):
+  - `FIRST_VISIT_QUERY = ""` (`common/components/MakePage/index.tsx:43`);
+  - root chips come from `rootsInScope` (`MakePage/tagTree.ts:84`), with their
+    children from `childrenInScope`;
+  - 31b made `tag:<parent>` cover a parent's whole subtree (`scope.ts:35`).
+- It still _looks_ drinks-only for three reasons:
+  1. In the real corpus, **444 of the 457 non-drink recipes have no tags at
+     all** (665 recipes; the top 22 tags are all drink tags; food's best are
+     `vegetarian`, `quick` and `american` at 6 each).
+  2. The only hierarchy is `drink`, so drilling down exists only for drinks.
+  3. The page remembers the last scope, which for Roger was `tag:drink`.
+- The drinks default survives in `DEFAULT_MAKE_QUERY = "tag:drink"`
+  (`common/util/makeable.ts:26`). It is used by CLI `inventory make`, MCP
+  `inventory_makeable` (`mcp/registry.ts:1021`) and `/api/inventory/make`.
+- Matching (`satisfies`, `makeable.ts:103`) has these gaps:
+  - Both sides go through `toName` (`common/util/ingredientNames.ts:410`).
+  - `SYNONYMS` (:313) knows only soda and tonic, with no food synonyms.
+  - `DESCRIPTIVE` (:209) drops prep words, but not trailing phrases without a
+    comma: "onion cut into wedges" → `onion cut into wedge`.
+  - There is no tolerance for typos or near-plurals.
+  - Staples (:374) are only water and ice, so every dinner recipe is blocked
+    on salt and pepper.
+
+**Code (this phase), all in `common/`:**
+
+1. **Drill down without a hierarchy.**
+   - After a pick, show "Refine" chips: the tags that co-occur most in the
+     current scope. Exclude picked tags and their ancestors, and exclude tags
+     carried by (nearly) every recipe in scope. Cap at ~12.
+   - A tag with tree children shows the children first, then the
+     co-occurring tags.
+   - Pure function in `tagTree.ts` (e.g. `refinementsInScope`), tested in
+     `test/makeTags.test.ts`.
+2. **A kind switch.**
+   - A small segmented control above the chips: Anything / Food / Drinks.
+   - It maps to a site-level list, e.g. `MAKE_KINDS` in `common/` (Drinks =
+     `tag:drink`, Food = `-tag:drink`, Anything = ``). It is composed with
+the tag picks in `?q=` through the existing query language.
+   - Check the query language supports a negated tag in scope; it should,
+     since `positiveTagValues` implies negatives exist. If not, add it there,
+     with tests in `test/queryLanguage.test.ts`.
+   - No engine change; the list is site config, not hardcoded in `packages/`.
+3. **Looser matching** (`ingredientNames.ts`, `makeable.ts`):
+   - Strip trailing prep phrases on the line side: "cut into …", "for
+     serving", "to taste", "plus more …", "divided", "at room temperature",
+     "softened", "melted", "peeled and …", "or more". An "A or B" line gives
+     both as aliases.
+   - Add a food `SYNONYMS` set: scallion / green onion / spring onion,
+     cilantro / fresh coriander, garbanzo / chickpea, confectioners' /
+     powdered / icing sugar, zucchini / courgette, eggplant / aubergine,
+     heavy cream / heavy whipping cream / double cream, ground beef /
+     hamburger, bell pepper / sweet pepper, and a few more obvious pairs. Keep
+     it data, tested.
+   - Add a **close-match tier.** When the strict rules fail, a line whose head
+     noun matches an inventory item's head, or is within edit distance 1 for
+     words of 5+ letters (typos, odd plurals), counts as "close".
+     - `analyzeMakeable` reports it separately.
+     - The page shows it ("close: you have _onion_ for _shallot_…" style, or
+       a "≈" marker on the line).
+     - A toggle, default **on**, counts close matches as had.
+     - Don't change existing strict results; the drinks tests must keep
+       passing. The no-alcohol guard and `GENERIC_HEADS` still apply to close
+       matches; "juice" never stands for "lime juice".
+   - Add **food staples:** salt, black pepper, water and ice count as always
+     on hand. Better is an "Assume I always have" editable list in the
+     inventory panel, kept in the browser beside the list, defaulting to
+     those four. `suggestNames` keeps skipping staples.
+4. **The default goes type-agnostic.**
+   - `DEFAULT_MAKE_QUERY` → `""` (every recipe) for the CLI, MCP and API;
+     `--query tag:drink` still narrows.
+   - Update the MCP description, the CLI help, the skill's SKILL.md "what can
+     I make?" wording, and `curatorSkill.test.ts` / `mcp.test.ts` where
+     pinned.
+5. **Wording audit.** The page, inventory panel and empty states lose
+   bar-only words ("bottles", "bar") where they mean "what I have".
+6. **Remembered scope:** leave it as is, but make the kind switch and the
+   chips obvious enough that a remembered `tag:drink` reads as a choice.
+
+**Not in this phase:** tagging the food corpus. That's a content call (see
+32k / Roger's decision); this phase must make the page work on whatever tags
+exist.
+
+- **Tests:** `test/makeable.test.ts` (prep phrases, synonyms, close tier,
+  onion / green onion / shallot, staples), `test/ingredientNames.test.ts`,
+  `test/makeTags.test.ts` (refinements), `test/queryLanguage.test.ts` if
+  touched, `test/inventory.test.ts`, `test/mcp.test.ts`,
+  `test/cliJson.test.ts`, `test/curatorSkill.test.ts`.
+- **Playwright:** `make.spec.ts`.
+  - Add a few _food_ recipes, tagged and untagged, to the make fixture, or a
+    sibling `make-food/` fixture.
+  - New cases: the kind switch, refine chips drilling down on a tag without
+    children, a close match counted and shown, salt/pepper staples.
 
 ### 32h — `SidebarLayout` on sticky-chrome (S)
 
@@ -342,6 +449,21 @@ Per D5.
 `taxonomies`, `specVersions`, `cliJson`, `mcp`.
 
 **Playwright:** `search-tags`, `search-autocomplete`, `term-edit`, `tag-pages`.
+
+### 32k — Food vocabulary for the corpus (content; Roger's go needed)
+
+Per D8. 444 of the 457 food (non-drink) recipes have no tags at all, so 32j's
+drill-down has nothing to drill into for food until the corpus is tagged.
+
+- **Proposed:** a course/kind root — e.g. `main`, `side`, `dessert`,
+  `breakfast`, `bread`, `soup`, `snack`, `sauce`, `baked-goods` — created as
+  term records and applied by the recipe-curator workflow (`term_create`, then
+  `term_assign`).
+- **It writes the real content repo**, so it runs **only on Roger's explicit
+  go**. Without it, the phase is a proposal built from a scratch clone (the
+  vocabulary and a per-recipe assignment list for Roger to review), and nothing
+  is written to `/home/roger/Projects/recipe-content`.
+- Like 24f's backfill (D6), the vocabulary choices are Roger's.
 
 ### 32-close
 

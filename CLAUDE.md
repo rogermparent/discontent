@@ -84,8 +84,8 @@ survives a cleared context.
   sequential run: features that follow a deleted term or group, term image
   upload, F34 one commit per multi-carrier term write, the by-term record
   measured and split (24g), ingredient completion in search, meal-plan item
-  `scale`, a type-agnostic Make page, `SidebarLayout` on sticky-chrome, and
-  search-only term aliases (32a–32j).
+  `scale`, a type-agnostic Make page, `SidebarLayout` on sticky-chrome,
+  search-only term aliases, and a proposed food vocabulary (32a–32k).
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
