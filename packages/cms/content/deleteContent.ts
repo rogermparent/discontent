@@ -24,7 +24,7 @@ import type {
  * 3. Removes the entry from the LMDB index
  * 4. Brings any declared pagination indexes back in step
  * 5. Clears the borrowed values from content that referenced this item
- * 6. Commits the changes to git
+ * 6. Commits the changes to git (or, with `commit: false`, returns their paths)
  *
  * @example
  * ```ts
@@ -46,6 +46,7 @@ export async function deleteContent<TData, TIndexValue, TKey extends Key>(
     contentDirectory: providedContentDirectory,
     author,
     commitMessage,
+    commit = true,
   } = options;
 
   const contentDirectory = providedContentDirectory || getContentDirectory();
@@ -112,7 +113,11 @@ export async function deleteContent<TData, TIndexValue, TKey extends Key>(
     resolver,
   });
 
-  // 5. Commit to git
+  // 5. Commit to git — unless the caller is batching (`commit: false`),
+  //    in which case the paths go back to it instead.
+  if (!commit) {
+    return { pagination, aggregates, dependents, touchedPaths: deletedPaths };
+  }
   const message = commitMessage || `Delete ${config.contentType}: ${slug}`;
   await commitContentChanges(message, author, deletedPaths, contentDirectory);
 

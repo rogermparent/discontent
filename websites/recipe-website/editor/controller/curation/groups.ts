@@ -41,7 +41,13 @@ import type {
   RecipeEntryValue,
 } from "recipe-website-common/controller/types";
 import { fetchImageFile, largeImageWarning } from "../imageImport";
-import { groupPath, groupUrl, type CurationContext } from "./context";
+import {
+  batchOptions,
+  collectBatch,
+  groupPath,
+  groupUrl,
+  type CurationContext,
+} from "./context";
 import {
   GroupCycleError,
   NotFoundError,
@@ -542,7 +548,9 @@ export async function updateGroup(
     contentDirectory: ctx.contentDirectory,
     author: ctx.author,
     commitMessage: `Update group: ${slug}`,
+    ...batchOptions(ctx),
   });
+  collectBatch(ctx, result);
   ctx.onWrite?.({
     contentType: groupContentConfig.contentType,
     kind: "update",

@@ -46,7 +46,13 @@ import {
   probeImageFile,
   type ImageProbe,
 } from "../imageImport";
-import { recipePath, recipeUrl, type CurationContext } from "./context";
+import {
+  batchOptions,
+  collectBatch,
+  recipePath,
+  recipeUrl,
+  type CurationContext,
+} from "./context";
 import { readTagResolver } from "./tagResolver";
 import { NotFoundError, SlugConflictError, ValidationError } from "./errors";
 import {
@@ -465,7 +471,9 @@ export async function updateRecipe(
     contentDirectory: ctx.contentDirectory,
     author: ctx.author,
     commitMessage: `Update recipe: ${slug}`,
+    ...batchOptions(ctx),
   });
+  collectBatch(ctx, result);
   ctx.onWrite?.({
     contentType: recipeContentConfig.contentType,
     kind: "update",

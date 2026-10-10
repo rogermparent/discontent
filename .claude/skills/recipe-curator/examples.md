@@ -99,8 +99,9 @@ linzers carry only `linzer`, reaching the parent through the hierarchy — one
 `term_assign` away if the user wants them tagged directly too), restates the
 `warnings` line as "a running editor is stale until Settings → Maintenance →
 Reload, since `RECIPE_EDITOR_URL` is not set", and — in a git repository —
-lists the commits from `git_log` (one per term record, one per recipe
-assigned, one for the feature) and ends with "push from `/git` when ready".
+lists the commits from `git_log` (one per term record, one per
+`term_assign` call — `Assign term: christmas-cookies (+5 recipes)` — and one
+for the feature) and ends with "push from `/git` when ready".
 
 ## A meal plan: "three vegetarian dinners under 45 minutes for this week"
 

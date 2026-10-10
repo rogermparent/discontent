@@ -1315,6 +1315,48 @@ test.describe("JSON write API", () => {
       ).toBeVisible();
     });
 
+    test("a term assign over N recipes is one commit, and one revert undoes it (F34)", async ({
+      request,
+    }) => {
+      for (const name of ["Batch Naan", "Batch Pita"]) {
+        const created = await request.post("/api/recipes", {
+          headers: auth(),
+          data: { name },
+        });
+        expect(created.status()).toBe(201);
+      }
+
+      const assigned = await request.post(
+        "/api/taxonomies/tag/batch-bread/assign",
+        { headers: auth(), data: { add: ["batch-naan", "batch-pita"] } },
+      );
+      expect(assigned.status()).toBe(200);
+      expect((await assigned.json()).updated).toEqual([
+        "batch-naan",
+        "batch-pita",
+      ]);
+
+      const log = await request.get("/api/git/log?limit=1", {
+        headers: auth(),
+      });
+      const [commit] = (await log.json()).commits;
+      expect(commit.message).toBe("Assign term: batch-bread (+2 recipes)");
+      expect([...commit.files].sort()).toEqual([
+        "recipes/data/batch-naan/recipe.json",
+        "recipes/data/batch-pita/recipe.json",
+      ]);
+      const status = await request.get("/api/git/status", { headers: auth() });
+      expect((await status.json()).dirty).toBe(false);
+
+      const reverted = await request.post("/api/git/revert", {
+        headers: auth(),
+        data: { hash: commit.hash },
+      });
+      expect(reverted.status()).toBe(200);
+      const tagged = await request.get("/api/recipes?tag=batch-bread");
+      expect((await tagged.json()).total).toBe(0);
+    });
+
     test("answers a well-formed hash that names nothing with 422", async ({
       request,
     }) => {

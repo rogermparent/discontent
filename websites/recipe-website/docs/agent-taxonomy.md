@@ -1779,8 +1779,11 @@ unread — drop or keep at 24f (T17; dropped in 32a); `unknown_term` in the skil
 - **`aliases` on term records** — `mergeTerm` covers the need in v1.
 - **Per-term pagination (F8b / 24g)** — only if 24f's measurement exceeds
   150 KB.
-- **Batched multi-carrier commit** (possible F34) — `term_assign` over N
-  carriers is N commits.
+- ~~**Batched multi-carrier commit** (possible F34) — `term_assign` over N
+  carriers is N commits.~~ **Done by 32d** (`agent-epic-32.md`): the engine's
+  `commit: false` plus the curation layer's `withBatchCommit` make
+  `term_assign`, `term_rename`, `term_merge` and `term_delete` one commit per
+  call, and a failure part-way one `… (partial)` commit (32-D3).
 - **`appearsInAggregate` over the inverted primitive** — re-expressible,
   not worth the churn until something else touches it.
 - **Portfolio backfill**; ~~**ranking**~~ (done by 27d); ~~a group picker in

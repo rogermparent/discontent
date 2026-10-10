@@ -308,9 +308,9 @@ Recipe rows from recipe_search and recipe_list are compact — {slug, name, date
 
 Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?, terms?}}; the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, unknown_term, group_cycle, term_cycle, term_in_use, import_failed, no_git_identity, not_a_repo, dirty_tree, git_conflict, bad_revision, unauthenticated, forbidden, usage and internal. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
 
-Tags are one vocabulary shared by recipes and groups. A term is a tag that may also have a record — a label, description, picture, a parent (so tag:<parent> also finds everything under it) and pinned recipes that lead its page. Use terms for a cluster by kind or a curated collection (term_create, then term_assign), and groups for meal plans: ordered, dated lists with a label per item. term_assign, term_rename and term_merge write each recipe or group they touch, one commit each.
+Tags are one vocabulary shared by recipes and groups. A term is a tag that may also have a record — a label, description, picture, a parent (so tag:<parent> also finds everything under it) and pinned recipes that lead its page. Use terms for a cluster by kind or a curated collection (term_create, then term_assign), and groups for meal plans: ordered, dated lists with a label per item. term_assign, term_rename, term_merge and term_delete write each recipe or group they touch, and land as one commit per call — a failure part-way commits what was written as "… (partial)" and answers the error.
 
-Writes commit to the content repository, one commit each. Deletes (recipe_delete, group_delete, term_delete, term_merge, unfeature) are not undoable from here.
+Writes commit to the content repository, one commit per call. Deletes (recipe_delete, group_delete, term_delete, term_merge, unfeature) are not undoable from here.
 
 The git tools read and rewind that repository. git_log, git_show, git_file_at and git_diff read history; \`type\` is recipe, group, featured or term. git_revert and git_restore make a new commit and rebuild every index — they need a clean working tree (dirty_tree otherwise) and neither is undoable from here. git_push sends the branch to its remote and changes nothing locally. git_fetch refreshes the remote refs and nothing else, so run it (or git_status with fetch: true) before trusting ahead/behind. git_pull merges the upstream in and rebuilds every index; a conflict is aborted and answered with git_conflict, for a person to resolve in the editor's Git page. If git_status says indexStale, run reindex.`;
 
@@ -709,7 +709,8 @@ export function createRecipeServer(
       title: "Tag or untag recipes or groups",
       description:
         "Add the term to the recipes in `add` and take it off those in `remove` " +
-        '(groups instead with `type: "group"`), one write per carrier. Answers ' +
+        '(groups instead with `type: "group"`), one write per carrier and one ' +
+        "commit for the call (`Assign term: <slug> (+N recipes)`). Answers " +
         "{slug, tag, updated, unchanged, missing}: `tag` is the string written, " +
         "`missing` names slugs that are not recipes (or groups). No record is " +
         "needed — a new tag comes into being this way.",
@@ -733,8 +734,8 @@ export function createRecipeServer(
         "Move a term to a new slug: `to` is the new slug or label (slugged), and " +
         "`label` sets the record's label if `to` is a bare slug. The record moves — " +
         "children and featured entries follow it — and every recipe and group " +
-        "carrying the tag is rewritten, one write each. A `to` that already exists " +
-        "is slug_conflict: use term_merge.",
+        "carrying the tag is rewritten — one commit for the lot. A `to` that already " +
+        "exists is slug_conflict: use term_merge.",
       inputSchema: z.strictObject({
         slug: Slug,
         to: z.string().trim().min(1),
@@ -754,7 +755,7 @@ export function createRecipeServer(
         "Fold `slug` into `into`: every carrier is re-tagged, and the record moves to " +
         "`into` (when it has none) or is deleted after its children, features and " +
         "pinned recipes move over — a feature is unfeatured instead when `into` is " +
-        "already featured. Not undoable from here.",
+        "already featured. One commit for the lot. Not undoable from here.",
       inputSchema: z.strictObject({ slug: Slug, into: Slug }),
       annotations: DESTRUCTIVE_WRITE,
     },
@@ -771,7 +772,8 @@ export function createRecipeServer(
         "the tag, unless `unassign: true`, which removes it from each of them first. " +
         "Its children move up to its parent, and so do its featured entries — or they " +
         "are unfeatured when it has no parent or the parent is already featured " +
-        "(`featured` and `unfeatured` in the result). Not undoable from here.",
+        "(`featured` and `unfeatured` in the result). One commit for the lot. Not " +
+        "undoable from here.",
       inputSchema: z.strictObject({
         slug: Slug,
         unassign: z.boolean().optional(),
