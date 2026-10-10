@@ -763,16 +763,16 @@ epic.
 To be filled per phase (PR, merge sha, gates), with the 32e measurement and
 the end-to-end checks at 32-close.
 
-| Phase   | PR   | Merge      | Gates                                                                                                                               |
-| ------- | ---- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| 32-plan | #197 | `dafc6834` | docs only; CI 12/12                                                                                                                 |
-| 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI                       |
-| 32b     | #200 |            | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI                           |
-| 32c     | #203 |            | typechecks ✅; vitest 1074/1074 (56 files); Playwright `term-edit` + `api-write` 29/29 (build); CI                                  |
-| 32e     | #PR  |            | GATES_32E                                                                                                                           |
-| 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                                      |
-| 32h     | #201 |            | typechecks ✅ (recipe, export, portfolio); vitest 1058/1058; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI |
-| 32g     | #202 |            | typechecks ✅; vitest 1068/1068 (56 files); Playwright `groups` + `yield` + `recipe` 47/47 (build); export `next build` ✅; CI      |
+| Phase   | PR   | Merge      | Gates                                                                                                                                                                                                                  |
+| ------- | ---- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 32-plan | #197 | `dafc6834` | docs only; CI 12/12                                                                                                                                                                                                    |
+| 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI                                                                                                          |
+| 32b     | #200 |            | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI                                                                                                              |
+| 32c     | #203 |            | typechecks ✅; vitest 1074/1074 (56 files); Playwright `term-edit` + `api-write` 29/29 (build); CI                                                                                                                     |
+| 32e     | #PR  |            | typechecks ✅ (recipe, export, portfolio, demo); vitest 1073/1074 pre-merge (the 1 = stale fixture, green after the fixture commit), 210/210 targeted post-merge; Playwright not run locally (slot held > 15 min) — CI |
+| 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                                                                                                                         |
+| 32h     | #201 |            | typechecks ✅ (recipe, export, portfolio); vitest 1058/1058; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI                                                                                    |
+| 32g     | #202 |            | typechecks ✅; vitest 1068/1068 (56 files); Playwright `groups` + `yield` + `recipe` 47/47 (build); export `next build` ✅; CI                                                                                         |
 
 ### 32a — Hygiene
 
@@ -1038,7 +1038,26 @@ F8b entry, the §12.13 F8b row and its note).
   keysets.
 - `specVersions`: the taxonomy fold module, version 1 → 2.
 
-**Gates.** GATES_32E_DETAIL
+**Gates.**
+
+- **Typechecks:** `recipe-editor` and `recipe-website` (export) pass, and so
+  do `tsc --noEmit` in the portfolio editor and the CMS demo.
+- **vitest, full suite, before merging `origin/main`:** 1073/1074. The one
+  failure was `christmasCookies.test.ts` reading the stale fixture, and it
+  passes after the fixture commit.
+- **vitest, targeted, after the merge:** 210/210 across 11 files
+  (`taxonomies`, `cachedReadKeys`, `revalidateContentWrite`,
+  `exportStaticParams`, `christmasCookies`, `specVersions`, `groups`,
+  `terms`, `tagTerms`, `aggregates`, `revalidateDerived`). A full run after
+  the merge was queued for the heavy slot and cancelled along with the
+  Playwright run.
+- **Playwright was not run locally.** `tag-pages`, `search-tags`,
+  `recipe-tags-aggregate` and `term-edit` were queued through `heavy-pw.sh`
+  and waited more than 20 minutes. The slot was held by 32j, itself waiting
+  on MemAvailable at about 3.8 GB against the 6 GB floor. So CI is the gate:
+  the four Recipe shards, "CMS demo" (`aggregates.spec`) and "Portfolio"
+  (the tag routes).
+- **The real-corpus checks** are in the phase section above.
 
 **Morning checklist.** The real repo needs a `reindex` after this merges
 (`pnpm recipes reindex`, or the editor's Maintenance → Rebuild). The Pi needs
