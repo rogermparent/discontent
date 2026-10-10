@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { ingredientOptions } from "recipe-website-common/components/SearchForm/QueryAutocomplete";
+import {
+  ingredientOptions,
+  tagAliasesOf,
+  tagCompletionOptions,
+} from "recipe-website-common/components/SearchForm/QueryAutocomplete";
 import {
   anyLineMatcher,
   appendFilterTerm,
@@ -1422,5 +1426,53 @@ describe("ingredientOptions — the rows an ingredient: value offers", () => {
         matches: anyLineMatcher(many),
       }),
     ).toHaveLength(8);
+  });
+});
+
+describe("tagCompletionOptions — aliases offer the canonical term (32i)", () => {
+  const allTags = ["Christmas Cookies", "cookie cutters", "dessert"];
+  const aliases = tagAliasesOf([
+    {
+      slug: "christmas-cookies",
+      label: "Christmas Cookies",
+      count: 5,
+      aliases: ["biscuits", "xmas cookies"],
+    },
+    { slug: "dessert", label: "dessert", count: 2 },
+    /* Nothing carries it: its alias offers nothing, as its label offers nothing. */
+    { slug: "holiday", label: "Holiday", count: 0, aliases: ["festive"] },
+  ]);
+
+  it("lists each alias of a carried term beside its label", () => {
+    expect(aliases).toEqual([
+      { alias: "biscuits", label: "Christmas Cookies" },
+      { alias: "xmas cookies", label: "Christmas Cookies" },
+    ]);
+  });
+
+  it("an alias prefix offers the term, hinted, replacing with the term", () => {
+    const [option, ...rest] = tagCompletionOptions("bisc", allTags, aliases);
+    expect(rest).toEqual([]);
+    expect(option).toMatchObject({
+      label: "Christmas Cookies",
+      hint: "also called biscuits",
+      replacement: 'tag:"Christmas Cookies"',
+    });
+    /* Typed in full, it still offers the term: that is the point. */
+    expect(
+      tagCompletionOptions("biscuits", allTags, aliases).map((o) => o.label),
+    ).toEqual(["Christmas Cookies"]);
+    expect(tagCompletionOptions("festive", allTags, aliases)).toEqual([]);
+  });
+
+  it("never offers a term twice, and tags come first", () => {
+    expect(
+      tagCompletionOptions("c", allTags, aliases).map((o) => o.label),
+    ).toEqual(["Christmas Cookies", "cookie cutters"]);
+    expect(
+      tagCompletionOptions("x", allTags, aliases).map((o) => o.label),
+    ).toEqual(["Christmas Cookies"]);
+    /* Without aliases, the old behaviour. */
+    expect(tagCompletionOptions("bisc", allTags)).toEqual([]);
   });
 });

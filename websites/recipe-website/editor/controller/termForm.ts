@@ -60,6 +60,13 @@ const TermFormSchema = z.object({
     .transform((pinned) =>
       pinned.map((slug) => slug.trim()).filter((slug) => slug.length > 0),
     ),
+  /* The alias chips (32i), the same shape and the same "no chips = clear". */
+  aliases: z
+    .array(z.string())
+    .default([])
+    .transform((aliases) =>
+      aliases.map((alias) => alias.trim()).filter((alias) => alias.length > 0),
+    ),
   /*
    * The picture, three ways (32c, D2): the file input, `ImageInput`'s hidden
    * `imageImportUrl` (set when a URL is typed), and the "Remove Image"
@@ -100,6 +107,7 @@ export function termInputFromForm(
     ...(parsed.description ? { description: parsed.description } : {}),
     ...(parsed.parent ? { parent: parsed.parent } : {}),
     ...(parsed.pinned.length > 0 ? { pinned: parsed.pinned } : {}),
+    ...(parsed.aliases.length > 0 ? { aliases: parsed.aliases } : {}),
     ...(parsed.imageImportUrl ? { imageImportUrl: parsed.imageImportUrl } : {}),
   };
 }
@@ -119,6 +127,7 @@ export function termPatchFromForm(parsed: ParsedTermForm): TermPatch {
     description: parsed.description ?? null,
     parent: parsed.parent ?? null,
     pinned: parsed.pinned.length > 0 ? parsed.pinned : null,
+    aliases: parsed.aliases.length > 0 ? parsed.aliases : null,
     ...(parsed.imageImportUrl
       ? { imageImportUrl: parsed.imageImportUrl }
       : parsed.clearImage
@@ -135,13 +144,14 @@ export function termFormValues(parsed: ParsedTermForm): TermFormValues {
     ...(parsed.description ? { description: parsed.description } : {}),
     ...(parsed.parent ? { parent: parsed.parent } : {}),
     pinned: parsed.pinned,
+    aliases: parsed.aliases,
     ...(parsed.imageImportUrl ? { imageImportUrl: parsed.imageImportUrl } : {}),
   };
 }
 
 /**
  * Which form field a seat issue's path names: its first segment, so
- * `pinned.1` is the pinned chips. `imageImportUrl` and `image` (an uploaded
+ * `pinned.1` is the pinned chips and `aliases.0` the alias chips. `imageImportUrl` and `image` (an uploaded
  * file the seat refused, 32c) are both shown as the image field. `date` and
  * `(root)` have no field on the form and go to the message.
  */
@@ -151,6 +161,7 @@ const FIELD_OF_PATH: Record<string, keyof TermFormErrors> = {
   description: "description",
   parent: "parent",
   pinned: "pinned",
+  aliases: "aliases",
   image: "image",
   imageImportUrl: "image",
 };

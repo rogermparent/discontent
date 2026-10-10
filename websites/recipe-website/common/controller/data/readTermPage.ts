@@ -2,6 +2,8 @@ import { groupTagReads } from "./readGroupTagIndex";
 import { recipeTagReads } from "./readRecipeTagIndex";
 import { tagTermReads } from "./readTagTerms";
 import {
+  aliasSlugs,
+  aliasTarget,
   applyPinned,
   breadcrumbOf,
   childrenOf,
@@ -108,7 +110,7 @@ export async function readTagOptions(): Promise<TagOption[]> {
   );
 }
 
-/** One row of `/search/terms`: a term, its parent, and how many carry it. */
+/** One row of `/search/terms`: a term, its parent, its aliases, and how many carry it. */
 export interface SearchTerm extends TagOption {
   /** Recipes and groups carrying the term itself (not its subtree). */
   count: number;
@@ -122,6 +124,8 @@ export interface SearchTerm extends TagOption {
  * and `BrowseChips` read its labels, and `SearchContext` builds the `tag:`
  * expansion from its parents (`tagExpansion.ts`), so `tag:dessert` finds the
  * linzer cookies in the browser exactly as `recipe_search` does on the server.
+ * Each row carries its record's `aliases` from the tree (32i), so `tag:<alias>`
+ * and the autocomplete reach the canonical term in the browser as well.
  */
 export async function readSearchTerms(): Promise<SearchTerm[]> {
   const [recipeTerms, groupTerms, tree] = await Promise.all([
@@ -223,4 +227,37 @@ export async function readTermPageSlugs(): Promise<string[]> {
       ...Object.keys(tree ?? {}),
     ]),
   ];
+}
+
+/**
+ * The term `/tags/<slug>` should redirect to, when `slug` is no term's page
+ * but a record lists it as an alias (32i, D5) — else `undefined`.
+ *
+ * Asked only after `resolveTermPage` came back `null`: a slug that has a page
+ * of its own (a record, or carriers that still use the alias as a tag) shows
+ * that page, because it lists things the canonical page does not. One read,
+ * the tree, which every term page reads anyway.
+ */
+export async function resolveTermAlias(
+  slug: string,
+): Promise<{ slug: string; label: string } | undefined> {
+  const tree = await tagTermReads.tree.read();
+  const target = aliasTarget(tree, slug);
+  return target
+    ? { slug: target, label: tree?.[target]?.label ?? target }
+    : undefined;
+}
+
+/**
+ * `readTermPageSlugs` plus every alias that is not a term of its own (32i):
+ * the static export's params, so `/tags/<alias>` is a file that sends the
+ * reader on. The editor renders an alias on demand and redirects instead, so
+ * it keeps the plain list.
+ */
+export async function readTermPageSlugsWithAliases(): Promise<string[]> {
+  const [slugs, tree] = await Promise.all([
+    readTermPageSlugs(),
+    tagTermReads.tree.read(),
+  ]);
+  return [...slugs, ...aliasSlugs(tree, new Set(slugs))];
 }

@@ -19,6 +19,7 @@ import { cn } from "@discontent/component-library/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { fetchIngredients, useSearch } from "./SearchContext";
 import type { GroupSearchEntry } from "../../controller/data/readGroupSearchCorpus";
+import type { SearchTerm } from "../../controller/data/readTermPage";
 import type { MassagedRecipeEntry } from "../../controller/data/read";
 import { prepareCorpus, suggestNames } from "../../util/makeable";
 import {
@@ -78,6 +79,25 @@ function fieldOptions(prefix: string): CompletionOption[] {
   );
 }
 
+/** One alias, and the label of the term it reaches (32i). */
+export interface TagAlias {
+  alias: string;
+  label: string;
+}
+
+/**
+ * Every alias of a term something carries, beside that term's label — what
+ * the `tag:` completion offers the canonical term for. A term nothing carries
+ * is left out, as `allTags` leaves it out: its chip would find nothing.
+ */
+export function tagAliasesOf(terms: readonly SearchTerm[]): TagAlias[] {
+  return terms.flatMap((term) =>
+    term.count > 0
+      ? (term.aliases ?? []).map((alias) => ({ alias, label: term.label }))
+      : [],
+  );
+}
+
 /**
  * Corpus tags matching what has been typed after `tag:`.
  *
@@ -88,10 +108,20 @@ function fieldOptions(prefix: string): CompletionOption[] {
  * A tag that folds to exactly the prefix is dropped: it is already typed, and a
  * row offering to replace `dessert` with `dessert` is a list that will not go
  * away.
+ *
+ * **Aliases (32i).** After the tags themselves, an alias matching the prefix
+ * offers the term it belongs to — `tag:bisc` offers "cookies", hinted with the
+ * alias — so typing an old or other name lands on the canonical one. An alias
+ * typed in full still offers its term (that is the point of the row), and a
+ * term already in the list is not offered twice.
  */
-function tagOptions(prefix: string, allTags: string[]): CompletionOption[] {
+export function tagCompletionOptions(
+  prefix: string,
+  allTags: string[],
+  aliases: readonly TagAlias[] = [],
+): CompletionOption[] {
   const folded = fold(prefix);
-  return allTags
+  const options: CompletionOption[] = allTags
     .filter((tag) => {
       const value = fold(tag);
       return value.startsWith(folded) && value !== folded;
@@ -102,6 +132,20 @@ function tagOptions(prefix: string, allTags: string[]): CompletionOption[] {
       label: tag,
       replacement: `tag:${quoteQueryValue(tag)}`,
     }));
+  const offered = new Set(options.map((option) => option.label));
+  for (const { alias, label } of aliases) {
+    if (options.length >= MAX_OPTIONS) break;
+    if (offered.has(label) || fold(label) === folded) continue;
+    if (!fold(alias).startsWith(folded)) continue;
+    offered.add(label);
+    options.push({
+      key: `tag-alias:${alias}`,
+      label,
+      hint: `also called ${alias}`,
+      replacement: `tag:${quoteQueryValue(label)}`,
+    });
+  }
+  return options;
 }
 
 /**
@@ -215,6 +259,7 @@ function ingredientSuggestions(
 function optionsFor(
   completion: QueryCompletion | undefined,
   allTags: string[],
+  tagAliases: readonly TagAlias[],
   allGroups: GroupSearchEntry[],
   ingredients: IngredientSuggestions | undefined,
 ): CompletionOption[] {
@@ -230,7 +275,8 @@ function optionsFor(
    * same `["recipe-ingredients"]` query search and `/make` use, kept forever.
    * The other fields take free text or a date, which no list can shorten.
    */
-  if (completion.field === "tag") return tagOptions(completion.prefix, allTags);
+  if (completion.field === "tag")
+    return tagCompletionOptions(completion.prefix, allTags, tagAliases);
   if (completion.field === "group")
     return groupOptions(completion.prefix, allGroups);
   if (completion.field === "ingredient" && ingredients)
@@ -285,9 +331,11 @@ export function useQueryAutocomplete({
     setInputValue,
     submitSearch,
     allTags,
+    allTerms,
     allGroups,
     allRecipes,
   } = useSearch();
+  const tagAliases = useMemo(() => tagAliasesOf(allTerms), [allTerms]);
   const listId = useId();
   const [caret, setCaret] = useState(0);
   const [focused, setFocused] = useState(false);
@@ -328,8 +376,8 @@ export function useQueryAutocomplete({
     wantsIngredients && !ingredientsBySlug && !ingredientsQuery.isError;
 
   const options = useMemo(
-    () => optionsFor(completion, allTags, allGroups, ingredients),
-    [completion, allTags, allGroups, ingredients],
+    () => optionsFor(completion, allTags, tagAliases, allGroups, ingredients),
+    [completion, allTags, tagAliases, allGroups, ingredients],
   );
 
   const open =

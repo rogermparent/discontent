@@ -31,6 +31,14 @@ export interface Term {
    * would be a DAG and would need F32.
    */
   parent?: string;
+  /**
+   * Other spellings that should reach this term — a synonym, or the slug of a
+   * term merged into this one. Search-only: nothing canonicalises a carrier's
+   * tag string to the term at write time, so an alias is a way to *find* the
+   * term, never a rewrite. Indexed and folded into the tree so a reader
+   * resolves an alias from one aggregate read.
+   */
+  aliases?: string[];
   [key: string]: unknown;
 }
 
@@ -40,6 +48,8 @@ export interface TermIndexValue {
   date: number;
   parent?: string;
   image?: string;
+  /** `Term.aliases`, the non-empty strings only; absent when there are none. */
+  aliases?: string[];
   /**
    * The parent's label, **borrowed** through the self-referencing edge below.
    *
@@ -134,6 +144,12 @@ export function createTermContentType(
       const base: TermIndexValue = { label: data.label, date: data.date };
       if (data.parent) base.parent = data.parent;
       if (typeof data.image === "string" && data.image) base.image = data.image;
+      const aliases = Array.isArray(data.aliases)
+        ? data.aliases.filter(
+            (alias): alias is string => typeof alias === "string" && !!alias,
+          )
+        : [];
+      if (aliases.length > 0) base.aliases = aliases;
       const parentLabel = borrowed<Term>(refs, "parent")?.label;
       if (typeof parentLabel === "string") base.parentLabel = parentLabel;
 

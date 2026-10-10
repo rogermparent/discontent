@@ -37,6 +37,8 @@ import {
 } from "../websites/recipe-website/common/controller/tagExpansion";
 import { tagTermContentConfig } from "../websites/recipe-website/common/controller/tagTermContentConfig";
 import {
+  aliasSlugs,
+  aliasTarget,
   mergeTagVocabulary,
   tagOptions,
   termHierarchy,
@@ -48,6 +50,7 @@ import {
   readAllRecipeRows,
 } from "../websites/recipe-website/editor/controller/curation/recipes";
 import { searchRecipes } from "../websites/recipe-website/editor/controller/curation/search";
+import { updateTerm } from "../websites/recipe-website/editor/controller/curation/terms";
 
 /* ------------------------------------------------------------------ */
 /* 1. The resolver, pure                                              */
@@ -272,5 +275,166 @@ describe("server/browser parity on christmas-cookies + a linzer term", () => {
     /* `tag:linzer` is the leaf alone. */
     const linzer = await searchRecipes(ctx, "tag:linzer", { limit: 100 });
     expect(linzer.recipes.map((row) => row.slug)).toEqual(["linzer-bars"]);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 3. Aliases (epic 32, 32i — D5)                                      */
+/* ------------------------------------------------------------------ */
+
+describe("aliases in the expansion", () => {
+  const resolver = buildTagExpansion([
+    ...TERMS.map((term) =>
+      term.slug === "cookies"
+        ? { ...term, aliases: ["biscuits", "Christmas Biscuits"] }
+        : term.slug === "linzer"
+          ? { ...term, aliases: ["linzer torte"] }
+          : term,
+    ),
+    /* A carried term spelled like an alias: the alias wins. */
+    { slug: "biscuits", label: "biscuits" },
+  ]);
+
+  it("tag:<alias> expands as tag:<term> does, subtree included", () => {
+    const cookies = resolver.expandTerm("tag", "cookies");
+    expect(resolver.expandTerm("tag", "biscuits")).toEqual(cookies);
+    expect(resolver.expandTerm("tag", "christmas biscuits")).toEqual(cookies);
+    expect(resolver.expandTerm("tag", "christmas-biscuits")).toEqual(cookies);
+    expect([...(cookies ?? [])].sort()).toEqual(
+      [
+        "biscuits",
+        "christmas biscuits",
+        "christmas-biscuits",
+        "cookies",
+        "linzer",
+        "linzer cookies",
+        "linzer torte",
+        "linzer-torte",
+      ].sort(),
+    );
+  });
+
+  it("a carrier still tagged with an alias is found by the term and its parents", () => {
+    const oldTag = { name: "Shortbread", tags: ["biscuits"] };
+    const torte = { name: "Torte", tags: ["Linzer Torte"] };
+    expect(matchesFilter(oldTag, filterOf("tag:cookies"), resolver)).toBe(true);
+    expect(matchesFilter(torte, filterOf("tag:dessert"), resolver)).toBe(true);
+    expect(matchesFilter(torte, filterOf("tag:linzer"), resolver)).toBe(true);
+    expect(matchesFilter(oldTag, filterOf("tag:drink"), resolver)).toBe(false);
+  });
+
+  it("the tree's aliases reach the resolver and tagOptions", () => {
+    const tree = {
+      cookies: { label: "Cookies", aliases: ["biscuits"], children: [] },
+    };
+    expect(
+      buildTagExpansionFromTree(tree).expandTerm("tag", "biscuits"),
+    ).toEqual(new Set(["cookies", "biscuits"]));
+    expect(
+      tagOptions([{ slug: "cookies", label: "Cookies", count: 2 }], tree),
+    ).toEqual([{ slug: "cookies", label: "Cookies", aliases: ["biscuits"] }]);
+  });
+});
+
+describe("aliasTarget and aliasSlugs", () => {
+  const tree = {
+    cookies: {
+      label: "Cookies",
+      aliases: ["biscuits", "Christmas Biscuits"],
+      children: [],
+    },
+    dessert: { label: "Dessert", aliases: ["dessert"], children: [] },
+  };
+
+  it("finds the record an alias belongs to, by slug, never itself", () => {
+    expect(aliasTarget(tree, "biscuits")).toBe("cookies");
+    expect(aliasTarget(tree, "christmas-biscuits")).toBe("cookies");
+    expect(aliasTarget(tree, "dessert")).toBeUndefined();
+    expect(aliasTarget(tree, "nope")).toBeUndefined();
+    expect(aliasTarget(null, "biscuits")).toBeUndefined();
+  });
+
+  it("lists the alias slugs that are no term of their own", () => {
+    expect(aliasSlugs(tree, new Set(["cookies", "dessert"]))).toEqual([
+      "biscuits",
+      "christmas-biscuits",
+    ]);
+    expect(aliasSlugs(tree, new Set(["biscuits", "dessert"]))).toEqual([
+      "christmas-biscuits",
+    ]);
+  });
+});
+
+describe("server/browser parity for an alias on christmas-cookies", () => {
+  let contentDirectory: string;
+  let ctx: CurationContext;
+  let previousContentDirectory: string | undefined;
+
+  beforeAll(async () => {
+    await closeCachedEnvironments();
+    contentDirectory = await mkdtemp(join(tmpdir(), "tag-alias-"));
+    await copy(FIXTURE, contentDirectory);
+    previousContentDirectory = process.env.CONTENT_DIRECTORY;
+    process.env.CONTENT_DIRECTORY = contentDirectory;
+    ctx = { contentDirectory };
+
+    await createContent({
+      config: tagTermContentConfig,
+      slug: "linzer",
+      data: { label: "Linzer", parent: "cookies", date: 1764720000000 },
+      contentDirectory,
+    });
+    await createRecipe(ctx, { name: "Linzer Bars", tags: ["linzer"] });
+    await updateTerm(ctx, "cookies", { aliases: ["Biscuits"] });
+    /* Tagged with the alias after it was recorded: no canonicalisation. */
+    await createRecipe(ctx, { name: "Digestives", tags: ["biscuits"] });
+  });
+
+  afterAll(async () => {
+    await closeCachedEnvironments();
+    if (previousContentDirectory === undefined) {
+      delete process.env.CONTENT_DIRECTORY;
+    } else {
+      process.env.CONTENT_DIRECTORY = previousContentDirectory;
+    }
+    await rm(contentDirectory, { recursive: true, force: true });
+  });
+
+  it("tag:biscuits = tag:cookies on the server and in the browser", async () => {
+    const slugs = async (query: string) =>
+      (await searchRecipes(ctx, query, { limit: 100 })).recipes
+        .map((row) => row.slug)
+        .sort();
+    const cookies = await slugs("tag:cookies");
+    expect(cookies).toContain("linzer-bars");
+    expect(cookies).toContain("digestives");
+    expect(await slugs("tag:biscuits")).toEqual(cookies);
+
+    const [recipeTerms, groupTerms, tree] = await Promise.all([
+      readTaxonomyTerms({
+        config: recipeContentConfig,
+        taxonomy: recipeTagTaxonomy,
+        contentDirectory,
+      }),
+      readTaxonomyTerms({
+        config: groupContentConfig,
+        taxonomy: groupTagTaxonomy,
+        contentDirectory,
+      }),
+      readAggregate({
+        config: tagTermContentConfig,
+        aggregateConfig: termTreeAggregate(),
+        contentDirectory,
+      }),
+    ]);
+    expect(tree?.cookies.aliases).toEqual(["biscuits"]);
+    const resolver = buildTagExpansion(
+      tagOptions(mergeTagVocabulary({ recipeTerms, groupTerms, tree }), tree),
+    );
+    const browser = (await readAllRecipeRows(ctx))
+      .filter((row) => matchesFilter(row, filterOf("tag:biscuits"), resolver))
+      .map((row) => row.slug)
+      .sort();
+    expect(browser).toEqual(cookies);
   });
 });

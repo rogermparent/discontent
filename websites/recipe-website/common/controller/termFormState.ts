@@ -16,6 +16,7 @@ export interface TermFormErrors extends Record<string, string[] | undefined> {
   image?: string[];
   parent?: string[];
   pinned?: string[];
+  aliases?: string[];
 }
 
 /** What the form submitted, echoed back on a refusal so nothing typed is lost. */
@@ -25,6 +26,7 @@ export interface TermFormValues {
   description?: string;
   parent?: string;
   pinned?: string[];
+  aliases?: string[];
   imageImportUrl?: string;
 }
 

@@ -150,10 +150,10 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   term list [--records] [--limit n] [--offset 0]
   term get <slug>
   term create --label L [--slug s] [--description D] [--parent p] [--pin recipe …]
-              [--image-url U] [--date d] | (--file term.json | --stdin)
+              [--alias A …] [--image-url U] [--date d] | (--file term.json | --stdin)
   term update <slug> [--label L] [--description D] [--parent p | --clear-parent]
-              [--pin recipe … | --clear-pinned] [--image-url U | --clear-image]
-              [--date d] | (--file patch.json | --stdin)
+              [--pin recipe … | --clear-pinned] [--alias A … | --clear-aliases]
+              [--image-url U | --clear-image] [--date d] | (--file patch.json | --stdin)
   term image <slug> (--url <image-url> | --file <path> | --clear)
   term assign <slug> [--add carrier …] [--remove carrier …] [--type recipe|group]
   term rename <slug> <new-slug-or-label> [--label L]

@@ -261,12 +261,12 @@ describe("declared spec versions", () => {
   it("engine term tree fold", () => {
     expect(readConfigModule("packages/cms/taxonomies/tree.ts"))
       .toMatchInlineSnapshot(`
-      {
-        "hash": "593a8a1b6da11675",
-        "versions": [
-          "1",
-        ],
-      }
-    `);
+        {
+          "hash": "6ac0c78519307225",
+          "versions": [
+            "2",
+          ],
+        }
+      `);
   });
 });

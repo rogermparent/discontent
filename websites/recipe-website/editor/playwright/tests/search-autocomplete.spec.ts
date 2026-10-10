@@ -92,6 +92,35 @@ test.describe("Search — in-field autocomplete", () => {
     await expect(suggestions(page)).toHaveCount(0);
   });
 
+  /* 32i: typing an alias offers the term it belongs to. */
+  test("offers the term an alias belongs to", async ({
+    page,
+    request,
+    createApiToken,
+  }) => {
+    const token = await createApiToken();
+    const created = await request.post("/api/taxonomies/tag", {
+      headers: { authorization: `Bearer ${token}` },
+      data: { label: "Dessert", aliases: ["Sweets"] },
+    });
+    expect(created.status()).toBe(201);
+    await page.reload();
+    await expect(ticker(page)).toHaveText(/ALL 67 RECIPES/i, {
+      timeout: SEARCH_TIMEOUT,
+    });
+
+    const field = searchField(page);
+    await field.click();
+    await field.pressSequentially("tag:swe");
+    await expect(optionLabels(page)).toHaveText(["Dessert"]);
+    await expect(options(page)).toContainText("also called sweets");
+
+    await field.press("ArrowDown");
+    await field.press("Enter");
+    await expect(field).toHaveValue("tag:Dessert");
+    await expect(listItems(page)).toHaveCount(3, { timeout: SEARCH_TIMEOUT });
+  });
+
   test("the arrows move the active descendant, and wrap", async ({ page }) => {
     const field = searchField(page);
     await field.click();

@@ -308,7 +308,7 @@ Recipe rows from recipe_search and recipe_list are compact — {slug, name, date
 
 Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?, terms?}}; the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, unknown_term, group_cycle, term_cycle, term_in_use, import_failed, no_git_identity, not_a_repo, dirty_tree, git_conflict, bad_revision, unauthenticated, forbidden, usage and internal. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
 
-Tags are one vocabulary shared by recipes and groups. A term is a tag that may also have a record — a label, description, picture, a parent (so tag:<parent> also finds everything under it) and pinned recipes that lead its page. Use terms for a cluster by kind or a curated collection (term_create, then term_assign), and groups for meal plans: ordered, dated lists with a label per item. term_assign, term_rename, term_merge and term_delete write each recipe or group they touch, and land as one commit per call — a failure part-way commits what was written as "… (partial)" and answers the error.
+Tags are one vocabulary shared by recipes and groups. A term is a tag that may also have a record — a label, description, picture, a parent (so tag:<parent> also finds everything under it), pinned recipes that lead its page, and aliases (other names that tag:<alias> and /tags/<alias> send to it; recipes keep their own tags). Use terms for a cluster by kind or a curated collection (term_create, then term_assign), and groups for meal plans: ordered, dated lists with a label per item. term_assign, term_rename, term_merge and term_delete write each recipe or group they touch, and land as one commit per call — a failure part-way commits what was written as "… (partial)" and answers the error.
 
 Writes commit to the content repository, one commit per call. Deletes (recipe_delete, group_delete, term_delete, term_merge, unfeature) are not undoable from here.
 
@@ -605,7 +605,7 @@ export function createRecipeServer(
       title: "List terms",
       description:
         "The tag vocabulary sorted by slug: every term a recipe or group carries plus " +
-        "every term record, as {slug, label, count, parent?, record}. `count` is the " +
+        "every term record, as {slug, label, count, parent?, aliases?, record}. `count` is the " +
         "term's own carriers; `record` says whether it has a record (a description, " +
         "picture, parent or pinned front, and it can be featured). `records: true` " +
         "lists only those.",
@@ -624,8 +624,8 @@ export function createRecipeServer(
     {
       title: "Get a term",
       description:
-        "One term: its `record` (or null when it only exists as a tag), `breadcrumb` " +
-        "(root first), `children` with counts, `counts.own` and " +
+        "One term: its `record` (or null when it only exists as a tag), `aliases`, " +
+        "`breadcrumb` (root first), `children` with counts, `counts.own` and " +
         "`counts.withDescendants` (what tag:<slug> finds), and the recipe and group " +
         "slugs that carry it.",
       inputSchema: z.strictObject({ slug: Slug }),
@@ -642,8 +642,11 @@ export function createRecipeServer(
         "Write a term record: a `label` (the slug defaults to the label's), and " +
         "optionally a `description`, a `parent` (another record's slug — it becomes " +
         "part of tag:<parent>), `pinned` recipe slugs that lead its page (each must " +
-        "already carry the tag) and an `imageImportUrl`. Then term_assign tags the " +
-        "recipes. A parent that would put the term under itself is term_cycle.",
+        "already carry the tag), `aliases` (other names: tag:<alias> and " +
+        "/tags/<alias> reach this term; an alias naming another term or another " +
+        "term's alias is a validation error) and an `imageImportUrl`. Then " +
+        "term_assign tags the recipes. A parent that would put the term under " +
+        "itself is term_cycle.",
       inputSchema: z.strictObject({ term: TermInputSchema }),
       annotations: WRITES,
     },
@@ -655,9 +658,10 @@ export function createRecipeServer(
     {
       title: "Update a term",
       description:
-        "Patch a term record: label, description, parent, pinned, image, date. An " +
-        "omitted key is left alone, null clears it (null `parent` makes it a root). " +
-        "`pinned` replaces the whole list. The slug cannot change here — that is " +
+        "Patch a term record: label, description, parent, pinned, aliases, image, " +
+        "date. An omitted key is left alone, null clears it (null `parent` makes it " +
+        "a root). `pinned` and `aliases` replace the whole list; aliases are " +
+        "search-only, so no recipe's tags change. The slug cannot change here — that is " +
         "term_rename, which also rewrites the carriers.",
       inputSchema: z.strictObject({ slug: Slug, patch: TermPatchSchema }),
       annotations: IDEMPOTENT_WRITE,
@@ -755,7 +759,9 @@ export function createRecipeServer(
         "Fold `slug` into `into`: every carrier is re-tagged, and the record moves to " +
         "`into` (when it has none) or is deleted after its children, features and " +
         "pinned recipes move over — a feature is unfeatured instead when `into` is " +
-        "already featured. One commit for the lot. Not undoable from here.",
+        "already featured. `slug` becomes one of `into`'s aliases (when either has a " +
+        "record), so tag:<slug> still finds it. One commit for the lot. Not undoable " +
+        "from here.",
       inputSchema: z.strictObject({ slug: Slug, into: Slug }),
       annotations: DESTRUCTIVE_WRITE,
     },

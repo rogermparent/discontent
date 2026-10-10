@@ -70,6 +70,7 @@ export default async function EditTermPage({
             description: record?.description,
             parent: record?.parent,
             pinned: record?.pinned,
+            aliases: record?.aliases,
           }}
           parentOptions={termParentOptions(tree, tag)}
           pinnedSuggestions={term.recipes

@@ -25,6 +25,7 @@ export interface TermFieldsInitial {
   description?: string;
   parent?: string;
   pinned?: string[];
+  aliases?: string[];
 }
 
 /**
@@ -46,6 +47,9 @@ export interface TermFieldsInitial {
  *   the choices the seat would refuse as `term_cycle`. The seat still checks.
  * - **Pinned** is `ChipsInput` through the six-line adapter (`24-T13`): recipe
  *   slugs, in order, each of which must carry the term.
+ * - **Aliases** (32i, D5), the same chips: other names that search,
+ *   autocomplete and `/tags/<alias>` send to this term. The seat refuses one
+ *   that names another term or another term's alias.
  */
 export default function TermFields({
   state,
@@ -82,6 +86,16 @@ export default function TermFields({
       setPinnedValues((current) => [...current, value]),
     removeValue: (index: number) =>
       setPinnedValues((current) => current.filter((_, i) => i !== index)),
+  };
+  const [aliasValues, setAliasValues] = useState<string[]>(
+    () => values.aliases ?? [],
+  );
+  const aliasField = {
+    state: { value: aliasValues },
+    pushValue: (value: string) =>
+      setAliasValues((current) => [...current, value]),
+    removeValue: (index: number) =>
+      setAliasValues((current) => current.filter((_, i) => i !== index)),
   };
 
   /*
@@ -168,6 +182,20 @@ export default function TermFields({
           id="term-form-pinned"
           itemLabel="pinned recipe"
           suggestions={pinnedSuggestions}
+        />
+      </FieldWrapper>
+      <FieldWrapper label="Aliases" id="term-form-aliases">
+        <p className="text-sm text-muted-foreground">
+          Other names for this term. Searching <code>tag:</code> one of them, or
+          visiting <code>/tags/</code> it, finds this term. Recipes keep the
+          tags they have.
+        </p>
+        <Errors errors={state?.errors?.aliases} />
+        <ChipsInput
+          field={aliasField}
+          name="aliases"
+          id="term-form-aliases"
+          itemLabel="synonym"
         />
       </FieldWrapper>
     </>

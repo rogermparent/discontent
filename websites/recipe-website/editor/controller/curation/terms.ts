@@ -167,6 +167,8 @@ export interface TermRow {
   count: number;
   /** The parent's slug, for a record that has one. */
   parent?: string;
+  /** The record's aliases (32i), when it has any. */
+  aliases?: string[];
   /** Whether a term record exists — a page with a curated front, featurable. */
   record: boolean;
 }
@@ -187,6 +189,11 @@ export interface TermDetail {
   /** The record itself, or `null` for a term that only exists on carriers. */
   record: TagTerm | null;
   parent?: string;
+  /**
+   * Other spellings that reach this term (32i, D5) — `record.aliases`, lifted
+   * so a caller need not dig. Absent when there are none.
+   */
+  aliases?: string[];
   /** Root first, this term last. */
   breadcrumb: TagVocabularyEntry[];
   /** Direct children, in the tree's order, each with its own count. */
@@ -261,6 +268,13 @@ export interface TermMergeResult {
    * was already featured (epic 32: re-pointing would duplicate it, 31-D2).
    */
   unfeatured: string[];
+  /**
+   * `into`'s aliases after the merge (32i, D5): `from`'s slug and its own
+   * aliases join them, so `tag:<from>` and `/tags/<from>` still reach the
+   * term. Empty when neither term had a record — a bare tag has nowhere to
+   * keep an alias.
+   */
+  aliases: string[];
 }
 
 export interface TermDeleteResult {
@@ -399,14 +413,20 @@ async function readVocabulary(ctx: CurationContext): Promise<Vocabulary> {
   };
 }
 
-/** Every term record, from the term index: slug, date, label, parent. */
-async function readTermRows(
-  ctx: CurationContext,
-): Promise<{ slug: string; date: number; parent?: string }[]> {
+/** One term record as the term index has it. */
+interface TermIndexRow {
+  slug: string;
+  date: number;
+  parent?: string;
+  aliases?: string[];
+}
+
+/** Every term record, from the term index: slug, date, parent, aliases. */
+async function readTermRows(ctx: CurationContext): Promise<TermIndexRow[]> {
   const { entries } = await readContentIndex<
     TagTermIndexValue,
     TagTermEntryKey,
-    { slug: string; date: number; parent?: string }
+    TermIndexRow
   >({
     config: tagTermContentConfig,
     contentDirectory: ctx.contentDirectory,
@@ -414,6 +434,7 @@ async function readTermRows(
       slug,
       date,
       ...(value.parent ? { parent: value.parent } : {}),
+      ...(value.aliases?.length ? { aliases: value.aliases } : {}),
     }),
   });
   return entries;
@@ -632,6 +653,137 @@ function labelWarnings(slug: string, label: string): string[] {
       ];
 }
 
+/**
+ * Aliases deduplicated by slug, first spelling kept, minus any that slug to
+ * `own` — the list a merge writes, where nothing is refused.
+ */
+function dedupeAliases(aliases: readonly string[], own: string): string[] {
+  const seen = new Set<string>([own]);
+  const kept: string[] = [];
+  for (const alias of aliases) {
+    const slug = tagSlug(alias);
+    if (!slug || seen.has(slug)) continue;
+    seen.add(slug);
+    kept.push(alias);
+  }
+  return kept;
+}
+
+/**
+ * The record that lists `slug` as an alias, other than `except` — from the
+ * term index, which every record write keeps current.
+ */
+function aliasOwner(
+  rows: readonly TermIndexRow[],
+  slug: string,
+  except?: string,
+): string | undefined {
+  return rows.find(
+    (row) =>
+      row.slug !== except &&
+      row.aliases?.some((alias) => tagSlug(alias) === slug),
+  )?.slug;
+}
+
+/**
+ * A record's new alias list, normalised as a tag is and deduplicated by slug
+ * (32i, D5). Each alias **added** by this write may not slug to the term
+ * itself, to another term (a record, or a tag something carries), or to
+ * another record's alias: any of those would make `tag:<alias>` mean two
+ * things. Every clash is one `validation` issue on `aliases.<i>`, naming the
+ * term it collides with.
+ *
+ * Aliases the record already has are kept without the check. Nothing
+ * canonicalises a carrier's tags (D5), so a recipe can come to carry an
+ * alias as a tag after it was recorded — a merged term's old slug typed
+ * again — and refusing every later edit of the record for it would be a
+ * trap. Search resolves that case in the alias's favour (`tagExpansion.ts`).
+ */
+async function assertAliases(
+  ctx: CurationContext,
+  slug: string,
+  aliases: readonly string[],
+  existing: readonly string[] = [],
+): Promise<string[]> {
+  const kept = new Set(existing.map((alias) => tagSlug(alias)));
+  const [vocabulary, rows] = await Promise.all([
+    readVocabulary(ctx),
+    readTermRows(ctx),
+  ]);
+  const issues: { path: string; message: string }[] = [];
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const [index, raw] of aliases.entries()) {
+    const alias = normalizeTag(raw);
+    const aliasSlug = tagSlug(alias);
+    const path = `aliases.${index}`;
+    if (!aliasSlug) {
+      issues.push({ path, message: `"${raw}" does not slugify to anything` });
+      continue;
+    }
+    if (seen.has(aliasSlug)) continue;
+    seen.add(aliasSlug);
+    if (aliasSlug === slug) {
+      issues.push({
+        path,
+        message: `"${raw}" is this term's own slug`,
+      });
+      continue;
+    }
+    if (!kept.has(aliasSlug)) {
+      const owner = aliasOwner(rows, aliasSlug, slug);
+      if (owner) {
+        issues.push({
+          path,
+          message: `"${raw}" is already an alias of the term "${owner}"`,
+        });
+        continue;
+      }
+      if (
+        vocabulary.bySlug.has(aliasSlug) ||
+        (await exists(termPath(ctx, aliasSlug)))
+      ) {
+        issues.push({
+          path,
+          message: `"${raw}" names the term "${aliasSlug}" — term_merge folds it into this one and records the alias`,
+        });
+        continue;
+      }
+    }
+    result.push(alias);
+  }
+  if (issues.length > 0) {
+    throw new ValidationError(
+      `Aliases must not name another term or another term's alias`,
+      issues,
+    );
+  }
+  return result;
+}
+
+/**
+ * A new term at `slug` may not take another record's alias (32i): search
+ * resolves the alias to that record, so the new term could not be found by
+ * its own name. `field` is the input that named it (`slug`, or a rename's
+ * `to`).
+ */
+async function assertNotAlias(
+  ctx: CurationContext,
+  slug: string,
+  field: string,
+  except?: string,
+): Promise<void> {
+  const owner = aliasOwner(await readTermRows(ctx), slug, except);
+  if (owner) {
+    throw new ValidationError(`"${slug}" is an alias of the term "${owner}"`, [
+      {
+        path: field,
+        message: `"${slug}" is an alias of the term "${owner}" — take it off the aliases of "${owner}" first`,
+      },
+    ]);
+  }
+}
+
 /* --- record writes --------------------------------------------------------- */
 
 /**
@@ -754,6 +906,7 @@ export async function listTerms(
         label: entry.label,
         count: entry.count,
         ...(node?.parent ? { parent: node.parent } : {}),
+        ...(node?.aliases?.length ? { aliases: node.aliases } : {}),
         record: node !== undefined,
       };
     })
@@ -810,6 +963,7 @@ export async function getTerm(
     ...(record ? { path: termPath(ctx, slug) } : {}),
     record,
     ...(record?.parent ? { parent: record.parent } : {}),
+    ...(record?.aliases?.length ? { aliases: record.aliases } : {}),
     breadcrumb: breadcrumbOf(vocabulary.tree, slug, vocabulary.bySlug),
     children: childrenOf(vocabulary.tree, slug, vocabulary.bySlug),
     counts: { own: own.length, withDescendants: withDescendants.length },
@@ -883,11 +1037,15 @@ export async function createTerm(
     ctx.contentDirectory,
   );
   if (await exists(directory)) throw new SlugConflictError(slug);
+  await assertNotAlias(ctx, slug, "slug");
 
   const parent = input.parent ? tagSlug(input.parent) : undefined;
   if (parent) await assertParent(ctx, slug, parent);
   const pinned = dedupe(input.pinned ?? []);
   if (pinned.length > 0) await assertPinned(ctx, slug, pinned);
+  const aliases = input.aliases?.length
+    ? await assertAliases(ctx, slug, input.aliases)
+    : [];
 
   const { file: imageFile, warning: imageWarning } = await termImageFile(
     uploaded,
@@ -903,6 +1061,7 @@ export async function createTerm(
     ...(imageFile ? { image: imageFile.name } : {}),
     ...(parent ? { parent } : {}),
     ...(pinned.length > 0 ? { pinned } : {}),
+    ...(aliases.length > 0 ? { aliases } : {}),
   };
 
   const result = await createContent<
@@ -980,6 +1139,19 @@ export async function updateTerm(
     } else {
       delete data.pinned;
     }
+  }
+
+  if (patch.aliases === null) {
+    delete data.aliases;
+  } else if (patch.aliases !== undefined) {
+    const aliases = await assertAliases(
+      ctx,
+      slug,
+      patch.aliases,
+      current.aliases,
+    );
+    if (aliases.length > 0) data.aliases = aliases;
+    else delete data.aliases;
   }
 
   const { file: imageFile, warning: imageWarning } = await termImageFile(
@@ -1141,6 +1313,7 @@ export async function renameTerm(
       { slug: to },
     );
   }
+  await assertNotAlias(ctx, to, "to", slug);
 
   /*
    * The record's label survives a rename that keeps it valid (a pure slug
@@ -1164,11 +1337,18 @@ export async function renameTerm(
     ]);
   await withBatchCommit(ctx, message, async (batchCtx) => {
     if (record) {
+      /* Renamed onto one of its own aliases: that alias is now the slug. */
+      const data: TagTerm = { ...record, label };
+      if (record.aliases?.length) {
+        const aliases = dedupeAliases(record.aliases, to);
+        if (aliases.length > 0) data.aliases = aliases;
+        else delete data.aliases;
+      }
       await writeTermRecord(batchCtx, {
         currentSlug: slug,
         slug: to,
         current: record,
-        data: { ...record, label },
+        data,
         commitMessage: `Rename term: ${slug} → ${to}`,
       });
     }
@@ -1208,6 +1388,11 @@ export async function renameTerm(
  *   are re-pointed at `into` (or unfeatured, when `into` is already
  *   featured), `from`'s pinned recipes join the end of `into`'s, and
  *   `from`'s record is deleted.
+ *
+ * Either way `from` becomes an alias of `into` (32i, D5), along with `from`'s
+ * own aliases, so a search or a link that still says `from` reaches the term.
+ * A bare tag merged into a bare tag records nothing: there is no record to
+ * keep the alias on.
  *
  * Every write lands in one commit (F34), counted in its message:
  * `Merge term: a → b (5 recipes, 2 children, 1 feature)`.
@@ -1253,6 +1438,7 @@ export async function mergeTerm(
     reparented: [],
     featured: [],
     unfeatured: [],
+    aliases: [],
   };
   const message = () =>
     `Merge term: ${from} → ${into}` +
@@ -1298,17 +1484,42 @@ async function mergeTermWrites(
     (tags) => retag(tags, new Set([from]), tag),
     result,
   );
-  if (!fromRecord) return;
+  /*
+   * `from` lives on as an alias of `into` (32i, D5), with `from`'s own
+   * aliases: `tag:<from>` and `/tags/<from>` keep reaching the term. Written
+   * by the record write the merge makes anyway, so it adds no commit. With
+   * no record on either side there is nowhere to keep it.
+   */
+  const aliases = dedupeAliases(
+    [...(intoRecord?.aliases ?? []), ...(fromRecord?.aliases ?? []), from],
+    into,
+  );
+
+  if (!fromRecord) {
+    if (!intoRecord) return;
+    const freshInto = await requireTerm(ctx, into);
+    if (!sameTags(aliases, freshInto.aliases ?? [])) {
+      await writeTermRecord(ctx, {
+        currentSlug: into,
+        current: freshInto,
+        data: { ...freshInto, aliases },
+        commitMessage: `Update term: ${into}`,
+      });
+    }
+    result.aliases = aliases;
+    return;
+  }
 
   if (!intoRecord) {
     await writeTermRecord(ctx, {
       currentSlug: from,
       slug: into,
       current: fromRecord,
-      data: { ...fromRecord, label: intoLabel ?? fromRecord.label },
+      data: { ...fromRecord, label: intoLabel ?? fromRecord.label, aliases },
       commitMessage: `Merge term: ${from} → ${into}`,
     });
     result.recordMoved = true;
+    result.aliases = aliases;
     return;
   }
 
@@ -1334,19 +1545,31 @@ async function mergeTermWrites(
     if (child) result.reparented.push(child);
   }
 
-  /* `from`'s pinned recipes now carry `into`, so they may join its front. */
-  if (fromRecord.pinned?.length) {
-    const freshInto = await requireTerm(ctx, into);
-    const pinned = dedupe([...(freshInto.pinned ?? []), ...fromRecord.pinned]);
-    if (!sameTags(pinned, freshInto.pinned ?? [])) {
-      await writeTermRecord(ctx, {
-        currentSlug: into,
-        current: freshInto,
-        data: { ...freshInto, pinned },
-        commitMessage: `Update term: ${into}`,
-      });
-    }
+  /*
+   * `from`'s pinned recipes now carry `into`, so they may join its front, and
+   * `from` joins its aliases — one write of `into`'s record for both.
+   */
+  const freshInto = await requireTerm(ctx, into);
+  const pinned = dedupe([
+    ...(freshInto.pinned ?? []),
+    ...(fromRecord.pinned ?? []),
+  ]);
+  if (
+    !sameTags(pinned, freshInto.pinned ?? []) ||
+    !sameTags(aliases, freshInto.aliases ?? [])
+  ) {
+    await writeTermRecord(ctx, {
+      currentSlug: into,
+      current: freshInto,
+      data: {
+        ...freshInto,
+        ...(pinned.length > 0 ? { pinned } : {}),
+        aliases,
+      },
+      commitMessage: `Update term: ${into}`,
+    });
   }
+  result.aliases = aliases;
 
   Object.assign(result, await repointFeatures(ctx, from, into));
   await deleteTermRecord(ctx, from, fromRecord);

@@ -10,6 +10,13 @@ export interface TermTreeNode {
   children: string[];
   /** Carried so a "narrower terms" row can render thumbnails from one read. */
   image?: string;
+  /**
+   * The record's other spellings (`Term.aliases`), absent when it has none.
+   * Carried so a search resolver or a `/tags/<alias>` redirect needs no read
+   * beyond this aggregate. What an alias *means* — which spellings win, how it
+   * is matched — is the site's business; the tree only carries the strings.
+   */
+  aliases?: string[];
 }
 
 /**
@@ -63,14 +70,17 @@ export function termTreeAggregate(): AggregateConfig<
      * rather than a second export. The aggregate needs no vocabulary name of
      * its own: it is already scoped by the term content type that declares it,
      * whose environment lives at `<directory>/aggregates/tree/`.
+     *
+     * "2": nodes carry `aliases` (epic 32, 32i).
      */
-    version: "1",
+    version: "2",
     initial: () => new Map<string, TermTreeNode>(),
     fold: (tree, { value, id }) => {
       tree.set(id, {
         label: value.label,
         ...(value.parent ? { parent: value.parent } : {}),
         ...(value.image ? { image: value.image } : {}),
+        ...(value.aliases?.length ? { aliases: [...value.aliases] } : {}),
         children: [],
       });
       return tree;

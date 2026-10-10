@@ -877,6 +877,46 @@ describe("the MCP registry over an in-memory transport", () => {
       await rm(picture, { force: true });
     }
   });
+
+  /* 32i: aliases through term_create / term_update / term_get, and search. */
+  it("records aliases, refuses a clash, and recipe_search follows them", async () => {
+    const tools = await client.listTools();
+    const describe = (name: string) =>
+      tools.tools.find((tool) => tool.name === name)?.description ?? "";
+    expect(describe("term_create")).toContain("aliases");
+    expect(describe("term_update")).toContain("aliases");
+    expect(describe("term_merge")).toContain("alias");
+
+    await call("recipe_create", {
+      recipe: { name: "Shortbread", tags: ["cookies"] },
+    });
+    await call("term_create", {
+      term: { label: "Cookies", aliases: ["Biscuits"] },
+    });
+    expect((await call("term_get", { slug: "cookies" })).data).toMatchObject({
+      aliases: ["biscuits"],
+    });
+    const found = await call("recipe_search", { query: "tag:biscuits" });
+    expect(
+      (found.data.recipes as { slug: string }[]).map((row) => row.slug),
+    ).toEqual(["shortbread"]);
+
+    await call("term_create", { term: { label: "Dessert" } });
+    expect(
+      await callError("term_update", {
+        slug: "dessert",
+        patch: { aliases: ["biscuits"] },
+      }),
+    ).toMatchObject({
+      code: "validation",
+      issues: [
+        {
+          path: "aliases.0",
+          message: '"biscuits" is already an alias of the term "cookies"',
+        },
+      ],
+    });
+  });
 });
 
 /* ------------------------------------------------------------------ */

@@ -235,6 +235,31 @@ test.describe("Tag pages", () => {
       await expect(cards(page)).toHaveCount(9);
     });
 
+    test("tag:<alias> finds the term's recipes and /tags/<alias> redirects (32i)", async ({
+      page,
+      request,
+      createApiToken,
+    }) => {
+      const token = await createApiToken();
+      const patched = await request.patch("/api/taxonomies/tag/cookies", {
+        headers: { authorization: `Bearer ${token}` },
+        data: { aliases: ["Biscuits"] },
+      });
+      expect(patched.status()).toBe(200);
+
+      await page.goto("/search?q=tag%3Abiscuits");
+      await expect(cards(page)).toHaveCount(8, { timeout: 20_000 });
+
+      await page.goto("/tags/biscuits");
+      await page.waitForURL((url) => url.pathname === "/tags/cookies");
+      await expect(
+        page.getByRole("heading", { name: "Cookies", exact: true }),
+      ).toBeVisible();
+      /* A slug that is neither a term nor an alias is still a 404. */
+      const missing = await page.goto("/tags/not-an-alias");
+      expect(missing?.status()).toBe(404);
+    });
+
     test("a record with no carriers is a real page, not a 404", async ({
       page,
     }) => {
