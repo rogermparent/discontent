@@ -258,10 +258,14 @@ const termDelete: CommandDef<TermDeleteResult> = {
     const slug = positionals[0];
     if (!slug) throw new UsageError("term delete needs <slug>.");
     const unassign = booleanOption(options, "unassign");
+    /*
+     * Its features move to its parent, or come off the strip (epic 32, D1);
+     * the prompt says so because which one happens depends on the record.
+     */
     await confirm(
       unassign
-        ? `delete term "${slug}" and remove it from every recipe and group`
-        : `delete term "${slug}"`,
+        ? `delete term "${slug}", remove it from every recipe and group, and move its features to its parent (or unfeature them)`
+        : `delete term "${slug}" and move its features to its parent (or unfeature them)`,
       booleanOption(options, "yes"),
     );
     return backend.deleteTerm(slug, { unassign });
@@ -281,6 +285,12 @@ const termDelete: CommandDef<TermDeleteResult> = {
         (child) =>
           `  ${child.slug} now sits under ${child.parent ?? "(the top level)"}`,
       ),
+      result.featured.length > 0
+        ? `  re-pointed features: ${list(result.featured)}`
+        : undefined,
+      result.unfeatured.length > 0
+        ? `  unfeatured: ${list(result.unfeatured)}`
+        : undefined,
     ]
       .filter((line): line is string => line !== undefined)
       .join("\n"),
@@ -348,6 +358,9 @@ const termMerge: CommandDef<TermMergeResult> = {
       ),
       result.featured.length > 0
         ? `  re-pointed features: ${list(result.featured)}`
+        : undefined,
+      result.unfeatured.length > 0
+        ? `  unfeatured (${result.into} was already featured): ${list(result.unfeatured)}`
         : undefined,
     ]
       .filter((line): line is string => line !== undefined)

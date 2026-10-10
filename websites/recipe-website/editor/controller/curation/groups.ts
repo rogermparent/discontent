@@ -50,6 +50,7 @@ import {
   UnknownRecipeError,
   ValidationError,
 } from "./errors";
+import { unfeatureTarget } from "./featured";
 import {
   GroupInputSchema,
   GroupItemInputSchema,
@@ -698,10 +699,26 @@ export async function removeItem(
   );
 }
 
+export interface GroupDeleteResult {
+  slug: string;
+  deleted: true;
+  /** Featured entries of the group, taken off the strip (epic 32, D1). */
+  unfeatured: string[];
+}
+
+/**
+ * Delete a group, and take its featured entries off the strip (epic 32, D1):
+ * a feature of nothing is the nameless card `feature` refuses to make. Group
+ * items naming it stay, shown as missing (T31) — a plan row is a legitimate
+ * dangling state; a feature is not.
+ *
+ * The group goes first, so a failure part-way leaves at worst the dangling
+ * feature every delete used to leave, which `unfeature` still removes.
+ */
 export async function deleteGroup(
   ctx: CurationContext,
   slug: string,
-): Promise<{ slug: string; deleted: true }> {
+): Promise<GroupDeleteResult> {
   const current = await requireGroup(ctx, slug);
   const result = await deleteContent<Group, GroupEntryValue, GroupEntryKey>({
     config: groupContentConfig,
@@ -717,5 +734,6 @@ export async function deleteGroup(
     result,
     slug,
   });
-  return { slug, deleted: true };
+  const unfeatured = await unfeatureTarget(ctx, { group: slug });
+  return { slug, deleted: true, unfeatured };
 }

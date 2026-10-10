@@ -195,14 +195,33 @@ async function requireTarget(
   }
 }
 
+/** One of a feature's three mutually exclusive targets. */
+export interface FeaturedTarget {
+  recipe?: string;
+  group?: string;
+  term?: string;
+}
+
 /**
- * The featured entry that already points at `target`, if any: one walk of the
- * covering index, no data files. The strip is short, so the whole index is read.
+ * The featured entry that already points at `target`, if any — the newest,
+ * when a deliberate duplicate (`again`) means there are several.
  */
 export async function findFeatured(
   contentDirectory: string,
-  target: { recipe?: string; group?: string; term?: string },
+  target: FeaturedTarget,
 ): Promise<string | undefined> {
+  return (await findAllFeatured(contentDirectory, target))[0];
+}
+
+/**
+ * Every featured entry that points at `target`, newest first (the index's
+ * default order, the strip's own): one walk of the
+ * covering index, no data files. The strip is short, so the whole index is read.
+ */
+export async function findAllFeatured(
+  contentDirectory: string,
+  target: FeaturedTarget,
+): Promise<string[]> {
   const { entries } = await readContentIndex<
     FeaturedRecipeEntryValue,
     FeaturedRecipeEntryKey,
@@ -220,7 +239,7 @@ export async function findFeatured(
           : !!target.term && value.term === target.term,
     }),
   });
-  return entries.find((entry) => entry.match)?.slug;
+  return entries.filter((entry) => entry.match).map((entry) => entry.slug);
 }
 
 export async function feature(
@@ -326,4 +345,22 @@ export async function unfeature(
     slug,
   });
   return { slug, deleted: true };
+}
+
+/**
+ * Every featured entry of `target` taken off the strip, one commit each, and
+ * their slugs returned.
+ *
+ * The delete seats' half of epic 32's D1: a feature of a deleted group or of a
+ * deleted, parentless term would otherwise stay on the strip as a card naming
+ * something that is gone — the nameless card `requireTarget` exists to
+ * prevent, reached from the other side.
+ */
+export async function unfeatureTarget(
+  ctx: CurationContext,
+  target: FeaturedTarget,
+): Promise<string[]> {
+  const slugs = await findAllFeatured(ctx.contentDirectory, target);
+  for (const slug of slugs) await unfeature(ctx, slug);
+  return slugs;
 }

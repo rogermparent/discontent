@@ -342,7 +342,10 @@ and `git_file_at` read one back). End with: push from `/git` when ready.
 `inventory_set` (which replaces the whole inventory) are not pre-approved and are not part of this skill — do not call them, and do not ask for them to be approved. If a write
 goes wrong, find its commit with `git_log` and report the hash and the path:
 undoing it with `git_revert` or `git_restore`, and pulling or pushing, are the
-user's calls. If `git_status` reports `indexStale: true`, say so in the report
+user's calls. When the user deletes for themselves, the strip follows:
+`group_delete` unfeatures the group, and `term_delete` moves the term's
+features to its parent term (or unfeatures them when it has none, or the parent
+is already featured). If `git_status` reports `indexStale: true`, say so in the report
 and suggest a reindex; do not run one. Never pass `overwrite` or `force`, and never put `RECIPE_API_TOKEN` on
 a command line.
 
