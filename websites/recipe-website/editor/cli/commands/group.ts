@@ -53,7 +53,7 @@ function formatWrite(verb: string, result: GroupWriteResult): string {
 const groupCreate: CommandDef<GroupWriteResult> = {
   name: "group create",
   usage:
-    "recipes group create --name N [--kind meal-plan|collection] [--description D] " +
+    "recipes group create --name N [--kind meal-plan] [--description D] " +
     "[--slug s] [--date d] [--image-url U] [--tag t …] " +
     "(--file items.json | --item slug[:label] … [--group-item slug[:label] …]) [--force]",
   options: {

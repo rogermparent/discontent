@@ -610,6 +610,109 @@ test.describe("JSON write API", () => {
     expect((await groups.json()).total).toBe(0);
   });
 
+  /**
+   * The term seats over HTTP (31c): `/api/taxonomies/tag/…`. Writes need a
+   * token, reads are public like `/api/tags`, a taxonomy the site does not
+   * have is a 404, and a term written here renders on its page at once — the
+   * `tag-terms` success config revalidating in-process.
+   */
+  test("writes terms: create, assign, rename and a guarded delete (31c)", async ({
+    request,
+    page,
+  }) => {
+    await request.post("/api/recipes", {
+      headers: auth(),
+      data: { name: "API Naan", tags: ["bread"] },
+    });
+
+    const anonymous = await request.post("/api/taxonomies/tag", {
+      data: { label: "Flatbread" },
+    });
+    expect(anonymous.status()).toBe(401);
+    expect((await request.get("/api/taxonomies/genre")).status()).toBe(404);
+
+    const created = await request.post("/api/taxonomies/tag", {
+      headers: auth(),
+      data: { label: "Flatbread", description: "Pressed thin, baked hot." },
+    });
+    expect(created.status()).toBe(201);
+    expect(await created.json()).toMatchObject({
+      slug: "flatbread",
+      url: "/tags/flatbread",
+      tag: "flatbread",
+    });
+
+    const assigned = await request.post(
+      "/api/taxonomies/tag/flatbread/assign",
+      {
+        headers: auth(),
+        data: { add: ["api-naan", "ghost"] },
+      },
+    );
+    expect(assigned.status()).toBe(200);
+    expect(await assigned.json()).toMatchObject({
+      updated: ["api-naan"],
+      missing: ["ghost"],
+    });
+
+    const got = await request.get("/api/taxonomies/tag/flatbread");
+    expect(got.status()).toBe(200);
+    expect(await got.json()).toMatchObject({
+      label: "Flatbread",
+      counts: { own: 1, withDescendants: 1 },
+      recipes: ["api-naan"],
+    });
+
+    await page.goto("/tags/flatbread");
+    await expect(
+      page.getByRole("heading", { name: "Flatbread", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("Pressed thin, baked hot.")).toBeVisible();
+
+    const renamed = await request.post("/api/taxonomies/tag/flatbread/rename", {
+      headers: auth(),
+      data: { to: "Pressed Bread" },
+    });
+    expect(renamed.status()).toBe(200);
+    expect(await renamed.json()).toMatchObject({
+      from: "flatbread",
+      slug: "pressed-bread",
+      label: "Pressed Bread",
+      recipes: ["api-naan"],
+    });
+    expect((await request.get("/api/taxonomies/tag/flatbread")).status()).toBe(
+      404,
+    );
+    await page.goto("/tags/pressed-bread");
+    await expect(
+      page.getByRole("heading", { name: "Pressed Bread", exact: true }),
+    ).toBeVisible();
+
+    /* Carried, so a bare delete is a conflict; `?unassign=1` gets past it. */
+    const inUse = await request.delete("/api/taxonomies/tag/pressed-bread", {
+      headers: auth(),
+    });
+    expect(inUse.status()).toBe(409);
+    expect((await inUse.json()).error).toMatchObject({
+      code: "term_in_use",
+      recipes: ["api-naan"],
+    });
+    const deleted = await request.delete(
+      "/api/taxonomies/tag/pressed-bread?unassign=1",
+      { headers: auth() },
+    );
+    expect(deleted.status()).toBe(200);
+    expect(await deleted.json()).toMatchObject({
+      slug: "pressed-bread",
+      deleted: true,
+      recipes: ["api-naan"],
+    });
+
+    const listed = await request.get("/api/taxonomies/tag?records=1");
+    expect(listed.status()).toBe(200);
+    expect((await listed.json()).total).toBe(0);
+  });
+
   test("revalidate and reindex are gated, and answer 200 with a token", async ({
     request,
   }) => {

@@ -365,8 +365,12 @@ commit each, every write dry-run first and checked with `show`. Not pushed.
 - **Syrup chart:**
   - Written as the `syrup` tag term (`4648a11`, label "Syrups"), through
     `createContent` with `tagTermContentConfig`, which writes the record and
-    the tree aggregate and commits. No CLI or MCP writes term records yet
-    (24e).
+    the tree aggregate and commits — a one-off script, because nothing wrote
+    term records then. Since epic 31's 31c, `recipes term create --label
+Syrups --slug syrup --description …` (and `term update syrup
+--description …` for the chart) does what that script did, and so do the
+    `term_create` / `term_update` MCP tools; the record the script wrote is an
+    ordinary one, so the real repo needs no change.
   - **List form, not a table.** markdown-to-jsx does emit a `<table>`, but
     `.markdown-body` has no table styles and Tailwind preflight strips
     borders and padding.

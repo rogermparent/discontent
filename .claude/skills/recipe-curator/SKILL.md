@@ -1,7 +1,7 @@
 ---
 name: recipe-curator
-description: Find, import, cite and group recipes for the recipe website — meal plans, collections, nested collections, the homepage strip and the shared list of what's on hand — through the `recipes` MCP tools. Use for asks like "plan dinners for the week", "import this recipe", "make a collection of …", "put it on the homepage", "I bought Gnista", "what can I make?".
-allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__page_inspect, mcp__recipes__recipe_import, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__recipe_set_image, mcp__recipes__tag_list, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__inventory_get, mcp__recipes__inventory_add, mcp__recipes__inventory_remove, mcp__recipes__inventory_makeable, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, mcp__recipes__git_fetch, WebSearch, WebFetch, Bash(pnpm --silent recipes:*)
+description: Find, import, cite and organize recipes for the recipe website — meal plans, collections and nested collections (as tag terms), the homepage strip and the shared list of what's on hand — through the `recipes` MCP tools. Use for asks like "plan dinners for the week", "import this recipe", "make a collection of …", "put it on the homepage", "I bought Gnista", "what can I make?".
+allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__page_inspect, mcp__recipes__recipe_import, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__recipe_set_image, mcp__recipes__tag_list, mcp__recipes__term_list, mcp__recipes__term_get, mcp__recipes__term_create, mcp__recipes__term_update, mcp__recipes__term_assign, mcp__recipes__term_rename, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__inventory_get, mcp__recipes__inventory_add, mcp__recipes__inventory_remove, mcp__recipes__inventory_makeable, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, mcp__recipes__git_fetch, WebSearch, WebFetch, Bash(pnpm --silent recipes:*)
 ---
 
 # Recipe curator
@@ -226,7 +226,47 @@ these edits to the draft:
 - **Description:** one or two sentences in the site's voice; the full
   citation stays in `source`, never in the description.
 
-## 7. Group them
+## 7. Organize them: a term or a meal plan
+
+Two shapes, and the ask decides which:
+
+- **A cluster by kind, or a curated collection** ("make a collection of …",
+  "group the cookie recipes") → a **term**: a tag with a record that gives it
+  a label, a description, a picture, a parent and a pinned front. Its page is
+  `/tags/<slug>`, and `tag:<slug>` also finds everything under it.
+- **An ordered, dated list with a label per item** ("plan dinners for the
+  week") → a **meal-plan group**.
+
+**Terms.** Read `term_list {}` first (`{total, more, terms: [{slug, label,
+count, parent?, record}]}`) and reuse a term that is already there. Then:
+
+```json
+term_create {"term": {"label": "Christmas Cookies", "description": "Everything that comes out of the oven in December."}}
+term_assign {"slug": "christmas-cookies", "add": ["gingerbread-cookies", "sugar-cookies", "snickerdoodles"]}
+```
+
+`term_create` returns `{slug, date, path, url, tag, warnings?}` — the slug
+defaults to the label's — and `tag` is the string `term_assign` writes onto
+each recipe. `term_assign` writes one commit per recipe and returns `{slug,
+type, tag, updated, unchanged, missing}`; `type: "group"` tags groups
+instead. Fix any `missing` slug, never invent one.
+
+**Nesting.** A term with a `parent` sits under it: create the child with
+`{"parent": "<parent slug>"}` (or `term_update {"slug": …, "patch":
+{"parent": …}}` later) and assign it to its own recipes; it is a term of its
+own _and_ part of the parent, since `tag:<parent>` finds the child's recipes
+too. The Christmas-Cookies shape, in order: parent term → assign it → child
+term with `parent` → assign the child → `feature` the parent if asked →
+`term_get` both to check (`counts.own`, `counts.withDescendants`,
+`children`, `breadcrumb`). A parent that would put a term under itself fails
+with `code: "term_cycle"`, which is final.
+
+`pinned` (on create or update) is an ordered list of recipe slugs that lead
+the term's page; each must already carry the term. `term_rename {"slug": …,
+"to": "<new slug or label>"}` moves a term and rewrites every recipe carrying
+it, one commit each — renaming onto an existing term is `slug_conflict`.
+
+**Meal plans.**
 
 ```json
 group_create {"group": {"name": "Week of 2026-09-07", "kind": "meal-plan", "items": ["mushroom-stroganoff:Mon · Dinner", "vegetarian-chili:Wed · Dinner"]}}
@@ -234,30 +274,26 @@ group_create {"group": {"name": "Week of 2026-09-07", "kind": "meal-plan", "item
 
 Returns `{slug, date, path, url, warnings?}`. An item is `"slug"`,
 `"slug:label"` (split at the first colon), `{recipe, label?, note?}` or
-`{group, label?, note?}`. `kind` is `meal-plan` with dated labels and
-`collection` otherwise (give a collection a `description`); `imageImportUrl`
-gives it a cover picture, fetched at write time. On `code: "unknown_recipe"`
-or `code: "unknown_group"` fix the slug — never `force`.
-
-**Nesting.** A `{group: "<slug>"}` item puts one group inside another, and it
-stays a top-level group too. The Christmas-Cookies shape, in order: parent
-collection → `feature` it → child collection → nest the child with
-`group_add_item {"group": "<parent>", "subgroup": "<child>"}` (or
-`group_set_items`, which replaces the whole list in one call and takes the
-same `{group}` item) → `group_get` both to check. The other direction fails
-with `code: "group_cycle"`, which is final, not forceable.
+`{group, label?, note?}`. `kind` is always `meal-plan` — a new
+`collection` is refused, because a collection is a term now; older
+collection groups still read and update. `imageImportUrl` gives a group a
+cover picture, fetched at write time. On `code: "unknown_recipe"` or
+`code: "unknown_group"` fix the slug — never `force`. A `{group: "<slug>"}`
+item nests one plan inside another (`group_add_item {"group": "<parent>",
+"subgroup": "<child>"}`); the other direction is `code: "group_cycle"`.
 
 ```json
-feature {"group": "christmas-cookies", "slug": "christmas-cookies-strip"}
+feature {"term": "christmas-cookies", "slug": "christmas-cookies-strip"}
 ```
 
-Puts a group (or a `recipe`) on the homepage strip — **only when the ask says
-so** ("feature it", "put it on the homepage"). Returns
-`{slug, date, path, url, group}`, where `slug` is the _entry's_ own, not the
-target's: pass an explicit one whenever you feature more than one thing, since
-the default has one-second resolution. `featured_list` shows the strip.
-`group_update` fixes a name, description or kind and never touches the items,
-so a plan cannot be lost to a rename; `group_remove_item` drops one row.
+Puts a term (one with a record), a `group` or a `recipe` on the homepage
+strip — **only when the ask says so** ("feature it", "put it on the
+homepage"). Returns `{slug, date, path, url, term}`, where `slug` is the
+_entry's_ own, not the target's: pass an explicit one whenever you feature
+more than one thing, since the default has one-second resolution.
+`featured_list` shows the strip. `group_update` fixes a plan's name or
+description and never touches the items, so a plan cannot be lost to a
+rename; `group_remove_item` drops one row.
 
 ## 8. What's on hand
 
@@ -287,19 +323,20 @@ possible. Change the list **only when the ask says so** ("I bought Gnista",
 ## 9. Report
 
 A `Day | Recipe | Time | Source` table (`Recipe` linking `/recipe/<slug>`),
-then the `/group/<slug>` links, then anything rejected and why. Restate any
+then the `/group/<slug>` or `/tags/<slug>` links, then anything rejected and
+why. Restate any
 `warnings` in plain words — the stale-editor line means the running editor
 needs Settings → Maintenance → Reload, or that `RECIPE_EDITOR_URL` is unset.
 When `git_status` said `isRepo`, list what you committed from
-`git_log {"type": "group", "slug": "<slug>"}` →
+`git_log {"type": "group", "slug": "<slug>"}` (or `"type": "term"`) →
 `{commits: [{hash, message, date, files}], hasMore}` (`git_show`, `git_diff`
 and `git_file_at` read one back). End with: push from `/git` when ready.
 
 ## Held back
 
-`recipe_delete`, `group_delete`, `unfeature`, `reindex`, `git_revert`,
-`git_restore`, `git_push`, `git_pull`, `git_sync` and `inventory_set` (which replaces the
-whole inventory) are not pre-approved and are not part of this skill — do not call them, and do not ask for them to be approved. If a write
+`recipe_delete`, `group_delete`, `term_delete`, `term_merge`, `unfeature`,
+`reindex`, `git_revert`, `git_restore`, `git_push`, `git_pull`, `git_sync` and
+`inventory_set` (which replaces the whole inventory) are not pre-approved and are not part of this skill — do not call them, and do not ask for them to be approved. If a write
 goes wrong, find its commit with `git_log` and report the hash and the path:
 undoing it with `git_revert` or `git_restore`, and pulling or pushing, are the
 user's calls. If `git_status` reports `indexStale: true`, say so in the report

@@ -61,7 +61,7 @@ async function recipes(...names: string[]) {
 async function group(name: string, items: (string | { group: string })[]) {
   await groups.createGroup(
     ctx,
-    { name, kind: "collection", items: items as never },
+    { name, kind: "meal-plan", items: items as never },
     { force: true },
   );
 }

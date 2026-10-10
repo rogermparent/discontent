@@ -53,6 +53,7 @@ import {
 import { featuredRecipeContentConfig } from "recipe-website-common/controller/featuredRecipeContentConfig";
 import { groupContentConfig } from "recipe-website-common/controller/groupContentConfig";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
+import { tagTermContentConfig } from "recipe-website-common/controller/tagTermContentConfig";
 import type { CurationContext } from "./context";
 import { isMirror, mirrorRefusal } from "recipe-website-common/config/role";
 import {
@@ -218,7 +219,7 @@ export interface PullResult {
 /* --- the type table ------------------------------------------------------ */
 
 /**
- * The three content types a curator addresses by slug, under the names the
+ * The content types a curator addresses by slug (term records joined at 31c), under the names the
  * wire uses.
  *
  * Singular and short (`recipe`, not `recipes`) because these are arguments a
@@ -233,6 +234,8 @@ export const GIT_TYPES = {
   recipe: recipeContentConfig,
   group: groupContentConfig,
   featured: featuredRecipeContentConfig,
+  /* A term record (31c): `taxonomies/tag/data/<slug>` and its uploads. */
+  term: tagTermContentConfig,
 } as const;
 
 export type GitType = keyof typeof GIT_TYPES;

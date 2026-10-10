@@ -1,135 +1,106 @@
 # Worked transcripts
 
 Real tool calls and real (abbreviated — long arrays cut with `…`) JSON,
-captured from headless `/recipe-curator` runs (`claude -p`, 2026-09-15, and the import at the end on 2026-10-06)
+captured from headless `/recipe-curator` runs (`claude -p`, 2026-09-15, and the import at the end on 2026-10-06; the first, taxonomy-edition transcript is a tool replay, as it says)
 against scratch copies of Playwright fixture content directories, each turned
 into a git repo first. Timestamps, hashes and absolute paths differ from run to
 run; the step headings match [SKILL.md](SKILL.md). Each block is the call as
 the agent made it, then the JSON the tool answered.
 
-## A nested, featured collection: "organize the cluster of cookie recipes into one featured group called Christmas Cookies, then combine the linzer cookie recipes into a group that is accessible both at the top level and inside Christmas Cookies"
+## A nested, featured collection — taxonomy edition: "organize the cluster of cookie recipes into one featured group called Christmas Cookies, then combine the linzer cookie recipes into a group that is accessible both at the top level and inside Christmas Cookies"
 
 Corpus: the `christmas-cookies` fixture (ten recipes, eight of them cookies).
-Nothing was imported; the whole run is reads, two group writes, one feature and
-one item rewrite. 24 turns, 70 s, no permission denials.
-
-### 1. Where do writes go?
-
-```
-git_status {}
-{"isRepo": true, "branch": "main", "detached": false, "ahead": 0, "behind": 0, "remotes": [], "branches": [{"name": "main", "current": true}], "merge": {"inProgress": false, "conflicted": [], "resolvedCount": 0}, "dirty": false, "dirtyCount": 0, "log": [{"hash": "6cbb31d0…", "message": "Initial commit", "author_name": "Smoke", "date": "2026-09-15T23:47:35-04:00"}], "hasMore": false}
-```
-
-```
-recipe_list {"limit": 1}
-{"total": 10, "more": true, "recipes": [{"slug": "linzer-cookies", "name": "Linzer Cookies", "date": 1765324800000, "tags": ["cookies", "dessert", …4 total], "totalTime": 62}]}
-```
-
-```
-recipe_get {"slug": "linzer-cookies", "fields": ["name", "tags", "source"]}
-{"slug": "linzer-cookies", "path": "…/scratch/recipes/data/linzer-cookies/recipe.json", "url": "/recipe/linzer-cookies", "recipe": {"name": "Linzer Cookies", "tags": ["cookies", "dessert", …4 total]}}
-```
-
-A repo on `main` with no remote, so every write becomes a commit that stays
-local; `path` names a scratch directory rather than the real content repo —
-carry on and say so in the report.
+Since epic 31 (31c) a collection is a **term**, so the ask lands as two
+terms — `christmas-cookies`, and `linzer` beneath it — not as groups. This
+transcript is not a model run: it is the acceptance sequence
+(`test/christmasCookies.test.ts`) replayed over the in-memory MCP client on
+2026-10-10, against a scratch copy that is not a git repository (so nothing
+commits). Step 1 is as in the meal-plan run below.
 
 ### 3. Reuse first
 
 ```
+term_list {}
+{"total": 8, "more": false, "terms": [{"slug": "baked", "label": "baked", "count": 9, "record": false}, {"slug": "breakfast", …}, {"slug": "christmas", "label": "christmas", "count": 4, "record": false}, {"slug": "cookies", "label": "Cookies", "count": 8, "parent": "dessert", "record": true}, {"slug": "dessert", "label": "Dessert", "count": 8, "record": true}, {"slug": "dinner", …}, {"slug": "holiday", "label": "Holiday", "count": 0, "record": true}, {"slug": "quick", …}]}
+```
+
+```
 recipe_search {"query": "cookie", "limit": 100}
-{"query": {"raw": "cookie", "text": "cookie", "hasAdvancedSyntax": false}, "total": 8, "recipes": [{"slug": "linzer-cookies", "name": "Linzer Cookies", "date": 1765324800000, "tags": ["cookies", "dessert", …4 total], "totalTime": 62}, {"slug": "chocolate-hazelnut-linzer-cookies", "name": "Chocolate Hazelnut Linzer Cookies", "date": 1765238400000, "tags": ["cookies", "dessert", …4 total], "totalTime": 67}, …8 total]}
+{"query": {"raw": "cookie", "text": "cookie", "hasAdvancedSyntax": false}, "total": 8, "recipes": [{"slug": "linzer-cookies", "name": "Linzer Cookies", "date": 1765324800000, "tags": ["cookies", "dessert", "baked", "christmas"], "totalTime": 62}, {"slug": "chocolate-hazelnut-linzer-cookies", …}, {"slug": "apricot-linzer-cookies", …}, {"slug": "gingerbread-cookies", …}, …8 total]}
+```
+
+No `christmas-cookies` term yet, and `cookies` is a different, broader term
+(every cookie, under `dessert`), so a new one is right. "cookie" finds the
+eight; the chili and the banana bread stay out.
+
+### 7. Organize them
+
+Parent term first, assigned to the five that are not linzers; then the child
+term with `parent`, assigned to the three linzers — they reach the parent
+through the hierarchy, so they are not tagged twice; then feature the parent.
+
+```
+term_create {"term": {"label": "Christmas Cookies", "description": "The holiday cookie tin: gingerbread, sugar cookies, snickerdoodles, peanut butter blossoms, shortbread and the linzer family."}}
+{"slug": "christmas-cookies", "date": 1791607687292, "path": "…/scratch/taxonomies/tag/data/christmas-cookies/term.json", "url": "/tags/christmas-cookies", "tag": "christmas cookies", "warnings": ["A running editor is stale until Settings → Maintenance → Reload. Set RECIPE_EDITOR_URL (or pass --notify --editor-url <url>) to invalidate it automatically."]}
 ```
 
 ```
-recipe_search {"query": "linzer", "limit": 100}
-{"query": {"raw": "linzer", "text": "linzer", "hasAdvancedSyntax": false}, "total": 3, "recipes": [{"slug": "linzer-cookies", …}, {"slug": "chocolate-hazelnut-linzer-cookies", …}, {"slug": "apricot-linzer-cookies", "name": "Apricot Linzer Cookies", "date": 1765152000000, "tags": ["cookies", "dessert", …4 total], "totalTime": 62}]}
+term_assign {"slug": "christmas-cookies", "add": ["gingerbread-cookies", "sugar-cookies", "snickerdoodles", "peanut-butter-blossoms", "shortbread"]}
+{"slug": "christmas-cookies", "type": "recipe", "tag": "christmas cookies", "updated": ["gingerbread-cookies", "sugar-cookies", "snickerdoodles", "peanut-butter-blossoms", "shortbread"], "unchanged": [], "missing": [], "warnings": ["A running editor is stale until …"]}
 ```
 
 ```
-group_list {"limit": 100}
-{"total": 0, "more": false, "groups": []}
+term_create {"term": {"label": "Linzer", "parent": "christmas-cookies", "description": "Every linzer cookie on the site: the classic raspberry, chocolate hazelnut and apricot."}}
+{"slug": "linzer", "date": 1791607687372, "path": "…/scratch/taxonomies/tag/data/linzer/term.json", "url": "/tags/linzer", "tag": "linzer", "warnings": ["A running editor is stale until …"]}
 ```
 
 ```
-featured_list {"limit": 100}
-{"total": 0, "more": false, "featured": []}
+term_assign {"slug": "linzer", "add": ["linzer-cookies", "chocolate-hazelnut-linzer-cookies", "apricot-linzer-cookies"]}
+{"slug": "linzer", "type": "recipe", "tag": "linzer", "updated": ["linzer-cookies", "chocolate-hazelnut-linzer-cookies", "apricot-linzer-cookies"], "unchanged": [], "missing": [], "warnings": ["A running editor is stale until …"]}
 ```
 
 ```
-tag_list {}
-{"tags": ["baked", "breakfast", …7 total]}
+feature {"term": "christmas-cookies", "slug": "christmas-cookies-strip"}
+{"slug": "christmas-cookies-strip", "date": 1791607687413, "path": "…/scratch/featured-recipes/data/christmas-cookies-strip/featured-recipe.json", "url": "/featured-recipe/christmas-cookies-strip", "term": "christmas-cookies", "warnings": ["A running editor is stale until …"]}
 ```
 
-One word per query: "cookie" finds the eight (it prefix-matches "cookies" in
-names, descriptions and tags; the chili and the banana bread stay out), "linzer"
-the three. No groups and nothing featured yet, so both slugs are free.
-
-### 7. Group them
-
-Parent first, with every cookie; then feature it; then the child; then rewrite
-the parent's list so the linzer three appear through the nested group rather
-than twice.
+Read back — the parent's search, both terms, and the strip:
 
 ```
-group_create {"group": {"name": "Christmas Cookies", "kind": "collection", "description": "The holiday cookie tin: gingerbread, sugar cookies, snickerdoodles, peanut butter blossoms, shortbread and the linzer family.", "items": ["gingerbread-cookies", "sugar-cookies", "snickerdoodles", "peanut-butter-blossoms", "shortbread", "linzer-cookies", "chocolate-hazelnut-linzer-cookies", "apricot-linzer-cookies"]}}
-{"slug": "christmas-cookies", "date": 1789530504242, "path": "…/scratch/groups/data/christmas-cookies/group.json", "url": "/group/christmas-cookies", "warnings": ["A running editor is stale until Settings → Maintenance → Reload. Set RECIPE_EDITOR_URL (or pass --notify --editor-url <url>) to invalidate it automatically."]}
+recipe_search {"query": "tag:christmas-cookies", "limit": 100}
+{"query": {"raw": "tag:christmas-cookies", "text": "", "hasAdvancedSyntax": true}, "total": 8, "recipes": [{"slug": "linzer-cookies", "name": "Linzer Cookies", "date": 1765324800000, "tags": ["cookies", "dessert", "baked", "christmas", "linzer"], "totalTime": 62}, …8 total]}
 ```
 
 ```
-feature {"group": "christmas-cookies", "slug": "christmas-cookies-strip"}
-{"slug": "christmas-cookies-strip", "date": 1789530508414, "path": "…/scratch/featured-recipes/data/christmas-cookies-strip/featured-recipe.json", "url": "/featured-recipe/christmas-cookies-strip", "group": "christmas-cookies", "warnings": ["A running editor is stale until …"]}
+term_get {"slug": "christmas-cookies"}
+{"slug": "christmas-cookies", "label": "Christmas Cookies", "url": "/tags/christmas-cookies", "path": "…", "record": {"label": "Christmas Cookies", "date": 1791607687292, "description": "…"}, "breadcrumb": [{"slug": "christmas-cookies", "label": "Christmas Cookies", "count": 5}], "children": [{"slug": "linzer", "label": "Linzer", "count": 3}], "counts": {"own": 5, "withDescendants": 8}, "recipes": ["gingerbread-cookies", "sugar-cookies", …5 total], "groups": []}
 ```
 
 ```
-group_create {"group": {"name": "Linzer Cookies", "kind": "collection", "description": "Every linzer cookie on the site: the classic raspberry, chocolate hazelnut and apricot.", "items": ["linzer-cookies", "chocolate-hazelnut-linzer-cookies", "apricot-linzer-cookies"]}}
-{"slug": "linzer-cookies", "date": 1789530505489, "path": "…/scratch/groups/data/linzer-cookies/group.json", "url": "/group/linzer-cookies", "warnings": ["A running editor is stale until …"]}
-```
-
-```
-group_set_items {"group": "christmas-cookies", "items": ["gingerbread-cookies", "sugar-cookies", "snickerdoodles", "peanut-butter-blossoms", "shortbread", {"group": "linzer-cookies", "note": "The three linzer variations, also a collection of their own."}]}
-{"slug": "christmas-cookies", "date": 1789530504242, "path": "…/scratch/groups/data/christmas-cookies/group.json", "url": "/group/christmas-cookies", "warnings": ["A running editor is stale until …"]}
-```
-
-Read both back, and the strip and the top level:
-
-```
-group_get {"slug": "christmas-cookies"}
-{"slug": "christmas-cookies", "path": "…", "url": "/group/christmas-cookies", "group": {"name": "Christmas Cookies", "date": 1789530504242, "kind": "collection", "description": "…", "items": [{"recipe": "gingerbread-cookies"}, …, {"group": "linzer-cookies", "note": "…"}]}, "items": [{"recipe": "gingerbread-cookies", "name": "Gingerbread Cookies"}, {"recipe": "sugar-cookies", "name": "Sugar Cookies"}, {"recipe": "snickerdoodles", "name": "Snickerdoodles"}, {"recipe": "peanut-butter-blossoms", "name": "Peanut Butter Blossoms"}, {"recipe": "shortbread", "name": "Shortbread"}, {"group": "linzer-cookies", "note": "…", "name": "Linzer Cookies", "kind": "collection"}]}
-```
-
-```
-group_get {"slug": "linzer-cookies"}
-{"slug": "linzer-cookies", "path": "…", "url": "/group/linzer-cookies", "group": {…, "items": [{"recipe": "linzer-cookies"}, {"recipe": "chocolate-hazelnut-linzer-cookies"}, {"recipe": "apricot-linzer-cookies"}]}, "items": [{"recipe": "linzer-cookies", "name": "Linzer Cookies"}, {"recipe": "chocolate-hazelnut-linzer-cookies", "name": "Chocolate Hazelnut Linzer Cookies"}, {"recipe": "apricot-linzer-cookies", "name": "Apricot Linzer Cookies"}]}
+term_get {"slug": "linzer"}
+{"slug": "linzer", "label": "Linzer", "url": "/tags/linzer", "path": "…", "record": {"label": "Linzer", "date": 1791607687372, "description": "…", "parent": "christmas-cookies"}, "parent": "christmas-cookies", "breadcrumb": [{"slug": "christmas-cookies", "label": "Christmas Cookies", "count": 5}, {"slug": "linzer", "label": "Linzer", "count": 3}], "children": [], "counts": {"own": 3, "withDescendants": 3}, "recipes": ["linzer-cookies", "chocolate-hazelnut-linzer-cookies", "apricot-linzer-cookies"], "groups": []}
 ```
 
 ```
 featured_list {}
-{"total": 1, "more": false, "featured": [{"slug": "christmas-cookies-strip", "date": 1789530508414, "group": "christmas-cookies", "name": "Christmas Cookies"}]}
+{"total": 1, "more": false, "featured": [{"slug": "christmas-cookies-strip", "date": 1791607687413, "term": "christmas-cookies", "name": "Christmas Cookies"}]}
 ```
 
-```
-group_list {}
-{"total": 2, "more": false, "groups": [{"slug": "linzer-cookies", "date": 1789530505489, "name": "Linzer Cookies", "kind": "collection", "itemCount": 3}, {"slug": "christmas-cookies", "date": 1789530504242, "name": "Christmas Cookies", "kind": "collection", "itemCount": 6}]}
-```
+`tag:christmas-cookies` finds all eight though only five carry the tag:
+`linzer` is its child. Linzer is a term of its own (`/tags/linzer`, the top
+level) and inside Christmas Cookies (its breadcrumb and the parent's
+`children`), and the strip carries the parent.
 
-Every row resolved (no `missing`), the child is a top-level row of its own,
-and the strip carries the parent.
+### 9. Report
 
-### 8. Report
-
-```
-git_log {"limit": 10}
-{"commits": [{"hash": "f898c59b…", "message": "Set items on group: christmas-cookies", "author_name": "Smoke", "date": "2026-09-15T23:48:32-04:00", "files": ["groups/data/christmas-cookies/group.json"]}, {"hash": "cc8270de…", "message": "Feature group: christmas-cookies", "files": ["featured-recipes/data/christmas-cookies-strip/featured-recipe.json"]}, {"hash": "8172e7d…", "message": "Create group: linzer-cookies", …}, {"hash": "cd19e11…", "message": "Create group: christmas-cookies", …}, {"hash": "6cbb31d0…", "message": "Initial commit", …}], "hasMore": false}
-```
-
-The report opened with the scratch directory and the branch, listed both
-groups with `/group/<slug>` links and the featured entry, named the one
-judgment call (the linzer three appear once, through the nested group — one
-`group_set_items` call away if the user wants them directly in the parent
-too), listed the four commits, restated the `warnings` line as "a running
-editor is stale until Settings → Maintenance → Reload, since
-`RECIPE_EDITOR_URL` is not set", and ended with "push from `/git` when ready".
+The report names the scratch directory, links `/tags/christmas-cookies` and
+`/tags/linzer` and the featured entry, names the one judgment call (the
+linzers carry only `linzer`, reaching the parent through the hierarchy — one
+`term_assign` away if the user wants them tagged directly too), restates the
+`warnings` line as "a running editor is stale until Settings → Maintenance →
+Reload, since `RECIPE_EDITOR_URL` is not set", and — in a git repository —
+lists the commits from `git_log` (one per term record, one per recipe
+assigned, one for the feature) and ends with "push from `/git` when ready".
 
 ## A meal plan: "three vegetarian dinners under 45 minutes for this week"
 

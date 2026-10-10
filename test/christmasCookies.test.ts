@@ -1,25 +1,30 @@
 // @vitest-environment node
 //
-// The Christmas-Cookies user story, replayed over the tools (23f/D30).
+// The Christmas-Cookies user story, replayed over the tools — the taxonomy
+// edition (31c, 24-D7; the groups edition was 23f/D30).
 //
-// The ask that drove this epic, in the user's words:
+// The ask that drove epic 23, in the user's words:
 //
 //   "Organize the cluster of cookie recipes into one featured group called
 //    Christmas Cookies, then combine the linzer cookie recipes into a group
 //    that is accessible both at the top level and inside Christmas Cookies."
 //
-// `mcp.test.ts` proves each tool does what its description says on a corpus it
-// builds itself. What is only provable end to end is that the *sequence* an
-// agent would run — find the cluster, group it, feature it, group a subset,
-// nest the subset, read both back — lands the shape the ask describes, on a
-// corpus nobody tuned per assertion. So this runs against the committed
-// `christmas-cookies` fixture, whose eight cookies and two deliberate
-// distractors are the whole point (D29): a search that widens by one recipe
-// fails here rather than in a person's content repo.
+// Epic 24 (D5) decided that a collection is a **term**, not a group: a tag
+// with a record that carries a label, a description and a parent. So the
+// same ask now lands as two terms — `christmas-cookies`, and `linzer` beneath
+// it — whose `tag:` search reaches the linzers through the hierarchy (31b),
+// and a group is what a meal plan is. `Group.kind` narrowed to `meal-plan` in
+// the same phase, which this story also pins.
+//
+// `mcp.test.ts` and `terms.test.ts` prove each tool on corpora they build.
+// What is only provable end to end is that the *sequence* an agent would run
+// lands the shape the ask describes, on the committed `christmas-cookies`
+// fixture, whose eight cookies and two deliberate distractors are the whole
+// point (23-D29): a search that widens by one recipe fails here rather than in
+// a person's content repo.
 //
 // No model is in the loop. The skill tells an agent which tools to call; this
-// pins that those calls, in that order, still work. The headless run in
-// `.claude/skills/recipe-curator/examples.md` is the other half.
+// pins that those calls, in that order, still work.
 
 import { copy, mkdtemp, rm } from "fs-extra";
 import { tmpdir } from "os";
@@ -55,7 +60,7 @@ const COOKIES = [
 const LINZER = COOKIES.slice(0, 3);
 const NOT_LINZER = COOKIES.slice(3);
 
-describe("the Christmas-Cookies story, over the MCP tools", () => {
+describe("the Christmas-Cookies story, taxonomy edition, over the MCP tools", () => {
   let contentDirectory: string;
   let previousContentDirectory: string | undefined;
   let backend: ReturnType<typeof createLocalBackend>;
@@ -121,149 +126,197 @@ describe("the Christmas-Cookies story, over the MCP tools", () => {
 
   /** `recipe_search` slugs, in the order the tool returned them. */
   async function searchSlugs(query: string) {
-    const { data } = await call("recipe_search", { query });
+    const { data } = await call("recipe_search", { query, limit: 100 });
     return {
       total: data.total,
       slugs: (data.recipes as Array<{ slug: string }>).map((row) => row.slug),
     };
   }
 
-  it("finds the cluster, groups it, features it, and nests the linzer subset", async () => {
+  it("finds the cluster, makes it a featured term, and nests the linzers beneath it", async () => {
     /* --- 1. What is here ------------------------------------------- */
 
     /*
-     * First call of the run, and deliberately a read of a *derived* record:
-     * the tag aggregate is committed with the fixture, so a non-empty answer
-     * is proof the copy carried its indexes and nothing rebuilt them.
+     * A read of *derived* records first: the term tree and the tag folds are
+     * committed with the fixture, so a non-empty answer is proof the copy
+     * carried its indexes and nothing rebuilt them.
      */
-    const tags = (await call("tag_list", {})).data.tags as string[];
-    expect(tags).toContain("cookies");
-    expect(tags).toContain("christmas");
+    const listed = (await call("term_list", {})).data as {
+      total: number;
+      terms: Array<Record<string, unknown>>;
+    };
+    const bySlug = new Map(listed.terms.map((term) => [term.slug, term]));
+    expect(bySlug.get("cookies")).toMatchObject({
+      label: "Cookies",
+      count: 8,
+      parent: "dessert",
+      record: true,
+    });
+    /* A record nobody has assigned yet, and a tag with no record. */
+    expect(bySlug.get("holiday")).toMatchObject({ count: 0, record: true });
+    expect(bySlug.get("christmas")).toMatchObject({ record: false });
+    expect(bySlug.has("christmas-cookies")).toBe(false);
 
     /*
      * The cluster is eight, in date order, and neither distractor is in it
-     * — the assertion the fixture exists for (T66). Free text is
-     * prefix-at-word-start with the *query* as the prefix, so "cookie"
-     * finds "cookies" and the chili and the banana bread, which carry no
-     * such word in name, description, tags or ingredients, stay out.
+     * — the assertion the fixture exists for (T66).
      */
     expect(await searchSlugs("cookie")).toEqual({ total: 8, slugs: COOKIES });
-    expect(await searchSlugs("linzer")).toEqual({ total: 3, slugs: LINZER });
-    expect((await searchSlugs("tag:cookies")).total).toBe(8);
 
-    /* --- 2. The parent collection ---------------------------------- */
+    /* --- 2. The parent term ----------------------------------------- */
 
-    const parent = await call("group_create", {
-      group: {
-        name: "Christmas Cookies",
-        kind: "collection",
+    const parent = await call("term_create", {
+      term: {
+        label: "Christmas Cookies",
         description: "Everything that comes out of the oven in December.",
-        items: COOKIES,
       },
     });
     expect(parent.isError).toBe(false);
-    expect(parent.data).toMatchObject({ slug: "christmas-cookies" });
+    expect(parent.data).toMatchObject({
+      slug: "christmas-cookies",
+      url: "/tags/christmas-cookies",
+      /* The string a carrier gets: the label, normalised, since it slugs back. */
+      tag: "christmas cookies",
+    });
     /*
      * The local backend is not `inProcess`, so `afterWrite` fires and the
-     * write answers with the stale-editor hint — the inverse of T53, and the
-     * line the skill tells an agent to restate in plain words.
+     * write answers with the stale-editor hint — the line the skill tells an
+     * agent to restate in plain words.
      */
     expect(parent.data.warnings).toEqual([
       expect.stringContaining(STALE_EDITOR_HINT),
     ]);
 
-    /* --- 3. On the homepage ---------------------------------------- */
+    /* Five of the eight directly; the linzers arrive through the child. */
+    const assigned = await call("term_assign", {
+      slug: "christmas-cookies",
+      add: NOT_LINZER,
+    });
+    expect(assigned.isError).toBe(false);
+    expect(assigned.data).toMatchObject({
+      slug: "christmas-cookies",
+      type: "recipe",
+      tag: "christmas cookies",
+      updated: NOT_LINZER,
+      unchanged: [],
+      missing: [],
+    });
+
+    /* --- 3. The child term, beneath it ------------------------------ */
+
+    const child = await call("term_create", {
+      term: {
+        label: "Linzer",
+        parent: "christmas-cookies",
+        description: "Jam between two almond cookies, three ways.",
+      },
+    });
+    expect(child.isError).toBe(false);
+    expect(child.data).toMatchObject({ slug: "linzer", tag: "linzer" });
+
+    const linzers = await call("term_assign", {
+      slug: "linzer",
+      add: LINZER,
+    });
+    expect(linzers.data).toMatchObject({ updated: LINZER, missing: [] });
+
+    /* Assigning again is a no-op per carrier, not a second write. */
+    expect(
+      (await call("term_assign", { slug: "linzer", add: LINZER })).data,
+    ).toMatchObject({ updated: [], unchanged: LINZER });
+
+    /* --- 4. On the homepage ---------------------------------------- */
 
     /* Explicit `slug`: the default has one-second resolution (T26). */
     const featured = await call("feature", {
-      group: "christmas-cookies",
+      term: "christmas-cookies",
       slug: "christmas-cookies-strip",
     });
     expect(featured.isError).toBe(false);
     expect(featured.data).toMatchObject({
       slug: "christmas-cookies-strip",
-      group: "christmas-cookies",
+      term: "christmas-cookies",
     });
 
-    /* --- 4. The child collection ------------------------------------ */
-
-    const child = await call("group_create", {
-      group: {
-        name: "Linzer Cookies",
-        kind: "collection",
-        description: "Jam between two almond cookies, three ways.",
-        items: LINZER,
-      },
-    });
-    expect(child.isError).toBe(false);
-    expect(child.data).toMatchObject({ slug: "linzer-cookies" });
-
-    /* --- 5. Nest the child, and refuse the cycle -------------------- */
+    /* --- 5. The hierarchy answers the search ------------------------ */
 
     /*
-     * The second half of the ask: the linzer group replaces its three
-     * members inside the parent, so it is reachable from Christmas Cookies
-     * *and* from /groups. `group_set_items` takes a `{group}` item like any
-     * other, which is the one-call way to do both edits at once.
+     * The second half of the ask: the linzers are a term of their own (the
+     * top level) *and* inside Christmas Cookies, because `tag:` expands to a
+     * term's descendants (31b). Eight, though only five carry the parent.
      */
-    const nested = await call("group_set_items", {
-      group: "christmas-cookies",
-      items: [...NOT_LINZER, { group: "linzer-cookies", label: "Linzer" }],
-    });
-    expect(nested.isError).toBe(false);
+    const expanded = await searchSlugs("tag:christmas-cookies");
+    expect(expanded.total).toBe(8);
+    expect([...expanded.slugs].sort()).toEqual([...COOKIES].sort());
+    expect((await searchSlugs("tag:linzer")).total).toBe(3);
 
     /* And the other direction is a cycle, reported as one and final. */
     expect(
-      await callError("group_add_item", {
-        group: "linzer-cookies",
-        subgroup: "christmas-cookies",
+      await callError("term_update", {
+        slug: "christmas-cookies",
+        patch: { parent: "linzer" },
       }),
     ).toMatchObject({
-      code: "group_cycle",
-      groups: ["linzer-cookies", "christmas-cookies", "linzer-cookies"],
+      code: "term_cycle",
+      terms: ["christmas-cookies", "linzer", "christmas-cookies"],
     });
 
     /* --- 6. Read back what the user asked for ----------------------- */
 
-    const parentItems = (await call("group_get", { slug: "christmas-cookies" }))
-      .data.items as Array<Record<string, unknown>>;
-    expect(parentItems).toEqual([
-      ...NOT_LINZER.map((slug) => ({
-        recipe: slug,
-        name: expect.any(String),
-      })),
-      {
-        group: "linzer-cookies",
-        label: "Linzer",
-        name: "Linzer Cookies",
-        kind: "collection",
+    const parentTerm = (await call("term_get", { slug: "christmas-cookies" }))
+      .data;
+    expect(parentTerm).toMatchObject({
+      slug: "christmas-cookies",
+      label: "Christmas Cookies",
+      url: "/tags/christmas-cookies",
+      record: {
+        label: "Christmas Cookies",
+        description: "Everything that comes out of the oven in December.",
       },
-    ]);
-    /* Every row resolved: nothing dangling behind the nesting. */
-    expect(parentItems.some((item) => "missing" in item)).toBe(false);
+      counts: { own: 5, withDescendants: 8 },
+      breadcrumb: [
+        { slug: "christmas-cookies", label: "Christmas Cookies", count: 5 },
+      ],
+      children: [{ slug: "linzer", label: "Linzer", count: 3 }],
+    });
+    expect([...(parentTerm.recipes as string[])].sort()).toEqual(
+      [...NOT_LINZER].sort(),
+    );
 
-    const childItems = (await call("group_get", { slug: "linzer-cookies" }))
-      .data.items as Array<Record<string, unknown>>;
-    expect(childItems.map((item) => item.recipe)).toEqual(LINZER);
-    expect(childItems.some((item) => "missing" in item)).toBe(false);
+    const childTerm = (await call("term_get", { slug: "linzer" })).data;
+    expect(childTerm).toMatchObject({
+      slug: "linzer",
+      label: "Linzer",
+      parent: "christmas-cookies",
+      counts: { own: 3, withDescendants: 3 },
+      breadcrumb: [
+        { slug: "christmas-cookies", label: "Christmas Cookies", count: 5 },
+        { slug: "linzer", label: "Linzer", count: 3 },
+      ],
+      children: [],
+    });
 
-    /* Both groups are top-level rows, which is "accessible at the top level". */
-    const groups = await call("group_list", {});
-    expect(groups.data.total).toBe(2);
-    expect(groups.data.groups).toEqual([
-      expect.objectContaining({
-        slug: "linzer-cookies",
-        name: "Linzer Cookies",
-        kind: "collection",
-        itemCount: 3,
-      }),
-      expect.objectContaining({
-        slug: "christmas-cookies",
-        name: "Christmas Cookies",
-        kind: "collection",
-        itemCount: 6,
-      }),
-    ]);
+    /* Both are terms of the vocabulary, the child under the parent. */
+    const after = (await call("term_list", { records: true })).data as {
+      terms: Array<Record<string, unknown>>;
+    };
+    expect(after.terms).toEqual(
+      expect.arrayContaining([
+        {
+          slug: "christmas-cookies",
+          label: "Christmas Cookies",
+          count: 5,
+          record: true,
+        },
+        {
+          slug: "linzer",
+          label: "Linzer",
+          count: 3,
+          parent: "christmas-cookies",
+          record: true,
+        },
+      ]),
+    );
 
     const strip = await call("featured_list", {});
     expect(strip.data.total).toBe(1);
@@ -271,11 +324,30 @@ describe("the Christmas-Cookies story, over the MCP tools", () => {
       (strip.data.featured as Array<Record<string, unknown>>)[0],
     ).toMatchObject({
       slug: "christmas-cookies-strip",
-      group: "christmas-cookies",
+      term: "christmas-cookies",
       name: "Christmas Cookies",
     });
 
-    /* The distractor is exactly where it was: grouped nothing, indexed still. */
+    /* --- 7. Collections are terms now (24-D5) ----------------------- */
+
+    /*
+     * Nothing above made a group, and a *collection* group can no longer be
+     * made: the tool's own schema refuses it before dispatch, in the SDK's
+     * shape (T28), naming the replacement.
+     */
+    const collection = await client.callTool({
+      name: "group_create",
+      arguments: {
+        group: { name: "Christmas Cookies", kind: "collection" },
+      },
+    });
+    expect(collection.isError).toBe(true);
+    expect((collection.content as { text: string }[])[0].text).toContain(
+      "term_create",
+    );
+    expect((await call("group_list", {})).data.total).toBe(0);
+
+    /* The distractor is exactly where it was: tagged nothing, indexed still. */
     expect(await searchSlugs("chili")).toEqual({
       total: 1,
       slugs: ["weeknight-chili"],

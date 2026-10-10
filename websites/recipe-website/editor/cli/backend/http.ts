@@ -62,7 +62,24 @@ import type {
   SearchResult,
   ShowResult,
   SyncStatus,
+  TermAssignResult,
+  TermDeleteResult,
+  TermDetail,
+  TermListResult,
+  TermMergeResult,
+  TermRenameResult,
+  TermWriteResult,
 } from "./types";
+
+/**
+ * The one vocabulary's routes (31c). The taxonomy is a path segment so a
+ * second vocabulary is a second segment, not a second set of routes.
+ */
+const TERMS = "/api/taxonomies/tag";
+
+function termPath(slug: string, action?: string): string {
+  return `${TERMS}/${encodeURIComponent(slug)}${action ? `/${action}` : ""}`;
+}
 
 export interface HttpBackendOptions {
   baseUrl: string;
@@ -381,6 +398,45 @@ export function createHttpBackend({
     async listTags() {
       const { tags } = await call<{ tags: string[] }>("GET", "/api/tags");
       return tags;
+    },
+
+    listTerms(options = {}) {
+      return call<TermListResult>("GET", TERMS, {
+        query: {
+          limit: options.limit,
+          offset: options.offset,
+          records: options.records ? 1 : undefined,
+        },
+      });
+    },
+    getTerm(slug) {
+      return call<TermDetail>("GET", termPath(slug));
+    },
+    createTerm(raw) {
+      return call<TermWriteResult>("POST", TERMS, { body: raw });
+    },
+    updateTerm(slug, raw) {
+      return call<TermWriteResult>("PATCH", termPath(slug), { body: raw });
+    },
+    deleteTerm(slug, options = {}) {
+      return call<TermDeleteResult>("DELETE", termPath(slug), {
+        query: { unassign: options.unassign ? 1 : undefined },
+      });
+    },
+    renameTerm(slug, raw) {
+      return call<TermRenameResult>("POST", termPath(slug, "rename"), {
+        body: raw,
+      });
+    },
+    mergeTerm(slug, raw) {
+      return call<TermMergeResult>("POST", termPath(slug, "merge"), {
+        body: raw,
+      });
+    },
+    assignTerm(slug, raw) {
+      return call<TermAssignResult>("POST", termPath(slug, "assign"), {
+        body: raw,
+      });
     },
 
     reindex(contentType) {

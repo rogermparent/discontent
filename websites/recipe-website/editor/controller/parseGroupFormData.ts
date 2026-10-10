@@ -35,10 +35,12 @@ const GroupFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
   /*
    * Defaulted rather than required so a form posted without the select — a
-   * programmatic write, or a future create surface — lands on the harmless
-   * kind rather than failing validation.
+   * programmatic write, or a future create surface — lands on the one kind a
+   * new group may have (31c). `collection` still *parses*, because re-saving
+   * an existing collection posts it back; whether it may be written is the
+   * action's call (`actions/groups.ts`), which knows the record on disk.
    */
-  kind: z.enum(["meal-plan", "collection"]).default("collection"),
+  kind: z.enum(["meal-plan", "collection"]).default("meal-plan"),
   description: optionalText,
   /*
    * The group's own picture (22h), declared exactly as the recipe form declares

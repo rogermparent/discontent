@@ -24,6 +24,7 @@ import * as inventory from "../../controller/curation/inventory";
 import * as recipes from "../../controller/curation/recipes";
 import { reindex } from "../../controller/curation/reindex";
 import { listTags, searchRecipes } from "../../controller/curation/search";
+import * as terms from "../../controller/curation/terms";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 import type { CuratorBackend } from "./types";
 
@@ -204,6 +205,33 @@ export function createLocalBackend({
     },
 
     listTags: () => listTags(ctx),
+
+    listTerms: (options) => terms.listTerms(ctx, options),
+    getTerm: (slug) => terms.getTerm(ctx, slug),
+    async createTerm(raw) {
+      await guard();
+      return terms.createTerm(ctx, raw);
+    },
+    async updateTerm(slug, raw) {
+      await guard();
+      return terms.updateTerm(ctx, slug, raw);
+    },
+    async deleteTerm(slug, options = {}) {
+      await guard();
+      return terms.deleteTerm(ctx, slug, options);
+    },
+    async renameTerm(slug, raw) {
+      await guard();
+      return terms.renameTerm(ctx, slug, raw);
+    },
+    async mergeTerm(slug, raw) {
+      await guard();
+      return terms.mergeTerm(ctx, slug, raw);
+    },
+    async assignTerm(slug, raw) {
+      await guard();
+      return terms.assignTerm(ctx, slug, raw);
+    },
 
     /* `rebuildIndex` writes LMDB only and never commits: no identity needed. */
     reindex: (contentType) => reindex(ctx, contentType),

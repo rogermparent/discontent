@@ -240,6 +240,116 @@ Per `24-D7`, with D4 and D5 above.
 acceptance tests; full vitest; typechecks; Playwright `tag-pages`,
 `featured-recipes`, `groups`, `api-write`.
 
+**Built (31c).**
+
+- **Seats** — `editor/controller/curation/terms.ts`: `listTerms`, `getTerm`,
+  `createTerm`, `updateTerm`, `assignTerm`, `renameTerm`, `mergeTerm`,
+  `deleteTerm`, plus `assertTaxonomy` (only `tag`) and the pure
+  `carrierTag`. Node-safe reads only: carriers come from the recipe and group
+  **content indexes** (their values copy `tags`), not the by-term aggregates,
+  because a write acts on the answer and an aggregate can be stale (T5); the
+  hierarchy for validation comes from the term **data files**, for answers
+  from the `tree` aggregate. Carriers are matched by `tagSlug(tag) === slug`
+  and written through `updateRecipe` / `updateGroup`, one commit each.
+- **The carrier string** (`carrierTag`): the record's label, normalised, when
+  it slugs back to the term's slug, else the slug. A label that does not slug
+  to its record (`slug: linzer`, `label: "Linzer Biscuits"`) is allowed and
+  answers a warning. A term with no record uses the folds' label, and a brand
+  new one the string the caller typed — `assignTerm` needs no record, since
+  assigning is how a bare tag has always come into being.
+- **Records.** `createTerm`'s slug defaults to `tagSlug(label)`; a taken slug
+  is `slug_conflict`. `parent` must name a **record** (`unknown_term`
+  otherwise — the tree links children only to records), `parent === slug` is
+  `term_cycle ["a","a"]` (24-T8), and a deeper cycle is caught by a walk up
+  the data files (depth cap 32). `pinned` is deduplicated and every slug must
+  be a recipe carrying the term (`validation`, per issue). `TermPatchSchema`
+  has **no `slug`**: moving a term is `renameTerm`, because it rewrites
+  carriers. `imageImportUrl` is fetched at write time, as a group's is.
+- **`getTerm`** answers `{slug, label, url, path?, record | null, parent?,
+breadcrumb, children, counts: {own, withDescendants}, recipes, groups}` —
+  `withDescendants` is distinct carriers over the tree subtree, i.e. what
+  `tag:<slug>` returns. `listTerms` is the merged vocabulary
+  (`mergeTagVocabulary`) as `{slug, label, count, parent?, record}`, unpaged
+  unless asked, `records: true` for records only.
+- **Rename** moves the record with `updateContent` (children's `parent` and
+  features' `term` follow by reference) and rewrites each carrier's matching
+  tag **in place**, keeping tag order. Onto an existing term (record or
+  carriers) it is `slug_conflict` naming the merge. `to` may be a label
+  (`"Holiday Cookies"` → `holiday-cookies`, label kept).
+- **Merge semantics.** Every carrier of `from` is re-tagged to `into` (no
+  duplicate when it already carries both). Then the record: when `into` has
+  **no** record, `from`'s record **moves** to `into` (labelled with `into`'s
+  fold label), keeping its description, picture and pinned front, and
+  children and features follow by reference. When `into` **has** a record,
+  `from`'s children are re-parented to `into` — except `into` itself or one
+  of its ancestors, which go to `from`'s own parent so no cycle closes —
+  `from`'s features are re-pointed at `into` (one featured update each),
+  `from`'s pinned recipes are appended to `into`'s, and `from`'s record is
+  deleted. Merging into a term that does not exist is `not_found` (that is a
+  rename).
+- **Delete** is `term_in_use` (409, carriers in `recipes`/`groups`) while
+  anything carries the term; `unassign` removes the tag from each first. The
+  record's children move up to its parent (or become roots), so the tree
+  stays connected. A feature of the deleted term is left dangling, as
+  `group_delete` leaves one.
+- **Errors** — `TermCycleError` (`term_cycle`, 422) and `TermInUseError`
+  (`term_in_use`, 409) in `errors.ts` / `statusFor`. `codeForStatus` in the
+  HTTP backend needed nothing: every term route answers with a coded body.
+- **Wiring** — the `tag-terms` success config (item path `/tags`,
+  dependents `featured-recipes → /featured-recipe` and the self-edge
+  `tag-terms → /tags`, list path `/tags`, `paginationOnly` off; the delete
+  config redirects to `/tags`); `GIT_TYPES.term` and `GitTypeSchema` gain
+  `term` (so `git log --type term`, `git file term …`, `git restore term …`);
+  `FeaturedInputSchema` already took exactly one of three (24c), unchanged.
+- **API** — `/api/taxonomies/[taxonomy]` (GET list `?records&limit&offset`,
+  POST create → 201), `/api/taxonomies/[taxonomy]/[slug]` (GET, PATCH,
+  DELETE `?unassign=1`), and `POST …/[slug]/rename` `{to, label?}`,
+  `…/merge` `{into}`, `…/assign` `{add?, remove?, type?}`. Reads are public
+  like `/api/groups`; writes `requireCurationContext` (write scope). Any
+  taxonomy but `tag` is a 404. The flat `/api/taxonomies/tag/<slug>` shape
+  mirrors `/api/group/<slug>` rather than nesting a `terms/` segment.
+- **CLI** — `recipes term list|get|create|update|delete|rename|merge|assign`
+  on both backends; `delete` and `merge` confirm (`--yes`) like `delete`;
+  `create`/`update` take flags or `--file/--stdin`, never both; `assign`
+  takes repeatable `--add`/`--remove` and `--type recipe|group`.
+- **MCP** — 46 tools: the eight `term_*` after `tag_list` in `TOOL_NAMES`
+  (`term_list`/`term_get` read-only, `term_create`/`term_rename` writes,
+  `term_update`/`term_assign` idempotent writes, `term_delete`/`term_merge`
+  destructive). `INSTRUCTIONS` names the two codes and the term-vs-group rule.
+  `tag_list` takes an optional `terms: true` and then also answers `terms`
+  (term_list's rows); `{}` answers exactly `{tags}` as before.
+- **Allow-lists** — `.claude/settings.json` and the skill's `allowed-tools`
+  gain the six non-destructive term tools (28 → 34); `curatorSkill.test.ts`
+  holds back `term_delete` and `term_merge`, and its tool-shaped regex gains
+  `term`. Skill v3: §7 is "a term or a meal plan" — a cluster by kind or a
+  curated collection is a term (`term_create` → `term_assign`, nesting by
+  `parent`), an ordered, dated, per-item-labelled list is a meal-plan group.
+  `examples.md`'s first transcript is now the taxonomy edition, captured from
+  the acceptance sequence over the in-memory client (no model run).
+- **`Group.kind` narrowed** (`24-D5`). `GroupWriteKindSchema` is
+  `z.enum(["meal-plan"])` with a message naming `term_create`; `kind`
+  defaults to `meal-plan` in `GroupInputSchema`, and `GroupPatchSchema`
+  accepts only `meal-plan`, so a patch without `kind` still edits an existing
+  collection. The browser form defaults to "Meal plan" and offers
+  "Collection (legacy)" only to a group that already is one;
+  `actions/groups.ts` wraps the generic create/update and refuses `kind:
+collection` as a Kind field error unless the record on disk is already a
+  collection. `GroupKind` keeps `"collection"`; no fixture changed. Unit
+  tests that created collections through the seat now create meal plans; no
+  Playwright spec created one, so none changed for the narrowing.
+- **Acceptance** — `test/christmasCookies.test.ts` is now the taxonomy
+  edition (24-D7's script): `term_list` → `recipe_search cookie` (8) →
+  `term_create christmas-cookies` → `term_assign` five → `term_create linzer
+{parent}` → `term_assign` three → `feature {term}` → `recipe_search
+tag:christmas-cookies` = 8 → `term_get` both (own 5 / with descendants 8,
+  child `linzer` 3; linzer's breadcrumb Christmas Cookies › Linzer), plus the
+  cycle refusal and a refused `group_create kind: collection`. Seat cases in
+  `test/terms.test.ts` (21); `cliJson`, `mcp`, `curationHttp`,
+  `curatorSkill` extended; `api-write.spec.ts` gains the HTTP case.
+- **Deferred** — a batched multi-carrier commit (still N commits, possible
+  F34); `aliases`; moving a featured entry off a deleted term (it dangles,
+  as a group's does).
+
 ### 31d — F32: group items follow renames
 
 1. `packages/cms/content/referencePath.ts`: `parseRefPath("items[].recipe")`,

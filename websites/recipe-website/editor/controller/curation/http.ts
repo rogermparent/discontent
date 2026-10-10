@@ -41,6 +41,11 @@ export function statusFor(code: CurationErrorCode): number {
       return 404;
     case "slug_conflict":
     /*
+     * A term delete refused because recipes or groups still carry the tag
+     * (31c, epic 31 D4): the server's state, not the body, is what declines.
+     */
+    case "term_in_use":
+    /*
      * The three git conflicts (23d/D21). Same reading as a slug conflict: the
      * request was well-formed and the *server's state* is what refuses it —
      * the directory is not a repository, a human left uncommitted work in
@@ -67,6 +72,11 @@ export function statusFor(code: CurationErrorCode): number {
      * declines to store. Unlike the two above, no `?force=1` gets past it.
      */
     case "group_cycle":
+    /*
+     * The vocabulary's twin (31c, epic 31 D4 — superseding 24-D7's 409): a
+     * `parent` that makes a term its own ancestor is a shape, not a state.
+     */
+    case "term_cycle":
     /*
      * And once more for a revision (23d): `{hash: "zzz"}` parses as a string
      * and names no commit, so the body was well-formed and its *content* was

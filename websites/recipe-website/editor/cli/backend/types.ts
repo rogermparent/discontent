@@ -60,6 +60,15 @@ import type {
 } from "../../controller/curation/recipes";
 import type { ReindexResult } from "../../controller/curation/reindex";
 import type { SearchResult } from "../../controller/curation/search";
+import type {
+  TermAssignResult,
+  TermDeleteResult,
+  TermDetail,
+  TermListResult,
+  TermMergeResult,
+  TermRenameResult,
+  TermWriteResult,
+} from "../../controller/curation/terms";
 
 export type {
   DiffResult,
@@ -99,6 +108,13 @@ export type {
   ShowResult,
   SyncResult,
   SyncStatus,
+  TermAssignResult,
+  TermDeleteResult,
+  TermDetail,
+  TermListResult,
+  TermMergeResult,
+  TermRenameResult,
+  TermWriteResult,
 };
 
 export interface DeleteResult {
@@ -200,6 +216,35 @@ export interface CuratorBackend {
    * and a `--remote` CLI run answer from the same place every other read does.
    */
   listTags(): Promise<string[]>;
+
+  /* --- terms (31c) ------------------------------------------------------- */
+
+  /**
+   * The `tag` vocabulary's records and carriers (`curation/terms.ts`).
+   *
+   * Every slug names a term of the one vocabulary the site has, so there is no
+   * taxonomy argument here; the HTTP backend spells it into the URL
+   * (`/api/taxonomies/tag/…`), which is where a second vocabulary would go.
+   */
+  listTerms(options?: {
+    limit?: number;
+    offset?: number;
+    records?: boolean;
+  }): Promise<TermListResult>;
+  getTerm(slug: string): Promise<TermDetail>;
+  createTerm(raw: unknown): Promise<TermWriteResult>;
+  updateTerm(slug: string, raw: unknown): Promise<TermWriteResult>;
+  /** Refused with `term_in_use` while carried, unless `unassign`. */
+  deleteTerm(
+    slug: string,
+    options?: { unassign?: boolean },
+  ): Promise<TermDeleteResult>;
+  /** `{to, label?}`: moves the record and rewrites every carrier's tag. */
+  renameTerm(slug: string, raw: unknown): Promise<TermRenameResult>;
+  /** `{into}`: re-tags every carrier and folds the record in. */
+  mergeTerm(slug: string, raw: unknown): Promise<TermMergeResult>;
+  /** `{add?, remove?, type?}`: one update per carrier. */
+  assignTerm(slug: string, raw: unknown): Promise<TermAssignResult>;
 
   reindex(contentType?: string): Promise<ReindexResult>;
 
