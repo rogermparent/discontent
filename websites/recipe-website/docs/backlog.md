@@ -12,6 +12,8 @@ it gets a phase in the epic's own doc and is struck here.
 > `agent-import-tools.md`.** **Epic 27 (CI hygiene, Pi sync, bar tools,
 > search quality) is in `agent-epic-27.md`.** **Epic 31 (the taxonomy
 > finished, F32 renames, curation polish) is in `agent-epic-31.md`.**
+> **Epic 32 (term follow-ups, F34, the by-term split, plan scale) is in
+> `agent-epic-32.md`.**
 > Rows are struck here as an epic's phases pick them up; the struck rows
 > below name the phase.
 
@@ -31,7 +33,7 @@ Sources: `docs/agent-curation.md` (Deferred, and the D/T lists it names),
 | ~~⌘K rows with thumbnails~~                                                 | ~~Palette rows are text-only.~~ Recipe rows gained photos earlier; group rows **done by 30c** (own image, else the corpus `thumbnail`, else the icon — no `onError` swap).                                                                                                                                                                                                                   | agent-curation Deferred (22h)                        |
 | ~~Group tags / tag pages~~                                                  | ~~Groups carry no tags, so `tag:` search and `/tags/*` never reach a collection.~~ **Picked up by 24b** (`agent-taxonomy.md`, D4: groups gain `tags` in the shared vocabulary).                                                                                                                                                                                                              | agent-curation Deferred                              |
 | ~~Browser form for term records~~                                           | ~~24c ships term records read-only (pages, tree, breadcrumb, pinned front, `feature {term}`); 24e's seats, CLI and MCP are the write path. A `/tags/<slug>/edit` form (label, description, image, parent, pinned) is deferred until something needs it outside the skill.~~ **Done by 31e** (`agent-epic-31.md`: `/tags/new` and `/tags/<slug>/edit` over 31c's seats; picture by URL only). | agent-taxonomy 24c (D5, D7)                          |
-| Per-item servings for meal plans                                            | A plan lists recipes; it cannot say "2× this one" — the scaler has nothing to read.                                                                                                                                                                                                                                                                                                          | agent-curation Deferred                              |
+| Per-item servings for meal plans                                            | A plan lists recipes; it cannot say "2× this one" — the scaler has nothing to read. **Picked up by 32g** (`agent-epic-32.md` D4: an item `scale` multiplier and a public `?scale`).                                                                                                                                                                                                          | agent-curation Deferred                              |
 | Featured recipes as a group kind                                            | `featured` is its own type with its own index (v2, 22g); folding it into groups would retire one index and one form. Revisit with `agent-taxonomy.md` **D5** (groups after taxonomy), decided at 24b.                                                                                                                                                                                        | agent-curation Deferred                              |
 | ~~`source:` search field (+ `SEARCH_DB_NAME` bump, fixture regen)~~         | ~~Provenance (22a) is stored but not searchable.~~ **Done by 27d** (`agent-epic-27.md` D11: `sourceName`/`sourceHost`, `recipe-search-v3`; no fixture carries a source, so none moved).                                                                                                                                                                                                      | agent-curation Deferred, D6                          |
 | ~~Migration script for legacy "Imported from" descriptions~~                | ~~Existing recipes keep the prefix line until a one-off script moves it into `source`.~~ **Done by 27d** (`agent-epic-27.md` D13: 275 of 278 migrated in one commit; 3 ambiguous lines reported for a person).                                                                                                                                                                               | agent-curation Deferred, D7                          |
@@ -44,10 +46,10 @@ Sources: `docs/agent-curation.md` (Deferred, and the D/T lists it names),
 
 ## Engine
 
-| Candidate                                                                   | Why                                                                                                                                                                                 | Recorded at                                                               |
-| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| **F32 — array references** (renames done by 31d #193; borrowing still open) | The reference machinery is scalar-only (D3); group cards cannot follow renames or borrow member thumbnails through the index. Add an F-row to §10 and a §11.4 entry when picked up. | agent-curation Deferred; incremental-regeneration §10 (last rows F29/F31) |
-| Ingredient completion in the search field                                   | 21c completes fields and tags only; ingredients are a conditional fetch (F4a), so completing them means a loading state inside a keystroke.                                         | ui-overhaul PR 21c                                                        |
+| Candidate                                                                   | Why                                                                                                                                                                                    | Recorded at                                                               |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| **F32 — array references** (renames done by 31d #193; borrowing still open) | The reference machinery is scalar-only (D3); group cards cannot follow renames or borrow member thumbnails through the index. Add an F-row to §10 and a §11.4 entry when picked up.    | agent-curation Deferred; incremental-regeneration §10 (last rows F29/F31) |
+| Ingredient completion in the search field                                   | 21c completes fields and tags only; ingredients are a conditional fetch (F4a), so completing them means a loading state inside a keystroke. **Picked up by 32f** (`agent-epic-32.md`). | ui-overhaul PR 21c                                                        |
 
 ## UI
 
@@ -55,7 +57,7 @@ Sources: `docs/agent-curation.md` (Deferred, and the D/T lists it names),
 | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
 | PR 2c — per-component theme overrides; owner presets for visitors | ⏸️ deferred at the roadmap table; "skipped for now", not pending.                                                                                                                      | ui-overhaul roadmap row 2c     |
 | ~~Cyan/teal accent band under AA~~                                | ~~Recorded at PR 7 and still open as a curve redesign.~~ **Done by 30b** (`agent-epic-30.md` D2: a band-only dip in light `--primary`, swept over all hues in `test/theming.test.ts`). | ui-overhaul PR 7, PR 21c       |
-| `SidebarLayout` under sticky-chrome policy                        | Left on `top-[var(--header-height)]` because portfolio's masthead does not follow the policy; switch both in one change.                                                               | ui-overhaul Reader chrome pass |
+| `SidebarLayout` under sticky-chrome policy                        | Left on `top-[var(--header-height)]` because portfolio's masthead does not follow the policy; switch both in one change. **Picked up by 32h** (`agent-epic-32.md`).                    | ui-overhaul Reader chrome pass |
 
 ## Repo, CI and docs
 
@@ -88,4 +90,5 @@ the `unix-dgram` install warning is the only residue.
 - The Playwright container's `pnpm install` logs a `gyp ERR!` for `unix-dgram`
   (`make` is not in the image); the dependency is optional and the install
   succeeds. Harmless today; a `build-essential` layer or dropping the
-  dependency would silence it.
+  dependency would silence it. **Picked up by 32a** (`agent-epic-32.md`:
+  drop it from `onlyBuiltDependencies`).
