@@ -66,6 +66,7 @@ import type {
   TermAssignResult,
   TermDeleteResult,
   TermDetail,
+  TermImageResult,
   TermListResult,
   TermMergeResult,
   TermRenameResult,
@@ -418,6 +419,18 @@ export function createHttpBackend({
     },
     updateTerm(slug, raw) {
       return call<TermWriteResult>("PATCH", termPath(slug), { body: raw });
+    },
+    /* `setRecipeImage`'s shape (32c): a file as multipart, else JSON. */
+    setTermImage(slug, input) {
+      const path = termPath(slug, "image");
+      if (input.file) {
+        const form = new FormData();
+        form.set("file", input.file, input.file.name);
+        return call<TermImageResult>("PUT", path, { form });
+      }
+      return call<TermImageResult>("PUT", path, {
+        body: input.url ? { url: input.url } : { clear: true },
+      });
     },
     deleteTerm(slug, options = {}) {
       return call<TermDeleteResult>("DELETE", termPath(slug), {
