@@ -15,8 +15,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 31-plan is merged (#190); 31a is in review, 31b is built on its
-own branch, and 31f (content) runs in the background.
+**Now:** 31-plan (#190) and 31a (#191) are merged; 31b and 31d are in review. 31c and 31e are built on their own branches; 31f's content commits are done (local, unpushed).
 
 ## Context
 
@@ -107,16 +106,16 @@ open and the reason is recorded here.
 
 ## Roadmap
 
-| Phase    | Scope                                                                                                    | Branch                  | Status  |
-| -------- | -------------------------------------------------------------------------------------------------------- | ----------------------- | ------- |
-| 31-plan  | This doc, CLAUDE.md entry, taxonomy roadmap note                                                         | `agent/31-plan`         | ✅ #190 |
-| 31a      | Image size in dry runs, polite 403 retry, feature dedupe, push with no remote, "Add group", tables, docs | `agent/31a-polish`      | 🟡      |
-| 31b      | 24d: hierarchy-aware `tag:`, `/search/terms`, one "all terms" list, term-page tree                       | `agent/31b-term-search` | ⏸️      |
-| 31c      | 24e: `curation/terms.ts`, API, `recipes term …`, 8 MCP tools, skill v3, `Group.kind` narrowing           | `agent/31c-term-seats`  | ⏸️      |
-| 31d      | F32: group items follow renames                                                                          | `agent/31d-f32-renames` | ⏸️      |
-| 31e      | Term edit form `/tags/<slug>/edit`                                                                       | `agent/31e-term-form`   | ⏸️      |
-| 31f      | Content: 38 heading conversions, 7 spritzes and sodas (real content repo, no code PR)                    | — (results in 31-close) | ⏸️      |
-| 31-close | Results, roadmap/backlog strikes, morning checklist                                                      | `agent/31-close`        | ⏸️      |
+| Phase    | Scope                                                                                                    | Branch                  | Status     |
+| -------- | -------------------------------------------------------------------------------------------------------- | ----------------------- | ---------- |
+| 31-plan  | This doc, CLAUDE.md entry, taxonomy roadmap note                                                         | `agent/31-plan`         | ✅ #190    |
+| 31a      | Image size in dry runs, polite 403 retry, feature dedupe, push with no remote, "Add group", tables, docs | `agent/31a-polish`      | ✅ #191    |
+| 31b      | 24d: hierarchy-aware `tag:`, `/search/terms`, one "all terms" list, term-page tree                       | `agent/31b-term-search` | ⏸️         |
+| 31c      | 24e: `curation/terms.ts`, API, `recipes term …`, 8 MCP tools, skill v3, `Group.kind` narrowing           | `agent/31c-term-seats`  | ⏸️         |
+| 31d      | F32: group items follow renames                                                                          | `agent/31d-f32-renames` | 🟡         |
+| 31e      | Term edit form `/tags/<slug>/edit`                                                                       | `agent/31e-term-form`   | ⏸️         |
+| 31f      | Content: 38 heading conversions, 7 spritzes and sodas (real content repo, no code PR)                    | — (results in 31-close) | ✅ content |
+| 31-close | Results, roadmap/backlog strikes, morning checklist                                                      | `agent/31-close`        | ⏸️         |
 
 **Order.** 31-plan → 31a → 31b → 31c → 31d → 31e, with 31f in parallel as a
 background subagent. 31c depends on 31b's resolver and 31e on 31c; 31d is
