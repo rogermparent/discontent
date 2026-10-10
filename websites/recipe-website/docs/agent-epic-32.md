@@ -112,7 +112,7 @@ the food corpus is a content call: 32k, run only on Roger's explicit go.
 | 32c      | Term image upload, full parity                                           | M–L     | `agent/32c-term-image`     | 📝 planned        |
 | 32d      | F34 batched commits for term assign/rename/merge                         | M–L     | `agent/32d-batch-commit`   | 📝 planned        |
 | 32e      | 24g: measure, then split the by-term record                              | L       | `agent/32e-by-term`        | 📝 planned        |
-| 32f      | Ingredient completion in search                                          | S–M     | `agent/32f-ingredient-ac`  | 📝 planned        |
+| 32f      | Ingredient completion in search                                          | S–M     | `agent/32f-ingredient-ac`  | 🟡 #199           |
 | 32g      | Meal-plan item `scale` + `?scale` on recipe pages                        | M       | `agent/32g-plan-scale`     | 📝 planned        |
 | 32j      | Make anything: kind switch, refine drill-down, loose ingredient matching | M–L     | `agent/32j-make-any`       | 📝 planned        |
 | 32h      | `SidebarLayout` + portfolio masthead on sticky-chrome                    | S       | `agent/32h-sticky-sidebar` | 📝 planned        |
@@ -636,6 +636,7 @@ the end-to-end checks at 32-close.
 | ------- | ---- | ---------- | ------------------------------------------------------------------------------------------------------------- |
 | 32-plan | #197 | `dafc6834` | docs only; CI 12/12                                                                                           |
 | 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI |
+| 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                |
 
 ### 32a — Hygiene
 
@@ -662,3 +663,53 @@ the end-to-end checks at 32-close.
   (> 150 KB), driven by the 208 drinks × 5–6 tags; 32e measures it. The
   "two tags in total" sentences are historical and stay as written.
 - `specVersions` didn't move: none of the edited modules is pinned.
+
+### 32f — Ingredient completion in search
+
+- **What it does.** With the caret in an `ingredient:` value,
+  `useQueryAutocomplete` enables the shared `["recipe-ingredients"]` query
+  (the one `SearchProvider` and `MakePage` declare, so whoever asks first
+  fetches for all, and `staleTime: Infinity` keeps it). Until it lands, the
+  list shows a "Loading ingredients…" row; then it offers `suggestNames()` by
+  folded prefix, most used first, at most eight. A multi-word name is written
+  quoted (`ingredient:"chicken thigh"`). The `optionsFor` comment now gives
+  the reason a conditional fetch is fine here: one request per page load, not
+  one per keystroke. A failed fetch shows no list rather than a row that
+  never stops loading.
+- **Candidates are checked against the lines.** `suggestNames` returns
+  _normalized_ names ("fresh lime juice" → `lime juice`, "2 cups cherries" →
+  `cherry`), but `ingredient:` matches lines as written, and `cherry` starts
+  no word of "cherries". So `ingredientOptions` (exported from
+  `QueryAutocomplete.tsx`) keeps a candidate only if the filter would match
+  some line. The check is `anyLineMatcher` in `queryLanguage.ts`: the lines
+  are folded and split into words once, and it gives `fieldMatches`' answer
+  exactly (the tests hold the two side by side). The loop stops at eight
+  rows, so only what is shown gets checked. Folded duplicates (an alias
+  folding to a line name) collapse to the first.
+- **Built lazily.** The names and the matcher are built the first time an
+  `ingredient:` value asks, cached per ingredients document in a `WeakMap`
+  (not before the display corpus lands). A search that fetched the lines for
+  its own reasons (a populate, an `ingredient:beef` filter) doesn't pay for a
+  pass over the corpus nobody asked for.
+- **Loading row and a11y.** The row is a `role="status"` paragraph above the
+  listbox, not an option, so it can't be arrowed to or accepted and the
+  active-index arithmetic is unchanged. Meanwhile the listbox is empty and
+  `aria-busy`, which `aria-required-children` accepts (the spec runs axe in
+  that state). Keyboard, pointer and dismissal are the tag completion's,
+  unchanged.
+- **Staples (decision).** `suggestNames` skipping water and ice is right for
+  the Make page: they always count as on hand, so nobody adds them to an
+  inventory. It is wrong for search, which offers what the lines say;
+  `ingredient:wat` not offering "water" would read as a bug. So
+  `suggestNames(corpus, { includeStaples })` gained an option, default
+  `false`. The Make page's behaviour is unchanged, and 32j can keep "suggest
+  skips staples" as is.
+- **No new route**, no spec or fixture change; `specVersions` didn't move.
+- **Tests.** `queryLanguage.test.ts`: `completionsAt` inside an
+  `ingredient:` value (bare, half-typed, after another term, negated,
+  quoted), `anyLineMatcher` vs `fieldMatches`, and `ingredientOptions`
+  (prefix, the line check, already-typed, dedupe, the quoted term filtering
+  correctly, the cap). `makeable.test.ts`: `includeStaples`.
+  `search-autocomplete.spec.ts`: an `ingredient:c` → `ch` → pick case, and a
+  loading case that holds `/search/ingredients` (row shown, axe clean, then
+  options, then click to accept).
