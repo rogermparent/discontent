@@ -281,3 +281,66 @@ export function tagOptions(
       : { slug, label };
   });
 }
+
+/** One choice in the term form's Parent select (31e): a record, indented. */
+export interface TermParentOption {
+  slug: string;
+  label: string;
+  /** How far below a root it sits; the select indents by it. */
+  depth: number;
+}
+
+/**
+ * Every term a record could hang under (31e): the **records** — the tree's
+ * keys, because the seat refuses a parent with no record (`unknown_term`) —
+ * depth-first from the roots, siblings by label, minus `exclude` and
+ * everything beneath it, because choosing one of those is the cycle the seat
+ * refuses (`term_cycle`, and `24-T8` for the term itself).
+ *
+ * The seat still decides; this only keeps the select from offering a choice
+ * it knows will be refused. A hand-edited cycle leaves its members unreachable
+ * from any root, so they are appended at depth 0 rather than dropped, exactly
+ * as `tagOptions` makes them roots.
+ */
+export function termParentOptions(
+  tree: TermTree | null | undefined,
+  exclude?: string,
+): TermParentOption[] {
+  if (!tree) return [];
+  const excluded = new Set<string>();
+  if (exclude) {
+    const stack = [exclude];
+    while (stack.length > 0) {
+      const slug = stack.pop() as string;
+      if (excluded.has(slug)) continue;
+      excluded.add(slug);
+      stack.push(...(tree[slug]?.children ?? []));
+    }
+  }
+
+  const byLabel = (a: string, b: string) =>
+    tree[a].label.localeCompare(tree[b].label) || a.localeCompare(b);
+  const options: TermParentOption[] = [];
+  const seen = new Set<string>();
+  const visit = (slug: string, depth: number) => {
+    if (seen.has(slug)) return;
+    seen.add(slug);
+    if (!excluded.has(slug)) {
+      options.push({ slug, label: tree[slug].label, depth });
+    }
+    const children = tree[slug].children.filter(
+      (child) => tree[child] !== undefined,
+    );
+    for (const child of children.sort(byLabel)) visit(child, depth + 1);
+  };
+
+  const slugs = Object.keys(tree).sort(byLabel);
+  for (const slug of slugs) {
+    const parent = tree[slug].parent;
+    if (!parent || parent === slug || tree[parent] === undefined) {
+      visit(slug, 0);
+    }
+  }
+  for (const slug of slugs) visit(slug, 0);
+  return options;
+}

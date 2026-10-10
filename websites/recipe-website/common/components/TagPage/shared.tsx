@@ -260,15 +260,23 @@ function TermBranch({ node }: { node: TermHierarchyNode }) {
 export function TagIndexPage({
   tags,
   tree = [],
+  actions,
 }: {
   tags: TagVocabularyEntry[];
   /** The hierarchy's roots (31b); absent or empty when no term has a parent. */
   tree?: TermHierarchyNode[];
+  /** Editor-only affordances (31e: "New term"); the export passes none. */
+  actions?: ReactNode;
 }) {
   return (
     <PageMain>
       <PageSection grow>
         <PageHeading>Tags</PageHeading>
+        {actions && (
+          <div className="mb-6 flex flex-row flex-wrap items-center gap-2">
+            {actions}
+          </div>
+        )}
         {tree.length > 0 && (
           <nav aria-label="Tags by kind" className="mb-6">
             <h2 className="mb-2 font-display text-lg font-semibold">By kind</h2>

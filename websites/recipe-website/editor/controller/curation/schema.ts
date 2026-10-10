@@ -369,7 +369,7 @@ export type TermInput = z.infer<typeof TermInputSchema>;
  * the carriers folding to the old slug and the record describing nothing.
  */
 export const TermPatchSchema = z.strictObject({
-  label: z.string().trim().min(1).optional(),
+  label: z.string().trim().min(1, "A term needs a label").optional(),
   description: z.string().nullable().optional(),
   /** `null` makes the term a root. */
   parent: z.string().min(1).nullable().optional(),

@@ -15,7 +15,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 31-plan (#190), 31a (#191), 31b (#192) and 31d (#193) are merged; 31c is in review. 31e is built on its own branch; 31f's content commits are done (local, unpushed).
+**Now:** 31-plan (#190), 31a (#191), 31b (#192), 31c and 31d (#193) are merged or merging; 31e is in review; 31f's content commits are done (local, unpushed). 31-close is next.
 
 ## Context
 
@@ -111,9 +111,9 @@ open and the reason is recorded here.
 | 31-plan  | This doc, CLAUDE.md entry, taxonomy roadmap note                                                         | `agent/31-plan`         | ✅ #190    |
 | 31a      | Image size in dry runs, polite 403 retry, feature dedupe, push with no remote, "Add group", tables, docs | `agent/31a-polish`      | ✅ #191    |
 | 31b      | 24d: hierarchy-aware `tag:`, `/search/terms`, one "all terms" list, term-page tree                       | `agent/31b-term-search` | ✅ #192    |
-| 31c      | 24e: `curation/terms.ts`, API, `recipes term …`, 8 MCP tools, skill v3, `Group.kind` narrowing           | `agent/31c-term-seats`  | 🟡         |
+| 31c      | 24e: `curation/terms.ts`, API, `recipes term …`, 8 MCP tools, skill v3, `Group.kind` narrowing           | `agent/31c-term-seats`  | ✅         |
 | 31d      | F32: group items follow renames                                                                          | `agent/31d-f32-renames` | ✅ #193    |
-| 31e      | Term edit form `/tags/<slug>/edit`                                                                       | `agent/31e-term-form`   | ⏸️         |
+| 31e      | Term edit form `/tags/<slug>/edit`                                                                       | `agent/31e-term-form`   | 🟡         |
 | 31f      | Content: 38 heading conversions, 7 spritzes and sodas (real content repo, no code PR)                    | — (results in 31-close) | ✅ content |
 | 31-close | Results, roadmap/backlog strikes, morning checklist                                                      | `agent/31-close`        | ⏸️         |
 
@@ -410,6 +410,76 @@ validation is identical. An "Edit" link in `editorTagRoute`'s `actions` slot.
 `term-edit.spec.ts` (create a child term, change its parent, a cycle is
 refused).
 
+**Built (31e).**
+
+- **Routes** (editor only, sign-in gated like the group forms):
+  `/tags/new` (`tags/new/page.tsx` + `form.tsx`) and `/tags/<slug>/edit`
+  (`tags/[tag]/edit/…`). `/tags/new` mirrors `/group/new` rather than adding a
+  `/tag/` segment; Next resolves the static segment before `[tag]`, so a term
+  slugged `new` would have its page shadowed (**T4** below; the seat does not
+  reserve the slug, exactly as `/group/new` shadows a group slugged `new`).
+  The edit form exists for **any** term with a page: one with a record is
+  updated, one that so far lives only on its carriers (`christmas` in the
+  fixture) gets a record created at that slug — decided on the server from
+  the data file at submit time, not from what the page believed.
+- **Affordances.** `editorTagRoute`'s actions slot is Feature + **Edit**;
+  `/tags` in the editor is the new `editorTagIndexRoute` with a **New term**
+  link (`TagIndexPage` gained an `actions` slot; the export still re-exports
+  `tagIndexRoute` and renders neither). Both are shown to anyone who reaches
+  the editor, as every editor affordance is (the group page's Edit, the
+  footer's New Recipe); the destination asks for the sign-in. Reading the
+  session on `/tags` would make it a per-request render for one link.
+- **The server half** — `editor/controller/termForm.ts` (not `"use server"`,
+  so it is unit-testable): `parseTermFormData` → `termInputFromForm` (create:
+  only filled fields) / `termPatchFromForm` (edit: every shown field stated,
+  blank = clear `null`; the picture is left unless a URL is typed or "Remove
+  Image" is ticked), `submitTermForm(ctx, target, formData)` calling
+  `createTerm` / `updateTerm`, and the pure `termFormStateFromError`:
+  `term_cycle` and `unknown_term` → Parent, `slug_conflict` → Slug (+
+  `slugConflict`), `import_failed` → the picture, each `validation` issue →
+  its path's field (`pinned.1` → Pinned, `imageImportUrl` → Image), anything
+  else → the message. When a reason lands on a field the top line is "The term
+  was not saved." so it is printed once. The values are echoed back
+  (`state.formData`) and the fields remount on each state, so a refusal loses
+  nothing typed.
+- **The actions** live in the existing `actions/tagTerms.ts` (beside
+  `rebuildTermIndex`, as `actions/groups.ts` holds both kinds) rather than a
+  new `actions/terms.ts`: `createTermFromForm` and
+  `saveTermFromForm.bind(null, slug)`. They authenticate, build the API's
+  context (`curationContextFor(email)`: the commit's `--author`, and
+  `onWrite` → `revalidateContentWrite` with the `tag-terms` success config —
+  the same revalidation an API term write gets), and redirect to
+  `/tags/<slug>` on success.
+- **The form** — `common/components/Form/Term`: Label; Slug only on
+  `/tags/new` (moving a term rewrites carriers: `term_rename`); Description
+  (the group form's `LexicalMarkdownInput`); the picture; Parent, a native
+  select over `termParentOptions(tree, slug)` — the **records** (a parent must
+  have one) depth-first with siblings by label, minus the term and its
+  subtree, plus "None"; a current parent the options lack is still offered,
+  marked, so saving never clears it silently; Pinned, `ChipsInput` through the
+  T13 adapter with the term's own recipes as suggestions (capped at 48 —
+  `drink` carries ~200; the field takes any slug and the seat checks it).
+- **Picture by URL only.** The term seat takes `imageImportUrl` and no file,
+  so `ImageInput` gained `allowFile` (default on) and the term form shows only
+  the Image URL field plus "Remove Image". A file upload would need the seat
+  to take an upload — not done; recorded as a follow-up.
+- **One seat change:** `TermPatchSchema.label` carries the create schema's
+  message ("A term needs a label") instead of zod's default, so a blank label
+  reads the same on every transport.
+- **Tests** — `test/termForm.test.ts` (21): the mapping, the FormData shapes,
+  `termParentOptions` (order, exclusion, a hand-edited cycle), and
+  `submitTermForm` against the seat in a tmpdir (create + re-parent, a refused
+  cycle that writes nothing, pinned and label refusals, a taken slug, the
+  carried-only create). Playwright `term-edit.spec.ts` (3): New term → child
+  of Cookies → Edit → moved under Dessert; the cycle — the select cannot offer
+  one, so it is driven as a stale page (Holiday's form open, Dessert moved
+  under Holiday through the API, then Holiday → Cookies is refused on Parent,
+  echoed, and `GET /api/taxonomies/tag/holiday` shows no parent); and
+  `christmas` gaining a record with a pinned suggestion.
+- **Deferred** — file upload for a term picture (needs an upload input on
+  `createTerm` / `updateTerm`); rename, merge, delete and assign from the
+  browser (CLI / MCP only); an "Add a narrower term" link (`/tags/new?parent=`).
+
 ### 31f — Content cleanup (real content repo)
 
 A background subagent in its own worktree `.claude/worktrees/agent-31f`
@@ -476,3 +546,7 @@ group. On the real repo: one commit per write, `git status` clean, and the
   `~/Projects/recipe-content`; tests and scripts never point there.
 - **T3 — A worktree's MCP server points at the worktree** (`23-T11`), so 31f
   uses the CLI with `--content-dir`.
+- **T4 — `/tags/new` shadows a term slugged `new`** (31e). The static
+  segment wins over `/tags/[tag]` in the editor, so such a term's page is
+  unreachable there (the export, which has no `/tags/new`, still emits it).
+  The same holds for `/group/new`. Nothing reserves the slug.
