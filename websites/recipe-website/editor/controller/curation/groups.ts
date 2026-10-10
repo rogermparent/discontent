@@ -54,6 +54,7 @@ import { unfeatureTarget } from "./featured";
 import {
   GroupInputSchema,
   GroupItemInputSchema,
+  GroupItemObjectSchema,
   GroupPatchSchema,
   parseInput,
   toGroupItems,
@@ -646,15 +647,23 @@ export async function addItem(
   {
     label,
     note,
+    scale,
     force = false,
-  }: { label?: string; note?: string; force?: boolean } = {},
+  }: { label?: string; note?: string; scale?: string; force?: boolean } = {},
 ): Promise<GroupWriteResult> {
-  const current = await requireGroup(ctx, slug);
-  const item: GroupItem = {
+  /*
+   * Through the item schema, so `scale` (epic 32, D4) is validated — and
+   * refused on a sub-group row — by the one rule every other write path uses.
+   * The schema keeps the ref keys optional (its XOR is a refine), so the
+   * result is asserted back to the union it has just been checked to be.
+   */
+  const item = parseInput(GroupItemObjectSchema, {
     ...ref,
     ...(label ? { label } : {}),
     ...(note ? { note } : {}),
-  };
+    ...(scale ? { scale } : {}),
+  }) as GroupItem;
+  const current = await requireGroup(ctx, slug);
   const warnings = await checkItems(ctx, slug, [item], force);
   return writeItems(
     ctx,

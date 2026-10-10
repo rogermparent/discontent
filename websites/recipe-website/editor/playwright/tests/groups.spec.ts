@@ -734,6 +734,54 @@ test.describe("Groups", () => {
       await expect(page.getByTestId("appears-in")).toContainText("Sun · Lunch");
     });
 
+    /*
+     * Epic 32, D4: a recipe row's multiplier, from the form. Zero is refused
+     * above the rows; "1/2" badges the row "½×" and puts `?scale=` on its
+     * link. A sub-group row has no Scale field (none in this plan).
+     */
+    test("scales an item: refuses zero, then badges ½× and links ?scale", async ({
+      page,
+      baseURL,
+    }) => {
+      const firstRow = page.getByTestId("group-item-row").first();
+      await expect(firstRow.getByText("Selected: First Recipe")).toBeVisible();
+
+      await firstRow.getByLabel("Scale", { exact: true }).fill("0");
+      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await expect(
+        page.getByText("Scale must be a positive number, like 2, 1/2 or 1.5"),
+      ).toBeVisible();
+      await expect(page).toHaveURL(baseURL + "/group/week-of-may-4/edit");
+
+      await firstRow.getByLabel("Scale", { exact: true }).fill("1/2");
+      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await expect(page).toHaveURL(baseURL + "/group/week-of-may-4");
+
+      const items = page.getByTestId("group-item");
+      await expect(items.nth(0).getByTestId("group-item-scale")).toHaveText(
+        "Scale ½×",
+      );
+      await expect(items.nth(0).getByRole("link")).toHaveAttribute(
+        "href",
+        "/recipe/first-recipe?scale=1%2F2",
+      );
+      /* The unscaled row is untouched. */
+      await expect(items.nth(1).getByTestId("group-item-scale")).toHaveCount(0);
+      await expect(items.nth(1).getByRole("link")).toHaveAttribute(
+        "href",
+        "/recipe/second-recipe",
+      );
+
+      /* And the form reads it back. */
+      await page.goto("/group/week-of-may-4/edit");
+      await expect(
+        page
+          .getByTestId("group-item-row")
+          .first()
+          .getByLabel("Scale", { exact: true }),
+      ).toHaveValue("1/2");
+    });
+
     test("names the dangling slug in the picker rather than looking empty", async ({
       page,
     }) => {
@@ -748,6 +796,106 @@ test.describe("Groups", () => {
           .nth(2)
           .getByTestId("recipe-select-missing"),
       ).toHaveText("Selected: missing-recipe (recipe not found)");
+    });
+  });
+
+  /**
+   * A scaled plan item, end to end (epic 32, D4): written over the API (the
+   * shorthand and `POST …/items`), badged on the group page, and opened from
+   * there with `?scale=` already applied to the recipe's quantities.
+   *
+   * On `importable-uploads`, an empty corpus, because the fixture recipes
+   * have no ingredients to scale; the recipe is created here with one.
+   */
+  test.describe("a scaled plan item", () => {
+    test("badges the row, links ?scale=2, and the recipe opens doubled", async ({
+      page,
+      request,
+      resetData,
+      createApiToken,
+    }) => {
+      await resetData("importable-uploads");
+      const token = await createApiToken();
+      const auth = { authorization: `Bearer ${token}` };
+
+      expect(
+        (
+          await request.post("/api/recipes", {
+            headers: auth,
+            data: {
+              name: "Scaled Naan",
+              slug: "scaled-naan",
+              ingredients: ["2 cups flour"],
+              recipeYield: '<Multiplyable baseNumber="4" /> naan',
+            },
+          })
+        ).status(),
+      ).toBe(201);
+      expect(
+        (
+          await request.post("/api/groups", {
+            headers: auth,
+            data: {
+              name: "Scaled week",
+              slug: "scaled-week",
+              items: ["scaled-naan:Mon · Dinner@2"],
+            },
+          })
+        ).status(),
+      ).toBe(201);
+
+      /* The route validates the scale before writing, and stores a good one. */
+      const zero = await request.post("/api/group/scaled-week/items", {
+        headers: auth,
+        data: { recipe: "scaled-naan", scale: "0" },
+      });
+      expect(zero.status()).toBe(400);
+      expect((await zero.json()).error.issues[0].path).toBe("scale");
+      const half = await request.post("/api/group/scaled-week/items", {
+        headers: auth,
+        data: { recipe: "scaled-naan", label: "Tue · Lunch", scale: "1/2" },
+      });
+      expect(half.status()).toBe(200);
+
+      await page.goto("/group/scaled-week");
+      const items = page.getByTestId("group-item");
+      await expect(items).toHaveCount(2);
+      await expect(items.nth(0).getByTestId("group-item-scale")).toHaveText(
+        "Scale 2×",
+      );
+      await expect(items.nth(1).getByTestId("group-item-scale")).toHaveText(
+        "Scale ½×",
+      );
+      await expect(items.nth(0).getByRole("link")).toHaveAttribute(
+        "href",
+        "/recipe/scaled-naan?scale=2",
+      );
+
+      await items.nth(0).getByRole("link").click();
+      await expect(page).toHaveURL(/\/recipe\/scaled-naan\?scale=2$/);
+      await expect(page.getByLabel("Multiply")).toHaveValue("2");
+      await expect(page.getByText("4 cups flour")).toBeVisible();
+      await expect(page.getByText("8 naan")).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "Double batch" }),
+      ).toHaveAttribute("aria-pressed", "true");
+
+      /* The reader can still change it. */
+      await page.getByRole("button", { name: "Single batch" }).click();
+      await expect(page.getByText("2 cups flour")).toBeVisible();
+
+      /* An invalid `?scale` is ignored: the page stays at 1×. */
+      await page.goto("/recipe/scaled-naan?scale=0");
+      await expect(page.getByText("2 cups flour")).toBeVisible();
+      await expect(page.getByLabel("Multiply")).toHaveValue("");
+      await page.goto("/recipe/scaled-naan?scale=lots");
+      await expect(page.getByText("4 naan")).toBeVisible();
+      await expect(page.getByLabel("Multiply")).toHaveValue("");
+
+      /* A fraction works too. */
+      await page.goto("/recipe/scaled-naan?scale=1%2F2");
+      await expect(page.getByLabel("Multiply")).toHaveValue("1/2");
+      await expect(page.getByText("1 cups flour")).toBeVisible();
     });
   });
 

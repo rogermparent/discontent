@@ -187,6 +187,67 @@ describe("the CLI as a process", () => {
   );
 
   it(
+    "adds an item with --scale and shows it, in JSON and in text",
+    async () => {
+      /*
+       * Epic 32, D4. Its own plan, so the shared `week-one` fixture the other
+       * cases count stays one item long.
+       */
+      const created = await run([
+        "group",
+        "create",
+        "--name",
+        "Scaled Week",
+        "--slug",
+        "scaled-week",
+        "--item",
+        "first-recipe:Mon@1/2",
+        "--json",
+      ]);
+      expect(created.exitCode).toBe(0);
+
+      const added = await run([
+        "group",
+        "add",
+        "scaled-week",
+        "first-recipe",
+        "--label",
+        "Tue",
+        "--scale",
+        "2",
+        "--json",
+      ]);
+      expect(added.exitCode).toBe(0);
+
+      const shown = await run(["group", "show", "scaled-week", "--json"]);
+      expect(JSON.parse(shown.stdout).group.items).toEqual([
+        { recipe: "first-recipe", label: "Mon", scale: "1/2" },
+        { recipe: "first-recipe", label: "Tue", scale: "2" },
+      ]);
+
+      const text = await run(["group", "show", "scaled-week"]);
+      expect(text.stdout).toContain("Tue — First Recipe (first-recipe) ×2");
+
+      const refused = await run([
+        "group",
+        "add",
+        "scaled-week",
+        "first-recipe",
+        "--scale",
+        "0",
+        "--json",
+      ]);
+      expect(refused.exitCode).not.toBe(0);
+      expect(JSON.parse(refused.stdout).error).toMatchObject({
+        code: "validation",
+        issues: [{ path: "scale" }],
+      });
+    },
+    /* Five processes, at the ~4 s a `tsx` start costs. */
+    TIMEOUT * 3,
+  );
+
+  it(
     "prints one object for git log --json",
     async () => {
       /*

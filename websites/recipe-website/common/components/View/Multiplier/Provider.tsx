@@ -1,7 +1,15 @@
 "use client";
 
-import React, { ReactNode, Reducer, useReducer } from "react";
+import React, {
+  ReactNode,
+  Reducer,
+  Suspense,
+  useEffect,
+  useReducer,
+} from "react";
+import { useSearchParams } from "next/navigation";
 import Fraction from "fraction.js";
+import { parseScale } from "../../../util/scale";
 
 interface MultiplierState {
   multiplier?: Fraction;
@@ -30,6 +38,33 @@ const multiplierInputReducer: Reducer<MultiplierState, string> = (
   }
 };
 
+/**
+ * Seeds the multiplier from `?scale=` (epic 32, D4) — the link a meal-plan
+ * row with a `scale` makes, and a public one anybody may share.
+ *
+ * Client-side, after hydration: the static export has no request to read a
+ * query from, so the page is built at 1× and this moves it once the browser
+ * knows the URL. `useSearchParams` makes the nearest Suspense boundary render
+ * client-side only, so this component sits in a boundary of its own that
+ * renders nothing — the recipe around it still prerenders whole (the MakePage
+ * pattern, scoped down to the one hook). A value `parseScale` refuses (zero, a
+ * negative, junk) is ignored, and the page stays at 1×.
+ *
+ * It runs when the query changes, not on every render, so whatever the reader
+ * types or clicks afterwards wins.
+ */
+function ScaleFromSearchParams({
+  setMultiplier,
+}: {
+  setMultiplier: React.Dispatch<string>;
+}) {
+  const scale = useSearchParams().get("scale");
+  useEffect(() => {
+    if (scale !== null && parseScale(scale)) setMultiplier(scale.trim());
+  }, [scale, setMultiplier]);
+  return null;
+}
+
 export function MultiplierProvider({ children }: { children: ReactNode }) {
   const [multiplierState, setMultiplier] = useReducer(
     multiplierInputReducer,
@@ -38,6 +73,9 @@ export function MultiplierProvider({ children }: { children: ReactNode }) {
 
   return (
     <MultiplierContext.Provider value={[multiplierState, setMultiplier]}>
+      <Suspense fallback={null}>
+        <ScaleFromSearchParams setMultiplier={setMultiplier} />
+      </Suspense>
       {children}
     </MultiplierContext.Provider>
   );

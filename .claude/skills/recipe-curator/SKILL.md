@@ -273,8 +273,11 @@ group_create {"group": {"name": "Week of 2026-09-07", "kind": "meal-plan", "item
 ```
 
 Returns `{slug, date, path, url, warnings?}`. An item is `"slug"`,
-`"slug:label"` (split at the first colon), `{recipe, label?, note?}` or
-`{group, label?, note?}`. `kind` is always `meal-plan` — a new
+`"slug:label"` (split at the first colon), `"slug:label@2"`,
+`{recipe, label?, note?, scale?}` or `{group, label?, note?}`. `scale` is
+a positive multiplier (`"2"`, `"1/2"`, `"1.5"`) for a recipe cooked as a
+double or half batch: the plan badges it and links to the recipe already
+scaled. Set it only when the ask names a batch size. `kind` is always `meal-plan` — a new
 `collection` is refused, because a collection is a term now; older
 collection groups still read and update. `imageImportUrl` gives a group a
 cover picture, fetched at write time. On `code: "unknown_recipe"` or

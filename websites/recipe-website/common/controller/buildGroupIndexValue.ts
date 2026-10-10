@@ -8,7 +8,8 @@ import { Group, GroupEntryValue } from "./types";
  * reorder has to read as a change — which it does, because the projection and
  * the `groupsByRecipe` fold both walk this array in order and both are hashed.
  *
- * `note` is dropped here rather than merely unread: see `GroupEntryValue`.
+ * `note` and `scale` are dropped here rather than merely unread: see
+ * `GroupEntryValue`.
  *
  * Pure and synchronous, and it takes no `refs` — groups borrow nothing (D3),
  * so there is no second parameter to declare.
