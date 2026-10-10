@@ -70,6 +70,7 @@ import {
   InventorySetSchema,
   RecipeInputSchema,
   RecipePatchSchema,
+  ScaleSchema,
   TermCarrierTypeSchema,
   TermInputSchema,
   TermPatchSchema,
@@ -98,11 +99,12 @@ export const TOOL_NAMES = [
   "recipe_set_image",
   "recipe_delete",
   "tag_list",
-  /* The vocabulary's records and carriers (31c): 38 → 46. */
+  /* The vocabulary's records and carriers (31c): 38 → 46; 32c's image: 47. */
   "term_list",
   "term_get",
   "term_create",
   "term_update",
+  "term_set_image",
   "term_assign",
   "term_rename",
   "term_merge",
@@ -665,6 +667,43 @@ export function createRecipeServer(
   );
 
   register(
+    "term_set_image",
+    {
+      title: "Set or clear a term's picture",
+      description:
+        "recipe_set_image for a term record: replace its picture from a `url` " +
+        "(downloaded and checked: it must be an image, under 15 MB) or a local " +
+        "`path` (read by this server's process), or `clear` it — exactly one. The " +
+        "term needs a record (term_create). One commit, `Update term image: " +
+        "<slug>`, so git can undo it.",
+      inputSchema: z
+        .strictObject({
+          slug: Slug,
+          url: z.string().min(1).optional(),
+          path: z.string().min(1).optional(),
+          clear: z.literal(true).optional(),
+        })
+        .refine(
+          ({ url, path, clear }) =>
+            [url, path, clear].filter((value) => value !== undefined).length ===
+            1,
+          { message: "Pass exactly one of `url`, `path` or `clear`" },
+        ),
+      annotations: WRITES,
+    },
+    async ({ slug, url, path }) =>
+      write(backend, async () => {
+        if (url) return backend.setTermImage(slug, { url });
+        if (path) {
+          return backend.setTermImage(slug, {
+            file: await readImageFile(path),
+          });
+        }
+        return backend.setTermImage(slug, { clear: true });
+      }),
+  );
+
+  register(
     "term_assign",
     {
       title: "Tag or untag recipes or groups",
@@ -817,9 +856,11 @@ export function createRecipeServer(
     {
       title: "Replace a group's items",
       description:
-        'Set the whole item list, in order. Each item is `"slug"`, `"slug:label"` or ' +
-        "{recipe | group, label?, note?} — a `{group}` item nests that group inside this " +
-        "one. This replaces what is there; use group_add_item to append.",
+        'Set the whole item list, in order. Each item is `"slug"`, `"slug:label"`, ' +
+        '`"slug:label@2"` or {recipe | group, label?, note?, scale?} — a `{group}` item ' +
+        "nests that group inside this one. `scale` (recipe items only) is a positive " +
+        'multiplier like "2", "1/2" or "1.5": the group page badges the row and links to ' +
+        "the recipe scaled. This replaces what is there; use group_add_item to append.",
       inputSchema: z.strictObject({
         group: Slug,
         items: z.array(GroupItemInputSchema),
@@ -837,14 +878,17 @@ export function createRecipeServer(
       title: "Add a recipe or a group to a group",
       description:
         "Append one member — a recipe, or a `subgroup` (a group nested inside this " +
-        'one) — with an optional label ("Mon · Dinner") and note. Name exactly one of ' +
-        "`recipe` and `subgroup`. `force` allows a slug that names nothing yet; nothing " +
+        'one) — with an optional label ("Mon · Dinner") and note. A recipe row may ' +
+        'take a `scale`, a positive multiplier like "2", "1/2" or "1.5" (a double batch ' +
+        "for the week): the group page badges it and links to the recipe scaled. Name " +
+        "exactly one of `recipe` and `subgroup`. `force` allows a slug that names nothing yet; nothing " +
         "allows a cycle (group_cycle). Renaming or deleting a sub-group later leaves " +
         "this row pointing at the old slug, and the page says so.",
       inputSchema: GroupItemRefSchema.extend({
         group: Slug,
         label: z.string().optional(),
         note: z.string().optional(),
+        scale: ScaleSchema().optional(),
         force: z.boolean().optional(),
       }).refine(exactlyOneRef, REF_REFINEMENT),
       annotations: WRITES,

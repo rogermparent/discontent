@@ -57,10 +57,11 @@ function httpUrl(text: string): string | undefined {
  * both, as it always has. The URL field is opt-in (`allowUrl`): the group form
  * shares this component and parses no import URL.
  *
- * The file input is opt-out (`allowFile`, 31e): the term form writes through
- * the term seat, which takes a picture only as `imageImportUrl`, so it shows
- * the URL field alone rather than a file input whose upload would be dropped.
- * The field's errors then sit on the URL input.
+ * The file input is opt-out (`allowFile`, 31e): a form whose seat takes a
+ * picture only as `imageImportUrl` shows the URL field alone rather than a
+ * file input whose upload would be dropped, and the field's errors then sit on
+ * the URL input. The term form was the one such caller until its seat took an
+ * upload (32c); nothing opts out today.
  */
 export function ImageInput({
   defaultImage,

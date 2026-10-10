@@ -109,11 +109,11 @@ the food corpus is a content call: 32k, run only on Roger's explicit go.
 | 32-plan  | Epic doc + CLAUDE.md line, backlog marks                                 | docs    | `agent/32-plan`            | ✅ #197           |
 | 32a      | Hygiene                                                                  | S       | `agent/32a-hygiene`        | 🟡 #198           |
 | 32b      | Features follow a deleted term/group                                     | S–M     | `agent/32b-delete-feature` | 🟡 #200           |
-| 32c      | Term image upload, full parity                                           | M–L     | `agent/32c-term-image`     | 📝 planned        |
+| 32c      | Term image upload, full parity                                           | M–L     | `agent/32c-term-image`     | 🟡 #203           |
 | 32d      | F34 batched commits for term assign/rename/merge                         | M–L     | `agent/32d-batch-commit`   | 📝 planned        |
 | 32e      | 24g: measure, then split the by-term record                              | L       | `agent/32e-by-term`        | 🟡 #PR            |
 | 32f      | Ingredient completion in search                                          | S–M     | `agent/32f-ingredient-ac`  | 🟡 #199           |
-| 32g      | Meal-plan item `scale` + `?scale` on recipe pages                        | M       | `agent/32g-plan-scale`     | 📝 planned        |
+| 32g      | Meal-plan item `scale` + `?scale` on recipe pages                        | M       | `agent/32g-plan-scale`     | 🟡 #202           |
 | 32j      | Make anything: kind switch, refine drill-down, loose ingredient matching | M–L     | `agent/32j-make-any`       | 📝 planned        |
 | 32h      | `SidebarLayout` + portfolio masthead on sticky-chrome                    | S       | `agent/32h-sticky-sidebar` | 🟡 #201           |
 | 32i      | Term aliases, search-only (droppable)                                    | L       | `agent/32i-aliases`        | 📝 planned        |
@@ -768,9 +768,11 @@ the end-to-end checks at 32-close.
 | 32-plan | #197 | `dafc6834` | docs only; CI 12/12                                                                                                                 |
 | 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI                       |
 | 32b     | #200 |            | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI                           |
+| 32c     | #203 |            | typechecks ✅; vitest 1074/1074 (56 files); Playwright `term-edit` + `api-write` 29/29 (build); CI                                  |
 | 32e     | #PR  |            | GATES_32E                                                                                                                           |
 | 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                                      |
 | 32h     | #201 |            | typechecks ✅ (recipe, export, portfolio); vitest 1058/1058; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI |
+| 32g     | #202 |            | typechecks ✅; vitest 1068/1068 (56 files); Playwright `groups` + `yield` + `recipe` 47/47 (build); export `next build` ✅; CI      |
 
 ### 32a — Hygiene
 
@@ -855,6 +857,88 @@ another term's feature left alone. `mergeTerm`: unfeature when the target is
 already featured. `featured.test.ts`: `findAllFeatured` / `findFeatured` /
 `unfeatureTarget` order and events, and group delete. `curation.test.ts`
 groups: delete unfeatures, other features stay.
+
+### 32c — Term image upload, full parity
+
+**What changed.**
+
+- **The seat.** `curation/recipeImage.ts` is generalised rather than copied:
+  a private `setImage` over an `ImageTarget` (content config, commit noun,
+  not-found message, path and URL helpers), and `setRecipeImage` /
+  `setTermImage` are one line each. A recipe and a term record differ only
+  there: both are keyed `[date, slug]` and keep the picture as an `image`
+  upload. `setTermImage(ctx, slug, {url}|{file}|{clear})` commits
+  `Update term image: <slug>`. Clearing a term with no picture commits
+  nothing, and a term with carriers but no record is `not_found` ("…
+  term_create writes one"). Result types: `ImageSeatInput` / `ImageSeatResult`,
+  aliased as `RecipeImage*` (unchanged for callers) and `TermImage*`.
+- **`createTerm` / `updateTerm`** take a third, non-schema argument
+  `TermWriteOptions {imageFile?: File}`. `termImageFile` resolves the picture:
+  the file, checked with `checkImageFile`, else the URL, fetched. A file
+  beats a URL (which is then never downloaded) and, on an update, a clear,
+  the same precedence as the recipe and group forms. A refused file is
+  re-thrown as `validation` with one issue on `image` ("The image was
+  refused"), so the form shows the reason next to the file input. Both seats
+  now also return the 2 MB `largeImageWarning`, as group writes do.
+- **The form.** `TermFormSchema.image` is `z.instanceof(File)`, with 0-byte
+  files (an untouched input) turned into `undefined`. `submitTermForm` passes
+  it to the seat as `{imageFile}`; the JSON patch and input never carry it.
+  `FIELD_OF_PATH` maps `image` (beside `imageImportUrl`) to the picture.
+  `Form/Term` drops `allowFile={false}`, so the term form now has the file
+  input, the Image URL field and "Remove Image". `ImageInput` keeps the
+  `allowFile` prop, but no caller turns it off any more.
+- **Transports.**
+  - `PUT /api/taxonomies/<taxonomy>/<slug>/image`: multipart `file`, or JSON
+    `{url}` / `{clear: true}`. It is built like `api/recipe/[slug]/image`,
+    plus `assertTaxonomy`, and uses `requireCurationContext`, so it needs a
+    write-scoped token or a session.
+  - CLI `recipes term image <slug> (--url | --file | --clear)`. The command
+    is `cli/commands/term.ts` `termImage`; `setTermImage` is on the backend
+    seam (`types` / `local` / `http`). The HTTP backend uploads `--file` as
+    multipart, like `setRecipeImage`. `--help` lists the command.
+  - MCP `term_set_image {slug, url | path | clear}`: the same schema and
+    refinement as `recipe_set_image`, `WRITES` annotation, pre-approved.
+- **Tool lists.** `TOOL_NAMES` 46 → 47. `.claude/settings.json` and the
+  skill's `allowed-tools` go 34 → 35. CLAUDE.md now says 35. SKILL.md
+  mentions `term_set_image` under "Fixing an image later" and in the CLI
+  fallback mapping.
+
+**Decisions.**
+
+- **Generalise, don't copy.** The two seats would have been the same 80
+  lines with four words changed. `ImageTarget` is about 10 lines, and each
+  seat keeps its own name and docblock. The file keeps its name
+  (`recipeImage.ts`), because earlier epics' docs point at it.
+- **The form's file goes through `createTerm` / `updateTerm`, not
+  `setTermImage`.** A submit with a new picture and a new label is one
+  commit, as it is for a recipe or a group. `setTermImage` is the seat for
+  the transports that change only the picture.
+- **A file beats a clear** as well as a URL, matching
+  `actions/index.ts` / `actions/groups.ts`. The term seat's
+  `imageImportUrl: null` loses to a file in the same call.
+- **`curatorSkill.test.ts` pins the counts** (47 tools, 35 pre-approved) and
+  checks CLAUDE.md's "pre-approves its N" and "lists the same N" against them.
+  Before, nothing checked that sentence.
+
+**Tests.** `terms.test.ts` "term pictures (32c)" (6): `setTermImage` URL →
+file → clear with write events, a no-op clear, the carried-only `not_found`,
+a non-image, the empty choice; create with a file beating a URL (fetch never
+called); update where a file beats a URL and a clear, then a URL, then null;
+a refused upload filed under `image` with nothing written; the 2 MB warning.
+`termForm.test.ts` (+4): the `image` issue mapping, the 0-byte drop and the
+file kept out of the JSON, upload on create and edit (a file beating a typed
+URL, with no fetch stub), clear with an untouched file input, a refused file
+on the picture field. `imageImport.test.ts` (+3): `checkImageFile` /
+`readImageFile`. `mcp.test.ts` (+1): `term_set_image` path → clear,
+`not_found` before the record exists, two sources refused.
+`cliJson.test.ts` (+1): `term image --file` → `--url` (local server) →
+`--clear`, one commit each, with `Update term image: <slug>`, plus the
+not-found and usage errors. `curatorSkill.test.ts` (+1): the counts.
+Playwright: `term-edit.spec` (+1): `setInputFiles` on Cookies' edit form →
+`term-image` on `/tags/cookies`, record intact → "Remove Image" clears it.
+`api-write.spec` (+2): the route (404 with no record; 401 / 403 read token /
+404 unknown taxonomy; URL → upload → the term page draws it with no reload →
+400 for a non-image → clear) and `term image --file` over `--remote`.
 
 ### 32e — 24g: the by-term record, measured and split
 
@@ -1074,3 +1158,89 @@ and 29b is deferred.
   and isn't caused by this diff. CI's portfolio job uses `next dev`, so the
   build is never exercised there either.
 - `specVersions` didn't move: none of the edited modules is pinned.
+
+### 32g — Meal-plan item `scale` + `?scale` on recipe pages
+
+**What changed.**
+
+- `common/util/scale.ts`: `parseScale` (what `fraction.js` reads, trimmed,
+  positive only — 0, `0/4`, negatives, `2/0` and junk are `null`),
+  `isValidScale`, `SCALE_MESSAGE`, and `formatScale` for the badge (`2×`,
+  `½×`, `1½×`, else a ≤2-place decimal: `1.2×`). One parser for the write
+  schemas, the group page and the recipe page, so a plan can't store a value
+  its own link would then ignore.
+- `GroupItem` (via `WithItemText`) gains `scale?: string`, stored trimmed but
+  otherwise as written. **Not** on `GroupEntryItem`: `buildGroupIndexValue`
+  already picks fields, so no index, fixture or spec version moved
+  (`groups.test.ts` pins the absence by keys, like `note`).
+- `GroupItemObjectSchema` validates it (`ScaleSchema()`) and refuses it on a
+  `{group}` row. `addItem` now parses its item through that schema, so the
+  seat, the `POST /api/group/[slug]/items` route (which destructures
+  `scale`), both CLI backends (the type gains `scale`; HTTP already spread
+  the options) and MCP `group_add_item` (new `scale`) share one rule.
+  `group_set_items` and `group_create` take it in the object form and the
+  shorthand.
+- CLI: `group add <g> <recipe> --scale 2`; `group show` prints
+  `Tue — First Recipe (first-recipe) ×2`; `--item slug[:label][@scale]`.
+- Form: recipe rows get a Scale field (placeholder `1`); group rows have
+  none. `parseGroupFormData` validates it (the message lands on `items`,
+  above the rows) and drops a scale a forged post puts on a group row.
+- `GroupItems` badges a scaled row beside its label
+  (`data-testid="group-item-scale"`, with an sr-only "Scale ") and passes
+  `href="/recipe/<slug>?scale=<value>"` to `RecipeListItem`, which gained an
+  optional `href`. A 1× scale, or a stored value the parser refuses, shows
+  nothing and links plainly.
+- `MultiplierProvider` seeds from `?scale` through a `ScaleFromSearchParams`
+  child: `useSearchParams` inside its own `<Suspense fallback={null}>`, a
+  `useEffect` keyed on the value, invalid values ignored. The reader's later
+  clicks win.
+- MCP descriptions and SKILL.md's item grammar name `scale`.
+
+**Decisions.**
+
+- **Shorthand grammar: the scale comes off the end first.**
+  `TRAILING_SCALE = /@([-+0-9./]+)$/`, then `slug:label` splits at the first
+  colon as before. No whitespace or letters after the `@`, so
+  `"Dinner @ 7pm"` and `"Lunch@home"` stay labels; a sign is admitted only so
+  `"stew@-1"` fails validation (`items.<n>.scale`) instead of becoming a slug.
+  A slug can contain neither `:` nor `@`. The one label it can misread is one
+  that itself ends in `@<number>`; the object form covers that. The
+  shorthand's scale is validated in `toGroupItems` (the input schema can only
+  say "a string") by re-parsing the expanded item through
+  `GroupItemObjectSchema`.
+- **Recipe rows only.** A sub-group has no quantities; a scale there would be
+  a value nothing reads, so every write path refuses it (the form silently
+  drops it, since a group row has no Scale input).
+- **The Suspense boundary wraps only the hook.** Wrapping the recipe view
+  (MakePage's shape) would make the export ship a fallback instead of the
+  recipe. A null-rendering child in its own boundary keeps the page
+  prerendered whole; the export built against a scratch copy of
+  `three-recipes-groups` and `out/recipe/first-recipe.html` carries the
+  recipe's content, with one bailout marker (this boundary). The cost: the
+  static page paints 1× and moves to 2× after hydration.
+- **MCP-level validation.** `group_add_item`'s `scale` uses `ScaleSchema()`
+  (the curation schemas are imported unchanged, per the registry's rule), so a
+  bad object-form scale is rejected before dispatch in the SDK's shape (T28);
+  a bad shorthand scale in `group_set_items` comes back as the layer's
+  `validation` with `items.<n>.scale`. `mcp.test.ts` pins both.
+- `addItem` now validates before `requireGroup`, so a bad item on a missing
+  group reports `validation` rather than `not_found`.
+
+**Tests.** `curation.test.ts`: shorthand (`@2`, `@1/2`, `@1.5`, `@` in
+prose, a colon in the label), object form trimmed, `addItem` with
+`"1 1/2"`, the resolved row; refusals (0, -1, abc, 2/0, 0/3, shorthand
+`@0`/`@-2`, object `"0"`, group rows) with nothing written. `groups.test.ts`:
+off the index, `parseScale`, `formatScale`, `parseGroupFormData` keep/drop/
+refuse. `mcp.test.ts`: add/set with scale, SDK-shape and layer-shape
+refusals. `cliJson.test.ts`: `--item …@1/2`, `group add --scale 2`, JSON and
+text `group show`, `--scale 0` refused (`TIMEOUT * 3`: five processes).
+`curationHttp.test.ts`: the route's body schema answers a bad scale with a
+400 on `scale`. `groups.spec.ts`: the form case (0 refused, then `½×` and
+`?scale=1%2F2`, read back on edit) and an API-written plan (badges, `?scale=2`
+link, recipe opens with Multiply `2`, `4 cups flour`, `8 naan`, Double batch
+pressed; `?scale=0`/`lots` ignored; `?scale=1%2F2` halves).
+
+**Gates.** typechecks ✅ (editor, export); vitest 1068/1068 (56 files) after
+merging origin/main at 32h; Playwright `groups.spec` + `yield.spec` +
+`recipe.spec` 47/47 (build, heavy slot); export `next build` ✅ (scratch
+fixture copy). `specVersions` didn't move.

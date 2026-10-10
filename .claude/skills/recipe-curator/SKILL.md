@@ -1,7 +1,7 @@
 ---
 name: recipe-curator
 description: Find, import, cite and organize recipes for the recipe website — meal plans, collections and nested collections (as tag terms), the homepage strip and the shared list of what's on hand — through the `recipes` MCP tools. Use for asks like "plan dinners for the week", "import this recipe", "make a collection of …", "put it on the homepage", "I bought Gnista", "what can I make?".
-allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__page_inspect, mcp__recipes__recipe_import, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__recipe_set_image, mcp__recipes__tag_list, mcp__recipes__term_list, mcp__recipes__term_get, mcp__recipes__term_create, mcp__recipes__term_update, mcp__recipes__term_assign, mcp__recipes__term_rename, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__inventory_get, mcp__recipes__inventory_add, mcp__recipes__inventory_remove, mcp__recipes__inventory_makeable, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, mcp__recipes__git_fetch, WebSearch, WebFetch, Bash(pnpm --silent recipes:*)
+allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__page_inspect, mcp__recipes__recipe_import, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__recipe_set_image, mcp__recipes__tag_list, mcp__recipes__term_list, mcp__recipes__term_get, mcp__recipes__term_create, mcp__recipes__term_update, mcp__recipes__term_set_image, mcp__recipes__term_assign, mcp__recipes__term_rename, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__inventory_get, mcp__recipes__inventory_add, mcp__recipes__inventory_remove, mcp__recipes__inventory_makeable, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, mcp__recipes__git_fetch, WebSearch, WebFetch, Bash(pnpm --silent recipes:*)
 ---
 
 # Recipe curator
@@ -179,6 +179,9 @@ recipe_set_image {"slug": "vegetarian-chili", "clear": true}
 Exactly one of `url`, `path` (a local image file) or `clear`; one commit,
 `Update recipe image: <slug>`, returns `{slug, image, previous?}`. The image
 must be a real image under 15 MB — an HTML page at an image URL is refused.
+A term's picture works the same way: `term_set_image {"slug": "cookies",
+"url": "https://…/cookies.jpg"}` (or `path`, or `clear`) on a term that has
+a record, one commit `Update term image: <slug>`.
 
 Tag vocabulary (lowercase, keep it small):
 
@@ -273,8 +276,11 @@ group_create {"group": {"name": "Week of 2026-09-07", "kind": "meal-plan", "item
 ```
 
 Returns `{slug, date, path, url, warnings?}`. An item is `"slug"`,
-`"slug:label"` (split at the first colon), `{recipe, label?, note?}` or
-`{group, label?, note?}`. `kind` is always `meal-plan` — a new
+`"slug:label"` (split at the first colon), `"slug:label@2"`,
+`{recipe, label?, note?, scale?}` or `{group, label?, note?}`. `scale` is
+a positive multiplier (`"2"`, `"1/2"`, `"1.5"`) for a recipe cooked as a
+double or half batch: the plan badges it and links to the recipe already
+scaled. Set it only when the ask names a batch size. `kind` is always `meal-plan` — a new
 `collection` is refused, because a collection is a term now; older
 collection groups still read and update. `imageImportUrl` gives a group a
 cover picture, fetched at write time. On `code: "unknown_recipe"` or
@@ -364,7 +370,9 @@ lists the commands; the flags mirror the tool inputs:
   then the same without `--dry-run`;
 - `recipe_update {slug, patch}` → `pnpm --silent recipes update <slug> --file patch.json --json`;
 - `recipe_set_image` → `pnpm --silent recipes image <slug> --url <image-url> --json`
-  (or `--file <path>`, or `--clear`).
+  (or `--file <path>`, or `--clear`); `term_set_image` →
+  `pnpm --silent recipes term image <slug> --url <image-url> --json`, the same
+  three ways.
 
 The draft file is the loop: inspect or dry-run into `d.json`, edit it, check
 it with `create --dry-run`, then create. Never pass `--author`,

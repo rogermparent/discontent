@@ -4,15 +4,20 @@
 // case is a way the engine's bare `fetch` wrote garbage, or a name with no
 // extension, into a recipe's uploads — all with `fetch` stubbed, no network.
 
+import { mkdtemp, rm, writeFile } from "fs-extra";
+import { tmpdir } from "os";
+import { join } from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  checkImageFile,
   fetchImageFile,
   imageFilename,
   LARGE_IMAGE_BYTES,
   largeImageWarning,
   MAX_IMAGE_BYTES,
   probeImageFile,
+  readImageFile,
 } from "../websites/recipe-website/editor/controller/imageImport";
 import {
   DEFAULT_403_DELAY_MS,
@@ -189,6 +194,67 @@ describe("fetchImageFile", () => {
       code: "import_failed",
     });
     expect(fetchStub).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * The two checks a `File` gets when it did not come through `fetchImageFile`
+ * (26b) — now behind both image seats, a recipe's and, since 32c, a term
+ * record's (`setTermImage`, and the term form's upload through
+ * `createTerm` / `updateTerm`).
+ */
+describe("checkImageFile / readImageFile", () => {
+  let scratch: string | undefined;
+  afterEach(async () => {
+    if (scratch) await rm(scratch, { recursive: true, force: true });
+    scratch = undefined;
+  });
+
+  it("passes an image through, renaming it to a safe name", () => {
+    const tidy = new File(["png"], "tin.png", { type: "image/png" });
+    expect(checkImageFile(tidy)).toBe(tidy);
+
+    const renamed = checkImageFile(
+      new File(["png"], "Cookie Tin.png", { type: "image/png" }),
+    );
+    expect(renamed.name).toBe("Cookie-Tin.png");
+    expect(renamed.type).toBe("image/png");
+    /* No type, but an image extension: a browser upload can arrive so. */
+    expect(checkImageFile(new File(["jpg"], "photo.jpg")).name).toBe(
+      "photo.jpg",
+    );
+  });
+
+  it("refuses a non-image, an empty file and one over the cap", () => {
+    expect(() =>
+      checkImageFile(new File(["hi"], "notes.txt", { type: "text/plain" })),
+    ).toThrow(/notes\.txt is not an image/);
+    expect(() =>
+      checkImageFile(new File([], "empty.png", { type: "image/png" })),
+    ).toThrow(/empty/);
+    const huge = new File(["x"], "huge.png", { type: "image/png" });
+    Object.defineProperty(huge, "size", { value: MAX_IMAGE_BYTES + 1 });
+    expect(() => checkImageFile(huge)).toThrow(/over the/);
+  });
+
+  it("reads only image files from disk, typed by extension", async () => {
+    scratch = await mkdtemp(join(tmpdir(), "image-file-"));
+    const picture = join(scratch, "Cookie Tin.PNG");
+    await writeFile(picture, "png bytes");
+    const file = await readImageFile(picture);
+    /* Sanitized, extension case kept (as `imageFilename` keeps it). */
+    expect(file.name).toBe("Cookie-Tin.PNG");
+    expect(file.type).toBe("image/png");
+    expect(await file.text()).toBe("png bytes");
+
+    const notes = join(scratch, "notes.txt");
+    await writeFile(notes, "hi");
+    await expect(readImageFile(notes)).rejects.toThrow(
+      /does not name an image/,
+    );
+    await expect(readImageFile(join(scratch, "gone.png"))).rejects.toThrow(
+      /Could not read/,
+    );
   });
 });
 

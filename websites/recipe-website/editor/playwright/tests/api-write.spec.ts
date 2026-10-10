@@ -875,6 +875,121 @@ test.describe("JSON write API", () => {
     });
   });
 
+  test("sets a term's picture by URL and by upload, and clears it (32c)", async ({
+    request,
+    baseURL,
+    page,
+    createApiToken,
+  }) => {
+    const seat = "/api/taxonomies/tag/flatbread/image";
+
+    /* No record yet: a term needs one to hold a picture. */
+    const missing = await request.put(seat, {
+      headers: auth(),
+      data: { clear: true },
+    });
+    expect(missing.status()).toBe(404);
+    expect((await missing.json()).error.code).toBe("not_found");
+
+    await request.post("/api/taxonomies/tag", {
+      headers: auth(),
+      data: { label: "Flatbread" },
+    });
+
+    /* The same guard as every term write: no token, a read token, a bad taxonomy. */
+    expect((await request.put(seat, { data: { clear: true } })).status()).toBe(
+      401,
+    );
+    const reader = await createApiToken(
+      "admin@nextmail.com",
+      "dashboard",
+      "read",
+    );
+    expect(
+      (
+        await request.put(seat, {
+          headers: { authorization: `Bearer ${reader}` },
+          data: { clear: true },
+        })
+      ).status(),
+    ).toBe(403);
+    expect(
+      (
+        await request.put("/api/taxonomies/genre/flatbread/image", {
+          headers: auth(),
+          data: { clear: true },
+        })
+      ).status(),
+    ).toBe(404);
+
+    const byUrl = await request.put(seat, {
+      headers: auth(),
+      data: {
+        url: new URL("/uploads/recipe-imported-image-566x566.png", baseURL!)
+          .href,
+      },
+    });
+    expect(byUrl.status()).toBe(200);
+    expect(await byUrl.json()).toMatchObject({
+      slug: "flatbread",
+      image: "recipe-imported-image-566x566.png",
+      url: "/tags/flatbread",
+    });
+
+    const byUpload = await request.put(seat, {
+      headers: auth(),
+      multipart: {
+        file: {
+          name: "upload.png",
+          mimeType: "image/png",
+          buffer: readFileSync(
+            fixturePath("images", "recipe-6-test-image.png"),
+          ),
+        },
+      },
+    });
+    expect(byUpload.status()).toBe(200);
+    expect(await byUpload.json()).toMatchObject({
+      image: "upload.png",
+      previous: "recipe-imported-image-566x566.png",
+    });
+    const record = await request.get("/api/taxonomies/tag/flatbread");
+    expect((await record.json()).record.image).toBe("upload.png");
+    /* Revalidated in-process: the term page draws it with no reload. */
+    await page.goto("/tags/flatbread");
+    await expect(
+      page.getByTestId("term-image").getByRole("img", {
+        name: "Photo of Flatbread",
+      }),
+    ).toBeVisible();
+
+    const notAnImage = await request.put(seat, {
+      headers: auth(),
+      multipart: {
+        file: {
+          name: "notes.txt",
+          mimeType: "text/plain",
+          buffer: Buffer.from("hi"),
+        },
+      },
+    });
+    expect(notAnImage.status()).toBe(400);
+
+    const cleared = await request.put(seat, {
+      headers: auth(),
+      data: { clear: true },
+    });
+    expect(await cleared.json()).toMatchObject({
+      image: null,
+      previous: "upload.png",
+    });
+    await page.goto("/tags/flatbread");
+    await expect(
+      page.getByRole("heading", { name: "Flatbread", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByTestId("term-image")).toHaveCount(0);
+  });
+
   /**
    * The CLI's HTTP backend, against a real editor.
    *
@@ -990,6 +1105,50 @@ test.describe("JSON write API", () => {
           .locator("xpath=ancestor::*[1]")
           .getByText("Remote fortnight"),
       ).toBeVisible();
+    });
+
+    test("uploads a term picture from a local file over --remote (32c)", async ({
+      baseURL,
+      request,
+    }) => {
+      /*
+       * `term image --file` is read in the CLI's process and sent as multipart
+       * to the new `PUT /api/taxonomies/tag/<slug>/image` — a hand-written URL
+       * and body shape, so one round trip is worth it.
+       */
+      await request.post("/api/taxonomies/tag", {
+        headers: auth(),
+        data: { label: "Remote Bread" },
+      });
+      const set = await cli(
+        [
+          "term",
+          "image",
+          "remote-bread",
+          "--file",
+          fixturePath("images", "recipe-6-test-image.png"),
+          "--json",
+        ],
+        baseURL!,
+      );
+      expect(JSON.parse(set.stdout)).toMatchObject({
+        slug: "remote-bread",
+        image: "recipe-6-test-image.png",
+        url: "/tags/remote-bread",
+      });
+      const record = await request.get("/api/taxonomies/tag/remote-bread");
+      expect((await record.json()).record.image).toBe(
+        "recipe-6-test-image.png",
+      );
+
+      const cleared = await cli(
+        ["term", "image", "remote-bread", "--clear", "--json"],
+        baseURL!,
+      );
+      expect(JSON.parse(cleared.stdout)).toMatchObject({
+        image: null,
+        previous: "recipe-6-test-image.png",
+      });
     });
 
     test("rehydrates a remote failure into the CLI's own exit code", async ({

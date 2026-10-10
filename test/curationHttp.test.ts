@@ -35,6 +35,10 @@ import {
   readJsonBody,
   statusFor,
 } from "../websites/recipe-website/editor/controller/curation/http";
+import {
+  GroupItemObjectSchema,
+  parseInput,
+} from "../websites/recipe-website/editor/controller/curation/schema";
 
 describe("statusFor", () => {
   it("maps every code in the union", () => {
@@ -95,6 +99,35 @@ describe("errorResponse", () => {
     expect(body.error.issues).toEqual([
       { path: "name", message: "A recipe needs a name" },
     ]);
+  });
+
+  /*
+   * Epic 32, D4: `POST /api/group/<slug>/items` parses its body with
+   * `GroupItemObjectSchema`, so a bad `scale` is this 400 before any write,
+   * and a good one comes through trimmed.
+   */
+  it("answers a bad item scale with a 400 on the scale field", async () => {
+    for (const body of [
+      { recipe: "stew", scale: "0" },
+      { recipe: "stew", scale: "half" },
+      { group: "week", scale: "2" },
+    ]) {
+      let response: Response | undefined;
+      try {
+        parseInput(GroupItemObjectSchema, body);
+      } catch (error) {
+        response = errorResponse(error);
+      }
+      expect(response?.status).toBe(400);
+      const json = await response!.json();
+      expect(json.error).toMatchObject({
+        code: "validation",
+        issues: [{ path: "scale" }],
+      });
+    }
+    expect(
+      parseInput(GroupItemObjectSchema, { recipe: "stew", scale: " 1/2 " }),
+    ).toEqual({ recipe: "stew", scale: "1/2" });
   });
 
   it("gives an unknown recipe 422 with the offending slugs", async () => {

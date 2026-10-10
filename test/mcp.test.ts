@@ -412,6 +412,68 @@ describe("the MCP registry over an in-memory transport", () => {
     ]);
   });
 
+  /* Epic 32, D4: a recipe row's multiplier, on both item-writing tools. */
+  it("adds and sets items with a scale, and refuses a bad one", async () => {
+    await createCake();
+    await call("group_create", { group: { name: "Week One" } });
+
+    const added = await call("group_add_item", {
+      group: "week-one",
+      recipe: "chocolate-cake",
+      label: "Sat",
+      scale: "2",
+    });
+    expect(added.isError).toBe(false);
+    expect((await call("group_get", { slug: "week-one" })).data.items).toEqual([
+      {
+        recipe: "chocolate-cake",
+        label: "Sat",
+        scale: "2",
+        name: "Chocolate Cake",
+      },
+    ]);
+
+    await call("group_set_items", {
+      group: "week-one",
+      items: [
+        "chocolate-cake:Sun@1/2",
+        { recipe: "chocolate-cake", scale: "3" },
+      ],
+    });
+    expect(
+      (
+        (await call("group_get", { slug: "week-one" })).data.items as Record<
+          string,
+          unknown
+        >[]
+      ).map(({ label, scale }) => ({ label, scale })),
+    ).toEqual([
+      { label: "Sun", scale: "1/2" },
+      { label: undefined, scale: "3" },
+    ]);
+
+    /* The tool schema's own refine: rejected before dispatch (T28). */
+    const zero = await client.callTool({
+      name: "group_add_item",
+      arguments: { group: "week-one", recipe: "chocolate-cake", scale: "0" },
+    });
+    expect(zero.isError).toBe(true);
+    expect((zero.content as { text: string }[])[0].text).toContain(
+      "Scale must be a positive number, like 2, 1/2 or 1.5",
+    );
+
+    /* The shorthand's scale is the seat's check, in the layer's shape. */
+    expect(
+      await callError("group_set_items", {
+        group: "week-one",
+        items: ["chocolate-cake@-1"],
+      }),
+    ).toMatchObject({
+      code: "validation",
+      issues: [{ path: "items.0.scale" }],
+    });
+  });
+
   it("refuses a group item naming no recipe, and warns when forced", async () => {
     await call("group_create", { group: { name: "Week One" } });
 
@@ -766,6 +828,51 @@ describe("the MCP registry over an in-memory transport", () => {
           path: join(contentDirectory, "notes.txt"),
         }),
       ).toMatchObject({ code: "validation" });
+    } finally {
+      await rm(picture, { force: true });
+    }
+  });
+
+  /* 32c: term_set_image, recipe_set_image's twin for a term record. */
+  it("sets a term's picture from a local path, clears it, and needs a record", async () => {
+    const picture = join(contentDirectory, "..", `tin-${Date.now()}.png`);
+    await writeFile(picture, "png bytes");
+    try {
+      expect(
+        await callError("term_set_image", { slug: "cookies", path: picture }),
+      ).toMatchObject({ code: "not_found", slug: "cookies" });
+
+      await call("term_create", { term: { label: "Cookies" } });
+      const set = await call("term_set_image", {
+        slug: "cookies",
+        path: picture,
+      });
+      expect(set.isError).toBe(false);
+      expect(set.data).toMatchObject({
+        slug: "cookies",
+        url: "/tags/cookies",
+        image: expect.stringMatching(/^tin-\d+\.png$/),
+      });
+      expect(set.data.warnings).toEqual([expect.stringContaining("stale")]);
+      const detail = await call("term_get", { slug: "cookies" });
+      expect((detail.data.record as { image?: string }).image).toBe(
+        set.data.image,
+      );
+
+      const cleared = await call("term_set_image", {
+        slug: "cookies",
+        clear: true,
+      });
+      expect(cleared.data).toMatchObject({
+        image: null,
+        previous: set.data.image,
+      });
+
+      const both = await client.callTool({
+        name: "term_set_image",
+        arguments: { slug: "cookies", clear: true, path: picture },
+      });
+      expect(both.isError).toBe(true);
     } finally {
       await rm(picture, { force: true });
     }

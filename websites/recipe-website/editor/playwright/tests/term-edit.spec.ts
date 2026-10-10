@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
 import { test, expect } from "../support/test";
 import { fillSignInForm, markdownEditorReady } from "../support/helpers";
+import { fixturePath } from "../support/tasks";
 
 /*
  * The term edit form (31e): `/tags/new` and `/tags/<slug>/edit`, a browser
@@ -150,5 +152,54 @@ test.describe("Term edit form", () => {
     await expect(
       page.getByTestId("recipe-list").locator("> li").first(),
     ).toBeVisible();
+  });
+
+  /* 32c (D2): the term form takes a file, as the recipe and group forms do. */
+  test("uploads a picture from a file, then removes it", async ({
+    page,
+    request,
+  }) => {
+    await page.goto("/tags/cookies/edit");
+    await fillSignInForm(page);
+    await markdownEditorReady(page, "description");
+    await expect(page.getByTestId("term-image")).toHaveCount(0);
+
+    await page.getByLabel("Image", { exact: true }).setInputFiles({
+      name: "recipe-6-test-image.png",
+      mimeType: "image/png",
+      buffer: readFileSync(fixturePath("images", "recipe-6-test-image.png")),
+    });
+    await expect(page.getByAltText("Image to upload")).toBeVisible();
+    await page.getByRole("button", { name: "Submit", exact: true }).click();
+
+    /* The redirect, not a heading: the edit page has one too (T19). */
+    await page.waitForURL((url) => url.pathname === "/tags/cookies");
+    await expect(
+      page.getByTestId("term-image").getByRole("img", {
+        name: "Photo of Cookies",
+      }),
+    ).toBeVisible();
+    const stored = await request.get("/api/taxonomies/tag/cookies");
+    const { record } = await stored.json();
+    expect(record.image).toBe("recipe-6-test-image.png");
+    /* Nothing else about the record moved. */
+    expect(record.parent).toBe("dessert");
+    expect(record.pinned).toHaveLength(3);
+
+    /* The edit form shows it, and "Remove Image" takes it away. */
+    await page.getByRole("link", { name: "Edit", exact: true }).click();
+    await page.waitForURL((url) => url.pathname === "/tags/cookies/edit");
+    await markdownEditorReady(page, "description");
+    await expect(page.getByAltText("Existing term image")).toBeVisible();
+    await page.getByLabel("Remove Image", { exact: true }).check();
+    await page.getByRole("button", { name: "Submit", exact: true }).click();
+
+    await page.waitForURL((url) => url.pathname === "/tags/cookies");
+    await expect(
+      page.getByRole("heading", { name: "Cookies", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByTestId("term-image")).toHaveCount(0);
+    const cleared = await request.get("/api/taxonomies/tag/cookies");
+    expect((await cleared.json()).record.image).toBeUndefined();
   });
 });

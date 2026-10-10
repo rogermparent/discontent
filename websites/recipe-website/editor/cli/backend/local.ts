@@ -19,7 +19,10 @@ import { gitSync } from "../../controller/curation/sync";
 import * as groups from "../../controller/curation/groups";
 import { importAndCreate } from "../../controller/curation/importRecipe";
 import { inspectUrl } from "../../controller/curation/inspect";
-import { setRecipeImage } from "../../controller/curation/recipeImage";
+import {
+  setRecipeImage,
+  setTermImage,
+} from "../../controller/curation/recipeImage";
 import * as inventory from "../../controller/curation/inventory";
 import * as recipes from "../../controller/curation/recipes";
 import { reindex } from "../../controller/curation/reindex";
@@ -215,6 +218,10 @@ export function createLocalBackend({
     async updateTerm(slug, raw) {
       await guard();
       return terms.updateTerm(ctx, slug, raw);
+    },
+    async setTermImage(slug, input) {
+      await guard();
+      return setTermImage(ctx, slug, input);
     },
     async deleteTerm(slug, options = {}) {
       await guard();

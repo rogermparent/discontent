@@ -60,7 +60,18 @@ const TermFormSchema = z.object({
     .transform((pinned) =>
       pinned.map((slug) => slug.trim()).filter((slug) => slug.length > 0),
     ),
-  /** `ImageInput`'s hidden field, set when a URL is typed (31e: URL only). */
+  /*
+   * The picture, three ways (32c, D2): the file input, `ImageInput`'s hidden
+   * `imageImportUrl` (set when a URL is typed), and the "Remove Image"
+   * checkbox. An untouched file input still submits a `File` — an empty one —
+   * so a 0-byte file is dropped here as "no file chosen", the test the recipe
+   * and group actions make. The seat decides between them: a file beats a URL
+   * and a clear.
+   */
+  image: z
+    .instanceof(File)
+    .optional()
+    .transform((file) => (file && file.size > 0 ? file : undefined)),
   imageImportUrl: optionalText,
   clearImage: z.coerce.boolean(),
 });
@@ -98,7 +109,9 @@ export function termInputFromForm(
  * stated: a blank description, "None" as parent and no chips all mean
  * *clear* (`null`), never "leave alone". The picture is the exception — the
  * form never shows the stored file's URL, so an empty URL field leaves it, a
- * typed URL replaces it, and "Remove Image" clears it.
+ * typed URL replaces it, and "Remove Image" clears it. A chosen file is not
+ * part of the patch (a `File` is not JSON): `submitTermForm` hands it to the
+ * seat beside it, and there it beats both.
  */
 export function termPatchFromForm(parsed: ParsedTermForm): TermPatch {
   return {
@@ -128,8 +141,9 @@ export function termFormValues(parsed: ParsedTermForm): TermFormValues {
 
 /**
  * Which form field a seat issue's path names: its first segment, so
- * `pinned.1` is the pinned chips. `imageImportUrl` is shown as the image
- * field. `date` and `(root)` have no field on the form and go to the message.
+ * `pinned.1` is the pinned chips. `imageImportUrl` and `image` (an uploaded
+ * file the seat refused, 32c) are both shown as the image field. `date` and
+ * `(root)` have no field on the form and go to the message.
  */
 const FIELD_OF_PATH: Record<string, keyof TermFormErrors> = {
   label: "label",
@@ -137,6 +151,7 @@ const FIELD_OF_PATH: Record<string, keyof TermFormErrors> = {
   description: "description",
   parent: "parent",
   pinned: "pinned",
+  image: "image",
   imageImportUrl: "image",
 };
 
@@ -245,16 +260,24 @@ export async function submitTermForm(
     };
   }
   const values = termFormValues(parsed.data);
+  /* Not schema input: the seat's non-JSON option (32c). */
+  const options = { imageFile: parsed.data.image };
   try {
     const result =
       target.kind === "edit" && (await exists(termPath(ctx, target.slug)))
-        ? await updateTerm(ctx, target.slug, termPatchFromForm(parsed.data))
+        ? await updateTerm(
+            ctx,
+            target.slug,
+            termPatchFromForm(parsed.data),
+            options,
+          )
         : await createTerm(
             ctx,
             termInputFromForm(
               parsed.data,
               target.kind === "edit" ? target.slug : undefined,
             ),
+            options,
           );
     return {
       ok: true,
