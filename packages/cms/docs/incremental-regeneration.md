@@ -1851,7 +1851,8 @@ notFound(); throw e }` blocks collapsed to `if (!recipe) notFound()`. The four w
 Every carrier of tags in the repo — recipes, demo notes, portfolio projects — folds its own
 `string[]` its own way, or not at all, and none of them knows what a tag _means_. F33 makes the
 vocabulary a declaration on the content type: `taxonomies: [{name, field, version, slugOf?,
-project?, terms?}]`. From it the engine derives two aggregates per taxonomy through the existing
+project?}]` (a `terms?` thunk naming the term-record type was declared at 24a, never read,
+and dropped in 32a — T17). From it the engine derives two aggregates per taxonomy through the existing
 kind — `<name>s` (`Array<{slug, label, count}>`, sorted by slug, first label wins) and
 `by-<name>` (`Record<slug, {label, items}>`, items newest-first, `project` deciding the row) —
 appended after the type's declared aggregates by `aggregatesOf(config)`, which is what

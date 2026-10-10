@@ -20,7 +20,7 @@ this week"_, search the web, import recipes **with a citation**, tag them, and
 group them into a **meal plan** the user can see in the site now and later.
 
 Writes land in a content directory — locally the `editor/content` symlink →
-the separate `recipe-content` git repo (437 recipes at the time of writing) —
+the separate `recipe-content` git repo (437 recipes at the time of writing, now 665) —
 and, in a later phase, on a live editor server over HTTP.
 
 Decisions already made with the user (2026-09-03):
@@ -3039,7 +3039,7 @@ Struck rows are done; `backlog.md` names the phase that did each.
   (22h)~~ — done by 23a; ~~**`--image <local file>`**~~ — done by 26b;
   ~~**⌘K rows with thumbnails**~~ — done by 28i and 30c.
 - ~~**README test section rewrite** (22e)~~ — done by 26d.
-- **Tag-vocabulary migration** (22e): the 437 existing recipes carry two tags
+- **Tag-vocabulary migration** (22e): the 437 existing recipes (now 665) carry two tags
   in total; the skill's vocabulary (`vegetarian`, `dinner`, `quick`, …) only
   reaches recipes it imports. A one-off tagging pass would make `tag:` search
   useful for reuse. (Picked up as 24f's backfill, still open.)

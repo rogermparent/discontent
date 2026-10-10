@@ -41,7 +41,7 @@ annotated lists with a cover — and the open question of how much of
 Today the site has tags but no taxonomy: `Recipe.tags` is a bare `string[]`,
 two hand-written aggregates fold it into a tag list and a by-tag map, `/tags`
 and `/tags/[tag]` render those, `tag:` searches it, and the real corpus of 437
-recipes carries **two tags in total**. Groups, portfolio projects and the demo
+recipes (now 665) carries **two tags in total**. Groups, portfolio projects and the demo
 each have their own partial version of the same thing, and nothing shares
 code. This epic makes taxonomy an **engine kind**: a content type declares
 which of its index-value fields is a vocabulary, and the engine derives the
@@ -251,7 +251,7 @@ export interface TaxonomyConfig<
   version: string; // literal, greppable (T1); spec version of BOTH derived aggregates
   slugOf?: (term: string) => string; // default: slugify — identical to the site's tagSlug
   project?: (entry: AggregateEntry<TIndexValue, TKey>) => TItem; // by-term row; default {id}
-  terms?: () => AnyContentTypeConfig; // 24c: the vocabulary's term-record type (thunk, T2)
+  terms?: () => AnyContentTypeConfig; // 24c: the vocabulary's term-record type (thunk, T2) — never read; dropped in 32a (T17)
 }
 // content/types.ts: taxonomies?: TaxonomyConfig<any, any, any>[];
 ```
@@ -476,7 +476,9 @@ groups`; featured `by-date` v2 → v3 at 24c; editor restart at 24c (new
   registry entry). Real repo: one `reindex` after 24b (mandatory, see T5) and
   one after 24c.
 - **Risks → mitigations**: by-term record size after the backfill (~437 × 5 ×
-  ~150 B ≈ 300 KB > the 150 KB threshold → slim `project` first, then F8b);
+  ~150 B ≈ 300 KB > the 150 KB threshold → slim `project` first, then F8b;
+  at the 665 recipes of epic 32 the same estimate is ≈ 500 KB, which 32e
+  measures);
   invalidation fan-out unchanged from F28; an export placeholder per route
   family (T10); `specVersions` churn (the safe direction); tool-name regex
   (additive); `GroupInputSchema` strictness (declare `tags` in input **and**
@@ -582,10 +584,11 @@ pushValue, removeValue}` — a `useState<string[]>` plus a six-line adapter
     evaluation, not a thunk**, so a chain `recipeTagTaxonomy →
 tagTermContentConfig → featuredRecipeContentConfig → recipeContentConfig
 → recipeTagTaxonomy` throws a TDZ `ReferenceError` the first time any
-    module imports a taxonomy module before a content config. `TaxonomyConfig.terms`
-    therefore stays declared and **unread** (24c); site readers name
+    module imports a taxonomy module before a content config. So no taxonomy
+    config points at its term records: `TaxonomyConfig.terms` stayed declared
+    and **unread** from 24c and was dropped in epic 32 (32a); site readers name
     `tagTermContentConfig` directly. `test/tagTerms.test.ts` carries an
-    import-order tripwire; 24f may drop the unused field.
+    import-order tripwire.
 18. **T18 — Every new aggregate _read_ creates an LMDB directory**
     (`environmentCache.ts` opens on read), so each new aggregate is an
     `editor/.gitignore` question: the first `/tags` render on any fixture
@@ -1301,7 +1304,7 @@ recipeTagTaxonomy` would throw a TDZ `ReferenceError` the first time a
   module imports a taxonomy module before a content config (24d's
   `/search/terms` would). Site readers name `tagTermContentConfig` directly;
   `TaxonomyConfig.terms` stays declared and unread (T17; a 24f cleanup
-  candidate).
+  candidate — dropped in 32a).
 - **No site `buildIndexValue` extension.** Nothing in 24c reads
   `description` or `pinned` off the term _index_; the page reads the record
   by slug and the tree already carries `label/parent/image`. 24e decides
@@ -1742,7 +1745,7 @@ draft PR #145 is ready for the user's review and merge; after it lands, the
 real repo needs one `reindex` and the three ignore lines (above).
 
 **Follow-ups filed:** browser form for term records (backlog); `TaxonomyConfig.terms`
-unread — drop or keep at 24f (T17); `unknown_term` in the skill's prose
+unread — drop or keep at 24f (T17; dropped in 32a); `unknown_term` in the skill's prose
 (24e, with the term seats).
 
 ## Verification (epic-level)

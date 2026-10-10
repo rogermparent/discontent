@@ -1,6 +1,5 @@
 import type { Key } from "lmdb";
 import type { AggregateEntry } from "../aggregates/types";
-import type { AnyContentTypeConfig } from "../content/types";
 
 /**
  * One term as the terms aggregate reports it.
@@ -121,15 +120,4 @@ export interface TaxonomyConfig<
    * else.
    */
   project?: (entry: AggregateEntry<TIndexValue, TKey>) => TItem;
-
-  /**
-   * The vocabulary's term-record content type, when it has one — a thunk, for
-   * the reason every reference edge in the engine is one (`ReferenceSpec`).
-   *
-   * Declared here rather than derived so a *site* owns the record type: one
-   * vocabulary is shared by every carrier type that declares this taxonomy, so
-   * exactly one of them can own the records. Nothing in the engine reads it
-   * yet — the term page's record/fold join is 24c's.
-   */
-  terms?: () => AnyContentTypeConfig;
 }

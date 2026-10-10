@@ -20,9 +20,10 @@ import type { TagTerm, TagTermEntryKey, TagTermIndexValue } from "./types";
  * recipeContentConfig → recipeTagTaxonomy` would read a `const` in its temporal
  * dead zone the first time anything imported a taxonomy module before a content
  * config — a `ReferenceError` at import, from a file that looks untouched.
- * `TaxonomyConfig.terms` therefore stays declared and **unread**, and every
- * site reader names this config directly instead. `test/tagTerms.test.ts`
- * carries the import-order tripwire that keeps it that way for 24d.
+ * So no taxonomy config points at its term records (the unread
+ * `TaxonomyConfig.terms` thunk was dropped in 32a), and every site reader
+ * names this config directly instead. `test/tagTerms.test.ts` carries the
+ * import-order tripwire that keeps it that way.
  *
  * The import of `featuredRecipeContentConfig` below is safe for the opposite
  * reason: it is used only inside a thunk, which is the same cycle recipes and

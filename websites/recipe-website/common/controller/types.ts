@@ -251,8 +251,8 @@ export interface FeaturedRecipeEntryValue {
    * No image among them. A group has none of its own until 22h, and its card
    * picks a member's thumbnail at render time through the cached item reads
    * (D13) — a value the index could not carry, because borrowing it would mean
-   * following `items[].recipe`, which is exactly the array reference the
-   * engine's scalar-only machinery cannot address (D3/F32).
+   * reading fields through `items[].recipe`, an array edge the engine follows
+   * for renames since 31d but never borrows through (F32, epic-31 D1).
    */
   groupName?: string;
   groupKind?: GroupKind;
@@ -314,12 +314,12 @@ export type GroupItemRef =
  * One line of a group: what it points at, and the two free-text fields around
  * it.
  *
- * Both kinds of slug may dangle. Groups declare no `references` (D3) — the
- * engine's reference machinery is scalar-only and cannot follow
- * `items[].recipe` or `items[].group` — so a rename or a delete on either side
- * leaves the slug behind and the detail page renders "Recipe not found: <slug>"
- * / "Group not found: <slug>" rather than 404ing the whole group (T31/T32).
- * Array references are engine follow-up F32.
+ * A rename follows: `groupContentConfig` declares array `references` on
+ * `items[].recipe` and `items[].group` (F32, shipped in 31d), so renaming a
+ * recipe or a sub-group rewrites every item that names it, in the rename's
+ * commit. A delete does not — the slug dangles, and the detail page renders
+ * "Recipe not found: <slug>" / "Group not found: <slug>" rather than 404ing the
+ * whole group (T31/T32). The edges borrow no fields (`fields: []`, epic-31 D1).
  */
 export type GroupItem = WithItemText<GroupItemRef>;
 
