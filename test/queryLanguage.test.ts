@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { ingredientOptions } from "recipe-website-common/components/SearchForm/QueryAutocomplete";
 import {
+  anyLineMatcher,
   appendFilterTerm,
   completionsAt,
+  fieldMatches,
   countFilterTerms,
   cycleTermAt,
   filterTerms,
@@ -1273,5 +1276,151 @@ describe("replaceSpan — accepting a completion", () => {
     expect(next).toBe("chocolate tag:");
     expect(parseQuery(next).filter).toBeUndefined();
     expect(parseQuery(next).text).toBe("chocolate");
+  });
+});
+
+/**
+ * 32f. The ingredient completion: the caret detection it keys off, the
+ * many-line matcher it checks candidates with, and the rows it offers.
+ */
+describe("completionsAt — inside an ingredient: value", () => {
+  function at(marked: string) {
+    const caret = marked.indexOf("|");
+    return completionsAt(marked.replace("|", ""), caret);
+  }
+
+  it("reads the operand of ingredient:, bare, half-typed and negated", () => {
+    expect(at("ingredient:|")).toEqual({
+      kind: "operand",
+      field: "ingredient",
+      prefix: "",
+      span: { start: 0, end: 11 },
+    });
+    expect(at("tag:dessert ingredient:cho|")).toEqual({
+      kind: "operand",
+      field: "ingredient",
+      prefix: "cho",
+      span: { start: 12, end: 26 },
+    });
+    expect(at("-ingredient:cho|")).toMatchObject({
+      field: "ingredient",
+      prefix: "cho",
+      span: { start: 1, end: 15 },
+    });
+    expect(at('ingredient:"lime j|"')).toMatchObject({
+      field: "ingredient",
+      prefix: "lime j",
+    });
+  });
+
+  it("is a field name, not an operand, before the colon", () => {
+    expect(at("ingred|")).toMatchObject({ kind: "field", prefix: "ingred" });
+  });
+});
+
+describe("anyLineMatcher — fieldMatches over many lines", () => {
+  const lines = [
+    "2 cups cherries, pitted",
+    "1 oz fresh lime juice",
+    "Crème fraîche",
+    "half-and-half",
+    "4 eggs",
+  ];
+  const matches = anyLineMatcher(lines);
+
+  it("gives fieldMatches' answer for every needle", () => {
+    const needles = [
+      "cherr",
+      "cherry",
+      "lime juice",
+      "lime  juice",
+      "juice",
+      "creme",
+      "fraiche",
+      "half-and",
+      "and-half",
+      "and",
+      "egg",
+      "eggs",
+      "pitted",
+      "itted",
+      "",
+    ];
+    for (const needle of needles) {
+      expect(matches(needle), needle).toBe(
+        lines.some((line) => fieldMatches(line, needle)),
+      );
+    }
+  });
+
+  it("finds a word start anywhere, and a multi-word needle as a substring", () => {
+    expect(matches("cherry")).toBe(false);
+    expect(matches("cherr")).toBe(true);
+    expect(matches("lime juice")).toBe(true);
+    expect(matches("fresh juice")).toBe(false);
+  });
+});
+
+describe("ingredientOptions — the rows an ingredient: value offers", () => {
+  const lines = [
+    "2 oz vodka",
+    "1 oz fresh lime juice",
+    "1 oz lime cordial",
+    "2 cups cherries",
+    "1 oz aperitif (Gnista)",
+  ];
+  const suggestions = {
+    names: [
+      "vodka",
+      "lime juice",
+      "lime cordial",
+      "cherry",
+      "gnista",
+      "Gnista",
+    ],
+    matches: anyLineMatcher(lines),
+  };
+  const labels = (prefix: string) =>
+    ingredientOptions(prefix, suggestions).map((option) => option.label);
+
+  it("offers names by folded prefix, in the order given", () => {
+    expect(labels("li")).toEqual(["lime juice", "lime cordial"]);
+    expect(labels("LIME ")).toEqual(["lime juice", "lime cordial"]);
+    expect(labels("")).toEqual([
+      "vodka",
+      "lime juice",
+      "lime cordial",
+      "gnista",
+    ]);
+  });
+
+  it("drops a name the lines would not match as written", () => {
+    // `cherry` is the normalized name; no line has a word starting with it.
+    expect(labels("cher")).toEqual([]);
+  });
+
+  it("drops a name already typed, and folds duplicates to the first", () => {
+    expect(labels("vodka")).toEqual([]);
+    expect(labels("gn")).toEqual(["gnista"]);
+  });
+
+  it("writes a quoted ingredient: term that filters to those lines", () => {
+    const [option] = ingredientOptions("lime j", suggestions);
+    expect(option.replacement).toBe('ingredient:"lime juice"');
+    const { filter } = parseQuery(option.replacement);
+    expect(matchesFilter({ name: "A", ingredients: lines }, filter)).toBe(true);
+    expect(
+      matchesFilter({ name: "B", ingredients: ["lime cordial"] }, filter),
+    ).toBe(false);
+  });
+
+  it("stops at eight rows", () => {
+    const many = Array.from({ length: 20 }, (_, i) => `salt ${i}`);
+    expect(
+      ingredientOptions("salt", {
+        names: many,
+        matches: anyLineMatcher(many),
+      }),
+    ).toHaveLength(8);
   });
 });
