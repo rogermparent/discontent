@@ -5,8 +5,10 @@ import {
   getAggregateDatabase,
   getAggregateDirectory,
   readAggregateRecord,
+  readKeyedEntries,
+  readKeyedEntry,
 } from "./database";
-import type { AggregateConfig, AggregateOptions } from "./types";
+import type { AggregateConfig, AggregateOptions, KeyedEntryOf } from "./types";
 
 /**
  * The stored value, in O(1) — one key read, no corpus load.
@@ -58,7 +60,66 @@ export async function readAggregate<
   const specHash = computeAggregateSpecHash(
     aggregateConfig as unknown as AggregateConfig<never, Key, never, never>,
   );
-  return record.specHash === specHash ? record.value : null;
+  if (record.specHash !== specHash) return null;
+  /*
+   * A keyed aggregate's record is only its header (32e); the value is the
+   * keys beside it, put back together. Every whole-value caller keeps working,
+   * and pays for every key, which is what `readAggregateKey` is for.
+   */
+  return aggregateConfig.keyed
+    ? (readKeyedEntries(db) as TValue)
+    : record.value;
+}
+
+/**
+ * One key of a **keyed** aggregate (32e), in O(1): the header, to check the
+ * spec, then the one record. Nothing else is decoded.
+ *
+ * `null` both when the aggregate was never folded (or was folded under
+ * another spec, as `readAggregate` explains) and when it has no such key. A
+ * caller that needs to tell those apart reads the whole value or a sibling
+ * aggregate. A term page only asks "what is under this slug".
+ *
+ * @example
+ * ```ts
+ * const cookies = await readAggregateKey({
+ *   config: noteConfig,
+ *   aggregateConfig: byTermAggregate(noteTagTaxonomy),
+ *   key: "cookies",
+ * });
+ * ```
+ */
+export async function readAggregateKey<
+  TIndexValue,
+  TKey extends Key,
+  TAccumulator,
+  TValue,
+>(
+  options: AggregateOptions<TIndexValue, TKey, TAccumulator, TValue> & {
+    key: string;
+  },
+): Promise<KeyedEntryOf<TValue> | null> {
+  const { config, aggregateConfig, contentDirectory, key } = options;
+  if (!aggregateConfig.keyed) {
+    throw new Error(
+      `readAggregateKey: aggregate "${aggregateConfig.name}" is not keyed`,
+    );
+  }
+  if (
+    !environmentExists(
+      getAggregateDirectory(config, aggregateConfig, contentDirectory),
+    )
+  ) {
+    return null;
+  }
+  const db = getAggregateDatabase(config, aggregateConfig, contentDirectory);
+  const record = readAggregateRecord(db);
+  if (!record) return null;
+  const specHash = computeAggregateSpecHash(
+    aggregateConfig as unknown as AggregateConfig<never, Key, never, never>,
+  );
+  if (record.specHash !== specHash) return null;
+  return readKeyedEntry<KeyedEntryOf<TValue>>(db, key) ?? null;
 }
 
 export default readAggregate;

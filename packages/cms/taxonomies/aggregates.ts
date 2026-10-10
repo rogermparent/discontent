@@ -20,8 +20,12 @@ import type {
  *
  * `test/specVersions.test.ts` pins this module's source, so an edit here has to
  * be looked at before it lands (T1).
+ *
+ * `"2"` since 32e: the by-term aggregate became keyed, so its stored layout
+ * moved. Every site's taxonomy values read as `null` until a reindex or that
+ * type's next write rewrites them (24-T5).
  */
-export const TAXONOMY_FOLD_VERSION = "1";
+export const TAXONOMY_FOLD_VERSION = "2";
 
 /** What both folds store under one term slug while accumulating. */
 interface TermAccumulator {
@@ -46,8 +50,36 @@ function specVersion(taxonomy: Pick<TaxonomyConfig, "version">): string {
  *   dropped — punctuation-only terms have no page to be on.
  * - Within one carrier, duplicate slugs collapse: `count` is a count of
  *   carriers, and a carrier must appear once in a term's `items`.
+ *
+ * **Memoised per index value and declaration** (32e). `updateAggregates`
+ * hands both folds the same entry object, so without this every carrier's
+ * terms were normalised and slugged twice per pass — about 7.7 ms of each
+ * fold's time on the real corpus, most of an ordinary write's fold. A
+ * `WeakMap` on the value object holds nothing past the walk that decoded it.
+ * The returned map is shared between the folds, and neither mutates it.
  */
+const termsCache = new WeakMap<object, WeakMap<object, Map<string, string>>>();
+
 function termsOf<TIndexValue>(
+  taxonomy: Pick<TaxonomyConfig<TIndexValue>, "field" | "slugOf">,
+  value: TIndexValue,
+): Map<string, string> {
+  if (!value || typeof value !== "object")
+    return computeTermsOf(taxonomy, value);
+  let byTaxonomy = termsCache.get(value);
+  if (!byTaxonomy) {
+    byTaxonomy = new WeakMap();
+    termsCache.set(value, byTaxonomy);
+  }
+  let terms = byTaxonomy.get(taxonomy);
+  if (!terms) {
+    terms = computeTermsOf(taxonomy, value);
+    byTaxonomy.set(taxonomy, terms);
+  }
+  return terms;
+}
+
+function computeTermsOf<TIndexValue>(
   taxonomy: Pick<TaxonomyConfig<TIndexValue>, "field" | "slugOf">,
   value: TIndexValue,
 ): Map<string, string> {
@@ -116,10 +148,17 @@ export function termsAggregate<TIndexValue, TKey extends Key>(
  * The inverted index: every term mapped to the carriers naming it.
  *
  * Named `by-${taxonomy.name}`, again matching what the recipe site already has.
- * One record for the whole vocabulary — the corpus-document trade (F8): a write
- * that moves any term's list invalidates every term page, and the value grows
- * as `carriers x terms-per-carrier`. `project` is the lever that keeps it
- * small, and F8b's ~150 KB threshold is what eventually partitions it.
+ * The value grows as `carriers x terms-per-carrier`, and `project` is the lever
+ * that keeps it small.
+ *
+ * **Keyed since 32e (24g):** one record per term rather than one for the whole
+ * vocabulary. Until then it was the corpus-document trade (F8): a write that
+ * moved any term's list rewrote and re-hashed all of it and invalidated every
+ * term page. The real corpus crossed F8b's ~150 KB threshold at 665 recipes
+ * (200,805 B, 172 terms, `drink` on 208). Now a write rewrites and expires
+ * only the terms whose rows moved, and a term page reads one term
+ * (`readAggregateKey`, `readKey`), while `readAggregate` still returns the
+ * whole map.
  *
  * The walk is ascending by content-index key, which for every config in this
  * repo is oldest first, so each list is reversed in `finalize` to arrive
@@ -142,6 +181,7 @@ export function byTermAggregate<TIndexValue, TKey extends Key, TItem>(
   return {
     name: `by-${taxonomy.name}`,
     version: specVersion(taxonomy),
+    keyed: true,
     initial: () => new Map<string, TaxonomyByTermEntry<TItem>>(),
     fold: (byTerm, entry) => {
       const terms = termsOf(taxonomy, entry.value);

@@ -25,9 +25,11 @@ export interface TaxonomyByTermEntry<TItem = unknown> {
 /**
  * The inverted index, keyed by term slug.
  *
- * One record holding every term's list — the corpus-document trade F8 argues
- * for and F8b would eventually partition. See `TaxonomyConfig.project` for the
- * lever that keeps it small.
+ * Stored one record per term since 32e (a keyed aggregate), where it was one
+ * record holding every term's list — the corpus-document trade F8 argued for,
+ * until the real corpus crossed F8b's ~150 KB threshold. This type is still
+ * the whole value, as `readAggregate` reassembles it. See
+ * `TaxonomyConfig.project` for the lever that keeps each row small.
  */
 export type TaxonomyByTerm<TItem = unknown> = Record<
   string,
