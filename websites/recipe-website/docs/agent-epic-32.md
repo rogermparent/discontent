@@ -1015,8 +1015,11 @@ fixture copy). `specVersions` didn't move.
   site config in `common/`: Anything `""`, Food `-tag:drink`, Drinks
   `tag:drink`. The kind lives in `?q=` like everything else.
   - `withKind` takes every kind's top-level terms out, puts the chosen one in
-    front and keeps the picks and words. A remaining top-level `OR` is
-    wrapped in parentheses.
+    front and keeps the words. A remaining top-level `OR` is wrapped in
+    parentheses. Tag picks are kept unless the page's `keepTag` says nothing
+    in the corpus carries them under the new kind (review fix): Drinks →
+    Food drops `tag:sour` rather than landing on an empty
+    `-tag:drink tag:sour`.
   - `kindOfQuery` reads the kind back: the most specific kind whose terms are
     all ANDed at the top level. A `tag:drink` inside an `OR` is the person's,
     not a kind.
@@ -1105,13 +1108,31 @@ fixture copy). `specVersions` didn't move.
   - same non-generic head on two longer names, except ambiguous heads:
     pepper, bean, leaf, flake, paste, chip, seed, seasoning, salt, spice,
     bitters, vermouth;
-  - class-noun drop: parmesan ↔ parmesan cheese, garlic → garlic powder.
-    vinegar, wine, noodle, squash and seed are out: rice ≠ rice vinegar,
+  - class-noun drop, **one way**: the shorter name on hand stands in for the
+    line with its kind (garlic → garlic powder, parmesan → parmesan cheese,
+    basmati → basmati rice), never the reverse. Only cheese also goes the
+    other way. `CLASS_NOUNS` is cheese, chili, rice, pasta and powder.
+    Vinegar, wine, noodle, squash and seed are out: rice ≠ rice vinegar,
     spaghetti ≠ spaghetti squash;
-  - typo: one word one edit apart, 5+ letters, re-run through the strict
-    rules. Allowed only when the item's word is one the corpus never uses or
-    the line's word is rare (≤ 2), and never for known pairs (cherry/sherry,
-    tomato/potato, mustard/custard …).
+  - typo: one word one edit apart, re-run through the strict rules. **Both
+    words 6+ letters with the same first letter** (review fix). It is
+    allowed only when the item's word is one the corpus never uses or the
+    line's word is rare (≤ 2), and never for known pairs (cherry/sherry,
+    tomato/potato, mustard/custard, fresco/fresno …). Mozarella, parmesean,
+    tomatoe and chesse still match.
+
+  **Review fixes** (first push of #206). The class-noun rule went both ways,
+  and pepper, extract and lettuce were class nouns, so the real corpus had
+  false "had"s:
+  - lemon pepper or lemon extract on hand met whole-lemon lines (Whiskey
+    Smash, Hot Toddy, the sangrias);
+  - lemon met lemon pepper, and butter met "head butter lettuce";
+  - almond extract met sliced almonds;
+  - garlic powder met 88 fresh-garlic lines.
+
+  At five letters with any first letter, the typo rule also matched real
+  words: capers ↔ paper, Lillet ↔ (chicken thigh / anchovy) fillets,
+  basil/basic, sheet/sheep, grape/grade. Each pair is now a negative test.
 
   The no-alcohol guard and `GENERIC_HEADS` hold: "juice" is never close to
   "lime juice", and "lemon juice" is never close to "lime juice".
@@ -1121,6 +1142,40 @@ fixture copy). `specVersions` didn't move.
   `make-drinks`' specs and every existing matcher test pass unchanged.
   Three label tests changed on purpose: "green onion/scallion" is one name
   now, and "Salt and pepper" is two.
+
+- **Speed** (review fix). The first push called `closeTo` for every unmet
+  line × every item (~2 µs a pair), toggle or not: ~10× main's time. The fix
+  has three parts:
+  - **Answers by requirement signature.** Strict answers (`met`) and close
+    answers (`nearest`) are cached by requirement signature, since lines
+    repeat across the corpus (6,496 requirements, ~1,950 distinct). The
+    caches are kept with the prepared corpus (a `WeakMap`) while the
+    inventory and staples stay the same, so retyping the scope, which is the
+    page's per-keystroke rerun, judges no line twice. The toggle only
+    re-buckets.
+  - **`CloseIndex` over the items.** Items are indexed by close group, pair,
+    head, words and `<first letter>:<length>`, so `closeTo` sees only the
+    candidates: 1,840 calls per cold run at 40 items, not one per unmet line
+    per item. Line keys are
+    memoized per name object.
+  - **`useDeferredValue`.** `/make` computes the scope from a deferred copy
+    of the query, so typing stays responsive while the results catch up.
+
+  `measure-makeable.ts --bench N` times `analyzeMakeable` over all 665 real
+  recipes with the N most-used names as the inventory. "Cold" is a new list
+  each run; "warm" is the same list again, as when the scope changes.
+  Medians in ms on this workstation:
+
+  | items | main   | first push | now, cold | now, warm |
+  | ----- | ------ | ---------- | --------- | --------- |
+  | 40    | ~20–33 | ~327       | 32        | 7.8       |
+  | 80    | ~49–57 | ~481       | 44        | 6.9       |
+  | 150   | ~50–64 | ~570       | 68        | 6.2       |
+
+  Main's figures are the range of two runs on a shared machine.
+  Cold is now 0.9–1.1× main and warm is 4–8× faster.
+  `makeable.test.ts` checks that a cached answer equals a fresh one, and that
+  a changed list or staples is judged afresh.
 
 **Default query `""`** for `inventory_makeable`, `recipes inventory make` and
 `/api/inventory/make`; `tag:drink` still narrows. Rows gain
@@ -1165,6 +1220,13 @@ swapped in for "before").
   No drink got further away. The close matches are white rum for dark, aged
   and pineapple rum.
 
+  Re-measured after the review fixes on a fresh clone (since deleted): both
+  tables are unchanged, because none of the removed rules fired for these
+  two pantries. A probe pantry of the review's pairs (lemon pepper, lemon
+  and almond extract, garlic powder, capers, Lillet, lemon, butter, basil,
+  onion, olive oil, eggs) now gives only olive oil → vegetable oil and eggs →
+  yolk as close matches.
+
 **Tests.**
 
 - `makeable.test.ts` "food (32j)":
@@ -1193,11 +1255,22 @@ swapped in for "before").
   drilling side → quick, a close match shown and turned off (with axe), the
   salt staple removed and reset, and courgette / "cut into" read loosely.
 
+- **The `make-page-e2e.png` baseline moved** (1280×2214 → 1280×2280). The
+  page gained the kind switch row, the "Count close matches" line and the
+  folded "Assume I always have (4)" box. CI shard 4 failed on exactly that
+  (3% of pixels). The new baseline is CI's own `make-page-actual.png`, taken
+  from the run's blob report: byte-identical across its three retries, and
+  checked by eye. The review fixes don't change this page; its drinks
+  inventory has no close lines. There is no mobile variant: `visual.spec`
+  runs only on `e2e`.
+
 **Gates.**
 
 - typechecks: recipe-editor and the export (`tsc --noEmit`) ✅, after
-  merging origin/main at 32c (#203);
-- vitest 1134/1134 (56 files), under the heavy slot, after the merge;
+  merging origin/main at 32c (#203). Review round: re-run after merging
+  origin/main at 32d (#205);
+- vitest 1134/1134 (56 files), under the heavy slot, after the merge.
+  Review round: VITEST2;
 - Playwright: the local `make.spec` + `search-autocomplete.spec` run
   (`PLAYWRIGHT_BUILD=1`) sat in the heavy slot for ~28 minutes waiting for
   memory, and the orchestrator killed it. An orphaned child then ran all

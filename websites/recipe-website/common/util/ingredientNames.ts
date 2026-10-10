@@ -993,22 +993,26 @@ export const CLOSE_HEAD_EXCLUDED = new Set([
 ]);
 
 /**
- * Kinds a name may carry or drop: `parmesan` is `parmesan cheese`, `vanilla`
- * is close to `vanilla extract`, `garlic` to `garlic powder`. Only kinds
- * whose modifier is rarely an ingredient of its own: `vinegar`, `wine`,
- * `noodle`, `squash` and `seed` are out, or rice would be close to rice
- * vinegar and spaghetti to spaghetti squash.
+ * Kinds a line may carry that a shorter name on hand stands in for:
+ * `parmesan` for `parmesan cheese`, `garlic` for `garlic powder`, `basmati`
+ * for `basmati rice`. One way only (32j review): garlic powder on hand is no
+ * stand-in for fresh garlic, almond extract none for sliced almonds. Only
+ * kinds whose modifier is rarely an ingredient of its own: `vinegar`,
+ * `wine`, `noodle`, `squash` and `seed` are out (rice ≠ rice vinegar,
+ * spaghetti ≠ spaghetti squash), and so are `pepper` (lemon ≠ lemon
+ * pepper, and it names different things — see `CLOSE_HEAD_EXCLUDED`),
+ * `extract` and `lettuce` (butter ≠ butter lettuce).
  */
 export const CLASS_NOUNS = new Set([
   "cheese",
-  "pepper",
   "chili",
-  "lettuce",
   "rice",
   "pasta",
   "powder",
-  "extract",
 ]);
+
+/** The one kind that also works the other way: `parmesan cheese` for `parmesan`. */
+export const CLASS_NOUNS_EITHER_WAY = new Set(["cheese"]);
 
 /**
  * Words one edit apart that are different things, sorted pairs joined with
@@ -1027,5 +1031,6 @@ export const CONFUSABLE_WORDS = new Set(
     ["steak", "steam"],
     ["lager", "later"],
     ["cider", "rider"],
+    ["fresco", "fresno"],
   ].map((pair) => [...pair].sort().join("|")),
 );

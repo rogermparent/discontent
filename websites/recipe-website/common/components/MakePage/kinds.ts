@@ -104,16 +104,30 @@ function removeTopLevel(
 
 /**
  * `query` switched to `kind`: every kind's terms come out, `kind`'s go in
- * front, and everything else — tag picks, free text — stays.
+ * front, and everything else — free text, and the tag picks — stays.
+ *
+ * `keepTag` (32j review) is asked about each top-level tag pick: answer
+ * false to drop one with nothing under the new kind, so Drinks → Food
+ * doesn't land on `-tag:drink tag:sour`, an empty scope.
  */
 export function withKind(
   query: string,
   kind: MakeKind,
   kinds: MakeKind[] = MAKE_KINDS,
+  keepTag?: (tag: string, kind: MakeKind) => boolean,
 ): string {
   const kindTerms = kinds.flatMap((each) => topLevelTerms(each.query));
-  let rest = removeTopLevel(query, (term) =>
-    kindTerms.some((kindTerm) => sameTerm(term, kindTerm)),
+  const isKindTerm = (term: FilterTerm) =>
+    kindTerms.some((kindTerm) => sameTerm(term, kindTerm));
+  let rest = removeTopLevel(
+    query,
+    (term) =>
+      isKindTerm(term) ||
+      (!!keepTag &&
+        !term.negated &&
+        term.node.type === "text" &&
+        term.node.field === "tag" &&
+        !keepTag(term.node.value, kind)),
   );
   /* `-tag:drink a OR b` would bind the kind to `a` alone. */
   if (rest && parseQuery(rest).filter?.type === "or") rest = `(${rest})`;

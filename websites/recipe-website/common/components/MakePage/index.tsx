@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useId, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@discontent/component-library/components/ui/button";
@@ -38,7 +45,13 @@ import {
   useMakeSettings,
 } from "./useInventory";
 import { KindSwitch } from "./KindSwitch";
-import { kindOfQuery, MAKE_KINDS, withKind, withoutTagPicks } from "./kinds";
+import {
+  kindOfQuery,
+  MAKE_KINDS,
+  withKind,
+  withoutTagPicks,
+  type MakeKind,
+} from "./kinds";
 
 /**
  * A first visit's scope: every recipe (28g). It was `tag:drink` while drinks
@@ -167,9 +180,12 @@ export function MakePage({
     () => buildTagExpansion(tagOptionList),
     [tagOptionList],
   );
+  /* 32j review: the scope box reruns the whole analysis; deferring it keeps
+   * typing responsive while the results catch up. */
+  const scopeQuery = useDeferredValue(query);
   const scoped = useMemo(
-    () => scopeRecipes(corpus, query, tagResolver),
-    [corpus, query, tagResolver],
+    () => scopeRecipes(corpus, scopeQuery, tagResolver),
+    [corpus, scopeQuery, tagResolver],
   );
   const { countClose, staples } = settings;
   const analysis = useMemo(
@@ -200,13 +216,13 @@ export function MakePage({
   );
   /* 32j: the top row counts the scope without the tag picks, so it holds
    * still; the Refine row drills down within the scope itself. */
-  const baseQuery = useMemo(() => withoutTagPicks(query), [query]);
+  const baseQuery = useMemo(() => withoutTagPicks(scopeQuery), [scopeQuery]);
   const baseUsage = useMemo(
     () =>
-      baseQuery === query
+      baseQuery === scopeQuery
         ? scopeUsage
         : subtreeUsage(scopeRecipes(corpus, baseQuery, tagResolver), tagIndex),
-    [baseQuery, query, scopeUsage, corpus, tagResolver, tagIndex],
+    [baseQuery, scopeQuery, scopeUsage, corpus, tagResolver, tagIndex],
   );
   const refinements = useMemo(
     () =>
@@ -232,15 +248,27 @@ export function MakePage({
       }),
     [corpus, tagResolver],
   );
+  /* Switching kind drops a tag pick with nothing under the new kind. */
+  const keepTag = useCallback(
+    (tag: string, kind: MakeKind) =>
+      scopeRecipes(corpus, toggleTagTerm(kind.query, tag), tagResolver).length >
+      0,
+    [corpus, tagResolver],
+  );
+  const switchKind = useCallback(
+    (from: string, kind: MakeKind) => withKind(from, kind, MAKE_KINDS, keepTag),
+    [keepTag],
+  );
   const kindCounts = useMemo(
     () =>
       new Map(
         MAKE_KINDS.map((kind) => [
           kind.id,
-          scopeRecipes(corpus, withKind(query, kind), tagResolver).length,
+          scopeRecipes(corpus, switchKind(scopeQuery, kind), tagResolver)
+            .length,
         ]),
       ),
-    [corpus, query, tagResolver],
+    [corpus, scopeQuery, tagResolver, switchKind],
   );
 
   let body;
@@ -360,7 +388,7 @@ export function MakePage({
               kinds={MAKE_KINDS}
               current={currentKind}
               counts={kindCounts}
-              onChange={(kind) => setQuery(withKind(query, kind))}
+              onChange={(kind) => setQuery(switchKind(query, kind))}
             />
           )}
           <TagSearch

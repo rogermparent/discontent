@@ -438,6 +438,23 @@ describe("food (32j)", () => {
     expect(close("parmesan", "1/2 cup grated parmesan cheese")).toBe(true);
     expect(close("garlic", "1 tsp garlic powder")).toBe(true);
     expect(close("mozarella", "1 cup shredded mozzarella")).toBe(true);
+    expect(close("parmesean", "1/2 cup parmesan")).toBe(true);
+    expect(close("tomatoe", "2 tomatoes, diced")).toBe(true);
+    expect(close("chesse", "1 cup grated cheese")).toBe(true);
+    /* Cheese alone goes both ways. */
+    expect(close("parmesan cheese", "1/2 cup grated parmesan")).toBe(true);
+  });
+
+  it("lets only the shorter name stand in for a line with a kind (32j review)", () => {
+    /* The real corpus's false "had"s, each the wrong way round. */
+    expect(close("garlic powder", "3 cloves garlic, minced")).toBe(false);
+    expect(close("almond extract", "1/2 cup sliced almonds")).toBe(false);
+    expect(close("lemon extract", "1 lemon, quartered")).toBe(false);
+    expect(close("lemon pepper", "1/2 lemon")).toBe(false);
+    expect(close("lemon", "1 tsp lemon pepper")).toBe(false);
+    expect(close("butter", "1 head butter lettuce")).toBe(false);
+    expect(close("vanilla", "1 tsp vanilla extract")).toBe(false);
+    expect(close("jalapeno", "1 jalapeno pepper")).toBe(false);
   });
 
   it("is never close on a vague or ambiguous word, or the wrong way round", () => {
@@ -466,6 +483,18 @@ describe("food (32j)", () => {
     /* Known pairs never, whatever the counts. */
     expect(close("cherries", "1 oz sherry")).toBe(false);
     expect(close("custard", "1 tbsp mustard")).toBe(false);
+  });
+
+  it("never takes a different first letter or a short word for a typo (32j review)", () => {
+    /* The real corpus's false matches, and the short pairs. */
+    expect(close("capers", "Parchment paper")).toBe(false);
+    expect(close("Lillet", "6 chicken thigh fillets")).toBe(false);
+    expect(close("Lillet", "4 anchovy fillets")).toBe(false);
+    expect(close("basil", "1 tsp basic seasoning")).toBe(false);
+    expect(close("sheet", "1 lb sheep cheese")).toBe(false);
+    expect(close("grape", "1 cup grade A maple syrup")).toBe(false);
+    expect(close("queso fresco", "1 fresno chile")).toBe(false);
+    expect(close("fresco", "1 fresno")).toBe(false);
   });
 
   const dinner: MakeRecipe[] = [
@@ -557,6 +586,38 @@ describe("food (32j)", () => {
     ]);
     expect(slugs(result.canMake)).toEqual(["roasted-vegetables"]);
     expect(result.canMake[0].close).toEqual([]);
+  });
+
+  it("answers the same from its cache, and forgets it when the list changes", () => {
+    const preparedDinner = prepareCorpus(dinner);
+    const view = (result: ReturnType<typeof analyzeMakeable>) =>
+      [result.canMake, result.oneAway, result.twoAway].map((bucket) =>
+        bucket.map((match) => [
+          match.recipe.slug,
+          match.missing.map(requirementLabel),
+          match.close.map(({ item }) => item),
+        ]),
+      );
+    const items = ["onion", "rice", "vegetable stock", "butter"];
+    const first = analyzeMakeable(dinner, preparedDinner, items);
+    expect(view(analyzeMakeable(dinner, preparedDinner, items))).toEqual(
+      view(first),
+    );
+    /* The toggle reuses the answers, but buckets them its own way. */
+    const strict = analyzeMakeable(dinner, preparedDinner, items, {
+      countClose: false,
+    });
+    expect(strict.canMake).toEqual([]);
+    /* A changed list or staples is judged afresh. */
+    const fewer = analyzeMakeable(dinner, preparedDinner, ["onion"]);
+    expect(fewer.canMake).toEqual([]);
+    const noSalt = analyzeMakeable(dinner, preparedDinner, items, {
+      staples: [],
+    });
+    expect(noSalt.canMake).toEqual([]);
+    expect(view(analyzeMakeable(dinner, preparedDinner, items))).toEqual(
+      view(first),
+    );
   });
 
   it("leaves the strict drink buckets alone", () => {

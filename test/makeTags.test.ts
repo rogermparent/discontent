@@ -229,6 +229,27 @@ describe("the kind switch (32j)", () => {
     );
   });
 
+  it("drops a pick with nothing under the new kind (32j review)", () => {
+    /* `sour` exists only among drinks; `quick` in both. */
+    const has: Record<string, string[]> = {
+      food: ["quick", "side"],
+      drinks: ["quick", "sour"],
+      any: ["quick", "side", "sour"],
+    };
+    const keepTag = (tag: string, kind: (typeof MAKE_KINDS)[number]) =>
+      has[kind.id].includes(tag);
+    expect(
+      withKind("tag:drink tag:sour tag:quick", food, MAKE_KINDS, keepTag),
+    ).toBe("-tag:drink tag:quick");
+    expect(withKind("tag:drink tag:sour", anything, MAKE_KINDS, keepTag)).toBe(
+      "tag:sour",
+    );
+    /* Excluded tags and free words are never the kind's to drop. */
+    expect(withKind("tag:sour -tag:side lime", food, MAKE_KINDS, keepTag)).toBe(
+      "-tag:drink -tag:side lime",
+    );
+  });
+
   it("drops the tag picks for the top row, never the kind", () => {
     expect(withoutTagPicks("-tag:drink tag:side tag:quick")).toBe("-tag:drink");
     expect(withoutTagPicks("tag:drink tag:highball")).toBe("tag:drink");

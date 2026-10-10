@@ -20,6 +20,7 @@ import { requirementLabel } from "recipe-website-common/util/ingredientNames";
 import {
   analyzeMakeable,
   prepareCorpus,
+  suggestNames,
   type MakeRecipe,
   type RecipeMatch,
 } from "recipe-website-common/util/makeable";
@@ -32,8 +33,12 @@ async function main() {
   const kind = kindAt >= 0 ? args[kindAt + 1] : "food";
   const strict = args.includes("--strict");
   const list = args.includes("--list");
+  const benchArg = args.indexOf("--bench") + 1;
   const pantry = args.filter(
-    (arg, i) => !arg.startsWith("--") && !(kindAt >= 0 && i === kindAt + 1),
+    (arg, i) =>
+      !arg.startsWith("--") &&
+      !(kindAt >= 0 && i === kindAt + 1) &&
+      !(benchArg > 0 && i === benchArg),
   );
 
   const dataDirectory = resolve(contentDirectory, "recipes", "data");
@@ -71,6 +76,33 @@ async function main() {
         : !isDrink(recipe),
   );
   const prepared = prepareCorpus(corpus);
+  const benchAt = args.indexOf("--bench");
+  if (benchAt >= 0) {
+    /* `--bench N`: time `analyzeMakeable` over every recipe with the N most
+     * used names as the inventory — what the page reruns per keystroke. */
+    const size = Number(args[benchAt + 1]) || 40;
+    const items = suggestNames(prepared).slice(0, size);
+    /* Cold: a new inventory each run (an unmatched extra item), so no answer
+     * is reused. Warm: the same inventory again, as when the scope changes. */
+    const median = (run: (i: number) => unknown) => {
+      for (let i = 0; i < 3; i++) run(-i - 1);
+      const times: number[] = [];
+      for (let i = 0; i < 11; i++) {
+        const start = performance.now();
+        run(i);
+        times.push(performance.now() - start);
+      }
+      return times.sort((a, b) => a - b)[5].toFixed(1);
+    };
+    const cold = median((i) =>
+      analyzeMakeable(corpus, prepared, [...items, `zzz-${i}`]),
+    );
+    const warm = median(() => analyzeMakeable(corpus, prepared, items));
+    console.log(
+      `bench ${size} items over ${corpus.length} recipes: cold ${cold} ms, warm ${warm} ms`,
+    );
+    return;
+  }
   const analysis = analyzeMakeable(scoped, prepared, pantry, {
     countClose: !strict,
   });

@@ -9,6 +9,7 @@
 import {
   aliasKey,
   CLASS_NOUNS,
+  CLASS_NOUNS_EITHER_WAY,
   CLOSE_GROUPS,
   CLOSE_HEAD_EXCLUDED,
   CLOSE_PAIRS,
@@ -158,6 +159,12 @@ export type WordCounts = Map<string, number>;
 /** A word seen this often or less may be the corpus's own typo. */
 const RARE_WORD = 2;
 
+/**
+ * Shortest word the typo rule touches (32j review): at five letters too many
+ * real words sit one edit apart — basil/basic, sheet/sheep, grape/grade.
+ */
+const MIN_TYPO_WORD = 6;
+
 /** At most one insertion, deletion or substitution apart. */
 function withinOneEdit(a: string, b: string): boolean {
   if (a === b) return true;
@@ -183,11 +190,13 @@ function withinOneEdit(a: string, b: string): boolean {
 }
 
 /**
- * The same word, typed differently: one edit apart, both 5+ letters, not a
- * known pair of different things (`cherry`/`sherry`, `tomato`/`potato`) —
- * and only when one side is unusual. The item's word is one the corpus never
- * uses (the person's spelling), or the line's word is rare (the corpus's
- * typo). Two words the corpus uses freely are two things.
+ * The same word, typed differently: one edit apart, both 6+ letters, the
+ * same first letter (a typo rarely starts the word — capers/paper and
+ * Lillet/fillet are different things), not a known pair of different things
+ * (`cherry`/`sherry`, `tomato`/`potato`) — and only when one side is
+ * unusual. The item's word is one the corpus never uses (the person's
+ * spelling), or the line's word is rare (the corpus's typo). Two words the
+ * corpus uses freely are two things.
  */
 function typoOf(
   itemWord: string,
@@ -195,7 +204,10 @@ function typoOf(
   counts: WordCounts | undefined,
 ): boolean {
   if (itemWord === lineWord) return false;
-  if (itemWord.length < 5 || lineWord.length < 5) return false;
+  if (itemWord.length < MIN_TYPO_WORD || lineWord.length < MIN_TYPO_WORD) {
+    return false;
+  }
+  if (itemWord[0] !== lineWord[0]) return false;
   if (itemWord.includes(" ") || lineWord.includes(" ")) return false;
   if (!withinOneEdit(itemWord, lineWord)) return false;
   if (CONFUSABLE_WORDS.has([itemWord, lineWord].sort().join("|"))) {
@@ -220,8 +232,10 @@ function memberOf(members: string[][], words: string[]): boolean {
  * - **same head** — two longer names ending in the same noun (`brown rice`
  *   for `white rice`, `cheddar cheese` for `parmesan cheese`), unless the noun
  *   is vague (`juice`, `syrup`) or names different things (`pepper`, `bean`);
- * - **class noun** — the name without its kind (`parmesan` for
- *   `parmesan cheese`, `vanilla` for `vanilla extract`), either way;
+ * - **class noun** — the shorter name on hand for the line with its kind
+ *   (`garlic` for `garlic powder`, `basmati` for `basmati rice`), never the
+ *   other way: garlic powder is no stand-in for a garlic clove. Cheese alone
+ *   goes both ways (`parmesan cheese` for `parmesan`);
  * - **typo** — the strict rules again, one word allowed one edit
  *   (`mozarella`, `parmesean`, `tomatoe`).
  *
@@ -265,11 +279,12 @@ function closeWords(
   ) {
     return true;
   }
-  const classDrop = (long: string[], short: string[]) =>
+  const classDrop = (long: string[], short: string[], kinds: Set<string>) =>
     long.length === short.length + 1 &&
-    CLASS_NOUNS.has(long[long.length - 1]) &&
+    kinds.has(long[long.length - 1]) &&
     short.every((word, i) => long[i] === word);
-  if (classDrop(line, have) || classDrop(have, line)) return true;
+  if (classDrop(line, have, CLASS_NOUNS)) return true;
+  if (classDrop(have, line, CLASS_NOUNS_EITHER_WAY)) return true;
   /* One word typed differently: rewrite it to the line's, then the strict
    * rules decide. */
   let typos = 0;
@@ -280,6 +295,160 @@ function closeWords(
     return match;
   });
   return typos === 1 && strictWords(rewritten, line);
+}
+
+/**
+ * The inventory sorted by what could make it close to a line (32j review):
+ * a close match needs a shared group, a shared head, a line that is the item
+ * plus a kind, or a word of the same first letter and near length. Looking
+ * those up skips nearly every pair `closeTo` would otherwise try; the
+ * candidates it returns are a superset, and `closeTo` still decides.
+ */
+interface CloseIndex {
+  items: InventoryItem[];
+  byGroup: Map<number, Set<number>>;
+  byPair: Map<number, Set<number>>;
+  byHead: Map<string, Set<number>>;
+  /** Words of the item, joined: the line is these plus a class noun. */
+  byWords: Map<string, Set<number>>;
+  /** Words of the item without its trailing either-way class noun. */
+  byShortWords: Map<string, Set<number>>;
+  /** `<first letter>:<length>` a typo of one of the item's words may have. */
+  byTypo: Map<string, Set<number>>;
+}
+
+function addTo<K>(map: Map<K, Set<number>>, key: K, index: number) {
+  let found = map.get(key);
+  if (!found) {
+    found = new Set();
+    map.set(key, found);
+  }
+  found.add(index);
+}
+
+function buildCloseIndex(items: InventoryItem[]): CloseIndex {
+  const index: CloseIndex = {
+    items,
+    byGroup: new Map(),
+    byPair: new Map(),
+    byHead: new Map(),
+    byWords: new Map(),
+    byShortWords: new Map(),
+    byTypo: new Map(),
+  };
+  items.forEach((item, i) => {
+    for (const { words } of item.names) {
+      if (words.length === 0) continue;
+      CLOSE_GROUPS.forEach((group, g) => {
+        if (memberOf(group, words)) addTo(index.byGroup, g, i);
+      });
+      CLOSE_PAIRS.forEach(([from], p) => {
+        if (isTail(from, words)) addTo(index.byPair, p, i);
+      });
+      addTo(index.byHead, words[words.length - 1], i);
+      addTo(index.byWords, words.join(" "), i);
+      if (CLASS_NOUNS_EITHER_WAY.has(words[words.length - 1])) {
+        addTo(index.byShortWords, words.slice(0, -1).join(" "), i);
+      }
+      for (const word of words) {
+        if (word.length < MIN_TYPO_WORD || word.includes(" ")) continue;
+        for (const length of [word.length - 1, word.length, word.length + 1]) {
+          addTo(index.byTypo, `${word[0]}:${length}`, i);
+        }
+      }
+    }
+  });
+  return index;
+}
+
+/** What a line's name looks up in a `CloseIndex` — a pure function of its words. */
+interface LineKeys {
+  groups: number[];
+  pairs: number[];
+  head: string;
+  /** The words less the last, when there is more than one. */
+  prefix?: string;
+  full: string;
+  typo: string[];
+}
+
+/** Memoized per name object, which a prepared corpus keeps across calls. */
+const lineKeyCache = new WeakMap<IngredientName, LineKeys | null>();
+function lineKeys(name: IngredientName): LineKeys | null {
+  let keys = lineKeyCache.get(name);
+  if (keys === undefined) {
+    const line = name.words;
+    keys =
+      line.length === 0
+        ? null
+        : {
+            groups: CLOSE_GROUPS.flatMap((group, g) =>
+              memberOf(group, line) ? [g] : [],
+            ),
+            pairs: CLOSE_PAIRS.flatMap(([, to], p) =>
+              isTail(to, line) ? [p] : [],
+            ),
+            head: line[line.length - 1],
+            prefix: line.length > 1 ? line.slice(0, -1).join(" ") : undefined,
+            full: line.join(" "),
+            typo: line.flatMap((word) =>
+              word.length >= MIN_TYPO_WORD && !word.includes(" ")
+                ? [`${word[0]}:${word.length}`]
+                : [],
+            ),
+          };
+    lineKeyCache.set(name, keys);
+  }
+  return keys;
+}
+
+/** The first item, in inventory order, close to `requirement`. */
+function firstClose(
+  index: CloseIndex,
+  requirement: Requirement,
+  counts: WordCounts,
+): InventoryItem | undefined {
+  if (requirement.loose) return undefined;
+  const candidates = new Set<number>();
+  const take = (found?: Set<number>) => {
+    if (found) for (const i of found) candidates.add(i);
+  };
+  for (const alternative of requirement.alternatives) {
+    const keys = lineKeys(alternative);
+    if (!keys) continue;
+    for (const g of keys.groups) take(index.byGroup.get(g));
+    for (const p of keys.pairs) take(index.byPair.get(p));
+    take(index.byHead.get(keys.head));
+    if (keys.prefix !== undefined) take(index.byWords.get(keys.prefix));
+    take(index.byShortWords.get(keys.full));
+    for (const key of keys.typo) take(index.byTypo.get(key));
+  }
+  if (candidates.size === 0) return undefined;
+  for (const i of [...candidates].sort((a, b) => a - b)) {
+    if (closeTo(index.items[i], requirement, counts)) return index.items[i];
+  }
+  return undefined;
+}
+
+/**
+ * What a requirement asks, as a key: two lines naming the same thing the
+ * same way get the same answer, so one call judges each once (32j review).
+ * Memoized per requirement object: a prepared corpus keeps its requirements
+ * across calls, so the key is built once, not once per keystroke.
+ */
+const signatures = new WeakMap<Requirement, string>();
+function requirementSignature(requirement: Requirement): string {
+  let signature = signatures.get(requirement);
+  if (signature === undefined) {
+    signature = [
+      requirement.alternatives.map(nameKey).join("|"),
+      requirement.loose ? "~" : "",
+      requirement.staple ? "!" : "",
+      requirement.aliasKeys.join("|"),
+    ].join("#");
+    signatures.set(requirement, signature);
+  }
+  return signature;
 }
 
 // --- corpus ----------------------------------------------------------------
@@ -443,21 +612,31 @@ function isMet(
   );
 }
 
-/** Every required line met directly — what a sub-recipe has to pass. */
-function directlyMakeable(
-  prepared: PreparedRecipe,
-  items: InventoryItem[],
-  staples: InventoryItem[],
-  aliases: AliasIndex,
-): boolean {
-  return prepared.requirements.every(
-    (requirement) =>
-      requirement.optional || isMet(requirement, items, staples, aliases),
-  );
-}
-
 function byName(a: RecipeMatch, b: RecipeMatch): number {
   return a.recipe.name.localeCompare(b.recipe.name);
+}
+
+interface JudgementCache {
+  key: string;
+  met: Map<string, boolean>;
+  close: Map<string, InventoryItem | null>;
+}
+
+const judgements = new WeakMap<PreparedCorpus, JudgementCache>();
+
+/** The last inventory's answers for this corpus, or fresh maps for a new one. */
+function judgementCache(
+  prepared: PreparedCorpus,
+  inventory: string[],
+  staples: string[],
+): JudgementCache {
+  const key = JSON.stringify([inventory, staples]);
+  let cache = judgements.get(prepared);
+  if (!cache || cache.key !== key) {
+    cache = { key, met: new Map(), close: new Map() };
+    judgements.set(prepared, cache);
+  }
+  return cache;
 }
 
 /**
@@ -477,6 +656,37 @@ export function analyzeMakeable(
   const prepared = Array.isArray(corpus) ? prepareCorpus(corpus) : corpus;
   const items = inventory.map(parseInventoryItem);
   const stapleItems = staples.map(parseInventoryItem);
+  /*
+   * By requirement signature, since lines repeat across the corpus — and
+   * kept with the prepared corpus while the inventory, staples and toggle-
+   * independent answers stay the same, so retyping the scope (the page's
+   * per-keystroke rerun) judges no line twice.
+   */
+  const { met: metCache, close: closeCache } = judgementCache(
+    prepared,
+    inventory,
+    staples,
+  );
+  const met = (requirement: Requirement): boolean => {
+    const key = requirementSignature(requirement);
+    let known = metCache.get(key);
+    if (known === undefined) {
+      known = isMet(requirement, items, stapleItems, prepared.aliases);
+      metCache.set(key, known);
+    }
+    return known;
+  };
+  let closeIndex: CloseIndex | undefined;
+  const nearest = (requirement: Requirement): InventoryItem | undefined => {
+    const key = requirementSignature(requirement);
+    let known = closeCache.get(key);
+    if (known === undefined) {
+      closeIndex ??= buildCloseIndex(items);
+      known = firstClose(closeIndex, requirement, prepared.words) ?? null;
+      closeCache.set(key, known);
+    }
+    return known ?? undefined;
+  };
   const subMakeable = new Map<string, boolean>();
   const canMakeSub = (slug: string): boolean => {
     let known = subMakeable.get(slug);
@@ -485,7 +695,9 @@ export function analyzeMakeable(
       known =
         !!sub &&
         sub.requirements.length > 0 &&
-        directlyMakeable(sub, items, stapleItems, prepared.aliases);
+        sub.requirements.every(
+          (requirement) => requirement.optional || met(requirement),
+        );
       subMakeable.set(slug, known);
     }
     return known;
@@ -511,7 +723,7 @@ export function analyzeMakeable(
     const close: CloseMatch[] = [];
     for (const requirement of entry.requirements) {
       if (requirement.optional) continue;
-      if (isMet(requirement, items, stapleItems, prepared.aliases)) continue;
+      if (met(requirement)) continue;
       const candidates = [
         ...(entry.links.get(requirement.line) ?? []),
         ...requirement.alternatives.flatMap(
@@ -527,9 +739,7 @@ export function analyzeMakeable(
         });
         continue;
       }
-      const near = items.find((item) =>
-        closeTo(item, requirement, prepared.words),
-      );
+      const near = nearest(requirement);
       if (near) {
         close.push({ requirement, item: near.text });
         if (countClose) continue;
