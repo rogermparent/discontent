@@ -1648,6 +1648,16 @@ swapped in for "before").
   checked by eye. The review fixes don't change this page; its drinks
   inventory has no close lines. There is no mobile variant: `visual.spec`
   runs only on `e2e`.
+- **`make-food` indexes rebuilt after the 32e merge.** CI shard 2 failed
+  "refine chips drill down a tag with no children" on all three retries: the
+  top-level tag row was empty. 32e (#204) made the by-term aggregate keyed
+  and regenerated every fixture, but `make-food` was added on this branch
+  with indexes built by the old CLI. The route's tag vocabulary read nothing
+  from them, while the kind switch, which reads recipe tags directly, kept
+  working. Rebuilt with `recipes reindex` on a scratch copy (the
+  `recipes/{index,pagination,aggregates}` it writes). **Trap (T6, again):** a
+  fixture added on a branch that later merges a spec bump has to be
+  rebuilt after the merge.
 
 **Gates.**
 
@@ -1656,6 +1666,8 @@ swapped in for "before").
   origin/main at 32d (#205) and again at 32e (#204);
 - vitest 1134/1134 (56 files), under the heavy slot, after the merge.
   Review round: 1148/1148 (56 files), heavy slot, after merging 32d;
+- Playwright `make.spec` locally, after the 32e merge and the `make-food`
+  rebuild: 26/26 (`PLAYWRIGHT_BUILD=1`, heavy slot);
 - Playwright: the local `make.spec` + `search-autocomplete.spec` run
   (`PLAYWRIGHT_BUILD=1`) sat in the heavy slot for ~28 minutes waiting for
   memory, and the orchestrator killed it. An orphaned child then ran all
