@@ -24,5 +24,9 @@ onlyBuiltDependencies:
   - msgpackr-extract
   - netlify-cli
   - sharp
-  - unix-dgram
   - unrs-resolver
+# unix-dgram is an optional native dependency of hot-shots (via netlify-cli).
+# Building it needs `make`, which the Playwright CI image lacks, so CI logged a
+# harmless `gyp ERR!` on every install. Nothing here uses it; skip its build.
+ignoredBuiltDependencies:
+  - unix-dgram

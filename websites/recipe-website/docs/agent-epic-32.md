@@ -106,8 +106,8 @@ the food corpus is a content call: 32k, run only on Roger's explicit go.
 
 | Phase    | Scope                                                                    | Size    | Branch                     | Status            |
 | -------- | ------------------------------------------------------------------------ | ------- | -------------------------- | ----------------- |
-| 32-plan  | Epic doc + CLAUDE.md line, backlog marks                                 | docs    | `agent/32-plan`            | 🟡 this PR        |
-| 32a      | Hygiene                                                                  | S       | `agent/32a-hygiene`        | 📝 planned        |
+| 32-plan  | Epic doc + CLAUDE.md line, backlog marks                                 | docs    | `agent/32-plan`            | ✅ #197           |
+| 32a      | Hygiene                                                                  | S       | `agent/32a-hygiene`        | 🟡 #198           |
 | 32b      | Features follow a deleted term/group                                     | S–M     | `agent/32b-delete-feature` | 🟡 in review      |
 | 32c      | Term image upload, full parity                                           | M–L     | `agent/32c-term-image`     | 📝 planned        |
 | 32d      | F34 batched commits for term assign/rename/merge                         | M–L     | `agent/32d-batch-commit`   | 📝 planned        |
@@ -632,10 +632,37 @@ epic.
 To be filled per phase (PR, merge sha, gates), with the 32e measurement and
 the end-to-end checks at 32-close.
 
-| Phase   | PR  | Merge | Gates    |
-| ------- | --- | ----- | -------- |
-| 32-plan |     |       |          |
-| 32b     |     |       | GATES32B |
+| Phase   | PR    | Merge      | Gates                                                                                                         |
+| ------- | ----- | ---------- | ------------------------------------------------------------------------------------------------------------- |
+| 32-plan | #197  | `dafc6834` | docs only; CI 12/12                                                                                           |
+| 32a     | #198  |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI |
+| 32b     | PR32B |            | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI     |
+
+### 32a — Hygiene
+
+- **`TaxonomyConfig.terms` is gone** (`24-T17`), with its
+  `AnyContentTypeConfig` import. Nothing read it. The import-order tripwire in
+  `test/tagTerms.test.ts` is unchanged apart from its comment. Comments in
+  `tagTermContentConfig.ts`, `incremental-regeneration.md` (F33) and
+  `agent-taxonomy.md` (D2 snippet, T17, 24c results, follow-ups) now say the
+  field was dropped here.
+- **`unix-dgram` moved to `ignoredBuiltDependencies`** rather than just being
+  removed from `onlyBuiltDependencies`. An explicit ignore keeps pnpm from
+  listing it under "ignored builds" on every install. It is an optional native
+  dependency of `hot-shots` (through `@netlify/build`), and nothing here loads
+  it. The lockfile records neither list, so it stays valid:
+  `pnpm install --frozen-lockfile` passes, and reinstalling the package from
+  scratch leaves it unbuilt (no `build/`). CI's Playwright image is the real
+  check for the missing `gyp ERR!`.
+- **The stale F32 comments** in `common/controller/types.ts` (the `GroupItem`
+  docblock, plus the same claim on `groupName`) now say that renames follow
+  since 31d, deletes dangle, and array edges borrow nothing (`31-D1`).
+- **Corpus numbers.** `agent-curation.md`'s intro now reads "437 recipes at
+  the time of writing, now 665". The 24a by-term size risk gains the current
+  figure: a jq simulation of the real repo at 665 recipes put it at ≈ 197 KB
+  (> 150 KB), driven by the 208 drinks × 5–6 tags; 32e measures it. The
+  "two tags in total" sentences are historical and stay as written.
+- `specVersions` didn't move: none of the edited modules is pinned.
 
 ### 32b — Features follow a deleted term or group
 

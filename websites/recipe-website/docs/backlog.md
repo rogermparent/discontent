@@ -88,8 +88,8 @@ shards in 5–8 min, so the 30-minute cancellations were entirely the failing
 sign-ins' retries. Nothing from the first run is left open; the row below for
 the `unix-dgram` install warning is the only residue.
 
-- The Playwright container's `pnpm install` logs a `gyp ERR!` for `unix-dgram`
+- ~~The Playwright container's `pnpm install` logs a `gyp ERR!` for `unix-dgram`
   (`make` is not in the image); the dependency is optional and the install
   succeeds. Harmless today; a `build-essential` layer or dropping the
-  dependency would silence it. **Picked up by 32a** (`agent-epic-32.md`:
-  drop it from `onlyBuiltDependencies`).
+  dependency would silence it.~~ **Done by 32a** (#198): `unix-dgram` moved
+  from `onlyBuiltDependencies` to `ignoredBuiltDependencies`.
