@@ -189,6 +189,70 @@ test.describe("Search — in-field autocomplete", () => {
     });
   });
 
+  test("offers ingredient names once the caret is past ingredient:", async ({
+    page,
+  }) => {
+    // 32f. The names are the Make page's (`suggestNames`): "2 chicken thighs"
+    // is offered as `chicken thigh`, and a multi-word name is written quoted.
+    const field = searchField(page);
+    await field.click();
+    await field.pressSequentially("ingredient:c");
+    await expect(optionLabels(page)).toHaveText([
+      "carrot",
+      "chicken thigh",
+      "cinnamon",
+      "cream",
+    ]);
+
+    await field.pressSequentially("h");
+    await expect(optionLabels(page)).toHaveText(["chicken thigh"]);
+
+    await field.press("ArrowDown");
+    expect(await activeOption(page)).toBe("chicken thigh");
+    await field.press("Enter");
+
+    await expect(field).toHaveValue('ingredient:"chicken thigh"');
+    await expect(listItems(page)).toHaveCount(1, { timeout: SEARCH_TIMEOUT });
+    await expect(listItems(page).first()).toContainText("Weeknight Skillet");
+    await expect(suggestions(page)).toHaveCount(0);
+  });
+
+  test("says the ingredients are loading until they land", async ({ page }) => {
+    // The lines are a conditional fetch (F4a). The first visit populated the
+    // index, so a reload does not fetch them, and the completion is what asks.
+    // Holding the response keeps the loading row up long enough to look at.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route("**/search/ingredients", async (route) => {
+      await held;
+      await route.continue();
+    });
+    await page.reload();
+    await expect(ticker(page)).toHaveText(/ALL 67 RECIPES/i, {
+      timeout: SEARCH_TIMEOUT,
+    });
+
+    const field = searchField(page);
+    await field.click();
+    await field.pressSequentially("ingredient:mo");
+
+    const loading = page.getByTestId("query-autocomplete-loading");
+    await expect(loading).toHaveText("Loading ingredients…");
+    await expect(options(page)).toHaveCount(0);
+    // An empty, busy listbox is still a valid one.
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_TAGS)
+      .analyze();
+    expect(results.violations).toEqual([]);
+
+    release();
+    await expect(optionLabels(page)).toHaveText(["molasses"]);
+    await expect(loading).toHaveCount(0);
+    await options(page).first().click();
+    await expect(field).toHaveValue("ingredient:molasses");
+    await expect(field).toBeFocused();
+  });
+
   test("has no WCAG2AA violations with the list open", async ({ page }) => {
     // `nested-interactive` above all — a `<button>` inside a `role="option"` is
     // the trap this list is shaped to avoid — plus the validity of

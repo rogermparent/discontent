@@ -398,8 +398,16 @@ function rankBuyNext(
 /**
  * Names worth offering as someone types an inventory item: every name a line
  * asks for, and every alias that means one thing — most used first.
+ *
+ * Staples (water, ice) are skipped by default: they always count as on hand,
+ * so nobody adds them to an inventory. `includeStaples` keeps them, for
+ * search's `ingredient:` completion (32f). That list offers what the lines
+ * say, and `ingredient:wat` not offering "water" would read as a bug.
  */
-export function suggestNames(corpus: MakeRecipe[] | PreparedCorpus): string[] {
+export function suggestNames(
+  corpus: MakeRecipe[] | PreparedCorpus,
+  { includeStaples = false }: { includeStaples?: boolean } = {},
+): string[] {
   const prepared = Array.isArray(corpus) ? prepareCorpus(corpus) : corpus;
   const counts = new Map<string, number>();
   const bump = (name: string) => {
@@ -407,7 +415,7 @@ export function suggestNames(corpus: MakeRecipe[] | PreparedCorpus): string[] {
   };
   for (const { requirements } of prepared.recipes.values()) {
     for (const requirement of requirements) {
-      if (requirement.staple) continue;
+      if (requirement.staple && !includeStaples) continue;
       for (const name of requirement.alternatives) bump(nameLabel(name));
       requirement.aliases.forEach((alias, i) => {
         if (prepared.aliases.get(requirement.aliasKeys[i])?.size === 1) {

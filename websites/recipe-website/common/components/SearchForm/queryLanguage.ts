@@ -460,6 +460,50 @@ export function fieldMatches(haystack: string, needle: string): boolean {
   return false;
 }
 
+/**
+ * `fieldMatches` over many haystacks at once: "would `needle` match any of
+ * these?", answered without re-folding every haystack per call (32f).
+ *
+ * The ingredient completion asks this of each candidate it might offer, across
+ * every line in the corpus, on a keystroke — so the lines are folded and split
+ * into words once, here. The answer is `fieldMatches`'s exactly (the tests hold
+ * the two side by side): a multi-word needle is a substring of some line; any
+ * other needle starts some line or some word of one.
+ */
+export function anyLineMatcher(
+  haystacks: Iterable<string>,
+): (needle: string) => boolean {
+  const lines: string[] = [];
+  const words = new Set<string>();
+  for (const haystack of haystacks) {
+    const hay = fold(haystack);
+    lines.push(hay);
+    for (const word of hay.split(/[^\p{L}\p{N}]+/u)) {
+      if (word) words.add(word);
+    }
+  }
+  const memo = new Map<string, boolean>();
+  return (needle) => {
+    let found = memo.get(needle);
+    if (found === undefined) {
+      if (/\s/.test(needle)) {
+        found = lines.some((hay) => hay.includes(needle));
+      } else {
+        found = false;
+        for (const word of words) {
+          if (word.startsWith(needle)) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) found = lines.some((hay) => hay.startsWith(needle));
+      }
+      memo.set(needle, found);
+    }
+    return found;
+  };
+}
+
 function anyMatches(values: (string | undefined)[], needle: string): boolean {
   return values.some((value) => value && fieldMatches(value, needle));
 }

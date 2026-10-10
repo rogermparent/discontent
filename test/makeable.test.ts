@@ -343,4 +343,21 @@ describe("suggestNames", () => {
     expect(names).not.toContain("Toschi");
     expect(names).not.toContain("water");
   });
+
+  it("keeps staples only when asked (search's ingredient: completion, 32f)", () => {
+    const corpus = [
+      {
+        slug: "a",
+        name: "A",
+        ingredients: ["2 cups water", "1 cup ice", "1 onion"],
+      },
+      { slug: "b", name: "B", ingredients: ["4 cups water", "2 onions"] },
+    ];
+    expect(suggestNames(corpus)).toEqual(["onion"]);
+    expect(suggestNames(corpus, { includeStaples: true })).toEqual([
+      "onion",
+      "water",
+      "ice",
+    ]);
+  });
 });
