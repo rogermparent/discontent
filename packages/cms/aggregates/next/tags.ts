@@ -8,15 +8,44 @@
 /**
  * One aggregate of one content type.
  *
- * There is only one tag per aggregate, where pagination has four. That is the
- * kind's whole shape: an aggregate is a single value with a single answer to
- * "did it change", so there is nothing to sub-divide. Anything wanting
- * per-item precision is a pagination index, not an aggregate.
+ * For an ordinary aggregate this is its only tag: one value, one answer to
+ * "did it change", and nothing to sub-divide.
+ *
+ * A **keyed** aggregate (32e) splits it the way pagination splits an index.
+ * This tag becomes the catch-all: every cached read of the aggregate carries
+ * it, but only the repair seat fires it (`derivedTagsOf`), because a write
+ * knows which keys it moved. That is why `derivedTagsOf`'s output did not
+ * change when the by-term aggregate became keyed.
  */
 export function aggregateTag(contentType: string, name: string): string {
   return `aggregate:${contentType}:${name}`;
 }
 
+/**
+ * A keyed aggregate's whole-value read. A write fires it whenever any key
+ * moved, since the whole value moved with it.
+ */
+export function aggregateWholeTag(contentType: string, name: string): string {
+  return `${aggregateTag(contentType, name)}:whole`;
+}
+
+/** One key of a keyed aggregate. A write fires it when that key moved. */
+export function aggregateKeyTag(
+  contentType: string,
+  name: string,
+  key: string,
+): string {
+  return `${aggregateTag(contentType, name)}:key:${key}`;
+}
+
 export function aggregateTags(contentType: string, name: string) {
-  return { value: aggregateTag(contentType, name) };
+  return {
+    /**
+     * An ordinary aggregate's one tag; for a keyed aggregate, the catch-all
+     * every read carries and only a repair fires.
+     */
+    value: aggregateTag(contentType, name),
+    whole: aggregateWholeTag(contentType, name),
+    key: (key: string) => aggregateKeyTag(contentType, name, key),
+  };
 }

@@ -18,9 +18,10 @@ import {
  * The reading half of the join (24c) — the cached reads, and nothing else.
  *
  * Every rule these two functions apply lives in `tagVocabulary.ts`, which is
- * pure. What is here is which values to ask for and how many times: four cached
- * reads for a term page, three for the index, all of them tagged, so a term
- * page costs four cache lookups rather than a corpus scan and the export builds
+ * pure. What is here is which values to ask for and how many times: six cached
+ * reads for a term page (its two by-term rows, the two term clouds, the tree
+ * and its record — 32e), three for the index, all of them tagged, so a term
+ * page costs six cache lookups rather than a corpus scan and the export builds
  * every one of them from a single read of each.
  *
  * **Three sources, one vocabulary.** Recipes and groups each fold the same
@@ -42,7 +43,11 @@ export async function readTagVocabulary(): Promise<TagVocabularyEntry[]> {
 
 /**
  * `/tags`' tree (31b): the hierarchy roots with distinct subtree totals, from
- * the tree and the two inverted maps — the reads `resolveTermPage` makes.
+ * the tree and the two inverted maps.
+ *
+ * The one reader of the **whole** by-term maps left (32e): a distinct subtree
+ * total needs every term's carriers, so this pays for every term and expires
+ * when any term's rows move. It is one page. Term pages read one term each.
  */
 export async function readTagTree(): Promise<TermHierarchyNode[]> {
   const [byRecipeTag, byGroupTag, tree] = await Promise.all([
@@ -141,48 +146,40 @@ export async function readSearchTerms(): Promise<SearchTerm[]> {
  * point of a vocabulary you can define ahead of assigning), and so is a term
  * that only exists as a string on one group.
  *
- * The counts the breadcrumb and the child chips print come from the two
- * inverted maps already being read rather than from the two term clouds, which
- * would be two more reads for a number both values already contain: a term's
- * count *is* how many carriers its row lists.
+ * **One term's rows, not the whole inverted map** (32e). The by-term
+ * aggregate is keyed, so `byTerm.readKey(slug)` decodes this term alone and is
+ * cached under this term's own tag: a write that moves another term's rows
+ * leaves this page cached. Until 32e it read both whole maps (200 KB on the
+ * real corpus) and expired with every one of them.
+ *
+ * The counts the breadcrumb and the child chips print come from the two term
+ * clouds, which `/tags` reads anyway (9.5 KB). They agree with the old count
+ * of row lengths by construction: both folds see the same walk, a term's
+ * `count` is the number of carriers its row lists, and the first label seen
+ * wins in both. `mergeTagVocabulary` lets a record's label beat a fold's, here
+ * as on `/tags`.
  */
 export async function resolveTermPage(
   slug: string,
 ): Promise<TermPageData | null> {
-  const [byRecipeTag, byGroupTag, tree, record] = await Promise.all([
-    recipeTagReads.byTerm.read(),
-    groupTagReads.byTerm.read(),
-    tagTermReads.tree.read(),
-    tagTermReads.items.read(slug),
-  ]);
+  const [recipes, groups, recipeTerms, groupTerms, tree, record] =
+    await Promise.all([
+      recipeTagReads.byTerm.readKey(slug),
+      groupTagReads.byTerm.readKey(slug),
+      recipeTagReads.terms.read(),
+      groupTagReads.terms.read(),
+      tagTermReads.tree.read(),
+      tagTermReads.items.read(slug),
+    ]);
 
-  const recipes = byRecipeTag?.[slug];
-  const groups = byGroupTag?.[slug];
   if (!recipes && !groups && !record) return null;
 
-  const counts = new Map<string, TagVocabularyEntry>();
-  const countInto = (
-    source: Record<string, { label: string; items: unknown[] }> | null,
-  ) => {
-    for (const [termSlug, entry] of Object.entries(source ?? {})) {
-      const existing = counts.get(termSlug);
-      if (existing) existing.count += entry.items.length;
-      else
-        counts.set(termSlug, {
-          slug: termSlug,
-          label: entry.label,
-          count: entry.items.length,
-        });
-    }
-  };
-  countInto(byRecipeTag ?? null);
-  countInto(byGroupTag ?? null);
-  /* A record's label beats a fold's, here as on `/tags`. */
-  for (const [termSlug, node] of Object.entries(tree ?? {})) {
-    const existing = counts.get(termSlug);
-    if (existing) existing.label = node.label;
-    else counts.set(termSlug, { slug: termSlug, label: node.label, count: 0 });
-  }
+  const counts = new Map<string, TagVocabularyEntry>(
+    mergeTagVocabulary({ recipeTerms, groupTerms, tree }).map((entry) => [
+      entry.slug,
+      entry,
+    ]),
+  );
 
   return {
     slug,
@@ -206,19 +203,23 @@ export async function resolveTermPage(
  * Every term page the export should emit — the union of all three sources.
  *
  * A record-only term is in the list, which is the reason this cannot simply be
- * the two `byTerm` keysets: `/tags/holiday` has a record, no carriers and a
+ * the two carriers' term slugs: `/tags/holiday` has a record, no carriers and a
  * page, and an export that skipped it would 404 a link `/tags` prints.
+ *
+ * The carried slugs come from the two term clouds rather than the two whole
+ * `byTerm` maps since 32e: the same slugs (one walk folds both), a twentieth
+ * of the bytes.
  */
 export async function readTermPageSlugs(): Promise<string[]> {
-  const [byRecipeTag, byGroupTag, tree] = await Promise.all([
-    recipeTagReads.byTerm.read(),
-    groupTagReads.byTerm.read(),
+  const [recipeTerms, groupTerms, tree] = await Promise.all([
+    recipeTagReads.terms.read(),
+    groupTagReads.terms.read(),
     tagTermReads.tree.read(),
   ]);
   return [
     ...new Set([
-      ...Object.keys(byRecipeTag ?? {}),
-      ...Object.keys(byGroupTag ?? {}),
+      ...(recipeTerms ?? []).map((term) => term.slug),
+      ...(groupTerms ?? []).map((term) => term.slug),
       ...Object.keys(tree ?? {}),
     ]),
   ];

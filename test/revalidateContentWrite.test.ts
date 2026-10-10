@@ -94,6 +94,36 @@ describe("revalidateContentWrite", () => {
     expect(tags().some((tag) => tag.includes("aggregate:recipes"))).toBe(true);
   });
 
+  /*
+   * 32e: a keyed aggregate reports its moved keys. The whole value's tag and
+   * those keys' tags fire, never another key's, and never the plain tag every
+   * read of the aggregate carries — that one is the repair seat's.
+   */
+  it("fires a keyed aggregate's whole tag and its moved keys' tags only", () => {
+    const result = writeResult();
+    result.aggregates = [
+      { name: "tags", changed: false, total: 42 },
+      { name: "by-tag", changed: true, total: 42, keys: ["drink", "sour"] },
+    ];
+    revalidateContentWrite(recipeSuccessConfig, "recipes", result, "a");
+
+    expect(tags().filter((tag) => tag.startsWith("aggregate:"))).toEqual([
+      "aggregate:recipes:by-tag:whole",
+      "aggregate:recipes:by-tag:key:drink",
+      "aggregate:recipes:by-tag:key:sour",
+    ]);
+  });
+
+  it("fires nothing for a keyed aggregate that did not move", () => {
+    const result = writeResult();
+    result.aggregates = [
+      { name: "by-tag", changed: false, total: 42, keys: [] },
+    ];
+    revalidateContentWrite(recipeSuccessConfig, "recipes", result, "a");
+
+    expect(tags().filter((tag) => tag.startsWith("aggregate:"))).toEqual([]);
+  });
+
   it("does not touch `/` for a paginationOnly config", () => {
     revalidateContentWrite(recipeSuccessConfig, "recipes", writeResult(), "a");
     expect(paths()).toEqual(["/recipe/a"]);

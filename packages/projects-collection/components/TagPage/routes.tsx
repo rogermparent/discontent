@@ -23,8 +23,12 @@ export async function tagRoute({
   params: Promise<{ tag: string }>;
 }) {
   const { tag } = await params;
-  const byTag = (await projectTagReads.byTerm.read()) ?? {};
-  const entry = byTag[tag];
+  /*
+   * One term's row, cached under that term's own tag (32e: the by-term
+   * aggregate is keyed), so retagging one project expires only its terms'
+   * pages.
+   */
+  const entry = await projectTagReads.byTerm.readKey(tag);
   /*
    * An unknown slug is a 404, not an empty page. The folded value only holds
    * slugs a project actually carries, so a missing key means the URL is wrong
@@ -43,8 +47,10 @@ export async function tagRoute({
  * `notFound()`, exactly as it would at runtime.
  */
 export async function generateTagStaticParams(): Promise<{ tag: string }[]> {
-  const byTag = (await projectTagReads.byTerm.read()) ?? {};
-  const slugs = Object.keys(byTag);
+  /* The term cloud's slugs are the by-term keys (one walk folds both). */
+  const slugs = ((await projectTagReads.terms.read()) ?? []).map(
+    (term) => term.slug,
+  );
   if (slugs.length === 0) return [{ tag: "_" }];
   return slugs.map((tag) => ({ tag }));
 }

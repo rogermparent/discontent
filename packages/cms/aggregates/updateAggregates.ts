@@ -1,19 +1,23 @@
-import type { Key } from "lmdb";
+import type { Key, RootDatabase } from "lmdb";
 import { getContentDatabase } from "../content/database";
 import type { AnyContentTypeConfig, ContentTypeConfig } from "../content/types";
 import { getContentDirectory } from "../fs/getContentDirectory";
 import { aggregatesOf } from "../taxonomies/aggregates";
 import { hashValue } from "../pagination/hash";
 import {
+  KEYED_HASHES_KEY,
   RECORD_KEY,
   computeAggregateSpecHash,
   getAggregateDatabase,
+  keyedEntryKey,
   readAggregateRecord,
+  readKeyedHashes,
 } from "./database";
 import type {
   AggregateConfig,
   AggregateRecord,
   AggregateUpdateResult,
+  KeyedAggregateHeader,
   UpdateAggregatesOptions,
 } from "./types";
 
@@ -119,10 +123,20 @@ export async function updateAggregates<TIndexValue, TKey extends Key>(
     const value = aggregateConfig.finalize
       ? aggregateConfig.finalize(accumulator)
       : accumulator;
-    const hash = hashValue(value);
     const specHash = specHashes.get(aggregateConfig.name) as string;
 
     const db = getAggregateDatabase(config, aggregateConfig, contentDirectory);
+
+    if (aggregateConfig.keyed) {
+      results.push({
+        name: aggregateConfig.name,
+        total,
+        ...(await storeKeyed(db, aggregateConfig.name, value, specHash)),
+      });
+      continue;
+    }
+
+    const hash = hashValue(value);
     const previous = readAggregateRecord(db);
 
     /* The value a reader would render moved. The only thing that fires a tag. */
@@ -155,6 +169,77 @@ export async function updateAggregates<TIndexValue, TKey extends Key>(
   }
 
   return results;
+}
+
+/**
+ * Store a keyed aggregate's value one record per key (32e), and say which keys
+ * moved.
+ *
+ * The walk above already folded the whole corpus — the kind trusts nothing it
+ * stored, and the other aggregates need the walk anyway — so what this saves
+ * is everything *after* the fold. Each key is hashed on its own and compared
+ * with the hash the last pass stored for it. Only the keys that moved are
+ * written, and only those are reported, so the write path invalidates those
+ * keys' readers and nobody else's. Before, one moved term rewrote and fired
+ * the whole value.
+ *
+ * One transaction, so a reader sees the old keys or the new ones and never a
+ * header that disagrees with the entries beside it. A spec change clears the
+ * environment first: it may hold a value in the old, single-record layout, or
+ * keys a different fold produced.
+ */
+async function storeKeyed(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: RootDatabase<any, Key[]>,
+  name: string,
+  value: unknown,
+  specHash: string,
+): Promise<Pick<AggregateUpdateResult, "changed" | "keys">> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(
+      `Keyed aggregate "${name}" must finalize to a plain object, got ${Array.isArray(value) ? "an array" : typeof value}`,
+    );
+  }
+  const entries = Object.entries(value as Record<string, unknown>);
+  const hashes: Record<string, string> = {};
+  for (const [key, entry] of entries) hashes[key] = hashValue(entry);
+  const hash = hashValue(hashes);
+
+  const previous = readAggregateRecord(db);
+  const specMoved = !previous || previous.specHash !== specHash;
+  const valueMoved = !previous || previous.hash !== hash;
+  if (!specMoved && !valueMoved) return { changed: false, keys: [] };
+
+  /*
+   * After a spec change the stored hashes were made by another fold (or are
+   * missing, in the old single-record layout), so no key's hash can be
+   * trusted and every key counts as moved. The old keys are still worth
+   * reading, so a key that vanished across the change is reported too.
+   */
+  const storedHashes = readKeyedHashes(db) ?? {};
+  const moved = new Set<string>();
+  for (const [key, entryHash] of Object.entries(hashes)) {
+    if (specMoved || storedHashes[key] !== entryHash) moved.add(key);
+  }
+  const removed = Object.keys(storedHashes).filter((key) => !(key in hashes));
+
+  await db.transaction(() => {
+    if (specMoved) db.clearSync();
+    for (const [key, entry] of entries) {
+      if (specMoved || moved.has(key)) db.putSync(keyedEntryKey(key), entry);
+    }
+    for (const key of removed) db.removeSync(keyedEntryKey(key));
+    db.putSync(KEYED_HASHES_KEY, hashes);
+    db.putSync(RECORD_KEY, {
+      value: { keys: entries.length },
+      hash,
+      specHash,
+      updatedAt: Date.now(),
+    } satisfies AggregateRecord<KeyedAggregateHeader>);
+  });
+
+  if (!valueMoved) return { changed: false, keys: [] };
+  return { changed: true, keys: [...moved, ...removed].sort() };
 }
 
 export default updateAggregates;

@@ -15,7 +15,19 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { readAggregate } from "@discontent/cms/aggregates/readAggregate";
+import {
+  KEYED_ENTRY_PREFIX,
+  RECORD_KEY,
+  computeAggregateSpecHash,
+  getAggregateDatabase,
+  readAggregateRecord,
+  readKeyedEntry,
+  readKeyedHashes,
+} from "@discontent/cms/aggregates/database";
+import {
+  readAggregate,
+  readAggregateKey,
+} from "@discontent/cms/aggregates/readAggregate";
 import type { AggregateConfig } from "@discontent/cms/aggregates/types";
 import { updateAggregates } from "@discontent/cms/aggregates/updateAggregates";
 import { createContent } from "@discontent/cms/content/createContent";
@@ -27,14 +39,17 @@ import type {
 } from "@discontent/cms/content/types";
 import { updateContent } from "@discontent/cms/content/updateContent";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
+import { hashValue } from "@discontent/cms/pagination/hash";
 import {
   TAXONOMY_FOLD_VERSION,
   aggregatesOf,
+  byTermAggregate,
   taxonomyAggregates,
   termsAggregate,
 } from "@discontent/cms/taxonomies/aggregates";
 import {
   readTaxonomyByTerm,
+  readTaxonomyByTermEntry,
   readTaxonomyTerms,
 } from "@discontent/cms/taxonomies/read";
 import { normalizeTerm, termSlug } from "@discontent/cms/taxonomies/slug";
@@ -245,7 +260,12 @@ describe("the terms aggregate", () => {
 
     expect(results).toEqual([
       { name: "tags", changed: true, total: 2 },
-      { name: "by-tag", changed: true, total: 2 },
+      {
+        name: "by-tag",
+        changed: true,
+        total: 2,
+        keys: ["alpha", "beta", "gamma"],
+      },
     ]);
     expect(await termsOf()).toEqual([
       { slug: "alpha", label: "alpha", count: 2 },
@@ -315,7 +335,7 @@ describe("the terms aggregate", () => {
 
     expect(results).toEqual([
       { name: "tags", changed: false, total: 1 },
-      { name: "by-tag", changed: false, total: 1 },
+      { name: "by-tag", changed: false, total: 1, keys: [] },
     ]);
   });
 
@@ -341,7 +361,7 @@ describe("the terms aggregate", () => {
 
     expect(results).toEqual([
       { name: "tags", changed: true, total: 2 },
-      { name: "by-tag", changed: true, total: 2 },
+      { name: "by-tag", changed: true, total: 2, keys: ["x"] },
     ]);
     expect(await termsOf()).toEqual([{ slug: "x", label: "x", count: 2 }]);
   });
@@ -368,7 +388,7 @@ describe("the terms aggregate", () => {
 
     expect(results).toEqual([
       { name: "tags", changed: false, total: 1 },
-      { name: "by-tag", changed: true, total: 1 },
+      { name: "by-tag", changed: true, total: 1, keys: ["x"] },
     ]);
   });
 });
@@ -420,6 +440,247 @@ describe("the by-term aggregate", () => {
     await foldNotes();
 
     expect((await byTermOf())?.x.items).toEqual([{ id: "a" }]);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Keyed by term (32e, 24g)                                            */
+/* ------------------------------------------------------------------ */
+
+describe("the by-term aggregate, one record per term", () => {
+  const titled: TaxonomyConfig<
+    NoteIndexValue,
+    NoteKey,
+    { slug: string; title: string }
+  > = {
+    ...noteTagTaxonomy,
+    project: ({ id, value }) => ({ slug: id, title: value.title }),
+  };
+  const titledConfig = {
+    ...baseConfig,
+    taxonomies: [titled],
+  } as AnyContentTypeConfig;
+
+  function byTermDb(taxonomy: TaxonomyConfig = noteTagTaxonomy) {
+    return getAggregateDatabase(
+      taggedConfig,
+      byTermAggregate(taxonomy),
+      contentDirectory,
+    );
+  }
+
+  /** The term keys a pass `putSync`s, by the db-wrap technique of `pagination.test.ts`. */
+  async function termWrites<T>(
+    taxonomy: TaxonomyConfig,
+    fn: () => Promise<T>,
+  ): Promise<[T, string[]]> {
+    const db = byTermDb(taxonomy) as unknown as {
+      putSync: (key: unknown, value: unknown) => unknown;
+    };
+    const original = db.putSync.bind(db);
+    const written: string[] = [];
+    db.putSync = (key, value) => {
+      if (Array.isArray(key) && key[0] === KEYED_ENTRY_PREFIX) {
+        written.push(String(key[1]));
+      }
+      return original(key, value);
+    };
+    try {
+      return [await fn(), written];
+    } finally {
+      db.putSync = original;
+    }
+  }
+
+  it("stores a header, a hash per term and a record per term", async () => {
+    await putNote("a", { title: "A", date: day(1), tags: ["x", "y"] });
+    await putNote("b", { title: "B", date: day(2), tags: ["x"] });
+    await foldNotes();
+
+    const db = byTermDb();
+    const header = readAggregateRecord(db);
+    expect(header?.value).toEqual({ keys: 2 });
+    expect(Object.keys(readKeyedHashes(db) ?? {})).toEqual(["x", "y"]);
+    expect(readKeyedEntry(db, "x")).toEqual({
+      label: "x",
+      items: [{ id: "b" }, { id: "a" }],
+    });
+  });
+
+  it("rewrites and reports only the terms whose rows moved", async () => {
+    await putNote("a", { title: "A", date: day(1), tags: ["x", "y"] });
+    await putNote("b", { title: "B", date: day(2), tags: ["y", "z"] });
+    await foldNotes(titledConfig);
+
+    /* A retitle of `b` moves its row under y and z, and nothing under x. */
+    await putNote("b", { title: "B edited", date: day(2), tags: ["y", "z"] });
+    const [results, written] = await termWrites(titled, () =>
+      foldNotes(titledConfig),
+    );
+
+    expect(results[1]).toEqual({
+      name: "by-tag",
+      changed: true,
+      total: 2,
+      keys: ["y", "z"],
+    });
+    expect(written.sort()).toEqual(["y", "z"]);
+  });
+
+  it("removes a term nothing carries any more, and reports it", async () => {
+    await putNote("a", { title: "A", date: day(1), tags: ["x", "gone"] });
+    await foldNotes();
+
+    await putNote("a", { title: "A", date: day(1), tags: ["x"] });
+    const [results, written] = await termWrites(noteTagTaxonomy, foldNotes);
+
+    expect(results[1]).toEqual({
+      name: "by-tag",
+      changed: true,
+      total: 1,
+      keys: ["gone"],
+    });
+    expect(written).toEqual([]);
+    expect(readKeyedEntry(byTermDb(), "gone")).toBeUndefined();
+    expect(await byTermOf()).toEqual({
+      x: { label: "x", items: [{ id: "a" }] },
+    });
+  });
+
+  it("writes nothing at all when no term moved", async () => {
+    await putNote("a", { title: "A", date: day(1), tags: ["x"] });
+    await foldNotes();
+    const before = readAggregateRecord(byTermDb())?.updatedAt;
+
+    await putNote("a", { title: "A edited", date: day(1), tags: ["x"] });
+    const [results, written] = await termWrites(noteTagTaxonomy, foldNotes);
+
+    expect(results[1]).toMatchObject({ changed: false, keys: [] });
+    expect(written).toEqual([]);
+    expect(readAggregateRecord(byTermDb())?.updatedAt).toBe(before);
+  });
+
+  it("reads one term without the rest", async () => {
+    await putNote("a", { title: "A", date: day(1), tags: ["x", "y"] });
+    await foldNotes();
+
+    const entry = (slug: string) =>
+      readTaxonomyByTermEntry({
+        config: taggedConfig,
+        taxonomy: noteTagTaxonomy,
+        contentDirectory,
+        slug,
+      });
+    expect(await entry("y")).toEqual({ label: "y", items: [{ id: "a" }] });
+    expect(await entry("nope")).toBeNull();
+  });
+
+  it("reads one term as null before anything has been folded, and never folds", async () => {
+    await putNote("a", { title: "A", date: day(1), tags: ["x"] });
+    expect(
+      await readTaxonomyByTermEntry({
+        config: taggedConfig,
+        taxonomy: noteTagTaxonomy,
+        contentDirectory,
+        slug: "x",
+      }),
+    ).toBeNull();
+  });
+
+  it("reads a record in the single-record layout as never folded, then replaces it", async () => {
+    /*
+     * What a real repo's by-tag environment holds until its reindex after 32e:
+     * one record at [0] holding the whole map, under the fold version before
+     * the bump. A reader must not mistake it for a header (24-T5).
+     */
+    await putNote("a", { title: "A", date: day(1), tags: ["x"] });
+    const before = byTermAggregate(noteTagTaxonomy);
+    const db = byTermDb();
+    const oldValue = { x: { label: "x", items: [{ id: "a" }] } };
+    await db.put(RECORD_KEY, {
+      value: oldValue,
+      hash: "old",
+      specHash: computeAggregateSpecHash({
+        name: before.name,
+        version: `1.${noteTagTaxonomy.version}`,
+      } as never),
+      updatedAt: 0,
+    });
+
+    expect(await byTermOf()).toBeNull();
+    expect(
+      await readTaxonomyByTermEntry({
+        config: taggedConfig,
+        taxonomy: noteTagTaxonomy,
+        contentDirectory,
+        slug: "x",
+      }),
+    ).toBeNull();
+
+    const results = await foldNotes();
+    expect(results[1]).toMatchObject({ changed: true, keys: ["x"] });
+    expect(readAggregateRecord(db)?.value).toEqual({ keys: 1 });
+    expect(await byTermOf()).toEqual(oldValue);
+  });
+
+  it("puts `keyed` in the spec hash, and only when it is set", () => {
+    const plain = { name: "by-tag", version: "2.1" } as never;
+    const keyed = { name: "by-tag", version: "2.1", keyed: true } as never;
+    expect(computeAggregateSpecHash(plain)).not.toBe(
+      computeAggregateSpecHash(keyed),
+    );
+    /* An aggregate that is not keyed hashes as it did before the field. */
+    expect(computeAggregateSpecHash(plain)).toBe(
+      hashValue({ name: "by-tag", version: "2.1" }),
+    );
+  });
+
+  it("refuses a keyed aggregate whose value is not a plain object", async () => {
+    const config = {
+      ...baseConfig,
+      aggregates: [
+        {
+          name: "listy",
+          version: "1",
+          keyed: true,
+          initial: () => [],
+          fold: (list: string[], { id }: { id: string }) => [...list, id],
+        },
+      ],
+    } as unknown as AnyContentTypeConfig;
+    await putNote("a", { title: "A", date: day(1) });
+
+    await expect(foldNotes(config)).rejects.toThrow(/plain object/);
+  });
+
+  it("refuses a one-key read of an aggregate that is not keyed", async () => {
+    await expect(
+      readAggregateKey({
+        config: taggedConfig,
+        aggregateConfig: termsAggregate(noteTagTaxonomy) as never,
+        contentDirectory,
+        key: "x",
+      }),
+    ).rejects.toThrow(/not keyed/);
+  });
+
+  it("memoises a carrier's terms across the two folds of one pass", async () => {
+    let slugged = 0;
+    const counting: TaxonomyConfig<NoteIndexValue, NoteKey, { id: string }> = {
+      ...noteTagTaxonomy,
+      slugOf: (term) => {
+        slugged += 1;
+        return termSlug(term);
+      },
+    };
+    await putNote("a", { title: "A", date: day(1), tags: ["x", "y"] });
+    await foldNotes({
+      ...baseConfig,
+      taxonomies: [counting],
+    } as AnyContentTypeConfig);
+
+    /* Two tags, slugged once each — not once per fold. */
+    expect(slugged).toBe(2);
   });
 });
 
@@ -765,7 +1026,7 @@ describe("a term type folds through the ordinary seat", () => {
     expect(result.pagination).toEqual([]);
     expect(result.aggregates).toEqual([
       { name: "tags", changed: true, total: 1 },
-      { name: "by-tag", changed: true, total: 1 },
+      { name: "by-tag", changed: true, total: 1, keys: ["x"] },
     ]);
     expect(await termsOf()).toEqual([{ slug: "x", label: "x", count: 1 }]);
     expect(await byTermOf()).toEqual({
