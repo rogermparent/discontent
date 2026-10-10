@@ -617,7 +617,7 @@ Each branch is off the previous. Rebase children after a parent merges.
 | 24d     | → epic 31 (31b)                      | ✅ #192 | Resolver, `/search/terms`, one "all terms" source, hierarchical autocomplete / ⌘K, server descendant expansion + `group:` parity (L)                                                                                                                        |
 | 24e     | → epic 31 (31c, 31e)                 | ✅ #194 | Seats / CLI / API / MCP / skill v3 + the fixture acceptance test (D7) (L)                                                                                                                                                                                   |
 | 24f     | `agent/24f-taxonomy-closeout` ← 24e  | ⏸️      | Backfill on the real repo (content task), the real story run, by-term measurement, backlog strikes, close-out, memory (S code / L content)                                                                                                                  |
-| 24g     | → epic 32 (32e)                      | 🟡 32e  | F8b partitions, only if 24f's by-term number exceeds 150 KB (L). Measured at 32e: 200,805 B, so it was built as F35, a keyed aggregate with one record per term (`agent-epic-32.md`)                                                                        |
+| 24g     | → epic 32 (32e)                      | 🟡 #204 | F8b partitions, only if 24f's by-term number exceeds 150 KB (L). Measured at 32e: 200,805 B, so it was built as F35, a keyed aggregate with one record per term (`agent-epic-32.md`)                                                                        |
 
 **#144 landed** 2026-09-17 (`c581f222`) and the real repo was reindexed the
 same day.
