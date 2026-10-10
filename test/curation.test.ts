@@ -46,7 +46,10 @@ import type {
   CurationContext,
 } from "../websites/recipe-website/editor/controller/curation/context";
 import { SlugConflictError } from "../websites/recipe-website/editor/controller/curation/errors";
-import { feature } from "../websites/recipe-website/editor/controller/curation/featured";
+import {
+  feature,
+  listFeatured,
+} from "../websites/recipe-website/editor/controller/curation/featured";
 import * as groups from "../websites/recipe-website/editor/controller/curation/groups";
 import { importAndCreate } from "../websites/recipe-website/editor/controller/curation/importRecipe";
 import { inspectUrl } from "../websites/recipe-website/editor/controller/curation/inspect";
@@ -967,10 +970,26 @@ describe("groups", () => {
     expect(await groups.deleteGroup(ctx, "weeknights")).toEqual({
       slug: "weeknights",
       deleted: true,
+      unfeatured: [],
     });
     await expect(groups.getGroup(ctx, "weeknights")).rejects.toMatchObject({
       code: "not_found",
     });
+  });
+
+  it("unfeatures the group on delete, and leaves other features (epic 32, D1)", async () => {
+    await groups.createGroup(ctx, { name: "Weeknights", items: ["stew"] });
+    await feature(ctx, { group: "weeknights", slug: "weeknights-feature" });
+    await feature(ctx, { recipe: "stew", slug: "stew-feature" });
+
+    expect(await groups.deleteGroup(ctx, "weeknights")).toEqual({
+      slug: "weeknights",
+      deleted: true,
+      unfeatured: ["weeknights-feature"],
+    });
+    expect((await listFeatured(ctx)).featured.map((row) => row.slug)).toEqual([
+      "stew-feature",
+    ]);
   });
 
   /* ---- Nested groups (23c/D15–D17) ---- */

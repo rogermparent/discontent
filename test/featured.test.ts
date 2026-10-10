@@ -50,10 +50,16 @@ import {
 } from "../websites/recipe-website/editor/controller/curation/errors";
 import {
   feature,
+  findAllFeatured,
+  findFeatured,
   listFeatured,
   unfeature,
+  unfeatureTarget,
 } from "../websites/recipe-website/editor/controller/curation/featured";
-import { createGroup } from "../websites/recipe-website/editor/controller/curation/groups";
+import {
+  createGroup,
+  deleteGroup,
+} from "../websites/recipe-website/editor/controller/curation/groups";
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
 
 /* ------------------------------------------------------------------ */
@@ -427,5 +433,57 @@ describe("unfeature", () => {
       code: "not_found",
       details: { slug: "never-featured" },
     });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 4. Deletes take their features along (epic 32, D1)                  */
+/* ------------------------------------------------------------------ */
+
+describe("unfeatureTarget", () => {
+  it("finds every entry of a target, newest first, and removes only those", async () => {
+    await feature(ctx, { group: "weeknights", slug: "first", date: 1 });
+    await feature(ctx, { recipe: "naan", slug: "naan-feature", date: 2 });
+    await feature(ctx, {
+      group: "weeknights",
+      slug: "second",
+      date: 3,
+      again: true,
+    });
+
+    expect(
+      await findAllFeatured(contentDirectory, { group: "weeknights" }),
+    ).toEqual(["second", "first"]);
+    expect(await findFeatured(contentDirectory, { group: "weeknights" })).toBe(
+      "second",
+    );
+
+    const { ctx: recording, events } = recordingCtx();
+    expect(await unfeatureTarget(recording, { group: "weeknights" })).toEqual([
+      "second",
+      "first",
+    ]);
+    expect(events.map((event) => [event.kind, event.slug])).toEqual([
+      ["delete", "second"],
+      ["delete", "first"],
+    ]);
+    expect((await listFeatured(ctx)).featured.map((row) => row.slug)).toEqual([
+      "naan-feature",
+    ]);
+    /* Nothing left to take: an empty list, not an error. */
+    expect(await unfeatureTarget(ctx, { group: "weeknights" })).toEqual([]);
+  });
+
+  it("is what group delete does with the group's features", async () => {
+    await feature(ctx, { group: "weeknights", slug: "weeknights-feature" });
+    expect(await deleteGroup(ctx, "weeknights")).toEqual({
+      slug: "weeknights",
+      deleted: true,
+      unfeatured: ["weeknights-feature"],
+    });
+    expect(await pathExists(featuredDirectory("weeknights-feature"))).toBe(
+      false,
+    );
+    expect(await listFeatured(ctx)).toMatchObject({ total: 0, featured: [] });
   });
 });
