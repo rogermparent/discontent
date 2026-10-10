@@ -35,6 +35,33 @@ export async function tagIndexRoute() {
   return <TagIndexPage tags={tags} tree={tree} />;
 }
 
+/**
+ * The editor's `/tags` (31e): the same page, plus a **New term** link to
+ * `/tags/new`.
+ *
+ * Shown to everyone who can reach the editor, as every editor affordance is
+ * (the group page's Edit, this vocabulary's Feature, the footer's New Recipe):
+ * the destination is what asks for a sign-in. Reading the session here would
+ * make the index a per-request render for the sake of one link.
+ */
+export async function editorTagIndexRoute() {
+  const [tags, tree] = await Promise.all([readTagVocabulary(), readTagTree()]);
+  return (
+    <TagIndexPage
+      tags={tags}
+      tree={tree}
+      actions={
+        <Link
+          href="/tags/new"
+          className={buttonVariants({ variant: "secondary", size: "sm" })}
+        >
+          New term
+        </Link>
+      }
+    />
+  );
+}
+
 /** `/tags/[tag]` — one term: its record, its recipes, then its groups. */
 export async function tagRoute({
   params,
@@ -54,14 +81,13 @@ export async function tagRoute({
 }
 
 /**
- * The editor's `/tags/[tag]` — the same page, plus the one affordance a
- * read-only export has no use for (24c).
+ * The editor's `/tags/[tag]` — the same page, plus the affordances a read-only
+ * export has no use for.
  *
- * A **Feature** link and nothing else. There is deliberately no Edit button:
- * term records have no browser form in this phase, and every write lands with
- * 24e's seats, CLI and MCP — so an Edit button would be a promise the editor
- * cannot keep. Featuring, by contrast, already works: the target is a slug, the
- * form takes one, and `?term=` preselects it exactly as `?group=` does.
+ * **Feature** (24c): the target is a slug, the form takes one, and `?term=`
+ * preselects it exactly as `?group=` does. **Edit** (31e): the term form at
+ * `/tags/<slug>/edit`, which updates the record — or, for a term that so far
+ * lives only on its carriers, creates one at this slug.
  *
  * Its own export rather than a prop on `tagRoute`, because a Next page module
  * exports a function and cannot pass it arguments — the editor's route file
@@ -79,12 +105,20 @@ export async function editorTagRoute({
     <TagPage
       term={term}
       actions={
-        <Link
-          href={`/featured-recipe/new?term=${term.slug}`}
-          className={buttonVariants({ variant: "secondary", size: "sm" })}
-        >
-          Feature
-        </Link>
+        <>
+          <Link
+            href={`/featured-recipe/new?term=${term.slug}`}
+            className={buttonVariants({ variant: "secondary", size: "sm" })}
+          >
+            Feature
+          </Link>
+          <Link
+            href={`/tags/${term.slug}/edit`}
+            className={buttonVariants({ variant: "secondary", size: "sm" })}
+          >
+            Edit
+          </Link>
+        </>
       }
     />
   );

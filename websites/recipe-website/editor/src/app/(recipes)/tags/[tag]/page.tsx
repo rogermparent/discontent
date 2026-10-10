@@ -8,8 +8,8 @@ import {
  * One term's page, pre-baked and indexable — where `?q=tag:<tag>` needed the
  * client search bundle and the whole corpus to render anything.
  *
- * The editor's variant (24c): the same body, plus the Feature link. Term
- * records have no form here, deliberately — see `editorTagRoute`.
+ * The editor's variant (24c): the same body, plus the Feature link and, since
+ * 31e, the Edit link to `/tags/<slug>/edit` — see `editorTagRoute`.
  */
 export default editorTagRoute;
 

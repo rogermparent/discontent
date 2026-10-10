@@ -56,6 +56,11 @@ function httpUrl(text: string): string | undefined {
  * `fetchImageFile` on create and edit alike. A file picked for upload beats
  * both, as it always has. The URL field is opt-in (`allowUrl`): the group form
  * shares this component and parses no import URL.
+ *
+ * The file input is opt-out (`allowFile`, 31e): the term form writes through
+ * the term seat, which takes a picture only as `imageImportUrl`, so it shows
+ * the URL field alone rather than a file input whose upload would be dropped.
+ * The field's errors then sit on the URL input.
  */
 export function ImageInput({
   defaultImage,
@@ -63,6 +68,7 @@ export function ImageInput({
   imageToImport,
   candidates,
   allowUrl = false,
+  allowFile = true,
   id = "recipe-form-image",
   existingAlt = "Existing Recipe Image",
 }: {
@@ -73,6 +79,8 @@ export function ImageInput({
   candidates?: ImageCandidateOption[];
   /** Show the "Image URL" field. */
   allowUrl?: boolean;
+  /** Show the file input (default). */
+  allowFile?: boolean;
   id?: string;
   existingAlt?: string;
 }) {
@@ -97,33 +105,36 @@ export function ImageInput({
 
   return (
     <div>
-      <FileInput
-        label="Image"
-        name="image"
-        id={id}
-        errors={errors}
-        ref={fileInputRef}
-        onChange={(e) => {
-          const imagesToUpload = e.target?.files;
-          if (!imagesToUpload) {
-            return;
-          }
-          const previewImage = imagesToUpload[0];
-          if (!previewImage) {
-            return;
-          }
-          const previewURL = URL.createObjectURL(previewImage);
-          setImagePreviewURL(previewURL);
-        }}
-      />
+      {allowFile ? (
+        <FileInput
+          label="Image"
+          name="image"
+          id={id}
+          errors={errors}
+          ref={fileInputRef}
+          onChange={(e) => {
+            const imagesToUpload = e.target?.files;
+            if (!imagesToUpload) {
+              return;
+            }
+            const previewImage = imagesToUpload[0];
+            if (!previewImage) {
+              return;
+            }
+            const previewURL = URL.createObjectURL(previewImage);
+            setImagePreviewURL(previewURL);
+          }}
+        />
+      ) : null}
       {allowUrl ? (
         <TextInput
           label="Image URL"
           name="imageUrlInput"
-          id={`${id}-url`}
+          id={allowFile ? `${id}-url` : id}
           placeholder="https://…"
           value={typed}
           onChange={(e) => setTyped(e.target.value)}
+          errors={allowFile ? undefined : errors}
         />
       ) : null}
       {showPicker ? (
