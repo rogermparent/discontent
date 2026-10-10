@@ -182,6 +182,42 @@ export const groupDeleteSuccessConfig: ContentSuccessConfig = {
 };
 
 /**
+ * Term records (31c — the entry 24c left a comment for).
+ *
+ * `itemBasePath` is `/tags` because that is where a term's page is served, so
+ * a write expires `/tags/<slug>` (and, on a rename, the old slug's page).
+ *
+ * `dependentItemBasePaths` names the two kinds of record that borrow from a
+ * term: a featured entry borrows `label` and `image` for its card and its
+ * detail page (`/featured-recipe/<slug>`), and a child term borrows
+ * `parentLabel` for its breadcrumb (`/tags/<child>`) — the self-referencing
+ * edge, which is why `tag-terms` names itself.
+ *
+ * `paginationOnly` stays off, deliberately: the term pages and `/tags` read
+ * through aggregate and item tags this write already fires, but the term
+ * vocabulary is small and written rarely, so the blanket `revalidatePath` over
+ * `/tags` and `/` is cheap insurance rather than a cost worth proving away.
+ */
+export const TAG_TERM_DEPENDENT_ITEM_BASE_PATHS = {
+  "featured-recipes": "/featured-recipe",
+  "tag-terms": "/tags",
+};
+
+export const tagTermSuccessConfig: ContentSuccessConfig = {
+  itemBasePath: "/tags",
+  listPaths: [{ path: "/tags" }],
+  dependentItemBasePaths: TAG_TERM_DEPENDENT_ITEM_BASE_PATHS,
+};
+
+/* A deleted term's page is gone, so a delete lands on the index. */
+export const tagTermDeleteSuccessConfig: ContentSuccessConfig = {
+  itemBasePath: "/tags",
+  listPaths: [{ path: "/tags" }],
+  dependentItemBasePaths: TAG_TERM_DEPENDENT_ITEM_BASE_PATHS,
+  redirectTo: () => "/tags",
+};
+
+/**
  * The configs, keyed the way a write *event* names its content type.
  *
  * The curation layer's `onWrite` hook reports `{contentType, kind}` and nothing
@@ -202,19 +238,13 @@ const SUCCESS_CONFIGS: Record<
   pages: { write: pageSuccessConfig, delete: pageDeleteSuccessConfig },
   groups: { write: groupSuccessConfig, delete: groupDeleteSuccessConfig },
   /*
-   * No `tag-terms` entry, and its absence is a decision rather than an omission
-   * (24c). This table is consulted by `revalidateContentWrite` on a **curation**
-   * write, and nothing writes term records through that layer in this phase:
-   * 24c is read-side only, the records arrive as hand-written `term.json` files
-   * and the one server action they have is a rebuild, which calls
-   * `revalidateDerivedState` directly. An entry here now would be a mapping no
-   * call site reaches, and `successConfigFor` throwing for an unlisted type is
-   * what would catch the mistake if that stopped being true.
-   *
-   * 24e's `term_create`/`term_update`/`term_delete` seats are what add it, and
-   * its `dependentItemBasePaths` are the featured entries that borrow a term's
-   * label — `/featured-recipe` — plus `/tags` for the term's own page.
+   * Since 31c, when `curation/terms.ts` started writing term records through
+   * the curation layer (24c left this slot as a comment until something did).
    */
+  "tag-terms": {
+    write: tagTermSuccessConfig,
+    delete: tagTermDeleteSuccessConfig,
+  },
 };
 
 export function successConfigFor(

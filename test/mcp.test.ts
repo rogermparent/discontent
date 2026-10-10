@@ -188,6 +188,58 @@ describe("the MCP registry over an in-memory transport", () => {
     expect(
       tools.find((tool) => tool.name === "recipe_delete")?.annotations,
     ).toMatchObject({ readOnlyHint: false, destructiveHint: true });
+
+    /*
+     * The eight term tools (31c, epic 31 D5): two reads, four writes that keep
+     * every term, and the two that destroy a record.
+     */
+    const annotationsOf = (name: string) =>
+      tools.find((tool) => tool.name === name)?.annotations;
+    for (const name of ["term_list", "term_get"]) {
+      expect(annotationsOf(name), name).toMatchObject({ readOnlyHint: true });
+    }
+    for (const name of [
+      "term_create",
+      "term_update",
+      "term_assign",
+      "term_rename",
+    ]) {
+      expect(annotationsOf(name), name).toMatchObject({ readOnlyHint: false });
+      expect(annotationsOf(name)?.destructiveHint, name).toBeUndefined();
+    }
+    for (const name of ["term_delete", "term_merge"]) {
+      expect(annotationsOf(name), name).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: true,
+      });
+    }
+  });
+
+  it("extends tag_list additively with the term rows (31c)", async () => {
+    await createCake();
+    /* `{}` answers exactly what it always has. */
+    expect((await call("tag_list", {})).data).toEqual({ tags: ["dessert"] });
+    expect((await call("tag_list", { terms: true })).data).toEqual({
+      tags: ["dessert"],
+      terms: [{ slug: "dessert", label: "dessert", count: 1, record: false }],
+    });
+
+    /* And a term failure arrives in the layer's own shape. */
+    await call("term_create", { term: { label: "Dessert" } });
+    await call("term_create", { term: { label: "Cake", parent: "dessert" } });
+    expect(
+      await callError("term_update", {
+        slug: "dessert",
+        patch: { parent: "cake" },
+      }),
+    ).toMatchObject({
+      code: "term_cycle",
+      terms: ["dessert", "cake", "dessert"],
+    });
+    expect(await callError("term_delete", { slug: "dessert" })).toMatchObject({
+      code: "term_in_use",
+      recipes: ["chocolate-cake"],
+    });
   });
 
   /* ---------------------------------------------------------------- */
@@ -320,7 +372,7 @@ describe("the MCP registry over an in-memory transport", () => {
     await createCake();
 
     const group = await call("group_create", {
-      group: { name: "Christmas Cookies", kind: "collection" },
+      group: { name: "Christmas Cookies", kind: "meal-plan" },
     });
     expect(group.data.slug).toBe("christmas-cookies");
 

@@ -703,12 +703,12 @@ describe("searchRecipes", () => {
   it("filters by group: slug or name, and negates it (30a)", async () => {
     await groups.createGroup(ctx, {
       name: "Weeknight Favourites",
-      kind: "collection",
+      kind: "meal-plan",
       items: ["chocolate-cake", "beef-stew"],
     });
     await groups.createGroup(ctx, {
       name: "Party Menus",
-      kind: "collection",
+      kind: "meal-plan",
       items: [{ group: "weeknight-favourites" }],
     });
 
@@ -820,7 +820,7 @@ describe("groups", () => {
       slug: "plain",
       date: expect.any(Number),
       name: "Plain",
-      kind: "collection",
+      kind: "meal-plan",
       itemCount: 0,
     });
   });
@@ -845,7 +845,7 @@ describe("groups", () => {
       {
         slug: "weeknights",
         name: "Weeknights",
-        kind: "collection",
+        kind: "meal-plan",
         label: "Tue",
       },
     ]);
@@ -960,7 +960,7 @@ describe("groups", () => {
     expect(listed.groups[0]).toMatchObject({
       slug: "weeknights",
       name: "Weeknights",
-      kind: "collection",
+      kind: "meal-plan",
       itemCount: 1,
     });
 
@@ -1190,7 +1190,7 @@ describe("updateGroup", () => {
     expect(stored.description).toBe("Thirty minutes or less.");
     /* The whole reason `items` is not in the patch schema. */
     expect(stored.items).toEqual([{ recipe: "stew", label: "Mon" }]);
-    expect(stored.kind).toBe("collection");
+    expect(stored.kind).toBe("meal-plan");
 
     expect((await groups.listGroups(ctx)).groups[0]).toMatchObject({
       name: "Weeknight Favourites",

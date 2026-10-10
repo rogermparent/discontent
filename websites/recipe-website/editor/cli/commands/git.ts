@@ -34,8 +34,8 @@ import {
   type CommandDef,
 } from "./types";
 
-/** The three types the git seats address, as the wire spells them. */
-const TYPES = ["recipe", "group", "featured"];
+/** The types the git seats address, as the wire spells them (`term`: 31c). */
+const TYPES = ["recipe", "group", "featured", "term"];
 
 function requireType(value: string | undefined, command: string): string {
   if (!value) throw new UsageError(`${command} needs <type>.`);
@@ -102,7 +102,7 @@ const gitStatus: CommandDef<SyncStatus> = {
 const gitLog: CommandDef<GitLogResult> = {
   name: "git log",
   usage:
-    "recipes git log [--type recipe|group|featured] [--slug s] [--limit 30] [--offset 0]",
+    "recipes git log [--type recipe|group|featured|term] [--slug s] [--limit 30] [--offset 0]",
   options: {
     type: { type: "string" },
     slug: { type: "string" },

@@ -226,10 +226,25 @@ export const GroupItemInputSchema = z.union([
   GroupItemObjectSchema,
 ]);
 
+/**
+ * The kinds a group may be **written** with: `meal-plan` alone, since 31c.
+ *
+ * `Group.kind` narrowed at 24e (`24-D5`, landed as 31c): a curated collection
+ * is now a term with a pinned front (`term_create`, `term_assign`), and a group
+ * is an ordered, dated, per-item-annotated list — a meal plan. The *type* keeps
+ * `"collection"` so records already on disk stay readable and editable; only a
+ * create, or a patch that names a kind, is refused one. The message is the
+ * whole migration guide an agent gets, so it names the replacement.
+ */
+export const GroupWriteKindSchema = z.enum(["meal-plan"], {
+  error:
+    'Only "meal-plan" groups can be created now — a collection is a term: create it with term_create and tag recipes with term_assign',
+});
+
 export const GroupInputSchema = z.strictObject({
   name: z.string().min(1, "A group needs a name"),
   slug: z.string().optional(),
-  kind: z.enum(["meal-plan", "collection"]).default("collection"),
+  kind: GroupWriteKindSchema.default("meal-plan"),
   description: z.string().optional(),
   date: EpochSchema.optional(),
   /**
@@ -265,7 +280,12 @@ export type GroupInput = z.infer<typeof GroupInputSchema>;
 export const GroupPatchSchema = z.strictObject({
   name: z.string().min(1).optional(),
   slug: z.string().optional(),
-  kind: z.enum(["meal-plan", "collection"]).optional(),
+  /*
+   * `meal-plan` only (31c). A patch that leaves `kind` out keeps whatever the
+   * record has, so an existing collection can still be renamed or re-tagged —
+   * it just cannot be *made* one.
+   */
+  kind: GroupWriteKindSchema.optional(),
   date: EpochSchema.optional(),
   description: z.string().nullable().optional(),
   imageImportUrl: z.string().nullable().optional(),
@@ -310,6 +330,99 @@ export const FeaturedInputSchema = z
   );
 
 export type FeaturedInput = z.infer<typeof FeaturedInputSchema>;
+
+/* --- terms (31c, 24e) ----------------------------------------------------- */
+
+/**
+ * The recipe slugs a term pins to the front of its page, in order (24c/D5).
+ * The seat checks that each one actually carries the tag; the schema checks
+ * only that they are slugs at all.
+ */
+const PinnedSchema = z.array(z.string().min(1));
+
+/**
+ * A new term **record** (`term_create`).
+ *
+ * `slug` defaults to the label's slug — the identity every carrier string is
+ * folded to (`tagSlug`), so a record created from "Christmas Cookies" lands at
+ * `christmas-cookies`, exactly where the carriers' fold already puts the term.
+ * `parent` names another record's slug; `pinned` names recipe slugs.
+ * `imageImportUrl` is fetched at write time, as a group's is.
+ */
+export const TermInputSchema = z.strictObject({
+  label: z.string().trim().min(1, "A term needs a label"),
+  slug: z.string().optional(),
+  description: z.string().optional(),
+  parent: z.string().min(1).optional(),
+  pinned: PinnedSchema.optional(),
+  imageImportUrl: z.string().optional(),
+  date: EpochSchema.optional(),
+});
+
+export type TermInput = z.infer<typeof TermInputSchema>;
+
+/**
+ * The same fields, all optional, and `null` where clearing is meaningful.
+ *
+ * **No `slug`.** Moving a term is `term_rename`, because a rename also rewrites
+ * every carrier's tag string — a patch that only moved the record would leave
+ * the carriers folding to the old slug and the record describing nothing.
+ */
+export const TermPatchSchema = z.strictObject({
+  label: z.string().trim().min(1).optional(),
+  description: z.string().nullable().optional(),
+  /** `null` makes the term a root. */
+  parent: z.string().min(1).nullable().optional(),
+  /** Replaces the whole list; `null` clears it. */
+  pinned: PinnedSchema.nullable().optional(),
+  imageImportUrl: z.string().nullable().optional(),
+  date: EpochSchema.optional(),
+});
+
+export type TermPatch = z.infer<typeof TermPatchSchema>;
+
+/**
+ * `term_rename`: the new slug — or a label, which is slugged — and optionally
+ * the label the record (and every carrier) should carry afterwards.
+ */
+export const TermRenameSchema = z.strictObject({
+  to: z.string().trim().min(1),
+  label: z.string().trim().min(1).optional(),
+});
+
+export type TermRenameInput = z.infer<typeof TermRenameSchema>;
+
+/** `term_merge`: fold this term into `into`. */
+export const TermMergeSchema = z.strictObject({
+  into: z.string().trim().min(1),
+});
+
+/** Which carrier type `term_assign` names. Recipes unless said otherwise. */
+export const TermCarrierTypeSchema = z.enum(["recipe", "group"]);
+
+/**
+ * `term_assign`: carriers to tag and to untag, one update each. A slug in both
+ * lists is refused rather than resolved by order.
+ */
+export const TermAssignSchema = z
+  .strictObject({
+    add: z.array(z.string().min(1)).optional(),
+    remove: z.array(z.string().min(1)).optional(),
+    type: TermCarrierTypeSchema.optional(),
+  })
+  .refine((data) => (data.add?.length ?? 0) + (data.remove?.length ?? 0) > 0, {
+    message: "Name at least one carrier to `add` or `remove`",
+    path: ["add"],
+  })
+  .refine(
+    (data) => !(data.add ?? []).some((slug) => data.remove?.includes(slug)),
+    {
+      message: "A slug may not be in both `add` and `remove`",
+      path: ["remove"],
+    },
+  );
+
+export type TermAssignInput = z.infer<typeof TermAssignSchema>;
 
 /* --- inventory (25d) ----------------------------------------------------- */
 
@@ -358,10 +471,10 @@ export const InventoryMakeQuerySchema = z.strictObject({
  * Which content type a git seat is talking about.
  *
  * A closed enum rather than a free string, so the published JSON Schema names
- * the three choices and a typo is a schema rejection instead of a `not_found`
+ * the choices (`term` joined at 31c) and a typo is a schema rejection instead of a `not_found`
  * from inside `git.ts`. Singular, because these name one item.
  */
-export const GitTypeSchema = z.enum(["recipe", "group", "featured"]);
+export const GitTypeSchema = z.enum(["recipe", "group", "featured", "term"]);
 
 export type GitTypeInput = z.infer<typeof GitTypeSchema>;
 

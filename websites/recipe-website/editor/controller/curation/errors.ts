@@ -40,6 +40,19 @@ export type CurationErrorCode =
    * cannot terminate on.
    */
   | "group_cycle"
+  /**
+   * A term `parent` that would put a term underneath itself (31c, epic 31
+   * D4) — `group_cycle`'s twin for the vocabulary's hierarchy, and 422 for the
+   * same reason: the body parsed, and the shape it asks for is one the tree
+   * fold could only survive, never render.
+   */
+  | "term_cycle"
+  /**
+   * A term delete that would orphan carriers (31c): recipes or groups still
+   * carry the tag. A state conflict like `slug_conflict`, so 409; `unassign`
+   * (or a `term_merge`) is the way past it.
+   */
+  | "term_in_use"
   | "import_failed"
   | "no_git_identity"
   /**
@@ -223,6 +236,56 @@ export class GroupCycleError extends CurationError {
       { groups },
     );
     this.name = "GroupCycleError";
+  }
+}
+
+/**
+ * A term `parent` that would make a term its own ancestor (31c).
+ *
+ * `terms` is the path, read like `GroupCycleError`'s: `["a", "b", "a"]` is "a
+ * would sit under b, which already sits under a". `parent === slug` is the
+ * shortest, `["a", "a"]` — the case `24-T8` names, because the engine's
+ * candidate scan would make such a term its own dependent.
+ */
+export class TermCycleError extends CurationError {
+  constructor(terms: string[], message?: string) {
+    super(
+      "term_cycle",
+      message ??
+        `That would put a term underneath itself: ${terms.join(" → ")}.`,
+      { terms },
+    );
+    this.name = "TermCycleError";
+  }
+}
+
+/**
+ * A term that still has carriers, refused a delete (31c).
+ *
+ * The carriers ride the details as `recipes` / `groups`, so a caller can see
+ * exactly what `unassign: true` would touch before it asks for it.
+ */
+export class TermInUseError extends CurationError {
+  constructor(slug: string, recipes: string[], groups: string[]) {
+    const parts = [
+      recipes.length > 0
+        ? `${recipes.length} ${recipes.length === 1 ? "recipe" : "recipes"}`
+        : undefined,
+      groups.length > 0
+        ? `${groups.length} ${groups.length === 1 ? "group" : "groups"}`
+        : undefined,
+    ].filter(Boolean);
+    super(
+      "term_in_use",
+      `Term "${slug}" is still carried by ${parts.join(" and ")}. ` +
+        "Pass unassign to remove the tag from them first, or merge the term into another.",
+      {
+        slug,
+        ...(recipes.length > 0 ? { recipes } : {}),
+        ...(groups.length > 0 ? { groups } : {}),
+      },
+    );
+    this.name = "TermInUseError";
   }
 }
 

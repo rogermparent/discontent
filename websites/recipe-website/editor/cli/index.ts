@@ -47,6 +47,7 @@ import { reindexCommand } from "./commands/reindex";
 import { searchCommand } from "./commands/search";
 import { showCommand } from "./commands/show";
 import { tagsCommand } from "./commands/tags";
+import { termCommands } from "./commands/term";
 import type { CommandDef } from "./commands/types";
 import { updateCommand } from "./commands/update";
 import { emit, emitError, warn } from "./output";
@@ -100,6 +101,8 @@ const SUBCOMMAND_TABLES: Record<string, Record<string, CommandDef<unknown>>> = {
   featured: featuredCommands,
   git: gitCommands,
   inventory: inventoryCommands,
+  /* The vocabulary's records and carriers (31c). */
+  term: termCommands,
 };
 
 /**
@@ -133,7 +136,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   search <query…>
   tags
   delete <slug> [--yes]
-  group create --name N [--kind meal-plan|collection] [--description D] [--slug s]
+  group create --name N [--kind meal-plan] [--description D] [--slug s]
                [--date d] (--file items.json | --item slug[:label] …
                [--group-item slug[:label] …]) [--force]
   group update <group> [--name N] [--description D] [--kind K] [--date d]
@@ -144,6 +147,17 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   group show <group>
   group list [--limit 20] [--offset 0]
   group delete <group> [--yes]
+  term list [--records] [--limit n] [--offset 0]
+  term get <slug>
+  term create --label L [--slug s] [--description D] [--parent p] [--pin recipe …]
+              [--image-url U] [--date d] | (--file term.json | --stdin)
+  term update <slug> [--label L] [--description D] [--parent p | --clear-parent]
+              [--pin recipe … | --clear-pinned] [--image-url U | --clear-image]
+              [--date d] | (--file patch.json | --stdin)
+  term assign <slug> [--add carrier …] [--remove carrier …] [--type recipe|group]
+  term rename <slug> <new-slug-or-label> [--label L]
+  term merge <slug> <into> [--yes]
+  term delete <slug> [--unassign] [--yes]
   feature (--recipe s | --group s | --term s) [--note N] [--date d] [--slug s]
   unfeature <slug> [--yes]
   featured list [--limit 20] [--offset 0]
@@ -157,7 +171,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   git fetch [<remote>]
   git pull [<remote>]
   git sync [<remote>] [--ssh-host <host> --mirror-dir <dir>]
-  git log [--type recipe|group|featured] [--slug s] [--limit 30] [--offset 0]
+  git log [--type recipe|group|featured|term] [--slug s] [--limit 30] [--offset 0]
   git show <hash> [--max-chars 50000]
   git file <type> <slug> <rev>
   git diff <from> [<to>] [--path p]

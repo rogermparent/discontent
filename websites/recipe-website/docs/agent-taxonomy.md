@@ -619,6 +619,10 @@ same day.
 31e adds a term edit form. `agent-epic-31.md` is their record; its D4
 (`term_cycle` is 422) and D5 (46 tools, 34 pre-approved) supersede the counts
 and status in D7 above. 24f's real-repo backfill and story run stay open.
+31c built the seats, API, CLI and tools, narrowed `Group.kind` to
+`meal-plan`, and replaced the groups-based `christmasCookies.test.ts` with
+the taxonomy edition; its "Built (31c)" notes record the merge and delete
+semantics D7 left open.
 
 **Next PR (historical): 24d** — `agent/24d-taxonomy-search` stacked on
 `agent/24c-term-records` (draft PR #145; retarget to `main` after #145

@@ -319,6 +319,95 @@ describe("the CLI as a process", () => {
     },
     TIMEOUT,
   );
+
+  /*
+   * 31c. The `term` table end to end, one object per call, and the two
+   * destructive subcommands refuse a pipe without `--yes`. The tag is taken
+   * back off before the case ends, so the cases above stay as they were.
+   */
+  it(
+    "runs the term table: create, assign, get, list, and a guarded delete",
+    async () => {
+      const created = await run([
+        "term",
+        "create",
+        "--label",
+        "Weeknight",
+        "--description",
+        "Fast enough for a Tuesday.",
+        "--json",
+      ]);
+      expect(created.exitCode).toBe(0);
+      expect(JSON.parse(created.stdout)).toMatchObject({
+        slug: "weeknight",
+        url: "/tags/weeknight",
+        tag: "weeknight",
+      });
+
+      const assigned = await run([
+        "term",
+        "assign",
+        "weeknight",
+        "--add",
+        "first-recipe",
+        "--add",
+        "no-such-recipe",
+        "--json",
+      ]);
+      expect(assigned.exitCode).toBe(0);
+      expect(JSON.parse(assigned.stdout)).toMatchObject({
+        updated: ["first-recipe"],
+        missing: ["no-such-recipe"],
+      });
+
+      const got = await run(["term", "get", "weeknight", "--json"]);
+      expect(got.exitCode).toBe(0);
+      expect(JSON.parse(got.stdout)).toMatchObject({
+        slug: "weeknight",
+        record: { description: "Fast enough for a Tuesday." },
+        counts: { own: 1, withDescendants: 1 },
+        recipes: ["first-recipe"],
+      });
+
+      const listed = await run(["term", "list", "--records", "--json"]);
+      expect(listed.exitCode).toBe(0);
+      expect(JSON.parse(listed.stdout).terms).toEqual([
+        { slug: "weeknight", label: "Weeknight", count: 1, record: true },
+      ]);
+
+      /* Carried, so refused — and without `--yes` it never gets that far. */
+      const unconfirmed = await run(["term", "delete", "weeknight", "--json"]);
+      expect(JSON.parse(unconfirmed.stdout).error.code).toBe("usage");
+      const inUse = await run([
+        "term",
+        "delete",
+        "weeknight",
+        "--yes",
+        "--json",
+      ]);
+      expect(inUse.exitCode).toBe(1);
+      expect(JSON.parse(inUse.stdout).error).toMatchObject({
+        code: "term_in_use",
+        recipes: ["first-recipe"],
+      });
+
+      const deleted = await run([
+        "term",
+        "delete",
+        "weeknight",
+        "--unassign",
+        "--yes",
+        "--json",
+      ]);
+      expect(deleted.exitCode).toBe(0);
+      expect(JSON.parse(deleted.stdout)).toMatchObject({
+        slug: "weeknight",
+        deleted: true,
+        recipes: ["first-recipe"],
+      });
+    },
+    TIMEOUT * 4,
+  );
 });
 
 /*

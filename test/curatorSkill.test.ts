@@ -33,7 +33,7 @@ const EXAMPLES_PATH = join(SKILL_DIR, "examples.md");
 const SETTINGS_PATH = resolve(__dirname, "../.claude/settings.json");
 
 /**
- * The nine tools the skill does not get.
+ * The twelve tools the skill does not get.
  *
  * Spelled out rather than derived, because annotations do not carry it: five
  * are `destructiveHint`, but `reindex` is an idempotent write and `git_push`
@@ -59,6 +59,13 @@ const HELD_BACK = [
   "git_pull",
   /* Epic 28: a sync merges and pushes — both of the above at once. */
   "git_sync",
+  /*
+   * 31c (epic 31 D5): the two term writes that destroy a record. `term_rename`
+   * and `term_assign` are pre-approved — they rewrite carriers but keep every
+   * term.
+   */
+  "term_delete",
+  "term_merge",
 ] as const;
 
 const EXPECTED_ALLOWED = TOOL_NAMES.filter(
@@ -67,7 +74,7 @@ const EXPECTED_ALLOWED = TOOL_NAMES.filter(
 
 /** Anything backticked that is shaped like one of this server's tool names. */
 const TOOL_SHAPED =
-  /^(recipe|group|git|tag|featured|inventory|page)_[a-z_]+$|^(feature|unfeature|reindex)$/;
+  /^(recipe|group|git|tag|featured|inventory|page|term)_[a-z_]+$|^(feature|unfeature|reindex)$/;
 
 /** `## Heading` … up to the next `## `, or the end. */
 function section(markdown: string, heading: string): string {

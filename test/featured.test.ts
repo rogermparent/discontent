@@ -74,7 +74,7 @@ beforeEach(async () => {
   await createGroup(ctx, {
     name: "Weeknight Favourites",
     slug: "weeknights",
-    kind: "collection",
+    kind: "meal-plan",
     items: ["naan"],
   });
 });
@@ -185,7 +185,7 @@ describe("feature", () => {
     expect(await readIndexValue("weeknights-feature")).toMatchObject({
       group: "weeknights",
       groupName: "Weeknight Favourites",
-      groupKind: "collection",
+      groupKind: "meal-plan",
     });
   });
 

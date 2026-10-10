@@ -18,6 +18,7 @@ import path from "node:path";
 import { featuredRecipeContentConfig } from "recipe-website-common/controller/featuredRecipeContentConfig";
 import { groupContentConfig } from "recipe-website-common/controller/groupContentConfig";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
+import { tagTermContentConfig } from "recipe-website-common/controller/tagTermContentConfig";
 
 export interface Author {
   name: string;
@@ -95,6 +96,11 @@ export const GROUP_URL_BASE = "/group";
  * featured type's `itemBasePath`.
  */
 export const FEATURED_URL_BASE = "/featured-recipe";
+/**
+ * Where a term's page is served (24c) — the same base the `tag-terms` success
+ * config declares as its `itemBasePath` (31c).
+ */
+export const TERM_URL_BASE = "/tags";
 
 export function recipePath(ctx: CurationContext, slug: string): string {
   return path.join(
@@ -121,6 +127,20 @@ export function featuredPath(ctx: CurationContext, slug: string): string {
     slug,
     featuredRecipeContentConfig.dataFilename,
   );
+}
+
+/** A term record's data file — whether or not one has been written yet. */
+export function termPath(ctx: CurationContext, slug: string): string {
+  return path.join(
+    ctx.contentDirectory,
+    tagTermContentConfig.dataDirectory,
+    slug,
+    tagTermContentConfig.dataFilename,
+  );
+}
+
+export function termUrl(slug: string): string {
+  return `${TERM_URL_BASE}/${slug}`;
 }
 
 export function recipeUrl(slug: string): string {

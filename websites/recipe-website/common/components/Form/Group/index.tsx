@@ -41,10 +41,23 @@ type ItemRow = GroupItem & {
   isGroup: boolean;
 };
 
-const KIND_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "meal-plan", label: "Meal plan" },
-  { value: "collection", label: "Collection" },
-];
+/**
+ * What the Kind select offers (31c, `24-D5`): a new group is a meal plan. A
+ * curated collection is a term now — tag the recipes and describe the term —
+ * so "Collection" is offered only to a group that already is one, and only so
+ * re-saving it keeps what it was. The server refuses a *new* collection
+ * whatever a forged post says (`actions/groups.ts`).
+ */
+function kindOptions(
+  current: string | undefined,
+): Array<{ value: string; label: string }> {
+  return [
+    { value: "meal-plan", label: "Meal plan" },
+    ...(current === "collection"
+      ? [{ value: "collection", label: "Collection (legacy)" }]
+      : []),
+  ];
+}
 
 export default function GroupFields({
   group,
@@ -147,10 +160,10 @@ export default function GroupFields({
         label="Kind"
         name="kind"
         id="group-form-kind"
-        defaultValue={kind ?? "collection"}
+        defaultValue={kind ?? "meal-plan"}
         errors={state?.errors?.kind}
       >
-        {KIND_OPTIONS.map((option) => (
+        {kindOptions(kind).map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>

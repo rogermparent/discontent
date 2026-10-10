@@ -49,6 +49,9 @@ describe("statusFor", () => {
       /* 24c, and the correction to D7's draft, which said 404. */
       unknown_term: 422,
       group_cycle: 422,
+      /* 31c (epic 31 D4): a shape like `group_cycle`; a state like a conflict. */
+      term_cycle: 422,
+      term_in_use: 409,
       import_failed: 502,
       no_git_identity: 500,
       /*

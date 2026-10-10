@@ -70,6 +70,9 @@ import {
   InventorySetSchema,
   RecipeInputSchema,
   RecipePatchSchema,
+  TermCarrierTypeSchema,
+  TermInputSchema,
+  TermPatchSchema,
 } from "../controller/curation/schema";
 import packageJson from "../package.json";
 import type {
@@ -95,6 +98,15 @@ export const TOOL_NAMES = [
   "recipe_set_image",
   "recipe_delete",
   "tag_list",
+  /* The vocabulary's records and carriers (31c): 38 → 46. */
+  "term_list",
+  "term_get",
+  "term_create",
+  "term_update",
+  "term_assign",
+  "term_rename",
+  "term_merge",
+  "term_delete",
   "group_list",
   "group_get",
   "group_create",
@@ -292,11 +304,13 @@ const INSTRUCTIONS = `Manage and search a recipe website's content.
 
 Recipe rows from recipe_search and recipe_list are compact — {slug, name, date, tags, totalTime, image?} — to keep results small; pass \`fields\` to add description, ingredients, prepTime or cookTime, and use recipe_get for a whole recipe. Slugs are the identity of everything: recipe slugs, group slugs, and a featured entry's own slug (which is not its target's).
 
-Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?, terms?}}; the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, unknown_term, group_cycle, import_failed, no_git_identity, not_a_repo, dirty_tree, git_conflict, bad_revision, unauthenticated, forbidden, usage and internal. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
+Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?, terms?}}; the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, unknown_term, group_cycle, term_cycle, term_in_use, import_failed, no_git_identity, not_a_repo, dirty_tree, git_conflict, bad_revision, unauthenticated, forbidden, usage and internal. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
 
-Writes commit to the content repository, one commit each. Deletes (recipe_delete, group_delete, unfeature) are not undoable from here.
+Tags are one vocabulary shared by recipes and groups. A term is a tag that may also have a record — a label, description, picture, a parent (so tag:<parent> also finds everything under it) and pinned recipes that lead its page. Use terms for a cluster by kind or a curated collection (term_create, then term_assign), and groups for meal plans: ordered, dated lists with a label per item. term_assign, term_rename and term_merge write each recipe or group they touch, one commit each.
 
-The git tools read and rewind that repository. git_log, git_show, git_file_at and git_diff read history; \`type\` is recipe, group or featured. git_revert and git_restore make a new commit and rebuild every index — they need a clean working tree (dirty_tree otherwise) and neither is undoable from here. git_push sends the branch to its remote and changes nothing locally. git_fetch refreshes the remote refs and nothing else, so run it (or git_status with fetch: true) before trusting ahead/behind. git_pull merges the upstream in and rebuilds every index; a conflict is aborted and answered with git_conflict, for a person to resolve in the editor's Git page. If git_status says indexStale, run reindex.`;
+Writes commit to the content repository, one commit each. Deletes (recipe_delete, group_delete, term_delete, term_merge, unfeature) are not undoable from here.
+
+The git tools read and rewind that repository. git_log, git_show, git_file_at and git_diff read history; \`type\` is recipe, group, featured or term. git_revert and git_restore make a new commit and rebuild every index — they need a clean working tree (dirty_tree otherwise) and neither is undoable from here. git_push sends the branch to its remote and changes nothing locally. git_fetch refreshes the remote refs and nothing else, so run it (or git_status with fetch: true) before trusting ahead/behind. git_pull merges the upstream in and rebuilds every index; a conflict is aborted and answered with git_conflict, for a person to resolve in the editor's Git page. If git_status says indexStale, run reindex.`;
 
 /* --- the registry -------------------------------------------------------- */
 
@@ -563,11 +577,168 @@ export function createRecipeServer(
     {
       title: "List tags",
       description:
-        "Every tag in the corpus, sorted. Worth reading before inventing a new one.",
-      inputSchema: z.strictObject({}),
+        "Every tag in the corpus, sorted. Worth reading before inventing a new one. " +
+        "Pass `terms: true` to also get `terms` — term_list's rows, with each " +
+        "term's slug, count, parent and whether it has a record.",
+      /*
+       * Extended additively (31c, 24-D7): `{}` answers exactly `{tags}` as it
+       * always has, and the hierarchy is opt-in.
+       */
+      inputSchema: z.strictObject({ terms: z.boolean().optional() }),
       annotations: READ_ONLY,
     },
-    async () => read(async () => ({ tags: await backend.listTags() })),
+    async ({ terms }) =>
+      read(async () => {
+        const tags = await backend.listTags();
+        if (!terms) return { tags };
+        return { tags, terms: (await backend.listTerms()).terms };
+      }),
+  );
+
+  /* --- terms (31c) -------------------------------------------------------- */
+
+  register(
+    "term_list",
+    {
+      title: "List terms",
+      description:
+        "The tag vocabulary sorted by slug: every term a recipe or group carries plus " +
+        "every term record, as {slug, label, count, parent?, record}. `count` is the " +
+        "term's own carriers; `record` says whether it has a record (a description, " +
+        "picture, parent or pinned front, and it can be featured). `records: true` " +
+        "lists only those.",
+      inputSchema: z.strictObject({
+        records: z.boolean().optional(),
+        limit: Limit,
+        offset: Offset,
+      }),
+      annotations: READ_ONLY,
+    },
+    async (args) => read(() => backend.listTerms(args)),
+  );
+
+  register(
+    "term_get",
+    {
+      title: "Get a term",
+      description:
+        "One term: its `record` (or null when it only exists as a tag), `breadcrumb` " +
+        "(root first), `children` with counts, `counts.own` and " +
+        "`counts.withDescendants` (what tag:<slug> finds), and the recipe and group " +
+        "slugs that carry it.",
+      inputSchema: z.strictObject({ slug: Slug }),
+      annotations: READ_ONLY,
+    },
+    async ({ slug }) => read(() => backend.getTerm(slug)),
+  );
+
+  register(
+    "term_create",
+    {
+      title: "Create a term",
+      description:
+        "Write a term record: a `label` (the slug defaults to the label's), and " +
+        "optionally a `description`, a `parent` (another record's slug — it becomes " +
+        "part of tag:<parent>), `pinned` recipe slugs that lead its page (each must " +
+        "already carry the tag) and an `imageImportUrl`. Then term_assign tags the " +
+        "recipes. A parent that would put the term under itself is term_cycle.",
+      inputSchema: z.strictObject({ term: TermInputSchema }),
+      annotations: WRITES,
+    },
+    async ({ term }) => write(backend, () => backend.createTerm(term)),
+  );
+
+  register(
+    "term_update",
+    {
+      title: "Update a term",
+      description:
+        "Patch a term record: label, description, parent, pinned, image, date. An " +
+        "omitted key is left alone, null clears it (null `parent` makes it a root). " +
+        "`pinned` replaces the whole list. The slug cannot change here — that is " +
+        "term_rename, which also rewrites the carriers.",
+      inputSchema: z.strictObject({ slug: Slug, patch: TermPatchSchema }),
+      annotations: IDEMPOTENT_WRITE,
+    },
+    async ({ slug, patch }) =>
+      write(backend, () => backend.updateTerm(slug, patch)),
+  );
+
+  register(
+    "term_assign",
+    {
+      title: "Tag or untag recipes or groups",
+      description:
+        "Add the term to the recipes in `add` and take it off those in `remove` " +
+        '(groups instead with `type: "group"`), one write per carrier. Answers ' +
+        "{slug, tag, updated, unchanged, missing}: `tag` is the string written, " +
+        "`missing` names slugs that are not recipes (or groups). No record is " +
+        "needed — a new tag comes into being this way.",
+      inputSchema: z.strictObject({
+        slug: Slug,
+        add: z.array(Slug).optional(),
+        remove: z.array(Slug).optional(),
+        type: TermCarrierTypeSchema.optional(),
+      }),
+      annotations: IDEMPOTENT_WRITE,
+    },
+    async ({ slug, ...assignment }) =>
+      write(backend, () => backend.assignTerm(slug, assignment)),
+  );
+
+  register(
+    "term_rename",
+    {
+      title: "Rename a term",
+      description:
+        "Move a term to a new slug: `to` is the new slug or label (slugged), and " +
+        "`label` sets the record's label if `to` is a bare slug. The record moves — " +
+        "children and featured entries follow it — and every recipe and group " +
+        "carrying the tag is rewritten, one write each. A `to` that already exists " +
+        "is slug_conflict: use term_merge.",
+      inputSchema: z.strictObject({
+        slug: Slug,
+        to: z.string().trim().min(1),
+        label: z.string().trim().min(1).optional(),
+      }),
+      annotations: WRITES,
+    },
+    async ({ slug, ...rename }) =>
+      write(backend, () => backend.renameTerm(slug, rename)),
+  );
+
+  register(
+    "term_merge",
+    {
+      title: "Merge a term into another",
+      description:
+        "Fold `slug` into `into`: every carrier is re-tagged, and the record moves to " +
+        "`into` (when it has none) or is deleted after its children, features and " +
+        "pinned recipes move over. Not undoable from here.",
+      inputSchema: z.strictObject({ slug: Slug, into: Slug }),
+      annotations: DESTRUCTIVE_WRITE,
+    },
+    async ({ slug, into }) =>
+      write(backend, () => backend.mergeTerm(slug, { into })),
+  );
+
+  register(
+    "term_delete",
+    {
+      title: "Delete a term",
+      description:
+        "Delete a term record. Refused with term_in_use while recipes or groups carry " +
+        "the tag, unless `unassign: true`, which removes it from each of them first. " +
+        "Its children move up to its parent; a featured entry of it is left dangling. " +
+        "Not undoable from here.",
+      inputSchema: z.strictObject({
+        slug: Slug,
+        unassign: z.boolean().optional(),
+      }),
+      annotations: DESTRUCTIVE_WRITE,
+    },
+    async ({ slug, unassign }) =>
+      write(backend, () => backend.deleteTerm(slug, { unassign })),
   );
 
   /* --- groups ------------------------------------------------------------ */
@@ -576,7 +747,8 @@ export function createRecipeServer(
     "group_list",
     {
       title: "List groups",
-      description: "Meal plans and collections, newest first.",
+      description:
+        "Meal plans (and collections written before collections became terms), newest first.",
       inputSchema: z.strictObject({ limit: Limit, offset: Offset }),
       annotations: READ_ONLY,
     },
@@ -602,7 +774,9 @@ export function createRecipeServer(
     {
       title: "Create a group",
       description:
-        'A meal plan or a collection. Items may be `"slug"`, `"slug:label"` or ' +
+        "A meal plan — an ordered list with a label per item, such as a week of " +
+        "dinners. `kind` is `meal-plan` (a collection is now a term: term_create " +
+        'and term_assign). Items may be `"slug"`, `"slug:label"` or ' +
         "{recipe, label?, note?} — or {group, label?, note?} for a nested group. " +
         "`tags` classifies the group in the site's one tag vocabulary, the same " +
         "one recipes use, so it appears on those tags' pages. " +
@@ -885,7 +1059,7 @@ export function createRecipeServer(
       title: "Git log",
       description:
         "Commits that touched the content, newest first, each with the files it " +
-        "changed. Pass `type` (recipe, group or featured) to narrow it to one content " +
+        "changed. Pass `type` (recipe, group, featured or term) to narrow it to one content " +
         "type, and `type` with `slug` to see one item's own history — which is the " +
         "read to make before reverting or restoring anything.",
       inputSchema: GitLogQuerySchema,

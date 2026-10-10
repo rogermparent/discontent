@@ -165,6 +165,22 @@ const groupEditorConfig: EditorContentConfig<
 const groupActions = createGenericActions(groupEditorConfig);
 
 /**
+ * `Group.kind` narrowed to `"meal-plan"` (31c, `24-D5`): a curated collection
+ * is a term with a pinned front now. The curation seat refuses one in its
+ * schema; the form is refused here, as a field error on Kind, because the
+ * generic actions' build hooks cannot return one.
+ */
+const NEW_COLLECTION_REFUSED =
+  "New groups are meal plans. A collection is now a term: tag its recipes, then describe the term on its tag page.";
+
+function refuseCollection(): GroupFormState {
+  return {
+    message: "Error parsing group",
+    errors: { kind: [NEW_COLLECTION_REFUSED] },
+  };
+}
+
+/**
  * The form's "Add group" rows can name any group (epic 31), so a write that
  * would make a group contain itself — directly or through a sub-group — is
  * refused here, before the generic action writes, with the curation seat's own
@@ -202,23 +218,37 @@ export async function createGroup(
   prevState: GroupFormState | null,
   formData: FormData,
 ): Promise<GroupFormState> {
+  if (formData.get("kind") === "collection") return refuseCollection();
   return (
     (await groupCycleError(formData)) ??
     groupActions.create(prevState, formData)
   );
 }
 
+/**
+ * An existing collection may be re-saved as one — the form offers the legacy
+ * option only to a group that already is a collection — but no other group
+ * may become one. The record is read raw (T5), as `buildUpdateData` reads it.
+ */
 export async function updateGroup(
   currentDate: number,
   currentSlug: string,
   prevState: GroupFormState | null,
   formData: FormData,
 ): Promise<GroupFormState> {
+  if (formData.get("kind") === "collection") {
+    const current = await getGroupBySlug({
+      slug: currentSlug,
+      contentDirectory: getContentDirectory(),
+    }).catch(() => null);
+    if (current?.kind !== "collection") return refuseCollection();
+  }
   return (
     (await groupCycleError(formData, currentSlug)) ??
     groupActions.update(currentDate, currentSlug, prevState, formData)
   );
 }
+
 export const deleteGroup = groupActions.delete;
 
 export async function rebuildGroupIndex() {
