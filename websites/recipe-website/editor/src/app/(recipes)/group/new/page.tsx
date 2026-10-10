@@ -1,5 +1,5 @@
 import NewGroupForm from "./form";
-import { getAllTags } from "recipe-website-common/controller/data/read";
+import { readTagLabels } from "recipe-website-common/controller/data/readTermPage";
 import {
   PageMain,
   PageSection,
@@ -25,7 +25,7 @@ export default async function NewGroup({
     return signIn(undefined, { redirectTo });
   }
 
-  const allTags = await getAllTags();
+  const allTags = await readTagLabels();
 
   return (
     <PageMain>

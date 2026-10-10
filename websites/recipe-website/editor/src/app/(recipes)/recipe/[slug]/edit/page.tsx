@@ -1,4 +1,4 @@
-import { getAllTags } from "recipe-website-common/controller/data/read";
+import { readTagLabels } from "recipe-website-common/controller/data/readTermPage";
 import { recipeItems } from "recipe-website-common/controller/data/readRecipeItem";
 import EditForm from "./form";
 import { notFound } from "next/navigation";
@@ -39,7 +39,7 @@ export default async function Recipe({
           sizes: "100vw",
         })
       : undefined;
-  const allTags = await getAllTags();
+  const allTags = await readTagLabels();
   return (
     <PageMain>
       <PageSection maxWidth="xl" grow>

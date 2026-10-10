@@ -47,6 +47,7 @@ import {
   type ImageProbe,
 } from "../imageImport";
 import { recipePath, recipeUrl, type CurationContext } from "./context";
+import { readTagResolver } from "./tagResolver";
 import { NotFoundError, SlugConflictError, ValidationError } from "./errors";
 import {
   RecipeInputSchema,
@@ -171,11 +172,16 @@ export async function listRecipes(
      * `list --tag x` and `search "tag:x"` cannot answer differently: the filter
      * folds diacritics and matches at word starts, and a hand-rolled equality
      * check here would quietly be stricter than what the browser does.
+     * Hierarchy-aware since 31b, with the same resolver `search` reads: a
+     * parent term lists the recipes under it.
      */
     const { filter } = parseQuery(`tag:${quoteQueryValue(tag)}`);
-    const rows = await readAllRecipeRows(ctx);
+    const [rows, resolver] = await Promise.all([
+      readAllRecipeRows(ctx),
+      readTagResolver(ctx),
+    ]);
     const matched = filter
-      ? rows.filter((row) => matchesFilter(row, filter))
+      ? rows.filter((row) => matchesFilter(row, filter, resolver))
       : rows;
     const page = matched.slice(offset, offset + limit);
     return {

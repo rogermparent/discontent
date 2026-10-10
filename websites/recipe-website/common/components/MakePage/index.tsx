@@ -31,6 +31,7 @@ import { scopeRecipes } from "./scope";
 import { TagPicks } from "./TagPicks";
 import { TagSearch } from "./TagSearch";
 import { buildTagIndex, subtreeUsage } from "./tagTree";
+import { buildTagExpansion } from "../../controller/tagExpansion";
 import { useInventory, useLastMakeQuery } from "./useInventory";
 
 /**
@@ -146,7 +147,18 @@ export function MakePage({
   );
   const prepared = useMemo(() => prepareCorpus(corpus), [corpus]);
   const suggestions = useMemo(() => suggestNames(prepared), [prepared]);
-  const scoped = useMemo(() => scopeRecipes(corpus, query), [corpus, query]);
+  const tagOptionList = useMemo(
+    () => tags ?? corpusTagOptions(corpus),
+    [tags, corpus],
+  );
+  const tagResolver = useMemo(
+    () => buildTagExpansion(tagOptionList),
+    [tagOptionList],
+  );
+  const scoped = useMemo(
+    () => scopeRecipes(corpus, query, tagResolver),
+    [corpus, query, tagResolver],
+  );
   const analysis = useMemo(
     () => analyzeMakeable(scoped, prepared, inventory.have),
     [scoped, prepared, inventory.have],
@@ -160,10 +172,7 @@ export function MakePage({
     () => new Set(positiveTagValues(parseQuery(query).filter)),
     [query],
   );
-  const tagIndex = useMemo(
-    () => buildTagIndex(tags ?? corpusTagOptions(corpus)),
-    [tags, corpus],
-  );
+  const tagIndex = useMemo(() => buildTagIndex(tagOptionList), [tagOptionList]);
   const scopeUsage = useMemo(
     () => subtreeUsage(scoped, tagIndex),
     [scoped, tagIndex],

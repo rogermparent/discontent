@@ -1615,6 +1615,10 @@ const ALLOWED: RegExp[] = [
    * record's data file through it. */
   /^recipe-website-common\/controller\/(types|recipeContentConfig|groupContentConfig|featuredRecipeContentConfig|tagTermContentConfig|createSlug|createGroupSlug|createFeaturedRecipeSlug|normalizeTags|recipeTagTaxonomy|groupTagTaxonomy|tagSlug|data\/read|data\/readGroups)$/,
   /^recipe-website-common\/components\/SearchForm\/queryLanguage$/,
+  /* The pure halves of the term vocabulary joined at 31b, for the server's
+   * hierarchy-aware `tag:` (`tagResolver.ts`): merge and expansion functions
+   * over values the seat reads itself, no reads of their own. */
+  /^recipe-website-common\/controller\/(tagVocabulary|tagExpansion)$/,
   /* The group search corpus joined at 30a, for `group:` in `searchRecipes`:
    * CLI-safe by construction (its T5/D8 note) — `readAllIds` and
    * `readContentFile` over configs already on this list, no `unstable_cache`. */

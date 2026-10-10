@@ -197,6 +197,44 @@ test.describe("Tag pages", () => {
       );
     });
 
+    test("/tags draws the hierarchy with subtree totals (31b)", async ({
+      page,
+    }) => {
+      await page.goto("/tags");
+      const tree = page.getByTestId("tag-tree");
+      /* Dessert's eight carriers are the cookies; each counts once. */
+      const dessert = tree.locator("> li").filter({ hasText: /^Dessert/ });
+      await expect(dessert).toHaveCount(1);
+      /* The count sits beside the label by margin, not by a space. */
+      expect((await dessert.innerText()).replace(/\s+/g, "")).toBe(
+        "Dessert8Cookies8",
+      );
+      await expect(
+        dessert.getByRole("link", { name: "Cookies" }),
+      ).toHaveAttribute("href", "/tags/cookies");
+      /* A term outside any hierarchy is left to the flat list. */
+      await expect(tree.getByRole("link", { name: "Holiday" })).toHaveCount(0);
+    });
+
+    test("tag:dessert finds a recipe that carries only a narrower term (31b)", async ({
+      page,
+      request,
+      createApiToken,
+    }) => {
+      const token = await createApiToken();
+      const created = await request.post("/api/recipes", {
+        headers: { authorization: `Bearer ${token}` },
+        data: { name: "Linzer Bars", tags: ["cookies"] },
+      });
+      expect(created.status()).toBe(201);
+
+      await page.goto("/search?q=tag%3Adessert");
+      await expect(
+        page.getByTestId("recipe-list").getByText("Linzer Bars"),
+      ).toBeVisible({ timeout: 20_000 });
+      await expect(cards(page)).toHaveCount(9);
+    });
+
     test("a record with no carriers is a real page, not a 404", async ({
       page,
     }) => {
