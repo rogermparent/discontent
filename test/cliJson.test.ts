@@ -187,6 +187,67 @@ describe("the CLI as a process", () => {
   );
 
   it(
+    "adds an item with --scale and shows it, in JSON and in text",
+    async () => {
+      /*
+       * Epic 32, D4. Its own plan, so the shared `week-one` fixture the other
+       * cases count stays one item long.
+       */
+      const created = await run([
+        "group",
+        "create",
+        "--name",
+        "Scaled Week",
+        "--slug",
+        "scaled-week",
+        "--item",
+        "first-recipe:Mon@1/2",
+        "--json",
+      ]);
+      expect(created.exitCode).toBe(0);
+
+      const added = await run([
+        "group",
+        "add",
+        "scaled-week",
+        "first-recipe",
+        "--label",
+        "Tue",
+        "--scale",
+        "2",
+        "--json",
+      ]);
+      expect(added.exitCode).toBe(0);
+
+      const shown = await run(["group", "show", "scaled-week", "--json"]);
+      expect(JSON.parse(shown.stdout).group.items).toEqual([
+        { recipe: "first-recipe", label: "Mon", scale: "1/2" },
+        { recipe: "first-recipe", label: "Tue", scale: "2" },
+      ]);
+
+      const text = await run(["group", "show", "scaled-week"]);
+      expect(text.stdout).toContain("Tue — First Recipe (first-recipe) ×2");
+
+      const refused = await run([
+        "group",
+        "add",
+        "scaled-week",
+        "first-recipe",
+        "--scale",
+        "0",
+        "--json",
+      ]);
+      expect(refused.exitCode).not.toBe(0);
+      expect(JSON.parse(refused.stdout).error).toMatchObject({
+        code: "validation",
+        issues: [{ path: "scale" }],
+      });
+    },
+    /* Five processes, at the ~4 s a `tsx` start costs. */
+    TIMEOUT * 3,
+  );
+
+  it(
     "prints one object for git log --json",
     async () => {
       /*
@@ -605,5 +666,95 @@ describe("import tooling as a process (26b)", () => {
       expect(JSON.parse(usage.stdout).error.code).toBe("usage");
     },
     TIMEOUT * 2,
+  );
+
+  /* 32c: `term image`, the same three sources on a term record. */
+  it(
+    "sets a term's picture from a file and a URL and clears it, one commit each",
+    async () => {
+      const picture = join(scratch, "cookie tin.png");
+      await writeFile(picture, "png bytes");
+      const repo = simpleGit({ baseDir: contentDirectory });
+
+      const missing = await run([
+        "term",
+        "image",
+        "tin-cookies",
+        "--file",
+        picture,
+        "--json",
+      ]);
+      expect(JSON.parse(missing.stdout).error.code).toBe("not_found");
+
+      const created = await run([
+        "term",
+        "create",
+        "--label",
+        "Tin Cookies",
+        "--json",
+      ]);
+      expect(created.exitCode).toBe(0);
+      const before = await commitCount();
+
+      const set = await run([
+        "term",
+        "image",
+        "tin-cookies",
+        "--file",
+        picture,
+        "--json",
+      ]);
+      expect(set.exitCode).toBe(0);
+      expect(JSON.parse(set.stdout)).toMatchObject({
+        slug: "tin-cookies",
+        image: "cookie-tin.png",
+        url: "/tags/tin-cookies",
+      });
+      expect(await commitCount()).toBe(before + 1);
+      expect((await repo.log({ maxCount: 1 })).latest?.message).toBe(
+        "Update term image: tin-cookies",
+      );
+      const uploadsDir = join(
+        contentDirectory,
+        "uploads/tag-term/tin-cookies/uploads",
+      );
+      expect(await readFile(join(uploadsDir, "cookie-tin.png"), "utf8")).toBe(
+        "png bytes",
+      );
+
+      const fromUrl = await run([
+        "term",
+        "image",
+        "tin-cookies",
+        "--url",
+        `${origin}/plane.png`,
+        "--json",
+      ]);
+      expect(fromUrl.exitCode).toBe(0);
+      expect(JSON.parse(fromUrl.stdout)).toMatchObject({
+        image: "plane.png",
+        previous: "cookie-tin.png",
+      });
+      expect(await commitCount()).toBe(before + 2);
+
+      const cleared = await run([
+        "term",
+        "image",
+        "tin-cookies",
+        "--clear",
+        "--json",
+      ]);
+      expect(cleared.exitCode).toBe(0);
+      expect(JSON.parse(cleared.stdout)).toMatchObject({
+        image: null,
+        previous: "plane.png",
+      });
+      expect(await commitCount()).toBe(before + 3);
+      expect(await pathExists(join(uploadsDir, "plane.png"))).toBe(false);
+
+      const usage = await run(["term", "image", "tin-cookies", "--json"]);
+      expect(JSON.parse(usage.stdout).error.code).toBe("usage");
+    },
+    TIMEOUT * 3,
   );
 });

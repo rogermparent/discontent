@@ -31,6 +31,7 @@ const SKILL_DIR = resolve(__dirname, "../.claude/skills/recipe-curator");
 const SKILL_PATH = join(SKILL_DIR, "SKILL.md");
 const EXAMPLES_PATH = join(SKILL_DIR, "examples.md");
 const SETTINGS_PATH = resolve(__dirname, "../.claude/settings.json");
+const CLAUDE_MD_PATH = resolve(__dirname, "../CLAUDE.md");
 
 /**
  * The twelve tools the skill does not get.
@@ -181,6 +182,27 @@ describe("the recipe-curator skill's allow-lists", () => {
     /* And the non-MCP half of the frontmatter is still what the skill uses. */
     expect(frontmatterTools).toContain("WebSearch");
     expect(frontmatterTools).toContain("Bash(pnpm --silent recipes:*)");
+  });
+
+  it("pins the counts, and CLAUDE.md states them", async () => {
+    /*
+     * 47 tools, 35 pre-approved since 32c's `term_set_image` (an image is one
+     * `git revert` away, like `recipe_set_image`). Spelled out so a new tool is
+     * a deliberate edit here — and CLAUDE.md's "pre-approves its N" sentence,
+     * which nothing else checks, moves with it.
+     */
+    expect(TOOL_NAMES).toHaveLength(47);
+    expect(EXPECTED_ALLOWED).toHaveLength(35);
+    expect(EXPECTED_ALLOWED).toContain("term_set_image");
+
+    const claudeMd = await readFile(CLAUDE_MD_PATH, "utf8");
+    for (const pattern of [/pre-approves its (\d+)/, /lists the same (\d+)/]) {
+      const match = pattern.exec(claudeMd);
+      expect(match, `CLAUDE.md lost ${pattern}`).not.toBeNull();
+      expect(Number((match as RegExpExecArray)[1])).toBe(
+        EXPECTED_ALLOWED.length,
+      );
+    }
   });
 
   /* (c) --------------------------------------------------------------- */

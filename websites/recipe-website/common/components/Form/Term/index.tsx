@@ -38,8 +38,9 @@ export interface TermFieldsInitial {
  *
  * - **Slug** only on `/tags/new`. An existing term's slug is its carriers' tag
  *   string, so moving it is `term_rename` (CLI / MCP), never a form field.
- * - **Picture** by URL only: the term seat takes `imageImportUrl` and no file
- *   upload, so the file input is hidden rather than offered and dropped.
+ * - **Picture** as a recipe's is (32c, D2): a file, an Image URL, or "Remove
+ *   Image". The file goes to the seat beside the input (`imageFile`), and a
+ *   chosen file beats a typed URL.
  * - **Parent** is a native select over the term **records** (the seat refuses
  *   a parent without one), with this term and everything under it left out —
  *   the choices the seat would refuse as `term_cycle`. The seat still checks.
@@ -138,7 +139,6 @@ export default function TermFields({
         existingAlt="Existing term image"
         defaultImage={defaultImage}
         allowUrl
-        allowFile={false}
         imageToImport={state?.formData?.imageImportUrl}
         errors={state?.errors?.image}
       />

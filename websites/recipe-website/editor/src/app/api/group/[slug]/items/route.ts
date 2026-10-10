@@ -30,7 +30,7 @@ export async function POST(
     const { slug } = await params;
     const url = new URL(request.url);
     const ctx = await requireCurationContext(request);
-    const { recipe, group, label, note } = parseInput(
+    const { recipe, group, label, note, scale } = parseInput(
       GroupItemObjectSchema,
       await readJsonBody(request),
     );
@@ -44,6 +44,7 @@ export async function POST(
       await addItem(ctx, slug, ref, {
         label,
         note,
+        scale,
         force: boolParam(url, "force"),
       }),
     );

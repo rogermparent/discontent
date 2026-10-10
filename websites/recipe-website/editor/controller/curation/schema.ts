@@ -26,6 +26,7 @@ import type {
   InstructionEntry,
   InstructionGroup,
 } from "recipe-website-common/controller/types";
+import { SCALE_MESSAGE, isValidScale } from "recipe-website-common/util/scale";
 import { z } from "zod";
 import { ValidationError, issuesOf } from "./errors";
 
@@ -188,7 +189,17 @@ export const RecipePatchSchema = z.strictObject({
 export type RecipePatch = z.infer<typeof RecipePatchSchema>;
 
 /**
- * One item, as JSON: a recipe **or** a group, and the two free-text fields.
+ * A recipe multiplier (epic 32, D4): trimmed, then refused unless
+ * `parseScale` reads it as a positive number. A function so each use gets its
+ * own instance.
+ */
+export function ScaleSchema() {
+  return z.string().trim().refine(isValidScale, { message: SCALE_MESSAGE });
+}
+
+/**
+ * One item, as JSON: a recipe **or** a group, the two free-text fields, and
+ * a recipe row's `scale`.
  *
  * Exported since 23c so `POST /api/group/<slug>/items` can parse its body with
  * it rather than with a private near-copy — the route had one, and a route
@@ -200,6 +211,11 @@ export type RecipePatch = z.infer<typeof RecipePatchSchema>;
  * fails as one message on one field instead of as two unreadable branch
  * failures. It reports on `recipe` because that is the side a caller who named
  * nothing is looking at.
+ *
+ * `scale` (epic 32, D4) is a multiplier string `fraction.js` reads — `"2"`,
+ * `"1/2"`, `"1.5"` — and must be positive; it is stored as written, trimmed.
+ * A `{group}` row may not carry one: a sub-group has no quantities, and a
+ * scale written there would be a value nothing ever reads.
  */
 export const GroupItemObjectSchema = z
   .strictObject({
@@ -207,14 +223,20 @@ export const GroupItemObjectSchema = z
     group: z.string().min(1).optional(),
     label: z.string().optional(),
     note: z.string().optional(),
+    scale: ScaleSchema().optional(),
   })
   .refine((data) => Boolean(data.recipe) !== Boolean(data.group), {
     message: "Name exactly one of `recipe` or `group`",
     path: ["recipe"],
+  })
+  .refine((data) => !(data.group && data.scale !== undefined), {
+    message: "`scale` applies to recipe items only, not to a `group` item",
+    path: ["scale"],
   });
 
 /**
- * `"first-recipe:Mon · Dinner"` is the shorthand `--item` accepts.
+ * `"first-recipe:Mon · Dinner@2"` is the shorthand `--item` accepts:
+ * `slug[:label][@scale]`. `toGroupItems` says how it splits.
  *
  * The string form stays **recipe-only** (D15). A bare slug is what a human
  * types after `--item`, and making it ambiguous between the two content types
@@ -580,24 +602,67 @@ export function toInstructions(
 }
 
 /**
- * `"slug:label"` splits at the **first** colon, so a label may contain one —
+ * The shorthand's trailing scale: an `@` and then, to the end of the string,
+ * only the characters a plain multiplier is written with — digits, `.`, `/`
+ * and a sign. No whitespace, so `"Dinner @ 7pm"` stays a label; no letters,
+ * so `"Dinner@home"` does too. A sign is admitted only so that `@-1` reaches
+ * the validator and fails loudly rather than becoming part of a slug.
+ */
+const TRAILING_SCALE = /@([-+0-9./]+)$/;
+
+/**
+ * Split one shorthand item: `slug[:label][@scale]`.
+ *
+ * The scale comes off **first**, from the end (`TRAILING_SCALE`); then
+ * `slug:label` splits at the **first** colon, so a label may contain one —
  * `"first-recipe:Mon: Dinner"` is a Monday dinner, not a parse error. A slug
- * cannot contain a colon, so the first one is unambiguous.
+ * cannot contain a colon, so the first one is unambiguous; nor an `@`, so
+ * `"stew@2"` is the stew, doubled. The only label a scale suffix can swallow
+ * is one that itself ends in `@<number>`, and that one needs the object form.
+ */
+function parseItemShorthand(
+  entry: string,
+): z.infer<typeof GroupItemObjectSchema> {
+  const match = TRAILING_SCALE.exec(entry);
+  const rest = match ? entry.slice(0, match.index) : entry;
+  const colon = rest.indexOf(":");
+  const recipe = (colon === -1 ? rest : rest.slice(0, colon)).trim();
+  const label = colon === -1 ? "" : rest.slice(colon + 1).trim();
+  return {
+    recipe,
+    ...(label ? { label } : {}),
+    ...(match ? { scale: match[1] } : {}),
+  };
+}
+
+/**
+ * The input list, every string in it expanded by `parseItemShorthand`.
+ *
+ * A shorthand's scale arrives here unvalidated — the input schema can only
+ * say "a string" — so an expanded item that carries one goes through
+ * `GroupItemObjectSchema` as well, and a bad value fails as the same
+ * `validation` error the object form gets, at `items.<n>.scale`.
  */
 export function toGroupItems(
   input: z.infer<typeof GroupItemInputSchema>[],
 ): GroupItem[] {
   return (
     input
-      .map((entry): z.infer<typeof GroupItemObjectSchema> => {
+      .map((entry, index): z.infer<typeof GroupItemObjectSchema> => {
         if (typeof entry !== "string") return entry;
-        const colon = entry.indexOf(":");
-        if (colon === -1) return { recipe: entry.trim() };
-        const label = entry.slice(colon + 1).trim();
-        return {
-          recipe: entry.slice(0, colon).trim(),
-          ...(label ? { label } : {}),
-        };
+        const item = parseItemShorthand(entry);
+        if (item.scale === undefined) return item;
+        const result = GroupItemObjectSchema.safeParse(item);
+        if (!result.success) {
+          throw new ValidationError(
+            "Invalid input",
+            issuesOf(result.error).map((issue) => ({
+              ...issue,
+              path: `items.${index}.${issue.path}`,
+            })),
+          );
+        }
+        return result.data;
       })
       /* An item naming neither is a row the caller left blank, not an error. */
       .filter((item) => Boolean(item.recipe || item.group))

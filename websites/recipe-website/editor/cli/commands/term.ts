@@ -1,7 +1,8 @@
 /**
  * The `term` sub-table (31c) — the vocabulary's records and carriers.
  *
- * The CLI half of the eight `term_*` MCP tools, over the same backend seam.
+ * The CLI half of the nine `term_*` MCP tools, over the same backend seam
+ * (`term image` → `term_set_image`, 32c).
  * Two of them are destructive and confirm like `delete` does: `term delete`
  * (a record, and with `--unassign` the tag on every carrier) and `term merge`
  * (which deletes or moves the source record). `term rename` rewrites carriers
@@ -11,11 +12,14 @@
  * `group create` / `group update` have, for the same reasons.
  */
 import { UsageError } from "../../controller/curation/errors";
-import { readJsonInput } from "../input";
+import { readImageFile } from "../../controller/imageImport";
+import { readJsonInput, resolveUserPath } from "../input";
+import { formatWarnings } from "../output";
 import type {
   TermAssignResult,
   TermDeleteResult,
   TermDetail,
+  TermImageResult,
   TermListResult,
   TermMergeResult,
   TermRenameResult,
@@ -246,6 +250,49 @@ const termUpdate: CommandDef<TermWriteResult> = {
   format: (result) => formatWrite("Updated", result),
 };
 
+/**
+ * `recipes image`'s twin for a term record (32c): one of a URL, a local file
+ * or a clear, one commit. `--file` is read in this process, so over
+ * `--remote` it is a multipart upload, exactly as the recipe command's is.
+ * A term with no record yet is `not_found`: `term create` writes one.
+ */
+const termImage: CommandDef<TermImageResult> = {
+  name: "term image",
+  usage:
+    "recipes term image <slug> (--url <image-url> | --file <path> | --clear)",
+  options: {
+    url: { type: "string" },
+    file: { type: "string" },
+    clear: { type: "boolean" },
+  },
+  write: true,
+  async run({ backend, positionals, options }) {
+    const slug = positionals[0];
+    if (!slug) throw new UsageError("term image needs <slug>.");
+    const url = stringOption(options, "url");
+    const file = stringOption(options, "file");
+    const clear = booleanOption(options, "clear");
+    if ([url, file, clear || undefined].filter(Boolean).length !== 1) {
+      throw new UsageError("Pass exactly one of --url, --file or --clear.");
+    }
+    if (url) return backend.setTermImage(slug, { url });
+    if (file) {
+      return backend.setTermImage(slug, {
+        file: await readImageFile(resolveUserPath(file)),
+      });
+    }
+    return backend.setTermImage(slug, { clear: true });
+  },
+  format(result) {
+    return [
+      result.image
+        ? `Set image for term ${result.slug}: ${result.image}${result.previous ? ` (was ${result.previous})` : ""}`
+        : `Cleared image for term ${result.slug}${result.previous ? ` (was ${result.previous})` : ""}`,
+      ...formatWarnings(result.warnings),
+    ].join("\n");
+  },
+};
+
 const termDelete: CommandDef<TermDeleteResult> = {
   name: "term delete",
   usage: "recipes term delete <slug> [--unassign] [--yes]",
@@ -412,6 +459,7 @@ export const termCommands: Record<string, CommandDef<unknown>> = {
   get: termGet,
   create: termCreate,
   update: termUpdate,
+  image: termImage,
   delete: termDelete,
   rename: termRename,
   merge: termMerge,

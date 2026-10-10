@@ -13,7 +13,8 @@
 //     in) and what an edit sends (every shown field stated; blank = clear).
 //  3. **`submitTermForm` against the real seat** in a tmpdir (the harness from
 //     `test/terms.test.ts`): a create, a re-parent, a refused cycle that writes
-//     nothing, and the edit page's "no record yet" create.
+//     nothing, the edit page's "no record yet" create, and (32c) a picture
+//     uploaded on create and edit, or refused on the picture field.
 
 import { mkdtemp, pathExists, readJson, rm } from "fs-extra";
 import { tmpdir } from "os";
@@ -126,6 +127,16 @@ describe("termFormStateFromError", () => {
     expect(state.message).toBe(
       `${TERM_NOT_SAVED} Pinned recipes must carry the term "cookies".`,
     );
+  });
+
+  it("files a refused upload under the picture (32c)", () => {
+    const state = termFormStateFromError(
+      new ValidationError("The image was refused", [
+        { path: "image", message: "notes.txt is not an image" },
+      ]),
+    );
+    expect(state.errors).toEqual({ image: ["notes.txt is not an image"] });
+    expect(state.message).toBe(`${TERM_NOT_SAVED} The image was refused.`);
   });
 
   it("keeps an issue with no field on the form in the message", () => {
@@ -258,6 +269,24 @@ describe("the FormData shapes", () => {
         }),
       ),
     ).toMatchObject({ imageImportUrl: "https://x.test/a.jpg" });
+  });
+
+  it("drops an untouched file input and keeps a chosen file out of the JSON (32c)", () => {
+    /* What a browser posts for a file input nobody touched. */
+    const untouched = form({ label: "C" });
+    untouched.append("image", new File([], ""));
+    const empty = parseTermFormData(untouched);
+    expect(empty.success && empty.data.image).toBeUndefined();
+
+    const chosen = form({ label: "C", imageImportUrl: "https://x.test/a.jpg" });
+    chosen.append("image", new File(["png"], "a.png", { type: "image/png" }));
+    const withFile = parseTermFormData(chosen);
+    if (!withFile.success) throw withFile.error;
+    expect(withFile.data.image).toBeInstanceOf(File);
+    expect(withFile.data.image?.name).toBe("a.png");
+    /* Not schema input: the file travels beside the patch, never in it. */
+    expect(termPatchFromForm(withFile.data)).not.toHaveProperty("image");
+    expect(termInputFromForm(withFile.data)).not.toHaveProperty("image");
   });
 });
 
@@ -421,6 +450,88 @@ describe("submitTermForm", () => {
     if (outcome.ok) return;
     expect(outcome.state.errors?.slug).toHaveLength(1);
     expect(outcome.state.slugConflict).toBe("cookies");
+  });
+
+  it("uploads a picture on create and on edit, a file beating a typed URL (32c)", async () => {
+    const withFile = (
+      entries: Record<string, string | string[]>,
+      file: File,
+    ) => {
+      const data = form(entries);
+      data.append("image", file);
+      return data;
+    };
+    const uploads = (slug: string) =>
+      join(contentDirectory, "uploads/tag-term", slug, "uploads");
+
+    const created = await submitTermForm(
+      ctx,
+      { kind: "new" },
+      withFile(
+        { label: "Bar Cookies", parent: "cookies" },
+        new File(["png"], "Bar Tray.png", { type: "image/png" }),
+      ),
+    );
+    expect(created).toEqual({ ok: true, slug: "bar-cookies" });
+    expect((await readTerm("bar-cookies")).image).toBe("Bar-Tray.png");
+    expect(await pathExists(join(uploads("bar-cookies"), "Bar-Tray.png"))).toBe(
+      true,
+    );
+
+    /* The URL is never fetched: there is no fetch stub, and it would fail. */
+    const edited = await submitTermForm(
+      ctx,
+      { kind: "edit", slug: "bar-cookies" },
+      withFile(
+        {
+          label: "Bar Cookies",
+          parent: "cookies",
+          imageImportUrl: "https://x.invalid/a.jpg",
+        },
+        new File(["png2"], "tin.png", { type: "image/png" }),
+      ),
+    );
+    expect(edited).toEqual({ ok: true, slug: "bar-cookies" });
+    expect((await readTerm("bar-cookies")).image).toBe("tin.png");
+    expect(await pathExists(join(uploads("bar-cookies"), "Bar-Tray.png"))).toBe(
+      false,
+    );
+
+    /* An untouched file input and "Remove Image": cleared. */
+    const cleared = await submitTermForm(
+      ctx,
+      { kind: "edit", slug: "bar-cookies" },
+      withFile(
+        { label: "Bar Cookies", parent: "cookies", clearImage: "on" },
+        new File([], ""),
+      ),
+    );
+    expect(cleared).toEqual({ ok: true, slug: "bar-cookies" });
+    expect(await readTerm("bar-cookies")).not.toHaveProperty("image");
+  });
+
+  it("refuses a file that is not an image on the picture, writing nothing", async () => {
+    const before = await readTerm("cookies");
+    const data = form({
+      label: "Cookies",
+      parent: "dessert",
+      description: "x",
+    });
+    data.append(
+      "image",
+      new File(["text"], "notes.txt", { type: "text/plain" }),
+    );
+    const outcome = await submitTermForm(
+      ctx,
+      { kind: "edit", slug: "cookies" },
+      data,
+    );
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.state.errors?.image).toEqual([
+      expect.stringContaining("notes.txt is not an image"),
+    ]);
+    expect(await readTerm("cookies")).toEqual(before);
   });
 
   it("creates the record at the page's slug for a carried-only term", async () => {

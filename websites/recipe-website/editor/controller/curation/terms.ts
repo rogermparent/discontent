@@ -19,6 +19,11 @@
  * | `mergeTerm`  | moved, or folded and deleted | re-tagged to the target           |
  * | `deleteTerm` | deletes                      | refused while carried (`unassign`) |
  *
+ * The picture alone has its own seat, `setTermImage` (`recipeImage.ts`, 32c):
+ * a URL, a file or a clear, one commit — `recipe_set_image`'s twin. A create
+ * or update may carry an uploaded file too (`TermWriteOptions`), which is how
+ * the browser form sends one.
+ *
  * **One update per carrier** (24-D7, D9's accepted cost): every carrier write
  * goes through `updateRecipe` / `updateGroup`, the same seats `recipe_update`
  * and `group_update` use, so normalisation, index keys, aggregates, dependents
@@ -87,7 +92,11 @@ import type {
   TagTermEntryKey,
   TagTermIndexValue,
 } from "recipe-website-common/controller/types";
-import { fetchImageFile } from "../imageImport";
+import {
+  checkImageFile,
+  fetchImageFile,
+  largeImageWarning,
+} from "../imageImport";
 import { termPath, termUrl, type CurationContext } from "./context";
 import {
   CurationError,
@@ -791,9 +800,50 @@ export async function getTerm(
 
 /* --- seats: record writes -------------------------------------------------- */
 
+/**
+ * The non-schema half of a record write (32c): an uploaded picture. It is not
+ * in `TermInputSchema` / `TermPatchSchema` because a `File` is not JSON — the
+ * browser form is the one transport that has one to hand, and `setTermImage`
+ * (`term_set_image`) is the seat every other transport uploads through.
+ */
+export interface TermWriteOptions {
+  /** Beats `imageImportUrl` — and, on an update, a clear — as the forms do. */
+  imageFile?: File;
+}
+
+/**
+ * The picture a create or update writes, if any: the uploaded file, checked as
+ * `setTermImage` checks one, else the URL, fetched. A file wins outright, so a
+ * URL beside it is never downloaded. A refused file is a `validation` issue on
+ * `image`, so the form prints the reason beside its file input.
+ */
+async function termImageFile(
+  imageFile: File | undefined,
+  imageImportUrl: string | null | undefined,
+): Promise<{ file?: File; warning?: string }> {
+  let file: File | undefined;
+  let url: string | undefined;
+  if (imageFile) {
+    try {
+      file = checkImageFile(imageFile);
+    } catch (error) {
+      if (!(error instanceof ValidationError)) throw error;
+      throw new ValidationError("The image was refused", [
+        { path: "image", message: error.message },
+      ]);
+    }
+  } else if (imageImportUrl) {
+    url = imageImportUrl;
+    file = await fetchImageFile(url);
+  }
+  const warning = file && largeImageWarning(file.size, url);
+  return { file, ...(warning ? { warning } : {}) };
+}
+
 export async function createTerm(
   ctx: CurationContext,
   raw: unknown,
+  { imageFile: uploaded }: TermWriteOptions = {},
 ): Promise<TermWriteResult> {
   const input = parseInput(TermInputSchema, raw);
   const slug = tagSlug(input.slug || input.label);
@@ -819,9 +869,10 @@ export async function createTerm(
   const pinned = dedupe(input.pinned ?? []);
   if (pinned.length > 0) await assertPinned(ctx, slug, pinned);
 
-  const imageFile = input.imageImportUrl
-    ? await fetchImageFile(input.imageImportUrl)
-    : undefined;
+  const { file: imageFile, warning: imageWarning } = await termImageFile(
+    uploaded,
+    input.imageImportUrl,
+  );
   const date = input.date ?? Date.now();
 
   /* Optional keys spread only when set, as every record in this repo is. */
@@ -854,7 +905,10 @@ export async function createTerm(
     slug,
   });
 
-  const warnings = labelWarnings(slug, input.label);
+  const warnings = [
+    ...labelWarnings(slug, input.label),
+    ...(imageWarning ? [imageWarning] : []),
+  ];
   return {
     slug,
     date,
@@ -875,6 +929,7 @@ export async function updateTerm(
   ctx: CurationContext,
   slug: string,
   rawPatch: unknown,
+  { imageFile: uploaded }: TermWriteOptions = {},
 ): Promise<TermWriteResult> {
   const patch = parseInput(TermPatchSchema, rawPatch);
   const current = await requireTerm(ctx, slug);
@@ -907,12 +962,16 @@ export async function updateTerm(
     }
   }
 
-  const imageFile = patch.imageImportUrl
-    ? await fetchImageFile(patch.imageImportUrl)
-    : undefined;
+  const { file: imageFile, warning: imageWarning } = await termImageFile(
+    uploaded,
+    patch.imageImportUrl,
+  );
+  /* A file beats a clear as well as a URL — the recipe and group forms'
+   * precedence — so "Remove Image" ticked beside a new file replaces it. */
+  const clearImage = !imageFile && patch.imageImportUrl === null;
   const image = imageFile
     ? imageFile.name
-    : patch.imageImportUrl === null
+    : clearImage
       ? undefined
       : current.image;
   if (image) data.image = image;
@@ -925,14 +984,17 @@ export async function updateTerm(
     uploads: {
       image: {
         file: imageFile,
-        clearFile: patch.imageImportUrl === null,
+        clearFile: clearImage,
         existingFile: current.image,
       },
     },
     commitMessage: `Update term: ${slug}`,
   });
 
-  const warnings = labelWarnings(slug, data.label);
+  const warnings = [
+    ...labelWarnings(slug, data.label),
+    ...(imageWarning ? [imageWarning] : []),
+  ];
   return {
     slug,
     date: data.date,

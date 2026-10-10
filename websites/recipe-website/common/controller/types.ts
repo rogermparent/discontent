@@ -324,7 +324,7 @@ export type GroupItemRef =
 export type GroupItem = WithItemText<GroupItemRef>;
 
 /**
- * `GroupItemRef & {label?, note?}`, distributed over the union.
+ * `GroupItemRef & {label?, note?, scale?}`, distributed over the union.
  *
  * The plain intersection says the same thing about values and a different thing
  * to the narrowing analysis: `(A | B) & C` is one intersection type, and
@@ -338,6 +338,18 @@ type WithItemText<TRef> = TRef extends unknown
       label?: string;
       /** A line of prose under the item ("Leftovers for lunch"). */
       note?: string;
+      /**
+       * How much of the recipe this row cooks, as a multiplier string that
+       * `fraction.js` reads — `"2"`, `"1/2"`, `"1.5"` (epic 32, D4). Validated
+       * positive on write (`common/util/scale.ts`). The group page badges the
+       * row "2×" and links to `/recipe/<slug>?scale=2`, which seeds the recipe
+       * page's multiplier.
+       *
+       * Recipe rows only: the write schemas refuse it on a `{group}` row, which
+       * has no quantities to scale. Off the index like `note` — only the detail
+       * page reads it, and that page reads the data file.
+       */
+      scale?: string;
     }
   : never;
 
@@ -376,8 +388,8 @@ export type GroupEntryKey = [date: number, slug: string];
  * `note` is deliberately **not** here. It is per-item prose that only the
  * detail page renders, and that page reads the data file anyway; carrying it
  * would put a value on the index that no projection and no fold reads, so every
- * note edit would dirty a page for nothing. `test/groups.test.ts` pins its
- * absence.
+ * note edit would dirty a page for nothing. `scale` (epic 32) is left off for
+ * the same reason. `test/groups.test.ts` pins both absences.
  */
 export interface GroupEntryValue {
   name: string;
@@ -414,7 +426,7 @@ export interface GroupEntryValue {
  * fields are optional here for that reason, and the folds skip a falsy key
  * rather than asserting one.
  *
- * `note` is deliberately absent — see `GroupEntryValue` — and `group` is
+ * `note` and `scale` are deliberately absent — see `GroupEntryValue` — and `group` is
  * written only when set, so every value stored before 23c is byte-identical to
  * the one this produces today (T40).
  */
