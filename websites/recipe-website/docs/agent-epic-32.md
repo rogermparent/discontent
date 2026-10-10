@@ -115,7 +115,7 @@ the food corpus is a content call: 32k, run only on Roger's explicit go.
 | 32f      | Ingredient completion in search                                          | S–M     | `agent/32f-ingredient-ac`  | 🟡 #199           |
 | 32g      | Meal-plan item `scale` + `?scale` on recipe pages                        | M       | `agent/32g-plan-scale`     | 📝 planned        |
 | 32j      | Make anything: kind switch, refine drill-down, loose ingredient matching | M–L     | `agent/32j-make-any`       | 📝 planned        |
-| 32h      | `SidebarLayout` + portfolio masthead on sticky-chrome                    | S       | `agent/32h-sticky-sidebar` | 🟡 in review      |
+| 32h      | `SidebarLayout` + portfolio masthead on sticky-chrome                    | S       | `agent/32h-sticky-sidebar` | 🟡 #201           |
 | 32i      | Term aliases, search-only (droppable)                                    | L       | `agent/32i-aliases`        | 📝 planned        |
 | 32k      | Food vocabulary for the corpus (content; Roger's go needed)              | content | —                          | ⏸️ awaiting Roger |
 | 32-close | Results, backlog strikes, morning checklist, memory                      | docs    | `agent/32-close`           | 📝 planned        |
@@ -637,7 +637,7 @@ the end-to-end checks at 32-close.
 | 32-plan | #197 | `dafc6834` | docs only; CI 12/12                                                                                                                 |
 | 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI                       |
 | 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                                      |
-| 32h     | TBD  |            | typechecks ✅ (recipe, export, portfolio); vitest 1040/1040; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI |
+| 32h     | #201 |            | typechecks ✅ (recipe, export, portfolio); vitest 1050/1050; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI |
 
 ### 32a — Hygiene
 
@@ -763,7 +763,7 @@ the end-to-end checks at 32-close.
 - **Gates.**
   - typechecks: recipe-editor, recipe-website export and portfolio-website-editor
     all ✅;
-  - vitest 1040/1040, under the heavy slot;
+  - vitest 1050/1050 after merging main (1040/1040 before), under the heavy slot;
   - Playwright recipe `sticky-chrome.spec` + `settings-nav.spec`: 20/20,
     `PLAYWRIGHT_BUILD=1`, heavy slot;
   - Playwright portfolio `chrome` + `settings` + `visual`: 22/22 under the
