@@ -108,7 +108,7 @@ the food corpus is a content call: 32k, run only on Roger's explicit go.
 | -------- | ------------------------------------------------------------------------ | ------- | -------------------------- | ----------------- |
 | 32-plan  | Epic doc + CLAUDE.md line, backlog marks                                 | docs    | `agent/32-plan`            | ✅ #197           |
 | 32a      | Hygiene                                                                  | S       | `agent/32a-hygiene`        | 🟡 #198           |
-| 32b      | Features follow a deleted term/group                                     | S–M     | `agent/32b-delete-feature` | 📝 planned        |
+| 32b      | Features follow a deleted term/group                                     | S–M     | `agent/32b-delete-feature` | 🟡 #200           |
 | 32c      | Term image upload, full parity                                           | M–L     | `agent/32c-term-image`     | 📝 planned        |
 | 32d      | F34 batched commits for term assign/rename/merge                         | M–L     | `agent/32d-batch-commit`   | 📝 planned        |
 | 32e      | 24g: measure, then split the by-term record                              | L       | `agent/32e-by-term`        | 📝 planned        |
@@ -636,6 +636,7 @@ the end-to-end checks at 32-close.
 | ------- | ---- | ---------- | ------------------------------------------------------------------------------------------------------------- |
 | 32-plan | #197 | `dafc6834` | docs only; CI 12/12                                                                                           |
 | 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI |
+| 32b     | #200 |            | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI     |
 | 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                |
 
 ### 32a — Hygiene
@@ -663,6 +664,64 @@ the end-to-end checks at 32-close.
   (> 150 KB), driven by the 208 drinks × 5–6 tags; 32e measures it. The
   "two tags in total" sentences are historical and stay as written.
 - `specVersions` didn't move: none of the edited modules is pinned.
+
+### 32b — Features follow a deleted term or group
+
+**What changed.**
+
+- `curation/featured.ts`: `findAllFeatured` (every entry of a target, newest
+  first — the index's default order, which `findFeatured` always had; it is
+  now `findAllFeatured(…)[0]`) and `unfeatureTarget` (unfeature each, one
+  commit each, return the slugs).
+- `deleteTerm`: after the children move up, the term's features are
+  re-pointed at its parent with `repointFeatures`, or unfeatured when it has
+  no parent. Both happen before the record is deleted, so a failure part-way
+  leaves the record and whatever still names it intact. `TermDeleteResult`
+  gains `featured` and `unfeatured`.
+- `repointFeatures` dedupes (31-D2): when `into` is already featured, `from`'s
+  entries are unfeatured and `into`'s own entry stays. `TermMergeResult` gains
+  `unfeatured`, so `mergeTerm` is fixed too. It now finds entries through
+  `findAllFeatured`.
+- `curation/groups.ts` `deleteGroup` unfeatures the group after deleting it,
+  returning the new `GroupDeleteResult` (`unfeatured`). The CLI backends'
+  `deleteGroup` type follows.
+- **The browser group delete** (`actions/groups.ts`) now goes through the
+  curation seat with `curationContextFor`, then makes the same `/groups`
+  redirect. Before, it was the generic delete, which would have left the
+  browser and `group_delete` disagreeing about D1. The confirm dialog says a
+  featured group comes off the strip. `featured-recipes.spec`'s "deleting the
+  group leaves a 'Group not found' card" became "deleting the group unfeatures
+  it".
+- Wording: the MCP `term_delete` / `term_merge` / `group_delete`
+  descriptions, the CLI `term delete` / `group delete` confirm prompts and
+  their text output (`re-pointed features:` / `unfeatured:`), `term merge`'s
+  output, the `deleteTerm` / `mergeTerm` docblocks, and SKILL.md's "Held back"
+  section (the only place it can name those tools). No test pinned the old
+  wording.
+
+**Decisions.**
+
+- **Keep one, the target's.** When the parent (or the merge target) is
+  already featured, every entry of the deleted term goes and the target's own
+  entry is untouched: no write to the entry that is already right. Two
+  entries of a term re-pointed at an unfeatured parent stay two, because that
+  duplicate was made on purpose (`again`).
+- **A parent must still have a record.** `deleteTerm` checks the parent's
+  record before re-pointing (a feature of a record-less term is the nameless
+  card). In practice `assertParent` already guarantees this.
+- **A carried-only term** has no features of its own (`feature` needs a
+  record), so the unfeature branch only finds an entry left dangling by an
+  older delete, and removes it.
+- **Group: delete first, then unfeature**, so a failure part-way leaves at
+  worst the dangling feature every delete used to leave. Recipe deletes are
+  out of scope (D1 names terms and groups).
+
+**Tests.** `terms.test.ts` `deleteTerm`: re-point to the parent, unfeature
+with no parent (two entries), unfeature when the parent is already featured,
+another term's feature left alone. `mergeTerm`: unfeature when the target is
+already featured. `featured.test.ts`: `findAllFeatured` / `findFeatured` /
+`unfeatureTarget` order and events, and group delete. `curation.test.ts`
+groups: delete unfeatures, other features stay.
 
 ### 32f — Ingredient completion in search
 

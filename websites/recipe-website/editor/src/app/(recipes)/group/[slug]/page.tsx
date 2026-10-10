@@ -68,7 +68,7 @@ export default async function GroupPage({
             formId="delete-group-form"
             itemLabel="group"
             title="Delete this group?"
-            description="The recipes themselves are not deleted — only the grouping."
+            description="The recipes themselves are not deleted — only the grouping. If it is featured, it comes off the homepage strip too."
           />
           {/*
            * The same affordance a recipe page has had since 22a, in the same

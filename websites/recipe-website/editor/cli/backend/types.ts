@@ -15,6 +15,7 @@ import type {
   FeaturedWriteResult,
 } from "../../controller/curation/featured";
 import type {
+  GroupDeleteResult,
   GroupDetail,
   GroupListResult,
   GroupWriteResult,
@@ -86,6 +87,7 @@ export type {
   GitRestoreRef,
   GitSyncOptions,
   GitWriteResult,
+  GroupDeleteResult,
   GroupDetail,
   GroupItemRef,
   GroupListResult,
@@ -200,7 +202,7 @@ export interface CuratorBackend {
     limit?: number;
     offset?: number;
   }): Promise<GroupListResult>;
-  deleteGroup(slug: string): Promise<DeleteResult>;
+  deleteGroup(slug: string): Promise<GroupDeleteResult>;
 
   listFeatured(options?: {
     limit?: number;

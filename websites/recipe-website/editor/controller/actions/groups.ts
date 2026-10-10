@@ -4,6 +4,7 @@ import { rebuildIndex } from "@discontent/cms/content/rebuildIndex";
 import { revalidateDerivedState } from "@discontent/cms/content/next/revalidateDerived";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import slugify from "@sindresorhus/slugify";
+import { redirect } from "next/navigation";
 import createDefaultGroupSlug from "recipe-website-common/controller/createGroupSlug";
 import { featuredRecipeContentConfig } from "recipe-website-common/controller/featuredRecipeContentConfig";
 import { getGroupBySlug } from "recipe-website-common/controller/data/readGroups";
@@ -23,7 +24,11 @@ import {
   groupDeleteSuccessConfig,
   groupSuccessConfig,
 } from "../successConfigs";
-import { assertNoGroupCycle } from "../curation/groups";
+import { curationContextFor } from "../apiContext";
+import {
+  assertNoGroupCycle,
+  deleteGroup as deleteGroupAndFeatures,
+} from "../curation/groups";
 import { GroupCycleError } from "../curation/errors";
 
 /**
@@ -249,7 +254,28 @@ export async function updateGroup(
   );
 }
 
-export const deleteGroup = groupActions.delete;
+/**
+ * The group page's Delete, through the curation seat rather than the generic
+ * delete (epic 32, D1): `curation/groups.ts` `deleteGroup` also takes the
+ * group's featured entries off the strip, and the browser and `group_delete`
+ * should not disagree about what a delete does. `curationContextFor` gives it
+ * the same revalidation a form write gets (`groupDeleteSuccessConfig`, and
+ * the featured config for each unfeature); the redirect is the one the
+ * generic delete made. `_currentDate` stays in the signature the page binds:
+ * the seat reads the index key from the record itself.
+ */
+export async function deleteGroup(
+  _currentDate: number,
+  slug: string,
+): Promise<void> {
+  const email = await authenticateUser();
+  if (!email) {
+    throw new Error("Authentication required");
+  }
+  await deleteGroupAndFeatures(curationContextFor(email), slug);
+  /* Outside any try: `redirect` throws, and that throw is the navigation. */
+  redirect(groupDeleteSuccessConfig.redirectTo?.(slug) ?? "/groups");
+}
 
 export async function rebuildGroupIndex() {
   const contentDirectory = getContentDirectory();

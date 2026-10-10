@@ -107,6 +107,12 @@ import {
   UnknownTermError,
   ValidationError,
 } from "./errors";
+import {
+  findAllFeatured,
+  findFeatured,
+  unfeature,
+  unfeatureTarget,
+} from "./featured";
 import { updateGroup } from "./groups";
 import { updateRecipe } from "./recipes";
 import {
@@ -240,6 +246,11 @@ export interface TermMergeResult {
   reparented: { slug: string; parent?: string }[];
   /** Featured entries re-pointed from `from` to `into`. */
   featured: string[];
+  /**
+   * Featured entries of `from` taken off the strip instead, because `into`
+   * was already featured (epic 32: re-pointing would duplicate it, 31-D2).
+   */
+  unfeatured: string[];
 }
 
 export interface TermDeleteResult {
@@ -251,6 +262,13 @@ export interface TermDeleteResult {
   groups: string[];
   /** Children moved up to the deleted term's parent (or made roots). */
   reparented: { slug: string; parent?: string }[];
+  /** Featured entries re-pointed at the deleted term's parent (epic 32, D1). */
+  featured: string[];
+  /**
+   * Featured entries taken off the strip: the term had no parent, or its
+   * parent was already featured (epic 32, D1).
+   */
+  unfeatured: string[];
 }
 
 /* --- reads ----------------------------------------------------------------- */
@@ -1142,8 +1160,9 @@ export async function renameTerm(
  * - **`into` has a record** — `from`'s children are re-parented to `into`
  *   (any of them that is `into` or one of its ancestors goes to `from`'s own
  *   parent instead, so the merge cannot close a cycle), features of `from`
- *   are re-pointed at `into`, `from`'s pinned recipes join the end of
- *   `into`'s, and `from`'s record is deleted.
+ *   are re-pointed at `into` (or unfeatured, when `into` is already
+ *   featured), `from`'s pinned recipes join the end of `into`'s, and
+ *   `from`'s record is deleted.
  */
 export async function mergeTerm(
   ctx: CurationContext,
@@ -1187,6 +1206,7 @@ export async function mergeTerm(
     deleted: false,
     reparented: [],
     featured: [],
+    unfeatured: [],
   };
   if (!fromRecord) return result;
 
@@ -1238,29 +1258,34 @@ export async function mergeTerm(
     }
   }
 
-  result.featured = await repointFeatures(ctx, from, into);
+  Object.assign(result, await repointFeatures(ctx, from, into));
   await deleteTermRecord(ctx, from, fromRecord);
   result.deleted = true;
   return result;
 }
 
-/** Every featured entry naming term `from`, pointed at `into`, one commit each. */
+/**
+ * Every featured entry naming term `from`, pointed at `into`, one commit each.
+ *
+ * Unless `into` is already featured: re-pointing would then put it on the
+ * strip twice, the duplicate `feature` refuses without `again` (31-D2), so
+ * `from`'s entries are unfeatured instead and `into`'s own entry stays. Two
+ * entries of `from` re-pointed at an unfeatured `into` stay two — that
+ * duplicate was deliberate when it was made.
+ */
 async function repointFeatures(
   ctx: CurationContext,
   from: string,
   into: string,
-): Promise<string[]> {
-  const { entries } = await readContentIndex<
-    FeaturedRecipeEntryValue,
-    FeaturedRecipeEntryKey,
-    { slug: string; term?: string }
-  >({
-    config: featuredRecipeContentConfig,
-    contentDirectory: ctx.contentDirectory,
-    map: ({ key: [, slug], value }) => ({ slug, term: value.term }),
-  });
-  const moved: string[] = [];
-  for (const { slug } of entries.filter((entry) => entry.term === from)) {
+): Promise<{ featured: string[]; unfeatured: string[] }> {
+  const slugs = await findAllFeatured(ctx.contentDirectory, { term: from });
+  if (slugs.length === 0) return { featured: [], unfeatured: [] };
+  if (await findFeatured(ctx.contentDirectory, { term: into })) {
+    for (const slug of slugs) await unfeature(ctx, slug);
+    return { featured: [], unfeatured: slugs };
+  }
+  const featured: string[] = [];
+  for (const slug of slugs) {
     const current = await readContentFileOrNull<
       FeaturedRecipe,
       FeaturedRecipeEntryValue,
@@ -1291,9 +1316,9 @@ async function repointFeatures(
       result,
       slug,
     });
-    moved.push(slug);
+    featured.push(slug);
   }
-  return moved;
+  return { featured, unfeatured: [] };
 }
 
 /**
@@ -1302,8 +1327,11 @@ async function repointFeatures(
  *
  * The record's children are moved up to its parent (or made roots) rather
  * than left pointing at a record that no longer exists, so the tree stays
- * connected. A featured entry of the term is left dangling, as `group_delete`
- * leaves one; `unfeature` it first.
+ * connected. Its featured entries follow the same way (epic 32, D1): they are
+ * re-pointed at the parent — or unfeatured, when there is no parent or the
+ * parent is already featured — so the strip never keeps a card for a term
+ * that is gone. All of that happens before the record goes, so a failure
+ * part-way leaves the record and whatever still names it intact.
  */
 export async function deleteTerm(
   ctx: CurationContext,
@@ -1336,7 +1364,29 @@ export async function deleteTerm(
       const child = await reparent(ctx, row.slug, record.parent);
       if (child) reparented.push(child);
     }
-    await deleteTermRecord(ctx, slug, record);
   }
-  return { slug, deleted: Boolean(record), ...removed, reparented };
+  /*
+   * A parent is a record when it is set (`assertParent`), but check: a
+   * feature must name a record, and one that does not is the nameless card.
+   * A carried-only term can have no features of its own, so this finds only
+   * one left dangling by an older delete, and takes it off.
+   */
+  const parent =
+    record?.parent && (await readTerm(ctx, record.parent))
+      ? record.parent
+      : undefined;
+  const features = parent
+    ? await repointFeatures(ctx, slug, parent)
+    : {
+        featured: [],
+        unfeatured: await unfeatureTarget(ctx, { term: slug }),
+      };
+  if (record) await deleteTermRecord(ctx, slug, record);
+  return {
+    slug,
+    deleted: Boolean(record),
+    ...removed,
+    reparented,
+    ...features,
+  };
 }

@@ -10,13 +10,13 @@ import { UsageError } from "../../controller/curation/errors";
 import { readJsonInput } from "../input";
 import { formatRows, formatWarnings } from "../output";
 import type {
-  DeleteResult,
+  GroupDeleteResult,
   GroupDetail,
   GroupItemRef,
   GroupListResult,
   GroupWriteResult,
 } from "../backend/types";
-import { confirmDeletion } from "./delete";
+import { confirm } from "./delete";
 import {
   booleanOption,
   numberOption,
@@ -393,7 +393,7 @@ const groupList: CommandDef<GroupListResult> = {
   },
 };
 
-const groupDelete: CommandDef<DeleteResult> = {
+const groupDelete: CommandDef<GroupDeleteResult> = {
   name: "group delete",
   usage: "recipes group delete <group> [--yes]",
   options: {
@@ -403,10 +403,22 @@ const groupDelete: CommandDef<DeleteResult> = {
   async run({ backend, positionals, options }) {
     const slug = positionals[0];
     if (!slug) throw new UsageError("group delete needs <group>.");
-    await confirmDeletion("group", slug, booleanOption(options, "yes"));
+    /* Its features come off the strip with it (epic 32, D1). */
+    await confirm(
+      `delete group "${slug}" and unfeature it`,
+      booleanOption(options, "yes"),
+    );
     return backend.deleteGroup(slug);
   },
-  format: (result) => `Deleted group ${result.slug}`,
+  format: (result) =>
+    [
+      `Deleted group ${result.slug}`,
+      result.unfeatured.length > 0
+        ? `  unfeatured: ${result.unfeatured.join(", ")}`
+        : undefined,
+    ]
+      .filter((line): line is string => line !== undefined)
+      .join("\n"),
 };
 
 export const groupCommands: Record<string, CommandDef<unknown>> = {
