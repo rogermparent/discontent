@@ -112,7 +112,7 @@ the food corpus is a content call: 32k, run only on Roger's explicit go.
 | 32c      | Term image upload, full parity                                           | M–L     | `agent/32c-term-image`     | 📝 planned        |
 | 32d      | F34 batched commits for term assign/rename/merge                         | M–L     | `agent/32d-batch-commit`   | 📝 planned        |
 | 32e      | 24g: measure, then split the by-term record                              | L       | `agent/32e-by-term`        | 📝 planned        |
-| 32f      | Ingredient completion in search                                          | S–M     | `agent/32f-ingredient-ac`  | 🟡 in review      |
+| 32f      | Ingredient completion in search                                          | S–M     | `agent/32f-ingredient-ac`  | 🟡 #199           |
 | 32g      | Meal-plan item `scale` + `?scale` on recipe pages                        | M       | `agent/32g-plan-scale`     | 📝 planned        |
 | 32j      | Make anything: kind switch, refine drill-down, loose ingredient matching | M–L     | `agent/32j-make-any`       | 📝 planned        |
 | 32h      | `SidebarLayout` + portfolio masthead on sticky-chrome                    | S       | `agent/32h-sticky-sidebar` | 📝 planned        |
@@ -636,7 +636,7 @@ the end-to-end checks at 32-close.
 | ------- | ---- | ---------- | ------------------------------------------------------------------------------------------------------------- |
 | 32-plan | #197 | `dafc6834` | docs only; CI 12/12                                                                                           |
 | 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI |
-| 32f     |      |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                |
+| 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                |
 
 ### 32a — Hygiene
 
