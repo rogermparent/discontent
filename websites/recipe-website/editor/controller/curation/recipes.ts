@@ -42,6 +42,7 @@ import type {
 } from "recipe-website-common/controller/types";
 import {
   fetchImageFile,
+  largeImageWarning,
   probeImageFile,
   type ImageProbe,
 } from "../imageImport";
@@ -80,6 +81,8 @@ export interface RecipeWriteResult {
   date: number;
   path: string;
   url: string;
+  /** Written, but worth a look: an image over 2 MB (epic 31). */
+  warnings?: string[];
 }
 
 export interface RecipeListResult {
@@ -226,6 +229,7 @@ export async function listRecipes(
  *
  * `probe: true` is the dry run's mode: the image is `HEAD`-probed for the name
  * it would get rather than downloaded, and `image` reports what was found.
+ * `warnings` names an image over `LARGE_IMAGE_BYTES`, probed or downloaded.
  */
 export async function buildRecipeWrite(
   input: RecipeInput | RecipePatch,
@@ -238,6 +242,7 @@ export async function buildRecipeWrite(
   data: Recipe;
   uploads: Record<string, UploadSpec>;
   image?: ImageProbe;
+  warnings: string[];
 }> {
   const data: Recipe = current
     ? ({ ...current } as Recipe)
@@ -284,13 +289,18 @@ export async function buildRecipeWrite(
 
   let imageUpload: UploadSpec = { existingFile: current?.image };
   let image: ImageProbe | undefined;
+  const warnings: string[] = [];
   if (imageImportUrl) {
     if (probe) {
       image = await probeImageFile(imageImportUrl);
       data.image = image.filename;
+      const warning = largeImageWarning(image.bytes, imageImportUrl);
+      if (warning) warnings.push(warning);
     } else {
       const file = await fetchImageFile(imageImportUrl);
       data.image = file.name;
+      const warning = largeImageWarning(file.size, imageImportUrl);
+      if (warning) warnings.push(warning);
       imageUpload = { file, existingFile: current?.image };
     }
   } else if (clearImage) {
@@ -329,6 +339,7 @@ export async function buildRecipeWrite(
      */
     uploads: { image: imageUpload },
     ...(image ? { image } : {}),
+    warnings,
   };
 }
 
@@ -350,7 +361,7 @@ export async function createRecipe(
   const input = parseInput(RecipeInputSchema, raw);
   const slug = resolveCreateSlug(input);
   const date = input.date ?? Date.now();
-  const { data, uploads } = await buildRecipeWrite(input, { date });
+  const { data, uploads, warnings } = await buildRecipeWrite(input, { date });
 
   if (overwrite) {
     /*
@@ -388,6 +399,7 @@ export async function createRecipe(
     date,
     path: recipePath(ctx, slug),
     url: recipeUrl(slug),
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 }
 
@@ -438,7 +450,10 @@ export async function updateRecipe(
   }
 
   const date = patch.date ?? current.date ?? Date.now();
-  const { data, uploads } = await buildRecipeWrite(patch, { date, current });
+  const { data, uploads, warnings } = await buildRecipeWrite(patch, {
+    date,
+    current,
+  });
 
   const result = await updateContent<Recipe, RecipeEntryValue, RecipeEntryKey>({
     config: recipeContentConfig,
@@ -460,7 +475,13 @@ export async function updateRecipe(
     ...(slug !== currentSlug ? { previousSlug: currentSlug } : {}),
   });
 
-  return { slug, date, path: recipePath(ctx, slug), url: recipeUrl(slug) };
+  return {
+    slug,
+    date,
+    path: recipePath(ctx, slug),
+    url: recipeUrl(slug),
+    ...(warnings.length > 0 ? { warnings } : {}),
+  };
 }
 
 /**
@@ -481,6 +502,8 @@ export interface RecipeDryRunResult {
   image?: ImageProbe;
   /** An update that renames: the slug it moves from. */
   previousSlug?: string;
+  /** What a real write would store, but worth a look: an image over 2 MB. */
+  warnings?: string[];
 }
 
 async function slugIsTaken(ctx: CurationContext, slug: string) {
@@ -500,13 +523,17 @@ export async function previewCreateRecipe(
   const input = parseInput(RecipeInputSchema, raw);
   const slug = resolveCreateSlug(input);
   const date = input.date ?? Date.now();
-  const { data, image } = await buildRecipeWrite(input, { date, probe: true });
+  const { data, image, warnings } = await buildRecipeWrite(input, {
+    date,
+    probe: true,
+  });
   return {
     dryRun: true,
     slug,
     conflict: await slugIsTaken(ctx, slug),
     recipe: data,
     ...(image ? { image } : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 }
 
@@ -533,7 +560,7 @@ export async function previewUpdateRecipe(
     throw new ValidationError(`"${patch.slug}" does not slugify to anything.`);
   }
   const date = patch.date ?? current.date ?? Date.now();
-  const { data, image } = await buildRecipeWrite(patch, {
+  const { data, image, warnings } = await buildRecipeWrite(patch, {
     date,
     current,
     probe: true,
@@ -545,6 +572,7 @@ export async function previewUpdateRecipe(
     recipe: data,
     ...(image ? { image } : {}),
     ...(slug !== currentSlug ? { previousSlug: currentSlug } : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 }
 

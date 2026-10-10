@@ -10,6 +10,7 @@ import { UsageError } from "../../controller/curation/errors";
 import { readImageFile } from "../../controller/imageImport";
 import type { RecipeImageResult } from "../backend/types";
 import { resolveUserPath } from "../input";
+import { formatWarnings } from "../output";
 import { booleanOption, stringOption, type CommandDef } from "./types";
 
 export const imageCommand: CommandDef<RecipeImageResult> = {
@@ -39,9 +40,12 @@ export const imageCommand: CommandDef<RecipeImageResult> = {
     return backend.setRecipeImage(slug, { clear: true });
   },
   format(result) {
-    return result.image
-      ? `Set image for ${result.slug}: ${result.image}${result.previous ? ` (was ${result.previous})` : ""}`
-      : `Cleared image for ${result.slug}${result.previous ? ` (was ${result.previous})` : ""}`;
+    return [
+      result.image
+        ? `Set image for ${result.slug}: ${result.image}${result.previous ? ` (was ${result.previous})` : ""}`
+        : `Cleared image for ${result.slug}${result.previous ? ` (was ${result.previous})` : ""}`,
+      ...formatWarnings(result.warnings),
+    ].join("\n");
   },
 };
 

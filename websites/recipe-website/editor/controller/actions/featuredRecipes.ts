@@ -19,6 +19,7 @@ import type { EditorContentConfig } from "@discontent/cms/content/editorContentC
 import { createGenericActions } from "@discontent/cms/content/genericActions";
 import { authenticateUser } from "./shared";
 import { featuredRecipeSuccessConfig } from "../successConfigs";
+import { findFeatured } from "../curation/featured";
 
 /**
  * The parsed form, as a featured-recipe record. The one place the shape is
@@ -94,7 +95,33 @@ const featuredRecipeEditorConfig: EditorContentConfig<
 };
 
 const featuredRecipeActions = createGenericActions(featuredRecipeEditorConfig);
-export const createFeaturedRecipe = featuredRecipeActions.create;
+
+/**
+ * The generic create, after the curation seat's duplicate check (epic 31, D2):
+ * a target that is already featured comes back as a form error naming the
+ * entry that holds it, unless "Feature it again" is ticked. Only on create —
+ * an edit rewrites its own entry.
+ */
+export async function createFeaturedRecipe(
+  prevState: FeaturedRecipeFormState | null,
+  formData: FormData,
+): Promise<FeaturedRecipeFormState> {
+  const parsed = parseFeaturedRecipeFormData(formData);
+  if (parsed.success && !parsed.data.again && (await authenticateUser())) {
+    const { recipe, group, term } = parsed.data;
+    const existing = await findFeatured(getContentDirectory(), {
+      recipe,
+      group,
+      term,
+    });
+    if (existing) {
+      const field = recipe ? "recipe" : group ? "group" : "term";
+      const message = `Already featured as "${existing}". Tick "Feature it again" to feature it a second time.`;
+      return { message, errors: { [field]: [message], again: [message] } };
+    }
+  }
+  return featuredRecipeActions.create(prevState, formData);
+}
 export const updateFeaturedRecipe = featuredRecipeActions.update;
 export const deleteFeaturedRecipe = featuredRecipeActions.delete;
 

@@ -260,6 +260,67 @@ export const RECIPE_FETCH_HEADERS: Readonly<Record<string, string>> = {
   "accept-language": "en-US,en;q=0.9",
 };
 
+/**
+ * How the importer retries a 403 with browser headers (epic 31, D3).
+ *
+ * A retry is a second request to a host that has just refused one, so off the
+ * browser form it waits first: Roger's scraping rule (30-D5) wants requests to
+ * one host at least 15 s apart. The browser `/new-recipe` form passes
+ * `delayMs: 0`, because a person is waiting on it.
+ */
+export interface ForbiddenRetry {
+  /** Wait this long before the retry. */
+  delayMs?: number;
+  /** `false`: never retry; the 403 is the answer. */
+  enabled?: boolean;
+}
+
+export const DEFAULT_403_DELAY_MS = 15_000;
+
+/**
+ * `RECIPE_FETCH_403_DELAY_MS`: unset means 15000, a number of milliseconds
+ * (`0` = retry at once), `off` = never retry. Anything else is the default.
+ */
+export function forbiddenRetryFromEnv(
+  value: string | undefined = typeof process === "undefined"
+    ? undefined
+    : process.env.RECIPE_FETCH_403_DELAY_MS,
+): Required<ForbiddenRetry> {
+  const text = value?.trim().toLowerCase();
+  if (text === "off") return { delayMs: 0, enabled: false };
+  const delay = text ? Number(text) : NaN;
+  return {
+    delayMs:
+      Number.isFinite(delay) && delay >= 0 ? delay : DEFAULT_403_DELAY_MS,
+    enabled: true,
+  };
+}
+
+/**
+ * `fetch(url, init)`, and on a 403 one more try with `retryHeaders` — after
+ * the delay, unless retrying is off. Explicit `retry` fields beat the
+ * environment's. The page fetch and the image download share it.
+ */
+export async function fetchRetrying403(
+  url: string,
+  init: RequestInit,
+  retryHeaders: Record<string, string>,
+  retry: ForbiddenRetry = {},
+): Promise<Response> {
+  const response = await fetch(url, init);
+  if (response.status !== 403) return response;
+  const env = forbiddenRetryFromEnv();
+  const enabled = retry.enabled ?? env.enabled;
+  if (!enabled) return response;
+  const delayMs = retry.delayMs ?? env.delayMs;
+  /* Let the refused connection go before waiting on the next one. */
+  await response.body?.cancel().catch(() => {});
+  if (delayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return fetch(url, { ...init, headers: retryHeaders });
+}
+
 export interface FetchedPage {
   html: string;
   status: number;
@@ -275,16 +336,18 @@ export interface FetchedPage {
  * Cloudflare-fronted sites (A Couple Cooks) serve Node and answer a Chrome
  * `User-Agent` with a 403 "Just a moment…" challenge, since the request's TLS
  * fingerprint is not Chrome's. Asking plainly first keeps every site that
- * worked before the browser headers did.
+ * worked before the browser headers did. The retry waits (`ForbiddenRetry`).
  */
-export async function fetchRecipePage(url: string): Promise<FetchedPage> {
-  let response = await fetch(url, { next: { revalidate: 300 } });
-  if (response.status === 403) {
-    response = await fetch(url, {
-      headers: RECIPE_FETCH_HEADERS,
-      next: { revalidate: 300 },
-    });
-  }
+export async function fetchRecipePage(
+  url: string,
+  retry?: ForbiddenRetry,
+): Promise<FetchedPage> {
+  const response = await fetchRetrying403(
+    url,
+    { next: { revalidate: 300 } },
+    RECIPE_FETCH_HEADERS,
+    retry,
+  );
   /* Test stubs (and nothing real) omit `status`: read that as a 200. */
   const status = response.status ?? 200;
   return {
@@ -503,6 +566,7 @@ export type { JsonLdNode };
 
 export async function importRecipeData(
   rawUrl: string,
+  retry?: ForbiddenRetry,
 ): Promise<Partial<ImportedRecipe> | undefined> {
   // Trim hash from URL if it exists
   const url = rawUrl?.split("#")[0];
@@ -519,6 +583,6 @@ export async function importRecipeData(
     };
   }
 
-  const { html, ok } = await fetchRecipePage(url);
+  const { html, ok } = await fetchRecipePage(url, retry);
   return mapRecipePage(url, parseRecipePage(html, url), { ok });
 }

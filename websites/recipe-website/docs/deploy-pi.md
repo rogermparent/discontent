@@ -239,9 +239,10 @@ epic 28). Revoking it stops both deploys and the mirror's pings. To revoke it:
   - `@next/swc-*`, since `next start` compiles nothing;
   - musl twins, because pnpm's `libc` filter keeps them.
 
-  It's still large because two Next versions are installed:
-  `component-library` and `next-static-image` pin `next` 16.1.1, and
-  everything else uses 16.1.6. Aligning them would save about 260 MB more.
+  It was still large because two Next versions were installed:
+  `component-library` and `next-static-image` pinned `next` 16.1.1 while
+  everything else used 16.1.6. **28h aligned them** (every package now pins
+  16.1.6), which removed the second copy.
 
 - **ssh needs a passwd entry**, and the base image has no uid 1000. So the
   `assets` stage adds `editor` (1000:1000), and its `/etc/passwd`,
@@ -347,13 +348,17 @@ epic 28). Revoking it stops both deploys and the mirror's pings. To revoke it:
   2. `pnpm deploy:pi` came forward to `8d0d5c25` ("already on the Pi", so
      just the switch).
 
-## Next: workstation and mirror roles, automatic sync (proposed)
+## Workstation and mirror roles, automatic sync (built by epic 28)
 
 Roger, 2026-10-07: "More distinct modes like having this box be the
 workstation that can run editor and static build and the pi be an editor-only
 mirror … Consistent automatic sync between pi and here would be nice."
 
-None of this is built yet. A sketch for the epic that would do it:
+**Epic 28 built this** (`agent-epic-28.md`): `EDITOR_ROLE=workstation|mirror`
+(28a), the sync seat (28b), event-driven sync — workstation startup, a ref
+watcher, mirror pings — instead of a timer (28c), and the workstation editor
+as the systemd user service `recipe-workstation.service` (28i). The sketch
+below is the proposal as written, kept for its reasoning:
 
 - **Explicit roles.** An `EDITOR_ROLE=workstation|mirror` environment
   variable, which the image sets to `mirror`, instead of inferring the role

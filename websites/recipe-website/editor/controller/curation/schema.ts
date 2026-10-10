@@ -315,6 +315,11 @@ export const FeaturedInputSchema = z
     note: z.string().optional(),
     date: EpochSchema.optional(),
     slug: z.string().optional(),
+    /**
+     * Feature a target that is already featured (epic 31, D2). Without it a
+     * second feature of the same recipe, group or term is `slug_conflict`.
+     */
+    again: z.boolean().optional(),
   })
   .refine(
     (data) => [data.recipe, data.group, data.term].filter(Boolean).length === 1,

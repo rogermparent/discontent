@@ -100,6 +100,8 @@ interface StubImage {
   type?: string | null;
   status?: number;
   body?: string;
+  /** A declared `content-length` (epic 31's size warning), HEAD and GET. */
+  length?: number;
 }
 
 /**
@@ -117,12 +119,15 @@ function stubWeb(html: string, images: Record<string, StubImage> = {}) {
       });
     }
     const type = image.type === undefined ? "image/jpeg" : image.type;
+    const headers: Record<string, string> = type
+      ? { "content-type": type }
+      : {};
+    if (image.length !== undefined) {
+      headers["content-length"] = String(image.length);
+    }
     return new Response(
       init?.method === "HEAD" ? null : (image.body ?? "jpeg bytes"),
-      {
-        status: image.status ?? 200,
-        headers: type ? { "content-type": type } : {},
-      },
+      { status: image.status ?? 200, headers },
     );
   });
   vi.stubGlobal("fetch", fetchStub);
@@ -1063,6 +1068,29 @@ describe("groups", () => {
     });
   });
 
+  it("assertNoGroupCycle is the cycle half on its own, for the browser form (epic 31)", async () => {
+    await groups.createGroup(ctx, { name: "A", slug: "a" });
+    await groups.createGroup(ctx, { name: "B", slug: "b" });
+    await groups.addItem(ctx, "a", { group: "b" });
+
+    await expect(
+      groups.assertNoGroupCycle(ctx, "a", [{ group: "a" }]),
+    ).rejects.toMatchObject({ code: "group_cycle" });
+    await expect(
+      groups.assertNoGroupCycle(ctx, "b", [
+        { recipe: "x" } as never,
+        { group: "a" },
+      ]),
+    ).rejects.toMatchObject({
+      code: "group_cycle",
+      details: { groups: ["b", "a", "b"] },
+    });
+    /* Fine: no cycle, and an unknown group is not this check's business. */
+    await expect(
+      groups.assertNoGroupCycle(ctx, "c", [{ group: "a" }, { group: "nope" }]),
+    ).resolves.toBeUndefined();
+  });
+
   it("refuses a cycle two and three levels deep, and names the path", async () => {
     await groups.createGroup(ctx, { name: "A", slug: "a" });
     await groups.createGroup(ctx, { name: "B", slug: "b" });
@@ -1845,6 +1873,40 @@ describe("create and update dry runs (26b)", () => {
       slug: "stew",
       conflict: true,
     });
+  });
+
+  it("reports the image's size, and warns above 2 MB (epic 31)", async () => {
+    const big = 9.7 * 1024 * 1024;
+    stubWeb("", { [NAAN_IMAGE]: { length: big } });
+    const preview = await previewCreateRecipe(ctx, {
+      name: "Garlic Naan",
+      imageImportUrl: NAAN_IMAGE,
+    });
+    expect(preview.image).toMatchObject({ filename: "naan.jpg", bytes: big });
+    expect(preview.image?.warning).toMatch(/9\.7 MB, over 2\.0 MB/);
+    expect(preview.warnings).toEqual([
+      expect.stringContaining(`Image ${NAAN_IMAGE} is 9.7 MB`),
+    ]);
+
+    stubWeb("", { [NAAN_IMAGE]: { length: 300_000 } });
+    const small = await previewCreateRecipe(ctx, {
+      name: "Garlic Naan",
+      imageImportUrl: NAAN_IMAGE,
+    });
+    expect(small.image?.bytes).toBe(300_000);
+    expect(small.warnings).toBeUndefined();
+  });
+
+  it("warns on a real write that stores an image over 2 MB", async () => {
+    stubWeb("", {
+      [NAAN_IMAGE]: { body: "x".repeat(2 * 1024 * 1024 + 1) },
+    });
+    const created = await createRecipe(ctx, {
+      name: "Garlic Naan",
+      imageImportUrl: NAAN_IMAGE,
+    });
+    expect(created.warnings).toEqual([expect.stringContaining("over 2.0 MB")]);
+    expect((await readRecipeFile("garlic-naan")).image).toBe("naan.jpg");
   });
 
   it("previews a patch, a rename onto a taken slug, and a missing recipe", async () => {

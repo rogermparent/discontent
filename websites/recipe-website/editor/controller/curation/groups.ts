@@ -40,7 +40,7 @@ import type {
   RecipeEntryKey,
   RecipeEntryValue,
 } from "recipe-website-common/controller/types";
-import { fetchImageFile } from "../imageImport";
+import { fetchImageFile, largeImageWarning } from "../imageImport";
 import { groupPath, groupUrl, type CurationContext } from "./context";
 import {
   GroupCycleError,
@@ -287,6 +287,31 @@ async function checkItems(
 }
 
 /**
+ * The cycle half of `checkItems`, on its own (epic 31): no item may be the
+ * group itself, and no sub-group may already contain it. Unknown sub-groups are
+ * not this function's business — they have nothing to walk. The browser group
+ * form (`actions/groups.ts`) runs it before the generic write, since its "Add
+ * group" rows can name any group.
+ */
+export async function assertNoGroupCycle(
+  ctx: CurationContext,
+  slug: string,
+  items: ReadonlyArray<{ group?: string }>,
+): Promise<void> {
+  if (items.some((item) => item.group === slug)) {
+    throw new GroupCycleError([slug, slug]);
+  }
+  const subgroups = [
+    ...new Set(
+      items
+        .map((item) => item.group)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+  if (subgroups.length > 0) await assertNoCycle(ctx, slug, subgroups);
+}
+
+/**
  * Walk down from each sub-group being added and refuse to arrive back at the
  * group doing the adding.
  *
@@ -361,6 +386,9 @@ export async function createGroup(
     ? await fetchImageFile(input.imageImportUrl)
     : undefined;
   const image = imageFile?.name;
+  const imageWarning =
+    imageFile && largeImageWarning(imageFile.size, input.imageImportUrl);
+  if (imageWarning) warnings.push(imageWarning);
 
   /*
    * Normalised here, exactly as `buildRecipeWrite` does it (`recipes.ts`), so
@@ -479,6 +507,9 @@ export async function updateGroup(
   const imageFile = patch.imageImportUrl
     ? await fetchImageFile(patch.imageImportUrl)
     : undefined;
+  const imageWarning =
+    imageFile &&
+    largeImageWarning(imageFile.size, patch.imageImportUrl ?? undefined);
   const image = imageFile
     ? imageFile.name
     : patch.imageImportUrl === null
@@ -524,6 +555,7 @@ export async function updateGroup(
     date,
     path: groupPath(ctx, slug),
     url: groupUrl(slug),
+    ...(imageWarning ? { warnings: [imageWarning] } : {}),
   };
 }
 

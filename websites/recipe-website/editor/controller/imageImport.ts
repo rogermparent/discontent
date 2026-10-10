@@ -11,7 +11,11 @@
  *
  * Node-safe (D8): the curation layer and the form's server action both call it.
  */
-import { RECIPE_FETCH_HEADERS } from "recipe-website-common/util/importRecipeData";
+import {
+  RECIPE_FETCH_HEADERS,
+  fetchRetrying403,
+  type ForbiddenRetry,
+} from "recipe-website-common/util/importRecipeData";
 import { openAsBlob } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
@@ -19,6 +23,25 @@ import { ImportError, ValidationError } from "./curation/errors";
 
 /** Generous for a photo; small enough that a mistaken video URL fails fast. */
 export const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+
+/**
+ * Above this an image is stored, with a warning (epic 31, 30-T7): a 9.7 MB
+ * photo went in unnoticed in 30d. Every page that shows it pays for it.
+ */
+export const LARGE_IMAGE_BYTES = 2 * 1024 * 1024;
+
+function megabytes(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** The warning for an image of `bytes`, or `undefined` when it is small. */
+export function largeImageWarning(
+  bytes: number | undefined,
+  url?: string,
+): string | undefined {
+  if (bytes === undefined || !(bytes > LARGE_IMAGE_BYTES)) return undefined;
+  return `Image ${url ? `${url} ` : ""}is ${megabytes(bytes)}, over ${megabytes(LARGE_IMAGE_BYTES)} — a smaller candidate would load faster`;
+}
 
 const EXTENSIONS: Record<string, string> = {
   "image/jpeg": ".jpg",
@@ -104,17 +127,21 @@ function isImageResponse(type: string, url: string): boolean {
   return false;
 }
 
-/** Plain first, as a browser only after a 403 — the page fetch's order (T10). */
-async function fetchWithRetry(
+/**
+ * Plain first, as a browser only after a 403 — the page fetch's order (T10),
+ * and its wait before the retry (`ForbiddenRetry`, epic 31 D3).
+ */
+function fetchWithRetry(
   url: string,
   init: RequestInit = {},
+  retry?: ForbiddenRetry,
 ): Promise<Response> {
-  const response = await fetch(url, init);
-  if (response.status !== 403) return response;
-  return fetch(url, {
-    ...init,
-    headers: { ...RECIPE_FETCH_HEADERS, accept: "image/*,*/*;q=0.8" },
-  });
+  return fetchRetrying403(
+    url,
+    init,
+    { ...RECIPE_FETCH_HEADERS, accept: "image/*,*/*;q=0.8" },
+    retry,
+  );
 }
 
 function describe(error: unknown): string {
@@ -123,8 +150,13 @@ function describe(error: unknown): string {
 
 /**
  * Fetch `url` as an image `File`, or throw `ImportError` (`import_failed`).
+ * A file over `LARGE_IMAGE_BYTES` is returned all the same; the caller reports
+ * `largeImageWarning(file.size)`.
  */
-export async function fetchImageFile(url: string): Promise<File> {
+export async function fetchImageFile(
+  url: string,
+  { retry }: { retry?: ForbiddenRetry } = {},
+): Promise<File> {
   try {
     new URL(url);
   } catch {
@@ -133,7 +165,7 @@ export async function fetchImageFile(url: string): Promise<File> {
 
   let response: Response;
   try {
-    response = await fetchWithRetry(url);
+    response = await fetchWithRetry(url, {}, retry);
   } catch (error) {
     throw new ImportError(`Could not fetch image ${url}: ${describe(error)}`);
   }
@@ -188,8 +220,12 @@ export interface ImageProbe {
   filename: string;
   status?: number;
   contentType?: string;
+  /** The declared `content-length`, when the server sends one. */
+  bytes?: number;
   /** Why a real write would refuse it, when the probe can already tell. */
   error?: string;
+  /** A real write would store it, but it is over `LARGE_IMAGE_BYTES`. */
+  warning?: string;
 }
 
 /**
@@ -200,10 +236,13 @@ export interface ImageProbe {
  * A server that refuses `HEAD` (405, 501) is reported with the URL-derived
  * name and no error: the real `GET` may well succeed.
  */
-export async function probeImageFile(url: string): Promise<ImageProbe> {
+export async function probeImageFile(
+  url: string,
+  retry?: ForbiddenRetry,
+): Promise<ImageProbe> {
   let response: Response;
   try {
-    response = await fetchWithRetry(url, { method: "HEAD" });
+    response = await fetchWithRetry(url, { method: "HEAD" }, retry);
   } catch (error) {
     return {
       importUrl: url,
@@ -213,11 +252,14 @@ export async function probeImageFile(url: string): Promise<ImageProbe> {
   }
   const status = response.status ?? 200;
   const type = mediaType(response);
+  const length = response.headers?.get("content-length");
+  const declared = length ? Number(length) : NaN;
   const probe: ImageProbe = {
     importUrl: url,
     filename: imageFilename(url, type),
     status,
     ...(type ? { contentType: type } : {}),
+    ...(Number.isFinite(declared) ? { bytes: declared } : {}),
   };
   if (status === 405 || status === 501) return probe;
   if (status < 200 || status >= 300) {
@@ -229,11 +271,11 @@ export async function probeImageFile(url: string): Promise<ImageProbe> {
       error: `Not an image (content-type ${type || "missing"})`,
     };
   }
-  const declared = Number(response.headers?.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_IMAGE_BYTES) {
     return { ...probe, error: `Over the ${MAX_IMAGE_BYTES}-byte cap` };
   }
-  return probe;
+  const warning = largeImageWarning(probe.bytes);
+  return warning ? { ...probe, warning } : probe;
 }
 
 /** Extension → media type, the inverse of `EXTENSIONS`, for local files. */
