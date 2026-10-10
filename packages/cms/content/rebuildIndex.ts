@@ -7,6 +7,7 @@ import { updateAggregates } from "../aggregates/updateAggregates";
 import { updatePaginationIndexes } from "../pagination/updatePaginationIndexes";
 import { getDataDirectory, readContentFromFilesystem } from "./filesystem";
 import {
+  borrowsFrom,
   createReferenceResolver,
   resolveReferences,
   type ReferenceResolver,
@@ -198,6 +199,12 @@ export async function rebuildIndex<TData, TIndexValue, TKey extends Key>(
   for (const spec of config.referencedBy ?? []) {
     const dependentConfig = spec.config();
     if (visited.has(dependentConfig.contentType)) continue;
+    /*
+     * An edge that borrows nothing (F32's `items[].recipe`, there so renames
+     * follow) leaves nothing in the dependent's index to go stale: a recipe
+     * rebuild does not rebuild groups.
+     */
+    if (!borrowsFrom(dependentConfig, config)) continue;
     await rebuildIndex({
       config: dependentConfig,
       contentDirectory,

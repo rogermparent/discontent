@@ -293,7 +293,10 @@ _entry's_ own, not the target's: pass an explicit one whenever you feature
 more than one thing, since the default has one-second resolution.
 `featured_list` shows the strip. `group_update` fixes a plan's name or
 description and never touches the items, so a plan cannot be lost to a
-rename; `group_remove_item` drops one row.
+rename; `group_remove_item` drops one row. Renaming a recipe or a group
+(`patch.slug`) rewrites every group item and featured entry that names it, in
+the same commit — the commit holds the item plus each group it touched.
+Deleting one leaves its rows in place, shown as missing.
 
 ## 8. What's on hand
 

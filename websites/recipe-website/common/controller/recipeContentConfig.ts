@@ -2,6 +2,7 @@ import type { ContentTypeConfig } from "@discontent/cms/content/types";
 import buildRecipeIndexValue from "./buildIndexValue";
 import createDefaultSlug from "./createSlug";
 import { featuredRecipeContentConfig } from "./featuredRecipeContentConfig";
+import { groupContentConfig } from "./groupContentConfig";
 import { recipesByDate } from "./paginationConfigs";
 import { recipeTagTaxonomy } from "./recipeTagTaxonomy";
 import { Recipe, RecipeEntryKey, RecipeEntryValue } from "./types";
@@ -29,6 +30,14 @@ export const recipeContentConfig: ContentTypeConfig<
     {
       config: () => featuredRecipeContentConfig,
       indexField: "recipe",
+    },
+    /*
+     * A rename rewrites every group item naming the recipe (F32). Found in the
+     * groups' data files: the group index value does not carry its items.
+     */
+    {
+      config: () => groupContentConfig,
+      dataField: "items[].recipe",
     },
   ],
   /*

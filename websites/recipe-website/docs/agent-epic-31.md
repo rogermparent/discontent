@@ -15,7 +15,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 31-plan (#190), 31a (#191) and 31b (#192) are merged; 31c and 31d are in review. 31e is built on its own branch; 31f's content commits are done (local, unpushed).
+**Now:** 31-plan (#190), 31a (#191), 31b (#192) and 31d (#193) are merged; 31c is in review. 31e is built on its own branch; 31f's content commits are done (local, unpushed).
 
 ## Context
 
@@ -112,7 +112,7 @@ open and the reason is recorded here.
 | 31a      | Image size in dry runs, polite 403 retry, feature dedupe, push with no remote, "Add group", tables, docs | `agent/31a-polish`      | ✅ #191    |
 | 31b      | 24d: hierarchy-aware `tag:`, `/search/terms`, one "all terms" list, term-page tree                       | `agent/31b-term-search` | ✅ #192    |
 | 31c      | 24e: `curation/terms.ts`, API, `recipes term …`, 8 MCP tools, skill v3, `Group.kind` narrowing           | `agent/31c-term-seats`  | 🟡         |
-| 31d      | F32: group items follow renames                                                                          | `agent/31d-f32-renames` | 🟡 built   |
+| 31d      | F32: group items follow renames                                                                          | `agent/31d-f32-renames` | ✅ #193    |
 | 31e      | Term edit form `/tags/<slug>/edit`                                                                       | `agent/31e-term-form`   | ⏸️         |
 | 31f      | Content: 38 heading conversions, 7 spritzes and sodas (real content repo, no code PR)                    | — (results in 31-close) | ✅ content |
 | 31-close | Results, roadmap/backlog strikes, morning checklist                                                      | `agent/31-close`        | ⏸️         |
@@ -391,6 +391,13 @@ tag:christmas-cookies` = 8 → `term_get` both (own 5 / with descendants 8,
 items untouched, no index for an absent dependent type, delete stays
 dangling); groups and `curation.test.ts` T31; full vitest; typechecks;
 Playwright `groups`, `featured-recipes`, `git`, `recipe`.
+
+**Built (31d).** As planned, plus one engine call: `rebuildIndex`'s cascade
+now skips a dependent whose every declaration toward the rebuilt type has
+`fields: []` (`borrowsFrom`). Without it a recipe rebuild — every reindex —
+would have rebuilt groups too, for nothing. Groups' successful writes gained
+`dependentItemBasePaths: {groups: "/group"}` (a sub-group rename rewrites its
+parents), and recipes' gained `groups: "/group"`.
 
 ### 31e — Term edit form
 

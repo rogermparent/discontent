@@ -98,7 +98,12 @@ same procedure.)_
   pointing at a group is a **scalar** reference (`dataField: "group"`), so
   22g adds `groupContentConfig.referencedBy = [{config: () =>
 featuredRecipeContentConfig, indexField: "group"}]` (thunk). Groups still
-  declare no array `references` of their own.
+  declare no array `references` of their own. _Amended for epic 31 (31d,
+  2026-10-10):_ F32 landed for **renames only**. Groups declare
+  `references` at `items[].recipe` and `items[].group` with `fields: []`
+  (nothing borrowed), and recipes and groups declare the matching
+  `referencedBy`, so a recipe or sub-group rename rewrites every group item
+  naming it in the rename's commit. A **delete** still dangles, as above.
 - **D4 "Appears in" is an aggregate** `groupsByRecipe`
   (`Record<recipeSlug, {slug, name, kind, label?}[]>`) folded from the groups
   index, shaped like `recipesByTag` in `common/controller/aggregateConfigs.ts`.
