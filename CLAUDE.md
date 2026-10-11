@@ -25,8 +25,9 @@ is a symlink to it (and is gitignored here). Never commit anything under
 
 The `recipe-curator` skill (`.claude/skills/recipe-curator/`) imports, cites,
 groups and features recipes through the **`recipes` MCP server** — `.mcp.json`
-registers it, `.claude/settings.json` pre-approves its 35 non-destructive
-tools, and the skill's frontmatter lists the same 35. Held back, deliberately:
+registers its 47 tools, `.claude/settings.json` pre-approves its 35
+non-destructive ones, and the skill's frontmatter lists the same 35. Held back,
+deliberately (the other 12):
 `recipe_delete`, `group_delete`, `term_delete`, `term_merge`, `unfeature`,
 `reindex`, `git_revert`, `git_restore`, `git_push`, `git_pull`, `git_sync`,
 `inventory_set`. `git_fetch` is
@@ -85,7 +86,9 @@ survives a cleared context.
   upload, F34 one commit per multi-carrier term write, the by-term record
   measured and split (24g), ingredient completion in search, meal-plan item
   `scale`, a type-agnostic Make page, `SidebarLayout` on sticky-chrome,
-  search-only term aliases, and a proposed food vocabulary (32a–32k).
+  search-only term aliases, and a proposed food vocabulary (32a–32k). Closed
+  2026-10-10; its morning checklist (pull, workstation update, real-repo
+  reindex, Pi deploy) is in the doc's Close-out.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed

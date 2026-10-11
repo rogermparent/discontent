@@ -196,6 +196,9 @@ describe("the recipe-curator skill's allow-lists", () => {
     expect(EXPECTED_ALLOWED).toContain("term_set_image");
 
     const claudeMd = await readFile(CLAUDE_MD_PATH, "utf8");
+    const registers = /registers its (\d+) tools/.exec(claudeMd);
+    expect(registers, "CLAUDE.md lost 'registers its N tools'").not.toBeNull();
+    expect(Number((registers as RegExpExecArray)[1])).toBe(TOOL_NAMES.length);
     for (const pattern of [/pre-approves its (\d+)/, /lists the same (\d+)/]) {
       const match = pattern.exec(claudeMd);
       expect(match, `CLAUDE.md lost ${pattern}`).not.toBeNull();

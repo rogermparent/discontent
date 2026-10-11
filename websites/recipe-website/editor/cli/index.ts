@@ -137,11 +137,12 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   tags
   delete <slug> [--yes]
   group create --name N [--kind meal-plan] [--description D] [--slug s]
-               [--date d] (--file items.json | --item slug[:label] …
+               [--date d] (--file items.json | --item slug[:label][@scale] …
                [--group-item slug[:label] …]) [--force]
   group update <group> [--name N] [--description D] [--kind K] [--date d]
                [--slug s] [--image-url U | --clear-image] | (--file patch.json | --stdin)
-  group add <group> (<recipe> | --group <group>) [--label L] [--note N] [--force]
+  group add <group> (<recipe> | --group <group>) [--label L] [--note N]
+            [--scale 2] [--force]
   group remove <group> (<recipe> | --group <group>)
   group set-items <group> (--file items.json | --stdin) [--force]
   group show <group>

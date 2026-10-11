@@ -421,6 +421,22 @@ describe("the CLI as a process", () => {
         missing: ["no-such-recipe"],
       });
 
+      /* 32-close: `--add a b` used to write `a` and drop `b` unannounced. */
+      const stray = await run([
+        "term",
+        "assign",
+        "weeknight",
+        "--add",
+        "first-recipe",
+        "second-recipe",
+        "--json",
+      ]);
+      expect(stray.exitCode).not.toBe(0);
+      expect(JSON.parse(stray.stdout).error).toMatchObject({
+        code: "usage",
+        message: expect.stringContaining("second-recipe"),
+      });
+
       const got = await run(["term", "get", "weeknight", "--json"]);
       expect(got.exitCode).toBe(0);
       expect(JSON.parse(got.stdout)).toMatchObject({
@@ -467,7 +483,7 @@ describe("the CLI as a process", () => {
         recipes: ["first-recipe"],
       });
     },
-    TIMEOUT * 4,
+    TIMEOUT * 5,
   );
 
   /*

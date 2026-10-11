@@ -825,8 +825,9 @@ export function createRecipeServer(
       description:
         "A meal plan — an ordered list with a label per item, such as a week of " +
         "dinners. `kind` is `meal-plan` (a collection is now a term: term_create " +
-        'and term_assign). Items may be `"slug"`, `"slug:label"` or ' +
-        "{recipe, label?, note?} — or {group, label?, note?} for a nested group. " +
+        'and term_assign). Items may be `"slug"`, `"slug:label"`, `"slug:label@2"` or ' +
+        "{recipe, label?, note?, scale?} — or {group, label?, note?} for a nested group. " +
+        '`scale` (recipe items only) is a positive multiplier like "2", "1/2" or "1.5". ' +
         "`tags` classifies the group in the site's one tag vocabulary, the same " +
         "one recipes use, so it appears on those tags' pages. " +
         "`force` downgrades unknown recipe and group slugs to warnings.",

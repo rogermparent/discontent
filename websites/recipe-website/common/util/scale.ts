@@ -44,7 +44,9 @@ const GLYPHS: Record<string, string> = {
  *
  * A whole part plus a glyph when the remainder has one; otherwise a decimal
  * of at most two places, which is what anyone reading a badge wants rather
- * than `6/5`.
+ * than `6/5`. A valid scale too small for two places (`0.001`) would round to
+ * `0×`, which reads as "nothing"; that one shows its fraction instead
+ * (`1/1000×`), since `parseScale` accepts any positive value (32-close).
  */
 export function formatScale(scale: Fraction): string {
   const whole = scale.floor();
@@ -52,5 +54,6 @@ export function formatScale(scale: Fraction): string {
   if (rest.n === BigInt(0)) return `${whole.toString()}×`;
   const glyph = GLYPHS[rest.toFraction()];
   if (glyph) return `${whole.n === BigInt(0) ? "" : whole.toString()}${glyph}×`;
-  return `${Number(scale.valueOf().toFixed(2))}×`;
+  const decimal = Number(scale.valueOf().toFixed(2));
+  return decimal > 0 ? `${decimal}×` : `${scale.toFraction()}×`;
 }

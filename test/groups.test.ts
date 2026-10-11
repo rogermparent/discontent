@@ -1212,6 +1212,13 @@ describe("formatScale", () => {
     expect(label("6/5")).toBe("1.2×");
     expect(label("1/7")).toBe("0.14×");
   });
+
+  it("shows the fraction of a valid scale too small for two places", () => {
+    const label = (value: string) => formatScale(parseScale(value)!);
+    expect(label("0.001")).toBe("1/1000×");
+    expect(label("1/300")).toBe("1/300×");
+    expect(label("0.01")).toBe("0.01×");
+  });
 });
 
 describe("parseGroupFormData's scale", () => {
@@ -1252,5 +1259,36 @@ describe("parseGroupFormData's scale", () => {
         message: "Scale must be a positive number, like 2, 1/2 or 1.5",
       });
     }
+  });
+
+  it("drops a blank row or a group row with junk in Scale, not the form", () => {
+    const result = parseGroupFormData(
+      form({
+        "items[0].recipe": "stew",
+        "items[1].recipe": "",
+        "items[1].scale": "lots",
+        "items[2].group": "other",
+        "items[2].scale": "0",
+      }),
+    );
+    expect(result.success).toBe(true);
+    expect(result.data?.items).toEqual([
+      { recipe: "stew" },
+      { group: "other" },
+    ]);
+  });
+
+  it("reports a kept row's bad scale at its form index", () => {
+    const result = parseGroupFormData(
+      form({
+        "items[0].recipe": "",
+        "items[1].recipe": "stew",
+        "items[1].scale": "0",
+      }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]).toMatchObject({
+      path: ["items", 1, "scale"],
+    });
   });
 });

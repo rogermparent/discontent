@@ -1,6 +1,6 @@
 import { createWriteStream } from "fs";
 import { ensureDir, exists, outputJSON, readJson, rename, rm } from "fs-extra";
-import { join, parse, relative, resolve } from "path";
+import { join, parse, relative, resolve, sep } from "path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { ReadableStream } from "node:stream/web";
@@ -19,6 +19,61 @@ export function getDataDirectory(
 }
 
 /**
+ * A slug that cannot name an item: not one path segment, or one that would
+ * resolve outside its type's directory (32-close).
+ *
+ * Slugs reach the engine from decoded route params (`/api/recipe/<slug>`,
+ * `/api/taxonomies/tags/<slug>`, …), and Next decodes `%2F`, so `..%2F..%2Fx`
+ * arrives as `../../x`. Creates slugify first; reads, updates, image writes and
+ * deletes take the slug as given, and the delete path hands the directory to a
+ * recursive `rm`.
+ *
+ * It carries `code: "ENOENT"` on purpose: such a slug names nothing, so the
+ * callers that already turn a missing file into "not found"
+ * (`readContentFileOrNull`, the curation error mapping, the routes' 404s)
+ * answer it the same way, and a refused slug can't be told apart from an
+ * absent one.
+ */
+export class InvalidSlugError extends Error {
+  readonly code = "ENOENT";
+  constructor(readonly slug: string) {
+    super(`Not a valid content slug: ${JSON.stringify(slug)}`);
+    this.name = "InvalidSlugError";
+  }
+}
+
+/**
+ * The engine's slug shape: one non-empty path segment. No separator (`/`,
+ * `\`), no `%` (a still-encoded param), no control character, and not `.` or
+ * `..`. Every slug the engine makes (`@sindresorhus/slugify`) is far narrower;
+ * this is only the floor that keeps a slug inside its directory.
+ */
+// eslint-disable-next-line no-control-regex
+const SLUG_FORBIDDEN = /[/\\%\u0000-\u001f\u007f]/;
+
+export function isContentSlug(slug: string): boolean {
+  return (
+    typeof slug === "string" &&
+    slug !== "" &&
+    slug !== "." &&
+    slug !== ".." &&
+    !SLUG_FORBIDDEN.test(slug)
+  );
+}
+
+/**
+ * `base/slug`, or an `InvalidSlugError` when the slug is not one segment or
+ * the result would leave `base`. The containment check is belt and braces
+ * behind the shape check (an absolute path, say, fails both).
+ */
+function slugPath(base: string, slug: string): string {
+  if (!isContentSlug(slug)) throw new InvalidSlugError(slug);
+  const resolved = resolve(base, slug);
+  if (!resolved.startsWith(base + sep)) throw new InvalidSlugError(slug);
+  return resolved;
+}
+
+/**
  * Get the directory for a specific content item
  */
 export function getContentItemDirectory(
@@ -26,7 +81,7 @@ export function getContentItemDirectory(
   slug: string,
   contentDirectory?: string,
 ): string {
-  return resolve(getDataDirectory(config, contentDirectory), slug);
+  return slugPath(getDataDirectory(config, contentDirectory), slug);
 }
 
 /**
@@ -58,26 +113,35 @@ export function getUploadsDirectory(
   slug: string,
   contentDirectory?: string,
 ): string {
+  return join(
+    getUploadsBaseDirectory(config, slug, contentDirectory),
+    "uploads",
+  );
+}
+
+/**
+ * The directory every item's uploads of one type sit under: the declared
+ * `uploadsDirectory`, else `uploads/<contentType>`.
+ */
+export function getTypeUploadsDirectory(
+  config: Pick<ContentTypeConfig, "uploadsDirectory" | "contentType">,
+  contentDirectory?: string,
+): string {
   const baseDir = contentDirectory || getContentDirectory();
-  if (!config.uploadsDirectory) {
-    return join(baseDir, "uploads", config.contentType, slug, "uploads");
-  }
-  return join(baseDir, config.uploadsDirectory, slug, "uploads");
+  return config.uploadsDirectory
+    ? resolve(baseDir, config.uploadsDirectory)
+    : resolve(baseDir, "uploads", config.contentType);
 }
 
 /**
  * Get the base uploads directory for a content type/slug (parent of uploads)
  */
 export function getUploadsBaseDirectory(
-  config: ContentTypeConfig,
+  config: Pick<ContentTypeConfig, "uploadsDirectory" | "contentType">,
   slug: string,
   contentDirectory?: string,
 ): string {
-  const baseDir = contentDirectory || getContentDirectory();
-  if (!config.uploadsDirectory) {
-    return join(baseDir, "uploads", config.contentType, slug);
-  }
-  return join(baseDir, config.uploadsDirectory, slug);
+  return slugPath(getTypeUploadsDirectory(config, contentDirectory), slug);
 }
 
 /**
