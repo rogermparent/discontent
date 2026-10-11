@@ -19,8 +19,11 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 32-plan (this doc) is open as a PR. Every other phase is planned and
-runs strictly in sequence after it.
+**Now:** epic 32 is **closed** (2026-10-10). Every code phase merged
+(#197–#207); 32-close adds the results, the end-to-end checks on a scratch
+clone, a path-traversal fix found while checking slugs, the backlog and the
+**morning checklist for Roger** (in "Close-out" below; order matters). 32k
+waits for Roger's go.
 
 ## Context
 
@@ -107,18 +110,18 @@ the food corpus is a content call: 32k, run only on Roger's explicit go.
 | Phase    | Scope                                                                    | Size    | Branch                     | Status            |
 | -------- | ------------------------------------------------------------------------ | ------- | -------------------------- | ----------------- |
 | 32-plan  | Epic doc + CLAUDE.md line, backlog marks                                 | docs    | `agent/32-plan`            | ✅ #197           |
-| 32a      | Hygiene                                                                  | S       | `agent/32a-hygiene`        | 🟡 #198           |
-| 32b      | Features follow a deleted term/group                                     | S–M     | `agent/32b-delete-feature` | 🟡 #200           |
-| 32c      | Term image upload, full parity                                           | M–L     | `agent/32c-term-image`     | 🟡 #203           |
-| 32d      | F34 batched commits for term assign/rename/merge                         | M–L     | `agent/32d-batch-commit`   | 🟡 #205           |
-| 32e      | 24g: measure, then split the by-term record                              | L       | `agent/32e-by-term`        | 🟡 #204           |
-| 32f      | Ingredient completion in search                                          | S–M     | `agent/32f-ingredient-ac`  | 🟡 #199           |
-| 32g      | Meal-plan item `scale` + `?scale` on recipe pages                        | M       | `agent/32g-plan-scale`     | 🟡 #202           |
-| 32j      | Make anything: kind switch, refine drill-down, loose ingredient matching | M–L     | `agent/32j-make-any`       | 🟡 #206           |
-| 32h      | `SidebarLayout` + portfolio masthead on sticky-chrome                    | S       | `agent/32h-sticky-sidebar` | 🟡 #201           |
-| 32i      | Term aliases, search-only (droppable)                                    | L       | `agent/32i-aliases`        | 🟡 #207           |
+| 32a      | Hygiene                                                                  | S       | `agent/32a-hygiene`        | ✅ #198           |
+| 32b      | Features follow a deleted term/group                                     | S–M     | `agent/32b-delete-feature` | ✅ #200           |
+| 32c      | Term image upload, full parity                                           | M–L     | `agent/32c-term-image`     | ✅ #203           |
+| 32d      | F34 batched commits for term assign/rename/merge                         | M–L     | `agent/32d-batch-commit`   | ✅ #205           |
+| 32e      | 24g: measure, then split the by-term record                              | L       | `agent/32e-by-term`        | ✅ #204           |
+| 32f      | Ingredient completion in search                                          | S–M     | `agent/32f-ingredient-ac`  | ✅ #199           |
+| 32g      | Meal-plan item `scale` + `?scale` on recipe pages                        | M       | `agent/32g-plan-scale`     | ✅ #202           |
+| 32j      | Make anything: kind switch, refine drill-down, loose ingredient matching | M–L     | `agent/32j-make-any`       | ✅ #206           |
+| 32h      | `SidebarLayout` + portfolio masthead on sticky-chrome                    | S       | `agent/32h-sticky-sidebar` | ✅ #201           |
+| 32i      | Term aliases, search-only (droppable)                                    | L       | `agent/32i-aliases`        | ✅ #207           |
 | 32k      | Food vocabulary for the corpus (content; Roger's go needed)              | content | —                          | ⏸️ awaiting Roger |
-| 32-close | Results, backlog strikes, morning checklist, memory                      | docs    | `agent/32-close`           | 📝 planned        |
+| 32-close | Results, backlog strikes, morning checklist, memory                      | docs    | `agent/32-close`           | 🟡 #PRNUM         |
 
 **Order.** Strictly sequential, in the table's order: 32-plan → 32a → 32b → 32c
 → 32d → 32e → 32f → 32g → 32j → 32h → 32i → 32-close. 32j was added by Roger
@@ -600,6 +603,9 @@ drill-down has nothing to drill into for food until the corpus is tagged.
 
 ### 32-close
 
+Done: the Results entry "32-close" and the "Close-out" section at the end
+(e2e checks, deferred notes, the morning checklist as run).
+
 - Results table (PR, merge sha, gates) and the 32e measurement.
 - Strike the backlog rows.
 - **Morning checklist for Roger:**
@@ -762,22 +768,26 @@ epic.
 
 ## Results
 
-To be filled per phase (PR, merge sha, gates), with the 32e measurement and
-the end-to-end checks at 32-close.
+Per phase: PR, merge sha (`gh pr view <n> --json mergeCommit`) and gates.
+Every phase merged under D7 (all 12 checks green, state CLEAN). Merge order
+differs from the table's at one spot: 32d (#205) merged before 32e (#204).
+The 32e measurement is in its phase detail and summarised in "Close-out", with
+the end-to-end checks.
 
-| Phase   | PR   | Merge      | Gates                                                                                                                                                                                                                                              |
-| ------- | ---- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 32-plan | #197 | `dafc6834` | docs only; CI 12/12                                                                                                                                                                                                                                |
-| 32a     | #198 |            | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI                                                                                                                                      |
-| 32b     | #200 |            | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI                                                                                                                                          |
-| 32c     | #203 |            | typechecks ✅; vitest 1074/1074 (56 files); Playwright `term-edit` + `api-write` 29/29 (build); CI                                                                                                                                                 |
-| 32d     | #205 |            | typechecks ✅; vitest 1094/1094 (56 files); Playwright `git` + `api-write` not run locally (heavy slot held > 15 min), CI shards are the gate; CI                                                                                                  |
-| 32e     | #204 |            | typechecks ✅ (recipe, export, portfolio, demo); vitest 1105/1105 (56 files) after the review fixes; Playwright not run locally (slot held > 15 min) — CI                                                                                          |
-| 32f     | #199 |            | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI                                                                                                                                                     |
-| 32h     | #201 |            | typechecks ✅ (recipe, export, portfolio); vitest 1058/1058; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI                                                                                                                |
-| 32g     | #202 |            | typechecks ✅; vitest 1068/1068 (56 files); Playwright `groups` + `yield` + `recipe` 47/47 (build); export `next build` ✅; CI                                                                                                                     |
-| 32j     | #206 |            | typechecks ✅; vitest 1148/1148 (56 files); Playwright not a local gate (see entry) — CI's Recipe shards                                                                                                                                           |
-| 32i     | #207 |            | typechecks ✅ (recipe, export, portfolio, demo); vitest 1193/1193 (56 files, after merging 32j); Playwright `search-tags` + `search-autocomplete` + `term-edit` + `tag-pages` 43/43, then `make` + `search-tags` 31/31 after the merge (build); CI |
+| Phase    | PR     | Merge      | Gates                                                                                                                                                                                                                                                    |
+| -------- | ------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 32-plan  | #197   | `dafc6834` | docs only; CI 12/12                                                                                                                                                                                                                                      |
+| 32a      | #198   | `d414c2f6` | typechecks ✅; vitest 1040/1040 (56 files); `pnpm install --frozen-lockfile` ✅; no Playwright (per plan); CI 12/12                                                                                                                                      |
+| 32b      | #200   | `2cbb35f2` | typechecks ✅; vitest 1048/1048 (56 files); Playwright `featured-recipes` + `term-edit` 55/55 (build); CI 12/12                                                                                                                                          |
+| 32c      | #203   | `74adba98` | typechecks ✅; vitest 1074/1074 (56 files); Playwright `term-edit` + `api-write` 29/29 (build); CI 12/12                                                                                                                                                 |
+| 32d      | #205   | `1946716c` | typechecks ✅; vitest 1094/1094 (56 files); Playwright `git` + `api-write` not run locally (heavy slot held > 15 min), CI shards are the gate; CI 12/12                                                                                                  |
+| 32e      | #204   | `afc9d3df` | typechecks ✅ (recipe, export, portfolio, demo); vitest 1105/1105 (56 files) after the review fixes; Playwright not run locally (slot held > 15 min) — CI; CI 12/12                                                                                      |
+| 32f      | #199   | `4216441b` | typechecks ✅; vitest 1050/1050 (56 files); `search-autocomplete.spec` 13/13 (build+start); CI 12/12                                                                                                                                                     |
+| 32h      | #201   | `65de06a7` | typechecks ✅ (recipe, export, portfolio); vitest 1058/1058; Playwright recipe 20/20 (build), portfolio 22/22 (dev — see entry); CI 12/12                                                                                                                |
+| 32g      | #202   | `1cd36fa9` | typechecks ✅; vitest 1068/1068 (56 files); Playwright `groups` + `yield` + `recipe` 47/47 (build); export `next build` ✅; CI 12/12                                                                                                                     |
+| 32j      | #206   | `78d62b32` | typechecks ✅; vitest 1148/1148 (56 files); Playwright not a local gate (see entry) — CI's Recipe shards; CI 12/12                                                                                                                                       |
+| 32i      | #207   | `e246733f` | typechecks ✅ (recipe, export, portfolio, demo); vitest 1193/1193 (56 files, after merging 32j); Playwright `search-tags` + `search-autocomplete` + `term-edit` + `tag-pages` 43/43, then `make` + `search-tags` 31/31 after the merge (build); CI 12/12 |
+| 32-close | #PRNUM |            | typechecks ✅; vitest 1217/1217 (57 files); e2e on a scratch clone 7/7 (see Close-out); Playwright `path-traversal` + `api-write` + `groups` 62/62 (build); CI                                                                                           |
 
 ### 32a — Hygiene
 
@@ -1880,3 +1890,184 @@ deploy.
 **Deferred.** No write-time canonicalisation (D5). Rename doesn't record the
 old slug. `/tags` doesn't list aliases. The export's redirect page needs JS
 or a meta-refresh-honouring client; there's no server redirect there.
+
+### 32-close — results, e2e checks, a path-traversal fix, backlog
+
+**What changed (code, one commit with tests).**
+
+- **32g nits.** Global `--help` shows `group add … [--scale 2]` and
+  `--item slug[:label][@scale]`. The `group_create` MCP description lists
+  `scale?` in the item object and the `@2` shorthand. `formatScale` shows the
+  fraction for a valid scale too small for two places (`0.001` → `1/1000×`,
+  not `0×`); the validator is unchanged, so no stored value changes meaning.
+  `parseGroupFormData` checks a scale only on a row it keeps, so a blank row
+  (or a group row, which has no Scale input) with junk in Scale is dropped
+  instead of failing the form; the issue path keeps the row's form index.
+- **`term assign <t> --add a b c`** used to write `a` and silently drop `b`
+  and `c` (stray positionals; found by e2e check 3). It is now a `usage`
+  error naming the strays; the flag repeats (`--add a --add b`).
+- **Path traversal (security).** See "The slug finding" below. Fixed in two
+  places: the recipe uploads route, and an engine-level slug guard.
+- CLAUDE.md states the tool count (47 registered, 35 pre-approved, 12 held
+  back); `curatorSkill.test.ts` now pins the 47 sentence too.
+
+**The slug finding: exploitable, unauthenticated, now fixed.** Next 16
+decodes each dynamic segment with `decodeURIComponent`
+(`route-matcher.js`), so `..%2F` arrives in `params` as `../`.
+
+- **`GET /uploads/recipe/<slug>/uploads/<filename>` was an arbitrary file
+  read.** It joined both params under `<content>/uploads/recipe/` with no
+  guard. Confirmed read-only against the running workstation editor (:3000,
+  bound to `0.0.0.0`, no session):
+  `/uploads/recipe/x/uploads/..%2F..%2F..%2F..%2Frecipes%2Fdata%2F<slug>%2Frecipe.json`
+  answered 200 with the recipe's JSON, and ten `..%2F` then `etc%2Fhostname`
+  answered 200. Any file the editor process can open was readable by anyone
+  who can reach the port. Portfolio's project-uploads route and both sites'
+  `/uploads/[filename]` and `/image/[...filePath]` routes already confined
+  their params with `resolveWithin`; this one route had been missed. It now
+  confines the slug and the filename, one `resolveWithin` each, and a refusal
+  is a 404. **The workstation and the Pi keep the hole until they run this
+  build** (the morning checklist's `pnpm workstation update` and
+  `pnpm deploy:pi`).
+- **The engine's write and read paths were reachable, but not usefully.**
+  `getContentItemDirectory` did `resolve(dataDir, slug)`. Every authenticated
+  route that takes a slug (recipe image, term PATCH/DELETE/image, group
+  routes, recipe update/delete) reads `<dir>/<dataFilename>` first and 404s
+  when it is missing. So a write or a delete could only land where a file with
+  that type's name (`recipe.json`, `term.json`, `group.json`) already existed,
+  and the public pages could only read such a file. Not exploitable in
+  practice, but one missing read away from a recursive `rm`.
+- **The guard** (`packages/cms/content/filesystem.ts`): a slug must be one
+  path segment (non-empty, not `.` or `..`, no `/`, `\`, `%`, or control
+  character), and the resolved path must stay strictly inside the type's data
+  or uploads directory. `getContentItemDirectory`, `getContentFilePath`,
+  `getUploadsDirectory`, `getUploadsBaseDirectory` and `getUploadFilePath`
+  all go through it (new `getTypeUploadsDirectory` is the type-wide root,
+  which `curation/git.ts` used to get by passing `""`). It throws
+  `InvalidSlugError`, which carries `code: "ENOENT"` on purpose:
+  `readContentFileOrNull` returns `null`, the curation layer answers
+  `not_found`, the routes 404, and a refused slug looks exactly like an
+  absent one. No spec'd module moved (`filesystem.ts` is not pinned).
+  Checked through the CLI on the clone: `show ../recipes/data/bloody-mary`,
+  `term update ../../../recipes/data/bloody-mary` and
+  `delete ../../groups/data/e2e-plan --yes` each answered `not_found`, and
+  the plan was still there.
+- **Tests:** `test/contentSlug.test.ts` (new, 21): the guard over `..`, `.`,
+  `""`, `../x`, `a/b`, `a\b`, an absolute path, decoded and still-encoded
+  `%2E%2E%2F`, a NUL; null on read and `not_found` on the wire; a delete that
+  leaves the sibling type's file alone; the uploads route serving an upload
+  and 404ing five traversals (filename, slug, absolute). `groups.test.ts`
+  (+3): the tiny-scale label, the dropped blank and group rows, the form
+  index. `cliJson.test.ts`: the stray-positional refusal.
+  `path-traversal.spec.ts` (+1): the recipe uploads route serves an upload
+  and 404s a filename and a slug traversal to a fixture file that exists.
+
+**Gates.** typechecks ✅ (editor, export); vitest 1217/1217 (57 files); e2e 7/7 on
+the clone; Playwright `path-traversal` + `api-write` + `groups` 62/62 (build, heavy slot).
+
+## Close-out
+
+### End-to-end checks
+
+On a scratch clone of `recipe-content` at `6532d71`,
+reindexed with this branch's CLI (`main` plus the fixes above;
+`--content-dir <clone>`, 1,381 ms):
+
+| #   | Check                                     | Result                                                                                                                                                                                                                                                                                                 |
+| --- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | `term delete` on a featured child term    | ✅ `e2e-child` (parent `e2e-parent`, both with records) featured as `e2e-feature`, then deleted: `{"featured":["e2e-feature"],"unfeatured":[]}`; the feature file now names `"term": "e2e-parent"`. One commit, `Delete term: e2e-child (1 feature)`, 2 files (the feature and the record).            |
+| 2   | `term image <slug> --file <png>`          | ✅ one commit, `Update term image: e2e-parent`: the record plus `uploads/tag-term/e2e-parent/uploads/<png>`; tree clean.                                                                                                                                                                               |
+| 3   | `term assign <t> --add a --add b --add c` | ✅ **one** commit, `Assign term: e2e-parent (+3 recipes)`, of **3 files**: the three `recipe.json`s. Not 4: an assign never touches the term record (it holds label, parent, pinned, aliases, not carriers). The first try, `--add a b c`, wrote only `a`, which is the CLI fix above.                 |
+| 4   | `group add <plan> <recipe> --scale 2`     | ✅ `group show e2e-plan` has `{"recipe":"bijou-acouplecooks","label":"Tue","scale":"2"}`; one commit.                                                                                                                                                                                                  |
+| 5   | alias, then `search 'tag:<alias>'`        | ✅ `term update e2e-parent --alias "E2E Alias"`; `tag:e2e-alias` and `tag:"e2e alias"` both return `total: 4`, the term's four carriers.                                                                                                                                                               |
+| 6   | by-term record sizes after the reindex    | ✅ 172 records. JSON bytes (32e's unit): largest `drink` 38,256, then `shaken` 14,229, `sour` 11,540; median 277; smallest `easy` 181; 198,208 summed. Stored msgpack: `drink` 26,351, median 247, 143,264 summed; header 186 B, hash map 13,438 B. Groups' by-tag: 0 records (no groups in the repo). |
+| 7   | `inventory make --json`, no query         | ✅ `query: ""`, `total: 665` (the whole corpus, food and drinks; 23 items on hand). Food in the tiers: 7 of 41 one-away (`honey-syrup-acouplecooks`, `lavender-syrup`, …), 9 of 50 shown two-away (`chicken-wings`, `cilantro-lime-yogurt-sauce`, …); 5 can-make, all drinks.                          |
+
+### The real content repo
+
+The clone was deleted afterwards. **The real repo is untouched:**
+`git -C /home/roger/Projects/recipe-content status --short` is empty and
+`log --oneline -1` is still `6532d71 Create recipe: butter-lettuce-salad`, the
+epic's baseline (the workstation sync hadn't moved it). No commit by this
+epic.
+
+### The 32e measurement, summarised
+
+The by-tag record had reached 200,805 B (172 tags,
+`drink` 208 recipes), over F8b's 150 KB trigger, and a six-tag recipe's name
+edit rewrote all of it and expired all 172 term pages. 32e made it a keyed
+aggregate, one record per term (`AggregateConfig.keyed`, `[0]` header,
+`[1, key]` values, `[2]` hashes), with `readAggregateKey` and per-key cache
+tags. The same edit now writes its 6 terms (75 KB plus 14 KB of hashes) and
+expires 6 term pages plus `/tags`. The no-op fold went 22.6 → 17.4 ms, mostly
+from memoising `termsOf`, and the full reindex didn't slow down (646 → 624 ms).
+The close-out reindex above has the same shape (largest 38 KB, median under
+300 B).
+
+### Deferred / backlog
+
+Non-blocking review notes and deferrals from the phases, none of them
+started. Rows that need a phase are in `backlog.md` too.
+
+- **32c:** `termImageFile` re-wraps only `ValidationError` from the file
+  check; anything else surfaces as it was thrown.
+- **32d** (F34 batches):
+  - while a batch runs its files stay uncommitted for all N writes, with no
+    write lock, so a concurrent write's commit can sweep them in and a
+    workstation sync can see a dirty tree;
+  - an engine write that throws after writing a file leaves that file
+    uncommitted, as unbatched writes already did;
+  - pre-staged files ride along in any commit.
+    Candidate: an engine write lock, and touched paths attached to errors
+    (backlog).
+- **32e:** term pages still depend on the two whole `terms` clouds for their
+  counts, so a carrier joining or leaving any term expires every term page.
+  Keying the clouds would remove that (backlog). 29b's index-version stamp
+  stays deferred, so a spec bump still needs a manual reindex.
+- **32h:** the portfolio `PLAYWRIGHT_BUILD=1` production build runs out of
+  heap locally (`next build --webpack` hits the ~4 GB V8 limit after ~190 s;
+  from a worktree Next picks the main checkout as the workspace root).
+  Nothing local needs that build today (backlog).
+- **32i:** a term rename doesn't record the old slug as an alias (D5 asks it
+  of `term_merge` only); `/tags` doesn't list aliases; no write-time
+  canonicalisation; the export's alias redirect is a client-side page
+  (backlog for the rename).
+- **32j:** "tequila blanco" read as a kind of tequila (word order); broth and
+  stock stay close matches on purpose; the staples list is per browser
+  (backlog).
+- **32k:** tagging the 444 untagged food recipes, Roger's call (backlog).
+- **32-close:** the engine guard covers the content-type paths. The sites'
+  own `filesystemDirectories.ts` helpers (`getRecipeUploadPath` and its group
+  and term twins) still `join` without a guard. Every caller now passes a
+  slug that has already been through the engine (an image rendered from a
+  stored record) or is confined itself (the uploads route), so this is
+  defence in depth, not a hole.
+
+### Morning checklist for Roger
+
+Order matters. The main checkout was deliberately left at `1946716c` (32d):
+the workstation runs a built `next start` from it, and 32e and 32i changed
+index layouts that build can't read. A CLI or MCP write from newer source
+would write the new layout under the old server.
+
+1. **`git pull`** in the main checkout (`/home/roger/Projects/content-engine`).
+2. **`pnpm workstation update`**: rebuild and restart
+   `recipe-workstation.service`. This also closes the uploads-route file read
+   on :3000.
+3. **Reindex the real repo:** `pnpm --silent recipes reindex --json` with no
+   `CONTENT_DIRECTORY`, so it goes through the `editor/content` symlink. Until
+   then `/tags` is empty, record-less term pages 404, and `tag:` loses its
+   hierarchy and aliases. **Only after this** use the CLI or MCP against the
+   real repo.
+4. **`pnpm deploy:pi`**: the Pi's indexes are built here, and the Pi gets the
+   uploads-route fix too.
+5. **Look at:**
+   - `/tags/<slug>/edit`: upload a term image;
+   - a meal plan with a scaled item: the `2×` badge, and the
+     `/recipe/<slug>?scale=2` link opening scaled;
+   - `ingredient:` autocomplete in the search field;
+   - `/make`: the kind switch (Anything / Food / Drinks), refine chips, close
+     matches and staples;
+   - `tag:<alias>` in search, and `/tags/<alias>` redirecting.
+6. **Decide 32k:** tagging the 444 untagged food recipes, so the Make page's
+   food drill-down has tags to work with. The proposal is in 32k above.
