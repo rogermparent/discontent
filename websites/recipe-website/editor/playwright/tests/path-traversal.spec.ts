@@ -47,4 +47,31 @@ test.describe("path traversal", () => {
     );
     expect(response.status()).toBe(200);
   });
+
+  /*
+   * 32-close. The four-segment recipe uploads route had no guard: both its
+   * `slug` and its `filename` reached `join()` decoded, so either could walk
+   * to any file the server could open. Each target below exists in the
+   * fixture, so a 404 is the guard and not a missing file.
+   */
+  test("serves a recipe upload, and refuses to walk out of it", async ({
+    request,
+    resetData,
+  }) => {
+    await resetData("two-pages");
+    const served = await request.get(
+      "/uploads/recipe/recipe-6/uploads/recipe-6-test-image.png",
+    );
+    expect(served.status()).toBe(200);
+
+    for (const path of [
+      // through the filename
+      "/uploads/recipe/recipe-6/uploads/..%2F..%2F..%2F..%2Frecipes%2Fdata%2Frecipe-6%2Frecipe.json",
+      // through the slug
+      "/uploads/recipe/..%2F..%2Frecipes%2Fdata%2Frecipe-6/uploads/..%2Frecipe.json",
+    ]) {
+      const response = await request.get(path);
+      expect(response.status(), path).toBe(404);
+    }
+  });
 });

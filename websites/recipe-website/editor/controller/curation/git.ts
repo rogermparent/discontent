@@ -43,7 +43,12 @@ import simpleGit, {
   type SimpleGit,
   type StatusResult,
 } from "simple-git";
-import { getUploadsBaseDirectory } from "@discontent/cms/content/filesystem";
+import {
+  InvalidSlugError,
+  getTypeUploadsDirectory,
+  getUploadsBaseDirectory,
+  isContentSlug,
+} from "@discontent/cms/content/filesystem";
 import type { ContentTypeConfig } from "@discontent/cms/content/types";
 import { directoryIsGitRepo } from "@discontent/cms/git/commit";
 import {
@@ -449,7 +454,8 @@ function truncateDiff(
  * The uploads side goes through the engine's own `getUploadsBaseDirectory` so
  * that a type which declares no `uploadsDirectory` — featured recipes — gets
  * the engine's default (`uploads/<contentType>/<slug>`) rather than a second
- * guess at it that could drift.
+ * guess at it that could drift. A slug that is not one path segment is
+ * refused there (`InvalidSlugError`, read as not found), and so here.
  */
 function pathspecsFor(
   config: ContentTypeConfig,
@@ -461,12 +467,15 @@ function pathspecsFor(
     : config.dataDirectory;
   const uploads = path.relative(
     contentDirectory,
-    getUploadsBaseDirectory(config, slug ?? "", contentDirectory),
+    slug
+      ? getUploadsBaseDirectory(config, slug, contentDirectory)
+      : getTypeUploadsDirectory(config, contentDirectory),
   );
   return [data, uploads];
 }
 
 function dataPathFor(config: ContentTypeConfig, slug: string): string {
+  if (!isContentSlug(slug)) throw new InvalidSlugError(slug);
   return path.join(config.dataDirectory, slug, config.dataFilename);
 }
 

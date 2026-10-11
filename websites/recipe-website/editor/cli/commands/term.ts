@@ -443,6 +443,16 @@ const termAssign: CommandDef<TermAssignResult> = {
   async run({ backend, positionals, options }) {
     const slug = positionals[0];
     if (!slug) throw new UsageError("term assign needs <slug>.");
+    /*
+     * `--add a b c` parses as `--add a` plus two stray positionals, which used
+     * to be dropped: one carrier written, two silently not (found at 32-close).
+     */
+    if (positionals.length > 1) {
+      throw new UsageError(
+        `term assign takes one <slug>; repeat the flag for each carrier ` +
+          `(--add a --add b). Unexpected: ${positionals.slice(1).join(" ")}`,
+      );
+    }
     const add = stringListOption(options, "add");
     const remove = stringListOption(options, "remove");
     if (add.length === 0 && remove.length === 0) {

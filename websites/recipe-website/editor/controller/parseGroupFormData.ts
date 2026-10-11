@@ -31,15 +31,10 @@ const GroupItemSchema = z.object({
   label: optionalText,
   note: optionalText,
   /*
-   * A recipe row's multiplier (epic 32, D4), blank for none. Refused unless
-   * positive, with the message the JSON schemas use; the error lands on
-   * `items` and prints above the rows (`GroupFormErrors`). A group row has
-   * no Scale input, and the transform below drops one a forged post sends.
+   * A recipe row's multiplier (epic 32, D4), blank for none. Validated on the
+   * list below, not here, so only a row that is kept can fail on it.
    */
-  scale: optionalText.refine(
-    (value) => value === undefined || isValidScale(value),
-    { message: SCALE_MESSAGE },
-  ),
+  scale: optionalText,
 });
 
 const GroupFormSchema = z.object({
@@ -85,6 +80,26 @@ const GroupFormSchema = z.object({
   items: z
     .array(GroupItemSchema)
     .default([])
+    /*
+     * A kept recipe row's scale must be positive, with the message the JSON
+     * schemas use; the error lands on `items` and prints above the rows
+     * (`GroupFormErrors`). Checked here rather than on the field so a blank
+     * row (dropped just below) or a group row (whose scale the last transform
+     * drops; it has no Scale input) can't fail the whole form over junk in a
+     * field nobody will read (32-close). The path keeps the row's form index.
+     */
+    .superRefine((items, ctx) => {
+      items.forEach((item, index) => {
+        if (item.group || !item.recipe || item.scale === undefined) return;
+        if (!isValidScale(item.scale)) {
+          ctx.addIssue({
+            code: "custom",
+            path: [index, "scale"],
+            message: SCALE_MESSAGE,
+          });
+        }
+      });
+    })
     /*
      * A row that names neither is a row the user added and left blank, not an
      * error: the picker starts empty and "Add recipe" appends another empty
