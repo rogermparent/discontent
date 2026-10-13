@@ -1288,6 +1288,8 @@ describe("batched term writes (F34)", () => {
       slug: "biscuits",
       recipes: ["shortbread", "gingerbread"],
       groups: ["tin"],
+      /* 34-D4: the old slug rides the record's own write — no extra commit. */
+      aliases: ["cookies"],
     });
     const commits = await commitsSince(before);
     expect(commits).toHaveLength(1);
