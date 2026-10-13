@@ -67,19 +67,20 @@ function TermChips({
 }
 
 /**
- * `/make` scoped to this term (25c).
+ * This term as an encoded `tag:` query — for `/make` scoped to it (25c) and
+ * for `/search`'s full list past the page's cap (34a).
  *
  * The `tag:` value is a carrier's own tag string, not the slug or the label:
  * `tag:` matches tag strings by word prefix, so the slug `slow-cooker` misses
  * "slow cooker" and a record's label "Drinks" misses `drink`. The slug is the
  * fallback, and right whenever the two coincide.
  */
-function makeHref(slug: string, recipes: RecipeListEntry[]): string {
+function tagQuery(slug: string, recipes: RecipeListEntry[]): string {
   const tag =
     recipes
       .flatMap((recipe) => recipe.tags ?? [])
       .find((candidate) => tagSlug(candidate) === slug) ?? slug;
-  return `/make?q=${encodeURIComponent(`tag:${quoteQueryValue(tag)}`)}`;
+  return encodeURIComponent(`tag:${quoteQueryValue(tag)}`);
 }
 
 /**
@@ -104,6 +105,7 @@ export function TermPageBody({ term }: { term: TermPageData }) {
     breadcrumb,
     children,
     recipes,
+    recipeCount,
     ownRecipeCount,
     groups,
   } = term;
@@ -113,7 +115,8 @@ export function TermPageBody({ term }: { term: TermPageData }) {
    * The list holds the narrower terms' recipes too (34a, D1). Say so only when
    * that changes the number, so a leaf's page reads exactly as it did.
    */
-  const includesNarrower = recipes.length > ownRecipeCount;
+  const includesNarrower = recipeCount > ownRecipeCount;
+  const query = tagQuery(slug, recipes);
 
   return (
     <>
@@ -158,13 +161,13 @@ export function TermPageBody({ term }: { term: TermPageData }) {
           className="my-3 text-sm text-muted-foreground"
           data-testid="term-recipe-counts"
         >
-          {ownRecipeCount} here · {recipes.length} including narrower terms
+          {ownRecipeCount} here · {recipeCount} including narrower terms
         </p>
       )}
       {recipes.length > 0 && (
         <p className="my-3 text-sm">
           <Link
-            href={makeHref(slug, recipes)}
+            href={`/make?q=${query}`}
             className="underline underline-offset-4 hover:text-primary"
             data-testid="term-make-link"
           >
@@ -178,7 +181,26 @@ export function TermPageBody({ term }: { term: TermPageData }) {
          * record's `pinned` list over the fold's rows, so the curated front and
          * the remainder arrive as one list and this component sorts nothing.
          */
-        <RecipeList recipes={recipes} />
+        <>
+          <RecipeList recipes={recipes} />
+          {/*
+            Capped (34a): pinned first, then the newest. The rest are one
+            click away on `/search`, which both apps serve from the client
+            corpus and whose `tag:` expands the subtree exactly as this list
+            does.
+          */}
+          {recipeCount > recipes.length && (
+            <p className="my-4 text-sm">
+              <Link
+                href={`/search?q=${query}`}
+                className="underline underline-offset-4 hover:text-primary"
+                data-testid="term-see-all"
+              >
+                See all {recipeCount} recipes
+              </Link>
+            </p>
+          )}
+        </>
       ) : (
         /*
          * The recipes-only fallback. It can now fire with *everything* empty —

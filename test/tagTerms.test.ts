@@ -41,7 +41,9 @@ import {
   childrenOf,
   mergeTagVocabulary,
   mergeTermRows,
+  subtreeKeys,
   subtreeSlugs,
+  termKeys,
   termPageData,
 } from "../websites/recipe-website/common/controller/tagVocabulary";
 import type {
@@ -369,6 +371,98 @@ describe("termPageData (34a)", () => {
       { slug: "christmas", label: "Christmas" },
     ]);
     expect(bare?.groups.map((g) => g.slug)).toEqual(["g"]);
+  });
+
+  it("caps the list at the limit, pins kept, and reports the full count", () => {
+    const capped = termPageData({
+      slug: "course",
+      tree: TREE_34A,
+      record: { label: "Course", pinned: ["sugar"] },
+      recipeRows: rows(RECIPES),
+      groupRows: () => null,
+      limit: 2,
+    });
+    expect(capped?.recipes.map((r) => r.slug)).toEqual(["sugar", "linzer"]);
+    expect(capped?.recipeCount).toBe(3);
+    /* Pins are never cut, even past the limit. */
+    const pinnedPast = termPageData({
+      slug: "course",
+      tree: TREE_34A,
+      record: { label: "Course", pinned: ["stew", "sugar"] },
+      recipeRows: rows(RECIPES),
+      groupRows: () => null,
+      limit: 1,
+    });
+    expect(pinnedPast?.recipes.map((r) => r.slug)).toEqual(["stew", "sugar"]);
+    expect(page("course", { label: "Course" })?.recipeCount).toBe(3);
+  });
+
+  it("lists a descendant's alias carriers, as tag: does (32i)", () => {
+    const tree: TermTree = {
+      ...TREE_34A,
+      cookies: { ...TREE_34A.cookies, aliases: ["Biscuits", "Dinner"] },
+    };
+    const withAlias = termPageData({
+      slug: "course",
+      tree,
+      record: { label: "Course" },
+      recipeRows: rows({
+        ...RECIPES,
+        biscuits: [recipe("shortbread", 5, ["biscuits"])],
+      }),
+      groupRows: () => null,
+    });
+    expect(withAlias?.recipes.map((r) => r.slug)).toEqual([
+      "shortbread",
+      "linzer",
+      "stew",
+      "sugar",
+    ]);
+    expect(withAlias?.children[0]).toEqual({
+      slug: "dessert",
+      label: "Dessert",
+      count: 3,
+    });
+    /* An alias carrier is "here" on the aliased term's own page. */
+    expect(
+      termPageData({
+        slug: "cookies",
+        tree,
+        record: { label: "Cookies" },
+        recipeRows: rows({
+          ...RECIPES,
+          biscuits: [recipe("shortbread", 5, ["biscuits"])],
+        }),
+        groupRows: () => null,
+      })?.ownRecipeCount,
+    ).toBe(3);
+  });
+});
+
+describe("termKeys / subtreeKeys (34a)", () => {
+  const tree: TermTree = {
+    dessert: { label: "Dessert", children: ["cookies"], aliases: ["Sweets"] },
+    cookies: {
+      label: "Cookies",
+      parent: "dessert",
+      children: [],
+      /* "Dessert" is another record's own slug, so it is not cookies' key. */
+      aliases: ["Biscuits", "Dessert", "biscuits"],
+    },
+  };
+
+  it("adds each alias's slug, never another record's own", () => {
+    expect(termKeys(tree, "cookies")).toEqual(["cookies", "biscuits"]);
+    expect(termKeys(tree, "nope")).toEqual(["nope"]);
+  });
+
+  it("covers the subtree and its aliases, each once", () => {
+    expect(subtreeKeys(tree, "dessert")).toEqual([
+      "dessert",
+      "sweets",
+      "cookies",
+      "biscuits",
+    ]);
   });
 });
 

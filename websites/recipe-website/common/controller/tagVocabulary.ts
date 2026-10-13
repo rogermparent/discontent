@@ -58,10 +58,16 @@ export interface TermPageData {
   children: TagVocabularyEntry[];
   /**
    * The term's recipes and every descendant's (34a, D1): deduped, pinned
-   * first, then newest first — what `tag:<term>` finds.
+   * first, then newest first — what `tag:<term>` finds — capped at
+   * `TERM_PAGE_RECIPE_LIMIT` (pins are always kept).
    */
   recipes: RecipeListEntry[];
-  /** How many of `recipes` carry this term itself — the page's "N here". */
+  /** How many recipes the whole subtree has, before the cap — the "M". */
+  recipeCount: number;
+  /**
+   * How many recipes carry this term itself (or one of its aliases) — the
+   * page's "N here".
+   */
   ownRecipeCount: number;
   /** The term's groups and every descendant's, deduped, newest first. */
   groups: GroupListEntry[];
@@ -203,6 +209,50 @@ export function subtreeSlugs(
 }
 
 /**
+ * The by-term keys one term's carriers sit under: its slug, then the slug of
+ * each of its record's aliases (32i) — a recipe still tagged with an alias is
+ * the term's, as `tag:` finds it (`tagExpansion.ts`'s `ownAliasSpellings`).
+ *
+ * An alias whose slug is another record's own slug is left out, as the
+ * expansion leaves it out: a record's own spelling beats any alias. (The
+ * expansion also guards a record's *label*; a by-term key is a slug, so the
+ * slug check is the one that applies here.)
+ */
+export function termKeys(
+  tree: TermTree | null | undefined,
+  slug: string,
+): string[] {
+  const keys = new Set([slug]);
+  for (const alias of tree?.[slug]?.aliases ?? []) {
+    const key = tagSlug(alias);
+    if (key && !tree?.[key]) keys.add(key);
+  }
+  return [...keys];
+}
+
+/**
+ * Every by-term key a term page reads (34a): `termKeys` of each slug in
+ * `subtreeSlugs(tree, slug)`, each once.
+ */
+export function subtreeKeys(
+  tree: TermTree | null | undefined,
+  slug: string,
+): string[] {
+  return [
+    ...new Set(
+      subtreeSlugs(tree, slug).flatMap((term) => termKeys(tree, term)),
+    ),
+  ];
+}
+
+/**
+ * How many recipes a term page lists before it links to search for the rest
+ * (34a): pinned first, then the newest, up to this many. A card costs ~10 KB
+ * of HTML and RSC payload, and `/tags/course` would otherwise carry 450.
+ */
+export const TERM_PAGE_RECIPE_LIMIT = 48;
+
+/**
  * Several terms' by-term rows as one list (34a): each carrier once, newest
  * first — the fold's own order (date, then slug, both descending), so a single
  * term's rows come back exactly as the fold wrote them.
@@ -233,12 +283,15 @@ export interface TermRow<TItem> {
  * of `resolveTermPage`, or `null` when the slug names nothing at all: no
  * record, and nothing in its subtree carries anything.
  *
- * `recipeRows` and `groupRows` answer for every slug of
- * `subtreeSlugs(tree, slug)`, and nothing else is read: the breadcrumb is the
+ * `recipeRows` and `groupRows` answer for every key of
+ * `subtreeKeys(tree, slug)`, and nothing else is read: the breadcrumb is the
  * tree's labels, and each child's count is the distinct carriers of the
  * child's own subtree — a subset of this one, so its rows are already here.
  * Labels keep `mergeTagVocabulary`'s precedence: the record (or its tree node)
  * beats the recipe fold, which beats the group fold, which beats the slug.
+ *
+ * The recipe list is capped at `limit` (pinned first, then the newest);
+ * `recipeCount` is the whole subtree's. Groups are not capped.
  */
 export function termPageData({
   slug,
@@ -246,6 +299,7 @@ export function termPageData({
   record,
   recipeRows,
   groupRows,
+  limit = TERM_PAGE_RECIPE_LIMIT,
 }: {
   slug: string;
   tree: TermTree | null | undefined;
@@ -255,18 +309,37 @@ export function termPageData({
     image?: string;
     pinned?: string[];
   } | null;
-  recipeRows: (slug: string) => TermRow<RecipeListEntry> | null | undefined;
-  groupRows: (slug: string) => TermRow<GroupListEntry> | null | undefined;
+  recipeRows: (key: string) => TermRow<RecipeListEntry> | null | undefined;
+  groupRows: (key: string) => TermRow<GroupListEntry> | null | undefined;
+  limit?: number;
 }): TermPageData | null {
-  const subtree = subtreeSlugs(tree, slug);
+  const keysOf = (slugs: string[]) => [
+    ...new Set(slugs.flatMap((term) => termKeys(tree, term))),
+  ];
   const recipesOf = (slugs: string[]) =>
-    mergeTermRows(slugs.map((s) => recipeRows(s)?.items));
+    mergeTermRows(keysOf(slugs).map((key) => recipeRows(key)?.items));
   const groupsOf = (slugs: string[]) =>
-    mergeTermRows(slugs.map((s) => groupRows(s)?.items));
+    mergeTermRows(keysOf(slugs).map((key) => groupRows(key)?.items));
+  const subtree = subtreeSlugs(tree, slug);
   const recipes = recipesOf(subtree);
   const groups = groupsOf(subtree);
 
   if (!record && recipes.length === 0 && groups.length === 0) return null;
+
+  /*
+   * The curated front (D5 option 2): pinned recipes first in the record's
+   * order, then the rest newest-first — and groups after both, as their own
+   * section, because a recipe card and a group card are different cards.
+   * Every pin is kept even past the cap; the newest fill the rest.
+   */
+  const listed = new Set(recipes.map((recipe) => recipe.slug));
+  const pinnedCount = new Set(
+    (record?.pinned ?? []).filter((pin) => listed.has(pin)),
+  ).size;
+  const shown = applyPinned(recipes, record?.pinned).slice(
+    0,
+    Math.max(limit, pinnedCount),
+  );
 
   const labelOf = (term: string) =>
     tree?.[term]?.label ??
@@ -292,13 +365,9 @@ export function termPageData({
         count: recipesOf(under).length + groupsOf(under).length,
       };
     }),
-    /*
-     * The curated front (D5 option 2). Pinned recipes first in the record's
-     * order, then the rest newest-first — and groups after both, as their own
-     * section, because a recipe card and a group card are different cards.
-     */
-    recipes: applyPinned(recipes, record?.pinned),
-    ownRecipeCount: recipeRows(slug)?.items.length ?? 0,
+    recipes: shown,
+    recipeCount: recipes.length,
+    ownRecipeCount: recipesOf([slug]).length,
     groups,
   };
 }

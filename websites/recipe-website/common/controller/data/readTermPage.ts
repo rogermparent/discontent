@@ -5,7 +5,7 @@ import {
   aliasSlugs,
   aliasTarget,
   mergeTagVocabulary,
-  subtreeSlugs,
+  subtreeKeys,
   tagOptions,
   termHierarchy,
   termPageData,
@@ -21,7 +21,8 @@ import {
  * Every rule these functions apply lives in `tagVocabulary.ts`, which is
  * pure. What is here is which values to ask for and how many times: for a
  * term page, the tree, its record, and two by-term rows per term of its
- * subtree (34a — a leaf's page is four reads); three for the index; all of
+ * subtree and per alias (34a — a leaf's page is four reads); three for the
+ * index; all of
  * them tagged, so a term page costs a handful of cache lookups rather than a
  * corpus scan and the export builds every one of them from cached reads.
  *
@@ -151,10 +152,12 @@ export async function readSearchTerms(): Promise<SearchTerm[]> {
  *
  * **The subtree's rows, one term at a time** (34a, D1/D2). A term page lists
  * the recipes of the term and every descendant — what `tag:<term>` finds
- * since 24d — so it reads `byTerm.readKey(s)` for each slug `s` of
- * `subtreeSlugs(tree, slug)`, recipes and groups. Each read is cached under
- * that term's own tag (32e), so a write that moves a term's rows expires the
- * pages of that term and its ancestors, and no other.
+ * since 24d — so it reads `byTerm.readKey(k)` for each key `k` of
+ * `subtreeKeys(tree, slug)` (every subtree slug and each one's alias slugs,
+ * as `tag:` expands them), recipes and groups. Each read is cached under
+ * that key's own tag (32e), so a write that moves a term's rows expires the
+ * pages of that term and its ancestors, and no other — and a key nothing
+ * carries yet is still read, so its first carrier expires the page too.
  *
  * **No term clouds.** Until 34a the breadcrumb and child counts came from the
  * two whole `terms` clouds, so any carrier change anywhere expired every term
@@ -170,20 +173,20 @@ export async function resolveTermPage(
     tagTermReads.tree.read(),
     tagTermReads.items.read(slug),
   ]);
-  const subtree = subtreeSlugs(tree, slug);
+  const keys = subtreeKeys(tree, slug);
   const [recipeRows, groupRows] = await Promise.all([
-    Promise.all(subtree.map((s) => recipeTagReads.byTerm.readKey(s))),
-    Promise.all(subtree.map((s) => groupTagReads.byTerm.readKey(s))),
+    Promise.all(keys.map((key) => recipeTagReads.byTerm.readKey(key))),
+    Promise.all(keys.map((key) => groupTagReads.byTerm.readKey(key))),
   ]);
-  const recipesBySlug = new Map(subtree.map((s, i) => [s, recipeRows[i]]));
-  const groupsBySlug = new Map(subtree.map((s, i) => [s, groupRows[i]]));
+  const recipesByKey = new Map(keys.map((key, i) => [key, recipeRows[i]]));
+  const groupsByKey = new Map(keys.map((key, i) => [key, groupRows[i]]));
 
   return termPageData({
     slug,
     tree,
     record,
-    recipeRows: (s) => recipesBySlug.get(s),
-    groupRows: (s) => groupsBySlug.get(s),
+    recipeRows: (key) => recipesByKey.get(key),
+    groupRows: (key) => groupsByKey.get(key),
   });
 }
 
