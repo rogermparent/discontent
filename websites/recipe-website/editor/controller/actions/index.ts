@@ -1,5 +1,6 @@
 "use server";
 
+import { lockedRebuild } from "../lockedRebuild";
 import { isMirror, mirrorRefusal } from "recipe-website-common/config/role";
 import { normalizeRecipeText } from "recipe-website-common/util/recipeText";
 import { auth } from "@/auth";
@@ -338,10 +339,14 @@ const remoteSchema = z.object({
 
 export async function rebuildRecipeIndex() {
   const contentDirectory = getContentDirectory();
-  await rebuildIndex({
-    config: recipeContentConfig,
-    contentDirectory,
-  });
+  /* Under the write lock (34d): see `lockedRebuild`. Busy: nothing moved. */
+  const rebuilt = await lockedRebuild(contentDirectory, "rebuild recipes", () =>
+    rebuildIndex({
+      config: recipeContentConfig,
+      contentDirectory,
+    }),
+  );
+  if (!rebuilt) return;
   /*
    * A P3 gap, found while giving featured recipes the same seat: this fired
    * only `revalidatePath("/")` and no tags at all, so a rebuild reprojected

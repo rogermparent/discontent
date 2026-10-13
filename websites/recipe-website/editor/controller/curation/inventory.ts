@@ -23,7 +23,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { writeFileAtomic } from "@discontent/cms/fs/atomicWrite";
-import { commitContentChanges } from "@discontent/cms/git/commit";
+import {
+  assertNoMergeInProgress,
+  commitContentChanges,
+} from "@discontent/cms/git/commit";
 import { withWriteLock } from "@discontent/cms/git/writeLock";
 import { readContentIndex } from "@discontent/cms/content/readContentIndex";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
@@ -157,6 +160,11 @@ async function patchInventoryLocked(
   ctx: CurationContext,
   input: ReturnType<typeof InventoryPatchSchema.parse>,
 ): Promise<InventoryWriteResult> {
+  /*
+   * Mid-merge, every engine commit refuses (`dirty_tree`); refuse before the
+   * file is written, not after, so a refusal leaves nothing behind.
+   */
+  await assertNoMergeInProgress(ctx.contentDirectory);
   const { items: current, path: file } = await readInventory(ctx);
 
   const removeKeys = new Set((input.remove ?? []).map(inventoryKey));
@@ -217,6 +225,11 @@ async function setInventoryLocked(
   ctx: CurationContext,
   input: ReturnType<typeof InventorySetSchema.parse>,
 ): Promise<InventoryWriteResult> {
+  /*
+   * Mid-merge, every engine commit refuses (`dirty_tree`); refuse before the
+   * file is written, not after, so a refusal leaves nothing behind.
+   */
+  await assertNoMergeInProgress(ctx.contentDirectory);
   const { items: current, path: file } = await readInventory(ctx);
   const items = sorted(dedupeItems(input.items));
   const nextKeys = new Set(items.map(inventoryKey));

@@ -37,7 +37,7 @@
  * cannot be imported here and the D8 boundary test enforces that.
  */
 import path from "path";
-import { access, stat } from "fs-extra";
+import { access, copyFile, rm, stat } from "fs-extra";
 import simpleGit, {
   type DefaultLogFields,
   type SimpleGit,
@@ -56,6 +56,7 @@ import {
   readPendingIndex,
 } from "@discontent/cms/git/commit";
 import { withWriteLock } from "@discontent/cms/git/writeLock";
+import { ulid } from "@discontent/cms/util/ulid";
 import {
   readIndexFreshness,
   type IndexFreshness,
@@ -386,41 +387,50 @@ async function fetchRemote(
 }
 
 /**
- * Which `git status` paths are pending re-stages and nothing more (34d): under
- * a pending path (a file or a directory the commit named) and, in the work
- * tree, the same as HEAD. A pending path someone has edited since is real
- * uncommitted work, and stays counted.
+ * `git status` as it will read once the pending re-stages are applied (34d):
+ * the shared index copied to a private file, `reset -- <pending>` there (what
+ * the flush does), and `status` with that index. A committed create no longer
+ * shows as a staged delete plus an untracked file, and a pending path someone
+ * has edited since, or an untracked file beside it, is still counted — it is
+ * real work. The copy is named like the engine's private indexes, so a crash
+ * leaves nothing the next write lock does not sweep. `null` when it cannot be
+ * computed; the caller falls back to the plain status.
  */
-async function settledPendingPaths(
-  git: SimpleGit,
+async function statusAsIfFlushed(
+  contentDirectory: string,
   pending: string[],
-): Promise<(target: string) => boolean> {
-  if (pending.length === 0) return () => false;
-  let listed: string;
+): Promise<StatusResult | null> {
+  if (pending.length === 0) return null;
+  const git = getGit(contentDirectory);
+  let copy: string | undefined;
   try {
-    listed = String(
-      await git.raw([
-        "diff",
-        "--name-only",
-        "--no-renames",
-        "HEAD",
-        "--",
-        ...pending.map((entry) => `:(literal)${entry}`),
-      ]),
-    );
+    const raw = String(
+      await git.raw(["rev-parse", "--git-path", "index"]),
+    ).trim();
+    const shared = path.isAbsolute(raw)
+      ? raw
+      : path.join(contentDirectory, raw);
+    copy = path.join(path.dirname(shared), `discontent-index-${ulid()}`);
+    await copyFile(shared, copy);
+    const flushed = simpleGit({ baseDir: contentDirectory }).env({
+      ...process.env,
+      GIT_INDEX_FILE: copy,
+    });
+    await flushed.raw([
+      "reset",
+      "-q",
+      "--",
+      ...pending.map((entry) => `:(literal)${entry}`),
+    ]);
+    return await flushed.status();
   } catch {
-    /* Unsure (an unborn branch, say): count everything, as before 34d. */
-    return () => false;
+    return null;
+  } finally {
+    if (copy) {
+      await rm(copy, { force: true });
+      await rm(`${copy}.lock`, { force: true });
+    }
   }
-  const changed = new Set(
-    listed
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean),
-  );
-  return (target) =>
-    !changed.has(target) &&
-    pending.some((entry) => target === entry || target.startsWith(`${entry}/`));
 }
 
 /** When the last fetch ran: `FETCH_HEAD`'s mtime, or undefined if never. */
@@ -640,20 +650,20 @@ export async function gitStatus(
 
   /*
    * Committed paths the shared index has not caught up with (34d) show in
-   * `git status` as changed. They are not uncommitted work, so while the
-   * files still match HEAD they are left out of the dirty count — otherwise
-   * /git would offer "Commit working changes" for a write that already landed.
+   * `git status` as changed — a committed create even as a staged delete
+   * plus an untracked file. They are not uncommitted work, so the dirty count
+   * reads the status as it will be once they are re-staged — otherwise /git
+   * would offer "Commit working changes" for a write that already landed.
    */
   const pendingIndex = await readPendingIndex(contentDirectory);
-  const settled = await settledPendingPaths(git, pendingIndex);
-  const counts = (paths: string[]) =>
-    paths.filter((target) => !settled(target)).length;
+  const work =
+    (await statusAsIfFlushed(contentDirectory, pendingIndex)) ?? status;
   const dirtyCount =
-    counts(status.created) +
-    counts(status.deleted) +
-    counts(status.modified) +
-    counts(status.not_added) +
-    counts(status.renamed.map((entry) => entry.to));
+    work.created.length +
+    work.deleted.length +
+    work.modified.length +
+    work.not_added.length +
+    work.renamed.length;
 
   const freshness = await readIndexFreshness(contentDirectory);
   const fetchedAt = await fetchedAtOf(contentDirectory);
@@ -1224,6 +1234,11 @@ export interface GitPullOptions {
    * lock for tens of seconds.
    */
   lockTimeoutMs?: number;
+  /**
+   * The caller fetched the remote already (`gitSync`): skip the locked
+   * pre-check and the fetch, so the call waits for the lock once.
+   */
+  fetched?: boolean;
 }
 
 /**
@@ -1250,23 +1265,29 @@ export interface GitPullOptions {
  * them, or between the merge and the rebuild. The fetch is network and stays
  * outside: a quick locked pre-check refuses a dirty tree or a mirror's own
  * commits before anything goes over the wire, then the fetch runs unlocked,
- * then the check is made again, under the lock, for real.
+ * then the check is made again, under the lock, for real — and the branch
+ * and its upstream are compared with the ones the merge source was derived
+ * from, so a checkout during the fetch is refused rather than merged into.
+ * `fetched` (the sync, which fetched already) skips the pre-check and the
+ * fetch: one locked wait.
  */
 export async function gitPull(
   ctx: CurationContext,
-  { remote, lockTimeoutMs }: GitPullOptions = {},
+  { remote, lockTimeoutMs, fetched = false }: GitPullOptions = {},
 ): Promise<PullResult> {
   const safeRemote =
     remote === undefined ? undefined : assertArgument(remote, "remote");
   const git = await requireRepo(ctx);
   const lockOptions =
     lockTimeoutMs === undefined ? {} : { timeoutMs: lockTimeoutMs };
-  const status = await withWriteLock(
-    ctx.contentDirectory,
-    "git pull (check)",
-    () => preflightPull(ctx, git),
-    lockOptions,
-  );
+  const status = fetched
+    ? await git.status()
+    : await withWriteLock(
+        ctx.contentDirectory,
+        "git pull (check)",
+        () => preflightPull(ctx, git),
+        lockOptions,
+      );
   const trackingRemote = status.tracking?.split("/")[0];
 
   let from: string;
@@ -1284,13 +1305,21 @@ export async function gitPull(
     );
   }
   /* Network: never under the write lock (34c Traps, "nothing slow inside"). */
-  await fetchRemote(git, from.split("/")[0]);
+  if (!fetched) await fetchRemote(git, from.split("/")[0]);
 
   return withWriteLock(
     ctx.contentDirectory,
     `git pull ${from}`,
     async () => {
-      await preflightPull(ctx, git);
+      const now = await preflightPull(ctx, git);
+      if (
+        now.current !== status.current ||
+        (now.tracking ?? null) !== (status.tracking ?? null)
+      ) {
+        throw new GitConflictError(
+          `The branch changed while ${from} was being fetched (${status.current ?? "detached"} → ${now.current ?? "detached"}), so nothing was merged. Pull again.`,
+        );
+      }
       return mergeLocked(ctx, git, from);
     },
     lockOptions,
@@ -1363,7 +1392,9 @@ async function mergeLocked(
   try {
     await git
       .env({ ...process.env, ...authorEnv(ctx) })
-      .raw(["merge", "--no-edit", from]);
+      /* A mirror only ever fast-forwards (epic 28, D1), whatever the
+       * pre-check saw. */
+      .raw(["merge", "--no-edit", ...(isMirror() ? ["--ff-only"] : []), from]);
   } catch (error) {
     failure = error;
   }

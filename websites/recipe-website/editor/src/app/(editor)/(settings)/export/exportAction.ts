@@ -4,6 +4,7 @@ import { commandAction } from "@/app/(recipes)/scriptAction";
 import { readSettings } from "@/settings";
 import { rebuildAllIndexes } from "recipe-editor/controller/actions";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
+import { RepositoryBusyError } from "@discontent/cms/git/writeLock";
 import { ensureSymlink } from "fs-extra";
 import { resolve } from "path";
 import { exportUnavailableReason, getExportDirectory } from "./availability";
@@ -31,7 +32,13 @@ export async function buildExport() {
    * same position and had been since they landed; nothing noticed because
    * pages declare no index to be empty.
    */
-  await rebuildAllIndexes();
+  try {
+    await rebuildAllIndexes();
+  } catch (error) {
+    /* Another write held the lock past the wait (34d): say so, don't crash. */
+    if (error instanceof RepositoryBusyError) return error.message;
+    throw error;
+  }
 
   await ensureSymlink(
     resolve(contentDirectory, "transformed-images"),

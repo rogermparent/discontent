@@ -22,6 +22,7 @@ import {
   mkdtemp,
   outputFile,
   pathExists,
+  readdir,
   readFile,
   rm,
   writeFile,
@@ -40,6 +41,7 @@ import {
 } from "@discontent/cms/git/commit";
 import {
   RepositoryBusyError,
+  readWriteLock,
   withWriteLock,
 } from "@discontent/cms/git/writeLock";
 import { ulidTime } from "@discontent/cms/util/ulid";
@@ -77,6 +79,8 @@ import { createHttpBackend } from "../websites/recipe-website/editor/cli/backend
 import { createLocalBackend } from "../websites/recipe-website/editor/cli/backend/local";
 import { createRecipeServer } from "../websites/recipe-website/editor/mcp/registry";
 import createDefaultGroupSlug from "../websites/recipe-website/common/controller/createGroupSlug";
+import { withRepoLock } from "../websites/recipe-website/editor/controller/instance/lock";
+import { lockedRebuild } from "../websites/recipe-website/editor/controller/lockedRebuild";
 
 const EDITOR_DIR = resolve(__dirname, "../websites/recipe-website/editor");
 const WRITER = resolve(__dirname, "support/lockedWriter.ts");
@@ -462,7 +466,7 @@ describe("busy", () => {
   );
 
   it(
-    "stops a sync's merge as an error outcome, with nothing merged",
+    "stops a sync's merge as a busy outcome, with nothing merged",
     async () => {
       const remote = await scratchDir("site-writes-mirror-");
       await simpleGit().raw(["init", "--bare", remote]);
@@ -489,8 +493,10 @@ describe("busy", () => {
       } finally {
         await holder.release();
       }
-      expect(result.outcome).toBe("error");
+      expect(result.outcome).toBe("busy");
       expect(result.message).toMatch(/Nothing was merged: .*busy/);
+      /* Not a failure: no tally, so no desktop notification. */
+      expect(result.state.consecutiveFailures).toBe(0);
       expect(result.steps.find((step) => step.step === "merge")).toMatchObject({
         status: "failed",
       });
@@ -504,6 +510,127 @@ describe("busy", () => {
     },
     TIMEOUT,
   );
+
+  it(
+    "answers the local backend's git sync busy while another sync holds the repo lock",
+    async () => {
+      await closeCachedEnvironments();
+      const remote = await scratchDir("site-writes-repo-lock-");
+      await simpleGit().raw(["init", "--bare", remote]);
+      await git.addRemote("uraninite", remote);
+      await gitPush(ctx, { remote: "uraninite", setUpstream: true });
+      const backend = createLocalBackend({ contentDirectory });
+      let release!: () => void;
+      const released = new Promise<void>((done) => (release = done));
+      let held!: () => void;
+      const isHeld = new Promise<void>((done) => (held = done));
+      const other = withRepoLock(contentDirectory, async () => {
+        held();
+        await released;
+      });
+      await isHeld;
+      try {
+        const error = await backend.gitSync({}).then(
+          () => null,
+          (caught: unknown) => caught,
+        );
+        expect(error).toMatchObject({ code: "busy" });
+        expect(exitCodeFor(error)).toBe(75);
+      } finally {
+        release();
+        await other;
+      }
+      /* Free again: it syncs. */
+      expect((await backend.gitSync({})).outcome).toBe("nothing");
+      await backend.close();
+    },
+    TIMEOUT,
+  );
+});
+
+describe("pull keeps what phase 1 derived", () => {
+  it(
+    "refuses to merge when the branch changed while it waited",
+    async () => {
+      const remote = await scratchDir("site-writes-branch-");
+      await simpleGit().raw(["init", "--bare", remote]);
+      await git.addRemote("uraninite", remote);
+      await reindex(ctx);
+      await gitPush(ctx, { remote: "uraninite", setUpstream: true });
+      const clone = await scratchDir("site-writes-branch-clone-");
+      await simpleGit().clone(remote, clone);
+      const pi = simpleGit({ baseDir: clone });
+      await pi.addConfig("user.email", "pi@uraninite.test");
+      await pi.addConfig("user.name", "Pi Editor");
+      await pi.addConfig("commit.gpgsign", "false");
+      await outputFile(join(clone, "notes/pi.txt"), "pi\n");
+      await pi.add(".");
+      await pi.commit("Pi note");
+      await pi.push();
+      await git.fetch("uraninite");
+      const before = (await git.revparse(["HEAD"])).trim();
+
+      const holder = holdLock(contentDirectory);
+      await holder.held;
+      /* `fetched`: phase 1 reads the branch unlocked, then waits for the lock. */
+      const pulling = gitPull(ctx, { fetched: true }).then(
+        () => null,
+        (caught: unknown) => caught,
+      );
+      await sleep(300);
+      await git.checkoutLocalBranch("elsewhere");
+      await holder.release();
+      const error = await pulling;
+      expect(error).toMatchObject({ code: "git_conflict" });
+      expect((error as Error).message).toMatch(/branch changed/);
+      expect((await git.revparse(["HEAD"])).trim()).toBe(before);
+      expect(await pathExists(join(contentDirectory, "notes/pi.txt"))).toBe(
+        false,
+      );
+    },
+    TIMEOUT,
+  );
+});
+
+describe("more seats lock", () => {
+  it("refuses an inventory write mid-merge before writing anything", async () => {
+    const head = (await git.revparse(["HEAD"])).trim();
+    await writeFile(join(contentDirectory, ".git", "MERGE_HEAD"), `${head}\n`);
+    const error = await patchInventory(ctx, { add: ["Gnista"] }).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    expect(toErrorObject(error).error.code).toBe("dirty_tree");
+    expect(
+      await pathExists(join(contentDirectory, "inventory/on-hand.json")),
+    ).toBe(false);
+    expect((await git.raw(["status", "--porcelain"])).trim()).toBe("");
+  });
+
+  it("runs a per-type rebuild under the write lock, and answers false when busy", async () => {
+    let holder: unknown;
+    expect(
+      await lockedRebuild(contentDirectory, "rebuild test", async () => {
+        holder = await readWriteLock(contentDirectory);
+      }),
+    ).toBe(true);
+    expect(holder).toMatchObject({ op: "rebuild test", pid: process.pid });
+
+    process.env.DISCONTENT_WRITE_LOCK_TIMEOUT_MS = "200";
+    const held = holdLock(contentDirectory);
+    await held.held;
+    let ran = false;
+    try {
+      expect(
+        await lockedRebuild(contentDirectory, "rebuild test", async () => {
+          ran = true;
+        }),
+      ).toBe(false);
+    } finally {
+      await held.release();
+    }
+    expect(ran).toBe(false);
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -596,5 +723,45 @@ describe("git_status and pending index refreshes", () => {
     expect((await gitStatus(ctx)).pendingIndex).toEqual([]);
     expect((await git.status()).isClean()).toBe(true);
     expect(await flushPendingIndex(contentDirectory)).toBe(true);
+  });
+
+  it("does not count a pending create, but counts an untracked file beside it", async () => {
+    process.env.DISCONTENT_INDEX_REFRESH_MS = "100";
+    process.env.DISCONTENT_INDEX_FLUSH_RETRY_MS = "600000";
+    const lock = join(contentDirectory, ".git", "index.lock");
+    await writeFile(lock, "");
+    try {
+      await createRecipe(ctx, { name: "Naan" });
+      const path = "recipes/data/naan/recipe.json";
+      expect(await readPendingIndex(contentDirectory)).toEqual([path]);
+      /* The shared index says: a staged delete and an untracked directory. */
+      expect(await git.raw(["status", "--porcelain"])).toMatch(
+        /^D {2}recipes/m,
+      );
+
+      const status = await gitStatus(ctx);
+      expect(status.pendingIndex).toEqual([path]);
+      expect(status.dirty).toBe(false);
+      expect(status.dirtyCount).toBe(0);
+
+      await writeFile(
+        join(contentDirectory, "recipes/data/naan/notes.txt"),
+        "mine\n",
+      );
+      const beside = await gitStatus(ctx);
+      expect(beside.dirty).toBe(true);
+      expect(beside.dirtyCount).toBe(1);
+      await rm(join(contentDirectory, "recipes/data/naan/notes.txt"));
+
+      /* The as-if-flushed index is a private copy, removed afterwards. */
+      const leftovers = (await readdir(join(contentDirectory, ".git"))).filter(
+        (name) => /^discontent-index-[0-9A-Z]{26}/.test(name),
+      );
+      expect(leftovers).toEqual([]);
+    } finally {
+      await rm(lock, { force: true });
+    }
+    expect(await flushPendingIndex(contentDirectory)).toBe(true);
+    expect((await git.status()).isClean()).toBe(true);
   });
 });

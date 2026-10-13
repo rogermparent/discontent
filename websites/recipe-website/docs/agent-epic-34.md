@@ -493,25 +493,41 @@ beverage` on a scratch clone (209 recipes, 275 files, one commit) took
   lock (`instance/lock.ts`) for fetch, media and push, and the write lock only
   inside `gitPull` (clean check, merge, abort/reset, rebuild). Lock order is
   repo lock → write lock; a write never takes the repo lock, so a sync waiting
-  on a batch cannot deadlock it. The sync waits up to 60 s
-  (`SYNC_LOCK_TIMEOUT_MS`), then answers `error` with nothing merged; the
-  holder's own commit moves HEAD and triggers the next sync.
-- **`gitPull` takes the lock twice.** A short locked pre-check (dirty tree, a
-  mirror's own commits) refuses before anything goes over the wire, the fetch
-  runs unlocked, then the authoritative check, merge and rebuild run under
-  the lock. A write landing between the two is fine: the second check sees
-  it committed. A clean-tree check outside the lock would be wrong the other
-  way — an engine write mid-flight (files written, commit pending) reads as
-  dirty.
+  on a batch cannot deadlock it. The sync's merge reuses its own fetch
+  (`gitPull`'s `fetched`), so it waits for the lock **once**, up to 60 s
+  (`SYNC_LOCK_TIMEOUT_MS`) — inside the 120 s a mirror's ping waits. Past
+  that the outcome is `busy` (review round: it was `error`, which counted
+  toward the failure tally and its desktop notification for a benign wait):
+  not a failure, nothing merged, and `syncMirror` asks the runner again
+  after 15 s (`BUSY_RETRY_MS`, at most 5 in a row), because a holder that
+  moves no HEAD — a rebuild — would otherwise leave the mirror's commits
+  waiting for an unrelated trigger.
+- **`gitPull` takes the lock twice** (once from the sync). A short locked
+  pre-check (dirty tree, a mirror's own commits) refuses before anything goes
+  over the wire, the fetch runs unlocked, then the authoritative check, merge
+  and rebuild run under the lock. A write landing between the two is fine:
+  the second check sees it committed. A clean-tree check outside the lock
+  would be wrong the other way — an engine write mid-flight (files written,
+  commit pending) reads as dirty. **The merge source is derived in phase 1**,
+  so phase 2 compares the branch and its upstream with phase 1's and answers
+  `git_conflict` ("the branch changed while … was being fetched") rather than
+  merging into a branch checked out meanwhile; the sync makes the same check
+  before it pushes `branch`. On a mirror the merge is `--ff-only` whatever
+  the pre-check saw.
 - **A hand-staged file blocks every merge.** `requireCleanTree` refuses any
   staged or unstaged change, so with a scratch file staged the sync answers
   `blocked` as soon as the mirror has commits. That is the design (a merge
   must not fold someone's half-done work in); the stress run kept the remote
   passive while the scratch file was staged, then unstaged it for phase 2.
 - **The /git page's pull is two halves now.** `git pull --no-rebase` became
-  `fetch` (unlocked) then `merge --no-edit @{upstream}` (or `FETCH_HEAD` for a
-  named remote without an upstream) under the lock, with the rebuild in the
-  same scope. A conflict is still left for the page's resolver: the lock is
+  `fetch` (unlocked) then a merge under the lock, with the rebuild in the same
+  scope. What it merges is **pinned right after the fetch** — the sha of
+  `@{upstream}`, or of `FETCH_HEAD` for a named remote without one — because
+  another caller's fetch while this one waits for the lock rewrites
+  `FETCH_HEAD`; the message names the ref as `git pull` would ("Merge
+  remote-tracking branch '…'"), the branch is re-checked under the lock, and
+  a mirror merges `--ff-only` (epic 28 D1) rather than trusting the action's
+  unlocked `ahead` check. A conflict is still left for the page's resolver: the lock is
   released with `MERGE_HEAD` present, and every engine write refuses
   (`dirty_tree`) until it is committed or aborted — both of which lock.
 - **Retry is the caller's.** The CLI and MCP do not retry `busy` themselves:
@@ -519,9 +535,15 @@ beverage` on a scratch clone (209 recipes, 275 files, one commit) took
   15 s polite rule, a seat with two unbatched writes would repeat the first),
   and the message names the holder, which a person or the skill can judge.
   The skill waits 10–30 s and retries once; a script tests exit 75.
-- **A pending refresh is not dirty.** `gitStatus` leaves pending paths out of
-  `dirty`/`dirtyCount` only while the file still matches HEAD (`git diff
-HEAD`); an edit since counts. `requireCleanTree` flushes them first (2 s on
+- **A pending refresh is not dirty — and a pending create is the hard
+  case.** The shared index is behind HEAD, so a committed _create_ shows as
+  a staged delete plus an untracked file (`D recipes/…` and `?? recipes/`),
+  and a first cut that filtered `git status` paths through `git diff HEAD`
+  still counted it twice (review round). `gitStatus` now counts from the
+  status **as it will be once flushed**: the shared index copied to a
+  private `discontent-index-<ULID>` (swept like the engine's if a crash
+  leaves it), `reset -- <pending>` there, and `status` with that index. An
+  edit since, or an untracked file beside a pending path, still counts. `requireCleanTree` flushes them first (2 s on
   `index.lock`); when `index.lock` is still held it answers `dirty_tree`
   ("N committed paths are waiting to be re-staged … retry shortly").
 - **A ULID can't be a placeholder.** Server and browser would each make one
@@ -535,12 +557,23 @@ HEAD`); an edit since counts. `requireCleanTree` flushes them first (2 s on
   files a write is making, and it can take minutes for a large video, which
   would hold every writer off — so it runs outside the write lock; its
   `index.lock` use is what 34c's pending refresh absorbs.
-- **The CLI's `git sync` takes no repo lock.** Only `syncMirror` (the
-  instance's runner and `/api/git/sync`) does, although `instance/lock.ts`
-  says the CLI is covered. Two syncs at once now serialise their merges on
-  the write lock; their pushes can still race, which is the existing `raced`
-  outcome (seen once in phase 2, and the next sync caught up). Backlog: take
-  `withRepoLock` in the local backend's `gitSync`.
+- **The CLI's `git sync` took no repo lock** (found in the stress run; only
+  `syncMirror` did, although `instance/lock.ts` said the CLI was covered).
+  Fixed in the review round: the local backend's `gitSync` (CLI and stdio
+  MCP) takes `withRepoLock`, which does not wait — another sync running is
+  `busy` (exit 75). The stress run's `raced` (phase 2) was a CLI sync beside
+  the instance's; with the lock one of them is `busy` instead.
+- **Per-type rebuilds lock in the site, not the engine.** Settings →
+  Maintenance's four buttons call `rebuildIndex` directly; it collects the
+  data files, then replaces the index, so a concurrent write's entry could
+  vanish. They go through `controller/lockedRebuild.ts` (the write lock; on
+  `busy` they log and leave the page as it was). Locking inside the engine's
+  `rebuildIndex` would also cover build-time callers (fixture indexes, the
+  Pi deploy's index build) and change a pinned engine module, so it stays a
+  site wrapper.
+- **Inventory refuses mid-merge before writing.** The engine refuses a
+  commit mid-merge, but the inventory seat writes its file first, so it
+  checks `assertNoMergeInProgress` at the top of its locked scope.
 
 ### 34f
 
@@ -896,9 +929,16 @@ heartbeatMs})`. Also exported: `currentWriteId`, `readWriteLock`,
     index — a merge commit needs `MERGE_HEAD`), `abortMerge` and "Commit
     working changes", each with its rebuild; `actions/index.ts`: branch
     checkout with its rebuild, and `checkout -b`.
-  - The sync: only the merge (`gitPull` inside `gitSync`), waiting up to
-    `SYNC_LOCK_TIMEOUT_MS` = 60 s; a `busy` there is the outcome `error`,
-    nothing merged.
+  - Settings → Maintenance's per-type rebuild buttons (recipes, groups,
+    featured, term records) through `controller/lockedRebuild.ts` (review
+    round), and the export's `rebuildAllIndexes`, which answers a `busy`
+    as the export's message.
+  - The sync: only the merge (`gitPull` inside `gitSync`, reusing the sync's
+    fetch, so one wait of up to `SYNC_LOCK_TIMEOUT_MS` = 60 s); past it the
+    outcome is `busy` (a new `SyncOutcome`, not a failure), nothing merged,
+    and `syncMirror` schedules a retry in 15 s (at most 5 in a row). The
+    CLI's and stdio MCP's `git sync` now take the sync repo lock too
+    (`busy` when another sync runs).
   - Not locked, on purpose: fetches and pushes, imports and image downloads
     (the seats fetch before they write), `annex merge`/`copy`, and
     `smudge --update` (Traps). Seats that write through the engine
@@ -931,9 +971,11 @@ heartbeatMs})`. Also exported: `currentWriteId`, `readWriteLock`,
   `gitStatus`, so in `git_status`, `/api/git/status` and `recipes git status`
   ("N committed paths waiting to be re-staged …"); the /git page shows "N
   paths waiting to be re-staged — they're committed; the index catches up
-  automatically" (`git-pending-index`). Pending paths whose files still match
-  HEAD are left out of `dirty`, so the page no longer offers "Commit working
-  changes" for a write that already landed.
+  automatically" (`git-pending-index`). `dirty`/`dirtyCount` are counted
+  from the status as it will read once the pending paths are re-staged (a
+  private copy of the index, reset there — Traps), so a committed create or
+  update is not dirty, and the page no longer offers "Commit working changes"
+  for a write that already landed.
 - **ULID slugs (D9).** `createFeaturedRecipeSlug` → `ulid(date).toLowerCase()`
   (out-of-range dates fall back to now); `createGroupSlug`'s fallback →
   `group-<ulid>`, with `groupSlugFromName` as the deterministic half. The
@@ -942,7 +984,7 @@ heartbeatMs})`. Also exported: `currentWriteId`, `readWriteLock`,
   no longer ask for explicit slugs. No index layout change: the key is still
   `[date, slug]`. Nothing parsed the old default format; the explicit slugs
   in Playwright fixtures and `reference-updates.spec.ts` stay.
-- **Tests.** `test/siteWrites.test.ts` (10): a second `tsx` process holds the
+- **Tests.** `test/siteWrites.test.ts` (15): a second `tsx` process holds the
   lock, writes a file after 300 ms and commits it 700 ms later — `gitRestore`
   and `gitPull` wait (≥ 0.9 s), the file is on disk and in HEAD before their
   own commit, the tree is clean; `busy` from a seat (`createRecipe`,
@@ -953,11 +995,21 @@ heartbeatMs})`. Also exported: `currentWriteId`, `readWriteLock`,
   `synced` once released; two slug-less features with one `date` → two ULID
   slugs whose time is that date; `group-<ulid>`; `git_status` with a pending
   refresh (named, not dirty; dirty again once edited; a restore refuses while
-  `index.lock` is held and flushes after). `test/curation.test.ts`'s D8
-  boundary admits `git/writeLock` and `fs/atomicWrite`.
+  `index.lock` is held and flushes after). Review round, +5: a pending
+  _create_ is not dirty while an untracked file beside it is, and no private
+  index is left; `gitSync` busy → outcome `busy`, tally 0; the local
+  backend's `git sync` → `busy` / exit 75 while another sync holds the repo
+  lock, then `nothing`; a pull whose branch is checked out while it waits
+  for the lock → `git_conflict`, nothing merged; an inventory write mid-merge
+  → `dirty_tree` with no file written; `lockedRebuild` runs under the lock
+  and answers `false` on `busy`. `test/curation.test.ts`'s D8 boundary
+  admits `git/writeLock`, `fs/atomicWrite` and `util/ulid`.
 - **Verification.** Editor typecheck and export `tsc` clean; vitest **65
   files / 1336 tests**; recipe Playwright in build mode (`git`, `sync`,
-  `featured`, `api-write`, `groups`, `term`): **145 passed**.
+  `featured`, `api-write`, `groups`, `term`): **145 passed**. After the
+  review round: vitest **65 files / 1341 tests**; Playwright build mode with
+  `mirror` added to the pattern: **154 passed**. The stress run below was
+  made before the review round (its CLI syncs ran without the repo lock).
 - **Scratch-clone stress run** (content repo at `35e0d1d`, cloned under the
   job's tmp dir, with a local bare remote as `origin`; both annex-initialised,
   `annex.largefiles=largerthan=500kb` in the clone; reindexed). A

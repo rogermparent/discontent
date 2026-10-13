@@ -22,9 +22,10 @@
  *    Fetch, media and push are network and run under the sync's repo lock
  *    alone (`instance/lock.ts`), so writes keep landing meanwhile. Lock order
  *    is always the repo lock, then the write lock; a write never takes the
- *    repo lock, so the two cannot deadlock. A write that holds the lock past
- *    `SYNC_LOCK_TIMEOUT_MS` → `error`, nothing merged; its commit triggers
- *    the next sync.
+ *    repo lock, so the two cannot deadlock. The merge reuses this fetch
+ *    (`gitPull`'s `fetched`), so it waits for the lock once. A write that
+ *    holds the lock past `SYNC_LOCK_TIMEOUT_MS` → `busy`, nothing merged; the
+ *    workstation's runner retries (`instance/start.ts`).
  * 4. `media` — git-annex content both ways and the `git-annex` branch
  *    (`annex.ts`, 28e), once both sides are annexed; `skipped` before.
  *    A failure here does not stop the push — the commits still go, the
@@ -289,9 +290,11 @@ export async function gitSync(
   const behind = await count(git, `HEAD..${remoteBranch}`).catch(() => 0);
   if (behind > 0) {
     try {
+      /* Fetched above: one locked wait, no second fetch (`fetched`). */
       const result = await gitPull(ctx, {
         remote: target,
         lockTimeoutMs: lockTimeoutMs ?? SYNC_LOCK_TIMEOUT_MS,
+        fetched: true,
       });
       pulled = result.newCommits;
       steps.push({
@@ -316,12 +319,12 @@ export async function gitSync(
       }
       /*
        * A write held the lock past the sync's wait (34d): nothing was merged
-       * and nothing is wrong. That write's commit moves HEAD, which triggers
-       * the next sync; until then the outcome says why this one stopped.
+       * and nothing is wrong, so `busy`, not a failure (no tally, no desktop
+       * notification). The workstation's runner schedules a retry.
        */
       if (isBusyError(error)) {
         return finish(
-          "error",
+          "busy",
           `Nothing was merged: ${messageOf(error)} The next sync tries again.`,
         );
       }
@@ -341,6 +344,23 @@ export async function gitSync(
   const mediaMoved = (media.received ?? 0) + (media.sent ?? 0);
 
   /* 5. push --------------------------------------------------------------- */
+  /*
+   * The push names `branch`, read before the network steps: if a checkout
+   * moved HEAD meanwhile (34d), refuse rather than send a branch this sync
+   * did not merge into.
+   */
+  const current = (await git.status()).current;
+  if (current !== branch) {
+    steps.push({
+      step: "push",
+      status: "skipped",
+      detail: `branch changed to ${current ?? "a detached HEAD"}`,
+    });
+    return finish(
+      "error",
+      `The branch changed from ${branch} to ${current ?? "a detached HEAD"} during the sync, so nothing was pushed. Sync again.`,
+    );
+  }
   const ahead = await count(git, `${remoteBranch}..HEAD`).catch(() => 0);
   if (ahead === 0) {
     steps.push({ step: "push", status: "skipped" });

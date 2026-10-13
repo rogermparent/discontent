@@ -163,9 +163,19 @@ function locked<T>(
  * Fetch-then-`merge` keeps that (it passed locally only because the
  * developer's global config happened to say `pull.rebase=false`; in a
  * container with no git config, three conflict-resolution tests failed on an
- * empty page). The upstream case merges `@{upstream}`; a named remote without
- * one merges what `fetch <remote> <branch>` left in `FETCH_HEAD`, as `git
- * pull <remote> <branch>` does.
+ * empty page).
+ *
+ * **What is merged is pinned right after the fetch:** the upstream's sha, or
+ * `FETCH_HEAD`'s for a named remote without one (as `git pull <remote>
+ * <branch>` merges), read before the lock is waited for. A fetch that another
+ * caller runs meanwhile rewrites `FETCH_HEAD` and moves the remote-tracking
+ * refs; the merge still takes what this pull fetched, and under the lock the
+ * branch is checked to be the one the fetch was for. The merge message names
+ * the ref, as `git pull` would.
+ *
+ * **A mirror only fast-forwards** (epic 28, D1): its merge is `--ff-only`, so
+ * commits of its own that landed after the action's unlocked `ahead` check
+ * make it fail cleanly rather than merge.
  *
  * Unlike the agents' `gitPull`, a conflict is left in place for the page's
  * resolver — the lock is released with `MERGE_HEAD` present, and every engine
@@ -176,15 +186,24 @@ async function doPull(
   contentDirectory: string,
   remote?: string,
 ): Promise<{ conflict: boolean; error?: string }> {
-  let target: string;
+  let sha: string;
+  let label: string;
+  let branch: string | null;
   try {
     const status = await git.status();
+    branch = status.current;
     if (status.tracking) {
       await git.raw(["fetch", "--prune"]);
-      target = "@{upstream}";
+      sha = String(
+        await git.raw(["rev-parse", "--verify", "@{upstream}^{commit}"]),
+      ).trim();
+      label = `remote-tracking branch '${status.tracking}'`;
     } else if (remote && status.current) {
       await git.raw(["fetch", remote, status.current]);
-      target = "FETCH_HEAD";
+      sha = String(
+        await git.raw(["rev-parse", "--verify", "FETCH_HEAD^{commit}"]),
+      ).trim();
+      label = `branch '${status.current}' of ${remote}`;
     } else {
       return {
         conflict: false,
@@ -200,7 +219,21 @@ async function doPull(
     try {
       /* Committed paths the shared index is behind on would block the merge. */
       await flushPendingIndex(contentDirectory);
-      await git.raw(["merge", "--no-edit", target]);
+      const now = (await git.status()).current;
+      if (now !== branch) {
+        return {
+          conflict: false,
+          error: `The branch changed during the fetch (${branch ?? "detached"} → ${now ?? "detached"}), so nothing was merged. Pull again.`,
+        };
+      }
+      await git.raw([
+        "merge",
+        "--no-edit",
+        ...(isMirror() ? ["--ff-only"] : []),
+        "-m",
+        `Merge ${label}`,
+        sha,
+      ]);
       /*
        * A conflicted merge can *resolve*: git prints the CONFLICT lines on
        * stdout and exits 1, and `simple-git`'s `raw` only rejects on stderr

@@ -1746,6 +1746,7 @@ const ALLOWED: RegExp[] = [
    * the batch, inventory, git and reindex seats take. */
   /^@discontent\/cms\/git\/writeLock$/,
   /^@discontent\/cms\/fs\/atomicWrite$/,
+  /^@discontent\/cms\/util\/ulid$/,
   /* `featuredRecipeContentConfig` and its default slug joined at 23a (D5): a
    * content config and a pure string builder, neither of which touches Next. */
   /* `tagTermContentConfig` joined at 24c, for the same standing the other three

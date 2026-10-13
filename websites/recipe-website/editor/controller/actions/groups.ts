@@ -1,5 +1,6 @@
 "use server";
 
+import { lockedRebuild } from "../lockedRebuild";
 import { rebuildIndex } from "@discontent/cms/content/rebuildIndex";
 import { revalidateDerivedState } from "@discontent/cms/content/next/revalidateDerived";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
@@ -279,10 +280,14 @@ export async function deleteGroup(
 
 export async function rebuildGroupIndex() {
   const contentDirectory = getContentDirectory();
-  await rebuildIndex({
-    config: groupContentConfig,
-    contentDirectory,
-  });
+  /* Under the write lock (34d): see `lockedRebuild`. Busy: nothing moved. */
+  const rebuilt = await lockedRebuild(contentDirectory, "rebuild groups", () =>
+    rebuildIndex({
+      config: groupContentConfig,
+      contentDirectory,
+    }),
+  );
+  if (!rebuilt) return;
   /*
    * Two configs, and the second one is not a widening — it is what the rebuild
    * actually did. `rebuildIndex` cascades through `referencedBy` by default,

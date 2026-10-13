@@ -1,5 +1,6 @@
 "use server";
 
+import { lockedRebuild } from "../lockedRebuild";
 import { rebuildIndex } from "@discontent/cms/content/rebuildIndex";
 import { revalidateDerivedState } from "@discontent/cms/content/next/revalidateDerived";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
@@ -127,10 +128,17 @@ export const deleteFeaturedRecipe = featuredRecipeActions.delete;
 
 export async function rebuildFeaturedRecipeIndex() {
   const contentDirectory = getContentDirectory();
-  await rebuildIndex({
-    config: featuredRecipeContentConfig,
+  /* Under the write lock (34d): see `lockedRebuild`. Busy: nothing moved. */
+  const rebuilt = await lockedRebuild(
     contentDirectory,
-  });
+    "rebuild featured recipes",
+    () =>
+      rebuildIndex({
+        config: featuredRecipeContentConfig,
+        contentDirectory,
+      }),
+  );
+  if (!rebuilt) return;
   /*
    * A rebuild reprojects every page, so every cached page is potentially wrong,
    * and the pagination reads are cached by tag. Without this the operator

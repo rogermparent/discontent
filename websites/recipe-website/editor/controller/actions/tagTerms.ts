@@ -1,5 +1,6 @@
 "use server";
 
+import { lockedRebuild } from "../lockedRebuild";
 import { rebuildIndex } from "@discontent/cms/content/rebuildIndex";
 import { revalidateDerivedState } from "@discontent/cms/content/next/revalidateDerived";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
@@ -88,10 +89,17 @@ export async function saveTermFromForm(
  */
 export async function rebuildTermIndex() {
   const contentDirectory = getContentDirectory();
-  await rebuildIndex({
-    config: tagTermContentConfig,
+  /* Under the write lock (34d): see `lockedRebuild`. Busy: nothing moved. */
+  const rebuilt = await lockedRebuild(
     contentDirectory,
-  });
+    "rebuild term records",
+    () =>
+      rebuildIndex({
+        config: tagTermContentConfig,
+        contentDirectory,
+      }),
+  );
+  if (!rebuilt) return;
   revalidateDerivedState([tagTermContentConfig, featuredRecipeContentConfig]);
 }
 
