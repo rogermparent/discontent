@@ -1,17 +1,18 @@
-import { outputJson, pathExists, readJson, remove } from "fs-extra";
+import { pathExists, readJson, remove } from "fs-extra";
 import { resolve } from "path";
 import type { AggregateUpdateResult } from "../aggregates/types";
 import { getContentDirectory } from "../fs/getContentDirectory";
+import { writeJsonAtomic } from "../fs/atomicWrite";
 import type { PaginationUpdateResult } from "./types";
 
 /**
  * The dirty-page artifact's filename.
  *
- * A dotfile on purpose. `commitChanges` falls back to `git add "./*"` when it
- * is handed no explicit paths, and that glob does not match dotfiles — so a
- * content type whose write path commits everything cannot sweep build
- * bookkeeping into a content commit. Content repositories should gitignore it
- * regardless.
+ * A dotfile, though that no longer keeps it out of anything: `commitChanges`
+ * falls back to `git add -A -- .` when it is handed no explicit paths (it was
+ * `"./*"`, which git's pathspec matching never kept from dotfiles either). The
+ * ignore rule `derivedContentPaths` emits is what keeps build bookkeeping out
+ * of a content commit, so content repositories must gitignore it.
  */
 export const PAGINATION_CHANGES_FILENAME = ".pagination-changes.json";
 
@@ -145,9 +146,10 @@ export async function recordPaginationChanges(options: {
   changes.version = PAGINATION_CHANGES_VERSION;
   changes.updatedAt = Date.now();
 
-  // `outputJson`, not `writeJson`: creates the content directory if a caller
-  // records changes against one that does not exist yet.
-  await outputJson(getPaginationChangesPath(contentDirectory), changes, {
+  // Creates the content directory if a caller records changes against one
+  // that does not exist yet, and replaces the file atomically (epic 34, D8),
+  // so a build reading it mid-write sees the old artifact or the new one.
+  await writeJsonAtomic(getPaginationChangesPath(contentDirectory), changes, {
     spaces: 2,
   });
 }

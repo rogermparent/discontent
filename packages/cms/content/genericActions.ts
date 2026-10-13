@@ -3,6 +3,23 @@ import { createContent, SlugConflictError } from "./createContent";
 import { deleteContent } from "./deleteContent";
 import { updateContent } from "./updateContent";
 import { getContentDirectory } from "../fs/getContentDirectory";
+import { MergeInProgressError } from "../git/commit";
+import { RepositoryBusyError, withWriteLock } from "../git/writeLock";
+
+/**
+ * A write the repository refused rather than one that broke: busy (another
+ * write holds the lock — retry) or mid-merge. Its own message, not "Failed
+ * to …", so the person knows to wait or to finish the merge.
+ */
+function refusalMessage(error: unknown): string | undefined {
+  if (
+    error instanceof RepositoryBusyError ||
+    error instanceof MergeInProgressError
+  ) {
+    return error.message;
+  }
+  return undefined;
+}
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { ContentFormState } from "../forms/formState";
@@ -204,7 +221,7 @@ export function createGenericActions<
         } as TFormState;
       }
       return {
-        message: `Failed to create ${label}`,
+        message: refusalMessage(e) ?? `Failed to create ${label}`,
         formData: editorConfig.extractFormData?.(parsed),
       } as TFormState;
     }
@@ -244,28 +261,37 @@ export function createGenericActions<
       ? await editorConfig.buildCreateUploads(parsed, contentDirectory)
       : undefined;
 
-    if (editorConfig.deleteConflictingContent) {
-      await editorConfig.deleteConflictingContent(
-        slug,
-        contentDirectory,
-        email,
-      );
-    }
-
     let result = EMPTY_RESULT;
     try {
-      result = await createContent({
-        config: contentConfig,
-        slug,
-        data,
+      /*
+       * The delete and the create — two commits — in one lock scope (epic 34,
+       * D6), so no other write lands between them and finds the slug free.
+       */
+      result = await withWriteLock(
         contentDirectory,
-        author: { name: email, email },
-        commitMessage: `Add new ${label}: ${slug}`,
-        uploads,
-      });
-    } catch {
+        `overwrite ${contentConfig.contentType}/${slug}`,
+        async () => {
+          if (editorConfig.deleteConflictingContent) {
+            await editorConfig.deleteConflictingContent(
+              slug,
+              contentDirectory,
+              email,
+            );
+          }
+          return createContent({
+            config: contentConfig,
+            slug,
+            data,
+            contentDirectory,
+            author: { name: email, email },
+            commitMessage: `Add new ${label}: ${slug}`,
+            uploads,
+          });
+        },
+      );
+    } catch (e) {
       return {
-        message: `Failed to create ${label}`,
+        message: refusalMessage(e) ?? `Failed to create ${label}`,
         formData: editorConfig.extractFormData?.(parsed),
       } as TFormState;
     }
@@ -346,9 +372,9 @@ export function createGenericActions<
         commitMessage: `Update ${label}: ${slug}`,
         uploads,
       });
-    } catch {
+    } catch (e) {
       return {
-        message: `Failed to update ${label}`,
+        message: refusalMessage(e) ?? `Failed to update ${label}`,
         formData: editorConfig.extractFormData?.(parsed),
       } as TFormState;
     }
@@ -397,15 +423,6 @@ export function createGenericActions<
         )
       : undefined;
 
-    // Delete conflicting content at target slug
-    if (slug !== currentSlug && editorConfig.deleteConflictingContent) {
-      await editorConfig.deleteConflictingContent(
-        slug,
-        contentDirectory,
-        email,
-      );
-    }
-
     const currentIndexKey = editorConfig.buildCurrentIndexKey(
       currentDate,
       currentSlug,
@@ -413,20 +430,35 @@ export function createGenericActions<
 
     let result = EMPTY_RESULT;
     try {
-      result = await updateContent({
-        config: contentConfig,
-        slug,
-        currentSlug,
-        currentIndexKey,
-        data,
+      /* The delete and the update in one lock scope — see `overwriteCreate`. */
+      result = await withWriteLock(
         contentDirectory,
-        author: { name: email, email },
-        commitMessage: `Update ${label}: ${slug}`,
-        uploads,
-      });
-    } catch {
+        `overwrite ${contentConfig.contentType}/${currentSlug}`,
+        async () => {
+          // Delete conflicting content at target slug
+          if (slug !== currentSlug && editorConfig.deleteConflictingContent) {
+            await editorConfig.deleteConflictingContent(
+              slug,
+              contentDirectory,
+              email,
+            );
+          }
+          return updateContent({
+            config: contentConfig,
+            slug,
+            currentSlug,
+            currentIndexKey,
+            data,
+            contentDirectory,
+            author: { name: email, email },
+            commitMessage: `Update ${label}: ${slug}`,
+            uploads,
+          });
+        },
+      );
+    } catch (e) {
       return {
-        message: `Failed to update ${label}`,
+        message: refusalMessage(e) ?? `Failed to update ${label}`,
         formData: editorConfig.extractFormData?.(parsed),
       } as TFormState;
     }

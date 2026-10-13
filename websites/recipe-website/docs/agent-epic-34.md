@@ -212,7 +212,7 @@ fitting (savory Thanksgiving sides, drinks). The curator skill says so, and
 | 34-plan  | `agent/34-plan`            | S    | 🟡     | This doc.                                                                     |
 | 34a      | `agent/34a-term-pages`     | M    | ✅     | D1, D2: subtree recipes on term pages, counts without the clouds.             |
 | 34b      | `agent/34b-skill-rename`   | S    | ✅     | D3, D4: skill v4 vocabulary; rename keeps the old slug.                       |
-| 34c      | `agent/34c-engine-writes`  | L    | 📝     | D5–D8: ULIDs, the write lock, private-index commits, atomic writes (engine).  |
+| 34c      | `agent/34c-engine-writes`  | L    | ✅     | D5–D8: ULIDs, the write lock, private-index commits, atomic writes (engine).  |
 | 34d      | `agent/34d-site-writes`    | M    | 📝     | D6, D9, D10 on the site: lock the batch/git/sync seats, `busy`, ULID slugs.   |
 | 34f      | `agent/34f-roundup-import` | M    | ✅     | D11, D12: roundup import (`inspect-list`, `import-list`), skill + Sally's.    |
 | 34e      | content repo only          | M    | 📝     | Seasonal collections (thanksgiving, fall, warm-drinks) and Halloween imports. |
@@ -428,6 +428,65 @@ typecheck`, `pnpm exec vitest run`, targeted Playwright in build mode.
   reads it as the shell builtin). Grep with a fragment (`lias`) or edit with
   the Edit tool.
 
+### 34c
+
+- **A pending index refresh can be committed backwards.** When a commit
+  lands but the shared index can't be refreshed (`index.lock` held past the
+  retry), its paths go to `<gitdir>/discontent-index-pending` and `git
+status` shows them as `MM`: the index still holds the _old_ version. A
+  plain `git commit` of anything staged — VS Code's Commit button, which is
+  used on the real repo — then writes that old version back, silently
+  undoing the engine's commit. The fix is safe and idempotent: `git reset
+-q -- <paths>` (what the engine does) or `git add <paths>` (the worktree
+  already holds the committed version). The danger is only committing
+  without `-a` while it's pending. The engine retries in the background
+  (1, 3, 10, 30, 60 s), every later write flushes it first, and
+  `readPendingIndex` names the paths so 34d can show them in `git_status`
+  and on /git.
+- **Engine commits run no git hooks.** `commit-tree` + `update-ref` skip
+  `pre-commit`, `commit-msg` and `post-commit`. The content repos' only
+  hooks are git-annex's; its `pre-commit` (`git annex pre-commit .`) fixes
+  up _locked_ (symlinked) annexed files, which the engine never makes —
+  D9's large files are unlocked, and `git add`'s clean filter annexes them
+  under the private `GIT_INDEX_FILE` too (`annex.test.ts`, 34c case). A
+  repo that grows a hook the engine relies on would need it called
+  explicitly. `gc --auto` no longer runs after each write (fetch and merge
+  still run it). `commit-tree` honours `commit.gpgSign` itself.
+- **git 2.55 drops everything under an `:(exclude)` pathspec with a long
+  `GIT_INDEX_FILE`.** With a private index path past ~60 bytes (as
+  `/tmp/x/.git/discontent-index-<ULID>` is), `git add -A -- <path>
+:(exclude,glob)**/.*.tmp` staged nothing and `ls-files` with the same
+  pathspecs listed nothing — exit 0, no message; a short name, or no
+  exclude, worked. Found when deletes stopped committing. The engine uses
+  only `:(literal)` pathspecs and removes temp files from the private index
+  with `update-index --force-remove` after `add`.
+- **Same host is not same pid namespace.** The Pi's editor runs in Docker
+  with `--network host`: the container has the host's hostname and its own
+  pids. A lock judges its holder's pid only when host _and_
+  `/proc/self/ns/pid` match; otherwise only the 60 s mtime rule applies.
+  Its own pid with another nonce is a previous process's (pid reuse) and is
+  stale.
+- **Nothing slow inside the lock.** The heartbeat keeps a stuck holder's lock
+  fresh forever, so a hung fetch would block every writer. An upload's
+  `fileImportUrl` download is bounded at 60 s (`UPLOAD_FETCH_TIMEOUT_MS`).
+  34d: no page fetches, imports or image checks inside `withWriteLock` —
+  fetch first, then lock and write.
+- **A big batch can outlast the 30 s lock timeout.** `term rename drink
+beverage` on a scratch clone (209 recipes, 275 files, one commit) took
+  17.5 s on the workstation; the Pi is several times slower. Once 34d holds
+  the lock for a whole batch, a write that arrives meanwhile waits up to
+  `DISCONTENT_WRITE_LOCK_TIMEOUT_MS` and then answers `busy` (D10,
+  retryable). That's by design, but a curator or script hitting it should
+  retry rather than report a failure.
+- **`gitLog`'s `files` reports a rename by its new path only** (git's rename
+  detection). To see both halves of a slug change use `git show
+--no-renames --name-status`.
+- **A killed writer can leave `.<name>.<writeId>.<n>.tmp`** (between the
+  temp write and the rename). It never enters an engine commit, shows as
+  untracked in `git_status`, names the write, and is swept by the next lock
+  holder after a takeover (or on a process's first acquisition) once older
+  than 60 s.
+
 ### 34f
 
 - **34f — Sally's ItemList carries URLs only.** WP's Tasty Roundups emits
@@ -604,6 +663,163 @@ typecheck`, `pnpm exec vitest run`, targeted Playwright in build mode.
   `api-write.spec.ts`: `/tags/flatbread` redirects to
   `/tags/pressed-bread` and `tag:flatbread` finds the recipe. vitest 57
   files / 1220 tests; editor typecheck and export `tsc` clean.
+
+### 34c — Engine writes
+
+- **ULID (D5)** — `packages/cms/util/ulid.ts`: `ulid(date?)`, `ulidTime(id)`.
+  Monotonic only for consecutive ids in the _same_ millisecond, so
+  `ulid(pastDate)` always carries that date's prefix (D9 relies on it).
+- **The write lock (D6)** — `packages/cms/git/writeLock.ts`. Beyond the
+  spec:
+  - The lock lives in the **per-worktree git dir** (realpath'd and cached,
+    so two spellings of one repository share one key).
+  - It is **created whole**: the holder record goes to
+    `discontent-write.lock.<id>.new`, which is `link`ed to the lock path
+    (`EEXIST` = taken). There is never an empty lock file.
+  - The record also carries `pidns` (`/proc/self/ns/pid`) and a per-process
+    `nonce`. Pid liveness counts only when host **and** pid namespace match;
+    our own pid with another nonce, or without a live hold here, is stale
+    (Traps).
+  - A takeover renames the stale file aside and links it back if it was a
+    fresh one, logging when it can't. Before moving HEAD, a commit checks
+    `writeLockStillHeld` and fails (`CommitFailedError`, "taken over")
+    rather than commit over a new holder.
+  - A hold is marked inactive at release, so a background task can't
+    re-enter it. `serialInHold` runs the commits of one hold one at a time.
+    `outsideWriteLock` escapes the hold for work scheduled to outlive it.
+  - On a fresh acquisition it sweeps leftover private indexes and lock temp
+    files. After a takeover, or on a process's first acquisition, it also
+    sweeps untracked atomic-write temp files older than 60 s
+    (`ls-files -o`).
+  - Test overrides: `withWriteLock(dir, op, fn, {timeoutMs, staleMs,
+heartbeatMs})`. Also exported: `currentWriteId`, `readWriteLock`,
+    `ATOMIC_TEMP`.
+  - Who takes it: `createContent` / `updateContent` / `deleteContent`
+    around the whole write (slug check, files, LMDB, pagination and
+    `.pagination-changes.json`, dependents, commit), and `genericActions`'
+    `overwriteCreate` / `overwriteUpdate` around the delete and the
+    create/update. `withBatchCommit` is the site's (`curation/batch.ts`):
+    34d wraps it, and nesting is re-entrant.
+  - `genericActions` maps `RepositoryBusyError` and `MergeInProgressError`
+    to their own messages instead of "Failed to …".
+- **Commits (D7)** — `packages/cms/git/commit.ts`, on plain `spawn`
+  (`git/run.ts`). Kept: the messages, `--author` semantics (author from the
+  write, committer from git config; checked against `%an|%ae|%cn|%ce`), the
+  no-op without `.git`, the no-change skip and the stamp advance.
+  - The message gets `git commit -m`'s whitespace cleanup. `commit-tree`
+    honours `commit.gpgSign` itself.
+  - Each commit gets its own private index id.
+  - Pathspecs are `:(literal)` (Traps: no `:(exclude)`). `run.ts` strips
+    inherited `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and the
+    `GIT_*_PATHSPECS` switches.
+  - An unborn branch uses `read-tree --empty` and CAS old value `""`. On a
+    detached HEAD, `update-ref HEAD` moves it and leaves the branch.
+  - A `read-tree -m` that refuses (unmerged entries) falls back to a plain
+    `read-tree`.
+  - **The stamp advances right after `update-ref`**, before the refresh, so
+    a refresh waiting on `index.lock` past `FOREIGN_SETTLE_MS` (2 s) can't
+    make the instance reindex our own commit as foreign.
+  - **CAS failure:** a non-overlapping move redoes on the new HEAD. So
+    does an overlapping move whose content at the overlapping paths equals
+    ours (`ls-tree` of both trees), which then ends as the no-change skip.
+    Anything else is `CommitConflictError`. A failure with HEAD unchanged
+    (a held ref lock) is retried the same way (×3, then
+    `CommitFailedError`). A commit that lands on a foreign one leaves the
+    stamp stale, as it should.
+  - `MergeInProgressError` covers `MERGE_HEAD`, `CHERRY_PICK_HEAD`,
+    `REVERT_HEAD`, `rebase-merge/` and `rebase-apply/`, with `operation`
+    and `marker` fields and a message naming the op. It is checked first
+    thing under the lock in all three writes (a refused write touches
+    nothing), and again per commit.
+  - `CommitConflictError {writeId, touchedPaths, conflictingPaths}`,
+    `CommitFailedError {writeId, touchedPaths, cause}`.
+  - **The pending refresh** stores the paths the commit actually changed —
+    for a commit-everything, the diff, never `.`, so a flush can't unstage
+    hand-staged files.
+    - The retry (`DISCONTENT_INDEX_REFRESH_MS`, 10 s) is skipped when a
+      refresh is already pending or `index.lock` is older than 5 s. A stale
+      lock no longer costs every write 10 s inside the write lock.
+    - It is applied by every later locked commit, by
+      `flushPendingIndex(dir, {timeoutMs, lockTimeoutMs})`, and by a
+      background retry (`DISCONTENT_INDEX_FLUSH_RETRY_MS` × 1, 3, 10, 30,
+      60; default 1 s; unref'd, under the lock, outside the hold).
+    - `readPendingIndex(dir)` lists the pending paths.
+  - `commitTestHooks.beforeUpdateRef` is a test seam (moves HEAD at the
+    worst moment); unset in production.
+- **Atomic writes (D8)** — `packages/cms/fs/atomicWrite.ts`
+  (`writeFileAtomic`, `writeJsonAtomic`, `writeStreamAtomic`,
+  `temporaryPathFor`) for data files (same bytes as `outputJSON`), uploads
+  and `.pagination-changes.json`.
+  - Temp names are `.<name>.<writeId>.<n>.tmp`, with the name cut to 200
+    bytes by code point.
+  - The replaced file's mode is kept.
+  - A failed source leaves the old file and no temp.
+  - Temp files are dropped from every engine commit
+    (`update-index --force-remove` after `add`).
+  - An upload's `fileImportUrl` fetch has `AbortSignal.timeout(60 s)`.
+- **Hooks and annex** — the engine runs no hooks (Traps). git-annex is
+  initialised on the real repo: hooks `pre-commit`, `post-checkout`,
+  `post-merge` and `post-receive`; `* filter=annex` in `info/attributes`;
+  no `.gitattributes` yet. The annex case commits a 64 KB upload under a
+  10 KB `largefiles` rule through the private index. The commit holds the
+  pointer, `annex find --in here` and `annex fsck` pass, and a pre-staged
+  foreign file stays staged.
+- **Concurrency test** (`test/concurrentWrites.test.ts`): two `tsx`
+  processes × 15 `createTerm`s while a third holds `index.lock` in
+  200 ms / 100 ms bursts. Result: 30 commits, each touching only its own
+  `term.json`, nothing pending, a clean tree, 30 LMDB entries. Over three
+  runs: 14–17.5 s for the 30 writes including two `tsx` starts; median
+  270–320 ms per write (each waits for the other writer's); 48–58 lock
+  bursts.
+- **Rebuild under the lock** — a full CLI `reindex` of a scratch clone of
+  the content repo (35e0d1d) on the workstation took 0.80–0.94 s (recipes
+  0.70–0.77 s). Epic 29's Pi figure is 2.5 s; both are far inside 30 s. The
+  long holder is a batch, not a rebuild (Traps: 17.5 s for a 209-carrier
+  rename). The clone's tree stayed clean after the rename commit.
+- **Comment fix** — `pagination/changes.ts` and `derivedPaths.ts` said the
+  old `"./*"` fallback skipped dotfiles; git's pathspec never did. The
+  fallback is `.` now, and the ignore rule is what keeps the artifact out.
+- **Tests.**
+  - New: `ulid.test.ts` (7); `writeLock.test.ts` (21: re-entry, FIFO,
+    dead-pid / age / reused-pid takeovers, another pid namespace not
+    judged, timeout naming the holder, heartbeat, release-own-only,
+    still-held, `serialInHold`, both sweeps, and three `tsx` processes
+    racing one stale lock with no overlapping holds); `atomicWrite.test.ts`
+    (4); `concurrentWrites.test.ts` (1).
+  - `curationGit.test.ts` +24: a pre-staged file; reflog/author; held,
+    short and old `index.lock`; flushes (next write, `flushPendingIndex`,
+    background); commit-everything pending paths and staged files kept;
+    stamp before refresh; HEAD moved over other paths, the same path, the
+    same content; ref-lock failure; taken-over lock; rename; delete,
+    including a never-committed item; unborn branch; detached HEAD; stamp;
+    merge / cherry-pick / revert / rebase; temp files never committed;
+    serialised commits in one hold; no temp files after writes.
+  - `annex.test.ts` +1. F34's batch cases unchanged and green.
+  - The cross-process CAS is covered by the seam cases (a separate `git`
+    process moves HEAD between `commit-tree` and `update-ref`) and the
+    concurrency test.
+- **Verification (after the review round).** vitest 62 files / 1296 tests;
+  typechecks clean for the editor, the export (`tsc`), the portfolio and the
+  demo. Recipe Playwright in build mode (git, api-write, duplicate-slug,
+  mirror, term-edit, groups, edit, new-recipe, reference-updates):
+  166/166. CMS demo Playwright in build mode, all specs including
+  `git.spec.ts`: 109/109. A first demo run lost one case to an `EEXIST`
+  `mkdir test-content` in the fixture reset (`update.spec.ts`, "should
+  update note date") — a harness race; it passed on the rerun.
+- **For 34d.**
+  - Imports: from `@discontent/cms/git/writeLock` — `withWriteLock`,
+    `RepositoryBusyError`, `currentWriteId`, `readWriteLock`,
+    `writeLockStillHeld`; from `@discontent/cms/git/commit` —
+    `CommitConflictError`, `CommitFailedError`, `MergeInProgressError`,
+    `flushPendingIndex`, `readPendingIndex`, `assertNoMergeInProgress`; and
+    `ulid` from `@discontent/cms/util/ulid`.
+  - Error codes: `RepositoryBusyError` → `busy`, `CommitConflictError` →
+    `git_conflict`, `MergeInProgressError` → `dirty_tree`.
+  - Call `flushPendingIndex` at the top of `requireCleanTree`, and show
+    `readPendingIndex` in `git_status` and on /git.
+  - Raw `git commit`s in the site (`commitMerge`, revert) still go through
+    the shared index — take the write lock around them.
+  - Keep fetches out of the lock.
 
 ### 34f — Roundup import
 

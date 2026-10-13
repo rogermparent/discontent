@@ -1,6 +1,7 @@
 import type { Key } from "lmdb";
 import { getContentDirectory } from "../fs/getContentDirectory";
-import { commitContentChanges } from "../git/commit";
+import { assertNoMergeInProgress, commitContentChanges } from "../git/commit";
+import { withWriteLock } from "../git/writeLock";
 import { getContentDatabase, removeFromIndex } from "./database";
 import { syncPaginationIndexes } from "../pagination/syncContentItem";
 import {
@@ -37,6 +38,21 @@ import type {
  * ```
  */
 export async function deleteContent<TData, TIndexValue, TKey extends Key>(
+  options: DeleteContentOptions<TData, TIndexValue, TKey>,
+): Promise<ContentWriteResult> {
+  /* The whole write under the write lock — see `createContent`. */
+  const contentDirectory = options.contentDirectory || getContentDirectory();
+  return withWriteLock(
+    contentDirectory,
+    `delete ${options.config.contentType}/${options.slug}`,
+    async () => {
+      await assertNoMergeInProgress(contentDirectory);
+      return deleteContentLocked({ ...options, contentDirectory });
+    },
+  );
+}
+
+async function deleteContentLocked<TData, TIndexValue, TKey extends Key>(
   options: DeleteContentOptions<TData, TIndexValue, TKey>,
 ): Promise<ContentWriteResult> {
   const {

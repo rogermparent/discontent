@@ -1,6 +1,7 @@
 import type { Key } from "lmdb";
 import { getContentDirectory } from "../fs/getContentDirectory";
-import { commitContentChanges } from "../git/commit";
+import { assertNoMergeInProgress, commitContentChanges } from "../git/commit";
+import { withWriteLock } from "../git/writeLock";
 import { getContentDatabase, removeFromIndex, writeToIndex } from "./database";
 import {
   getUploadInfo,
@@ -82,6 +83,21 @@ export async function defaultUpdateUploadsProcessor(
  * ```
  */
 export async function updateContent<TData, TIndexValue, TKey extends Key>(
+  options: UpdateContentOptions<TData, TIndexValue, TKey>,
+): Promise<ContentWriteResult> {
+  /* The whole write under the write lock — see `createContent`. */
+  const contentDirectory = options.contentDirectory || getContentDirectory();
+  return withWriteLock(
+    contentDirectory,
+    `update ${options.config.contentType}/${options.currentSlug}`,
+    async () => {
+      await assertNoMergeInProgress(contentDirectory);
+      return updateContentLocked({ ...options, contentDirectory });
+    },
+  );
+}
+
+async function updateContentLocked<TData, TIndexValue, TKey extends Key>(
   options: UpdateContentOptions<TData, TIndexValue, TKey>,
 ): Promise<ContentWriteResult> {
   const {

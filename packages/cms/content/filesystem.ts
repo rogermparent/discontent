@@ -1,9 +1,8 @@
-import { createWriteStream } from "fs";
-import { ensureDir, exists, outputJSON, readJson, rename, rm } from "fs-extra";
+import { ensureDir, exists, readJson, rename, rm } from "fs-extra";
 import { join, parse, relative, resolve, sep } from "path";
 import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import { ReadableStream } from "node:stream/web";
+import { writeJsonAtomic, writeStreamAtomic } from "../fs/atomicWrite";
 import { getContentDirectory } from "../fs/getContentDirectory";
 import type { ContentTypeConfig, FileUploadData } from "./types";
 
@@ -157,7 +156,8 @@ export function getUploadFilePath(
 }
 
 /**
- * Write content data to the filesystem
+ * Write content data to the filesystem — atomically (epic 34, D8): a temp
+ * file renamed over the data file, the same bytes `outputJSON` wrote.
  */
 export async function writeContentToFilesystem<TData>(
   config: ContentTypeConfig<TData>,
@@ -172,7 +172,7 @@ export async function writeContentToFilesystem<TData>(
     contentDirectory,
   );
   await ensureDir(itemDirectory);
-  await outputJSON(join(itemDirectory, config.dataFilename), data, {
+  await writeJsonAtomic(join(itemDirectory, config.dataFilename), data, {
     spaces: 2,
   });
   return relative(baseDir, join(itemDirectory, config.dataFilename));
@@ -288,8 +288,12 @@ export async function getUploadInfo({
   }
 }
 
+/** How long an upload's `fileImportUrl` download may take, body included. */
+export const UPLOAD_FETCH_TIMEOUT_MS = 60_000;
+
 /**
- * Write an uploaded file to the filesystem
+ * Write an uploaded file to the filesystem — atomically (epic 34, D8), so a
+ * failed or interrupted download leaves the previous file, not a torn one.
  */
 export async function writeUploadFile(
   config: ContentTypeConfig,
@@ -309,21 +313,27 @@ export async function writeUploadFile(
     fileName,
     contentDirectory,
   );
-  const { dir } = parse(resultPath);
-  await ensureDir(dir);
 
-  const fileWriteStream = createWriteStream(resultPath);
   if (file) {
-    const readStream = Readable.fromWeb(file.stream() as ReadableStream);
-    await pipeline(readStream, fileWriteStream);
+    await writeStreamAtomic(
+      resultPath,
+      Readable.fromWeb(file.stream() as ReadableStream),
+    );
   } else if (fileImportUrl) {
-    const importedFileData = await fetch(fileImportUrl);
-    if (importedFileData.body) {
-      await pipeline(
-        Readable.fromWeb(importedFileData.body as ReadableStream),
-        fileWriteStream,
-      );
-    }
+    /*
+     * Bounded: this runs inside the write lock, whose heartbeat would keep a
+     * hung download's lock fresh forever.
+     */
+    const importedFileData = await fetch(fileImportUrl, {
+      signal: AbortSignal.timeout(UPLOAD_FETCH_TIMEOUT_MS),
+    });
+    /* No body writes an empty file, as the stream opened up front used to. */
+    await writeStreamAtomic(
+      resultPath,
+      importedFileData.body
+        ? Readable.fromWeb(importedFileData.body as ReadableStream)
+        : undefined,
+    );
   }
 }
 
