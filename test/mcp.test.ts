@@ -796,6 +796,127 @@ describe("the MCP registry over an in-memory transport", () => {
     }
   });
 
+  /* 34f: roundup import. Loopback URLs, so the default pacing never waits. */
+  it("inspects a roundup and imports its picks with a term (34f)", async () => {
+    const origin = "http://127.0.0.1:9";
+    const card = (slug: string, name: string) =>
+      `<div><a href="${origin}/r/${slug}/"><img src="${origin}/c/${slug}.jpg"></a><h2>${name}</h2></div>`;
+    const list = [
+      "<html><head><title>Pies | Test</title></head><body><article>",
+      "<h1>Three Pies</h1><div class='entry-content'>",
+      card("apple-pie", "Apple Pie"),
+      card("pecan-pie", "Pecan Pie"),
+      card("plum-pie", "Plum Pie"),
+      "</div></article></body></html>",
+    ].join("");
+    const recipe = (name: string, slug: string) =>
+      `<html><head><script type="application/ld+json">${JSON.stringify({
+        "@type": "Recipe",
+        name,
+        recipeIngredient: ["1 crust"],
+        image: `${origin}/img/${slug}.png`,
+      })}</script></head></html>`;
+    const fetchStub = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("/img/")) {
+        return new Response("png", {
+          headers: { "content-type": "image/png" },
+        });
+      }
+      const slug = /\/r\/([a-z-]+)\//.exec(url)?.[1];
+      return new Response(
+        slug
+          ? recipe(
+              slug
+                .replace("-pie", " Pie")
+                .replace(/^./, (c) => c.toUpperCase()),
+              slug,
+            )
+          : list,
+        { headers: { "content-type": "text/html" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchStub);
+    try {
+      const inspected = await call("page_inspect_list", {
+        url: `${origin}/pies/`,
+      });
+      expect(inspected.isError).toBe(false);
+      expect(inspected.data).toMatchObject({
+        title: "Three Pies",
+        source: "links",
+        items: [
+          { n: 1, name: "Apple Pie", url: `${origin}/r/apple-pie/` },
+          { n: 2, name: "Pecan Pie" },
+          { n: 3, name: "Plum Pie" },
+        ],
+      });
+
+      /* A dry run: nothing written, so no stale-editor warning. */
+      const dry = await call("recipe_import_list", {
+        url: `${origin}/pies/`,
+        pick: [1],
+        dryRun: true,
+      });
+      expect(dry.data).toMatchObject({
+        dryRun: true,
+        results: [{ n: 1, status: "would-import", slug: "apple-pie" }],
+        remaining: [],
+      });
+      expect(dry.data.warnings).toBeUndefined();
+      expect((await call("recipe_list")).data.total).toBe(0);
+
+      /* The default cap is three, so `all` fits in one call. */
+      const real = await call("recipe_import_list", {
+        url: `${origin}/pies/`,
+        all: true,
+        term: "pies",
+      });
+      expect(real.isError).toBe(false);
+      expect(real.data).toMatchObject({
+        total: 3,
+        remaining: [],
+        term: { slug: "pies", label: "Three Pies", created: true },
+      });
+      expect(
+        (real.data.results as { status: string }[]).map((r) => r.status),
+      ).toEqual(["imported", "imported", "imported"]);
+      expect(real.data.warnings).toEqual([expect.stringContaining("stale")]);
+      expect((await call("recipe_list", { tag: "pies" })).data.total).toBe(3);
+
+      /* And the list now says so. */
+      const again = await call("page_inspect_list", { url: `${origin}/pies/` });
+      expect(
+        (again.data.items as { existing?: string }[]).map((i) => i.existing),
+      ).toEqual(["apple-pie", "pecan-pie", "plum-pie"]);
+
+      expect(
+        await callError("recipe_import_list", {
+          url: `${origin}/pies/`,
+          pick: [9],
+        }),
+      ).toMatchObject({ code: "validation" });
+      expect(
+        await callError("recipe_import_list", { url: `${origin}/pies/` }),
+      ).toMatchObject({ code: "validation" });
+
+      const { tools } = await client.listTools();
+      const annotationsOf = (name: string) =>
+        tools.find((tool) => tool.name === name)?.annotations;
+      expect(annotationsOf("page_inspect_list")).toMatchObject({
+        readOnlyHint: true,
+      });
+      expect(annotationsOf("recipe_import_list")).toMatchObject({
+        readOnlyHint: false,
+      });
+      expect(
+        annotationsOf("recipe_import_list")?.destructiveHint,
+      ).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("sets an image from a local path, clears it, and wants exactly one source", async () => {
     await createCake();
     const picture = join(contentDirectory, "..", `cake-${Date.now()}.png`);

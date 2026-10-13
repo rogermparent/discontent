@@ -1145,7 +1145,11 @@ export async function createTerm(
     author: ctx.author,
     commitMessage: `Create term: ${slug}`,
     ...(imageFile ? { uploads: { image: { file: imageFile } } } : {}),
+    /* Inside a batch (34f's roundup import: create, then assign) the record
+     * joins the batch's one commit; outside one this is a no-op. */
+    ...batchOptions(ctx),
   });
+  collectBatch(ctx, result);
   ctx.onWrite?.({
     contentType: tagTermContentConfig.contentType,
     kind: "create",

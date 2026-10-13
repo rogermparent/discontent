@@ -40,6 +40,7 @@ import { gitCommands } from "./commands/git";
 import { groupCommands } from "./commands/group";
 import { imageCommand } from "./commands/image";
 import { importCommand } from "./commands/import";
+import { importListCommand, inspectListCommand } from "./commands/importList";
 import { inspectCommand } from "./commands/inspect";
 import { inventoryCommands } from "./commands/inventory";
 import { listCommand } from "./commands/list";
@@ -75,6 +76,9 @@ const GLOBAL_VALUE_FLAGS = new Set([
 const COMMANDS: Record<string, CommandDef<unknown>> = {
   inspect: inspectCommand,
   import: importCommand,
+  /* Roundup ("meta-list") import (34f). */
+  "inspect-list": inspectListCommand,
+  "import-list": importListCommand,
   create: createCommand,
   update: updateCommand,
   image: imageCommand,
@@ -128,6 +132,9 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   inspect <url> [--out draft.json]
   import <url> [--tags a,b] [--slug s] [--name N] [--image <url>]
                [--dry-run [--out draft.json]] [--overwrite] [--allow-partial]
+  inspect-list <url>
+  import-list <url> (--pick 1,3,5-7 | --all) [--term <slug> [--term-label L]]
+              [--limit n] [--dry-run]
   create (--file recipe.json | --stdin) [--overwrite] [--dry-run]
   update <slug> (--file patch.json | --stdin) [--dry-run]
   image <slug> (--url <image-url> | --file <path> | --clear)
@@ -215,6 +222,12 @@ Content directory: --content-dir > CONTENT_DIRECTORY > ./content.
 The tweak loop: \`inspect <url> --out d.json\` (or \`import <url> --dry-run --out
 d.json\`), edit d.json, \`create --file d.json --dry-run\`, then \`create --file
 d.json\`. Fix a picture later with \`image <slug> --url|--file|--clear\`.
+
+A roundup ("40+ Thanksgiving Pies"): \`inspect-list <url>\` lists its recipes,
+\`existing\` marked; \`import-list <url> --pick 1,3 [--term <slug>]\` imports
+the picks one commit each, 15 s apart per site (images and 403 retries
+count), at most --limit per run (3; 6 for --dry-run). Re-run with --pick
+<remaining> to continue.
 
 Piping --json: run it as \`pnpm --silent recipes …\`. Without --silent, pnpm
 prints its own script banner on stdout ahead of the object, so the stream is

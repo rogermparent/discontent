@@ -273,6 +273,12 @@ export interface ForbiddenRetry {
   delayMs?: number;
   /** `false`: never retry; the 403 is the answer. */
   enabled?: boolean;
+  /**
+   * Awaited before the retry *instead of* `delayMs`: the caller paces the
+   * retry itself. Roundup import (34f) waits on its per-site clock here, so
+   * the retry is spaced like every other request of the call and counted.
+   */
+  beforeRetry?: () => Promise<void>;
 }
 
 export const DEFAULT_403_DELAY_MS = 15_000;
@@ -285,7 +291,7 @@ export function forbiddenRetryFromEnv(
   value: string | undefined = typeof process === "undefined"
     ? undefined
     : process.env.RECIPE_FETCH_403_DELAY_MS,
-): Required<ForbiddenRetry> {
+): Required<Omit<ForbiddenRetry, "beforeRetry">> {
   const text = value?.trim().toLowerCase();
   if (text === "off") return { delayMs: 0, enabled: false };
   const delay = text ? Number(text) : NaN;
@@ -315,7 +321,9 @@ export async function fetchRetrying403(
   const delayMs = retry.delayMs ?? env.delayMs;
   /* Let the refused connection go before waiting on the next one. */
   await response.body?.cancel().catch(() => {});
-  if (delayMs > 0) {
+  if (retry.beforeRetry) {
+    await retry.beforeRetry();
+  } else if (delayMs > 0) {
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
   return fetch(url, { ...init, headers: retryHeaders });

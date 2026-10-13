@@ -1,7 +1,7 @@
 ---
 name: recipe-curator
-description: Find, import, cite and organize recipes for the recipe website — meal plans, collections and nested collections (as tag terms), the homepage strip and the shared list of what's on hand — through the `recipes` MCP tools. Use for asks like "plan dinners for the week", "import this recipe", "make a collection of …", "put it on the homepage", "I bought Gnista", "what can I make?".
-allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__page_inspect, mcp__recipes__recipe_import, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__recipe_set_image, mcp__recipes__tag_list, mcp__recipes__term_list, mcp__recipes__term_get, mcp__recipes__term_create, mcp__recipes__term_update, mcp__recipes__term_set_image, mcp__recipes__term_assign, mcp__recipes__term_rename, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__inventory_get, mcp__recipes__inventory_add, mcp__recipes__inventory_remove, mcp__recipes__inventory_makeable, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, mcp__recipes__git_fetch, WebSearch, WebFetch, Bash(pnpm --silent recipes:*)
+description: Find, import, cite and organize recipes for the recipe website — meal plans, collections and nested collections (as tag terms), the homepage strip and the shared list of what's on hand — through the `recipes` MCP tools. Use for asks like "plan dinners for the week", "import this recipe", "import the recipes from this roundup", "make a collection of …", "put it on the homepage", "I bought Gnista", "what can I make?".
+allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__page_inspect, mcp__recipes__recipe_import, mcp__recipes__page_inspect_list, mcp__recipes__recipe_import_list, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__recipe_set_image, mcp__recipes__tag_list, mcp__recipes__term_list, mcp__recipes__term_get, mcp__recipes__term_create, mcp__recipes__term_update, mcp__recipes__term_set_image, mcp__recipes__term_assign, mcp__recipes__term_rename, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__inventory_get, mcp__recipes__inventory_add, mcp__recipes__inventory_remove, mcp__recipes__inventory_makeable, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, mcp__recipes__git_fetch, WebSearch, WebFetch, Bash(pnpm --silent recipes:*)
 ---
 
 # Recipe curator
@@ -72,6 +72,13 @@ before inventing a tag. Typed terms: `tag:x`, `-tag:x`, `ingredient:x`,
 `time:` query. **Prefer an existing recipe over a new import.**
 
 ## 4. Find candidates on the web
+
+**Sally's first.** For anything baked or sweet — cookies, pies, cakes,
+breads, bars, holiday treats — look on **Sally's Baking Addiction**
+(sallysbakingaddiction.com) before any other site, and when the ask is a
+theme ("Halloween treats", "Thanksgiving pies") start from one of her
+roundups (step 6b). Go elsewhere only when Sally's has nothing fitting:
+savory sides and mains, drinks.
 
 Use WebSearch, one search per constraint set, and collect **at most 8
 candidate pages** before checking back with the user. Prefer sites that expose
@@ -229,6 +236,55 @@ these edits to the draft:
 - **Description:** one or two sentences in the site's voice; the full
   citation stays in `source`, never in the description.
 
+## 6b. A roundup: "40+ Thanksgiving Pies"
+
+A roundup ("meta-list") is a page that lists other recipes — "Top Christmas
+Cookies", "Easy Halloween Desserts". Read it as a list instead of one page at
+a time:
+
+```json
+page_inspect_list {"url": "https://sallysbakingaddiction.com/thanksgiving-pie-recipes/"}
+```
+
+Writes nothing. Returns `{url, finalUrl, status, title?, source?, items,
+reason?}`; each item is `{n, url, name, image?, existing?}` — `n` is its
+1-based position and `existing` the slug of a recipe already imported from
+that page. **Show the list** (n, name, existing) and ask which to import,
+unless the ask already says ("all of them", "the pecan ones"). `items: []`
+with a `reason` means the page is not a roundup: inspect it as one recipe
+(step 5).
+
+```json
+recipe_import_list {"url": "https://sallysbakingaddiction.com/thanksgiving-pie-recipes/", "pick": [1, 2, 12], "dryRun": true}
+recipe_import_list {"url": "https://sallysbakingaddiction.com/thanksgiving-pie-recipes/", "pick": [1, 2, 12]}
+```
+
+Imports each pick the way `recipe_import` does — one commit per recipe,
+`source` kept — and skips `existing` picks, so a re-run never duplicates.
+Returns `{url, title?, total, picked, results, remaining, dropped?, term?,
+requests}`; each result is `{n, url, name, status, slug?, image?,
+suggestedTags?, error?}` with `status` `imported`, `existing`,
+`would-import` (a dry run) or `failed`.
+
+- **It is slow on purpose.** Requests to one site are at least 15 s apart —
+  the list page, each recipe page and each image — so one call imports at
+  most 3 picks (6 in a dry run) and answers the rest as `remaining`. **Call
+  again with `"pick": <remaining>` until `remaining` is empty.** Say up front
+  that a long list takes minutes.
+- **`dropped`** means the site refused twice (HTTP 403): stop, do not retry
+  it in this session, and report which picks are left.
+- **A `failed` item** carries `error`: `import_failed` for a page with no
+  Recipe on it, `validation` for a slug another recipe already has. Report
+  it; import it on its own (step 5–6) only if the ask needs it.
+- **Tag every `imported` recipe** — the import sets no tags. Use the
+  result's `suggestedTags` as hints, pick from the tag vocabulary below, and
+  `recipe_update {"slug": …, "patch": {"tags": […]}}` each one.
+- **`term`** makes the list a collection, when the ask wants one: the term is
+  created if missing (labelled `termLabel`, else the page's title — pass a
+  `termLabel` cleaner than "40+ …") and assigned to every imported and
+  existing pick, in one commit at the end of each call. Feature it only if
+  asked (step 7).
+
 ## 7. Organize them: a term or a meal plan
 
 Two shapes, and the ask decides which:
@@ -381,6 +437,11 @@ lists the commands; the flags mirror the tool inputs:
   (`--image <url>` picks another image);
 - `recipe_create {recipe, dryRun}` → `pnpm --silent recipes create --file d.json --dry-run --json`,
   then the same without `--dry-run`;
+- `page_inspect_list` → `pnpm --silent recipes inspect-list <url> --json`;
+  `recipe_import_list {pick, term?, dryRun?}` →
+  `pnpm --silent recipes import-list <url> --pick 1,3,5-7 [--term <slug> --term-label "L"] [--dry-run] --json`.
+  Each CLI run is a new process that forgets the last run's requests, so
+  leave **15 s between runs** against one site;
 - `recipe_update {slug, patch}` → `pnpm --silent recipes update <slug> --file patch.json --json`;
 - `recipe_set_image` → `pnpm --silent recipes image <slug> --url <image-url> --json`
   (or `--file <path>`, or `--clear`); `term_set_image` →

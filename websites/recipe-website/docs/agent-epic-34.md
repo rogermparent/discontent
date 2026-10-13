@@ -207,7 +207,7 @@ fitting (savory Thanksgiving sides, drinks). The curator skill says so, and
 | 34b      | `agent/34b-skill-rename`   | S    | 📝     | D3, D4: skill v4 vocabulary; rename keeps the old slug.                       |
 | 34c      | `agent/34c-engine-writes`  | L    | 📝     | D5–D8: ULIDs, the write lock, private-index commits, atomic writes (engine).  |
 | 34d      | `agent/34d-site-writes`    | M    | 📝     | D6, D9, D10 on the site: lock the batch/git/sync seats, `busy`, ULID slugs.   |
-| 34f      | `agent/34f-roundup-import` | M    | 📝     | D11, D12: roundup import (`inspect-list`, `import-list`), skill + Sally's.    |
+| 34f      | `agent/34f-roundup-import` | M    | ✅     | D11, D12: roundup import (`inspect-list`, `import-list`), skill + Sally's.    |
 | 34e      | content repo only          | M    | 📝     | Seasonal collections (thanksgiving, fall, warm-drinks) and Halloween imports. |
 | 34-close | `agent/34-close`           | S    | 📝     | Results, backlog, the morning checklist.                                      |
 
@@ -352,8 +352,118 @@ typecheck`, `pnpm exec vitest run`, targeted Playwright in build mode.
 
 ## Traps
 
-_(Filled in as phases land.)_
+### 34f
+
+- **Sally's ItemList carries URLs only.** WP's Tasty Roundups emits
+  `{"@type": "ListItem", position, url}` with no `name` or `image`, so names
+  and pictures come from the body's cards whichever source wins. An item with
+  no card falls back to its link text, then the nearest heading before it,
+  then a title made from the URL slug.
+- **A card links more than its recipe.** Sally's cards carry an inline
+  link to her cookbook page ("Sally's Baking 101"). A card's heading names
+  only its _primary_ URL (the heading's link, else the picture's, else its
+  only one); the cookbook link stays a weak prose link and drops out.
+- **The roundup can list a non-recipe.** The Halloween page's 14th
+  ItemList entry is the cookbook page itself, under a card titled "Molten
+  Chocolate Cobbler". It is the site's list, so it is listed; importing it
+  fails `import_failed` (no Recipe on the page) and the call goes on. The
+  skill shows the list before importing, which is where a person spots it.
+- **The intro mentions items out of order.** "These recipes for caramel
+  apples, dirt pudding, …" links three items before the list starts. In
+  links mode the order is each item's first _list-entry_ appearance (a
+  picture or a heading), not its first mention.
+- **The pacing outlives the call.** The skill runs `page_inspect_list`
+  then `recipe_import_list`, and re-runs on `remaining`, back to back; a
+  per-call clock would fetch the list page twice within a second. The clock
+  is per process (`siteClock` in `importList.ts`), which covers the stdio MCP
+  server and the editor. A CLI run is a new process and starts empty, so the
+  skill's fallback says to leave 15 s between runs. Two concurrent calls in
+  one process are not serialized (nothing makes them; the skill is
+  sequential).
+- **"same host first" reorders a mixed list.** A roundup that links its
+  own recipes and other sites' lists its own first; `n` is that order, not
+  the page's. Single-site roundups (Sally's) are unaffected.
+- **Loopback is never paced** unless `Pacing.paceLoopback`. The CLI
+  process tests (`cliJson.test.ts`) and the MCP tests use 127.0.0.1 with the
+  real clock and do not wait; `importList.test.ts` turns pacing on with a
+  fake clock and asserts the spacing on what its two servers saw.
 
 ## Results
 
-_(Filled in as phases land.)_
+### 34f — Roundup import
+
+**Built.** The parser is `common/util/roundupPage.ts` (pure, hast, beside
+`pageMetadata.ts` — in `common/util/` rather than `curation/` because the D8
+import boundary allows `recipe-website-common/util/*` and not
+`hast-util-from-html`). The seats are `editor/controller/curation/
+importList.ts`: `inspectList(ctx, url)` and `importList(ctx, url, options)`.
+CLI `inspect-list <url>` and `import-list <url> (--pick 1,3,5-7 | --all)
+[--term s [--term-label L]] [--limit n] [--dry-run]`; routes `POST
+/api/inspect-list` (read scope) and `POST /api/import-list` (always 200: a
+batch report); MCP `page_inspect_list` (readOnly) and `recipe_import_list`
+(write, not destructive). Tools 47 → 49, pre-approved 35 → 37 (settings,
+skill frontmatter, CLAUDE.md, `curatorSkill.test.ts`); held back unchanged
+at 12. No new error code: per-item failures ride the result, and the call
+throws only `validation` (no pick, both, a pick past the end, a bad URL) or
+`import_failed` (the list page cannot be fetched, or 403s twice).
+
+**Shared files, additively.** `ForbiddenRetry.beforeRetry` (awaited in place
+of the 403 delay, so the pacer spaces and counts the retry);
+`createRecipe(…, {fetchImage})` / `buildRecipeWrite({fetchImage})` (the image
+download on the pacer's clock); `createTerm` joins a batch (`batchOptions` /
+`collectBatch`, a no-op outside one) so `--term`'s create and assign are one
+commit — `Create term: <slug> (+N recipes)`, or `Assign term: …` when the
+record exists. The backend seam, CLI index, HTTP backend and registry each
+gained two entries and nothing else.
+
+**Defaults and why.** One real import is **two requests** (the recipe page
+and its image; a 403 adds a retry, 15 s later); a dry run is **one** (no
+image probe — the dry run reports the image URL instead). The list page is
+one more per call. So the per-call cap is **3 imports** (1 + 3 × 2 = 7
+requests, six 15 s gaps ≈ 90 s plus transfer) and **6 for a dry run**
+(1 + 6 = 7, the same ≈ 90 s) — under the ~2 min an MCP client allows a call.
+`limit` (1–50) overrides it. `existing` picks cost nothing and do not count.
+The per-site clock is per process (Traps), so a re-run on `remaining` waits
+out the previous call's last request.
+
+**Fixtures** (`test/fixtures/roundups/`): Sally's Thanksgiving pies (an
+ItemList roundup, 40 Tasty Roundups cards; 52 KB after trimming scripts,
+styles, the sidebar and most comments) and her Halloween desserts with the
+ItemList removed (the links-only case, 24 KB, keeping menu, breadcrumbs,
+callout, affiliate, print, share, related-post, comment and footer links to
+be dropped); a hand-written cross-site roundup (numbered headings, lazy and
+`srcset` images, `rel="sponsored"`, comment-page and pagination links); and
+a single recipe page (neither: "No schema.org ItemList and only 2 candidate
+links … The page has a Recipe of its own"). Each Sally's page was fetched
+once (the Halloween one 403'd curl's Chrome UA under Cloudflare and was
+fetched as Node's plain `fetch`, the importer's first identity, minutes
+later).
+
+**Tests.** `roundupPage.test.ts` (9: URL helpers and the four fixtures);
+`importList.test.ts` (10: two local servers as two sites and a fake clock —
+picks, `existing` skip, the term create + assign as one commit and an
+idempotent re-run, a 403 retried once then the site dropped with its picks
+in `remaining`, the cap and a continuation, a dry run that fetches no image
+and writes nothing, validation, `--pick` ranges, the HTTP backend's routes
+and error rehydration; every same-site pair of requests ≥ 15 s apart on the
+servers' own clock); `mcp.test.ts` (inspect, dry run without a warning, a
+real `all` with a term, `existing` afterwards, the annotations);
+`cliJson.test.ts` (both commands as a process, the commit count, the usage
+error); `curatorSkill.test.ts` (counts, and the skill's roundup loop and
+Sally's-first line).
+
+**Live dry run** (scratch clone of the content repo at `35e0d1d`, CLI with
+`--content-dir`, runs ≥ 20 s apart): `inspect-list` on the Thanksgiving pies
+→ `itemlist`, **40 items, 8 existing** (the-great-pumpkin-pie-recipe,
+pumpkin-cheesecake-pie, salted-caramel-apple-pie-bars,
+caramel-apple-cheesecake-pie, brown-butter-pecan-pie-bars, maple-pecan-pie,
+cranberry-curd-tart, butterscotch-pie); `import-list --pick 1-8 --term
+thanksgiving-pies --dry-run` → 5 would-import, 3 existing, the term would
+be created and assigned to all 8, **6 requests in 82 s**. On the Halloween
+desserts → `itemlist`, **14 items, 0 existing** (the 14th is the cookbook
+page, Traps); `--pick 1-3 --dry-run` → 3 would-import, **4 requests in
+51 s**. `suggestedTags` came back as the page's category, cuisine, method
+and keyword (`dessert, american, baking, halloween cookies`) — hints only.
+
+**Not done:** the editor's import form keeps single-recipe import; a list
+picker is a backlog row (UI).

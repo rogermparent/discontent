@@ -44,8 +44,10 @@ import type {
   GroupDetail,
   GroupListResult,
   GroupWriteResult,
+  ImportListResult,
   ImportOptions,
   ImportResult,
+  InspectListResult,
   InspectResult,
   InventoryResult,
   InventoryWriteResult,
@@ -234,6 +236,16 @@ export function createHttpBackend({
     },
     inspect(url) {
       return call<InspectResult>("POST", "/api/inspect", { body: { url } });
+    },
+    inspectList(url) {
+      return call<InspectListResult>("POST", "/api/inspect-list", {
+        body: { url },
+      });
+    },
+    importList(url, options) {
+      return call<ImportListResult>("POST", "/api/import-list", {
+        body: { url, ...options },
+      });
     },
     createRecipe(raw, options = {}) {
       return call<RecipeWriteResult | RecipeDryRunResult>(

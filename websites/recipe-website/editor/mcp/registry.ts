@@ -94,6 +94,9 @@ export const TOOL_NAMES = [
   "recipe_get",
   "page_inspect",
   "recipe_import",
+  /* Roundup ("meta-list") import (34f): 47 → 49. */
+  "page_inspect_list",
+  "recipe_import_list",
   "recipe_create",
   "recipe_update",
   "recipe_set_image",
@@ -473,6 +476,63 @@ export function createRecipeServer(
     },
     async ({ url, ...options }) =>
       write(backend, () => backend.importRecipe(url, options), {
+        notify: options.dryRun !== true,
+      }),
+  );
+
+  register(
+    "page_inspect_list",
+    {
+      title: "Inspect a roundup page",
+      description:
+        'Read a roundup ("meta-list") page — "40+ Thanksgiving Pies", "Top Christmas ' +
+        'Cookies" — and write nothing. Returns `{url, finalUrl, status, title?, source?, ' +
+        "items, reason?}`: each item is `{n, url, name, image?, existing?}`, where `n` is its " +
+        "1-based position (what recipe_import_list's `pick` names) and `existing` is the slug " +
+        "of a recipe already imported from that page. `source` says where the list came from: " +
+        "the page's schema.org ItemList, or the recipe links in its article body. A page that " +
+        "lists nothing answers `items: []` and a `reason`. One request to the site; " +
+        "import_failed only when the page cannot be fetched at all.",
+      inputSchema: z.strictObject({ url: z.string().min(1) }),
+      annotations: READ_ONLY,
+    },
+    async ({ url }) => read(() => backend.inspectList(url)),
+  );
+
+  register(
+    "recipe_import_list",
+    {
+      title: "Import recipes from a roundup page",
+      description:
+        "Import the picked items of a roundup page, each through recipe_import's path as its " +
+        "own commit, keeping its source. `pick` is a list of 1-based positions from " +
+        "page_inspect_list, or `all: true`. Items whose page the corpus already has are " +
+        "skipped and reported as `existing`. Polite and slow: requests to one site are 15 s " +
+        "apart — the list page, each recipe page and each image count — and a site that " +
+        "refuses twice (403) is dropped for the call. So a call imports at most `limit` items " +
+        "(default 3, about 90 s; 6 for a dry run, which fetches no images) and answers the " +
+        "rest as `remaining`: call again with `pick: remaining` until it is empty, unless " +
+        "`dropped` is set. `term` makes the list a collection: the term is created if " +
+        "missing (labelled `termLabel` or the list's title) and assigned to every imported " +
+        "and existing item, one commit at the end. Tags are not set — use recipe_update " +
+        "with each result's `suggestedTags` as hints. `dryRun` fetches the pages and writes " +
+        "nothing. Each result is `{n, url, name, status, slug?, image?, suggestedTags?, " +
+        "error?}`, status imported, existing, would-import or failed; one item failing never " +
+        "fails the call. Errors: validation (no pick, or a pick past the end), " +
+        "import_failed (the list page cannot be fetched).",
+      inputSchema: z.strictObject({
+        url: z.string().min(1),
+        pick: z.array(z.number().int().min(1)).optional(),
+        all: z.boolean().optional(),
+        term: z.string().min(1).optional(),
+        termLabel: z.string().min(1).optional(),
+        dryRun: z.boolean().optional(),
+        limit: z.number().int().min(1).optional(),
+      }),
+      annotations: WRITES,
+    },
+    async ({ url, ...options }) =>
+      write(backend, () => backend.importList(url, options), {
         notify: options.dryRun !== true,
       }),
   );
