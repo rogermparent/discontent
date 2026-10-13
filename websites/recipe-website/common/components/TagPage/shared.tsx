@@ -4,6 +4,7 @@ import { Badge } from "@discontent/component-library/components/ui/badge";
 import Markdown from "@discontent/component-library/components/Markdown";
 import type {
   TagVocabularyEntry,
+  TermCrumb,
   TermHierarchyNode,
   TermPageData,
 } from "../../controller/tagVocabulary";
@@ -31,7 +32,8 @@ function TermChips({
   testId,
   separator,
 }: {
-  terms: TagVocabularyEntry[];
+  /** A chip prints its count when it has one; the breadcrumb's have none. */
+  terms: Array<TermCrumb & { count?: number }>;
   testId?: string;
   /** Printed between chips — the breadcrumb's "›", and nothing elsewhere. */
   separator?: string;
@@ -51,9 +53,11 @@ function TermChips({
           <Badge asChild variant="secondary">
             <Link href={`/tags/${term.slug}`}>
               {term.label}
-              <span className="ml-1.5 font-mono text-[0.7em] opacity-70">
-                {term.count}
-              </span>
+              {term.count !== undefined && (
+                <span className="ml-1.5 font-mono text-[0.7em] opacity-70">
+                  {term.count}
+                </span>
+              )}
             </Link>
           </Badge>
         </span>
@@ -63,19 +67,20 @@ function TermChips({
 }
 
 /**
- * `/make` scoped to this term (25c).
+ * This term as an encoded `tag:` query — for `/make` scoped to it (25c) and
+ * for `/search`'s full list past the page's cap (34a).
  *
  * The `tag:` value is a carrier's own tag string, not the slug or the label:
  * `tag:` matches tag strings by word prefix, so the slug `slow-cooker` misses
  * "slow cooker" and a record's label "Drinks" misses `drink`. The slug is the
  * fallback, and right whenever the two coincide.
  */
-function makeHref(slug: string, recipes: RecipeListEntry[]): string {
+function tagQuery(slug: string, recipes: RecipeListEntry[]): string {
   const tag =
     recipes
       .flatMap((recipe) => recipe.tags ?? [])
       .find((candidate) => tagSlug(candidate) === slug) ?? slug;
-  return `/make?q=${encodeURIComponent(`tag:${quoteQueryValue(tag)}`)}`;
+  return encodeURIComponent(`tag:${quoteQueryValue(tag)}`);
 }
 
 /**
@@ -100,10 +105,18 @@ export function TermPageBody({ term }: { term: TermPageData }) {
     breadcrumb,
     children,
     recipes,
+    recipeCount,
+    ownRecipeCount,
     groups,
   } = term;
   /* The trail's last element is this term; the chips above it are the trail. */
   const ancestors = breadcrumb.slice(0, -1);
+  /*
+   * The list holds the narrower terms' recipes too (34a, D1). Say so only when
+   * that changes the number, so a leaf's page reads exactly as it did.
+   */
+  const includesNarrower = recipeCount > ownRecipeCount;
+  const query = tagQuery(slug, recipes);
 
   return (
     <>
@@ -143,10 +156,18 @@ export function TermPageBody({ term }: { term: TermPageData }) {
           <TermChips terms={children} testId="term-children" />
         </div>
       )}
+      {includesNarrower && (
+        <p
+          className="my-3 text-sm text-muted-foreground"
+          data-testid="term-recipe-counts"
+        >
+          {ownRecipeCount} here · {recipeCount} including narrower terms
+        </p>
+      )}
       {recipes.length > 0 && (
         <p className="my-3 text-sm">
           <Link
-            href={makeHref(slug, recipes)}
+            href={`/make?q=${query}`}
             className="underline underline-offset-4 hover:text-primary"
             data-testid="term-make-link"
           >
@@ -160,12 +181,33 @@ export function TermPageBody({ term }: { term: TermPageData }) {
          * record's `pinned` list over the fold's rows, so the curated front and
          * the remainder arrive as one list and this component sorts nothing.
          */
-        <RecipeList recipes={recipes} />
+        <>
+          <RecipeList recipes={recipes} />
+          {/*
+            Capped (34a): pinned first, then the newest. The rest are one
+            click away on `/search`, which both apps serve from the client
+            corpus and whose `tag:` expands the subtree exactly as this list
+            does.
+          */}
+          {recipeCount > recipes.length && (
+            <p className="my-4 text-sm">
+              <Link
+                href={`/search?q=${query}`}
+                className="underline underline-offset-4 hover:text-primary"
+                data-testid="term-see-all"
+              >
+                See all {recipeCount} recipes
+              </Link>
+            </p>
+          )}
+        </>
       ) : (
         /*
          * The recipes-only fallback. It can now fire with *everything* empty —
          * a record-only term has no carriers at all and is still a real page —
-         * where before this phase `tagRoute` 404'd that case.
+         * where before this phase `tagRoute` 404'd that case. `recipes` spans
+         * the subtree (34a), so a root whose recipes all carry a narrower term
+         * lists them rather than landing here.
          */
         <EmptyState message={`No recipes are tagged ${label}.`} />
       )}
@@ -194,7 +236,8 @@ export function TermPageBody({ term }: { term: TermPageData }) {
 }
 
 /**
- * One tag's page: everything carrying it, newest first, recipes then groups —
+ * One tag's page: everything carrying it or a narrower term (34a), newest
+ * first, recipes then groups —
  * under the term record's own label, description and picture when it has one.
  *
  * Unpaginated on purpose. The rows come from folded values rather than a

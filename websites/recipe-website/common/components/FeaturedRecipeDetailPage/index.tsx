@@ -40,7 +40,8 @@ export type FeaturedRecipeDetailPageProps = {
     }
   /**
    * A featured term record (24c). Resolved in the route for the same reason the
-   * group's items are — `resolveTermPage` reads six cached values — and handed
+   * group's items are — `resolveTermPage` reads the tree, the record and a
+   * by-term row per key of the term's subtree (34a) — and handed
    * over whole, so this page renders the term exactly as `/tags/<slug>` does.
    */
   | { kind: "term"; term: TermPageData }

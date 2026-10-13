@@ -60,15 +60,22 @@ A term page lists the recipes of the term **and every descendant**, matching
 what `tag:<term>` returns since 24d, with a line "N here · M including
 narrower terms". The empty state shows only when the whole subtree is empty.
 `subtreeSlugs(tree, slug)` in `common/controller/tagVocabulary.ts` is a pure
-walk with a visited set (the `termHierarchy` pattern).
+walk with a visited set (the `termHierarchy` pattern). The list is capped at
+`TERM_PAGE_RECIPE_LIMIT` (48: pins first, then the newest) with a "See all M
+recipes" link to `/search?q=tag:<term>` (added in 34a's review: `/tags/course`
+would otherwise be ~4.4 MB).
 
 ### D2 — Term counts come from per-term reads; engine keying deferred
 
-`resolveTermPage` reads `byTerm.readKey(s)` (recipes and groups) for every
-subtree slug — each read is cached per term (32e, F35) — dedupes by slug,
-sorts newest first by `date`, then applies `pinned`. Breadcrumb and child
-counts come from those same per-key reads, and the term page **stops reading
-the whole `terms` clouds**. No engine change, no spec bump, no reindex. The
+`resolveTermPage` reads `byTerm.readKey(k)` (recipes and groups) for every
+key of `subtreeKeys(tree, slug)` — each subtree slug and the slugs of its
+record's aliases, as `tag:` expands them — each read cached per key (32e,
+F35); it dedupes by slug, sorts newest first by `date`, then applies
+`pinned`. Child counts come from those same per-key reads (each child's
+subtree is inside the page's). **The breadcrumb carries labels only**, from
+the tree: an ancestor's honest count is its whole subtree, which would tie
+every page to its siblings' keys, and its own count reads "Course 0" on the
+facet roots. The term page **stops reading the whole `terms` clouds**. No engine change, no spec bump, no reindex. The
 `/tags` list, autocomplete, ⌘K and Make page chips keep the clouds: they are
 vocabulary-wide by nature. Keying `termsAggregate` in the engine
 (`packages/cms/taxonomies/aggregates.ts`) goes to the backlog, with 34a's
@@ -203,7 +210,7 @@ fitting (savory Thanksgiving sides, drinks). The curator skill says so, and
 | Phase    | Branch                     | Size | Status | What                                                                          |
 | -------- | -------------------------- | ---- | ------ | ----------------------------------------------------------------------------- |
 | 34-plan  | `agent/34-plan`            | S    | 🟡     | This doc.                                                                     |
-| 34a      | `agent/34a-term-pages`     | M    | 📝     | D1, D2: subtree recipes on term pages, counts without the clouds.             |
+| 34a      | `agent/34a-term-pages`     | M    | ✅     | D1, D2: subtree recipes on term pages, counts without the clouds.             |
 | 34b      | `agent/34b-skill-rename`   | S    | ✅     | D3, D4: skill v4 vocabulary; rename keeps the old slug.                       |
 | 34c      | `agent/34c-engine-writes`  | L    | ✅     | D5–D8: ULIDs, the write lock, private-index commits, atomic writes (engine).  |
 | 34d      | `agent/34d-site-writes`    | M    | 📝     | D6, D9, D10 on the site: lock the batch/git/sync seats, `busy`, ULID slugs.   |
@@ -352,6 +359,63 @@ typecheck`, `pnpm exec vitest run`, targeted Playwright in build mode.
 
 ## Traps
 
+### 34a
+
+- **A by-term row carries the recipe's `tags`** (`recipeTagTaxonomy.project`),
+  so assigning one term to a recipe moves the row of _every_ term that
+  recipe carries, not just the new one. The pages a tag write expires are the
+  ancestors-or-self of all of the recipe's terms, not of the assigned term
+  alone. The measurement below counts it that way.
+- **A non-tag edit now expires slightly more than before.** Renaming a recipe
+  or changing its picture moves its rows but leaves the clouds alone. Before
+  34a that expired the pages of its own terms (median 4). Now it also expires
+  their ancestors (median 6). The trade is right: a tag write used to expire
+  all 215 term pages.
+- **The breadcrumb has no counts any more.** An honest ancestor count would be
+  its whole subtree, and reading that would make every leaf page depend on
+  every sibling term, which brings back the expiry problem this phase
+  removes. An ancestor's own count is misleading on the facet roots
+  ("Course 0"). So the breadcrumb chips show labels only (`TermCrumb`).
+  Curation's `term_get` keeps its own `breadcrumb`/`children` with own counts
+  and `counts.own` / `counts.withDescendants`. It does not use `TermPageData`.
+- **A root can't pin descendants' recipes.** The page applies `pinned` to the
+  merged subtree list, but `assertPinned` still accepts only recipes that
+  carry the term itself. A facet root carries nothing, so it has nothing to
+  pin. The edit form reads the term's own row (`byTerm.readKey(tag)`, plus
+  `applyPinned`) for its pin suggestions and existence check rather than the
+  whole page, so it never offers a pin the seat refuses. Letting a root pin
+  subtree recipes is a backlog candidate.
+- **A subtree list is a size problem before it is a cache problem.** A card
+  is ~9.7 KB of HTML and RSC payload (`/tags/drink` on the workstation:
+  2.03 MB for 209 cards), so an uncapped `/tags/course` (450) is ~4.4 MB and
+  would expire on nearly every food-recipe edit. The list is capped at
+  `TERM_PAGE_RECIPE_LIMIT` = 48 (every pin kept, then the newest) with "See
+  all M recipes" → `/search?q=tag:<term>`. Both apps serve the same client
+  `/search` (`SearchPageWrapper`, the corpus from `/search/all` and the
+  expansion from `/search/terms`, static routes on the export), so one link
+  works on both. Groups are not capped: the real corpus has none, and a
+  group card is smaller.
+- **Aliases are keys too.** `tag:` expands each subtree term's alias
+  spellings (`ownAliasSpellings`), so the page reads `readKey(tagSlug(a))`
+  for each alias `a` of each subtree record (`termKeys`) — otherwise a recipe
+  tagged with a descendant's alias is in `tag:dessert` and missing from
+  `/tags/dessert`. An alias whose slug is another record's own slug is left
+  out, as the expansion leaves it out. Two edges can still diverge, both
+  hand-made states the seats refuse: an alias spelled like another record's
+  _label_ (the expansion compares labels, a by-term key is a slug), and the
+  order a hand-edited cycle is walked in.
+- **The editor build prerenders every term page.** On a fresh clone without
+  `transformed-images`, each card's image is transformed at build time and
+  pages time out at 60 s under load. Copy the cache in before measuring a
+  build against a scratch clone.
+- **Only a record has children**, because the tree fold links a child only to
+  a parent node that exists. So a record-less slug's subtree is just itself,
+  `resolveTermPage`'s `null` stays "no record and no carriers", and
+  `readTermPageSlugs` needs no change: a root whose recipes all sit below it
+  is in the tree's keys on both the editor and the export.
+
+### 34b
+
 - **34b — a rename's old slug blocks a new term there.** It is an alias now,
   so `term_create` at that slug is `validation` ("… is an alias of the term
   …"), exactly as after a merge (32i). Take it off the renamed record's
@@ -392,6 +456,76 @@ drink beverage` on a scratch clone (209 recipes, 275 files, one commit)
   `flushPendingIndex`) applies it. Do not "fix" it with `git add`.
 
 ## Results
+
+### 34a — Term pages
+
+- `subtreeSlugs`, `termKeys` / `subtreeKeys` (alias slugs), `mergeTermRows`,
+  `TERM_PAGE_RECIPE_LIMIT` and `termPageData` (the pure half of
+  `resolveTermPage`) in `common/controller/tagVocabulary.ts`. Curation's
+  private `subtreeOf` in `curation/terms.ts` is gone; `getTerm` uses
+  `subtreeSlugs`.
+- `resolveTermPage` reads the tree and the record, then
+  `byTerm.readKey(k)` for recipes and groups for each key of
+  `subtreeKeys` (subtree slugs plus their records' alias slugs). It merges
+  the rows (each carrier once, date then slug descending, the fold's own
+  order) and applies `pinned`. It no longer reads either `terms` cloud. The
+  `/tags` list and tree, autocomplete, ⌘K, the Make page chips and
+  `readTermPageSlugs` still read the clouds. No engine change, no spec bump,
+  no reindex.
+- **Child counts include descendants**: the distinct recipes and groups of
+  the child's whole subtree. That is what the child's own page lists and what
+  `/tags`' tree prints beside it. The breadcrumb shows labels only (Traps).
+- The page shows "N here · M including narrower terms" (`term-recipe-counts`)
+  only when M > N; M is the whole subtree, before the cap. The list shows
+  every pin, then the newest, up to 48, and "See all M recipes"
+  (`term-see-all`) → `/search?q=tag:<term>` when there are more. The empty
+  state shows only when the subtree has no recipes. The export uses the same
+  component through `tagRoute`, and featured-term detail pages pick up the
+  subtree too.
+- **Page size**, a production build of this branch against a scratch clone of
+  the real content (`curl` bytes, HTML with the inline RSC payload):
+  `/tags/course` **498 KB** (48 of 450 cards; uncapped ≈ 4.4 MB at the
+  workstation's ~9.7 KB/card, and 55 KB on main today, where it is the empty
+  state); `/tags/drink` **601 KB**, from **2.03 MB** on the workstation (main,
+  209 cards); `/tags/main-ingredient` 522 KB (48 of 312); `/tags/dessert`
+  517 KB; `/tags/christmas-cookies` 126 KB (8 cards, from 96 KB for 5).
+- Real corpus, read-only from the content files (665 recipes, 0 groups, 128
+  records, 215 term pages): `/tags/course` 0 here · 450;
+  `/tags/main-ingredient` 0 here · 312; `/tags/christmas-cookies` 5 here · 8;
+  `/tags/drink` 209 · 209 (every drink carries `drink`, so no line).
+- **Expiry, one carrier change** (a recipe write that changes its tags):
+  **before**, the `terms` cloud moves, so all **215** term pages expire.
+  **After**, only the pages whose subtree holds one of the moved keys
+  expire: **min 2, median 6, mean 6, p90 8, max 11** over the corpus's
+  recipes. One moved key expires itself plus its ancestors, at most **2**
+  pages, because the deepest chain is two levels (`dessert` → dessert +
+  course; `gin` → gin + spirit; `christmas-cookies` → 1). For a non-tag edit
+  the median goes from 4 to 6 (Traps).
+- Reads: a leaf page does 4 (tree, record, two rows). `/tags/drink` is the
+  widest at 2 × 66 + 2. All 215 pages together do 1,100 cached reads, against
+  1,290 before (six each). The real corpus has no aliases yet, so alias keys
+  add nothing today.
+- The edit form (`tags/[tag]/edit`) reads the term's own rows, not its page
+  (Traps).
+- Tests: `test/tagTerms.test.ts` gains `subtreeSlugs` (order, leaf, missing
+  slug, cycle and self-parent, a childless ghost), `termKeys` /
+  `subtreeKeys`, `mergeTermRows` and `termPageData` (a root with no carriers
+  of its own, child subtree counts, breadcrumb labels, pins over the merged
+  list, the cap with pins kept past it, a descendant's alias carriers,
+  `null`, label fallback). `test/termPageReads.test.ts` mocks the cached
+  readers: `resolveTermPage` reads one key per subtree slug and alias (a key
+  nothing carries included) and never a `terms` cloud or a whole by-term map.
+  `tag-pages.spec.ts` gains four cases on `christmas-cookies`, the fixture
+  unchanged: a root with no carriers of its own (`course` created through
+  the API, `dessert` under it); and three that visit `/tags/dessert`
+  **before** the write, so a stale cached page fails them — a recipe tagged
+  only `cookies` ("8 here · 9 including narrower terms"), the first carrier
+  of a new child `bars` (a ghost key), and a recipe tagged with `cookies`'
+  alias `biscuits`.
+- Verification after the review round: editor typecheck and export `tsc`
+  clean; vitest 58 files, 1238 tests (one CLI process test timed out at 30 s
+  while a build ran beside it, and passed alone); Playwright build mode
+  `tag-pages`, `term-edit`, `featured-recipes`: 80 passed.
 
 ### 34b — Skill v4 + rename alias
 
