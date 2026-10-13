@@ -8,7 +8,7 @@
 > or group slug generation, or the `busy` error code.
 > Update the roadmap **Status** column and the **Now** line at every phase
 > boundary. Earlier epics are cited by number with a prefix (`32-D8`,
-> `24-T26`). `agent-epic-33.md` (the facet vocabulary) and `agent-epic-32.md`
+> `23-T26`). `agent-epic-33.md` (the facet vocabulary) and `agent-epic-32.md`
 > (32d batches, 32e by-term keying, 32i aliases) are the background.
 
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
@@ -33,7 +33,7 @@ Cookies run closed the taxonomy epic (2026-10-13; main `54fe3fbe`, content
    workstation sync's `git status`/`merge` holds `index.lock` and breaks
    writes (epic 33's ninth write); a write that throws after writing leaves
    orphaned files. Creates check-then-write, and default featured slugs
-   resolve to the second, so two in one second 409 (24-T26).
+   resolve to the second, so two in one second 409 (23-T26).
 3. **Term cloud keying.** Term pages read the two whole `terms` clouds for
    breadcrumb and child counts, so any carrier change expires every term
    page.
@@ -145,7 +145,7 @@ raise `CommitFailedError {writeId, touchedPaths}`.
 `content/filesystem.ts` and uploads write `.<name>.<writeId>.tmp`, then
 rename over the target.
 
-### D9 — ULID featured slugs retire 24-T26
+### D9 — ULID featured slugs retire 23-T26
 
 `createFeaturedRecipeSlug` → `ulid(date).toLowerCase()`. The featured index
 key is `[date, slug]`, so ordering is unchanged. `createGroupSlug`'s fallback
@@ -240,7 +240,7 @@ last with the workstation **up**, as the real-world proof of write safety.
 - Tests: pull/restore wait for another process's write lock and never delete
   its files; `busy` maps through HTTP, CLI and MCP; two slug-less features in
   the same second both succeed.
-- Docs: 24-T26 retired in `agent-mcp.md`; epic 33's "stop the workstation
+- Docs: 23-T26 retired in `agent-mcp.md`; epic 33's "stop the workstation
   before scripted writes" trap marked superseded once verified.
 - **Scratch-clone stress run** (never the real repo): clone the content repo
   under the job's tmp dir with a local bare remote; run an instance on it in
