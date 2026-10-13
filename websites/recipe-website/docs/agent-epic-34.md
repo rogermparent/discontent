@@ -203,7 +203,7 @@ fitting (savory Thanksgiving sides, drinks). The curator skill says so, and
 | Phase    | Branch                     | Size | Status | What                                                                          |
 | -------- | -------------------------- | ---- | ------ | ----------------------------------------------------------------------------- |
 | 34-plan  | `agent/34-plan`            | S    | 🟡     | This doc.                                                                     |
-| 34a      | `agent/34a-term-pages`     | M    | 📝     | D1, D2: subtree recipes on term pages, counts without the clouds.             |
+| 34a      | `agent/34a-term-pages`     | M    | ✅     | D1, D2: subtree recipes on term pages, counts without the clouds.             |
 | 34b      | `agent/34b-skill-rename`   | S    | 📝     | D3, D4: skill v4 vocabulary; rename keeps the old slug.                       |
 | 34c      | `agent/34c-engine-writes`  | L    | 📝     | D5–D8: ULIDs, the write lock, private-index commits, atomic writes (engine).  |
 | 34d      | `agent/34d-site-writes`    | M    | 📝     | D6, D9, D10 on the site: lock the batch/git/sync seats, `busy`, ULID slugs.   |
@@ -352,8 +352,78 @@ typecheck`, `pnpm exec vitest run`, targeted Playwright in build mode.
 
 ## Traps
 
-_(Filled in as phases land.)_
+### 34a
+
+- **A by-term row carries the recipe's `tags`** (`recipeTagTaxonomy.project`),
+  so assigning one term to a recipe moves the row of _every_ term that
+  recipe carries, not just the new one. The pages a tag write expires are the
+  ancestors-or-self of all of the recipe's terms, not of the assigned term
+  alone. The measurement below counts it that way.
+- **A non-tag edit now expires slightly more than before.** Renaming a recipe
+  or changing its picture moves its rows but leaves the clouds alone. Before
+  34a that expired the pages of its own terms (median 4). Now it also expires
+  their ancestors (median 6). The trade is right: a tag write used to expire
+  all 215 term pages.
+- **The breadcrumb has no counts any more.** An honest ancestor count would be
+  its whole subtree, and reading that would make every leaf page depend on
+  every sibling term, which brings back the expiry problem this phase
+  removes. An ancestor's own count is misleading on the facet roots
+  ("Course 0"). So the breadcrumb chips show labels only (`TermCrumb`).
+  Curation's `term_get` keeps its own `breadcrumb`/`children` with own counts
+  and `counts.own` / `counts.withDescendants`. It does not use `TermPageData`.
+- **A root can't pin descendants' recipes.** The page applies `pinned` to the
+  merged subtree list, but `assertPinned` still accepts only recipes that
+  carry the term itself. A facet root carries nothing, so it has nothing to
+  pin. The edit form's pin suggestions now list only the term's own carriers
+  (filtered on the row's `tags`), so it never offers a pin the seat refuses.
+  Letting a root pin subtree recipes is a backlog candidate.
+- **Only a record has children**, because the tree fold links a child only to
+  a parent node that exists. So a record-less slug's subtree is just itself,
+  `resolveTermPage`'s `null` stays "no record and no carriers", and
+  `readTermPageSlugs` needs no change: a root whose recipes all sit below it
+  is in the tree's keys on both the editor and the export.
 
 ## Results
 
-_(Filled in as phases land.)_
+### 34a — Term pages
+
+- `subtreeSlugs`, `mergeTermRows` and `termPageData` (the pure half of
+  `resolveTermPage`) in `common/controller/tagVocabulary.ts`. Curation's
+  private `subtreeOf` in `curation/terms.ts` is gone; `getTerm` uses
+  `subtreeSlugs`.
+- `resolveTermPage` reads the tree and the record, then
+  `byTerm.readKey(s)` for recipes and groups for each subtree slug. It merges
+  the rows (each carrier once, date then slug descending, the fold's own
+  order) and applies `pinned`. It no longer reads either `terms` cloud. The
+  `/tags` list and tree, autocomplete, ⌘K, the Make page chips and
+  `readTermPageSlugs` still read the clouds. No engine change, no spec bump,
+  no reindex.
+- **Child counts include descendants**: the distinct recipes and groups of
+  the child's whole subtree. That is what the child's own page lists and what
+  `/tags`' tree prints beside it. The breadcrumb shows labels only (Traps).
+- The page shows "N here · M including narrower terms" (`term-recipe-counts`)
+  only when M > N. The empty state shows only when the subtree has no
+  recipes. The export uses the same component through `tagRoute`, and
+  featured-term detail pages pick up the subtree too.
+- Real corpus, read-only from the content files (665 recipes, 0 groups, 128
+  records, 215 term pages): `/tags/course` 0 here · 450;
+  `/tags/main-ingredient` 0 here · 312; `/tags/christmas-cookies` 5 here · 8;
+  `/tags/drink` 209 · 209 (every drink carries `drink`, so no line).
+- **Expiry, one carrier change** (a recipe write that changes its tags):
+  **before**, the `terms` cloud moves, so all **215** term pages expire.
+  **After**, only the pages whose subtree holds one of the moved keys
+  expire: **min 2, median 6, mean 6, p90 8, max 11** over the corpus's
+  recipes. One moved key expires itself plus its ancestors, at most **2**
+  pages, because the deepest chain is two levels (`dessert` → dessert +
+  course; `gin` → gin + spirit; `christmas-cookies` → 1). For a non-tag edit
+  the median goes from 4 to 6 (Traps).
+- Reads: a leaf page does 4 (tree, record, two rows). `/tags/drink` is the
+  widest at 2 × 66 + 2. All 215 pages together do 1,100 cached reads, against
+  1,290 before (six each).
+- Tests: `test/tagTerms.test.ts` gains `subtreeSlugs` (order, leaf, missing
+  slug, cycle and self-parent, a childless ghost), `mergeTermRows` and
+  `termPageData` (a root with no carriers of its own, child subtree counts,
+  breadcrumb labels, pins over the merged list, `null`, label fallback).
+  `tag-pages.spec.ts` gains "a root with no carriers of its own lists its
+  subtree": it creates `course` through the API and parents `dessert` under
+  it. The fixture is unchanged.
