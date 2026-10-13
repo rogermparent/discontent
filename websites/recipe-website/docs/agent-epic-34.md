@@ -213,7 +213,7 @@ fitting (savory Thanksgiving sides, drinks). The curator skill says so, and
 | 34a      | `agent/34a-term-pages`     | M    | ✅     | D1, D2: subtree recipes on term pages, counts without the clouds.             |
 | 34b      | `agent/34b-skill-rename`   | S    | ✅     | D3, D4: skill v4 vocabulary; rename keeps the old slug.                       |
 | 34c      | `agent/34c-engine-writes`  | L    | ✅     | D5–D8: ULIDs, the write lock, private-index commits, atomic writes (engine).  |
-| 34d      | `agent/34d-site-writes`    | M    | 📝     | D6, D9, D10 on the site: lock the batch/git/sync seats, `busy`, ULID slugs.   |
+| 34d      | `agent/34d-site-writes`    | M    | ✅     | D6, D9, D10 on the site: lock the batch/git/sync seats, `busy`, ULID slugs.   |
 | 34f      | `agent/34f-roundup-import` | M    | ✅     | D11, D12: roundup import (`inspect-list`, `import-list`), skill + Sally's.    |
 | 34e      | content repo only          | M    | 📝     | Seasonal collections (thanksgiving, fall, warm-drinks) and Halloween imports. |
 | 34-close | `agent/34-close`           | S    | 📝     | Results, backlog, the morning checklist.                                      |
@@ -486,6 +486,61 @@ beverage` on a scratch clone (209 recipes, 275 files, one commit) took
   untracked in `git_status`, names the write, and is swept by the next lock
   holder after a takeover (or on a process's first acquisition) once older
   than 60 s.
+
+### 34d
+
+- **The lock is the merge's, not the sync's.** `gitSync` holds the sync repo
+  lock (`instance/lock.ts`) for fetch, media and push, and the write lock only
+  inside `gitPull` (clean check, merge, abort/reset, rebuild). Lock order is
+  repo lock → write lock; a write never takes the repo lock, so a sync waiting
+  on a batch cannot deadlock it. The sync waits up to 60 s
+  (`SYNC_LOCK_TIMEOUT_MS`), then answers `error` with nothing merged; the
+  holder's own commit moves HEAD and triggers the next sync.
+- **`gitPull` takes the lock twice.** A short locked pre-check (dirty tree, a
+  mirror's own commits) refuses before anything goes over the wire, the fetch
+  runs unlocked, then the authoritative check, merge and rebuild run under
+  the lock. A write landing between the two is fine: the second check sees
+  it committed. A clean-tree check outside the lock would be wrong the other
+  way — an engine write mid-flight (files written, commit pending) reads as
+  dirty.
+- **A hand-staged file blocks every merge.** `requireCleanTree` refuses any
+  staged or unstaged change, so with a scratch file staged the sync answers
+  `blocked` as soon as the mirror has commits. That is the design (a merge
+  must not fold someone's half-done work in); the stress run kept the remote
+  passive while the scratch file was staged, then unstaged it for phase 2.
+- **The /git page's pull is two halves now.** `git pull --no-rebase` became
+  `fetch` (unlocked) then `merge --no-edit @{upstream}` (or `FETCH_HEAD` for a
+  named remote without an upstream) under the lock, with the rebuild in the
+  same scope. A conflict is still left for the page's resolver: the lock is
+  released with `MERGE_HEAD` present, and every engine write refuses
+  (`dirty_tree`) until it is committed or aborted — both of which lock.
+- **Retry is the caller's.** The CLI and MCP do not retry `busy` themselves:
+  some seats are not idempotent (an import re-fetches its page under the
+  15 s polite rule, a seat with two unbatched writes would repeat the first),
+  and the message names the holder, which a person or the skill can judge.
+  The skill waits 10–30 s and retries once; a script tests exit 75.
+- **A pending refresh is not dirty.** `gitStatus` leaves pending paths out of
+  `dirty`/`dirtyCount` only while the file still matches HEAD (`git diff
+HEAD`); an edit since counts. `requireCleanTree` flushes them first (2 s on
+  `index.lock`); when `index.lock` is still held it answers `dirty_tree`
+  ("N committed paths are waiting to be re-staged … retry shortly").
+- **A ULID can't be a placeholder.** Server and browser would each make one
+  (a hydration mismatch), so the featured form says "auto" and the group
+  form shows the name's slug, or "auto" when the name slugifies to nothing.
+  Explicit slugs (fixtures, the skill's readable `christmas-cookies-strip`)
+  still work.
+- **`smudge --update` stays unlocked.** The ref watcher's
+  `updateAnnexedWorktree` writes annexed content over pointer files after a
+  HEAD move. It only touches pointer files whose content just arrived, not
+  files a write is making, and it can take minutes for a large video, which
+  would hold every writer off — so it runs outside the write lock; its
+  `index.lock` use is what 34c's pending refresh absorbs.
+- **The CLI's `git sync` takes no repo lock.** Only `syncMirror` (the
+  instance's runner and `/api/git/sync`) does, although `instance/lock.ts`
+  says the CLI is covered. Two syncs at once now serialise their merges on
+  the write lock; their pushes can still race, which is the existing `raced`
+  outcome (seen once in phase 2, and the next sync caught up). Backlog: take
+  `withRepoLock` in the local backend's `gitSync`.
 
 ### 34f
 
@@ -820,6 +875,129 @@ heartbeatMs})`. Also exported: `currentWriteId`, `readWriteLock`,
   - Raw `git commit`s in the site (`commitMerge`, revert) still go through
     the shared index — take the write lock around them.
   - Keep fetches out of the lock.
+
+### 34d — Site writes
+
+- **Lock scopes (D6).** One `withWriteLock` scope each, re-entrant with the
+  engine's own:
+  - `withBatchCommit` (`curation/batch.ts`): the whole batch — every write,
+    the commit and the `(partial)` commit.
+  - `patchInventory` / `setInventory`: read, diff, write (now atomic,
+    `writeFileAtomic`) and commit.
+  - `reindex` (`curation/reindex.ts`), so every rebuild — the CLI's, the
+    banner's, `rebuildAllIndexes`, a foreign-HEAD `reindexWhenForeign` —
+    indexes a tree no write is changing.
+  - `gitRevert` / `gitRestore`: from `requireCleanTree` through the git
+    command, its abort or `reset --hard`, and the rebuild. `gitPull`: the same
+    from the clean check through merge, abort, reset and rebuild, with the
+    fetch outside (Traps). `requireCleanTree` calls `flushPendingIndex` first.
+  - The /git page (`actions/sync.ts`): the pull's merge and rebuild,
+    `resolveConflict`, `commitMerge` (a raw `git commit` through the shared
+    index — a merge commit needs `MERGE_HEAD`), `abortMerge` and "Commit
+    working changes", each with its rebuild; `actions/index.ts`: branch
+    checkout with its rebuild, and `checkout -b`.
+  - The sync: only the merge (`gitPull` inside `gitSync`), waiting up to
+    `SYNC_LOCK_TIMEOUT_MS` = 60 s; a `busy` there is the outcome `error`,
+    nothing merged.
+  - Not locked, on purpose: fetches and pushes, imports and image downloads
+    (the seats fetch before they write), `annex merge`/`copy`, and
+    `smudge --update` (Traps). Seats that write through the engine
+    (recipes, groups, terms, features, uploads) were already locked by 34c.
+- **The timeout: keep 30 s, no automatic retry.** The engine default stays
+  `DISCONTENT_WRITE_LOCK_TIMEOUT_MS` = 30 s for every site caller. The
+  measured holders are short (a write 0.3 s, a full rebuild 0.8–0.9 s here
+  and 2.5 s on the Pi, the stress run's slowest CLI write 15.6 s end to end
+  with a `tsx` start); the one long holder is a big batch (17.5 s for a
+  209-carrier rename here), which on the Pi could pass 30 s. That batch is a
+  curator's own call, so the writer it delays is rare, and `busy` tells it
+  who and how long. A form waiting longer than 30 s is worse than a clear
+  "busy, retry" message; scripts and agents retry on `busy` / exit 75 (the
+  skill: wait 10–30 s, retry once). Only the unattended sync waits longer
+  (60 s, inside the 120 s a mirror's ping allows). A deployment that wants
+  more sets the env (e.g. the Pi's container).
+- **`busy` (D10).** `RepositoryBusyError` → `busy` in `toErrorObject`
+  (`CommitConflictError` → `git_conflict`, `MergeInProgressError` →
+  `dirty_tree` alongside); `statusFor("busy")` = 503 and `errorResponse` adds
+  `Retry-After: 5`; the HTTP backend rehydrates the body's code and maps a
+  bare 503 to `busy`; `exitCodeFor` = **75** (`EX_TEMPFAIL`), listed in
+  `recipes --help` with the env; the MCP instructions' code list, with "wait a
+  few seconds and make the same call again"; `isBusyError` for callers that
+  branch. Editor forms already showed the engine's message through
+  `genericActions` (34c); the site's actions pass it through
+  (`toErrorObject` / `normalizeError`), and the stale-index banner's rebuild
+  leaves the banner up on `busy` instead of throwing. 23-T25's chain and
+  23-T26's retirement are in `agent-mcp.md`; SKILL.md says what `busy` means.
+- **Pending index paths.** `SyncStatus.pendingIndex` (`readPendingIndex`) in
+  `gitStatus`, so in `git_status`, `/api/git/status` and `recipes git status`
+  ("N committed paths waiting to be re-staged …"); the /git page shows "N
+  paths waiting to be re-staged — they're committed; the index catches up
+  automatically" (`git-pending-index`). Pending paths whose files still match
+  HEAD are left out of `dirty`, so the page no longer offers "Commit working
+  changes" for a write that already landed.
+- **ULID slugs (D9).** `createFeaturedRecipeSlug` → `ulid(date).toLowerCase()`
+  (out-of-range dates fall back to now); `createGroupSlug`'s fallback →
+  `group-<ulid>`, with `groupSlugFromName` as the deterministic half. The
+  featured form's slug field is blank with an "auto" placeholder; the action
+  fills it in. The seat comment, the `feature` tool description and SKILL.md
+  no longer ask for explicit slugs. No index layout change: the key is still
+  `[date, slug]`. Nothing parsed the old default format; the explicit slugs
+  in Playwright fixtures and `reference-updates.spec.ts` stay.
+- **Tests.** `test/siteWrites.test.ts` (10): a second `tsx` process holds the
+  lock, writes a file after 300 ms and commits it 700 ms later — `gitRestore`
+  and `gitPull` wait (≥ 0.9 s), the file is on disk and in HEAD before their
+  own commit, the tree is clean; `busy` from a seat (`createRecipe`,
+  `patchInventory`) with a 200 ms timeout → code, 503, `Retry-After`, exit
+  75, nothing written; the HTTP backend from our body and from a bare 503;
+  MCP `term_create` → `isError`, `code: "busy"`; the CLI process → exit 75
+  and `--json` code `busy`; `gitSync` → `error`, nothing merged, then
+  `synced` once released; two slug-less features with one `date` → two ULID
+  slugs whose time is that date; `group-<ulid>`; `git_status` with a pending
+  refresh (named, not dirty; dirty again once edited; a restore refuses while
+  `index.lock` is held and flushes after). `test/curation.test.ts`'s D8
+  boundary admits `git/writeLock` and `fs/atomicWrite`.
+- **Verification.** Editor typecheck and export `tsc` clean; vitest **65
+  files / 1336 tests**; recipe Playwright in build mode (`git`, `sync`,
+  `featured`, `api-write`, `groups`, `term`): **145 passed**.
+- **Scratch-clone stress run** (content repo at `35e0d1d`, cloned under the
+  job's tmp dir, with a local bare remote as `origin`; both annex-initialised,
+  `annex.largefiles=largerthan=500kb` in the clone; reindexed). A
+  workstation-mode editor — this branch's production build, `next start` on
+  :3047, `EDITOR_ROLE` unset, `mirrors: ["origin"]` — synced on every HEAD
+  move. A scratch file was staged by hand first. Three loops in parallel, all
+  CLI with `--content-dir`: A, 15 × (`term create`, `term update`); B, six
+  bursts of four concurrent slug-less `feature`s, each followed by a
+  `term create`, plus one `image --file` of a 1.23 MB JPEG; S, a CLI
+  `git sync` every 20 s (5), then a final one.
+
+  | Check                             | Result                                                                                                    |
+  | --------------------------------- | --------------------------------------------------------------------------------------------------------- |
+  | Commands                          | 61 writes + 6 syncs, **every exit 0**, 0 `busy` retries                                                   |
+  | Commits = writes                  | **61 = 61** (21 term creates, 15 updates, 24 features, 1 image), 0 merges                                 |
+  | Scratch file                      | still staged (`A scratch-34d.txt`), in no commit; nothing else staged                                     |
+  | Remote level after the final sync | yes (same HEAD)                                                                                           |
+  | Image                             | annexed pointer in HEAD, content in the work tree, `whereis`: here **and origin** (the sync's media step) |
+  | Leftovers                         | 0 `discontent-index-*`, 0 lock files, no `index.lock`, 0 `*.tmp`, nothing pending                         |
+  | Slug-less features                | 24 unique ULID slugs; every burst put 3–4 in the same second                                              |
+  | Instance syncs                    | 18 (14 `synced`, 4 `nothing`); CLI syncs 6 × `synced`; 0 foreign reindexes                                |
+  | Duration                          | 183 s; per write min 4.4 s / median 6.8 s / max 15.6 s (a `tsx` start each, under load)                   |
+
+  **Phase 2, merges under the lock:** the scratch file unstaged; a second
+  clone of the bare ("the Pi") pushed three commits 12 s apart while loop C
+  made 10 `term create`s. All 11 commands exit 0; the instance merged the
+  Pi's commits in three merge commits between the writes (one `raced`
+  outcome when the Pi pushed mid-sync, caught up by the next); 10 + 3
+  non-merge commits; the tree clean; the remote level; `git_status`: not
+  dirty, `indexStale: false`, nothing pending; the indexes list all 31
+  stress terms and 45 features. This is epic 33's failing scenario (the
+  sync's `status`/`merge` holding `index.lock` under a burst of CLI writes),
+  and nothing failed. The clones were deleted afterwards.
+
+- **Before 34e applies content to the real repo:** the workstation must run
+  this build (`pnpm workstation update`, Roger's) — until then its sync
+  merges without the write lock, so epic 33's "stop the workstation first"
+  still applies. Once updated, scripted runs can leave it up; still `POST
+/api/revalidate` after a CLI run (a separate process cannot expire the
+  editor's caches).
 
 ### 34f — Roundup import
 
