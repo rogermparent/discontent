@@ -17,6 +17,10 @@
  * only, which left groups, term records and pages describing the tree from
  * before the pull.
  *
+ * Since 34d (epic 34 D6) every action that writes the work tree, the index or
+ * HEAD holds the repository's write lock together with its rebuild — see
+ * `locked` — and network (fetch, push) stays outside it.
+ *
  * The wrappers below are deliberately shape-preserving: `getCommitDiff` still
  * answers with its error *as the diff string* and `getCommitLogPage` still
  * swallows failures into an empty page, because the components render those
@@ -30,7 +34,12 @@ import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import {
   directoryIsGitRepo,
   commitContentChanges,
+  flushPendingIndex,
 } from "@discontent/cms/git/commit";
+import {
+  RepositoryBusyError,
+  withWriteLock,
+} from "@discontent/cms/git/writeLock";
 import { readContext } from "../apiContext";
 import type { CurationContext } from "../curation/context";
 import { CurationError } from "../curation/errors";
@@ -102,7 +111,18 @@ export async function getIndexFreshness() {
 export async function rebuildIndexesAction(): Promise<void> {
   const session = await auth();
   if (!session?.user?.email) return;
-  await rebuildAllIndexes();
+  try {
+    await rebuildAllIndexes();
+  } catch (error) {
+    /*
+     * A form action with no message slot: a write holding the lock past the
+     * wait (34d, `busy`) leaves the banner up for another click, rather than
+     * throwing the page into its error boundary.
+     */
+    if (!(error instanceof RepositoryBusyError)) throw error;
+    console.warn(`[git] rebuild skipped: ${error.message}`);
+    return;
+  }
   revalidatePath("/git");
   revalidatePath("/settings/maintenance");
 }
@@ -113,33 +133,58 @@ async function doFetch(git: SimpleGit, remote?: string): Promise<void> {
   await git.raw(args);
 }
 
+/**
+ * Run `fn` under the content repository's write lock (34d, epic 34 D6): every
+ * page action below that writes the work tree, the index or HEAD — the merge
+ * half of a pull, a conflict resolution, the merge commit, an abort, "Commit
+ * working changes" — together with the rebuild that follows it. A write in
+ * another process (the CLI, MCP, a script) waits for it rather than landing
+ * files mid-merge; one that waits too long gets `busy`, and so does this
+ * action, whose message then names the holder.
+ */
+function locked<T>(
+  contentDirectory: string,
+  op: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return withWriteLock(contentDirectory, op, fn);
+}
+
+/**
+ * `git pull --no-rebase --no-edit`, in its two halves (34d): the fetch over
+ * the network, unlocked, then the merge and the rebuild under the write lock.
+ *
+ * `--no-rebase` was not a preference, it is what made the old single `git
+ * pull` deterministic. A bare `git pull` consults the *user's* `pull.rebase`:
+ * unset, git ≥2.34 refuses divergent branches outright ("you need to specify
+ * how to reconcile them"); set to true, it rebases. Either way the merge this
+ * UI is built around never happens — `mergeInProgress` stays false, the
+ * conflict resolver never appears, and `merge --abort` has nothing to abort.
+ * Fetch-then-`merge` keeps that (it passed locally only because the
+ * developer's global config happened to say `pull.rebase=false`; in a
+ * container with no git config, three conflict-resolution tests failed on an
+ * empty page). The upstream case merges `@{upstream}`; a named remote without
+ * one merges what `fetch <remote> <branch>` left in `FETCH_HEAD`, as `git
+ * pull <remote> <branch>` does.
+ *
+ * Unlike the agents' `gitPull`, a conflict is left in place for the page's
+ * resolver — the lock is released with `MERGE_HEAD` present, and every engine
+ * write refuses (`dirty_tree`) until it is committed or aborted.
+ */
 async function doPull(
   git: SimpleGit,
   contentDirectory: string,
   remote?: string,
 ): Promise<{ conflict: boolean; error?: string }> {
+  let target: string;
   try {
     const status = await git.status();
-    // `--no-rebase` is not a preference, it is what makes this deterministic.
-    // A bare `git pull` consults the *user's* `pull.rebase`: unset, git ≥2.34
-    // refuses divergent branches outright ("you need to specify how to reconcile
-    // them"); set to true, it rebases. Either way the merge this UI is built
-    // around never happens — `mergeInProgress` stays false, the conflict
-    // resolver never appears, and `merge --abort` has nothing to abort.
-    //
-    // It was passing locally only because the developer's global config happened
-    // to say `pull.rebase=false`; in a container with no git config, three
-    // conflict-resolution tests failed on an empty page.
     if (status.tracking) {
-      await git.raw(["pull", "--no-rebase", "--no-edit"]);
+      await git.raw(["fetch", "--prune"]);
+      target = "@{upstream}";
     } else if (remote && status.current) {
-      await git.raw([
-        "pull",
-        "--no-rebase",
-        "--no-edit",
-        remote,
-        status.current,
-      ]);
+      await git.raw(["fetch", remote, status.current]);
+      target = "FETCH_HEAD";
     } else {
       return {
         conflict: false,
@@ -147,22 +192,33 @@ async function doPull(
           "No upstream configured. Choose a remote and use “Set upstream & push” first.",
       };
     }
-    /*
-     * A conflicted pull can *resolve*: git prints the CONFLICT lines on stdout
-     * and exits 1, and `simple-git`'s `raw` only rejects on stderr (epic-27
-     * T3). So ask the repository, or the caller rebuilds every index over
-     * files full of conflict markers.
-     */
-    if (await mergeInProgress(contentDirectory)) return { conflict: true };
-    return { conflict: false };
   } catch (e) {
-    const inMerge = await mergeInProgress(contentDirectory);
-    const status = await git.status().catch(() => null);
-    if (inMerge || (status && status.conflicted.length > 0)) {
-      return { conflict: true };
-    }
     return { conflict: false, error: normalizeError(e) };
   }
+
+  return locked(contentDirectory, "git pull (Git page)", async () => {
+    try {
+      /* Committed paths the shared index is behind on would block the merge. */
+      await flushPendingIndex(contentDirectory);
+      await git.raw(["merge", "--no-edit", target]);
+      /*
+       * A conflicted merge can *resolve*: git prints the CONFLICT lines on
+       * stdout and exits 1, and `simple-git`'s `raw` only rejects on stderr
+       * (epic-27 T3). So ask the repository, or the rebuild below runs over
+       * files full of conflict markers.
+       */
+      if (await mergeInProgress(contentDirectory)) return { conflict: true };
+    } catch (e) {
+      const inMerge = await mergeInProgress(contentDirectory);
+      const status = await git.status().catch(() => null);
+      if (inMerge || (status && status.conflicted.length > 0)) {
+        return { conflict: true };
+      }
+      return { conflict: false, error: normalizeError(e) };
+    }
+    await rebuildAllIndexes();
+    return { conflict: false };
+  });
 }
 
 /**
@@ -204,6 +260,7 @@ async function doSync(
   }
 
   if (status.behind > 0 || (!status.tracking && remote)) {
+    /* The merge rebuilds every index, under the same lock. */
     const result = await doPull(git, contentDirectory, remote);
     if (result.error) return result.error;
     if (result.conflict) {
@@ -211,7 +268,6 @@ async function doSync(
       revalidatePath("/git");
       return null;
     }
-    await rebuildAllIndexes();
   }
 
   if (await mergeInProgress(contentDirectory)) {
@@ -275,7 +331,6 @@ export async function remoteCommandAction(
           revalidatePath("/git");
           return null;
         }
-        await rebuildAllIndexes();
         break;
       }
       case "push": {
@@ -329,8 +384,10 @@ export async function resolveConflict(
 
   try {
     const git = getGit(contentDirectory);
-    await git.raw(["checkout", `--${choice}`, "--", path]);
-    await git.add(path);
+    await locked(contentDirectory, `resolve conflict: ${path}`, async () => {
+      await git.raw(["checkout", `--${choice}`, "--", path]);
+      await git.add(path);
+    });
   } catch (e) {
     return normalizeError(e);
   }
@@ -350,25 +407,33 @@ export async function commitMerge(
   const { email } = session.user;
 
   const contentDirectory = getContentDirectory();
-  if (!(await mergeInProgress(contentDirectory))) {
-    return "No merge in progress.";
-  }
-
   const git = getGit(contentDirectory);
-  const status = await git.status();
-  if (status.conflicted.length > 0) {
-    return "Resolve all conflicts before completing the merge.";
-  }
-
+  let refusal: string | null = null;
   try {
-    await git.commit(MERGE_COMMIT_MESSAGE, {
-      "--author": `${email} <${email}>`,
+    /*
+     * A raw `git commit` through the shared index — a merge commit needs
+     * `MERGE_HEAD`, which the engine's private-index commits refuse — so it
+     * and the rebuild after it hold the write lock (34c's "For 34d").
+     */
+    refusal = await locked(contentDirectory, "commit merge", async () => {
+      if (!(await mergeInProgress(contentDirectory))) {
+        return "No merge in progress.";
+      }
+      const status = await git.status();
+      if (status.conflicted.length > 0) {
+        return "Resolve all conflicts before completing the merge.";
+      }
+      await git.commit(MERGE_COMMIT_MESSAGE, {
+        "--author": `${email} <${email}>`,
+      });
+      await rebuildAllIndexes();
+      return null;
     });
   } catch (e) {
     return normalizeError(e);
   }
+  if (refusal) return refusal;
 
-  await rebuildAllIndexes();
   revalidatePath("/git");
   return null;
 }
@@ -388,12 +453,14 @@ export async function abortMerge(
   }
 
   try {
-    await getGit(contentDirectory).raw(["merge", "--abort"]);
+    await locked(contentDirectory, "abort merge", async () => {
+      await getGit(contentDirectory).raw(["merge", "--abort"]);
+      await rebuildAllIndexes();
+    });
   } catch (e) {
     return normalizeError(e);
   }
 
-  await rebuildAllIndexes();
   revalidatePath("/git");
   return null;
 }
@@ -414,15 +481,23 @@ export async function commitWorkingChanges(
   }
 
   try {
-    await commitContentChanges("Commit working changes", {
-      name: email,
-      email,
+    /*
+     * The commit takes the lock itself; holding it here too keeps the rebuild
+     * in the same scope, so it indexes exactly the tree that was committed.
+     */
+    await locked(contentDirectory, "commit working changes", async () => {
+      await commitContentChanges(
+        "Commit working changes",
+        { name: email, email },
+        undefined,
+        contentDirectory,
+      );
+      await rebuildAllIndexes();
     });
   } catch (e) {
     return normalizeError(e);
   }
 
-  await rebuildAllIndexes();
   revalidatePath("/git");
   return null;
 }

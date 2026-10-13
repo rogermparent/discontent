@@ -17,7 +17,14 @@
  * 3. `merge` when the mirror has commits we don't — `gitPull`, which rebuilds
  *    every index and fires `onBulkChange`, and aborts a conflict, leaving the
  *    tree as it was → `conflict`. Never auto-resolved: a person pulls from
- *    `/git`, where the resolver is.
+ *    `/git`, where the resolver is. **The only step under the repository's
+ *    write lock** (34d, epic 34 D6): the merge, its abort and the rebuild.
+ *    Fetch, media and push are network and run under the sync's repo lock
+ *    alone (`instance/lock.ts`), so writes keep landing meanwhile. Lock order
+ *    is always the repo lock, then the write lock; a write never takes the
+ *    repo lock, so the two cannot deadlock. A write that holds the lock past
+ *    `SYNC_LOCK_TIMEOUT_MS` → `error`, nothing merged; its commit triggers
+ *    the next sync.
  * 4. `media` — git-annex content both ways and the `git-annex` branch
  *    (`annex.ts`, 28e), once both sides are annexed; `skipped` before.
  *    A failure here does not stop the push — the commits still go, the
@@ -50,6 +57,7 @@ import {
   GitConflictError,
   NotARepoError,
   ValidationError,
+  isBusyError,
 } from "./errors";
 import { syncMedia } from "./annex";
 import { gitPull, mergeInProgress } from "./git";
@@ -66,6 +74,8 @@ export interface GitSyncOptions {
   /** The mirror's remote name here. Defaults to the upstream's remote. */
   remote?: string;
   mirror?: SyncMirrorTarget;
+  /** The merge step's wait for the write lock; `SYNC_LOCK_TIMEOUT_MS` by default. Not on the wire. */
+  lockTimeoutMs?: number;
 }
 
 export type SyncStepName = "preflight" | "fetch" | "merge" | "media" | "push";
@@ -94,6 +104,15 @@ export interface SyncResult {
 /* `execFile`, not `execa`: execa is ESM-only and the CLI runs under `tsx` as
  * CommonJS (the same reason as `controller/ytdlp.ts`). */
 const run = promisify(execFile);
+
+/**
+ * How long the merge step waits for the repository's write lock (34d): twice
+ * the engine's 30 s default. A sync runs unattended, and the long holder is a
+ * multi-record batch (17.5 s for a 209-recipe rename on the workstation), so
+ * waiting it out beats a failed run — while staying well inside the 120 s a
+ * mirror's ping waits for the answer (`instance/pinger.ts`).
+ */
+export const SYNC_LOCK_TIMEOUT_MS = 60_000;
 
 const REMOTE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const HOST_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._@-]*$/;
@@ -155,7 +174,7 @@ async function mirrorDirtyFiles(
 
 export async function gitSync(
   ctx: CurationContext,
-  { remote, mirror }: GitSyncOptions = {},
+  { remote, mirror, lockTimeoutMs }: GitSyncOptions = {},
 ): Promise<SyncResult> {
   if (isMirror()) {
     throw new ForbiddenError(mirrorRefusal("syncing"));
@@ -270,7 +289,10 @@ export async function gitSync(
   const behind = await count(git, `HEAD..${remoteBranch}`).catch(() => 0);
   if (behind > 0) {
     try {
-      const result = await gitPull(ctx, { remote: target });
+      const result = await gitPull(ctx, {
+        remote: target,
+        lockTimeoutMs: lockTimeoutMs ?? SYNC_LOCK_TIMEOUT_MS,
+      });
       pulled = result.newCommits;
       steps.push({
         step: "merge",
@@ -290,6 +312,17 @@ export async function gitSync(
         return finish(
           "blocked",
           `Uncommitted changes here stop the merge: ${error.message}`,
+        );
+      }
+      /*
+       * A write held the lock past the sync's wait (34d): nothing was merged
+       * and nothing is wrong. That write's commit moves HEAD, which triggers
+       * the next sync; until then the outcome says why this one stopped.
+       */
+      if (isBusyError(error)) {
+        return finish(
+          "error",
+          `Nothing was merged: ${messageOf(error)} The next sync tries again.`,
         );
       }
       throw error;

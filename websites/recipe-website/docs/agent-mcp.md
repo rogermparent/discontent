@@ -168,6 +168,7 @@ note?}` (`common/controller/types.ts`), `GroupItemObjectSchema` is strict
    status is a type error). Codes today: `not_found` 404, `validation` and
    `usage` 400, `unauthenticated` 401, `slug_conflict` 409, `unknown_recipe`
    422, `import_failed` 502, `no_git_identity` and `internal` 500.
+   (Later: the 23c/23d/24c/31c codes, and `busy` 503 at 34d — T25.)
 8. **Search** is unranked, newest-first, free-text words ANDed; query
    language in `common/components/SearchForm/queryLanguage.ts` (fields
    `tag`, `ingredient`, `name`, `description`, `group`, `time`, `before`,
@@ -809,11 +810,20 @@ runtime = "nodejs"`** so Next does not attempt the edge runtime.
 - **T25 `statusFor` is exhaustive.** Adding a `CurationErrorCode` without a
   case in `curation/http.ts` `statusFor` is a type error; the HTTP backend's
   `rehydrate` and `codeForStatus` also need the new code and status, or a
-  remote failure prints as `internal`.
-- **T26 Default featured slugs collide within a second.**
-  `createDefaultFeaturedRecipeSlug` is `YYYY-MM-DD-HH-MM-SS` in local time,
-  so two `feature` calls in one second conflict (409). Tests pass explicit
-  `slug`s; agents that feature several targets in a burst should too.
+  remote failure prints as `internal`. _34d (epic 34, D10):_ `busy` joined
+  the chain — `RepositoryBusyError` (another write holds the content
+  repository's write lock) → `busy`, **503** with `Retry-After: 5`, retryable;
+  `codeForStatus(503)` → `busy`; the CLI exits **75** (`EX_TEMPFAIL`); the
+  MCP instructions list it and say to wait and retry. The engine's
+  `CommitConflictError` → `git_conflict` and `MergeInProgressError` →
+  `dirty_tree` map in `toErrorObject` too.
+- **T26 Default featured slugs collide within a second.** ⤴️ **Retired by
+  34-D9** (`agent-epic-34.md`, 34d): the default is now a lowercase ULID for
+  the feature's date (`createFeaturedRecipeSlug.ts`), unique per call, so
+  slug-less features in a burst all land; the featured index key is still
+  `[date, slug]`, so ordering is unchanged. _Was:_ `YYYY-MM-DD-HH-MM-SS` in
+  local time, so two `feature` calls in one second conflicted (409), and tests and
+  agents passed explicit `slug`s. Explicit slugs in fixtures stay valid.
 
 - **T27 `${VAR}` without `:-` in `.mcp.json` is passed through literally
   when unset.** Claude Code keeps an unexpanded `${VAR}` as the literal
@@ -983,7 +993,7 @@ data : JSON.stringify(data)` (`playwright-core/lib/client/fetch.js`), so the
   `cascadeDependents: false` commits a stray `featured-recipes/`
   environment. `build-fixture-indexes.ts` rebuilds every fixture (T41) —
   never for one. And T26 restated: explicit `slug` on `feature` in any test
-  or run that features more than once.
+  or run that features more than once (retired by 34-D9: ULID defaults).
 
 ## Stacked-PR roadmap
 

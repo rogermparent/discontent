@@ -20,9 +20,11 @@
  * `searchRecipes`, which is what lets 24d's term resolver reach it later
  * without a change here.
  */
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { writeFileAtomic } from "@discontent/cms/fs/atomicWrite";
 import { commitContentChanges } from "@discontent/cms/git/commit";
+import { withWriteLock } from "@discontent/cms/git/writeLock";
 import { readContentIndex } from "@discontent/cms/content/readContentIndex";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
 import type {
@@ -115,14 +117,17 @@ function describe(added: string[], removed: string[]): string {
   return text;
 }
 
+/** Called under the write lock, which `patchInventory` / `setInventory` hold. */
 async function writeInventory(
   ctx: CurationContext,
   items: string[],
   message: string,
 ): Promise<void> {
-  const file = inventoryPath(ctx);
-  await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, `${JSON.stringify({ items }, null, 2)}\n`);
+  /* Atomic (D8): a reader never sees half a list, a crash never leaves one. */
+  await writeFileAtomic(
+    inventoryPath(ctx),
+    `${JSON.stringify({ items }, null, 2)}\n`,
+  );
   await commitContentChanges(
     message,
     ctx.author,
@@ -131,12 +136,27 @@ async function writeInventory(
   );
 }
 
-/** Remove first, then add; one commit, or none when nothing moved. */
+/**
+ * Remove first, then add; one commit, or none when nothing moved.
+ *
+ * The read, the diff, the write and the commit are one write-lock scope (34d,
+ * epic 34 D6): a read-modify-write of one shared file, so two saves at once —
+ * `/make` and an agent's `inventory_add` — must not both read the old list.
+ */
 export async function patchInventory(
   ctx: CurationContext,
   raw: unknown,
 ): Promise<InventoryWriteResult> {
   const input = parseInput(InventoryPatchSchema, raw);
+  return withWriteLock(ctx.contentDirectory, "inventory: update", () =>
+    patchInventoryLocked(ctx, input),
+  );
+}
+
+async function patchInventoryLocked(
+  ctx: CurationContext,
+  input: ReturnType<typeof InventoryPatchSchema.parse>,
+): Promise<InventoryWriteResult> {
   const { items: current, path: file } = await readInventory(ctx);
 
   const removeKeys = new Set((input.remove ?? []).map(inventoryKey));
@@ -178,12 +198,25 @@ export async function patchInventory(
   };
 }
 
-/** Replace the whole list. The one inventory write held back from agents. */
+/**
+ * Replace the whole list. The one inventory write held back from agents.
+ * Locked like `patchInventory`, so its added/removed are against the list it
+ * replaced.
+ */
 export async function setInventory(
   ctx: CurationContext,
   raw: unknown,
 ): Promise<InventoryWriteResult> {
   const input = parseInput(InventorySetSchema, raw);
+  return withWriteLock(ctx.contentDirectory, "inventory: replace", () =>
+    setInventoryLocked(ctx, input),
+  );
+}
+
+async function setInventoryLocked(
+  ctx: CurationContext,
+  input: ReturnType<typeof InventorySetSchema.parse>,
+): Promise<InventoryWriteResult> {
   const { items: current, path: file } = await readInventory(ctx);
   const items = sorted(dedupeItems(input.items));
   const nextKeys = new Set(items.map(inventoryKey));

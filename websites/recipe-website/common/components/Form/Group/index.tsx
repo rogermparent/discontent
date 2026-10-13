@@ -19,7 +19,7 @@ import type { StaticImageProps } from "@discontent/next-static-image/src";
 import { ImageInput } from "recipe-website-common/components/Form/Image";
 import { RecipeSelectInput } from "recipe-website-common/components/Form/inputs/RecipeSelect";
 import { GroupSelectInput } from "recipe-website-common/components/Form/inputs/GroupSelect";
-import createDefaultGroupSlug from "recipe-website-common/controller/createGroupSlug";
+import { groupSlugFromName } from "recipe-website-common/controller/createGroupSlug";
 import { normalizeTag } from "recipe-website-common/controller/normalizeTags";
 import type { GroupFormState } from "recipe-website-common/controller/groupFormState";
 import type { Group, GroupItem } from "recipe-website-common/controller/types";
@@ -113,17 +113,17 @@ export default function GroupFields({
       setTagValues((current) => current.filter((_, i) => i !== index)),
   };
 
-  const [defaultDate] = useState<number>(() => Date.now());
   const [nameValue, setNameValue] = useState<string>(name ?? "");
   /*
    * The slug placeholder tracks the name as it is typed, which is what makes
    * the Advanced block honest: it shows the slug the server would derive, and
    * the server derives it with the same function.
    */
-  const slugPlaceholder = slugify(
-    slug ||
-      createDefaultGroupSlug({ name: nameValue, date: date ?? defaultDate }),
-  );
+  const slugPlaceholder =
+    slugify(slug || groupSlugFromName(nameValue)) ||
+    /* A name that slugifies to nothing gets `group-<ulid>`, made by the
+     * action — random, so it is not rendered here (epic 34, D9). */
+    "auto";
 
   /*
    * The next id is one past the largest one live, derived from the rows

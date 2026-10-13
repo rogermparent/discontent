@@ -1741,6 +1741,11 @@ const ALLOWED: RegExp[] = [
   /* `indexStamp` joined at 27b: the HEAD the indexes were built from, read
    * and written with `simple-git` and `fs` alone — the standing `commit` has. */
   /^@discontent\/cms\/git\/(commit|indexStamp|syncState)$/,
+  /* The write lock and atomic writes joined at 34d (epic 34, D6/D8): plain
+   * Node — `fs`, `AsyncLocalStorage`, the engine's own `run` — and the locks
+   * the batch, inventory, git and reindex seats take. */
+  /^@discontent\/cms\/git\/writeLock$/,
+  /^@discontent\/cms\/fs\/atomicWrite$/,
   /* `featuredRecipeContentConfig` and its default slug joined at 23a (D5): a
    * content config and a pure string builder, neither of which touches Next. */
   /* `tagTermContentConfig` joined at 24c, for the same standing the other three

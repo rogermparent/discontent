@@ -9,6 +9,11 @@
  * call site wrap them.
  */
 import { SlugConflictError } from "@discontent/cms/content/createContent";
+import {
+  CommitConflictError,
+  MergeInProgressError,
+} from "@discontent/cms/git/commit";
+import { RepositoryBusyError } from "@discontent/cms/git/writeLock";
 import { z } from "zod";
 
 export { SlugConflictError };
@@ -92,6 +97,18 @@ export type CurationErrorCode =
    * can only undo with a `-m` choice nobody here is in a position to make.
    */
   | "bad_revision"
+  /**
+   * Another write holds the content repository's write lock (epic 34,
+   * D6/D10), and this one gave up waiting for it
+   * (`DISCONTENT_WRITE_LOCK_TIMEOUT_MS`, 30 s by default). The engine's
+   * `RepositoryBusyError`; the message names the holder — its operation, pid,
+   * host and age.
+   *
+   * The one retryable failure: nothing was written (the lock is taken before
+   * anything is), so the same call after a short wait is the answer. 503 over
+   * HTTP, exit 75 (`EX_TEMPFAIL`) from the CLI.
+   */
+  | "busy"
   /**
    * Only ever produced over HTTP, and listed here anyway: the HTTP backend
    * rehydrates a server error body into a `CurationError`, so a code this union
@@ -425,6 +442,20 @@ export function toErrorObject(error: unknown): ErrorObject {
       },
     };
   }
+  /*
+   * The engine's three write refusals (epic 34, D7/D10), which arrive from
+   * below this layer like `SlugConflictError` does. Their messages already
+   * say what happened and what to do, so they pass through as they are.
+   */
+  if (error instanceof RepositoryBusyError) {
+    return { error: { code: "busy", message: error.message } };
+  }
+  if (error instanceof CommitConflictError) {
+    return { error: { code: "git_conflict", message: error.message } };
+  }
+  if (error instanceof MergeInProgressError) {
+    return { error: { code: "dirty_tree", message: error.message } };
+  }
   if (error instanceof z.ZodError) {
     return {
       error: {
@@ -451,12 +482,29 @@ export function toErrorObject(error: unknown): ErrorObject {
 }
 
 /**
- * 2 for a slug conflict, 1 for everything else.
+ * 2 for a slug conflict, 75 for `busy`, 1 for everything else.
  *
  * A conflict is the one failure a caller routinely *plans* for — the curator
  * skill retries with a different slug rather than stopping — so it is worth a
- * code of its own that a shell can branch on without parsing stdout.
+ * code of its own that a shell can branch on without parsing stdout. `busy`
+ * (34d) is the other: the same command again after a short wait is the
+ * answer, so it gets sysexits' `EX_TEMPFAIL`, which is what a script's retry
+ * loop already tests for.
  */
-export function exitCodeFor(error: unknown): 1 | 2 {
-  return toErrorObject(error).error.code === "slug_conflict" ? 2 : 1;
+export function exitCodeFor(error: unknown): 1 | 2 | 75 {
+  const { code } = toErrorObject(error).error;
+  if (code === "slug_conflict") return 2;
+  if (code === "busy") return 75;
+  return 1;
+}
+
+/**
+ * Whether `error` is the repository's write lock refusing (D10), from below
+ * this layer or rehydrated from an editor's 503.
+ */
+export function isBusyError(error: unknown): boolean {
+  return (
+    error instanceof RepositoryBusyError ||
+    (error instanceof CurationError && error.code === "busy")
+  );
 }

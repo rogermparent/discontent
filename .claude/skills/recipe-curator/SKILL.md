@@ -10,7 +10,11 @@ The ask is `$ARGUMENTS` (or the user's message when invoked by description).
 
 Work through the `recipes` MCP server. Every tool returns JSON; a failure
 carries `isError` and `{error: {code, message, …}}`. A write may also answer
-with a `warnings` array — information, never failure. Worked transcripts:
+with a `warnings` array — information, never failure. `code: "busy"` means
+another write (the editor, a sync, another agent) held the content
+repository's write lock and nothing was written: wait 10–30 seconds and make
+the same call once more; if it is still busy, report the holder the message
+names rather than retrying in a loop. Worked transcripts:
 [examples.md](examples.md).
 
 ## 1. Check where writes go, first
@@ -389,8 +393,8 @@ feature {"term": "christmas-cookies", "slug": "christmas-cookies-strip"}
 Puts a term (one with a record), a `group` or a `recipe` on the homepage
 strip — **only when the ask says so** ("feature it", "put it on the
 homepage"). Returns `{slug, date, path, url, term}`, where `slug` is the
-_entry's_ own, not the target's: pass an explicit one whenever you feature
-more than one thing, since the default has one-second resolution.
+_entry's_ own, not the target's. Leave `slug` out unless you want a readable
+one: the default is a fresh ULID, so several features in a row never collide.
 `featured_list` shows the strip. `group_update` fixes a plan's name or
 description and never touches the items, so a plan cannot be lost to a
 rename; `group_remove_item` drops one row. Renaming a recipe or a group
@@ -461,7 +465,8 @@ a command line.
 When the `recipes` server is not connected, the same operations exist as
 `pnpm --silent recipes <command> … --json`, run **from the repo root**
 (`--silent` keeps pnpm's banner out of the JSON). `pnpm --silent recipes --help`
-lists the commands; the flags mirror the tool inputs:
+lists the commands; the flags mirror the tool inputs. A `busy` error exits 75:
+wait and run the same command once more, as with the tool.
 
 - `page_inspect` → `pnpm --silent recipes inspect <url> --json` (`--out d.json`
   writes just the draft);

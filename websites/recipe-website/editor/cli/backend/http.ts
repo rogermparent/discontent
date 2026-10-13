@@ -132,6 +132,9 @@ function codeForStatus(status: number): CurationErrorCode {
       return "unknown_recipe";
     case 502:
       return "import_failed";
+    /* `busy` (34d): a 503 from a proxy in front of the editor reads the same — try again shortly. */
+    case 503:
+      return "busy";
     default:
       return "internal";
   }

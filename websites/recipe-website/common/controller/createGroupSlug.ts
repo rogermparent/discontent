@@ -1,13 +1,24 @@
 import slugify from "@sindresorhus/slugify";
+import { ulid } from "@discontent/cms/util/ulid";
+import { ulidDate } from "./createFeaturedRecipeSlug";
+
+/** A group's slug from its name alone, or "" when the name slugifies to nothing. */
+export function groupSlugFromName(name?: string): string {
+  return slugify(name ?? "");
+}
 
 /**
  * A group's default slug: its name, slugified.
  *
- * Falls back to a date stamp when the name slugifies to nothing — a name that
- * is entirely punctuation or non-Latin script does, and an empty slug would
- * write the data file to the type's own directory. The fallback is the same
- * shape `createFeaturedRecipeSlug` produces, for the same reason: it is unique
- * enough to be a slug and readable enough to be recognized in a URL.
+ * Falls back to `group-<ulid>` when the name slugifies to nothing — a name
+ * that is entirely punctuation or non-Latin script does, and an empty slug
+ * would write the data file to the type's own directory. The fallback used to
+ * be a date stamp to the second, which two such groups made in one second
+ * shared (epic 34, D9 — the same fix as featured slugs): a lowercase ULID for
+ * `date` is unique per call and still starts with that date.
+ *
+ * The fallback is not deterministic, so a form shows "auto" for it rather than
+ * rendering one (`groupSlugFromName` is the deterministic half).
  */
 export default function createDefaultGroupSlug({
   name,
@@ -16,15 +27,7 @@ export default function createDefaultGroupSlug({
   name?: string;
   date?: number;
 }) {
-  const fromName = slugify(name ?? "");
+  const fromName = groupSlugFromName(name);
   if (fromName) return fromName;
-
-  const dateObj = new Date(date ?? Date.now());
-  const year = dateObj.getFullYear();
-  const month = String(dateObj.getMonth() + 1).padStart(2, "0");
-  const day = String(dateObj.getDate()).padStart(2, "0");
-  const hours = String(dateObj.getHours()).padStart(2, "0");
-  const minutes = String(dateObj.getMinutes()).padStart(2, "0");
-  const seconds = String(dateObj.getSeconds()).padStart(2, "0");
-  return `group-${year}-${month}-${day}-${hours}-${minutes}-${seconds}`;
+  return `group-${ulid(ulidDate(date)).toLowerCase()}`;
 }

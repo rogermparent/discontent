@@ -48,6 +48,7 @@ export function SyncPanel({
     remotes,
     dirty,
     dirtyCount,
+    pendingIndex = [],
   } = status;
 
   const [commandState, commandAction] = useActionState(
@@ -132,6 +133,27 @@ export function SyncPanel({
         <div className="text-sm py-1 text-destructive whitespace-pre-wrap">
           {commandState}
         </div>
+      )}
+
+      {pendingIndex.length > 0 && (
+        /*
+         * Epic 34 (D7 step 6): a commit landed while another process held
+         * git's index.lock, so the shared index is behind HEAD for these
+         * paths. They are committed; the next write (or a background retry)
+         * re-stages them. Until then a plain `git commit` elsewhere would
+         * write their old version back.
+         */
+        <p
+          className="text-sm my-2 text-muted-foreground"
+          data-testid="git-pending-index"
+          title={pendingIndex.join("\n")}
+        >
+          {pendingIndex.length} path{pendingIndex.length === 1 ? "" : "s"}{" "}
+          waiting to be re-staged —{" "}
+          {pendingIndex.length === 1 ? "it's" : "they're"} committed; the index
+          catches up automatically. Don&apos;t commit from another git client
+          until it does.
+        </p>
       )}
 
       {dirty ? (

@@ -23,6 +23,7 @@
  */
 import { rebuildIndex } from "@discontent/cms/content/rebuildIndex";
 import { readHead, writeIndexedHead } from "@discontent/cms/git/indexStamp";
+import { withWriteLock } from "@discontent/cms/git/writeLock";
 import { recipeContentTypes } from "../contentTypes";
 import type { CurationContext } from "./context";
 import { NotFoundError } from "./errors";
@@ -36,7 +37,27 @@ function elapsed(start: number): number {
   return Math.round(performance.now() - start);
 }
 
+/**
+ * Under the repository's write lock (34d, epic 34 D6): a rebuild replaces
+ * every index from the data files, so a write landing in the middle would be
+ * indexed by one half and missed by the other, and the stamp would claim a
+ * HEAD whose files the loop never read. Re-entrant, so a pull, revert or
+ * restore that already holds the lock rebuilds inside its own scope. The
+ * engine measured a full rebuild of the real corpus at 0.8–0.9 s on the
+ * workstation (2.5 s on the Pi), far inside the lock's 30 s wait.
+ */
 export async function reindex(
+  ctx: CurationContext,
+  contentType?: string,
+): Promise<ReindexResult> {
+  return withWriteLock(
+    ctx.contentDirectory,
+    contentType ? `reindex ${contentType}` : "reindex",
+    () => reindexLocked(ctx, contentType),
+  );
+}
+
+async function reindexLocked(
   ctx: CurationContext,
   contentType?: string,
 ): Promise<ReindexResult> {

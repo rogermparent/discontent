@@ -11,6 +11,7 @@ import { revalidateDerivedState } from "@discontent/cms/content/next/revalidateD
 import type { UploadSpec } from "@discontent/cms/content/types";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { directoryIsGitRepo } from "@discontent/cms/git/commit";
+import { withWriteLock } from "@discontent/cms/git/writeLock";
 import { writeIndexedHead } from "@discontent/cms/git/indexStamp";
 import { writeFile } from "fs-extra";
 import { revalidatePath } from "next/cache";
@@ -469,7 +470,10 @@ export async function createBranch(
   }
   if (await directoryIsGitRepo(contentDirectory)) {
     try {
-      await simpleGit(contentDirectory).checkout(["-b", branchName]);
+      /* HEAD moves to the new branch: not under an engine commit (34d). */
+      await withWriteLock(contentDirectory, `create branch ${branchName}`, () =>
+        simpleGit(contentDirectory).checkout(["-b", branchName]),
+      );
     } catch (e) {
       if (
         e &&
@@ -542,7 +546,21 @@ export async function branchCommandAction(
     const git = simpleGit({
       baseDir: contentDirectory,
     });
-    await commandHandler({ git, branch });
+    /*
+     * A checkout swaps the whole tree, so every index is stale (D2). Deleting
+     * a branch moves nothing on disk; it used to rebuild anyway, and twice for
+     * a checkout (once in the handler, once after it). Under the write lock
+     * (34d, epic 34 D6): no engine write may land mid-swap, and the rebuild
+     * indexes exactly the checked-out tree.
+     */
+    await withWriteLock(
+      contentDirectory,
+      `branch ${command} ${branch}`,
+      async () => {
+        await commandHandler({ git, branch });
+        if (command === "checkout") await rebuildAllIndexes();
+      },
+    );
   } catch (e) {
     if (
       e &&
@@ -555,12 +573,6 @@ export async function branchCommandAction(
       throw e;
     }
   }
-  /*
-   * A checkout swaps the whole tree, so every index is stale (D2). Deleting a
-   * branch moves nothing on disk; it used to rebuild anyway, and twice for a
-   * checkout (once in the handler, once here).
-   */
-  if (command === "checkout") await rebuildAllIndexes();
   revalidatePath("/git");
   return null;
 }

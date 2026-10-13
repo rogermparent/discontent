@@ -15,8 +15,6 @@ import {
 import { RecipeSelectInput } from "recipe-website-common/components/Form/inputs/RecipeSelect";
 import { GroupSelectInput } from "recipe-website-common/components/Form/inputs/GroupSelect";
 import { FeaturedRecipe } from "recipe-website-common/controller/types";
-import slugify from "@sindresorhus/slugify";
-import createDefaultFeaturedRecipeSlug from "recipe-website-common/controller/createFeaturedRecipeSlug";
 import { useCurrentTimezone } from "@discontent/cms/hooks/useCurrentTimezone";
 
 /** What a feature can point at (22g/24c). Exactly one, decided by the toggle. */
@@ -43,15 +41,13 @@ export default function FeaturedRecipeFields({
   const [target, setTarget] = useState<FeatureTarget>(
     term ? "term" : group ? "group" : "recipe",
   );
-  const [defaultDate] = useState<number>(() => Date.now());
-  const [defaultSlug] = useState<string>(() =>
-    slugify(
-      slug ||
-        (date
-          ? createDefaultFeaturedRecipeSlug({ date })
-          : createDefaultFeaturedRecipeSlug({ date: defaultDate })),
-    ),
-  );
+  /*
+   * A new feature's slug is a ULID the action makes (epic 34, D9) — random,
+   * so it is never rendered here: server and browser would each make a
+   * different one (a hydration mismatch). The field stays blank, saying
+   * "auto"; an edit shows the slug it has.
+   */
+  const slugPlaceholder = slug || "auto";
 
   return (
     <>
@@ -141,7 +137,7 @@ export default function FeaturedRecipeFields({
             name="slug"
             id="featured-recipe-form-slug"
             defaultValue={slug}
-            placeholder={defaultSlug}
+            placeholder={slugPlaceholder}
             errors={state?.errors?.slug}
           />
           <DateTimeInput
