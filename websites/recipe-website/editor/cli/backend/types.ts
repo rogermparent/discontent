@@ -45,6 +45,11 @@ import type {
 import type { ImportResult } from "../../controller/curation/importRecipe";
 import type { InspectResult } from "../../controller/curation/inspect";
 import type {
+  ImportListOptions,
+  ImportListResult,
+  InspectListResult,
+} from "../../controller/curation/importList";
+import type {
   RecipeImageInput,
   RecipeImageResult,
   TermImageInput,
@@ -94,7 +99,10 @@ export type {
   GroupItemRef,
   GroupListResult,
   GroupWriteResult,
+  ImportListOptions,
+  ImportListResult,
   ImportResult,
+  InspectListResult,
   InspectResult,
   InventoryResult,
   InventoryWriteResult,
@@ -150,6 +158,19 @@ export interface CuratorBackend {
    * host — yt-dlp's metadata.
    */
   inspect(url: string): Promise<InspectResult>;
+  /**
+   * A roundup page's recipes, `existing` marked (34f, D11). One request,
+   * nothing written.
+   */
+  inspectList(url: string): Promise<InspectListResult>;
+  /**
+   * Import a roundup's picks one commit each, paced 15 s per site, at most
+   * `limit` per call — the rest come back as `remaining` (34f, D11).
+   */
+  importList(
+    url: string,
+    options: ImportListOptions,
+  ): Promise<ImportListResult>;
   /** `dryRun` validates and resolves without writing (26b). */
   createRecipe(
     raw: unknown,

@@ -619,6 +619,36 @@ describe("import tooling as a process (26b)", () => {
               "</head><body></body></html>",
             ].join(""),
           );
+        /* 34f: a roundup of three cocktails, two of them new. */
+        case "/bar-roundup.html":
+          return page(
+            [
+              "<html><head><title>Bar Classics | Test Bar</title></head><body>",
+              "<article><h1>Three Bar Classics</h1><div class='entry-content'>",
+              ...[
+                ["last-word", "The Last Word"],
+                ["naked-and-famous", "Naked and Famous"],
+                ["paper-plane", "Paper Plane"],
+              ].map(
+                ([slug, name]) =>
+                  `<div><a href="${origin}/${slug}.html"><img src="${origin}/c/${slug}.jpg"></a><h2>${name}</h2></div>`,
+              ),
+              "</div></article></body></html>",
+            ].join(""),
+          );
+        case "/last-word.html":
+        case "/naked-and-famous.html":
+          return page(
+            `<html><head><script type="application/ld+json">${JSON.stringify({
+              "@type": "Recipe",
+              name:
+                request.url === "/last-word.html"
+                  ? "Last Word"
+                  : "Naked and Famous",
+              recipeIngredient: ["3/4 oz lime juice"],
+              recipeInstructions: "Shake with ice.",
+            })}</script></head><body></body></html>`,
+          );
         case "/plane.png":
         case "/plane-225x225.png":
           response.writeHead(200, { "content-type": "image/png" });
@@ -777,6 +807,66 @@ describe("import tooling as a process (26b)", () => {
       expect(await pathExists(join(uploadsDir, "new-photo.jpg"))).toBe(false);
 
       const usage = await run(["image", "first-recipe", "--json"]);
+      expect(JSON.parse(usage.stdout).error.code).toBe("usage");
+    },
+    TIMEOUT * 2,
+  );
+
+  /* 34f: roundup import, as a process. Loopback, so nothing is paced. */
+  it(
+    "lists a roundup, then imports picks with a term: a commit each, one for the term",
+    async () => {
+      const url = `${origin}/bar-roundup.html`;
+      const listed = await run(["inspect-list", url, "--json"]);
+      expect(listed.exitCode).toBe(0);
+      const list = JSON.parse(listed.stdout);
+      expect(list).toMatchObject({
+        title: "Three Bar Classics",
+        source: "links",
+      });
+      expect(list.items.map((item: { name: string }) => item.name)).toEqual([
+        "The Last Word",
+        "Naked and Famous",
+        "Paper Plane",
+      ]);
+
+      const before = await commitCount();
+      const imported = await run([
+        "import-list",
+        url,
+        "--pick",
+        "1-2",
+        "--term",
+        "bar-classics",
+        "--json",
+      ]);
+      expect(imported.exitCode).toBe(0);
+      const result = JSON.parse(imported.stdout);
+      expect(
+        result.results.map((r: { slug: string; status: string }) => [
+          r.slug,
+          r.status,
+        ]),
+      ).toEqual([
+        ["last-word", "imported"],
+        ["naked-and-famous", "imported"],
+      ]);
+      expect(result.term).toMatchObject({
+        slug: "bar-classics",
+        label: "Three Bar Classics",
+        created: true,
+        updated: ["last-word", "naked-and-famous"],
+      });
+      expect(await commitCount()).toBe(before + 3);
+      expect(
+        (await simpleGit({ baseDir: contentDirectory }).log({ maxCount: 1 }))
+          .latest?.message,
+      ).toBe("Create term: bar-classics (+2 recipes)");
+      /* A write: the stale-editor hint goes to stderr, never stdout. */
+      expect(imported.stderr).toContain("stale");
+
+      const usage = await run(["import-list", url, "--json"]);
+      expect(usage.exitCode).toBe(1);
       expect(JSON.parse(usage.stdout).error.code).toBe("usage");
     },
     TIMEOUT * 2,

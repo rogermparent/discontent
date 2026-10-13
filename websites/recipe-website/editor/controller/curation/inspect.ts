@@ -28,6 +28,7 @@ import {
   type YtdlpMetadata,
 } from "../ytdlp";
 import { ImportError } from "./errors";
+import { pacedRequest } from "./sitePacing";
 import type { RecipeInput } from "./schema";
 
 /** How much of the raw Recipe node `inspect` returns, serialized. */
@@ -210,7 +211,12 @@ export async function inspectUrl(rawUrl: string): Promise<InspectResult> {
 
   let page;
   try {
-    page = await fetchRecipePage(url);
+    /* On the per-site queue (34f): polite after a roundup call, too. */
+    page = await pacedRequest(
+      url,
+      (retry) => fetchRecipePage(url, retry),
+      (fetched) => fetched.finalUrl,
+    );
   } catch (error) {
     throw new ImportError(
       `Could not fetch ${url}: ${error instanceof Error ? error.message : String(error)}`,

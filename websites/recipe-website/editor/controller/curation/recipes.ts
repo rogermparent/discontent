@@ -65,6 +65,9 @@ import {
   type RecipePatch,
 } from "./schema";
 
+/** Download an image for a write: `fetchImageFile`, or a paced stand-in (34f). */
+export type ImageFetcher = (url: string) => Promise<File>;
+
 /**
  * The row every list surface returns.
  *
@@ -236,6 +239,10 @@ export async function listRecipes(
  * `probe: true` is the dry run's mode: the image is `HEAD`-probed for the name
  * it would get rather than downloaded, and `image` reports what was found.
  * `warnings` names an image over `LARGE_IMAGE_BYTES`, probed or downloaded.
+ *
+ * `fetchImage` and `probeImage` replace `fetchImageFile` and `probeImageFile`
+ * (34f): the import seats run them on the per-site queue (`sitePacing.ts`),
+ * since an image is a request too.
  */
 export async function buildRecipeWrite(
   input: RecipeInput | RecipePatch,
@@ -243,7 +250,15 @@ export async function buildRecipeWrite(
     date,
     current,
     probe = false,
-  }: { date: number; current?: Recipe | null; probe?: boolean },
+    fetchImage = fetchImageFile,
+    probeImage = probeImageFile,
+  }: {
+    date: number;
+    current?: Recipe | null;
+    probe?: boolean;
+    fetchImage?: ImageFetcher;
+    probeImage?: (url: string) => Promise<ImageProbe>;
+  },
 ): Promise<{
   data: Recipe;
   uploads: Record<string, UploadSpec>;
@@ -298,12 +313,12 @@ export async function buildRecipeWrite(
   const warnings: string[] = [];
   if (imageImportUrl) {
     if (probe) {
-      image = await probeImageFile(imageImportUrl);
+      image = await probeImage(imageImportUrl);
       data.image = image.filename;
       const warning = largeImageWarning(image.bytes, imageImportUrl);
       if (warning) warnings.push(warning);
     } else {
-      const file = await fetchImageFile(imageImportUrl);
+      const file = await fetchImage(imageImportUrl);
       data.image = file.name;
       const warning = largeImageWarning(file.size, imageImportUrl);
       if (warning) warnings.push(warning);
@@ -362,12 +377,18 @@ export function resolveCreateSlug(input: RecipeInput): string {
 export async function createRecipe(
   ctx: CurationContext,
   raw: unknown,
-  { overwrite = false }: { overwrite?: boolean } = {},
+  {
+    overwrite = false,
+    fetchImage,
+  }: { overwrite?: boolean; fetchImage?: ImageFetcher } = {},
 ): Promise<RecipeWriteResult> {
   const input = parseInput(RecipeInputSchema, raw);
   const slug = resolveCreateSlug(input);
   const date = input.date ?? Date.now();
-  const { data, uploads, warnings } = await buildRecipeWrite(input, { date });
+  const { data, uploads, warnings } = await buildRecipeWrite(input, {
+    date,
+    ...(fetchImage ? { fetchImage } : {}),
+  });
 
   if (overwrite) {
     /*

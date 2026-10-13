@@ -44,8 +44,10 @@ import type {
   GroupDetail,
   GroupListResult,
   GroupWriteResult,
+  ImportListResult,
   ImportOptions,
   ImportResult,
+  InspectListResult,
   InspectResult,
   InventoryResult,
   InventoryWriteResult,
@@ -95,7 +97,16 @@ interface CallOptions {
   /** A multipart body (26b's image upload), sent as-is instead of JSON. */
   form?: FormData;
   query?: Query;
+  /** Give up after this long (34f's `import-list`); default: fetch's own. */
+  timeoutMs?: number;
 }
+
+/**
+ * How long `import-list` waits for the editor (34f). The seat caps a call at
+ * 1 + 6 × 2 requests 15 s apart — about 3 min — and Node's fetch gives up on
+ * a response's headers at 300 s, so this answers first, and says what to do.
+ */
+export const IMPORT_LIST_HTTP_TIMEOUT_MS = 285_000;
 
 /**
  * `statusFor` read backwards, for a body that is not one of ours.
@@ -172,7 +183,7 @@ export function createHttpBackend({
   async function call<TResult>(
     method: string,
     path: string,
-    { body, form, query }: CallOptions = {},
+    { body, form, query, timeoutMs }: CallOptions = {},
   ): Promise<TResult> {
     const url = new URL(`${root}${path}`);
     for (const [key, value] of Object.entries(query ?? {})) {
@@ -189,6 +200,7 @@ export function createHttpBackend({
       response = await fetch(url, {
         method,
         headers,
+        ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
         /* A FormData body sets its own multipart content-type and boundary. */
         ...(form
           ? { body: form }
@@ -197,6 +209,13 @@ export function createHttpBackend({
             : { body: JSON.stringify(body) }),
       });
     } catch (error) {
+      if (error instanceof Error && error.name === "TimeoutError") {
+        throw new CurationError(
+          "internal",
+          `${url.origin} did not answer within ${Math.round((timeoutMs ?? 0) / 1000)} s. ` +
+            "It may still be working: list the page again to see what landed.",
+        );
+      }
       /*
        * A refused connection is by far the most common remote failure — a typo
        * in `--remote`, or an editor that is not running — and the message has to
@@ -234,6 +253,17 @@ export function createHttpBackend({
     },
     inspect(url) {
       return call<InspectResult>("POST", "/api/inspect", { body: { url } });
+    },
+    inspectList(url) {
+      return call<InspectListResult>("POST", "/api/inspect-list", {
+        body: { url },
+      });
+    },
+    importList(url, options) {
+      return call<ImportListResult>("POST", "/api/import-list", {
+        body: { url, ...options },
+        timeoutMs: IMPORT_LIST_HTTP_TIMEOUT_MS,
+      });
     },
     createRecipe(raw, options = {}) {
       return call<RecipeWriteResult | RecipeDryRunResult>(

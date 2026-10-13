@@ -1,0 +1,53 @@
+<!doctype html>
+<!-- Hand-written for epic 34f: a page that is neither kind of roundup — one
+     recipe, with no ItemList and only a couple of prose links in its body. -->
+<html lang="en">
+  <head>
+    <title>Pecan Pie | Example Kitchen</title>
+    <meta property="og:title" content="The Best Pecan Pie" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              { "@type": "ListItem", "position": 1, "name": "Pies", "item": "https://kitchen.example.com/category/pies/" }
+            ]
+          },
+          {
+            "@type": "Recipe",
+            "name": "Pecan Pie",
+            "recipeIngredient": ["1 cup pecans"],
+            "recipeInstructions": "Bake it."
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <nav>
+      <a href="https://kitchen.example.com/recipes/apple-pie/">Apple Pie</a>
+      <a href="https://kitchen.example.com/recipes/pumpkin-pie/">Pumpkin Pie</a>
+      <a href="https://kitchen.example.com/recipes/cherry-pie/">Cherry Pie</a>
+    </nav>
+    <article>
+      <div class="entry-content">
+        <p>
+          Use my <a href="https://kitchen.example.com/recipes/pie-crust/">all-butter pie crust</a>
+          and serve it with
+          <a href="https://kitchen.example.com/recipes/whipped-cream/">whipped cream</a>.
+        </p>
+        <h2>Ingredients</h2>
+        <ul>
+          <li>1 cup pecans</li>
+        </ul>
+      </div>
+      <div class="related-posts">
+        <a href="https://kitchen.example.com/recipes/maple-pie/"><img src="https://kitchen.example.com/maple.jpg" alt="" /><h3>Maple Pie</h3></a>
+        <a href="https://kitchen.example.com/recipes/chess-pie/"><img src="https://kitchen.example.com/chess.jpg" alt="" /><h3>Chess Pie</h3></a>
+        <a href="https://kitchen.example.com/recipes/sugar-pie/"><img src="https://kitchen.example.com/sugar.jpg" alt="" /><h3>Sugar Pie</h3></a>
+      </div>
+    </article>
+  </body>
+</html>

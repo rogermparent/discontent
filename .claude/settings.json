@@ -11,6 +11,8 @@
       "mcp__recipes__recipe_get",
       "mcp__recipes__page_inspect",
       "mcp__recipes__recipe_import",
+      "mcp__recipes__page_inspect_list",
+      "mcp__recipes__recipe_import_list",
       "mcp__recipes__recipe_create",
       "mcp__recipes__recipe_update",
       "mcp__recipes__recipe_set_image",
