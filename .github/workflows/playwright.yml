@@ -16,9 +16,64 @@ on:
 env:
   AUTH_SECRET: playwright-ci-only-not-a-secret
 
+# A newer push to the same PR supersedes the run in flight; main's runs are
+# never cancelled, so every merge keeps its record.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Runner time is shared and finite (concurrency is the cap on a public repo:
+  # one full run is ~11 jobs). Each suite runs only when something it builds on
+  # changed: a docs-only PR runs none of them, a recipe-only PR skips portfolio
+  # and the demo. `packages/**`, the lockfile, the workspace and CI plumbing
+  # still run everything. Only `lint` is a required check, and a skipped job
+  # reports as skipped, so nothing here can block a merge.
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      recipe: ${{ steps.filter.outputs.recipe }}
+      portfolio: ${{ steps.filter.outputs.portfolio }}
+      demo: ${{ steps.filter.outputs.demo }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v4.0.3
+        id: filter
+        with:
+          # A file counts when it matches an include and none of the `!`
+          # patterns — prose never triggers a suite.
+          predicate-quantifier: some-with-excludes
+          filters: |
+            shared: &shared
+              - 'packages/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.github/workflows/**'
+              - 'scripts/check-playwright-image.sh'
+              - 'Dockerfile.playwright'
+              - '!**/docs/**'
+              - '!**/README.md'
+              - '!CLAUDE.md'
+            recipe:
+              - *shared
+              - 'websites/recipe-website/**'
+            portfolio:
+              - *shared
+              - 'websites/portfolio/**'
+            demo:
+              - *shared
+
   test:
     name: Recipe (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
+    needs: changes
+    if: ${{ needs.changes.outputs.recipe == 'true' }}
     # 45, not 30: in #132's first run three of four shards were cancelled at
     # exactly 30 minutes while the fourth finished in 21 with 30 failures, so
     # 30 is inside the noise of a bad run and made that run inconclusive.
@@ -89,6 +144,8 @@ jobs:
 
   portfolio:
     name: Portfolio
+    needs: changes
+    if: ${{ needs.changes.outputs.portfolio == 'true' }}
     timeout-minutes: 30
     runs-on: ubuntu-latest
     container:
@@ -165,6 +222,8 @@ jobs:
   # runs beside recipe's shards rather than ahead of them.
   demo:
     name: CMS demo (${{ matrix.mode }})
+    needs: changes
+    if: ${{ needs.changes.outputs.demo == 'true' }}
     timeout-minutes: 20
     runs-on: ubuntu-latest
     strategy:
@@ -213,8 +272,9 @@ jobs:
 
   merge-reports:
     name: Merge sharded reports
-    if: ${{ !cancelled() }}
-    needs: [test]
+    # Not when the shards were skipped: there would be no blobs to merge.
+    if: ${{ !cancelled() && needs.changes.outputs.recipe == 'true' }}
+    needs: [changes, test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
