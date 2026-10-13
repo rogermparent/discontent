@@ -6,8 +6,12 @@ import {
 } from "recipe-website-common/components/PageLayout";
 import { getTransformedTermImageProps } from "recipe-website-common/components/TermImage";
 import { tagTermReads } from "recipe-website-common/controller/data/readTagTerms";
-import { resolveTermPage } from "recipe-website-common/controller/data/readTermPage";
-import { termParentOptions } from "recipe-website-common/controller/tagVocabulary";
+import { groupTagReads } from "recipe-website-common/controller/data/readGroupTagIndex";
+import { recipeTagReads } from "recipe-website-common/controller/data/readRecipeTagIndex";
+import {
+  applyPinned,
+  termParentOptions,
+} from "recipe-website-common/controller/tagVocabulary";
 import EditTermForm from "./form";
 
 export const dynamic = "force-dynamic";
@@ -39,12 +43,18 @@ export default async function EditTermPage({
     return signIn(undefined, { redirectTo: `/tags/${tag}/edit` });
   }
 
-  const [term, record, tree] = await Promise.all([
-    resolveTermPage(tag),
+  /*
+   * The term's own rows, not its page (34a): the page lists the whole subtree,
+   * but the form needs only whether the term exists, a label, and the recipes
+   * the seat will accept as pins — those carrying this term itself.
+   */
+  const [ownRecipes, ownGroups, record, tree] = await Promise.all([
+    recipeTagReads.byTerm.readKey(tag),
+    groupTagReads.byTerm.readKey(tag),
     tagTermReads.items.read(tag),
     tagTermReads.tree.read(),
   ]);
-  if (!term) notFound();
+  if (!record && !ownRecipes && !ownGroups) notFound();
 
   /* Transformed here, server-side: `TermFields` is a client component. */
   const defaultImage = record?.image
@@ -66,14 +76,18 @@ export default async function EditTermPage({
           slug={tag}
           hasRecord={Boolean(record)}
           initial={{
-            label: record?.label ?? term.label,
+            label:
+              record?.label ?? ownRecipes?.label ?? ownGroups?.label ?? tag,
             description: record?.description,
             parent: record?.parent,
             pinned: record?.pinned,
             aliases: record?.aliases,
           }}
           parentOptions={termParentOptions(tree, tag)}
-          pinnedSuggestions={term.recipes
+          pinnedSuggestions={applyPinned(
+            ownRecipes?.items ?? [],
+            record?.pinned,
+          )
             .map((recipe) => recipe.slug)
             .slice(0, PINNED_SUGGESTION_LIMIT)}
           defaultImage={defaultImage}
