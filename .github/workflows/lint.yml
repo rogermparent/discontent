@@ -2,7 +2,61 @@ name: Checks
 run-name: Checks ${{ github.ref }}
 on: [push]
 permissions: read-all
+# A newer push to the same branch supersedes the run in flight; main's runs are
+# never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
+  # Unit and typecheck run only when something they read changed, to spare
+  # shared runner time (playwright.yml's `changes` job says more). `lint` is the
+  # one required check and always runs: it is also what checks prose formatting.
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      typecheck: ${{ steps.sites.outputs.typecheck }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v4.0.3
+        id: filter
+        with:
+          predicate-quantifier: some-with-excludes
+          # `code` is anything but prose. The skill's SKILL.md is not prose
+          # here: test/curatorSkill.test.ts reads it.
+          filters: |
+            code:
+              - '**'
+              - '!**/docs/**'
+              - '!**/README.md'
+              - '!CLAUDE.md'
+            shared: &shared
+              - 'packages/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.github/workflows/**'
+              - '!**/docs/**'
+              - '!**/README.md'
+            recipe:
+              - *shared
+              - 'websites/recipe-website/**'
+            portfolio:
+              - *shared
+              - 'websites/portfolio/**'
+      # A job-level `if` cannot see `matrix`, so the matrix itself is built
+      # from the sites that changed.
+      - name: Sites to typecheck
+        id: sites
+        run: |
+          sites=()
+          if [ "${{ steps.filter.outputs.recipe }}" = true ]; then sites+=('"websites/recipe-website/editor"'); fi
+          if [ "${{ steps.filter.outputs.portfolio }}" = true ]; then sites+=('"websites/portfolio/editor"'); fi
+          echo "typecheck=[$(IFS=,; echo "${sites[*]}")]" >> "$GITHUB_OUTPUT"
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -42,6 +96,8 @@ jobs:
   # nothing. 96 tests, under two seconds; there is no cheaper check in the repo.
   unit:
     name: Unit tests
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out current branch
@@ -66,11 +122,13 @@ jobs:
 
   typecheck:
     name: Typecheck (${{ matrix.site }})
+    needs: changes
+    if: ${{ needs.changes.outputs.typecheck != '[]' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        site: [websites/recipe-website/editor, websites/portfolio/editor]
+        site: ${{ fromJSON(needs.changes.outputs.typecheck) }}
     steps:
       - name: Check out current branch
         uses: actions/checkout@v7
