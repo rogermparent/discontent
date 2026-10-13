@@ -5,7 +5,8 @@
 > `common/components/TagPage/`), `renameTerm`, the curator skill's tag
 > vocabulary, the engine's git commit path (`packages/cms/git/commit.ts`), the
 > write lock (`packages/cms/git/writeLock.ts`), atomic file writes, featured
-> or group slug generation, or the `busy` error code.
+> or group slug generation, the `busy` error code, or roundup import
+> (`inspect-list`, `import-list`).
 > Update the roadmap **Status** column and the **Now** line at every phase
 > boundary. Earlier epics are cited by number with a prefix (`32-D8`,
 > `23-T26`). `agent-epic-33.md` (the facet vocabulary) and `agent-epic-32.md`
@@ -38,10 +39,15 @@ Cookies run closed the taxonomy epic (2026-10-13; main `54fe3fbe`, content
    breadcrumb and child counts, so any carrier change expires every term
    page.
 4. **A seasonal content round**: Halloween (Oct 31) and Thanksgiving
-   (Nov 26). The corpus already has turkey, cranberry sauce, gravy, four
-   pumpkin and two pecan pies, squash sides and soups, fall salads, mulled
-   cider and wine, hot buttered rum, hot toddy, apple turnovers and caramel
-   apple bars.
+   (Nov 26). The corpus already has turkey (gravy only inside the turkey
+   recipes; no mashed potatoes or stuffing), cranberry sauce, four pumpkin
+   and two pecan pies, squash sides and soups, fall salads, mulled cider and
+   wine, hot buttered rum, hot toddies, apple turnovers and caramel apple
+   bars.
+5. **Roundup ("meta-list") import** — Roger, mid-run 2026-10-13: "add a way
+   to import the meta-lists (e.g. 'top christmas cookies')", and prioritize
+   recipes from **Sally's Baking Addiction**. Today a roundup page has to be
+   read by hand and each recipe imported one by one.
 
 Out of scope: deploys. The Pi is Roger's (`! pnpm deploy:pi`); the
 workstation gets `pnpm workstation update` from the morning checklist.
@@ -159,21 +165,59 @@ placeholder (no hydration mismatch); the action fills it in.
 (`statusFor`, `codeForStatus`, `rehydrate`; 23-T25) and the MCP
 instructions' code list (`mcp/registry.ts`, `agent-mcp.md`).
 
+### D11 — Roundup import: inspect the list, then import picks politely
+
+Two operations, beside epic 26's `inspect` → draft → create (26-D8, 26-D12):
+
+- **`inspect-list <url>`** (read-only; a CLI command, an API route and an
+  MCP tool): parse a roundup page into `{title, url, items: [{url, name,
+image?, existing?}]}`. Sources in order: schema.org `ItemList` JSON-LD
+  (WP Recipe Maker roundups emit it), then recipe links in the article body
+  (same host first; navigation, category, tag, comment and share links
+  dropped). `existing` names the slug of a corpus recipe whose `source.url`
+  matches, so a re-run never duplicates.
+- **`import-list <url>`** (a write): `--pick <n,…>` or `--all`, `--term
+<slug>`, `--dry-run`. It imports the picks one by one through the existing
+  import path (one commit per recipe, never one batch, so it never holds the
+  write lock for minutes) and skips `existing` items. It follows 30-D5's
+  polite-scraping rule (requests to one host sequential and ≥ 15 s apart,
+  image downloads included; one retry after a 403, then the host is dropped
+  for the call). Each call imports at most a capped number of items and
+  answers `remaining`, so a long list resumes across calls and an MCP call
+  never runs into a client timeout. `--term` makes the list a collection:
+  the term is created if missing (labelled from the list's title) and
+  assigned to every imported and existing item.
+- The skill learns the flow (inspect the list, show it, import the picks,
+  facet-tag them per D3) and **prefers Sally's Baking Addiction** when
+  choosing what to import.
+
+### D12 — Prefer Sally's Baking Addiction
+
+Roger's source preference (2026-10-13): import candidates come from
+sallysbakingaddiction.com first; other hosts only when Sally's has nothing
+fitting (savory Thanksgiving sides, drinks). The curator skill says so, and
+34e's review page leads with Sally's.
+
 ## Roadmap
 
-| Phase    | Branch                    | Size | Status | What                                                                          |
-| -------- | ------------------------- | ---- | ------ | ----------------------------------------------------------------------------- |
-| 34-plan  | `agent/34-plan`           | S    | 🟡     | This doc.                                                                     |
-| 34a      | `agent/34a-term-pages`    | M    | 📝     | D1, D2: subtree recipes on term pages, counts without the clouds.             |
-| 34b      | `agent/34b-skill-rename`  | S    | 📝     | D3, D4: skill v4 vocabulary; rename keeps the old slug.                       |
-| 34c      | `agent/34c-engine-writes` | L    | 📝     | D5–D8: ULIDs, the write lock, private-index commits, atomic writes (engine).  |
-| 34d      | `agent/34d-site-writes`   | M    | 📝     | D6, D9, D10 on the site: lock the batch/git/sync seats, `busy`, ULID slugs.   |
-| 34e      | content repo only         | M    | 📝     | Seasonal collections (thanksgiving, fall, warm-drinks) and Halloween imports. |
-| 34-close | `agent/34-close`          | S    | 📝     | Results, backlog, the morning checklist.                                      |
+| Phase    | Branch                     | Size | Status | What                                                                          |
+| -------- | -------------------------- | ---- | ------ | ----------------------------------------------------------------------------- |
+| 34-plan  | `agent/34-plan`            | S    | 🟡     | This doc.                                                                     |
+| 34a      | `agent/34a-term-pages`     | M    | 📝     | D1, D2: subtree recipes on term pages, counts without the clouds.             |
+| 34b      | `agent/34b-skill-rename`   | S    | 📝     | D3, D4: skill v4 vocabulary; rename keeps the old slug.                       |
+| 34c      | `agent/34c-engine-writes`  | L    | 📝     | D5–D8: ULIDs, the write lock, private-index commits, atomic writes (engine).  |
+| 34d      | `agent/34d-site-writes`    | M    | 📝     | D6, D9, D10 on the site: lock the batch/git/sync seats, `busy`, ULID slugs.   |
+| 34f      | `agent/34f-roundup-import` | M    | 📝     | D11, D12: roundup import (`inspect-list`, `import-list`), skill + Sally's.    |
+| 34e      | content repo only          | M    | 📝     | Seasonal collections (thanksgiving, fall, warm-drinks) and Halloween imports. |
+| 34-close | `agent/34-close`           | S    | 📝     | Results, backlog, the morning checklist.                                      |
 
 Ordering (Roger, 2026-10-13): 34a ∥ 34b → 34c → 34d → 34e. 34c starts once
 34b merges, so at most two PRs are in CI at once. The content round runs
 last with the workstation **up**, as the real-world proof of write safety.
+34f (added mid-run) starts once 34a merges, alongside 34c (no shared
+files), and lands before 34e so the seasonal round can import Sally's
+roundups through it. 34d merges `main` after 34f (both touch
+`mcp/registry.ts` and the CLI).
 
 ## How it runs
 
@@ -250,6 +294,24 @@ last with the workstation **up**, as the real-world proof of write safety.
   Expect every command to exit 0, commits = writes, only the scratch file
   still staged, the remote level, and `git annex whereis` finding the image.
 
+### 34f — Roundup import (M)
+
+- D11: the parser beside `curation/inspect.ts` (pure, fixture-tested on
+  saved roundup HTML: an `ItemList` page, a links-only page, a page with
+  neither); the `inspectList` and `importList` seats; `pnpm recipes
+inspect-list` / `import-list`; an API route each; two MCP tools
+  (`page_inspect_list` read-only, `recipe_import_list` non-destructive),
+  pre-approved in `.claude/settings.json` and the skill's frontmatter, with
+  CLAUDE.md's counts updated (47 → 49 tools, 35 → 37 pre-approved).
+- The pacing is injectable (a clock/sleep seam) so tests don't wait 15 s.
+- Tests: the parser fixtures; `importList` against a local HTTP fixture
+  server (picks, `existing` skip, `--term` create + assign, 403 drop,
+  the per-call cap and `remaining`, `--dry-run` writes nothing); the CLI and
+  MCP mappings. No live-site fetch in tests.
+- Skill: D11's flow and D12 in SKILL.md and `examples.md`.
+- The editor's import form keeps single-recipe import; a list picker there
+  goes to the backlog unless it falls out small.
+
 ### 34e — Seasonal content round (orchestrator; Roger approves first)
 
 - Proposed term collections, built 24f-style (a term record, `term assign`,
@@ -260,7 +322,9 @@ last with the workstation **up**, as the real-world proof of write safety.
   `drink` (mulled cider and wine, hot buttered rum, toddies).
 - Halloween: the corpus has little; propose 3–6 treat imports tagged with
   skill v4's facets, listed on the review page and imported only after
-  approval.
+  approval. Sally's first (D12), through 34f's roundup import where a
+  Sally's roundup fits. Thanksgiving's gaps (mashed potatoes, stuffing,
+  gravy) are proposed the same way.
 - Method: a scratch clone snapshot, candidate lists from searches plus
   reading the recipes, a review Artifact with sets, reasons and borderline
   cases, then Roger's approval.
@@ -280,6 +344,9 @@ typecheck`, `pnpm exec vitest run`, targeted Playwright in build mode.
   `term rename x y` leaves `/tags/x` resolving.
 - 34c/34d: the unit and concurrency tests, demo `git.spec.ts`, the
   scratch-clone stress run, and 34e's real apply with the workstation up.
+- 34f: `inspect-list` on a Sally's roundup lists its recipes with `existing`
+  marked; a dry-run `import-list --term` on a scratch clone reports the
+  picks without writing.
 - 34e: counts match the review page; pages and features render on both
   hosts.
 
