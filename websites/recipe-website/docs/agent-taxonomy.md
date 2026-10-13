@@ -616,7 +616,7 @@ Each branch is off the previous. Rebase children after a parent merges.
 | 24c     | `agent/24c-term-records` ← `main`    | ✅ done | `tagTermContentConfig` in the registry, tree read + label override + curated front (`pinned`/`description`/`image`), term page metadata / breadcrumb / children, `feature {term}` (featured v3), `christmas-cookies` seed gains term records (L)            |
 | 24d     | → epic 31 (31b)                      | ✅ #192 | Resolver, `/search/terms`, one "all terms" source, hierarchical autocomplete / ⌘K, server descendant expansion + `group:` parity (L)                                                                                                                        |
 | 24e     | → epic 31 (31c, 31e)                 | ✅ #194 | Seats / CLI / API / MCP / skill v3 + the fixture acceptance test (D7) (L)                                                                                                                                                                                   |
-| 24f     | `agent/24f-taxonomy-closeout` ← 24e  | 🟡      | ~~Backfill on the real repo~~ **done by epic 33** (`agent-epic-33.md`, 2026-10-13); the real story run stays open. By-term measurement done at 32e; backlog strikes, close-out, memory (S code / L content)                                                 |
+| 24f     | `agent/24f-taxonomy-closeout` ← 24e  | ✅ done | ~~Backfill on the real repo~~ **done by epic 33** (`agent-epic-33.md`, 2026-10-13); **story run done 2026-10-13** (see "24f story run" below). By-term measurement done at 32e; backlog strikes, close-out, memory (S code / L content)                     |
 | 24g     | → epic 32 (32e)                      | 🟡 #204 | F8b partitions, only if 24f's by-term number exceeds 150 KB (L). Measured at 32e: 200,805 B, so it was built as F35, a keyed aggregate with one record per term (`agent-epic-32.md`)                                                                        |
 
 **#144 landed** 2026-09-17 (`c581f222`) and the real repo was reindexed the
@@ -626,11 +626,35 @@ same day.
 (2026-10-10: 31b #192, 31c #194, the term form 31e #195): 31b is 24d, 31c is
 24e, and 31e adds a term edit form. `agent-epic-31.md` is their record; its D4
 (`term_cycle` is 422) and D5 (46 tools, 34 pre-approved) supersede the counts
-and status in D7 above. 24f's real-repo backfill was done by epic 33 (`agent-epic-33.md`); its story run stays open.
+and status in D7 above. 24f's real-repo backfill was done by epic 33 (`agent-epic-33.md`), and its story run on 2026-10-13 ("24f story run" below).
 31c built the seats, API, CLI and tools, narrowed `Group.kind` to
 `meal-plan`, and replaced the groups-based `christmasCookies.test.ts` with
 the taxonomy edition; its "Built (31c)" notes record the merge and delete
 semantics D7 left open.
+
+### 24f story run (2026-10-13)
+
+Run by an agent session on Roger's request, through the CLI with an explicit
+`--content-dir` (the same seats the `/recipe-curator` skill calls), with the
+workstation stopped for the writes (`agent-epic-33.md`, the index-lock trap).
+
+- **The cluster.** Roger had featured six cookies within one minute on
+  2025-12-22: chocolate gingerbread sandwich, the three linzers, rugelach and
+  brownie cookies. That set, plus the two imported on 2024-12-24 (Christmas
+  sugar cookies, raspberry almond thumbprints), is the collection. Other
+  cookies (red velvet, shortbread, maple brown sugar, chocolate chip …) stay
+  out: imported outside the season and not holiday-tray cookies.
+- **Writes**, five commits, `79714ad..35e0d1d` on the content repo:
+  `term create christmas-cookies` "Christmas Cookies" (root, with a
+  description) → `term assign` five → `term create linzer` "Linzer Cookies"
+  `--parent christmas-cookies` → `term assign` three → `feature --term
+christmas-cookies`.
+- **Result** — the fixture's shape exactly: `tag:christmas-cookies` = **8**
+  (own 5, with descendants 8), child `linzer` 3, breadcrumb Christmas Cookies
+  › Linzer Cookies; `/tags/linzer` is reachable at the top level and from the
+  parent's page; the home page links the featured term. Verified on the
+  workstation (after `POST /api/revalidate`) and on the Pi
+  (`/api/recipes?q=tag:christmas-cookies` → the same 8 on both).
 
 **Next PR (historical): 24d** — `agent/24d-taxonomy-search` stacked on
 `agent/24c-term-records` (draft PR #145; retarget to `main` after #145
@@ -1772,9 +1796,10 @@ unread — drop or keep at 24f (T17; dropped in 32a); `unknown_term` in the skil
   matches the browser; one "all terms" list feeds rail, autocomplete, ⌘K.
 - 24e: the fixture acceptance test (D7) is green over the in-memory client;
   the skill v3 pre-approval list is pinned.
-- 24f: the story runs **for real** by the user via `/recipe-curator` against
-  the real content repo after the vocabulary backfill (☐ theirs), then push
-  from `/git`; the by-term record size is written down against T9.
+- 24f: ✅ the story ran **for real** on the real content repo after the
+  vocabulary backfill (2026-10-13, "24f story run" below), reached the Pi
+  through workstation sync; the by-term record size was written down against
+  T9 at 32e.
 
 ## Deferred
 

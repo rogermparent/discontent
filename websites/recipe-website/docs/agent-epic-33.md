@@ -203,8 +203,8 @@ restart` after it, whose startup sync pushed everything to the Pi. **For any
   children, because recipes carry only children (D1). A root page could list
   its descendants' recipes (`withDescendants`) or word the empty state for a
   facet root; a small code change, not done here.
-- **24f's real story run** (the Christmas-cookies collection on the real repo)
-  stays open; only its backfill is done here.
+- ~~**24f's real story run**~~ **done 2026-10-13** (`agent-taxonomy.md`,
+  "24f story run"): `christmas-cookies` with a `linzer` child, 8 recipes.
 
 ## How it went (single-agent mode)
 
