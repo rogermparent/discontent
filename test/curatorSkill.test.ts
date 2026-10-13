@@ -69,6 +69,62 @@ const HELD_BACK = [
   "term_merge",
 ] as const;
 
+/**
+ * Epic 33's food vocabulary as applied (`agent-epic-33.md`, "Vocabulary"):
+ * four roots and their 43 children. Spelled out because the terms live in the
+ * content repo, not here — so a new child is a deliberate edit to the skill
+ * and to this list together.
+ */
+const FACETS = {
+  course: [
+    "main",
+    "dessert",
+    "bread",
+    "salad",
+    "sauce",
+    "soup",
+    "breakfast",
+    "side",
+    "snack",
+    "sandwich",
+    "pizza",
+  ],
+  "main-ingredient": [
+    "vegetarian",
+    "beef",
+    "chicken",
+    "pork",
+    "vegetables",
+    "fruit",
+    "beans",
+    "chocolate",
+    "cheese",
+    "rice",
+    "potatoes",
+    "seafood",
+    "pasta",
+    "eggs",
+    "turkey",
+  ],
+  cuisine: [
+    "american",
+    "mexican",
+    "italian",
+    "japanese",
+    "chinese",
+    "british",
+    "greek",
+    "middle-eastern",
+    "eastern-european",
+    "french",
+    "caribbean",
+    "indian",
+    "jewish",
+    "vietnamese",
+  ],
+  effort: ["easy", "quick", "project"],
+} as const;
+
 const EXPECTED_ALLOWED = TOOL_NAMES.filter(
   (name) => !(HELD_BACK as readonly string[]).includes(name),
 );
@@ -286,5 +342,41 @@ describe("the recipe-curator skill's allow-lists", () => {
     );
     expect(onHand).toContain("dinner or drink");
     expect(onHand).toContain("`-tag:drink` for food");
+  });
+
+  it("tags food with epic 33's facet children, never a root (34b, D3)", () => {
+    /* The vocabulary block: from its bold lead to the "Drinks" paragraph. */
+    const start = skill.indexOf("**Tag vocabulary (v4).**");
+    expect(start, "no v4 tag vocabulary").toBeGreaterThan(-1);
+    const vocabulary = skill.slice(start, skill.indexOf("**Drinks.**", start));
+    const named = new Set(backtickedTokens(vocabulary));
+
+    for (const [root, children] of Object.entries(FACETS)) {
+      expect(named, `the root ${root}`).toContain(root);
+      for (const child of children) {
+        expect(named, `${root}'s child ${child}`).toContain(child);
+      }
+    }
+    expect(Object.values(FACETS).flat()).toHaveLength(43);
+    /* Quick vs easy (33-D2), vegetarian on savory only (33-D3), live terms. */
+    expect(vocabulary).toContain("≤ 30 minutes");
+    expect(vocabulary).toContain("regardless of");
+    expect(vocabulary).toMatch(/`vegetarian` goes on \*\*savory\*\* dishes/);
+    expect(vocabulary).toContain("term_list");
+    expect(vocabulary).toContain("suggestedTags");
+
+    /* Every example's `tags` uses children: no root, no retired meal tag. */
+    const forbidden = [...Object.keys(FACETS), "dinner", "lunch"];
+    for (const [file, markdown] of [
+      ["SKILL.md", skill],
+      ["examples.md", examples],
+    ] as const) {
+      for (const match of markdown.matchAll(/"tags": (\[[^\]]*\])/g)) {
+        /* Quoted strings only: transcripts cut long arrays with `…`. */
+        for (const [, tag] of match[1].matchAll(/"([^"]*)"/g)) {
+          expect(forbidden, `${file}: "tags" holds ${tag}`).not.toContain(tag);
+        }
+      }
+    }
   });
 });

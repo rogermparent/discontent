@@ -132,7 +132,7 @@ Dedupe against step 3 by name and source URL. `recipe_import {"url": …,
 Take the candidate's `draft`, edit it, check it, write it:
 
 ```json
-recipe_create {"recipe": {"name": "Vegetarian Chili", "tags": ["vegetarian", "dinner"], "ingredients": ["1 Tbsp olive oil", "2 cloves garlic"], "instructions": ["Sauté the garlic."], "source": {"url": "https://www.budgetbytes.com/vegetarian-chili/", "name": "Budget Bytes"}, "imageImportUrl": "https://www.budgetbytes.com/wp-content/uploads/2022/01/Vegetarian-Chili.jpg"}, "dryRun": true}
+recipe_create {"recipe": {"name": "Vegetarian Chili", "tags": ["main", "vegetarian", "beans", "easy"], "ingredients": ["1 Tbsp olive oil", "2 cloves garlic"], "instructions": ["Sauté the garlic."], "source": {"url": "https://www.budgetbytes.com/vegetarian-chili/", "name": "Budget Bytes"}, "imageImportUrl": "https://www.budgetbytes.com/wp-content/uploads/2022/01/Vegetarian-Chili.jpg"}, "dryRun": true}
 ```
 
 The dry run returns `{dryRun: true, slug, conflict, recipe, image?}` and
@@ -146,10 +146,9 @@ The checklist, applied to the draft before the dry run:
 
 1. **Keep `source` exactly as the draft has it** — it is the citation. Never
    strip or edit `source.url`.
-2. **Tags** from the vocabulary below; read `tag_list` first. Pick from
-   `suggestedTags` only what matches a term already in `tag_list` (or the
-   vocabulary below) — a site's "Main Course" or "easy dinner" is not a tag
-   here.
+2. **Tags** from the vocabulary below: facet children for food, mapped
+   from `suggestedTags` where they fit — a site's "Main Course" is `main`,
+   never a tag of its own.
 3. **Image**: keep `imageImportUrl` (`images[0]`) unless it is a logo, a
    step photo or a tiny crop — then pick another from `images`. A picture can
    also be fixed later (below).
@@ -190,12 +189,36 @@ A term's picture works the same way: `term_set_image {"slug": "cookies",
 "url": "https://…/cookies.jpg"}` (or `path`, or `clear`) on a term that has
 a record, one commit `Update term image: <slug>`.
 
-Tag vocabulary (lowercase, keep it small):
+**Tag vocabulary (v4).** Food is tagged from four facet roots. Tag their
+**children, never a root**: `tag:course` and `/tags/course` already collect
+everything under it.
 
-- diet — `vegetarian`, `vegan`, `gluten-free`
-- meal — `breakfast`, `lunch`, `dinner`, `dessert`, `snack`
-- speed — `quick` (≤ 30 minutes total)
-- cuisine — one lowercase word (`thai`, `italian`, …)
+- `course` — **one or two** per food recipe: `main`, `side`, `salad`, `soup`
+  (soups & stews), `breakfast`, `dessert`, `bread` (breads & doughs), `sauce`
+  (sauces & condiments), `snack` (snacks & appetizers), `sandwich`
+  (sandwiches & burgers), `pizza`.
+- `main-ingredient` — what is in the middle of the plate: `chicken`, `beef`,
+  `pork`, `turkey`, `seafood`, `eggs`, `cheese`, `beans`, `rice` (rice &
+  grains), `pasta` (pasta & noodles), `potatoes`, `vegetables`, `fruit`,
+  `chocolate`, `vegetarian`. `vegetarian` goes on **savory** dishes only
+  (mains, sides, salads, soups, sandwiches, snacks) — never sweets, breads or
+  sauces, and not a dish made with chicken stock.
+- `cuisine` — `american`, `mexican` (Mexican & Tex-Mex), `italian`,
+  `japanese`, `chinese`, `british`, `greek`, `middle-eastern`,
+  `eastern-european`, `french`, `caribbean`, `indian`, `jewish`,
+  `vietnamese`. A cuisine with no child gets none.
+- `effort` — any that hold: `quick` = total **≤ 30 minutes** (`totalTime`,
+  else prep + cook; a time that leaves out chilling or rising does not
+  count); `easy` = few ingredients and simple technique, **regardless of
+  time**; `project` = multi-stage or overnight (a long rise, lamination,
+  smoking, deep frying).
+
+The vocabulary grows, so read `term_list {}` before tagging and use the live
+children (a row's `parent` names its root). Map the draft's `suggestedTags`
+onto them — "Main Course" → `main`, "Tex-Mex" → `mexican`, "30-minute meal"
+→ `quick` only if the times agree — and drop what does not map: no free tags
+on food. Drinks keep the rules in "Drinks" below (no `course`); the `spirit`
+root's children (`gin`, `rum`, …) stay as they are.
 
 **Drinks.** A cocktail or mocktail carries a `drink` spec, which the recipe
 page renders as a Method · Glass · Ice · Garnish card:
@@ -323,7 +346,8 @@ with `code: "term_cycle"`, which is final.
 `pinned` (on create or update) is an ordered list of recipe slugs that lead
 the term's page; each must already carry the term. `term_rename {"slug": …,
 "to": "<new slug or label>"}` moves a term and rewrites every recipe carrying
-it, all in one commit — renaming onto an existing term is `slug_conflict`.
+it, all in one commit; the old slug stays on the record as an alias, so old
+links still land. Renaming onto an existing term is `slug_conflict`.
 `aliases` (on create or update) are other names for the term: `tag:<alias>`
 and `/tags/<alias>` reach it, and no recipe's tags change. An alias that names
 another term, or another term's alias, fails with `code: "validation"`.

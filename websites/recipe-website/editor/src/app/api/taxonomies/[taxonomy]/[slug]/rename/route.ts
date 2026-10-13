@@ -3,7 +3,9 @@
  *
  * Moves the term's record to the new slug (children and featured entries
  * follow by reference) and rewrites every carrier's tag string, one update
- * each. A target that already exists is 409 `slug_conflict`: that is a merge.
+ * each. The old slug joins the record's aliases (34-D4, `aliases` in the
+ * answer), so `/tags/<slug>` and `tag:<slug>` keep reaching the term. A target
+ * that already exists is 409 `slug_conflict`: that is a merge.
  */
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
 import {

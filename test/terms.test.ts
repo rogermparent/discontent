@@ -623,11 +623,14 @@ describe("renameTerm", () => {
       record: true,
       recipes: ["linzer", "shortbread"],
       groups: [],
+      /* The old slug stays as an alias (34-D4). */
+      aliases: ["cookies"],
     });
     expect(await pathExists(termFile("cookies"))).toBe(false);
     expect(await readTermFile("biscuits")).toMatchObject({
       label: "Biscuits",
       pinned: ["shortbread"],
+      aliases: ["cookies"],
     });
     expect(await readRecipeTags("shortbread")).toEqual(["biscuits", "baked"]);
     expect(await readRecipeTags("linzer")).toEqual(["biscuits"]);
@@ -643,13 +646,20 @@ describe("renameTerm", () => {
         )) as FeaturedRecipe
       ).term,
     ).toBe("biscuits");
-    /* And the hierarchy-aware search follows it. */
+    /* And the hierarchy-aware search follows it — by the old name too. */
     expect((await searchRecipes(ctx, "tag:biscuits")).total).toBe(2);
+    expect((await searchRecipes(ctx, "tag:cookies")).total).toBe(2);
   });
 
   it("renames a carried-only term, and refuses an existing target", async () => {
     const result = await renameTerm(ctx, "baked", { to: "oven-baked" });
-    expect(result).toMatchObject({ record: false, recipes: ["shortbread"] });
+    expect(result).toMatchObject({
+      record: false,
+      recipes: ["shortbread"],
+      /* No record to keep an alias on, and a rename does not make one. */
+      aliases: [],
+    });
+    expect(await pathExists(termFile("oven-baked"))).toBe(false);
     expect(await readRecipeTags("shortbread")).toEqual([
       "cookies",
       "oven-baked",
@@ -1015,13 +1025,55 @@ describe("term aliases (32i)", () => {
     ).toMatchObject({ code: "validation", issues: [{ path: "to" }] });
   });
 
-  it("a rename onto one of its own aliases drops that alias", async () => {
+  it("a rename onto one of its own aliases drops that alias and keeps the old slug (34-D4)", async () => {
     await createTerm(ctx, {
       label: "Cookies",
       aliases: ["biscuits", "bikkies"],
     });
+    const renamed = await renameTerm(ctx, "cookies", { to: "biscuits" });
+    expect(renamed.aliases).toEqual(["bikkies", "cookies"]);
+    expect((await readTermFile("biscuits")).aliases).toEqual([
+      "bikkies",
+      "cookies",
+    ]);
+    /* Renamed back: the slug it returns to drops out, the other joins. */
+    const back = await renameTerm(ctx, "biscuits", { to: "cookies" });
+    expect(back.aliases).toEqual(["bikkies", "biscuits"]);
+    expect((await readTermFile("cookies")).aliases).toEqual([
+      "bikkies",
+      "biscuits",
+    ]);
+  });
+
+  it("a rename's old slug blocks a new term there, like a merge's (34-D4)", async () => {
+    await createTerm(ctx, { label: "Cookies" });
     await renameTerm(ctx, "cookies", { to: "biscuits" });
-    expect((await readTermFile("biscuits")).aliases).toEqual(["bikkies"]);
+    expect(await codeOf(createTerm(ctx, { label: "Cookies" }))).toMatchObject({
+      code: "validation",
+      issues: [
+        { path: "slug", message: expect.stringContaining('"biscuits"') },
+      ],
+    });
+    /* The search sends the old name to the renamed term. */
+    expect(
+      (await searchRecipes(ctx, "tag:cookies", { limit: 10 })).recipes.map(
+        (row) => row.slug,
+      ),
+    ).toEqual(["linzer", "shortbread"]);
+  });
+
+  it("a rename skips its old slug when a third record already lists it (34-D4)", async () => {
+    await createTerm(ctx, { label: "Sweets" });
+    /* Hand-written state the seats would refuse: `sweets` already an alias. */
+    await createContent({
+      config: tagTermContentConfig,
+      slug: "snacks",
+      data: { label: "Snacks", date: 5_000, aliases: ["sweets"] },
+      contentDirectory,
+    });
+    const renamed = await renameTerm(ctx, "sweets", { to: "treats" });
+    expect(renamed.aliases).toEqual([]);
+    expect(await readTermFile("treats")).not.toHaveProperty("aliases");
   });
 
   it("a merge makes the merged-away slug an alias of the target", async () => {

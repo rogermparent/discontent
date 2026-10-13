@@ -204,7 +204,7 @@ fitting (savory Thanksgiving sides, drinks). The curator skill says so, and
 | -------- | -------------------------- | ---- | ------ | ----------------------------------------------------------------------------- |
 | 34-plan  | `agent/34-plan`            | S    | 🟡     | This doc.                                                                     |
 | 34a      | `agent/34a-term-pages`     | M    | 📝     | D1, D2: subtree recipes on term pages, counts without the clouds.             |
-| 34b      | `agent/34b-skill-rename`   | S    | 📝     | D3, D4: skill v4 vocabulary; rename keeps the old slug.                       |
+| 34b      | `agent/34b-skill-rename`   | S    | ✅     | D3, D4: skill v4 vocabulary; rename keeps the old slug.                       |
 | 34c      | `agent/34c-engine-writes`  | L    | 📝     | D5–D8: ULIDs, the write lock, private-index commits, atomic writes (engine).  |
 | 34d      | `agent/34d-site-writes`    | M    | 📝     | D6, D9, D10 on the site: lock the batch/git/sync seats, `busy`, ULID slugs.   |
 | 34f      | `agent/34f-roundup-import` | M    | ✅     | D11, D12: roundup import (`inspect-list`, `import-list`), skill + Sally's.    |
@@ -352,27 +352,36 @@ typecheck`, `pnpm exec vitest run`, targeted Playwright in build mode.
 
 ## Traps
 
-### 34f
-
-- **Sally's ItemList carries URLs only.** WP's Tasty Roundups emits
+- **34b — a rename's old slug blocks a new term there.** It is an alias now,
+  so `term_create` at that slug is `validation` ("… is an alias of the term
+  …"), exactly as after a merge (32i). Take it off the renamed record's
+  `aliases` with `term_update` first if the old name is wanted back as a
+  separate term.
+- **34b — examples.md cuts arrays with `…`.** The transcripts are not JSON,
+  so `curatorSkill.test.ts` reads the quoted strings out of each `"tags": […]`
+  rather than parsing it.
+- **34b — the worktree guard refuses a command whose text says `alias`** (it
+  reads it as the shell builtin). Grep with a fragment (`lias`) or edit with
+  the Edit tool.
+- **34f — Sally's ItemList carries URLs only.** WP's Tasty Roundups emits
   `{"@type": "ListItem", position, url}` with no `name` or `image`, so names
   and pictures come from the body's cards whichever source wins. An item with
   no card falls back to its link text, then the nearest heading before it,
   then a title made from the URL slug.
-- **A card links more than its recipe.** Sally's cards carry an inline
+- **34f — a card links more than its recipe.** Sally's cards carry an inline
   link to her cookbook page ("Sally's Baking 101"). A card's heading names
   only its _primary_ URL (the heading's link, else the picture's, else its
   only one); the cookbook link stays a weak prose link and drops out.
-- **The roundup can list a non-recipe.** The Halloween page's 14th
+- **34f — the roundup can list a non-recipe.** The Halloween page's 14th
   ItemList entry is the cookbook page itself, under a card titled "Molten
   Chocolate Cobbler". It is the site's list, so it is listed; importing it
   fails `import_failed` (no Recipe on the page) and the call goes on. The
   skill shows the list before importing, which is where a person spots it.
-- **The intro mentions items out of order.** "These recipes for caramel
+- **34f — the intro mentions items out of order.** "These recipes for caramel
   apples, dirt pudding, …" links three items before the list starts. In
   links mode the order is each item's first _list-entry_ appearance (a
   picture or a heading), not its first mention.
-- **The pacing outlives the call.** The skill runs `page_inspect_list`
+- **34f — the pacing outlives the call.** The skill runs `page_inspect_list`
   then `recipe_import_list`, and re-runs on `remaining`, back to back; a
   per-call clock would fetch the list page twice within a second. The clock
   is per process (`siteClock` in `importList.ts`), which covers the stdio MCP
@@ -380,15 +389,50 @@ typecheck`, `pnpm exec vitest run`, targeted Playwright in build mode.
   skill's fallback says to leave 15 s between runs. Two concurrent calls in
   one process are not serialized (nothing makes them; the skill is
   sequential).
-- **"same host first" reorders a mixed list.** A roundup that links its
+- **34f — "same host first" reorders a mixed list.** A roundup that links its
   own recipes and other sites' lists its own first; `n` is that order, not
   the page's. Single-site roundups (Sally's) are unaffected.
-- **Loopback is never paced** unless `Pacing.paceLoopback`. The CLI
+- **34f — loopback is never paced** unless `Pacing.paceLoopback`. The CLI
   process tests (`cliJson.test.ts`) and the MCP tests use 127.0.0.1 with the
   real clock and do not wait; `importList.test.ts` turns pacing on with a
   fake clock and asserts the spacing on what its two servers saw.
 
 ## Results
+
+### 34b — Skill v4 + rename alias
+
+- **Skill v4 (D3).** SKILL.md's "Tag vocabulary (v4)" lists the four facet
+  roots and their 43 children (labels in parentheses where they differ),
+  the quick (≤ 30 min) / easy (regardless of time) / project (multi-stage or
+  overnight) definitions, children only, one or two `course` children per
+  food recipe, `vegetarian` on savory dishes only, `term_list` before
+  tagging, and `suggestedTags` mapped onto children ("Main Course" → `main`)
+  with no free tags on food. Drinks and the `spirit` children are unchanged.
+  The checklist's tags step and the `recipe_create` example follow it, and
+  examples.md's meal-plan transcript restates its tags as facet children
+  (saying so). SKILL.md had no version marker; the heading carries "v4".
+  `curatorSkill.test.ts` pins the 43 children (`FACETS`), the definitions,
+  and forbids a root or `dinner`/`lunch` in any example's `tags`.
+- **Rename keeps the old slug (D4).** `renameTerm` writes
+  `dedupeAliases([...record.aliases, from], to)` in the record's own write,
+  so the commit count is unchanged (still one, F34); `TermRenameResult`
+  gains `aliases`. Renaming onto one of its own aliases drops that alias and
+  adds the old slug; renaming back swaps them. Like a merge's skip, the old
+  slug is left out when a third record already lists it (hand-made state the
+  seats refuse). **No record, no alias:** a carried-only term renames as
+  before with `aliases: []`, and no record is created — the same choice a
+  bare-into-bare merge makes (nowhere to keep it; carriers were all
+  retagged, so `/tags/<old>` is a 404 there). `GET
+/api/taxonomies/tag/<old>` stays a 404: the seat answers by slug only.
+  Wording in the `term_rename` tool, `recipes term rename` (prints "… stays
+  as an alias"), the rename route and SKILL.md.
+- **Tests.** `terms.test.ts`: the rename cases assert `aliases` and
+  `tag:<old>`, rename-and-back, the old slug blocking a create, the
+  third-record skip, and no record for a carried-only rename;
+  `curationGit.test.ts`: the alias rides the one rename commit;
+  `api-write.spec.ts`: `/tags/flatbread` redirects to
+  `/tags/pressed-bread` and `tag:flatbread` finds the recipe. vitest 57
+  files / 1220 tests; editor typecheck and export `tsc` clean.
 
 ### 34f — Roundup import
 

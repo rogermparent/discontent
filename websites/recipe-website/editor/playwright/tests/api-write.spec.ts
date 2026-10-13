@@ -679,7 +679,9 @@ test.describe("JSON write API", () => {
       slug: "pressed-bread",
       label: "Pressed Bread",
       recipes: ["api-naan"],
+      aliases: ["flatbread"],
     });
+    /* The seat answers by slug only; the old one is no term of its own. */
     expect((await request.get("/api/taxonomies/tag/flatbread")).status()).toBe(
       404,
     );
@@ -687,6 +689,19 @@ test.describe("JSON write API", () => {
     await expect(
       page.getByRole("heading", { name: "Pressed Bread", exact: true }),
     ).toBeVisible();
+    /*
+     * 34-D4: the old slug stays as an alias, so an old link lands on the
+     * renamed term's page and `tag:<old>` still finds its recipes.
+     */
+    await page.goto("/tags/flatbread");
+    await page.waitForURL((url) => url.pathname === "/tags/pressed-bread");
+    await expect(
+      page.getByRole("heading", { name: "Pressed Bread", exact: true }),
+    ).toBeVisible();
+    await page.goto("/search?q=tag%3Aflatbread");
+    await expect(
+      page.getByTestId("recipe-list").getByText("API Naan"),
+    ).toBeVisible({ timeout: 20_000 });
 
     /* Carried, so a bare delete is a conflict; `?unassign=1` gets past it. */
     const inUse = await request.delete("/api/taxonomies/tag/pressed-bread", {
