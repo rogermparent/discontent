@@ -1,7 +1,8 @@
 import type { Key } from "lmdb";
 import { exists } from "fs-extra";
 import { getContentDirectory } from "../fs/getContentDirectory";
-import { commitContentChanges } from "../git/commit";
+import { assertNoMergeInProgress, commitContentChanges } from "../git/commit";
+import { withWriteLock } from "../git/writeLock";
 import { getContentDatabase, writeToIndex } from "./database";
 import {
   getContentItemDirectory,
@@ -76,6 +77,26 @@ export async function defaultCreateUploadsProcessor(
  * ```
  */
 export async function createContent<TData, TIndexValue, TKey extends Key>(
+  options: CreateContentOptions<TData, TIndexValue, TKey>,
+): Promise<ContentWriteResult> {
+  /*
+   * The whole write — the slug check, files, indexes, pagination, dependents
+   * and the commit — under the repository's write lock (epic 34, D6), so no
+   * other writer's steps interleave with these and the check-then-write slug
+   * test cannot race.
+   */
+  const contentDirectory = options.contentDirectory || getContentDirectory();
+  return withWriteLock(
+    contentDirectory,
+    `create ${options.config.contentType}/${options.slug}`,
+    async () => {
+      await assertNoMergeInProgress(contentDirectory);
+      return createContentLocked({ ...options, contentDirectory });
+    },
+  );
+}
+
+async function createContentLocked<TData, TIndexValue, TKey extends Key>(
   options: CreateContentOptions<TData, TIndexValue, TKey>,
 ): Promise<ContentWriteResult> {
   const {

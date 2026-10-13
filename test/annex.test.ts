@@ -14,7 +14,14 @@ import { join } from "path";
 import { afterEach, describe, expect, it } from "vitest";
 import simpleGit, { type SimpleGit } from "simple-git";
 
+import { createContent } from "@discontent/cms/content/createContent";
 import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
+import { groupContentConfig } from "../websites/recipe-website/common/controller/groupContentConfig";
+import type {
+  Group,
+  GroupEntryKey,
+  GroupEntryValue,
+} from "../websites/recipe-website/common/controller/types";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 import { recipeContentTypes } from "../websites/recipe-website/editor/controller/contentTypes";
 import { gitSync } from "../websites/recipe-website/editor/controller/curation/sync";
@@ -192,6 +199,64 @@ describe.skipIf(!hasAnnex)("gitSync's media step (28e)", () => {
     ).toBe("{}\n");
   }, 120_000);
 });
+
+/*
+ * Epic 34, 34c: the engine commits through a private index
+ * (`GIT_INDEX_FILE`) and `commit-tree`, which runs no hooks — git-annex's
+ * `pre-commit` included. A large upload must still be annexed by `git add`'s
+ * clean filter, land in the commit as a pointer, keep its content here, and
+ * leave the tree clean.
+ */
+describe.skipIf(!hasAnnex)(
+  "an engine upload through the private index (34c)",
+  () => {
+    it("annexes a large file, commits the pointer and keeps the content", async () => {
+      const { dir, ws } = await pair({ annexMirror: false });
+      /* A pre-staged foreign file, to prove the private index ignores it here too. */
+      await writeFile(join(dir, "scratch.txt"), "mine\n");
+      await ws.add("scratch.txt");
+
+      const bytes = randomBytes(64 * 1024);
+      await createContent<Group, GroupEntryValue, GroupEntryKey>({
+        config: groupContentConfig,
+        contentDirectory: dir,
+        slug: "feast",
+        data: { name: "Feast", date: 1 },
+        author: { name: "Test Curator", email: "curator@test.local" },
+        uploads: { video: { file: new File([bytes], "feast.mp4") } },
+      });
+
+      const upload = "uploads/group/feast/uploads/feast.mp4";
+      const files = String(
+        await ws.raw(["show", "--name-only", "--format=", "HEAD"]),
+      )
+        .trim()
+        .split("\n")
+        .sort();
+      expect(files).toEqual(["groups/data/feast/group.json", upload]);
+      /* A pointer in git, the bytes in the worktree and in this annex. */
+      expect(String(await ws.raw(["show", `HEAD:${upload}`]))).toMatch(
+        /^\/annex\/objects\//,
+      );
+      expect(await readFile(join(dir, upload))).toEqual(bytes);
+      const here = spawnSync("git", ["annex", "find", "--in", "here", upload], {
+        cwd: dir,
+      });
+      expect(String(here.stdout).trim()).toBe(upload);
+      /* `--numcopies=1`: the pair asks for 2, and the mirror is not annexed. */
+      const fsck = spawnSync(
+        "git",
+        ["annex", "fsck", "--numcopies=1", upload],
+        { cwd: dir },
+      );
+      expect(fsck.status, String(fsck.stdout) + String(fsck.stderr)).toBe(0);
+
+      const status = await ws.status();
+      expect(status.staged).toEqual(["scratch.txt"]);
+      expect(status.files.map((file) => file.path)).toEqual(["scratch.txt"]);
+    }, 120_000);
+  },
+);
 
 describe("the media step without git-annex initialised", () => {
   it("is skipped with a reason", async () => {

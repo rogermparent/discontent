@@ -3,6 +3,7 @@ import { createContent, SlugConflictError } from "./createContent";
 import { deleteContent } from "./deleteContent";
 import { updateContent } from "./updateContent";
 import { getContentDirectory } from "../fs/getContentDirectory";
+import { withWriteLock } from "../git/writeLock";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { ContentFormState } from "../forms/formState";
@@ -244,25 +245,34 @@ export function createGenericActions<
       ? await editorConfig.buildCreateUploads(parsed, contentDirectory)
       : undefined;
 
-    if (editorConfig.deleteConflictingContent) {
-      await editorConfig.deleteConflictingContent(
-        slug,
-        contentDirectory,
-        email,
-      );
-    }
-
     let result = EMPTY_RESULT;
     try {
-      result = await createContent({
-        config: contentConfig,
-        slug,
-        data,
+      /*
+       * The delete and the create — two commits — in one lock scope (epic 34,
+       * D6), so no other write lands between them and finds the slug free.
+       */
+      result = await withWriteLock(
         contentDirectory,
-        author: { name: email, email },
-        commitMessage: `Add new ${label}: ${slug}`,
-        uploads,
-      });
+        `overwrite ${contentConfig.contentType}/${slug}`,
+        async () => {
+          if (editorConfig.deleteConflictingContent) {
+            await editorConfig.deleteConflictingContent(
+              slug,
+              contentDirectory,
+              email,
+            );
+          }
+          return createContent({
+            config: contentConfig,
+            slug,
+            data,
+            contentDirectory,
+            author: { name: email, email },
+            commitMessage: `Add new ${label}: ${slug}`,
+            uploads,
+          });
+        },
+      );
     } catch {
       return {
         message: `Failed to create ${label}`,
@@ -397,15 +407,6 @@ export function createGenericActions<
         )
       : undefined;
 
-    // Delete conflicting content at target slug
-    if (slug !== currentSlug && editorConfig.deleteConflictingContent) {
-      await editorConfig.deleteConflictingContent(
-        slug,
-        contentDirectory,
-        email,
-      );
-    }
-
     const currentIndexKey = editorConfig.buildCurrentIndexKey(
       currentDate,
       currentSlug,
@@ -413,17 +414,32 @@ export function createGenericActions<
 
     let result = EMPTY_RESULT;
     try {
-      result = await updateContent({
-        config: contentConfig,
-        slug,
-        currentSlug,
-        currentIndexKey,
-        data,
+      /* The delete and the update in one lock scope — see `overwriteCreate`. */
+      result = await withWriteLock(
         contentDirectory,
-        author: { name: email, email },
-        commitMessage: `Update ${label}: ${slug}`,
-        uploads,
-      });
+        `overwrite ${contentConfig.contentType}/${currentSlug}`,
+        async () => {
+          // Delete conflicting content at target slug
+          if (slug !== currentSlug && editorConfig.deleteConflictingContent) {
+            await editorConfig.deleteConflictingContent(
+              slug,
+              contentDirectory,
+              email,
+            );
+          }
+          return updateContent({
+            config: contentConfig,
+            slug,
+            currentSlug,
+            currentIndexKey,
+            data,
+            contentDirectory,
+            author: { name: email, email },
+            commitMessage: `Update ${label}: ${slug}`,
+            uploads,
+          });
+        },
+      );
     } catch {
       return {
         message: `Failed to update ${label}`,

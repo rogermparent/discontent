@@ -22,9 +22,9 @@ import type { AnyContentTypeConfig } from "./types";
 const TRANSFORMED_IMAGES = "/transformed-images";
 
 /**
- * The dirty-page artifact (§13). A dotfile specifically so `commitChanges`'
- * `git add "./*"` fallback cannot sweep it into a content commit — an ignore
- * rule is the honest belt to that suspenders.
+ * The dirty-page artifact (§13). A dotfile, but that was never what kept it
+ * out of `commitChanges`' commit-everything fallback (git's `"./*"` pathspec
+ * matched dotfiles; it is `.` now, epic 34): this ignore rule is.
  */
 const PAGINATION_CHANGES = "/.pagination-changes.json";
 

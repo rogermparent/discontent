@@ -112,11 +112,13 @@ export async function writeIndexedHead(
 export async function advanceIndexedHead(
   contentDirectory: string,
   previousHead: string | null,
+  /* The commit just made; HEAD when omitted. */
+  head?: string,
 ): Promise<void> {
   if (!previousHead) return;
   try {
     if ((await readIndexedHead(contentDirectory)) !== previousHead) return;
-    await writeIndexedHead(contentDirectory);
+    await writeIndexedHead(contentDirectory, head);
   } catch {
     /* See above: never fail a write that already committed. */
   }

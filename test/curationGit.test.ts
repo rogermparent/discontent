@@ -22,6 +22,7 @@ import {
   mkdtemp,
   outputFile,
   pathExists,
+  readdir,
   readFile,
   readJson,
   remove,
@@ -62,8 +63,16 @@ import {
 } from "../websites/recipe-website/editor/controller/curation/groups";
 import {
   createRecipe,
+  deleteRecipe,
   updateRecipe,
 } from "../websites/recipe-website/editor/controller/curation/recipes";
+import {
+  CommitConflictError,
+  CommitFailedError,
+  commitTestHooks,
+  flushPendingIndex,
+  MergeInProgressError,
+} from "@discontent/cms/git/commit";
 import {
   assignTerm,
   createTerm,
@@ -1487,5 +1496,317 @@ describe("engine writes with commit: false (F34)", () => {
       message: "Add new groups: week-one",
       files: [groupFile("week-one")],
     });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Commits through a private index, CAS on HEAD (epic 34, 34c / D7)   */
+/* ------------------------------------------------------------------ */
+
+describe("private-index commits (34c)", () => {
+  const recipeFile = (slug: string) => `recipes/data/${slug}/recipe.json`;
+  const gitDir = () => join(contentDirectory, ".git");
+
+  async function lastCommit() {
+    const { commits } = await gitLog(ctx, { limit: 1 });
+    return commits[0];
+  }
+
+  async function branch(): Promise<string> {
+    return (await git.status()).current as string;
+  }
+
+  async function privateIndexes(): Promise<string[]> {
+    return (await readdir(gitDir())).filter((name) =>
+      /^discontent-index-[0-9A-Z]{26}/.test(name),
+    );
+  }
+
+  afterEach(() => {
+    commitTestHooks.beforeUpdateRef = undefined;
+    delete process.env.DISCONTENT_INDEX_REFRESH_MS;
+  });
+
+  it("leaves a file staged by hand out of the commit, and staged", async () => {
+    await writeFile(join(contentDirectory, "scratch.txt"), "mine\n");
+    await git.add("scratch.txt");
+
+    await createRecipe(ctx, { name: "Naan" });
+
+    expect((await lastCommit()).files).toEqual([recipeFile("naan")]);
+    const status = await git.status();
+    expect(status.staged).toEqual(["scratch.txt"]);
+    expect(status.files.map((file) => file.path)).toEqual(["scratch.txt"]);
+    await expect(
+      git.raw(["cat-file", "-e", "HEAD:scratch.txt"]),
+    ).rejects.toThrow();
+    expect(await privateIndexes()).toEqual([]);
+  });
+
+  it("names the write in the reflog, and keeps --author's semantics", async () => {
+    await createRecipe(
+      {
+        ...ctx,
+        author: { name: "editor@test.local", email: "editor@test.local" },
+      },
+      { name: "Naan" },
+    );
+    const reflog = String(
+      await git.raw(["reflog", "-1", "--format=%gs", "HEAD"]),
+    ).trim();
+    expect(reflog).toMatch(
+      /^discontent [0-9A-HJKMNP-TV-Z]{26}: Create recipe: naan$/,
+    );
+    /* Author from the write, committer from git's config — `commit --author`. */
+    const who = String(
+      await git.raw(["log", "-1", "--format=%an|%ae|%cn|%ce|%B"]),
+    ).trim();
+    expect(who).toBe(
+      "editor@test.local|editor@test.local|Test Curator|curator@test.local|Create recipe: naan",
+    );
+  });
+
+  it("survives a held index.lock, and the next write flushes the shared index", async () => {
+    process.env.DISCONTENT_INDEX_REFRESH_MS = "200";
+    const lock = join(gitDir(), "index.lock");
+    await writeFile(lock, "");
+
+    await createRecipe(ctx, { name: "Naan" });
+    expect((await lastCommit()).files).toEqual([recipeFile("naan")]);
+    const pending = join(gitDir(), "discontent-index-pending");
+    expect(await readFile(pending, "utf8")).toBe(`${recipeFile("naan")}\0`);
+
+    await rm(lock);
+    /* The shared index does not know the commit yet... */
+    expect((await git.status()).isClean()).toBe(false);
+    /* ...until the next locked write applies what is pending. */
+    await createRecipe(ctx, { name: "Scone" });
+    expect(await pathExists(pending)).toBe(false);
+    expect((await git.status()).isClean()).toBe(true);
+  });
+
+  it("flushPendingIndex applies a pending refresh on its own", async () => {
+    process.env.DISCONTENT_INDEX_REFRESH_MS = "100";
+    const lock = join(gitDir(), "index.lock");
+    await writeFile(lock, "");
+    await createRecipe(ctx, { name: "Naan" });
+    /* Still held: the flush cannot apply it either, and says so. */
+    expect(await flushPendingIndex(contentDirectory, { timeoutMs: 50 })).toBe(
+      false,
+    );
+    await rm(lock);
+    expect(await flushPendingIndex(contentDirectory)).toBe(true);
+    expect((await git.status()).isClean()).toBe(true);
+  });
+
+  it("waits out a short index.lock without leaving anything pending", async () => {
+    const lock = join(gitDir(), "index.lock");
+    await writeFile(lock, "");
+    setTimeout(() => void rm(lock, { force: true }), 300);
+    await createRecipe(ctx, { name: "Naan" });
+    expect(await pathExists(join(gitDir(), "discontent-index-pending"))).toBe(
+      false,
+    );
+    expect((await git.status()).isClean()).toBe(true);
+  });
+
+  it("lands on top of a commit that moved HEAD over other paths", async () => {
+    await reindex(ctx);
+    const before = await head();
+    commitTestHooks.beforeUpdateRef = async () => {
+      commitTestHooks.beforeUpdateRef = undefined;
+      await outputFile(join(contentDirectory, "notes/elsewhere.txt"), "x\n");
+      await git.add("notes/elsewhere.txt");
+      await git.commit("A commit from a shell");
+    };
+
+    await createRecipe(ctx, { name: "Naan" });
+
+    const log = String(await git.raw(["log", "--format=%s", `${before}..HEAD`]))
+      .trim()
+      .split("\n");
+    expect(log).toEqual(["Create recipe: naan", "A commit from a shell"]);
+    expect((await lastCommit()).files).toEqual([recipeFile("naan")]);
+    expect((await git.status()).isClean()).toBe(true);
+    /* The shell's commit was never indexed: the stamp does not jump past it. */
+    expect((await gitStatus(ctx)).indexStale).toBe(true);
+  });
+
+  it("throws CommitConflictError, with the paths, when that commit touched the same file", async () => {
+    await createRecipe(ctx, { name: "Naan" });
+    commitTestHooks.beforeUpdateRef = async () => {
+      commitTestHooks.beforeUpdateRef = undefined;
+      /* Their version of the file, committed without touching the worktree. */
+      const scratch = join(gitDir(), "theirs.json");
+      await writeFile(scratch, `${JSON.stringify({ name: "Their naan" })}\n`);
+      const blob = String(await git.raw(["hash-object", "-w", scratch])).trim();
+      await rm(scratch);
+      await git.raw([
+        "update-index",
+        "--cacheinfo",
+        `100644,${blob},${recipeFile("naan")}`,
+      ]);
+      await git.commit("Their edit");
+    };
+
+    const error = await updateRecipe(ctx, "naan", {
+      name: "Garlic naan",
+    }).catch((e) => e);
+    expect(error).toBeInstanceOf(CommitConflictError);
+    expect(error.touchedPaths).toEqual([recipeFile("naan")]);
+    expect(error.conflictingPaths).toEqual([recipeFile("naan")]);
+    expect(error.writeId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect((await lastCommit()).message).toBe("Their edit");
+    /* Ours is on disk, uncommitted, for a person to settle. */
+    expect((await readRecipeFile("naan")).name).toBe("Garlic naan");
+    expect(await privateIndexes()).toEqual([]);
+  });
+
+  it("throws CommitFailedError, with the paths, when git cannot move the ref", async () => {
+    const refLock = join(gitDir(), "refs/heads", `${await branch()}.lock`);
+    await writeFile(refLock, "");
+    const before = await head();
+    try {
+      const error = await createRecipe(ctx, { name: "Naan" }).catch((e) => e);
+      expect(error).toBeInstanceOf(CommitFailedError);
+      expect(error.touchedPaths).toEqual([recipeFile("naan")]);
+      expect(error.writeId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+      expect(error.message).toContain(recipeFile("naan"));
+      expect(await head()).toBe(before);
+    } finally {
+      await rm(refLock, { force: true });
+    }
+    expect(await privateIndexes()).toEqual([]);
+  });
+
+  it("commits a rename as the old path's removal and the new one's addition", async () => {
+    await createRecipe(ctx, { name: "Naan" });
+    await updateRecipe(ctx, "naan", { slug: "garlic-naan" });
+    /* `--no-renames`: `gitLog` reports a rename by its new path alone. */
+    const files = String(
+      await git.raw([
+        "show",
+        "--no-renames",
+        "--name-status",
+        "--format=",
+        "HEAD",
+      ]),
+    ).trim();
+    expect(files.split("\n").sort()).toEqual([
+      `A\t${recipeFile("garlic-naan")}`,
+      `D\t${recipeFile("naan")}`,
+    ]);
+    const tree = String(
+      await git.raw(["ls-tree", "-r", "--name-only", "HEAD"]),
+    );
+    expect(tree).toContain(recipeFile("garlic-naan"));
+    expect(tree).not.toContain(recipeFile("naan"));
+    expect((await git.status()).isClean()).toBe(true);
+  });
+
+  it("commits a delete, and makes no commit for one of something never committed", async () => {
+    await createRecipe(ctx, { name: "Naan" });
+    await deleteRecipe(ctx, "naan");
+    expect(await lastCommit()).toMatchObject({
+      message: "Delete recipe: naan",
+      files: [recipeFile("naan")],
+    });
+    expect((await git.status()).isClean()).toBe(true);
+
+    /* Written without a commit, then deleted: in no tree at all (T46). */
+    await createContent<Group, GroupEntryValue, GroupEntryKey>({
+      config: groupContentConfig,
+      contentDirectory,
+      slug: "draft",
+      data: { name: "Draft", date: 1 },
+      commit: false,
+    });
+    const before = await head();
+    await deleteContent<Group, GroupEntryValue, GroupEntryKey>({
+      config: groupContentConfig,
+      contentDirectory,
+      slug: "draft",
+      indexKey: [1, "draft"],
+    });
+    expect(await head()).toBe(before);
+    expect((await git.status()).isClean()).toBe(true);
+  });
+
+  it("makes the first commit on an unborn branch", async () => {
+    const fresh = await scratchDir("unborn-");
+    const repo = simpleGit({ baseDir: fresh });
+    await repo.init();
+    await repo.addConfig("user.email", "curator@test.local");
+    await repo.addConfig("user.name", "Test Curator");
+    await repo.addConfig("commit.gpgsign", "false");
+    await writeFile(
+      join(fresh, ".gitignore"),
+      derivedContentPaths(recipeContentTypes),
+    );
+
+    await createContent<Group, GroupEntryValue, GroupEntryKey>({
+      config: groupContentConfig,
+      contentDirectory: fresh,
+      slug: "week-one",
+      data: { name: "Week One", date: 1 },
+    });
+
+    const parents = String(
+      await repo.raw(["rev-list", "--parents", "-n", "1", "HEAD"]),
+    )
+      .trim()
+      .split(" ");
+    expect(parents).toHaveLength(1);
+    expect(
+      String(await repo.raw(["ls-tree", "-r", "--name-only", "HEAD"])).trim(),
+    ).toBe("groups/data/week-one/group.json");
+    /* Only its own path: the .gitignore is still untracked. */
+    expect((await repo.status()).not_added).toEqual([".gitignore"]);
+  });
+
+  it("moves a detached HEAD and leaves the branch where it was", async () => {
+    const onBranch = await branch();
+    const tip = await head();
+    await git.raw(["checkout", "-q", "--detach"]);
+
+    await createRecipe(ctx, { name: "Naan" });
+
+    expect(await head()).not.toBe(tip);
+    expect(String(await git.raw(["rev-parse", onBranch])).trim()).toBe(tip);
+    /* Still detached: HEAD names no branch. */
+    expect(
+      String(await git.raw(["rev-parse", "--abbrev-ref", "HEAD"])).trim(),
+    ).toBe("HEAD");
+    expect((await git.status()).isClean()).toBe(true);
+  });
+
+  it("carries a current index stamp to the new commit", async () => {
+    await reindex(ctx);
+    await createRecipe(ctx, { name: "Naan" });
+    expect(await indexFreshness(ctx)).toEqual({
+      indexedHead: await head(),
+      head: await head(),
+      stale: false,
+    });
+  });
+
+  it("refuses to write anything while a merge is in progress", async () => {
+    await writeFile(join(gitDir(), "MERGE_HEAD"), `${await head()}\n`);
+    const before = await head();
+    await expect(createRecipe(ctx, { name: "Naan" })).rejects.toBeInstanceOf(
+      MergeInProgressError,
+    );
+    expect(await pathExists(join(contentDirectory, recipeFile("naan")))).toBe(
+      false,
+    );
+    expect(await head()).toBe(before);
+  });
+
+  it("writes data files atomically, leaving no temp files behind", async () => {
+    await createRecipe(ctx, { name: "Naan" });
+    await updateRecipe(ctx, "naan", { name: "Garlic naan" });
+    expect(await readdir(join(contentDirectory, "recipes/data/naan"))).toEqual([
+      "recipe.json",
+    ]);
   });
 });
