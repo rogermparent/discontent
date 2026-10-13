@@ -24,14 +24,25 @@ export class GitCommandError extends Error {
 }
 
 /**
- * The environment every engine git command starts from: the process's own,
- * minus a `GIT_INDEX_FILE` it may have inherited (a CLI run from a git hook),
- * which would silently redirect the shared-index commands.
+ * Inherited variables that would point an engine git command somewhere else
+ * (a CLI run from inside a git hook sets the first three), or change how its
+ * pathspecs read (`commit.ts` spells its magic out per pathspec).
  */
+const STRIPPED = [
+  "GIT_INDEX_FILE",
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_LITERAL_PATHSPECS",
+  "GIT_GLOB_PATHSPECS",
+  "GIT_NOGLOB_PATHSPECS",
+  "GIT_ICASE_PATHSPECS",
+];
+
+/** The process's environment minus `STRIPPED`, plus `extra`. */
 function baseEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, ...extra };
-  if (!extra?.GIT_INDEX_FILE) delete env.GIT_INDEX_FILE;
-  return env;
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const name of STRIPPED) delete env[name];
+  return { ...env, ...extra };
 }
 
 export function runGit(

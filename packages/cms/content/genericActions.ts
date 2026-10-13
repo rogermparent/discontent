@@ -3,7 +3,23 @@ import { createContent, SlugConflictError } from "./createContent";
 import { deleteContent } from "./deleteContent";
 import { updateContent } from "./updateContent";
 import { getContentDirectory } from "../fs/getContentDirectory";
-import { withWriteLock } from "../git/writeLock";
+import { MergeInProgressError } from "../git/commit";
+import { RepositoryBusyError, withWriteLock } from "../git/writeLock";
+
+/**
+ * A write the repository refused rather than one that broke: busy (another
+ * write holds the lock — retry) or mid-merge. Its own message, not "Failed
+ * to …", so the person knows to wait or to finish the merge.
+ */
+function refusalMessage(error: unknown): string | undefined {
+  if (
+    error instanceof RepositoryBusyError ||
+    error instanceof MergeInProgressError
+  ) {
+    return error.message;
+  }
+  return undefined;
+}
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { ContentFormState } from "../forms/formState";
@@ -205,7 +221,7 @@ export function createGenericActions<
         } as TFormState;
       }
       return {
-        message: `Failed to create ${label}`,
+        message: refusalMessage(e) ?? `Failed to create ${label}`,
         formData: editorConfig.extractFormData?.(parsed),
       } as TFormState;
     }
@@ -273,9 +289,9 @@ export function createGenericActions<
           });
         },
       );
-    } catch {
+    } catch (e) {
       return {
-        message: `Failed to create ${label}`,
+        message: refusalMessage(e) ?? `Failed to create ${label}`,
         formData: editorConfig.extractFormData?.(parsed),
       } as TFormState;
     }
@@ -356,9 +372,9 @@ export function createGenericActions<
         commitMessage: `Update ${label}: ${slug}`,
         uploads,
       });
-    } catch {
+    } catch (e) {
       return {
-        message: `Failed to update ${label}`,
+        message: refusalMessage(e) ?? `Failed to update ${label}`,
         formData: editorConfig.extractFormData?.(parsed),
       } as TFormState;
     }
@@ -440,9 +456,9 @@ export function createGenericActions<
           });
         },
       );
-    } catch {
+    } catch (e) {
       return {
-        message: `Failed to update ${label}`,
+        message: refusalMessage(e) ?? `Failed to update ${label}`,
         formData: editorConfig.extractFormData?.(parsed),
       } as TFormState;
     }

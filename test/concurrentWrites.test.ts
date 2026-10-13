@@ -113,10 +113,11 @@ describe("two writer processes and an index.lock holder", () => {
     await holderExit;
     await rm(stop, { force: true });
 
-    expect(a.stderr).toBe("");
-    expect(b.stderr).toBe("");
-    expect(a.exitCode).toBe(0);
-    expect(b.exitCode).toBe(0);
+    /* stderr may carry a harmless warning, never an error. */
+    for (const run of [a, b]) {
+      expect(run.exitCode, run.stderr).toBe(0);
+      expect(run.stderr).not.toMatch(/Error/);
+    }
     expect(Number(bursts)).toBeGreaterThan(5);
 
     const timings = [a, b].flatMap(

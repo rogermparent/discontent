@@ -288,6 +288,9 @@ export async function getUploadInfo({
   }
 }
 
+/** How long an upload's `fileImportUrl` download may take, body included. */
+export const UPLOAD_FETCH_TIMEOUT_MS = 60_000;
+
 /**
  * Write an uploaded file to the filesystem — atomically (epic 34, D8), so a
  * failed or interrupted download leaves the previous file, not a torn one.
@@ -317,7 +320,13 @@ export async function writeUploadFile(
       Readable.fromWeb(file.stream() as ReadableStream),
     );
   } else if (fileImportUrl) {
-    const importedFileData = await fetch(fileImportUrl);
+    /*
+     * Bounded: this runs inside the write lock, whose heartbeat would keep a
+     * hung download's lock fresh forever.
+     */
+    const importedFileData = await fetch(fileImportUrl, {
+      signal: AbortSignal.timeout(UPLOAD_FETCH_TIMEOUT_MS),
+    });
     /* No body writes an empty file, as the stream opened up front used to. */
     await writeStreamAtomic(
       resultPath,

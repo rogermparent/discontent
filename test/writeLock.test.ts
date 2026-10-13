@@ -5,10 +5,14 @@
 // cross-process behaviour under real load is `concurrentWrites.test.ts`'s.
 
 import { spawnSync } from "node:child_process";
+import { readlinkSync } from "node:fs";
 import { hostname } from "node:os";
+import { execa } from "execa";
 import {
+  mkdirp,
   mkdtemp,
   pathExists,
+  readdir,
   readFile,
   readJson,
   rm,
@@ -17,16 +21,21 @@ import {
   writeFile,
 } from "fs-extra";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   currentWriteId,
   RepositoryBusyError,
+  serialInHold,
   withWriteLock,
   writeLockPath,
+  writeLockStillHeld,
   type WriteLockHolder,
 } from "@discontent/cms/git/writeLock";
+
+const EDITOR_DIR = resolve(__dirname, "../websites/recipe-website/editor");
+const HOLDER = resolve(__dirname, "support/lockHolder.ts");
 
 let dir: string;
 let lockFile: string;
@@ -136,8 +145,8 @@ describe("withWriteLock", () => {
     expect(events).toEqual(["a+", "a-", "b+", "b-", "c+", "c-", "d+", "d-"]);
   });
 
-  it("takes over a lock whose holder on this host is dead", async () => {
-    await plant({ pid: deadPid(), host: hostname() });
+  it("takes over a lock whose holder on this host and pid namespace is dead", async () => {
+    await plant({ pid: deadPid(), host: hostname(), pidns: ownNs() });
     const started = Date.now();
     await withWriteLock(dir, "takeover", async () => {
       expect((await readJson(lockFile)).op).toBe("takeover");
@@ -251,7 +260,115 @@ describe("withWriteLock", () => {
     expect(await pathExists(`${leftover}.lock`)).toBe(false);
     expect(await readFile(pending, "utf8")).toBe("keep me\0");
   });
+
+  it("records the pid namespace and a nonce, and leaves no temp file", async () => {
+    await withWriteLock(dir, "recorded", async () => {
+      const holder = await readJson(lockFile);
+      expect(holder.pidns).toBe(ownNs());
+      expect(holder.nonce).toMatch(/^[0-9A-Z]{26}$/);
+    });
+    const names = await readdir(await realGitDir());
+    expect(names.filter((name) => name.startsWith("discontent-write"))).toEqual(
+      [],
+    );
+  });
+
+  it("does not judge a same-host pid from another pid namespace (Docker on the Pi)", async () => {
+    await plant({ pid: deadPid(), host: hostname(), pidns: "pid:[1]" });
+    const error = await withWriteLock(dir, "x", async () => 1, {
+      timeoutMs: 200,
+    }).catch((e) => e);
+    expect(error).toBeInstanceOf(RepositoryBusyError);
+  });
+
+  it("takes over its own pid written by another process (a reused pid)", async () => {
+    await plant({
+      pid: process.pid,
+      host: hostname(),
+      pidns: ownNs(),
+      nonce: "01AAAAAAAAAAAAAAAAAAAAAAAA",
+    });
+    const started = Date.now();
+    await withWriteLock(dir, "reused", async () => {
+      expect((await readJson(lockFile)).op).toBe("reused");
+    });
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it("knows whether it still holds the lock", async () => {
+    await withWriteLock(dir, "mine", async () => {
+      expect(await writeLockStillHeld(dir)).toBe(true);
+      await plant({ host: "uraninite", op: "usurper" });
+      expect(await writeLockStillHeld(dir)).toBe(false);
+    });
+    expect(await writeLockStillHeld(dir)).toBe(false);
+  });
+
+  it("serialises work inside one hold", async () => {
+    const events: string[] = [];
+    const step = (name: string) =>
+      serialInHold(async () => {
+        events.push(`${name}+`);
+        await sleep(20);
+        events.push(`${name}-`);
+      });
+    await withWriteLock(dir, "batch", async () => {
+      await Promise.all([step("a"), step("b"), step("c")]);
+    });
+    expect(events).toEqual(["a+", "a-", "b+", "b-", "c+", "c-"]);
+  });
+
+  it("sweeps untracked atomic-write temp files older than the stale age", async () => {
+    const item = join(dir, "recipes/data/naan");
+    await mkdirp(item);
+    const old = join(item, ".recipe.json.01HZZZZZZZZZZZZZZZZZZZZZZZ.1.tmp");
+    const fresh = join(item, ".recipe.json.01HZZZZZZZZZZZZZZZZZZZZZZZ.2.tmp");
+    const other = join(item, ".notes.tmp");
+    for (const file of [old, fresh, other]) await writeFile(file, "x");
+    const then = new Date(Date.now() - 120_000);
+    await utimes(old, then, then);
+    await utimes(other, then, then);
+    await withWriteLock(dir, "sweeper", async () => undefined);
+    expect(await pathExists(old)).toBe(false);
+    expect(await pathExists(fresh)).toBe(true);
+    /* Not one of ours. */
+    expect(await pathExists(other)).toBe(true);
+  });
+
+  it("lets exactly one of several processes take over a stale lock at a time", async () => {
+    await plant({ pid: deadPid(), host: hostname(), pidns: ownNs() });
+    const log = join(dir, "holds.log");
+    const runs = await Promise.all(
+      ["a", "b", "c"].map((name) =>
+        execa("pnpm", ["exec", "tsx", HOLDER, dir, name, "150", log], {
+          cwd: EDITOR_DIR,
+          reject: false,
+        }),
+      ),
+    );
+    for (const run of runs) {
+      expect(run.exitCode, run.stderr).toBe(0);
+    }
+    const lines = (await readFile(log, "utf8")).trim().split("\n");
+    expect(lines).toHaveLength(6);
+    /* enter/exit strictly alternate: no two holds overlapped. */
+    for (let i = 0; i < lines.length; i += 2) {
+      const [enter, who] = lines[i].split(" ");
+      const [exit, same] = lines[i + 1].split(" ");
+      expect([enter, exit]).toEqual(["enter", "exit"]);
+      expect(same).toBe(who);
+    }
+    expect(await pathExists(lockFile)).toBe(false);
+  }, 60_000);
 });
+
+function ownNs(): string | null {
+  try {
+    return readlinkSync("/proc/self/ns/pid");
+  } catch {
+    return null;
+  }
+}
 
 async function realGitDir(): Promise<string> {
   const { realpath } = await import("node:fs/promises");

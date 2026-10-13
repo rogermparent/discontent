@@ -19,6 +19,7 @@
 // indexes and reports it. The routes on top are Playwright's (T17).
 
 import {
+  mkdirp,
   mkdtemp,
   outputFile,
   pathExists,
@@ -27,6 +28,7 @@ import {
   readJson,
   remove,
   rm,
+  utimes,
   writeFile,
 } from "fs-extra";
 import { tmpdir } from "os";
@@ -69,10 +71,13 @@ import {
 import {
   CommitConflictError,
   CommitFailedError,
+  commitContentChanges,
   commitTestHooks,
   flushPendingIndex,
   MergeInProgressError,
+  readPendingIndex,
 } from "@discontent/cms/git/commit";
+import { withWriteLock } from "@discontent/cms/git/writeLock";
 import {
   assignTerm,
   createTerm,
@@ -1524,10 +1529,24 @@ describe("private-index commits (34c)", () => {
     );
   }
 
+  beforeEach(() => {
+    /* Out of the way, unless a case is about the background retry. */
+    process.env.DISCONTENT_INDEX_FLUSH_RETRY_MS = "600000";
+  });
+
   afterEach(() => {
     commitTestHooks.beforeUpdateRef = undefined;
     delete process.env.DISCONTENT_INDEX_REFRESH_MS;
+    delete process.env.DISCONTENT_INDEX_FLUSH_RETRY_MS;
   });
+
+  async function until(check: () => Promise<boolean>, timeoutMs = 5_000) {
+    const deadline = Date.now() + timeoutMs;
+    while (!(await check())) {
+      if (Date.now() > deadline) throw new Error("timed out waiting");
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
 
   it("leaves a file staged by hand out of the commit, and staged", async () => {
     await writeFile(join(contentDirectory, "scratch.txt"), "mine\n");
@@ -1810,5 +1829,192 @@ describe("private-index commits (34c)", () => {
     expect(await readdir(join(contentDirectory, "recipes/data/naan"))).toEqual([
       "recipe.json",
     ]);
+  });
+
+  /* --- review follow-ups ------------------------------------------- */
+
+  it("names pending paths, and retries the refresh in the background", async () => {
+    process.env.DISCONTENT_INDEX_REFRESH_MS = "100";
+    process.env.DISCONTENT_INDEX_FLUSH_RETRY_MS = "100";
+    const lock = join(gitDir(), "index.lock");
+    await writeFile(lock, "");
+    await createRecipe(ctx, { name: "Naan" });
+    expect(await readPendingIndex(contentDirectory)).toEqual([
+      recipeFile("naan"),
+    ]);
+    await rm(lock);
+    /* Nobody writes again; the background retry applies it anyway. */
+    await until(
+      async () => (await readPendingIndex(contentDirectory)).length === 0,
+    );
+    expect((await git.status()).isClean()).toBe(true);
+  });
+
+  it("does not wait on an index.lock older than a few seconds", async () => {
+    const lock = join(gitDir(), "index.lock");
+    await writeFile(lock, "");
+    const then = new Date(Date.now() - 30_000);
+    await utimes(lock, then, then);
+    const started = Date.now();
+    /* The default 10 s budget, but the lock is old: one try, then pending. */
+    await createRecipe(ctx, { name: "Naan" });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(await readPendingIndex(contentDirectory)).toEqual([
+      recipeFile("naan"),
+    ]);
+    /* And a second write, with a refresh already pending, does not wait either. */
+    await utimes(lock, new Date(), new Date());
+    const again = Date.now();
+    await createRecipe(ctx, { name: "Scone" });
+    expect(Date.now() - again).toBeLessThan(5_000);
+    expect([...(await readPendingIndex(contentDirectory))].sort()).toEqual(
+      [recipeFile("naan"), recipeFile("scone")].sort(),
+    );
+    await rm(lock);
+    expect(await flushPendingIndex(contentDirectory)).toBe(true);
+    expect((await git.status()).isClean()).toBe(true);
+  });
+
+  it("records the paths a commit-everything changed, never `.`, and keeps hand-staged files", async () => {
+    process.env.DISCONTENT_INDEX_REFRESH_MS = "50";
+    await outputFile(join(contentDirectory, "notes/a.txt"), "a\n");
+    await writeFile(join(contentDirectory, "scratch.txt"), "mine\n");
+    const lock = join(gitDir(), "index.lock");
+    await writeFile(lock, "");
+    await commitContentChanges(
+      "Commit working changes",
+      ctx.author,
+      undefined,
+      contentDirectory,
+    );
+    expect([...(await readPendingIndex(contentDirectory))].sort()).toEqual([
+      "notes/a.txt",
+      "scratch.txt",
+    ]);
+    await rm(lock);
+    /* Stage something by hand, then let the flush run: it stays staged. */
+    await writeFile(join(contentDirectory, "staged.txt"), "x\n");
+    await git.add("staged.txt");
+    expect(await flushPendingIndex(contentDirectory)).toBe(true);
+    expect((await git.status()).staged).toEqual(["staged.txt"]);
+  });
+
+  it("advances the index stamp before the shared-index refresh", async () => {
+    await reindex(ctx);
+    process.env.DISCONTENT_INDEX_REFRESH_MS = "1500";
+    const lock = join(gitDir(), "index.lock");
+    await writeFile(lock, "");
+    const before = await head();
+    let done = false;
+    const write = createRecipe(ctx, { name: "Naan" }).then(() => {
+      done = true;
+    });
+    await until(async () => (await head()) !== before);
+    /* HEAD moved, the refresh is still waiting on index.lock... */
+    const freshness = await indexFreshness(ctx);
+    expect(done).toBe(false);
+    /* ...and the stamp already names our commit. */
+    expect(freshness).toMatchObject({ stale: false, head: await head() });
+    await rm(lock);
+    await write;
+  });
+
+  it("refuses during a cherry-pick, a revert and a rebase too", async () => {
+    for (const [marker, operation] of [
+      ["CHERRY_PICK_HEAD", "cherry-pick"],
+      ["REVERT_HEAD", "revert"],
+      ["rebase-merge", "rebase"],
+    ]) {
+      const path = join(gitDir(), marker);
+      if (marker.startsWith("rebase")) await mkdirp(path);
+      else await writeFile(path, `${await head()}\n`);
+      const error = await createRecipe(ctx, { name: "Naan" }).catch((e) => e);
+      expect(error).toBeInstanceOf(MergeInProgressError);
+      expect(error.message).toContain(`mid-${operation}`);
+      await rm(path, { recursive: true, force: true });
+    }
+    expect(await pathExists(join(contentDirectory, recipeFile("naan")))).toBe(
+      false,
+    );
+  });
+
+  it("is no conflict when the other commit wrote exactly this write's content", async () => {
+    await createRecipe(ctx, { name: "Naan" });
+    commitTestHooks.beforeUpdateRef = async () => {
+      commitTestHooks.beforeUpdateRef = undefined;
+      /* The worktree already holds our version: commit that, by hand. */
+      await git.add(recipeFile("naan"));
+      await git.commit("The same edit, from a shell");
+    };
+    await updateRecipe(ctx, "naan", { name: "Garlic naan" });
+    expect((await lastCommit()).message).toBe("The same edit, from a shell");
+    expect((await git.status()).isClean()).toBe(true);
+  });
+
+  it("never commits an atomic-write temp file, even inside a renamed directory", async () => {
+    await createRecipe(ctx, { name: "Naan" });
+    const stray = join(
+      contentDirectory,
+      "recipes/data/naan/.recipe.json.01HZZZZZZZZZZZZZZZZZZZZZZZ.1.tmp",
+    );
+    await writeFile(stray, "half a file");
+    await updateRecipe(ctx, "naan", { slug: "garlic-naan" });
+    const tree = String(
+      await git.raw(["ls-tree", "-r", "--name-only", "HEAD"]),
+    );
+    expect(tree).toContain(recipeFile("garlic-naan"));
+    expect(tree).not.toContain(".tmp");
+  });
+
+  it("refuses to move HEAD once its lock was taken over", async () => {
+    await createRecipe(ctx, { name: "Naan" });
+    const before = await head();
+    commitTestHooks.beforeUpdateRef = async () => {
+      commitTestHooks.beforeUpdateRef = undefined;
+      await writeFile(
+        join(gitDir(), "discontent-write.lock"),
+        JSON.stringify({
+          writeId: "01HZZZZZZZZZZZZZZZZZZZZZZZ",
+          pid: 1,
+          host: "elsewhere",
+          op: "usurper",
+          startedAt: Date.now(),
+        }),
+      );
+    };
+    const error = await updateRecipe(ctx, "naan", {
+      name: "Garlic naan",
+    }).catch((e) => e);
+    expect(error).toBeInstanceOf(CommitFailedError);
+    expect(error.message).toContain("taken over");
+    expect(await head()).toBe(before);
+  });
+
+  it("serialises two commits started together in one lock scope", async () => {
+    await outputFile(join(contentDirectory, "notes/a.txt"), "a\n");
+    await outputFile(join(contentDirectory, "notes/b.txt"), "b\n");
+    const before = await head();
+    await withWriteLock(contentDirectory, "two commits", () =>
+      Promise.all([
+        commitContentChanges(
+          "A",
+          ctx.author,
+          ["notes/a.txt"],
+          contentDirectory,
+        ),
+        commitContentChanges(
+          "B",
+          ctx.author,
+          ["notes/b.txt"],
+          contentDirectory,
+        ),
+      ]).then(() => undefined),
+    );
+    const log = String(await git.raw(["log", "--format=%s", `${before}..HEAD`]))
+      .trim()
+      .split("\n");
+    expect(log).toEqual(["B", "A"]);
+    expect((await git.status()).isClean()).toBe(true);
+    expect(await privateIndexes()).toEqual([]);
   });
 });
