@@ -4,6 +4,7 @@ import { Badge } from "@discontent/component-library/components/ui/badge";
 import Markdown from "@discontent/component-library/components/Markdown";
 import type {
   TagVocabularyEntry,
+  TermCrumb,
   TermHierarchyNode,
   TermPageData,
 } from "../../controller/tagVocabulary";
@@ -31,7 +32,8 @@ function TermChips({
   testId,
   separator,
 }: {
-  terms: TagVocabularyEntry[];
+  /** A chip prints its count when it has one; the breadcrumb's have none. */
+  terms: Array<TermCrumb & { count?: number }>;
   testId?: string;
   /** Printed between chips — the breadcrumb's "›", and nothing elsewhere. */
   separator?: string;
@@ -51,9 +53,11 @@ function TermChips({
           <Badge asChild variant="secondary">
             <Link href={`/tags/${term.slug}`}>
               {term.label}
-              <span className="ml-1.5 font-mono text-[0.7em] opacity-70">
-                {term.count}
-              </span>
+              {term.count !== undefined && (
+                <span className="ml-1.5 font-mono text-[0.7em] opacity-70">
+                  {term.count}
+                </span>
+              )}
             </Link>
           </Badge>
         </span>
@@ -100,10 +104,16 @@ export function TermPageBody({ term }: { term: TermPageData }) {
     breadcrumb,
     children,
     recipes,
+    ownRecipeCount,
     groups,
   } = term;
   /* The trail's last element is this term; the chips above it are the trail. */
   const ancestors = breadcrumb.slice(0, -1);
+  /*
+   * The list holds the narrower terms' recipes too (34a, D1). Say so only when
+   * that changes the number, so a leaf's page reads exactly as it did.
+   */
+  const includesNarrower = recipes.length > ownRecipeCount;
 
   return (
     <>
@@ -143,6 +153,14 @@ export function TermPageBody({ term }: { term: TermPageData }) {
           <TermChips terms={children} testId="term-children" />
         </div>
       )}
+      {includesNarrower && (
+        <p
+          className="my-3 text-sm text-muted-foreground"
+          data-testid="term-recipe-counts"
+        >
+          {ownRecipeCount} here · {recipes.length} including narrower terms
+        </p>
+      )}
       {recipes.length > 0 && (
         <p className="my-3 text-sm">
           <Link
@@ -165,7 +183,9 @@ export function TermPageBody({ term }: { term: TermPageData }) {
         /*
          * The recipes-only fallback. It can now fire with *everything* empty —
          * a record-only term has no carriers at all and is still a real page —
-         * where before this phase `tagRoute` 404'd that case.
+         * where before this phase `tagRoute` 404'd that case. `recipes` spans
+         * the subtree (34a), so a root whose recipes all carry a narrower term
+         * lists them rather than landing here.
          */
         <EmptyState message={`No recipes are tagged ${label}.`} />
       )}
@@ -194,7 +214,8 @@ export function TermPageBody({ term }: { term: TermPageData }) {
 }
 
 /**
- * One tag's page: everything carrying it, newest first, recipes then groups —
+ * One tag's page: everything carrying it or a narrower term (34a), newest
+ * first, recipes then groups —
  * under the term record's own label, description and picture when it has one.
  *
  * Unpaginated on purpose. The rows come from folded values rather than a

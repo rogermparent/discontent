@@ -26,6 +26,12 @@ export interface TagVocabularyEntry {
   count: number;
 }
 
+/** One step of a term page's breadcrumb: where it links and what it prints. */
+export interface TermCrumb {
+  slug: string;
+  label: string;
+}
+
 /**
  * Everything the term page renders, resolved (24c).
  *
@@ -38,11 +44,26 @@ export interface TermPageData {
   label: string;
   description?: string;
   image?: string;
-  /** Root first, this term last — so the trail reads left to right. */
-  breadcrumb: TagVocabularyEntry[];
-  /** Direct children only, in the tree's order, with their own counts. */
+  /**
+   * Root first, this term last — so the trail reads left to right. Labels
+   * only, no counts (34a): an ancestor's honest count is its whole subtree,
+   * and reading that would tie every page under a root to every term under it.
+   */
+  breadcrumb: TermCrumb[];
+  /**
+   * Direct children only, in the tree's order. Each `count` is the distinct
+   * recipes and groups of the child **and everything under it** (34a) — what
+   * the child's own page lists, and what `/tags`' tree prints beside it.
+   */
   children: TagVocabularyEntry[];
+  /**
+   * The term's recipes and every descendant's (34a, D1): deduped, pinned
+   * first, then newest first — what `tag:<term>` finds.
+   */
   recipes: RecipeListEntry[];
+  /** How many of `recipes` carry this term itself — the page's "N here". */
+  ownRecipeCount: number;
+  /** The term's groups and every descendant's, deduped, newest first. */
   groups: GroupListEntry[];
 }
 
@@ -155,6 +176,131 @@ export function childrenOf(
         count: 0,
       },
   );
+}
+
+/**
+ * Every slug at or under `slug` in the tree, `slug` first, then depth-first in
+ * the tree's child order (34a, D1) — the terms whose carriers a term page
+ * lists, and the set `tag:<slug>` expands to.
+ *
+ * A walk over `children` with a visited set, the `termHierarchy` pattern: the
+ * tree fold may hand back a hand-edited cycle, and this must terminate on it.
+ * A slug the tree does not hold is a subtree of one — itself — because a
+ * record-less term still has a page; only a record can have children.
+ */
+export function subtreeSlugs(
+  tree: TermTree | null | undefined,
+  slug: string,
+): string[] {
+  const seen = new Set<string>();
+  const walk = (current: string) => {
+    if (seen.has(current)) return;
+    seen.add(current);
+    for (const child of tree?.[current]?.children ?? []) walk(child);
+  };
+  walk(slug);
+  return [...seen];
+}
+
+/**
+ * Several terms' by-term rows as one list (34a): each carrier once, newest
+ * first — the fold's own order (date, then slug, both descending), so a single
+ * term's rows come back exactly as the fold wrote them.
+ */
+export function mergeTermRows<TItem extends { slug: string; date: number }>(
+  lists: ReadonlyArray<readonly TItem[] | null | undefined>,
+): TItem[] {
+  const bySlug = new Map<string, TItem>();
+  for (const list of lists) {
+    for (const item of list ?? []) {
+      if (!bySlug.has(item.slug)) bySlug.set(item.slug, item);
+    }
+  }
+  return [...bySlug.values()].sort(
+    (a, b) =>
+      b.date - a.date || (a.slug < b.slug ? 1 : a.slug > b.slug ? -1 : 0),
+  );
+}
+
+/** One term's by-term row, as `byTerm.readKey` answers it. */
+export interface TermRow<TItem> {
+  label: string;
+  items: TItem[];
+}
+
+/**
+ * One term's page from its subtree's per-term rows (34a, D2) — the pure half
+ * of `resolveTermPage`, or `null` when the slug names nothing at all: no
+ * record, and nothing in its subtree carries anything.
+ *
+ * `recipeRows` and `groupRows` answer for every slug of
+ * `subtreeSlugs(tree, slug)`, and nothing else is read: the breadcrumb is the
+ * tree's labels, and each child's count is the distinct carriers of the
+ * child's own subtree — a subset of this one, so its rows are already here.
+ * Labels keep `mergeTagVocabulary`'s precedence: the record (or its tree node)
+ * beats the recipe fold, which beats the group fold, which beats the slug.
+ */
+export function termPageData({
+  slug,
+  tree,
+  record,
+  recipeRows,
+  groupRows,
+}: {
+  slug: string;
+  tree: TermTree | null | undefined;
+  record?: {
+    label: string;
+    description?: string;
+    image?: string;
+    pinned?: string[];
+  } | null;
+  recipeRows: (slug: string) => TermRow<RecipeListEntry> | null | undefined;
+  groupRows: (slug: string) => TermRow<GroupListEntry> | null | undefined;
+}): TermPageData | null {
+  const subtree = subtreeSlugs(tree, slug);
+  const recipesOf = (slugs: string[]) =>
+    mergeTermRows(slugs.map((s) => recipeRows(s)?.items));
+  const groupsOf = (slugs: string[]) =>
+    mergeTermRows(slugs.map((s) => groupRows(s)?.items));
+  const recipes = recipesOf(subtree);
+  const groups = groupsOf(subtree);
+
+  if (!record && recipes.length === 0 && groups.length === 0) return null;
+
+  const labelOf = (term: string) =>
+    tree?.[term]?.label ??
+    recipeRows(term)?.label ??
+    groupRows(term)?.label ??
+    term;
+  const label = record?.label ?? labelOf(slug);
+
+  return {
+    slug,
+    label,
+    ...(record?.description ? { description: record.description } : {}),
+    ...(record?.image ? { image: record.image } : {}),
+    breadcrumb: breadcrumbOf(tree, slug).map((crumb) => ({
+      slug: crumb.slug,
+      label: crumb.slug === slug ? label : labelOf(crumb.slug),
+    })),
+    children: (tree?.[slug]?.children ?? []).map((child) => {
+      const under = subtreeSlugs(tree, child);
+      return {
+        slug: child,
+        label: labelOf(child),
+        count: recipesOf(under).length + groupsOf(under).length,
+      };
+    }),
+    /*
+     * The curated front (D5 option 2). Pinned recipes first in the record's
+     * order, then the rest newest-first — and groups after both, as their own
+     * section, because a recipe card and a group card are different cards.
+     */
+    recipes: applyPinned(recipes, record?.pinned),
+    ownRecipeCount: recipeRows(slug)?.items.length ?? 0,
+    groups,
+  };
 }
 
 /** One node of `/tags`' tree (31b): a term, its subtree total, its children. */

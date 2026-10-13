@@ -260,6 +260,59 @@ test.describe("Tag pages", () => {
       expect(missing?.status()).toBe(404);
     });
 
+    /*
+     * 34a (D1): a facet root carries nothing itself — recipes carry its
+     * children — so its page lists its narrower terms' recipes, as
+     * `tag:course` does, rather than "No recipes are tagged Course.".
+     */
+    test("a root with no carriers of its own lists its subtree (34a)", async ({
+      page,
+      request,
+      createApiToken,
+    }) => {
+      const token = await createApiToken();
+      const headers = { authorization: `Bearer ${token}` };
+      const created = await request.post("/api/taxonomies/tag", {
+        headers,
+        data: { label: "Course" },
+      });
+      expect(created.status()).toBe(201);
+      const moved = await request.patch("/api/taxonomies/tag/dessert", {
+        headers,
+        data: { parent: "course" },
+      });
+      expect(moved.status()).toBe(200);
+
+      const response = await page.goto("/tags/course");
+      expect(response?.status()).toBe(200);
+      await expect(
+        page.getByRole("heading", { name: "Course", exact: true }),
+      ).toBeVisible();
+      await expect(cards(page)).toHaveCount(8);
+      await expect(page.getByTestId("term-recipe-counts")).toHaveText(
+        "0 here · 8 including narrower terms",
+      );
+      await expect(page.getByText("No recipes are tagged")).toHaveCount(0);
+      /* The child's count is its subtree's — what its own page lists. */
+      const child = page
+        .getByTestId("term-children")
+        .getByRole("link", { name: /Dessert/ });
+      expect((await child.innerText()).replace(/\s+/g, " ").trim()).toBe(
+        "Dessert 8",
+      );
+
+      /* Every cookie carries `dessert` too, so the line stays away there. */
+      await page.goto("/tags/dessert");
+      await expect(cards(page)).toHaveCount(8);
+      await expect(page.getByTestId("term-recipe-counts")).toHaveCount(0);
+
+      /* Two levels down, the breadcrumb walks to the root — labels only. */
+      await page.goto("/tags/cookies");
+      await expect(
+        page.getByTestId("term-breadcrumb").getByRole("link"),
+      ).toHaveText(["Course", "Dessert"]);
+    });
+
     test("a record with no carriers is a real page, not a 404", async ({
       page,
     }) => {

@@ -7,6 +7,7 @@ import {
 import { getTransformedTermImageProps } from "recipe-website-common/components/TermImage";
 import { tagTermReads } from "recipe-website-common/controller/data/readTagTerms";
 import { resolveTermPage } from "recipe-website-common/controller/data/readTermPage";
+import { tagSlug } from "recipe-website-common/controller/tagSlug";
 import { termParentOptions } from "recipe-website-common/controller/tagVocabulary";
 import EditTermForm from "./form";
 
@@ -73,7 +74,14 @@ export default async function EditTermPage({
             aliases: record?.aliases,
           }}
           parentOptions={termParentOptions(tree, tag)}
+          /*
+           * The term's own carriers only: the page lists the subtree (34a),
+           * but the seat pins only recipes carrying this term itself.
+           */
           pinnedSuggestions={term.recipes
+            .filter((recipe) =>
+              recipe.tags?.some((candidate) => tagSlug(candidate) === tag),
+            )
             .map((recipe) => recipe.slug)
             .slice(0, PINNED_SUGGESTION_LIMIT)}
           defaultImage={defaultImage}

@@ -80,6 +80,7 @@ import {
   breadcrumbOf,
   childrenOf,
   mergeTagVocabulary,
+  subtreeSlugs,
   type TagVocabularyEntry,
 } from "recipe-website-common/controller/tagVocabulary";
 import type {
@@ -990,18 +991,6 @@ export async function listTerms(
   };
 }
 
-/** Every slug at or under `slug` in the tree, `slug` included. */
-function subtreeOf(tree: TermTree, slug: string): Set<string> {
-  const seen = new Set<string>();
-  const walk = (current: string) => {
-    if (seen.has(current)) return;
-    seen.add(current);
-    for (const child of tree[current]?.children ?? []) walk(child);
-  };
-  walk(slug);
-  return seen;
-}
-
 /**
  * One term: its record (or `null`), where it sits, and who carries it —
  * `counts.own` is this term's carriers, `counts.withDescendants` the distinct
@@ -1020,7 +1009,7 @@ export async function getTerm(
   if (!record && own.length === 0 && !vocabulary.bySlug.has(slug)) {
     throw new NotFoundError(`No term at slug "${slug}"`, slug);
   }
-  const subtree = subtreeOf(vocabulary.tree, slug);
+  const subtree = new Set(subtreeSlugs(vocabulary.tree, slug));
   const withDescendants = carriers.filter((carrier) =>
     carrier.tags.some((tag) => subtree.has(tagSlug(tag))),
   );

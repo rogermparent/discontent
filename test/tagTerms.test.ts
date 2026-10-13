@@ -40,6 +40,9 @@ import {
   breadcrumbOf,
   childrenOf,
   mergeTagVocabulary,
+  mergeTermRows,
+  subtreeSlugs,
+  termPageData,
 } from "../websites/recipe-website/common/controller/tagVocabulary";
 import type {
   FeaturedRecipe,
@@ -186,6 +189,186 @@ describe("childrenOf", () => {
     expect(childrenOf(TREE, "linzer")).toEqual([]);
     expect(childrenOf(TREE, "nope")).toEqual([]);
     expect(childrenOf(null, "dessert")).toEqual([]);
+  });
+});
+
+describe("subtreeSlugs (34a)", () => {
+  it("walks the term first, then depth-first in the tree's child order", () => {
+    const tree: TermTree = {
+      course: { label: "Course", children: ["dessert", "dinner"] },
+      dessert: { label: "Dessert", parent: "course", children: ["cookies"] },
+      cookies: { label: "Cookies", parent: "dessert", children: [] },
+      dinner: { label: "Dinner", parent: "course", children: [] },
+    };
+    expect(subtreeSlugs(tree, "course")).toEqual([
+      "course",
+      "dessert",
+      "cookies",
+      "dinner",
+    ]);
+  });
+
+  it("gives a leaf, and a slug the tree does not hold, a subtree of one", () => {
+    expect(subtreeSlugs(TREE, "linzer")).toEqual(["linzer"]);
+    expect(subtreeSlugs(TREE, "nope")).toEqual(["nope"]);
+    expect(subtreeSlugs(null, "nope")).toEqual(["nope"]);
+  });
+
+  it("terminates on a hand-edited cycle and a self-parent", () => {
+    const cyclic: TermTree = {
+      a: { label: "A", parent: "b", children: ["b"] },
+      b: { label: "B", parent: "a", children: ["a", "b"] },
+    };
+    expect(subtreeSlugs(cyclic, "a")).toEqual(["a", "b"]);
+    expect(subtreeSlugs(cyclic, "b")).toEqual(["b", "a"]);
+  });
+
+  it("keeps a child with no node of its own", () => {
+    const tree: TermTree = {
+      root: { label: "Root", children: ["ghost"] },
+    };
+    expect(subtreeSlugs(tree, "root")).toEqual(["root", "ghost"]);
+  });
+});
+
+describe("mergeTermRows (34a)", () => {
+  it("lists each carrier once, newest first, slug descending on a tie", () => {
+    expect(
+      mergeTermRows([
+        [
+          { slug: "b", date: 3 },
+          { slug: "a", date: 1 },
+        ],
+        null,
+        [
+          { slug: "c", date: 2 },
+          { slug: "b", date: 3 },
+          { slug: "d", date: 1 },
+        ],
+      ]).map((row) => row.slug),
+    ).toEqual(["b", "c", "d", "a"]);
+  });
+
+  it("keeps one term's rows in the fold's order", () => {
+    const rows = [
+      { slug: "z", date: 5 },
+      { slug: "y", date: 5 },
+      { slug: "x", date: 4 },
+    ];
+    expect(mergeTermRows([rows])).toEqual(rows);
+  });
+});
+
+describe("termPageData (34a)", () => {
+  const recipe = (slug: string, date: number, tags: string[]) => ({
+    slug,
+    date,
+    name: slug,
+    tags,
+  });
+  const TREE_34A: TermTree = {
+    course: { label: "Course", children: ["dessert", "dinner"] },
+    dessert: { label: "Dessert", parent: "course", children: ["cookies"] },
+    cookies: { label: "Cookies", parent: "dessert", children: [] },
+    dinner: { label: "Dinner", parent: "course", children: [] },
+  };
+  const RECIPES: Record<string, ReturnType<typeof recipe>[]> = {
+    cookies: [
+      recipe("linzer", 4, ["cookies", "dessert"]),
+      recipe("sugar", 2, ["cookies"]),
+    ],
+    dessert: [recipe("linzer", 4, ["cookies", "dessert"])],
+    dinner: [recipe("stew", 3, ["dinner"])],
+  };
+  const rows =
+    (source: Record<string, ReturnType<typeof recipe>[]>) => (slug: string) =>
+      source[slug] ? { label: slug, items: source[slug] } : null;
+  const page = (slug: string, record?: { label: string; pinned?: string[] }) =>
+    termPageData({
+      slug,
+      tree: TREE_34A,
+      record,
+      recipeRows: rows(RECIPES),
+      groupRows: () => null,
+    });
+
+  it("lists a root's descendants with zero carriers of its own", () => {
+    const course = page("course", { label: "Course" });
+    expect(course?.recipes.map((r) => r.slug)).toEqual([
+      "linzer",
+      "stew",
+      "sugar",
+    ]);
+    expect(course?.ownRecipeCount).toBe(0);
+    /* Each child counts its own subtree, distinct — what its page lists. */
+    expect(course?.children).toEqual([
+      { slug: "dessert", label: "Dessert", count: 2 },
+      { slug: "dinner", label: "Dinner", count: 1 },
+    ]);
+  });
+
+  it("counts its own carriers apart from the subtree's", () => {
+    const dessert = page("dessert", { label: "Dessert" });
+    expect(dessert?.ownRecipeCount).toBe(1);
+    expect(dessert?.recipes).toHaveLength(2);
+  });
+
+  it("prints the tree's labels in the breadcrumb, without counts", () => {
+    expect(page("cookies", { label: "Cookies" })?.breadcrumb).toEqual([
+      { slug: "course", label: "Course" },
+      { slug: "dessert", label: "Dessert" },
+      { slug: "cookies", label: "Cookies" },
+    ]);
+  });
+
+  it("pins over the merged list", () => {
+    expect(
+      page("course", { label: "Course", pinned: ["sugar"] })?.recipes.map(
+        (r) => r.slug,
+      ),
+    ).toEqual(["sugar", "linzer", "stew"]);
+  });
+
+  it("is null only with no record and an empty subtree", () => {
+    expect(page("nope")).toBeNull();
+    /* A record with nothing under it is still a page. */
+    expect(
+      termPageData({
+        slug: "holiday",
+        tree: { holiday: { label: "Holiday", children: [] } },
+        record: { label: "Holiday" },
+        recipeRows: () => null,
+        groupRows: () => null,
+      })?.recipes,
+    ).toEqual([]);
+  });
+
+  it("falls back to the fold's label, recipes before groups, for a bare tag", () => {
+    const bare = termPageData({
+      slug: "christmas",
+      tree: TREE_34A,
+      recipeRows: () => null,
+      groupRows: (slug) =>
+        slug === "christmas"
+          ? {
+              label: "Christmas",
+              items: [
+                {
+                  slug: "g",
+                  date: 1,
+                  name: "G",
+                  kind: "collection",
+                  itemCount: 0,
+                },
+              ],
+            }
+          : null,
+    });
+    expect(bare?.label).toBe("Christmas");
+    expect(bare?.breadcrumb).toEqual([
+      { slug: "christmas", label: "Christmas" },
+    ]);
+    expect(bare?.groups.map((g) => g.slug)).toEqual(["g"]);
   });
 });
 
