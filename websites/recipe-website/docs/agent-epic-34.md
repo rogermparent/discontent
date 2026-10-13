@@ -427,6 +427,9 @@ typecheck`, `pnpm exec vitest run`, targeted Playwright in build mode.
 - **34b — the worktree guard refuses a command whose text says `alias`** (it
   reads it as the shell builtin). Grep with a fragment (`lias`) or edit with
   the Edit tool.
+
+### 34f
+
 - **34f — Sally's ItemList carries URLs only.** WP's Tasty Roundups emits
   `{"@type": "ListItem", position, url}` with no `name` or `image`, so names
   and pictures come from the body's cards whichever source wins. An item with
@@ -445,14 +448,48 @@ typecheck`, `pnpm exec vitest run`, targeted Playwright in build mode.
   apples, dirt pudding, …" links three items before the list starts. In
   links mode the order is each item's first _list-entry_ appearance (a
   picture or a heading), not its first mention.
-- **34f — the pacing outlives the call.** The skill runs `page_inspect_list`
-  then `recipe_import_list`, and re-runs on `remaining`, back to back; a
-  per-call clock would fetch the list page twice within a second. The clock
-  is per process (`siteClock` in `importList.ts`), which covers the stdio MCP
-  server and the editor. A CLI run is a new process and starts empty, so the
-  skill's fallback says to leave 15 s between runs. Two concurrent calls in
-  one process are not serialized (nothing makes them; the skill is
-  sequential).
+- **34f — the pacing outlives the call, and calls overlap.** The skill runs
+  `page_inspect_list` then `recipe_import_list` and re-runs on `remaining`
+  back to back; `page_inspect_list` is read-only, so a client may run two at
+  once; a client that times out on `/api/import-list` may retry while the
+  first call is still fetching; and `recipe_import` / `page_inspect` can
+  follow a list call at once. A per-call clock (the first cut) spaced none of
+  that. Every fetch now goes through one **per-process, per-site queue**
+  (`curation/sitePacing.ts`): acquire, wait out 15 s since the last request
+  ended, run (a 403 retry inside the hold), record the end, release — and
+  the epic-26 seats use it too. A dropped site stays dropped for an hour
+  across calls. A CLI run is a new process and starts empty, so the skill's
+  fallback and `--help` say to leave 15 s between runs.
+- **34f — a 403 retry that answered 200 is not a refusal.** The first cut
+  dropped the site whenever the retry was followed by any failure — so a
+  200 HTML body at an image URL ("not an image") dropped the site. The drop
+  now needs the retry's own status to be 403, or the retry to fail at the
+  network level (`ForbiddenRetry.afterRetry` reports it).
+- **34f — an image is not worth the recipe.** When an image's site is
+  dropped or its download fails, the recipe is created without it and the
+  result says so (a warning; `recipe_set_image` later). The attempt still
+  counts against the cap — the page was fetched.
+- **34f — positional picks drift.** A roundup edited between two calls moves
+  its items, so `remaining` is `[{n, url}]` and a pick may be a URL: each is
+  matched against the list as fetched now, a moved one follows its URL (with
+  a warning), a gone one is `skipped`.
+- **34f — SSRF.** A public roundup can link `http://169.254.169.254/` or a
+  LAN host, and the editor would fetch it. Items on loopback, RFC 1918,
+  CGNAT, link-local and IPv6 ULA/link-local hosts are dropped unless the list
+  page is on such a host itself (fixtures, a LAN wiki). A public name that
+  resolves privately, or a public item that redirects to a private one, is
+  not caught.
+- **34f — redirects.** A request is queued under the URL asked for; when the
+  page fetch ends up on another site (`finalUrl`), that site's clock is
+  advanced too. A redirect is not paced before it happens, and images do not
+  report a final URL.
+- **34f — the call must beat the HTTP timeouts.** Node's fetch gives up on a
+  response's headers at 300 s. `limit` is at most 6 (1 + 6 × 2 requests,
+  about 3 min), and the CLI's `--remote` backend gives `/api/import-list`
+  285 s and says "list the page again to see what landed" when it expires.
+- **34f — `RECIPE_POLITE_GAP_MS`** sets the real clock's gap. It exists for
+  tests: `test/setupTests.js` sets it to 0 because the epic-26 suites import
+  stubbed `example.com` pages back to back. Never set it on a real editor.
 - **34f — "same host first" reorders a mixed list.** A roundup that links its
   own recipes and other sites' lists its own first; `n` is that order, not
   the page's. Single-site roundups (Sally's) are unaffected.
@@ -574,25 +611,42 @@ typecheck`, `pnpm exec vitest run`, targeted Playwright in build mode.
 `pageMetadata.ts` — in `common/util/` rather than `curation/` because the D8
 import boundary allows `recipe-website-common/util/*` and not
 `hast-util-from-html`). The seats are `editor/controller/curation/
-importList.ts`: `inspectList(ctx, url)` and `importList(ctx, url, options)`.
-CLI `inspect-list <url>` and `import-list <url> (--pick 1,3,5-7 | --all)
-[--term s [--term-label L]] [--limit n] [--dry-run]`; routes `POST
-/api/inspect-list` (read scope) and `POST /api/import-list` (always 200: a
-batch report); MCP `page_inspect_list` (readOnly) and `recipe_import_list`
-(write, not destructive). Tools 47 → 49, pre-approved 35 → 37 (settings,
-skill frontmatter, CLAUDE.md, `curatorSkill.test.ts`); held back unchanged
-at 12. No new error code: per-item failures ride the result, and the call
-throws only `validation` (no pick, both, a pick past the end, a bad URL) or
-`import_failed` (the list page cannot be fetched, or 403s twice).
+importList.ts`: `inspectList(ctx, url)` and `importList(ctx, url, options)`,
+on the per-site queue in `curation/sitePacing.ts`. CLI `inspect-list <url>`
+and `import-list <url> (--pick 1,3,5-7|<url>,… | --all) [--term s
+[--term-label L]] [--limit 1-6] [--dry-run]`; routes `POST
+/api/inspect-list` (read scope) and `POST /api/import-list` (write scope;
+always 200, a batch report); MCP `page_inspect_list` (readOnly) and
+`recipe_import_list` (write, not destructive). Tools 47 → 49, pre-approved
+35 → 37 (settings, skill frontmatter, CLAUDE.md, `curatorSkill.test.ts`);
+held back unchanged at 12. No new error code: per-item failures ride the
+result (`failed` with `error`, `skipped` with a warning), and the call throws
+only `validation` (no pick, both, a pick past the end, `limit` over 6, a bad
+URL, a `termLabel` that is another term's alias — all before any fetch),
+`no_git_identity` (a real run without a committer, before any fetch) or
+`import_failed` (the list page cannot be fetched, or its site is dropped).
 
 **Shared files, additively.** `ForbiddenRetry.beforeRetry` (awaited in place
-of the 403 delay, so the pacer spaces and counts the retry);
-`createRecipe(…, {fetchImage})` / `buildRecipeWrite({fetchImage})` (the image
-download on the pacer's clock); `createTerm` joins a batch (`batchOptions` /
-`collectBatch`, a no-op outside one) so `--term`'s create and assign are one
-commit — `Create term: <slug> (+N recipes)`, or `Assign term: …` when the
-record exists. The backend seam, CLI index, HTTP backend and registry each
-gained two entries and nothing else.
+of the 403 delay, so the queue spaces and counts the retry) and
+`afterRetry` (the retry's response, so only a second 403 drops a site);
+`createRecipe(…, {fetchImage})` and `buildRecipeWrite({fetchImage,
+probeImage})`; `createTerm` joins a batch (`batchOptions` / `collectBatch`, a
+no-op outside one) so `--term`'s create and assign are one commit — `Create
+term: <slug> (+N recipes)`, or `Assign term: …` when the record exists;
+`termAliasOwners` in `terms.ts` (the term check before the first fetch).
+`inspect.ts` and `importRecipe.ts` fetch through the same queue (page,
+image, dry-run probe), so `page_inspect` / `recipe_import` right after a
+list call are spaced too. The backend seam, CLI index, HTTP backend (plus a
+285 s client timeout on this one route) and registry each gained two
+entries.
+
+**The term.** `term` is resolved before anything is fetched: an alias names
+its owner (with a warning); a record keeps its label; with no record the
+label is `termLabel`, else the tag's existing label (a carried tag), else
+the list's title (else the slug, when the title is another term's alias).
+`createTerm`'s label warnings ride `term.warnings`. A batch that fails after
+the create reports `created: true` and the error; what was written is
+committed "(partial)" (F34).
 
 **Defaults and why.** One real import is **two requests** (the recipe page
 and its image; a 403 adds a retry, 15 s later); a dry run is **one** (no
@@ -600,9 +654,10 @@ image probe — the dry run reports the image URL instead). The list page is
 one more per call. So the per-call cap is **3 imports** (1 + 3 × 2 = 7
 requests, six 15 s gaps ≈ 90 s plus transfer) and **6 for a dry run**
 (1 + 6 = 7, the same ≈ 90 s) — under the ~2 min an MCP client allows a call.
-`limit` (1–50) overrides it. `existing` picks cost nothing and do not count.
-The per-site clock is per process (Traps), so a re-run on `remaining` waits
-out the previous call's last request.
+`limit` goes to **6 at most** (1 + 6 × 2 = 13 requests ≈ 3 min), under Node's
+300 s headers timeout for `/api/import-list`. `existing` picks cost nothing
+and do not count; an item whose image could not be had counts (its page was
+fetched). `remaining` is `[{n, url}]`; a re-run passes it back as `pick`.
 
 **Fixtures** (`test/fixtures/roundups/`): Sally's Thanksgiving pies (an
 ItemList roundup, 40 Tasty Roundups cards; 52 KB after trimming scripts,
@@ -615,20 +670,29 @@ a single recipe page (neither: "No schema.org ItemList and only 2 candidate
 links … The page has a Recipe of its own"). Each Sally's page was fetched
 once (the Halloween one 403'd curl's Chrome UA under Cloudflare and was
 fetched as Node's plain `fetch`, the importer's first identity, minutes
-later).
+later). Playwright's `importable-uploads` gains `uploads/roundup.html`.
 
-**Tests.** `roundupPage.test.ts` (9: URL helpers and the four fixtures);
-`importList.test.ts` (10: two local servers as two sites and a fake clock —
-picks, `existing` skip, the term create + assign as one commit and an
-idempotent re-run, a 403 retried once then the site dropped with its picks
-in `remaining`, the cap and a continuation, a dry run that fetches no image
-and writes nothing, validation, `--pick` ranges, the HTTP backend's routes
-and error rehydration; every same-site pair of requests ≥ 15 s apart on the
-servers' own clock); `mcp.test.ts` (inspect, dry run without a warning, a
-real `all` with a term, `existing` afterwards, the annotations);
-`cliJson.test.ts` (both commands as a process, the commit count, the usage
-error); `curatorSkill.test.ts` (counts, and the skill's roundup loop and
-Sally's-first line).
+**Tests.** `roundupPage.test.ts` (11: URL helpers, the four fixtures,
+private hosts dropped from a public page and kept on a private one,
+relative links against the page rather than its canonical, `www.` and
+slash spellings deduped); `importList.test.ts` (16: two local servers as two
+sites and a fake clock — picks, `existing` skip, the term create + assign
+as one commit and an idempotent re-run, a 403 retried once then the site
+dropped for the next call too, an image refused twice (recipe without it,
+site dropped) beside one whose retry answered 200 with HTML (recipe without
+it, nothing dropped), two `importList`s and two `inspectList`s at once under
+`Promise.all`, URL and `{n, url}` picks against a changed list, the cap and
+a continuation, a dry run that fetches no image and writes nothing,
+validation, an alias term and an alias `termLabel` refused before any fetch,
+a carried tag's label, `inspect` + `import` sharing the real-clock queue,
+`--pick` ranges and URLs, the HTTP backend's routes and error rehydration;
+every same-site pair of requests ≥ 15 s apart on the servers' own clock);
+`mcp.test.ts`, `cliJson.test.ts`, `curatorSkill.test.ts`; Playwright
+`api-write.spec.ts` (401 without a token on both routes, a read token lists
+and is 403 on import, a dry run, `limit: 7` → 400, a real import with a
+term, `existing` afterwards). After the review round: vitest **60 files /
+1268 tests**; editor typecheck and export `tsc` clean; Playwright build mode
+`api-write` **27 passed**.
 
 **Live dry run** (scratch clone of the content repo at `35e0d1d`, CLI with
 `--content-dir`, runs ≥ 20 s apart): `inspect-list` on the Thanksgiving pies

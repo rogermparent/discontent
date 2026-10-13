@@ -212,11 +212,69 @@ const SKIP_SITES = new Set([
   "yummly.com",
 ]);
 
+/**
+ * A host on this machine or a private network: loopback, RFC 1918, CGNAT,
+ * link-local, `0.0.0.0`, IPv6 ULA and link-local, `localhost`. A public
+ * roundup must not steer the editor's fetches there (SSRF), so its items on
+ * such hosts are dropped — unless the list page is on one itself (a local
+ * fixture, a LAN wiki). A public name that *resolves* privately, or a public
+ * item that redirects to a private one, is not caught here.
+ */
+export function isPrivateHost(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  } catch {
+    return false;
+  }
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  /* `[::ffff:10.0.0.1]` — which `URL` spells `::ffff:a00:1`. */
+  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
+  const mapped = hex
+    ? [
+        parseInt(hex[1], 16) >> 8,
+        parseInt(hex[1], 16) & 255,
+        parseInt(hex[2], 16) >> 8,
+        parseInt(hex[2], 16) & 255,
+      ].join(".")
+    : /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(host)?.[1];
+  const v4 = IPV4.test(host) ? host : mapped;
+  if (v4) {
+    const [a, b] = v4.split(".").map(Number);
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127)
+    );
+  }
+  if (host.includes(":")) {
+    return (
+      host === "::1" ||
+      host === "::" ||
+      /^f[cd][0-9a-f]{0,2}:/.test(host) ||
+      /^fe[89ab][0-9a-f]?:/.test(host)
+    );
+  }
+  return false;
+}
+
+interface SkipContext {
+  /** The page's own keys (its URL, its canonical): self-links. */
+  pageKeys: Set<string>;
+  /** The page is on a private host, so its private links are fair. */
+  allowPrivate: boolean;
+}
+
 /** `true` when `url` is certainly not a recipe: the page itself, a share target, an archive. */
-function skipUrl(url: string, pageKey: string | undefined): boolean {
+function skipUrl(url: string, context: SkipContext): boolean {
   const parsed = new URL(url);
   const key = sourceUrlKey(url);
-  if (!key || key === pageKey) return true;
+  if (!key || context.pageKeys.has(key)) return true;
+  if (!context.allowPrivate && isPrivateHost(url)) return true;
   const site = siteKey(url) ?? "";
   if (SKIP_SITES.has(site) || /(^|\.)amazon\.[a-z.]+$/.test(parsed.hostname)) {
     return true;
@@ -420,7 +478,7 @@ interface Evidence {
 function gatherEvidence(
   root: Element | Root,
   base: string,
-  pageKey: string | undefined,
+  context: SkipContext,
 ): Map<string, Evidence> {
   const evidence = new Map<string, Evidence>();
   const parents = new Map<Element, Parent>();
@@ -433,7 +491,9 @@ function gatherEvidence(
     canonicalItemUrl(attr(anchor, "href"), base);
 
   const isCandidate = (url: string | undefined): url is string =>
-    url !== undefined && !skipUrl(url, pageKey);
+    url !== undefined && !skipUrl(url, context);
+  /* Two spellings of one page (`www.`, a trailing slash) are one item. */
+  const keyOf = (url: string) => sourceUrlKey(url) ?? url;
 
   /* The card around `anchor` and its primary URL, or `undefined`. */
   const cardOf = (anchor: Element) => {
@@ -500,13 +560,14 @@ function gatherEvidence(
     if (/\bsponsored\b/i.test(attr(element, "rel") ?? "")) return "skip";
 
     /* The anchor's subtree is read here, so the walk need not descend. */
-    const entry: Evidence = evidence.get(url) ?? {
+    const key = keyOf(url);
+    const entry: Evidence = evidence.get(key) ?? {
       url,
       order: order++,
       texts: [],
       strong: false,
     };
-    evidence.set(url, entry);
+    evidence.set(key, entry);
 
     const text = cleanName(textOf(element));
     if (text) entry.texts.push(text);
@@ -540,16 +601,16 @@ function gatherEvidence(
     }
 
     const card = cardOf(element);
-    if (card?.primary === url && card.heading) {
+    if (card?.primary && keyOf(card.primary) === key && card.heading) {
       entry.cardHeading ??= card.heading;
       markStrong();
     }
 
     if (
       lastHeading &&
-      (!lastHeading.claimedBy || lastHeading.claimedBy === url)
+      (!lastHeading.claimedBy || lastHeading.claimedBy === key)
     ) {
-      lastHeading.claimedBy = url;
+      lastHeading.claimedBy = key;
       entry.precedingHeading ??= cleanName(textOf(lastHeading.element));
     }
     return "skip";
@@ -559,7 +620,7 @@ function gatherEvidence(
    * a different element from the heading's. */
   for (const [card, { primary }] of cardCache) {
     if (!primary) continue;
-    const entry = evidence.get(primary);
+    const entry = evidence.get(keyOf(primary));
     if (!entry || entry.image) continue;
     entry.image = elements(card, (element) => element.tagName === "img")
       .map((img) => imageUrl(img, base))
@@ -786,17 +847,33 @@ export function parseRoundupPage(html: string, pageUrl: string): ParsedRoundup {
       canonical = canonicalItemUrl(attr(element, "href"), pageUrl);
     }
   });
-  const base = canonical ?? pageUrl;
+  /*
+   * Relative links resolve against the page's own URL (or its `<base>`), as a
+   * browser would; the canonical only says which links are the page itself.
+   */
+  let baseHref: string | undefined;
+  walk(tree, (element) => {
+    if (baseHref === undefined && element.tagName === "base") {
+      baseHref = attr(element, "href");
+    }
+  });
+  const base =
+    baseHref && URL.canParse(baseHref, pageUrl)
+      ? new URL(baseHref, pageUrl).href
+      : pageUrl;
+  /* Self-links (`#respond`, the canonical) are never items. */
   const pageKeys = new Set(
     [sourceUrlKey(pageUrl), canonical && sourceUrlKey(canonical)].filter(
       (key): key is string => Boolean(key),
     ),
   );
-  /* Self-links (`#respond`, the canonical) are never items. */
-  const selfKey = canonical ? sourceUrlKey(canonical) : sourceUrlKey(pageUrl);
+  const context: SkipContext = {
+    pageKeys,
+    allowPrivate: isPrivateHost(pageUrl),
+  };
 
   const root = articleRoot(tree);
-  const evidence = gatherEvidence(root, base, selfKey);
+  const evidence = gatherEvidence(root, base, context);
   const title = pageTitle(tree);
 
   /* 1. The ItemList, when the page has one. */
@@ -806,8 +883,8 @@ export function parseRoundupPage(html: string, pageUrl: string): ParsedRoundup {
     if (!hasType(node, "ItemList")) continue;
     for (const entry of itemListEntries(node, base)) {
       const key = sourceUrlKey(entry.url);
-      if (!key || seen.has(key) || pageKeys.has(key)) continue;
-      if (skipUrl(entry.url, selfKey)) continue;
+      if (!key || seen.has(key)) continue;
+      if (skipUrl(entry.url, context)) continue;
       seen.add(key);
       listed.push(entry);
     }
@@ -819,7 +896,7 @@ export function parseRoundupPage(html: string, pageUrl: string): ParsedRoundup {
       source: "itemlist",
       hasRecipe,
       items: listed.map((entry) => {
-        const found = evidence.get(entry.url);
+        const found = evidence.get(sourceUrlKey(entry.url) ?? entry.url);
         const name = cleanName(entry.name) ?? nameFor(found, entry.url);
         const image = entry.image ?? found?.image;
         return { url: entry.url, name, ...(image ? { image } : {}) };
@@ -853,7 +930,7 @@ export function parseRoundupPage(html: string, pageUrl: string): ParsedRoundup {
     };
   }
 
-  const pageSite = siteKey(base);
+  const pageSite = siteKey(pageUrl);
   const ordered = [
     ...chosen.filter((entry) => siteKey(entry.url) === pageSite),
     ...chosen.filter((entry) => siteKey(entry.url) !== pageSite),

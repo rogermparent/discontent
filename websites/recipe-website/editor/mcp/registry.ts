@@ -48,6 +48,11 @@ import { z } from "zod";
 import type { CuratorBackend } from "../cli/backend/types";
 import { toErrorObject } from "../controller/curation/errors";
 import { readImageFile } from "../controller/imageImport";
+import {
+  IMPORT_LIST_MAX_LIMIT,
+  IMPORT_LIST_MAX_PICKS,
+  ListPickSchema,
+} from "../controller/curation/importList";
 import type { RecipeRow } from "../controller/curation/recipes";
 import {
   FeaturedInputSchema,
@@ -491,8 +496,10 @@ export function createRecipeServer(
         "1-based position (what recipe_import_list's `pick` names) and `existing` is the slug " +
         "of a recipe already imported from that page. `source` says where the list came from: " +
         "the page's schema.org ItemList, or the recipe links in its article body. A page that " +
-        "lists nothing answers `items: []` and a `reason`. One request to the site; " +
-        "import_failed only when the page cannot be fetched at all.",
+        "lists nothing answers `items: []` and a `reason`. One request to the site, queued " +
+        "politely: it may wait up to 15 s behind another request to the same site. " +
+        "import_failed only when the page cannot be fetched at all (or its site was " +
+        "dropped after refusing twice).",
       inputSchema: z.strictObject({ url: z.string().min(1) }),
       annotations: READ_ONLY,
     },
@@ -505,29 +512,35 @@ export function createRecipeServer(
       title: "Import recipes from a roundup page",
       description:
         "Import the picked items of a roundup page, each through recipe_import's path as its " +
-        "own commit, keeping its source. `pick` is a list of 1-based positions from " +
-        "page_inspect_list, or `all: true`. Items whose page the corpus already has are " +
-        "skipped and reported as `existing`. Polite and slow: requests to one site are 15 s " +
-        "apart — the list page, each recipe page and each image count — and a site that " +
-        "refuses twice (403) is dropped for the call. So a call imports at most `limit` items " +
-        "(default 3, about 90 s; 6 for a dry run, which fetches no images) and answers the " +
-        "rest as `remaining`: call again with `pick: remaining` until it is empty, unless " +
-        "`dropped` is set. `term` makes the list a collection: the term is created if " +
-        "missing (labelled `termLabel` or the list's title) and assigned to every imported " +
-        "and existing item, one commit at the end. Tags are not set — use recipe_update " +
-        "with each result's `suggestedTags` as hints. `dryRun` fetches the pages and writes " +
-        "nothing. Each result is `{n, url, name, status, slug?, image?, suggestedTags?, " +
-        "error?}`, status imported, existing, would-import or failed; one item failing never " +
-        "fails the call. Errors: validation (no pick, or a pick past the end), " +
-        "import_failed (the list page cannot be fetched).",
+        "own commit, keeping its source. `pick` lists 1-based positions from " +
+        "page_inspect_list (or items' URLs, or `remaining` entries as returned), or pass " +
+        "`all: true`. Items whose page the corpus already has are skipped and reported as " +
+        "`existing`. Polite and slow: requests to one site are 15 s apart, across calls — the " +
+        "list page, each recipe page and each image count — and a site that refuses twice " +
+        "(403) is dropped for an hour. So a call imports at most `limit` items (default 3, " +
+        "about 90 s; 6 for a dry run, which fetches no images; 6 at most) and answers the " +
+        "rest as `remaining: [{n, url}]`: call again with `pick: remaining` until it is " +
+        "empty, unless `dropped` is set. A pick whose URL has left the list is `skipped`. " +
+        "An image that cannot be fetched leaves the recipe without one and a warning. " +
+        "`term` makes the list a collection: the term (an alias names its owner) is created " +
+        "if missing — labelled `termLabel`, the tag's existing label, or the list's title — " +
+        "and assigned to every imported and existing item, one commit at the end. Tags are " +
+        "not set — use recipe_update with each result's `suggestedTags` as hints. `dryRun` " +
+        "fetches the pages and writes nothing. Each result is `{n, url, name, status, slug?, " +
+        "image?, suggestedTags?, error?, warnings?}`, status imported, existing, " +
+        "would-import, failed or skipped; one item failing never fails the call. Errors, " +
+        "before anything is fetched: validation (no pick, a pick past the end, a termLabel " +
+        "that is another term's alias), no_git_identity (no committer for a real run); " +
+        "after: import_failed (the list page cannot be fetched). A write refused mid-call " +
+        "(dirty_tree) fails that item.",
       inputSchema: z.strictObject({
         url: z.string().min(1),
-        pick: z.array(z.number().int().min(1)).optional(),
+        pick: z.array(ListPickSchema).max(IMPORT_LIST_MAX_PICKS).optional(),
         all: z.boolean().optional(),
         term: z.string().min(1).optional(),
         termLabel: z.string().min(1).optional(),
         dryRun: z.boolean().optional(),
-        limit: z.number().int().min(1).optional(),
+        limit: z.number().int().min(1).max(IMPORT_LIST_MAX_LIMIT).optional(),
       }),
       annotations: WRITES,
     },

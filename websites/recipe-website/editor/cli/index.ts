@@ -133,8 +133,8 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   import <url> [--tags a,b] [--slug s] [--name N] [--image <url>]
                [--dry-run [--out draft.json]] [--overwrite] [--allow-partial]
   inspect-list <url>
-  import-list <url> (--pick 1,3,5-7 | --all) [--term <slug> [--term-label L]]
-              [--limit n] [--dry-run]
+  import-list <url> (--pick 1,3,5-7|<url>,… | --all) [--term <slug> [--term-label L]]
+              [--limit 1-6] [--dry-run]
   create (--file recipe.json | --stdin) [--overwrite] [--dry-run]
   update <slug> (--file patch.json | --stdin) [--dry-run]
   image <slug> (--url <image-url> | --file <path> | --clear)
@@ -226,8 +226,9 @@ d.json\`. Fix a picture later with \`image <slug> --url|--file|--clear\`.
 A roundup ("40+ Thanksgiving Pies"): \`inspect-list <url>\` lists its recipes,
 \`existing\` marked; \`import-list <url> --pick 1,3 [--term <slug>]\` imports
 the picks one commit each, 15 s apart per site (images and 403 retries
-count), at most --limit per run (3; 6 for --dry-run). Re-run with --pick
-<remaining> to continue.
+count), at most --limit per run (3, or 6 for --dry-run; 6 at most). Re-run with
+--pick <the remaining URLs> to continue; a run forgets the last one's clock,
+so leave 15 s between runs against one site.
 
 Piping --json: run it as \`pnpm --silent recipes …\`. Without --silent, pnpm
 prints its own script banner on stdout ahead of the object, so the stream is

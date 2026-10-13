@@ -24,6 +24,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vitest";
 
 import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
@@ -35,15 +36,21 @@ import { recipeContentTypes } from "../websites/recipe-website/editor/controller
 import type { CurationContext } from "../websites/recipe-website/editor/controller/curation/context";
 import { CurationError } from "../websites/recipe-website/editor/controller/curation/errors";
 import {
+  SiteState,
   importList,
   inspectList,
   type Pacing,
 } from "../websites/recipe-website/editor/controller/curation/importList";
+import { importAndCreate } from "../websites/recipe-website/editor/controller/curation/importRecipe";
+import { inspectUrl } from "../websites/recipe-website/editor/controller/curation/inspect";
 import {
   createRecipe,
   getRecipe,
 } from "../websites/recipe-website/editor/controller/curation/recipes";
-import { getTerm } from "../websites/recipe-website/editor/controller/curation/terms";
+import {
+  createTerm,
+  getTerm,
+} from "../websites/recipe-website/editor/controller/curation/terms";
 
 /* ------------------------------------------------------------------ */
 /* Two sites                                                           */
@@ -61,8 +68,11 @@ let hits: Hit[] = [];
 const servers: Record<"a" | "b", { server: Server; origin: string }> =
   {} as never;
 
-/** Every request answered 403, by path: the forbidden recipe page. */
-const FORBIDDEN = new Set(["/r/forbidden/"]);
+/** Every request answered 403, by path: a page and an image. */
+const FORBIDDEN = new Set(["/r/forbidden/", "/img/shy-pie.png"]);
+/** Answered 403 once, then 200 with HTML: a retry that worked, but no image. */
+const FLAKY = "/img/flaky-pie.png";
+let flakyHits = 0;
 
 function recipePage(origin: string, slug: string, name: string): string {
   return [
@@ -104,6 +114,20 @@ function listPage(): string {
   ].join("");
 }
 
+/** A second roundup on A: two pies whose pictures misbehave, then a cake. */
+function piesPage(): string {
+  const card = (slug: string, name: string) =>
+    `<div><a href="/r/${slug}/"><img src="/c/${slug}.jpg"></a><h2>${name}</h2></div>`;
+  return [
+    "<html><head><title>Pies</title></head><body><article><h1>Pies</h1>",
+    "<div class='entry-content'>",
+    card("flaky-pie", "Flaky Pie"),
+    card("shy-pie", "Shy Pie"),
+    card("apple-cake", "Apple Cake"),
+    "</div></article></body></html>",
+  ].join("");
+}
+
 function startSite(site: "a" | "b"): Promise<void> {
   const server = createServer((request, response) => {
     const path = (request.url ?? "/").split("?")[0];
@@ -113,9 +137,20 @@ function startSite(site: "a" | "b"): Promise<void> {
       response.writeHead(403, { "content-type": "text/html" });
       return response.end("<html><title>Just a moment...</title></html>");
     }
+    if (path === FLAKY) {
+      flakyHits += 1;
+      response.writeHead(flakyHits === 1 ? 403 : 200, {
+        "content-type": "text/html",
+      });
+      return response.end("<html>not a picture</html>");
+    }
     if (path === "/fall-bakes/") {
       response.writeHead(200, { "content-type": "text/html" });
       return response.end(listPage());
+    }
+    if (path === "/pies/") {
+      response.writeHead(200, { "content-type": "text/html" });
+      return response.end(piesPage());
     }
     const recipe = /^\/r\/([a-z-]+)\/$/.exec(path);
     if (recipe) {
@@ -155,8 +190,8 @@ afterAll(async () => {
 });
 
 /**
- * The fake clock, pacing loopback hosts as if they were real sites, with a
- * per-site memory of its own (fresh each test) shared by every call in it.
+ * The fake clock, pacing loopback hosts as if they were real sites, with
+ * queues of its own (fresh each test) shared by every call in it.
  */
 let pacing: Pacing;
 
@@ -186,13 +221,14 @@ let ctx: CurationContext;
 beforeEach(async () => {
   now = 1_000_000;
   hits = [];
+  flakyHits = 0;
   pacing = {
     now: () => now,
     sleep: async (ms) => {
       now += ms;
     },
     paceLoopback: true,
-    memory: new Map(),
+    state: new SiteState(),
   };
   contentDirectory = await mkdtemp(join(tmpdir(), "import-list-"));
   git = simpleGit({ baseDir: contentDirectory });
@@ -371,6 +407,8 @@ describe("importList", () => {
   });
 
   it("retries a 403 once, then drops the site and leaves its picks remaining", async () => {
+    /* The retry waits on the queue, not this delay — but say what it is. */
+    vi.stubEnv("RECIPE_FETCH_403_DELAY_MS", "15000");
     const result = await importList(
       ctx,
       listUrl(),
@@ -387,7 +425,9 @@ describe("importList", () => {
       expect.objectContaining({ n: 1, status: "imported", slug: "apple-cake" }),
     ]);
     /* Maple Bars is on the dropped site: not attempted, still to do. */
-    expect(result.remaining).toEqual([5]);
+    expect(result.remaining).toEqual([
+      { n: 5, url: `${servers.b.origin}/r/maple-bars/` },
+    ]);
     expect(result.dropped).toEqual([
       {
         site: new URL(servers.b.origin).host,
@@ -399,6 +439,108 @@ describe("importList", () => {
     expect(hits.some((hit) => hit.path === "/r/maple-bars/")).toBe(false);
     expect(result.requests).toBe(hits.length);
     expectPolite();
+
+    /* The drop outlives the call: the next one asks site B nothing. */
+    const before = hits.length;
+    const again = await importList(ctx, listUrl(), { pick: [5] }, { pacing });
+    expect(again.remaining).toEqual([
+      { n: 5, url: `${servers.b.origin}/r/maple-bars/` },
+    ]);
+    expect(again.dropped?.[0].site).toBe(new URL(servers.b.origin).host);
+    expect(hits.slice(before).every((hit) => hit.site === "a")).toBe(true);
+    vi.unstubAllEnvs();
+  });
+
+  it("imports a recipe without an image it cannot get, and drops only on a second 403", async () => {
+    const result = await importList(
+      ctx,
+      `${servers.a.origin}/pies/`,
+      { pick: [1, 2, 3] },
+      { pacing },
+    );
+    /* Flaky: 403, then a 200 that is not a picture — imported without it,
+     * and the site is not dropped. Shy: 403 twice — imported without it, and
+     * site A is dropped, so the cake (also on A) waits for a later call. */
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        n: 1,
+        status: "imported",
+        slug: "flaky-pie",
+        warnings: [expect.stringContaining("without its image")],
+      }),
+      expect.objectContaining({
+        n: 2,
+        status: "imported",
+        slug: "shy-pie",
+        warnings: [expect.stringContaining("without its image")],
+      }),
+    ]);
+    expect(result.results[0].image).toBeUndefined();
+    expect((await getRecipe(ctx, "flaky-pie")).recipe.image).toBeUndefined();
+    expect(result.remaining).toEqual([
+      { n: 3, url: `${servers.a.origin}/r/apple-cake/` },
+    ]);
+    expect(result.dropped).toEqual([
+      {
+        site: new URL(servers.a.origin).host,
+        reason: expect.stringContaining("shy-pie.png"),
+      },
+    ]);
+    expect(hits.filter((hit) => hit.path === FLAKY)).toHaveLength(2);
+    expect(hits.filter((hit) => hit.path === "/img/shy-pie.png")).toHaveLength(
+      2,
+    );
+    expectPolite();
+  });
+
+  it("paces two calls at once against each other", async () => {
+    await Promise.all([
+      importList(ctx, listUrl(), { pick: [1] }, { pacing }),
+      importList(ctx, listUrl(), { pick: [3], dryRun: true }, { pacing }),
+      inspectList(ctx, listUrl(), { pacing }),
+      inspectList(ctx, listUrl(), { pacing }),
+    ]);
+    expect(hits.filter((hit) => hit.path === "/fall-bakes/")).toHaveLength(4);
+    expectPolite();
+  });
+
+  it("checks URL picks against the list as it is now", async () => {
+    const a = servers.a.origin;
+    const result = await importList(
+      ctx,
+      listUrl(),
+      {
+        pick: [
+          /* A `remaining` entry whose item moved from 2 to 3. */
+          { n: 2, url: `${a}/r/plum-crisp/` },
+          /* A bare URL, spelled without the trailing slash. */
+          `${a}/r/apple-cake`,
+          /* Gone from the list. */
+          { n: 4, url: `${a}/r/quince-tart/` },
+        ],
+        dryRun: true,
+      },
+      { pacing },
+    );
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        n: 3,
+        status: "would-import",
+        slug: "plum-crisp",
+        warnings: [expect.stringContaining("was item 2, is now 3")],
+      }),
+      expect.objectContaining({
+        n: 1,
+        status: "would-import",
+        slug: "apple-cake",
+      }),
+      expect.objectContaining({
+        n: 0,
+        status: "skipped",
+        warnings: [expect.stringContaining("no longer on the list")],
+      }),
+    ]);
+    expect(result.picked).toEqual([3, 1]);
   });
 
   it("caps a call and answers the rest as remaining, to continue", async () => {
@@ -413,7 +555,7 @@ describe("importList", () => {
       [1, "imported"],
       [2, "imported"],
     ]);
-    expect(first.remaining).toEqual([3, 4, 5]);
+    expect(first.remaining.map((pick) => pick.n)).toEqual([3, 4, 5]);
 
     const second = await importList(
       ctx,
@@ -426,7 +568,7 @@ describe("importList", () => {
       [3, "imported"],
       [4, "failed"],
     ]);
-    expect(second.remaining).toEqual([5]);
+    expect(second.remaining.map((pick) => pick.n)).toEqual([5]);
     /* The second call's list fetch waited out the first call's last request. */
     expectPolite();
   });
@@ -492,6 +634,9 @@ describe("importList", () => {
     await expect(
       importList(ctx, "not a url", { all: true }, { pacing }),
     ).rejects.toMatchObject({ code: "validation" });
+    await expect(
+      importList(ctx, listUrl(), { all: true, limit: 7 }, { pacing }),
+    ).rejects.toMatchObject({ code: "validation" });
   });
 });
 
@@ -499,12 +644,106 @@ describe("importList", () => {
 /* Transports                                                          */
 /* ------------------------------------------------------------------ */
 
+describe("the term", () => {
+  it("resolves an alias to its owner, and refuses an alias label before fetching", async () => {
+    await createTerm(ctx, {
+      label: "Autumn Bakes",
+      aliases: ["fall-bakes"],
+    });
+    const result = await importList(
+      ctx,
+      listUrl(),
+      { pick: [1], term: "fall-bakes" },
+      { pacing },
+    );
+    expect(result.term).toMatchObject({
+      slug: "autumn-bakes",
+      label: "Autumn Bakes",
+      created: false,
+      updated: ["apple-cake"],
+      warnings: [expect.stringContaining("alias")],
+    });
+
+    const before = hits.length;
+    await expect(
+      importList(
+        ctx,
+        listUrl(),
+        { pick: [2], term: "harvest", termLabel: "Fall-Bakes" },
+        { pacing },
+      ),
+    ).rejects.toMatchObject({ code: "validation" });
+    /* Refused before the list was fetched. */
+    expect(hits).toHaveLength(before);
+  });
+
+  it("labels a carried tag by its own label, not the page's title", async () => {
+    await createRecipe(ctx, {
+      name: "Old Cake",
+      tags: ["Orchard Fruit"],
+      ingredients: ["1 apple"],
+    });
+    const result = await importList(
+      ctx,
+      listUrl(),
+      { pick: [1], term: "orchard-fruit", dryRun: true },
+      { pacing },
+    );
+    expect(result.term).toMatchObject({
+      slug: "orchard-fruit",
+      label: "orchard fruit",
+      created: true,
+    });
+  });
+});
+
+describe("the epic-26 seats share the queue", () => {
+  it("spaces inspect and import on the real clock, and two calls at once", async () => {
+    /* A short real gap: the queue, not the length, is what is checked. */
+    vi.stubEnv("RECIPE_POLITE_GAP_MS", "300");
+    const page = `<html><head><script type="application/ld+json">${JSON.stringify(
+      { "@type": "Recipe", name: "Queue Cake", recipeIngredient: ["1 egg"] },
+    )}</script></head></html>`;
+    const started: number[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        started.push(Date.now());
+        return new Response(page, { headers: { "content-type": "text/html" } });
+      }),
+    );
+    try {
+      await Promise.all([
+        inspectUrl("https://queue.example.com/a/"),
+        inspectUrl("https://www.queue.example.com/b/"),
+        importAndCreate(ctx, "https://cdn.queue.example.com/c/", {
+          dryRun: true,
+        }),
+      ]);
+      expect(started).toHaveLength(3);
+      started.sort((x, y) => x - y);
+      /* One site (`siteKey`), so one at a time, each ≥ 300 ms after the last
+       * ended — a few ms of timer slack allowed. */
+      expect(started[1] - started[0]).toBeGreaterThanOrEqual(290);
+      expect(started[2] - started[1]).toBeGreaterThanOrEqual(290);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
 describe("the CLI's --pick", () => {
   it("reads positions and ranges", () => {
     expect(parsePicks("1,3,5-7")).toEqual([1, 3, 5, 6, 7]);
     expect(() => parsePicks("0")).toThrow(CurationError);
     expect(() => parsePicks("3-1")).toThrow(/range/);
     expect(() => parsePicks("a")).toThrow(/1-based/);
+    expect(() => parsePicks("1-5000")).toThrow(/more than 1000/);
+    expect(parsePicks("2,https://x.example/a/")).toEqual([
+      2,
+      "https://x.example/a/",
+    ]);
   });
 });
 

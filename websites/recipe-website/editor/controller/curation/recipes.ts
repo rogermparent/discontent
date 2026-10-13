@@ -240,8 +240,9 @@ export async function listRecipes(
  * it would get rather than downloaded, and `image` reports what was found.
  * `warnings` names an image over `LARGE_IMAGE_BYTES`, probed or downloaded.
  *
- * `fetchImage` replaces `fetchImageFile` for the download (34f): roundup
- * import paces it on its per-site clock, since an image is a request too.
+ * `fetchImage` and `probeImage` replace `fetchImageFile` and `probeImageFile`
+ * (34f): the import seats run them on the per-site queue (`sitePacing.ts`),
+ * since an image is a request too.
  */
 export async function buildRecipeWrite(
   input: RecipeInput | RecipePatch,
@@ -250,11 +251,13 @@ export async function buildRecipeWrite(
     current,
     probe = false,
     fetchImage = fetchImageFile,
+    probeImage = probeImageFile,
   }: {
     date: number;
     current?: Recipe | null;
     probe?: boolean;
     fetchImage?: ImageFetcher;
+    probeImage?: (url: string) => Promise<ImageProbe>;
   },
 ): Promise<{
   data: Recipe;
@@ -310,7 +313,7 @@ export async function buildRecipeWrite(
   const warnings: string[] = [];
   if (imageImportUrl) {
     if (probe) {
-      image = await probeImageFile(imageImportUrl);
+      image = await probeImage(imageImportUrl);
       data.image = image.filename;
       const warning = largeImageWarning(image.bytes, imageImportUrl);
       if (warning) warnings.push(warning);

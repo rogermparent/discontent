@@ -275,7 +275,8 @@ reason?}`; each item is `{n, url, name, image?, existing?}` — `n` is its
 that page. **Show the list** (n, name, existing) and ask which to import,
 unless the ask already says ("all of them", "the pecan ones"). `items: []`
 with a `reason` means the page is not a roundup: inspect it as one recipe
-(step 5).
+(step 5). Every fetch waits its turn per site, so this can take up to 15 s
+right after another request to the same site.
 
 ```json
 recipe_import_list {"url": "https://sallysbakingaddiction.com/thanksgiving-pie-recipes/", "pick": [1, 2, 12], "dryRun": true}
@@ -286,27 +287,34 @@ Imports each pick the way `recipe_import` does — one commit per recipe,
 `source` kept — and skips `existing` picks, so a re-run never duplicates.
 Returns `{url, title?, total, picked, results, remaining, dropped?, term?,
 requests}`; each result is `{n, url, name, status, slug?, image?,
-suggestedTags?, error?}` with `status` `imported`, `existing`,
-`would-import` (a dry run) or `failed`.
+suggestedTags?, error?, warnings?}` with `status` `imported`, `existing`,
+`would-import` (a dry run), `failed`, or `skipped` (a pick that has left
+the list since you read it).
 
 - **It is slow on purpose.** Requests to one site are at least 15 s apart —
   the list page, each recipe page and each image — so one call imports at
-  most 3 picks (6 in a dry run) and answers the rest as `remaining`. **Call
-  again with `"pick": <remaining>` until `remaining` is empty.** Say up front
-  that a long list takes minutes.
-- **`dropped`** means the site refused twice (HTTP 403): stop, do not retry
-  it in this session, and report which picks are left.
+  most 3 picks (6 in a dry run; `limit` goes up to 6) and answers the rest
+  as `remaining: [{n, url}]`. **Call again with `"pick": <remaining>`,
+  passed back exactly as it came, until `remaining` is empty** — the URLs
+  are checked against the list, so a page edited in between cannot shift a
+  pick onto another recipe. Say up front that a long list takes minutes.
+- **`dropped`** means the site refused twice (HTTP 403): it is left alone
+  for an hour. Stop, and report which picks are left.
+- **A warning "Imported without its image"** means the picture could not be
+  fetched; the recipe is there. Fix it later with `recipe_set_image` from
+  the item's `image` in `page_inspect_list`, or report it.
 - **A `failed` item** carries `error`: `import_failed` for a page with no
   Recipe on it, `validation` for a slug another recipe already has. Report
   it; import it on its own (step 5–6) only if the ask needs it.
 - **Tag every `imported` recipe** — the import sets no tags. Use the
   result's `suggestedTags` as hints, pick from the tag vocabulary below, and
   `recipe_update {"slug": …, "patch": {"tags": […]}}` each one.
-- **`term`** makes the list a collection, when the ask wants one: the term is
-  created if missing (labelled `termLabel`, else the page's title — pass a
-  `termLabel` cleaner than "40+ …") and assigned to every imported and
-  existing pick, in one commit at the end of each call. Feature it only if
-  asked (step 7).
+- **`term`** makes the list a collection, when the ask wants one: an alias
+  names its owner, the term is created if missing (labelled `termLabel`,
+  else the tag's existing label, else the page's title — pass a `termLabel`
+  cleaner than "40+ …") and assigned to every imported and existing pick, in
+  one commit at the end of each call. Read `term.warnings`. Feature it only
+  if asked (step 7).
 
 ## 7. Organize them: a term or a meal plan
 

@@ -318,14 +318,16 @@ recipe_import_list {"url": "https://sallysbakingaddiction.com/thanksgiving-pie-r
 {"url": "…", "title": "40+ Thanksgiving Pie Recipes", "source": "itemlist", "dryRun": true, "total": 40, "picked": [1, 2, 3, 4, 5, 6, 7, 8], "results": [{"n": 1, "name": "The Great Pumpkin Pie Recipe", "status": "existing", "slug": "the-great-pumpkin-pie-recipe"}, {"n": 2, "name": "Mini Pumpkin Pies", "status": "would-import", "slug": "mini-pumpkin-pies", "image": "…/mini-pumpkin-pies-with-whipped-cream.jpg", "suggestedTags": ["dessert", "american", "baking", "pumpkin pie", "mini pies"]}, {"n": 3, "name": "Easy Pumpkin Pie Bars", "status": "would-import", "slug": "easy-pumpkin-pie-bars", "suggestedTags": ["bars", "american", "baking", "pumpkin pie bars"]}, …8 results: 5 would-import, 3 existing], "remaining": [], "term": {"slug": "thanksgiving-pies", "label": "Thanksgiving Pies", "created": true, "assign": ["the-great-pumpkin-pie-recipe", "mini-pumpkin-pies", "easy-pumpkin-pie-bars", "pumpkin-cheesecake-pie", "pumpkin-pie-in-a-jar-no-bake-pumpkin-parfaits", "my-best-apple-pie-recipe", "apple-crumble-pie", "salted-caramel-apple-pie-bars"]}, "requests": 6}
 ```
 
-Six requests, 15 s apart: about a minute and a half. Then the import,
-looping on `remaining` — five new pies at three per call is two calls:
+Six requests — five 15 s gaps, about 75 s (82 s measured). Then the import,
+looping on `remaining` — five new pies at three per call is two calls. The
+first call reaches its cap at pick 5, so 6 and 7 are left; 8 is already on
+the site, costs no request, and is assigned the term in this call:
 
 ```
 recipe_import_list {"url": "https://sallysbakingaddiction.com/thanksgiving-pie-recipes/", "pick": [1, 2, 3, 4, 5, 6, 7, 8], "term": "thanksgiving-pies", "termLabel": "Thanksgiving Pies"}
-{"…": "…", "results": [{"n": 1, "status": "existing", …}, {"n": 2, "status": "imported", "slug": "mini-pumpkin-pies", …}, {"n": 3, "status": "imported", …}, {"n": 4, "status": "existing", …}, {"n": 5, "status": "imported", …}], "remaining": [6, 7, 8], "term": {"slug": "thanksgiving-pies", "label": "Thanksgiving Pies", "created": true, "updated": ["the-great-pumpkin-pie-recipe", "mini-pumpkin-pies", "easy-pumpkin-pie-bars", "pumpkin-cheesecake-pie", "pumpkin-pie-in-a-jar-no-bake-pumpkin-parfaits"], …}, "requests": 7, "warnings": ["A running editor is stale until …"]}
-recipe_import_list {"url": "https://sallysbakingaddiction.com/thanksgiving-pie-recipes/", "pick": [6, 7, 8], "term": "thanksgiving-pies"}
-{"…": "…", "results": [{"n": 6, "status": "imported", "slug": "my-best-apple-pie-recipe", …}, {"n": 7, "status": "imported", …}, {"n": 8, "status": "existing", …}], "remaining": [], "term": {"created": false, "updated": ["my-best-apple-pie-recipe", "apple-crumble-pie", "salted-caramel-apple-pie-bars"], …}}
+{"…": "…", "results": [{"n": 1, "status": "existing", …}, {"n": 2, "status": "imported", "slug": "mini-pumpkin-pies", …}, {"n": 3, "status": "imported", …}, {"n": 4, "status": "existing", …}, {"n": 5, "status": "imported", …}, {"n": 8, "status": "existing", …}], "remaining": [{"n": 6, "url": "https://sallysbakingaddiction.com/apple-pie-recipe/"}, {"n": 7, "url": "https://sallysbakingaddiction.com/apple-crumble-pie/"}], "term": {"slug": "thanksgiving-pies", "label": "Thanksgiving Pies", "created": true, "updated": ["the-great-pumpkin-pie-recipe", "mini-pumpkin-pies", "easy-pumpkin-pie-bars", "pumpkin-cheesecake-pie", "pumpkin-pie-in-a-jar-no-bake-pumpkin-parfaits", "salted-caramel-apple-pie-bars"], …}, "requests": 7, "warnings": ["A running editor is stale until …"]}
+recipe_import_list {"url": "https://sallysbakingaddiction.com/thanksgiving-pie-recipes/", "pick": [{"n": 6, "url": "https://sallysbakingaddiction.com/apple-pie-recipe/"}, {"n": 7, "url": "https://sallysbakingaddiction.com/apple-crumble-pie/"}], "term": "thanksgiving-pies"}
+{"…": "…", "results": [{"n": 6, "status": "imported", "slug": "my-best-apple-pie-recipe", …}, {"n": 7, "status": "imported", …}], "remaining": [], "term": {"created": false, "updated": ["my-best-apple-pie-recipe", "apple-crumble-pie"], …}}
 ```
 
 Each imported pie then gets its facet tags — the import sets none — from
@@ -337,6 +339,6 @@ recipe_update {"slug": "mini-pumpkin-pies", "patch": {"tags": ["dessert", "ameri
 
 The report: the eight picks (five imported, three already there), the
 `/tags/thanksgiving-pies` link, the commits (one per pie, then
-`Create term: thanksgiving-pies (+5 recipes)` and
-`Assign term: thanksgiving-pies (+3 recipes)`), and "push from `/git` when
+`Create term: thanksgiving-pies (+6 recipes)` and
+`Assign term: thanksgiving-pies (+2 recipes)`), and "push from `/git` when
 ready".

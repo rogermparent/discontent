@@ -279,6 +279,8 @@ export interface ForbiddenRetry {
    * the retry is spaced like every other request of the call and counted.
    */
   beforeRetry?: () => Promise<void>;
+  /** Called with the retry's response — how a pacer tells a second 403. */
+  afterRetry?: (response: Response) => void;
 }
 
 export const DEFAULT_403_DELAY_MS = 15_000;
@@ -291,7 +293,7 @@ export function forbiddenRetryFromEnv(
   value: string | undefined = typeof process === "undefined"
     ? undefined
     : process.env.RECIPE_FETCH_403_DELAY_MS,
-): Required<Omit<ForbiddenRetry, "beforeRetry">> {
+): Required<Omit<ForbiddenRetry, "beforeRetry" | "afterRetry">> {
   const text = value?.trim().toLowerCase();
   if (text === "off") return { delayMs: 0, enabled: false };
   const delay = text ? Number(text) : NaN;
@@ -326,7 +328,9 @@ export async function fetchRetrying403(
   } else if (delayMs > 0) {
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
-  return fetch(url, { ...init, headers: retryHeaders });
+  const retried = await fetch(url, { ...init, headers: retryHeaders });
+  retry.afterRetry?.(retried);
+  return retried;
 }
 
 export interface FetchedPage {

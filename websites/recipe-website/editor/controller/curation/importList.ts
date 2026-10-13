@@ -16,24 +16,24 @@
  *
  * ## Politeness (30-D5)
  *
- * Requests to one site are sequential and at least 15 s apart, measured from
- * the end of one to the start of the next; the list page, each recipe page,
- * each image and each 403 retry all count, and "one site" is `siteKey` (so a
- * `cdn.` host paces with its site). A 403 is retried once, as the browser
- * would ask (`fetchRetrying403`'s header swap); a second refusal drops the
- * site for the rest of the call and leaves its picks in `remaining`. Nothing
- * is fetched in parallel.
+ * Every request goes through the process's per-site queue (`sitePacing.ts`):
+ * one at a time per site, at least 15 s after the last one ended, the list
+ * page, recipe pages, images and 403 retries alike — across calls too. A
+ * site that refuses twice is dropped for an hour; its picks stay in
+ * `remaining`.
  *
  * One real import is two requests (the page and its image), so a call is
- * capped (`limit`, default `IMPORT_LIST_LIMIT`) to keep it inside an MCP
- * client's timeout: 1 + 3 × 2 requests is six 15 s gaps, about 90 s. A dry
- * run skips the image, so its default cap is twice that. What the cap left
- * comes back as `remaining`, and the caller runs again with
- * `pick: remaining` to continue.
+ * capped (`limit`, default `IMPORT_LIST_LIMIT`, at most
+ * `IMPORT_LIST_MAX_LIMIT`): 1 + 3 × 2 requests is six 15 s gaps, about 90 s,
+ * inside an MCP client's patience; the maximum, 1 + 6 × 2, is about 3 min,
+ * well inside Node's 300 s headers timeout for `/api/import-list`. A dry run
+ * skips the image, so its default cap is twice that. What the cap left comes
+ * back as `remaining: [{n, url}]`, and the caller runs again with
+ * `pick: remaining` to continue — the URLs are checked against the list as it
+ * is then, so an edited roundup cannot shift a pick onto another recipe.
  *
  * The clock is a seam (`Pacing`) so tests assert the spacing without waiting
- * for it; a loopback host (a local fixture server) is not paced unless the
- * pacing asks for it.
+ * for it.
  */
 import { hostnameLabel } from "recipe-website-common/util/hostnameLabel";
 import {
@@ -42,16 +42,15 @@ import {
   mapRecipePage,
   parseRecipePage,
   type FetchedPage,
-  type ForbiddenRetry,
 } from "recipe-website-common/util/importRecipeData";
 import {
   parseRoundupPage,
-  siteKey,
   sourceUrlKey,
   type ParsedRoundup,
   type RoundupSource,
 } from "recipe-website-common/util/roundupPage";
 import { tagSlug } from "recipe-website-common/controller/tagSlug";
+import type { TagTerm } from "recipe-website-common/controller/types";
 import { z } from "zod";
 import { fetchImageFile } from "../imageImport";
 import { countsTail, withBatchCommit } from "./batch";
@@ -72,14 +71,20 @@ import {
 } from "./recipes";
 import { parseInput } from "./schema";
 import {
+  SiteDroppedError,
+  SitePacer,
+  realPacing,
+  type Pacing,
+} from "./sitePacing";
+import {
   assignTerm,
   createTerm,
   getTerm,
+  termAliasOwners,
   type TermAssignResult,
 } from "./terms";
 
-/** 30-D5: the least time between two requests to one site. */
-export const POLITE_GAP_MS = 15_000;
+export { POLITE_GAP_MS, SiteState, type Pacing } from "./sitePacing";
 
 /** Items one real `importList` call attempts, by default: ~90 s of pacing. */
 export const IMPORT_LIST_LIMIT = 3;
@@ -87,8 +92,15 @@ export const IMPORT_LIST_LIMIT = 3;
 /** A dry run fetches only pages, so the same ~90 s covers twice as many. */
 export const IMPORT_LIST_DRY_RUN_LIMIT = 6;
 
-/** The most `limit` may ask for in one call. */
-export const IMPORT_LIST_MAX_LIMIT = 50;
+/**
+ * The most `limit` may ask for: 1 + 6 × 2 requests, about 3 min of pacing —
+ * under Node's 300 s headers timeout, which a `--remote` CLI call or any
+ * other HTTP client of `/api/import-list` waits within.
+ */
+export const IMPORT_LIST_MAX_LIMIT = 6;
+
+/** The most picks one call may name (a range typo should not be a loop). */
+export const IMPORT_LIST_MAX_PICKS = 1000;
 
 /* ------------------------------------------------------------------ */
 /* inspectList                                                         */
@@ -114,6 +126,11 @@ export interface InspectListResult {
   items: RoundupItem[];
   /** Why `items` is empty, when it is. */
   reason?: string;
+}
+
+/** What a caller (a test) may swap: the clock. */
+export interface ImportListDeps {
+  pacing?: Pacing;
 }
 
 /**
@@ -173,12 +190,50 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function listResult(
+/** The roundup page itself: queued, and refused outright after a second 403. */
+async function fetchListPage(
+  pacer: SitePacer,
   url: string,
-  page: FetchedPage,
-  parsed: ParsedRoundup,
-  items: RoundupItem[],
-): InspectListResult {
+): Promise<FetchedPage> {
+  let page: FetchedPage;
+  try {
+    page = await pacer.request(
+      url,
+      (retry) => fetchRecipePage(url, retry),
+      (fetched) => fetched.finalUrl,
+    );
+  } catch (error) {
+    if (error instanceof SiteDroppedError) throw error;
+    throw new ImportError(`Could not fetch ${url}: ${describe(error)}`);
+  }
+  if (page.status === 403) {
+    pacer.drop(url, `refused (HTTP 403) at ${url}`);
+    throw new ImportError(
+      `${url} answered 403 twice — its site is dropped for an hour.`,
+    );
+  }
+  return page;
+}
+
+/**
+ * Read a roundup page and list its recipes, marking the ones the corpus
+ * already has. One request (two after a 403), in the site's queue — so it can
+ * wait up to 15 s behind another request to the same site; nothing written.
+ * Throws `ImportError` only when the page cannot be fetched at all.
+ */
+export async function inspectList(
+  ctx: CurationContext,
+  rawUrl: string,
+  { pacing = realPacing() }: ImportListDeps = {},
+): Promise<InspectListResult> {
+  const url = checkUrl(rawUrl);
+  const page = await fetchListPage(new SitePacer(pacing), url);
+  const parsed = parseRoundupPage(page.html, page.finalUrl || url);
+  const existing = await existingBySource(
+    ctx,
+    parsed.items.map((item) => item.url),
+  );
+  const items = toItems(parsed, existing);
   const reason =
     parsed.reason ??
     (page.ok ? undefined : `The page answered HTTP ${page.status}.`);
@@ -193,186 +248,30 @@ function listResult(
   };
 }
 
-/**
- * Read a roundup page and list its recipes, marking the ones the corpus
- * already has. One request (two after a 403), on the same per-site clock as
- * `importList`; nothing written. Throws `ImportError` only when the page
- * cannot be fetched at all.
- */
-export async function inspectList(
-  ctx: CurationContext,
-  rawUrl: string,
-  { pacing = realPacing }: ImportListDeps = {},
-): Promise<InspectListResult> {
-  const url = checkUrl(rawUrl);
-  const page = await fetchListPage(new SitePacer(pacing), url);
-  const parsed = parseRoundupPage(page.html, page.finalUrl || url);
-  const existing = await existingBySource(
-    ctx,
-    parsed.items.map((item) => item.url),
-  );
-  return listResult(url, page, parsed, toItems(parsed, existing));
-}
-
-/* ------------------------------------------------------------------ */
-/* Pacing                                                              */
-/* ------------------------------------------------------------------ */
-
-/** The clock `importList` paces on: the real one, or a test's. */
-export interface Pacing {
-  now(): number;
-  sleep(ms: number): Promise<void>;
-  /** Least milliseconds between two requests to one site; default 15 000. */
-  gapMs?: number;
-  /**
-   * Pace loopback hosts too. Off by default: a fixture server on 127.0.0.1 is
-   * not a site to be polite to, and the CLI's process tests use one. The
-   * vitest suite turns it on to watch the spacing.
-   */
-  paceLoopback?: boolean;
-  /**
-   * When each site's last request ended, kept across calls. Default: this
-   * process's (`siteClock`), so `inspectList` then `importList`, or an
-   * `importList` re-run on `remaining`, is spaced like requests within a call.
-   */
-  memory?: Map<string, number>;
-}
-
-/**
- * The process's per-site clock. The stdio MCP server and the editor are
- * long-lived, so back-to-back calls from the skill share it; a CLI run is a
- * fresh process and starts empty (the skill's fallback note says to leave
- * 15 s between runs).
- */
-const siteClock = new Map<string, number>();
-
-export const realPacing: Pacing = {
-  now: () => Date.now(),
-  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-};
-
-function isLoopback(url: string): boolean {
-  const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
-  return host === "localhost" || host === "::1" || /^127\./.test(host);
-}
-
-/** Thrown to stop work on a site the call has dropped. */
-class SiteDroppedError extends ImportError {}
-
-/**
- * One call's per-site clock and its dropped sites.
- *
- * `request` waits out the gap since the site's last request *ended*, runs the
- * request, and hands it a `beforeRetry` that ends this request and waits
- * again — `fetchRetrying403` awaits it in place of its own delay, so a 403
- * retry is spaced and counted like any other request.
- */
-class SitePacer {
-  private readonly lastEnd: Map<string, number>;
-  /** Per call: a dropped site is retried by the next call, not this one. */
-  readonly dropped = new Map<string, string>();
-  requests = 0;
-
-  constructor(private readonly pacing: Pacing) {
-    this.lastEnd = pacing.memory ?? siteClock;
-  }
-
-  site(url: string): string {
-    return siteKey(url) ?? url;
-  }
-
-  isDropped(url: string): boolean {
-    return this.dropped.has(this.site(url));
-  }
-
-  drop(url: string, reason: string): void {
-    const site = this.site(url);
-    if (!this.dropped.has(site)) this.dropped.set(site, reason);
-  }
-
-  private gap(url: string): number {
-    if (!this.pacing.paceLoopback && isLoopback(url)) return 0;
-    return this.pacing.gapMs ?? POLITE_GAP_MS;
-  }
-
-  private async wait(url: string): Promise<void> {
-    const site = this.site(url);
-    const reason = this.dropped.get(site);
-    if (reason) {
-      throw new SiteDroppedError(`${site} is dropped for this call: ${reason}`);
-    }
-    const last = this.lastEnd.get(site);
-    if (last === undefined) return;
-    const wait = last + this.gap(url) - this.pacing.now();
-    if (wait > 0) await this.pacing.sleep(wait);
-  }
-
-  private end(url: string): void {
-    this.lastEnd.set(this.site(url), this.pacing.now());
-  }
-
-  async request<T>(
-    url: string,
-    run: (retry: ForbiddenRetry) => Promise<T>,
-  ): Promise<{ value: T; forbidden: boolean }> {
-    await this.wait(url);
-    this.requests += 1;
-    let forbidden = false;
-    try {
-      /* `enabled` is left to `RECIPE_FETCH_403_DELAY_MS` (`off` = never retry). */
-      const value = await run({
-        beforeRetry: async () => {
-          forbidden = true;
-          this.end(url);
-          await this.wait(url);
-          this.requests += 1;
-        },
-      });
-      return { value, forbidden };
-    } catch (error) {
-      if (forbidden) {
-        this.drop(url, `refused (HTTP 403), and the retry failed, at ${url}`);
-      }
-      throw error;
-    } finally {
-      this.end(url);
-    }
-  }
-}
-
-/** The roundup page itself: paced, and refused outright after a second 403. */
-async function fetchListPage(
-  pacer: SitePacer,
-  url: string,
-): Promise<FetchedPage> {
-  let page: FetchedPage;
-  try {
-    ({ value: page } = await pacer.request(url, (retry) =>
-      fetchRecipePage(url, retry),
-    ));
-  } catch (error) {
-    throw new ImportError(`Could not fetch ${url}: ${describe(error)}`);
-  }
-  if (page.status === 403) {
-    throw new ImportError(
-      `${url} answered 403 twice — leave its site alone for a while.`,
-    );
-  }
-  return page;
-}
-
 /* ------------------------------------------------------------------ */
 /* importList                                                          */
 /* ------------------------------------------------------------------ */
 
+/**
+ * A pick: a position from `inspectList`, a URL from it, or a `remaining`
+ * entry `{n, url}` handed back as it came. The two with a URL are checked
+ * against the list as fetched now.
+ */
+export const ListPickSchema = z.union([
+  z.number().int().min(1),
+  z.string().min(1),
+  z.strictObject({ n: z.number().int().min(1), url: z.string().min(1) }),
+]);
+
+export type ListPick = z.infer<typeof ListPickSchema>;
+
 export const ImportListOptionsSchema = z
   .strictObject({
-    /** 1-based positions from `inspectList`. */
-    pick: z.array(z.number().int().min(1)).min(1).optional(),
+    pick: z.array(ListPickSchema).min(1).max(IMPORT_LIST_MAX_PICKS).optional(),
     all: z.boolean().optional(),
     /** Make the list a collection: this term, created if missing, on every item. */
     term: z.string().trim().min(1).optional(),
-    /** The created term's label; default the list's title. */
+    /** The created term's label; default an existing tag's label, else the list's title. */
     termLabel: z.string().trim().min(1).optional(),
     dryRun: z.boolean().optional(),
     limit: z.number().int().min(1).max(IMPORT_LIST_MAX_LIMIT).optional(),
@@ -392,13 +291,16 @@ export type ImportListItemStatus =
   | "imported"
   | "existing"
   | "would-import"
-  | "failed";
+  | "failed"
+  | "skipped";
 
 export interface ImportListItemResult {
+  /** The item's position on the list as fetched now; 0 when it is gone. */
   n: number;
   url: string;
   /** The list's name for it; `slug` is what the recipe is stored under. */
   name: string;
+  /** `skipped`: a URL pick no longer on the list (see `warnings`). */
   status: ImportListItemStatus;
   slug?: string;
   /** The image a real import downloads (a dry run does not fetch it). */
@@ -421,6 +323,12 @@ export interface ImportListTermResult {
   /** A dry run: the recipes a real run would assign the term to. */
   assign?: string[];
   error?: ErrorObject["error"];
+  warnings?: string[];
+}
+
+export interface RemainingPick {
+  n: number;
+  url: string;
 }
 
 export interface ImportListResult {
@@ -430,12 +338,12 @@ export interface ImportListResult {
   dryRun?: true;
   /** Items on the list. */
   total: number;
-  /** The positions this call was asked for, in order. */
+  /** The positions this call resolved its picks to, in order. */
   picked: number[];
-  /** One entry per pick attempted or skipped as `existing`, in pick order. */
+  /** One entry per pick, in pick order — but `remaining` ones. */
   results: ImportListItemResult[];
-  /** Picks not attempted — the cap, or a dropped site. Run again with these. */
-  remaining: number[];
+  /** Picks not attempted — the cap, or a dropped site. Pass back as `pick`. */
+  remaining: RemainingPick[];
   /** Sites dropped after a second 403, with why. Don't re-run at once. */
   dropped?: { site: string; reason: string }[];
   term?: ImportListTermResult;
@@ -443,11 +351,6 @@ export interface ImportListResult {
   requests: number;
   /** Why the list had no items, when it had none. */
   reason?: string;
-}
-
-/** What a caller (a test) may swap: the clock. */
-export interface ImportListDeps {
-  pacing?: Pacing;
 }
 
 function errorOf(error: unknown): ErrorObject["error"] {
@@ -464,19 +367,130 @@ async function slugTaken(ctx: CurationContext, slug: string): Promise<boolean> {
   }
 }
 
-/** The term's record (if any) — `getTerm` without the 404. */
-async function termRecord(ctx: CurationContext, slug: string) {
-  try {
-    return (await getTerm(ctx, slug)).record;
-  } catch (error) {
-    if (error instanceof NotFoundError) return null;
-    throw error;
-  }
+/* --- the term, decided before the first fetch ---------------------------- */
+
+interface TermPlan {
+  slug: string;
+  record: TagTerm | null;
+  /** Known before the fetch: the record's, the caller's, or the tag's own. */
+  label?: string;
+  warnings: string[];
 }
 
 /**
+ * Resolve `term` the way `tag:` does — an alias names its owner — and settle
+ * what can be settled before anything is fetched: whether the record exists,
+ * and a label that is not another term's alias.
+ */
+async function planTerm(
+  ctx: CurationContext,
+  raw: string,
+  termLabel: string | undefined,
+): Promise<TermPlan> {
+  let slug = tagSlug(raw);
+  if (!slug)
+    throw new ValidationError(`"${raw}" does not slugify to anything.`);
+  const warnings: string[] = [];
+  const owners = await termAliasOwners(ctx, slug);
+  if (owners.slug) {
+    warnings.push(
+      `"${slug}" is an alias of "${owners.slug}": using that term.`,
+    );
+    slug = owners.slug;
+  }
+  let detail;
+  try {
+    detail = await getTerm(ctx, slug);
+  } catch (error) {
+    if (!(error instanceof NotFoundError)) throw error;
+  }
+  const record = detail?.record ?? null;
+  if (record) return { slug, record, label: record.label, warnings };
+  /* No record: the caller's label, else the tag's own (it may be carried). */
+  const label = termLabel ?? detail?.label;
+  if (termLabel) {
+    const { label: owner } = await termAliasOwners(ctx, slug, termLabel);
+    if (owner) {
+      throw new ValidationError(
+        `"${termLabel}" is an alias of the term "${owner}" — pick another termLabel.`,
+        [{ path: "termLabel", message: `an alias of "${owner}"` }],
+      );
+    }
+  }
+  return { slug, record: null, ...(label ? { label } : {}), warnings };
+}
+
+/** The label to create with, once the list's title is known. */
+async function finishLabel(
+  ctx: CurationContext,
+  plan: TermPlan,
+  title: string | undefined,
+): Promise<string> {
+  if (plan.label) return plan.label;
+  if (title) {
+    const { label: owner } = await termAliasOwners(ctx, plan.slug, title);
+    if (!owner) return title;
+    plan.warnings.push(
+      `The list's title "${title}" is an alias of "${owner}"; labelled "${plan.slug}" instead.`,
+    );
+  }
+  return plan.slug;
+}
+
+/** Create the term if missing and assign it — one commit (F34). */
+async function applyTerm(
+  ctx: CurationContext,
+  plan: TermPlan,
+  label: string,
+  carriers: string[],
+): Promise<ImportListTermResult> {
+  let created = false;
+  let assigned: TermAssignResult | undefined;
+  const warnings = [...plan.warnings];
+  try {
+    await withBatchCommit(
+      ctx,
+      () =>
+        `${created ? "Create" : "Assign"} term: ${plan.slug}` +
+        countsTail([[assigned?.updated.length ?? 0, "recipe", "+"]]),
+      async (batchCtx) => {
+        if (!plan.record) {
+          const made = await createTerm(batchCtx, { label, slug: plan.slug });
+          created = true;
+          warnings.push(...(made.warnings ?? []));
+        }
+        assigned = await assignTerm(batchCtx, plan.slug, { add: carriers });
+      },
+    );
+  } catch (error) {
+    /* A partial: whatever was written is committed "(partial)" (F34). */
+    return {
+      slug: plan.slug,
+      label,
+      created,
+      error: errorOf(error),
+      ...(warnings.length ? { warnings } : {}),
+    };
+  }
+  return {
+    slug: plan.slug,
+    label,
+    created,
+    tag: assigned!.tag,
+    updated: assigned!.updated,
+    unchanged: assigned!.unchanged,
+    missing: assigned!.missing,
+    ...(warnings.length ? { warnings } : {}),
+  };
+}
+
+/* --- one item ------------------------------------------------------------- */
+
+/**
  * Import one list item: its page, mapped by the importer; then (unless a dry
- * run) `createRecipe` with the image fetched on the same clock.
+ * run) its image, then `createRecipe` with it. An image that cannot be had —
+ * its site dropped, a refused or broken download — does not fail the item:
+ * the recipe is created without it and says so, for `recipe_set_image` later.
  */
 async function importItem(
   ctx: CurationContext,
@@ -491,16 +505,19 @@ async function importItem(
     );
   }
 
-  const { value: page } = await pacer.request(item.url, (retry) =>
-    fetchRecipePage(item.url, retry),
+  const page = await pacer.request(
+    item.url,
+    (retry) => fetchRecipePage(item.url, retry),
+    (fetched) => fetched.finalUrl,
   );
   if (page.status === 403) {
-    pacer.drop(item.url, `refused twice (HTTP 403) at ${item.url}`);
+    pacer.drop(item.url, `refused (HTTP 403) at ${item.url}`);
     throw new ImportError(`${item.url} answered 403 twice.`);
   }
   const imported = mapRecipePage(
     item.url,
-    parseRecipePage(page.html, item.url),
+    /* Relative image URLs resolve against where the page ended up. */
+    parseRecipePage(page.html, page.finalUrl || item.url),
     { ok: page.ok },
   );
   if (!imported) {
@@ -538,80 +555,116 @@ async function importItem(
     };
   }
 
-  const result = await createRecipe(ctx, input, {
-    fetchImage: async (imageUrl) =>
-      (
-        await pacer.request(imageUrl, (retry) =>
-          fetchImageFile(imageUrl, { retry }),
-        )
-      ).value,
-  });
+  const warnings: string[] = [];
+  const imageUrl = input.imageImportUrl ?? undefined;
+  let file: File | undefined;
+  if (imageUrl) {
+    try {
+      file = await pacer.request(imageUrl, (retry) =>
+        fetchImageFile(imageUrl, { retry }),
+      );
+    } catch (error) {
+      warnings.push(
+        `Imported without its image (${describe(error)}) — set one later with recipe_set_image.`,
+      );
+    }
+  }
+  const result = await createRecipe(
+    ctx,
+    file ? input : { ...input, imageImportUrl: undefined },
+    file ? { fetchImage: async () => file } : {},
+  );
+  warnings.push(...(result.warnings ?? []));
   return {
     ...base,
     status: "imported",
     slug: result.slug,
-    ...(input.imageImportUrl ? { image: input.imageImportUrl } : {}),
+    ...(file && imageUrl ? { image: imageUrl } : {}),
     ...hints,
-    ...(result.warnings?.length ? { warnings: result.warnings } : {}),
+    ...(warnings.length ? { warnings } : {}),
   };
 }
 
-/** Create the term if missing and assign it — one commit (F34). */
-async function applyTerm(
-  ctx: CurationContext,
-  slug: string,
-  label: string,
-  carriers: string[],
-): Promise<ImportListTermResult> {
-  const record = await termRecord(ctx, slug);
-  const created = !record;
-  let assigned: TermAssignResult | undefined;
-  await withBatchCommit(
-    ctx,
-    () =>
-      `${created ? "Create" : "Assign"} term: ${slug}` +
-      countsTail([[assigned?.updated.length ?? 0, "recipe", "+"]]),
-    async (batchCtx) => {
-      if (created) await createTerm(batchCtx, { label, slug });
-      assigned = await assignTerm(batchCtx, slug, { add: carriers });
-    },
+/* --- picks ---------------------------------------------------------------- */
+
+type Resolved =
+  | { item: RoundupItem; warning?: string }
+  | { gone: ImportListItemResult };
+
+/** Each pick as an item of the list as fetched now, or why it is not one. */
+function resolvePicks(
+  picks: ListPick[],
+  items: RoundupItem[],
+  reason: string | undefined,
+): Resolved[] {
+  const byKey = new Map(
+    items.map((item) => [sourceUrlKey(item.url) ?? item.url, item]),
   );
-  return {
-    slug,
-    label: record?.label ?? label,
-    created,
-    tag: assigned!.tag,
-    updated: assigned!.updated,
-    unchanged: assigned!.unchanged,
-    missing: assigned!.missing,
-  };
+  const outOfRange = picks.filter(
+    (pick): pick is number => typeof pick === "number" && pick > items.length,
+  );
+  if (outOfRange.length > 0) {
+    throw new ValidationError(
+      items.length === 0
+        ? `The page lists no recipes${reason ? `: ${reason}` : "."}`
+        : `No item ${outOfRange.join(", ")} — the list has ${items.length}.`,
+    );
+  }
+  return picks.map((pick): Resolved => {
+    if (typeof pick === "number") return { item: items[pick - 1] };
+    const url = typeof pick === "string" ? pick : pick.url;
+    const key = (URL.canParse(url) && sourceUrlKey(url)) || url;
+    const at = typeof pick === "string" ? undefined : items[pick.n - 1];
+    if (at && (sourceUrlKey(at.url) ?? at.url) === key) return { item: at };
+    const found = byKey.get(key);
+    if (found) {
+      return typeof pick === "string"
+        ? { item: found }
+        : {
+            item: found,
+            warning: `The list changed: ${url} was item ${pick.n}, is now ${found.n}.`,
+          };
+    }
+    return {
+      gone: {
+        n: 0,
+        url,
+        name: url,
+        status: "skipped",
+        warnings: [
+          `${url} is no longer on the list${typeof pick === "string" ? "" : ` (it was item ${pick.n})`} — skipped.`,
+        ],
+      },
+    };
+  });
 }
+
+/* --- the seat ------------------------------------------------------------- */
 
 /**
  * Import the picked items of a roundup, politely and one commit each.
  *
  * Failures of one item are reported in its result and the call goes on; the
- * call itself throws only for bad input (`validation`) or a list page that
- * cannot be fetched (`import_failed`).
+ * call itself throws only for bad input (`validation`, checked before any
+ * fetch — the term included) or a list page that cannot be fetched
+ * (`import_failed`).
  */
 export async function importList(
   ctx: CurationContext,
   rawUrl: string,
   rawOptions: unknown,
-  { pacing = realPacing }: ImportListDeps = {},
+  { pacing = realPacing() }: ImportListDeps = {},
 ): Promise<ImportListResult> {
   const options = parseInput(ImportListOptionsSchema, rawOptions);
   const url = checkUrl(rawUrl);
   const dryRun = options.dryRun === true;
-  const term = options.term ? tagSlug(options.term) : undefined;
-  if (options.term && !term) {
-    throw new ValidationError(
-      `"${options.term}" does not slugify to anything.`,
-    );
-  }
+  const plan = options.term
+    ? await planTerm(ctx, options.term, options.termLabel)
+    : undefined;
   const limit =
     options.limit ?? (dryRun ? IMPORT_LIST_DRY_RUN_LIMIT : IMPORT_LIST_LIMIT);
   const pacer = new SitePacer(pacing);
+
   const page = await fetchListPage(pacer, url);
   const parsed = parseRoundupPage(page.html, page.finalUrl || url);
   const existing = await existingBySource(
@@ -619,60 +672,67 @@ export async function importList(
     parsed.items.map((item) => item.url),
   );
   const items = toItems(parsed, existing);
-
-  const picked = options.all
-    ? items.map((item) => item.n)
-    : [...new Set(options.pick ?? [])];
-  const outOfRange = picked.filter((n) => n > items.length);
-  if (outOfRange.length > 0) {
-    throw new ValidationError(
-      items.length === 0
-        ? `The page lists no recipes${parsed.reason ? `: ${parsed.reason}` : "."}`
-        : `No item ${outOfRange.join(", ")} — the list has ${items.length}.`,
-    );
-  }
+  const resolved = resolvePicks(
+    options.all ? items.map((item) => item.n) : (options.pick ?? []),
+    items,
+    parsed.reason,
+  );
 
   const results: ImportListItemResult[] = [];
-  const remaining: number[] = [];
+  const remaining: RemainingPick[] = [];
+  const picked: number[] = [];
+  const seen = new Set<number>();
   let attempted = 0;
-  for (const n of picked) {
-    const item = items[n - 1];
+  for (const entry of resolved) {
+    if ("gone" in entry) {
+      results.push(entry.gone);
+      continue;
+    }
+    const { item, warning } = entry;
+    if (seen.has(item.n)) continue;
+    seen.add(item.n);
+    picked.push(item.n);
+    const notes = warning ? { warnings: [warning] } : {};
+    const base = { n: item.n, url: item.url, name: item.name };
     if (item.existing) {
       results.push({
-        n,
-        url: item.url,
-        name: item.name,
+        ...base,
         status: "existing",
         slug: item.existing,
+        ...notes,
       });
       continue;
     }
-    if (attempted >= limit || pacer.isDropped(item.url)) {
-      remaining.push(n);
+    if (attempted >= limit || pacer.droppedReason(item.url)) {
+      remaining.push({ n: item.n, url: item.url });
       continue;
     }
     attempted += 1;
     try {
-      results.push(await importItem(ctx, pacer, item, dryRun));
+      const result = await importItem(ctx, pacer, item, dryRun);
+      results.push(
+        warning
+          ? { ...result, warnings: [warning, ...(result.warnings ?? [])] }
+          : result,
+      );
     } catch (error) {
       if (error instanceof SiteDroppedError) {
-        /* Its image's site was dropped before the page's: not attempted. */
+        /* Dropped while this call waited in the queue: nothing fetched. */
         attempted -= 1;
-        remaining.push(n);
+        remaining.push({ n: item.n, url: item.url });
         continue;
       }
       results.push({
-        n,
-        url: item.url,
-        name: item.name,
+        ...base,
         status: "failed",
         error: errorOf(error),
+        ...notes,
       });
     }
   }
 
   let termResult: ImportListTermResult | undefined;
-  if (term) {
+  if (plan) {
     const carriers = [
       ...new Set(
         results
@@ -684,23 +744,25 @@ export async function importList(
           .map((result) => result.slug!),
       ),
     ];
-    const label = options.termLabel ?? parsed.title ?? term;
+    const label = await finishLabel(ctx, plan, parsed.title);
     if (dryRun) {
-      const record = await termRecord(ctx, term);
       termResult = {
-        slug: term,
-        label: record?.label ?? label,
-        created: !record,
+        slug: plan.slug,
+        label,
+        created: !plan.record,
         assign: carriers,
+        ...(plan.warnings.length ? { warnings: plan.warnings } : {}),
       };
     } else if (carriers.length > 0) {
-      try {
-        termResult = await applyTerm(ctx, term, label, carriers);
-      } catch (error) {
-        termResult = { slug: term, created: false, error: errorOf(error) };
-      }
+      termResult = await applyTerm(ctx, plan, label, carriers);
     } else {
-      termResult = { slug: term, created: false, updated: [] };
+      termResult = {
+        slug: plan.slug,
+        label,
+        created: false,
+        updated: [],
+        ...(plan.warnings.length ? { warnings: plan.warnings } : {}),
+      };
     }
   }
 

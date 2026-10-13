@@ -17,26 +17,42 @@ import {
   type CommandDef,
 } from "./types";
 
-/** `1,3,5-7` → `[1, 3, 5, 6, 7]`. */
-export function parsePicks(value: string): number[] {
-  const picks: number[] = [];
+/** As many picks as one call takes (`IMPORT_LIST_MAX_PICKS`). */
+const MAX_PICKS = 1000;
+
+/**
+ * `1,3,5-7` → `[1, 3, 5, 6, 7]`; an `http(s)://` entry is a URL pick, kept
+ * as a string (the seat checks it against the list).
+ */
+export function parsePicks(value: string): (number | string)[] {
+  const picks: (number | string)[] = [];
   for (const part of value.split(",").map((entry) => entry.trim())) {
     if (!part) continue;
+    if (/^https?:\/\//i.test(part)) {
+      picks.push(part);
+      continue;
+    }
     const range = /^(\d+)\s*-\s*(\d+)$/.exec(part);
     if (range) {
       const [from, to] = [Number(range[1]), Number(range[2])];
       if (from < 1 || to < from) {
         throw new UsageError(`--pick: "${part}" is not a range of positions.`);
       }
+      if (to - from + 1 + picks.length > MAX_PICKS) {
+        throw new UsageError(`--pick names more than ${MAX_PICKS} positions.`);
+      }
       for (let n = from; n <= to; n += 1) picks.push(n);
       continue;
     }
     if (!/^\d+$/.test(part) || Number(part) < 1) {
       throw new UsageError(
-        `--pick takes 1-based positions like 1,3,5-7 — not "${part}".`,
+        `--pick takes 1-based positions like 1,3,5-7 (or the items' URLs) — not "${part}".`,
       );
     }
     picks.push(Number(part));
+    if (picks.length > MAX_PICKS) {
+      throw new UsageError(`--pick names more than ${MAX_PICKS} positions.`);
+    }
   }
   if (picks.length === 0) throw new UsageError("--pick names no positions.");
   return picks;
@@ -70,7 +86,7 @@ export const inspectListCommand: CommandDef<InspectListResult> = {
 export const importListCommand: CommandDef<ImportListResult> = {
   name: "import-list",
   usage:
-    "recipes import-list <url> (--pick 1,3,5-7 | --all) [--term <slug> [--term-label L]] [--limit n] [--dry-run]",
+    "recipes import-list <url> (--pick 1,3,5-7|<url>,… | --all) [--term <slug> [--term-label L]] [--limit 1-6] [--dry-run]",
   options: {
     pick: { type: "string" },
     all: { type: "boolean" },
@@ -114,7 +130,7 @@ export const importListCommand: CommandDef<ImportListResult> = {
       ...result.results.map((entry) => entry.status.length),
     );
     const attempted = result.results.filter(
-      (entry) => entry.status !== "existing",
+      (entry) => entry.status !== "existing" && entry.status !== "skipped",
     ).length;
     const term = result.term;
     return [
@@ -134,7 +150,7 @@ export const importListCommand: CommandDef<ImportListResult> = {
       ),
       ...result.results.flatMap((entry) => formatWarnings(entry.warnings)),
       result.remaining.length > 0
-        ? `remaining: ${result.remaining.join(",")} — run again with --pick ${result.remaining.join(",")}`
+        ? `remaining: ${result.remaining.map((pick) => pick.n).join(",")} — run again with --pick ${result.remaining.map((pick) => pick.url).join(",")}`
         : undefined,
       ...(result.dropped ?? []).map(
         (entry) =>
@@ -147,6 +163,7 @@ export const importListCommand: CommandDef<ImportListResult> = {
             ? `term ${term.slug}: would ${term.created ? "create and " : ""}assign to ${term.assign.length} recipe(s)`
             : `term ${term.slug}: ${term.created ? "created, " : ""}+${term.updated?.length ?? 0} recipe(s)`
         : undefined,
+      ...formatWarnings(term?.warnings),
       `requests: ${result.requests}`,
     ]
       .filter(Boolean)

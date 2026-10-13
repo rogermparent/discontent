@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canonicalItemUrl,
+  isPrivateHost,
   nameFromUrl,
   parseRoundupPage,
   siteKey,
@@ -190,6 +191,65 @@ describe("parseRoundupPage", () => {
     expect(parsed.reason).toMatch(/No schema\.org ItemList/);
     expect(parsed.reason).toMatch(/only 2 candidate links/);
     expect(parsed.reason).toMatch(/Recipe of its own/);
+  });
+
+  it("drops a public page's private links, resolves against the page, and dedupes spellings", () => {
+    const card = (href: string, name: string) =>
+      `<div><a href="${href}"><img src="/i/${name}.jpg"></a><h2>${name}</h2></div>`;
+    const html = [
+      `<html><head><link rel="canonical" href="https://mirror.example.net/elsewhere/list/"></head>`,
+      "<body><article><div class='entry-content'>",
+      card("/recipes/one/", "One"),
+      card("https://www.example.com/recipes/one", "One again"),
+      card("http://192.168.1.10/admin/", "Router"),
+      card("http://169.254.169.254/latest/meta-data/", "Metadata"),
+      card("http://localhost:3000/secret/", "Local"),
+      card("http://[fd00::1]/inside/", "Ula"),
+      card("recipes/two/", "Two"),
+      card("https://example.com/recipes/three/", "Three"),
+      "</div></article></body></html>",
+    ].join("");
+
+    const parsed = parseRoundupPage(html, "https://example.com/lists/best/");
+    expect(parsed.items.map(({ url, name }) => ({ url, name }))).toEqual([
+      /* `www.` and a missing slash are the same page: one item. */
+      { url: "https://example.com/recipes/one/", name: "One" },
+      /* Relative to the page, not to its canonical. */
+      { url: "https://example.com/lists/best/recipes/two/", name: "Two" },
+      { url: "https://example.com/recipes/three/", name: "Three" },
+    ]);
+
+    /* A page on a private network may list its neighbours. */
+    const local = parseRoundupPage(html, "http://192.168.1.5/list/");
+    expect(local.items.map((item) => item.name)).toEqual(
+      expect.arrayContaining(["Router", "Metadata", "Local", "Ula"]),
+    );
+  });
+
+  it("knows a private host", () => {
+    for (const url of [
+      "http://127.0.0.1/",
+      "http://10.1.2.3/",
+      "http://172.20.0.1/",
+      "http://192.168.0.1/",
+      "http://169.254.169.254/",
+      "http://0.0.0.0/",
+      "http://localhost:8080/",
+      "http://[::1]/",
+      "http://[fe80::1]/",
+      "http://[fc00::2]/",
+      "http://[::ffff:10.0.0.1]/",
+    ]) {
+      expect(isPrivateHost(url), url).toBe(true);
+    }
+    for (const url of [
+      "https://sallysbakingaddiction.com/",
+      "http://172.32.0.1/",
+      "http://8.8.8.8/",
+      "http://[2606:4700::1]/",
+    ]) {
+      expect(isPrivateHost(url), url).toBe(false);
+    }
   });
 
   it("takes names and pictures from the ItemList itself when it has them", () => {

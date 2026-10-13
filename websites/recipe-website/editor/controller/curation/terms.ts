@@ -713,6 +713,23 @@ function labelAliasOwner(
  * The record that lists `slug` as an alias, other than `except` — from the
  * term index, which every record write keeps current.
  */
+/**
+ * The record `slug` is an alias of, and the record whose alias `label` is
+ * spelled like (except `slug`'s own) — for a caller that must decide before
+ * it writes, as roundup import (34f) does before its first fetch.
+ */
+export async function termAliasOwners(
+  ctx: CurationContext,
+  slug: string,
+  label?: string,
+): Promise<{ slug?: string; label?: string }> {
+  const rows = await readTermRows(ctx);
+  return {
+    slug: aliasOwner(rows, slug),
+    label: label ? labelAliasOwner(rows, label, slug) : undefined,
+  };
+}
+
 function aliasOwner(
   rows: readonly TermIndexRow[],
   slug: string,
