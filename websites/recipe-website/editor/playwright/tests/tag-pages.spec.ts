@@ -260,6 +260,149 @@ test.describe("Tag pages", () => {
       expect(missing?.status()).toBe(404);
     });
 
+    /*
+     * 34a (D1): a facet root carries nothing itself — recipes carry its
+     * children — so its page lists its narrower terms' recipes, as
+     * `tag:course` does, rather than "No recipes are tagged Course.".
+     */
+    test("a root with no carriers of its own lists its subtree (34a)", async ({
+      page,
+      request,
+      createApiToken,
+    }) => {
+      const token = await createApiToken();
+      const headers = { authorization: `Bearer ${token}` };
+      const created = await request.post("/api/taxonomies/tag", {
+        headers,
+        data: { label: "Course" },
+      });
+      expect(created.status()).toBe(201);
+      const moved = await request.patch("/api/taxonomies/tag/dessert", {
+        headers,
+        data: { parent: "course" },
+      });
+      expect(moved.status()).toBe(200);
+
+      const response = await page.goto("/tags/course");
+      expect(response?.status()).toBe(200);
+      await expect(
+        page.getByRole("heading", { name: "Course", exact: true }),
+      ).toBeVisible();
+      await expect(cards(page)).toHaveCount(8);
+      await expect(page.getByTestId("term-recipe-counts")).toHaveText(
+        "0 here · 8 including narrower terms",
+      );
+      await expect(page.getByText("No recipes are tagged")).toHaveCount(0);
+      /* The child's count is its subtree's — what its own page lists. */
+      const child = page
+        .getByTestId("term-children")
+        .getByRole("link", { name: /Dessert/ });
+      expect((await child.innerText()).replace(/\s+/g, " ").trim()).toBe(
+        "Dessert 8",
+      );
+
+      /* Every cookie carries `dessert` too, so the line stays away there. */
+      await page.goto("/tags/dessert");
+      await expect(cards(page)).toHaveCount(8);
+      await expect(page.getByTestId("term-recipe-counts")).toHaveCount(0);
+
+      /* Two levels down, the breadcrumb walks to the root — labels only. */
+      await page.goto("/tags/cookies");
+      await expect(
+        page.getByTestId("term-breadcrumb").getByRole("link"),
+      ).toHaveText(["Course", "Dessert"]);
+    });
+
+    /*
+     * 34a (D2): the page is cached per by-term key, so these visit it
+     * *before* the write — a page that read only its own key, or only the
+     * keys something already carried, would serve the stale list here.
+     */
+    test("a narrower term's new recipe reaches the cached parent page (34a)", async ({
+      page,
+      request,
+      createApiToken,
+    }) => {
+      await page.goto("/tags/dessert");
+      await expect(cards(page)).toHaveCount(8);
+      await expect(page.getByTestId("term-recipe-counts")).toHaveCount(0);
+
+      const token = await createApiToken();
+      const created = await request.post("/api/recipes", {
+        headers: { authorization: `Bearer ${token}` },
+        data: { name: "Linzer Bars", tags: ["cookies"] },
+      });
+      expect(created.status()).toBe(201);
+
+      await page.goto("/tags/dessert");
+      await expect(cards(page)).toHaveCount(9);
+      await expect(page.getByTestId("term-recipe-counts")).toHaveText(
+        "8 here · 9 including narrower terms",
+      );
+      await expect(
+        page.getByTestId("recipe-list").getByText("Linzer Bars"),
+      ).toBeVisible();
+    });
+
+    test("a narrower term's first carrier reaches the cached parent page (34a)", async ({
+      page,
+      request,
+      createApiToken,
+    }) => {
+      const token = await createApiToken();
+      const headers = { authorization: `Bearer ${token}` };
+      const bars = await request.post("/api/taxonomies/tag", {
+        headers,
+        data: { label: "Bars", parent: "dessert" },
+      });
+      expect(bars.status()).toBe(201);
+
+      /* `bars` is in dessert's subtree and carries nothing: a ghost key. */
+      await page.goto("/tags/dessert");
+      await expect(cards(page)).toHaveCount(8);
+
+      const created = await request.post("/api/recipes", {
+        headers,
+        data: { name: "Lemon Bars", tags: ["bars"] },
+      });
+      expect(created.status()).toBe(201);
+
+      await page.goto("/tags/dessert");
+      await expect(cards(page)).toHaveCount(9);
+      await expect(
+        page.getByTestId("recipe-list").getByText("Lemon Bars"),
+      ).toBeVisible();
+    });
+
+    test("a recipe tagged with a narrower term's alias is listed, as tag: finds it (34a)", async ({
+      page,
+      request,
+      createApiToken,
+    }) => {
+      const token = await createApiToken();
+      const headers = { authorization: `Bearer ${token}` };
+      const patched = await request.patch("/api/taxonomies/tag/cookies", {
+        headers,
+        data: { aliases: ["Biscuits"] },
+      });
+      expect(patched.status()).toBe(200);
+
+      await page.goto("/tags/dessert");
+      await expect(cards(page)).toHaveCount(8);
+
+      const created = await request.post("/api/recipes", {
+        headers,
+        data: { name: "Digestive Biscuits", tags: ["biscuits"] },
+      });
+      expect(created.status()).toBe(201);
+
+      await page.goto("/tags/dessert");
+      await expect(cards(page)).toHaveCount(9);
+      await expect(
+        page.getByTestId("recipe-list").getByText("Digestive Biscuits"),
+      ).toBeVisible();
+    });
+
     test("a record with no carriers is a real page, not a 404", async ({
       page,
     }) => {

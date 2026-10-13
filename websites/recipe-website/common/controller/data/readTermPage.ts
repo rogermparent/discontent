@@ -4,12 +4,11 @@ import { tagTermReads } from "./readTagTerms";
 import {
   aliasSlugs,
   aliasTarget,
-  applyPinned,
-  breadcrumbOf,
-  childrenOf,
   mergeTagVocabulary,
+  subtreeKeys,
   tagOptions,
   termHierarchy,
+  termPageData,
   type TagOption,
   type TermHierarchyNode,
   type TagVocabularyEntry,
@@ -19,12 +18,13 @@ import {
 /**
  * The reading half of the join (24c) — the cached reads, and nothing else.
  *
- * Every rule these two functions apply lives in `tagVocabulary.ts`, which is
- * pure. What is here is which values to ask for and how many times: six cached
- * reads for a term page (its two by-term rows, the two term clouds, the tree
- * and its record — 32e), three for the index, all of them tagged, so a term
- * page costs six cache lookups rather than a corpus scan and the export builds
- * every one of them from a single read of each.
+ * Every rule these functions apply lives in `tagVocabulary.ts`, which is
+ * pure. What is here is which values to ask for and how many times: for a
+ * term page, the tree, its record, and two by-term rows per term of its
+ * subtree and per alias (34a — a leaf's page is four reads); three for the
+ * index; all of
+ * them tagged, so a term page costs a handful of cache lookups rather than a
+ * corpus scan and the export builds every one of them from cached reads.
  *
  * **Three sources, one vocabulary.** Recipes and groups each fold the same
  * `tag` taxonomy under their own cache tag, and the term *records* are a third
@@ -144,63 +144,50 @@ export async function readSearchTerms(): Promise<SearchTerm[]> {
 /**
  * One term's page, or `null` when the slug names nothing at all.
  *
- * "Nothing at all" means no recipe carries it, no group carries it **and** no
- * record defines it — the three-source version of the rule `tagRoute` has
- * always applied. A record with no carriers is a real page (that is the whole
- * point of a vocabulary you can define ahead of assigning), and so is a term
- * that only exists as a string on one group.
+ * "Nothing at all" means no record defines it and nothing in its subtree is
+ * carried by a recipe or a group — the three-source version of the rule
+ * `tagRoute` has always applied. A record with no carriers is a real page
+ * (that is the whole point of a vocabulary you can define ahead of
+ * assigning), and so is a term that only exists as a string on one group.
  *
- * **One term's rows, not the whole inverted map** (32e). The by-term
- * aggregate is keyed, so `byTerm.readKey(slug)` decodes this term alone and is
- * cached under this term's own tag: a write that moves another term's rows
- * leaves this page cached. Until 32e it read both whole maps (200 KB on the
- * real corpus) and expired with every one of them.
+ * **The subtree's rows, one term at a time** (34a, D1/D2). A term page lists
+ * the recipes of the term and every descendant — what `tag:<term>` finds
+ * since 24d — so it reads `byTerm.readKey(k)` for each key `k` of
+ * `subtreeKeys(tree, slug)` (every subtree slug and each one's alias slugs,
+ * as `tag:` expands them), recipes and groups. Each read is cached under
+ * that key's own tag (32e), so a write that moves a term's rows expires the
+ * pages of that term and its ancestors, and no other — and a key nothing
+ * carries yet is still read, so its first carrier expires the page too.
  *
- * The counts the breadcrumb and the child chips print come from the two term
- * clouds, which `/tags` reads anyway (9.5 KB). They agree with the old count
- * of row lengths by construction: both folds see the same walk, a term's
- * `count` is the number of carriers its row lists, and the first label seen
- * wins in both. `mergeTagVocabulary` lets a record's label beat a fold's, here
- * as on `/tags`.
+ * **No term clouds.** Until 34a the breadcrumb and child counts came from the
+ * two whole `terms` clouds, so any carrier change anywhere expired every term
+ * page. The child counts now come from the same per-term rows (each child's
+ * subtree is inside this one), and the breadcrumb prints the tree's labels
+ * without counts. The pure half — merging, counting, labels — is
+ * `termPageData` in `tagVocabulary.ts`.
  */
 export async function resolveTermPage(
   slug: string,
 ): Promise<TermPageData | null> {
-  const [recipes, groups, recipeTerms, groupTerms, tree, record] =
-    await Promise.all([
-      recipeTagReads.byTerm.readKey(slug),
-      groupTagReads.byTerm.readKey(slug),
-      recipeTagReads.terms.read(),
-      groupTagReads.terms.read(),
-      tagTermReads.tree.read(),
-      tagTermReads.items.read(slug),
-    ]);
+  const [tree, record] = await Promise.all([
+    tagTermReads.tree.read(),
+    tagTermReads.items.read(slug),
+  ]);
+  const keys = subtreeKeys(tree, slug);
+  const [recipeRows, groupRows] = await Promise.all([
+    Promise.all(keys.map((key) => recipeTagReads.byTerm.readKey(key))),
+    Promise.all(keys.map((key) => groupTagReads.byTerm.readKey(key))),
+  ]);
+  const recipesByKey = new Map(keys.map((key, i) => [key, recipeRows[i]]));
+  const groupsByKey = new Map(keys.map((key, i) => [key, groupRows[i]]));
 
-  if (!recipes && !groups && !record) return null;
-
-  const counts = new Map<string, TagVocabularyEntry>(
-    mergeTagVocabulary({ recipeTerms, groupTerms, tree }).map((entry) => [
-      entry.slug,
-      entry,
-    ]),
-  );
-
-  return {
+  return termPageData({
     slug,
-    label: record?.label ?? recipes?.label ?? groups?.label ?? slug,
-    ...(record?.description ? { description: record.description } : {}),
-    ...(record?.image ? { image: record.image } : {}),
-    breadcrumb: breadcrumbOf(tree, slug, counts),
-    children: childrenOf(tree, slug, counts),
-    /*
-     * The curated front (D5 option 2). Pinned recipes first in the record's
-     * order, then the rest newest-first as the fold produced them — and groups
-     * after both, as their own section, because a recipe card and a group card
-     * are different cards.
-     */
-    recipes: applyPinned(recipes?.items ?? [], record?.pinned),
-    groups: groups?.items ?? [],
-  };
+    tree,
+    record,
+    recipeRows: (key) => recipesByKey.get(key),
+    groupRows: (key) => groupsByKey.get(key),
+  });
 }
 
 /**
@@ -208,7 +195,9 @@ export async function resolveTermPage(
  *
  * A record-only term is in the list, which is the reason this cannot simply be
  * the two carriers' term slugs: `/tags/holiday` has a record, no carriers and a
- * page, and an export that skipped it would 404 a link `/tags` prints.
+ * page, and an export that skipped it would 404 a link `/tags` prints. The
+ * same holds for a root that lists only its descendants' recipes (34a): only a
+ * record can have children, so it is in the tree's keys.
  *
  * The carried slugs come from the two term clouds rather than the two whole
  * `byTerm` maps since 32e: the same slugs (one walk folds both), a twentieth
