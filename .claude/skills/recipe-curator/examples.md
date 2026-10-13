@@ -107,7 +107,9 @@ for the feature) and ends with "push from `/git` when ready".
 
 Corpus: the `three-recipes-groups` fixture (three placeholder recipes, no
 tags). Two web searches, six dry-runs, three imports, one meal plan. 21 turns,
-72 s, no permission denials.
+72 s, no permission denials. The run predates the facet vocabulary; its
+`tags` are restated in skill v4's facet children (34b), and nothing else
+changed.
 
 ### 1. Where do writes go?
 
@@ -181,22 +183,24 @@ the pasta overlapped with the orzo and was left out.
 ### 6. Import the keepers
 
 ```
-recipe_import {"url": "https://www.budgetbytes.com/vegetarian-chili/", "tags": ["vegetarian", "dinner"]}
+recipe_import {"url": "https://www.budgetbytes.com/vegetarian-chili/", "tags": ["main", "vegetarian", "beans"]}
 {"slug": "vegetarian-chili", "date": 1789530510758, "path": "…/scratch/recipes/data/vegetarian-chili/recipe.json", "url": "/recipe/vegetarian-chili", "source": {"url": "https://www.budgetbytes.com/vegetarian-chili/", "name": "budgetbytes.com"}, "warnings": ["A running editor is stale until Settings → Maintenance → Reload. Set RECIPE_EDITOR_URL (or pass --notify --editor-url <url>) to invalidate it automatically."]}
 ```
 
 ```
-recipe_import {"url": "https://www.budgetbytes.com/easy-vegetable-stir-fry/", "tags": ["vegetarian", "dinner", "quick"]}
+recipe_import {"url": "https://www.budgetbytes.com/easy-vegetable-stir-fry/", "tags": ["main", "vegetarian", "vegetables", "quick"]}
 {"slug": "easy-vegetable-stir-fry", "date": 1789530511587, "path": "…", "url": "/recipe/easy-vegetable-stir-fry", "source": {…}, "warnings": ["A running editor is stale until …"]}
 ```
 
 ```
-recipe_import {"url": "https://www.budgetbytes.com/tuscan-orzo/", "tags": ["vegetarian", "dinner", "quick", "italian"]}
+recipe_import {"url": "https://www.budgetbytes.com/tuscan-orzo/", "tags": ["main", "vegetarian", "pasta", "quick", "italian"]}
 {"slug": "tuscan-orzo", "date": 1789530512326, "path": "…", "url": "/recipe/tuscan-orzo", "source": {…}, "warnings": ["A running editor is stale until …"]}
 ```
 
-`quick` only where `totalTime` ≤ 30; one lowercase cuisine word. The slugs
-came from the dry-runs, so no `slug_conflict`.
+Facet children only (skill v4): one `course` child (`main`), a
+`main-ingredient` child plus `vegetarian` (savory mains), `quick` only where
+`totalTime` ≤ 30, and `italian` because it is a `cuisine` child — no root,
+no free tag. The slugs came from the dry-runs, so no `slug_conflict`.
 
 ### 7. Group them
 

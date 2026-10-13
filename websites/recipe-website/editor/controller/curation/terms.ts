@@ -245,6 +245,13 @@ export interface TermRenameResult {
   /** Carriers whose tag string was rewritten. */
   recipes: string[];
   groups: string[];
+  /**
+   * The record's aliases after the rename (34-D4): the old slug joins them,
+   * as a merge's `from` does (32i, D5), so `tag:<from>` and `/tags/<from>`
+   * keep reaching the term. Empty when there was no record — a bare tag has
+   * nowhere to keep an alias, and a rename does not create one.
+   */
+  aliases: string[];
 }
 
 export interface TermMergeResult {
@@ -1342,7 +1349,8 @@ export async function assignTerm(
  * (F34): `Rename term: a → b (5 recipes, 1 group)`, or the bare
  * `Rename term: a → b` when only the record moved. Renaming onto a term that
  * already exists — a record or carriers — is `slug_conflict`; that is
- * `term_merge`.
+ * `term_merge`. The old slug stays on the record as an alias (34-D4), so
+ * `/tags/a` and `tag:a` still reach it.
  */
 export async function renameTerm(
   ctx: CurationContext,
@@ -1394,6 +1402,24 @@ export async function renameTerm(
   }
   const tag = carrierTag(to, label);
 
+  /*
+   * The old slug becomes an alias (34-D4), so links and searches that still
+   * say it reach the term. Renamed onto one of its own aliases, that alias is
+   * now the slug and drops out; renamed back, the slug it returns to drops
+   * out the same way. Skipped when a third record already lists it — that
+   * would contest `tag:<from>`, as a merge's skip does. No record, no
+   * aliases: a rename does not create a record, as a bare merge does not.
+   */
+  const aliases = record
+    ? dedupeAliases(
+        [
+          ...(record.aliases ?? []),
+          ...(aliasOwner(await readTermRows(ctx), slug, slug) ? [] : [slug]),
+        ],
+        to,
+      )
+    : [];
+
   const moved = { recipes: [] as string[], groups: [] as string[] };
   const message = () =>
     `Rename term: ${slug} → ${to}` +
@@ -1403,13 +1429,9 @@ export async function renameTerm(
     ]);
   await withBatchCommit(ctx, message, async (batchCtx) => {
     if (record) {
-      /* Renamed onto one of its own aliases: that alias is now the slug. */
       const data: TagTerm = { ...record, label };
-      if (record.aliases?.length) {
-        const aliases = dedupeAliases(record.aliases, to);
-        if (aliases.length > 0) data.aliases = aliases;
-        else delete data.aliases;
-      }
+      if (aliases.length > 0) data.aliases = aliases;
+      else delete data.aliases;
       await writeTermRecord(batchCtx, {
         currentSlug: slug,
         slug: to,
@@ -1435,6 +1457,7 @@ export async function renameTerm(
     url: termUrl(to),
     record: Boolean(record),
     ...moved,
+    aliases,
   };
 }
 
