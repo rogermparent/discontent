@@ -89,6 +89,11 @@ survives a cleared context.
   search-only term aliases, and a proposed food vocabulary (32a–32k). Closed
   2026-10-10; its morning checklist (pull, workstation update, real-repo
   reindex, Pi deploy) is in the doc's Close-out.
+- `websites/recipe-website/docs/agent-epic-33.md` — epic 33, the food
+  vocabulary (32k + the 24f backfill): four facet roots (course, main
+  ingredient, cuisine, speed & effort) applied to the real repo, quick vs
+  easy defined, the drink `spirit` root and drink-name families; method,
+  counts, and the workstation-sync lock trap for scripted real-repo runs.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed

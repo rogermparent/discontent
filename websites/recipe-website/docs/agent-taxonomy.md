@@ -616,7 +616,7 @@ Each branch is off the previous. Rebase children after a parent merges.
 | 24c     | `agent/24c-term-records` ← `main`    | ✅ done | `tagTermContentConfig` in the registry, tree read + label override + curated front (`pinned`/`description`/`image`), term page metadata / breadcrumb / children, `feature {term}` (featured v3), `christmas-cookies` seed gains term records (L)            |
 | 24d     | → epic 31 (31b)                      | ✅ #192 | Resolver, `/search/terms`, one "all terms" source, hierarchical autocomplete / ⌘K, server descendant expansion + `group:` parity (L)                                                                                                                        |
 | 24e     | → epic 31 (31c, 31e)                 | ✅ #194 | Seats / CLI / API / MCP / skill v3 + the fixture acceptance test (D7) (L)                                                                                                                                                                                   |
-| 24f     | `agent/24f-taxonomy-closeout` ← 24e  | ⏸️      | Backfill on the real repo (content task), the real story run, by-term measurement, backlog strikes, close-out, memory (S code / L content)                                                                                                                  |
+| 24f     | `agent/24f-taxonomy-closeout` ← 24e  | 🟡      | ~~Backfill on the real repo~~ **done by epic 33** (`agent-epic-33.md`, 2026-10-13); the real story run stays open. By-term measurement done at 32e; backlog strikes, close-out, memory (S code / L content)                                                 |
 | 24g     | → epic 32 (32e)                      | 🟡 #204 | F8b partitions, only if 24f's by-term number exceeds 150 KB (L). Measured at 32e: 200,805 B, so it was built as F35, a keyed aggregate with one record per term (`agent-epic-32.md`)                                                                        |
 
 **#144 landed** 2026-09-17 (`c581f222`) and the real repo was reindexed the
@@ -626,7 +626,7 @@ same day.
 (2026-10-10: 31b #192, 31c #194, the term form 31e #195): 31b is 24d, 31c is
 24e, and 31e adds a term edit form. `agent-epic-31.md` is their record; its D4
 (`term_cycle` is 422) and D5 (46 tools, 34 pre-approved) supersede the counts
-and status in D7 above. 24f's real-repo backfill and story run stay open.
+and status in D7 above. 24f's real-repo backfill was done by epic 33 (`agent-epic-33.md`); its story run stays open.
 31c built the seats, API, CLI and tools, narrowed `Group.kind` to
 `meal-plan`, and replaced the groups-based `christmasCookies.test.ts` with
 the taxonomy edition; its "Built (31c)" notes record the merge and delete
