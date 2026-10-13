@@ -738,8 +738,10 @@ export function createRecipeServer(
         "Move a term to a new slug: `to` is the new slug or label (slugged), and " +
         "`label` sets the record's label if `to` is a bare slug. The record moves — " +
         "children and featured entries follow it — and every recipe and group " +
-        "carrying the tag is rewritten — one commit for the lot. A `to` that already " +
-        "exists is slug_conflict: use term_merge.",
+        "carrying the tag is rewritten — one commit for the lot. The old slug becomes " +
+        "one of the record's aliases (`aliases` in the result), so tag:<slug> and " +
+        "/tags/<slug> still reach the term. A `to` that already exists is " +
+        "slug_conflict: use term_merge.",
       inputSchema: z.strictObject({
         slug: Slug,
         to: z.string().trim().min(1),

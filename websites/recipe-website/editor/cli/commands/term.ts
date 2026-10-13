@@ -6,7 +6,8 @@
  * Two of them are destructive and confirm like `delete` does: `term delete`
  * (a record, and with `--unassign` the tag on every carrier) and `term merge`
  * (which deletes or moves the source record). `term rename` rewrites carriers
- * too, but every one of them keeps the term, so it asks nothing.
+ * too, but every one of them keeps the term — and the old slug stays on its
+ * record as an alias (34-D4) — so it asks nothing.
  *
  * `create` and `update` take flags or a JSON object, never both — the shape
  * `group create` / `group update` have, for the same reasons.
@@ -383,6 +384,9 @@ const termRename: CommandDef<TermRenameResult> = {
       `  ${result.url}`,
       `  recipes: ${list(result.recipes)}`,
       result.groups.length > 0 ? `  groups: ${list(result.groups)}` : undefined,
+      result.aliases.includes(result.from)
+        ? `  ${result.from} stays as an alias: /tags/${result.from} and tag:${result.from} reach ${result.slug}`
+        : undefined,
     ]
       .filter((line): line is string => line !== undefined)
       .join("\n"),
