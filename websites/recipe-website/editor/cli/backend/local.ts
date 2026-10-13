@@ -19,6 +19,7 @@ import { gitSync } from "../../controller/curation/sync";
 import * as groups from "../../controller/curation/groups";
 import { importAndCreate } from "../../controller/curation/importRecipe";
 import { inspectUrl } from "../../controller/curation/inspect";
+import { importList, inspectList } from "../../controller/curation/importList";
 import {
   setRecipeImage,
   setTermImage,
@@ -148,6 +149,11 @@ export function createLocalBackend({
     },
     /* Reads a page and nothing else: no identity, no write. */
     inspect: (url) => inspectUrl(url),
+    inspectList: (url) => inspectList(ctx, url),
+    async importList(url, options) {
+      if (!options.dryRun) await guard();
+      return importList(ctx, url, options);
+    },
     async createRecipe(raw, { dryRun, ...options } = {}) {
       if (dryRun) return recipes.previewCreateRecipe(ctx, raw);
       await guard();

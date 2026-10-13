@@ -23,6 +23,7 @@ import type {
   RecipeSource,
 } from "recipe-website-common/controller/types";
 import type { ImageProbe } from "../imageImport";
+import { fetchImageFile, probeImageFile } from "../imageImport";
 import { fetchYtdlpMetadata, ytdlpToRecipe } from "../ytdlp";
 import type { CurationContext } from "./context";
 import { ImportError, ValidationError } from "./errors";
@@ -34,6 +35,7 @@ import {
   type RecipeWriteResult,
 } from "./recipes";
 import { RecipeInputSchema, parseInput, type RecipeInput } from "./schema";
+import { pacedRequest } from "./sitePacing";
 
 export interface ImportDryRunResult {
   dryRun: true;
@@ -82,7 +84,10 @@ export async function importFromUrl(
   try {
     imported =
       (isVideoUrl(url) ? await importVideo(url) : undefined) ??
-      (await importRecipeData(url));
+      (isVideoUrl(url)
+        ? await importRecipeData(url)
+        : /* On the per-site queue (34f), like every page and image fetch. */
+          await pacedRequest(url, (retry) => importRecipeData(url, retry)));
   } catch (error) {
     throw new ImportError(
       `Could not fetch ${url}: ${error instanceof Error ? error.message : String(error)}`,
@@ -189,6 +194,8 @@ export async function importAndCreate(
     } = await buildRecipeWrite(input, {
       date,
       probe: true,
+      probeImage: (imageUrl) =>
+        pacedRequest(imageUrl, (retry) => probeImageFile(imageUrl, retry)),
     });
     return {
       dryRun: true,
@@ -218,6 +225,10 @@ export async function importAndCreate(
     };
   }
 
-  const result = await createRecipe(ctx, input, { overwrite });
+  const result = await createRecipe(ctx, input, {
+    overwrite,
+    fetchImage: (imageUrl) =>
+      pacedRequest(imageUrl, (retry) => fetchImageFile(imageUrl, { retry })),
+  });
   return { ...result, ...(input.source ? { source: input.source } : {}) };
 }

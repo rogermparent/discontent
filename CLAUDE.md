@@ -25,8 +25,8 @@ is a symlink to it (and is gitignored here). Never commit anything under
 
 The `recipe-curator` skill (`.claude/skills/recipe-curator/`) imports, cites,
 groups and features recipes through the **`recipes` MCP server** — `.mcp.json`
-registers its 47 tools, `.claude/settings.json` pre-approves its 35
-non-destructive ones, and the skill's frontmatter lists the same 35. Held back,
+registers its 49 tools, `.claude/settings.json` pre-approves its 37
+non-destructive ones, and the skill's frontmatter lists the same 37. Held back,
 deliberately (the other 12):
 `recipe_delete`, `group_delete`, `term_delete`, `term_merge`, `unfeature`,
 `reindex`, `git_revert`, `git_restore`, `git_push`, `git_pull`, `git_sync`,

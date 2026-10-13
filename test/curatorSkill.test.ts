@@ -247,9 +247,13 @@ describe("the recipe-curator skill's allow-lists", () => {
      * a deliberate edit here — and CLAUDE.md's "pre-approves its N" sentence,
      * which nothing else checks, moves with it.
      */
-    expect(TOOL_NAMES).toHaveLength(47);
-    expect(EXPECTED_ALLOWED).toHaveLength(35);
+    expect(TOOL_NAMES).toHaveLength(49);
+    expect(EXPECTED_ALLOWED).toHaveLength(37);
     expect(EXPECTED_ALLOWED).toContain("term_set_image");
+    /* 34f: 47 → 49 and 35 → 37 — the roundup read and the roundup import,
+     * whose every recipe is its own revertable commit, as `recipe_import`'s. */
+    expect(EXPECTED_ALLOWED).toContain("page_inspect_list");
+    expect(EXPECTED_ALLOWED).toContain("recipe_import_list");
 
     const claudeMd = await readFile(CLAUDE_MD_PATH, "utf8");
     const registers = /registers its (\d+) tools/.exec(claudeMd);
@@ -308,6 +312,24 @@ describe("the recipe-curator skill's allow-lists", () => {
         "pnpm --silent recipes",
       );
     }
+  });
+
+  it("teaches the roundup loop and Sally's first (34f, D11/D12)", () => {
+    const roundup = section(skill, "6b. A roundup");
+    for (const tool of [
+      "page_inspect_list",
+      "recipe_import_list",
+      "recipe_update",
+    ]) {
+      expect(roundup).toContain(tool);
+    }
+    /* The per-call cap only works if the skill loops on what it left. */
+    expect(roundup).toContain('"pick": <remaining>');
+    expect(roundup).toContain("`dropped`");
+    expect(section(skill, "4. Find candidates on the web")).toContain(
+      "sallysbakingaddiction.com",
+    );
+    expect(examples).toContain("recipe_import_list");
   });
 
   it("asks 'what can I make?' of every recipe, not just drinks (32j)", () => {

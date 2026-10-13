@@ -1529,6 +1529,12 @@ payload so option flags and the rename `slug` never collide. No
 | `unfeature`         | `{slug}`                                           | `unfeature`                                        | write, destructive |
 | `reindex`           | `{contentType?}`                                   | `reindex`                                          | write, idempotent  |
 
+_The table is 23b's. Later tools are in `TOOL_NAMES` and their phase docs:
+the term tools (31c, `agent-epic-31.md`), `term_set_image` (32c), and
+roundup import — `page_inspect_list` (readOnly) and `recipe_import_list`
+(write; one commit per recipe, 15 s per site, `remaining` to continue) — in
+34f (`agent-epic-34.md`)._
+
 **D3 as built.** Compact row = `{slug, name, date, tags, totalTime,
 image?}`; `fields` on rows ⊆ `description | ingredients | prepTime |
 cookTime` (rows carry no `source`; `recipe_get {fields: ["source"]}` covers

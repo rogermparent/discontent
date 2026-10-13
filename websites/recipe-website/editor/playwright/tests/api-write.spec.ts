@@ -813,6 +813,84 @@ test.describe("JSON write API", () => {
     expect((await list.json()).total).toBe(0);
   });
 
+  test("lists a roundup and imports a pick with a term, each with its scope (34f)", async ({
+    request,
+    baseURL,
+    createApiToken,
+  }) => {
+    const url = new URL("/uploads/roundup.html", baseURL!).href;
+    for (const route of ["/api/inspect-list", "/api/import-list"]) {
+      const anonymous = await request.post(route, {
+        data: { url, pick: [1] },
+      });
+      expect(anonymous.status(), route).toBe(401);
+    }
+
+    /* A read token lists (it fetches, so it is authenticated) but not imports. */
+    const reader = await createApiToken(
+      "admin@nextmail.com",
+      "dashboard",
+      "read",
+    );
+    const asReader = { authorization: `Bearer ${reader}` };
+    const listed = await request.post("/api/inspect-list", {
+      headers: asReader,
+      data: { url },
+    });
+    expect(listed.status()).toBe(200);
+    const list = await listed.json();
+    expect(list).toMatchObject({
+      title: "Three Test Dinners",
+      source: "links",
+    });
+    expect(list.items.map((item: { name: string }) => item.name)).toEqual([
+      "Naan",
+      "Katsudon",
+      "Nachos",
+    ]);
+    const refused = await request.post("/api/import-list", {
+      headers: asReader,
+      data: { url, pick: [1] },
+    });
+    expect(refused.status()).toBe(403);
+
+    const dry = await request.post("/api/import-list", {
+      headers: auth(),
+      data: { url, pick: [1], term: "api-roundup", dryRun: true },
+    });
+    expect(dry.status()).toBe(200);
+    const dryRun = await dry.json();
+    expect(dryRun.results[0].status).toBe("would-import");
+    expect(dryRun.term).toMatchObject({ slug: "api-roundup", created: true });
+    expect((await (await request.get("/api/recipes")).json()).total).toBe(0);
+
+    const tooMany = await request.post("/api/import-list", {
+      headers: auth(),
+      data: { url, all: true, limit: 7 },
+    });
+    expect(tooMany.status()).toBe(400);
+
+    const real = await request.post("/api/import-list", {
+      headers: auth(),
+      data: { url, pick: [1], term: "api-roundup" },
+    });
+    expect(real.status()).toBe(200);
+    const imported = await real.json();
+    expect(imported.results[0].status).toBe("imported");
+    const slug = imported.results[0].slug;
+    expect(imported.term).toMatchObject({
+      slug: "api-roundup",
+      created: true,
+      updated: [slug],
+    });
+
+    const again = await request.post("/api/inspect-list", {
+      headers: auth(),
+      data: { url },
+    });
+    expect((await again.json()).items[0].existing).toBe(slug);
+  });
+
   test("sets a recipe's image by URL and by upload, clears it, and dry-runs a create (26b)", async ({
     request,
     baseURL,
