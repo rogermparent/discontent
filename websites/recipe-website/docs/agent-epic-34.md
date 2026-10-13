@@ -204,7 +204,7 @@ fitting (savory Thanksgiving sides, drinks). The curator skill says so, and
 | -------- | -------------------------- | ---- | ------ | ----------------------------------------------------------------------------- |
 | 34-plan  | `agent/34-plan`            | S    | 🟡     | This doc.                                                                     |
 | 34a      | `agent/34a-term-pages`     | M    | 📝     | D1, D2: subtree recipes on term pages, counts without the clouds.             |
-| 34b      | `agent/34b-skill-rename`   | S    | 📝     | D3, D4: skill v4 vocabulary; rename keeps the old slug.                       |
+| 34b      | `agent/34b-skill-rename`   | S    | ✅     | D3, D4: skill v4 vocabulary; rename keeps the old slug.                       |
 | 34c      | `agent/34c-engine-writes`  | L    | 📝     | D5–D8: ULIDs, the write lock, private-index commits, atomic writes (engine).  |
 | 34d      | `agent/34d-site-writes`    | M    | 📝     | D6, D9, D10 on the site: lock the batch/git/sync seats, `busy`, ULID slugs.   |
 | 34f      | `agent/34f-roundup-import` | M    | 📝     | D11, D12: roundup import (`inspect-list`, `import-list`), skill + Sally's.    |
@@ -352,8 +352,51 @@ typecheck`, `pnpm exec vitest run`, targeted Playwright in build mode.
 
 ## Traps
 
-_(Filled in as phases land.)_
+- **34b — a rename's old slug blocks a new term there.** It is an alias now,
+  so `term_create` at that slug is `validation` ("… is an alias of the term
+  …"), exactly as after a merge (32i). Take it off the renamed record's
+  `aliases` with `term_update` first if the old name is wanted back as a
+  separate term.
+- **34b — examples.md cuts arrays with `…`.** The transcripts are not JSON,
+  so `curatorSkill.test.ts` reads the quoted strings out of each `"tags": […]`
+  rather than parsing it.
+- **34b — the worktree guard refuses a command whose text says `alias`** (it
+  reads it as the shell builtin). Grep with a fragment (`lias`) or edit with
+  the Edit tool.
 
 ## Results
 
-_(Filled in as phases land.)_
+### 34b — Skill v4 + rename alias
+
+- **Skill v4 (D3).** SKILL.md's "Tag vocabulary (v4)" lists the four facet
+  roots and their 43 children (labels in parentheses where they differ),
+  the quick (≤ 30 min) / easy (regardless of time) / project (multi-stage or
+  overnight) definitions, children only, one or two `course` children per
+  food recipe, `vegetarian` on savory dishes only, `term_list` before
+  tagging, and `suggestedTags` mapped onto children ("Main Course" → `main`)
+  with no free tags on food. Drinks and the `spirit` children are unchanged.
+  The checklist's tags step and the `recipe_create` example follow it, and
+  examples.md's meal-plan transcript restates its tags as facet children
+  (saying so). SKILL.md had no version marker; the heading carries "v4".
+  `curatorSkill.test.ts` pins the 43 children (`FACETS`), the definitions,
+  and forbids a root or `dinner`/`lunch` in any example's `tags`.
+- **Rename keeps the old slug (D4).** `renameTerm` writes
+  `dedupeAliases([...record.aliases, from], to)` in the record's own write,
+  so the commit count is unchanged (still one, F34); `TermRenameResult`
+  gains `aliases`. Renaming onto one of its own aliases drops that alias and
+  adds the old slug; renaming back swaps them. Like a merge's skip, the old
+  slug is left out when a third record already lists it (hand-made state the
+  seats refuse). **No record, no alias:** a carried-only term renames as
+  before with `aliases: []`, and no record is created — the same choice a
+  bare-into-bare merge makes (nowhere to keep it; carriers were all
+  retagged, so `/tags/<old>` is a 404 there). `GET
+/api/taxonomies/tag/<old>` stays a 404: the seat answers by slug only.
+  Wording in the `term_rename` tool, `recipes term rename` (prints "… stays
+  as an alias"), the rename route and SKILL.md.
+- **Tests.** `terms.test.ts`: the rename cases assert `aliases` and
+  `tag:<old>`, rename-and-back, the old slug blocking a create, the
+  third-record skip, and no record for a carried-only rename;
+  `curationGit.test.ts`: the alias rides the one rename commit;
+  `api-write.spec.ts`: `/tags/flatbread` redirects to
+  `/tags/pressed-bread` and `tag:flatbread` finds the recipe. vitest 57
+  files / 1220 tests; editor typecheck and export `tsc` clean.
