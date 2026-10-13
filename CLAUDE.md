@@ -94,6 +94,11 @@ survives a cleared context.
   ingredient, cuisine, speed & effort) applied to the real repo, quick vs
   easy defined, the drink `spirit` root and drink-name families; method,
   counts, and the workstation-sync lock trap for scripted real-repo runs.
+- `websites/recipe-website/docs/agent-epic-34.md` — epic 34: facets
+  follow-through (term pages list their subtree, curator skill v4, renames
+  keep the old slug), engine write safety (ULID write ids, a cross-process
+  write lock, private-index commits with a CAS on HEAD, atomic file writes,
+  the `busy` code), and a seasonal content round (34a–34e).
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
