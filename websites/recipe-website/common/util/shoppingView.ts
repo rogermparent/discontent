@@ -127,6 +127,14 @@ function lineFor(label: string, amount: Amount, texts: string[]): string {
   return `${formatAmount(counted)} ${displayName(label, counted, texts)} + ${formatAmount({ parts: measures })}`;
 }
 
+/** A row's `quantity`, joined the way its line is: the count first. */
+function quantityFor(amount: Amount): string {
+  const counts = amount.parts.filter((part) => part.family === "count");
+  const measures = amount.parts.filter((part) => part.family !== "count");
+  if (counts.length === 0 || measures.length === 0) return formatAmount(amount);
+  return `${formatAmount({ parts: counts })} + ${formatAmount({ parts: measures })}`;
+}
+
 // --- the view model ----------------------------------------------------------
 
 /** One item behind a row, when `sources` is on. */
@@ -175,6 +183,8 @@ export interface ShoppingRow {
   aisle?: Aisle;
   /** Stores on: the store id the row is bought at. */
   store?: string;
+  /** Stores on: an item of the row names its store itself (not routed). */
+  storePinned?: boolean;
   /** Every item ticked. */
   checked: boolean;
   /** Some items ticked, not all. */
@@ -320,7 +330,7 @@ function buildRow(
     row.label = row.name;
     if (features.quantities) {
       if (total.parts.length > 0) {
-        row.quantity = formatAmount(total);
+        row.quantity = quantityFor(total);
         row.label = lineFor(first.name.label, total, texts);
       }
       const raw = entries.filter((entry) => entry.amount === null).map(rawLine);
@@ -328,7 +338,7 @@ function buildRow(
       if (row.partial) {
         const left = sumOf(entries.filter((entry) => !entry.item.checked));
         if (left.parts.length > 0) {
-          row.remaining = formatAmount(left);
+          row.remaining = quantityFor(left);
           row.label = lineFor(first.name.label, left, texts);
         }
       }
@@ -430,6 +440,13 @@ export function buildShoppingView(
     if (features.aisles) row.aisle = aisle;
     if (features.stores) {
       row.store = routeStore(entries, routeName.key, aisle, settings);
+      if (
+        entries.some((entry) =>
+          settings.stores.some((store) => store.id === entry.item.store),
+        )
+      ) {
+        row.storePinned = true;
+      }
     }
 
     if (row.checked) {

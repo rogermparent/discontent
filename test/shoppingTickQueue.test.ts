@@ -73,16 +73,20 @@ describe("the tick queue", () => {
     ]);
   });
 
-  it("round-trips through sessionStorage text, and survives junk", () => {
+  it("round-trips through sessionStorage text, and survives junk and age", () => {
     const pending = new Map([
       ["a", true],
       ["b", false],
     ]);
-    expect(parsePending(serializePending(pending))).toEqual(pending);
-    expect(parsePending(null).size).toBe(0);
-    expect(parsePending("{nope").size).toBe(0);
-    expect(parsePending('[["a", "yes"], ["b", true]]')).toEqual(
-      new Map([["b", true]]),
-    );
+    const stored = serializePending(pending, 1_000);
+    expect(parsePending(stored, 2_000)).toEqual(pending);
+    /* Ten minutes on, the stored ticks are dropped, not replayed. */
+    expect(parsePending(stored, 1_000 + 10 * 60_000 + 1).size).toBe(0);
+    expect(parsePending(null, 0).size).toBe(0);
+    expect(parsePending("{nope", 0).size).toBe(0);
+    expect(parsePending('[["a", true]]', 0).size).toBe(0);
+    expect(
+      parsePending('{"at": 0, "ticks": [["a", "yes"], ["b", true]]}', 0),
+    ).toEqual(new Map([["b", true]]));
   });
 });

@@ -134,7 +134,6 @@ export function Ingredients({
           <div className="mt-2">
             <MultiplierInput />
           </div>
-          {actions && <div className="mt-2 print:hidden">{actions}</div>}
         </div>
         <ul key={resetKey} className="text-lg print:text-sm">
           {ingredients.map(({ ingredient, type }, i) => (
@@ -142,6 +141,9 @@ export function Ingredients({
           ))}
         </ul>
         <BatchingNote ingredients={ingredients} drink={drink} />
+        {/* Below the list, not in the sticky header: a result line there
+            would ride along over the recipe. */}
+        {actions && <div className="my-2 print:hidden">{actions}</div>}
       </section>
     )
   );

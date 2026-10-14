@@ -99,9 +99,12 @@ test.describe("Shopping list", () => {
     await expect(page.getByTestId("shopping-counts")).toHaveText(
       /^8 to buy · 2 checked/,
     );
+    /* One commit, or two if the ticks straddled a flush. */
     await expect
-      .poll(async () => (await getContentGitLog())[0], { timeout: 15_000 })
-      .toMatch(/^Update shopping list: ✓egg ✓onion$/);
+      .poll(async () => (await getContentGitLog()).slice(0, 2).join(" | "), {
+        timeout: 15_000,
+      })
+      .toMatch(/✓egg[\s\S]*✓onion|✓onion[\s\S]*✓egg/);
 
     /* A reload reads it back from the server. */
     await page.reload();
@@ -113,7 +116,7 @@ test.describe("Shopping list", () => {
     await expect(checked).toHaveCount(0);
     await expect
       .poll(async () => (await getContentGitLog())[0], { timeout: 15_000 })
-      .toBe("Clear shopping list: 4 checked");
+      .toBe("Update shopping list: −egg −onion");
     await expect(page.getByTestId("shopping-counts")).toHaveText(
       /^8 to buy · 0 checked/,
     );

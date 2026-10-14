@@ -11,7 +11,7 @@ import {
 import { cn } from "@discontent/component-library/lib/utils";
 import { AISLE_LABELS, AISLES, type Aisle } from "../../util/aisles";
 import type { ShoppingSettings } from "../../util/shoppingTypes";
-import type { ShoppingRow } from "../../util/shoppingView";
+import { shoppingNameOf, type ShoppingRow } from "../../util/shoppingView";
 
 export interface RowHandlers {
   tick(ids: readonly string[], checked: boolean): void;
@@ -75,6 +75,8 @@ function RowMenu({
   const { features } = settings;
   const storeName = (id?: string) =>
     settings.stores.find((store) => store.id === id)?.name ?? id;
+  /* The ingredient, not the whole line: "eggs", never "2 large eggs, beaten". */
+  const name = features.merge ? row.name : shoppingNameOf(row.name).label;
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -98,13 +100,19 @@ function RowMenu({
             <select
               id={storeId}
               className={selectClass}
-              value={row.store ?? ""}
+              value={row.storePinned ? (row.store ?? "") : ""}
               onChange={(event) =>
                 handlers.update({
                   set: { ids: row.ids, store: event.target.value || null },
                 })
               }
             >
+              <option value="">
+                Automatic (
+                {storeName(row.storePinned ? undefined : row.store) ??
+                  "default"}
+                )
+              </option>
               {settings.stores.map((store) => (
                 <option key={store.id} value={store.id}>
                   {store.name}
@@ -119,11 +127,11 @@ function RowMenu({
                 className="h-auto min-h-9 whitespace-normal"
                 onClick={() =>
                   handlers.saveSettings({
-                    storeOverrides: { [row.name]: row.store },
+                    storeOverrides: { [name]: row.store },
                   })
                 }
               >
-                Always buy {row.name} at {storeName(row.store)}
+                Always buy {name} at {storeName(row.store)}
               </Button>
             )}
           </div>
@@ -131,7 +139,7 @@ function RowMenu({
         {features.aisles && (
           <div className="flex flex-col gap-1">
             <label htmlFor={aisleId} className="text-xs font-semibold">
-              Aisle (for every {row.name})
+              Aisle (for every {name})
             </label>
             <select
               id={aisleId}
@@ -139,7 +147,7 @@ function RowMenu({
               value={row.aisle ?? "other"}
               onChange={(event) =>
                 handlers.saveSettings({
-                  aisleOverrides: { [row.name]: event.target.value as Aisle },
+                  aisleOverrides: { [name]: event.target.value as Aisle },
                 })
               }
             >

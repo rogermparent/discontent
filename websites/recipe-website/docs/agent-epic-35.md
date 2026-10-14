@@ -276,10 +276,47 @@ list" section ("put this week's plan on the list", "I bought eggs").
   through a new `ingredientActions` slot on `RecipeView` inside
   `MultiplierProvider`, so the current scale carries.
 - A command-palette entry (`destinations.ts`, `ownerOnly`); `print:` styles.
-- Fixture `playwright/fixtures/test-content/shopping` and
-  `playwright/tests/shopping.spec.ts`: add a plan and check the merged
-  quantity, a tick commits, clear checked, the copy text, all switches off is
-  a plain list, phone viewport.
+- Review round (35d), all with tests:
+
+8. **Tick sync moved out of React** into `common/util/shoppingTickSync.ts`
+   (`TickSync`, tested with a fake `fetch` and fake timers in
+   `shoppingTickSync.test.ts`, 10 cases). Two lost-tick bugs fixed:
+   leaving `/shopping` by a client-side link within 1.5 s now sends the
+   pending ticks (`detach` on unmount → `keepalive`); and a flush while a
+   request is in flight no longer returns early — `flush()` awaits the
+   flight and loops while anything is pending, and `flushNow()` (hidden,
+   pagehide, unmount) sends the whole pending map at once even mid-flight
+   (a PATCH of ticks is idempotent).
+9. **Clear checked removes exactly the ids shown ticked** —
+   `update({remove: ids})` over the visible Checked fold (this store's
+   rows, pending ticks included) — never the server's `clear("checked")`,
+   which could take an item just unticked here or ticked unseen elsewhere.
+   Its commit reads `Update shopping list: −egg −onion`. The page no
+   longer uses `clearShoppingList` (the API, CLI and MCP still clear).
+10. **Stored ticks are stamped** and dropped after 10 minutes
+    (`STORED_TICKS_MAX_AGE_MS`); a restore schedules a flush; a
+    `keepalive` send clears the stored copy so it cannot replay over
+    another device's later changes.
+11. **A read started before a later write's answer is ignored** (a write
+    counter in the hook), so a slow reload on becoming visible cannot undo
+    a tick on screen.
+12. **Thrown server actions are caught** ("Couldn't reach the editor —
+    check the connection and try again."), the Settings and Add buttons
+    reset in `finally`, and the visibility reload catches.
+13. Nits: a refusal resets the backoff so the next tick sends; a tick while
+    retrying keeps saying "retrying"; the recipe's Add to list sits below
+    the ingredient list, not in the sticky header; a scale ≤ 0 disables it
+    with a reason; the row menu's "Always buy …" and aisle choice name the
+    ingredient (`egg`), not the whole line, when merge is off; a per-item
+    store can go back to Automatic (`storePinned` on the row says which
+    rows chose their own); `row.quantity` joins as the label does (`2 + 1
+cup`); the add box keeps lines past 200 in the box and says so; the
+    tick commit poll in the spec accepts one commit or two.
+
+Fixture `playwright/fixtures/test-content/shopping` and
+`playwright/tests/shopping.spec.ts`: add a plan and check the merged
+quantity, a tick commits, clear checked, the copy text, all switches off is
+a plain list, phone viewport.
 
 ### 35p — Curation & import polish (M)
 
@@ -734,6 +771,8 @@ the rows' source disclosures), fixed; `shopping.spec` rerun **8/8** (7 e2e +
 1 `@mobile` on Pixel 5). After merging `origin/main` (35c as #224) and the
 store switch moving to `useSyncExternalStore` (eslint's
 `set-state-in-effect`): `shopping.spec /recipe.spec groups.spec` **53/53**.
+After the review round: vitest **72 files / 1530 tests**; Playwright
+`shopping.spec /recipe.spec groups.spec yield.spec` **55/55**.
 
 Traps:
 

@@ -86,19 +86,39 @@ export function retryDelay(attempt: number): number {
   return Math.min(MAX_RETRY_MS, 1000 * 2 ** Math.max(0, attempt));
 }
 
-/** For `sessionStorage`: the map as JSON pairs. */
-export function serializePending(pending: PendingTicks): string {
-  return JSON.stringify([...pending]);
+/**
+ * How long ticks kept in `sessionStorage` stay worth sending. A tab restored
+ * hours later would otherwise replay old ticks over what another device has
+ * done since.
+ */
+export const STORED_TICKS_MAX_AGE_MS = 10 * 60_000;
+
+/** For `sessionStorage`: the map as JSON pairs, with when it was written. */
+export function serializePending(pending: PendingTicks, at: number): string {
+  return JSON.stringify({ at, ticks: [...pending] });
 }
 
-/** Back from `sessionStorage`; anything malformed reads as nothing pending. */
-export function parsePending(raw: string | null): Map<string, boolean> {
+/**
+ * Back from `sessionStorage`; anything malformed, or older than `maxAgeMs`
+ * at `now`, reads as nothing pending.
+ */
+export function parsePending(
+  raw: string | null,
+  now: number,
+  maxAgeMs: number = STORED_TICKS_MAX_AGE_MS,
+): Map<string, boolean> {
   if (!raw) return new Map();
   try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return new Map();
+    const parsed = JSON.parse(raw) as { at?: unknown; ticks?: unknown };
+    if (
+      typeof parsed?.at !== "number" ||
+      !Array.isArray(parsed.ticks) ||
+      now - parsed.at > maxAgeMs
+    ) {
+      return new Map();
+    }
     return new Map(
-      parsed.filter(
+      parsed.ticks.filter(
         (entry): entry is [string, boolean] =>
           Array.isArray(entry) &&
           typeof entry[0] === "string" &&

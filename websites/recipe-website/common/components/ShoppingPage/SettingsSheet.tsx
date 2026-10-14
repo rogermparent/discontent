@@ -78,21 +78,25 @@ export function SettingsSheet({
   const submit = async () => {
     const kept = new Set(draft.stores.map((store) => store.id));
     setSaving(true);
-    const result = await save({
-      features: draft.features,
-      aisleOrder: draft.aisleOrder,
-      stores: draft.stores,
-      defaultStore: kept.has(draft.defaultStore)
-        ? draft.defaultStore
-        : draft.stores[0].id,
-      storeByAisle: Object.fromEntries(
-        AISLES.map((aisle) => {
-          const store = draft.storeByAisle[aisle];
-          return [aisle, store && kept.has(store) ? store : null];
-        }),
-      ),
-    });
-    setSaving(false);
+    let result: unknown;
+    try {
+      result = await save({
+        features: draft.features,
+        aisleOrder: draft.aisleOrder,
+        stores: draft.stores,
+        defaultStore: kept.has(draft.defaultStore)
+          ? draft.defaultStore
+          : draft.stores[0].id,
+        storeByAisle: Object.fromEntries(
+          AISLES.map((aisle) => {
+            const store = draft.storeByAisle[aisle];
+            return [aisle, store && kept.has(store) ? store : null];
+          }),
+        ),
+      });
+    } finally {
+      setSaving(false);
+    }
     if (result) setOpen(false);
   };
 

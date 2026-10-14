@@ -28,7 +28,12 @@ async function addAndSay(
   add: Add,
   input: Record<string, unknown>,
 ): Promise<string> {
-  const result = await add(input);
+  let result: Awaited<ReturnType<Add>>;
+  try {
+    result = await add(input);
+  } catch {
+    return "Couldn't reach the editor — check the connection and try again.";
+  }
   if (isActionError(result)) return result.error;
   const n = result.added.length;
   const added = `${n} ${n === 1 ? "item" : "items"} added to the shopping list.`;
@@ -60,13 +65,16 @@ export function AddGroupToShopping({
           event.preventDefault();
           if (!valid) return;
           setBusy(true);
-          setMessage(
-            await addAndSay(add, {
-              group,
-              ...(scale.trim() ? { scale: scale.trim() } : {}),
-            }),
-          );
-          setBusy(false);
+          try {
+            setMessage(
+              await addAndSay(add, {
+                group,
+                ...(scale.trim() ? { scale: scale.trim() } : {}),
+              }),
+            );
+          } finally {
+            setBusy(false);
+          }
         }}
       >
         <span aria-hidden className="text-sm">
@@ -105,28 +113,36 @@ export function AddRecipeToShopping({
   const [{ multiplier }] = useMultiplier();
   const [message, setMessage] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const scale =
-    multiplier && multiplier.valueOf() > 0
-      ? multiplier.toFraction()
-      : undefined;
+  /* A zero or negative scale (typed into the scaler) adds nothing: say so. */
+  const invalid = multiplier !== undefined && !(multiplier.valueOf() > 0);
+  const scale = multiplier && !invalid ? multiplier.toFraction() : undefined;
   return (
     <div className="flex flex-col gap-1 print:hidden">
       <Button
         type="button"
         size="sm"
         variant="secondary"
-        disabled={busy}
+        className="self-start"
+        disabled={busy || invalid}
         onClick={async () => {
           setBusy(true);
-          setMessage(
-            await addAndSay(add, { recipe, ...(scale ? { scale } : {}) }),
-          );
-          setBusy(false);
+          try {
+            setMessage(
+              await addAndSay(add, { recipe, ...(scale ? { scale } : {}) }),
+            );
+          } finally {
+            setBusy(false);
+          }
         }}
       >
         <ShoppingCart aria-hidden className="size-4" />
         {scale && scale !== "1" ? `Add ×${scale} to list` : "Add to list"}
       </Button>
+      {invalid && (
+        <p className="text-xs text-destructive" role="status">
+          Set a scale above 0 to add this recipe.
+        </p>
+      )}
       <AddResult message={message} />
     </div>
   );

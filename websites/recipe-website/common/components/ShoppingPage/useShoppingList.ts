@@ -1,18 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { applyPending } from "../../util/shoppingTickQueue";
 import {
-  applyPending,
-  FLUSH_DELAY_MS,
-  parsePending,
-  queueTicks,
-  retryDelay,
-  serializePending,
-  settle,
-  toPatch,
-  type PendingTicks,
-} from "../../util/shoppingTickQueue";
+  TickSync,
+  type SyncStatus,
+  type TickSyncSnapshot,
+  type TickSyncStorage,
+} from "../../util/shoppingTickSync";
 import type { ShoppingItem, ShoppingSettings } from "../../util/shoppingTypes";
+
+export type { SyncStatus };
 
 /** A server action's failure, as the editor's shopping actions answer it. */
 export interface ShoppingActionError {
@@ -58,11 +56,6 @@ export interface ShoppingPageActions {
       unknown?: string[];
     }>
   >;
-  clear(
-    scope?: "checked" | "all",
-  ): Promise<
-    ShoppingActionResult<{ items: ShoppingItem[]; removed: string[] }>
-  >;
   saveSettings(
     patch: unknown,
   ): Promise<ShoppingActionResult<{ settings: ShoppingSettings }>>;
@@ -70,34 +63,40 @@ export interface ShoppingPageActions {
 
 const STORAGE_KEY = "shopping-pending-ticks";
 
-function readStored(): Map<string, boolean> {
-  try {
-    return parsePending(window.sessionStorage.getItem(STORAGE_KEY));
-  } catch {
-    return new Map();
-  }
-}
+/** `sessionStorage`, where it works; nothing where it throws. */
+const sessionTicks: TickSyncStorage = {
+  read: () => {
+    try {
+      return window.sessionStorage.getItem(STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  },
+  write: (value) => {
+    try {
+      window.sessionStorage.setItem(STORAGE_KEY, value);
+    } catch {
+      /* A private window or blocked storage: the ticks live in memory. */
+    }
+  },
+  clear: () => {
+    try {
+      window.sessionStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* As above. */
+    }
+  },
+};
 
-function store(pending: PendingTicks): void {
-  try {
-    if (pending.size === 0) window.sessionStorage.removeItem(STORAGE_KEY);
-    else window.sessionStorage.setItem(STORAGE_KEY, serializePending(pending));
-  } catch {
-    /* A private window or blocked storage: the ticks live in memory only. */
-  }
-}
-
-export type SyncStatus = "idle" | "pending" | "saving" | "retrying" | "error";
+export const UNREACHABLE =
+  "Couldn't reach the editor — check the connection and try again.";
 
 /**
- * The list's state on the page: the server's items with this page's ticks
- * over them, ticks batched into one `PATCH /api/shopping` after
- * `FLUSH_DELAY_MS` of quiet or when the page is hidden (`keepalive`, so it
- * survives the tab going away), retried with backoff on `busy` (503) or a
- * dropped connection, and never lost: pending ticks stay — in memory and in
- * `sessionStorage` — until the server has them. The page re-reads the list
- * when it becomes visible again. Every other change (add, remove, flags,
- * settings, clear) is a server action, applied when it answers.
+ * The list's state on the page: the server's items with this page's pending
+ * ticks over them. Ticks go through `TickSync` (D9: batched, `keepalive` on
+ * the way out, retried, never lost); every other change is a server action,
+ * applied when it answers. A read started before a later write's answer is
+ * ignored when it lands, so a slow reload cannot undo a tick on screen.
  */
 export function useShoppingList({
   initial,
@@ -109,122 +108,66 @@ export function useShoppingList({
   patchUrl: string;
 }) {
   const [state, setState] = useState<ShoppingListState>(initial);
-  const [pending, setPendingState] = useState<PendingTicks>(new Map());
-  const pendingRef = useRef<PendingTicks>(new Map());
-  const inFlight = useRef<PendingTicks | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const attempts = useRef(0);
-  const [status, setStatus] = useState<SyncStatus>("idle");
-  const [error, setError] = useState<string | undefined>();
+  const [sync, setSync] = useState<TickSyncSnapshot>({
+    pending: new Map(),
+    status: "idle",
+  });
+  const [actionError, setActionError] = useState<string | undefined>();
+  /* A tick refusal the person dismissed stays dismissed until a new one. */
+  const [dismissedSync, setDismissedSync] = useState<string | undefined>();
   const [working, setWorking] = useState(false);
+  /* Bumped by every applied write answer; a read started before one is stale. */
+  const writes = useRef(0);
 
-  const setPending = useCallback((next: PendingTicks) => {
-    pendingRef.current = next;
-    setPendingState(next);
-    store(next);
-  }, []);
-
-  /* Ticks a hidden tab left unsent come back after hydration. */
-  useEffect(() => {
-    const stored = readStored();
-    if (stored.size > 0) setPending(stored);
-  }, [setPending]);
-
-  const flushRef = useRef<(keepalive?: boolean) => Promise<void>>(
-    async () => {},
-  );
-
-  const schedule = useCallback((delay: number) => {
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => void flushRef.current(), delay);
-  }, []);
-
-  const flush = useCallback(
-    async (keepalive = false) => {
-      clearTimeout(timer.current);
-      timer.current = undefined;
-      if (inFlight.current || pendingRef.current.size === 0) return;
-      const batch = pendingRef.current;
-      inFlight.current = batch;
-      setStatus("saving");
-      let saved = false;
-      const retry = () => {
-        setStatus("retrying");
-        schedule(retryDelay(attempts.current));
-        attempts.current += 1;
-      };
-      try {
-        const response = await fetch(patchUrl, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify(toPatch(batch)),
-          keepalive,
-        });
-        const body = (await response.json().catch(() => null)) as {
-          items?: ShoppingItem[];
-          unknown?: string[];
-          error?: { message?: string };
-        } | null;
-        if (response.ok && body?.items) {
-          attempts.current = 0;
-          setError(undefined);
-          setState((current) => ({ ...current, items: body.items! }));
-          setPending(settle(pendingRef.current, batch, body.unknown));
-          setStatus(pendingRef.current.size > 0 ? "pending" : "idle");
-          saved = true;
-        } else if (response.status === 503 || response.status >= 500) {
-          retry();
-        } else {
-          /* Refused (signed out, or a bad request): say so, keep the ticks. */
-          setStatus("error");
-          setError(
-            body?.error?.message ??
-              `Could not save ticks (${response.status} ${response.statusText})`,
-          );
-        }
-      } catch {
-        /* Offline in the store: keep the ticks and try again. */
-        retry();
-      } finally {
-        inFlight.current = null;
-      }
-      /* Ticked while the batch was on its way: the next one. */
-      if (saved && pendingRef.current.size > 0) schedule(FLUSH_DELAY_MS);
-    },
-    [patchUrl, schedule, setPending],
-  );
-  flushRef.current = flush;
-
-  const tick = useCallback(
-    (ids: readonly string[], checked: boolean) => {
-      setPending(queueTicks(pendingRef.current, ids, checked));
-      setStatus("pending");
-      if (attempts.current === 0) schedule(FLUSH_DELAY_MS);
-    },
-    [schedule, setPending],
+  const [ticks] = useState(
+    () =>
+      new TickSync({
+        patchUrl,
+        fetch: (input, init) => fetch(input, init),
+        storage: sessionTicks,
+        onItems: (items) => {
+          writes.current += 1;
+          setState((current) => ({ ...current, items }));
+        },
+        onChange: setSync,
+      }),
   );
 
   const reload = useCallback(async () => {
-    const result = await actions.load();
-    if (!isActionError(result)) setState(result);
+    const started = writes.current;
+    try {
+      const result = await actions.load();
+      if (isActionError(result) || writes.current !== started) return;
+      setState(result);
+    } catch {
+      /* Offline: keep showing what we have; the next visit reads again. */
+    }
   }, [actions]);
-
-  /* Hidden: send what is pending now. Visible again: read the list fresh. */
+  const reloadRef = useRef(reload);
   useEffect(() => {
+    reloadRef.current = reload;
+  }, [reload]);
+
+  /*
+   * Mounted: pick up stored ticks. Hidden (phone locked, tab switched):
+   * send what is pending now. Visible again: read the list fresh. Unmounted
+   * (a client-side navigation away): send what is pending now.
+   */
+  useEffect(() => {
+    ticks.attach();
     const onVisibility = () => {
-      if (document.visibilityState === "hidden") void flushRef.current(true);
-      else void reload();
+      if (document.visibilityState === "hidden") ticks.flushNow();
+      else void reloadRef.current();
     };
-    const onPageHide = () => void flushRef.current(true);
+    const onPageHide = () => ticks.flushNow();
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onPageHide);
-      clearTimeout(timer.current);
+      ticks.detach();
     };
-  }, [reload]);
+  }, [ticks]);
 
   /** Run a server action that answers with the list's items or settings. */
   const run = useCallback(
@@ -236,16 +179,20 @@ export function useShoppingList({
       try {
         const result = await call();
         if (isActionError(result)) {
-          setError(
+          setActionError(
             result.code === "busy"
               ? "Another change is being saved — try again in a moment."
               : result.error,
           );
           return undefined;
         }
-        setError(undefined);
+        setActionError(undefined);
+        writes.current += 1;
         apply(result);
         return result;
+      } catch {
+        setActionError(UNREACHABLE);
+        return undefined;
       } finally {
         setWorking(false);
       }
@@ -254,44 +201,42 @@ export function useShoppingList({
   );
 
   const items = useMemo(
-    () => applyPending(state.items, pending),
-    [state.items, pending],
+    () => applyPending(state.items, sync.pending),
+    [state.items, sync.pending],
   );
+
+  const setItems = (result: { items: ShoppingItem[] }) =>
+    setState((current) => ({ ...current, items: result.items }));
 
   return {
     items,
     settings: state.settings,
     inventory: state.inventory,
-    pendingCount: pending.size,
-    status,
-    error,
+    pendingCount: sync.pending.size,
+    status: sync.status,
+    error:
+      actionError ?? (sync.error !== dismissedSync ? sync.error : undefined),
     working,
-    tick,
-    flush,
+    tick: (ids: readonly string[], checked: boolean) =>
+      ticks.tick(ids, checked),
+    flush: () => ticks.flush(),
     reload,
-    dismissError: () => setError(undefined),
-    add: (input: unknown) =>
-      run(
-        () => actions.add(input),
-        (result) =>
-          setState((current) => ({ ...current, items: result.items })),
-      ),
-    update: (patch: unknown) =>
-      run(
-        () => actions.update(patch),
-        (result) =>
-          setState((current) => ({ ...current, items: result.items })),
-      ),
-    clear: (scope: "checked" | "all" = "checked") =>
-      run(
-        /* The ticks still pending first, so "clear checked" clears them too. */
-        async () => {
-          await flushRef.current();
-          return actions.clear(scope);
-        },
-        (result) =>
-          setState((current) => ({ ...current, items: result.items })),
-      ),
+    dismissError: () => {
+      setActionError(undefined);
+      setDismissedSync(sync.error);
+    },
+    add: (input: unknown) => run(() => actions.add(input), setItems),
+    update: (patch: unknown) => run(() => actions.update(patch), setItems),
+    /**
+     * Clear exactly the ids the person saw ticked (pending ticks included) —
+     * not "whatever the server has ticked", which could take an item just
+     * unticked here, or one ticked on another device unseen.
+     */
+    clearChecked: async (ids: string[]) => {
+      const result = await run(() => actions.update({ remove: ids }), setItems);
+      if (result) ticks.forget(ids);
+      return result;
+    },
     saveSettings: (patch: unknown) =>
       run(
         () => actions.saveSettings(patch),

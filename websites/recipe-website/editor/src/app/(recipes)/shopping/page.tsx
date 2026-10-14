@@ -7,7 +7,6 @@ import {
 } from "recipe-website-common/components/PageLayout";
 import {
   addToShoppingList,
-  clearShoppingList,
   loadShoppingList,
   updateShoppingList,
   updateShoppingListSettings,
@@ -44,7 +43,6 @@ export default async function ShoppingListPage() {
             load: loadShoppingList,
             add: addToShoppingList,
             update: updateShoppingList,
-            clear: clearShoppingList,
             saveSettings: updateShoppingListSettings,
           }}
           patchUrl="/api/shopping"

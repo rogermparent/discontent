@@ -120,22 +120,34 @@ function CopyButton({ text }: { text: string }) {
 }
 
 /** Lines typed or pasted, one per line, added as one change. */
+/** The most lines one add takes (the seat's limit). */
+const MAX_LINES_PER_ADD = 200;
+
 function AddBox({ list }: { list: ShoppingList }) {
   const [text, setText] = useState("");
+  const [note, setNote] = useState<string>();
   const id = useId();
   const submit = async () => {
-    const items = text
+    const lines = text
       .split(/\r?\n/)
       .map((line) => line.trim())
-      .filter(Boolean)
-      .slice(0, 200);
-    if (items.length === 0) return;
+      .filter(Boolean);
+    if (lines.length === 0) return;
+    const items = lines.slice(0, MAX_LINES_PER_ADD);
+    const rest = lines.slice(MAX_LINES_PER_ADD);
     const result = await list.add({ items });
-    if (result) setText("");
+    if (!result) return;
+    /* Past the limit: the rest stay in the box, and the box says so. */
+    setText(rest.join("\n"));
+    setNote(
+      rest.length > 0
+        ? `Added ${items.length}; ${rest.length} more ${rest.length === 1 ? "line is" : "lines are"} still in the box — add again.`
+        : undefined,
+    );
   };
   return (
     <form
-      className="flex items-end gap-2 print:hidden"
+      className="flex flex-wrap items-end gap-2 print:hidden"
       onSubmit={(event) => {
         event.preventDefault();
         void submit();
@@ -150,7 +162,7 @@ function AddBox({ list }: { list: ShoppingList }) {
         value={text}
         rows={Math.min(6, Math.max(1, text.split("\n").length))}
         placeholder="Add items — one per line"
-        className="min-h-10 resize-none"
+        className="min-h-10 min-w-0 flex-1 resize-none"
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey) {
@@ -162,6 +174,11 @@ function AddBox({ list }: { list: ShoppingList }) {
       <Button type="submit" className="h-10" disabled={list.working}>
         Add
       </Button>
+      {note && (
+        <p role="status" className="basis-full text-xs text-muted-foreground">
+          {note}
+        </p>
+      )}
     </form>
   );
 }
@@ -232,7 +249,8 @@ function RowList({
   );
 }
 
-function ClearChecked({ count, clear }: { count: number; clear(): void }) {
+function ClearChecked({ ids, clear }: { ids: string[]; clear(): void }) {
+  const count = ids.length;
   const [confirming, setConfirming] = useState(false);
   if (!confirming) {
     return (
@@ -458,9 +476,13 @@ export function ShoppingPage({
           </summary>
           <RowList rows={view.checked} list={list} handlers={handlers} />
           <div className="py-2">
+            {/* Exactly the lines shown ticked here — this store's, with
+                ticks not yet saved — never "whatever the server has ticked". */}
             <ClearChecked
-              count={view.checked.reduce((sum, row) => sum + row.total, 0)}
-              clear={() => void list.clear("checked")}
+              ids={view.checked.flatMap((row) => row.ids)}
+              clear={() =>
+                void list.clearChecked(view.checked.flatMap((row) => row.ids))
+              }
             />
           </div>
         </details>
