@@ -15,8 +15,11 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 35-plan open; 35a and 35b in progress; 35h (Halloween/fall content)
-being prepared in the orchestrator.
+**Now:** epic 35 is **closed** (2026-10-14). Every code phase is merged
+(#220–#227, main `dc8970a8`), and both content rounds plus a bean-salad
+round are on the real content repo (`5a18b8d9..cf40dd67`, 164 commits, not
+yet on the Pi — the workstation was stopped all day). What remains is the
+morning checklist in "Close-out".
 
 ## Context
 
@@ -204,19 +207,19 @@ apply runs with it **up** as the write-safety proof; otherwise stop it first.
 
 ## Roadmap
 
-| Phase    | Branch                     | Size | Status | What                                                                   |
-| -------- | -------------------------- | ---- | ------ | ---------------------------------------------------------------------- |
-| 35-plan  | `agent/35-plan`            | S    | 🟡     | This doc.                                                              |
-| 35h      | content repo               | M    | 🟡     | Extra Fall & Halloween content; `lunch` → `sandwich`; near-duplicates. |
-| 35a      | `agent/35a-amounts`        | M    | 🟡     | D4: grammar module, `ingredientAmount.ts`, `measure-shopping.ts`.      |
-| 35b      | `agent/35b-aisles-walk`    | S    | 🟡     | D5, D6: aisles, the group walk.                                        |
-| 35p      | `agent/35p-polish`         | M    | 📝     | D10–D12, inspect-list warning, browser term tools.                     |
-| 35c      | `agent/35c-shopping-core`  | L    | 📝     | D1–D3, D7, D8: storage, view, seat, API, CLI, MCP.                     |
-| 35d      | `agent/35d-shopping-ui`    | L    | 📝     | D9: `/shopping`, add buttons, palette, print.                          |
-| 35r      | `agent/35r-roundup-picker` | M    | 📝     | Roundup list picker in the import form.                                |
-| 35q      | `agent/35q-hygiene`        | M    | 📝     | F6/F7 paging, lazy CLI startup, stale doc statuses.                    |
-| 35x      | content repo               | M    | 📝     | Christmas content round; a Christmas baking plan on the shopping list. |
-| 35-close | `agent/35-close`           | S    | 📝     | Results, backlog, memory, the morning checklist.                       |
+| Phase    | Branch                     | Size | Status  | What                                                                   |
+| -------- | -------------------------- | ---- | ------- | ---------------------------------------------------------------------- |
+| 35-plan  | `agent/35-plan`            | S    | ✅ #220 | This doc.                                                              |
+| 35h      | content repo               | M    | ✅      | Extra Fall & Halloween content; `lunch` → `sandwich`; near-duplicates. |
+| 35a      | `agent/35a-amounts`        | M    | ✅ #222 | D4: grammar module, `ingredientAmount.ts`, `measure-shopping.ts`.      |
+| 35b      | `agent/35b-aisles-walk`    | S    | ✅ #221 | D5, D6: aisles, the group walk.                                        |
+| 35p      | `agent/35p-polish`         | M    | ✅ #223 | D10–D12, inspect-list warning, browser term tools.                     |
+| 35c      | `agent/35c-shopping-core`  | L    | ✅ #224 | D1–D3, D7, D8: storage, view, seat, API, CLI, MCP.                     |
+| 35d      | `agent/35d-shopping-ui`    | L    | ✅ #226 | D9: `/shopping`, add buttons, palette, print.                          |
+| 35r      | `agent/35r-roundup-picker` | M    | ✅ #225 | Roundup list picker in the import form.                                |
+| 35q      | `agent/35q-hygiene`        | M    | ✅ #227 | F6/F7 paging, lazy CLI startup, stale doc statuses.                    |
+| 35x      | content repo               | M    | ✅      | Christmas content round; a Christmas baking plan on the shopping list. |
+| 35-close | `agent/35-close`           | S    | ✅      | Results, backlog, memory, the morning checklist.                       |
 
 Ordering: 35h first (Halloween) and alongside 35a ∥ 35b. 35p starts once 35b
 merges (≤ 2 PRs in CI), alongside 35c (35a + 35b). 35d after 35c; 35r after
@@ -1117,9 +1120,123 @@ resume Playwright not run locally (portfolio's prod build OOMs; CI's
 portfolio job is the gate; resume-builder has no CI job); neither has a
 list spec that pages.
 
+### 35h — Extra Fall & Halloween content (applied 2026-10-14)
+
+Review page: Artifact "Fall & Halloween Round" (https://claude.ai/artifact/82PXa5GheMWUDurTGmdEgH). Roger: "Go with your defaults".
+
+- 42 imports, all from Sally's: 7 from the Halloween roundup (#2,6,8,9,11,12,13), 10 pumpkin desserts, 10 apple recipes, 8 fall dinners, 4 fall cakes (via `import-list --term halloween|fall`, ≤6 per call), 3 singles via `import --tags` (maple walnut tassies, maple pecan pie, homemade apple cider → warm-drinks). Sally's had savory fall dinners and a fall drink, so no other host was needed.
+- Facets per import, assigned after the imports (no `missing`); `quick` from imported totalTime ≤ 30; `vegetarian` checked against ingredients ("vegetable broth" allowed).
+- Cleanup: `lunch` tag removed from its 2 carriers (both already `sandwich`; a merge would alias `lunch` to every sandwich); `marble-rye-bread` deleted (same 9 ingredients as `marble-rye`, which has the photo); the other three "pairs" are different recipes (6/15, 1/14, 0/19 shared lines) — kept; "arayes" renamed "Arayes".
+- Applied with the workstation **stopped** (found stopped since 02:45, pre-34c build): content `5a18b8d9..` 79 commits (42 creates, 9 roundup collection assigns, 25 assigns, 1 vegetarian fix, unassign lunch, delete, rename), clean tree. Imports ran ~25–30 s per recipe (images), 9 import-list calls in ~21 min.
+- Checks (real repo, CLI): tag:fall 61 (24+37), tag:halloween 15 (8+7), tag:thanksgiving 30 (25+5), tag:warm-drinks 12, tag:holidays 53, tag:lunch 0, 718 recipes. Host page checks wait for the workstation (its sync pushes to the Pi).
+- Traps: a relative `--content-dir` from a script resolves against the repo root → every carrier silently `missing` (rehearsal caught it). The dry run's suggestedTags are not written by import-list (only `--term`), so facets must be assigned.
+
+### 35x — Christmas content round (applied 2026-10-14)
+
+Review page: Artifact "Christmas Baking Round"
+(https://claude.ai/artifact/PNGEXYTX2TYwHSCp8CSYJa). Roger: "Christmas looks
+good" — defaults.
+
+- 33 imports: 13 from Sally's 75 best Christmas cookies (its ItemList has 15
+  entries; 2 were already here), 8 from her 5-ingredient holiday treats, 9 from
+  her Christmas breakfast roundup (`import-list --term christmas`, ≤ 6 per
+  call), and three drinks by `import --tags`: Sally's slow cooker hot
+  chocolate, Once Upon a Chef's cooked eggnog and Umami Girl's wassail (Sally's
+  has neither).
+- Facets after the imports; `quick` from times (only the peppermint puppy
+  chow); the make-ahead breakfast casserole also `pork` (sausage).
+- No narrower terms under `christmas` — `tag:christmas tag:cookies` (23),
+  `tag:christmas tag:breakfast` (9) and `tag:christmas tag:drink` (3) are the
+  views. The feature was left as it was (Christmas featured since epic 34).
+- Applied with the workstation **stopped** (still pre-34c; Roger hadn't run
+  the update): content `fc33eaa2..` 53 commits; then the shopping-list check
+  below (9 more).
+- Checks (real repo, CLI): `tag:christmas` 41 (8 + 33), `tag:warm-drinks` 14,
+  `tag:cookies` 43, `tag:holidays` 86; 770 recipes; clean tree.
+
+**The shopping list on real content.** A meal plan `christmas-baking`
+("Christmas Baking", tagged `christmas`): spritz, gingerbread, crinkles,
+peanut butter blossoms, snowballs and the iced Christmas sugar cookies.
+`recipes shopping add --group christmas-baking` added 66 items in one commit
+(`Update shopping list: +Christmas Baking (66 items)`); the merged view reads
+like a list — "4⅜ cups unsalted butter", "12⅝ cups all purpose flour",
+"5 eggs", "2½ tsp baking soda", spices in their aisle. Rough edges, now
+backlog rows: an "OR: ¼ cup green … and ¼ cup red sanding sugar" alternative
+line becomes an item whose parsed name keeps stray "cup"s; a sub-recipe line
+("easy cookie icing") is listed as an item; "pinch salt" sits apart from
+"2 tsp salt". The list is Roger's now (`/shopping`; Clear from there).
+
+### Side request — bean salads (Roger, 2026-10-14)
+
+"Fetch me highly rated bean salad recipes … for what can I make." A research
+agent read each candidate's own JSON-LD rating; 19 imported (most ≥ 4.6 with
+≥ 50 ratings; a few 19–44 ratings where they filled a style gap), all from
+other hosts — Sally's only bean dish is a corn and black bean salsa. Tagged
+`salad`, `beans`, `easy`, cuisine, `vegetarian` (not the tuna or the
+chicken-broth French lentils), `quick` from times (12). A new term
+`bean-salads` ("Bean Salads", under `salad`) carries all 29 (10 existing + 19).
+Content `e59adb3c..fc33eaa2`, 23 commits. `inventory make tag:bean-salads`
+judges all 29 (none unjudged); none are makeable yet because the on-hand list
+is all bar stock. One slug collision on import (`lentil-salad`, two sites) —
+re-imported with `--slug french-lentil-salad-with-goat-cheese` and renamed.
+
 ## Close-out
 
-(At 35-close: what landed, traps found at close, backlog, memory, the
-morning checklist — `pnpm workstation update`, Roger's `! pnpm deploy:pi`,
-and whether a reindex is needed: none for the shopping list; **yes if 35q
-adds a pages pagination index**.)
+### What landed (2026-10-14)
+
+| PR   | Phase   | Merge      | Notes                                                                                                           |
+| ---- | ------- | ---------- | --------------------------------------------------------------------------------------------------------------- |
+| #220 | 35-plan | `056bd9a4` | Plan.                                                                                                           |
+| #221 | 35b     | `68883331` | Aisles 2.3 % `other`; the group walk.                                                                           |
+| #222 | 35a     | `8e4c412e` | 99.7 % of food lines read; one review round (inch sizes, unit ranges, dozens, unit pairs, metric display).      |
+| #224 | 35c     | `0d2d9c72` | One review round (fan-out caps, partial commits, truthful `changed`, reindex skip for shopping/inventory).      |
+| #223 | 35p     | `9beb77dc` | One review round (no `editor/.env` under vitest, relative `RECIPE_ENV_FILE`); a writeLock flake → 35q.          |
+| #225 | 35r     | `e66ea9ea` | One review round (loop stops on navigation, labels → slugs, form waits); the two moved baselines passed CI.     |
+| #227 | 35q     | `81dff575` | FIFO fix keyed on the real path; F6 via `?page=N`; CLI `--help` ~4.3 s → ~2 s. No new index.                    |
+| #226 | 35d     | `dc8970a8` | Two review rounds' worth of tick-queue fixes; CI baseline for the recipe page; a hydration wait for `next dev`. |
+
+Every M/L PR had a review agent; each found real issues, two of them blocking
+(35d's lost ticks). **No index layout changed: no reindex is needed.**
+
+### Traps found at close
+
+- **`gh pr merge --delete-branch` removes the worker's worktree** (it deletes
+  the local branch, and the harness's worktree with it), so a worker cannot
+  be resumed for its next phase. For a worker that continues: `gh pr merge
+--merge`, then `gh api -X DELETE repos/rogermparent/discontent/git/refs/heads/<branch>`.
+- **A relative `--content-dir` from a script resolves against the repo root**
+  (the CLI runs from there), and every carrier is then silently `missing` —
+  scripts pass absolute paths. (35p's `term assign` now refuses unknown slugs,
+  which would have made this loud.)
+- **Out-of-order lock waits** — writeLock's in-process queue was entered after
+  async lookups, so same-process writers could run out of call order (CI flake
+  on #223); fixed in 35q, keyed on the real path.
+- **`next dev` hydration in Playwright**: a test that clicks right after
+  navigation can click before React hydrates (35d's `@mobile` case in CI); the
+  shopping page and the group add form expose `data-ready="true"`.
+- **Visual baselines come from CI**, never the host: 35d took CI's
+  `recipe-detail-signed-in-actual.png` from the shard's blob report.
+
+### Backlog (new rows in `backlog.md`)
+
+- Shopping list: alternative ("OR: …") lines, sub-recipe expansion (a line
+  that links a recipe, e.g. "easy cookie icing"), and as-needed lines merging
+  with measured ones ("pinch salt" + "2 tsp salt").
+- Shopping list: keep ticks local until "Done shopping", if the per-batch
+  commits turn out to be noise.
+- The import form's roundup picker row is struck (35r).
+
+### Morning checklist (Roger)
+
+1. **`pnpm workstation update`** — the workstation has been stopped since
+   02:45 on 2026-10-14 and is still on the build from 2026-10-13 21:09 (pre
+   34c/34d). The update brings epics 34 and 35 and restarts the sync, which
+   then pushes today's 164 content commits (`5a18b8d9..cf40dd67`) to the Pi.
+   The main checkout is already at `dc8970a8`.
+2. **`! pnpm deploy:pi`** — the Pi gets the shopping list, the import picker,
+   the term tools and the write-lock fixes.
+3. **No reindex** — no index layout changed (35q paged the lists without a
+   new index).
+4. Then check on both hosts: `/tags/fall` 61, `/tags/halloween` 15,
+   `/tags/christmas` 41, `/tags/bean-salads` 29, `/shopping` shows the
+   Christmas Baking list (phone width too), and `/group/christmas-baking`.
