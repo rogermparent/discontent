@@ -489,6 +489,11 @@ Choices:
 5. **`@discontent/cms/lmdb/environmentCache` joins the D8 allow-list**
    (`curation.test.ts`) — `fs` and LMDB only, under every content read.
 
+Gates: `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit` clean; `pnpm exec vitest run` 68 files,
+1373 tests passed; Playwright in build mode through the heavy slot
+(`term-edit.spec`, `api-write.spec`, `tag-pages.spec`) 59/59 passed.
+
 Not done: the real `--notify` → 200 check against the workstation (it was
 stopped during this phase); the process test drives `--notify` at a fake
 editor and checks the bearer token instead.
