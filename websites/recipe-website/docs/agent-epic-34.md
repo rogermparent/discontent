@@ -15,10 +15,10 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** every code phase is merged (2026-10-13; #212–#217, main
-`493ff7a2`). **34e** (the seasonal content round) is proposed on a review
-page and waits for Roger's approval; its apply runs after the morning
-checklist below, with the workstation on the new build. See "Close-out".
+**Now:** epic 34 is **closed** (2026-10-13). Every code phase is merged
+(#212–#217, main `493ff7a2`), and 34e's seasonal collections are on the real
+content repo (`35e0d1d..` 47 commits, synced to the Pi). What remains is the
+morning checklist in "Close-out" (workstation update, Pi deploy).
 
 ## Context
 
@@ -210,16 +210,16 @@ fitting (savory Thanksgiving sides, drinks). The curator skill says so, and
 
 ## Roadmap
 
-| Phase    | Branch                     | Size | Status | What                                                                       |
-| -------- | -------------------------- | ---- | ------ | -------------------------------------------------------------------------- |
-| 34-plan  | `agent/34-plan`            | S    | ✅     | This doc (#212).                                                           |
-| 34a      | `agent/34a-term-pages`     | M    | ✅     | D1, D2: subtree recipes on term pages, counts without the clouds (#214).   |
-| 34b      | `agent/34b-skill-rename`   | S    | ✅     | D3, D4: skill v4 vocabulary; rename keeps the old slug (#213).             |
-| 34c      | `agent/34c-engine-writes`  | L    | ✅     | D5–D8: ULIDs, the write lock, private-index commits, atomic writes (#215). |
-| 34d      | `agent/34d-site-writes`    | M    | ✅     | D6, D9, D10 on the site: lock the seats, `busy`, ULID slugs (#217).        |
-| 34f      | `agent/34f-roundup-import` | M    | ✅     | D11, D12: roundup import (`inspect-list`, `import-list`), Sally's (#216).  |
-| 34e      | content repo only          | M    | 🟡     | Seasonal collections: proposed, awaiting Roger's approval.                 |
-| 34-close | `agent/34-close`           | S    | ✅     | Results, backlog, the morning checklist (this PR).                         |
+| Phase    | Branch                     | Size | Status | What                                                                        |
+| -------- | -------------------------- | ---- | ------ | --------------------------------------------------------------------------- |
+| 34-plan  | `agent/34-plan`            | S    | ✅     | This doc (#212).                                                            |
+| 34a      | `agent/34a-term-pages`     | M    | ✅     | D1, D2: subtree recipes on term pages, counts without the clouds (#214).    |
+| 34b      | `agent/34b-skill-rename`   | S    | ✅     | D3, D4: skill v4 vocabulary; rename keeps the old slug (#213).              |
+| 34c      | `agent/34c-engine-writes`  | L    | ✅     | D5–D8: ULIDs, the write lock, private-index commits, atomic writes (#215).  |
+| 34d      | `agent/34d-site-writes`    | M    | ✅     | D6, D9, D10 on the site: lock the seats, `busy`, ULID slugs (#217).         |
+| 34f      | `agent/34f-roundup-import` | M    | ✅     | D11, D12: roundup import (`inspect-list`, `import-list`), Sally's (#216).   |
+| 34e      | content repo only          | M    | ✅     | Seasonal collections + holidays root, christmas/cookies split (47 commits). |
+| 34-close | `agent/34-close`           | S    | ✅     | Results, backlog, the morning checklist (this PR).                          |
 
 Ordering (Roger, 2026-10-13): 34a ∥ 34b → 34c → 34d → 34e. 34c starts once
 34b merges, so at most two PRs are in CI at once. The content round runs
@@ -1208,12 +1208,67 @@ through 34f:
 | `thanksgiving` | —       | 25      | 5 from Sally's (stuffing, sweet potato casserole, dinner rolls, apple and pecan pies) + Love and Lemons mashed potatoes |
 | `warm-drinks`  | `drink` | 11      | —                                                                                                                       |
 
-Roger's calls on the page: the sets, the imports (and whether to tidy two
-wordy draft slugs), when Thanksgiving is featured, a `holidays` root (default
-no), warm drinks by tag or by re-parenting the drink-name families (default
-tag), and when to apply. Apply per the 34e section, after the checklist's
-workstation update so the run doubles as the write-safety proof; then a
-small docs PR records 34e's results here.
+**Roger's calls (2026-10-13):** borderline rows left out; all 12 imports;
+**a `holidays` root**; **`christmas` + `cookies` instead of
+`christmas-cookies`**; everything else default (draft slugs kept; Fall,
+Halloween and Thanksgiving featured now; warm drinks tagged, not
+re-parented; apply with the workstation stopped, since it was still on the
+pre-34c build).
+
+**Christmas + cookies, as built.** `christmas` ("Christmas", under
+`holidays`) took `christmas-cookies` over by `term merge` — the record's
+label and description were replaced, its five carriers re-tagged, `linzer`
+and the homepage feature re-pointed by the merge, and `christmas-cookies`
+kept as an alias (`/tags/christmas-cookies` redirects; `tag:christmas-cookies`
+finds the 8). `cookies` ("Cookies") is a new child of `dessert` on every
+cookie recipe in the corpus (22 own, from names with "cookie", shortbread,
+thumbprint and rugelach; the savory parmesan shortbread and the ice-cream
+sandwich left out), `linzer` moved under it, and the three linzers carry
+`christmas` directly. `tag:christmas tag:cookies` is the cookie tray (8).
+`rename` was not enough: it moves the record but not its children or
+features; `merge` into a pre-created record moves both.
+
+**Applied** to the real repo with the CLI (`--content-dir
+/home/roger/Projects/recipe-content`), workstation stopped, after a full
+rehearsal on a scratch clone (18 non-network writes, verified, reset):
+`35e0d1d..` **47 commits** — 11 term writes (3 creates, the merge, the
+`linzer` move, 2 assigns, 4 seasonal creates), 12 imports (11 via
+`import-list` in three paced calls, 1 `import --tags`), 3 collection
+commits from `import-list --term`, 13 facet assigns, 4 collection assigns,
+3 features, and one late `cookies` assign (below). Workstation restarted,
+`POST /api/revalidate`, the sync pushed to the Pi (level at the end).
+
+| Check (real repo)           | Result                                             |
+| --------------------------- | -------------------------------------------------- |
+| `tag:fall`                  | 24                                                 |
+| `tag:halloween`             | 8                                                  |
+| `tag:thanksgiving`          | 25                                                 |
+| `tag:warm-drinks`           | 11                                                 |
+| `tag:christmas` (+ cookies) | 8 (8)                                              |
+| `tag:cookies`               | 25                                                 |
+| `tag:holidays`              | 41 (8 + 8 + 25)                                    |
+| Home strip                  | Thanksgiving, Halloween, Fall Favorites, Christmas |
+| `git status`, leftovers     | clean; no pending index, temp or lock files        |
+
+Workstation and Pi pages: every `/tags/<term>` 200 with the counts above,
+except `/tags/holidays` (0 cards) and `/tags/cookies` (22) — both hosts
+still run the pre-34a build, which lists a term's own carriers only; after
+the checklist's update/deploy they list 41 and 25.
+
+**Traps.**
+
+- **An assign before the import skips the not-yet-existing recipe
+  quietly**: `term assign` exits 0 and lists it under `missing` in the JSON
+  (`"missing": ["halloween-chocolate-cookies"]`). The `cookies` assign ran before the imports, so
+  Halloween Chocolate Cookies missed it; the rehearsal could not catch it
+  (it drops not-yet-imported slugs on purpose). Fixed by one more assign
+  (the 47th commit). Order term assigns after imports, or check `missing`.
+- **Assigns took 12–64 s each** (3–5 s in the rehearsal) — the machine's
+  load average was ~30 from another project's builds; the commit path left
+  nothing behind (`git status` 0.26 s, nothing pending).
+- The CLI's `--notify` got a 401 from the workstation (it reads a different
+  token variable than `editor/.env`'s `RECIPE_API_TOKEN`); POST
+  `/api/revalidate` with that token directly works.
 
 ### Backlog (new rows in `backlog.md`)
 
@@ -1236,4 +1291,5 @@ small docs PR records 34e's results here.
 3. **`! pnpm deploy:pi`** — the Pi gets the same build (its sync and editor
    writes take the lock; `busy` replaces index.lock failures).
 4. No reindex: no index layout changed.
-5. Approve (or amend) 34e's review page; the apply follows.
+5. 34e is applied (above); after steps 2–3, `/tags/holidays` and
+   `/tags/cookies` show their subtrees (41 and 25).
