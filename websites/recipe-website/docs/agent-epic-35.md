@@ -380,6 +380,17 @@ check of 35c/35d.
   the data file; a file that is there but broken still fails part-way and
   commits what landed.
 
+### 35r
+
+- **The visual baselines of `/new-recipe` move.** The picker is a collapsed
+  `<details>` above the form, so `new-recipe-form-e2e.png` and
+  `new-recipe-form-overwrite-e2e.png` (`visual.spec.ts`) were regenerated;
+  any later change to the section's closed height does it again.
+- **The progress line cannot count down.** One call is one `importList`
+  with up to three picks; the 15 s waits happen inside it, on the server,
+  where a server action cannot stream them. The line names what is being
+  fetched and from which site, and the 15 s rule.
+
 ## Results
 
 ### 35a — Ingredient amounts
@@ -606,6 +617,63 @@ exits 1 on it.
 Not done: the real `--notify` → 200 check against the workstation (it was
 stopped during this phase); the process test drives `--notify` at a fake
 editor and checks the bearer token instead.
+
+### 35r — Roundup list picker
+
+`/new-recipe` has an **Import from a roundup** section (`RoundupImport.tsx`,
+a collapsed `<details>` above the form); the single-URL import inside the
+form is unchanged.
+
+- **List**: a server action over `inspectList` (`roundupActions.ts`) shows
+  each item — number, name, thumbnail, host — with `existing` ones linked to
+  their recipe and locked; the seat's `warnings` (35p's missing index)
+  print above; a page that is not a roundup shows the seat's `reason` and an
+  "Import it as one recipe" link to `/new-recipe?import=<url>`.
+- **Pick**: everything new starts ticked; Select all / none. An optional
+  term (typed, with the tag labels as suggestions) and, for a new one, its
+  label — `import-list --term / --term-label`. With a term, existing items
+  unlock, so a re-run can tag them too.
+- **Import**: the client loops `importRoundupAction` over chunks of **at
+  most three picks** (`ROUNDUP_CHUNK`; the action refuses more and passes it
+  as the seat's `limit`), so one call is ~90 s at worst of 15 s per-site
+  pacing. The progress line reads "Imported 4 of 9 · fetching 5, 6, 7 from
+  sallysbakingaddiction.com — one request every 15 s per site…"; each result
+  links its recipe or says why it failed. **Stop** halts after the current
+  call; **Resume (N left)** continues from the queue. A reload loses the
+  progress (the section says so); listing again marks what landed.
+- **Server side**: `authenticateUser`, then `curationContextFor` — the
+  context the API routes use, so each imported recipe (its own commit) and
+  the term's create-and-assign revalidate as `/api/import-list` does. The
+  URL and picks go through the seat's own checks (`checkUrl`, the
+  importer's fetch guards, `ImportListOptionsSchema`). Errors come back as
+  `{error}` objects so the loop can stop and say why.
+- **Pure halves**, unit-tested (`test/roundupPicker.test.ts`):
+  `controller/roundupPicker.ts` (client-safe: `nextChunk`, `hostsOf`,
+  `progressLine`) and `controller/roundupSettle.ts` (server: one call's
+  answer per pick). `settleChunk` requeues what the seat handed back in
+  `remaining`, except a dropped site's picks — dropped for an hour, they
+  would come back forever — which are reported, and a call that made no
+  progress stops the loop (`stalled`).
+- **Fixtures**: `importable-uploads/uploads/roundup-five.html` lists five
+  tiny recipe pages (`picker-*.html`, local pictures) — one more call than
+  three, so the spec can stop between calls.
+
+Choices:
+
+1. **Settle on the server.** Matching a dropped site needs `siteKey`, whose
+   module (`roundupPage.ts`) parses HTML; the client gets outcomes instead.
+2. **Existing items are locked unless a term is chosen**: importing one is
+   a no-op (`existing`), but tagging it is the reason to tick it.
+3. **No `sessionStorage`**: re-listing already marks what landed, and a
+   half-restored queue against a page that changed is worse than none.
+
+Gates: `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit` clean; `pnpm exec vitest run` 70 files,
+1479 tests passed. Playwright in build mode through the heavy slot
+(`import-roundup.spec`, `new-recipe.spec`, `accessibility.spec`,
+`visual.spec` with `--update-snapshots`): 90 passed; only the two
+`new-recipe-form*` baselines changed, regenerated on this machine rather than
+in the CI image.
 
 ## Close-out
 
