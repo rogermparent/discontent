@@ -15,7 +15,10 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 34-plan (this doc). Next: 34a and 34b in parallel.
+**Now:** every code phase is merged (2026-10-13; #212–#217, main
+`493ff7a2`). **34e** (the seasonal content round) is proposed on a review
+page and waits for Roger's approval; its apply runs after the morning
+checklist below, with the workstation on the new build. See "Close-out".
 
 ## Context
 
@@ -207,16 +210,16 @@ fitting (savory Thanksgiving sides, drinks). The curator skill says so, and
 
 ## Roadmap
 
-| Phase    | Branch                     | Size | Status | What                                                                          |
-| -------- | -------------------------- | ---- | ------ | ----------------------------------------------------------------------------- |
-| 34-plan  | `agent/34-plan`            | S    | 🟡     | This doc.                                                                     |
-| 34a      | `agent/34a-term-pages`     | M    | ✅     | D1, D2: subtree recipes on term pages, counts without the clouds.             |
-| 34b      | `agent/34b-skill-rename`   | S    | ✅     | D3, D4: skill v4 vocabulary; rename keeps the old slug.                       |
-| 34c      | `agent/34c-engine-writes`  | L    | ✅     | D5–D8: ULIDs, the write lock, private-index commits, atomic writes (engine).  |
-| 34d      | `agent/34d-site-writes`    | M    | ✅     | D6, D9, D10 on the site: lock the batch/git/sync seats, `busy`, ULID slugs.   |
-| 34f      | `agent/34f-roundup-import` | M    | ✅     | D11, D12: roundup import (`inspect-list`, `import-list`), skill + Sally's.    |
-| 34e      | content repo only          | M    | 📝     | Seasonal collections (thanksgiving, fall, warm-drinks) and Halloween imports. |
-| 34-close | `agent/34-close`           | S    | 📝     | Results, backlog, the morning checklist.                                      |
+| Phase    | Branch                     | Size | Status | What                                                                       |
+| -------- | -------------------------- | ---- | ------ | -------------------------------------------------------------------------- |
+| 34-plan  | `agent/34-plan`            | S    | ✅     | This doc (#212).                                                           |
+| 34a      | `agent/34a-term-pages`     | M    | ✅     | D1, D2: subtree recipes on term pages, counts without the clouds (#214).   |
+| 34b      | `agent/34b-skill-rename`   | S    | ✅     | D3, D4: skill v4 vocabulary; rename keeps the old slug (#213).             |
+| 34c      | `agent/34c-engine-writes`  | L    | ✅     | D5–D8: ULIDs, the write lock, private-index commits, atomic writes (#215). |
+| 34d      | `agent/34d-site-writes`    | M    | ✅     | D6, D9, D10 on the site: lock the seats, `busy`, ULID slugs (#217).        |
+| 34f      | `agent/34f-roundup-import` | M    | ✅     | D11, D12: roundup import (`inspect-list`, `import-list`), Sally's (#216).  |
+| 34e      | content repo only          | M    | 🟡     | Seasonal collections: proposed, awaiting Roger's approval.                 |
+| 34-close | `agent/34-close`           | S    | ✅     | Results, backlog, the morning checklist (this PR).                         |
 
 Ordering (Roger, 2026-10-13): 34a ∥ 34b → 34c → 34d → 34e. 34c starts once
 34b merges, so at most two PRs are in CI at once. The content round runs
@@ -1155,3 +1158,82 @@ and keyword (`dessert, american, baking, halloween cookies`) — hints only.
 
 **Not done:** the editor's import form keeps single-recipe import; a list
 picker is a backlog row (UI).
+
+## Close-out
+
+### What landed (2026-10-13)
+
+| PR   | Phase   | Merge      | Notes                                                                                          |
+| ---- | ------- | ---------- | ---------------------------------------------------------------------------------------------- |
+| #212 | 34-plan | `ae988826` | Plan; 34f and D11/D12 added mid-run after Roger's ask.                                         |
+| #213 | 34b     | `9ec95664` | Skill v4, rename alias.                                                                        |
+| #214 | 34a     | `c84aa912` | One review round: page cap (48 + "See all"), cache e2e cases, alias parity, edit-page reads.   |
+| #216 | 34f     | `322e92b1` | One review round: process-wide per-site queue, image failures keep the recipe, SSRF, picks.    |
+| #215 | 34c     | `13690c02` | One review round: pending-refresh hazard, stamp order, pid namespaces, link-created lock.      |
+| #217 | 34d     | `493ff7a2` | One review round (as-if-flushed status, locked rebuilds, sync `busy`) and two CI fixes, below. |
+
+Every M/L PR had a review agent; each found real issues and none blocked.
+No index layout changed anywhere in the epic: **no reindex is needed**.
+
+### Traps found at close
+
+- **The git-dir sweep deleted live files** (fixed in #217, `e12ed159`).
+  `sweepGitDir` ran on every acquisition and removed every
+  `discontent-write.lock.*.new` and `discontent-index-*` file regardless of
+  age, including a concurrent waiter's in-flight `.new` (its `link` then
+  failed `ENOENT`; CI caught it in the takeover-race test) and the
+  as-if-flushed status's private index, which 34d makes outside the lock. It
+  now sweeps only leftovers older than the stale age, and `tryCreate` treats
+  `ENOENT` on `link` as "try again".
+- **The stamp test raced `update-ref`** (fixed in #217, `eb36b944`): it read
+  the stamp the instant HEAD moved; the stamp is written just after. It now
+  waits for the stamp while the refresh is still held off, so a regression
+  still fails on `done === true`.
+- **`inspect-list --content-dir` on an unindexed clone reports no
+  `existing`**, silently: readers never create indexes (30-F30), so the
+  corpus lookup finds nothing. Reindex a scratch clone before listing a
+  roundup against it. (A warning when the recipes index is missing would be
+  better; backlog.)
+
+### 34e — where it stands
+
+Proposed on a review page (Artifact "Seasonal Collections Review") from a
+snapshot at content `35e0d1d`, every import dry-run on a scratch clone
+through 34f:
+
+| Term           | Parent  | Recipes | New imports                                                                                                             |
+| -------------- | ------- | ------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `fall`         | —       | 24      | (4 shared with the others)                                                                                              |
+| `halloween`    | —       | 8       | 6 from Sally's Halloween roundup (cookies, cupcakes, dirt pudding, caramel apples, bars, puppy chow)                    |
+| `thanksgiving` | —       | 25      | 5 from Sally's (stuffing, sweet potato casserole, dinner rolls, apple and pecan pies) + Love and Lemons mashed potatoes |
+| `warm-drinks`  | `drink` | 11      | —                                                                                                                       |
+
+Roger's calls on the page: the sets, the imports (and whether to tidy two
+wordy draft slugs), when Thanksgiving is featured, a `holidays` root (default
+no), warm drinks by tag or by re-parenting the drink-name families (default
+tag), and when to apply. Apply per the 34e section, after the checklist's
+workstation update so the run doubles as the write-safety proof; then a
+small docs PR records 34e's results here.
+
+### Backlog (new rows in `backlog.md`)
+
+- **Key the term clouds in the engine** — 34a stopped term pages reading
+  them (a tag write now expires a median 6 term pages, not 215); `/tags`,
+  autocomplete, ⌘K and the Make page still read the whole clouds, which is
+  fine until a measurement says otherwise.
+- **Pins on root pages** — `assertPinned` accepts only a term's own
+  carriers, so a facet root can't pin a descendant's recipe.
+- **`inspect-list` warns on a missing index** (the trap above).
+- The **list picker in the import form** row was added by 34f.
+
+### Morning checklist (Roger)
+
+1. `git pull` in the main checkout — already at `493ff7a2` if the
+   orchestrator fast-forwarded it.
+2. **`pnpm workstation update`** — the workstation's sync starts taking the
+   write lock around merges (34d); until then, scripted real-repo writes
+   still stop the workstation first.
+3. **`! pnpm deploy:pi`** — the Pi gets the same build (its sync and editor
+   writes take the lock; `busy` replaces index.lock failures).
+4. No reindex: no index layout changed.
+5. Approve (or amend) 34e's review page; the apply follows.
