@@ -28,6 +28,7 @@ import { watchRefs } from "@discontent/cms/git/watchRefs";
 import { recipeContentTypes } from "../websites/recipe-website/editor/controller/contentTypes";
 import { reindex } from "../websites/recipe-website/editor/controller/curation/reindex";
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
+import { changesOnlyUnindexed } from "../websites/recipe-website/editor/controller/curation/unindexed";
 import { createSyncRunner } from "../websites/recipe-website/editor/controller/instance/runner";
 import { createCoalescedTask } from "../websites/recipe-website/editor/controller/instance/coalesce";
 import { sshTargetOf } from "../websites/recipe-website/editor/controller/instance/mirrors";
@@ -559,6 +560,54 @@ describe("reindexWhenForeign", () => {
     expect(await check).toBe(false);
     expect(info).not.toHaveBeenCalled();
     info.mockRestore();
+  });
+
+  /*
+   * 35c review: a commit that touches only the shopping list or the
+   * inventory (another device's ticks) needs no rebuild: the stamp moves.
+   */
+  it("moves the stamp past shopping/inventory-only commits without rebuilding", async () => {
+    const dir = await scratchDir("unindexed-");
+    const repo = await initRepo(dir);
+    await reindex({ contentDirectory: dir });
+    const stamped = (await readIndexFreshness(dir)).indexedHead;
+    await shellCommit(
+      repo,
+      dir,
+      "shopping/items/01jaaaaaaaaaaaaaaaaaaaaaaa.json",
+    );
+    await shellCommit(repo, dir, "inventory/on-hand.json");
+    const head = (await readIndexFreshness(dir)).head;
+    expect(await changesOnlyUnindexed(dir, stamped, head)).toBe(true);
+
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    expect(await reindexWhenForeign(dir, { settleMs: 10 })).toBe(false);
+    expect(info).toHaveBeenCalledWith(expect.stringContaining("no reindex"));
+    info.mockRestore();
+    expect(await readIndexFreshness(dir)).toMatchObject({
+      stale: false,
+      indexedHead: head,
+    });
+
+    /* One recipe path among them: a full rebuild. */
+    await shellCommit(
+      repo,
+      dir,
+      "shopping/items/01jbbbbbbbbbbbbbbbbbbbbbbb.json",
+    );
+    await shellCommit(repo, dir, "recipes/data/shell/recipe.json");
+    expect(
+      await changesOnlyUnindexed(
+        dir,
+        head,
+        (await readIndexFreshness(dir)).head,
+      ),
+    ).toBe(false);
+    expect(await reindexWhenForeign(dir, { settleMs: 10 })).toBe(true);
+
+    /* No stamp, or a bad revision: never a skip. */
+    expect(await changesOnlyUnindexed(dir, null, head)).toBe(false);
+    expect(await changesOnlyUnindexed(dir, "nope", head)).toBe(false);
   });
 
   it("rebuilds after a commit whose stamp stays behind", async () => {

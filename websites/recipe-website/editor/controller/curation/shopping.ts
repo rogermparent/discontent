@@ -88,6 +88,28 @@ export const SHOPPING_SETTINGS_FILE = path.join(
   "settings.json",
 );
 
+/**
+ * Caps (35c review). A plan walk counts repeats (D6), so a plan listing a
+ * sub-plan twice at every level fans out as 2^depth — 2^31 rows at the depth
+ * limit, inside the write lock. The walk stops at `MAX_WALKED_RECIPES` recipe
+ * rows or `MAX_WALKED_GROUPS` group visits and the add is refused; and no add
+ * may take the list past `MAX_SHOPPING_ITEMS`. A real week is ~20 recipes and
+ * ~100 lines; the real-content check's plan was 7 recipes, 86 lines.
+ */
+export const MAX_WALKED_RECIPES = 500;
+export const MAX_WALKED_GROUPS = 2000;
+export const MAX_SHOPPING_ITEMS = 5000;
+/** Entries each override map may hold. */
+export const MAX_SHOPPING_OVERRIDES = 1000;
+
+/**
+ * A test seam: runs before each item file is written or deleted, so a test
+ * can fail a write part-way. Unset in production.
+ */
+export const shoppingTestHooks: {
+  beforeFile?: (relativePath: string, index: number) => Promise<void> | void;
+} = {};
+
 /** An item file's stem: a ULID, as this module writes it, or close enough. */
 const ITEM_FILE = /^([0-9a-z]{10,64})\.json$/i;
 
@@ -267,30 +289,91 @@ function serializeItem(item: ShoppingItem): string {
   return `${JSON.stringify(canonicalShoppingItem(item), null, 2)}\n`;
 }
 
+/** A file's bytes before a write touched it; `null` when it did not exist. */
+async function backup(file: string): Promise<string | null> {
+  try {
+    return await readFile(file, "utf8");
+  } catch (error) {
+    if (isMissing(error)) return null;
+    throw error;
+  }
+}
+
+/** Put files back as `backup` read them. Best effort: errors are swallowed. */
+async function restore(
+  ctx: CurationContext,
+  backups: Map<string, string | null>,
+): Promise<void> {
+  for (const [relative, bytes] of backups) {
+    const file = absolute(ctx, relative);
+    await (
+      bytes === null ? rm(file, { force: true }) : writeFileAtomic(file, bytes)
+    ).catch(() => undefined);
+  }
+}
+
 /**
  * Write and delete item files, then commit exactly those paths — one commit,
  * or none when there was nothing to do. Called under the write lock.
+ *
+ * A failure never leaves files behind uncommitted (35c review). One part-way
+ * through the files commits what was done as `<message> (partial)` and
+ * rethrows, as `withBatchCommit` does (F34/D3), so `git_revert` undoes
+ * exactly what landed. A commit that fails — the final one, or that partial
+ * one — puts every touched file back as it was, so the tree is as before the
+ * call.
  */
 async function applyItems(
   ctx: CurationContext,
   { write = [], remove = [] }: { write?: ShoppingItem[]; remove?: string[] },
   message: string,
 ): Promise<boolean> {
-  const paths: string[] = [];
-  for (const item of write) {
-    /* Atomic (D8): a reader never sees half an item, a crash never leaves one. */
-    await writeFileAtomic(
-      absolute(ctx, itemFile(item.id)),
-      serializeItem(item),
-    );
-    paths.push(itemFile(item.id));
+  const done: string[] = [];
+  const backups = new Map<string, string | null>();
+  const commit = async (subject: string) => {
+    try {
+      await commitContentChanges(
+        subject,
+        ctx.author,
+        done,
+        ctx.contentDirectory,
+      );
+    } catch (error) {
+      await restore(ctx, backups);
+      throw error;
+    }
+  };
+  const step = async (
+    relative: string,
+    run: (file: string) => Promise<void>,
+  ) => {
+    await shoppingTestHooks.beforeFile?.(relative, done.length);
+    const file = absolute(ctx, relative);
+    backups.set(relative, await backup(file));
+    await run(file);
+    done.push(relative);
+  };
+  try {
+    for (const item of write) {
+      /* Atomic (D8): a reader never sees half an item, a crash never leaves one. */
+      await step(itemFile(item.id), (file) =>
+        writeFileAtomic(file, serializeItem(item)),
+      );
+    }
+    for (const id of remove) {
+      await step(itemFile(id), (file) => rm(file, { force: true }));
+    }
+  } catch (error) {
+    if (done.length > 0) {
+      /* The partial commit's own failure restored the files; the first error is the one to report. */
+      await commit(`${message} (partial)`).catch(() => undefined);
+    } else {
+      await restore(ctx, backups);
+    }
+    throw error;
   }
-  for (const id of remove) {
-    await rm(absolute(ctx, itemFile(id)), { force: true });
-    paths.push(itemFile(id));
-  }
-  if (paths.length === 0) return false;
-  await commitContentChanges(message, ctx.author, paths, ctx.contentDirectory);
+  if (done.length === 0) return false;
+  await commit(message);
   return true;
 }
 
@@ -310,11 +393,14 @@ function count(n: number): string {
   return `${n} ${n === 1 ? "item" : "items"}`;
 }
 
+function clip(text: string): string {
+  return text.length > 40 ? `${text.slice(0, 39)}…` : text;
+}
+
 /** How an item reads in a commit subject: its name, else its line. */
 function labelOf(item: ShoppingItem): string {
   const { key, label } = shoppingNameOf(item.text);
-  const text = key.startsWith("text:") ? item.text.trim() : label;
-  return text.length > 40 ? `${text.slice(0, 39)}…` : text;
+  return clip(key.startsWith("text:") ? item.text.trim() : label);
 }
 
 /** A multiplier as stored: `"2"`, `"1/2"`; absent for 1. */
@@ -439,9 +525,19 @@ async function addLocked(
   } else if (input.group !== undefined) {
     const root = await readGroup(ctx, input.group);
     if (!root) throw new UnknownGroupError([input.group]);
-    const walk = await walkGroupRecipes(input.group, (slug) =>
-      slug === input.group ? Promise.resolve(root) : readGroup(ctx, slug),
+    const walk = await walkGroupRecipes(
+      input.group,
+      (slug) =>
+        slug === input.group ? Promise.resolve(root) : readGroup(ctx, slug),
+      { maxRecipes: MAX_WALKED_RECIPES, maxVisits: MAX_WALKED_GROUPS },
     );
+    if (walk.truncated) {
+      throw new ValidationError(
+        `${root.name} expands to more than ${MAX_WALKED_RECIPES} recipe rows ` +
+          `(or ${MAX_WALKED_GROUPS} sub-plan visits): a sub-plan listed more ` +
+          "than once at several levels multiplies. Nothing was added.",
+      );
+    }
     const recipes = new Map<string, Recipe | null>();
     const missingRecipes: string[] = [];
     for (const walked of walk.recipes) {
@@ -488,7 +584,15 @@ async function addLocked(
     added = (input.items ?? []).map((text) =>
       canonicalShoppingItem({ id: newId(), text, manual: true }),
     );
-    message = describe(added.map((item) => `+${labelOf(item)}`));
+    /* As typed: `+eggs`, not the singular name key. */
+    message = describe(added.map((item) => `+${clip(item.text.trim())}`));
+  }
+
+  const existing = (await readShoppingItems(ctx)).length;
+  if (existing + added.length > MAX_SHOPPING_ITEMS) {
+    throw new ValidationError(
+      `The list would hold ${existing + added.length} items; it holds at most ${MAX_SHOPPING_ITEMS}. Clear what was bought first. Nothing was added.`,
+    );
   }
 
   const changed = await applyItems(
@@ -535,7 +639,8 @@ async function patchLocked(
   const removed = new Set<string>();
   const unknown: string[] = [];
   const unmatched: string[] = [];
-  const parts: string[] = [];
+  /* Each part names the item it describes, so a net no-op drops out. */
+  const parts: { id?: string; text: string }[] = [];
 
   const current = (item: ShoppingItem) => next.get(item.id) ?? item;
   const lookup = (ids: string[] | undefined): ShoppingItem[] =>
@@ -555,7 +660,7 @@ async function patchLocked(
     const updated = canonicalShoppingItem({ ...item, ...patch });
     if (serializeItem(updated) === serializeItem(current(item))) return;
     next.set(item.id, updated);
-    parts.push(part);
+    parts.push({ id: item.id, text: part });
   };
   const named = (names: string[] | undefined) =>
     (names ?? []).map((name) => {
@@ -607,7 +712,7 @@ async function patchLocked(
   for (const item of lookup(input.remove)) {
     if (removed.has(item.id)) continue;
     removed.add(item.id);
-    parts.push(`−${labelOf(item)}`);
+    parts.push({ id: item.id, text: `−${labelOf(item)}` });
   }
   if (input.removeSource) {
     const { recipe, group } = input.removeSource;
@@ -625,14 +730,29 @@ async function patchLocked(
     const fresh = from.filter((item) => !removed.has(item.id));
     for (const item of fresh) removed.add(item.id);
     if (from.length === 0) unmatched.push(recipe ?? (group as string));
-    else if (fresh.length > 0) parts.push(`-${label} (${count(fresh.length)})`);
+    else if (fresh.length > 0) {
+      parts.push({ text: `-${label} (${count(fresh.length)})` });
+    }
   }
 
-  const write = [...next.values()].filter((item) => !removed.has(item.id));
+  /*
+   * Only items that end up different from what is stored: `{check: [x],
+   * uncheck: [x]}` changes nothing, so it writes and reports nothing.
+   */
+  const stored = new Map(items.map((item) => [item.id, serializeItem(item)]));
+  const write = [...next.values()].filter(
+    (item) =>
+      !removed.has(item.id) && serializeItem(item) !== stored.get(item.id),
+  );
+  const touched = new Set([...write.map((item) => item.id), ...removed]);
   const changed = await applyItems(
     ctx,
     { write, remove: [...removed] },
-    `Update shopping list: ${describe(parts)}`,
+    `Update shopping list: ${describe(
+      parts
+        .filter((part) => part.id === undefined || touched.has(part.id))
+        .map((part) => part.text),
+    )}`,
   );
   return {
     items: changed ? await readShoppingItems(ctx) : items,
@@ -770,6 +890,16 @@ function applySettingsPatch(
       next.storeOverrides[key] = store;
     }
   }
+  for (const [name, map] of [
+    ["aisleOverrides", next.aisleOverrides],
+    ["storeOverrides", next.storeOverrides],
+  ] as const) {
+    if (Object.keys(map).length > MAX_SHOPPING_OVERRIDES) {
+      throw new ValidationError(
+        `\`${name}\` would hold more than ${MAX_SHOPPING_OVERRIDES} entries.`,
+      );
+    }
+  }
   if (unknownStores.size > 0) {
     throw new ValidationError(
       `No ${unknownStores.size === 1 ? "store" : "stores"} ${[...unknownStores].map((id) => `"${id}"`).join(", ")}. Stores: ${[...known].join(", ")}.`,
@@ -796,13 +926,20 @@ export async function updateShoppingSettings(
     if (serializeSettings(settings) === serializeSettings(current)) {
       return { settings: current, path: file, changed: false };
     }
+    const before = await backup(file);
     await writeFileAtomic(file, serializeSettings(settings));
-    await commitContentChanges(
-      "Update shopping list settings",
-      ctx.author,
-      [SHOPPING_SETTINGS_FILE],
-      ctx.contentDirectory,
-    );
+    try {
+      await commitContentChanges(
+        "Update shopping list settings",
+        ctx.author,
+        [SHOPPING_SETTINGS_FILE],
+        ctx.contentDirectory,
+      );
+    } catch (error) {
+      /* Never leave the change behind uncommitted (35c review). */
+      await restore(ctx, new Map([[SHOPPING_SETTINGS_FILE, before]]));
+      throw error;
+    }
     return { settings, path: file, changed: true };
   });
 }

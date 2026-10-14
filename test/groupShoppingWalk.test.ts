@@ -216,4 +216,46 @@ describe("walkGroupRecipes", () => {
     );
     expect(walk).toEqual({ recipes: [], missing: [], cycles: [], tooDeep: [] });
   });
+
+  /*
+   * 35c review: repeats count, so a sub-group listed twice at every level
+   * fans out as 2^depth — 2^31 rows at the depth limit. The caps stop it.
+   */
+  it("stops a fan-out at its caps and says so", async () => {
+    const groups: Record<string, Group> = {};
+    for (let i = 0; i < MAX_GROUP_DEPTH; i++) {
+      groups[`g${i}`] = group(
+        i + 1 < MAX_GROUP_DEPTH
+          ? [{ group: `g${i + 1}` }, { group: `g${i + 1}` }]
+          : [{ recipe: "leaf" }],
+      );
+    }
+    const byRecipes = await walkGroupRecipes("g0", reader(groups).read, {
+      maxRecipes: 10,
+    });
+    expect(byRecipes.recipes).toHaveLength(10);
+    expect(byRecipes.truncated).toBe(true);
+
+    /* Groups that list no recipes at all: only the visit cap stops it. */
+    const empty: Record<string, Group> = {};
+    for (let i = 0; i < MAX_GROUP_DEPTH; i++) {
+      empty[`e${i}`] = group(
+        i + 1 < MAX_GROUP_DEPTH
+          ? [{ group: `e${i + 1}` }, { group: `e${i + 1}` }]
+          : [],
+      );
+    }
+    const byVisits = await walkGroupRecipes("e0", reader(empty).read, {
+      maxVisits: 100,
+    });
+    expect(byVisits).toMatchObject({ recipes: [], truncated: true });
+
+    /* Under the caps, nothing is marked. */
+    const small = await walkGroupRecipes("g29", reader(groups).read, {
+      maxRecipes: 10,
+      maxVisits: 100,
+    });
+    expect(small.recipes).toHaveLength(4);
+    expect(small.truncated).toBeUndefined();
+  });
 });

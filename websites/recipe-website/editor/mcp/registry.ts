@@ -1192,8 +1192,8 @@ export function createRecipeServer(
         "{key, ids, label, name, quantity?, raw?, aisle?, store?, checked, partial, " +
         "need, optional, sources?}, plus the `onHand` and `checked` folds and " +
         "`counts`. Rows merge one ingredient across recipes, amounts scaled and " +
-        "added, as the list's settings switch on. `ids` are what shopping_check and " +
-        "shopping_remove take. `store` (a store id such as `market-basket`) narrows " +
+        "added, as the list's settings switch on. A row's `ids` (item ids, not its `key`) are what " +
+        "shopping_check and shopping_remove take. `store` (a store id such as `market-basket`) narrows " +
         "to what is left at that store.",
       inputSchema: z.strictObject({ store: z.string().min(1).optional() }),
       annotations: READ_ONLY,
@@ -1229,8 +1229,9 @@ export function createRecipeServer(
     {
       title: "Tick items on the shopping list",
       description:
-        "Tick items as bought, one commit. `ids` are row or item ids from " +
-        'shopping_get; `names` tick every item of that ingredient (`["eggs"]` ' +
+        "Tick items as bought, one commit. `ids` are item ids — a row's `ids` " +
+        "from shopping_get (all of them, to tick a merged row), not its `key`; " +
+        '`names` tick every item of that ingredient (`["eggs"]` ' +
         'for "I bought eggs"). `uncheck: true` unticks instead. Names that match ' +
         "nothing come back in `unmatched`, ids not on the list in `unknown`.",
       inputSchema: z
@@ -1263,8 +1264,8 @@ export function createRecipeServer(
     {
       title: "Remove items from the shopping list",
       description:
-        "Take items off the shared shopping list, one commit: `ids` from " +
-        "shopping_get, or every item a `recipe` (slug) or a meal plan (`group` " +
+        "Take items off the shared shopping list, one commit: item `ids` (a row's `ids` from " +
+        "shopping_get), or every item a `recipe` (slug) or a meal plan (`group` " +
         "slug) put there — exactly one of the three.",
       inputSchema: z
         .strictObject({

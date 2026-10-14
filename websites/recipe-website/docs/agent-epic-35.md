@@ -66,8 +66,15 @@ workstation runs the build it was restarted with on 2026-10-13 21:09, before
 `shopping/settings.json`. Not a content type, so no index. Item files carry
 **no timestamps**, so Pi ↔ workstation edits merge cleanly in git: two
 devices adding items, or ticking different items, never touch the same file.
-(Ticking the same item on both is the only conflict, and both sides wrote the
-same value.)
+(Ticking the same item on both is not a conflict: both sides wrote the same
+bytes.) Two cases do conflict: one device ticks or flags an item while the
+other clears it (modify/delete), or the two set _different_ flags on one item
+(say `checked` and `need`, adjacent lines in a small file). The sync's merge
+then aborts with `git_conflict`, nothing is lost, and the person resolves it
+on the editor's Git page (keep either side; for modify/delete, deleting is
+usually right). Both are rare because the list is used on one phone at a
+time in the store, and "Clear checked" comes after the shop, once both
+devices have synced.
 
 ### D2 — Item and settings shapes; every feature is a switch
 
@@ -551,8 +558,47 @@ false` is no key), keys in D2's order: two devices that tick the same
 14. **CLI lines are one per argument**, as `inventory add`; `remove` takes
     ids (not names); `clear` asks (or needs `--yes`) for both scopes.
 
+Review round (all with tests):
+
+15. **Caps.** A plan walk stops at `MAX_WALKED_RECIPES` = 500 recipe rows or
+    `MAX_WALKED_GROUPS` = 2,000 group visits (`walkGroupRecipes`' new
+    `limits`, answering `truncated: true`) and the add is refused with
+    `validation`, nothing written — a sub-plan listed twice at every level
+    would otherwise fan out as 2^depth inside the write lock. No add may take
+    the list past `MAX_SHOPPING_ITEMS` = 5,000. Override maps hold at most
+    1,000 entries, 200 per change. Typed lines collapse control characters
+    (a pasted newline or tab) to a space.
+16. **A failure never leaves files uncommitted.** A file write or delete
+    that fails part-way commits what was done as `<message> (partial)` and
+    rethrows (`withBatchCommit`'s convention); a commit that fails puts every
+    touched file back from the bytes read just before the write (the
+    settings file too), so the tree is as it was. `shoppingTestHooks` is the
+    test seam.
+17. **`changed` is truthful.** A patch writes only items whose final form
+    differs from what is stored, so `{check: [x], uncheck: [x]}` is
+    `changed: false` with no commit, and its parts drop out of the subject.
+18. **Commit subjects for typed lines use the text as typed** (`+paper
+towels +2 lemons`).
+19. **An aisle override reaches a line no name can be read from** (keyed
+    `text:…`), checked before `aisleFor`.
+20. **"Nothing left to buy."** when every row is ticked; `viewForStore`
+    counts the narrowed view itself.
+21. **No reindex for a shopping or inventory commit from elsewhere.**
+    `curation/unindexed.ts`: `changesOnlyUnindexed(dir, from, to)` (`git diff
+--name-only -z --no-renames`; true only if every path is under
+    `shopping/` or `inventory/`, false on any doubt — no stamp, a failed
+    diff, one other path) and `advanceStampPastUnindexed` (under the write
+    lock). The instance's D12 `reindexWhenForeign` and the pull/sync merge
+    (`mergeLocked`, only when the stamp named the pre-merge HEAD) now move
+    the stamp instead of rebuilding — no `refreshEditor`, no `onBulkChange`
+    (`revalidatePath("/", "layout")`). Anything else rebuilds as before.
+    Without this every tick the other device synced in cost a full reindex
+    (2.5 s on the Pi) and a whole-site revalidate.
+
 Gates: editor typecheck and export `tsc` clean; vitest **70 files / 1500 tests** (+2 files, +40 tests: shoppingView 18, shopping 19, mcp +1, curatorSkill +1, cliJson +1).
-No Playwright (no pages; 35d builds the UI).
+After the review round: vitest **70 files / 1512 tests** (+12: shopping +7,
+shoppingView +2, groupShoppingWalk +1, curationGit +1, instance +1); both
+typechecks clean. No Playwright (no pages; 35d builds the UI).
 
 Traps:
 
@@ -562,6 +608,10 @@ Traps:
   only pints are excluded). Fine for liquids, odd for flour and sugar on a
   list — a 35d/35-close call whether quarts (and gallons) should go the way
   of pints for dry goods.
+- **A plan walk counts repeats, so it can explode**: cap it before walking
+  inside the write lock (choice 15).
+- **Every foreign HEAD move used to cost a full reindex**, a tick included;
+  a new unindexed directory must join `UNINDEXED_DIRECTORIES` to skip it.
 - **The real content repo has no meal plans yet** (no `groups/` directory),
   so the scratch check below made one in the clone.
 

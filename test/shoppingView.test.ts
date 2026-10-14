@@ -390,10 +390,46 @@ describe("buildShoppingView", () => {
     expect(rows(view)[0].sources).toBeUndefined();
   });
 
-  it("answers an empty list in words", () => {
+  it("answers an empty list, and an all-ticked one, in words", () => {
     expect(
       formatShoppingText(buildShoppingView([], DEFAULT_SHOPPING_SETTINGS)),
     ).toBe("The list is empty.");
+    expect(
+      formatShoppingText(
+        buildShoppingView(
+          [item("2 eggs", { checked: true })],
+          DEFAULT_SHOPPING_SETTINGS,
+        ),
+      ),
+    ).toBe("Nothing left to buy.");
+  });
+
+  it("applies an aisle override to a line no name can be read from", () => {
+    const view = buildShoppingView(
+      [item("12")],
+      settings({}, { aisleOverrides: { "text:12": "frozen" } }),
+    );
+    expect(rows(view)[0].aisle).toBe("frozen");
+  });
+
+  it("counts a store's narrowed view on its own", () => {
+    const view = buildShoppingView(
+      [
+        item("2 carrots"),
+        item("1 onion", { checked: true }),
+        item("3 eggs"),
+        item("1 cup flour"),
+      ],
+      settings({ stores: true }),
+    );
+    expect(view.counts).toMatchObject({ items: 4, rows: 4, remaining: 3 });
+    expect(viewForStore(view, "market-basket").counts).toEqual({
+      items: 2,
+      rows: 2,
+      remaining: 1,
+      checked: 1,
+      onHand: 0,
+    });
   });
 });
 

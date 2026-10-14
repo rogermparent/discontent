@@ -55,6 +55,24 @@ export interface GroupWalk {
    * group that would have been one level too deep. Not read.
    */
   tooDeep: string[][];
+  /**
+   * Present (and true) only when the walk stopped early at a `limits` cap:
+   * the result then holds the rows found before the cap, and is not the
+   * whole plan.
+   */
+  truncated?: true;
+}
+
+/**
+ * Caps on a walk's work (35c review). Repeats count by design, so a plan that
+ * lists a sub-group twice at every level fans out as 2^depth: these stop it
+ * early instead. Unbounded when omitted.
+ */
+export interface WalkLimits {
+  /** Stop once this many recipe rows are found. */
+  maxRecipes?: number;
+  /** Stop once this many groups have been visited (repeats included). */
+  maxVisits?: number;
 }
 
 /** Reads a group by slug; `null` when there is none. */
@@ -70,6 +88,10 @@ const ONE = new Fraction(1);
 export async function walkGroupRecipes(
   root: string,
   readGroup: ReadGroup,
+  {
+    maxRecipes = Number.POSITIVE_INFINITY,
+    maxVisits = Number.POSITIVE_INFINITY,
+  }: WalkLimits = {},
 ): Promise<GroupWalk> {
   const reads = new Map<string, Promise<Group | null>>();
   const read = (slug: string) => {
@@ -83,8 +105,15 @@ export async function walkGroupRecipes(
 
   const walk: GroupWalk = { recipes: [], missing: [], cycles: [], tooDeep: [] };
   const missing = new Set<string>();
+  let visits = 0;
+  let stopped = false;
 
   async function visit(slug: string, path: string[], scale: Fraction) {
+    if (stopped) return;
+    if (++visits > maxVisits) {
+      stopped = true;
+      return;
+    }
     const group = await read(slug);
     if (!group) {
       if (!missing.has(slug)) {
@@ -95,6 +124,7 @@ export async function walkGroupRecipes(
     }
     const via = [...path, slug];
     for (const item of group.items ?? []) {
+      if (stopped) return;
       const itemScale = scale.mul(parseScale(item.scale) ?? ONE);
       if (item.group !== undefined) {
         if (via.includes(item.group)) {
@@ -105,6 +135,10 @@ export async function walkGroupRecipes(
           await visit(item.group, via, itemScale);
         }
       } else if (item.recipe) {
+        if (walk.recipes.length >= maxRecipes) {
+          stopped = true;
+          return;
+        }
         walk.recipes.push({
           slug: item.recipe,
           scale: itemScale,
@@ -116,5 +150,5 @@ export async function walkGroupRecipes(
   }
 
   await visit(root, [], ONE);
-  return walk;
+  return stopped ? { ...walk, truncated: true } : walk;
 }

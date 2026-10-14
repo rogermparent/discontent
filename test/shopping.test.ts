@@ -7,6 +7,7 @@
 
 import {
   mkdtemp,
+  outputFile,
   pathExists,
   readdir,
   readFile,
@@ -21,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import simpleGit, { type SimpleGit } from "simple-git";
 import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
+import { commitTestHooks } from "@discontent/cms/git/commit";
 
 import type { CurationContext } from "../websites/recipe-website/editor/controller/curation/context";
 import { recipeContentTypes } from "../websites/recipe-website/editor/controller/contentTypes";
@@ -29,8 +31,10 @@ import { createGroup } from "../websites/recipe-website/editor/controller/curati
 import { patchInventory } from "../websites/recipe-website/editor/controller/curation/inventory";
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
 import {
+  MAX_SHOPPING_ITEMS,
   SHOPPING_ITEMS_DIRECTORY,
   SHOPPING_SETTINGS_FILE,
+  shoppingTestHooks,
   addToShopping,
   clearShopping,
   patchShopping,
@@ -86,6 +90,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  shoppingTestHooks.beforeFile = undefined;
+  commitTestHooks.beforeUpdateRef = undefined;
   await closeCachedEnvironments();
   if (previousContentDirectory === undefined) {
     delete process.env.CONTENT_DIRECTORY;
@@ -291,7 +297,7 @@ describe("addToShopping", () => {
       { id: result.added[1].id, text: "2 lemons", manual: true },
     ]);
     expect((await messages())[0]).toBe(
-      "Update shopping list: +paper towel +lemon",
+      "Update shopping list: +paper towels +2 lemons",
     );
   });
 
@@ -570,7 +576,7 @@ describe("write safety", () => {
     const { items } = await readShopping(ctx);
     expect(items.map((item) => item.text).sort()).toEqual(["eggs", "milk"]);
     expect((await messages()).slice(0, 2).sort()).toEqual([
-      "Update shopping list: +egg",
+      "Update shopping list: +eggs",
       "Update shopping list: +milk",
     ]);
     expect((await git.status()).isClean()).toBe(true);
@@ -614,6 +620,145 @@ describe("write safety", () => {
       { text: "bread", checked: true },
       { text: "eggs", checked: true },
       { text: "milk", checked: true },
+    ]);
+  });
+});
+
+describe("review round (35c)", () => {
+  it("refuses a plan that fans out past the walk cap, adding nothing", async () => {
+    await createRecipe(ctx, { name: "Leaf", ingredients: ["1 egg"] });
+    /* Each level lists the next twice: 2^10 = 1024 recipe rows. */
+    await createGroup(ctx, {
+      name: "Level 10",
+      slug: "level-10",
+      items: [{ recipe: "leaf" }],
+    });
+    for (let i = 9; i >= 0; i--) {
+      await createGroup(ctx, {
+        name: `Level ${i}`,
+        slug: `level-${i}`,
+        items: [{ group: `level-${i + 1}` }, { group: `level-${i + 1}` }],
+      });
+    }
+    const before = await messages();
+    await expect(
+      addToShopping(ctx, { group: "level-0" }),
+    ).rejects.toMatchObject({
+      code: "validation",
+      message: expect.stringContaining("more than 500 recipe rows"),
+    });
+    expect(await messages()).toEqual(before);
+    /* Under the cap it adds as usual: 2^8 = 256 rows. */
+    expect((await addToShopping(ctx, { group: "level-2" })).added).toHaveLength(
+      256,
+    );
+  });
+
+  it("refuses an add that would take the list past its cap", async () => {
+    /* Files laid down by hand, uncommitted: only the count matters here. */
+    const items = join(contentDirectory, SHOPPING_ITEMS_DIRECTORY);
+    for (let i = 0; i < MAX_SHOPPING_ITEMS - 1; i++) {
+      const id = `01j${String(i).padStart(23, "0")}`;
+      await outputFile(
+        join(items, `${id}.json`),
+        `${JSON.stringify({ id, text: "salt" })}\n`,
+      );
+    }
+    await expect(
+      addToShopping(ctx, { items: ["eggs", "milk"] }),
+    ).rejects.toMatchObject({ code: "validation" });
+    expect((await addToShopping(ctx, { items: ["eggs"] })).changed).toBe(true);
+  }, 60_000);
+
+  it("commits what a failed patch wrote as (partial), leaving the tree clean", async () => {
+    const { added } = await addToShopping(ctx, {
+      items: ["eggs", "milk", "bread"],
+    });
+    shoppingTestHooks.beforeFile = (_path, index) => {
+      if (index === 1) throw new Error("disk full");
+    };
+    await expect(
+      patchShopping(ctx, { check: added.map((item) => item.id) }),
+    ).rejects.toThrow("disk full");
+    expect((await messages())[0]).toBe(
+      "Update shopping list: ✓egg ✓milk ✓bread (partial)",
+    );
+    expect((await git.status()).isClean()).toBe(true);
+    const { items } = await readShopping(ctx);
+    expect(items.filter((item) => item.checked)).toHaveLength(1);
+
+    /* The same for a clear's deletions. */
+    const fail = shoppingTestHooks.beforeFile;
+    shoppingTestHooks.beforeFile = undefined;
+    await patchShopping(ctx, { check: added.map((item) => item.id) });
+    shoppingTestHooks.beforeFile = fail;
+    await expect(clearShopping(ctx)).rejects.toThrow("disk full");
+    expect((await messages())[0]).toBe(
+      "Clear shopping list: 3 checked (partial)",
+    );
+    expect((await git.status()).isClean()).toBe(true);
+    expect((await readShopping(ctx)).items).toHaveLength(2);
+  });
+
+  it("puts every file back when the commit itself fails", async () => {
+    const { added } = await addToShopping(ctx, { items: ["eggs", "milk"] });
+    await updateShoppingSettings(ctx, { features: { stores: true } });
+    const before = await messages();
+    commitTestHooks.beforeUpdateRef = async () => {
+      throw new Error("ref locked");
+    };
+    await expect(
+      patchShopping(ctx, {
+        check: [added[0].id],
+        remove: [added[1].id],
+      }),
+    ).rejects.toThrow();
+    await expect(addToShopping(ctx, { items: ["bread"] })).rejects.toThrow();
+    await expect(
+      updateShoppingSettings(ctx, { features: { stores: false } }),
+    ).rejects.toThrow();
+    commitTestHooks.beforeUpdateRef = undefined;
+
+    expect(await messages()).toEqual(before);
+    expect((await git.status()).isClean()).toBe(true);
+    expect((await readShopping(ctx)).items).toEqual(added);
+    expect((await readShopping(ctx)).settings.features.stores).toBe(true);
+  });
+
+  it("reports a patch that nets out to nothing as no change, and commits nothing", async () => {
+    const { added } = await addToShopping(ctx, { items: ["eggs"] });
+    const before = await messages();
+    const result = await patchShopping(ctx, {
+      check: [added[0].id],
+      uncheck: [added[0].id],
+    });
+    expect(result).toMatchObject({ changed: false, updated: [] });
+    expect(await messages()).toEqual(before);
+  });
+
+  it("collapses control characters in typed lines", async () => {
+    const { added } = await addToShopping(ctx, {
+      items: ["paper\ntowels\t", "\u0007lemons"],
+    });
+    expect(added.map((item) => item.text)).toEqual(["paper towels", "lemons"]);
+    await expect(addToShopping(ctx, { items: ["\n\t"] })).rejects.toMatchObject(
+      { code: "validation" },
+    );
+  });
+
+  it("caps override changes, and applies an override to an unnamed line", async () => {
+    const many = Object.fromEntries(
+      Array.from({ length: 201 }, (_, i) => [`thing ${i}`, "pantry"]),
+    );
+    await expect(
+      updateShoppingSettings(ctx, { aisleOverrides: many }),
+    ).rejects.toMatchObject({ code: "validation" });
+
+    await addToShopping(ctx, { items: ["12"] });
+    await updateShoppingSettings(ctx, { aisleOverrides: { "12": "frozen" } });
+    const { view } = await readShoppingView(ctx);
+    expect(view.stores[0].sections.map((section) => section.aisle)).toEqual([
+      "frozen",
     ]);
   });
 });

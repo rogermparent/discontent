@@ -16,7 +16,7 @@
  */
 import Fraction from "fraction.js";
 import { fold } from "../components/SearchForm/queryLanguage";
-import { AISLE_LABELS, AISLES, aisleFor, type Aisle } from "./aisles";
+import { AISLE_LABELS, AISLES, aisleFor, isAisle, type Aisle } from "./aisles";
 import {
   addAmounts,
   formatAmount,
@@ -400,10 +400,17 @@ export function buildShoppingView(
     const row = buildRow(key, entries, features);
     rowCount += 1;
     const routeName = entries[0].name;
-    const aisle = aisleFor(
-      isNamed(routeName.key) ? routeName.key : routeName.label,
-      settings.aisleOverrides,
-    );
+    /*
+     * An override is keyed by `shoppingNameOf(...).key`, `text:` keys
+     * included — which `aisleFor`'s own lookup (by words) never meets.
+     */
+    const override = settings.aisleOverrides[routeName.key];
+    const aisle = isAisle(override)
+      ? override
+      : aisleFor(
+          isNamed(routeName.key) ? routeName.key : routeName.label,
+          settings.aisleOverrides,
+        );
     if (features.aisles) row.aisle = aisle;
     if (features.stores) {
       row.store = routeStore(entries, routeName.key, aisle, settings);
@@ -470,17 +477,32 @@ export function buildShoppingView(
   };
 }
 
-/** Only one store's list (and the folds), for "what's left at Market Basket". */
+/**
+ * Only one store's list (and the folds), for "what's left at Market Basket".
+ * The counts are the narrowed view's own.
+ */
 export function viewForStore(view: ShoppingView, store: string): ShoppingView {
   const stores = view.stores.filter((list) => list.store?.id === store);
+  const onHand = view.onHand.filter((row) => row.store === store);
+  const checked = view.checked.filter((row) => row.store === store);
+  const rows = [
+    ...stores.flatMap((list) =>
+      list.sections.flatMap((section) => section.rows),
+    ),
+    ...onHand,
+    ...checked,
+  ];
   return {
     ...view,
     stores,
-    onHand: view.onHand.filter((row) => row.store === store),
-    checked: view.checked.filter((row) => row.store === store),
+    onHand,
+    checked,
     counts: {
-      ...view.counts,
+      items: rows.reduce((sum, row) => sum + row.total, 0),
+      rows: rows.length,
       remaining: stores.reduce((sum, list) => sum + list.count, 0),
+      checked: checked.length,
+      onHand: onHand.length,
     },
   };
 }
@@ -530,5 +552,6 @@ export function formatShoppingText(
   if (checked && view.checked.length > 0) {
     blocks.push(["Checked:", ...view.checked.flatMap(rowLines)].join("\n"));
   }
-  return blocks.length > 0 ? blocks.join("\n\n") : "The list is empty.";
+  if (blocks.length > 0) return blocks.join("\n\n");
+  return view.counts.items > 0 ? "Nothing left to buy." : "The list is empty.";
 }

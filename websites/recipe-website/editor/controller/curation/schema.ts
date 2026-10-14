@@ -505,8 +505,30 @@ export const InventoryMakeQuerySchema = z.strictObject({
 
 /* --- shopping list (35c) ------------------------------------------------- */
 
-/** One free-text line, as a person types it ("paper towels", "2 lemons"). */
-export const ShoppingTextSchema = z.string().trim().min(1).max(300);
+/**
+ * One free-text line, as a person types it ("paper towels", "2 lemons").
+ * Control characters — a pasted newline or tab — collapse to one space, so a
+ * line stays one line in the file, the commit subject and the copy text.
+ */
+export const ShoppingTextSchema = z
+  .string()
+  .transform((text) => text.replace(/[\u0000-\u001f\u007f]+/g, " "))
+  .pipe(z.string().trim().min(1).max(300));
+
+/** An override's key: an ingredient name, with no control characters. */
+const ShoppingNameKeySchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100)
+  .regex(/^[^\u0000-\u001f\u007f]+$/, {
+    message: "A name may not contain control characters",
+  });
+
+/** At most this many keys in one override change (the stored maps cap at 1000). */
+const MAX_OVERRIDE_CHANGES = 200;
+const capKeys = (record: Record<string, unknown> | undefined) =>
+  Object.keys(record ?? {}).length <= MAX_OVERRIDE_CHANGES;
 
 /**
  * What to put on the list (epic 35, D7): a recipe's lines, a meal plan's
@@ -640,10 +662,16 @@ export const ShoppingSettingsPatchSchema = z
       .partialRecord(AisleSchema, z.string().min(1).nullable())
       .optional(),
     aisleOverrides: z
-      .record(ShoppingTextSchema, AisleSchema.nullable())
+      .record(ShoppingNameKeySchema, AisleSchema.nullable())
+      .refine(capKeys, {
+        message: `At most ${MAX_OVERRIDE_CHANGES} names per change`,
+      })
       .optional(),
     storeOverrides: z
-      .record(ShoppingTextSchema, z.string().min(1).nullable())
+      .record(ShoppingNameKeySchema, z.string().min(1).nullable())
+      .refine(capKeys, {
+        message: `At most ${MAX_OVERRIDE_CHANGES} names per change`,
+      })
       .optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
