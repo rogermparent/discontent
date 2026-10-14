@@ -731,7 +731,9 @@ rerun (89/89 for the file) — untouched here. Playwright in build mode through
 the heavy slot: `shopping.spec groups.spec /recipe.spec command-palette.spec`
 **88/89**, the one a locator in the new spec (a `summary` that also matched
 the rows' source disclosures), fixed; `shopping.spec` rerun **8/8** (7 e2e +
-1 `@mobile` on Pixel 5).
+1 `@mobile` on Pixel 5). After merging `origin/main` (35c as #224) and the
+store switch moving to `useSyncExternalStore` (eslint's
+`set-state-in-effect`): `shopping.spec /recipe.spec groups.spec` **53/53**.
 
 Traps:
 
