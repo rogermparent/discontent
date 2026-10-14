@@ -9,6 +9,7 @@ import {
   resolveTermAlias,
   resolveTermPage,
 } from "../../controller/data/readTermPage";
+import { tagTermReads } from "../../controller/data/readTagTerms";
 import { TagAliasRedirect } from "./AliasRedirect";
 import { TagIndexPage, TagPage } from "./shared";
 
@@ -96,7 +97,9 @@ export async function tagRoute({
  * **Feature** (24c): the target is a slug, the form takes one, and `?term=`
  * preselects it exactly as `?group=` does. **Edit** (31e): the term form at
  * `/tags/<slug>/edit`, which updates the record — or, for a term that so far
- * lives only on its carriers, creates one at this slug.
+ * lives only on its carriers, creates one at this slug. **Add a narrower
+ * term** (35p): `/tags/new?parent=<slug>`, the parent preselected — shown
+ * only for a term with a record, the only kind that can be a parent.
  *
  * Its own export rather than a prop on `tagRoute`, because a Next page module
  * exports a function and cannot pass it arguments — the editor's route file
@@ -108,13 +111,21 @@ export async function editorTagRoute({
   params: Promise<{ tag: string }>;
 }) {
   const { tag } = await params;
-  const term = await resolveTermPage(tag);
+  const [term, tree] = await Promise.all([
+    resolveTermPage(tag),
+    tagTermReads.tree.read(),
+  ]);
   if (!term) {
     /* An alias (32i): a real redirect, which the editor's server can send. */
     const target = await resolveTermAlias(tag);
     if (target) redirect(`/tags/${target.slug}`);
     notFound();
   }
+  /*
+   * Only a record can be a parent (`assertParent`), so a term that lives
+   * only on its carriers offers no narrower term until Edit gives it one.
+   */
+  const hasRecord = Boolean(tree?.[term.slug]);
   return (
     <TagPage
       term={term}
@@ -132,6 +143,14 @@ export async function editorTagRoute({
           >
             Edit
           </Link>
+          {hasRecord && (
+            <Link
+              href={`/tags/new?parent=${encodeURIComponent(term.slug)}`}
+              className={buttonVariants({ variant: "secondary", size: "sm" })}
+            >
+              Add a narrower term
+            </Link>
+          )}
         </>
       }
     />

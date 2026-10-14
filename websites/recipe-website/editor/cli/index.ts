@@ -28,6 +28,7 @@ import {
   exitCodeFor,
 } from "../controller/curation/errors";
 import { resolveBackend } from "./backend/resolve";
+import { loadEditorEnv } from "./editorEnv";
 import type { CuratorBackend } from "./backend/types";
 import { createCommand } from "./commands/create";
 import { deleteCommand } from "./commands/delete";
@@ -164,6 +165,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
               [--image-url U | --clear-image] [--date d] | (--file patch.json | --stdin)
   term image <slug> (--url <image-url> | --file <path> | --clear)
   term assign <slug> [--add carrier …] [--remove carrier …] [--type recipe|group]
+              [--force]
   term rename <slug> <new-slug-or-label> [--label L]
   term merge <slug> <into> [--yes]
   term delete <slug> [--unassign] [--yes]
@@ -208,6 +210,10 @@ Environment:
                        --notify. Mint one with \`pnpm create-token\` in the
                        editor package. Never passed on argv.
   RECIPE_EDITOR_URL    Same as --editor-url
+  RECIPE_ENV_FILE      The file RECIPE_API_TOKEN and RECIPE_EDITOR_URL are
+                       read from when the environment lacks them (default
+                       websites/recipe-website/editor/.env; nothing else in
+                       it is read)
   RECIPE_AUTHOR        "Name <email>" for local commits; same as --author
   CONTENT_DIRECTORY    Local content directory; same as --content-dir
   YTDLP_PATH           yt-dlp binary for video imports (else the Settings
@@ -217,7 +223,9 @@ Environment:
                        the content repository (default 30000) before it
                        fails with code \`busy\`
 
-Exit codes: 0 done; 1 failed; 2 slug_conflict; 75 busy — another write (or,
+Exit codes: 0 done; 1 failed (also \`term assign\` when a named carrier does
+not exist: --force lets an --add through as \`missing\`, printed, exit 1);
+2 slug_conflict; 75 busy — another write (or,
 for git sync, another sync) held the repository's lock and nothing was
 written: run the same command again after a few seconds. With --remote, a
 bare 503 from a proxy in front of the editor is read as busy too; the
@@ -448,7 +456,7 @@ export async function main(argv: string[]): Promise<number> {
     if (Array.isArray(warnings) && json) {
       for (const message of warnings) warn(message);
     }
-    return 0;
+    return definition.exitCode?.(result) ?? 0;
   } catch (error) {
     const mapped = isParseArgsError(error)
       ? new UsageError((error as Error).message)
@@ -469,8 +477,12 @@ export async function main(argv: string[]): Promise<number> {
  * `scripts/create-user.ts` does. Setting `process.exitCode` rather than calling
  * `process.exit` lets the stdout write flush — a piped `--json` run loses its
  * object otherwise.
+ *
+ * `editor/.env`'s token and editor URL are loaded here, for a real run only
+ * (35-D11): a test that imports `main` keeps the environment it set up.
  */
 if (require.main === module) {
+  loadEditorEnv();
   main(process.argv.slice(2))
     .then((code) => {
       process.exitCode = code;

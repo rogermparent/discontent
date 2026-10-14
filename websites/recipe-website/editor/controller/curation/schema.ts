@@ -437,13 +437,17 @@ export const TermCarrierTypeSchema = z.enum(["recipe", "group"]);
 
 /**
  * `term_assign`: carriers to tag and to untag, one update each. A slug in both
- * lists is refused rather than resolved by order.
+ * lists is refused rather than resolved by order. `force` (35-D10) lets an
+ * `add` name a carrier that does not exist yet: it is reported under
+ * `missing` with a warning instead of refused as `unknown_recipe` /
+ * `unknown_group`.
  */
 export const TermAssignSchema = z
   .strictObject({
     add: z.array(z.string().min(1)).optional(),
     remove: z.array(z.string().min(1)).optional(),
     type: TermCarrierTypeSchema.optional(),
+    force: z.boolean().optional(),
   })
   .refine((data) => (data.add?.length ?? 0) + (data.remove?.length ?? 0) > 0, {
     message: "Name at least one carrier to `add` or `remove`",

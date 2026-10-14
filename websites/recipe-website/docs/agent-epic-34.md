@@ -1263,12 +1263,17 @@ the checklist's update/deploy they list 41 and 25.
   Halloween Chocolate Cookies missed it; the rehearsal could not catch it
   (it drops not-yet-imported slugs on purpose). Fixed by one more assign
   (the 47th commit). Order term assigns after imports, or check `missing`.
+  Fixed in 35p (35-D10): the assign now refuses an unknown slug
+  (`unknown_recipe`) unless `--force`, and a forced one exits 1.
 - **Assigns took 12–64 s each** (3–5 s in the rehearsal) — the machine's
   load average was ~30 from another project's builds; the commit path left
   nothing behind (`git status` 0.26 s, nothing pending).
-- The CLI's `--notify` got a 401 from the workstation (it reads a different
-  token variable than `editor/.env`'s `RECIPE_API_TOKEN`); POST
-  `/api/revalidate` with that token directly works.
+- The CLI's `--notify` got a 401 from the workstation: the CLI never loaded
+  `editor/.env`, so it sent no `RECIPE_API_TOKEN` at all (the variable name
+  was right — Next loads that file for the editor, nothing loaded it for
+  `pnpm recipes`). POST `/api/revalidate` with that token directly works.
+  Fixed in 35p (35-D11): the CLI and the stdio MCP server read
+  `RECIPE_API_TOKEN` and `RECIPE_EDITOR_URL` from `editor/.env`.
 
 ### Backlog (new rows in `backlog.md`)
 

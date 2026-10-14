@@ -80,6 +80,7 @@ import {
   breadcrumbOf,
   childrenOf,
   mergeTagVocabulary,
+  subtreeKeys,
   subtreeSlugs,
   type TagVocabularyEntry,
 } from "recipe-website-common/controller/tagVocabulary";
@@ -106,6 +107,8 @@ import { withBatchCommit, countsTail } from "./batch";
 import {
   batchOptions,
   collectBatch,
+  groupPath,
+  recipePath,
   termPath,
   termUrl,
   type CurationContext,
@@ -116,6 +119,8 @@ import {
   SlugConflictError,
   TermCycleError,
   TermInUseError,
+  UnknownGroupError,
+  UnknownRecipeError,
   UnknownTermError,
   ValidationError,
 } from "./errors";
@@ -229,8 +234,13 @@ export interface TermAssignResult {
   updated: string[];
   /** Carriers that already said so (an add they had, a remove they lacked). */
   unchanged: string[];
-  /** Slugs that name no carrier of that type. */
+  /**
+   * Slugs that name no carrier of that type: a `remove` of one that is not
+   * there, or (with `force`) an `add` of one not written yet (35-D10).
+   */
   missing: string[];
+  /** One line per `missing` slug, for the CLI's stderr and an agent's eye. */
+  warnings?: string[];
 }
 
 export interface TermRenameResult {
@@ -613,15 +623,28 @@ function dedupe(values: readonly string[]): string[] {
 }
 
 /**
- * Every pinned slug must be a recipe that carries the term (24c's second
- * answer): the page ignores one that does not, so storing it would be a
- * promise the page silently breaks.
+ * Every pinned slug must be a recipe the term's page lists (24c's second
+ * answer): the page ignores one it does not, so storing it would be a promise
+ * the page silently breaks.
+ *
+ * Since 34a a page lists its whole subtree, and since 35-D12 so does this
+ * check: a recipe qualifies when any of its tags slugs to a key of
+ * `subtreeKeys(tree, slug)` — the term, a narrower term, or an alias of
+ * either — so a facet root (`course`, which nothing carries itself) can pin a
+ * dessert. The tree is the aggregate, read Node-safe, as `readVocabulary`
+ * reads it; a term with no record yet is a subtree of one, itself.
  */
 async function assertPinned(
   ctx: CurationContext,
   slug: string,
   pinned: readonly string[],
 ): Promise<void> {
+  const tree = await readAggregate({
+    config: tagTermContentConfig,
+    aggregateConfig: termTreeAggregate(),
+    contentDirectory: ctx.contentDirectory,
+  });
+  const keys = new Set(subtreeKeys(tree, slug));
   const issues: { path: string; message: string }[] = [];
   for (const [index, recipeSlug] of pinned.entries()) {
     const recipe = await readContentFileOrNull<
@@ -638,16 +661,16 @@ async function assertPinned(
         path: `pinned.${index}`,
         message: `No recipe at slug "${recipeSlug}"`,
       });
-    } else if (!carries(recipe.tags, slug)) {
+    } else if (!(recipe.tags ?? []).some((tag) => keys.has(tagSlug(tag)))) {
       issues.push({
         path: `pinned.${index}`,
-        message: `Recipe "${recipeSlug}" does not carry "${slug}" — assign the term to it first`,
+        message: `Recipe "${recipeSlug}" does not carry "${slug}" or a narrower term — assign the term to it first`,
       });
     }
   }
   if (issues.length > 0) {
     throw new ValidationError(
-      `Pinned recipes must carry the term "${slug}"`,
+      `Pinned recipes must carry the term "${slug}" or a narrower one`,
       issues,
     );
   }
@@ -1300,6 +1323,15 @@ export async function updateTerm(
  * bare tag has always come into being, and `term_create` can describe it
  * later. `slug` may be given as a label; it is slugged, and a term with no
  * record and no carriers yet is written with that spelling.
+ *
+ * **Every `add` must name a carrier that exists** (35-D10), checked before
+ * anything is written — `unknown_recipe` / `unknown_group`, naming them all,
+ * as the group seats refuse a dangling item. Epic 34's seasonal round ran an
+ * assign before the import it depended on and lost a recipe to a quiet
+ * `missing` (34e). `force` keeps the old behaviour: the slug is reported under
+ * `missing` with a warning, and the CLI exits non-zero. A `remove` of a
+ * carrier that is not there was never a hazard — the tag is not on it either
+ * way — so it stays a `missing` report (with its warning) and never throws.
  */
 export async function assignTerm(
   ctx: CurationContext,
@@ -1312,6 +1344,22 @@ export async function assignTerm(
     throw new ValidationError(`"${rawSlug}" does not slugify to anything.`);
   }
   const type = input.type ?? "recipe";
+  const adds = dedupe(input.add ?? []);
+  /*
+   * Whether each data file is there, not whether it parses: a corrupt file
+   * is the write's own failure, part-way, committed `(partial)` (F34) — the
+   * check only stops a slug that names nothing.
+   */
+  const dataFile = type === "recipe" ? recipePath : groupPath;
+  const unknown: string[] = [];
+  for (const carrier of adds) {
+    if (!(await exists(dataFile(ctx, carrier)))) unknown.push(carrier);
+  }
+  if (unknown.length > 0 && !input.force) {
+    throw type === "recipe"
+      ? new UnknownRecipeError(unknown)
+      : new UnknownGroupError(unknown, { forceHint: true });
+  }
   const [record, vocabulary] = await Promise.all([
     readTerm(ctx, slug),
     readVocabulary(ctx),
@@ -1341,7 +1389,7 @@ export async function assignTerm(
       [removed, type, "-"],
     ]);
   await withBatchCommit(ctx, message, async (batchCtx) => {
-    for (const carrier of dedupe(input.add ?? [])) {
+    for (const carrier of adds) {
       const outcome = await retagCarrier(batchCtx, type, carrier, (tags) =>
         carries(tags, slug) ? [...tags] : [...tags, tag],
       );
@@ -1356,6 +1404,14 @@ export async function assignTerm(
       report(outcome, carrier);
     }
   });
+  if (result.missing.length > 0) {
+    const removes = new Set(input.remove ?? []);
+    result.warnings = result.missing.map((carrier) =>
+      removes.has(carrier)
+        ? `No ${type} "${carrier}" — nothing to remove.`
+        : `No ${type} "${carrier}" — not tagged; assign again once it exists.`,
+    );
+  }
   return result;
 }
 

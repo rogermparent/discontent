@@ -338,6 +338,25 @@ check of 35c/35d.
 
 (Filled in per phase.)
 
+### 35p
+
+- **`process.loadEnvFile` counts `""` as set.** `.mcp.json` hands the MCP
+  server `RECIPE_API_TOKEN: "${RECIPE_API_TOKEN:-}"`, which is `""` whenever
+  the launching shell has none (23-T27), so `loadEnvFile` would never fill
+  the one variable D11 is for. Checked on Node 22.23: a shell value wins, an
+  empty one blocks the file. `cli/editorEnv.ts` parses with `util.parseEnv`
+  and treats `""` as unset, as `resolve.ts`'s `envValue` does.
+- **An unindexed corpus now warns on every roundup call.** A brand-new
+  content directory (or a test's tmpdir) has no recipes index until the
+  first write or a reindex, so `inspect-list` / `import-list` there carry
+  the missing-index warning — including a real import's result, because the
+  index is checked when the list is read, before the first recipe lands.
+- **D10's pre-check is existence, not a parse.** Reading each `add`'s data
+  file up front made a corrupt file fail before any write, which broke F34's
+  `(partial)` contract (`curationGit.test.ts`). The check is `exists()` on
+  the data file; a file that is there but broken still fails part-way and
+  commits what landed.
+
 ## Results
 
 ### 35b — Aisles + group walk
@@ -396,6 +415,83 @@ the name `half` (8 food lines); now `half and half`.
 Upstream junk seen while measuring (not fixed): water with a leftover
 alternative amount ("or 4c water") is not caught as a staple; `singular`
 keeps "chilis" and "pepperoncinis" (its `-is` rule).
+
+### 35p — Curation & import polish
+
+**`term assign` refuses unknown slugs (D10).** `assignTerm` checks that every
+`add` names a data file of its `type` before anything is written and throws
+`unknown_recipe` (`recipes: [...]`) or `unknown_group` (`groups: [...]`, with
+the `--force` hint) naming all of them. `force` is a `TermAssignSchema` field,
+so it rides the API body as is; the CLI has `--force`, MCP `term_assign` a
+`force` input and a rewritten description. Forced, a missing slug is reported
+under `missing` as before, now with a `warnings` line per slug (a `remove` of
+a carrier that is not there gets one too, and never throws). The CLI grew a
+`CommandDef.exitCode` hook: `term assign` exits **1 whenever `missing` is
+non-empty** — the result object still prints. The curator skill says import
+first, then assign, and not to reach for `force`.
+
+**The CLI and the stdio MCP load `editor/.env` (D11)** — `cli/editorEnv.ts`,
+called from the `require.main` blocks of `cli/index.ts` and `mcp/server.ts`
+(so a test that imports `main` keeps its own environment). The file is
+`../.env` from the module, or `RECIPE_ENV_FILE`. **Only `RECIPE_API_TOKEN`
+and `RECIPE_EDITOR_URL` are read** (decision below); a variable already set
+and non-empty wins. Epic 34's trap text is corrected (34e Traps).
+
+**`inspect-list` / `import-list` warn on a missing recipes index.**
+`existingBySource` asks `environmentExists(getIndexDirectory(...))` first, as
+`readContentIndex` does, and both results carry `warnings: [MISSING_INDEX_WARNING]`
+("…`existing` is empty — every item reads as new. Reindex first"). The CLI
+prints it as a `! …` line in the human format and on stderr under `--json`,
+the convention every other `warnings` follows.
+
+**Root pages pin their subtree (D12).** `assertPinned` reads the tree
+aggregate and accepts a recipe when any tag slugs to a key of
+`subtreeKeys(tree, slug)` — a narrower term or an alias of one; the refusal
+now says "…or a narrower one". The page already applied pins over the merged
+subtree rows (34-D1; `tagTerms.test.ts` pins `course` → `sugar`). The edit
+page's pin suggestions come from the subtree's rows too, and the field's help
+text says so.
+
+**Browser term tools.** The editor term page has **Add a narrower term** →
+`/tags/new?parent=<slug>` for a term with a record (only a record can be a
+parent); `/tags/new` preselects `?parent=` when the select offers it and
+ignores it otherwise. `/tags/<slug>/edit` has a **Rename, merge or delete**
+section (`tags/[tag]/edit/tools.tsx`) over `renameTerm` / `mergeTerm` /
+`deleteTerm`, through three server actions beside the form's
+(`actions/tagTerms.ts`) and a Next-free half, `controller/termTools.ts`. Each
+tool's first submit (button or Enter) opens an in-page confirmation that
+names the slugs and the carrier count; **Confirm rename / merge / delete**
+writes. A rename or merge redirects to the destination's edit page, a delete
+to its own, with the outcome in the query
+(`?done=renamed&from=cookies&recipes=8&groups=0&alias=1`) printed as a
+notice; the deleted slug's edit
+page shows the notice instead of a 404. Delete offers "Also remove the tag
+from its N recipes and M groups" (the seat's `unassign`) when the term is
+carried, and a refusal says to tick it.
+
+Choices:
+
+1. **Allow-list, not the whole file.** The main checkout's `editor/.env`
+   holds only `RECIPE_API_TOKEN` today, but it is the editor app's file:
+   `RECIPE_API_URL` there would turn every bare `pnpm recipes` remote, and
+   `CONTENT_DIRECTORY` would point it at another corpus. So only the two
+   variables that say how to _reach_ an editor are taken. `RECIPE_EDITOR_URL`
+   set in the file turns notify on for every local write, as it does from a
+   shell.
+2. **Exit 1 for any `missing`**, a forced add or a remove alike: one rule —
+   the call did not do everything it named.
+3. **Notices live on the edit page**, which is per-request already; reading a
+   query on `/tags/<slug>` would make every prerendered term page dynamic.
+4. **Inline confirmation, not `ConfirmDeleteButton`'s dialog**: three tools
+   with fields and refusal messages in one section, and the dialog portals
+   its confirm away from the form whose error it would need to show. The
+   confirm buttons have their own names, as that component's note asks.
+5. **`@discontent/cms/lmdb/environmentCache` joins the D8 allow-list**
+   (`curation.test.ts`) — `fs` and LMDB only, under every content read.
+
+Not done: the real `--notify` → 200 check against the workstation (it was
+stopped during this phase); the process test drives `--notify` at a fake
+editor and checks the bearer token instead.
 
 ## Close-out
 

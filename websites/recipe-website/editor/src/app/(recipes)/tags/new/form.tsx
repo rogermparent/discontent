@@ -9,8 +9,11 @@ import { createTermFromForm } from "recipe-editor/controller/actions/tagTerms";
 
 export default function NewTermForm({
   parentOptions,
+  parent,
 }: {
   parentOptions: TermParentOption[];
+  /** Preselected from `?parent=` (35p). */
+  parent?: string;
 }) {
   const initialState: TermFormState = { message: "", errors: {} };
   const [state, dispatch] = useActionState(createTermFromForm, initialState);
@@ -26,6 +29,7 @@ export default function NewTermForm({
         <TermFields
           key={JSON.stringify(state)}
           state={state}
+          initial={parent ? { parent } : undefined}
           parentOptions={parentOptions}
         />
         <div id="missing-fields-error" aria-live="polite" aria-atomic="true">

@@ -788,14 +788,18 @@ export function createRecipeServer(
         "Add the term to the recipes in `add` and take it off those in `remove` " +
         '(groups instead with `type: "group"`), one write per carrier and one ' +
         "commit for the call (`Assign term: <slug> (+N recipes)`). Answers " +
-        "{slug, tag, updated, unchanged, missing}: `tag` is the string written, " +
-        "`missing` names slugs that are not recipes (or groups). No record is " +
-        "needed — a new tag comes into being this way.",
+        "{slug, tag, updated, unchanged, missing, warnings?}: `tag` is the string " +
+        "written. An `add` naming a recipe (or group) that does not exist is refused " +
+        "with unknown_recipe (unknown_group) before anything is written — import " +
+        "first, then assign; `force: true` lets it through as `missing` with a " +
+        "warning instead. A `remove` of one that is not there is reported under " +
+        "`missing`. No record is needed — a new tag comes into being this way.",
       inputSchema: z.strictObject({
         slug: Slug,
         add: z.array(Slug).optional(),
         remove: z.array(Slug).optional(),
         type: TermCarrierTypeSchema.optional(),
+        force: z.boolean().optional(),
       }),
       annotations: IDEMPOTENT_WRITE,
     },
