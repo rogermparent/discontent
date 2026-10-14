@@ -5,13 +5,20 @@
  * `inspectList` / `importList` that `/api/inspect-list`, `/api/import-list`,
  * the CLI and MCP reach, with the session's context in place of a token.
  *
- * - Signed in, or nothing: `authenticateUser`, as every editor action.
- * - The URL and picks are the seat's to check: `inspectList` / `importList`
- *   refuse a non-http(s) URL, the importer's fetch keeps its own guards, and
- *   `ImportListOptionsSchema` validates the picks and the term exactly as the
- *   API body is validated.
- * - **At most `ROUNDUP_CHUNK` picks a call**, refused otherwise and passed as
- *   the seat's `limit` too, so one call stays near 90 s of pacing.
+ * - Signed in, or nothing: `authenticateUser`, as every editor action, and
+ *   `unauthenticated` otherwise.
+ * - The input is parsed strictly (`RoundupImportInputSchema`), so a bad shape
+ *   is `validation`, never `internal`. The URL and picks are then the seat's
+ *   to check: `inspectList` / `importList` refuse a non-http(s) URL, the
+ *   importer's fetch keeps its own guards, and `ImportListOptionsSchema`
+ *   validates the picks and the term exactly as the API body is validated.
+ * - **At most `ROUNDUP_CHUNK` picks a call**, and passed as the seat's
+ *   `limit` too. One call re-fetches the list page, then a page and an image
+ *   per pick, each 15 s after the last request to that site: seven requests,
+ *   so ≥ 105 s against one site when the previous call just ended there, and
+ *   15 s more for each 403 retry.
+ * - The term field may hold a label: it is resolved to the vocabulary's slug
+ *   first (`resolveTermSlug`), so "Speed & effort" means `effort`.
  * - Revalidation is the context's: `curationContextFor` gives each write the
  *   `onWrite` the API routes use, so every recipe the call imports (its own
  *   commit) and the term's create-and-assign expire their pages as they land.
@@ -20,8 +27,10 @@
  * throw — because the client keeps looping and needs to know why it stopped.
  */
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
+import { z } from "zod";
 import { curationContextFor } from "recipe-editor/controller/apiContext";
 import {
+  UnauthenticatedError,
   ValidationError,
   toErrorObject,
   type ErrorObject,
@@ -32,32 +41,28 @@ import {
   type ImportListTermResult,
   type InspectListResult,
 } from "recipe-editor/controller/curation/importList";
+import { parseInput } from "recipe-editor/controller/curation/schema";
+import { listTerms } from "recipe-editor/controller/curation/terms";
 import {
   ROUNDUP_CHUNK,
   type RoundupOutcome,
   type RoundupPick,
 } from "recipe-editor/controller/roundupPicker";
-import { settleChunk } from "recipe-editor/controller/roundupSettle";
+import {
+  resolveTermSlug,
+  settleChunk,
+} from "recipe-editor/controller/roundupSettle";
 import { authenticateUser } from "recipe-editor/controller/actions/shared";
 
 type Failure = { error: ErrorObject["error"] };
 
 async function context() {
   const email = await authenticateUser();
-  if (!email) {
-    throw Object.assign(new Error("Authentication required"), {
-      code: "unauthenticated",
-    });
-  }
+  if (!email) throw new UnauthenticatedError();
   return curationContextFor(email, getContentDirectory());
 }
 
 function failure(error: unknown): Failure {
-  if ((error as { code?: string })?.code === "unauthenticated") {
-    return {
-      error: { code: "unauthenticated", message: "Authentication required" },
-    };
-  }
   return { error: toErrorObject(error).error };
 }
 
@@ -76,12 +81,23 @@ export async function inspectRoundupAction(
   }
 }
 
-export interface RoundupImportInput {
-  url: string;
-  picks: RoundupPick[];
-  term?: string;
-  termLabel?: string;
-}
+const RoundupImportInputSchema = z.strictObject({
+  url: z.string().trim().min(1),
+  picks: z
+    .array(
+      z.strictObject({
+        n: z.number().int().min(1),
+        url: z.string().min(1),
+        name: z.string(),
+      }),
+    )
+    .min(1)
+    .max(ROUNDUP_CHUNK, `At most ${ROUNDUP_CHUNK} picks a call`),
+  term: z.string().trim().optional(),
+  termLabel: z.string().trim().optional(),
+});
+
+export type RoundupImportInput = z.input<typeof RoundupImportInputSchema>;
 
 export interface RoundupImportAnswer {
   outcomes: RoundupOutcome[];
@@ -95,26 +111,23 @@ export interface RoundupImportAnswer {
 
 /** Import up to `ROUNDUP_CHUNK` picks, one commit each, then the term. */
 export async function importRoundupAction(
-  input: RoundupImportInput,
+  raw: RoundupImportInput,
 ): Promise<RoundupImportAnswer | Failure> {
   try {
     const ctx = await context();
-    const picks = Array.isArray(input?.picks) ? input.picks : [];
-    if (picks.length === 0 || picks.length > ROUNDUP_CHUNK) {
-      throw new ValidationError(
-        `Send between 1 and ${ROUNDUP_CHUNK} picks a call.`,
-      );
-    }
-    const term = input.term?.trim() || undefined;
-    const termLabel = (term && input.termLabel?.trim()) || undefined;
-    const result = await importList(ctx, String(input.url ?? ""), {
+    const input = parseInput(RoundupImportInputSchema, raw);
+    const term = input.term
+      ? resolveTermSlug((await listTerms(ctx)).terms, input.term)
+      : undefined;
+    const termLabel = (term && input.termLabel) || undefined;
+    const result = await importList(ctx, input.url, {
       /* Back as the seat hands out `remaining`: checked against the list. */
-      pick: picks.map(({ n, url }) => ({ n, url })),
+      pick: input.picks.map(({ n, url }) => ({ n, url })),
       limit: ROUNDUP_CHUNK,
       ...(term ? { term } : {}),
       ...(termLabel ? { termLabel } : {}),
     });
-    const settled = settleChunk(picks, result);
+    const settled = settleChunk(input.picks, result);
     const warnings = [
       ...(result.warnings ?? []),
       ...(result.term?.warnings ?? []),

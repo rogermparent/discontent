@@ -18,10 +18,13 @@ export default function NewOrImportRecipeForm({
   slug,
   initialState: initialImportState,
   allTags = [],
+  busy = false,
 }: {
   slug?: string;
   initialState: RecipeActionState | null;
   allTags?: string[];
+  /** A roundup import is running (35r): Import and Submit wait for it. */
+  busy?: boolean;
 }) {
   const [importState, importDispatch] = useActionState(
     importRecipeAction,
@@ -57,7 +60,12 @@ export default function NewOrImportRecipeForm({
           </div>
         ) : null}
         <TextInput name="import" label="Import from URL" />
-        <SubmitButton>Import</SubmitButton>
+        <SubmitButton disabled={busy}>Import</SubmitButton>
+        {busy ? (
+          <span className="ml-2 text-sm text-muted-foreground">
+            Waiting for the roundup import to finish…
+          </span>
+        ) : null}
       </form>
       <RecipeFormShell
         key={submissionState.formData ? submissionState.message : url}
@@ -82,7 +90,7 @@ export default function NewOrImportRecipeForm({
             )}
           </div>
           <div className="my-1 flex gap-2">
-            <SubmitButton>Submit</SubmitButton>
+            <SubmitButton disabled={busy}>Submit</SubmitButton>
             {submissionState.slugConflict && (
               <Button
                 type="submit"

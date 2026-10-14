@@ -6,9 +6,11 @@
  * (it needs the pacing's site keys, whose module parses HTML).
  *
  * **At most three picks per call** (`ROUNDUP_CHUNK`, the seat's own default
- * cap `IMPORT_LIST_LIMIT`): a real import is two requests (page and image),
- * 15 s apart per site (30-D5), so one call is about 90 s at worst — well
- * inside a server action's patience — and Stop takes effect after it.
+ * cap `IMPORT_LIST_LIMIT`): a call re-fetches the list page, then two
+ * requests (page and image) per pick, each 15 s after the last request to
+ * that site (30-D5) — seven requests, so ≥ 105 s against one site when the
+ * previous call just ended there, plus 15 s per 403 retry. A few minutes at
+ * most, and Stop takes effect after it.
  */
 import { hostnameLabel } from "recipe-website-common/util/hostnameLabel";
 import type { ImportListItemStatus } from "./curation/importList";

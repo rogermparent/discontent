@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, useTransition, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type FormEvent,
+} from "react";
 import { TextInput } from "@discontent/component-library/components/Form/inputs/Text";
 import { Button } from "@discontent/component-library/components/ui/button";
 import type { InspectListResult } from "recipe-editor/controller/curation/importList";
@@ -30,15 +36,20 @@ const STATUS_LABEL: Record<RoundupOutcome["status"], string> = {
  * server action call, so the 15 s per-site pacing (30-D5) never holds one
  * call for long, with a progress line, Stop and Resume.
  *
- * A sibling of the single-URL import above it, which is unchanged. Progress
- * lives in this component only: a reload loses it, and re-listing the page
- * marks what was imported as existing, so nothing is imported twice.
+ * A sibling of the single-URL import, which is unchanged but waits while a
+ * run is in flight (`onRunningChange`). Progress lives in this component
+ * only: leaving the page (an unmount stops the loop after its current call)
+ * or reloading it ends the run, and re-listing the page marks what was
+ * imported as existing, so nothing is imported twice. Links open in a new
+ * tab so a run can be watched without leaving it.
  */
 export default function RoundupImport({
-  allTags = [],
+  terms = [],
+  onRunningChange,
 }: {
-  /** Tag labels, offered for the term (any slug or label may be typed). */
-  allTags?: string[];
+  /** The vocabulary, offered for the term: the slug is the value. */
+  terms?: { slug: string; label: string }[];
+  onRunningChange?: (running: boolean) => void;
 }) {
   const [url, setUrl] = useState("");
   const [list, setList] = useState<InspectListResult | null>(null);
@@ -56,6 +67,14 @@ export default function RoundupImport({
   const [running, setRunning] = useState(false);
   const [stopping, setStopping] = useState(false);
   const stopRef = useRef(false);
+
+  /* Leaving the page (a client-side navigation) stops after this call. */
+  useEffect(
+    () => () => {
+      stopRef.current = true;
+    },
+    [],
+  );
 
   const withTerm = term.trim().length > 0;
   const picked = (list?.items ?? []).filter(
@@ -91,6 +110,7 @@ export default function RoundupImport({
     stopRef.current = false;
     setStopping(false);
     setRunning(true);
+    onRunningChange?.(true);
     setError(null);
     let left = start;
     try {
@@ -123,6 +143,7 @@ export default function RoundupImport({
       setQueue(left);
       setCurrent([]);
       setRunning(false);
+      onRunningChange?.(false);
       setStopping(false);
     }
   };
@@ -158,8 +179,10 @@ export default function RoundupImport({
       <p className="my-2 text-sm text-muted-foreground">
         Paste a list page (“25 Christmas Cookies”), tick the recipes you want,
         and import them, each as its own commit. Requests to one site are 15 s
-        apart, so a long list takes a while; leaving or reloading this page
-        stops it, and listing the page again marks what was already imported.
+        apart, so a long list takes a while. Stay on this page while it runs:
+        leaving or reloading it stops the run after the recipes in flight, and
+        listing the page again marks what was already imported. Recipe links
+        open in a new tab.
       </p>
       <form onSubmit={inspect} className="flex flex-col gap-2">
         <TextInput
@@ -276,6 +299,8 @@ export default function RoundupImport({
                       <Link
                         className="underline"
                         href={`/recipe/${item.existing}`}
+                        target="_blank"
+                        rel="noopener"
                       >
                         {item.existing}
                       </Link>
@@ -295,8 +320,10 @@ export default function RoundupImport({
             disabled={running}
           />
           <datalist id="roundup-terms">
-            {allTags.map((tag) => (
-              <option key={tag} value={tag} />
+            {terms.map((option) => (
+              <option key={option.slug} value={option.slug}>
+                {option.label}
+              </option>
             ))}
           </datalist>
           {withTerm && (
@@ -316,30 +343,19 @@ export default function RoundupImport({
             </p>
           )}
           <div className="flex flex-wrap gap-2">
-            {!running && (
-              <Button
-                type="button"
-                size="sm"
-                disabled={picked.length === 0}
-                onClick={startImport}
-              >
-                Import {picked.length} selected
-              </Button>
-            )}
-            {running && (
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={stopping}
-                onClick={() => {
-                  stopRef.current = true;
-                  setStopping(true);
-                }}
-              >
-                Stop
-              </Button>
-            )}
+            {/*
+              Stays put, disabled, while a run is in flight — and Stop lives
+              by the progress line — so the second click of a double-click
+              on Import lands on nothing.
+            */}
+            <Button
+              type="button"
+              size="sm"
+              disabled={running || picked.length === 0}
+              onClick={startImport}
+            >
+              {running ? "Importing…" : `Import ${picked.length} selected`}
+            </Button>
             {!running && queue.length > 0 && (
               <Button
                 type="button"
@@ -359,6 +375,22 @@ export default function RoundupImport({
           <p role="status" data-testid="roundup-progress" className="text-sm">
             {progressLine({ outcomes, total, current, stopping })}
           </p>
+          {running && (
+            <div>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={stopping}
+                onClick={() => {
+                  stopRef.current = true;
+                  setStopping(true);
+                }}
+              >
+                Stop
+              </Button>
+            </div>
+          )}
           <ul
             className="flex flex-col gap-1 text-sm"
             data-testid="roundup-results"
@@ -372,6 +404,8 @@ export default function RoundupImport({
                     <Link
                       className="underline"
                       href={`/recipe/${outcome.slug}`}
+                      target="_blank"
+                      rel="noopener"
                     >
                       {outcome.slug}
                     </Link>

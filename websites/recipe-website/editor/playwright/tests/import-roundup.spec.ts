@@ -112,11 +112,21 @@ test.describe("Import from a roundup", () => {
       .click();
     /* Asked while the first call (three picks) is still running. */
     await page.getByRole("button", { name: "Stop", exact: true }).click();
+    /* Still in flight: Import stays put, disabled, and the form waits. */
+    await expect(
+      page.getByRole("button", { name: "Importing…", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Submit", exact: true }),
+    ).toBeDisabled();
 
     const progress = page.getByTestId("roundup-progress");
     await expect(progress).toHaveText(
       "Imported 3 of 5 · stopped with 2 picks left",
     );
+    await expect(
+      page.getByRole("button", { name: "Submit", exact: true }),
+    ).toBeEnabled();
     const results = page.getByTestId("roundup-results").locator("li");
     await expect(results).toHaveCount(3);
 
@@ -127,6 +137,47 @@ test.describe("Import from a roundup", () => {
     await expect(results).toHaveCount(5);
     await expect(results.nth(4)).toContainText("5. Picker Pie — imported");
     await expect(page.getByRole("button", { name: /^Resume/ })).toHaveCount(0);
+  });
+
+  /* 35r review: the seat slugs what it gets, and this label is not `effort`'s slug. */
+  test("a typed label names its term, not a new one", async ({
+    page,
+    baseURL,
+    request,
+    createApiToken,
+  }) => {
+    const token = await createApiToken();
+    const created = await request.post("/api/taxonomies/tag", {
+      headers: { authorization: `Bearer ${token}` },
+      data: { label: "Speed & effort", slug: "effort" },
+    });
+    expect(created.status()).toBe(201);
+    /* The term exists now; the page's suggestions were read before it. */
+    await page.reload();
+    await page.getByText("Import from a roundup", { exact: true }).click();
+
+    await list(page, new URL("/uploads/roundup-five.html", baseURL!).href);
+    await page
+      .getByRole("button", { name: "Select none", exact: true })
+      .click();
+    await page.getByLabel("3. Picker Salad", { exact: true }).check();
+    await page
+      .getByLabel("Collection term (optional)", { exact: true })
+      .fill("Speed & effort");
+    await page
+      .getByRole("button", { name: "Import 1 selected", exact: true })
+      .click();
+    await expect(page.getByTestId("roundup-progress")).toHaveText(
+      "Imported 1 of 1 · done",
+    );
+
+    const effort = await (
+      await request.get("/api/taxonomies/tag/effort")
+    ).json();
+    expect(effort.recipes).toEqual(["picker-salad"]);
+    expect(
+      (await request.get("/api/taxonomies/tag/speed-and-effort")).status(),
+    ).toBe(404);
   });
 
   test("says why a page is not a roundup, and offers the single import", async ({

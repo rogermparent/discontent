@@ -630,21 +630,34 @@ form is unchanged.
   print above; a page that is not a roundup shows the seat's `reason` and an
   "Import it as one recipe" link to `/new-recipe?import=<url>`.
 - **Pick**: everything new starts ticked; Select all / none. An optional
-  term (typed, with the tag labels as suggestions) and, for a new one, its
-  label — `import-list --term / --term-label`. With a term, existing items
+  term (the vocabulary's slugs offered, labels shown) and, for a new one,
+  its label — `import-list --term / --term-label`. A typed label is
+  resolved to its term's slug on the server (`resolveTermSlug`: a known
+  slug stands, else an exact label match ignoring case), because the seat
+  slugs what it gets and "Speed & effort" would otherwise create
+  `speed-and-effort` beside `effort`. With a term, existing items
   unlock, so a re-run can tag them too.
 - **Import**: the client loops `importRoundupAction` over chunks of **at
   most three picks** (`ROUNDUP_CHUNK`; the action refuses more and passes it
-  as the seat's `limit`), so one call is ~90 s at worst of 15 s per-site
-  pacing. The progress line reads "Imported 4 of 9 · fetching 5, 6, 7 from
+  as the seat's `limit`). A call re-fetches the list page and then makes
+  a page and an image request per pick, each 15 s after the last request
+  to that site: seven requests, so ≥ 105 s against one site when the
+  previous call just ended there, plus 15 s per 403 retry. The progress
+  line reads "Imported 4 of 9 · fetching 5, 6, 7 from
   sallysbakingaddiction.com — one request every 15 s per site…"; each result
   links its recipe or says why it failed. **Stop** halts after the current
-  call; **Resume (N left)** continues from the queue. A reload loses the
+  call; **Resume (N left)** continues from the queue. A double-click on
+  Import cannot land on Stop (Import stays put, disabled, as "Importing…";
+  Stop sits by the progress line), the form's Import
+  and Submit wait while a run is in flight, and recipe links open in a new
+  tab. Leaving the page (an unmount) stops after the current call; a
+  reload loses the
   progress (the section says so); listing again marks what landed.
-- **Server side**: `authenticateUser`, then `curationContextFor` — the
-  context the API routes use, so each imported recipe (its own commit) and
-  the term's create-and-assign revalidate as `/api/import-list` does. The
-  URL and picks go through the seat's own checks (`checkUrl`, the
+- **Server side**: `authenticateUser` (`unauthenticated` otherwise), then
+  `curationContextFor` — the context the API routes use, so each imported
+  recipe (its own commit) and the term's create-and-assign revalidate as
+  `/api/import-list` does. The input is a strict zod object, so a bad shape
+  is `validation`; the URL and picks then go through the seat's own checks (`checkUrl`, the
   importer's fetch guards, `ImportListOptionsSchema`). Errors come back as
   `{error}` objects so the loop can stop and say why.
 - **Pure halves**, unit-tested (`test/roundupPicker.test.ts`):
@@ -666,6 +679,8 @@ Choices:
    a no-op (`existing`), but tagging it is the reason to tick it.
 3. **No `sessionStorage`**: re-listing already marks what landed, and a
    half-restored queue against a page that changed is worse than none.
+4. **The form waits during a run** (a client wrapper, `workspace.tsx`, shares
+   the flag), so a hand-made recipe cannot race the run for a slug.
 
 Gates: `pnpm --filter recipe-editor typecheck` and `pnpm --filter
 recipe-website exec tsc --noEmit` clean; `pnpm exec vitest run` 70 files,
@@ -673,7 +688,9 @@ recipe-website exec tsc --noEmit` clean; `pnpm exec vitest run` 70 files,
 (`import-roundup.spec`, `new-recipe.spec`, `accessibility.spec`,
 `visual.spec` with `--update-snapshots`): 90 passed; only the two
 `new-recipe-form*` baselines changed, regenerated on this machine rather than
-in the CI image.
+in the CI image. After the review fixes (unmount stop, new-tab links, term
+slugs, Stop moved off Import, the form waiting, strict input): vitest 1481
+passed; `import-roundup.spec` + `new-recipe.spec` 43 passed.
 
 ## Close-out
 

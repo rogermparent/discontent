@@ -13,7 +13,10 @@ import {
   progressLine,
   type RoundupPick,
 } from "../websites/recipe-website/editor/controller/roundupPicker";
-import { settleChunk } from "../websites/recipe-website/editor/controller/roundupSettle";
+import {
+  resolveTermSlug,
+  settleChunk,
+} from "../websites/recipe-website/editor/controller/roundupSettle";
 
 const pick = (n: number, host = "sallysbakingaddiction.com"): RoundupPick => ({
   n,
@@ -157,5 +160,23 @@ describe("progressLine", () => {
         "x",
       ]),
     ).toEqual(["a.com", "b.com"]);
+  });
+});
+
+describe("resolveTermSlug (35r review)", () => {
+  const terms = [
+    { slug: "effort", label: "Speed & effort" },
+    { slug: "dessert", label: "Dessert" },
+  ];
+
+  it("answers a label that does not slug to its term with that term's slug", () => {
+    expect(resolveTermSlug(terms, "Speed & effort")).toBe("effort");
+    expect(resolveTermSlug(terms, "  speed & EFFORT ")).toBe("effort");
+  });
+
+  it("keeps a known slug, and anything new as typed", () => {
+    expect(resolveTermSlug(terms, "effort")).toBe("effort");
+    expect(resolveTermSlug(terms, "Dessert")).toBe("Dessert");
+    expect(resolveTermSlug(terms, "Picker Dishes")).toBe("Picker Dishes");
   });
 });

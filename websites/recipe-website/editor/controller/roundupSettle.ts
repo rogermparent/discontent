@@ -5,6 +5,7 @@
  * dropped sites by `siteKey`, whose module (`roundupPage.ts`) parses HTML
  * and does not belong in a client bundle.
  */
+import { tagSlug } from "recipe-website-common/controller/tagSlug";
 import { siteKey } from "recipe-website-common/util/roundupPage";
 import type { ImportListResult } from "./curation/importList";
 import type { RoundupOutcome, RoundupPick } from "./roundupPicker";
@@ -65,4 +66,27 @@ export function settleChunk(
     };
   }
   return { outcomes, requeue, stalled };
+}
+
+/**
+ * The term the picker's field names, as a slug the seat will not re-slug
+ * into a different term (35r review).
+ *
+ * The field offers the vocabulary's slugs, but a person may type a label:
+ * "Speed & effort" slugs to `speed-and-effort`, while the term is `effort`.
+ * So a typed value that is already a term's slug (or slugs to one) stands;
+ * otherwise a term whose label matches it exactly, ignoring case, answers
+ * with its slug; and anything else goes to the seat as typed, which creates
+ * that term.
+ */
+export function resolveTermSlug(
+  terms: readonly { slug: string; label: string }[],
+  typed: string,
+): string {
+  const value = typed.trim();
+  const slugs = new Set(terms.map((term) => term.slug));
+  if (slugs.has(value) || slugs.has(tagSlug(value))) return value;
+  const lower = value.toLowerCase();
+  const byLabel = terms.find((term) => term.label.toLowerCase() === lower);
+  return byLabel ? byLabel.slug : value;
 }
