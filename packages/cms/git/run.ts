@@ -93,7 +93,9 @@ const gitDirs = new Map<string, Promise<string>>();
  * `MERGE_HEAD`, and so where the write lock and private indexes belong.
  *
  * Real path, so two spellings of one repository (a symlinked content
- * directory) share one lock key in this process. Cached per directory.
+ * directory) share one lock file and so one in-process queue
+ * (`writeLock.ts`, whose entry chain keys on the content directory's real
+ * path for the same reason). Cached per spelling.
  */
 export function gitDirectory(contentDirectory: string): Promise<string> {
   let found = gitDirs.get(contentDirectory);

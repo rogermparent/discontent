@@ -17,6 +17,7 @@ import {
   readJson,
   rm,
   stat,
+  symlink,
   utimes,
   writeFile,
 } from "fs-extra";
@@ -168,6 +169,39 @@ describe("withWriteLock", () => {
         ),
       );
       expect(order).toEqual(names);
+    }
+  });
+
+  it("keeps call order across a symlinked spelling of the directory (35q)", async () => {
+    /*
+     * The lock file is real-pathed, so both spellings share one lock; the
+     * entry chain must key on the real path too, or the two spellings race
+     * each other into the queue.
+     */
+    const parent = await mkdtemp(join(tmpdir(), "write-lock-link-"));
+    const link = join(parent, "content");
+    await symlink(dir, link);
+    try {
+      for (let round = 0; round < 5; round += 1) {
+        const order: number[] = [];
+        let active = 0;
+        const names = Array.from({ length: 12 }, (_, i) => i);
+        await Promise.all(
+          names.map((i) =>
+            withWriteLock(i % 2 ? link : dir, `w${i}`, async () => {
+              active += 1;
+              expect(active).toBe(1);
+              order.push(i);
+              await withWriteLock(i % 2 ? dir : link, "nested", async () => {});
+              await sleep(1);
+              active -= 1;
+            }),
+          ),
+        );
+        expect(order).toEqual(names);
+      }
+    } finally {
+      await rm(parent, { recursive: true, force: true });
     }
   });
 

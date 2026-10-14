@@ -821,13 +821,21 @@ time: each call joins a per-directory entry chain synchronously, starts its
 lookups (`access`, the git dir) at once, but applies the result — the
 re-entry check and `queueTurn`'s synchronous enqueue — only after every
 earlier call has applied its own, then leaves the chain (never held through
-a turn, so a re-entrant call cannot wait behind its own hold).
+a turn, so a re-entrant call cannot wait behind its own hold). The chain
+keys on the directory's **real path** (`realpathSync`, cached per spelling;
+`resolve` while it does not exist), as the lock file does, so a symlinked
+spelling and the real one share a chain as they share a lock. The wait on
+earlier callers **races the write's deadline** and ends in
+`RepositoryBusyError`; a caller that gives up leaves the chain at once, so
+one stuck lookup holds the rest only until their own deadlines (review
+round).
 `commitContentChanges` had the same bug one level up — its own
 `directoryIsGitRepo` before `withWriteLock` — and was the cause of the local
 `curationGit` "serialises two commits" flake; the check now runs inside the
 lock and `serialInHold`. New tests: 20 writers × 5 rounds with nested
 re-entry; mixed directory spellings plus a non-repo; 8 commits × 3 rounds in
-one lock scope. Each fails on `origin/main`'s code (the commit test with
+one lock scope; and a symlink + real path alternating, for `withWriteLock`
+(12 × 5) and for `commitContentChanges` in one hold (8 × 3). Each fails on `origin/main`'s code (the commit test with
 both old modules). `shopping.test`'s walk-cap case (12 committed writes +
 256 rows) gets a 30 s timeout — it took 4–8 s under load on either code.
 

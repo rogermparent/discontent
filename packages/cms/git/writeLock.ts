@@ -39,7 +39,7 @@
  * (`.<name>.<writeId>.<n>.tmp`, `fs/atomicWrite.ts`) older than the stale age.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
-import { readlinkSync } from "node:fs";
+import { readlinkSync, realpathSync } from "node:fs";
 import {
   link,
   readFile,
@@ -405,8 +405,49 @@ async function sweepTempFiles(
   }
 }
 
-/** resolved content directory → the tail of its in-order entry chain. */
+/** real content directory → the tail of its in-order entry chain. */
 const entries = new Map<string, Promise<void>>();
+/** content directory as spelled → its real path, once it exists. */
+const realDirectories = new Map<string, string>();
+
+/**
+ * The entry chain's key, synchronously (it must be taken before any await):
+ * the real path, as the lock file's is, so a symlinked spelling and the real
+ * one share one chain as they share one lock. Cached per spelling; a path
+ * that does not exist yet keys on `resolve` and is looked up again next time.
+ */
+function entryKey(contentDirectory: string): string {
+  const cached = realDirectories.get(contentDirectory);
+  if (cached) return cached;
+  try {
+    const real = realpathSync(contentDirectory);
+    realDirectories.set(contentDirectory, real);
+    return real;
+  } catch {
+    return resolve(contentDirectory);
+  }
+}
+
+/** `work`'s value, or null once `deadline` passes first. */
+async function beforeDeadline<T>(
+  work: Promise<T>,
+  deadline: number,
+): Promise<{ value: T } | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work.then((value) => ({ value })),
+      new Promise<null>((resolveTimer) => {
+        timer = setTimeout(
+          () => resolveTimer(null),
+          Math.max(0, deadline - Date.now()),
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** The lock file, or null outside a repository. */
 async function lockPathFor(contentDirectory: string): Promise<string | null> {
@@ -424,25 +465,38 @@ async function lockPathFor(contentDirectory: string): Promise<string | null> {
  * that, never held through a turn, so a re-entrant call cannot wait on it
  * behind its own hold. Null when there is nothing to queue for: outside a
  * repository, or when `enqueue` returns null (re-entry).
+ *
+ * **Bounded by the write's deadline.** Waiting on earlier callers is what can
+ * take long — one whose lookup is stuck (a git subprocess on a loaded box)
+ * holds up everyone behind it — so that wait races the deadline and ends in
+ * `RepositoryBusyError`, like a wait for the queue or the file. A caller that
+ * gives up leaves the chain at once, so the ones behind it wait on the stuck
+ * caller only until their own deadlines, not forever. This call's own lookup
+ * is not raced: it is one `access` and a cached git-dir lookup, no more
+ * bounded than any other git call on the write path.
  */
 async function takePlace(
   contentDirectory: string,
+  deadline: number,
+  started: number,
   enqueue: (path: string) => Promise<() => void> | null,
 ): Promise<{ path: string; turn: Promise<() => void> } | null> {
   const lookup = lockPathFor(contentDirectory);
   /* An unawaited rejection would be unhandled until our turn comes. */
   lookup.catch(() => undefined);
-  const key = resolve(contentDirectory);
+  const key = entryKey(contentDirectory);
   const previous = entries.get(key) ?? Promise.resolve();
   let leave!: () => void;
-  const mine = new Promise<void>((done) => (leave = done));
-  const tail = previous.then(() => mine);
+  /* Not `previous.then(...)`: a caller that times out must free the rest. */
+  const tail = new Promise<void>((done) => (leave = done));
   entries.set(key, tail);
   void tail.then(() => {
     if (entries.get(key) === tail) entries.delete(key);
   });
   try {
-    await previous;
+    if (!(await beforeDeadline(previous, deadline))) {
+      throw new RepositoryBusyError(null, Date.now() - started);
+    }
     const path = await lookup;
     if (path === null) return null;
     const turn = enqueue(path);
@@ -468,7 +522,7 @@ export async function withWriteLock<T>(
   const staleMs = options.staleMs ?? 60_000;
   const heartbeatMs = options.heartbeatMs ?? 10_000;
 
-  const place = await takePlace(contentDirectory, (path) =>
+  const place = await takePlace(contentDirectory, deadline, started, (path) =>
     store?.get(path)?.active ? null : queueTurn(path, deadline, started),
   );
   if (!place) return fn();
