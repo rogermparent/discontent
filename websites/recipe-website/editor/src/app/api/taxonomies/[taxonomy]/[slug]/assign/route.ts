@@ -1,10 +1,12 @@
 /**
- * `POST /api/taxonomies/<taxonomy>/<slug>/assign` — `{add?, remove?, type?}`
- * (31c).
+ * `POST /api/taxonomies/<taxonomy>/<slug>/assign` — `{add?, remove?, type?,
+ * force?}` (31c; `force`, 35-D10).
  *
  * Tags and untags carriers — recipes, or groups with `type: "group"` — one
- * update each, and answers `{slug, type, tag, updated, unchanged, missing}`.
- * No record is required: assigning is how a bare tag comes into being.
+ * update each, and answers `{slug, type, tag, updated, unchanged, missing,
+ * warnings?}`. An `add` naming no carrier is a 422 `unknown_recipe` /
+ * `unknown_group` unless `force`. No record is required: assigning is how a
+ * bare tag comes into being.
  */
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
 import {

@@ -477,14 +477,12 @@ describe("the CLI as a process", () => {
         "weeknight",
         "--add",
         "first-recipe",
-        "--add",
-        "no-such-recipe",
         "--json",
       ]);
       expect(assigned.exitCode).toBe(0);
       expect(JSON.parse(assigned.stdout)).toMatchObject({
         updated: ["first-recipe"],
-        missing: ["no-such-recipe"],
+        missing: [],
       });
 
       /* 32-close: `--add a b` used to write `a` and drop `b` unannounced. */
@@ -648,6 +646,137 @@ describe("the CLI as a process", () => {
       expect(deleted.exitCode).toBe(0);
     },
     TIMEOUT * 6,
+  );
+
+  /*
+   * 35-D10. An `--add` of a recipe that does not exist is refused whole;
+   * `--force` lets it through as `missing`, and the exit code still says so.
+   */
+  it(
+    "refuses term assign of an unknown recipe, and exits 1 when forced past it",
+    async () => {
+      const refused = await run([
+        "term",
+        "assign",
+        "d10-check",
+        "--add",
+        "first-recipe",
+        "--add",
+        "nope",
+        "--json",
+      ]);
+      expect(refused.exitCode).toBe(1);
+      expect(JSON.parse(refused.stdout).error).toMatchObject({
+        code: "unknown_recipe",
+        recipes: ["nope"],
+      });
+      const untouched = await run(["show", "first-recipe", "--json"]);
+      expect(JSON.parse(untouched.stdout).recipe.tags ?? []).not.toContain(
+        "d10-check",
+      );
+
+      const forced = await run([
+        "term",
+        "assign",
+        "d10-check",
+        "--add",
+        "nope",
+        "--force",
+        "--json",
+      ]);
+      expect(forced.exitCode).toBe(1);
+      expect(JSON.parse(forced.stdout)).toMatchObject({
+        updated: [],
+        missing: ["nope"],
+        warnings: [expect.stringContaining('No recipe "nope"')],
+      });
+      expect(forced.stderr).toContain('No recipe "nope"');
+    },
+    TIMEOUT * 3,
+  );
+
+  /*
+   * 35-D11. The CLI reads `RECIPE_API_TOKEN` from the editor's `.env` — here
+   * a file of the test's own through `RECIPE_ENV_FILE` — so `--notify` sends
+   * it; the rest of the file (`RECIPE_API_URL`, `CONTENT_DIRECTORY`) is not
+   * read, or this local write would have gone to port 9; and a token already
+   * in the environment beats the file's.
+   */
+  it(
+    "loads the token from the editor env file for --notify, and nothing else",
+    async () => {
+      const seen: (string | undefined)[] = [];
+      const editor = createServer((request, response) => {
+        if (request.method === "POST" && request.url === "/api/revalidate") {
+          seen.push(request.headers.authorization);
+        }
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end("{}");
+      });
+      await new Promise<void>((resolve) =>
+        editor.listen(0, "127.0.0.1", resolve),
+      );
+      const editorUrl = `http://127.0.0.1:${(editor.address() as AddressInfo).port}`;
+      const envDirectory = await mkdtemp(join(tmpdir(), "cli-env-"));
+      const envFile = join(envDirectory, ".env");
+      await writeFile(
+        envFile,
+        [
+          "RECIPE_API_TOKEN=rcp_from_file",
+          "RECIPE_API_URL=http://127.0.0.1:9",
+          "CONTENT_DIRECTORY=/nonexistent",
+        ].join("\n"),
+      );
+      const notify = (token?: string) =>
+        execa(
+          "pnpm",
+          [
+            "exec",
+            "tsx",
+            "cli/index.ts",
+            "term",
+            "assign",
+            "d11-check",
+            "--remove",
+            "first-recipe",
+            "--notify",
+            "--editor-url",
+            editorUrl,
+            "--json",
+            "--content-dir",
+            contentDirectory,
+          ],
+          {
+            cwd: EDITOR_DIR,
+            reject: false,
+            env: {
+              ...process.env,
+              CONTENT_DIRECTORY: undefined,
+              RECIPE_API_URL: undefined,
+              RECIPE_API_TOKEN: token,
+              RECIPE_EDITOR_URL: undefined,
+              RECIPE_ENV_FILE: envFile,
+            },
+          },
+        );
+      try {
+        /* `""` is unset, as `.mcp.json` passes it (T27). */
+        const fromFile = await notify("");
+        expect(fromFile.exitCode).toBe(0);
+        expect(JSON.parse(fromFile.stdout)).toMatchObject({
+          unchanged: ["first-recipe"],
+        });
+        expect(fromFile.stderr).toContain("Notified");
+
+        const fromEnv = await notify("rcp_from_env");
+        expect(fromEnv.exitCode).toBe(0);
+        expect(seen).toEqual(["Bearer rcp_from_file", "Bearer rcp_from_env"]);
+      } finally {
+        await new Promise((resolve) => editor.close(resolve));
+        await rm(envDirectory, { recursive: true, force: true });
+      }
+    },
+    TIMEOUT * 2,
   );
 });
 

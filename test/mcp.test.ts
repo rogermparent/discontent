@@ -31,6 +31,7 @@ import {
   STALE_EDITOR_HINT,
 } from "../websites/recipe-website/editor/cli/backend/local";
 import { resolveBackendConfig } from "../websites/recipe-website/editor/cli/backend/resolve";
+import { MISSING_INDEX_WARNING } from "../websites/recipe-website/editor/controller/curation/importList";
 import {
   TOOL_NAMES,
   createRecipeServer,
@@ -935,7 +936,11 @@ describe("the MCP registry over an in-memory transport", () => {
         results: [{ n: 1, status: "would-import", slug: "apple-pie" }],
         remaining: [],
       });
-      expect(dry.data.warnings).toBeUndefined();
+      /*
+       * The only warning is 35p's: this corpus has no recipe index yet, so
+       * nothing could be marked `existing`. No stale-editor line.
+       */
+      expect(dry.data.warnings).toEqual([MISSING_INDEX_WARNING]);
       expect((await call("recipe_list")).data.total).toBe(0);
 
       /* The default cap is three, so `all` fits in one call. */
@@ -953,7 +958,11 @@ describe("the MCP registry over an in-memory transport", () => {
       expect(
         (real.data.results as { status: string }[]).map((r) => r.status),
       ).toEqual(["imported", "imported", "imported"]);
-      expect(real.data.warnings).toEqual([expect.stringContaining("stale")]);
+      /* Still no index when the list was read; then the write's own hint. */
+      expect(real.data.warnings).toEqual([
+        MISSING_INDEX_WARNING,
+        expect.stringContaining("stale"),
+      ]);
       expect((await call("recipe_list", { tag: "pies" })).data.total).toBe(3);
 
       /* And the list now says so. */

@@ -17,18 +17,37 @@ export const dynamic = "force-dynamic";
  * slugged `new` would have its page shadowed here. The seat does not reserve
  * the slug; the trap is recorded in `agent-epic-31.md` (31e).
  */
-export default async function NewTermPage() {
+export default async function NewTermPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ parent?: string | string[] }>;
+}) {
+  const { parent: rawParent } = await searchParams;
+  const requested = Array.isArray(rawParent) ? rawParent[0] : rawParent;
+
   const user = await auth();
   if (!user) {
-    return signIn(undefined, { redirectTo: "/tags/new" });
+    return signIn(undefined, {
+      redirectTo: requested
+        ? `/tags/new?parent=${encodeURIComponent(requested)}`
+        : "/tags/new",
+    });
   }
 
   const tree = await tagTermReads.tree.read();
+  const parentOptions = termParentOptions(tree);
+  /*
+   * `?parent=` (35p, the term page's "Add a narrower term"): preselected when
+   * it names a term the select offers — a record — and ignored otherwise.
+   */
+  const parent = parentOptions.some((option) => option.slug === requested)
+    ? requested
+    : undefined;
 
   return (
     <PageMain>
       <PageSection maxWidth="xl" grow>
-        <NewTermForm parentOptions={termParentOptions(tree)} />
+        <NewTermForm parentOptions={parentOptions} parent={parent} />
       </PageSection>
     </PageMain>
   );

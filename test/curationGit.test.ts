@@ -1290,7 +1290,8 @@ describe("batched term writes (F34)", () => {
     const afterChanges = await head();
     await assignTerm(ctx, "bread", { add: ["naan"], remove: ["scone"] });
     await assignTerm(ctx, "bread", { add: ["naan"] });
-    await assignTerm(ctx, "bread", { add: ["no-such-recipe"] });
+    /* Forced past 35-D10's refusal, a slug that names nothing writes nothing. */
+    await assignTerm(ctx, "bread", { add: ["no-such-recipe"], force: true });
 
     const commits = await commitsSince(before);
     expect(commits.map((commit) => commit.message)).toEqual([

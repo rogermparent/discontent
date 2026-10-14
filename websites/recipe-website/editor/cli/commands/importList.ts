@@ -77,6 +77,7 @@ export const inspectListCommand: CommandDef<InspectListResult> = {
         (item) =>
           `  ${String(item.n).padStart(width)}. ${item.name}  ${item.url}${item.existing ? `  [existing: ${item.existing}]` : ""}`,
       ),
+      ...formatWarnings(result.warnings),
     ]
       .filter(Boolean)
       .join("\n");
@@ -164,6 +165,7 @@ export const importListCommand: CommandDef<ImportListResult> = {
             : `term ${term.slug}: ${term.created ? "created, " : ""}+${term.updated?.length ?? 0} recipe(s)`
         : undefined,
       ...formatWarnings(term?.warnings),
+      ...formatWarnings(result.warnings),
       `requests: ${result.requests}`,
     ]
       .filter(Boolean)

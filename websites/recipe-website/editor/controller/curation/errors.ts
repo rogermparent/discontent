@@ -205,7 +205,8 @@ export class UnknownRecipeError extends CurationError {
  *
  * A group item naming a missing group *is* the dangling case (23c/T31), and
  * there the hint is the whole answer — so `checkItems` constructs this with
- * `{forceHint: true}` and nothing else does.
+ * `{forceHint: true}`, and so does `assignTerm` (35-D10) for an `add` naming
+ * a group that does not exist yet.
  */
 export class UnknownGroupError extends CurationError {
   constructor(

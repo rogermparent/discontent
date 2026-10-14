@@ -39,6 +39,13 @@ import {
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
 import { createTerm } from "../websites/recipe-website/editor/controller/curation/terms";
 import {
+  parseTermToolNotice,
+  submitTermDelete,
+  submitTermMerge,
+  submitTermRename,
+  termToolNoticeText,
+} from "../websites/recipe-website/editor/controller/termTools";
+import {
   TERM_NOT_SAVED,
   parseTermFormData,
   submitTermForm,
@@ -596,5 +603,84 @@ describe("submitTermForm", () => {
       pinned: ["linzer-cookies"],
     });
     expect((await readTerm("christmas")).parent).toBeUndefined();
+  });
+
+  /* 35p: the edit page's rename / merge / delete section, server half. */
+  it("renames, merges and deletes from the tools, landing on a notice", async () => {
+    const renamed = await submitTermRename(
+      ctx,
+      "cookies",
+      form({ to: "Biscuits" }),
+    );
+    expect(renamed).toEqual({
+      ok: true,
+      href: "/tags/biscuits/edit?done=renamed&from=cookies&recipes=1&groups=0&alias=1",
+    });
+    const notice = parseTermToolNotice(
+      Object.fromEntries(
+        new URL(`http://x${renamed.ok && renamed.href}`).searchParams,
+      ),
+    );
+    expect(notice).toEqual({
+      done: "renamed",
+      from: "cookies",
+      recipes: 1,
+      groups: 0,
+      alias: true,
+    });
+    expect(termToolNoticeText(notice!)).toBe(
+      "Renamed from “cookies”: 1 recipe and 0 groups re-tagged. /tags/cookies now leads here.",
+    );
+
+    /* A refusal keeps what was typed. */
+    expect(
+      await submitTermMerge(ctx, "biscuits", form({ into: "biscuits" })),
+    ).toMatchObject({
+      ok: false,
+      state: { values: { into: "biscuits" }, error: expect.any(String) },
+    });
+    expect(
+      await submitTermRename(ctx, "biscuits", form({ to: "  " })),
+    ).toMatchObject({
+      ok: false,
+      state: { error: "Name the new slug or label." },
+    });
+
+    expect(
+      await submitTermMerge(ctx, "christmas", form({ into: "dessert" })),
+    ).toEqual({
+      ok: true,
+      href: "/tags/dessert/edit?done=merged&from=christmas&recipes=1&groups=0&alias=1",
+    });
+
+    /* Carried: refused and flagged, until unassign is ticked. */
+    expect(await submitTermDelete(ctx, "dessert", form({}))).toMatchObject({
+      ok: false,
+      state: {
+        inUse: true,
+        values: { unassign: false },
+        error:
+          "“dessert” is still on 1 recipe and 0 groups. Tick “Also remove the tag” to untag them first, or merge it into another term.",
+      },
+    });
+    expect(
+      await submitTermDelete(ctx, "dessert", form({ unassign: "on" })),
+    ).toEqual({
+      ok: true,
+      href: "/tags/dessert/edit?done=deleted&recipes=1&groups=0&children=1",
+    });
+    expect(await pathExists(termFile("dessert"))).toBe(false);
+    expect(
+      termToolNoticeText({
+        done: "deleted",
+        recipes: 1,
+        groups: 0,
+        children: 1,
+      }),
+    ).toBe(
+      "Deleted. Untagged 1 recipe and 0 groups; 1 narrower term moved up.",
+    );
+    expect(parseTermToolNotice({ done: "renamed" })).toBeUndefined();
+    expect(parseTermToolNotice({})).toBeUndefined();
   });
 });

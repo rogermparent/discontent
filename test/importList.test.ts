@@ -36,6 +36,7 @@ import { recipeContentTypes } from "../websites/recipe-website/editor/controller
 import type { CurationContext } from "../websites/recipe-website/editor/controller/curation/context";
 import { CurationError } from "../websites/recipe-website/editor/controller/curation/errors";
 import {
+  MISSING_INDEX_WARNING,
   SiteState,
   importList,
   inspectList,
@@ -299,6 +300,24 @@ describe("inspectList", () => {
     ]);
     /* One request, nothing written. */
     expect(hits).toHaveLength(1);
+    /* An index to ask, so no warning. */
+    expect(result).not.toHaveProperty("warnings");
+  });
+
+  /* 35p: an unbuilt index reads as empty (F30); say so rather than mark nothing. */
+  it("warns when the recipes index is missing, in both seats", async () => {
+    const inspected = await inspectList(ctx, listUrl(), { pacing });
+    expect(inspected.items.some((item) => item.existing)).toBe(false);
+    expect(inspected.warnings).toEqual([MISSING_INDEX_WARNING]);
+    expect(MISSING_INDEX_WARNING).toMatch(/index is missing.*Reindex first/);
+
+    const dryRun = await importList(
+      ctx,
+      listUrl(),
+      { pick: [1], dryRun: true },
+      { pacing },
+    );
+    expect(dryRun.warnings).toEqual([MISSING_INDEX_WARNING]);
   });
 
   it("answers an empty list with the parser's reason", async () => {

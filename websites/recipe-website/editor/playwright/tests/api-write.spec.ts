@@ -642,17 +642,29 @@ test.describe("JSON write API", () => {
       tag: "flatbread",
     });
 
+    /* 35-D10: an add naming no recipe is refused whole, before any write… */
+    const refused = await request.post("/api/taxonomies/tag/flatbread/assign", {
+      headers: auth(),
+      data: { add: ["api-naan", "ghost"] },
+    });
+    expect(refused.status()).toBe(422);
+    expect((await refused.json()).error).toMatchObject({
+      code: "unknown_recipe",
+      recipes: ["ghost"],
+    });
+    /* …unless forced: then it is `missing`, with a warning. */
     const assigned = await request.post(
       "/api/taxonomies/tag/flatbread/assign",
       {
         headers: auth(),
-        data: { add: ["api-naan", "ghost"] },
+        data: { add: ["api-naan", "ghost"], force: true },
       },
     );
     expect(assigned.status()).toBe(200);
     expect(await assigned.json()).toMatchObject({
       updated: ["api-naan"],
       missing: ["ghost"],
+      warnings: [expect.stringContaining('No recipe "ghost"')],
     });
 
     const got = await request.get("/api/taxonomies/tag/flatbread");
