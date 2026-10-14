@@ -59,6 +59,8 @@ import { withWriteLock } from "@discontent/cms/git/writeLock";
 import { ulid } from "@discontent/cms/util/ulid";
 import {
   readIndexFreshness,
+  readIndexedHead,
+  writeIndexedHead,
   type IndexFreshness,
 } from "@discontent/cms/git/indexStamp";
 import { featuredRecipeContentConfig } from "recipe-website-common/controller/featuredRecipeContentConfig";
@@ -77,6 +79,7 @@ import {
   ValidationError,
 } from "./errors";
 import { reindex } from "./reindex";
+import { changesOnlyUnindexed } from "./unindexed";
 
 /* --- page DTOs (moved here from the `/git` page, D19) -------------------- */
 
@@ -1426,6 +1429,26 @@ async function mergeLocked(
   }
 
   const head = String(await git.revparse(["HEAD"])).trim();
+  /*
+   * A merge that brought in only shopping-list or inventory commits (the
+   * other device's ticks) leaves every index true (35c review): move the
+   * stamp and skip the rebuild and the whole-site revalidate. Only when the
+   * indexes described `before` — otherwise rebuild as always.
+   */
+  if (
+    (await readIndexedHead(ctx.contentDirectory)) === before &&
+    (await changesOnlyUnindexed(ctx.contentDirectory, before, head))
+  ) {
+    await writeIndexedHead(ctx.contentDirectory, head);
+    return {
+      from,
+      merged: true,
+      fastForward,
+      newCommits,
+      head,
+      rebuilt: [],
+    };
+  }
   return {
     from,
     merged: true,

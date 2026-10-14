@@ -47,6 +47,7 @@ import { inventoryCommands } from "./commands/inventory";
 import { listCommand } from "./commands/list";
 import { reindexCommand } from "./commands/reindex";
 import { searchCommand } from "./commands/search";
+import { shoppingCommands } from "./commands/shopping";
 import { showCommand } from "./commands/show";
 import { tagsCommand } from "./commands/tags";
 import { termCommands } from "./commands/term";
@@ -106,17 +107,21 @@ const SUBCOMMAND_TABLES: Record<string, Record<string, CommandDef<unknown>>> = {
   featured: featuredCommands,
   git: gitCommands,
   inventory: inventoryCommands,
+  /* The shared shopping list (35c). */
+  shopping: shoppingCommands,
   /* The vocabulary's records and carriers (31c). */
   term: termCommands,
 };
 
 /**
- * What a table command means with no subcommand. Only `inventory` has one:
- * `recipes inventory` reads as "show me the list", where a bare `group` or
- * `git` names no obvious action and stays a usage error.
+ * What a table command means with no subcommand. Only the two lists have
+ * one: `recipes inventory` and `recipes shopping` read as "show me the
+ * list", where a bare `group` or `git` names no obvious action and stays a
+ * usage error.
  */
 const DEFAULT_SUBCOMMANDS: Record<string, string> = {
   inventory: "list",
+  shopping: "list",
 };
 
 /** Own properties only, so `recipes toString x` is not a `Function`. */
@@ -178,6 +183,13 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   inventory remove <item…>
   inventory set --file <list.txt|list.json>
   inventory make [<query…>] [--limit 20]
+  shopping [list] [--store <id>]
+  shopping add (--recipe <slug> | --group <slug>) [--scale 2] | <line…>
+  shopping check <id|name…>
+  shopping uncheck <id|name…>
+  shopping remove <id…> | --recipe <slug> | --group <slug>
+  shopping clear [--all] [--yes]
+  shopping settings [set <key> <value…>]
   git status [--fetch]
   git fetch [<remote>]
   git pull [<remote>]
