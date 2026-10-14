@@ -14,6 +14,18 @@ import { fillSignInForm } from "../support/helpers";
 const rows = (page: Page) => page.getByTestId("shopping-row");
 const list = (page: Page) => page.getByTestId("shopping-list");
 
+/**
+ * The page is hydrated: under `next dev` (CI) a click that lands before
+ * React owns the page is swallowed — the add box's submit never runs.
+ */
+async function listReady(page: Page) {
+  await expect(page.getByTestId("shopping-page")).toHaveAttribute(
+    "data-ready",
+    "true",
+    { timeout: 30_000 },
+  );
+}
+
 /** Signed in, on `/shopping` (the page sends a guest to sign in first). */
 async function openList(page: Page) {
   await page.goto("/shopping");
@@ -21,16 +33,24 @@ async function openList(page: Page) {
   await expect(
     page.getByRole("heading", { name: "Shopping list" }),
   ).toBeVisible();
+  await listReady(page);
 }
 
 async function addPlan(page: Page) {
   await page.goto("/group/week-of-oct-19");
+  /* Hydrated, or the click submits the form natively under `next dev`. */
+  await expect(page.getByTestId("add-group-to-shopping")).toHaveAttribute(
+    "data-ready",
+    "true",
+    { timeout: 30_000 },
+  );
   await page.getByRole("button", { name: "Add to shopping list" }).click();
   await expect(page.getByTestId("shopping-add-result")).toContainText(
     "12 items added",
   );
   await page.getByRole("link", { name: "Open the list" }).click();
   await expect(list(page)).toContainText("10 eggs");
+  await listReady(page);
 }
 
 test.describe("Shopping list", () => {
@@ -108,6 +128,7 @@ test.describe("Shopping list", () => {
 
     /* A reload reads it back from the server. */
     await page.reload();
+    await listReady(page);
     const checked = page.getByTestId("shopping-checked");
     await expect(checked).toContainText("Checked (2)");
     await checked.getByText("Checked (2)").click();

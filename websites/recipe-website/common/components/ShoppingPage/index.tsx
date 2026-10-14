@@ -59,6 +59,21 @@ function saveStoreChoice(store: string): void {
  * The store switch's choice, remembered per viewer: "all" on the server and
  * through hydration, then what this browser chose last.
  */
+const noSubscription = () => () => {};
+
+/**
+ * False on the server and through hydration, true once React owns the page:
+ * `data-ready` on the page root, which a test waits for so a click under
+ * `next dev`'s slow hydration is not swallowed.
+ */
+function useHydrated(): boolean {
+  return useSyncExternalStore(
+    noSubscription,
+    () => true,
+    () => false,
+  );
+}
+
 function useStoreChoice(): [string, (store: string) => void] {
   const store = useSyncExternalStore(
     subscribeStoreChoice,
@@ -326,6 +341,7 @@ export function ShoppingPage({
 }) {
   const list = useShoppingList({ initial, actions, patchUrl });
   const [store, setStore] = useStoreChoice();
+  const hydrated = useHydrated();
 
   const fullView = useMemo(
     () => buildShoppingView(list.items, list.settings, list.inventory),
@@ -348,7 +364,11 @@ export function ShoppingPage({
   const showStoreHeadings = storesOn && view.stores.length > 1;
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
+    <div
+      className="mx-auto flex w-full max-w-2xl flex-col gap-4"
+      data-testid="shopping-page"
+      data-ready={hydrated ? "true" : undefined}
+    >
       <header className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="text-2xl font-bold">Shopping list</h1>

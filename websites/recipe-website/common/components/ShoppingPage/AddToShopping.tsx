@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { ShoppingCart } from "lucide-react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { Input } from "@discontent/component-library/components/ui/input";
@@ -10,6 +10,17 @@ import { useMultiplier } from "../View/Multiplier/Provider";
 import { isActionError, type ShoppingPageActions } from "./useShoppingList";
 
 type Add = ShoppingPageActions["add"];
+
+const noSubscription = () => () => {};
+
+/** True once React owns the page (a test waits for `data-ready`). */
+function useHydrated(): boolean {
+  return useSyncExternalStore(
+    noSubscription,
+    () => true,
+    () => false,
+  );
+}
 
 /** What an add answered, said in a line with a link to the list. */
 function AddResult({ message }: { message?: string }) {
@@ -57,10 +68,13 @@ export function AddGroupToShopping({
   const [message, setMessage] = useState<string>();
   const [busy, setBusy] = useState(false);
   const valid = !scale.trim() || isValidScale(scale);
+  const hydrated = useHydrated();
   return (
     <div className="flex flex-col gap-1">
       <form
         className="flex items-center gap-2"
+        data-testid="add-group-to-shopping"
+        data-ready={hydrated ? "true" : undefined}
         onSubmit={async (event) => {
           event.preventDefault();
           if (!valid) return;
