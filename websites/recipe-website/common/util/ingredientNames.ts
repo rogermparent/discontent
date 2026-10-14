@@ -21,6 +21,13 @@
  */
 import { fold } from "../components/SearchForm/queryLanguage";
 import { detectHeading } from "./detectHeading";
+import {
+  QUANTITY_RE,
+  UNIT_ALT_RE,
+  UNIT_OF_RE,
+  UNIT_OR_RE,
+  UNIT_RE,
+} from "./ingredientGrammar";
 import { normalizeIngredientText } from "./parseIngredients";
 
 /** A normalized ingredient name. */
@@ -69,128 +76,9 @@ export interface LineMeta {
 }
 
 // --- word lists ------------------------------------------------------------
-
-/**
- * Units, singular. Matched case-insensitively, with an optional plural and an
- * optional full stop — and **only** after a quantity or before `of`, so the
- * one-letter ones (`c`, `t`, `g`, `l`) can't eat a real word.
- */
-const UNITS = [
-  "fl oz",
-  "fluid ounce",
-  "oz",
-  "ounce",
-  "ml",
-  "milliliter",
-  "millilitre",
-  "cl",
-  "dl",
-  "l",
-  "liter",
-  "litre",
-  "cup",
-  "c",
-  "tbsp",
-  "tbs",
-  "tbl",
-  "tablespoon",
-  "tsp",
-  "teaspoon",
-  "t",
-  "bar spoon",
-  "barspoon",
-  "dash",
-  "drop",
-  "splash",
-  "squeeze",
-  "squirt",
-  "pinch",
-  "part",
-  "shot",
-  "jigger",
-  "measure",
-  "can",
-  "bottle",
-  "sprig",
-  "slice",
-  "wedge",
-  "wheel",
-  "clove",
-  "g",
-  "gram",
-  "gramme",
-  "kg",
-  "kilogram",
-  "lb",
-  "pound",
-  "quart",
-  "qt",
-  "pint",
-  "pt",
-  "gallon",
-  "gal",
-  "stick",
-  "piece",
-  "pc",
-  "handful",
-  "bunch",
-  "head",
-  "stalk",
-  "rib",
-  "package",
-  "pkg",
-  "packet",
-  "envelope",
-  "jar",
-  "bag",
-  "box",
-  "tin",
-  "carton",
-  "container",
-  "ear",
-  "scoop",
-  "knob",
-  "inch",
-  "sheet",
-  /* `1 recipe lavender syrup`, `1 batch simple syrup` (27c). */
-  "recipe",
-  "batch",
-];
-
-/** Longest first, so `fl oz` wins over `fl`… and `tbsp` over `t`. */
-const UNIT_PATTERN = [...UNITS]
-  .sort((a, b) => b.length - a.length)
-  .map((unit) => unit.replace(/ /g, "\\s*"))
-  .join("|");
-
-/** `2`, `1.5`, `1 1/2`, `3/4`, and a range or choice of them. */
-/* Fractions first: the alternation takes the first branch that fits, and a
- * bare `\d+` fits the `3` of `3/4`. */
-const NUMBER = String.raw`(?:\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:[.,]\d+)?)`;
-const QUANTITY_WORDS = String.raw`(?:a\s+few|a\s+couple(?:\s+of)?|a\s+little|a\s+bit(?:\s+of)?|couple(?:\s+of)?|few|several|some|half(?!\s+and\s+half)(?:\s+an?)?|one|two|three|four|five|six|seven|eight|nine|ten|twelve|an?)`;
-const MODIFIER = String.raw`(?:about|approx\.?|approximately|around|~|scant|heaping|heaped|generous|rounded|level|large|small|big)`;
-const QUANTITY_RE = new RegExp(
-  String.raw`^(?:${MODIFIER}\s*)?(?:${NUMBER}(?:\s*(?:-|–|—|to|or)\s*${NUMBER})?|${QUANTITY_WORDS}\b)(?:\s*${MODIFIER}\b)?\s*`,
-  "i",
-);
-const UNIT_RE = new RegExp(
-  String.raw`^(?:${UNIT_PATTERN})(?:e?s)?\.?(?=\s|$|\(|\/)\s*`,
-  "i",
-);
-/** `/1.5kg` after `3.5lb`: the same amount in other units (32j). */
-const UNIT_ALT_RE = new RegExp(
-  String.raw`^\/\s*${NUMBER}\s*(?:${UNIT_PATTERN})(?:e?s)?\.?(?=\s|$|\()\s*`,
-  "i",
-);
-/** ` or can` / `/can` after a unit: the second of two containers (27c). */
-const UNIT_OR_RE = new RegExp(
-  String.raw`^(?:or|\/)\s*(?:${UNIT_PATTERN})(?:e?s)?\.?(?=\s|$|\()\s*`,
-  "i",
-);
-const UNIT_OF_RE = new RegExp(
-  String.raw`^(?:${UNIT_PATTERN})(?:e?s)?\.?\s+of\s+`,
-  "i",
-);
+//
+// Units, numbers and quantity words live in `ingredientGrammar` (35a), shared
+// with `ingredientAmount`.
 
 /**
  * The parts of a fruit or plant a line asks for. `lime` meets `lime juice`
@@ -539,7 +427,7 @@ export function requirementLabel(requirement: Requirement): string {
 // --- lines -----------------------------------------------------------------
 
 /** Undo the two kinds of markup a stored line can carry. */
-function stripMarkup(text: string): string {
+export function stripMarkup(text: string): string {
   return text
     .replace(/<Multiplyable\s+baseNumber="([^"]*)"\s*\/>/g, "$1")
     .replace(/<[^>]*>/g, " ")
