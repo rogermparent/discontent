@@ -697,7 +697,17 @@ export async function commitContentChanges(
   paths?: string[],
   contentDirectory: string = getContentDirectory(),
 ) {
-  if (await directoryIsGitRepo(contentDirectory)) {
-    await commitChanges(contentDirectory, message, author, paths);
-  }
+  /*
+   * The repository check runs inside the lock and the hold's serial queue,
+   * not before them: an `access` awaited first resolves in any order, so two
+   * commits started together in one scope could land in either order (35q).
+   */
+  const text = cleanMessage(message);
+  const subject = text.split("\n")[0] ?? "";
+  await withWriteLock(contentDirectory, `commit: ${subject}`, () =>
+    serialInHold(async () => {
+      if (!(await directoryIsGitRepo(contentDirectory))) return;
+      await commitLocked(contentDirectory, text, subject, author, paths);
+    }),
+  );
 }

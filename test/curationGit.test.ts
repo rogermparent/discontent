@@ -2064,4 +2064,38 @@ describe("private-index commits (34c)", () => {
     expect((await git.status()).isClean()).toBe(true);
     expect(await privateIndexes()).toEqual([]);
   });
+
+  it("lands many commits started together in call order (35q)", async () => {
+    /*
+     * The repository check once ran before the lock, and its `access`
+     * resolves in any order, so commits could land out of call order.
+     */
+    for (let round = 0; round < 3; round += 1) {
+      const names = Array.from({ length: 8 }, (_, i) => `r${round}c${i}`);
+      for (const name of names) {
+        await outputFile(join(contentDirectory, `notes/${name}.txt`), name);
+      }
+      const before = await head();
+      await withWriteLock(contentDirectory, "many commits", () =>
+        Promise.all(
+          names.map((name, i) =>
+            commitContentChanges(
+              name,
+              ctx.author,
+              [`notes/${name}.txt`],
+              /* A second spelling: its own, slower, first lookup. */
+              i % 2 ? `${contentDirectory}/./` : contentDirectory,
+            ),
+          ),
+        ).then(() => undefined),
+      );
+      const log = String(
+        await git.raw(["log", "--format=%s", "--reverse", `${before}..HEAD`]),
+      )
+        .trim()
+        .split("\n");
+      expect(log).toEqual(names);
+    }
+    expect((await git.status()).isClean()).toBe(true);
+  }, 60_000);
 });

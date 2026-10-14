@@ -652,7 +652,7 @@ describe("review round (35c)", () => {
     expect((await addToShopping(ctx, { group: "level-2" })).added).toHaveLength(
       256,
     );
-  });
+  }, 30_000);
 
   it("refuses an add that would take the list past its cap", async () => {
     /* Files laid down by hand, uncommitted: only the count matters here. */

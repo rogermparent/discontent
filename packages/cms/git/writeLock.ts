@@ -51,7 +51,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { hostname } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { ulid } from "../util/ulid";
 import { directoryIsGitRepo, gitDirectory, runGit } from "./run";
 
@@ -405,6 +405,53 @@ async function sweepTempFiles(
   }
 }
 
+/** resolved content directory → the tail of its in-order entry chain. */
+const entries = new Map<string, Promise<void>>();
+
+/** The lock file, or null outside a repository. */
+async function lockPathFor(contentDirectory: string): Promise<string | null> {
+  if (!(await directoryIsGitRepo(contentDirectory))) return null;
+  return writeLockPath(contentDirectory);
+}
+
+/**
+ * Join the queue in call order. The lookups (`access`, the git directory)
+ * resolve in any order, so a writer that enqueued once they finished could
+ * pass one called before it — #223's CI saw a, b, d, c. Here the lookup
+ * starts at once, but each call applies its result — `enqueue`, which must
+ * take its queue place synchronously — only after every earlier call to the
+ * same directory has applied its own. The chain is released right after
+ * that, never held through a turn, so a re-entrant call cannot wait on it
+ * behind its own hold. Null when there is nothing to queue for: outside a
+ * repository, or when `enqueue` returns null (re-entry).
+ */
+async function takePlace(
+  contentDirectory: string,
+  enqueue: (path: string) => Promise<() => void> | null,
+): Promise<{ path: string; turn: Promise<() => void> } | null> {
+  const lookup = lockPathFor(contentDirectory);
+  /* An unawaited rejection would be unhandled until our turn comes. */
+  lookup.catch(() => undefined);
+  const key = resolve(contentDirectory);
+  const previous = entries.get(key) ?? Promise.resolve();
+  let leave!: () => void;
+  const mine = new Promise<void>((done) => (leave = done));
+  const tail = previous.then(() => mine);
+  entries.set(key, tail);
+  void tail.then(() => {
+    if (entries.get(key) === tail) entries.delete(key);
+  });
+  try {
+    await previous;
+    const path = await lookup;
+    if (path === null) return null;
+    const turn = enqueue(path);
+    return turn ? { path, turn } : null;
+  } finally {
+    leave();
+  }
+}
+
 /**
  * Run `fn` holding `contentDirectory`'s write lock. `op` names the write in
  * the lock file and in a `RepositoryBusyError` another writer sees.
@@ -415,17 +462,18 @@ export async function withWriteLock<T>(
   fn: () => Promise<T>,
   options: WriteLockOptions = {},
 ): Promise<T> {
-  if (!(await directoryIsGitRepo(contentDirectory))) return fn();
-  const path = await writeLockPath(contentDirectory);
   const store = held.getStore();
-  if (store?.get(path)?.active) return fn();
-
   const started = Date.now();
   const deadline = started + (options.timeoutMs ?? timeoutFromEnv());
   const staleMs = options.staleMs ?? 60_000;
   const heartbeatMs = options.heartbeatMs ?? 10_000;
 
-  const releaseTurn = await queueTurn(path, deadline, started);
+  const place = await takePlace(contentDirectory, (path) =>
+    store?.get(path)?.active ? null : queueTurn(path, deadline, started),
+  );
+  if (!place) return fn();
+  const { path } = place;
+  const releaseTurn = await place.turn;
   try {
     const writeId = ulid();
     const tookOver = await acquireFile(
