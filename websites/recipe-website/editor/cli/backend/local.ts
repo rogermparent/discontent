@@ -28,6 +28,7 @@ import {
 } from "../../controller/curation/recipeImage";
 import * as inventory from "../../controller/curation/inventory";
 import * as recipes from "../../controller/curation/recipes";
+import * as shopping from "../../controller/curation/shopping";
 import { reindex } from "../../controller/curation/reindex";
 import { listTags, searchRecipes } from "../../controller/curation/search";
 import * as terms from "../../controller/curation/terms";
@@ -261,6 +262,25 @@ export function createLocalBackend({
       return inventory.setInventory(ctx, raw);
     },
     inventoryMakeable: (options) => inventory.makeable(ctx, options ?? {}),
+
+    getShopping: (options) => shopping.readShoppingView(ctx, options),
+    async addToShopping(raw) {
+      await guard();
+      return shopping.addToShopping(ctx, raw);
+    },
+    async patchShopping(raw) {
+      await guard();
+      return shopping.patchShopping(ctx, raw);
+    },
+    async clearShopping(raw) {
+      await guard();
+      return shopping.clearShopping(ctx, raw ?? {});
+    },
+    getShoppingSettings: () => shopping.getShoppingSettings(ctx),
+    async updateShoppingSettings(raw) {
+      await guard();
+      return shopping.updateShoppingSettings(ctx, raw);
+    },
 
     gitStatus: (options) => git.gitStatus(ctx, options),
     gitLog: (options) => git.gitLog(ctx, options),

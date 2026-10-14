@@ -173,11 +173,21 @@ export class ValidationError extends CurationError {
   }
 }
 
+/**
+ * A slug that names no recipe. The `--force` hint is the default because the
+ * group seats, which can store a dangling item, were its first callers; the
+ * shopping list (35c), which has nothing to add from a missing recipe, passes
+ * `{forceHint: false}`.
+ */
 export class UnknownRecipeError extends CurationError {
-  constructor(recipes: string[]) {
+  constructor(
+    recipes: string[],
+    { forceHint = true }: { forceHint?: boolean } = {},
+  ) {
     super(
       "unknown_recipe",
-      `No recipe at ${recipes.length === 1 ? "slug" : "slugs"}: ${recipes.join(", ")}. Pass --force to add it anyway.`,
+      `No recipe at ${recipes.length === 1 ? "slug" : "slugs"}: ${recipes.join(", ")}.` +
+        (forceHint ? " Pass --force to add it anyway." : ""),
       { recipes },
     );
     this.name = "UnknownRecipeError";

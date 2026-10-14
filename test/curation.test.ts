@@ -1767,6 +1767,10 @@ const ALLOWED: RegExp[] = [
    * CLI-safe by construction (its T5/D8 note) — `readAllIds` and
    * `readContentFile` over configs already on this list, no `unstable_cache`. */
   /^recipe-website-common\/controller\/data\/readGroupSearchCorpus$/,
+  /* `flattenMarkdown` joined at 35c, so a shopping-list line reads as the
+   * index's line does: `markdown-to-jsx`'s compiler over a string, already
+   * run by every index build the CLI does — no Next API. */
+  /^recipe-website-common\/controller\/buildIndexValue$/,
   /* The instance role (epic 28, 28a): reads `process.env` and `globalThis`
    * only, so a mirror's git seats can refuse to push or merge. */
   /^recipe-website-common\/config\/role$/,

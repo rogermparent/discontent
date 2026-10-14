@@ -76,6 +76,10 @@ import {
   RecipeInputSchema,
   RecipePatchSchema,
   ScaleSchema,
+  ShoppingAddSchema,
+  ShoppingClearSchema,
+  ShoppingSettingsPatchSchema,
+  ShoppingTextSchema,
   TermCarrierTypeSchema,
   TermInputSchema,
   TermPatchSchema,
@@ -134,6 +138,13 @@ export const TOOL_NAMES = [
   "inventory_remove",
   "inventory_set",
   "inventory_makeable",
+  /* The shared shopping list (35c): 49 → 55. */
+  "shopping_get",
+  "shopping_add",
+  "shopping_check",
+  "shopping_remove",
+  "shopping_clear",
+  "shopping_settings_set",
   "git_status",
   "git_log",
   "git_show",
@@ -1170,6 +1181,161 @@ export function createRecipeServer(
       annotations: READ_ONLY,
     },
     async (args) => read(() => backend.inventoryMakeable(args)),
+  );
+
+  /* --- shopping list (35c) ---------------------------------------------- */
+
+  register(
+    "shopping_get",
+    {
+      title: "The shopping list",
+      description:
+        "The site's shared shopping list as it reads: `text` (what a person copies — " +
+        "store and aisle headings, one line per row like `2 cups flour`, ticked rows " +
+        "left out) and `view` — `stores[].sections[].rows[]`, each row " +
+        "{key, ids, label, name, quantity?, raw?, aisle?, store?, checked, partial, " +
+        "need, optional, sources?}, plus the `onHand` and `checked` folds and " +
+        "`counts`. Rows merge one ingredient across recipes, amounts scaled and " +
+        "added, as the list's settings switch on. A row's `ids` (item ids, not its `key`) are what " +
+        "shopping_check and shopping_remove take. `store` (a store id such as `market-basket`) narrows " +
+        "to what is left at that store.",
+      inputSchema: z.strictObject({ store: z.string().min(1).optional() }),
+      annotations: READ_ONLY,
+    },
+    async ({ store }) =>
+      read(async () => {
+        const { view, text, settings } = await backend.getShopping({ store });
+        return { text, view, settings };
+      }),
+  );
+
+  register(
+    "shopping_add",
+    {
+      title: "Add to the shopping list",
+      description:
+        "Put lines on the shared shopping list, one commit. Name exactly one of " +
+        "`recipe` (a recipe slug: its ingredient lines), `group` (a meal plan's " +
+        "slug: every recipe in it, nested plans included, each at its row's " +
+        "scale) or `items` (lines typed by hand, like `paper towels` or `2 " +
+        'lemons`). `scale` multiplies a recipe or a whole plan (`"2"`, ' +
+        '`"1/2"`). Adding the same recipe twice adds it twice. A plan\'s missing ' +
+        "recipes and sub-groups are skipped and named in `missing` and `warnings`.",
+      inputSchema: ShoppingAddSchema,
+      annotations: WRITES,
+    },
+    async (args) =>
+      write(backend, () => backend.addToShopping(args), { notify: false }),
+  );
+
+  register(
+    "shopping_check",
+    {
+      title: "Tick items on the shopping list",
+      description:
+        "Tick items as bought, one commit. `ids` are item ids — a row's `ids` " +
+        "from shopping_get (all of them, to tick a merged row), not its `key`; " +
+        '`names` tick every item of that ingredient (`["eggs"]` ' +
+        'for "I bought eggs"). `uncheck: true` unticks instead. Names that match ' +
+        "nothing come back in `unmatched`, ids not on the list in `unknown`.",
+      inputSchema: z
+        .strictObject({
+          ids: z.array(z.string().min(1)).max(2000).optional(),
+          names: z.array(ShoppingTextSchema).max(200).optional(),
+          uncheck: z.boolean().optional(),
+        })
+        .refine(
+          (data) => (data.ids?.length ?? 0) + (data.names?.length ?? 0) > 0,
+          { message: "Name at least one id or name", path: ["ids"] },
+        ),
+      annotations: WRITES,
+    },
+    async ({ ids, names, uncheck }) =>
+      write(
+        backend,
+        () =>
+          backend.patchShopping(
+            uncheck
+              ? { uncheck: ids ?? [], uncheckNames: names ?? [] }
+              : { check: ids ?? [], names: names ?? [] },
+          ),
+        { notify: false },
+      ),
+  );
+
+  register(
+    "shopping_remove",
+    {
+      title: "Remove items from the shopping list",
+      description:
+        "Take items off the shared shopping list, one commit: item `ids` (a row's `ids` from " +
+        "shopping_get), or every item a `recipe` (slug) or a meal plan (`group` " +
+        "slug) put there — exactly one of the three.",
+      inputSchema: z
+        .strictObject({
+          ids: z.array(z.string().min(1)).min(1).max(2000).optional(),
+          recipe: z.string().min(1).optional(),
+          group: z.string().min(1).optional(),
+        })
+        .refine(
+          (data) =>
+            [data.ids, data.recipe, data.group].filter(
+              (value) => value !== undefined,
+            ).length === 1,
+          {
+            message: "Name exactly one of `ids`, `recipe` or `group`",
+            path: ["ids"],
+          },
+        ),
+      annotations: WRITES,
+    },
+    async ({ ids, recipe, group }) =>
+      write(
+        backend,
+        () =>
+          backend.patchShopping(
+            ids
+              ? { remove: ids }
+              : {
+                  removeSource: recipe !== undefined ? { recipe } : { group },
+                },
+          ),
+        { notify: false },
+      ),
+  );
+
+  register(
+    "shopping_clear",
+    {
+      title: "Clear the shopping list",
+      description:
+        'Remove every ticked item (`scope: "checked"`, the default) or the whole ' +
+        'list (`"all"`), one commit.',
+      inputSchema: ShoppingClearSchema,
+      annotations: DESTRUCTIVE_WRITE,
+    },
+    async (args) =>
+      write(backend, () => backend.clearShopping(args), { notify: false }),
+  );
+
+  register(
+    "shopping_settings_set",
+    {
+      title: "Change the shopping list's settings",
+      description:
+        "Merge a change into the list's settings, one commit: `features` " +
+        "(merge, quantities, aisles, stores, onHand, sources — each on or off), " +
+        "`aisleOrder`, `stores` ([{id, name}], whole), `defaultStore`, " +
+        "`storeByAisle` ({aisle: store id}), `aisleOverrides` and " +
+        "`storeOverrides` ({ingredient name: aisle or store id}); `null` removes " +
+        "a key.",
+      inputSchema: ShoppingSettingsPatchSchema,
+      annotations: IDEMPOTENT_WRITE,
+    },
+    async (args) =>
+      write(backend, () => backend.updateShoppingSettings(args), {
+        notify: false,
+      }),
   );
 
   /* --- git --------------------------------------------------------------- */

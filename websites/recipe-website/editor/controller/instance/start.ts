@@ -35,6 +35,7 @@ import {
 import { readSettings } from "../../src/settings";
 import { updateAnnexedWorktree } from "../curation/annex";
 import { reindex } from "../curation/reindex";
+import { advanceStampPastUnindexed } from "../curation/unindexed";
 import { gitSync, type SyncResult } from "../curation/sync";
 import { LockBusyError, withRepoLock } from "./lock";
 import { mirrorTargets } from "./mirrors";
@@ -135,6 +136,17 @@ export async function reindexWhenForeign(
   if (!(await readIndexFreshness(contentDirectory)).stale) return false;
   await new Promise((resolve) => setTimeout(resolve, settleMs));
   if (!(await readIndexFreshness(contentDirectory)).stale) return false;
+  /*
+   * Commits that touch only the shopping list or the inventory (another
+   * device's ticks, synced in) change nothing an index or a page cache holds
+   * (35c review): move the stamp, skip the rebuild and the refresh.
+   */
+  if (await advanceStampPastUnindexed(contentDirectory)) {
+    console.info(
+      "[instance] HEAD moved outside the editor in shopping/ or inventory/ only; no reindex",
+    );
+    return false;
+  }
   console.info("[instance] HEAD moved outside the editor; reindexing");
   await reindex({ contentDirectory });
   await refreshEditor();
