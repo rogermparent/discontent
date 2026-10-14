@@ -314,7 +314,7 @@ const INSTRUCTIONS = `Manage and search a recipe website's content.
 
 Recipe rows from recipe_search and recipe_list are compact — {slug, name, date, tags, totalTime, image?} — to keep results small; pass \`fields\` to add description, ingredients, prepTime or cookTime, and use recipe_get for a whole recipe. Slugs are the identity of everything: recipe slugs, group slugs, and a featured entry's own slug (which is not its target's).
 
-Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?, terms?}}; the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, unknown_term, group_cycle, term_cycle, term_in_use, import_failed, no_git_identity, not_a_repo, dirty_tree, git_conflict, bad_revision, unauthenticated, forbidden, usage and internal. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
+Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?, terms?}}; the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, unknown_term, group_cycle, term_cycle, term_in_use, import_failed, no_git_identity, not_a_repo, dirty_tree, git_conflict, bad_revision, busy, unauthenticated, forbidden, usage and internal. busy means another write held the content repository's write lock (the message names it) and nothing was written: wait a few seconds and make the same call again. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
 
 Tags are one vocabulary shared by recipes and groups. A term is a tag that may also have a record — a label, description, picture, a parent (so tag:<parent> also finds everything under it), pinned recipes that lead its page, and aliases (other names that tag:<alias> and /tags/<alias> send to it; recipes keep their own tags). Use terms for a cluster by kind or a curated collection (term_create, then term_assign), and groups for meal plans: ordered, dated lists with a label per item. term_assign, term_rename, term_merge and term_delete write each recipe or group they touch, and land as one commit per call — a failure part-way commits what was written as "… (partial)" and answers the error.
 
@@ -1042,8 +1042,8 @@ export function createRecipeServer(
         "that only exists as a string on recipes has no record to borrow a label " +
         "from and is refused. A target that is already featured is refused with " +
         "slug_conflict naming the existing entry; pass `again: true` to feature it a " +
-        "second time on purpose. Pass an explicit `slug` when featuring several things " +
-        "at once, since the default slug has one-second resolution.",
+        "second time on purpose. The entry's own slug defaults to a fresh ULID, so " +
+        "features made in a burst never collide; pass `slug` only to choose one.",
       inputSchema: FeaturedInputSchema,
       annotations: WRITES,
     },
@@ -1178,7 +1178,10 @@ export function createRecipeServer(
         "Whether the content directory is a Git repository, and where it stands: " +
         "branch, upstream, ahead/behind (`diverged` when both), uncommitted changes, " +
         "remotes, the most recent commits, and `indexStale` — HEAD moved without a " +
-        "full rebuild, so run reindex. ahead/behind are as of `fetchedAt`; pass " +
+        "full rebuild, so run reindex. `pendingIndex` lists paths that are " +
+        "committed but not yet re-staged in git's index (another process held its " +
+        "lock); they are not uncommitted changes and catch up on the next write. " +
+        "ahead/behind are as of `fetchedAt`; pass " +
         "`fetch: true` to refresh them first. `isRepo: false` means this deployment " +
         "does not track its content with Git, and no other git tool will work.",
       inputSchema: GitStatusQuerySchema,

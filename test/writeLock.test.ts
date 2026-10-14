@@ -255,9 +255,19 @@ describe("withWriteLock", () => {
     await writeFile(leftover, "x");
     await writeFile(`${leftover}.lock`, "x");
     await writeFile(pending, "keep me\0");
+    const old = new Date(Date.now() - 120_000);
+    await utimes(leftover, old, old);
+    await utimes(`${leftover}.lock`, old, old);
+    /* A young one is a live waiter's (or an outside-the-lock status's). */
+    const young = join(
+      gitDir,
+      "discontent-write.lock.01HYYYYYYYYYYYYYYYYYYYYYYY.new",
+    );
+    await writeFile(young, "{}");
     await withWriteLock(dir, "sweeper", async () => undefined);
     expect(await pathExists(leftover)).toBe(false);
     expect(await pathExists(`${leftover}.lock`)).toBe(false);
+    expect(await pathExists(young)).toBe(true);
     expect(await readFile(pending, "utf8")).toBe("keep me\0");
   });
 

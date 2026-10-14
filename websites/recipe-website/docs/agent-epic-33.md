@@ -168,6 +168,18 @@ update sandwich` committed the orphaned record ("Update term: sandwich"),
 restart` after it, whose startup sync pushed everything to the Pi. **For any
   scripted run of more than a few writes on the real repo: stop the
   workstation first.** (The dry run on a scratch clone never sees this.)
+  ⤴️ **Superseded by epic 34 (34c + 34d), once the workstation runs a build
+  with 34d** (`pnpm workstation update`): engine commits go through a
+  private index with a compare-and-swap on HEAD and never fail on
+  `index.lock` (34-D7), and every write, rebuild, pull and the sync's merge
+  share one cross-process write lock (34-D6). Verified by 34d's scratch-clone
+  stress run: a workstation-mode editor syncing on every HEAD move while CLI
+  loops made 61 writes (feature bursts, term creates and updates, an annexed
+  image upload) beside a hand-staged file, then 10 more while it merged three
+  mirror commits — every command exit 0, one commit per write, nothing left
+  staged or pending, the remote level (`agent-epic-34.md`, 34d Results).
+  Until the workstation is updated, its sync merges without the lock: keep
+  stopping it.
 - **A restart does not refresh the workstation editor.** After the run (and
   a restart, and even a full CLI reindex) `localhost:3000/tags/course` still
   showed no children: Next's data cache lives in `.next` and survives a

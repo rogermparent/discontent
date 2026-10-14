@@ -37,7 +37,7 @@
  * cannot be imported here and the D8 boundary test enforces that.
  */
 import path from "path";
-import { access, stat } from "fs-extra";
+import { access, copyFile, rm, stat } from "fs-extra";
 import simpleGit, {
   type DefaultLogFields,
   type SimpleGit,
@@ -50,7 +50,13 @@ import {
   isContentSlug,
 } from "@discontent/cms/content/filesystem";
 import type { ContentTypeConfig } from "@discontent/cms/content/types";
-import { directoryIsGitRepo } from "@discontent/cms/git/commit";
+import {
+  directoryIsGitRepo,
+  flushPendingIndex,
+  readPendingIndex,
+} from "@discontent/cms/git/commit";
+import { withWriteLock } from "@discontent/cms/git/writeLock";
+import { ulid } from "@discontent/cms/util/ulid";
 import {
   readIndexFreshness,
   type IndexFreshness,
@@ -120,6 +126,16 @@ export interface SyncStatus {
   dirty: boolean;
   /** Number of uncommitted changed files (for the warning copy). */
   dirtyCount: number;
+  /**
+   * Paths an engine commit landed but could not re-stage, because another
+   * process held git's `index.lock` (epic 34, D7 step 6): HEAD and the files
+   * agree, the shared index is behind. They are committed, so they are not
+   * counted in `dirty`/`dirtyCount` while the files still match HEAD, and the
+   * engine refreshes them on its next write (or `requireCleanTree`). Until
+   * then a plain `git commit` of other staged work would write their old
+   * version back — commit with `-a`, or wait. Empty almost always.
+   */
+  pendingIndex: string[];
   /**
    * Both sides have commits the other lacks, so a pull will make a merge
    * commit rather than fast-forward (27b). As fresh as `fetchedAt`.
@@ -370,6 +386,53 @@ async function fetchRemote(
   return null;
 }
 
+/**
+ * `git status` as it will read once the pending re-stages are applied (34d):
+ * the shared index copied to a private file, `reset -- <pending>` there (what
+ * the flush does), and `status` with that index. A committed create no longer
+ * shows as a staged delete plus an untracked file, and a pending path someone
+ * has edited since, or an untracked file beside it, is still counted — it is
+ * real work. The copy is named like the engine's private indexes, so a crash
+ * leaves nothing the next write lock does not sweep. `null` when it cannot be
+ * computed; the caller falls back to the plain status.
+ */
+async function statusAsIfFlushed(
+  contentDirectory: string,
+  pending: string[],
+): Promise<StatusResult | null> {
+  if (pending.length === 0) return null;
+  const git = getGit(contentDirectory);
+  let copy: string | undefined;
+  try {
+    const raw = String(
+      await git.raw(["rev-parse", "--git-path", "index"]),
+    ).trim();
+    const shared = path.isAbsolute(raw)
+      ? raw
+      : path.join(contentDirectory, raw);
+    copy = path.join(path.dirname(shared), `discontent-index-${ulid()}`);
+    await copyFile(shared, copy);
+    const flushed = simpleGit({ baseDir: contentDirectory }).env({
+      ...process.env,
+      GIT_INDEX_FILE: copy,
+    });
+    await flushed.raw([
+      "reset",
+      "-q",
+      "--",
+      ...pending.map((entry) => `:(literal)${entry}`),
+    ]);
+    return await flushed.status();
+  } catch {
+    return null;
+  } finally {
+    if (copy) {
+      await rm(copy, { force: true });
+      await rm(`${copy}.lock`, { force: true });
+    }
+  }
+}
+
 /** When the last fetch ran: `FETCH_HEAD`'s mtime, or undefined if never. */
 async function fetchedAtOf(
   contentDirectory: string,
@@ -427,6 +490,7 @@ export const EMPTY_STATUS: SyncStatus = {
   merge: { inProgress: false, conflicted: [], resolvedCount: 0 },
   dirty: false,
   dirtyCount: 0,
+  pendingIndex: [],
   diverged: false,
   indexStale: false,
   log: [],
@@ -496,11 +560,24 @@ async function requireRepo(ctx: CurationContext): Promise<SimpleGit> {
  * would silently publish whatever a human was editing in `/git`. A sequencer
  * head — `MERGE_HEAD`, `REVERT_HEAD`, `CHERRY_PICK_HEAD` — means git is already
  * mid-operation and would refuse or compound it.
+ *
+ * Called under the write lock (34d), so "clean" cannot change before the
+ * caller's own git command runs — a write in another process waits rather
+ * than landing its files between the check and a `reset --hard`. First it
+ * re-stages any paths an engine commit could not (`flushPendingIndex`, D7
+ * step 6): they are committed, and the shared index catching up is what makes
+ * `git status` say so.
  */
 async function requireCleanTree(
   ctx: CurationContext,
   git: SimpleGit,
 ): Promise<StatusResult> {
+  if (!(await flushPendingIndex(ctx.contentDirectory))) {
+    const pending = await readPendingIndex(ctx.contentDirectory);
+    throw new DirtyTreeError(
+      `${pending.length} committed path${pending.length === 1 ? " is" : "s are"} waiting to be re-staged, and git's index.lock is held by another process — retry shortly.`,
+    );
+  }
   for (const head of ["MERGE_HEAD", "REVERT_HEAD", "CHERRY_PICK_HEAD"]) {
     if (await fileExists(path.join(ctx.contentDirectory, ".git", head))) {
       throw new DirtyTreeError(
@@ -571,12 +648,22 @@ export async function gitStatus(
     label: labelForPath(target),
   }));
 
+  /*
+   * Committed paths the shared index has not caught up with (34d) show in
+   * `git status` as changed — a committed create even as a staged delete
+   * plus an untracked file. They are not uncommitted work, so the dirty count
+   * reads the status as it will be once they are re-staged — otherwise /git
+   * would offer "Commit working changes" for a write that already landed.
+   */
+  const pendingIndex = await readPendingIndex(contentDirectory);
+  const work =
+    (await statusAsIfFlushed(contentDirectory, pendingIndex)) ?? status;
   const dirtyCount =
-    status.created.length +
-    status.deleted.length +
-    status.modified.length +
-    status.not_added.length +
-    status.renamed.length;
+    work.created.length +
+    work.deleted.length +
+    work.modified.length +
+    work.not_added.length +
+    work.renamed.length;
 
   const freshness = await readIndexFreshness(contentDirectory);
   const fetchedAt = await fetchedAtOf(contentDirectory);
@@ -597,6 +684,7 @@ export async function gitStatus(
     },
     dirty: !inMerge && dirtyCount > 0,
     dirtyCount,
+    pendingIndex,
     diverged: status.ahead > 0 && status.behind > 0,
     ...(fetchedAt ? { fetchedAt } : {}),
     indexStale: freshness.stale,
@@ -832,6 +920,21 @@ export async function gitRevert(
 ): Promise<GitWriteResult> {
   assertHash(hash);
   const git = await requireRepo(ctx);
+  /*
+   * One write-lock scope (34d) from the clean-tree check through the revert,
+   * its abort or `reset --hard`, and the rebuild: the reset is safe only
+   * because nothing could have been written since the check.
+   */
+  return withWriteLock(ctx.contentDirectory, `git revert ${hash}`, () =>
+    revertLocked(ctx, git, hash),
+  );
+}
+
+async function revertLocked(
+  ctx: CurationContext,
+  git: SimpleGit,
+  hash: string,
+): Promise<GitWriteResult> {
   await requireCleanTree(ctx, git);
 
   let resolved: string;
@@ -913,6 +1016,22 @@ export async function gitRestore(
   const safeSlug = assertSlug(slug);
   const safeRev = assertArgument(rev, "rev");
   const git = await requireRepo(ctx);
+  /* One write-lock scope (34d), for the same reason as `gitRevert`. */
+  return withWriteLock(
+    ctx.contentDirectory,
+    `git restore ${type} ${safeSlug} ${safeRev}`,
+    () => restoreLocked(ctx, git, config, type, safeSlug, safeRev),
+  );
+}
+
+async function restoreLocked(
+  ctx: CurationContext,
+  git: SimpleGit,
+  config: ContentTypeConfig,
+  type: string,
+  safeSlug: string,
+  safeRev: string,
+): Promise<GitWriteResult> {
   await requireCleanTree(ctx, git);
 
   const pathspecs = pathspecsFor(config, ctx.contentDirectory, safeSlug);
@@ -1108,6 +1227,18 @@ export async function gitFetch(
 
 export interface GitPullOptions {
   remote?: string;
+  /**
+   * How long to wait for the write lock before `busy`; default the engine's
+   * (`DISCONTENT_WRITE_LOCK_TIMEOUT_MS`, 30 s). The workstation's background
+   * sync waits longer — nobody is watching it, and a big batch can hold the
+   * lock for tens of seconds.
+   */
+  lockTimeoutMs?: number;
+  /**
+   * The caller fetched the remote already (`gitSync`): skip the locked
+   * pre-check and the fetch, so the call waits for the lock once.
+   */
+  fetched?: boolean;
 }
 
 /**
@@ -1127,24 +1258,36 @@ export interface GitPullOptions {
  * On success every index is rebuilt and `onBulkChange` fires, exactly as after
  * a revert: files moved that the engine never wrote. The rebuild also stamps
  * the new HEAD, which is what clears the stale-index banner.
+ *
+ * **The write lock (34d, epic 34 D6)** covers the clean-tree check, the merge,
+ * its abort or `reset --hard`, and the rebuild — one scope, so no write in
+ * another process lands files between "clean" and a reset that would delete
+ * them, or between the merge and the rebuild. The fetch is network and stays
+ * outside: a quick locked pre-check refuses a dirty tree or a mirror's own
+ * commits before anything goes over the wire, then the fetch runs unlocked,
+ * then the check is made again, under the lock, for real — and the branch
+ * and its upstream are compared with the ones the merge source was derived
+ * from, so a checkout during the fetch is refused rather than merged into.
+ * `fetched` (the sync, which fetched already) skips the pre-check and the
+ * fetch: one locked wait.
  */
 export async function gitPull(
   ctx: CurationContext,
-  { remote }: GitPullOptions = {},
+  { remote, lockTimeoutMs, fetched = false }: GitPullOptions = {},
 ): Promise<PullResult> {
   const safeRemote =
     remote === undefined ? undefined : assertArgument(remote, "remote");
   const git = await requireRepo(ctx);
-  const status = await requireCleanTree(ctx, git);
-  /*
-   * On a mirror a pull is only ever a fast-forward: with commits of its own
-   * waiting it would merge, and merges happen on the workstation (epic 28, D1).
-   */
-  if (isMirror() && status.ahead > 0) {
-    throw new ForbiddenError(
-      mirrorRefusal("merging this mirror's own changes"),
-    );
-  }
+  const lockOptions =
+    lockTimeoutMs === undefined ? {} : { timeoutMs: lockTimeoutMs };
+  const status = fetched
+    ? await git.status()
+    : await withWriteLock(
+        ctx.contentDirectory,
+        "git pull (check)",
+        () => preflightPull(ctx, git),
+        lockOptions,
+      );
   const trackingRemote = status.tracking?.split("/")[0];
 
   let from: string;
@@ -1161,8 +1304,52 @@ export async function gitPull(
       [{ path: "remote", message: "No upstream to pull from" }],
     );
   }
-  await fetchRemote(git, from.split("/")[0]);
+  /* Network: never under the write lock (34c Traps, "nothing slow inside"). */
+  if (!fetched) await fetchRemote(git, from.split("/")[0]);
 
+  return withWriteLock(
+    ctx.contentDirectory,
+    `git pull ${from}`,
+    async () => {
+      const now = await preflightPull(ctx, git);
+      if (
+        now.current !== status.current ||
+        (now.tracking ?? null) !== (status.tracking ?? null)
+      ) {
+        throw new GitConflictError(
+          `The branch changed while ${from} was being fetched (${status.current ?? "detached"} → ${now.current ?? "detached"}), so nothing was merged. Pull again.`,
+        );
+      }
+      return mergeLocked(ctx, git, from);
+    },
+    lockOptions,
+  );
+}
+
+/**
+ * The pull's refusals, under the write lock: a dirty tree or a sequencer
+ * head (`requireCleanTree`), and — on a mirror — commits of its own waiting,
+ * because then a pull would merge, and merges happen on the workstation
+ * (epic 28, D1); on a mirror a pull is only ever a fast-forward.
+ */
+async function preflightPull(
+  ctx: CurationContext,
+  git: SimpleGit,
+): Promise<StatusResult> {
+  const status = await requireCleanTree(ctx, git);
+  if (isMirror() && status.ahead > 0) {
+    throw new ForbiddenError(
+      mirrorRefusal("merging this mirror's own changes"),
+    );
+  }
+  return status;
+}
+
+async function mergeLocked(
+  ctx: CurationContext,
+  git: SimpleGit,
+  from: string,
+): Promise<PullResult> {
   const before = String(await git.revparse(["HEAD"])).trim();
   const newCommits = Number(
     String(
@@ -1205,7 +1392,9 @@ export async function gitPull(
   try {
     await git
       .env({ ...process.env, ...authorEnv(ctx) })
-      .raw(["merge", "--no-edit", from]);
+      /* A mirror only ever fast-forwards (epic 28, D1), whatever the
+       * pre-check saw. */
+      .raw(["merge", "--no-edit", ...(isMirror() ? ["--ff-only"] : []), from]);
   } catch (error) {
     failure = error;
   }

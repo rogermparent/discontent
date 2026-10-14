@@ -86,6 +86,14 @@ export function statusFor(code: CurationErrorCode): number {
       return 422;
     case "import_failed":
       return 502;
+    /*
+     * Another write holds the repository's write lock (34d, epic 34 D10).
+     * The one *retryable* refusal: nothing was written, and the same request
+     * after a short wait is the answer — which is what 503 says. The holder
+     * is in the message; `Retry-After` gives the wait.
+     */
+    case "busy":
+      return 503;
     case "no_git_identity":
     case "internal":
       return 500;
@@ -102,8 +110,16 @@ export function statusFor(code: CurationErrorCode): number {
  */
 export function errorResponse(error: unknown): Response {
   const object = toErrorObject(error);
-  return Response.json(object, { status: statusFor(object.error.code) });
+  return Response.json(object, {
+    status: statusFor(object.error.code),
+    ...(object.error.code === "busy"
+      ? { headers: { "Retry-After": String(BUSY_RETRY_AFTER_S) } }
+      : {}),
+  });
 }
+
+/** `Retry-After` on a `busy` 503, in seconds: a write is usually done by then. */
+export const BUSY_RETRY_AFTER_S = 5;
 
 /**
  * A JSON body, or a `ValidationError` naming what was wrong with it.

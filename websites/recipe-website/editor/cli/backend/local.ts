@@ -16,6 +16,8 @@ import type { CurationContext } from "../../controller/curation/context";
 import * as featured from "../../controller/curation/featured";
 import * as git from "../../controller/curation/git";
 import { gitSync } from "../../controller/curation/sync";
+import { CurationError } from "../../controller/curation/errors";
+import { LockBusyError, withRepoLock } from "../../controller/instance/lock";
 import * as groups from "../../controller/curation/groups";
 import { importAndCreate } from "../../controller/curation/importRecipe";
 import { inspectUrl } from "../../controller/curation/inspect";
@@ -287,9 +289,24 @@ export function createLocalBackend({
       return git.gitPull(ctx, options);
     },
     /* A sync can merge, so it preflights the identity like a pull. */
+    /*
+     * Under the same repository sync lock the editor's instance takes
+     * (`instance/lock.ts`, 34d), so a CLI or MCP sync never runs beside the
+     * workstation's: the merge was already serialised by the write lock, the
+     * fetch and push were not. Another sync running is `busy` — retry shortly.
+     */
     async gitSync(options) {
       await guard();
-      return gitSync(ctx, options);
+      try {
+        return await withRepoLock(ctx.contentDirectory, () =>
+          gitSync(ctx, options),
+        );
+      } catch (error) {
+        if (error instanceof LockBusyError) {
+          throw new CurationError("busy", `${error.message} Retry shortly.`);
+        }
+        throw error;
+      }
     },
 
     /*

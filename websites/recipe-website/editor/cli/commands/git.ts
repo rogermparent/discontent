@@ -83,6 +83,12 @@ const gitStatus: CommandDef<SyncStatus> = {
         "indexes stale: HEAD moved without a full rebuild — run `recipes reindex`",
       );
     }
+    const pending = result.pendingIndex ?? [];
+    if (pending.length > 0) {
+      lines.push(
+        `${pending.length} committed path${pending.length === 1 ? "" : "s"} waiting to be re-staged (the index catches up on the next write): ${pending.slice(0, 5).join(", ")}${pending.length > 5 ? ", …" : ""}`,
+      );
+    }
     if (result.merge.inProgress) {
       lines.push(
         `merge in progress: ${result.merge.conflicted.length} conflicted, ${result.merge.resolvedCount} resolved`,

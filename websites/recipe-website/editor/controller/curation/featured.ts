@@ -270,9 +270,9 @@ export async function feature(
 
   const date = input.date ?? Date.now();
   /*
-   * Second-resolution by default (`YYYY-MM-DD-HH-MM-SS`), so two features in
-   * the same second collide with a 409 rather than overwriting each other — a
-   * caller featuring several targets in a burst passes explicit slugs (T26).
+   * A lowercase ULID for `date` by default (epic 34, D9), unique per call, so
+   * features made in a burst no longer collide in one second (23-T26,
+   * retired). An explicit slug that exists is still a 409.
    */
   const slug = slugify(input.slug || createDefaultFeaturedRecipeSlug({ date }));
 

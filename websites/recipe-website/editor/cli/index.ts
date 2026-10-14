@@ -212,6 +212,17 @@ Environment:
   CONTENT_DIRECTORY    Local content directory; same as --content-dir
   YTDLP_PATH           yt-dlp binary for video imports (else the Settings
                        page's path, else \`yt-dlp\` on the PATH)
+  DISCONTENT_WRITE_LOCK_TIMEOUT_MS
+                       How long a write waits for another write's lock on
+                       the content repository (default 30000) before it
+                       fails with code \`busy\`
+
+Exit codes: 0 done; 1 failed; 2 slug_conflict; 75 busy — another write (or,
+for git sync, another sync) held the repository's lock and nothing was
+written: run the same command again after a few seconds. With --remote, a
+bare 503 from a proxy in front of the editor is read as busy too; the
+editor's own names what held the lock, a proxy's cannot promise that nothing
+was written, so check (show, git log) before repeating a create.
 
 A bearer token over plain HTTP is only safe on localhost or a trusted LAN. Put
 the editor behind TLS before using --remote across the internet.

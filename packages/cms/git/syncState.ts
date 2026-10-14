@@ -27,6 +27,12 @@ export type SyncOutcome =
   | "mirror_dirty"
   /** The mirror committed between our fetch and our push; the next run catches it. */
   | "raced"
+  /**
+   * Another write held this repository's write lock past the merge's wait
+   * (epic 34, 34d), so nothing was merged. Not a failure — like `raced` it
+   * neither adds to nor resets the tally — and the workstation retries.
+   */
+  | "busy"
   /** The mirror could not be reached. */
   | "unreachable"
   /** This repository could not sync: a dirty tree, a merge in progress. */
@@ -52,7 +58,7 @@ export interface MirrorSyncState {
   message?: string;
   /** ISO time of the last `nothing` or `synced`. */
   lastSuccess?: string;
-  /** Failures in a row, reset by a success. `raced` neither adds nor resets. */
+  /** Failures in a row, reset by a success. `raced` and `busy` neither add nor reset. */
   consecutiveFailures: number;
   /** Commits brought in / sent on the last attempt. */
   pulled?: number;

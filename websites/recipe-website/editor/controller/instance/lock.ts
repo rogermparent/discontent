@@ -2,8 +2,11 @@
  * A cross-process lock on one content repository's sync (epic 28, D4).
  *
  * The runner serialises runs inside one process; this stops two processes
- * (a `next dev` and a `next start` on the same checkout, or the CLI's
- * `recipes git sync` while the editor syncs) merging at once. `O_EXCL`
+ * (a `next dev` and a `next start` on the same checkout, or the CLI's or
+ * MCP's `git sync` while the editor syncs) syncing at once. Taken by
+ * `syncMirror` (the instance's runner and `/api/git/sync`) and, since 34d, by
+ * the local backend's `gitSync`. Lock order (epic 34, D6): this lock first,
+ * then the write lock, which only the merge takes. `O_EXCL`
  * create of `.git/discontent-sync.lock` holding the pid; a lock whose pid is
  * gone, or older than `staleMs`, is taken over.
  */

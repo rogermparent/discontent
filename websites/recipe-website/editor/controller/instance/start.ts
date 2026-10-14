@@ -90,6 +90,32 @@ function createMutex() {
 let activeSyncs = 0;
 
 /**
+ * A sync whose merge found the write lock held past its wait answers `busy`
+ * (34d). The holder's own commit usually triggers the next sync, but a holder
+ * that moves no HEAD (a rebuild, a write that changed nothing) would leave
+ * the mirror's commits unmerged until the next trigger — so the runner is
+ * asked again after `BUSY_RETRY_MS`, up to `BUSY_RETRY_LIMIT` times in a row.
+ */
+export const BUSY_RETRY_MS = 15_000;
+export const BUSY_RETRY_LIMIT = 5;
+let busyRetries = 0;
+let busyRetryTimer: ReturnType<typeof setTimeout> | undefined;
+
+function retryAfterBusy(outcome: SyncResult["outcome"]): void {
+  if (outcome !== "busy") {
+    busyRetries = 0;
+    return;
+  }
+  if (busyRetryTimer || busyRetries >= BUSY_RETRY_LIMIT) return;
+  busyRetries += 1;
+  busyRetryTimer = setTimeout(() => {
+    busyRetryTimer = undefined;
+    getInstance()?.runner?.request("change");
+  }, BUSY_RETRY_MS);
+  (busyRetryTimer as { unref?: () => void }).unref?.();
+}
+
+/**
  * How long a stale stamp must stay stale before D12 calls it foreign. The
  * editor's own commit moves HEAD first and advances the stamp just after
  * (`advanceIndexedHead`); on the Pi that gap can outlast the watcher's
@@ -165,6 +191,7 @@ export async function syncMirror(
           );
         }
       }
+      retryAfterBusy(result.outcome);
       return result;
     } finally {
       activeSyncs -= 1;
@@ -248,6 +275,8 @@ async function start(): Promise<Instance | undefined> {
     exclusive,
     reindexIfForeign,
     close() {
+      if (busyRetryTimer) clearTimeout(busyRetryTimer);
+      busyRetryTimer = undefined;
       instance.watcher?.close();
       instance.runner?.dispose();
       instance.pinger?.dispose();

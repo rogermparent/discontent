@@ -1910,7 +1910,12 @@ describe("private-index commits (34c)", () => {
       done = true;
     });
     await until(async () => (await head()) !== before);
-    /* HEAD moved, the refresh is still waiting on index.lock... */
+    /*
+     * HEAD moved; the stamp is written a moment after `update-ref`, so wait
+     * for it rather than racing it — while the refresh is still held off by
+     * index.lock (1.5 s), which is what this test is about.
+     */
+    await until(async () => !(await indexFreshness(ctx)).stale);
     const freshness = await indexFreshness(ctx);
     expect(done).toBe(false);
     /* ...and the stamp already names our commit. */

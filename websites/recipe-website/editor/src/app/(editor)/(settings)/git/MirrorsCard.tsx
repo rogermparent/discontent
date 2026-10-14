@@ -19,6 +19,7 @@ const OUTCOME_TONE: Record<string, "ok" | "warn" | "neutral"> = {
   nothing: "ok",
   synced: "ok",
   raced: "neutral",
+  busy: "neutral",
 };
 
 /**
