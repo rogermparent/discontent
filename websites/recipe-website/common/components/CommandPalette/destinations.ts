@@ -16,6 +16,7 @@ import {
   Database,
   FilePlus,
   GlassWater,
+  ShoppingCart,
 } from "lucide-react";
 
 export type DestinationGroup = "Browse" | "Setup" | "Content" | "System";
@@ -84,6 +85,15 @@ export const NAV_DESTINATIONS: NavDestination[] = [
     icon: GlassWater,
     group: "Browse",
     keywords: ["make", "inventory", "bar", "drinks", "on hand", "pantry"],
+  },
+  /* The editor's shared shopping list (35d): signed-in only, like its page. */
+  {
+    name: "Shopping list",
+    href: "/shopping",
+    icon: ShoppingCart,
+    group: "Browse",
+    ownerOnly: true,
+    keywords: ["groceries", "shop", "buy", "store", "list"],
   },
 
   // Owner destinations — mirror editor's SettingsNav (NAV_GROUPS).

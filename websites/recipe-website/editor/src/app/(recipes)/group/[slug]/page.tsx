@@ -6,6 +6,9 @@ import GroupDetailPage from "recipe-website-common/components/GroupDetailPage";
 import { deleteGroup } from "recipe-editor/controller/actions/groups";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { ConfirmDeleteButton } from "@discontent/component-library/components/ConfirmDelete";
+import { auth } from "@/auth";
+import { AddGroupToShopping } from "recipe-website-common/components/ShoppingPage/AddToShopping";
+import { addToShoppingList } from "recipe-editor/controller/actions/shopping";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +54,8 @@ export default async function GroupPage({
   const items = await resolveGroupItems(group);
 
   const deleteGroupWithSlug = deleteGroup.bind(null, group.date, slug);
+  /* The shopping list is the signed-in editor's (35d): no button for a guest. */
+  const signedIn = Boolean((await auth())?.user?.email);
 
   return (
     <GroupDetailPage
@@ -82,6 +87,9 @@ export default async function GroupPage({
           <Button asChild size="sm">
             <Link href={`/group/${slug}/edit`}>Edit</Link>
           </Button>
+          {signedIn && (
+            <AddGroupToShopping group={slug} add={addToShoppingList} />
+          )}
         </>
       }
     />

@@ -64,6 +64,8 @@ next-env.d.ts
 /playwright/fixtures/test-content/*/groups/
 !/playwright/fixtures/test-content/three-recipes-groups/groups/
 !/playwright/fixtures/test-content/nested-groups/groups/
+# `shopping` (35d): a nested meal plan for the shopping list.
+!/playwright/fixtures/test-content/shopping/groups/
 # And again for the `tag` vocabulary's term records (24c), in the same shape and
 # for the same reason: the first `/tags` render on any fixture opens the term
 # index and the `tree` aggregate, so a Playwright run would otherwise dirty

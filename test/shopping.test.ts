@@ -17,7 +17,7 @@ import {
 import { tmpdir } from "os";
 import { dirname, join, relative } from "path";
 import { fileURLToPath } from "url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import simpleGit, { type SimpleGit } from "simple-git";
 import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
@@ -42,6 +42,12 @@ import {
   readShoppingView,
   updateShoppingSettings,
 } from "../websites/recipe-website/editor/controller/curation/shopping";
+
+/*
+ * Real git commits per case: a second or so alone, much more on a loaded
+ * machine (CI, or a worker beside a build). Vitest's 5 s default is too tight.
+ */
+vi.setConfig({ testTimeout: 30_000 });
 
 const AUTHOR = { name: "Test Curator", email: "curator@test.local" };
 
@@ -652,7 +658,7 @@ describe("review round (35c)", () => {
     expect((await addToShopping(ctx, { group: "level-2" })).added).toHaveLength(
       256,
     );
-  }, 30_000);
+  });
 
   it("refuses an add that would take the list past its cap", async () => {
     /* Files laid down by hand, uncommitted: only the count matters here. */

@@ -1,0 +1,17 @@
+{
+  "name": "Week of Oct 19",
+  "date": 1792200000000,
+  "kind": "meal-plan",
+  "description": "Brunch for a crowd, and two dinners.",
+  "items": [
+    {
+      "recipe": "buttermilk-pancakes",
+      "label": "Sat · Brunch",
+      "scale": "2"
+    },
+    {
+      "group": "weeknight-dinners",
+      "label": "Dinners"
+    }
+  ]
+}

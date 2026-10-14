@@ -168,6 +168,22 @@ describe("buildShoppingView", () => {
     expect(row(view, "lemon").label).toBe("1 lemon");
   });
 
+  it("puts a bare count first, with its noun, beside a measure (35d)", () => {
+    const view = buildShoppingView(
+      [
+        item("2 onions, diced", cookies),
+        item("1 cup chopped onion", cake),
+        item("2 lb carrots", cookies),
+        item("1 carrot", cake),
+      ],
+      settings({ aisles: false }),
+    );
+    expect(row(view, "onion").label).toBe("2 onions + 1 cup");
+    expect(row(view, "onion").quantity).toBe("2 + 1 cup");
+    expect(row(view, "carrot").label).toBe("1 carrot + 2 lb");
+    expect(row(view, "carrot").quantity).toBe("1 + 2 lb");
+  });
+
   it("keeps a line it cannot read raw, under the merged name", () => {
     const view = buildShoppingView(
       [
@@ -262,6 +278,10 @@ describe("buildShoppingView", () => {
     expect(row(view, "onion").store).toBe("hannaford");
     /* A store that no longer exists falls through to the next rule. */
     expect(row(view, "butter").store).toBe("hannaford");
+    /* Which rows chose their store themselves (the menu's Automatic). */
+    expect(row(view, "onion").storePinned).toBe(true);
+    expect(row(view, "butter").storePinned).toBeUndefined();
+    expect(row(view, "egg").storePinned).toBeUndefined();
 
     expect(view.stores.map((list) => [list.store?.id, list.count])).toEqual([
       ["market-basket", 2],

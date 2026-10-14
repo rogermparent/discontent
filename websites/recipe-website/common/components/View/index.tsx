@@ -1,5 +1,6 @@
 /* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Recipe } from "../../controller/types";
 
 import { Badge } from "@discontent/component-library/components/ui/badge";
@@ -28,9 +29,15 @@ import { RecipeCardPlaceholder } from "../List/shared";
 export async function RecipeView({
   recipe,
   slug,
+  ingredientActions,
 }: {
   recipe?: Recipe;
   slug: string;
+  /**
+   * Controls for the Ingredients header (35d: the editor's "Add to list"),
+   * rendered inside `MultiplierProvider`. Only the editor passes them.
+   */
+  ingredientActions?: ReactNode;
 }) {
   if (!recipe) {
     throw new Error("Recipe data not found!");
@@ -176,7 +183,11 @@ export async function RecipeView({
             {/* The scaler used to sit in a full-width sticky bar here; it now lives
               in the Ingredients header (PR 11), where recipe sites put it. */}
             <div className="justify-center flex-nowrap container mx-auto p-2 lg:flex lg:flex-row print:w-full print:max-w-full print:flex print:flex-row rounded">
-              <Ingredients ingredients={ingredients} drink={recipe.drink} />
+              <Ingredients
+                ingredients={ingredients}
+                drink={recipe.drink}
+                actions={ingredientActions}
+              />
               <Instructions instructions={instructions} />
             </div>
             {/* Below the recipe itself, because it is about the recipe rather

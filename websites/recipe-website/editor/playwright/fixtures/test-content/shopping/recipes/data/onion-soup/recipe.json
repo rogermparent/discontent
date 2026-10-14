@@ -1,0 +1,22 @@
+{
+  "name": "Onion Soup",
+  "description": "Slow onions, good stock.",
+  "ingredients": [
+    {
+      "ingredient": "4 onions"
+    },
+    {
+      "ingredient": "2 tablespoons butter"
+    },
+    {
+      "ingredient": "6 cups beef stock"
+    }
+  ],
+  "date": 1792000300000,
+  "recipeYield": "4 servings",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

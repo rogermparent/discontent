@@ -92,9 +92,16 @@ export function BatchingNote({
 export function Ingredients({
   ingredients,
   drink,
+  actions,
 }: {
   ingredients?: Ingredient[];
   drink?: DrinkSpec;
+  /**
+   * Extra controls beside the scaler — the editor's "Add to list" (35d).
+   * Rendered inside the recipe's `MultiplierProvider`, so they can read the
+   * scale the reader set. The export passes none.
+   */
+  actions?: React.ReactNode;
 }) {
   // Reset clears the checklist by remounting the list (the checkboxes are
   // uncontrolled, so remounting returns them to their default unchecked state).
@@ -134,6 +141,9 @@ export function Ingredients({
           ))}
         </ul>
         <BatchingNote ingredients={ingredients} drink={drink} />
+        {/* Below the list, not in the sticky header: a result line there
+            would ride along over the recipe. */}
+        {actions && <div className="my-2 print:hidden">{actions}</div>}
       </section>
     )
   );

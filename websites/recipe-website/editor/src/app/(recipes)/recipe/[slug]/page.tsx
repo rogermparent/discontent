@@ -10,6 +10,9 @@ import {
   PageActions,
 } from "recipe-website-common/components/PageLayout";
 import { ConfirmDeleteButton } from "@discontent/component-library/components/ConfirmDelete";
+import { auth } from "@/auth";
+import { AddRecipeToShopping } from "recipe-website-common/components/ShoppingPage/AddToShopping";
+import { addToShoppingList } from "recipe-editor/controller/actions/shopping";
 
 export const dynamic = "force-dynamic";
 
@@ -35,11 +38,21 @@ export default async function RecipePage({
   const { date } = recipe;
 
   const deleteRecipeWithId = deleteRecipe.bind(null, date, slug);
+  /* The shopping list is the signed-in editor's (35d): no button for a guest. */
+  const signedIn = Boolean((await auth())?.user?.email);
 
   return (
     <PageMain>
       <PageSection maxWidth="none" className="py-0" grow>
-        <RecipeView recipe={recipe} slug={slug} />
+        <RecipeView
+          recipe={recipe}
+          slug={slug}
+          ingredientActions={
+            signedIn ? (
+              <AddRecipeToShopping recipe={slug} add={addToShoppingList} />
+            ) : undefined
+          }
+        />
       </PageSection>
       <PageActions>
         <form

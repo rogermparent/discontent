@@ -610,8 +610,11 @@ describe("formatAmount", () => {
     [amount([16, "tbsp"]), "1 cup"],
     [amount([3, "tsp"]), "1 tbsp"],
     [amount([2, "tsp"]), "2 tsp"],
-    [amount([4, "cup"]), "1 quart"],
-    [amount([7, "cup"]), "1¾ quarts"],
+    /* No quarts on a list (35d): cups up to a gallon. */
+    [amount([4, "cup"]), "4 cups"],
+    [amount([7, "cup"]), "7 cups"],
+    [amount([1, "quart"]), "4 cups"],
+    [amount([20, "cup"]), "1¼ gallons"],
     [amount([16, "cup"]), "1 gallon"],
     /* No pints on a list: a pint read in comes out in cups. */
     [amount([1, "pint"]), "2 cups"],

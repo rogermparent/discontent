@@ -1,0 +1,28 @@
+{
+  "name": "Buttermilk Pancakes",
+  "description": "Fluffy, for a crowd.",
+  "ingredients": [
+    {
+      "ingredient": "2 cups all-purpose flour"
+    },
+    {
+      "ingredient": "2 large eggs"
+    },
+    {
+      "ingredient": "1 1/2 cups buttermilk"
+    },
+    {
+      "ingredient": "2 tablespoons sugar"
+    },
+    {
+      "ingredient": "1 teaspoon salt"
+    }
+  ],
+  "date": 1792000100000,
+  "recipeYield": "4 servings",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

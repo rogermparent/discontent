@@ -1,0 +1,25 @@
+{
+  "name": "Spanish Omelette",
+  "description": "Potatoes, onions, eggs.",
+  "ingredients": [
+    {
+      "ingredient": "6 eggs"
+    },
+    {
+      "ingredient": "2 onions, thinly sliced"
+    },
+    {
+      "ingredient": "1 lb potatoes"
+    },
+    {
+      "ingredient": "1/4 cup olive oil"
+    }
+  ],
+  "date": 1792000200000,
+  "recipeYield": "4 servings",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}
