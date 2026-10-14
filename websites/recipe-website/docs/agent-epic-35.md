@@ -162,8 +162,25 @@ Closes 34e's "assign before import lands under `missing`, exit 0" trap.
 
 ### D11 — The CLI and the stdio MCP load `editor/.env` (35p)
 
-`process.loadEnvFile` (or `tsx --env-file`), so `--notify` sends
-`RECIPE_API_TOKEN`. Environment variables already set win.
+`cli/editorEnv.ts`, from the entry blocks of `cli/index.ts` and
+`mcp/server.ts`, so `--notify` sends `RECIPE_API_TOKEN`. As built (35p):
+
+- **An allow-list**: only `RECIPE_API_TOKEN` and `RECIPE_EDITOR_URL` are taken
+  from the file. `RECIPE_API_URL` or `CONTENT_DIRECTORY` there would change
+  which corpus a bare `pnpm recipes` writes to, so the rest is ignored.
+- **The environment wins, and `""` is unset.** Parsed with `util.parseEnv`
+  (Node ≥ 20.12, now the root `engines.node`), not `process.loadEnvFile`:
+  that one counts an empty variable as set, and `.mcp.json` passes
+  `RECIPE_API_TOKEN` as `""` when the shell has none (23-T27), so it would
+  never fill the one variable this is for.
+- **The file** is `editor/.env` from the module, or `RECIPE_ENV_FILE`
+  (relative to `INIT_CWD`, else the cwd). Under vitest (`VITEST` set) with no
+  `RECIPE_ENV_FILE`, nothing is loaded, so spawned test children never carry
+  the real token.
+- **The token goes where the CLI goes**: with `--remote` / `RECIPE_API_URL`
+  and no token in the shell, the file's token — the workstation's — is sent
+  to that editor; against the Pi that is a 401, and exporting the Pi's token
+  (which wins) is the fix.
 
 ### D12 — Root pages accept subtree pins (35p)
 
@@ -351,6 +368,12 @@ check of 35c/35d.
   first write or a reindex, so `inspect-list` / `import-list` there carry
   the missing-index warning — including a real import's result, because the
   index is checked when the list is read, before the first recipe lands.
+- **`assertPinned` checks the tree as it is before the write.** An
+  `updateTerm` that drops an alias (or a parent's child) and pins in the
+  same patch is checked against the old aliases: a recipe reachable only
+  through the alias being dropped is accepted, then falls off the page,
+  which ignores a pin it does not list. Pin in a second update if it
+  matters.
 - **D10's pre-check is existence, not a parse.** Reading each `add`'s data
   file up front made a corrupt file fail before any write, which broke F34's
   `(partial)` contract (`curationGit.test.ts`). The check is `exists()` on
@@ -493,6 +516,13 @@ Gates: `pnpm --filter recipe-editor typecheck` and `pnpm --filter
 recipe-website exec tsc --noEmit` clean; `pnpm exec vitest run` 68 files,
 1373 tests passed; Playwright in build mode through the heavy slot
 (`term-edit.spec`, `api-write.spec`, `tag-pages.spec`) 59/59 passed.
+
+**`--force` needs the new editor.** `force` is a new key in the strict
+`TermAssignSchema`, so `term assign --force --remote <editor>` against an
+editor not yet redeployed with 35p (the Pi until `pnpm deploy:pi`) fails
+`validation` (unrecognized key). A plain assign there still answers the old
+way — an unknown slug lands in `missing`, nothing refused — and the new CLI
+exits 1 on it.
 
 Not done: the real `--notify` → 200 check against the workstation (it was
 stopped during this phase); the process test drives `--notify` at a fake

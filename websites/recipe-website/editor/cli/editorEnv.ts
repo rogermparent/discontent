@@ -32,8 +32,25 @@
  *
  * Next to `cli/` and `mcp/`, resolved from this module rather than the cwd
  * (pnpm runs the script from the package directory, an agent from anywhere).
- * `RECIPE_ENV_FILE` points elsewhere — a test's own file, so a test never
- * reads or writes the real one.
+ * `RECIPE_ENV_FILE` points elsewhere; a relative one resolves against
+ * `INIT_CWD` (else the cwd), as `--content-dir` does in `resolve.ts`.
+ *
+ * ## Not under a test runner
+ *
+ * A test that spawns the CLI or the MCP server hands the child its own
+ * environment, `VITEST` included. With `VITEST` set and no `RECIPE_ENV_FILE`,
+ * nothing is loaded: otherwise every spawned child in the main checkout would
+ * carry the workstation's real token, and a `RECIPE_EDITOR_URL` added to
+ * `.env` one day would make the suite POST the live editor. A test that wants
+ * the file names one with `RECIPE_ENV_FILE`.
+ *
+ * ## The token goes where the CLI goes
+ *
+ * A filled `RECIPE_API_TOKEN` is the bearer for `--remote` / `RECIPE_API_URL`
+ * too, not only for `--notify`. The main checkout's token is the
+ * workstation's, so `--remote` at another editor (the Pi) with no token in the
+ * shell sends it there — a 401 — and the fix is to export that editor's own
+ * token, which wins.
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -53,10 +70,20 @@ function unset(value: string | undefined): boolean {
   return value === undefined || value === "";
 }
 
-/** The file to read: `RECIPE_ENV_FILE` when set, else `editor/.env`. */
-export function editorEnvFile(env: NodeJS.ProcessEnv = process.env): string {
+/**
+ * The file to read: `RECIPE_ENV_FILE` when set (relative to `INIT_CWD`, else
+ * the cwd), else `editor/.env` — or none at all under a test runner that did
+ * not name one.
+ */
+export function editorEnvFile(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
   const override = env.RECIPE_ENV_FILE;
-  return unset(override) ? EDITOR_ENV_FILE : path.resolve(override!);
+  if (unset(override)) return unset(env.VITEST) ? EDITOR_ENV_FILE : undefined;
+  return path.resolve(
+    unset(env.INIT_CWD) ? process.cwd() : env.INIT_CWD!,
+    override!,
+  );
 }
 
 /**
@@ -67,9 +94,9 @@ export function editorEnvFile(env: NodeJS.ProcessEnv = process.env): string {
  */
 export function loadEditorEnv(
   env: NodeJS.ProcessEnv = process.env,
-  file: string = editorEnvFile(env),
+  file: string | undefined = editorEnvFile(env),
 ): string[] {
-  if (!existsSync(file)) return [];
+  if (!file || !existsSync(file)) return [];
   const parsed = parseEnv(readFileSync(file, "utf8"));
   const loaded: string[] = [];
   for (const key of EDITOR_ENV_KEYS) {

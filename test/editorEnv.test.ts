@@ -77,5 +77,23 @@ describe("loadEditorEnv (35-D11)", () => {
     expect(editorEnvFile({})).toBe(EDITOR_ENV_FILE);
     expect(editorEnvFile({ RECIPE_ENV_FILE: "" })).toBe(EDITOR_ENV_FILE);
     expect(editorEnvFile({ RECIPE_ENV_FILE: file })).toBe(file);
+    /* Relative to where pnpm was typed, as --content-dir is. */
+    expect(
+      editorEnvFile({ RECIPE_ENV_FILE: "x/.env", INIT_CWD: directory }),
+    ).toBe(join(directory, "x/.env"));
+    expect(editorEnvFile({ RECIPE_ENV_FILE: "x/.env" })).toBe(
+      resolve(process.cwd(), "x/.env"),
+    );
+  });
+
+  /* A spawned child under vitest must not carry the workstation's token. */
+  it("loads nothing under a test runner unless a file is named", () => {
+    expect(editorEnvFile({ VITEST: "true" })).toBeUndefined();
+    const env: NodeJS.ProcessEnv = { VITEST: "true" };
+    expect(loadEditorEnv(env)).toEqual([]);
+    expect(env).toEqual({ VITEST: "true" });
+    expect(editorEnvFile({ VITEST: "true", RECIPE_ENV_FILE: file })).toBe(file);
+    /* The ambient environment of this very process: vitest sets it. */
+    expect(editorEnvFile()).toBeUndefined();
   });
 });
