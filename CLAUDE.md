@@ -100,6 +100,12 @@ survives a cleared context.
   write lock, private-index commits with a CAS on HEAD, atomic file writes,
   the `busy` code), roundup ("meta-list") import with a Sally's preference,
   and a seasonal content round (34a–34f).
+- `websites/recipe-website/docs/agent-epic-35.md` — epic 35: the shopping
+  list (amounts, aisles, a shared per-item store in the content repo, every
+  feature a switch, `/shopping`), Halloween and Christmas content rounds,
+  curation polish (`term assign` unknown slugs, root-page pins, the CLI
+  loading `editor/.env`, the roundup picker) and editor hygiene (F6/F7
+  paging, lazy CLI startup).
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
