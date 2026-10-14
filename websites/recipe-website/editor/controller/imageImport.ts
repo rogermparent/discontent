@@ -15,7 +15,7 @@ import {
   RECIPE_FETCH_HEADERS,
   fetchRetrying403,
   type ForbiddenRetry,
-} from "recipe-website-common/util/importRecipeData";
+} from "recipe-website-common/util/politeFetch";
 import { openAsBlob } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";

@@ -2075,6 +2075,27 @@ recipe's featured index was in before D2b gave it rows.
 > uneditable. So F6a is a **paging affordance** — links, a page param, a route — not a read
 > swap, and it is still a UI PR rather than an engine one. The same reading applies to F6b–F6e.
 
+**F6 — done at epic 35q, without a new index.** Taken at its word: the affordance is the whole
+change. Each list already reads its content index with `limit`/`offset` and the index values
+are a name and a date, so the read was never the problem — what was missing was any way to reach
+row 21. `@discontent/cms/content/listPage` adds `parseListPage` (`?page=N`, plain positive
+integers only) and `readListPage` (an offset page, newest first, with its newer/older
+neighbours; `null` past the end, page 1 always answers), and
+`@discontent/component-library/components/ListPagination` renders Newer / number / Older.
+**No pagination keyspace, so no index layout change and no reindex**: stable page ids are what a
+keyspace buys, and they matter for sealed, cached export pages, not for a dynamic, signed-in
+editor list where a write moving rows between pages is expected. A **search param, not a
+`[page]` segment**, because both editors serve content pages at nested slugs through a root
+`[...slug]` catch-all — `/pages/2` would shadow a page slugged `pages/2`.
+
+| Surface | At 35q                                                                                                                  |
+| ------- | ----------------------------------------------------------------------------------------------------------------------- |
+| F6a     | **Done** — portfolio `/projects`, 20 a page, `getProjectsListPage`                                                      |
+| F6b     | **Done** — portfolio `/pages`, 20 a page, `getPagesListPage` (shared with F6c)                                          |
+| F6c     | **Done** — recipe editor `/pages`, 20 a page; Playwright `pages.spec` over a 21-page `many-pages` fixture               |
+| F6d     | **Done** — the resume home's "More" linked `/resumes`, a route that no longer existed; it now lists every resume, paged |
+| F6e     | **Closed, not a list** — both menus pages render two fixed links (Header, Footer); there is no corpus to page           |
+
 **F7 — enumerate slugs without deserializing values. Done for three of five routes.** Five routes
 load an entire corpus purely to list slugs. A pagination index's SORTED keyspace _is_ the id
 list, so a keys-only walk (`readAllIds`, shipped in P1 and until now with zero consumers)
@@ -2105,6 +2126,13 @@ there is no keyspace to walk. Both are `pages`:
 | ------------------------------------------ | ---------------------------------- |
 | `[...slug]` pages route (recipe export)    | pages declaring an index — see F6c |
 | `[...slug]` pages route (portfolio export) | pages declaring an index — see F6b |
+
+> **Still open after 35q, deliberately.** F6c/F6b were the expected occasion to give `pages` an
+> index, and they turned out not to need one (F6 above), so nothing is waiting on it. And the
+> saving here is small: since `pages` adopted the engine, these routes read the content index,
+> whose value is `{name}` alone — never a page body. A keys-only walk would skip one short
+> string per page, on a type with no pages in the real recipe repo. If it is ever wanted, the
+> content index's own keys (`[date, slug]`) can be walked without adding a keyspace at all.
 
 Verified by the export emitting an **identical file list** — every emitted path, same count —
 against `one-featured-recipe` (216 files, 129 rendered pages) and against a 40-recipe/40-feature
@@ -3112,7 +3140,7 @@ search corpus (epic 30c), and the index shape did not change, so no fixture was 
 **Where the engine stack stands after this.** Every row in all three §10 tables is Done or Deferred,
 and no deferral turns on an event nobody can recognise — F28 gave F12, F18 and F8b each a number.
 What is left in §11 is mostly ahead of need rather than deferred on a guess: F6's list UIs wait on a
-paging affordance rather than a transport swap, F7's two remaining routes wait on `pages` declaring
+paging affordance rather than a transport swap (**done at 35q**, without an index), F7's two remaining routes wait on `pages` declaring
 an index for content types with **0 pages in production**, and F13 waits on an export framework that
 does not exist. §0 says §11 "is deliberately over-complete: it is a survey of the whole repo, not a
 commitment to build all of it", and that is the distinction being honoured.

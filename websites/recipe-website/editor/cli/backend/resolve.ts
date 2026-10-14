@@ -29,8 +29,7 @@ import process from "node:process";
 import { resolveAuthor } from "../../controller/curation/author";
 import type { Author } from "../../controller/curation/context";
 import { UsageError } from "../../controller/curation/errors";
-import { createHttpBackend } from "./http";
-import { createLocalBackend, type NotifyTarget } from "./local";
+import type { NotifyTarget } from "./local";
 import type { CuratorBackend } from "./types";
 
 export interface BackendOverrides {
@@ -132,19 +131,30 @@ export function resolveBackendConfig(
   };
 }
 
-export function createBackend(config: BackendConfig): CuratorBackend {
-  return config.kind === "http"
-    ? createHttpBackend({ baseUrl: config.baseUrl, token: config.token })
-    : createLocalBackend({
-        contentDirectory: config.contentDirectory,
-        author: config.author,
-        notify: config.notify,
-      });
+/**
+ * Each backend is imported when it is chosen, not with this module (35q): the
+ * local one loads the curation layer and the engine's write path, which
+ * `--help`, a usage error or a remote run never touch. The CLI parses its
+ * argv and answers `--help` before it gets here.
+ */
+export async function createBackend(
+  config: BackendConfig,
+): Promise<CuratorBackend> {
+  if (config.kind === "http") {
+    const { createHttpBackend } = await import("./http");
+    return createHttpBackend({ baseUrl: config.baseUrl, token: config.token });
+  }
+  const { createLocalBackend } = await import("./local");
+  return createLocalBackend({
+    contentDirectory: config.contentDirectory,
+    author: config.author,
+    notify: config.notify,
+  });
 }
 
 export function resolveBackend(
   overrides: BackendOverrides = {},
   env: NodeJS.ProcessEnv = process.env,
-): CuratorBackend {
+): Promise<CuratorBackend> {
   return createBackend(resolveBackendConfig(overrides, env));
 }

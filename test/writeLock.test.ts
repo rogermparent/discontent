@@ -17,6 +17,7 @@ import {
   readJson,
   rm,
   stat,
+  symlink,
   utimes,
   writeFile,
 } from "fs-extra";
@@ -143,6 +144,91 @@ describe("withWriteLock", () => {
       });
     await Promise.all(["a", "b", "c", "d"].map(writer));
     expect(events).toEqual(["a+", "a-", "b+", "b-", "c+", "c-", "d+", "d-"]);
+  });
+
+  it("keeps call order under load: 20 writers, several rounds (35q)", async () => {
+    /*
+     * #223's CI saw a, b, d, c: callers once enqueued in the order their
+     * lookups (`access`, the git directory) resolved, not in call order.
+     */
+    for (let round = 0; round < 5; round += 1) {
+      const order: number[] = [];
+      let active = 0;
+      const names = Array.from({ length: 20 }, (_, i) => i);
+      await Promise.all(
+        names.map((i) =>
+          withWriteLock(dir, `w${i}`, async () => {
+            active += 1;
+            expect(active).toBe(1);
+            order.push(i);
+            /* A nested write still re-enters rather than queueing. */
+            await withWriteLock(dir, `w${i} nested`, async () => undefined);
+            await sleep(1);
+            active -= 1;
+          }),
+        ),
+      );
+      expect(order).toEqual(names);
+    }
+  });
+
+  it("keeps call order across a symlinked spelling of the directory (35q)", async () => {
+    /*
+     * The lock file is real-pathed, so both spellings share one lock; the
+     * entry chain must key on the real path too, or the two spellings race
+     * each other into the queue.
+     */
+    const parent = await mkdtemp(join(tmpdir(), "write-lock-link-"));
+    const link = join(parent, "content");
+    await symlink(dir, link);
+    try {
+      for (let round = 0; round < 5; round += 1) {
+        const order: number[] = [];
+        let active = 0;
+        const names = Array.from({ length: 12 }, (_, i) => i);
+        await Promise.all(
+          names.map((i) =>
+            withWriteLock(i % 2 ? link : dir, `w${i}`, async () => {
+              active += 1;
+              expect(active).toBe(1);
+              order.push(i);
+              await withWriteLock(i % 2 ? dir : link, "nested", async () => {});
+              await sleep(1);
+              active -= 1;
+            }),
+          ),
+        );
+        expect(order).toEqual(names);
+      }
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps call order across a fresh directory spelling and a non-repo (35q)", async () => {
+    const plain = await mkdtemp(join(tmpdir(), "write-lock-plain-"));
+    try {
+      const order: string[] = [];
+      const writer = (directory: string, name: string) =>
+        withWriteLock(directory, name, async () => {
+          order.push(name);
+          await sleep(5);
+        });
+      await Promise.all([
+        writer(dir, "a"),
+        writer(`${dir}/`, "b"),
+        writer(plain, "outside"),
+        writer(dir, "c"),
+      ]);
+      /* The non-repo runs at once; the repo's writers keep their order. */
+      expect(order.filter((name) => name !== "outside")).toEqual([
+        "a",
+        "b",
+        "c",
+      ]);
+    } finally {
+      await rm(plain, { recursive: true, force: true });
+    }
   });
 
   it("takes over a lock whose holder on this host and pid namespace is dead", async () => {

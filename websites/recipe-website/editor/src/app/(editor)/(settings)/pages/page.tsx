@@ -1,7 +1,11 @@
-import getPages, {
-  PageIndexEntry,
+import {
+  getPagesListPage,
+  type PageIndexEntry,
 } from "@discontent/pages-collection/controller/data/readIndex";
+import { parseListPage } from "@discontent/cms/content/listPage";
+import { ListPagination } from "@discontent/component-library/components/ListPagination";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { auth, signIn } from "@/auth";
 import {
   PageMain,
@@ -21,13 +25,25 @@ function PageListItem({ page: { name, slug } }: { page: PageIndexEntry }) {
   );
 }
 
-export default async function Pages() {
+/**
+ * The pages list, newest first, 20 to a page (F6c, epic 35q): `/pages` is page
+ * 1, `/pages?page=2` the next older 20.
+ */
+export default async function Pages({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string | string[] }>;
+}) {
   const user = await auth();
   if (!user) {
     return signIn(undefined, { redirectTo: "/pages" });
   }
 
-  const { pages } = await getPages();
+  const pageNumber = parseListPage((await searchParams).page);
+  if (pageNumber === null) notFound();
+  const listed = await getPagesListPage(pageNumber);
+  if (!listed) notFound();
+  const pages = listed.entries;
 
   return (
     <PageMain>
@@ -42,6 +58,12 @@ export default async function Pages() {
         ) : (
           <p className="text-center my-4">There are no pages yet.</p>
         )}
+        <ListPagination
+          basePath="/pages"
+          page={listed.page}
+          newerPage={listed.newerPage}
+          olderPage={listed.olderPage}
+        />
       </PageSection>
       <PageSection className="py-2">
         <Link href="/pages/new">New Page</Link>

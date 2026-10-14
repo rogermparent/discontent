@@ -8,7 +8,7 @@
  * engine's `SlugConflictError` and zod's `ZodError`, rather than making every
  * call site wrap them.
  */
-import { SlugConflictError } from "@discontent/cms/content/createContent";
+import { SlugConflictError } from "@discontent/cms/content/errors";
 import {
   CommitConflictError,
   MergeInProgressError,

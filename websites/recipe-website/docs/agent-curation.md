@@ -3024,8 +3024,11 @@ Struck rows are done; `backlog.md` names the phase that did each.
   by 27d.
 - ~~**`POST /api/git/push`** (D11)~~ — done by 23d.
 - ~~**API token hygiene** (22d)~~ — done by 27b.
-- ~~**Group tags / tag pages**~~ (done by 24b); **per-item servings for meal
-  plans; featured recipes as a group kind.**
+- ~~**Group tags / tag pages**~~ (done by 24b); ~~**per-item servings for
+  meal plans**~~ — done by 32g (a meal-plan item's `scale`); **featured
+  recipes as a group kind** — still a `backlog.md` candidate; meanwhile a
+  feature can target a recipe, a group (22g) or a term (24c). (Statuses
+  checked at 35q.)
 - ~~**CLI featured commands** (22g)~~ — done by 23a.
 - ~~**Member-thumbnail fallback on client-rendered search-result group cards**
   (22g, narrowed by 22h): since 22h a `/search` group card shows the group's
@@ -3039,10 +3042,12 @@ Struck rows are done; `backlog.md` names the phase that did each.
   (22h)~~ — done by 23a; ~~**`--image <local file>`**~~ — done by 26b;
   ~~**⌘K rows with thumbnails**~~ — done by 28i and 30c.
 - ~~**README test section rewrite** (22e)~~ — done by 26d.
-- **Tag-vocabulary migration** (22e): the 437 existing recipes carry two tags
-  in total; the skill's vocabulary (`vegetarian`, `dinner`, `quick`, …) only
-  reaches recipes it imports. A one-off tagging pass would make `tag:` search
-  useful for reuse. (Picked up as 24f's backfill, still open.)
+- ~~**Tag-vocabulary migration** (22e): the 437 existing recipes carry two
+  tags in total; the skill's vocabulary (`vegetarian`, `dinner`, `quick`, …)
+  only reaches recipes it imports. A one-off tagging pass would make `tag:`
+  search useful for reuse.~~ — done by epic 33 (24f's backfill: the course,
+  main-ingredient, cuisine and speed & effort roots applied to the real
+  repo, `agent-epic-33.md`).
 - ~~**`search` ranking and OR-by-default free text** (22e)~~ — done by 27d.
 - ~~**Stale-editor hint after `--dry-run`** (22e fact 13)~~ — done by 26b.
 

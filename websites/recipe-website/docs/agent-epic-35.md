@@ -424,6 +424,30 @@ check of 35c/35d.
   the data file; a file that is there but broken still fails part-way and
   commits what landed.
 
+### 35q
+
+- **Anything awaited before a queue is joined reorders the queue.** The
+  write lock's FIFO broke because `withWriteLock` awaited an `access` and a
+  git-dir lookup before `queueTurn` (#223's CI: a, b, d, c), and
+  `commitContentChanges` repeated it one level up with its own
+  `directoryIsGitRepo` before `withWriteLock`. fs callbacks come back from
+  the thread pool in any order. Take the place in line synchronously, then
+  look things up. A new writer-side helper that awaits anything before
+  calling `withWriteLock` or `serialInHold` brings the flake back.
+- **An idle machine hides it.** Both ordering tests passed on the old code
+  when the machine was quiet; they fail reliably only with a cold lookup in
+  the mix (a second spelling of the directory, whose git dir is not
+  memoised yet). The stress tests use one on purpose.
+- **`pnpm recipes` was two pnpm processes.** The root script was
+  `pnpm --filter recipe-editor recipes`, ~1.5 s of every call before node
+  started. It now runs the editor's tsx directly; `INIT_CWD` is still the
+  caller's directory, so relative paths resolve as before.
+- **A page param on `/pages` is a search param**: both editors serve content
+  pages at nested slugs through a root `[...slug]`, which a `/pages/[page]`
+  segment would shadow.
+- **`pages.spec` as a Playwright regex also matches `tag-pages.spec`** — the
+  35q run was 36 tests, not 5.
+
 ### 35r
 
 - **The visual baselines of `/new-recipe` move.** The picker is a collapsed
@@ -1009,6 +1033,89 @@ Traps:
 Deferred: drag-to-reorder aisles (up/down buttons instead); undo for Clear
 (`git_revert` from /git does it); a per-row "ticked by" (the commit author
 says who).
+
+### 35q — Engine & editor hygiene
+
+**Reindex needed: no.** No index, keyspace, index value or spec version
+changed; no fixture index was rebuilt (the one new fixture, `many-pages`,
+carries only its own pages index, built by `seed-pages.ts --many 21`).
+
+**Write-lock FIFO.** `withWriteLock` now takes its place in line at call
+time: each call joins a per-directory entry chain synchronously, starts its
+lookups (`access`, the git dir) at once, but applies the result — the
+re-entry check and `queueTurn`'s synchronous enqueue — only after every
+earlier call has applied its own, then leaves the chain (never held through
+a turn, so a re-entrant call cannot wait behind its own hold). The chain
+keys on the directory's **real path** (`realpathSync`, cached per spelling;
+`resolve` while it does not exist), as the lock file does, so a symlinked
+spelling and the real one share a chain as they share a lock. The wait on
+earlier callers **races the write's deadline** and ends in
+`RepositoryBusyError`; a caller that gives up leaves the chain at once, so
+one stuck lookup holds the rest only until their own deadlines (review
+round).
+`commitContentChanges` had the same bug one level up — its own
+`directoryIsGitRepo` before `withWriteLock` — and was the cause of the local
+`curationGit` "serialises two commits" flake; the check now runs inside the
+lock and `serialInHold`. New tests: 20 writers × 5 rounds with nested
+re-entry; mixed directory spellings plus a non-repo; 8 commits × 3 rounds in
+one lock scope; and a symlink + real path alternating, for `withWriteLock`
+(12 × 5) and for `commitContentChanges` in one hold (8 × 3). Each fails on `origin/main`'s code (the commit test with
+both old modules). `shopping.test`'s walk-cap case (12 committed writes +
+256 rows) gets a 30 s timeout — it took 4–8 s under load on either code.
+
+**F6 — the editor lists page, without an index** (F29's finding taken
+literally: the affordance is the change). The lists already read their
+content index by `limit`/`offset`, and the values are a name and a date.
+`@discontent/cms/content/listPage` (`parseListPage`, `readListPage`) and
+`@discontent/component-library/components/ListPagination` (Newer / number /
+Older, `?page=N`): F6c recipe `/pages`, F6b portfolio `/pages`, F6a
+portfolio `/projects`, 20 a page; a bad or past-the-end page is a 404. F6d:
+the resume home's "More" linked `/resumes`, which no longer existed — it now
+lists every resume, paged. F6e closed: the menus pages are two fixed links.
+**F7's two `[...slug]` routes stay open**: nothing now waits on a pages
+index, the routes read `{name}` values only, and the real repo has no
+pages (`incremental-regeneration.md` §11 has the reasoning).
+
+**CLI startup** — interleaved A/B against an `origin/main` export at the
+same load, 4 runs each, ms; reindex on a scratch clone of the real repo
+(718 recipes; deleted afterwards):
+
+| `pnpm --silent recipes …` | before    | after     |
+| ------------------------- | --------- | --------- |
+| `--help`                  | 3687–5072 | 1967–2114 |
+| `list --limit 1 --json`   | 3307–6641 | 2655–4101 |
+| `reindex --json`          | 5985–7077 | 3834–4653 |
+
+Of a reindex, the rebuild itself is ~1.5 s (`timings.total` 1526). Where the
+time went: the root script's second pnpm process (~1.5 s; the root
+`recipes` script now runs the editor's tsx directly), the local backend
+(~1 s; `resolve.ts` imports the chosen backend on demand, so `--help`, usage
+errors and remote runs skip it), the page parsers (~0.35–0.45 s, loaded by
+every command through `imageImport.ts` → `importRecipeData.ts`; the polite
+fetch moved to `common/util/politeFetch.ts`, and `local.ts` imports the
+import/inspect seats when called), and the engine's write path loaded just
+to `instanceof` a `SlugConflictError` (now `@discontent/cms/content/errors`,
+re-exported from `createContent`). What remains for `--help` is pnpm (~1 s)
+and tsx (~0.5 s). `createBackend`/`resolveBackend` are async now; the CLI
+and the stdio MCP server await them.
+
+**Stale doc statuses** checked against the code: `agent-curation.md`
+Deferred (per-item servings → 32g; the tag-vocabulary migration → epic 33;
+"featured recipes as a group kind" is still a backlog row, annotated);
+`agent-mcp.md` (the `group:` skill note and the server-side `group:` row →
+30a; featured dedupe → 31a; read-only tokens → 27b, `.mcp.json` still
+stdio-only). The backlog's epic-34 rows 35p fixed were already struck; a new
+row records that resume-builder's Tailwind `@source` misses the shared kit
+(F6d's pagination renders unstyled there until it is fixed).
+
+Gates: editor typecheck and export `tsc` clean; portfolio editor typecheck
+and resume-builder `tsc` clean (resume needs its gitignored
+`next-env.d.ts`); vitest **72 files / 1533 tests**; Playwright (build mode,
+heavy slot) `pages.spec` + `settings-nav.spec` — **36 passed** (the regex
+also took `tag-pages.spec`), including the two new F6c cases. Portfolio and
+resume Playwright not run locally (portfolio's prod build OOMs; CI's
+portfolio job is the gate; resume-builder has no CI job); neither has a
+list spec that pages.
 
 ## Close-out
 

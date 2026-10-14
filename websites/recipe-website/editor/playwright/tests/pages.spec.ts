@@ -94,4 +94,53 @@ test.describe("Page Editor", () => {
       });
     });
   });
+
+  test.describe("paging the list (F6c)", () => {
+    test("pages 21 pages 20 at a time, newest first", async ({
+      page,
+      resetData,
+    }) => {
+      await resetData("many-pages");
+      await page.goto("/pages");
+      await fillSignInForm(page);
+
+      const listed = page.locator('a[href^="/pages/edit/"]');
+      await expect(listed).toHaveCount(20);
+      await expect(listed.first()).toContainText("Page 21");
+      await expect(listed.last()).toContainText("Page 02");
+      await expect(page.getByTestId("pagination-page-number")).toHaveText("1");
+      await expect(
+        page.getByRole("link", { name: "Newer", exact: true }),
+      ).toHaveCount(0);
+
+      await page.getByRole("link", { name: "Older", exact: true }).click();
+      await expect(page).toHaveURL(/\/pages\?page=2$/);
+      await expect(listed).toHaveCount(1);
+      await expect(listed.first()).toContainText("Page 01");
+      await expect(page.getByTestId("pagination-page-number")).toHaveText("2");
+      await expect(
+        page.getByRole("link", { name: "Older", exact: true }),
+      ).toHaveCount(0);
+
+      await page.getByRole("link", { name: "Newer", exact: true }).click();
+      await expect(page).toHaveURL(/\/pages$/);
+      await expect(listed).toHaveCount(20);
+    });
+
+    test("one page of pages shows no paging, and past the end is a 404", async ({
+      page,
+      resetData,
+    }) => {
+      await resetData("about-page");
+      await page.goto("/pages");
+      await fillSignInForm(page);
+      await expect(page.locator('a[href="/pages/edit/about"]')).toBeVisible();
+      await expect(page.getByTestId("pagination-page-number")).toHaveCount(0);
+
+      for (const query of ["?page=2", "?page=0", "?page=abc", "?page=01"]) {
+        const response = await page.goto(`/pages${query}`);
+        expect(response?.status(), query).toBe(404);
+      }
+    });
+  });
 });
