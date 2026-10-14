@@ -215,6 +215,10 @@ describe("parseIngredientLine — quantities, units and alternatives", () => {
 
   it("never splits on and, except salt and pepper (32j)", () => {
     expect(label("1 cup half and half")).toBe("half and half");
+    /* Read as the quantity `half` and the name `half` until 35b. */
+    expect(label("1 cup half-and-half")).toBe("half and half");
+    expect(label("2 cups half & half")).toBe("half and half");
+    expect(label("half a lemon")).toBe("lemon");
     expect(label("2 cups macaroni and cheese")).toBe("macaroni and cheese");
     expect(
       parseIngredientLine("Salt and pepper").map(requirementLabel),

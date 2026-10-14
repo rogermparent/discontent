@@ -251,6 +251,8 @@ const SYNONYMS: [RegExp, string][] = [
   ],
   [/\b(?:chillies|chilies|chillis|chilli)\b/g, "chili"],
   [/\byoghurts?\b/g, "yogurt"],
+  /* `half-and-half` and `half & half` (35b): the `&` is a space by now. */
+  [/\bhalf (?:and )?half\b/g, "half and half"],
   [/\bevoo\b/g, "extra virgin olive oil"],
   [/\bclub soda\b/g, "soda water"],
   [/\bsparkling (?:mineral )?water\b/g, "soda water"],

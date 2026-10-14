@@ -23,7 +23,7 @@
  *     those, how many say so rather than just naming the ingredient), and the
  *     most common lines it can't read. Target: ≥ 90% read.
  *     `--lines` also prints every food line beside its formatted amount.
- *   - aisles (35b): to come.
+ *   - aisles (35b): see `measure-aisles.ts`.
  */
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -99,8 +99,8 @@ function measureAmounts(food: CorpusLine[], top: number, lines: boolean) {
 
 // --- aisles (35b) ----------------------------------------------------------
 //
-// 35b adds the aisle half here: what share of food lines land in an aisle,
-// and the most common names that don't.
+// The aisle half has a script of its own: `measure-aisles.ts` (share of food
+// lines per aisle, and the names left in `other`).
 
 async function main() {
   const contentDirectory = process.env.CONTENT_DIRECTORY;
