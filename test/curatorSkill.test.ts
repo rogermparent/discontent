@@ -34,7 +34,7 @@ const SETTINGS_PATH = resolve(__dirname, "../.claude/settings.json");
 const CLAUDE_MD_PATH = resolve(__dirname, "../CLAUDE.md");
 
 /**
- * The twelve tools the skill does not get.
+ * The fourteen tools the skill does not get.
  *
  * Spelled out rather than derived, because annotations do not carry it: five
  * are `destructiveHint`, but `reindex` is an idempotent write and `git_push`
@@ -67,6 +67,12 @@ const HELD_BACK = [
    */
   "term_delete",
   "term_merge",
+  /*
+   * 35c: emptying the shopping list (or its ticked rows) and its switches are
+   * Roger's, on `/shopping`. Adding, ticking and removing rows are the seats.
+   */
+  "shopping_clear",
+  "shopping_settings_set",
 ] as const;
 
 /**
@@ -131,7 +137,7 @@ const EXPECTED_ALLOWED = TOOL_NAMES.filter(
 
 /** Anything backticked that is shaped like one of this server's tool names. */
 const TOOL_SHAPED =
-  /^(recipe|group|git|tag|featured|inventory|page|term)_[a-z_]+$|^(feature|unfeature|reindex)$/;
+  /^(recipe|group|git|tag|featured|inventory|shopping|page|term)_[a-z_]+$|^(feature|unfeature|reindex)$/;
 
 /** `## Heading` … up to the next `## `, or the end. */
 function section(markdown: string, heading: string): string {
@@ -247,13 +253,23 @@ describe("the recipe-curator skill's allow-lists", () => {
      * a deliberate edit here — and CLAUDE.md's "pre-approves its N" sentence,
      * which nothing else checks, moves with it.
      */
-    expect(TOOL_NAMES).toHaveLength(49);
-    expect(EXPECTED_ALLOWED).toHaveLength(37);
+    expect(TOOL_NAMES).toHaveLength(55);
+    expect(EXPECTED_ALLOWED).toHaveLength(41);
     expect(EXPECTED_ALLOWED).toContain("term_set_image");
     /* 34f: 47 → 49 and 35 → 37 — the roundup read and the roundup import,
      * whose every recipe is its own revertable commit, as `recipe_import`'s. */
     expect(EXPECTED_ALLOWED).toContain("page_inspect_list");
     expect(EXPECTED_ALLOWED).toContain("recipe_import_list");
+    /* 35c: 49 → 55 and 37 → 41 — the shopping list's reads and row writes;
+     * `shopping_clear` and `shopping_settings_set` are held back. */
+    for (const name of [
+      "shopping_get",
+      "shopping_add",
+      "shopping_check",
+      "shopping_remove",
+    ]) {
+      expect(EXPECTED_ALLOWED).toContain(name);
+    }
 
     const claudeMd = await readFile(CLAUDE_MD_PATH, "utf8");
     const registers = /registers its (\d+) tools/.exec(claudeMd);
@@ -330,6 +346,14 @@ describe("the recipe-curator skill's allow-lists", () => {
       "sallysbakingaddiction.com",
     );
     expect(examples).toContain("recipe_import_list");
+  });
+
+  it("teaches the shopping list: a plan, a recipe, 'I bought eggs' (35c)", () => {
+    const shopping = section(skill, "8b. The shopping list");
+    expect(shopping).toContain('shopping_add {"group"');
+    expect(shopping).toContain('shopping_check {"names": ["eggs"]}');
+    expect(shopping).toContain('shopping_get {"store": "market-basket"}');
+    expect(shopping).toContain("Never empty the list");
   });
 
   it("asks 'what can I make?' of every recipe, not just drinks (32j)", () => {

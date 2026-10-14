@@ -587,7 +587,7 @@ const BUY_NEXT_LIMIT = 5;
 function stapleMeets(
   staple: InventoryItem,
   requirement: Requirement,
-  aliases: AliasIndex,
+  aliases?: AliasIndex,
 ): boolean {
   if (satisfies(staple, requirement, aliases)) return true;
   if (!requirement.staple) return false;
@@ -597,6 +597,23 @@ function stapleMeets(
       requirement.alternatives.some((alternative) =>
         alternative.words.join(" ").split(" ").includes(name.words[0]),
       ),
+  );
+}
+
+/**
+ * Is `requirement` probably on hand — met by an inventory item or a staple?
+ * The shopping list's "probably on hand" fold (epic 35, D3): the same rules
+ * as `/make`, without the corpus's alias check (a brand on the list meets a
+ * line naming it), since the list judges lines one at a time.
+ */
+export function probablyOnHand(
+  requirement: Requirement,
+  items: InventoryItem[],
+  staples: InventoryItem[],
+): boolean {
+  return (
+    items.some((item) => satisfies(item, requirement)) ||
+    staples.some((staple) => stapleMeets(staple, requirement))
   );
 }
 

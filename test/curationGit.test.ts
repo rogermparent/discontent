@@ -729,6 +729,47 @@ describe("gitFetch / gitPull", () => {
     expect((await gitStatus(ctx)).indexStale).toBe(false);
   });
 
+  /*
+   * 35c review: the other device's shopping ticks change nothing an index
+   * reads, so pulling them moves the stamp and rebuilds nothing — no
+   * whole-site revalidate for a tick. Anything else still rebuilds.
+   */
+  it("pulls shopping and inventory commits without a rebuild", async () => {
+    const { piWrite } = await piPair();
+    await piWrite(
+      "shopping/items/01jaaaaaaaaaaaaaaaaaaaaaaa.json",
+      { id: "01jaaaaaaaaaaaaaaaaaaaaaaa", text: "eggs", checked: true },
+      "Update shopping list: ✓eggs",
+    );
+    await piWrite(
+      "inventory/on-hand.json",
+      { items: ["gin"] },
+      "Update inventory: +gin",
+    );
+    await gitFetch(ctx);
+    const pulled = await gitPull(ctx);
+    expect(pulled).toMatchObject({ merged: true, newCommits: 2, rebuilt: [] });
+    expect(bulkChanges).toBe(0);
+    expect((await gitStatus(ctx)).indexStale).toBe(false);
+
+    /* One recipe among them: the full rebuild, as always. */
+    await piWrite(
+      "shopping/items/01jbbbbbbbbbbbbbbbbbbbbbbb.json",
+      { id: "01jbbbbbbbbbbbbbbbbbbbbbbb", text: "milk" },
+      "Update shopping list: +milk",
+    );
+    await piWrite(
+      "recipes/data/gimlet/recipe.json",
+      { name: "Gimlet", date: 1_790_000_000_000 },
+      "Add Gimlet",
+    );
+    await gitFetch(ctx);
+    const rebuilt = await gitPull(ctx);
+    expect(rebuilt.rebuilt).toEqual(expect.arrayContaining(["recipes"]));
+    expect(bulkChanges).toBe(1);
+    expect((await searchRecipes(ctx, "gimlet")).total).toBe(1);
+  });
+
   it("merges when both sides moved, and says so before and after", async () => {
     const { piWrite } = await piPair();
     await createRecipe(ctx, { name: "Daiquiri" });

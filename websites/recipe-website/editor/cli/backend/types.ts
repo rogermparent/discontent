@@ -61,6 +61,13 @@ import type {
   MakeableResult,
 } from "../../controller/curation/inventory";
 import type {
+  ShoppingAddResult,
+  ShoppingClearResult,
+  ShoppingPatchResult,
+  ShoppingSettingsResult,
+  ShoppingViewResult,
+} from "../../controller/curation/shopping";
+import type {
   RecipeDetail,
   RecipeDryRunResult,
   RecipeListResult,
@@ -117,6 +124,11 @@ export type {
   RecipeWriteResult,
   ReindexResult,
   SearchResult,
+  ShoppingAddResult,
+  ShoppingClearResult,
+  ShoppingPatchResult,
+  ShoppingSettingsResult,
+  ShoppingViewResult,
   ShowResult,
   SyncResult,
   SyncStatus,
@@ -303,6 +315,24 @@ export interface CuratorBackend {
     query?: string;
     limit?: number;
   }): Promise<MakeableResult>;
+
+  /* --- shopping list (35c) ---------------------------------------------- */
+
+  /**
+   * The editor's shared shopping list (epic 35, D7/D8): one file per item in
+   * the content repo, every feature a switch. `getShopping` answers the
+   * stored items and settings with the view and its copy text; `store`
+   * narrows to one store's list. Every write is one commit, or none.
+   */
+  getShopping(options?: { store?: string }): Promise<ShoppingViewResult>;
+  /** `{recipe, scale?} | {group, scale?} | {items}`. */
+  addToShopping(raw: unknown): Promise<ShoppingAddResult>;
+  /** `{check, uncheck, remove, need, unneed, names, uncheckNames, removeSource, set}`. */
+  patchShopping(raw: unknown): Promise<ShoppingPatchResult>;
+  /** `{scope: "checked" | "all"}`, checked by default. */
+  clearShopping(raw?: unknown): Promise<ShoppingClearResult>;
+  getShoppingSettings(): Promise<ShoppingSettingsResult>;
+  updateShoppingSettings(raw: unknown): Promise<ShoppingSettingsResult>;
 
   /* --- git (23d/D23) ----------------------------------------------------- */
 
