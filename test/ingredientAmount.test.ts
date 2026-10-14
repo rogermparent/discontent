@@ -218,7 +218,7 @@ describe("parseAmount — units", () => {
     expect(parts("1 cup plus 2 tbsp flour")).toEqual([
       { qty: 18, unit: "tbsp", family: "us-volume" },
     ]);
-    expect(shown("1/2 cup and 2 tablespoons sugar")).toBe("⅝ cup");
+    expect(shown("1/2 cup and 2 tablespoons sugar")).toBe("10 tbsp");
     expect(shown("1/2 cup plus 1 tablespoon water")).toBe("9 tbsp");
     expect(shown("1T + 1t honey")).toBe("1⅓ tbsp");
     /* A quantity without a unit is a second ingredient, not more of this one. */
@@ -261,6 +261,107 @@ describe("parseAmount — units", () => {
   it("multiplies a size that isn't a container's", () => {
     expect(parts("2 2-lb chickens")).toEqual([
       { qty: 4, unit: "lb", family: "us-weight" },
+    ]);
+    /* Written either way, each fillet is 6 oz. */
+    expect(parts("4 6-oz salmon fillets")).toEqual([
+      { qty: 24, unit: "oz", family: "us-weight" },
+    ]);
+    expect(parts("4 (6 oz) salmon fillets")).toEqual([
+      { qty: 24, unit: "oz", family: "us-weight" },
+    ]);
+    expect(shown("1 (2 1/2 pound) chicken")).toBe("2½ lb");
+  });
+
+  it("takes a bracket that says about or total as the whole amount", () => {
+    expect(parts("8 (about 2 lbs) chicken thighs")).toEqual([
+      { qty: 2, unit: "lb", family: "us-weight" },
+    ]);
+  });
+
+  it("reads a bracket before a unit as the other measure", () => {
+    expect(parts("250 (1c) grams of warm water")).toEqual([
+      { qty: 250, unit: "g", family: "metric-weight" },
+    ]);
+  });
+
+  it("reads `2 x 400g tins` as the tins", () => {
+    expect(parts("2 x 400g tins tomatoes")).toEqual([
+      { qty: 2, unit: "tin", family: "container" },
+    ]);
+    expect(parts("2x 400g cans chickpeas")[0]).toMatchObject({
+      qty: 2,
+      unit: "can",
+    });
+  });
+
+  it("counts things a dimension describes", () => {
+    expect(parts("2 9-inch pie crusts")).toEqual([
+      { qty: 2, unit: "", family: "count" },
+    ]);
+    expect(parts("4 6-inch flour tortillas")).toEqual([
+      { qty: 4, unit: "", family: "count" },
+    ]);
+    expect(parts("1 (9 inch) pie crust")).toEqual([
+      { qty: 1, unit: "", family: "count" },
+    ]);
+    expect(parts("10 inch tortillas")).toEqual([
+      { qty: 1, unit: "", family: "count" },
+    ]);
+    /* A length of something is still an amount of it. */
+    expect(parts("1 inch ginger")).toEqual([
+      { qty: 1, unit: "inch", family: "container" },
+    ]);
+  });
+
+  it("takes the larger end of a range with a unit on both ends", () => {
+    expect(parts("200g-250g pasta")).toEqual([
+      { qty: 250, unit: "g", family: "metric-weight" },
+    ]);
+    expect(shown("1 lb to 1 1/2 lbs ground beef")).toBe("1½ lb");
+    expect(shown("1 lb - 1.5 lb potatoes")).toBe("1½ lb");
+    expect(shown("2 tbsp to 1/4 cup water")).toBe("¼ cup");
+    expect(shown("2 tsp to 1 tbsp sugar")).toBe("1 tbsp");
+    expect(shown("1 cup or 2 cups stock")).toBe("2 cups");
+    expect(shown("1/2 cup to 2/3 cup chocolate chips")).toBe("⅔ cup");
+    /* Another family is the other measure, not a range. */
+    expect(shown("100g or 1/2c mayo")).toBe("100 g");
+  });
+
+  it("continues a pair of units without a plus", () => {
+    expect(parts("1 lb 2 oz beef")).toEqual([
+      { qty: 18, unit: "oz", family: "us-weight" },
+    ]);
+    expect(shown("1 lb. 4 oz. flour")).toBe("1¼ lb");
+    expect(shown("1 kg 200 g potatoes")).toBe("1.2 kg");
+    /* Only a smaller unit of the same family continues it. */
+    expect(shown("1 tsp 1 tsp vanilla")).toBe("1 tsp");
+    expect(shown("2 cups 16 oz sour cream")).toBe("2 cups");
+  });
+
+  it("reads dozens and spelled-out halves", () => {
+    expect(parts("2 dozen eggs")).toEqual([
+      { qty: 24, unit: "", family: "count" },
+    ]);
+    expect(parts("a dozen eggs")[0].qty).toBe(12);
+    expect(parts("1 dozen eggs")[0].qty).toBe(12);
+    expect(shown("1 and 1/2 cups flour")).toBe("1½ cups");
+    expect(shown("one and a half cups flour")).toBe("1½ cups");
+    expect(shown("1 and a half cups flour")).toBe("1½ cups");
+    expect(shown("2 and a half cups flour")).toBe("2½ cups");
+    expect(shown("a half cup of milk")).toBe("½ cup");
+    expect(shown("1 cup half and half")).toBe("1 cup");
+  });
+
+  it("is never a confident count when `and` follows the number", () => {
+    expect(parseAmount("1 & 1/2 cups flour")).toBeNull();
+    expect(parseAmount("2 & a half")).toBeNull();
+  });
+
+  it("reads spellings the grammar's unit list lacks", () => {
+    expect(shown("2 Tb butter")).toBe("2 tbsp");
+    expect(shown("1 TB oil")).toBe("1 tbsp");
+    expect(parts("2 fl. oz gin")).toEqual([
+      { qty: 2, unit: "fl oz", family: "us-volume" },
     ]);
   });
 
@@ -319,6 +420,12 @@ describe("parseAmount — amounts written after the name", () => {
       unit: "g",
     });
     expect(parseAmount("soy sauce (1 Tbsp per serving)")).toBeNull();
+  });
+
+  it("reads a leading bracket when it is the only amount", () => {
+    expect(parts("(about 2 cups) chopped kale")).toEqual([
+      { qty: 2, unit: "cup", family: "us-volume" },
+    ]);
   });
 
   it("reads past a label", () => {
@@ -473,6 +580,16 @@ describe("scaleAmount", () => {
   it("leaves as needed as it is", () => {
     expect(scaleAmount(AS_NEEDED, 3)).toEqual(AS_NEEDED);
   });
+
+  it("leaves nothing to buy at zero or less", () => {
+    expect(scaleAmount(amount([2, "cup"]), 0)).toEqual(AS_NEEDED);
+    expect(formatAmount(scaleAmount(amount([2, "cup"]), 0))).toBe("as needed");
+    expect(scaleAmount(amount([2, "cup"]), -1)).toEqual(AS_NEEDED);
+    expect(scaleAmount(amount([2, "cup"]), Number.NaN)).toEqual(AS_NEEDED);
+    expect(
+      formatAmount({ parts: [{ qty: 0, unit: "g", family: "metric-weight" }] }),
+    ).toBe("as needed");
+  });
 });
 
 describe("formatAmount", () => {
@@ -484,8 +601,11 @@ describe("formatAmount", () => {
     [amount([2 / 3, "cup"]), "⅔ cup"],
     [amount([0.25, "cup"]), "¼ cup"],
     [amount([1.5, "cup"]), "1½ cups"],
-    /* Not an exact fraction of a cup: in tablespoons. */
+    /* Not a fraction of a cup recipes write: in tablespoons. */
     [amount([5, "tbsp"]), "5 tbsp"],
+    [amount([6, "tbsp"]), "6 tbsp"],
+    [amount([10, "tbsp"]), "10 tbsp"],
+    [amount([12, "tbsp"]), "¾ cup"],
     [amount([3, "tbsp"]), "3 tbsp"],
     [amount([16, "tbsp"]), "1 cup"],
     [amount([3, "tsp"]), "1 tbsp"],
@@ -498,9 +618,9 @@ describe("formatAmount", () => {
     [amount([16, "fl oz"]), "2 cups"],
     [amount([24, "oz"]), "1½ lb"],
     [amount([12, "oz"]), "12 oz"],
-    [amount([1500, "g"]), "1½ kg"],
+    [amount([1500, "g"]), "1.5 kg"],
     [amount([250, "g"]), "250 g"],
-    [amount([1500, "ml"]), "1½ l"],
+    [amount([1500, "ml"]), "1.5 l"],
     [amount([3, ""]), "3"],
     [amount([0.5, ""]), "½"],
     [amount([2, "can"]), "2 cans"],
@@ -524,6 +644,22 @@ describe("formatAmount", () => {
     expect(formatAmount(amount([0.25, "tsp"]))).toBe("½ tsp");
     expect(formatAmount(amount([0.125, "tsp"]))).toBe("½ tsp");
     expect(formatAmount(amount([0.01, ""]))).toBe("⅛");
+  });
+
+  it("shows metric whole below a kilo or litre, tenths above, rounded up", () => {
+    expect(formatAmount(amount([112.5, "g"]))).toBe("113 g");
+    expect(formatAmount(amount([999, "g"]))).toBe("999 g");
+    expect(formatAmount(amount([999.2, "g"]))).toBe("1 kg");
+    expect(formatAmount(amount([1000, "g"]))).toBe("1 kg");
+    expect(formatAmount(amount([1001, "g"]))).toBe("1.1 kg");
+    expect(formatAmount(amount([1.8, "kg"]))).toBe("1.8 kg");
+    expect(formatAmount(amount([0.3, "g"]))).toBe("1 g");
+    expect(formatAmount(amount([2.5, "dl"]))).toBe("250 ml");
+    expect(formatAmount(amount([0.75, "l"]))).toBe("750 ml");
+    /* Float sums don't tip a whole number up. */
+    expect(
+      formatAmount(addAmounts(amount([0.1, "kg"]), amount([0.2, "kg"]))),
+    ).toBe("300 g");
   });
 
   it("shows a parsed line", () => {

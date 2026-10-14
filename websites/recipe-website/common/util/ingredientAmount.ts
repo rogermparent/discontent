@@ -16,7 +16,10 @@
  *   weight unless it says `fl oz`.
  * - Containers (`can`, `clove`, `bunch`, …) are each their own unit. A size
  *   written before one (`1 (15-ounce) can`, `2 14.5oz cans`) describes the
- *   container, so the line is counted in cans.
+ *   container, so the line is counted in cans. A size before anything else
+ *   is each one's (`4 6-oz fillets` and `4 (6 oz) fillets` are both 24 oz),
+ *   unless a bracket says it is the total (`8 (about 2 lb) thighs`); a
+ *   dimension (`2 9-inch pie crusts`) leaves a count.
  * - A line that names no amount — `to taste`, a pinch, `for serving`, or just
  *   `Kosher salt` — is **as needed**: `{ parts: [] }`. A line with numbers the
  *   grammar can't read is `null`, and the caller keeps the line as written.
@@ -355,46 +358,110 @@ function skipAfterUnit(rest: string): string {
   return after.replace(MEASURE_BRACKET_RE, "").replace(/^of\s+/i, "");
 }
 
+/** Units that say how big each thing is, never how much: `9-inch crusts`. */
+const DIMENSIONS = new Set(["inch"]);
+
+/** A part's size in its family's smallest unit, to compare a range's ends. */
+function baseQty(p: AmountPart): number {
+  return p.qty * factor(p.unit);
+}
+
+/**
+ * A quantity *with* a unit at the start of `text` — `14.5oz/411g`, `250g`,
+ * `2 tablespoons` — and what follows it. `null` without both, or when the
+ * unit is a pinch. `digits` refuses quantity words (`a`, `two`).
+ */
+function readMeasure(
+  text: string,
+  digits = false,
+): { part: AmountPart; rest: string } | null {
+  const quantity = QUANTITY_RE.exec(text);
+  if (!quantity || quantity[0].length === 0) return null;
+  if (digits && !/\d/.test(quantity[0])) return null;
+  const value = quantityValue(quantity[0]);
+  const unit = readUnit(text.slice(quantity[0].length));
+  if (value === null || !unit?.unit) return null;
+  return { part: part(value, unit.unit), rest: skipAfterUnit(unit.rest) };
+}
+
+/**
+ * A size after a count: `14.5oz/411g` in `2 14.5oz cans`, `(15-ounce)` in
+ * `1 (15-ounce) can`, `9 inch` in `2 9-inch pie crusts`. A bracket that says
+ * `about` or `total` is the whole amount rather than each one's.
+ */
+function readSize(
+  rest: string,
+): { size: AmountPart; total: boolean; rest: string } | null {
+  const bracket = /^\(+([^()]*\d[^()]*)\)+\s*/.exec(rest);
+  if (bracket) {
+    const measure = readMeasure(bracket[1].trim(), true);
+    if (!measure) return null;
+    return {
+      size: measure.part,
+      total:
+        /~|\b(?:about|approx|approximately|around|total|in all|altogether)\b/i.test(
+          bracket[1],
+        ),
+      rest: rest.slice(bracket[0].length),
+    };
+  }
+  const measure = readMeasure(rest, true);
+  return measure && { size: measure.part, total: false, rest: measure.rest };
+}
+
 /**
  * A quantity and what follows it, the way `stripAmount` walks it. `null`
- * when `rest` doesn't open with a quantity.
+ * when `rest` doesn't open with a quantity — or opens with one this can't
+ * be sure of (`1 and …`).
  */
 function readQuantity(text: string): Read | "vague" | null {
   const first = QUANTITY_RE.exec(text);
   if (!first || first[0].length === 0) return null;
-  const count = quantityValue(first[0]);
+  let count = quantityValue(first[0]);
   let rest = text
     .slice(first[0].length)
-    .replace(MEASURE_BRACKET_RE, "")
     /* `3 medium cloves`, `4 thick slices`: sizes the grammar doesn't skip. */
     .replace(/^(?:medium(?:-sized)?|thick|thin)\s+(?=\S)/i, "");
   if (count === null) return "vague";
 
+  /* `2 dozen eggs`, `a dozen`. */
+  const dozen = /^dozens?\b\s*/i.exec(rest);
+  if (dozen) {
+    count *= 12;
+    rest = rest.slice(dozen[0].length);
+  }
+  /* `1 and 1/2 cups` the clean-up missed: a count here would be a guess. */
+  if (/^(?:and|&)\s+(?:\d|an?\s+half\b|half\b)/i.test(rest)) return null;
+
   /*
-   * A second quantity is a size: `2 14.5oz cans`, `1 2-lb chicken`. Before a
-   * container it describes the container, and the line is counted in those;
-   * otherwise it is `count` times the size.
+   * A size after the count — `2 14.5oz cans`, `4 (6 oz) salmon fillets`,
+   * `4 6-oz salmon fillets`, `2 9-inch pie crusts`. Before a container it
+   * describes the container, and the line is counted in those; a dimension
+   * says how big each is, so the line is a count; otherwise it is the count
+   * times the size (`4 6-oz fillets` and `4 (6 oz) fillets` are both 1½ lb),
+   * or the size alone when a bracket says it is the total (`(about 2 lb)`).
    */
-  const second = QUANTITY_RE.exec(rest);
-  if (second && second[0].length > 0 && /\d/.test(second[0])) {
-    const size = quantityValue(second[0]);
-    const unit = readUnit(rest.slice(second[0].length));
-    if (size !== null && unit?.unit) {
-      const after = skipAfterUnit(unit.rest);
-      const container = readUnit(after);
-      const sized = part(size, unit.unit);
-      if (container?.unit && part(1, container.unit).family === "container") {
-        return {
-          amount: { parts: [part(count, container.unit)] },
-          rest: skipAfterUnit(container.rest),
-        };
-      }
+  const sized = readSize(rest);
+  /* `250 (1c) grams`: a measure followed by a unit was the other measure. */
+  const measured = sized && readUnit(sized.rest);
+  if (
+    sized &&
+    !(measured?.unit && part(1, measured.unit).family !== "container")
+  ) {
+    const container = measured;
+    if (container?.unit && part(1, container.unit).family === "container") {
       return {
-        amount: { parts: [{ ...sized, qty: sized.qty * count }] },
-        rest: after,
+        amount: { parts: [part(count, container.unit)] },
+        rest: skipAfterUnit(container.rest),
       };
     }
+    if (DIMENSIONS.has(sized.size.unit)) {
+      return { amount: { parts: [part(count, "")] }, rest: sized.rest };
+    }
+    const qty = sized.total ? sized.size.qty : sized.size.qty * count;
+    return { amount: { parts: [{ ...sized.size, qty }] }, rest: sized.rest };
   }
+  rest = rest.replace(MEASURE_BRACKET_RE, "");
 
   const unit = readUnit(rest);
   if (!unit) {
@@ -403,6 +470,25 @@ function readQuantity(text: string): Read | "vague" | null {
   if (unit.vague) return "vague";
   let parts = [part(count, unit.unit!)];
   rest = skipAfterUnit(unit.rest);
+
+  /* `10 inch tortillas`: a dimension before a plural noun, one of them. */
+  if (
+    DIMENSIONS.has(parts[0].unit) &&
+    !readUnit(rest) &&
+    /^(?:\p{L}+\s+)?\p{L}+s\b/u.test(rest)
+  ) {
+    return { amount: { parts: [part(1, "")] }, rest };
+  }
+
+  /* `200g-250g`, `1 lb to 1 1/2 lbs`, `2 tbsp to 1/4 cup`: the larger end. */
+  const range = /^(?:-|–|—|to\b|or\b)\s*/i.exec(rest);
+  if (range) {
+    const high = readMeasure(rest.slice(range[0].length));
+    if (high && partKey(high.part) === partKey(parts[0])) {
+      if (baseQty(high.part) > baseQty(parts[0])) parts = [high.part];
+      rest = high.rest;
+    }
+  }
 
   /* `28oz/800g can`: a size before a container, with no count of its own. */
   const container = readUnit(rest);
@@ -417,17 +503,26 @@ function readQuantity(text: string): Read | "vague" | null {
     };
   }
 
-  /* `1 cup plus 2 tablespoons`: only a quantity *and* a unit continue it. */
+  /*
+   * `1 cup plus 2 tablespoons`: only a quantity *and* a unit continue it. So
+   * does `1 lb 2 oz` with no `plus`, when the second is a smaller unit of
+   * the same measurable family.
+   */
   for (let guard = 0; guard < 3; guard++) {
     const chain = /^(?:plus|and|\+)\s+/i.exec(rest);
-    if (!chain) break;
-    const more = QUANTITY_RE.exec(rest.slice(chain[0].length));
-    if (!more || more[0].length === 0) break;
-    const value = quantityValue(more[0]);
-    const next = readUnit(rest.slice(chain[0].length + more[0].length));
-    if (value === null || !next?.unit) break;
-    parts = addAmounts({ parts }, { parts: [part(value, next.unit)] }).parts;
-    rest = skipAfterUnit(next.rest);
+    const more = readMeasure(rest.slice(chain ? chain[0].length : 0));
+    if (!more) break;
+    const last = parts[parts.length - 1];
+    if (
+      !chain &&
+      (more.part.family !== last.family ||
+        !LADDERS[last.family] ||
+        factor(more.part.unit) >= factor(last.unit))
+    ) {
+      break;
+    }
+    parts = addAmounts({ parts }, { parts: [more.part] }).parts;
+    rest = more.rest;
   }
   return { amount: { parts }, rest };
 }
@@ -485,14 +580,38 @@ export function parseAmount(line: string): Amount | null {
   text = text
     .replace(/^(?:optional|garnish(?:es)?|to serve|for serving)\s*:\s*/i, "")
     /* `egg wash: 1 large egg …`: a label before the amount. */
-    .replace(/^\p{L}[\p{L}\s'&-]{0,40}:\s*(?=\d)/u, "")
-    /* `(50g) 1/4 cup sugar`: the bracket is the other measure. */
-    .replace(/^\(+[^()]*\d[^()]*\)+\s*(?=\S)/, "")
+    .replace(/^\p{L}[\p{L}\s'&-]{0,40}:\s*(?=\d)/u, "");
+  /*
+   * `(50g) 1/4 cup sugar`: the bracket is the other measure. Kept aside for
+   * `(about 2 cups) chopped kale`, where it is the only one.
+   */
+  const lead = /^\(+[^()]*\d[^()]*\)+\s*(?=\S)/.exec(text);
+  if (lead) text = text.slice(lead[0].length);
+  /*
+   * The rest of the clean-up is local to amounts: the shared grammar stays
+   * as `stripAmount` uses it, and these rewrite what it can't read.
+   */
+  text = text
     .replace(LEAD_SOFTENER_RE, "")
+    /* `one and a half`, `1 and a half`, `1 and 1/2`: one number. */
+    .replace(
+      /\b(\d+|one|an?)\s+and\s+a\s+half\b/gi,
+      (_match, whole: string) => `${/^\d/.test(whole) ? whole : "1"} 1/2`,
+    )
+    .replace(/\b(\d+)\s+and\s+(\d+\/\d+)/g, "$1 $2")
+    /* `a half cup`: not one of something. Never `half and half`. */
+    .replace(/\b(?:a|one)\s+half\b(?![\s-]*(?:and|&)[\s-]*half)/gi, "1/2")
+    /* `2 x 400g tins`: a count, then each one's size. */
+    .replace(/(?<=\d)\s*[x×]\s*(?=\d)/g, " ")
     /* `1-1/2` is one and a half, not a range down to a half. */
     .replace(/(?<![\d/.,])(\d+)\s*-\s*(\d+\/\d+)/g, "$1 $2")
     /* `15-ounce`, `2-lb`: the unit is a word of its own. */
     .replace(/(?<=\d)-(?=\p{L})/gu, " ")
+    /* `200g-250g`: a range between two units, spaced so each is read. */
+    .replace(/(\d\s*\p{L}+\.?)\s*[-–—]\s*(?=\d)/gu, "$1 - ")
+    /* `2 Tb`, `1 TB`, `2 fl. oz`: spellings the grammar's unit list lacks. */
+    .replace(/(?<=\d\s*)T[bB]\.?(?=\s)/g, "tbsp")
+    .replace(/\bfl\.\s*(?=oz|ounce)/gi, "fl ")
     /* `8ish`. */
     .replace(/(?<=\d)ish\b/gi, "");
 
@@ -518,7 +637,8 @@ export function parseAmount(line: string): Amount | null {
     if (whole) return whole.amount;
   }
 
-  const trailing = readTrailing(text) ?? readBracket(text);
+  const trailing =
+    readTrailing(text) ?? readBracket(text) ?? (lead && readBracket(lead[0]));
   if (trailing) return trailing;
 
   if (AS_NEEDED_RE.test(text)) return AS_NEEDED;
@@ -565,10 +685,19 @@ export function addAmounts(...amounts: Amount[]): Amount {
   return { parts };
 }
 
-/** Every part times `factor` — a recipe's or a meal plan's `scale`. */
+/**
+ * Every part times `factor` — a recipe's or a meal plan's `scale`. A part
+ * that comes to nothing (a factor of zero or less, or not a number) is
+ * dropped, so scaling by 0 leaves as needed rather than a positive amount
+ * that rounds up from zero.
+ */
 export function scaleAmount(amount: Amount, factor: number | Fraction): Amount {
   const by = Number(factor.valueOf());
-  return { parts: amount.parts.map((p) => ({ ...p, qty: p.qty * by })) };
+  return {
+    parts: amount.parts
+      .map((p) => ({ ...p, qty: p.qty * by }))
+      .filter((p) => Number.isFinite(p.qty) && p.qty > 0),
+  };
 }
 
 // --- formatting ------------------------------------------------------------
@@ -586,11 +715,11 @@ function isThird(value: number): boolean {
   );
 }
 
-/** Exactly an eighth or a third of something: `⅜`, `⅔`, `2`. */
-function isClean(value: number): boolean {
-  return (
-    Math.abs(value * 8 - Math.round(value * 8)) < EPSILON || isThird(value)
-  );
+/** The fractions of a cup recipes write: ¼ ⅓ ½ ⅔ ¾. */
+const CUP_FRACTIONS = [1 / 4, 1 / 3, 1 / 2, 2 / 3, 3 / 4];
+
+function isCupFraction(value: number): boolean {
+  return CUP_FRACTIONS.some((f) => Math.abs(value - f) < EPSILON);
 }
 
 /** To the nearest `step`, and never below one step: a little is not none. */
@@ -631,8 +760,23 @@ function unitLabel(unit: string, value: number, family: UnitFamily): string {
   return PLURAL_UNITS.has(unit) ? `${unit}s` : unit;
 }
 
+/**
+ * Metric as metric is written: whole grams or millilitres below a kilo or a
+ * litre, one decimal from there (`1.8 kg`) — rounded **up**, since a list
+ * that buys short runs short.
+ */
+function formatMetric(base: number, large: string, small: string): string {
+  const whole = Math.max(1, Math.ceil(base - EPSILON));
+  if (whole < 1000) return `${whole} ${small}`;
+  return `${Math.ceil(base / 100 - EPSILON) / 10} ${large}`;
+}
+
 function formatPart(part: AmountPart): string {
   const ladder = LADDERS[part.family];
+  if (part.family === "metric-weight" || part.family === "metric-volume") {
+    const [large, small] = ladder!;
+    return formatMetric(part.qty * factor(part.unit), large, small);
+  }
   if (!ladder) {
     const { value, text } = shown(part.qty, 1 / 8);
     return part.unit
@@ -644,10 +788,10 @@ function formatPart(part: AmountPart): string {
     const exact = base / factor(unit);
     const { value, text } = shown(exact, unit === "tsp" ? 1 / 2 : 1 / 8);
     /*
-     * Cups also go down to a quarter when they say it exactly, as recipes
-     * write them: ½ cup, not 8 tbsp — but 5 tbsp, not ⅜ cup.
+     * Below one, a cup only as recipes write it — ½ cup, not 8 tbsp — and
+     * otherwise the spoons: 5 tbsp, 6 tbsp, never ⅜ cup.
      */
-    const asWritten = unit === "cup" && exact >= 1 / 4 && isClean(exact);
+    const asWritten = unit === "cup" && isCupFraction(exact);
     if (value >= 1 || asWritten || unit === ladder[ladder.length - 1]) {
       return `${text} ${unitLabel(unit, value, part.family)}`;
     }
@@ -657,12 +801,14 @@ function formatPart(part: AmountPart): string {
 
 /**
  * An amount as a list shows it: each family in the largest unit that comes
- * to at least one (or an exact ¼ cup and up), to the nearest eighth (half,
- * for teaspoons; exact thirds kept) and never rounded to nothing, joined
- * with `+` — `1 lb + 2 cups`, `1½ cups`, `⅓ cup`, `3 cans`. As needed reads
- * `as needed`.
+ * to at least one (or ¼ ⅓ ½ ⅔ ¾ cup), to the nearest eighth (half, for
+ * teaspoons; exact thirds kept) and never rounded to nothing; metric in
+ * whole g/ml or tenths of a kg/l, rounded up. Joined with `+` — `1 lb + 2
+ * cups`, `1½ cups`, `⅓ cup`, `1.8 kg`, `3 cans`. No parts, or none above
+ * zero, reads `as needed`.
  */
 export function formatAmount(amount: Amount): string {
-  if (isAsNeeded(amount)) return "as needed";
-  return amount.parts.map(formatPart).join(" + ");
+  const parts = amount.parts.filter((p) => p.qty > 0);
+  if (parts.length === 0) return "as needed";
+  return parts.map(formatPart).join(" + ");
 }
