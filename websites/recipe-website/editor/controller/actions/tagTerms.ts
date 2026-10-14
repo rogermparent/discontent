@@ -11,6 +11,13 @@ import { tagTermContentConfig } from "recipe-website-common/controller/tagTermCo
 import { curationContextFor } from "../apiContext";
 import { termUrl } from "../curation/context";
 import { submitTermForm, type TermFormTarget } from "../termForm";
+import {
+  submitTermDelete,
+  submitTermMerge,
+  submitTermRename,
+  type TermToolOutcome,
+  type TermToolState,
+} from "../termTools";
 import { authenticateUser } from "./shared";
 
 /**
@@ -59,6 +66,50 @@ export async function saveTermFromForm(
   formData: FormData,
 ): Promise<TermFormState> {
   return submit({ kind: "edit", slug }, formData);
+}
+
+/**
+ * The edit page's rename / merge / delete section (35p): the same seats
+ * `term_rename`, `term_merge` and `term_delete` reach, through the session's
+ * context. A refusal returns as state; a success redirects to the page
+ * `termTools.ts` names, with the outcome in its query string.
+ */
+async function tool(
+  submitTool: (
+    ctx: ReturnType<typeof curationContextFor>,
+  ) => Promise<TermToolOutcome>,
+): Promise<TermToolState> {
+  const email = await authenticateUser();
+  if (!email) return { error: "Authentication required" };
+  const outcome = await submitTool(
+    curationContextFor(email, getContentDirectory()),
+  );
+  if (!outcome.ok) return outcome.state;
+  redirect(outcome.href);
+}
+
+export async function renameTermFromForm(
+  slug: string,
+  _prevState: TermToolState | null,
+  formData: FormData,
+): Promise<TermToolState> {
+  return tool((ctx) => submitTermRename(ctx, slug, formData));
+}
+
+export async function mergeTermFromForm(
+  slug: string,
+  _prevState: TermToolState | null,
+  formData: FormData,
+): Promise<TermToolState> {
+  return tool((ctx) => submitTermMerge(ctx, slug, formData));
+}
+
+export async function deleteTermFromForm(
+  slug: string,
+  _prevState: TermToolState | null,
+  formData: FormData,
+): Promise<TermToolState> {
+  return tool((ctx) => submitTermDelete(ctx, slug, formData));
 }
 
 /**

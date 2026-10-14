@@ -249,3 +249,189 @@ test.describe("Term edit form", () => {
     expect((await after.json()).aliases).toEqual(["biscuits"]);
   });
 });
+
+/*
+ * 35p: the browser's term tools. "Add a narrower term" on the term page, and
+ * the edit page's Rename / Merge / Delete section over 31c's seats — each
+ * asking in the page before it writes, and landing on a notice.
+ */
+test.describe("Term tools", () => {
+  test.beforeEach(async ({ resetData }) => {
+    await resetData("christmas-cookies");
+  });
+
+  test("Add a narrower term prefills the parent", async ({ page, baseURL }) => {
+    /* A carried-only term cannot be a parent, so it offers no such link. */
+    await page.goto("/tags/christmas");
+    await expect(
+      page.getByRole("heading", { name: "christmas", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Add a narrower term", exact: true }),
+    ).toHaveCount(0);
+
+    await page.goto("/tags/cookies");
+    await page
+      .getByRole("link", { name: "Add a narrower term", exact: true })
+      .click();
+    await fillSignInForm(page);
+    await expect(page).toHaveURL(baseURL + "/tags/new?parent=cookies");
+    await markdownEditorReady(page, "description");
+    await expect(page.getByLabel("Parent", { exact: true })).toHaveValue(
+      "cookies",
+    );
+
+    await page.getByLabel("Label", { exact: true }).fill("Drop Cookies");
+    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await expect(page).toHaveURL(baseURL + "/tags/drop-cookies");
+    await expect(
+      page.getByTestId("term-breadcrumb").getByRole("link"),
+    ).toHaveText([/Dessert/, /Cookies/]);
+
+    /* A `?parent=` that names no record is ignored, not offered. */
+    await page.goto("/tags/new?parent=christmas");
+    await markdownEditorReady(page, "description");
+    await expect(page.getByLabel("Parent", { exact: true })).toHaveValue("");
+  });
+
+  test("renames after a confirmation, and the old slug still resolves", async ({
+    page,
+    request,
+    baseURL,
+  }) => {
+    await page.goto("/tags/cookies/edit");
+    await fillSignInForm(page);
+    await markdownEditorReady(page, "description");
+    const tools = page.getByTestId("term-tools");
+    await expect(tools).toContainText("“Cookies” is on 8 recipes and 0 groups");
+
+    await tools
+      .getByLabel("New slug or label", { exact: true })
+      .fill("Biscuits");
+    await tools.getByRole("button", { name: "Rename…", exact: true }).click();
+    const confirm = tools.getByRole("group", { name: "Confirm: Rename" });
+    await expect(confirm).toContainText(
+      "Rename “cookies” to “biscuits”? Its 8 recipes and 0 groups are re-tagged",
+    );
+    /* Cancel writes nothing and keeps what was typed. */
+    await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(confirm).toHaveCount(0);
+    expect((await request.get("/api/taxonomies/tag/cookies")).status()).toBe(
+      200,
+    );
+    await expect(
+      tools.getByLabel("New slug or label", { exact: true }),
+    ).toHaveValue("Biscuits");
+
+    await tools.getByRole("button", { name: "Rename…", exact: true }).click();
+    await tools
+      .getByRole("button", { name: "Confirm rename", exact: true })
+      .click();
+
+    await page.waitForURL((url) => url.pathname === "/tags/biscuits/edit");
+    await expect(page.getByTestId("term-tool-notice")).toContainText(
+      "Renamed from “cookies”: 8 recipes and 0 groups re-tagged. /tags/cookies now leads here.",
+    );
+    await expect(page.getByLabel("Label", { exact: true })).toHaveValue(
+      "Biscuits",
+    );
+
+    const renamed = await (
+      await request.get("/api/taxonomies/tag/biscuits")
+    ).json();
+    expect(renamed.aliases).toEqual(["cookies"]);
+    expect(renamed.counts.own).toBe(8);
+
+    await page.goto("/tags/cookies");
+    await expect(page).toHaveURL(baseURL + "/tags/biscuits");
+    await expect(
+      page.getByRole("heading", { name: "Biscuits", exact: true }),
+    ).toBeVisible();
+  });
+
+  test("merges a carried-only term into a record", async ({
+    page,
+    request,
+    baseURL,
+  }) => {
+    await page.goto("/tags/christmas/edit");
+    await fillSignInForm(page);
+    await markdownEditorReady(page, "description");
+    const tools = page.getByTestId("term-tools");
+
+    await tools.getByLabel("Merge into", { exact: true }).fill("holiday");
+    await tools.getByRole("button", { name: "Merge…", exact: true }).click();
+    await expect(
+      tools.getByRole("group", { name: "Confirm: Merge into another term" }),
+    ).toContainText("Merge “christmas” into “holiday”?");
+    await tools
+      .getByRole("button", { name: "Confirm merge", exact: true })
+      .click();
+
+    await page.waitForURL((url) => url.pathname === "/tags/holiday/edit");
+    await expect(page.getByTestId("term-tool-notice")).toContainText(
+      "Merged “christmas” into this term: 4 recipes and 0 groups re-tagged.",
+    );
+
+    const holiday = await (
+      await request.get("/api/taxonomies/tag/holiday")
+    ).json();
+    expect(holiday.counts.own).toBe(4);
+    expect(holiday.aliases).toEqual(["christmas"]);
+
+    await page.goto("/tags/christmas");
+    await expect(page).toHaveURL(baseURL + "/tags/holiday");
+    await expect(page.getByTestId("recipe-list").locator("> li")).toHaveCount(
+      4,
+    );
+  });
+
+  test("deletes after a confirmation, asking to untag when carried", async ({
+    page,
+    request,
+  }) => {
+    await page.goto("/tags/cookies/edit");
+    await fillSignInForm(page);
+    await markdownEditorReady(page, "description");
+    const tools = page.getByTestId("term-tools");
+
+    await tools.getByRole("button", { name: "Delete…", exact: true }).click();
+    await expect(
+      tools.getByRole("group", { name: "Confirm: Delete" }),
+    ).toContainText("Delete “cookies”?");
+    /* Without the box ticked the seat refuses while recipes carry it. */
+    await tools
+      .getByRole("button", { name: "Confirm delete", exact: true })
+      .click();
+    await expect(tools.getByRole("alert")).toContainText(
+      "“cookies” is still on 8 recipes and 0 groups. Tick “Also remove the tag”",
+    );
+    expect((await request.get("/api/taxonomies/tag/cookies")).status()).toBe(
+      200,
+    );
+
+    await tools
+      .getByLabel("Also remove the tag from its 8 recipes and 0 groups", {
+        exact: true,
+      })
+      .check();
+    await tools
+      .getByRole("button", { name: "Confirm delete", exact: true })
+      .click();
+
+    await page.waitForURL((url) => url.pathname === "/tags/cookies/edit");
+    await expect(
+      page.getByRole("heading", { name: "Deleted Term: cookies" }),
+    ).toBeVisible();
+    await expect(page.getByTestId("term-tool-notice")).toContainText(
+      "Deleted. Untagged 8 recipes and 0 groups.",
+    );
+    expect((await request.get("/api/taxonomies/tag/cookies")).status()).toBe(
+      404,
+    );
+    const shortbread = await (
+      await request.get("/api/recipe/shortbread")
+    ).json();
+    expect(shortbread.tags).toEqual(["dessert", "baked"]);
+  });
+});

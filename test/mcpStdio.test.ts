@@ -76,6 +76,11 @@ beforeAll(async () => {
       PATH: process.env.PATH ?? "",
       HOME: process.env.HOME ?? "",
       CONTENT_DIRECTORY: contentDirectory,
+      /*
+       * Not `editor/.env` (35-D11): this minimal environment has no `VITEST`
+       * to stop the load, so name a file that is not there.
+       */
+      RECIPE_ENV_FILE: join(contentDirectory, "no-such.env"),
     },
     stderr: "pipe",
   });

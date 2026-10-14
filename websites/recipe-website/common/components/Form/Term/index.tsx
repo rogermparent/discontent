@@ -38,7 +38,8 @@ export interface TermFieldsInitial {
  * fields on each new state so the echo becomes the defaults.
  *
  * - **Slug** only on `/tags/new`. An existing term's slug is its carriers' tag
- *   string, so moving it is `term_rename` (CLI / MCP), never a form field.
+ *   string, so moving it is `term_rename` — the edit page's own Rename tool
+ *   (35p), the CLI or MCP — never a field of this form.
  * - **Picture** as a recipe's is (32c, D2): a file, an Image URL, or "Remove
  *   Image". The file goes to the seat beside the input (`imageFile`), and a
  *   chosen file beats a typed URL.
@@ -46,7 +47,8 @@ export interface TermFieldsInitial {
  *   a parent without one), with this term and everything under it left out —
  *   the choices the seat would refuse as `term_cycle`. The seat still checks.
  * - **Pinned** is `ChipsInput` through the six-line adapter (`24-T13`): recipe
- *   slugs, in order, each of which must carry the term.
+ *   slugs, in order, each of which must carry the term or a narrower one
+ *   (35-D12) — the recipes its page lists.
  * - **Aliases** (32i, D5), the same chips: other names that search,
  *   autocomplete and `/tags/<alias>` send to this term. The seat refuses one
  *   that names another term or another term's alias.
@@ -173,7 +175,7 @@ export default function TermFields({
       <FieldWrapper label="Pinned recipes" id="term-form-pinned">
         <p className="text-sm text-muted-foreground">
           Recipe slugs shown first on the term&apos;s page, in this order. Each
-          must already carry the term.
+          must already carry the term or a narrower one.
         </p>
         <Errors errors={state?.errors?.pinned} />
         <ChipsInput

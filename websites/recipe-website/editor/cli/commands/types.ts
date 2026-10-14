@@ -32,6 +32,12 @@ export interface CommandDef<TResult = unknown> {
   takesDashedPositionals?: boolean;
   run(context: CommandRunContext): Promise<TResult>;
   format(result: TResult): string;
+  /**
+   * A non-zero exit for a result that is not an error but did not do all it
+   * was asked (35-D10: `term assign --force` naming a carrier that does not
+   * exist). The result is still printed; absent, a returned result exits 0.
+   */
+  exitCode?(result: TResult): number;
 }
 
 /** Narrow a `parseArgs` value to a string, so a repeated flag cannot leak an array. */

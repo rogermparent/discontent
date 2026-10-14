@@ -437,11 +437,12 @@ const termMerge: CommandDef<TermMergeResult> = {
 const termAssign: CommandDef<TermAssignResult> = {
   name: "term assign",
   usage:
-    "recipes term assign <slug> [--add carrier …] [--remove carrier …] [--type recipe|group]",
+    "recipes term assign <slug> [--add carrier …] [--remove carrier …] [--type recipe|group] [--force]",
   options: {
     add: { type: "string", multiple: true },
     remove: { type: "string", multiple: true },
     type: { type: "string" },
+    force: { type: "boolean" },
   },
   write: true,
   async run({ backend, positionals, options }) {
@@ -467,8 +468,16 @@ const termAssign: CommandDef<TermAssignResult> = {
       ...(add.length > 0 ? { add } : {}),
       ...(remove.length > 0 ? { remove } : {}),
       ...(type !== undefined ? { type } : {}),
+      ...(booleanOption(options, "force") ? { force: true } : {}),
     });
   },
+  /*
+   * 35-D10: an `--add` of a carrier that does not exist is refused unless
+   * `--force`; forced, it lands under `missing` — and a script must not read
+   * that as done (34e's lost recipe). A `--remove` of one that is not there
+   * is reported the same way.
+   */
+  exitCode: (result) => (result.missing.length > 0 ? 1 : 0),
   format: (result) =>
     [
       `Term ${result.slug} ("${result.tag}") on ${result.type}s`,
@@ -479,6 +488,7 @@ const termAssign: CommandDef<TermAssignResult> = {
       result.missing.length > 0
         ? `  missing: ${list(result.missing)}`
         : undefined,
+      ...formatWarnings(result.warnings),
     ]
       .filter((line): line is string => line !== undefined)
       .join("\n"),

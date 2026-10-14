@@ -35,6 +35,9 @@
  * The clock is a seam (`Pacing`) so tests assert the spacing without waiting
  * for it.
  */
+import { getIndexDirectory } from "@discontent/cms/content/database";
+import { environmentExists } from "@discontent/cms/lmdb/environmentCache";
+import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
 import { hostnameLabel } from "recipe-website-common/util/hostnameLabel";
 import {
   fetchRecipePage,
@@ -126,6 +129,8 @@ export interface InspectListResult {
   items: RoundupItem[];
   /** Why `items` is empty, when it is. */
   reason?: string;
+  /** The recipe index is missing, so nothing is marked `existing` (35p). */
+  warnings?: string[];
 }
 
 /** What a caller (a test) may swap: the clock. */
@@ -134,20 +139,39 @@ export interface ImportListDeps {
 }
 
 /**
- * `source.url` key → recipe slug, for the recipes from `urls`' hosts.
+ * Said when the recipe index is not built (35p): every item would read as
+ * new, so a `--term` run or an `--all` would re-import what the corpus has.
+ */
+export const MISSING_INDEX_WARNING =
+  "The recipes index is missing, so `existing` is empty — every item reads as new. Reindex first (recipes reindex).";
+
+/**
+ * `source.url` key → recipe slug, for the recipes from `urls`' hosts, and a
+ * warning when there is no recipe index to ask.
  *
  * The recipe index carries each recipe's source *host* (27d) but not its URL,
- * so only the recipes from the hosts in question are read whole.
+ * so only the recipes from the hosts in question are read whole. An unbuilt
+ * index reads as empty (F30) — `readContentIndex` checks
+ * `environmentExists` and answers nothing — which is indistinguishable from
+ * "none of these are here" unless it is said (epic 34's 34e: a scratch clone
+ * without a reindex marked nothing `existing`).
  */
 async function existingBySource(
   ctx: CurationContext,
   urls: string[],
-): Promise<Map<string, string>> {
+): Promise<{ found: Map<string, string>; warnings: string[] }> {
+  const found = new Map<string, string>();
+  if (
+    !environmentExists(
+      getIndexDirectory(recipeContentConfig, ctx.contentDirectory),
+    )
+  ) {
+    return { found, warnings: [MISSING_INDEX_WARNING] };
+  }
   const hosts = new Set(
     urls.map(hostnameLabel).filter((host): host is string => Boolean(host)),
   );
-  const found = new Map<string, string>();
-  if (hosts.size === 0) return found;
+  if (hosts.size === 0) return { found, warnings: [] };
   const rows = (await readAllRecipeRows(ctx)).filter(
     (row) => row.sourceHost && hosts.has(row.sourceHost),
   );
@@ -159,7 +183,7 @@ async function existingBySource(
     const key = sourceUrl ? sourceUrlKey(sourceUrl) : undefined;
     if (key && !found.has(key)) found.set(key, detail!.slug);
   }
-  return found;
+  return { found, warnings: [] };
 }
 
 function toItems(
@@ -233,7 +257,7 @@ export async function inspectList(
     ctx,
     parsed.items.map((item) => item.url),
   );
-  const items = toItems(parsed, existing);
+  const items = toItems(parsed, existing.found);
   const reason =
     parsed.reason ??
     (page.ok ? undefined : `The page answered HTTP ${page.status}.`);
@@ -245,6 +269,7 @@ export async function inspectList(
     ...(parsed.source ? { source: parsed.source } : {}),
     items,
     ...(items.length === 0 && reason ? { reason } : {}),
+    ...(existing.warnings.length ? { warnings: existing.warnings } : {}),
   };
 }
 
@@ -351,6 +376,8 @@ export interface ImportListResult {
   requests: number;
   /** Why the list had no items, when it had none. */
   reason?: string;
+  /** The recipe index is missing, so nothing was `existing` (35p). */
+  warnings?: string[];
 }
 
 function errorOf(error: unknown): ErrorObject["error"] {
@@ -671,7 +698,7 @@ export async function importList(
     ctx,
     parsed.items.map((item) => item.url),
   );
-  const items = toItems(parsed, existing);
+  const items = toItems(parsed, existing.found);
   const resolved = resolvePicks(
     options.all ? items.map((item) => item.n) : (options.pick ?? []),
     items,
@@ -786,5 +813,6 @@ export async function importList(
     ...(termResult ? { term: termResult } : {}),
     requests: pacer.requests,
     ...(items.length === 0 && parsed.reason ? { reason: parsed.reason } : {}),
+    ...(existing.warnings.length ? { warnings: existing.warnings } : {}),
   };
 }

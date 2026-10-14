@@ -343,7 +343,11 @@ term_assign {"slug": "christmas-cookies", "add": ["gingerbread-cookies", "sugar-
 defaults to the label's — and `tag` is the string `term_assign` writes onto
 each recipe. `term_assign` writes every recipe it is given as one commit
 (`Assign term: <slug> (+N recipes)`) and returns `{slug, type, tag, updated,
-unchanged, missing}`; `type: "group"` tags groups instead. Fix any `missing` slug, never invent one.
+unchanged, missing}`; `type: "group"` tags groups instead. An `add` naming a
+recipe that does not exist is refused whole (`unknown_recipe`, listing the
+slugs) and nothing is written: import first, then assign. Fix the slug and
+call again — never invent one, and don't reach for `force` (it lets the slug
+through as `missing`, untagged).
 
 **Nesting.** A term with a `parent` sits under it: create the child with
 `{"parent": "<parent slug>"}` (or `term_update {"slug": …, "patch":

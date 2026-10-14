@@ -36,6 +36,7 @@ import {
   resolveBackendConfig,
   type BackendConfig,
 } from "../cli/backend/resolve";
+import { loadEditorEnv } from "../cli/editorEnv";
 import { createRecipeServer } from "./registry";
 
 function describe(config: BackendConfig): string {
@@ -96,8 +97,14 @@ export function main(): void {
   process.stdin.on("close", shutdown);
 }
 
-/* Same guard `cli/index.ts` uses: tsx runs this file as CJS. */
+/*
+ * Same guard `cli/index.ts` uses: tsx runs this file as CJS. And the same
+ * `editor/.env` load before it (35-D11), so a local write's notify carries
+ * the token — `.mcp.json` passes `RECIPE_API_TOKEN` as `""` when the shell
+ * has none, which `loadEditorEnv` reads as unset.
+ */
 if (require.main === module) {
+  loadEditorEnv();
   main();
 }
 

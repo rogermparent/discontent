@@ -1747,6 +1747,10 @@ const ALLOWED: RegExp[] = [
   /^@discontent\/cms\/git\/writeLock$/,
   /^@discontent\/cms\/fs\/atomicWrite$/,
   /^@discontent\/cms\/util\/ulid$/,
+  /* `environmentExists` joined at 35p: `inspect-list` asks whether the
+   * recipes index is built, as `readContentIndex` does (F30) — LMDB and `fs`
+   * only, the module every content read above already goes through. */
+  /^@discontent\/cms\/lmdb\/environmentCache$/,
   /* `featuredRecipeContentConfig` and its default slug joined at 23a (D5): a
    * content config and a pure string builder, neither of which touches Next. */
   /* `tagTermContentConfig` joined at 24c, for the same standing the other three

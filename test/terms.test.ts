@@ -273,6 +273,53 @@ describe("createTerm / updateTerm", () => {
       code: "not_found",
     });
   });
+
+  /* 35-D12: a page lists its subtree (34-D1), so its pins may come from it. */
+  it("lets a root pin its subtree's recipes, aliases included, and nothing else", async () => {
+    await createTerm(ctx, { label: "Course" });
+    await createTerm(ctx, { label: "Dessert", parent: "course" });
+    await createTerm(ctx, {
+      label: "Cookies",
+      parent: "dessert",
+      aliases: ["Biscuits"],
+    });
+    await createRecipe(ctx, {
+      name: "Rich Tea",
+      slug: "rich-tea",
+      date: 4_000,
+      tags: ["biscuits"],
+    });
+
+    /* Two levels down, and through a grandchild's alias. */
+    await updateTerm(ctx, "course", { pinned: ["linzer", "rich-tea"] });
+    expect((await readTermFile("course")).pinned).toEqual([
+      "linzer",
+      "rich-tea",
+    ]);
+
+    /* A recipe outside the subtree is still refused. */
+    expect(
+      await codeOf(
+        updateTerm(ctx, "dessert", { pinned: ["shortbread", "chili"] }),
+      ),
+    ).toMatchObject({
+      code: "validation",
+      message: expect.stringContaining("or a narrower one"),
+      issues: [
+        {
+          path: "pinned.1",
+          message: expect.stringContaining('does not carry "dessert"'),
+        },
+      ],
+    });
+    expect((await readTermFile("dessert")).pinned).toBeUndefined();
+
+    /* Down, never up: a narrower term cannot pin its parent's own recipe. */
+    await assignTerm(ctx, "dessert", { add: ["chili"] });
+    expect(
+      await codeOf(updateTerm(ctx, "cookies", { pinned: ["chili"] })),
+    ).toMatchObject({ code: "validation" });
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -543,7 +590,7 @@ describe("assignTerm", () => {
   it("adds and removes by slug, one update each, and reports what moved", async () => {
     await createTerm(ctx, { label: "Christmas Cookies" });
     const added = await assignTerm(ctx, "christmas-cookies", {
-      add: ["shortbread", "linzer", "nope"],
+      add: ["shortbread", "linzer"],
     });
     expect(added).toEqual({
       slug: "christmas-cookies",
@@ -551,7 +598,7 @@ describe("assignTerm", () => {
       tag: "christmas cookies",
       updated: ["shortbread", "linzer"],
       unchanged: [],
-      missing: ["nope"],
+      missing: [],
     });
     expect(await readRecipeTags("shortbread")).toEqual([
       "cookies",
@@ -590,6 +637,62 @@ describe("assignTerm", () => {
       ).tags,
     ).toEqual(["weeknight"]);
     expect((await getTerm(ctx, "weeknight")).groups).toEqual(["week-one"]);
+  });
+
+  /* 35-D10: 34e's assign-before-import lost a recipe to a quiet `missing`. */
+  it("refuses an add naming no recipe before writing anything, unless force", async () => {
+    const refused = await codeOf(
+      assignTerm(ctx, "christmas-cookies", {
+        add: ["shortbread", "nope", "ghost"],
+      }),
+    );
+    expect(refused).toMatchObject({
+      code: "unknown_recipe",
+      recipes: ["nope", "ghost"],
+    });
+    /* Checked first: the existing recipe was not tagged either. */
+    expect(await readRecipeTags("shortbread")).toEqual(["cookies", "baked"]);
+
+    const forced = await assignTerm(ctx, "christmas-cookies", {
+      add: ["shortbread", "nope"],
+      force: true,
+    });
+    expect(forced).toMatchObject({
+      updated: ["shortbread"],
+      missing: ["nope"],
+      warnings: [expect.stringContaining('No recipe "nope"')],
+    });
+    /* No record, no carriers: the slug as typed is the string written. */
+    expect(await readRecipeTags("shortbread")).toEqual([
+      "cookies",
+      "baked",
+      "christmas-cookies",
+    ]);
+
+    /* A remove of a carrier that is not there is a report, never a refusal. */
+    const removed = await assignTerm(ctx, "christmas-cookies", {
+      remove: ["shortbread", "nope"],
+    });
+    expect(removed).toMatchObject({
+      updated: ["shortbread"],
+      missing: ["nope"],
+      warnings: [expect.stringContaining("nothing to remove")],
+    });
+    /* And a clean call carries no warnings key at all. */
+    expect(
+      await assignTerm(ctx, "christmas-cookies", { add: ["linzer"] }),
+    ).not.toHaveProperty("warnings");
+  });
+
+  it("refuses an add naming no group as unknown_group, with the --force hint", async () => {
+    const refused = await codeOf(
+      assignTerm(ctx, "weeknight", { add: ["no-such-plan"], type: "group" }),
+    );
+    expect(refused).toMatchObject({
+      code: "unknown_group",
+      groups: ["no-such-plan"],
+      message: expect.stringContaining("--force"),
+    });
   });
 
   it("refuses an empty assignment and a slug on both sides", async () => {
