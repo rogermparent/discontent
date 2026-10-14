@@ -440,7 +440,7 @@ export async function main(argv: string[]): Promise<number> {
      * One function, shared with the MCP server (D11), so the two entry points
      * cannot disagree about which corpus a bare invocation talks to.
      */
-    backend = resolveBackend({
+    backend = await resolveBackend({
       remote: global("remote"),
       contentDir: global("content-dir"),
       author: global("author"),
