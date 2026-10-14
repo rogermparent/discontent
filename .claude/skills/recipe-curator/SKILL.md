@@ -1,7 +1,7 @@
 ---
 name: recipe-curator
-description: Find, import, cite and organize recipes for the recipe website — meal plans, collections and nested collections (as tag terms), the homepage strip and the shared list of what's on hand — through the `recipes` MCP tools. Use for asks like "plan dinners for the week", "import this recipe", "import the recipes from this roundup", "make a collection of …", "put it on the homepage", "I bought Gnista", "what can I make?".
-allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__page_inspect, mcp__recipes__recipe_import, mcp__recipes__page_inspect_list, mcp__recipes__recipe_import_list, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__recipe_set_image, mcp__recipes__tag_list, mcp__recipes__term_list, mcp__recipes__term_get, mcp__recipes__term_create, mcp__recipes__term_update, mcp__recipes__term_set_image, mcp__recipes__term_assign, mcp__recipes__term_rename, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__inventory_get, mcp__recipes__inventory_add, mcp__recipes__inventory_remove, mcp__recipes__inventory_makeable, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, mcp__recipes__git_fetch, WebSearch, WebFetch, Bash(pnpm --silent recipes:*)
+description: Find, import, cite and organize recipes for the recipe website — meal plans, collections and nested collections (as tag terms), the homepage strip, the shared list of what's on hand and the shopping list — through the `recipes` MCP tools. Use for asks like "plan dinners for the week", "import this recipe", "import the recipes from this roundup", "make a collection of …", "put it on the homepage", "I bought Gnista", "what can I make?", "put this week's plan on the shopping list", "I bought eggs".
+allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__page_inspect, mcp__recipes__recipe_import, mcp__recipes__page_inspect_list, mcp__recipes__recipe_import_list, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__recipe_set_image, mcp__recipes__tag_list, mcp__recipes__term_list, mcp__recipes__term_get, mcp__recipes__term_create, mcp__recipes__term_update, mcp__recipes__term_set_image, mcp__recipes__term_assign, mcp__recipes__term_rename, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__inventory_get, mcp__recipes__inventory_add, mcp__recipes__inventory_remove, mcp__recipes__inventory_makeable, mcp__recipes__shopping_get, mcp__recipes__shopping_add, mcp__recipes__shopping_check, mcp__recipes__shopping_remove, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, mcp__recipes__git_fetch, WebSearch, WebFetch, Bash(pnpm --silent recipes:*)
 ---
 
 # Recipe curator
@@ -434,6 +434,45 @@ more item would make possible. Salt, black pepper, water and ice count as on
 hand; don't add them. Change the list **only when the ask says so** ("I bought Gnista",
 "I'm out of vodka").
 
+## 8b. The shopping list
+
+The site keeps one shared shopping list, synced between the editor's hosts,
+that Roger reads on his phone in the store. It stores raw lines; how it reads
+— merged by ingredient with amounts added, by aisle, split by store
+(Hannaford, Market Basket), with what's probably on hand folded away — is
+settings Roger switches himself.
+
+```json
+shopping_add {"group": "week-of-oct-19"}
+shopping_add {"recipe": "chili", "scale": "2"}
+shopping_add {"items": ["paper towels", "2 lemons"]}
+shopping_check {"names": ["eggs"]}
+shopping_get {"store": "market-basket"}
+shopping_remove {"recipe": "chili"}
+```
+
+- **"Put this week's plan on the list"** →
+  `shopping_add {"group": "<plan slug>"}`: every recipe in the plan, nested
+  plans included, each at its row's scale. `scale` doubles or halves the whole plan. Adding the same recipe
+  twice adds it twice (two lots of cooking), so check `shopping_get` first
+  when the ask might repeat what is already there. The result names a plan's
+  missing recipes in `missing` and `warnings` — say so.
+- **"Add the chili ×2"** → `shopping_add {"recipe": "chili", "scale": "2"}`;
+  things that are not recipe lines → `{"items": [...]}`.
+- **"I bought eggs"** → `shopping_check {"names": ["eggs"]}` ticks every egg
+  line; `unmatched` lists names that matched nothing — look at `shopping_get`
+  and tick by `ids` instead. `uncheck: true` reverses a tick.
+- **"What's left at Market Basket?"** →
+  `shopping_get {"store": "market-basket"}` and report its `text`. Without `store`, `text` is the
+  whole list as the settings show it; `view` has the rows, each with the
+  `ids` to tick or remove.
+- **"Take the chili off"** → `shopping_remove {"recipe": "chili"}` (or
+  `{"group": …}` for a plan, `{"ids": […]}` for rows).
+
+Never empty the list or change its settings: clearing what was bought and
+switching features are Roger's, on the `/shopping` page. Ticking is not
+buying for him — tick only when the ask says it was bought.
+
 ## 9. Report
 
 A `Day | Recipe | Time | Source` table (`Recipe` linking `/recipe/<slug>`),
@@ -449,8 +488,10 @@ and `git_file_at` read one back). End with: push from `/git` when ready.
 ## Held back
 
 `recipe_delete`, `group_delete`, `term_delete`, `term_merge`, `unfeature`,
-`reindex`, `git_revert`, `git_restore`, `git_push`, `git_pull`, `git_sync` and
-`inventory_set` (which replaces the whole inventory) are not pre-approved and are not part of this skill — do not call them, and do not ask for them to be approved. If a write
+`reindex`, `git_revert`, `git_restore`, `git_push`, `git_pull`, `git_sync`,
+`inventory_set` (which replaces the whole inventory), `shopping_clear` (which
+empties the shopping list or its ticked rows) and `shopping_settings_set`
+(Roger's switches) are not pre-approved and are not part of this skill — do not call them, and do not ask for them to be approved. If a write
 goes wrong, find its commit with `git_log` and report the hash and the path:
 undoing it with `git_revert` or `git_restore`, and pulling or pushing, are the
 user's calls. When the user deletes for themselves, the strip follows:
@@ -483,7 +524,12 @@ wait and run the same command once more, as with the tool.
 - `recipe_set_image` → `pnpm --silent recipes image <slug> --url <image-url> --json`
   (or `--file <path>`, or `--clear`); `term_set_image` →
   `pnpm --silent recipes term image <slug> --url <image-url> --json`, the same
-  three ways.
+  three ways;
+- `shopping_get {store?}` → `pnpm --silent recipes shopping [--store <id>] --json`;
+  `shopping_add` → `pnpm --silent recipes shopping add (--group <slug> | --recipe <slug>) [--scale 2] --json`
+  (or `shopping add "paper towels" --json`, one line per argument);
+  `shopping_check {names}` → `pnpm --silent recipes shopping check eggs --json`
+  (`uncheck` reverses); `shopping_remove` → `pnpm --silent recipes shopping remove --recipe <slug> --json`.
 
 The draft file is the loop: inspect or dry-run into `d.json`, edit it, check
 it with `create --dry-run`, then create. Never pass `--author`,

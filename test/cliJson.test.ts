@@ -382,6 +382,72 @@ describe("the CLI as a process", () => {
   );
 
   /*
+   * 35c. A bare `shopping` is the list as text (its `--json` the whole read),
+   * lines and names are positionals, and `clear` refuses a pipe without
+   * `--yes`. Cleared at the end, so the cases around it see no list.
+   */
+  it(
+    "keeps the shopping list: bare list, add, check by name, settings, guarded clear",
+    async () => {
+      const empty = await run(["shopping"]);
+      expect(empty.exitCode).toBe(0);
+      expect(empty.stdout.trim()).toBe("The list is empty.");
+
+      const added = await run([
+        "shopping",
+        "add",
+        "2 lemons",
+        "paper towels",
+        "--json",
+      ]);
+      expect(added.exitCode).toBe(0);
+      expect(JSON.parse(added.stdout)).toMatchObject({
+        changed: true,
+        added: [
+          { text: "2 lemons", manual: true },
+          { text: "paper towels", manual: true },
+        ],
+      });
+
+      const checked = await run(["shopping", "check", "lemons", "--json"]);
+      expect(checked.exitCode).toBe(0);
+      expect(JSON.parse(checked.stdout).updated).toHaveLength(1);
+
+      const settings = await run([
+        "shopping",
+        "settings",
+        "set",
+        "features.aisles",
+        "off",
+        "--json",
+      ]);
+      expect(settings.exitCode).toBe(0);
+      expect(JSON.parse(settings.stdout).settings.features.aisles).toBe(false);
+
+      const read = await run(["shopping", "--json"]);
+      const parsed = JSON.parse(read.stdout);
+      expect(Object.keys(parsed).sort()).toEqual([
+        "items",
+        "path",
+        "settings",
+        "text",
+        "view",
+      ]);
+      expect(parsed.text).toBe("paper towels");
+
+      const refused = await run(["shopping", "clear", "--all", "--json"]);
+      expect(refused.exitCode).not.toBe(0);
+      expect(JSON.parse(refused.stdout).error.code).toBe("usage");
+
+      const cleared = await run(["shopping", "clear", "--all", "--yes"]);
+      expect(cleared.exitCode).toBe(0);
+      expect(cleared.stdout.trim()).toBe("Cleared 2 items; 0 items left");
+    },
+    /* Seven CLI processes, each a `tsx` start. */
+    TIMEOUT * 2,
+  );
+
+  /*
    * 31c. The `term` table end to end, one object per call, and the two
    * destructive subcommands refuse a pipe without `--yes`. The tag is taken
    * back off before the case ends, so the cases above stay as they were.

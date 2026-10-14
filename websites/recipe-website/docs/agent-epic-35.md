@@ -476,6 +476,135 @@ Upstream junk seen while measuring (not fixed): water with a leftover
 alternative amount ("or 4c water") is not caught as a staple; `singular`
 keeps "chilis" and "pepperoncinis" (its `-is` rule).
 
+### 35c — Shopping list core
+
+New: `common/util/shoppingTypes.ts` (item and settings shapes,
+`DEFAULT_SHOPPING_SETTINGS`, `normalizeShoppingSettings`,
+`canonicalShoppingItem`, `parseShoppingItem`), `common/util/shoppingView.ts`
+(`buildShoppingView`, `formatShoppingText`, `viewForStore`,
+`shoppingNameOf`), the seat `editor/controller/curation/shopping.ts`, the
+routes `api/shopping` and `api/shopping/settings`, the server actions
+`controller/actions/shopping.ts` (for 35d), `cli/commands/shopping.ts`, six
+MCP tools, `test/shoppingView.test.ts` (18) and `test/shopping.test.ts` (19).
+Changed: `makeable.ts` exports `probablyOnHand` (the on-hand rule without the
+corpus alias check), `UnknownRecipeError` takes `{forceHint: false}`, the
+backend seam, `cli/index.ts`, `mcp/registry.ts`, the D8 allow-list
+(`controller/buildIndexValue` for `flattenMarkdown`), and the counts in
+`.claude/settings.json`, SKILL.md (frontmatter, a "8b. The shopping list"
+section, "Held back", the CLI fallback) and CLAUDE.md.
+
+Surface:
+
+| Where   | What                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Seat    | `readShopping`, `readShoppingView(ctx, {store?})`, `addToShopping`, `patchShopping`, `clearShopping`, `getShoppingSettings`, `updateShoppingSettings`                                                                                                                                                                                                                                                       |
+| API     | `GET /api/shopping` → `{items, settings, view, text, path}` (`?format=text` → `text/plain`, `?store=<id>`); `POST` add; `PATCH` patch; `DELETE ?scope=checked\|all`; `GET`/`PATCH /api/shopping/settings`. Every verb authenticates; GETs need a read token, the rest a write token (no new scope — inventory has none).                                                                                    |
+| Actions | `loadShoppingList`, `addToShoppingList`, `updateShoppingList`, `clearShoppingList`, `updateShoppingListSettings` → the result or `{error, code}` (so the page can retry on `busy`)                                                                                                                                                                                                                          |
+| CLI     | `shopping [list] [--store id]`, `shopping add (--recipe s \| --group s) [--scale 2] \| <line…>`, `shopping check\|uncheck <id\|name…>`, `shopping remove <id…> \| --recipe s \| --group s`, `shopping clear [--all] [--yes]`, `shopping settings [set <key> <value…>]` (keys `features.<name> on\|off`, `default-store`, `store-for-aisle`, `store-for <name…>`, `aisle-for <name…>`); local and `--remote` |
+| MCP     | `shopping_get {store?}` → `{text, view, settings}`; `shopping_add`; `shopping_check {ids?, names?, uncheck?}`; `shopping_remove {ids \| recipe \| group}` — pre-approved. `shopping_clear` (destructive) and `shopping_settings_set` held back. 55 tools, 41 pre-approved, 14 held back.                                                                                                                    |
+
+Choices (departures from the brief marked):
+
+1. **Item ids are lowercase ULIDs**, the file stem; a file's own `id` field
+   is overridden by its name, and only files named like an id are read, so a
+   patch can only ever touch files the list already holds. A file that does
+   not parse (conflict markers mid-merge) is skipped, not fatal.
+2. **Falsy flags and empty values are left out of the file** (`checked:
+false` is no key), keys in D2's order: two devices that tick the same
+   item write the same bytes, which the two-clone test merges cleanly.
+3. **Scale is stored as `Fraction.toFraction()`** (`"2"`, `"1/2"`, `"3/2"`) —
+   a plan's row scale times the call's `scale`; 1 is stored as no key.
+4. **The merge key is the line's first name** (`nameKey`, as 35b counts a
+   line with alternatives); a line no name can be read from keys on its
+   folded text, so only identical lines merge. **`all-purpose flour` and
+   `flour` are two rows** — exact names only, as the brief says.
+5. **Display names go plural** when the amount is a count above one or a
+   source line wrote the plural (`3 eggs`, `1 cup chocolate chips`), never
+   for one of a thing. A partly ticked merged row's `label` shows what is
+   left (`remaining`); `quantity` stays the total.
+6. **Merge off, quantities on**: the raw line with a scale badge (`3 eggs
+(2×)`), and `quantity` carries the scaled amount for the UI. All switches
+   off is the raw lines in id order (pinned).
+7. **Departure — `set` is `{ids, store | null}` only.** Per-item aisle is not
+   in D2's item shape; an aisle belongs to the ingredient, so it is
+   `settings.aisleOverrides` (keyed by name). "Always at this store" is
+   `settings.storeOverrides`.
+8. **Departure — `uncheckNames`** joins `names`, so "uncheck eggs" works
+   from the CLI and `shopping_check {uncheck: true, names}`.
+9. **Override keys go through `shoppingNameOf`** (`"Eggs"` → `egg`), the key
+   the view routes and merges by. Replacing `stores` drops the routes and
+   overrides that named a removed store (and moves `defaultStore` to the
+   first); naming a store that does not exist anywhere else is `validation`.
+10. **Unknown ids are reported (`unknown`), not refused**: 35d's batched
+    ticks may name an item another device has just cleared. Names matching
+    nothing come back in `unmatched`.
+11. **`shopping_get {store}` turns stores on for that answer**, so "what's
+    left at Market Basket" works whatever the page's switch says; an unknown
+    store id is `validation`.
+12. **Text format**: store headings upper-case, aisle headings `Produce:`,
+    one plain line per row, unread lines indented `  · …` under their name,
+    the on-hand fold last ("Probably on hand:"), ticked rows omitted unless
+    `{checked: true}`; an empty list reads "The list is empty."
+13. **Removal wins** inside one patch; commit subjects use `✓` tick, `☐`
+    untick, `−` remove, `need:`/`-need:`, `name→store`, `-Chili (12 items)`
+    for a source, shortened past 56 characters as the inventory's are.
+14. **CLI lines are one per argument**, as `inventory add`; `remove` takes
+    ids (not names); `clear` asks (or needs `--yes`) for both scopes.
+
+Gates: editor typecheck and export `tsc` clean; vitest **70 files / 1500 tests** (+2 files, +40 tests: shoppingView 18, shopping 19, mcp +1, curatorSkill +1, cliJson +1).
+No Playwright (no pages; 35d builds the UI).
+
+Traps:
+
+- **`MergeInProgressError` has no `code`** — the `dirty_tree` mapping
+  happens in `toErrorObject`; a test asserting `code` on the raw error fails.
+- **35a's formatter gives `1 quart flour`** for 4 cups (largest unit ≥ 1;
+  only pints are excluded). Fine for liquids, odd for flour and sugar on a
+  list — a 35d/35-close call whether quarts (and gallons) should go the way
+  of pints for dry goods.
+- **The real content repo has no meal plans yet** (no `groups/` directory),
+  so the scratch check below made one in the clone.
+
+Scratch check (real content at `ba2b1754`, cloned to the job's scratch dir
+without media, reindexed with the CLI, deleted afterwards): a plan "Week of
+Oct 19" — white chicken chili ×2, hard-shell beef tacos, skillet apple cider
+chicken, and a nested "Soups" plan (carrot ginger, navy bean) — made in the
+clone, then `recipes shopping add --group scratch-week-of-oct-19`: **86
+items, 63 rows, one commit** ("Update shopping list: +Week of Oct 19 (86
+items)"), a clean tree. `recipes shopping` and `shopping --json`'s `text`
+were byte-identical. `shopping check onions garlic` ticked 5 lines in one
+commit ("✓onions ✓garlic"; `white onion` and `yellow onion` are their own
+rows), and `--store market-basket` printed the produce section. An excerpt
+of the default view:
+
+```
+Produce:
+2 + 1 cup onion
+4 cans green chiles
+25 g + 4 cloves garlic
+2 lb + 1 carrots
+cilantro
+
+Meat & fish:
+2 lb chicken breasts
+2 lb ground beef
+
+Pantry:
+4 cans great northern beans
+1 quart stock
+1½ quarts low sodium chicken broth
+
+Spices:
+2 tsp + 10 g ground cumin
+2 bay leaves
+```
+
+Read on the real list: a count joined to a measure reads badly (`2 + 1 cup
+onion`, `2 lb + 1 carrots`) — 35a's join puts the bare count first with no
+noun. Worth a look in 35d (show the count with its name, `2 onions + 1
+cup`), along with the quarts above. Source junk shows through as written
+(`8 ox sharp cheddar cheeses`).
+
 ## Close-out
 
 (At 35-close: what landed, traps found at close, backlog, memory, the

@@ -63,6 +63,11 @@ import type {
   RecipeWriteResult,
   ReindexResult,
   SearchResult,
+  ShoppingAddResult,
+  ShoppingClearResult,
+  ShoppingPatchResult,
+  ShoppingSettingsResult,
+  ShoppingViewResult,
   ShowResult,
   SyncStatus,
   TermAssignResult,
@@ -426,6 +431,34 @@ export function createHttpBackend({
     inventoryMakeable(options = {}) {
       return call<MakeableResult>("GET", "/api/inventory/make", {
         query: options,
+      });
+    },
+
+    getShopping(options = {}) {
+      return call<ShoppingViewResult>("GET", "/api/shopping", {
+        query: options,
+      });
+    },
+    addToShopping(raw) {
+      return call<ShoppingAddResult>("POST", "/api/shopping", { body: raw });
+    },
+    patchShopping(raw) {
+      return call<ShoppingPatchResult>("PATCH", "/api/shopping", {
+        body: raw,
+      });
+    },
+    clearShopping(raw) {
+      const scope = (raw as { scope?: string } | undefined)?.scope;
+      return call<ShoppingClearResult>("DELETE", "/api/shopping", {
+        query: { scope },
+      });
+    },
+    getShoppingSettings() {
+      return call<ShoppingSettingsResult>("GET", "/api/shopping/settings");
+    },
+    updateShoppingSettings(raw) {
+      return call<ShoppingSettingsResult>("PATCH", "/api/shopping/settings", {
+        body: raw,
       });
     },
 

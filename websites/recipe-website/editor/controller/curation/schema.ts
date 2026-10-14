@@ -26,7 +26,9 @@ import type {
   InstructionEntry,
   InstructionGroup,
 } from "recipe-website-common/controller/types";
+import { AISLES } from "recipe-website-common/util/aisles";
 import { SCALE_MESSAGE, isValidScale } from "recipe-website-common/util/scale";
+import { STORE_ID_PATTERN } from "recipe-website-common/util/shoppingTypes";
 import { z } from "zod";
 import { ValidationError, issuesOf } from "./errors";
 
@@ -500,6 +502,156 @@ export const InventoryMakeQuerySchema = z.strictObject({
   query: z.string().optional(),
   limit: z.number().int().min(1).max(500).optional(),
 });
+
+/* --- shopping list (35c) ------------------------------------------------- */
+
+/** One free-text line, as a person types it ("paper towels", "2 lemons"). */
+export const ShoppingTextSchema = z.string().trim().min(1).max(300);
+
+/**
+ * What to put on the list (epic 35, D7): a recipe's lines, a meal plan's
+ * (nested plans included), or lines typed by hand — exactly one. `scale`
+ * multiplies a recipe or a whole plan (`"2"`, `"1/2"`).
+ */
+export const ShoppingAddSchema = z
+  .strictObject({
+    recipe: z.string().min(1).optional(),
+    group: z.string().min(1).optional(),
+    scale: ScaleSchema().optional(),
+    items: z.array(ShoppingTextSchema).min(1).max(200).optional(),
+  })
+  .refine(
+    (data) =>
+      [data.recipe, data.group, data.items].filter(
+        (value) => value !== undefined,
+      ).length === 1,
+    {
+      message: "Name exactly one of `recipe`, `group` or `items`",
+      path: ["recipe"],
+    },
+  )
+  .refine((data) => !(data.items && data.scale !== undefined), {
+    message: "`scale` applies to a `recipe` or a `group`, not to `items`",
+    path: ["scale"],
+  });
+
+export type ShoppingAddInput = z.infer<typeof ShoppingAddSchema>;
+
+/** Item ids, as the list hands them out (lowercase ULIDs). */
+const ShoppingIds = z.array(z.string().trim().min(1).max(64)).max(2000);
+const ShoppingNames = z.array(ShoppingTextSchema).max(200);
+
+/** `{recipe}` or `{group}`: every item that came from it. */
+export const ShoppingSourceSchema = z
+  .strictObject({
+    recipe: z.string().min(1).optional(),
+    group: z.string().min(1).optional(),
+  })
+  .refine((data) => Boolean(data.recipe) !== Boolean(data.group), {
+    message: "Name exactly one of `recipe` or `group`",
+    path: ["recipe"],
+  });
+
+/**
+ * Changes to items already on the list, in one commit. Ids name items;
+ * `names` ticks every unticked item of that ingredient ("I bought eggs") and
+ * `uncheckNames` unticks; `removeSource` drops what a recipe or plan added;
+ * `set` puts items on one store (`null` clears it).
+ */
+export const ShoppingPatchSchema = z
+  .strictObject({
+    check: ShoppingIds.optional(),
+    uncheck: ShoppingIds.optional(),
+    remove: ShoppingIds.optional(),
+    need: ShoppingIds.optional(),
+    unneed: ShoppingIds.optional(),
+    names: ShoppingNames.optional(),
+    uncheckNames: ShoppingNames.optional(),
+    removeSource: ShoppingSourceSchema.optional(),
+    set: z
+      .strictObject({
+        ids: ShoppingIds.min(1),
+        store: z.string().min(1).nullable(),
+      })
+      .optional(),
+  })
+  .refine(
+    (data) =>
+      (data.check?.length ?? 0) +
+        (data.uncheck?.length ?? 0) +
+        (data.remove?.length ?? 0) +
+        (data.need?.length ?? 0) +
+        (data.unneed?.length ?? 0) +
+        (data.names?.length ?? 0) +
+        (data.uncheckNames?.length ?? 0) +
+        (data.removeSource ? 1 : 0) +
+        (data.set ? 1 : 0) >
+      0,
+    { message: "Name at least one change", path: ["check"] },
+  );
+
+export type ShoppingPatchInput = z.infer<typeof ShoppingPatchSchema>;
+
+/** `checked` (the default) clears what was bought; `all` empties the list. */
+export const ShoppingClearSchema = z.strictObject({
+  scope: z.enum(["checked", "all"]).optional(),
+});
+
+const AisleSchema = z.enum(AISLES);
+
+/**
+ * A settings change, merged into what is stored: features one by one; the
+ * maps key by key, `null` removing a key; `aisleOrder` and `stores` whole.
+ * Override keys are ingredient names ("Eggs"), keyed the way the list keys
+ * rows. Every store a setting names must be in `stores`.
+ */
+export const ShoppingSettingsPatchSchema = z
+  .strictObject({
+    features: z
+      .strictObject({
+        merge: z.boolean().optional(),
+        quantities: z.boolean().optional(),
+        aisles: z.boolean().optional(),
+        stores: z.boolean().optional(),
+        onHand: z.boolean().optional(),
+        sources: z.boolean().optional(),
+      })
+      .optional(),
+    aisleOrder: z.array(AisleSchema).max(AISLES.length).optional(),
+    stores: z
+      .array(
+        z.strictObject({
+          id: z.string().regex(STORE_ID_PATTERN, {
+            message: "A store id is lowercase words joined by hyphens",
+          }),
+          name: z.string().trim().min(1).max(60),
+        }),
+      )
+      .min(1)
+      .max(20)
+      .refine(
+        (stores) =>
+          new Set(stores.map((store) => store.id)).size === stores.length,
+        { message: "Store ids must be unique" },
+      )
+      .optional(),
+    defaultStore: z.string().min(1).optional(),
+    storeByAisle: z
+      .partialRecord(AisleSchema, z.string().min(1).nullable())
+      .optional(),
+    aisleOverrides: z
+      .record(ShoppingTextSchema, AisleSchema.nullable())
+      .optional(),
+    storeOverrides: z
+      .record(ShoppingTextSchema, z.string().min(1).nullable())
+      .optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "Name at least one setting",
+    path: ["features"],
+  });
+
+export type ShoppingSettingsPatch = z.infer<typeof ShoppingSettingsPatchSchema>;
 
 /* --- git (23d/D23) ------------------------------------------------------- */
 

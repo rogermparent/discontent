@@ -740,6 +740,78 @@ describe("the MCP registry over an in-memory transport", () => {
   });
 
   /* ---------------------------------------------------------------- */
+  /* 12. Shopping list (35c)                                           */
+  /* ---------------------------------------------------------------- */
+
+  it("keeps the shopping list: add, read by store, tick by name, remove, clear", async () => {
+    await createCake();
+    const { tools } = await client.listTools();
+    const annotationsOf = (name: string) =>
+      tools.find((tool) => tool.name === name)?.annotations;
+    expect(annotationsOf("shopping_get")).toMatchObject({ readOnlyHint: true });
+    for (const name of ["shopping_add", "shopping_check", "shopping_remove"]) {
+      expect(annotationsOf(name), name).toMatchObject({ readOnlyHint: false });
+      expect(annotationsOf(name)?.destructiveHint, name).toBeUndefined();
+    }
+    expect(annotationsOf("shopping_clear")).toMatchObject({
+      destructiveHint: true,
+    });
+
+    const added = await call("shopping_add", {
+      recipe: "chocolate-cake",
+      scale: "1/2",
+    });
+    expect(added.isError).toBe(false);
+    expect(added.data).toMatchObject({ changed: true });
+    expect(added.data.warnings).toBeUndefined();
+    await call("shopping_add", { items: ["2 lemons"] });
+
+    const all = await call("shopping_get");
+    expect(all.data.text).toBe(
+      "Produce:\n2 lemons\n\nPantry:\n1 cup flour\n½ cup cocoa",
+    );
+    const atMarketBasket = await call("shopping_get", {
+      store: "market-basket",
+    });
+    expect(atMarketBasket.data.text).toBe(
+      "MARKET BASKET\n\nProduce:\n2 lemons",
+    );
+
+    const ticked = await call("shopping_check", { names: ["lemons", "kale"] });
+    expect(ticked.data).toMatchObject({ changed: true, unmatched: ["kale"] });
+    expect((await call("shopping_get")).data.text).toBe(
+      "Pantry:\n1 cup flour\n½ cup cocoa",
+    );
+    await call("shopping_check", { names: ["lemon"], uncheck: true });
+
+    const removed = await call("shopping_remove", { recipe: "chocolate-cake" });
+    expect(removed.data).toMatchObject({ changed: true });
+    expect((await call("shopping_get")).data.text).toBe("Produce:\n2 lemons");
+
+    /* Two sources at once: the tool's own schema refuses it (T28). */
+    const both = await client.callTool({
+      name: "shopping_remove",
+      arguments: { recipe: "a", group: "b" },
+    });
+    expect(both.isError).toBe(true);
+    expect((await callError("shopping_add", { recipe: "nope" })).code).toBe(
+      "unknown_recipe",
+    );
+
+    await call("shopping_check", { names: ["lemon"] });
+    const cleared = await call("shopping_clear", {});
+    expect(cleared.data).toMatchObject({ changed: true, items: [] });
+
+    const settings = await call("shopping_settings_set", {
+      features: { aisles: false },
+    });
+    expect(settings.data).toMatchObject({
+      changed: true,
+      settings: { features: { aisles: false } },
+    });
+  });
+
+  /* ---------------------------------------------------------------- */
   /* 26b: page_inspect, dry runs, recipe_set_image                     */
   /* ---------------------------------------------------------------- */
 
