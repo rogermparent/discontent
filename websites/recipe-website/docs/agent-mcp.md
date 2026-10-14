@@ -616,7 +616,9 @@ enableJsonResponse: true})` + `createMcpHandler(factory, {legacy:
   prefix, unranked); `tag_list` before inventing a tag; typed terms `tag:`,
   `-tag:`, `ingredient:`, `name:`, `description:`, `time:<=45`,
   `before:`/`after:`, `AND`/`OR`/`NOT`, parentheses; **`group:` works only
-  in the browser search — use `group_get` for membership**; prefer an
+  in the browser search — use `group_get` for membership** (true at 23f;
+  30a made `group:` work in `recipe_search`, and the skill now advertises
+  it); prefer an
   existing recipe over an import. (4) **web candidates** unchanged. (5)
   **dry-run** `recipe_import {url, dryRun: true}` → `{dryRun, url, slug,
 recipe, image?, video?}`, no `warnings`; rejection rules unchanged. (6)
@@ -3395,19 +3397,23 @@ repo, after the stack lands — is the epic's last checkbox and stays theirs.
   the skill imports by URL and `imageImportUrl` covers group covers.~~
   **Done by 26b** (`agent-import-tools.md` D10): the CLI's `image <slug>
 --file`; `recipe_set_image` stays URL-only.
-- **Featured dedupe**: `feature` does not refuse an already-featured target
+- ~~**Featured dedupe**: `feature` does not refuse an already-featured target
   (D5). If agents double-feature in practice, add an `already_featured`
-  code or return the existing slug.
+  code or return the existing slug.~~ **Done by 31a** (`agent-epic-31.md`
+  D2): `feature()` throws `AlreadyFeaturedError` naming the existing entry.
 - **F32 array references** stay deferred; nested groups (23c) resolve
   sub-groups at read time exactly as recipes are resolved today, and a
   sub-group rename or delete leaves its parents' `{group}` items dangling
   (T31/T32).
-- **Server-side `group:` search** (pre-existing, found at 23c planning):
+- ~~**Server-side `group:` search** (pre-existing, found at 23c planning):
   `curation/search.ts` filters rows that never carry `groups`, so the term
   matches nothing from the CLI/MCP while the browser search honours it. 23f
   stopped the `recipe_search` description advertising it and the skill
   points at `group_get`; making it work server-side means decorating rows
-  with the `by-group` aggregate at query time. Backlog row.
+  with the `by-group` aggregate at query time. Backlog row.~~ **Done by
+  30a**: rows are decorated from the group search corpus, only when the
+  query has a `group:` term; `recipe_search`'s description and the skill
+  advertise it again.
 - ~~**Stale-editor hint after a CLI `--dry-run`**: the MCP path omits it
   (`recipe_import` passes `notify: dryRun !== true`); the CLI still prints
   it. Backlog row, narrowed at 23f.~~ **Done by 26b**: `cli/index.ts` skips
@@ -3416,7 +3422,11 @@ repo, after the stack lands — is the epic's last checkbox and stays theirs.
   full-write (backlog "API token hygiene"), so a remote `recipes` entry in
   `.mcp.json` would hand the skill a write token in a file that is committed;
   the HTTP transport stays a per-user registration under the same server
-  name (D27) until scopes exist.
+  name (D27) until scopes exist. **Scopes done by 27b** (`agent-epic-27.md`
+  D6: `create-token --read-only`; a read-scoped MCP session registers only
+  the read-only tools). The committed `.mcp.json` still registers only the
+  stdio server — an HTTP entry was never added and nothing asks for one
+  (checked at 35q).
 - **`gitPush` with no remote** answers `internal` with git's own message
   (23d); a fifth code or `not_found` if it matters in practice.
 - **Group picker in the browser form**: 23c keeps sub-group rows read-only;
