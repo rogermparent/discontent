@@ -16,6 +16,8 @@ it gets a phase in the epic's own doc and is struck here.
 > `agent-epic-32.md`.**
 > **Epic 34 (facets follow-through, write safety, term counts, seasonal
 > content) is in `agent-epic-34.md`.**
+> **Epic 35 (shopping list, Halloween & Christmas content, curation
+> polish, editor hygiene) is in `agent-epic-35.md`.**
 > Rows are struck here as an epic's phases pick them up; the struck rows
 > below name the phase.
 
