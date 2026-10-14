@@ -32,7 +32,9 @@
  *
  * Taking the lock fresh (not re-entrantly) also sweeps what a dead writer can
  * leave: private indexes (`discontent-index-<id>`, `commit.ts`) and lock temp
- * files always — only a holder makes them — and, after a takeover or on this
+ * files older than the stale age — a waiter's `.new` file and the
+ * as-if-flushed status's index are made outside the lock, so a young one may
+ * be live — and, after a takeover or on this
  * process's first acquisition, untracked atomic-write temp files
  * (`.<name>.<writeId>.<n>.tmp`, `fs/atomicWrite.ts`) older than the stale age.
  */
@@ -309,7 +311,13 @@ async function tryCreate(
     await link(temporary, path);
     return true;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EEXIST") return false;
+    /*
+     * Our temp file vanished before the link — an older build's sweep, or a
+     * hand cleanup. Nothing was taken; the caller's loop writes it again.
+     */
+    if (code === "ENOENT") return false;
     throw error;
   } finally {
     await rm(temporary, { force: true });
@@ -349,12 +357,20 @@ async function releaseFile(path: string, writeId: string): Promise<void> {
   if (state?.holder?.writeId === writeId) await rm(path, { force: true });
 }
 
-async function sweepGitDir(path: string): Promise<void> {
+/**
+ * Leftovers older than `staleMs` only: a waiter's `.new` lock file and a
+ * private index made outside the lock (the as-if-flushed status) are live
+ * while young, and deleting them broke a concurrent waiter (#217's CI).
+ */
+async function sweepGitDir(path: string, staleMs: number): Promise<void> {
   const directory = join(path, "..");
   try {
     for (const name of await readdir(directory)) {
-      if (GIT_DIR_LEFTOVER.test(name)) {
-        await rm(join(directory, name), { force: true });
+      if (!GIT_DIR_LEFTOVER.test(name)) continue;
+      const full = join(directory, name);
+      const info = await stat(full).catch(() => null);
+      if (info && Date.now() - info.mtimeMs > staleMs) {
+        await rm(full, { force: true });
       }
     }
   } catch {
@@ -440,7 +456,7 @@ export async function withWriteLock<T>(
     heartbeat.unref?.();
     const hold: Hold = { writeId, active: true, serial: Promise.resolve() };
     try {
-      await sweepGitDir(path);
+      await sweepGitDir(path, staleMs);
       if (tookOver || !sweptTemps.has(path)) {
         sweptTemps.add(path);
         await sweepTempFiles(contentDirectory, staleMs);
