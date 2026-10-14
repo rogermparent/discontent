@@ -462,6 +462,27 @@ check of 35c/35d.
   where a server action cannot stream them. The line names what is being
   fetched and from which site, and the 15 s rule.
 
+### Close-out follow-up — ISO durations
+
+- **Food Network imports came in with no times.** `parseDurationToMinutes`
+  (`common/util/isoDuration.ts`) only matched `PT(\d+H)?(\d+M)?`; Food
+  Network's JSON-LD writes `P0Y0M0DT1H15M0.000S`, which has no `PT` in it,
+  so prep/cook/total were dropped silently. Every Food Network import so far
+  is affected — at least `blood-orange-spritz-foodnetwork` and
+  `cotton-candy-fizz-foodnetwork`; the orchestrator backfills their times
+  in content. Any other site writing a day part (`P1DT2H`), seconds
+  (`PT1H30M45S`) or a fractional hour (`PT1.5H`, which read as 0) lost them
+  too.
+- **The fix reads the whole grammar** `P[nY][nM][nW][nD][T[nH][nM][nS]]`,
+  case-insensitive, still unanchored (a duration inside a longer string is
+  read, as before). Weeks and days convert exactly. The `T` separates months
+  from minutes; zero years/months are padding, and a non-zero year or month
+  makes the result undefined rather than a guess (`P20M` is more likely a
+  site's mistaken minutes than 20 months). Seconds and fractions round the
+  total **up** to a whole minute, so a short step never reads as 0. A bare
+  `PT` with no components is now undefined (it was 0). Tests:
+  `test/isoDuration.test.ts`.
+
 ## Results
 
 ### 35a — Ingredient amounts
