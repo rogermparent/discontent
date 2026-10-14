@@ -382,6 +382,85 @@ check of 35c/35d.
 
 ## Results
 
+### 35a — Ingredient amounts
+
+`common/util/ingredientGrammar.ts` (the amount grammar — `UNITS`,
+`UNIT_PATTERN`, `NUMBER`, `QUANTITY_WORDS`, `MODIFIER`, `QUANTITY_RE`,
+`UNIT_RE`, `UNIT_ALT_RE`, `UNIT_OR_RE`, `UNIT_OF_RE` — moved out of
+`ingredientNames` verbatim; `measure-ingredient-names.ts --all` output was
+byte-identical before and after, and 35b's `half-and-half` lookahead now lives
+there), `common/util/ingredientAmount.ts`, `editor/scripts/measure-shopping.ts`
+(read-only, opens no index; `--lines` prints every food line beside its
+amount), `test/ingredientAmount.test.ts` (98 cases).
+
+```ts
+type UnitFamily = "us-volume" | "metric-volume" | "us-weight" | "metric-weight" | "count" | "container";
+interface AmountPart { qty: number; unit: string /* canonical; "" = count */; family: UnitFamily }
+interface Amount { parts: AmountPart[] }            // parts: [] = as needed
+AS_NEEDED; isAsNeeded(a)
+parseAmount(line): Amount | null                    // null: numbers it can't read, or a heading
+normalizeUnit(text): { unit, family } | null
+addAmounts(...amounts): Amount                      // same family adds in the smaller unit
+scaleAmount(a, factor: number | Fraction): Amount   // parts that come to ≤ 0 are dropped
+formatAmount(a): string                             // "1 lb + 2 cups", "⅓ cup", "1.8 kg", "as needed"
+```
+
+Measure on the real repo: 677 recipes, 5,560 food lines (recipes with no
+`drink` spec and no `drink` tag; stored and detected headings out), 893 drink
+lines not measured.
+
+| food lines                 | first pass | final     |
+| -------------------------- | ---------- | --------- |
+| read (amount or as needed) | 98.5%      | **99.7%** |
+| with a unit                | 79.1%      | 80.5%     |
+| as needed                  | 8.6%       | 8.5%      |
+| — of which a bare name     | 8.3%       | 8.3%      |
+| unread                     | 85 lines   | 16 lines  |
+
+Target ≥ 90% met — 91.4% even counting bare names ("Kosher salt") as unread.
+The 16 left: pie-crust notes, piping tips, `(1 Tbsp per serving)`, egg-wash
+recipes in brackets.
+
+Choices:
+
+1. **A range takes its high end**, including one with a unit at both ends in
+   one family (`200g-250g`, `2 tbsp to 1/4 cup`, `1 cup or 2 cups`); another
+   family after `or` is the other measure (`100g or 1/2c` → 100 g).
+2. **US and metric never convert**; `oz` is a weight unless `fl oz`.
+3. **Sizes after a count**: before a container they describe it
+   (`2 14.5oz cans`, `1 (15-ounce) can` → cans); a dimension leaves a count
+   (`2 9-inch pie crusts` → 2, `10 inch tortillas` → 1); anything else
+   multiplies, bracketed or not (`4 6-oz` and `4 (6 oz) fillets` → 24 oz)
+   unless the bracket says about/total (`8 (about 2 lb) thighs` → 2 lb).
+4. **As needed** = no amount and says so (to taste, pinch, dash, for
+   serving, optional …) **or names no number at all**. An amount wins over a
+   remark (`1 tbsp water, plus more as needed` → 1 tbsp), and adding as
+   needed to an amount adds nothing.
+5. **Amounts written after the name** are read (`Bread flour 300g`,
+   `Salt, 5 g`, `flour 73g 60%`) only to the end of the line and with a unit
+   unless a comma sets them off — `Dough from step 2` stays null.
+6. **Display**: largest unit ≥ 1, to ⅛ (½ for tsp, never rounded to
+   nothing; exact thirds kept). Cups below one only as ¼ ⅓ ½ ⅔ ¾, so 6 tbsp
+   stays 6 tbsp. **No pints** on a list (2 cups is not "1 pint"). Metric in
+   whole g/ml, tenths of a kg/l from 1000, rounded up.
+7. **Everything amount-only stays local** to `ingredientAmount`: `2 Tb`,
+   `2 fl. oz`, `1 and 1/2`, `a half cup`, `2 dozen`, `2 x 400g`, `1 lb 2 oz`
+   are rewritten or read there, so `stripAmount` and the names are untouched.
+
+Traps:
+
+- **`UNIT_RE` wants whitespace after a unit**: `2 cloves, minced` was a count
+  of 2. Handled in `readUnit` by spacing the comma, not in the grammar.
+- **A bracket before a unit is the other measure**, not a size:
+  `250 (1c) grams of water` first came out as 250 cups — "15⅝ gallons".
+- **`1-1/2` reads as a range** (→ 1) unless rewritten to `1 1/2` first; the
+  lookbehind keeps `1/2-3/4` a range. **`1,800`** is a thousands separator
+  only as `d{1,3},ddd`; `1,5` stays a decimal.
+- **`t` is a teaspoon and `T` a tablespoon** — the one case-sensitive unit.
+- **Diff every changed line** when tuning: run `measure-shopping.ts --lines`
+  before and after and diff the two — the 250-cups bug only showed that way,
+  not in the percentages.
+
 ### 35b — Aisles + group walk
 
 `common/util/aisles.ts` (`DEFAULT_AISLE_WORDS`: 549 keys after the chile
