@@ -1,6 +1,7 @@
 import type { Key } from "lmdb";
 import { exists } from "fs-extra";
 import { getContentDirectory } from "../fs/getContentDirectory";
+import { SlugConflictError } from "./errors";
 import { assertNoMergeInProgress, commitContentChanges } from "../git/commit";
 import { withWriteLock } from "../git/writeLock";
 import { getContentDatabase, writeToIndex } from "./database";
@@ -20,12 +21,7 @@ import type {
   FileUploadData,
 } from "./types";
 
-export class SlugConflictError extends Error {
-  constructor(public readonly slug: string) {
-    super(`Content with slug "${slug}" already exists`);
-    this.name = "SlugConflictError";
-  }
-}
+export { SlugConflictError };
 
 /**
  * Default upload processor for creating content.

@@ -9,7 +9,7 @@
   "scripts": {
     "prepare": "husky",
     "test": "vitest",
-    "recipes": "pnpm --filter recipe-editor recipes",
+    "recipes": "cd websites/recipe-website/editor && ./node_modules/.bin/tsx ./cli/index.ts",
     "mcp": "pnpm --filter recipe-editor mcp",
     "deploy:pi": "bash scripts/deploy-pi.sh",
     "workstation": "bash scripts/workstation-editor.sh",

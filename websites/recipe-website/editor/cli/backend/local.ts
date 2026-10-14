@@ -19,9 +19,6 @@ import { gitSync } from "../../controller/curation/sync";
 import { CurationError } from "../../controller/curation/errors";
 import { LockBusyError, withRepoLock } from "../../controller/instance/lock";
 import * as groups from "../../controller/curation/groups";
-import { importAndCreate } from "../../controller/curation/importRecipe";
-import { inspectUrl } from "../../controller/curation/inspect";
-import { importList, inspectList } from "../../controller/curation/importList";
 import {
   setRecipeImage,
   setTermImage,
@@ -146,15 +143,31 @@ export function createLocalBackend({
   return {
     kind: "local",
 
+    /*
+     * The import seats load the page parsers (`hast-util-*`, `mdast-util-*`)
+     * when called, not with this module: every other command skips ~0.35 s
+     * of startup that way (35q).
+     */
     async importRecipe(url, options = {}) {
       if (!options.dryRun) await guard();
+      const { importAndCreate } =
+        await import("../../controller/curation/importRecipe");
       return importAndCreate(ctx, url, options);
     },
     /* Reads a page and nothing else: no identity, no write. */
-    inspect: (url) => inspectUrl(url),
-    inspectList: (url) => inspectList(ctx, url),
+    async inspect(url) {
+      const { inspectUrl } = await import("../../controller/curation/inspect");
+      return inspectUrl(url);
+    },
+    async inspectList(url) {
+      const { inspectList } =
+        await import("../../controller/curation/importList");
+      return inspectList(ctx, url);
+    },
     async importList(url, options) {
       if (!options.dryRun) await guard();
+      const { importList } =
+        await import("../../controller/curation/importList");
       return importList(ctx, url, options);
     },
     async createRecipe(raw, { dryRun, ...options } = {}) {

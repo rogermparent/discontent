@@ -40,7 +40,6 @@ export default async function createResume(
 
   revalidatePath("/resume/" + slug);
   revalidatePath("/resumes");
-  revalidatePath("/resumes/[page]", "page");
   revalidatePath("/");
   redirect("/resume/" + slug);
 }

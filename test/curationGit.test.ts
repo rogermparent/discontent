@@ -28,6 +28,7 @@ import {
   readJson,
   remove,
   rm,
+  symlink,
   utimes,
   writeFile,
 } from "fs-extra";
@@ -2064,4 +2065,78 @@ describe("private-index commits (34c)", () => {
     expect((await git.status()).isClean()).toBe(true);
     expect(await privateIndexes()).toEqual([]);
   });
+
+  it("lands commits in call order across a symlinked spelling, in one hold (35q)", async () => {
+    /*
+     * The lock is real-pathed; the entry chain must be too, or the symlink
+     * spelling and the real one race into the hold's serial queue.
+     */
+    const parent = await mkdtemp(join(tmpdir(), "curation-git-link-"));
+    const link = join(parent, "content");
+    await symlink(contentDirectory, link);
+    try {
+      for (let round = 0; round < 3; round += 1) {
+        const names = Array.from({ length: 8 }, (_, i) => `s${round}c${i}`);
+        for (const name of names) {
+          await outputFile(join(contentDirectory, `notes/${name}.txt`), name);
+        }
+        const before = await head();
+        await withWriteLock(round % 2 ? link : contentDirectory, "linked", () =>
+          Promise.all(
+            names.map((name, i) =>
+              commitContentChanges(
+                name,
+                ctx.author,
+                [`notes/${name}.txt`],
+                i % 2 ? link : contentDirectory,
+              ),
+            ),
+          ).then(() => undefined),
+        );
+        const log = String(
+          await git.raw(["log", "--format=%s", "--reverse", `${before}..HEAD`]),
+        )
+          .trim()
+          .split("\n");
+        expect(log).toEqual(names);
+      }
+      expect((await git.status()).isClean()).toBe(true);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("lands many commits started together in call order (35q)", async () => {
+    /*
+     * The repository check once ran before the lock, and its `access`
+     * resolves in any order, so commits could land out of call order.
+     */
+    for (let round = 0; round < 3; round += 1) {
+      const names = Array.from({ length: 8 }, (_, i) => `r${round}c${i}`);
+      for (const name of names) {
+        await outputFile(join(contentDirectory, `notes/${name}.txt`), name);
+      }
+      const before = await head();
+      await withWriteLock(contentDirectory, "many commits", () =>
+        Promise.all(
+          names.map((name, i) =>
+            commitContentChanges(
+              name,
+              ctx.author,
+              [`notes/${name}.txt`],
+              /* A second spelling: its own, slower, first lookup. */
+              i % 2 ? `${contentDirectory}/./` : contentDirectory,
+            ),
+          ),
+        ).then(() => undefined),
+      );
+      const log = String(
+        await git.raw(["log", "--format=%s", "--reverse", `${before}..HEAD`]),
+      )
+        .trim()
+        .split("\n");
+      expect(log).toEqual(names);
+    }
+    expect((await git.status()).isClean()).toBe(true);
+  }, 60_000);
 });

@@ -1,3 +1,4 @@
+import { readListPage, type ListPage } from "@discontent/cms/content/listPage";
 import { readContentIndex } from "@discontent/cms/content/readContentIndex";
 import { projectContentConfig } from "../projectContentConfig";
 import type { ProjectEntryKey, ProjectEntryValue } from "../types";
@@ -44,4 +45,30 @@ export default async function getProjects(options?: {
   });
 
   return { projects: entries, total, more };
+}
+
+/** Rows per page of the editor's project list. */
+export const PROJECTS_LIST_PER_PAGE = 20;
+
+/**
+ * One page of the editor's project list (F6a): page 1 is the newest; null past
+ * the end. Not `readHead` over `projectsByDate` — F29's finding: that would
+ * cap the list at one folded head with nothing to reach the rest.
+ */
+export function getProjectsListPage(
+  page: number,
+  options?: { perPage?: number; contentDirectory?: string },
+): Promise<ListPage<ProjectIndexEntry> | null> {
+  return readListPage(
+    page,
+    options?.perPage ?? PROJECTS_LIST_PER_PAGE,
+    async ({ limit, offset }) => {
+      const { projects, more } = await getProjects({
+        limit,
+        offset,
+        contentDirectory: options?.contentDirectory,
+      });
+      return { entries: projects, more };
+    },
+  );
 }

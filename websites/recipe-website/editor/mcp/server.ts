@@ -45,9 +45,9 @@ function describe(config: BackendConfig): string {
     : `local ${config.contentDirectory}`;
 }
 
-export function main(): void {
+export async function main(): Promise<void> {
   const config = resolveBackendConfig({}, process.env);
-  const backend = createBackend(config);
+  const backend = await createBackend(config);
 
   /* The one line of output that is not a protocol frame, and it is on stderr. */
   console.error(`recipes MCP: ${describe(config)}`);
@@ -105,7 +105,10 @@ export function main(): void {
  */
 if (require.main === module) {
   loadEditorEnv();
-  main();
+  main().catch((error) => {
+    console.error(`recipes MCP: ${error?.stack ?? error}`);
+    process.exit(1);
+  });
 }
 
 export default main;
