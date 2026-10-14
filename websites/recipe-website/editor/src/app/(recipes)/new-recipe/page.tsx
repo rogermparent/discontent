@@ -1,6 +1,9 @@
-import CreateForm from "./form";
+import NewRecipeWorkspace from "./workspace";
 import { auth, signIn } from "@/auth";
-import { readTagLabels } from "recipe-website-common/controller/data/readTermPage";
+import {
+  readTagLabels,
+  readTagVocabulary,
+} from "recipe-website-common/controller/data/readTermPage";
 import { reduceRecipeImport } from "./common";
 import {
   PageMain,
@@ -23,12 +26,21 @@ export default async function NewRecipe({
   const initialState = importURL
     ? await reduceRecipeImport(null, importURL)
     : null;
-  const allTags = await readTagLabels();
+  const [allTags, vocabulary] = await Promise.all([
+    readTagLabels(),
+    readTagVocabulary(),
+  ]);
 
   return (
     <PageMain>
       <PageSection maxWidth="xl" grow>
-        <CreateForm initialState={initialState} allTags={allTags} />
+        {/* 35r: the roundup picker above the form; the single-URL import
+            inside the form is unchanged, and waits while a run is in flight. */}
+        <NewRecipeWorkspace
+          initialState={initialState}
+          allTags={allTags}
+          terms={vocabulary.map(({ slug, label }) => ({ slug, label }))}
+        />
       </PageSection>
     </PageMain>
   );
