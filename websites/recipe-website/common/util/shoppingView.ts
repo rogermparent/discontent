@@ -111,6 +111,22 @@ function displayName(label: string, amount: Amount, texts: string[]): string {
   return [...words.slice(0, -1), plural].join(" ");
 }
 
+/**
+ * A merged row's line: the amount, then the name — `2 cups flour`, `3 eggs`,
+ * `1 lb + 2 cups butter`. A bare count beside a measure goes first, with the
+ * noun it counts (35d): `2 onions + 1 cup`, `1 carrot + 2 lb` — where
+ * `formatAmount` alone would read `2 + 1 cup onion`.
+ */
+function lineFor(label: string, amount: Amount, texts: string[]): string {
+  const counts = amount.parts.filter((part) => part.family === "count");
+  const measures = amount.parts.filter((part) => part.family !== "count");
+  if (counts.length === 0 || measures.length === 0) {
+    return `${formatAmount(amount)} ${displayName(label, amount, texts)}`;
+  }
+  const counted: Amount = { parts: counts };
+  return `${formatAmount(counted)} ${displayName(label, counted, texts)} + ${formatAmount({ parts: measures })}`;
+}
+
 // --- the view model ----------------------------------------------------------
 
 /** One item behind a row, when `sources` is on. */
@@ -305,7 +321,7 @@ function buildRow(
     if (features.quantities) {
       if (total.parts.length > 0) {
         row.quantity = formatAmount(total);
-        row.label = `${row.quantity} ${row.name}`;
+        row.label = lineFor(first.name.label, total, texts);
       }
       const raw = entries.filter((entry) => entry.amount === null).map(rawLine);
       if (raw.length > 0) row.raw = raw;
@@ -313,7 +329,7 @@ function buildRow(
         const left = sumOf(entries.filter((entry) => !entry.item.checked));
         if (left.parts.length > 0) {
           row.remaining = formatAmount(left);
-          row.label = `${row.remaining} ${displayName(first.name.label, left, texts)}`;
+          row.label = lineFor(first.name.label, left, texts);
         }
       }
     }

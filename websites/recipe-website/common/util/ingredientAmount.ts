@@ -98,11 +98,13 @@ const MEASURES: Record<string, { family: UnitFamily; factor: number }> = {
 };
 
 /**
- * What `formatAmount` writes each family in, largest first. No pints: two
- * cups of flour is not "1 pint" to anyone (a pint read in still converts).
+ * What `formatAmount` writes each family in, largest first. No pints and no
+ * quarts (35d): four cups of flour is not "1 quart" to anyone on a shopping
+ * list, so volumes stay in cups up to a gallon (a pint or quart read in still
+ * converts — `1 quart stock` lists as `4 cups`).
  */
 const LADDERS: Partial<Record<UnitFamily, string[]>> = {
-  "us-volume": ["gallon", "quart", "cup", "tbsp", "tsp"],
+  "us-volume": ["gallon", "cup", "tbsp", "tsp"],
   "metric-volume": ["l", "ml"],
   "us-weight": ["lb", "oz"],
   "metric-weight": ["kg", "g"],

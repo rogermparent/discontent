@@ -168,6 +168,20 @@ describe("buildShoppingView", () => {
     expect(row(view, "lemon").label).toBe("1 lemon");
   });
 
+  it("puts a bare count first, with its noun, beside a measure (35d)", () => {
+    const view = buildShoppingView(
+      [
+        item("2 onions, diced", cookies),
+        item("1 cup chopped onion", cake),
+        item("2 lb carrots", cookies),
+        item("1 carrot", cake),
+      ],
+      settings({ aisles: false }),
+    );
+    expect(row(view, "onion").label).toBe("2 onions + 1 cup");
+    expect(row(view, "carrot").label).toBe("1 carrot + 2 lb");
+  });
+
   it("keeps a line it cannot read raw, under the merged name", () => {
     const view = buildShoppingView(
       [

@@ -1,0 +1,133 @@
+"use client";
+
+import Link from "next/link";
+import { useState } from "react";
+import { ShoppingCart } from "lucide-react";
+import { Button } from "@discontent/component-library/components/ui/button";
+import { Input } from "@discontent/component-library/components/ui/input";
+import { isValidScale } from "../../util/scale";
+import { useMultiplier } from "../View/Multiplier/Provider";
+import { isActionError, type ShoppingPageActions } from "./useShoppingList";
+
+type Add = ShoppingPageActions["add"];
+
+/** What an add answered, said in a line with a link to the list. */
+function AddResult({ message }: { message?: string }) {
+  if (!message) return null;
+  return (
+    <p className="text-sm" role="status" data-testid="shopping-add-result">
+      {message}{" "}
+      <Link href="/shopping" className="underline">
+        Open the list
+      </Link>
+    </p>
+  );
+}
+
+async function addAndSay(
+  add: Add,
+  input: Record<string, unknown>,
+): Promise<string> {
+  const result = await add(input);
+  if (isActionError(result)) return result.error;
+  const n = result.added.length;
+  const added = `${n} ${n === 1 ? "item" : "items"} added to the shopping list.`;
+  return result.warnings?.length
+    ? `${added} ${result.warnings.join(" ")}`
+    : added;
+}
+
+/**
+ * The group page's "Add to shopping list" (35d): the whole plan, nested plans
+ * included, with an optional ×scale for the lot.
+ */
+export function AddGroupToShopping({
+  group,
+  add,
+}: {
+  group: string;
+  add: Add;
+}) {
+  const [scale, setScale] = useState("");
+  const [message, setMessage] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const valid = !scale.trim() || isValidScale(scale);
+  return (
+    <div className="flex flex-col gap-1">
+      <form
+        className="flex items-center gap-2"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (!valid) return;
+          setBusy(true);
+          setMessage(
+            await addAndSay(add, {
+              group,
+              ...(scale.trim() ? { scale: scale.trim() } : {}),
+            }),
+          );
+          setBusy(false);
+        }}
+      >
+        <span aria-hidden className="text-sm">
+          ×
+        </span>
+        <Input
+          aria-label="Scale the plan"
+          value={scale}
+          placeholder="1"
+          inputMode="decimal"
+          className="h-9 w-16"
+          aria-invalid={!valid}
+          onChange={(event) => setScale(event.target.value)}
+        />
+        <Button type="submit" size="sm" disabled={busy || !valid}>
+          <ShoppingCart aria-hidden className="size-4" />
+          Add to shopping list
+        </Button>
+      </form>
+      <AddResult message={message} />
+    </div>
+  );
+}
+
+/**
+ * A recipe's "Add to list" (35d), in the Ingredients header: at the scale the
+ * reader has set, since it renders inside the recipe's `MultiplierProvider`.
+ */
+export function AddRecipeToShopping({
+  recipe,
+  add,
+}: {
+  recipe: string;
+  add: Add;
+}) {
+  const [{ multiplier }] = useMultiplier();
+  const [message, setMessage] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const scale =
+    multiplier && multiplier.valueOf() > 0
+      ? multiplier.toFraction()
+      : undefined;
+  return (
+    <div className="flex flex-col gap-1 print:hidden">
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setMessage(
+            await addAndSay(add, { recipe, ...(scale ? { scale } : {}) }),
+          );
+          setBusy(false);
+        }}
+      >
+        <ShoppingCart aria-hidden className="size-4" />
+        {scale && scale !== "1" ? `Add ×${scale} to list` : "Add to list"}
+      </Button>
+      <AddResult message={message} />
+    </div>
+  );
+}

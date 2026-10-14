@@ -3,18 +3,22 @@
 import { auth } from "@/auth";
 import { curationContextFor } from "../apiContext";
 import { toErrorObject, type CurationErrorCode } from "../curation/errors";
+import { readInventory } from "../curation/inventory";
 import {
   addToShopping,
   clearShopping,
   patchShopping,
-  readShoppingView,
+  readShopping,
   updateShoppingSettings,
   type ShoppingAddResult,
   type ShoppingClearResult,
   type ShoppingPatchResult,
   type ShoppingSettingsResult,
-  type ShoppingViewResult,
 } from "../curation/shopping";
+import type {
+  ShoppingItem,
+  ShoppingSettings,
+} from "recipe-website-common/util/shoppingTypes";
 
 /**
  * The `/shopping` page's server actions (epic 35, 35d), each committed as
@@ -41,11 +45,26 @@ async function signedIn<T>(
   }
 }
 
-/** The list as the page shows it, read fresh. */
+/** What the page builds its view from (D3: the view is computed in the browser). */
+export interface ShoppingListState {
+  items: ShoppingItem[];
+  settings: ShoppingSettings;
+  /** The shared on-hand list, for the "probably on hand" fold. */
+  inventory: string[];
+}
+
+/** The list read fresh — when the page becomes visible again, say. */
 export async function loadShoppingList(): Promise<
-  ShoppingActionResult<ShoppingViewResult>
+  ShoppingActionResult<ShoppingListState>
 > {
-  return signedIn((email) => readShoppingView(curationContextFor(email)));
+  return signedIn(async (email) => {
+    const ctx = curationContextFor(email);
+    const [{ items, settings }, { items: inventory }] = await Promise.all([
+      readShopping(ctx),
+      readInventory(ctx),
+    ]);
+    return { items, settings, inventory };
+  });
 }
 
 /** `{recipe, scale?} | {group, scale?} | {items}`. */

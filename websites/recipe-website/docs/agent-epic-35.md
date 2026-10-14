@@ -655,6 +655,104 @@ noun. Worth a look in 35d (show the count with its name, `2 onions + 1
 cup`), along with the quarts above. Source junk shows through as written
 (`8 ox sharp cheddar cheeses`).
 
+### 35d — Shopping list UI
+
+New: `editor/src/app/(recipes)/shopping/page.tsx` (force-dynamic; a guest is
+sent to sign in), `common/components/ShoppingPage/` — `index.tsx` (the page),
+`useShoppingList.ts` (state, tick batching, server actions as props),
+`ShoppingRowView.tsx` (row + menu), `SettingsSheet.tsx`, `AddToShopping.tsx`
+(the group and recipe buttons) — and `common/util/shoppingTickQueue.ts` (the
+pure half of D9). Changed: `RecipeView` takes `ingredientActions` (rendered in
+the Ingredients header, inside `MultiplierProvider`; only the editor's recipe
+page passes it, and only when signed in); the editor's group page gets "Add to
+shopping list" with an optional ×scale in its `actions` (signed in only); a
+`/shopping` palette entry (`ownerOnly`); `loadShoppingList` now answers
+`{items, settings, inventory}` — the browser builds the view itself (D3).
+
+**The page, top to bottom (phone width):** a title row with **Copy** and
+**Settings**; a counts line ("10 to buy · 2 probably on hand · 3 checked",
+plus "Saving…" while ticks are pending); an error banner with Retry when a
+flush was refused; the add box (a one-line textarea that grows; Enter adds,
+a paste of several lines adds one item per line); the store switch (All /
+Market Basket / Hannaford with counts) only when stores are on; then the
+list — a store heading per store under All, aisle sections whose headings
+are `sticky-chrome` under the masthead, rows of a 20 px checkbox with the
+line as its `<label>` (row ≥ 44 px), the unread lines indented under it,
+"1 of 2 ticked · optional · buy anyway" notes, a "from 2 recipes" disclosure
+(recipe ×scale · plan path — line), and a ⋯ menu (store select with "Always
+buy eggs at Hannaford", aisle select — for every line of that name —, "Buy
+even if on hand", Remove). At the bottom, two folds: "Probably on hand (n)"
+when on hand is on, and "Checked (n)" with **Clear checked** and an in-page
+confirm ("Remove 4 ticked lines from the list?" → Clear 4 / Cancel). The
+Settings sheet edits a draft — every switch with a line on what it does, the
+stores (rename, remove, add), the default store, each aisle's store and the
+aisle order (up/down) — saved as one change (one commit). Print hides every
+control and both folds, keeps sections together and prints the checkboxes.
+
+Choices:
+
+1. **Ticks go to `PATCH /api/shopping` by `fetch`**, not a server action: a
+   server action cannot be `keepalive`, and the route already takes the
+   session cookie. After 1.5 s of quiet, on `visibilitychange → hidden` and
+   on `pagehide` (`keepalive: true`); retried at 1, 2, 4 … 30 s on a 5xx or
+   a dropped connection; a 4xx (signed out) shows the banner and keeps the
+   ticks. Pending ticks live in memory and `sessionStorage` (try/catch) until
+   the server answers; a tick and untick in one quiet spell cancel out.
+   The page re-reads the list (`loadShoppingList`) when it becomes visible
+   again. "Clear checked" flushes pending ticks first.
+2. **Every other change is a server action** answered with the items (or the
+   settings), applied when it returns — no optimistic add or remove.
+3. **The view is computed in the browser** from the items with the pending
+   ticks over them (`applyPending`), so a tick moves a row to Checked at once.
+4. **Overrides from the row menu key by the row's name** (`eggs` → `egg`
+   through `shoppingNameOf`), so "Always at this store" and the aisle choice
+   apply to every line of that ingredient.
+5. **Store choice is per viewer** (`localStorage`); an unknown or stale
+   store falls back to All.
+6. **No new dependencies**; native `<select>` and checkboxes (better on a
+   phone, and real form controls), the library's Sheet, Popover and Dialog.
+7. **35a display fixes** (asked for in review): no quarts on a list —
+   volumes stay in cups up to a gallon (`1 quart stock` lists as 4 cups,
+   18 cups as 1⅛ gallons); and a bare count beside a measure goes first with
+   its noun — `2 onions + 1 cup`, `1 carrot + 2 lb` — instead of
+   `2 + 1 cup onion` (`lineFor` in `shoppingView.ts`).
+
+Fixture `playwright/fixtures/test-content/shopping`: Buttermilk Pancakes,
+Spanish Omelette, Onion Soup; "Week of Oct 19" (pancakes ×2 + the nested
+"Weeknight Dinners"); `inventory/on-hand.json` = olive oil; recipes and
+groups indexed with `rebuildIndex` (a new fixture has no index directories,
+so `build-fixture-indexes.ts` skips it until they exist — Traps).
+
+Gates: editor typecheck and export `tsc` clean; vitest **71 files / 1520
+tests** (+1 file, +8: shoppingTickQueue 5, shoppingView +1, ingredientAmount
++2), one 34c engine case (`curationGit` "serialises two commits started
+together in one lock scope") failed once on order under load and passed on
+rerun (89/89 for the file) — untouched here. Playwright in build mode through
+the heavy slot: `shopping.spec groups.spec /recipe.spec command-palette.spec`
+**88/89**, the one a locator in the new spec (a `summary` that also matched
+the rows' source disclosures), fixed; `shopping.spec` rerun **8/8** (7 e2e +
+1 `@mobile` on Pixel 5).
+
+Traps:
+
+- **`build-fixture-indexes.ts` skips a new fixture**: it only rebuilds types
+  whose index directory already exists. Create `recipes/index` and
+  `groups/index` first (or call `rebuildIndex` for the one fixture), and drop
+  the `.pagination-changes.json` it leaves.
+- **A fixture's `groups/` is ignored by default** (`editor/.gitignore`:
+  `/playwright/fixtures/test-content/*/groups/`, carved back out per
+  fixture). The spec passes locally on the files on disk and fails in CI
+  without the `!…/shopping/groups/` line — check the status lists them.
+- **`common/` may not say "on-hand"** anywhere, comments and test ids
+  included — the inventory boundary test greps for it. The fold's test id is
+  `shopping-probably-have`.
+- **A merged row's checkbox needs `indeterminate` set by ref**; React has no
+  prop for it.
+
+Deferred: drag-to-reorder aisles (up/down buttons instead); undo for Clear
+(`git_revert` from /git does it); a per-row "ticked by" (the commit author
+says who).
+
 ## Close-out
 
 (At 35-close: what landed, traps found at close, backlog, memory, the
