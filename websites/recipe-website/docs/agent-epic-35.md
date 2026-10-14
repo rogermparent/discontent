@@ -340,7 +340,62 @@ check of 35c/35d.
 
 ## Results
 
-(Filled in per phase.)
+### 35b — Aisles + group walk
+
+`common/util/aisles.ts` (`DEFAULT_AISLE_WORDS`: 549 keys after the chile
+variety expansion), `common/util/groupShoppingWalk.ts`,
+`editor/scripts/measure-aisles.ts` (read-only, opens no index). Measure on the
+real repo: 468 food recipes (not `tag:drink`), 5,433 lines, 1,481 distinct
+names; staples (water, ice) skipped, a line with alternatives counts as its
+first.
+
+| aisle      | lines          | distinct names |
+| ---------- | -------------- | -------------- |
+| produce    | 1011 (18.6%)   | 285 (19.2%)    |
+| meat-fish  | 203 (3.7%)     | 113 (7.6%)     |
+| dairy-eggs | 758 (14.0%)    | 137 (9.3%)     |
+| bakery     | 58 (1.1%)      | 39 (2.6%)      |
+| pantry     | 1904 (35.0%)   | 596 (40.2%)    |
+| spices     | 1341 (24.7%)   | 190 (12.8%)    |
+| frozen     | 33 (0.6%)      | 21 (1.4%)      |
+| **other**  | **125 (2.3%)** | **100 (6.8%)** |
+
+Target ≤ 10% met. What is left in `other`: things made, not bought (starter,
+levain, poolish — mapped to `other` on purpose so `sourdough` can't lend them
+bakery), parser junk, equipment, rare items. `--drinks`: 29.4% `other`,
+mostly spirits and liqueurs, left off the grocery aisles (liquor store);
+mixers, bitters and wine are pantry. `--aisle <a>` lists any aisle's names.
+
+Choices:
+
+1. **Cues run before the word steps**, not last as D5 had it: override →
+   exact → cue → phrase (longest first) → last word → any word (right to
+   left) → `other`. Otherwise the last word answers first ("frozen pea" →
+   produce, "ground ginger" → produce). Cues: `frozen`; `canned`/`can`/
+   `tinned`/`jarred`/`pickled` → pantry; `ground`/`powdered` send produce or
+   spices to spices and leave the rest (ground beef stays meat, ground almond
+   pantry); `dried` sends herbs/spices to spices, other produce to pantry.
+2. **`dried` and `fresh` never reach `aisleFor` from a nameKey** —
+   `ingredientNames` drops them as descriptive. Oregano, thyme, rosemary and
+   sage default to spices; basil, parsley, cilantro, dill and mint to produce.
+   The `dried` cue serves hand-written labels and overrides only.
+3. **"1 can diced tomatoes" reads as fresh produce**: `can` is a unit, gone
+   before the name. Pinned by a test.
+4. **Scale is a `fraction.js` `Fraction`**, exact down the path.
+5. **A `scale` on a `{group}` row is honoured** (the type allows it; the write
+   schemas refuse it, so only a hand edit makes one).
+6. **A malformed scale or `"0"` reads as 1**, as on the group page.
+7. **`tooDeep` is a fourth result field**, beside `recipes` (each
+   `{slug, scale, via, label?}`), `missing` and `cycles`. `via` runs from the
+   root down to the listing group (`[root]` at the top); each group is read
+   once per walk.
+
+Also fixed in `ingredientNames`: "half-and-half" and "half & half" read as
+the name `half` (8 food lines); now `half and half`.
+
+Upstream junk seen while measuring (not fixed): water with a leftover
+alternative amount ("or 4c water") is not caught as a staple; `singular`
+keeps "chilis" and "pepperoncinis" (its `-is` rule).
 
 ## Close-out
 
