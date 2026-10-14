@@ -6,6 +6,11 @@
  * so a fixture without a rebuilt index looks exactly like an empty site.
  *
  *   pnpm tsx scripts/seed-pages.ts <target-content-dir>
+ *   pnpm tsx scripts/seed-pages.ts <target-content-dir> --many 21
+ *
+ * `--many N` seeds N numbered pages instead ("Page 01"…, a day apart, newest
+ * last) — the `many-pages` fixture, one past the editor list's 20 to a page
+ * (F6c, epic 35q).
  *
  * Modelled on portfolio's scripts/seed-projects.ts.
  */
@@ -23,15 +28,33 @@ const PAGES: Array<{ slug: string; data: Page }> = [
   },
 ];
 
+const DAY = 24 * 60 * 60 * 1000;
+
+function numberedPages(count: number): Array<{ slug: string; data: Page }> {
+  return Array.from({ length: count }, (_, i) => {
+    const n = String(i + 1).padStart(2, "0");
+    return {
+      slug: `page-${n}`,
+      data: {
+        name: `Page ${n}`,
+        date: 1713580090456 + i * DAY,
+        content: `Numbered page ${n}.`,
+      },
+    };
+  });
+}
+
 async function main() {
-  const target = process.argv[2];
-  if (!target) {
-    console.error("usage: seed-pages.ts <target-content-dir>");
+  const [target, flag, count] = process.argv.slice(2);
+  const many = flag === "--many" ? Number(count) : null;
+  if (!target || (flag !== undefined && !(many && many > 0))) {
+    console.error("usage: seed-pages.ts <target-content-dir> [--many N]");
     process.exit(1);
   }
   const contentDirectory = resolve(target);
+  const pages = many ? numberedPages(many) : PAGES;
 
-  for (const { slug, data } of PAGES) {
+  for (const { slug, data } of pages) {
     const file = resolve(
       contentDirectory,
       pageContentConfig.dataDirectory,
@@ -43,7 +66,7 @@ async function main() {
 
   await rebuildIndex({ config: pageContentConfig, contentDirectory });
 
-  console.log(`Seeded ${PAGES.length} pages into ${contentDirectory}`);
+  console.log(`Seeded ${pages.length} pages into ${contentDirectory}`);
 }
 
 main().catch((error) => {

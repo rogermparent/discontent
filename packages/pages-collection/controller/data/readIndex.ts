@@ -1,3 +1,4 @@
+import { readListPage, type ListPage } from "@discontent/cms/content/listPage";
 import { readContentIndex } from "@discontent/cms/content/readContentIndex";
 import { pageContentConfig } from "../pageContentConfig";
 import type { PageEntryKey, PageEntryValue } from "../types";
@@ -41,4 +42,29 @@ export default async function getPages(options?: {
   });
 
   return { pages: entries, total, more };
+}
+
+/** Rows per page of the editors' pages list. */
+export const PAGES_LIST_PER_PAGE = 20;
+
+/**
+ * One page of the editors' pages list (F6b/F6c): page 1 is the newest; null
+ * past the end. See `@discontent/cms/content/listPage`.
+ */
+export function getPagesListPage(
+  page: number,
+  options?: { perPage?: number; contentDirectory?: string },
+): Promise<ListPage<PageIndexEntry> | null> {
+  return readListPage(
+    page,
+    options?.perPage ?? PAGES_LIST_PER_PAGE,
+    async ({ limit, offset }) => {
+      const { pages, more } = await getPages({
+        limit,
+        offset,
+        contentDirectory: options?.contentDirectory,
+      });
+      return { entries: pages, more };
+    },
+  );
 }
