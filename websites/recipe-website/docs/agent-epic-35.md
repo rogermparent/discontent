@@ -593,7 +593,7 @@ Choices:
 
 Gates: `pnpm --filter recipe-editor typecheck` and `pnpm --filter
 recipe-website exec tsc --noEmit` clean; `pnpm exec vitest run` 68 files,
-1373 tests passed; Playwright in build mode through the heavy slot
+1373 tests passed (69 files, 1472 tests after merging 35a and the review fixes); Playwright in build mode through the heavy slot
 (`term-edit.spec`, `api-write.spec`, `tag-pages.spec`) 59/59 passed.
 
 **`--force` needs the new editor.** `force` is a new key in the strict
