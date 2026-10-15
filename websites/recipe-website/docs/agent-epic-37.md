@@ -321,13 +321,171 @@ exec tsc --noEmit`, `pnpm exec vitest run`;
 
 ## Traps
 
-(Filled in per phase.)
+### 37a
+
+- **T1 — A job asks one more thing of the model server.** In a job, every
+  Ollama call is followed by `GET /api/ps` (D6's placement check), so a
+  test that counts `fetch` calls through a surface that runs a job (the
+  routes, the local backend) sees one more per call. `importRoute.test`'s
+  pasted-text dry run now expects `["/api/chat", "/api/ps"]`. Outside a job
+  (`NO_LOG`, the seats called directly) nothing changes: the check runs
+  only when `log.live`.
+- **T2 — "token" is in `outputTokens`.** The first redaction rule blanked
+  any field whose name contained `token`, which took the token counts with
+  it. Field names now match only at their end (`apiToken`, `password`,
+  `authorization`), environment names likewise (`…_TOKEN`, `…_SECRET`,
+  `…_API_KEY`), and an env value must be ≥ 8 characters to be scrubbed
+  (so `NEXTAUTH_URL`-style values are not).
+- **T3 — `pid:[4026531836]` is this machine's own pid namespace.** The
+  root namespace's inode is the same on most Linux hosts, so a test that
+  means "another namespace" must use something like `pid:[1]` (as
+  `writeLock.test` does); with the real one, the sweep correctly judged the
+  planted job dead.
+- **T4 — A literal `resolve("jobs")` would be a build input.** As
+  `getContentDirectory` explains, Turbopack constant-folds a literal path
+  into a directory reference; `jobsDirectory` reads the name through
+  `process.env` (`JOBS_DIR_NAME`, `TEST_JOBS_DIR_NAME`) for the same reason.
+- **T5 — The editor's bundles don't share module state.** The console
+  mirror's setting lives on `globalThis` (`setJobMirror`), as the LLM URL
+  override does; inside Next (`NEXT_RUNTIME` set) the default is stdout.
+  The per-process sweep memo (`maintainJobs`) is per bundle, so the editor
+  may sweep twice at start — harmless.
+- **T6 — The jobs dir may not be writable** (a read-only container, a bad
+  `RECIPE_JOBS_DIR`). `runJob` says so once on stderr and runs the work
+  with a log that writes nowhere: an import never fails for its record.
+  On the Pi the default is `<cwd>/jobs` inside the container (D8).
+- **T7 — A test's child process needs the test's jobs dir.**
+  `setupTests.js` gives each test file its own `RECIPE_JOBS_DIR`, which
+  spawned children inherit through `process.env` — but `mcpStdio.test`
+  hands its server a minimal environment, so it passes `RECIPE_JOBS_DIR`
+  explicitly. Under `VITEST` with none set, `jobsDirectory` falls back to a
+  temp dir, never `editor/jobs/`.
 
 ## Results
 
-(Filled in per phase.)
+### 37a — Job store + step log, synchronous
+
+**Reindex needed: no.** Nothing in the content repository changes; the
+job store is the editor package's own gitignored directory.
+
+**Built.**
+
+- `packages/cms/git/fileLock.ts` — the write lock's `link()` primitive,
+  extracted: a record with an id under a caller's key, pid, host, pid
+  namespace and a per-process nonce; `processGone` (dead, a reused pid, or
+  "cannot judge" across hosts and namespaces); `acquireLock` (create, take
+  a stale one over by rename-aside, jittered backoff to a deadline, an
+  `AbortSignal`), `releaseLock`, `startLockHeartbeat`, `lockHeldBy`.
+  `writeLock.ts` runs on it with its file format, temp names and
+  behaviour unchanged.
+- `editor/controller/jobs/`:
+  - `location.ts` — `RECIPE_JOBS_DIR` (relative to `INIT_CWD`), else a
+    temp dir under vitest, else `<root>/test-jobs` under `TEST_MODE`, else
+    `<root>/jobs`; the CLI and the stdio MCP server set the root to the
+    editor package (`EDITOR_DIRECTORY`, beside `EDITOR_ENV_FILE`), the
+    editor uses its cwd. Dependency-free, so CLI startup stays lazy.
+  - `store.ts` — `JobMeta` (D1's fields plus `pidns` and `nonce`, epoch
+    ms), written whole through `writeJsonAtomic`; `readJobLog(id, from)`
+    returns whole lines and the next byte offset (37c's `?from=`);
+    `findJob` takes the full id, the mirror's eight characters, or a
+    unique start; `sweepJobs` (D5: `processGone` → `interrupted`, a note
+    appended); `pruneJobs` (newest 300, 14 days, hourly by a stamp file,
+    never a live job, orphan logs and stale temp files too).
+  - `log.ts` — `JobLog` (`step(name, data?, fn)` with a handle that can
+    `set` end data or `fail` without throwing; `info`/`warn`; `surface`),
+    `NO_LOG` (every seat's default — `live: false`), `redactLine` (the one
+    place: strings over 200 characters become `[text N chars
+sha256:…]`, `msg`/`error` cut to 200, secret-named fields and
+    secret env values blanked, URL credentials dropped), the console
+    mirror (`formatJobLine`, `[job <last 8 of the ULID>] …` — the first
+    eight would be shared by jobs started in the same quarter second).
+  - `run.ts` — `runJob(init, fn(log, signal))`: sweep and prune once per
+    process, the meta `running`, a top-level `job` step, `done` with the
+    result or `failed` with `toErrorObject`'s error (rethrown), surfaced
+    warnings merged into the result's `warnings` once each.
+  - `kinds.ts` — `JobSpec` (`import-url`, `import-text`, `inspect`,
+    `inspect-list`, `import-list`, `form-url`, `form-text`: JSON, the
+    content directory and author for corpus jobs, pasted text kept for
+    Retry, no tokens), `JOB_HANDLERS`, `jobLabel`, `jobTier` (roundups and
+    `all` are `batch`), `jobResources`, and `runSpec(spec, {ctx})` — the
+    one entry; a spec read back from a meta replays (tested).
+  - `steps.ts` — the shared `fetch` and `parse` steps, `noteRetry` (the
+    403 retry noted from `afterRetry`, so pacing is untouched), `headSha`.
+- **D3 steps** where they happen: `fetch`, `pace.wait` (`SitePacer`: the
+  per-site queue and the polite gap, both only when they actually wait),
+  `ytdlp` (exit, chapters, creator comments kept, description length; the
+  comment-less retry is its own step), `parse` (schema or not, what the
+  mapper found; the roundup's list too), `llm.extract` / `llm.list` /
+  `llm.oneDish` (the slice's `part` and `name`, the text's length,
+  `chatJson`'s `promptTokens`, `outputTokens`, `loadMs`, `tokPerSec` from
+  Ollama's own eval time, `promptTokPerSec`, `gpu`; the extractor adds
+  found / grounded / total / verbatim / ingredients / steps), `ground`
+  (trusted, partial, kept-untrusted, discarded or none, and why), `split`
+  (the gate and its block count, the names, the slice lengths, what was
+  kept), `image` (probe or get: host, url, status, bytes, type; a skipped
+  picture is a warning), `write` (slug, HEAD after it), and `llm` notes
+  for "not asked" and why. `queue.wait` is 37b's.
+- **D6's placement check** (`checkPlacement` in `client.ts`): after every
+  Ollama call in a job — and after a timeout, when a CPU-resident model
+  shows — `GET /api/ps` (2 s) → `gpu: <percent>` on the step; below 100
+  an `llm.placement` warning (D6's words) and one surfaced result warning
+  ("local model qwen3:8b ran 2% on the GPU — another program holds VRAM, …;
+  run "ollama stop qwen3:8b" once it frees"). An `/api/ps` error, a non-2xx
+  or an unlisted model is an info note. Never for the OpenAI API.
+- **Surfaces**: the local backend's five import seats (the CLI, the stdio
+  MCP server, MCP over HTTP), `/api/import`, `/api/inspect`,
+  `/api/import-list`, `/api/inspect-list`, the form's import action and
+  `?import=`, and the roundup picker's two actions all call `runSpec`;
+  every result carries `job` (typed on the result interfaces). The form's
+  reducers moved to `controller/formImport.ts` (`common.tsx` re-exports
+  them) so the registry can load them in any process. The editor sweeps
+  and prunes at boot (`instrumentation.ts`).
+- **CLI**: `--verbose` on `import`, `inspect`, `import-list`,
+  `inspect-list`; step lines go to stderr when it is a TTY or with
+  `--verbose`, never to stdout; human formats print `job: <id>`;
+  `recipes jobs show <id> [--json]` prints the meta and the steps through
+  the same formatter (refused with `--remote`: a remote editor's jobs are
+  37c's API). `--help` names `RECIPE_JOBS_DIR` and the jobs.
+- **Tests and CI**: `setupTests.js` gives every test file its own temp
+  `RECIPE_JOBS_DIR`; Playwright's `webServer.env` pins
+  `RECIPE_JOBS_DIR=<editor>/test-jobs` (gitignored, in CLAUDE.md's
+  recovery `rm -rf` list). Nothing writes `editor/jobs/` under test.
+
+**Not done here (on purpose):** the form's "Import N selected"
+(`batchActions.ts`, `importBatchPicks` on readings already in hand) is not
+a job kind yet; a failed job's error object does not carry `job` (its meta
+and log do) — both left for 37c's surfaces. The form's page fetch is still
+unpaced (37b).
+
+**Gates.** `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit` clean; eslint clean on every changed
+file; `pnpm exec vitest run` **84 files / 1807 tests** passed (+2 files,
++36 tests on main's 82 / 1771: `jobs.test` 19 — the store, a failure
+recorded, atomic meta, find by id / tail / start, log offsets, an
+unwritable store, the sweep with a reaped child's pid (and what it must
+not touch: this process, another host, another pid namespace, finished
+jobs, a reused pid closed), retention by count / age / the hourly stamp /
+orphans, redaction, the mirror's D2 line, `NO_LOG`, surfaced warnings,
+the store's location, the registry and a replayed spec;
+`fileLock.test` 10; `importWithLlm` +4 — the `llm.extract` step's
+numbers and `ground` note, the 2% placement warning surfaced once and a
+partial reading's why, placement only with Ollama and only in a job, a
+failed `/api/ps` as a note, "not asked" notes; `multiRecipe` +3 — the
+video's step order and data (yt-dlp, the split notes, `llm.list`,
+`llm.oneDish`, four `llm.extract i/4 "<name>"`, one image probe, four
+`ground` notes, no page text in the log), placement at 2% through
+`runJob` (six warnings, one result warning), `/api/ps` failing).
+Playwright (build mode, heavy slot) `new-recipe`, `ytdlp-import`,
+`multi-recipe`, `import-roundup`, `youtube-video`: **63 / 63** passed
+(5.3 min); the run left 33 jobs in `test-jobs/` (24 `form-url`, 5
+`inspect-list`, 4 `import-list`), all `done`, and no `editor/jobs/`.
+
+**Real check** (qwen3:8b, a scratch clone of the content repo, `--dry-run`):
+pending — needs the GPU.
 
 ## Backlog
 
 - A volume for the Pi container's jobs directory (D8).
 - Other long operations — reindex, git sync — joining the queue.
+- The form's "Import N selected" (`importBatchPicks`) as a job kind, and
+  `job` on a failed import's error object (37c).
