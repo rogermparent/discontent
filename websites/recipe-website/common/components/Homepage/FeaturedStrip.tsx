@@ -1,11 +1,10 @@
-import Link from "next/link";
-import { Button } from "@discontent/component-library/components/ui/button";
 import type { MassagedRecipeEntry } from "../../controller/data/read";
 import type { GroupKind } from "../../controller/types";
 import { RecipeListItem } from "../List";
 import { GroupCard } from "../List/FeaturedRecipe/GroupCard";
 import { TermCard } from "../List/FeaturedRecipe/TermCard";
 import { RecipeGrid } from "../List/shared";
+import { HomeSection } from "./HomeSection";
 
 /**
  * One card of the homepage's featured strip (22g).
@@ -45,13 +44,13 @@ export type FeaturedStripEntry =
  * stayed "Featured Recipes" through 22g and 24c, decided with him then on the
  * grounds that the strip is where things are featured and a new name would
  * read as a change of subject. Once groups and terms were regular cards here,
- * "Recipes" described only some of them. The `/featured-recipes` page and the
- * "More Featured Recipes" button that names it keep their titles: that page
- * is the curator's list of features, and renaming a route is its own change.
+ * "Recipes" described only some of them. The `/featured-recipes` page keeps
+ * its title: it is the curator's list of features, and renaming a route is
+ * its own change. The section's link, "Everything featured", goes there.
  *
- * The same `RecipeGrid` as the Latest section, so the cards line up with the
- * recipe cards below. A `section` labelled by its heading, so the specs find
- * the strip as the region named "Featured".
+ * The same `RecipeGrid` as "New this week", so the cards line up with the
+ * recipe cards below. A `HomeSection`, so the specs find the strip as the
+ * region named "Featured".
  */
 export function FeaturedStrip({
   featured,
@@ -61,10 +60,11 @@ export function FeaturedStrip({
   if (featured.length === 0) return null;
 
   return (
-    <section aria-labelledby="home-featured" className="mb-8">
-      <h2 id="home-featured" className="mb-4 font-display text-2xl font-bold">
-        Featured
-      </h2>
+    <HomeSection
+      id="home-featured"
+      title="Featured"
+      link={{ href: "/featured-recipes", label: "Everything featured" }}
+    >
       <RecipeGrid>
         {featured.map((entry, index) => (
           <li
@@ -103,12 +103,7 @@ export function FeaturedStrip({
        * No "View Feature" line and no note on either card kind here — the
        * homepage has never shown them, and `featured-recipes.spec.ts` pins it.
        */}
-      <div className="flex flex-row items-center justify-center my-2">
-        <Button asChild variant="secondary" size="sm">
-          <Link href="/featured-recipes">More Featured Recipes</Link>
-        </Button>
-      </div>
-    </section>
+    </HomeSection>
   );
 }
 

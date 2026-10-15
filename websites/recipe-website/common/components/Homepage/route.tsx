@@ -2,8 +2,16 @@ import type { MassagedRecipeEntry } from "../../controller/data/read";
 import { featuredRecipePages } from "../../controller/data/readFeaturedRecipePages";
 import { groupPages } from "../../controller/data/readGroupPages";
 import { recipePages } from "../../controller/data/readRecipePages";
-import { readTagLabels, readTagTree } from "../../controller/data/readTermPage";
+import { groupTagReads } from "../../controller/data/readGroupTagIndex";
+import { recipeTagReads } from "../../controller/data/readRecipeTagIndex";
+import {
+  readTagTree,
+  readTagVocabulary,
+} from "../../controller/data/readTermPage";
+import { comingUpEntries } from "../../controller/homepageComingUp";
 import { homepageFacets } from "../../controller/homepageFacets";
+import { homepageIntents, termTotals } from "../../controller/homepageIntents";
+import { dayKey, localDay } from "../../util/holidayDates";
 import Homepage from ".";
 import type { FeaturedStripEntry } from "./FeaturedStrip";
 
@@ -11,14 +19,9 @@ import type { FeaturedStripEntry } from "./FeaturedStrip";
 const STRIP_SIZE = 6;
 
 /**
- * How many group cards the homepage shows: one row of the six-up grid. It was
- * three while the cards were text-only and three-up; since 22g they are
- * thumbnails in the recipe grid's six columns, and three left half a row empty.
- */
-const GROUP_STRIP_SIZE = STRIP_SIZE;
-
-/**
- * The homepage, defined once and re-exported by both apps' `page.tsx`.
+ * The homepage, defined once and re-exported by both apps' `page.tsx`. It
+ * reads no session and no inventory: the Make tile counts from the browser's
+ * own list (U6), so the page is the same for every reader.
  *
  * Both strips read the pre-baked keyspace rather than the content index. The
  * trade is deliberate and worth stating: `readHead` hands back `perPage + 1`
@@ -38,7 +41,14 @@ const GROUP_STRIP_SIZE = STRIP_SIZE;
  * that do not bound themselves (F2).
  */
 export async function homepageRoute() {
-  const [recipeHead, featuredHead, groupHead, tagTree] = await Promise.all([
+  const [
+    recipeHead,
+    featuredHead,
+    groupHead,
+    tagTree,
+    byRecipeTag,
+    byGroupTag,
+  ] = await Promise.all([
     recipePages.readHead(),
     featuredRecipePages.readHead(),
     /*
@@ -64,18 +74,36 @@ export async function homepageRoute() {
      * The cost is breadth, and it is accepted: those whole maps move on any
      * tag change anywhere, so the homepage now expires on a retag that dirties
      * no head page. It still expires on nothing else, and the subtree totals
-     * on the chips are what that read buys.
+     * on the chips and intent tiles are what that read buys.
      */
     readTagTree(),
+    /*
+     * The same two whole maps `readTagTree` just read — `React.cache` hands
+     * back the same values, so this is no second read and no new tag. "Coming
+     * up" needs their rows, not only their counts: recipes and plans per
+     * holiday, and a recipe photo for a holiday with no picture of its own.
+     */
+    recipeTagReads.byTerm.read(),
+    groupTagReads.byTerm.read(),
   ]);
   const facets = homepageFacets(tagTree);
   /*
-   * The flat chips, only for a corpus with no facets (no term records with
-   * children — every test fixture but two). Read after the tree rather than
-   * beside it, so a site with a vocabulary never pays for, or expires on, the
-   * term clouds `readTagLabels` reads.
+   * The flat vocabulary, only for a corpus with no facets (no term records
+   * with children — every test fixture but two): the fallback chips' labels,
+   * and the intent tiles' counts for bare tags. Read after the tree rather
+   * than beside it, so a site with a vocabulary never pays for, or expires on,
+   * the term clouds it reads.
    */
-  const tags = facets.length === 0 ? await readTagLabels() : [];
+  const vocabulary = facets.length === 0 ? await readTagVocabulary() : [];
+  const tags = vocabulary
+    .filter((entry) => entry.count > 0)
+    .map((entry) => entry.label);
+  const intents = homepageIntents(termTotals(tagTree), vocabulary);
+  const comingUp = comingUpEntries(
+    tagTree,
+    (slug) => byRecipeTag?.[slug]?.items ?? [],
+    (slug) => byGroupTag?.[slug]?.items ?? [],
+  );
 
   const recipes: MassagedRecipeEntry[] = recipeHead.items.slice(0, STRIP_SIZE);
 
@@ -134,16 +162,23 @@ export async function homepageRoute() {
     <Homepage
       recipes={recipes}
       featured={featured}
-      groups={groupHead.items.slice(0, GROUP_STRIP_SIZE)}
+      plan={groupHead.items[0]}
       facets={facets}
       tags={tags}
+      intents={intents}
+      comingUp={comingUp}
+      /*
+       * The server's day, for the countdowns' first render only — the browser
+       * replaces it with its own (`useToday`). On the static export this is
+       * the build's day, which is exactly why it is never the final answer.
+       */
+      serverDay={dayKey(localDay(new Date()))}
       moreRecipes={recipeHead.total > STRIP_SIZE}
       /*
-       * The intro line's counts. `total` is on the head pages already read,
-       * under the same head tags, for the reason `moreRecipes` gives above.
+       * "All N recipes". `total` is on the head page already read, under the
+       * same head tag, for the reason `moreRecipes` gives above.
        */
       recipeCount={recipeHead.total}
-      groupCount={groupHead.total}
     />
   );
 }

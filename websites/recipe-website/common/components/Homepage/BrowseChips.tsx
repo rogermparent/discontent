@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Badge } from "@discontent/component-library/components/ui/badge";
 import { tagSearchHref } from "../SearchForm/queryLanguage";
 
 /** How many tag chips to surface before deferring to the full search page. */
@@ -14,7 +13,8 @@ const CHIP_LIMIT = 12;
  * Since the homepage redesign (2026-10-15) this is the **fallback**: the page
  * browses by `BrowseTerms`' facet roots, and draws these flat chips only when
  * the vocabulary has no roots with carried children — a corpus with no term
- * records, which is most test fixtures.
+ * records, which is most test fixtures. Its chips are `BrowseTerms`' pills
+ * without counts, so the two read as one section.
  */
 export function BrowseChips({ tags }: { tags: string[] }) {
   if (tags.length === 0) return null;
@@ -23,15 +23,19 @@ export function BrowseChips({ tags }: { tags: string[] }) {
   const hasMore = tags.length > shown.length;
 
   return (
-    <section aria-label="Browse by tag" className="mb-10">
-      <span className="mb-3 block font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
+    <section aria-label="Browse by tag" className="flex flex-col gap-4">
+      <h2 className="font-display text-2xl font-semibold tracking-tight">
         Browse
-      </span>
+      </h2>
       <div className="flex flex-row flex-wrap items-center gap-2">
         {shown.map((tag) => (
-          <Badge key={tag} asChild variant="secondary">
-            <Link href={tagSearchHref(tag)}>{tag}</Link>
-          </Badge>
+          <Link
+            key={tag}
+            href={tagSearchHref(tag)}
+            className="inline-flex min-h-9 items-center rounded-full border border-border bg-card px-3 py-1.5 text-sm text-card-foreground transition-colors hover:border-primary/50"
+          >
+            {tag}
+          </Link>
         ))}
         {hasMore && (
           <Link

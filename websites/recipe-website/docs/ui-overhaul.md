@@ -322,6 +322,7 @@ height:100% }` (a Lighthouse-era tweak, #27). An unlayered rule beats every
     the whole e2e+mobile snapshot set (not just the masthead) to stay green;
     PR 10/11 further update their content-specific baselines on top.
 - **PR 10 — Homepage hero, timeline-led (`ui/10-homepage` ← `ui/09-header`).**
+  _(Superseded 2026-10-15: the hero is gone — see "Usability pass" → U1.)_
   The hero led with a lone **Multiply** control floating in an empty card — a
   scaler is useless on an index page. Reworked it into a conventional
   featured-recipe hero: the **cook timeline** (the app's signature) is the
@@ -569,7 +570,8 @@ cream+terracotta cliché by pairing ember with a cool steel neutral.
   recipe's data and tie to the scaling feature — the signature typographic move.
 
 **Layout** — asymmetric bench hero (featured photo tile + live panel), a
-browse-chips row, then Featured / Latest grids.
+browse-chips row, then Featured / Latest grids. _(Superseded 2026-10-15: no
+hero; the homepage is direction A — see "Usability pass (2026-10-15)".)_
 
 **Signature** — the hero's **live panel**: the featured recipe's quantities scale
 in place and its timeline renders as a compact schedule strip. One bold element;
@@ -735,6 +737,11 @@ search parity is a pre-existing limitation, deferred.
 
 > PR 10 rebuilt the homepage around the timeline-led hero and dropped the
 > scaler. The unticked items below describe a homepage that no longer exists.
+>
+> **And PR 10 was superseded on 2026-10-15.** The homepage redesign removed the hero —
+> `HeroBench`, `HeroLivePanel`, `CompactTimeline` and `homepage-hero.spec` are
+> gone, and `TimelineStrip` lost its hero-only `size="lg"` / `legend`
+> options. See "Usability pass (2026-10-15)" → U1 below.
 
 Rebuild `common/components/Homepage/index.tsx` (a shared server component, so both
 apps inherit it — no `(recipes)/page.tsx` change): bench hero (featured photo +
@@ -949,7 +956,12 @@ the two chunky appearance controls into a single popover. Header is fully shared
       e2e+mobile snapshot set was regenerated; axe WCAG2AA sweep (light + dark)
       stays green; editor + export `tsc` clean.
 
-### PR 10 — Homepage hero, timeline-led `ui/10-homepage` ✅ done
+### PR 10 — Homepage hero, timeline-led `ui/10-homepage` ✅ done ⤴️ superseded 2026-10-15
+
+> **Superseded 2026-10-15.** The homepage redesign removed the hero —
+> `HeroBench`, `HeroLivePanel`, `CompactTimeline` and `homepage-hero.spec` are
+> gone, and `TimelineStrip` lost its hero-only `size="lg"` / `legend`
+> options. See "Usability pass (2026-10-15)" → U1 below.
 
 Turn the bare, mis-focused hero into a conventional featured-recipe hero whose
 live element is the **cook timeline** (the app's signature), and drop the

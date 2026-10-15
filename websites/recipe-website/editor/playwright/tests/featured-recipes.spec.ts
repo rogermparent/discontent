@@ -16,7 +16,9 @@ test.describe("Featured Recipes", () => {
     }) => {
       await resetData();
       await page.goto("/");
-      await expect(page.getByText("Latest Recipes")).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: "New this week" }),
+      ).toBeVisible();
       await expect(
         page.getByRole("heading", { name: "Featured", exact: true }),
       ).toHaveCount(0);
