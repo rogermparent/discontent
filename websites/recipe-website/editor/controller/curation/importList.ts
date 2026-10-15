@@ -49,12 +49,11 @@ import { environmentExists } from "@discontent/cms/lmdb/environmentCache";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
 import { hostnameLabel } from "recipe-website-common/util/hostnameLabel";
 import {
-  fetchRecipePage,
   isVideoUrl,
-  mapRecipePage,
-  parseRecipePage,
   type FetchedPage,
 } from "recipe-website-common/util/importRecipeData";
+import { jobContext, type JobContext, type JobRun } from "../jobs/context";
+import { fetchPageStep, headSha, parsePage } from "../jobs/steps";
 import {
   parseRoundupPage,
   sourceUrlKey,
@@ -137,6 +136,8 @@ export interface RoundupItem {
 }
 
 export interface InspectListResult {
+  /** The job that ran it (epic 37): `recipes jobs show <job>` has its steps. */
+  job?: string;
   url: string;
   finalUrl: string;
   status: number;
@@ -150,9 +151,10 @@ export interface InspectListResult {
   warnings?: string[];
 }
 
-/** What a caller (a test) may swap: the clock. */
+/** What a caller (a test) may swap: the clock; and the job (epic 37). */
 export interface ImportListDeps {
   pacing?: Pacing;
+  job?: JobRun;
 }
 
 /**
@@ -235,16 +237,17 @@ function describe(error: unknown): string {
 async function fetchListPage(
   pacer: SitePacer,
   url: string,
+  job: JobContext,
 ): Promise<FetchedPage> {
   let page: FetchedPage;
   try {
     page = await pacer.request(
       url,
-      (retry) => fetchRecipePage(url, retry),
+      (retry) => fetchPageStep(url, retry, job),
       (fetched) => fetched.finalUrl,
     );
   } catch (error) {
-    if (error instanceof SiteDroppedError) throw error;
+    if (error instanceof SiteDroppedError || job.signal?.aborted) throw error;
     throw new ImportError(`Could not fetch ${url}: ${describe(error)}`);
   }
   if (page.status === 403) {
@@ -256,6 +259,23 @@ async function fetchListPage(
   return page;
 }
 
+/** The roundup's list as a `parse` step: how it was found, how many. */
+function parseListStep(
+  page: FetchedPage,
+  url: string,
+  { log }: JobContext,
+): Promise<ParsedRoundup> {
+  return log.step("parse", { list: true }, (step) => {
+    const parsed = parseRoundupPage(page.html, page.finalUrl || url);
+    step.set({
+      items: parsed.items.length,
+      ...(parsed.source ? { source: parsed.source } : {}),
+      ...(parsed.reason ? { reason: parsed.reason } : {}),
+    });
+    return parsed;
+  });
+}
+
 /**
  * Read a roundup page and list its recipes, marking the ones the corpus
  * already has. One request (two after a 403), in the site's queue — so it can
@@ -265,11 +285,12 @@ async function fetchListPage(
 export async function inspectList(
   ctx: CurationContext,
   rawUrl: string,
-  { pacing = realPacing() }: ImportListDeps = {},
+  { pacing = realPacing(), job: run }: ImportListDeps = {},
 ): Promise<InspectListResult> {
+  const job = jobContext(run);
   const url = checkUrl(rawUrl);
-  const page = await fetchListPage(new SitePacer(pacing), url);
-  const parsed = parseRoundupPage(page.html, page.finalUrl || url);
+  const page = await fetchListPage(new SitePacer(pacing, job), url, job);
+  const parsed = await parseListStep(page, url, job);
   const existing = await existingBySource(
     ctx,
     parsed.items.map((item) => item.url),
@@ -378,6 +399,8 @@ export interface RemainingPick {
 }
 
 export interface ImportListResult {
+  /** The job that ran it (epic 37): `recipes jobs show <job>` has its steps. */
+  job?: string;
   url: string;
   title?: string;
   source?: RoundupSource;
@@ -545,8 +568,10 @@ async function importItem(
   pacer: SitePacer,
   item: RoundupItem,
   dryRun: boolean,
-  mode?: LlmMode,
+  mode: LlmMode | undefined,
+  job: JobContext,
 ): Promise<ImportListItemResult> {
+  const { log } = job;
   const base = { n: item.n, url: item.url, name: item.name };
   if (isVideoUrl(item.url)) {
     throw new ImportError(
@@ -556,7 +581,7 @@ async function importItem(
 
   const page = await pacer.request(
     item.url,
-    (retry) => fetchRecipePage(item.url, retry),
+    (retry) => fetchPageStep(item.url, retry, job),
     (fetched) => fetched.finalUrl,
   );
   if (page.status === 403) {
@@ -564,7 +589,10 @@ async function importItem(
     throw new ImportError(`${item.url} answered 403 twice.`);
   }
   /* Relative image URLs resolve against where the page ended up. */
-  const parsed = parseRecipePage(page.html, page.finalUrl || item.url);
+  const { parsed, mapped } = await parsePage(item.url, page, {
+    base: page.finalUrl || item.url,
+    job,
+  });
   const {
     recipe: imported,
     llm,
@@ -572,8 +600,9 @@ async function importItem(
   } = await applyLlm({
     url: item.url,
     source: { html: page.html, ok: page.ok, meta: parsed.meta },
-    mapped: mapRecipePage(item.url, parsed, { ok: page.ok }),
+    mapped,
     mode,
+    job,
   });
   const said = llmWarnings.length ? ` (${llmWarnings.join("; ")})` : "";
   if (!imported) {
@@ -623,22 +652,32 @@ async function importItem(
   if (imageUrl) {
     try {
       file = await pacer.request(imageUrl, (retry) =>
-        fetchImageFile(imageUrl, { retry }),
+        fetchImageFile(imageUrl, { retry, job }),
       );
     } catch (error) {
+      /* A cancel is the job's, not a picture to do without (T10). */
+      if (job.signal?.aborted) throw error;
+      log.warn("image", `skipped — ${describe(error)}`, { skipped: true });
       warnings.push(
         `Imported without its image (${describe(error)}) — set one later with recipe_set_image.`,
       );
     }
   }
-  const result = await createRecipe(
-    ctx,
-    file ? input : { ...input, imageImportUrl: undefined },
-    {
-      ...(file ? { fetchImage: async () => file } : {}),
-      ...(usedModel(llm) ? { commitNote: "local model" } : {}),
-    },
-  );
+  const result = await log.step("write", { slug }, async (step) => {
+    const written = await createRecipe(
+      ctx,
+      file ? input : { ...input, imageImportUrl: undefined },
+      {
+        ...(file ? { fetchImage: async () => file } : {}),
+        ...(usedModel(llm) ? { commitNote: "local model" } : {}),
+      },
+    );
+    step.set({
+      slug: written.slug,
+      ...(log.live ? { commit: await headSha(ctx.contentDirectory) } : {}),
+    });
+    return written;
+  });
   warnings.push(...(result.warnings ?? []));
   return {
     ...base,
@@ -718,8 +757,9 @@ export async function importList(
   ctx: CurationContext,
   rawUrl: string,
   rawOptions: unknown,
-  { pacing = realPacing() }: ImportListDeps = {},
+  { pacing = realPacing(), job: run }: ImportListDeps = {},
 ): Promise<ImportListResult> {
+  const job = jobContext(run);
   const options = parseInput(ImportListOptionsSchema, rawOptions);
   const url = checkUrl(rawUrl);
   assertLlmMode(options.llm);
@@ -729,10 +769,10 @@ export async function importList(
     : undefined;
   const limit =
     options.limit ?? (dryRun ? IMPORT_LIST_DRY_RUN_LIMIT : IMPORT_LIST_LIMIT);
-  const pacer = new SitePacer(pacing);
+  const pacer = new SitePacer(pacing, job);
 
-  const page = await fetchListPage(pacer, url);
-  const parsed = parseRoundupPage(page.html, page.finalUrl || url);
+  const page = await fetchListPage(pacer, url, job);
+  const parsed = await parseListStep(page, url, job);
   const existing = await existingBySource(
     ctx,
     parsed.items.map((item) => item.url),
@@ -775,13 +815,22 @@ export async function importList(
     }
     attempted += 1;
     try {
-      const result = await importItem(ctx, pacer, item, dryRun, options.llm);
+      const result = await importItem(
+        ctx,
+        pacer,
+        item,
+        dryRun,
+        options.llm,
+        job,
+      );
       results.push(
         warning
           ? { ...result, warnings: [warning, ...(result.warnings ?? [])] }
           : result,
       );
     } catch (error) {
+      /* A cancel ends the call, not just this item. */
+      if (job.signal?.aborted) throw error;
       if (error instanceof SiteDroppedError) {
         /* Dropped while this call waited in the queue: nothing fetched. */
         attempted -= 1;

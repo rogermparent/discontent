@@ -39,20 +39,19 @@
  * (`.<name>.<writeId>.<n>.tmp`, `fs/atomicWrite.ts`) older than the stale age.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
-import { readlinkSync, realpathSync } from "node:fs";
-import {
-  link,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  stat,
-  utimes,
-  writeFile,
-} from "node:fs/promises";
-import { hostname } from "node:os";
+import { realpathSync } from "node:fs";
+import { readdir, rm, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { ulid } from "../util/ulid";
+import {
+  LockTimeoutError,
+  acquireLock,
+  processIdentity,
+  readLockFile,
+  releaseLock,
+  startLockHeartbeat,
+  type LockFileState,
+} from "./fileLock";
 import { directoryIsGitRepo, gitDirectory, runGit } from "./run";
 
 export const WRITE_LOCK_NAME = "discontent-write.lock";
@@ -103,19 +102,6 @@ export class RepositoryBusyError extends Error {
     );
     this.name = "RepositoryBusyError";
   }
-}
-
-const NONCE = ulid();
-let pidNamespace: string | null | undefined;
-function ownPidNamespace(): string | null {
-  if (pidNamespace === undefined) {
-    try {
-      pidNamespace = readlinkSync("/proc/self/ns/pid");
-    } catch {
-      pidNamespace = null;
-    }
-  }
-  return pidNamespace;
 }
 
 /**
@@ -184,85 +170,24 @@ function timeoutFromEnv(): number {
   return Number.isFinite(raw) && raw >= 0 ? raw : 30_000;
 }
 
-const sleep = (ms: number) =>
-  new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, ms)));
-
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
-interface LockState {
-  raw: string;
-  holder: WriteLockHolder | null;
-  mtimeMs: number;
-}
-
-async function readLock(path: string): Promise<LockState | null> {
-  try {
-    const [raw, info] = await Promise.all([readFile(path, "utf8"), stat(path)]);
-    let holder: WriteLockHolder | null = null;
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed.writeId === "string") holder = parsed;
-    } catch {
-      /* Not ours (hand-made, or torn by a full disk): judged by mtime alone. */
-    }
-    return { raw, holder, mtimeMs: info.mtimeMs };
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-}
-
-function isStale(path: string, state: LockState, staleMs: number): boolean {
-  if (Date.now() - state.mtimeMs > staleMs) return true;
-  const { holder } = state;
-  if (!holder || holder.host !== hostname()) return false;
-  /* Pids only mean something inside one pid namespace. */
-  const ns = ownPidNamespace();
-  if (!ns || holder.pidns !== ns) return false;
-  if (!Number.isInteger(holder.pid) || holder.pid <= 0) return false;
-  if (holder.pid === process.pid) {
-    /* Our pid: a previous process's (reused), or a hold we no longer have. */
-    return holder.nonce !== NONCE || !activeHolds.has(path);
-  }
-  return !alive(holder.pid);
-}
+/** The lock record's id field (`fileLock.ts`). */
+const ID_KEY = "writeId";
 
 /**
- * Move a stale lock aside and delete it. The rename is atomic, so of two
- * processes taking over the same stale lock one moves it; the other finds it
- * gone — or, in a microsecond window, moves the winner's fresh lock, which it
- * notices and links back. A failed link-back is logged: the winner's
- * pre-commit ownership check (`writeLockStillHeld`) then stops its commit.
+ * The lock file as `fileLock.ts` reads it. A stale lock is taken over by
+ * `takeOverLock`; a live lock moved aside in its microsecond window is
+ * linked back, and should that fail, the winner's pre-commit ownership
+ * check (`writeLockStillHeld`) stops its commit.
  */
-async function takeOver(path: string, stale: LockState): Promise<void> {
-  const aside = `${path}.${ulid()}.stale`;
-  try {
-    await rename(path, aside);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-  try {
-    const moved = await readFile(aside, "utf8").catch(() => stale.raw);
-    if (moved !== stale.raw) {
-      await link(aside, path).catch((error) => {
-        console.warn(
-          `[discontent] write lock: moved a live lock aside while taking over a stale one, and could not put it back (${
-            (error as NodeJS.ErrnoException).code ?? error
-          }); its holder will refuse to commit.`,
-        );
-      });
-    }
-  } finally {
-    await rm(aside, { force: true });
-  }
+function readLock(
+  path: string,
+): Promise<LockFileState<WriteLockHolder> | null> {
+  return readLockFile<WriteLockHolder>(path, ID_KEY);
+}
+
+/** Our pid on the record: a previous process's (reused), or a hold we no longer have. */
+function staleOptions(path: string, staleMs: number) {
+  return { staleMs, ownHold: () => activeHolds.has(path) };
 }
 
 /** Wait for this process's earlier writers; resolve with this turn's release. */
@@ -295,36 +220,16 @@ async function queueTurn(
     /* Keep the chain moving: our turn passes straight through. */
     void previous.then(release);
     const state = await readLock(path).catch(() => null);
-    throw new RepositoryBusyError(state?.holder ?? null, Date.now() - started);
+    throw new RepositoryBusyError(state?.owner ?? null, Date.now() - started);
   }
   return release;
 }
 
-/** Create the lock whole, or report that one exists. */
-async function tryCreate(
-  path: string,
-  holder: WriteLockHolder,
-): Promise<boolean> {
-  const temporary = `${path}.${holder.writeId}.new`;
-  await writeFile(temporary, JSON.stringify(holder));
-  try {
-    await link(temporary, path);
-    return true;
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "EEXIST") return false;
-    /*
-     * Our temp file vanished before the link — an older build's sweep, or a
-     * hand cleanup. Nothing was taken; the caller's loop writes it again.
-     */
-    if (code === "ENOENT") return false;
-    throw error;
-  } finally {
-    await rm(temporary, { force: true });
-  }
-}
-
-/** Acquire the file; true when a stale lock had to be taken over. */
+/**
+ * Acquire the file (`fileLock.ts`: created whole with `link`, a stale one
+ * taken over, jittered backoff to the deadline); true when a stale lock had
+ * to be taken over.
+ */
 async function acquireFile(
   path: string,
   holder: WriteLockHolder,
@@ -332,29 +237,22 @@ async function acquireFile(
   started: number,
   staleMs: number,
 ): Promise<boolean> {
-  let tookOver = false;
-  let delay = 20;
-  for (;;) {
-    if (await tryCreate(path, holder)) return tookOver;
-    const state = await readLock(path);
-    if (!state) continue;
-    if (isStale(path, state, staleMs)) {
-      await takeOver(path, state);
-      tookOver = true;
-      continue;
+  try {
+    const { tookOver } = await acquireLock(path, holder, {
+      idKey: ID_KEY,
+      deadline,
+      ...staleOptions(path, staleMs),
+    });
+    return tookOver;
+  } catch (error) {
+    if (error instanceof LockTimeoutError) {
+      throw new RepositoryBusyError(
+        (error.state?.owner as WriteLockHolder | null) ?? null,
+        Date.now() - started,
+      );
     }
-    const now = Date.now();
-    if (now >= deadline) {
-      throw new RepositoryBusyError(state.holder, now - started);
-    }
-    await sleep(Math.min(delay * (0.5 + Math.random()), deadline - now));
-    delay = Math.min(delay * 2, 500);
+    throw error;
   }
-}
-
-async function releaseFile(path: string, writeId: string): Promise<void> {
-  const state = await readLock(path).catch(() => null);
-  if (state?.holder?.writeId === writeId) await rm(path, { force: true });
 }
 
 /**
@@ -532,30 +430,18 @@ export async function withWriteLock<T>(
     const writeId = ulid();
     const tookOver = await acquireFile(
       path,
-      {
-        writeId,
-        pid: process.pid,
-        host: hostname(),
-        pidns: ownPidNamespace(),
-        nonce: NONCE,
-        op,
-        startedAt: Date.now(),
-      },
+      { writeId, ...processIdentity(), op, startedAt: Date.now() },
       deadline,
       started,
       staleMs,
     );
     activeHolds.add(path);
-    const heartbeat = setInterval(() => {
-      void readLock(path)
-        .then((state) => {
-          if (state?.holder?.writeId !== writeId) return;
-          const now = new Date();
-          return utimes(path, now, now);
-        })
-        .catch(() => undefined);
-    }, heartbeatMs);
-    heartbeat.unref?.();
+    const stopHeartbeat = startLockHeartbeat(
+      path,
+      ID_KEY,
+      writeId,
+      heartbeatMs,
+    );
     const hold: Hold = { writeId, active: true, serial: Promise.resolve() };
     try {
       await sweepGitDir(path, staleMs);
@@ -569,8 +455,8 @@ export async function withWriteLock<T>(
     } finally {
       hold.active = false;
       activeHolds.delete(path);
-      clearInterval(heartbeat);
-      await releaseFile(path, writeId);
+      stopHeartbeat();
+      await releaseLock(path, ID_KEY, writeId);
     }
   } finally {
     releaseTurn();
@@ -591,7 +477,7 @@ export async function writeLockStillHeld(
   const hold = held.getStore()?.get(path);
   if (!hold?.active) return false;
   const state = await readLock(path).catch(() => null);
-  return state?.holder?.writeId === hold.writeId;
+  return state?.owner?.writeId === hold.writeId;
 }
 
 /** Who holds `contentDirectory`'s write lock now, if anyone (for status UIs). */
@@ -600,5 +486,5 @@ export async function readWriteLock(
 ): Promise<WriteLockHolder | null> {
   if (!(await directoryIsGitRepo(contentDirectory))) return null;
   const state = await readLock(await writeLockPath(contentDirectory));
-  return state?.holder ?? null;
+  return state?.owner ?? null;
 }

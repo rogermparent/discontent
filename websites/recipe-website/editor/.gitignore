@@ -41,6 +41,10 @@ next-env.d.ts
 /test-remotes
 /test-clones
 
+# import jobs: records and step logs (epic 37, D1)
+/jobs
+/test-jobs
+
 # settings (local editor configuration)
 /settings
 /test-settings

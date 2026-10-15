@@ -22,7 +22,10 @@
  * - `RECIPE_LLM_URL`, `RECIPE_LLM_MODEL` and `RECIPE_LLM_API` — how to reach
  *   the local model that imports use (epic 36, D1), so `recipes import` and
  *   the stdio MCP server find the model the workstation's editor uses. They
- *   change what an import reads, never which corpus it writes to.
+ *   change what an import reads, never which corpus it writes to;
+ * - `RECIPE_JOBS_DIR` — where import jobs keep their records (epic 37, D1),
+ *   so a CLI import and the editor share one job store when the editor's is
+ *   set somewhere other than the default.
  *
  * Everything else in the file is ignored.
  *
@@ -64,8 +67,11 @@ import path from "node:path";
 import process from "node:process";
 import { parseEnv } from "node:util";
 
+/** `websites/recipe-website/editor`: where `.env` is, and `jobs/` (epic 37). */
+export const EDITOR_DIRECTORY = path.resolve(__dirname, "..");
+
 /** `websites/recipe-website/editor/.env`. */
-export const EDITOR_ENV_FILE = path.resolve(__dirname, "../.env");
+export const EDITOR_ENV_FILE = path.resolve(EDITOR_DIRECTORY, ".env");
 
 /** The variables taken from the file; see the module comment for why so few. */
 export const EDITOR_ENV_KEYS = [
@@ -74,6 +80,7 @@ export const EDITOR_ENV_KEYS = [
   "RECIPE_LLM_URL",
   "RECIPE_LLM_MODEL",
   "RECIPE_LLM_API",
+  "RECIPE_JOBS_DIR",
 ] as const;
 
 function unset(value: string | undefined): boolean {

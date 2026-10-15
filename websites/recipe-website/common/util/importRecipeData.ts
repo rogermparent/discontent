@@ -246,10 +246,12 @@ export interface FetchedPage {
 export async function fetchRecipePage(
   url: string,
   retry?: ForbiddenRetry,
+  /** `signal` aborts the fetch, and the wait before a 403's retry (epic 37). */
+  { signal }: { signal?: AbortSignal } = {},
 ): Promise<FetchedPage> {
   const response = await fetchRetrying403(
     url,
-    { next: { revalidate: 300 } },
+    { next: { revalidate: 300 }, ...(signal ? { signal } : {}) },
     RECIPE_FETCH_HEADERS,
     retry,
   );

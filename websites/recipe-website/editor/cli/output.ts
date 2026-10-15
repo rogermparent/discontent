@@ -34,6 +34,9 @@ export function emitError(error: unknown, json: boolean): void {
   for (const issue of object.error.issues ?? []) {
     process.stderr.write(`  ${issue.path}: ${issue.message}\n`);
   }
+  for (const warning of object.error.warnings ?? []) {
+    process.stderr.write(`  ! ${warning}\n`);
+  }
 }
 
 export function warn(message: string): void {
