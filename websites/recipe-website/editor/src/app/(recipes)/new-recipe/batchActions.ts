@@ -43,6 +43,16 @@ const RecipeBatchInputSchema = z.strictObject({
   pastedText: z.boolean().optional(),
   /** How many recipes were found: "2 of 4" in each commit. */
   total: z.number().int().min(2).max(BATCH_MAX),
+  /** Every recipe found, by name: a link may point at one imported earlier. */
+  siblings: z
+    .array(
+      z.strictObject({
+        n: z.number().int().min(1).max(BATCH_MAX),
+        name: z.string().optional(),
+      }),
+    )
+    .max(BATCH_MAX)
+    .optional(),
   picks: z
     .array(
       z.strictObject({
@@ -81,6 +91,7 @@ export async function importRecipeBatchAction(
       : `local model, {n} of {total}${input.url ? ` from ${shortSource(input.url)}` : ""}`;
     const recipes = await importBatchPicks(ctx, input.picks as BatchPick[], {
       total: input.total,
+      ...(input.siblings ? { siblings: input.siblings } : {}),
       commitNote,
       allowPartial: true,
     });

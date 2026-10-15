@@ -508,6 +508,48 @@ describe("a video with several recipes (36e, yt-dlp mimic)", () => {
     expect(slugForTwo.code).toBe("usage");
   });
 
+  it("links to the shallots an earlier pick of the same video made — not to another source's", async () => {
+    stub();
+    /* Someone else's fried shallots first: never linked. */
+    await createRecipe(ctx, {
+      name: "Fried Shallots",
+      ingredients: ["4 shallots"],
+      source: { url: "https://example.com/shallots" },
+    });
+    await importAndCreate(ctx, VIDEO_URL, { pick: [3] });
+    expect(
+      (await getRecipe(ctx, "green-bean-casserole")).recipe.ingredients?.at(-1)
+        ?.ingredient,
+    ).toBe("Crispy fried shallots (or onions) - see recipe below");
+
+    /* Ours, from this video, then the casserole again under another slug. */
+    await importAndCreate(ctx, VIDEO_URL, {
+      pick: [4],
+      slug: "fried-shallots-lagerstrom",
+    });
+    await importAndCreate(ctx, VIDEO_URL, {
+      pick: [3],
+      slug: "casserole-again",
+    });
+    /* Its planned slug holds the other source's: still no link. */
+    expect(
+      (await getRecipe(ctx, "casserole-again")).recipe.ingredients?.at(-1)
+        ?.ingredient,
+    ).toBe("Crispy fried shallots (or onions) - see recipe below");
+  });
+
+  it("links to an earlier pick of the same video at its own slug", async () => {
+    stub();
+    await importAndCreate(ctx, VIDEO_URL, { pick: [4] });
+    await importAndCreate(ctx, VIDEO_URL, { pick: [3] });
+    expect(
+      (await getRecipe(ctx, "green-bean-casserole")).recipe.ingredients?.at(-1)
+        ?.ingredient,
+    ).toBe(
+      "[Crispy fried shallots (or onions) - see recipe below](/recipe/fried-shallots)",
+    );
+  });
+
   it("fails a taken slug alone; the rest land", async () => {
     stub();
     await createRecipe(ctx, { name: "Stuffing", ingredients: ["1 loaf"] });

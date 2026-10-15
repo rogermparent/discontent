@@ -70,6 +70,7 @@ import { toDraft, type RecipeDraft } from "./inspect";
 import {
   buildRecipeWrite,
   createRecipe,
+  getRecipe,
   resolveCreateSlug,
   slugIsTaken,
   type RecipeWriteResult,
@@ -587,6 +588,25 @@ export interface BatchOptions extends Omit<ImportWriteOptions, "pick" | "all"> {
    * "local model, 2 of 4 from youtube.com/watch?v=…".
    */
   commitNote: string;
+  /**
+   * Every recipe the source held, picked or not, by name: a line naming one
+   * that is not in this batch links to it when a recipe from the same source
+   * already sits at its slug (an earlier `--pick` of the same video).
+   */
+  siblings?: { n: number; name?: string }[];
+}
+
+/** A source URL without the chapter start a recipe was given. */
+function withoutStart(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.delete("t");
+    parsed.hash = "";
+    return parsed.href;
+  } catch {
+    return url;
+  }
 }
 
 /**
@@ -614,6 +634,7 @@ export async function importBatchPicks(
     allowPartial = false,
     total,
     commitNote,
+    siblings = [],
   }: BatchOptions,
 ): Promise<ImportBatchItem[]> {
   const { linkLine } = await import("../llm/splitRecipes");
@@ -667,17 +688,47 @@ export async function importBatchPicks(
     }
   }
 
-  /* 2. Links: to a recipe of the batch that is being made too. */
+  /*
+   * 2. Links: to a recipe of the batch that is being made too — or, for one
+   * left out of it, to the recipe already at its slug when that came from
+   * the same source (the shallots imported by an earlier `--pick`).
+   */
+  const earlier = new Map<number, string | null>();
+  const earlierSlug = async (n: number, source: string | undefined) => {
+    if (!earlier.has(n)) {
+      const sibling = siblings.find((entry) => entry.n === n);
+      let found: string | null = null;
+      if (sibling?.name && source) {
+        const siblingSlug = resolveCreateSlug({
+          name: sibling.name,
+        } as RecipeInput);
+        if (await slugIsTaken(ctx, siblingSlug)) {
+          const existing = await getRecipe(ctx, siblingSlug).catch(
+            () => undefined,
+          );
+          if (withoutStart(existing?.recipe.source?.url) === source) {
+            found = siblingSlug;
+          }
+        }
+      }
+      earlier.set(n, found);
+    }
+    return earlier.get(n) ?? undefined;
+  };
   const linked = new Map<number, Partial<ImportedRecipe>>();
   for (const [n, { pick }] of planned) {
     const ingredients = [...(pick.recipe.ingredients ?? [])];
+    const source = withoutStart(pick.recipe.source?.url);
     for (const ref of pick.components ?? []) {
-      const target = planned.get(ref.target);
       const entry = ingredients[ref.line];
-      if (!target || !entry || entry.type === "heading") continue;
+      if (!entry || entry.type === "heading") continue;
+      const targetSlug =
+        planned.get(ref.target)?.slug ??
+        (await earlierSlug(ref.target, source));
+      if (!targetSlug) continue;
       ingredients[ref.line] = {
         ...entry,
-        ingredient: linkLine(entry.ingredient, target.slug),
+        ingredient: linkLine(entry.ingredient, targetSlug),
       };
     }
     linked.set(n, { ...pick.recipe, ingredients });
@@ -849,7 +900,15 @@ async function finishBatch(
       llm: reading.llm,
       warnings: reading.warnings,
     })),
-    { ...options, total: readings.length, commitNote },
+    {
+      ...options,
+      total: readings.length,
+      commitNote,
+      siblings: readings.map((reading) => ({
+        n: reading.n,
+        name: reading.recipe.name,
+      })),
+    },
   );
   return {
     batch: true,

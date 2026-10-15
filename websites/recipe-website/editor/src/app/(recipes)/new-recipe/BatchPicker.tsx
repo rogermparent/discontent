@@ -81,6 +81,10 @@ export default function BatchPicker({
         ...(url ? { url } : {}),
         ...(pastedText ? { pastedText: true } : {}),
         total: readings.length,
+        siblings: readings.map((reading) => ({
+          n: reading.n,
+          ...(reading.recipe.name ? { name: reading.recipe.name } : {}),
+        })),
         picks: picked.map((reading) => ({
           n: reading.n,
           recipe: reading.recipe as Record<string, unknown>,
