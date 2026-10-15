@@ -106,6 +106,11 @@ survives a cleared context.
   curation polish (`term assign` unknown slugs, root-page pins, the CLI
   loading `editor/.env`, the roundup picker) and editor hygiene (F6/F7
   paging, lazy CLI startup).
+- `websites/recipe-website/docs/agent-epic-36.md` — epic 36: local-model
+  recipe imports (Qwen via Ollama, workstation only, `RECIPE_LLM_*` in
+  `editor/.env`): page text, the extractor and its grounding guard, the
+  `--llm auto|force|off` mode on every import surface, and a pasted-text
+  import mode (36a–36c).
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
