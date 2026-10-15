@@ -33,6 +33,13 @@ async function activeOption(page: Page): Promise<string | null> {
   return page.locator(`[id="${id}"]`).innerText();
 }
 
+/** Where the caret sits in the field. */
+function caretOf(page: Page): Promise<number | null> {
+  return searchField(page).evaluate(
+    (element: HTMLInputElement) => element.selectionStart,
+  );
+}
+
 /**
  * PR 21c's in-field completion — the fourth and last of PR 21's builder
  * affordances.
@@ -86,7 +93,7 @@ test.describe("Search — in-field autocomplete", () => {
     await field.press("ArrowDown");
     await field.press("Enter");
 
-    await expect(field).toHaveValue("tag:dessert");
+    await expect(field).toHaveValue("tag:dessert ");
     await expect(listItems(page)).toHaveCount(3, { timeout: SEARCH_TIMEOUT });
     // And the list goes away rather than offering back the tag just accepted.
     await expect(suggestions(page)).toHaveCount(0);
@@ -117,7 +124,7 @@ test.describe("Search — in-field autocomplete", () => {
 
     await field.press("ArrowDown");
     await field.press("Enter");
-    await expect(field).toHaveValue("tag:Dessert");
+    await expect(field).toHaveValue("tag:Dessert ");
     await expect(listItems(page)).toHaveCount(3, { timeout: SEARCH_TIMEOUT });
   });
 
@@ -191,8 +198,60 @@ test.describe("Search — in-field autocomplete", () => {
     await field.pressSequentially("tag:des");
     await options(page).first().click();
 
-    await expect(field).toHaveValue("tag:dessert");
+    // An operand finishes the atom: one space, and the caret after it.
+    await expect(field).toHaveValue("tag:dessert ");
     await expect(field).toBeFocused();
+    await expect.poll(() => caretOf(page)).toBe("tag:dessert ".length);
+  });
+
+  test("Tab accepts the active row mid-query, as Enter does", async ({
+    page,
+  }) => {
+    const field = searchField(page);
+    await field.click();
+    await field.pressSequentially("tag:des quick");
+    await expect(suggestions(page)).toHaveCount(0);
+
+    // Back into the middle of the query: the caret after `tag:des`.
+    await field.press("Home");
+    for (let i = 0; i < "tag:des".length; i += 1)
+      await field.press("ArrowRight");
+    await expect(optionLabels(page)).toHaveText(["dessert"]);
+
+    await field.press("ArrowDown");
+    await field.press("Tab");
+
+    // Only the term under the caret is rewritten, and the caret lands after it
+    // and the space that was already there.
+    await expect(field).toHaveValue("tag:dessert quick");
+    await expect(field).toBeFocused();
+    await expect.poll(() => caretOf(page)).toBe("tag:dessert ".length);
+  });
+
+  test("a tag chip picked over a half-typed word replaces the word", async ({
+    page,
+  }) => {
+    // Roger, 2026-10-15: `sal` and the salad chip mean `tag:salad`, not
+    // `sal tag:salad` — the partial word was a search for the tag. (Not a
+    // word any field name starts with, so no suggestion list opens over the
+    // rail.)
+    const field = searchField(page);
+    await field.click();
+    await field.pressSequentially("sal");
+    await expect(ticker(page)).toHaveText(/“sal”/i, {
+      timeout: SEARCH_TIMEOUT,
+    });
+
+    // The rail, not the card chips, which carry the same button names.
+    const rail = page.locator('[aria-label="Tag filters"]');
+    await rail.getByRole("button", { name: "Filter by tag salad" }).click();
+    await expect(field).toHaveValue("tag:salad");
+    await expect(page).toHaveURL(/\?q=tag%3Asalad$/);
+
+    // A word the tag was not heading for stays, and the tag is appended.
+    await searchFor(page, "ginger");
+    await rail.getByRole("button", { name: "Filter by tag dessert" }).click();
+    await expect(field).toHaveValue("ginger tag:dessert");
   });
 
   test("offers nothing for an unknown prefix", async ({ page }) => {
@@ -212,7 +271,7 @@ test.describe("Search — in-field autocomplete", () => {
     await field.pressSequentially("-tag:des");
     await options(page).first().click();
 
-    await expect(field).toHaveValue("-tag:dessert");
+    await expect(field).toHaveValue("-tag:dessert ");
     await expect(ticker(page)).toHaveText(/64 RESULTS/i, {
       timeout: SEARCH_TIMEOUT,
     });
@@ -240,7 +299,7 @@ test.describe("Search — in-field autocomplete", () => {
     expect(await activeOption(page)).toBe("chicken thigh");
     await field.press("Enter");
 
-    await expect(field).toHaveValue('ingredient:"chicken thigh"');
+    await expect(field).toHaveValue('ingredient:"chicken thigh" ');
     await expect(listItems(page)).toHaveCount(1, { timeout: SEARCH_TIMEOUT });
     await expect(listItems(page).first()).toContainText("Weeknight Skillet");
     await expect(suggestions(page)).toHaveCount(0);
@@ -278,7 +337,7 @@ test.describe("Search — in-field autocomplete", () => {
     await expect(optionLabels(page)).toHaveText(["molasses"]);
     await expect(loading).toHaveCount(0);
     await options(page).first().click();
-    await expect(field).toHaveValue("ingredient:molasses");
+    await expect(field).toHaveValue("ingredient:molasses ");
     await expect(field).toBeFocused();
   });
 
@@ -330,7 +389,7 @@ test.describe("Search — autocomplete offers groups", () => {
 
     await field.press("ArrowDown");
     await field.press("Enter");
-    await expect(field).toHaveValue("group:week-of-may-4");
+    await expect(field).toHaveValue("group:week-of-may-4 ");
     await expect(listItems(page)).toHaveCount(2, { timeout: SEARCH_TIMEOUT });
     await expect(suggestions(page)).toHaveCount(0);
   });

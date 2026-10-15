@@ -765,3 +765,57 @@ test.describe("Command palette — groups", () => {
     await expect(page).toHaveURL(/\/recipe\/[a-z-]+$/);
   });
 });
+
+/**
+ * A facet row picked while a word is half-typed replaces the word (Roger,
+ * 2026-10-15): `cook` and "Only tag:cookies" give `tag:cookies`, not
+ * `cook tag:cookies`. The cases of the rewrite are unit-tested
+ * (`test/insertTagTerm.test.ts`); what needs a browser is the caret, and that a
+ * click and an Enter take the same path.
+ *
+ * `christmas-cookies`: eight of its ten recipes carry "cookies", so `cook` is
+ * past the five-row cap and the facet rows are offered.
+ */
+test.describe("Command palette — a facet row over a half-typed word", () => {
+  test.beforeEach(async ({ page, resetData }) => {
+    await resetData("christmas-cookies");
+    await page.goto("/");
+    await openPalette(page);
+    await paletteSearch(page, "cook");
+  });
+
+  const cookiesRow = (page: Page) =>
+    insertGroup(page).getByRole("option", { name: "Only tag:cookies" });
+  const caretOf = (page: Page) =>
+    paletteInput(page).evaluate(
+      (element: HTMLInputElement) => element.selectionStart,
+    );
+
+  test("a click replaces the word, with the caret after the term", async ({
+    page,
+  }) => {
+    await expect(cookiesRow(page)).toBeVisible({ timeout: SEARCH_TIMEOUT });
+    await cookiesRow(page).click();
+
+    await expect(palette(page)).toBeVisible();
+    await expect(paletteInput(page)).toHaveValue("tag:cookies ");
+    await expect(paletteInput(page)).toBeFocused();
+    await expect.poll(() => caretOf(page)).toBe("tag:cookies ".length);
+  });
+
+  test("Enter on the row does the same", async ({ page }) => {
+    await expect(cookiesRow(page)).toBeVisible({ timeout: SEARCH_TIMEOUT });
+    // Down from the top recipe row to the facet row.
+    for (let i = 0; i < 20; i += 1) {
+      if ((await cookiesRow(page).getAttribute("data-selected")) === "true") {
+        break;
+      }
+      await paletteInput(page).press("ArrowDown");
+    }
+    await expect(cookiesRow(page)).toHaveAttribute("data-selected", "true");
+    await paletteInput(page).press("Enter");
+
+    await expect(paletteInput(page)).toHaveValue("tag:cookies ");
+    await expect.poll(() => caretOf(page)).toBe("tag:cookies ".length);
+  });
+});
