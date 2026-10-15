@@ -481,7 +481,55 @@ Playwright (build mode, heavy slot) `new-recipe`, `ytdlp-import`,
 `inspect-list`, 4 `import-list`), all `done`, and no `editor/jobs/`.
 
 **Real check** (qwen3:8b, a scratch clone of the content repo, `--dry-run`):
-pending — needs the GPU.
+run 2026-10-15 as `recipes import --text desc.txt --source <Z8J2HgaaSgQ> --pick
+"Stuffing" --dry-run --verbose`, GPU otherwise idle (`/api/ps` empty
+before and after). Stderr, verbatim:
+
+```
+[job M37FCZ9W] job import-text "pasted text (5053 chars, from youtube.com/watch?v=Z8J2HgaaSgQ)" …
+[job M37FCZ9W] text: pasted text chars 5053 source https://www.youtube.com/watch?v=Z8J2HgaaSgQ
+[job M37FCZ9W] split: the gate: may hold several — asking the model gate true blocks 4
+[job M37FCZ9W] llm.list …
+[job M37FCZ9W] llm.list 4 listed · 13.3 s · 197 tok @ 42 tok/s · load 5.3 s · GPU
+[job M37FCZ9W] llm.oneDish …
+[job M37FCZ9W] llm.oneDish separate dishes · 3.5 s · 8 tok @ 47 tok/s · GPU
+[job M37FCZ9W] split: cut into 4 recipes
+[job M37FCZ9W] llm.extract 1/4 "Potato Puree" …
+[job M37FCZ9W] llm.extract 1/4 "Potato Puree" 5/5 grounded · 7.4 s · 251 tok @ 43 tok/s · GPU
+[job M37FCZ9W] ground: trusted — 5/5 lines in the source part 1/4 name Potato Puree outcome trusted grounded 5 total 5 verbatim 5
+[job M37FCZ9W] llm.extract 2/4 "Stuffing" …
+[job M37FCZ9W] llm.extract 2/4 "Stuffing" 13/13 grounded · 13.4 s · 515 tok @ 41 tok/s · GPU
+[job M37FCZ9W] ground: trusted — 13/13 lines in the source part 2/4 name Stuffing outcome trusted grounded 13 total 13 verbatim 13
+[job M37FCZ9W] llm.extract 3/4 "Green Bean Casserole" …
+[job M37FCZ9W] llm.extract 3/4 "Green Bean Casserole" 13/13 grounded · 12.0 s · 463 tok @ 42 tok/s · GPU
+[job M37FCZ9W] ground: trusted — 13/13 lines in the source part 3/4 name Green Bean Casserole outcome trusted grounded 13 total 13 verbatim 13
+[job M37FCZ9W] llm.extract 4/4 "Fried Shallots" …
+[job M37FCZ9W] llm.extract 4/4 "Fried Shallots" 9/9 grounded · 7.5 s · 291 tok @ 43 tok/s · GPU
+[job M37FCZ9W] ground: trusted — 9/9 lines in the source part 4/4 name Fried Shallots outcome trusted grounded 9 total 9 verbatim 9
+[job M37FCZ9W] split: 4 recipes read
+[job M37FCZ9W] job import-text "pasted text (5053 chars, from youtube.com/watch?v=Z8J2HgaaSgQ)" 57.2 s
+```
+
+Total wall time **57.2 s** for the job (list 13.3 s, oneDish 3.5 s, four
+extracts 7.4–13.4 s). Token rates 41–47 tok/s across the five calls (list
+42, oneDish 47, extracts 43/41/42/43). **Placement: 100% GPU** for every
+call (`gpu: 100` on each step's data, confirmed separately by
+`/api/ps`'s `size_vram == size`), so D6's `llm.placement` warning never
+fired — nothing to compare against a CPU-resident run. `recipes jobs show
+<id>` and `--json` reproduced the same 21 lines and step entries, same
+order, same data (job → text → split → llm.list → llm.oneDish → split →
+four × (llm.extract + ground) → split → job end): **matched**. The job's
+`spec.text` keeps the full pasted text unredacted (by design, D1: kept for
+Retry); the step log itself only ever logged its length (`chars: 5053`),
+so the redaction rule held.
+
+One oddity, not a step-log defect: `result.warnings` still carried the
+generic "local model qwen3:8b found 4 recipes in the text: … — pick the
+ones to import, by name" line even though `--pick "Stuffing"` was already
+given and honored (only Stuffing came back `would-import`). The warning
+text isn't conditioned on whether a pick was supplied — worth a follow-up
+if it reads as confusing in the form/CLI output, but it didn't affect the
+steps, their order, or the extraction result.
 
 ## Backlog
 
