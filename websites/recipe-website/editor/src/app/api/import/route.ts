@@ -28,10 +28,7 @@ import {
   errorResponse,
   readJsonBody,
 } from "recipe-editor/controller/curation/http";
-import {
-  importAndCreate,
-  importFromText,
-} from "recipe-editor/controller/curation/importRecipe";
+import { corpusOf, runSpec } from "recipe-editor/controller/jobs/kinds";
 import {
   ImportRequestSchema,
   importTarget,
@@ -45,18 +42,32 @@ export async function POST(request: Request) {
     const target = importTarget(
       parseInput(ImportRequestSchema, await readJsonBody(request)),
     );
+    /* A job (epic 37): the answer is the same, plus its `job` id. */
     let result;
     if (target.kind === "text") {
-      result = await importFromText(ctx, {
-        text: target.text,
-        source: target.source,
-        ...target.options,
-      });
+      result = await runSpec(
+        {
+          kind: "import-text",
+          ...corpusOf(ctx),
+          text: target.text,
+          ...(target.source ? { source: target.source } : {}),
+          options: target.options,
+        },
+        { ctx },
+      );
     } else {
       if (!URL.canParse(target.url)) {
         throw new ValidationError(`"${target.url}" is not a URL`);
       }
-      result = await importAndCreate(ctx, target.url, target.options);
+      result = await runSpec(
+        {
+          kind: "import-url",
+          ...corpusOf(ctx),
+          url: target.url,
+          options: target.options,
+        },
+        { ctx },
+      );
     }
     return Response.json(result, {
       status: "dryRun" in result && result.dryRun ? 200 : 201,

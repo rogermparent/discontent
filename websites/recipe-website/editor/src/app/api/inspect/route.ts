@@ -16,7 +16,7 @@ import {
   errorResponse,
   readJsonBody,
 } from "recipe-editor/controller/curation/http";
-import { inspectUrl } from "recipe-editor/controller/curation/inspect";
+import { runSpec } from "recipe-editor/controller/jobs/kinds";
 import { parseInput } from "recipe-editor/controller/curation/schema";
 import { LLM_MODES } from "recipe-editor/controller/llm/mode";
 import { z } from "zod";
@@ -36,7 +36,14 @@ export async function POST(request: Request) {
     if (!URL.canParse(url)) {
       throw new ValidationError(`"${url}" is not a URL`);
     }
-    return Response.json(await inspectUrl(url, options));
+    /* A job (epic 37): the answer carries its `job` id. */
+    return Response.json(
+      await runSpec({
+        kind: "inspect",
+        url,
+        ...(options.llm ? { llm: options.llm } : {}),
+      }),
+    );
   } catch (error) {
     return errorResponse(error);
   }

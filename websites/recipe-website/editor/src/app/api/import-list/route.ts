@@ -17,7 +17,7 @@ import {
   errorResponse,
   readJsonBody,
 } from "recipe-editor/controller/curation/http";
-import { importList } from "recipe-editor/controller/curation/importList";
+import { corpusOf, runSpec } from "recipe-editor/controller/jobs/kinds";
 import { ValidationError } from "recipe-editor/controller/curation/errors";
 
 export async function POST(request: Request) {
@@ -33,7 +33,13 @@ export async function POST(request: Request) {
         { path: "url", message: "Required" },
       ]);
     }
-    return Response.json(await importList(ctx, url, options));
+    /* A job (epic 37): the answer carries its `job` id. */
+    return Response.json(
+      await runSpec(
+        { kind: "import-list", ...corpusOf(ctx), url, options },
+        { ctx },
+      ),
+    );
   } catch (error) {
     return errorResponse(error);
   }

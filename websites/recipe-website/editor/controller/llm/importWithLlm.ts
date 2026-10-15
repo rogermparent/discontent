@@ -72,6 +72,7 @@ import type { ExtractMeta, LlmExtraction, LlmStats } from "./extractRecipe";
 import { DEFAULT_LLM_MODE, type LlmMode } from "./mode";
 import type { ChapterRef } from "./chapterTime";
 import type { ComponentRef } from "./splitRecipes";
+import { NO_LOG, type JobLog, type StepData } from "../jobs/log";
 
 export { DEFAULT_LLM_MODE, LLM_MODES, isLlmMode, type LlmMode } from "./mode";
 
@@ -231,6 +232,12 @@ export interface ApplyLlmInput {
   split?: boolean;
   /** The several-recipe attempt's deadline (default `SPLIT_DEADLINE_MS`). */
   splitDeadlineMs?: number;
+  /**
+   * The job's step log (epic 37): the model's calls are `llm.*` steps, and
+   * what is kept of each reading is a `ground` note, the look for several
+   * recipes `split` notes.
+   */
+  log?: JobLog;
 }
 
 /**
@@ -376,14 +383,24 @@ export async function applyLlm({
   signal,
   split = false,
   splitDeadlineMs = SPLIT_DEADLINE_MS,
+  log = NO_LOG,
 }: ApplyLlmInput): Promise<ApplyLlmResult> {
   const unchanged: ApplyLlmResult = { recipe: mapped, warnings: [] };
   if (mode === "off") return unchanged;
   assertLlmMode(mode, config);
-  if (!config) return unchanged;
-  if (mode === "auto" && !autoWantsModel(mapped)) return unchanged;
+  if (!config) {
+    log.info("llm", "no local model configured — not asked");
+    return unchanged;
+  }
+  if (mode === "auto" && !autoWantsModel(mapped)) {
+    log.info("llm", "the page has a recipe body — auto does not ask the model");
+    return unchanged;
+  }
   /* A 404 page's text is not a recipe, whatever the mode. */
-  if ("html" in source && source.ok === false) return unchanged;
+  if ("html" in source && source.ok === false) {
+    log.info("llm", "the page did not answer 2xx — not read");
+    return unchanged;
+  }
 
   const { extractRecipeWithLlm, llmWarning, sourceWhere, GROUNDED_MIN } =
     await import("./extractRecipe");
@@ -415,6 +432,7 @@ export async function applyLlm({
      * it was not used — a warning, not a failure: the mapper's result is
      * still a result (36b review).
      */
+    log.info("llm", `${NO_TEXT} — not asked`);
     if (mode === "auto") return unchanged;
     return {
       recipe: mapped,
@@ -443,6 +461,7 @@ export async function applyLlm({
         mode,
         config,
         signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
+        log,
       });
     } catch (error) {
       if (signal?.aborted) throw error;
@@ -455,6 +474,7 @@ export async function applyLlm({
         }; read as one`,
       };
     }
+    if (several?.note) log.warn("split", several.note);
     if (several?.readings) return several.readings;
   }
   let extraction: LlmExtraction;
@@ -468,12 +488,14 @@ export async function applyLlm({
       sourceLabel: label,
       config,
       signal,
+      log,
     });
   } catch (error) {
     if (!(error instanceof LlmError)) throw error;
     if (mode === "force") {
       throw new ImportError(`local model failed: ${error.message}`);
     }
+    log.warn("llm", `the model failed under auto — imported without it`);
     return {
       recipe: mapped,
       llm: { model: config.model, mode, found: false, error: error.message },
@@ -488,6 +510,7 @@ export async function applyLlm({
     sourceKind,
     label,
     extract: { llmWarning, sourceWhere, GROUNDED_MIN },
+    log,
   });
   /* 36e: why a text that looked like several recipes was read as one. */
   if (several?.note) settled.warnings.push(several.note);
@@ -505,6 +528,64 @@ type ExtractModule = Pick<
  * (36e) — so a batch is trusted, partial or discarded recipe by recipe.
  */
 function settleExtraction({
+  extraction,
+  mapped,
+  mode,
+  sourceKind,
+  label,
+  extract: { llmWarning, sourceWhere, GROUNDED_MIN },
+  log = NO_LOG,
+  part,
+}: {
+  extraction: LlmExtraction;
+  mapped: Partial<ImportedRecipe> | undefined;
+  mode: Exclude<LlmMode, "off">;
+  sourceKind: "page" | "text";
+  label: string | undefined;
+  extract: ExtractModule;
+  log?: JobLog;
+  /** A slice's place and name, for the `ground` note. */
+  part?: StepData;
+}): ApplyLlmResult & { trusted?: boolean } {
+  const settled = settle({
+    extraction,
+    mapped,
+    mode,
+    sourceKind,
+    label,
+    extract: { llmWarning, sourceWhere, GROUNDED_MIN },
+  });
+  /* D3's `ground`: what was kept of the reading, and why. */
+  const { llm } = settled;
+  const outcome = !extraction.found
+    ? "no recipe found"
+    : llm?.discarded
+      ? "discarded (under the floor)"
+      : settled.trusted
+        ? "trusted"
+        : settled.recipe?.partial
+          ? "partial"
+          : "kept, untrusted";
+  const note = settled.trusted || !extraction.found ? log.info : log.warn;
+  note(
+    "ground",
+    `${outcome}${llm?.total !== undefined ? ` — ${llm.grounded}/${llm.total} lines in the source` : ""}`,
+    {
+      ...part,
+      outcome,
+      ...(llm?.total !== undefined
+        ? { grounded: llm.grounded, total: llm.total, verbatim: llm.verbatim }
+        : {}),
+      ...(settled.recipe?.partial ? { partial: true } : {}),
+      ...(settled.trusted === false && extraction.found && !llm?.discarded
+        ? { why: settled.warnings[0] }
+        : {}),
+    },
+  );
+  return settled;
+}
+
+function settle({
   extraction,
   mapped,
   mode,
@@ -629,6 +710,7 @@ async function readSeveral({
   mode,
   config,
   signal,
+  log,
 }: {
   text: string;
   url?: string;
@@ -639,22 +721,39 @@ async function readSeveral({
   mode: Exclude<LlmMode, "off">;
   config: LlmConfig;
   signal?: AbortSignal;
+  log: JobLog;
 }): Promise<SeveralReading | undefined> {
   const { capText } = await import("recipe-website-common/util/pageText");
   const capped = capText(text).text;
   const split = await import("./splitRecipes");
-  if (!split.mayHoldSeveral(capped)) return undefined;
+  /* D3's `split`: the gate, the names, the slices. */
+  const blocks = split.ingredientBlocks(capped);
+  if (!split.mayHoldSeveral(capped)) {
+    log.info("split", "the gate: one recipe — read as one", {
+      gate: false,
+      blocks,
+    });
+    return undefined;
+  }
+  log.info("split", "the gate: may hold several — asking the model", {
+    gate: true,
+    blocks,
+  });
   const listed = await split.listRecipes({
     text: capped,
     url,
     meta,
     config,
     signal,
+    log,
   });
-  if (listed.recipes.length < 2) return undefined;
+  if (listed.recipes.length < 2) {
+    log.info("split", `listed ${listed.recipes.length} — read as one`);
+    return undefined;
+  }
   const names = listed.recipes.map((recipe) => recipe.name || recipe.heading);
   /* Parts of one dish (a chicken, its sauce, its rice) are one recipe. */
-  if (await split.isOneDish({ text: capped, url, meta, config, signal })) {
+  if (await split.isOneDish({ text: capped, url, meta, config, signal, log })) {
     return {
       note: `local model ${listed.model} read ${names.join(", ")} as parts of one dish — read as one`,
     };
@@ -670,6 +769,10 @@ async function readSeveral({
   const { description: _description, ...base } = mapped ?? {};
   void _description;
   const slices = split.sliceText(capped, starts);
+  log.info("split", `cut into ${slices.length} recipes`, {
+    names,
+    slices: slices.map((slice) => slice.length),
+  });
   const notes: string[] = [];
   const leftOut: NonNullable<ApplyLlmResult["leftOut"]> = [];
   const kept: {
@@ -687,6 +790,7 @@ async function readSeveral({
       leftOut.push({ n: index + 1, name: names[index], reason });
       notes.push(`"${names[index]}": ${reason} — left out`);
     };
+    const part = { part: `${index + 1}/${slices.length}`, name: names[index] };
     let extraction: LlmExtraction;
     try {
       extraction = await extract.extractRecipeWithLlm({
@@ -697,6 +801,8 @@ async function readSeveral({
         sourceLabel: label,
         config,
         signal,
+        log,
+        stepData: part,
       });
     } catch (error) {
       /* One slice's failed call is that slice's (36e review); an abort —
@@ -712,6 +818,8 @@ async function readSeveral({
       sourceKind: "text",
       label,
       extract,
+      log,
+      part,
     });
     if (!settled.recipe || !extraction.found || settled.llm?.discarded) {
       leave(settled.warnings.join("; "));
@@ -790,6 +898,10 @@ async function readSeveral({
     .map((reading) => `${reading.n}. ${reading.recipe.name}`)
     .join(", ")} — pick the ones to import, by name`;
   const [first] = recipes;
+  log.info("split", `${recipes.length} recipes read`, {
+    kept: recipes.map((reading) => reading.n),
+    ...(leftOut.length ? { leftOut: leftOut.map((entry) => entry.n) } : {}),
+  });
   return {
     readings: {
       recipe: first.recipe,
@@ -840,6 +952,8 @@ export interface PastedTextInput {
   signal?: AbortSignal;
   /** Look for several recipes (36e); `false` reads the text as one. */
   split?: boolean;
+  /** The job's step log (epic 37). */
+  log?: JobLog;
 }
 
 /** What the model made of pasted text: always a recipe, always `llm`. */
@@ -903,8 +1017,13 @@ export async function readPastedText({
   config = llmConfig(),
   signal,
   split = true,
+  log = NO_LOG,
 }: PastedTextInput): Promise<PastedTextReading> {
   const normalised = normalisePastedText(text);
+  log.info("text", "pasted text", {
+    chars: normalised.length,
+    ...(source ? { source } : {}),
+  });
   if (!normalised.trim()) {
     throw new ValidationError("No text to import: paste the recipe's text.");
   }
@@ -929,6 +1048,7 @@ export async function readPastedText({
     /* 36e: a paste can hold several recipes, as a video can — unless the
      * caller asked for one (`asOne`). */
     split,
+    log,
   });
   const warnings = cutNote ? [...applied.warnings, cutNote] : applied.warnings;
   if (!applied.recipe || !applied.llm) {

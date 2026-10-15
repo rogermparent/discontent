@@ -11,6 +11,7 @@ import { readTextInput } from "../input";
 import { writeDraft } from "./inspect";
 import {
   LLM_OPTION,
+  VERBOSE_OPTION,
   LLM_USAGE,
   booleanOption,
   llmOption,
@@ -21,7 +22,7 @@ import {
 
 export const importCommand: CommandDef<ImportResult> = {
   name: "import",
-  usage: `recipes import (<url> ${LLM_USAGE} | --text <file|-> [--source <url>]) [--all | --pick "Name",… | --as-one] [--tags a,b] [--slug s] [--name N] [--image <url>] [--dry-run [--out draft.json]] [--overwrite] [--allow-partial]`,
+  usage: `recipes import (<url> ${LLM_USAGE} | --text <file|-> [--source <url>]) [--all | --pick "Name",… | --as-one] [--tags a,b] [--slug s] [--name N] [--image <url>] [--dry-run [--out draft.json]] [--overwrite] [--allow-partial] [--verbose]`,
   options: {
     tags: { type: "string" },
     slug: { type: "string" },
@@ -32,6 +33,7 @@ export const importCommand: CommandDef<ImportResult> = {
     overwrite: { type: "boolean" },
     "allow-partial": { type: "boolean" },
     ...LLM_OPTION,
+    ...VERBOSE_OPTION,
     /* 36c (D8): a pasted recipe, read by the local model. */
     text: { type: "string" },
     source: { type: "string" },
@@ -138,6 +140,7 @@ export const importCommand: CommandDef<ImportResult> = {
         result.image ? formatImageProbe(result.image) : undefined,
         result.video ? `video: ${result.video}` : undefined,
         ...formatWarnings(result.warnings),
+        result.job ? `job: ${result.job}` : undefined,
         formatJsonBlock(result.recipe),
       ]
         .filter(Boolean)
@@ -150,6 +153,7 @@ export const importCommand: CommandDef<ImportResult> = {
       result.source ? `  source: ${result.source.url}` : undefined,
       formatLlm(result.llm, "  "),
       ...formatWarnings(result.warnings),
+      result.job ? `  job: ${result.job}` : undefined,
     ]
       .filter(Boolean)
       .join("\n");
@@ -253,6 +257,7 @@ function formatBatch(result: ImportBatchResult): string {
       ...(recipe.recipe ? [formatJsonBlock(recipe.recipe)] : []),
     ]),
     ...formatWarnings(result.warnings),
+    result.job ? `job: ${result.job}` : undefined,
   ]
     .filter(Boolean)
     .join("\n");

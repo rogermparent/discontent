@@ -42,6 +42,9 @@ import { inspectUrl } from "../websites/recipe-website/editor/controller/curatio
 import { getRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
 import { formatStart } from "../websites/recipe-website/editor/controller/llm/chapterTime";
+import { memoryJobLog } from "../websites/recipe-website/editor/controller/jobs/log";
+import { runJob } from "../websites/recipe-website/editor/controller/jobs/run";
+import { readJobLog } from "../websites/recipe-website/editor/controller/jobs/store";
 import {
   applyLlm,
   videoSource,
@@ -1189,5 +1192,191 @@ describe("36e review: locating, failing safely, picks, as-one, re-runs", () => {
     expect(linked.ingredients?.[1].ingredient).toBe(
       "[Crispy fried shallots - see recipe below](/recipe/fried-shallots)",
     );
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* The step log (epic 37, 37a)                                         */
+/* ------------------------------------------------------------------ */
+
+describe("the job's step log (37a)", () => {
+  /**
+   * The stand-in model with Ollama's numbers on each answer, and an
+   * `/api/ps` that puts `gpu` percent of the model on the GPU.
+   */
+  function stubWithPlacement(gpu: number) {
+    stub();
+    const inner = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === `${MODEL_URL}/api/ps`) {
+          return Response.json({
+            models: [
+              {
+                name: "qwen3:8b",
+                model: "qwen3:8b",
+                size: 1000,
+                size_vram: gpu * 10,
+              },
+            ],
+          });
+        }
+        const response = await inner(input, init);
+        if (!url.startsWith(MODEL_URL)) return response;
+        return Response.json({
+          ...(await response.json()),
+          prompt_eval_count: 900,
+          prompt_eval_duration: 2e9,
+          eval_count: 400,
+          eval_duration: 10e9,
+          load_duration: 3e6,
+        });
+      }),
+    );
+  }
+
+  it("logs the video's steps in order: yt-dlp, the split, each model call, each reading", async () => {
+    stubWithPlacement(100);
+    const { log, lines } = memoryJobLog();
+    await importAndCreate(ctx, VIDEO_URL, { dryRun: true }, { log });
+    const ends = lines.filter((line) => line.phase === "end");
+    expect(ends.map((line) => line.step)).toEqual([
+      "ytdlp",
+      "llm.list",
+      "llm.oneDish",
+      "llm.extract",
+      "llm.extract",
+      "llm.extract",
+      "llm.extract",
+      "image",
+    ]);
+    for (const line of ends) {
+      expect(line.ok).toBe(true);
+      expect(typeof line.ms).toBe("number");
+    }
+    expect(ends[0].data).toMatchObject({
+      exit: 0,
+      chapters: 5,
+      comments: true,
+    });
+    expect(ends[1].data).toMatchObject({
+      names: [
+        "Potato Puree",
+        "Stuffing",
+        "Green Bean Casserole",
+        "Fried Shallots",
+      ],
+      promptTokens: 900,
+      outputTokens: 400,
+      tokPerSec: 40,
+      promptTokPerSec: 450,
+      gpu: 100,
+    });
+    expect(ends[2].data).toMatchObject({ oneDish: false });
+    const readings = ends.filter((line) => line.step === "llm.extract");
+    expect(readings.map((line) => [line.data?.part, line.data?.name])).toEqual([
+      ["1/4", "Potato Puree"],
+      ["2/4", "Stuffing"],
+      ["3/4", "Green Bean Casserole"],
+      ["4/4", "Fried Shallots"],
+    ]);
+    expect(readings[2].data).toMatchObject({
+      found: true,
+      grounded: 6,
+      total: 6,
+      ingredients: 6,
+      outputTokens: 400,
+      tokPerSec: 40,
+      gpu: 100,
+    });
+    /* The picture is probed once for the four (T51). */
+    expect(ends.at(-1)?.data).toMatchObject({ mode: "head", status: 200 });
+    /* The split's notes, and one `ground` note per reading. */
+    const notes = lines.filter((line) => line.phase === "note");
+    expect(
+      notes.filter((line) => line.step === "split").map((line) => line.data),
+    ).toEqual([
+      { gate: true, blocks: 4 },
+      expect.objectContaining({ slices: expect.any(Array) }),
+      { kept: [1, 2, 3, 4] },
+    ]);
+    expect(
+      notes
+        .filter((line) => line.step === "ground")
+        .map((line) => line.data?.outcome),
+    ).toEqual(["trusted", "trusted", "trusted", "trusted"]);
+    /* All on the GPU: no placement warning. */
+    expect(notes.some((line) => line.step === "llm.placement")).toBe(false);
+    /* No page or model text in the log: lengths only. */
+    expect(JSON.stringify(lines)).not.toContain("white bread");
+  });
+
+  it("warns when the model sits mostly on the CPU, and the job's result says so", async () => {
+    stubWithPlacement(2);
+    const text = await description();
+    const { result, job } = await runJob(
+      { kind: "import-text", label: "x", spec: {} },
+      (log) =>
+        importFromText(
+          ctx,
+          { text, pick: ["Stuffing"], dryRun: true },
+          { log },
+        ),
+      { mirror: null },
+    );
+    const warning =
+      'local model qwen3:8b ran 2% on the GPU — another program holds VRAM, and the rest runs on the CPU, many times slower; run "ollama stop qwen3:8b" once it frees';
+    /* Once, however many calls saw it. */
+    expect(result.warnings?.filter((entry) => entry === warning)).toHaveLength(
+      1,
+    );
+    const { lines } = await readJobLog(process.env.RECIPE_JOBS_DIR!, job);
+    const placements = lines.filter((line) => line.step === "llm.placement");
+    /* One per call: the list, the question, four readings. */
+    expect(placements).toHaveLength(6);
+    expect(placements[0]).toMatchObject({
+      phase: "note",
+      level: "warn",
+      msg: '2% GPU — another program holds VRAM; run "ollama stop qwen3:8b" once it frees',
+      data: { model: "qwen3:8b", gpu: 2 },
+    });
+    expect(
+      lines.find((line) => line.step === "llm.list" && line.phase === "end")
+        ?.data,
+    ).toMatchObject({ gpu: 2 });
+  });
+
+  it("an /api/ps that fails is a note, never a failure", async () => {
+    stub();
+    const inner = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) =>
+        String(input).endsWith("/api/ps")
+          ? Promise.reject(new Error("connection refused"))
+          : inner(input, init),
+      ),
+    );
+    const { log, lines } = memoryJobLog();
+    const dry = asBatch(
+      await importFromText(
+        ctx,
+        { text: await description(), dryRun: true },
+        { log },
+      ),
+    );
+    expect(dry.found).toHaveLength(4);
+    expect(dry.warnings?.join(" ")).not.toMatch(/GPU/);
+    const notes = lines.filter((line) => line.step === "llm.placement");
+    expect(notes[0]).toMatchObject({
+      phase: "note",
+      level: "info",
+      msg: "could not read /api/ps: connection refused",
+    });
+    expect(
+      lines.filter((line) => line.phase === "end").every((line) => line.ok),
+    ).toBe(true);
   });
 });

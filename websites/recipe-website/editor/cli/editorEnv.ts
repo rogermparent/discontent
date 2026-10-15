@@ -64,8 +64,11 @@ import path from "node:path";
 import process from "node:process";
 import { parseEnv } from "node:util";
 
+/** `websites/recipe-website/editor`: where `.env` is, and `jobs/` (epic 37). */
+export const EDITOR_DIRECTORY = path.resolve(__dirname, "..");
+
 /** `websites/recipe-website/editor/.env`. */
-export const EDITOR_ENV_FILE = path.resolve(__dirname, "../.env");
+export const EDITOR_ENV_FILE = path.resolve(EDITOR_DIRECTORY, ".env");
 
 /** The variables taken from the file; see the module comment for why so few. */
 export const EDITOR_ENV_KEYS = [

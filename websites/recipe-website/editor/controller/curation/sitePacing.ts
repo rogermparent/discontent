@@ -25,6 +25,7 @@
  */
 import type { ForbiddenRetry } from "recipe-website-common/util/importRecipeData";
 import { siteKey } from "recipe-website-common/util/roundupPage";
+import { NO_LOG, type JobLog } from "../jobs/log";
 import { ImportError } from "./errors";
 
 /** 30-D5: the least time between two requests to one site. */
@@ -38,6 +39,11 @@ export class SiteState {
   readonly lastEnd = new Map<string, number>();
   readonly droppedUntil = new Map<string, { until: number; reason: string }>();
   private readonly tails = new Map<string, Promise<void>>();
+
+  /** Another request to the site is queued or running: an `acquire` would wait. */
+  busy(site: string): boolean {
+    return this.tails.has(site);
+  }
 
   /** Wait for the site's queue; the returned function releases it. */
   async acquire(site: string): Promise<() => void> {
@@ -112,7 +118,14 @@ export class SitePacer {
   requests = 0;
   readonly dropped = new Map<string, string>();
 
-  constructor(private readonly pacing: Pacing = realPacing()) {
+  /**
+   * `log` (epic 37): a wait — behind another request to the site, or for
+   * the polite gap — is a `pace.wait` step.
+   */
+  constructor(
+    private readonly pacing: Pacing = realPacing(),
+    private readonly log: JobLog = NO_LOG,
+  ) {
     this.state = pacing.state ?? processState;
   }
 
@@ -149,11 +162,23 @@ export class SitePacer {
     return this.pacing.gapMs ?? POLITE_GAP_MS;
   }
 
-  private async waitGap(url: string): Promise<void> {
-    const last = this.state.lastEnd.get(this.site(url));
+  private async waitGap(url: string, retry = false): Promise<void> {
+    const site = this.site(url);
+    const last = this.state.lastEnd.get(site);
     if (last === undefined) return;
     const wait = last + this.gap(url) - this.pacing.now();
-    if (wait > 0) await this.pacing.sleep(wait);
+    if (wait > 0) {
+      await this.log.step(
+        "pace.wait",
+        {
+          site,
+          gapMs: this.gap(url),
+          waitMs: wait,
+          ...(retry ? { retry } : {}),
+        },
+        () => this.pacing.sleep(wait),
+      );
+    }
   }
 
   private end(url: string): void {
@@ -171,7 +196,11 @@ export class SitePacer {
     finalUrlOf?: (value: T) => string | undefined,
   ): Promise<T> {
     const site = this.site(url);
-    const release = await this.state.acquire(site);
+    const release = this.state.busy(site)
+      ? await this.log.step("pace.wait", { site, queued: true }, () =>
+          this.state.acquire(site),
+        )
+      : await this.state.acquire(site);
     let forbidden = false;
     let retryStatus: number | undefined;
     let started = false;
@@ -190,7 +219,7 @@ export class SitePacer {
           beforeRetry: async () => {
             forbidden = true;
             this.end(url);
-            await this.waitGap(url);
+            await this.waitGap(url, true);
             this.requests += 1;
           },
           afterRetry: (response) => {
@@ -224,6 +253,7 @@ export function pacedRequest<T>(
   url: string,
   run: (retry: ForbiddenRetry) => Promise<T>,
   finalUrlOf?: (value: T) => string | undefined,
+  log: JobLog = NO_LOG,
 ): Promise<T> {
-  return new SitePacer().request(url, run, finalUrlOf);
+  return new SitePacer(realPacing(), log).request(url, run, finalUrlOf);
 }

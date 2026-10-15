@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { resolve } from "node:path";
 
 const PORT = Number(process.env.PLAYWRIGHT_PORT) || 3019;
 const BUILD = !!process.env.PLAYWRIGHT_BUILD;
@@ -87,6 +88,14 @@ export default defineConfig({
      * and the fixtures' auto-mode imports all see "not configured". A dev
      * server reused from outside (`reuseExistingServer`) keeps its own env.
      */
-    env: { RECIPE_LLM_URL: "" },
+    env: {
+      RECIPE_LLM_URL: "",
+      /*
+       * Epic 37: the server's import jobs go to `test-jobs`, beside
+       * `test-content` — never `editor/jobs/`, even when `editor/.env`
+       * names a jobs directory.
+       */
+      RECIPE_JOBS_DIR: resolve(__dirname, "test-jobs"),
+    },
   },
 });

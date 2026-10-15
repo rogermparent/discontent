@@ -12,6 +12,7 @@ import type { ImportListResult, InspectListResult } from "../backend/types";
 import { formatWarnings } from "../output";
 import {
   LLM_OPTION,
+  VERBOSE_OPTION,
   LLM_USAGE,
   booleanOption,
   llmOption,
@@ -63,8 +64,8 @@ export function parsePicks(value: string): (number | string)[] {
 
 export const inspectListCommand: CommandDef<InspectListResult> = {
   name: "inspect-list",
-  usage: "recipes inspect-list <url>",
-  options: {},
+  usage: "recipes inspect-list <url> [--verbose]",
+  options: { ...VERBOSE_OPTION },
   async run({ backend, positionals }) {
     const url = positionals[0];
     if (!url) throw new UsageError("inspect-list needs a URL.");
@@ -89,7 +90,7 @@ export const inspectListCommand: CommandDef<InspectListResult> = {
 
 export const importListCommand: CommandDef<ImportListResult> = {
   name: "import-list",
-  usage: `recipes import-list <url> (--pick 1,3,5-7|<url>,… | --all) [--term <slug> [--term-label L]] [--limit 1-6] [--dry-run] ${LLM_USAGE}`,
+  usage: `recipes import-list <url> (--pick 1,3,5-7|<url>,… | --all) [--term <slug> [--term-label L]] [--limit 1-6] [--dry-run] ${LLM_USAGE} [--verbose]`,
   options: {
     pick: { type: "string" },
     all: { type: "boolean" },
@@ -98,6 +99,7 @@ export const importListCommand: CommandDef<ImportListResult> = {
     limit: { type: "string" },
     "dry-run": { type: "boolean" },
     ...LLM_OPTION,
+    ...VERBOSE_OPTION,
   },
   write: true,
   async run({ backend, positionals, options }) {
