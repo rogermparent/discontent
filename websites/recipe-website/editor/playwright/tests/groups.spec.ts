@@ -217,7 +217,7 @@ test.describe("Groups", () => {
       await page.goto("/");
 
       await expect(
-        page.getByRole("heading", { name: "Plans", exact: true }),
+        page.getByRole("heading", { name: "Groups", exact: true }),
       ).toBeVisible();
 
       const cards = page.getByTestId("group-list").getByRole("listitem");
@@ -245,7 +245,7 @@ test.describe("Groups", () => {
 
       await expect(page.getByTestId("group-list")).toHaveCount(0);
       await expect(
-        page.getByRole("heading", { name: "Plans", exact: true }),
+        page.getByRole("heading", { name: "Groups", exact: true }),
       ).toHaveCount(0);
       await expect(page.getByRole("link", { name: "More groups" })).toHaveCount(
         0,

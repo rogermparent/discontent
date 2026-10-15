@@ -39,7 +39,13 @@ test.describe("Masthead", () => {
       name: "Site",
     });
     const links = nav.getByRole("link");
-    await expect(links).toHaveText(READER_DESTINATIONS.map(([name]) => name));
+    /* `useInnerText`: below `lg` "Make" is the label that shows; the
+     * long one is display:none there and vice versa, and textContent
+     * would read both. */
+    await expect(links).toHaveText(
+      READER_DESTINATIONS.map(([name]) => name),
+      { useInnerText: true },
+    );
     for (const [name, href] of READER_DESTINATIONS) {
       await expect(
         nav.getByRole("link", { name, exact: true }),
@@ -60,14 +66,10 @@ test.describe("Masthead", () => {
     await expect(
       nav.getByRole("link", { name: "Shopping", exact: true }),
     ).toHaveAttribute("href", "/shopping");
-    await expect(nav.getByRole("link")).toHaveText([
-      "Recipes",
-      "Drinks",
-      "What can I make?",
-      "Plans",
-      "Shopping",
-      "Saved",
-    ]);
+    await expect(nav.getByRole("link")).toHaveText(
+      ["Recipes", "Drinks", "What can I make?", "Plans", "Shopping", "Saved"],
+      { useInnerText: true },
+    );
   });
 
   test("marks the current page, numbered pages included", async ({ page }) => {
