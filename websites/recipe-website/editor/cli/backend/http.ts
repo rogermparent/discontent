@@ -30,6 +30,8 @@ import {
   CurationError,
   type CurationErrorCode,
   type CurationErrorDetails,
+  warningsOf,
+  withWarnings,
 } from "../../controller/curation/errors";
 import type {
   CuratorBackend,
@@ -201,10 +203,14 @@ function rehydrate(status: number, statusText: string, body: unknown): Error {
     if (Array.isArray(source.terms)) {
       details.terms = source.terms as string[];
     }
-    return new CurationError(
-      source.code as CurationErrorCode,
-      source.message as string,
-      details,
+    /* A failed job's surfaced warnings (37a review) ride along. */
+    return withWarnings(
+      new CurationError(
+        source.code as CurationErrorCode,
+        source.message as string,
+        details,
+      ),
+      warningsOf(source) ?? [],
     );
   }
   const message =

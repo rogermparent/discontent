@@ -81,6 +81,8 @@ beforeAll(async () => {
        * to stop the load, so name a file that is not there.
        */
       RECIPE_ENV_FILE: join(contentDirectory, "no-such.env"),
+      /* Never `editor/jobs/` (epic 37): the test file's own job store. */
+      RECIPE_JOBS_DIR: process.env.RECIPE_JOBS_DIR ?? "",
     },
     stderr: "pipe",
   });

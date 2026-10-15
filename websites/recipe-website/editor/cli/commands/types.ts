@@ -85,6 +85,13 @@ export function booleanOption(
   return options[name] === true;
 }
 
+/**
+ * `--verbose` (epic 37, D7): the job's step lines on stderr even when it is
+ * not a terminal (`index.ts` reads it). Taken by the commands that run a
+ * job: `import`, `inspect`, `import-list`, `inspect-list`.
+ */
+export const VERBOSE_OPTION = { verbose: { type: "boolean" } } as const;
+
 /** `--llm auto|force|off` (epic 36, D3): the local model's part in an import. */
 export const LLM_OPTION = { llm: { type: "string" } } as const;
 

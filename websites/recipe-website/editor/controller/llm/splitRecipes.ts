@@ -29,6 +29,7 @@
  */
 import type { ChapterRef } from "./chapterTime";
 import { chatJson, type LlmConfig } from "./client";
+import { jobContext, type JobRun } from "../jobs/context";
 import {
   buildRecipeUserPrompt,
   normaliseForGrounding,
@@ -174,35 +175,45 @@ export function readListAnswer(data: unknown): ListedRecipe[] {
 }
 
 /** Ask the model which separate recipes the text holds (stage 1). */
-export async function listRecipes({
+export function listRecipes({
   text,
   url,
   meta,
   config,
   signal,
+  job,
 }: {
   text: string;
   url?: string;
   meta?: ExtractMeta;
   config?: LlmConfig;
   signal?: AbortSignal;
+  /** The job (epic 37): an `llm.list` step. */
+  job?: JobRun;
 }): Promise<{ recipes: ListedRecipe[]; model: string; durationMs: number }> {
-  const result = await chatJson({
-    system: LLM_LIST_SYSTEM_PROMPT,
-    user: buildRecipeUserPrompt({ text, url, meta }).replace(
-      /^Extract the recipe from this text\./,
-      "List the separate recipes in this text.",
-    ),
-    schema: LLM_LIST_SCHEMA,
-    schemaName: LLM_LIST_SCHEMA_NAME,
-    config,
-    signal,
+  const { log } = jobContext(job);
+  return log.step("llm.list", { chars: text.length }, async (step) => {
+    const result = await chatJson({
+      system: LLM_LIST_SYSTEM_PROMPT,
+      user: buildRecipeUserPrompt({ text, url, meta }).replace(
+        /^Extract the recipe from this text\./,
+        "List the separate recipes in this text.",
+      ),
+      schema: LLM_LIST_SCHEMA,
+      schemaName: LLM_LIST_SCHEMA_NAME,
+      config,
+      signal,
+      job,
+      step,
+    });
+    const recipes = readListAnswer(result.data);
+    step.set({ names: recipes.map((recipe) => recipe.name || recipe.heading) });
+    return {
+      recipes,
+      model: result.model,
+      durationMs: result.durationMs,
+    };
   });
-  return {
-    recipes: readListAnswer(result.data),
-    model: result.model,
-    durationMs: result.durationMs,
-  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -231,32 +242,42 @@ export const LLM_ONE_DISH_SYSTEM_PROMPT = `You read a recipe text and say whethe
 Ignore links, sponsor messages, equipment lists, chapter lists and timestamps.`;
 
 /** Whether the model reads the text as one dish in parts (stage 1b). */
-export async function isOneDish({
+export function isOneDish({
   text,
   url,
   meta,
   config,
   signal,
+  job,
 }: {
   text: string;
   url?: string;
   meta?: ExtractMeta;
   config?: LlmConfig;
   signal?: AbortSignal;
+  /** The job (epic 37): an `llm.oneDish` step. */
+  job?: JobRun;
 }): Promise<boolean> {
-  const result = await chatJson({
-    system: LLM_ONE_DISH_SYSTEM_PROMPT,
-    user: buildRecipeUserPrompt({ text, url, meta }).replace(
-      /^Extract the recipe from this text\./,
-      "Does this text make one dish or several?",
-    ),
-    schema: LLM_ONE_DISH_SCHEMA,
-    schemaName: "dishes",
-    config,
-    signal,
+  const { log } = jobContext(job);
+  return log.step("llm.oneDish", { chars: text.length }, async (step) => {
+    const result = await chatJson({
+      system: LLM_ONE_DISH_SYSTEM_PROMPT,
+      user: buildRecipeUserPrompt({ text, url, meta }).replace(
+        /^Extract the recipe from this text\./,
+        "Does this text make one dish or several?",
+      ),
+      schema: LLM_ONE_DISH_SCHEMA,
+      schemaName: "dishes",
+      config,
+      signal,
+      job,
+      step,
+    });
+    const data = result.data as Record<string, unknown> | undefined;
+    const oneDish = data?.oneDish === true;
+    step.set({ oneDish });
+    return oneDish;
   });
-  const data = result.data as Record<string, unknown> | undefined;
-  return data?.oneDish === true;
 }
 
 /* ------------------------------------------------------------------ */

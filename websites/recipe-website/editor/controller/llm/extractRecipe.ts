@@ -29,6 +29,8 @@ import {
   type ImportedRecipe,
 } from "recipe-website-common/util/importRecipeData";
 import { chatJson, type LlmConfig } from "./client";
+import { jobContext, type JobRun } from "../jobs/context";
+import type { StepData, StepHandle } from "../jobs/log";
 
 /* ------------------------------------------------------------------ */
 /* Prompt and schema (D7, D8)                                          */
@@ -734,7 +736,12 @@ export interface ExtractRecipeInput {
   config?: LlmConfig;
   timeoutMs?: number;
   numCtx?: number;
+  /** The caller's abort; default the job's. */
   signal?: AbortSignal;
+  /** The job (epic 37): the reading is an `llm.extract` step. */
+  job?: JobRun;
+  /** What the step says it reads: a slice's `part` ("2/4") and `name`. */
+  stepData?: StepData;
 }
 
 /**
@@ -745,12 +752,54 @@ export interface ExtractRecipeInput {
  * ingredients and no steps. Otherwise the recipe — `partial` unless it is
  * grounded, with at least one ingredient and one step. Model failures throw
  * `LlmError` (`client.ts`).
+ *
+ * In a job (epic 37) the call and its grounding are one `llm.extract` step:
+ * the text's length in, the model's numbers (`chatJson`) and the grounded
+ * count out.
  */
-export async function extractRecipeWithLlm(
+export function extractRecipeWithLlm(
   input: ExtractRecipeInput,
+): Promise<LlmExtraction> {
+  const { stepData } = input;
+  return jobContext(input.job).log.step(
+    "llm.extract",
+    { ...stepData, chars: input.text.length },
+    async (step) => {
+      const extraction = await readRecipe(input, step);
+      if (extraction.found) {
+        const { grounded, total, verbatim, added } = extraction.llm;
+        step.set({
+          found: true,
+          grounded,
+          total,
+          verbatim,
+          ...(added?.length ? { added: added.length } : {}),
+          ...recipeCounts(extraction.recipe),
+        });
+      } else {
+        step.set({ found: false });
+      }
+      return extraction;
+    },
+  );
+}
+
+function recipeCounts(recipe: Partial<ImportedRecipe>) {
+  return {
+    ingredients: (recipe.ingredients ?? []).filter(
+      (entry) => entry.type !== "heading",
+    ).length,
+    steps: stepCount(recipe.instructions ?? []),
+  };
+}
+
+async function readRecipe(
+  input: ExtractRecipeInput,
+  step: StepHandle,
 ): Promise<LlmExtraction> {
   const { text: source } = capText(input.text);
   const result = await chatJson({
+    step,
     system: LLM_RECIPE_SYSTEM_PROMPT,
     user: buildRecipeUserPrompt({
       text: source,
@@ -763,6 +812,7 @@ export async function extractRecipeWithLlm(
     timeoutMs: input.timeoutMs,
     numCtx: input.numCtx,
     signal: input.signal,
+    job: input.job,
   });
   const answer = readLlmAnswer(result.data);
 

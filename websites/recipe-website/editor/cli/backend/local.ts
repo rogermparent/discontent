@@ -146,35 +146,52 @@ export function createLocalBackend({
     /*
      * The import seats load the page parsers (`hast-util-*`, `mdast-util-*`)
      * when called, not with this module: every other command skips ~0.35 s
-     * of startup that way (35q).
+     * of startup that way (35q). Each runs as a job (epic 37): the job
+     * registry is loaded with it, and the result carries `job`.
      */
     async importRecipe(url, options = {}) {
       if (!options.dryRun) await guard();
-      const { importAndCreate } =
-        await import("../../controller/curation/importRecipe");
-      return importAndCreate(ctx, url, options);
+      const { runSpec, corpusOf } = await import("../../controller/jobs/kinds");
+      return runSpec(
+        { kind: "import-url", ...corpusOf(ctx), url, options },
+        { ctx },
+      );
     },
     async importText(text, options = {}) {
       if (!options.dryRun) await guard();
-      const { importFromText } =
-        await import("../../controller/curation/importRecipe");
-      return importFromText(ctx, { text, ...options });
+      const { runSpec, corpusOf } = await import("../../controller/jobs/kinds");
+      const { source, ...rest } = options;
+      return runSpec(
+        {
+          kind: "import-text",
+          ...corpusOf(ctx),
+          text,
+          ...(source ? { source } : {}),
+          options: rest,
+        },
+        { ctx },
+      );
     },
     /* Reads a page and nothing else: no identity, no write. */
     async inspect(url, options = {}) {
-      const { inspectUrl } = await import("../../controller/curation/inspect");
-      return inspectUrl(url, options);
+      const { runSpec } = await import("../../controller/jobs/kinds");
+      return runSpec({
+        kind: "inspect",
+        url,
+        ...(options.llm ? { llm: options.llm } : {}),
+      });
     },
     async inspectList(url) {
-      const { inspectList } =
-        await import("../../controller/curation/importList");
-      return inspectList(ctx, url);
+      const { runSpec, corpusOf } = await import("../../controller/jobs/kinds");
+      return runSpec({ kind: "inspect-list", ...corpusOf(ctx), url }, { ctx });
     },
     async importList(url, options) {
       if (!options.dryRun) await guard();
-      const { importList } =
-        await import("../../controller/curation/importList");
-      return importList(ctx, url, options);
+      const { runSpec, corpusOf } = await import("../../controller/jobs/kinds");
+      return runSpec(
+        { kind: "import-list", ...corpusOf(ctx), url, options },
+        { ctx },
+      );
     },
     async createRecipe(raw, { dryRun, ...options } = {}) {
       if (dryRun) return recipes.previewCreateRecipe(ctx, raw);

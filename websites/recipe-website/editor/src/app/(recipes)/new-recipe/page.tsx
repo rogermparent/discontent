@@ -4,7 +4,7 @@ import {
   readTagLabels,
   readTagVocabulary,
 } from "recipe-website-common/controller/data/readTermPage";
-import { reduceRecipeImport } from "./common";
+import { runSpec } from "recipe-editor/controller/jobs/kinds";
 import { llmConfig } from "recipe-editor/controller/llm/client";
 import {
   PageMain,
@@ -25,7 +25,8 @@ export default async function NewRecipe({
   }
 
   const initialState = importURL
-    ? await reduceRecipeImport(null, importURL)
+    ? /* A job (epic 37), as the form's own import is. */
+      await runSpec({ kind: "form-url", url: importURL })
     : null;
   const [allTags, vocabulary] = await Promise.all([
     readTagLabels(),

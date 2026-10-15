@@ -28,7 +28,9 @@ import {
   exitCodeFor,
 } from "../controller/curation/errors";
 import { resolveBackend } from "./backend/resolve";
-import { loadEditorEnv } from "./editorEnv";
+import { EDITOR_DIRECTORY, loadEditorEnv } from "./editorEnv";
+import { setJobsRoot } from "../controller/jobs/location";
+import { setJobMirror } from "../controller/jobs/log";
 import type { CuratorBackend } from "./backend/types";
 import { createCommand } from "./commands/create";
 import { deleteCommand } from "./commands/delete";
@@ -44,6 +46,7 @@ import { importCommand } from "./commands/import";
 import { importListCommand, inspectListCommand } from "./commands/importList";
 import { inspectCommand } from "./commands/inspect";
 import { inventoryCommands } from "./commands/inventory";
+import { jobsCommands } from "./commands/jobs";
 import { listCommand } from "./commands/list";
 import { reindexCommand } from "./commands/reindex";
 import { searchCommand } from "./commands/search";
@@ -111,6 +114,8 @@ const SUBCOMMAND_TABLES: Record<string, Record<string, CommandDef<unknown>>> = {
   shopping: shoppingCommands,
   /* The vocabulary's records and carriers (31c). */
   term: termCommands,
+  /* The job store (epic 37): `show` now, the rest in 37c. */
+  jobs: jobsCommands,
 };
 
 /**
@@ -135,14 +140,16 @@ function subcommandTableFor(
 
 const USAGE = `Usage: pnpm recipes <command> [options]
 
-  inspect <url> [--out draft.json] [--llm auto|force|off]
+  inspect <url> [--out draft.json] [--llm auto|force|off] [--verbose]
   import <url> [--tags a,b] [--slug s] [--name N] [--image <url>]
                [--dry-run [--out draft.json]] [--overwrite] [--allow-partial]
                [--llm auto|force|off] [--all | --pick "Name",… | --as-one]
+               [--verbose]
   import --text <file|-> [--source <url>] [the same options, no --llm]
-  inspect-list <url>
+  inspect-list <url> [--verbose]
   import-list <url> (--pick 1,3,5-7|<url>,… | --all) [--term <slug> [--term-label L]]
-              [--limit 1-6] [--dry-run] [--llm auto|force|off]
+              [--limit 1-6] [--dry-run] [--llm auto|force|off] [--verbose]
+  jobs show <id>
   create (--file recipe.json | --stdin) [--overwrite] [--dry-run]
   update <slug> (--file patch.json | --stdin) [--dry-run]
   image <slug> (--url <image-url> | --file <path> | --clear)
@@ -224,9 +231,9 @@ Environment:
                        --notify. Mint one with \`pnpm create-token\` in the
                        editor package. Never passed on argv.
   RECIPE_EDITOR_URL    Same as --editor-url
-  RECIPE_ENV_FILE      The file RECIPE_API_TOKEN, RECIPE_EDITOR_URL and the
-                       RECIPE_LLM_* variables are read from when the
-                       environment lacks them (default
+  RECIPE_ENV_FILE      The file RECIPE_API_TOKEN, RECIPE_EDITOR_URL, the
+                       RECIPE_LLM_* variables and RECIPE_JOBS_DIR are read
+                       from when the environment lacks them (default
                        websites/recipe-website/editor/.env; nothing else in
                        it is read)
   RECIPE_LLM_URL       A local model server for imports (Ollama, e.g.
@@ -238,6 +245,9 @@ Environment:
   CONTENT_DIRECTORY    Local content directory; same as --content-dir
   YTDLP_PATH           yt-dlp binary for video imports (else the Settings
                        page's path, else \`yt-dlp\` on the PATH)
+  RECIPE_JOBS_DIR      Where import jobs keep their records and step logs
+                       (default websites/recipe-website/editor/jobs); read
+                       from editor/.env too
   DISCONTENT_WRITE_LOCK_TIMEOUT_MS
                        How long a write waits for another write's lock on
                        the content repository (default 30000) before it
@@ -291,6 +301,13 @@ commit, its source starts at its video chapter, and a line that names
 another recipe of the batch ("see recipe below") links to it. A recipe
 already imported from the same source is skipped (existing), so --all
 again after a partial run imports only what is missing.
+
+Every import, inspect and roundup call runs as a job: its result carries
+\`job\`, and its steps — the fetch, yt-dlp, each model call with its tokens,
+rate and GPU share, the writes — go to the job's log, printed on stderr as
+they happen when stderr is a terminal (or with --verbose). \`jobs show <id>\`
+prints a job and its steps afterwards; <id> may be the eight characters the
+step lines show.
 
 Piping --json: run it as \`pnpm --silent recipes …\`. Without --silent, pnpm
 prints its own script banner on stdout ahead of the object, so the stream is
@@ -468,6 +485,17 @@ export async function main(argv: string[]): Promise<number> {
       (values[name] ?? headParse.values[name]) as string | undefined;
 
     /*
+     * A job's step lines (epic 37, D7): on stderr when it is a terminal, or
+     * with `--verbose` — never on stdout, which `--json` keeps for its one
+     * object.
+     */
+    setJobMirror(
+      values.verbose === true || process.stderr.isTTY
+        ? (text) => process.stderr.write(`${text}\n`)
+        : null,
+    );
+
+    /*
      * One function, shared with the MCP server (D11), so the two entry points
      * cannot disagree about which corpus a bare invocation talks to.
      */
@@ -526,6 +554,8 @@ export async function main(argv: string[]): Promise<number> {
  */
 if (require.main === module) {
   loadEditorEnv();
+  /* The job store's default home, `editor/jobs/` (epic 37, D1). */
+  setJobsRoot(EDITOR_DIRECTORY);
   main(process.argv.slice(2))
     .then((code) => {
       process.exitCode = code;

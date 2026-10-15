@@ -36,7 +36,8 @@ import {
   resolveBackendConfig,
   type BackendConfig,
 } from "../cli/backend/resolve";
-import { loadEditorEnv } from "../cli/editorEnv";
+import { EDITOR_DIRECTORY, loadEditorEnv } from "../cli/editorEnv";
+import { setJobsRoot } from "../controller/jobs/location";
 import { createRecipeServer } from "./registry";
 
 function describe(config: BackendConfig): string {
@@ -105,6 +106,9 @@ export async function main(): Promise<void> {
  */
 if (require.main === module) {
   loadEditorEnv();
+  /* Its jobs go to `editor/jobs/` (epic 37, D1); no step lines — stdout is
+   * the protocol, and the mirror is off outside the editor by default. */
+  setJobsRoot(EDITOR_DIRECTORY);
   main().catch((error) => {
     console.error(`recipes MCP: ${error?.stack ?? error}`);
     process.exit(1);

@@ -13,7 +13,7 @@ import {
   errorResponse,
   readJsonBody,
 } from "recipe-editor/controller/curation/http";
-import { inspectList } from "recipe-editor/controller/curation/importList";
+import { corpusOf, runSpec } from "recipe-editor/controller/jobs/kinds";
 import { parseInput } from "recipe-editor/controller/curation/schema";
 import { z } from "zod";
 
@@ -28,7 +28,10 @@ export async function POST(request: Request) {
       InspectListBodySchema,
       await readJsonBody(request),
     );
-    return Response.json(await inspectList(ctx, url));
+    /* A job (epic 37): the answer carries its `job` id. */
+    return Response.json(
+      await runSpec({ kind: "inspect-list", ...corpusOf(ctx), url }, { ctx }),
+    );
   } catch (error) {
     return errorResponse(error);
   }

@@ -15,4 +15,14 @@ export async function register() {
   } catch (error) {
     console.error("[instance] failed to start:", error);
   }
+  /*
+   * Epic 37 (D5): jobs a dead process left `queued`/`running` become
+   * `interrupted`, and the store is pruned (D1). Housekeeping only.
+   */
+  try {
+    const { maintainJobs } = await import("../controller/jobs/run");
+    await maintainJobs();
+  } catch (error) {
+    console.error("[jobs] boot sweep failed:", error);
+  }
 }
