@@ -1498,6 +1498,18 @@ Sprinkle`,
         await expect(
           page.getByRole("group", { name: "Choose an image from the page" }),
         ).toHaveCount(0);
+        /* No local model here (36b): no model notice, the SEO one stands. */
+        await expect(page.getByTestId("llm-notice")).toHaveCount(0);
+      });
+
+      /* 36b: CI and this suite have no local model (RECIPE_LLM_URL unset). */
+      test("should disable Extract with AI when no local model is configured", async ({
+        page,
+      }) => {
+        const toggle = page.getByLabel("Extract with AI (local model)");
+        await expect(toggle).toBeDisabled();
+        await expect(toggle).not.toBeChecked();
+        await expect(page.getByText("No local model configured")).toBeVisible();
       });
 
       test("should be able to import a recipe with a singular image", async ({

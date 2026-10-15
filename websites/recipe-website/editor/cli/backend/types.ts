@@ -44,6 +44,7 @@ import type {
 } from "../../controller/curation/sync";
 import type { ImportResult } from "../../controller/curation/importRecipe";
 import type { InspectResult } from "../../controller/curation/inspect";
+import type { LlmMode } from "../../controller/llm/mode";
 import type {
   ImportListOptions,
   ImportListResult,
@@ -158,6 +159,14 @@ export interface ImportOptions {
   overwrite?: boolean;
   /** Create from an SEO-only page — no Recipe node — anyway (26a/D3). */
   allowPartial?: boolean;
+  /** The local model: `auto` (default), `force` or `off` (epic 36, D3). */
+  llm?: LlmMode;
+}
+
+/** What `inspect` takes besides the URL (36b). */
+export interface InspectOptions {
+  /** The local model: `auto` (default), `force` or `off` (epic 36, D3). */
+  llm?: LlmMode;
 }
 
 export interface CuratorBackend {
@@ -169,7 +178,7 @@ export interface CuratorBackend {
    * draft, the raw JSON-LD, its SEO metadata, ranked images and — for a video
    * host — yt-dlp's metadata.
    */
-  inspect(url: string): Promise<InspectResult>;
+  inspect(url: string, options?: InspectOptions): Promise<InspectResult>;
   /**
    * A roundup page's recipes, `existing` marked (34f, D11). One request,
    * nothing written.

@@ -129,6 +129,62 @@ function piesPage(): string {
   ].join("");
 }
 
+/** A roundup on A (36b): an old post with no Recipe node, then two bakes. */
+function oldFavouritesPage(): string {
+  const card = (href: string, name: string) =>
+    `<div><a href="${href}"><img src="${href}c.jpg"></a><h2>${name}</h2></div>`;
+  return [
+    "<html><head><title>Old Favourites</title></head><body><article>",
+    "<h1>Old Favourites</h1><div class='entry-content'>",
+    card("/nos/old-scones/", "Old Scones"),
+    card("/r/apple-cake/", "Apple Cake"),
+    card("/r/plum-crisp/", "Plum Crisp"),
+    "</div></article></body></html>",
+  ].join("");
+}
+
+const SCONE_LINES = ["2 cups flour", "1/2 cup cold butter", "3/4 cup cream"];
+
+/** An old blog post: the recipe is text, no Recipe node. */
+function sconePage(origin: string): string {
+  return [
+    "<html><head><title>Old Scones</title>",
+    `<meta property="og:image" content="${origin}/img/old-scones.png">`,
+    "</head><body><article><h1>Old Scones</h1><h2>Ingredients</h2><ul>",
+    ...SCONE_LINES.map((line) => `<li>${line}</li>`),
+    "</ul><h2>Method</h2><p>Rub in the butter, stir in the cream, bake.</p>",
+    "</article></body></html>",
+  ].join("");
+}
+
+const MODEL_URL = "http://model.test:11434";
+
+/**
+ * `fetch` as it is, but the local model's URL answers as Ollama with
+ * `answer` (36b) — the sites stay real loopback servers.
+ */
+function stubModel(answer: Record<string, unknown>) {
+  const realFetch = globalThis.fetch;
+  const calls: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (!url.startsWith(MODEL_URL)) return realFetch(input, init);
+      calls.push(url);
+      return new Response(
+        JSON.stringify({
+          model: "qwen3:8b",
+          message: { role: "assistant", content: JSON.stringify(answer) },
+          done: true,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }),
+  );
+  return calls;
+}
+
 function startSite(site: "a" | "b"): Promise<void> {
   const server = createServer((request, response) => {
     const path = (request.url ?? "/").split("?")[0];
@@ -152,6 +208,14 @@ function startSite(site: "a" | "b"): Promise<void> {
     if (path === "/pies/") {
       response.writeHead(200, { "content-type": "text/html" });
       return response.end(piesPage());
+    }
+    if (path === "/old-favourites/") {
+      response.writeHead(200, { "content-type": "text/html" });
+      return response.end(oldFavouritesPage());
+    }
+    if (path === "/nos/old-scones/") {
+      response.writeHead(200, { "content-type": "text/html" });
+      return response.end(sconePage(origin));
     }
     const recipe = /^\/r\/([a-z-]+)\/$/.exec(path);
     if (recipe) {
@@ -231,6 +295,8 @@ beforeEach(async () => {
     paceLoopback: true,
     state: new SiteState(),
   };
+  /* No local model unless a test configures one (36b). */
+  vi.stubEnv("RECIPE_LLM_URL", "");
   contentDirectory = await mkdtemp(join(tmpdir(), "import-list-"));
   git = simpleGit({ baseDir: contentDirectory });
   await git.init();
@@ -250,6 +316,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   await closeCachedEnvironments();
   await rm(contentDirectory, { recursive: true, force: true });
 });
@@ -663,6 +731,92 @@ describe("importList", () => {
 /* Transports                                                          */
 /* ------------------------------------------------------------------ */
 
+describe("importList with a local model (36b)", () => {
+  const answer = {
+    found: true,
+    name: "Old Scones",
+    ingredients: SCONE_LINES,
+    instructions: ["Rub in the butter, stir in the cream, bake."],
+  };
+
+  it("imports a no-schema item through auto, and says so in its commit", async () => {
+    vi.stubEnv("RECIPE_LLM_URL", MODEL_URL);
+    const calls = stubModel(answer);
+    const before = await commitCount();
+
+    const result = await importList(
+      ctx,
+      `${servers.a.origin}/old-favourites/`,
+      { pick: [1, 2] },
+      { pacing },
+    );
+
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        n: 1,
+        status: "imported",
+        slug: "old-scones",
+        llm: expect.objectContaining({ found: true, grounded: 3, total: 3 }),
+        warnings: [expect.stringMatching(/^extracted by local model qwen3:8b/)],
+      }),
+      expect.objectContaining({ n: 2, status: "imported", slug: "apple-cake" }),
+    ]);
+    /* The schema page never reached the model. */
+    expect(calls).toHaveLength(1);
+    expect(result.results[1].llm).toBeUndefined();
+    expect(await commitCount()).toBe(before + 2);
+    const log = await git.raw(["log", "-2", "--format=%s"]);
+    expect(log.trim().split("\n")).toEqual([
+      "Create recipe: apple-cake",
+      "Create recipe: old-scones (local model)",
+    ]);
+    const scones = await getRecipe(ctx, "old-scones");
+    expect(scones.recipe.ingredients).toHaveLength(3);
+    expect(scones.recipe.image).toBe("old-scones.png");
+    /* The model call is not a request to the site: still paced, still 15 s. */
+    expectPolite();
+  });
+
+  it("still refuses a no-schema item under off, or with no model", async () => {
+    const result = await importList(
+      ctx,
+      `${servers.a.origin}/old-favourites/`,
+      { pick: [1], dryRun: true },
+      { pacing },
+    );
+    expect(result.results[0]).toMatchObject({
+      status: "failed",
+      error: { code: "import_failed" },
+    });
+
+    vi.stubEnv("RECIPE_LLM_URL", MODEL_URL);
+    const calls = stubModel(answer);
+    const off = await importList(
+      ctx,
+      `${servers.a.origin}/old-favourites/`,
+      { pick: [1], dryRun: true, llm: "off" },
+      { pacing },
+    );
+    expect(off.results[0]).toMatchObject({ status: "failed" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("refuses force with no model before fetching anything", async () => {
+    await expect(
+      importList(
+        ctx,
+        `${servers.a.origin}/old-favourites/`,
+        { pick: [1], llm: "force" },
+        { pacing },
+      ),
+    ).rejects.toMatchObject({
+      code: "import_failed",
+      message: "no local model configured (RECIPE_LLM_URL)",
+    });
+    expect(hits).toEqual([]);
+  });
+});
+
 describe("the term", () => {
   it("resolves an alias to its owner, and refuses an alias label before fetching", async () => {
     await createTerm(ctx, {
@@ -767,7 +921,7 @@ describe("the CLI's --pick", () => {
 });
 
 describe("the HTTP backend", () => {
-  it("posts to /api/inspect-list and /api/import-list and rehydrates errors", async () => {
+  it("posts to /api/inspect-list, /api/inspect and /api/import-list and rehydrates errors", async () => {
     const seen: { path?: string; body: unknown }[] = [];
     const editor = createServer((request, response) => {
       let text = "";
@@ -797,15 +951,22 @@ describe("the HTTP backend", () => {
         url: "u",
         items: [],
       });
+      /* 36b: the local model's mode rides in the body. */
+      await backend.inspect("https://x.example/r/", { llm: "force" });
       await expect(
         backend.importList("https://x.example/list/", {
           pick: [9],
           term: "fall",
           dryRun: true,
+          llm: "off",
         }),
       ).rejects.toMatchObject({ code: "validation", message: "No item 9" });
       expect(seen).toEqual([
         { path: "/api/inspect-list", body: { url: "https://x.example/list/" } },
+        {
+          path: "/api/inspect",
+          body: { url: "https://x.example/r/", llm: "force" },
+        },
         {
           path: "/api/import-list",
           body: {
@@ -813,6 +974,7 @@ describe("the HTTP backend", () => {
             pick: [9],
             term: "fall",
             dryRun: true,
+            llm: "off",
           },
         },
       ]);

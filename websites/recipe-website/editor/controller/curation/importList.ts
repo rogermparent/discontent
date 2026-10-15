@@ -34,6 +34,15 @@
  *
  * The clock is a seam (`Pacing`) so tests assert the spacing without waiting
  * for it.
+ *
+ * ## The local model (36b)
+ *
+ * Each item goes through `applyLlm` (epic 36, D3) with the call's `llm` mode,
+ * default `auto`: a recipe page with no Recipe node — refused as `partial`
+ * before 36b — is read by the local model when one is configured, and
+ * imported when the model's reading is trusted (D4). The model call is not a
+ * request to the site, so it is not paced; it does make the call longer
+ * (~4–45 s an item on qwen3:8b).
  */
 import { getIndexDirectory } from "@discontent/cms/content/database";
 import { environmentExists } from "@discontent/cms/lmdb/environmentCache";
@@ -66,6 +75,14 @@ import {
   type ErrorObject,
 } from "./errors";
 import { importedToInput } from "./importRecipe";
+import {
+  LLM_MODES,
+  applyLlm,
+  assertLlmMode,
+  usedModel,
+  type LlmImportInfo,
+  type LlmMode,
+} from "../llm/importWithLlm";
 import {
   createRecipe,
   getRecipe,
@@ -300,6 +317,8 @@ export const ImportListOptionsSchema = z
     termLabel: z.string().trim().min(1).optional(),
     dryRun: z.boolean().optional(),
     limit: z.number().int().min(1).max(IMPORT_LIST_MAX_LIMIT).optional(),
+    /** The local model on each item: `auto` (default), `force`, `off` (36b). */
+    llm: z.enum(LLM_MODES).optional(),
   })
   .refine((data) => Boolean(data.pick?.length) !== Boolean(data.all), {
     message: "Pass `pick` (positions from inspect-list) or `all` — one of them",
@@ -332,6 +351,8 @@ export interface ImportListItemResult {
   image?: string;
   /** The page's own categories — hints for tagging, never applied. */
   suggestedTags?: string[];
+  /** The local model's part (36b), whenever it was asked. */
+  llm?: LlmImportInfo;
   error?: ErrorObject["error"];
   warnings?: string[];
 }
@@ -524,6 +545,7 @@ async function importItem(
   pacer: SitePacer,
   item: RoundupItem,
   dryRun: boolean,
+  mode?: LlmMode,
 ): Promise<ImportListItemResult> {
   const base = { n: item.n, url: item.url, name: item.name };
   if (isVideoUrl(item.url)) {
@@ -541,22 +563,31 @@ async function importItem(
     pacer.drop(item.url, `refused (HTTP 403) at ${item.url}`);
     throw new ImportError(`${item.url} answered 403 twice.`);
   }
-  const imported = mapRecipePage(
-    item.url,
-    /* Relative image URLs resolve against where the page ended up. */
-    parseRecipePage(page.html, page.finalUrl || item.url),
-    { ok: page.ok },
-  );
+  /* Relative image URLs resolve against where the page ended up. */
+  const parsed = parseRecipePage(page.html, page.finalUrl || item.url);
+  const {
+    recipe: imported,
+    llm,
+    warnings: llmWarnings,
+  } = await applyLlm({
+    url: item.url,
+    source: { html: page.html, ok: page.ok, meta: parsed.meta },
+    mapped: mapRecipePage(item.url, parsed, { ok: page.ok }),
+    mode,
+  });
+  const said = llmWarnings.length ? ` (${llmWarnings.join("; ")})` : "";
   if (!imported) {
     throw new ImportError(
       page.ok
-        ? `No recipe found at ${item.url}.`
+        ? `No recipe found at ${item.url}${said}.`
         : `${item.url} answered HTTP ${page.status}.`,
     );
   }
   if (imported.partial) {
     throw new ImportError(
-      `No schema.org Recipe at ${item.url} — only its title, description and image. ` +
+      (usedModel(llm)
+        ? `The local model's reading of ${item.url} is partial${said}. `
+        : `No schema.org Recipe at ${item.url} — only its title, description and image${said}. `) +
         "Inspect it and create it by hand, or skip it.",
     );
   }
@@ -568,9 +599,12 @@ async function importItem(
       `A recipe already has the slug "${slug}" (from another source) — import this one on its own with a slug.`,
     );
   }
-  const hints = imported.suggestedTags?.length
-    ? { suggestedTags: imported.suggestedTags }
-    : {};
+  const hints = {
+    ...(imported.suggestedTags?.length
+      ? { suggestedTags: imported.suggestedTags }
+      : {}),
+    ...(llm ? { llm } : {}),
+  };
 
   if (dryRun) {
     return {
@@ -579,10 +613,11 @@ async function importItem(
       slug,
       ...(input.imageImportUrl ? { image: input.imageImportUrl } : {}),
       ...hints,
+      ...(llmWarnings.length ? { warnings: llmWarnings } : {}),
     };
   }
 
-  const warnings: string[] = [];
+  const warnings: string[] = [...llmWarnings];
   const imageUrl = input.imageImportUrl ?? undefined;
   let file: File | undefined;
   if (imageUrl) {
@@ -599,7 +634,10 @@ async function importItem(
   const result = await createRecipe(
     ctx,
     file ? input : { ...input, imageImportUrl: undefined },
-    file ? { fetchImage: async () => file } : {},
+    {
+      ...(file ? { fetchImage: async () => file } : {}),
+      ...(usedModel(llm) ? { commitNote: "local model" } : {}),
+    },
   );
   warnings.push(...(result.warnings ?? []));
   return {
@@ -684,6 +722,7 @@ export async function importList(
 ): Promise<ImportListResult> {
   const options = parseInput(ImportListOptionsSchema, rawOptions);
   const url = checkUrl(rawUrl);
+  assertLlmMode(options.llm);
   const dryRun = options.dryRun === true;
   const plan = options.term
     ? await planTerm(ctx, options.term, options.termLabel)
@@ -736,7 +775,7 @@ export async function importList(
     }
     attempted += 1;
     try {
-      const result = await importItem(ctx, pacer, item, dryRun);
+      const result = await importItem(ctx, pacer, item, dryRun, options.llm);
       results.push(
         warning
           ? { ...result, warnings: [warning, ...(result.warnings ?? [])] }

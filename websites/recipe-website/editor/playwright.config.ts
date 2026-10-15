@@ -79,5 +79,14 @@ export default defineConfig({
      * production run. See the demo's config for the incident.
      */
     reuseExistingServer: !process.env.CI && !BUILD,
+    /*
+     * No local model in the suite (epic 36, T18), even in a checkout whose
+     * `editor/.env` sets one: Playwright spawns with `{...process.env,
+     * ...env}`, and `@next/env` never overrides a variable already set, `""`
+     * included — so the form's toggle, the Tools card, the visual baselines
+     * and the fixtures' auto-mode imports all see "not configured". A dev
+     * server reused from outside (`reuseExistingServer`) keeps its own env.
+     */
+    env: { RECIPE_LLM_URL: "" },
   },
 });

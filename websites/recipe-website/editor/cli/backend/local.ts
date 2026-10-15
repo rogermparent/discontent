@@ -155,9 +155,9 @@ export function createLocalBackend({
       return importAndCreate(ctx, url, options);
     },
     /* Reads a page and nothing else: no identity, no write. */
-    async inspect(url) {
+    async inspect(url, options = {}) {
       const { inspectUrl } = await import("../../controller/curation/inspect");
-      return inspectUrl(url);
+      return inspectUrl(url, options);
     },
     async inspectList(url) {
       const { inspectList } =

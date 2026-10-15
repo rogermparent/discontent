@@ -64,6 +64,12 @@ import {
   updateRecipe,
 } from "../websites/recipe-website/editor/controller/curation/recipes";
 import { reindex } from "../websites/recipe-website/editor/controller/curation/reindex";
+
+/** The yt-dlp stand-in the Playwright suite uses: fixture URLs only. */
+const YTDLP_MIMIC = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "../websites/recipe-website/editor/playwright/fixtures/yt-dlp/ytdlp-mimic.mjs",
+);
 import { searchRecipes } from "../websites/recipe-website/editor/controller/curation/search";
 
 /* ------------------------------------------------------------------ */
@@ -85,10 +91,14 @@ beforeEach(async () => {
    */
   previousContentDirectory = process.env.CONTENT_DIRECTORY;
   process.env.CONTENT_DIRECTORY = contentDirectory;
+  /* No local model unless a test configures one (36b): a shell's own
+   * RECIPE_LLM_URL must not send these imports to a real model. */
+  vi.stubEnv("RECIPE_LLM_URL", "");
 });
 
 afterEach(async () => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   await closeCachedEnvironments();
   if (previousContentDirectory === undefined) {
     delete process.env.CONTENT_DIRECTORY;
@@ -107,13 +117,37 @@ interface StubImage {
   length?: number;
 }
 
+/** Where the stubbed local model answers (36b); never a real one. */
+const MODEL_URL = "http://model.test:11434";
+
+/** What the stubbed model says: an answer, or `"unreachable"`. */
+type StubModel = Record<string, unknown> | "unreachable";
+
 /**
  * A tiny web: `images` answer as images (to `GET` and `HEAD` alike, as real
  * `Response`s, since `fetchImageFile` reads status, headers and the body
- * stream), and every other URL answers with `html`.
+ * stream), `MODEL_URL` answers as Ollama with `model` (36b), and every other
+ * URL answers with `html`.
  */
-function stubWeb(html: string, images: Record<string, StubImage> = {}) {
+function stubWeb(
+  html: string,
+  images: Record<string, StubImage> = {},
+  model?: StubModel,
+) {
   const fetchStub = vi.fn(async (input: string | URL, init?: RequestInit) => {
+    if (String(input).startsWith(MODEL_URL)) {
+      if (!model || model === "unreachable") {
+        throw new TypeError("fetch failed");
+      }
+      return new Response(
+        JSON.stringify({
+          model: "qwen3:8b",
+          message: { role: "assistant", content: JSON.stringify(model) },
+          done: true,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
     const image = images[String(input)];
     if (!image) {
       return new Response(html, {
@@ -569,6 +603,406 @@ describe("importAndCreate", () => {
     });
     await importAndCreate(ctx, PAGE_URL, { allowPartial: true });
     expect((await readRecipeFile("paper-plane")).name).toBe("Paper Plane");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 6b. Import with a local model (epic 36, 36b)                        */
+/* ------------------------------------------------------------------ */
+
+/** An old blog post: the recipe is text, there is no Recipe node. */
+const SCONE_PAGE = [
+  "<html><head>",
+  "<title>Grandma's Scones | Old Blog</title>",
+  `<meta property="og:image" content="${NAAN_IMAGE}">`,
+  "</head><body><article><h1>Grandma's Scones</h1>",
+  "<p>These are the scones my grandmother made every Sunday.</p>",
+  "<h2>Ingredients</h2><ul>",
+  "<li>2 cups flour</li><li>1 tbsp baking powder</li>",
+  "<li>1/2 cup cold butter</li><li>3/4 cup cream</li></ul>",
+  "<h2>Instructions</h2><ol>",
+  "<li>Whisk the flour and baking powder.</li>",
+  "<li>Cut in the butter.</li>",
+  "<li>Stir in the cream and bake for 15 minutes.</li></ol>",
+  "</article></body></html>",
+].join("");
+
+const SCONE_LINES = [
+  "2 cups flour",
+  "1 tbsp baking powder",
+  "1/2 cup cold butter",
+  "3/4 cup cream",
+];
+
+function sconeAnswer(ingredients: string[] = SCONE_LINES) {
+  return {
+    found: true,
+    name: "Grandma's Scones",
+    ingredients,
+    instructions: [
+      "Whisk the flour and baking powder.",
+      "Cut in the butter.",
+      "Stir in the cream and bake for 15 minutes.",
+    ],
+    cookTime: "15 minutes",
+  };
+}
+
+/** A schema page whose card says something else than its JSON-LD (force). */
+const NAAN_CARD_PAGE = recipeHtml().replace(
+  "<body></body>",
+  [
+    "<body><article><h1>Homestyle Naan</h1><div class='recipe-card'>",
+    "<h2>Ingredients</h2><ul><li>2 cups bread flour</li>",
+    "<li>1 tsp instant yeast</li><li>3/4 cup warm milk</li></ul>",
+    "<h2>Instructions</h2><ol><li>Knead the dough.</li>",
+    "<li>Griddle until blistered.</li></ol></div></article></body>",
+  ].join(""),
+);
+
+const NAAN_CARD_ANSWER = {
+  found: true,
+  name: "Homestyle Naan",
+  ingredients: [
+    "2 cups bread flour",
+    "1 tsp instant yeast",
+    "3/4 cup warm milk",
+  ],
+  instructions: ["Knead the dough.", "Griddle until blistered."],
+};
+
+/** The model calls a stub saw. */
+function modelCalls(fetchStub: ReturnType<typeof stubWeb>) {
+  return fetchStub.mock.calls.filter(([url]) =>
+    String(url).startsWith(MODEL_URL),
+  );
+}
+
+describe("importAndCreate with a local model (36b)", () => {
+  beforeEach(() => {
+    vi.stubEnv("RECIPE_LLM_URL", MODEL_URL);
+  });
+
+  it("auto fills a page with no Recipe node, and the dry run's draft is the model's", async () => {
+    const fetchStub = stubWeb(SCONE_PAGE, { [NAAN_IMAGE]: {} }, sconeAnswer());
+    const dry = await importAndCreate(ctx, PAGE_URL, { dryRun: true });
+    if (!("dryRun" in dry)) throw new Error("expected a dry run");
+
+    expect(dry.partial).toBeUndefined();
+    expect(dry.llm).toMatchObject({
+      model: "qwen3:8b",
+      mode: "auto",
+      found: true,
+      grounded: 4,
+      total: 4,
+    });
+    expect(dry.llm?.discarded).toBeUndefined();
+    expect(dry.warnings?.[0]).toMatch(
+      /^extracted by local model qwen3:8b — 4\/4 ingredient lines found verbatim on the page/,
+    );
+    /* The model's lines, the page's picture and citation. */
+    expect(dry.draft).toMatchObject({
+      name: "Grandma's Scones",
+      ingredients: SCONE_LINES,
+      instructions: [
+        "Whisk the flour and baking powder.",
+        "Cut in the butter.",
+        "Stir in the cream and bake for 15 minutes.",
+      ],
+      cookTime: 15,
+      source: { url: PAGE_URL },
+      imageImportUrl: NAAN_IMAGE,
+    });
+    expect(dry.recipe.image).toBe("naan.jpg");
+    expect(modelCalls(fetchStub)).toHaveLength(1);
+
+    /* Trusted, so a create needs no allowPartial. */
+    const created = await importAndCreate(ctx, PAGE_URL);
+    if ("dryRun" in created) throw new Error("expected a real import");
+    expect(created.llm).toMatchObject({ found: true, grounded: 4 });
+    const stored = await readRecipeFile("grandmas-scones");
+    expect(stored.ingredients).toHaveLength(4);
+    expect(stored.instructions).toHaveLength(3);
+    expect(stored.source?.url).toBe(PAGE_URL);
+  });
+
+  it("leaves a schema page alone under auto, and replaces its fields under force", async () => {
+    const fetchStub = stubWeb(
+      NAAN_CARD_PAGE,
+      { [NAAN_IMAGE]: {} },
+      NAAN_CARD_ANSWER,
+    );
+    const auto = await importAndCreate(ctx, PAGE_URL, { dryRun: true });
+    if (!("dryRun" in auto)) throw new Error("expected a dry run");
+    expect(auto.llm).toBeUndefined();
+    expect(auto.draft.ingredients).toEqual(["1 1/2 cups flour"]);
+    expect(modelCalls(fetchStub)).toHaveLength(0);
+
+    const forced = await importAndCreate(ctx, PAGE_URL, {
+      dryRun: true,
+      llm: "force",
+    });
+    if (!("dryRun" in forced)) throw new Error("expected a dry run");
+    expect(forced.llm).toMatchObject({ mode: "force", grounded: 3, total: 3 });
+    expect(forced.partial).toBeUndefined();
+    expect(forced.draft).toMatchObject({
+      name: "Homestyle Naan",
+      /* The schema's description stays: the model gave none. */
+      description: "South Asia's classic yeasted flatbread.",
+      ingredients: NAAN_CARD_ANSWER.ingredients,
+      instructions: NAAN_CARD_ANSWER.instructions,
+      source: { url: PAGE_URL },
+      imageImportUrl: NAAN_IMAGE,
+    });
+    expect(modelCalls(fetchStub)).toHaveLength(1);
+  });
+
+  it("keeps 50–90% grounded lines as partial, and drops them below half", async () => {
+    /* 3/4: kept, but partial — a create needs allowPartial. */
+    stubWeb(
+      SCONE_PAGE,
+      { [NAAN_IMAGE]: {} },
+      sconeAnswer([...SCONE_LINES.slice(0, 3), "1 cup golden raisins"]),
+    );
+    const kept = await importAndCreate(ctx, PAGE_URL, { dryRun: true });
+    if (!("dryRun" in kept)) throw new Error("expected a dry run");
+    expect(kept.partial).toBe(true);
+    expect(kept.llm).toMatchObject({ grounded: 3, total: 4 });
+    expect(kept.llm?.discarded).toBeUndefined();
+    expect(kept.draft.ingredients).toContain("1 cup golden raisins");
+    expect(kept.warnings?.[0]).toContain("partial");
+    await expect(importAndCreate(ctx, PAGE_URL)).rejects.toMatchObject({
+      code: "import_failed",
+      message: expect.stringContaining("local model"),
+    });
+
+    /* 1/4: thrown away — the SEO partial, with the counts and why. */
+    stubWeb(
+      SCONE_PAGE,
+      { [NAAN_IMAGE]: {} },
+      sconeAnswer([
+        "2 cups flour",
+        "1 cup golden raisins",
+        "2 eggs",
+        "1 tsp vanilla",
+      ]),
+    );
+    const dropped = await importAndCreate(ctx, PAGE_URL, { dryRun: true });
+    if (!("dryRun" in dropped)) throw new Error("expected a dry run");
+    expect(dropped.partial).toBe(true);
+    expect(dropped.llm).toMatchObject({
+      found: true,
+      discarded: true,
+      grounded: 1,
+      total: 4,
+    });
+    expect(dropped.draft.ingredients).toBeUndefined();
+    /* The SEO fallback's own name (the <title>), not the model's. */
+    expect(dropped.draft.name).toBe("Grandma's Scones | Old Blog");
+    expect(dropped.warnings).toContain(
+      "local model output discarded — only 1/4 ingredient lines found on the page",
+    );
+  });
+
+  it("drops an ungrounded forced reading back to the schema's recipe", async () => {
+    stubWeb(
+      NAAN_CARD_PAGE,
+      { [NAAN_IMAGE]: {} },
+      {
+        ...NAAN_CARD_ANSWER,
+        ingredients: ["1 cup rice", "2 eggs", "3/4 cup warm milk"],
+      },
+    );
+    const forced = await importAndCreate(ctx, PAGE_URL, {
+      dryRun: true,
+      llm: "force",
+    });
+    if (!("dryRun" in forced)) throw new Error("expected a dry run");
+    expect(forced.partial).toBeUndefined();
+    expect(forced.llm).toMatchObject({
+      discarded: true,
+      grounded: 1,
+      total: 3,
+    });
+    expect(forced.draft.name).toBe("Naan");
+    expect(forced.draft.ingredients).toEqual(["1 1/2 cups flour"]);
+  });
+
+  it("asks nothing under off, and says when the model found no recipe", async () => {
+    const fetchStub = stubWeb(
+      SCONE_PAGE,
+      { [NAAN_IMAGE]: {} },
+      {
+        found: false,
+        name: "",
+        ingredients: [],
+        instructions: [],
+      },
+    );
+    const off = await importAndCreate(ctx, PAGE_URL, {
+      dryRun: true,
+      llm: "off",
+    });
+    if (!("dryRun" in off)) throw new Error("expected a dry run");
+    expect(off.partial).toBe(true);
+    expect(off.llm).toBeUndefined();
+    expect(modelCalls(fetchStub)).toHaveLength(0);
+
+    const none = await importAndCreate(ctx, PAGE_URL, { dryRun: true });
+    if (!("dryRun" in none)) throw new Error("expected a dry run");
+    expect(none.partial).toBe(true);
+    expect(none.llm).toMatchObject({ found: false, mode: "auto" });
+    expect(none.warnings).toContain(
+      "local model qwen3:8b found no recipe on the page",
+    );
+  });
+
+  it("goes on without an unreachable model under auto, and fails under force", async () => {
+    stubWeb(SCONE_PAGE, { [NAAN_IMAGE]: {} }, "unreachable");
+    const auto = await importAndCreate(ctx, PAGE_URL, { dryRun: true });
+    if (!("dryRun" in auto)) throw new Error("expected a dry run");
+    expect(auto.partial).toBe(true);
+    expect(auto.llm).toMatchObject({ found: false });
+    expect(auto.llm?.error).toContain("unreachable");
+    expect(auto.warnings?.[0]).toMatch(/^local model not used/);
+
+    await expect(
+      importAndCreate(ctx, PAGE_URL, { dryRun: true, llm: "force" }),
+    ).rejects.toMatchObject({
+      code: "import_failed",
+      message: expect.stringContaining("unreachable"),
+    });
+  });
+
+  it("is a no-op under auto with no model configured, and import_failed under force", async () => {
+    vi.stubEnv("RECIPE_LLM_URL", "");
+    const fetchStub = stubWeb(SCONE_PAGE, { [NAAN_IMAGE]: {} }, sconeAnswer());
+    const auto = await importAndCreate(ctx, PAGE_URL, { dryRun: true });
+    if (!("dryRun" in auto)) throw new Error("expected a dry run");
+    expect(auto.partial).toBe(true);
+    expect(auto.llm).toBeUndefined();
+    expect(auto.warnings).toBeUndefined();
+    expect(modelCalls(fetchStub)).toHaveLength(0);
+
+    await expect(
+      importAndCreate(ctx, PAGE_URL, { dryRun: true, llm: "force" }),
+    ).rejects.toMatchObject({
+      code: "import_failed",
+      message: "no local model configured (RECIPE_LLM_URL)",
+    });
+  });
+
+  it("fills inspect's draft the same way, and reports llm", async () => {
+    stubWeb(SCONE_PAGE, { [NAAN_IMAGE]: {} }, sconeAnswer());
+    const result = await inspectUrl(PAGE_URL);
+    expect(result.partial).toBe(false);
+    expect(result.llm).toMatchObject({ found: true, grounded: 4, total: 4 });
+    expect(result.draft?.ingredients).toEqual(SCONE_LINES);
+    expect(result.warnings?.[0]).toMatch(/^extracted by local model/);
+    /* The page's own pictures, unchanged. */
+    expect(result.images[0]?.url).toBe(NAAN_IMAGE);
+
+    const off = await inspectUrl(PAGE_URL, { llm: "off" });
+    expect(off.partial).toBe(true);
+    expect(off.llm).toBeUndefined();
+    expect(off.draft?.ingredients).toBeUndefined();
+  });
+
+  /* Review round: a mapper that throws is the page's fault, not ours (T7). */
+  it("answers malformed JSON-LD as import_failed, with the URL as given", async () => {
+    stubWeb(recipeHtml({ description: "<table><tr><td>x</td></tr></table>" }));
+    await expect(
+      importAndCreate(ctx, `${PAGE_URL}#jump`, { dryRun: true }),
+    ).rejects.toMatchObject({
+      code: "import_failed",
+      message: expect.stringContaining(`Could not fetch ${PAGE_URL}#jump`),
+    });
+  });
+
+  /* Review round: under auto, a video that imported before stays importable. */
+  it("creates a video whose description lists ingredients but no method", async () => {
+    vi.stubEnv("YTDLP_PATH", YTDLP_MIMIC);
+    stubWeb(
+      "",
+      { "https://i.ytimg.com/vi/INGREDIENTS_TEST/maxresdefault.jpg": {} },
+      {
+        found: true,
+        name: "Weekend Focaccia",
+        ingredients: [
+          "Focaccia:",
+          "500g bread flour",
+          "400g water",
+          "10g salt",
+        ],
+        instructions: [],
+      },
+    );
+    const url = "https://www.youtube.com/watch?v=INGREDIENTS_TEST";
+    const dry = await importAndCreate(ctx, url, { dryRun: true });
+    if (!("dryRun" in dry)) throw new Error("expected a dry run");
+    expect(dry.partial).toBeUndefined();
+    expect(dry.llm).toMatchObject({ found: true, grounded: 4, total: 4 });
+    expect(dry.draft.ingredients).toEqual([
+      "Focaccia:",
+      "500g bread flour",
+      "400g water",
+      "10g salt",
+    ]);
+    expect(dry.warnings?.[0]).toMatch(
+      /reading is incomplete — it found no instructions; kept/,
+    );
+
+    /* As with --llm off, the create goes through: no allowPartial needed. */
+    const created = await importAndCreate(ctx, url);
+    if ("dryRun" in created) throw new Error("expected a real import");
+    const stored = await readRecipeFile(created.slug);
+    expect(stored.ingredients).toHaveLength(4);
+    expect(stored.video).toBe(url);
+  });
+
+  it("warns, and keeps yt-dlp's absence harmless, when force has no text", async () => {
+    vi.stubEnv("YTDLP_PATH", "/nonexistent/yt-dlp");
+    const fetchStub = stubWeb("", {}, sconeAnswer());
+    const url = "https://www.youtube.com/watch?v=RECIPE_TEST";
+    const dry = await importAndCreate(ctx, url, {
+      dryRun: true,
+      llm: "force",
+      name: "A Video",
+    });
+    if (!("dryRun" in dry)) throw new Error("expected a dry run");
+    expect(dry.llm).toMatchObject({
+      mode: "force",
+      found: false,
+      error: "no text to read",
+    });
+    expect(dry.warnings).toContain("local model not used — no text to read");
+    expect(dry.draft.videoImportUrl).toBe(url);
+    expect(modelCalls(fetchStub)).toHaveLength(0);
+  });
+
+  it("reads a video's title and description under auto (yt-dlp mimic)", async () => {
+    vi.stubEnv("YTDLP_PATH", YTDLP_MIMIC);
+    stubWeb(
+      "",
+      {},
+      {
+        found: true,
+        name: "Weeknight Pasta Salad",
+        ingredients: ["Pasta Salad:", "200g short pasta", "1 cucumber, diced"],
+        instructions: ["Boil the pasta.", "Toss everything together."],
+      },
+    );
+    const url = "https://www.youtube.com/watch?v=RECIPE_TEST";
+    const dry = await importAndCreate(ctx, url, { dryRun: true });
+    if (!("dryRun" in dry)) throw new Error("expected a dry run");
+    expect(dry.llm).toMatchObject({ found: true, grounded: 3, total: 3 });
+    expect(dry.draft).toMatchObject({
+      name: "Weeknight Pasta Salad",
+      ingredients: ["Pasta Salad:", "200g short pasta", "1 cucumber, diced"],
+      instructions: ["Boil the pasta.", "Toss everything together."],
+      videoImportUrl: url,
+      source: { url, name: "YouTube", author: "Test Kitchen Channel" },
+    });
   });
 });
 

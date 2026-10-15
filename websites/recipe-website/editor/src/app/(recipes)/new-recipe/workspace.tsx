@@ -15,10 +15,13 @@ export default function NewRecipeWorkspace({
   initialState,
   allTags,
   terms,
+  llmModel,
 }: {
   initialState: RecipeActionState | null;
   allTags: string[];
   terms: { slug: string; label: string }[];
+  /** The local model's name, or nothing when none is configured (36b). */
+  llmModel?: string;
 }) {
   const [roundupRunning, setRoundupRunning] = useState(false);
   return (
@@ -28,6 +31,7 @@ export default function NewRecipeWorkspace({
         initialState={initialState}
         allTags={allTags}
         busy={roundupRunning}
+        llmModel={llmModel}
       />
     </>
   );

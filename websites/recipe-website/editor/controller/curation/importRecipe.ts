@@ -12,10 +12,19 @@
  * form uses too), and a page with no Recipe node comes back as the importer's
  * SEO fallback, `partial: true` — which a dry run reports and a create refuses
  * unless asked (`allowPartial`).
+ *
+ * Since 36b the mapped page (or the video's title and description) goes through
+ * `applyLlm` (`../llm/importWithLlm`, epic 36 D3): under `auto` a local model
+ * fills a page with no Recipe node, under `force` it replaces the schema's
+ * fields. The result carries `llm` and its warnings, and a create from the
+ * model's lines says "(local model)" in its commit (D5).
  */
 import {
+  fetchRecipePage,
   importRecipeData,
   isVideoUrl,
+  mapRecipePage,
+  parseRecipePage,
   type ImportedRecipe,
 } from "recipe-website-common/util/importRecipeData";
 import type {
@@ -24,6 +33,14 @@ import type {
 } from "recipe-website-common/controller/types";
 import type { ImageProbe } from "../imageImport";
 import { fetchImageFile, probeImageFile } from "../imageImport";
+import {
+  applyLlm,
+  usedModel,
+  videoSource,
+  type ApplyLlmResult,
+  type LlmImportInfo,
+  type LlmMode,
+} from "../llm/importWithLlm";
 import { fetchYtdlpMetadata, ytdlpToRecipe } from "../ytdlp";
 import type { CurationContext } from "./context";
 import { ImportError, ValidationError } from "./errors";
@@ -53,50 +70,88 @@ export interface ImportDryRunResult {
   suggestedTags?: string[];
   image?: ImageProbe;
   video?: string;
-  /** An image over 2 MB (epic 31): a smaller candidate may be worth `--image`. */
+  /** The local model's part (epic 36), whenever it was asked. */
+  llm?: LlmImportInfo;
+  /**
+   * An image over 2 MB (epic 31): a smaller candidate may be worth `--image`;
+   * what the local model did, or why it was not used (epic 36).
+   */
   warnings?: string[];
 }
 
 export interface ImportCreateResult extends RecipeWriteResult {
   source?: RecipeSource;
+  /** The local model's part (epic 36), whenever it was asked. */
+  llm?: LlmImportInfo;
 }
 
 export type ImportResult = ImportDryRunResult | ImportCreateResult;
 
-/**
- * A video page through yt-dlp, or `undefined` when yt-dlp is missing or fails
- * — the caller then falls back to the importer's bare link (and `--name`).
- */
-async function importVideo(
-  url: string,
-): Promise<Partial<ImportedRecipe> | undefined> {
-  const result = await fetchYtdlpMetadata(url);
-  return result.status === "success"
-    ? ytdlpToRecipe(result.metadata, url)
-    : undefined;
+/** The importer's recipe, plus what the local model did with it. */
+export interface UrlImport extends ApplyLlmResult {
+  recipe: Partial<ImportedRecipe>;
 }
 
-/** The importer's own return, with "nothing here" turned into an error. */
+/**
+ * The page (or video) at `url`, mapped and — as `llm` says (default `auto`) —
+ * read by the local model, with "nothing here" turned into an error.
+ *
+ * A video host goes through yt-dlp; when that is missing or fails, the
+ * importer's bare link is the result (and `--name` the way to import it).
+ */
 export async function importFromUrl(
   url: string,
-): Promise<Partial<ImportedRecipe>> {
-  let imported;
-  try {
-    imported =
-      (isVideoUrl(url) ? await importVideo(url) : undefined) ??
-      (isVideoUrl(url)
-        ? await importRecipeData(url)
-        : /* On the per-site queue (34f), like every page and image fetch. */
-          await pacedRequest(url, (retry) => importRecipeData(url, retry)));
-  } catch (error) {
+  { llm: mode }: { llm?: LlmMode } = {},
+): Promise<UrlImport> {
+  let applied: ApplyLlmResult;
+  if (isVideoUrl(url)) {
+    const result = await fetchYtdlpMetadata(url);
+    applied =
+      result.status === "success"
+        ? await applyLlm({
+            url,
+            source: videoSource(result.metadata),
+            mapped: ytdlpToRecipe(result.metadata, url),
+            mode,
+          })
+        : /* No text to read; `force` still says when there is no model. */
+          await applyLlm({
+            url,
+            source: { text: "" },
+            mapped: await importRecipeData(url),
+            mode,
+          });
+  } else {
+    /* The importer's own rule: no fragment in the fetch or the citation. */
+    const pageUrl = url.split("#")[0];
+    let page, parsed, mapped;
+    try {
+      /* On the per-site queue (34f), like every page and image fetch. */
+      page = await pacedRequest(pageUrl, (retry) =>
+        fetchRecipePage(pageUrl, retry),
+      );
+      parsed = parseRecipePage(page.html, pageUrl);
+      /* Inside the try, as `importRecipeData` was: malformed JSON-LD is
+       * `import_failed`, not `internal`. */
+      mapped = mapRecipePage(pageUrl, parsed, { ok: page.ok });
+    } catch (error) {
+      throw new ImportError(
+        `Could not fetch ${url}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    applied = await applyLlm({
+      url: pageUrl,
+      source: { html: page.html, ok: page.ok, meta: parsed.meta },
+      mapped,
+      mode,
+    });
+  }
+  if (!applied.recipe) {
     throw new ImportError(
-      `Could not fetch ${url}: ${error instanceof Error ? error.message : String(error)}`,
+      [`No schema.org Recipe found at ${url}`, ...applied.warnings].join(" — "),
     );
   }
-  if (!imported) {
-    throw new ImportError(`No schema.org Recipe found at ${url}`);
-  }
-  return imported;
+  return { ...applied, recipe: applied.recipe };
 }
 
 /**
@@ -156,6 +211,7 @@ export async function importAndCreate(
     dryRun = false,
     overwrite = false,
     allowPartial = false,
+    llm: mode,
   }: {
     tags?: string[];
     slug?: string;
@@ -166,13 +222,22 @@ export async function importAndCreate(
     overwrite?: boolean;
     /** Create from an SEO-only (no Recipe node) page anyway. */
     allowPartial?: boolean;
+    /** The local model: `auto` (default), `force` or `off` (epic 36, D3). */
+    llm?: LlmMode;
   } = {},
 ): Promise<ImportResult> {
-  const imported = await importFromUrl(url);
+  const {
+    recipe: imported,
+    llm,
+    warnings: llmWarnings,
+  } = await importFromUrl(url, { llm: mode });
   const partial = imported.partial === true;
   if (partial && !dryRun && !allowPartial) {
     throw new ImportError(
-      `No schema.org Recipe found at ${url} — only its title, description and image. ` +
+      (usedModel(llm)
+        ? `The local model's reading of ${url} is partial (${llmWarnings.join("; ")}). `
+        : `No schema.org Recipe found at ${url} — only its title, description and image` +
+          (llmWarnings.length ? ` (${llmWarnings.join("; ")}). ` : ". ")) +
         "Dry-run it to see them, or pass --allow-partial to create from them anyway.",
     );
   }
@@ -221,7 +286,10 @@ export async function importAndCreate(
         : {}),
       ...(probe ? { image: probe } : {}),
       ...(data.video ? { video: data.video } : {}),
-      ...(warnings.length > 0 ? { warnings } : {}),
+      ...(llm ? { llm } : {}),
+      ...(llmWarnings.length + warnings.length > 0
+        ? { warnings: [...llmWarnings, ...warnings] }
+        : {}),
     };
   }
 
@@ -229,6 +297,13 @@ export async function importAndCreate(
     overwrite,
     fetchImage: (imageUrl) =>
       pacedRequest(imageUrl, (retry) => fetchImageFile(imageUrl, { retry })),
+    ...(usedModel(llm) ? { commitNote: "local model" } : {}),
   });
-  return { ...result, ...(input.source ? { source: input.source } : {}) };
+  const allWarnings = [...llmWarnings, ...(result.warnings ?? [])];
+  return {
+    ...result,
+    ...(input.source ? { source: input.source } : {}),
+    ...(llm ? { llm } : {}),
+    ...(allWarnings.length > 0 ? { warnings: allWarnings } : {}),
+  };
 }

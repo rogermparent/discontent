@@ -1,9 +1,19 @@
 import {
   ImportedRecipe,
+  fetchRecipePage,
   importRecipeData,
   isVideoUrl,
+  mapRecipePage,
+  parseRecipePage,
 } from "recipe-website-common/util/importRecipeData";
 import { ytdlpToRecipe } from "recipe-editor/controller/ytdlp";
+import {
+  applyLlm,
+  videoSource,
+  type ApplyLlmResult,
+  type LlmImportInfo,
+  type LlmMode,
+} from "recipe-editor/controller/llm/importWithLlm";
 import { fetchYtdlpMetadata } from "./ytdlp";
 
 /** A person is waiting on the form: a 403 is retried at once (epic 31, D3). */
@@ -14,19 +24,42 @@ export interface RecipeActionState {
   message?: string;
   error?: Error;
   recipe?: Partial<ImportedRecipe>;
+  /** The local model's part (epic 36), whenever it was asked. */
+  llm?: LlmImportInfo;
+  /** What the local model did, or why it was not used. */
+  warnings?: string[];
+}
+
+function withLlm(
+  url: string,
+  { recipe, llm, warnings }: ApplyLlmResult,
+  message?: string,
+): RecipeActionState {
+  return {
+    url,
+    recipe,
+    ...(message ? { message } : {}),
+    ...(llm ? { llm } : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
+  };
 }
 
 /**
- * The form's import: yt-dlp for a video host, the page importer otherwise.
+ * The form's import: yt-dlp for a video host, the page importer otherwise,
+ * then the local model as `mode` says (epic 36, D3: `auto` unless the form's
+ * "Extract with AI" box asked for `force`).
  *
  * The video mapping is `ytdlpToRecipe`, the same one the curation layer uses
  * (26a), so a video imported here and one imported with `recipes import` carry
- * the same name, description, citation and thumbnail.
+ * the same name, description, citation and thumbnail; the page goes through
+ * the importer's own `fetchRecipePage` → `parseRecipePage` → `mapRecipePage`,
+ * which `importRecipeData` is, because the model needs the HTML.
  */
 export async function reduceRecipeImport(
   _state: RecipeActionState | null,
   url: string | null,
-) {
+  mode?: LlmMode,
+): Promise<RecipeActionState> {
   if (!url) {
     return { message: "No URL provided" };
   }
@@ -35,19 +68,43 @@ export async function reduceRecipeImport(
       if (isVideoUrl(url)) {
         const result = await fetchYtdlpMetadata(url);
         if (result.status === "success") {
-          return { url, recipe: ytdlpToRecipe(result.metadata, url) };
+          return withLlm(
+            url,
+            await applyLlm({
+              url,
+              source: videoSource(result.metadata),
+              mapped: ytdlpToRecipe(result.metadata, url),
+              mode,
+            }),
+          );
         }
         const message =
           result.status === "not-found"
             ? "yt-dlp binary was not found. Please check your settings."
             : `yt-dlp error: ${result.message}`;
-        return {
+        return withLlm(
           url,
+          await applyLlm({
+            url,
+            source: { text: "" },
+            mapped: await importRecipeData(url, BROWSER_RETRY),
+            mode,
+          }),
           message,
-          recipe: await importRecipeData(url, BROWSER_RETRY),
-        };
+        );
       }
-      return { recipe: await importRecipeData(url, BROWSER_RETRY), url };
+      const pageUrl = url.split("#")[0];
+      const page = await fetchRecipePage(pageUrl, BROWSER_RETRY);
+      const parsed = parseRecipePage(page.html, pageUrl);
+      return withLlm(
+        url,
+        await applyLlm({
+          url: pageUrl,
+          source: { html: page.html, ok: page.ok, meta: parsed.meta },
+          mapped: mapRecipePage(pageUrl, parsed, { ok: page.ok }),
+          mode,
+        }),
+      );
     } else {
       return { message: "Invalid URL provided" };
     }

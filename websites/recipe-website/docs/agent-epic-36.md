@@ -13,7 +13,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 36a in review (PR open); qwen3:8b passes the gate. 36b (wiring) next.
+**Now:** 36b in review (PR open); 36c (text mode) next.
 
 ## Context
 
@@ -177,8 +177,8 @@ fetch work the same way.
 | Phase    | Branch               | Size | Status  | What                                                             |
 | -------- | -------------------- | ---- | ------- | ---------------------------------------------------------------- |
 | 36-plan  | `agent/36-plan`      | S    | ✅ #230 | This doc.                                                        |
-| 36a      | `agent/36a-llm-core` | M    | 🟡      | D1, D2, D4, D6, D7: `pageText`, the client, the extractor, gate. |
-| 36b      | `agent/36b-llm-wire` | M    | 📝      | D3, D5: `applyLlm` in seats, form, CLI, API, MCP; Settings line. |
+| 36a      | `agent/36a-llm-core` | M    | ✅ #231 | D1, D2, D4, D6, D7: `pageText`, the client, the extractor, gate. |
+| 36b      | `agent/36b-llm-wire` | M    | 🟡      | D3, D5: `applyLlm` in seats, form, CLI, API, MCP; Settings line. |
 | 36c      | `agent/36c-llm-text` | M    | 📝      | D8: text import mode in the form, CLI, API, MCP.                 |
 | 36-close | `agent/36-close`     | S    | 📝      | Results, D12/SKILL.md updates, backlog, memory, Roger's steps.   |
 
@@ -396,6 +396,56 @@ plumbing (`ImportOptions`, the zod bodies, the form). 36-close after 36c.
   dropping `html`/`body`/`main`, a bottom-up length pass, and a tag-stripping
   fallback.
 
+### 36b
+
+- **T15 — A Recipe node can be empty, and a video has none.** D3's "auto
+  runs when the result is `partial`" missed two cases: yt-dlp's recipe is
+  never `partial` but has no ingredients, and some pages carry a Recipe node
+  with no ingredients (36a's Joshua Weissman page). `autoWantsModel` asks
+  instead whether the mapper found a recipe **body** — ingredients or steps.
+- **T16 — `mapRecipePage` answers `undefined`, not `partial`, for a page
+  with no title, description or image** (textfiles.com's plain-text pages).
+  `applyLlm` treats "nothing" as eligible under auto, so those import now;
+  a non-2xx page is never read, whatever the mode.
+- **T17 — The visual baselines of `/new-recipe` moved again** (35r's trap):
+  the "Extract with AI" line is a row under the URL field.
+  `new-recipe-form-e2e.png` and `new-recipe-form-overwrite-e2e.png` were
+  regenerated (`--update-snapshots -g "new-recipe form"` through the heavy
+  slot). Any change to that row's height does it again.
+- **T18 — A model in `editor/.env` would leak into the Playwright suite.**
+  Next loads `editor/.env`, so a checkout whose `.env` sets
+  `RECIPE_LLM_URL` (the main checkout after Roger's step) would see an
+  enabled toggle, a "reachable" Tools card, and auto-mode model calls on
+  the fixtures' no-schema imports. `playwright.config.ts` pins
+  `webServer.env: {RECIPE_LLM_URL: ""}` (review round): Playwright spawns
+  with `{...process.env, ...env}` and `@next/env` never overrides a
+  variable already set, `""` included. That covers `new-recipe.spec`'s
+  toggle test, `settings-nav.spec`'s Tools card, the `/new-recipe` visual
+  baselines and the auto-mode fixture imports. **Caveat:** in dev mode
+  `reuseExistingServer` adopts a server already on the port, which keeps
+  its own environment — stop a hand-started `next dev` before a local run.
+- **T19 — A model call is not a site request, so it is not paced** — and
+  it overlaps the 15 s gap rather than adding to it. A roundup item read by
+  the model costs ~4–30 s more; under `force` with a slow model, six dry-run
+  items could approach `IMPORT_LIST_HTTP_TIMEOUT_MS` (285 s). Keep `--limit`
+  low with `--llm force` on `import-list`.
+- **T20 — The prompt's "a servings line is the yield" still slips.** PUNCH's
+  Last Word came back with `Serving: 1` as its first ingredient line (it is
+  on the page, so it grounds). And a step copied as "8 Serve immediately…"
+  keeps its bare number (`cleanStep` strips "8." and "8)", not "8 "). Both
+  are what "check it" is for; neither is worth a prompt edit (T1).
+- **T21 — An untrusted reading must not turn an import into a refusal**
+  (review). Under auto, a video (or an empty Recipe node) is not `partial`,
+  so it imported before 36b; the first cut set `partial` on any untrusted
+  extraction, so a Lagerstrom description with ingredients and "watch the
+  video for the method" (3/3 verbatim, 0 steps) was refused where `--llm
+off` created it. The rule now: under auto, a result that was not partial
+  never becomes partial.
+- **T22 — An empty list from the model wiped the schema's** (review). Under
+  force, `ingredients: []` has `total = 0`, so the floor never fires, and
+  the merge replaced the schema's list with `[]` (steps likewise). The
+  merge keeps the page's list when the model's is empty, and says so.
+
 ## Results
 
 ### 36a — Extractor core + measurement gate
@@ -605,3 +655,175 @@ clean; `pnpm --filter recipe-website exec tsc --noEmit` clean;
 `pnpm exec vitest run` 78 files / 1662 tests passed; Playwright (build
 mode, heavy slot) `new-recipe.spec` + `import-roundup.spec`:
 43 passed. No reindex, no schema change.
+
+### 36b — Wiring
+
+**Reindex needed: no.** No index, schema or spec version changed; nothing
+new is stored in a recipe (D5).
+
+**Built.**
+
+- `editor/controller/llm/importWithLlm.ts` — `applyLlm({url?, source,
+mapped, mode?, config?})` → `{recipe, llm?, warnings}`, the only place
+  that decides auto / force / off. `source` is `{html, ok?, meta?}` (a page:
+  `pageText` runs inside) or `{text, meta?}` (a video's title +
+  description, `videoSource(meta)`; 36c's pasted text slots in here).
+  Also `assertLlmMode` (force with no model, before anything is fetched),
+  `autoWantsModel`, `mergeExtraction`, `usedModel`, `GROUNDED_FLOOR`. The
+  extractor and `pageText` are `await import`ed when the model runs.
+- `editor/controller/llm/mode.ts` — `LLM_MODES`, `LlmMode`, `isLlmMode`,
+  no imports: the CLI's option parsing, the zod bodies and the MCP schemas
+  name the modes without loading the client (35q).
+- `client.ts` gains `llmStatus(config)`: one `GET` of `/api/tags` (Ollama)
+  or `/v1/models` (OpenAI), 2 s, never throws — `{reachable,
+modelAvailable?, error?}`.
+- **Seats.** `importFromUrl(url, {llm})` now fetches with `fetchRecipePage`
+  → `parseRecipePage` → `mapRecipePage` (the paced queue as before) and
+  answers `{recipe, llm?, warnings}`; video hosts go through yt-dlp, then
+  `applyLlm` on title + description. `importAndCreate` takes `llm`; its
+  dry-run and create results carry `llm` and the warnings (ahead of the
+  image warnings); a create whose recipe has the model's lines commits
+  `Create recipe: <slug> (local model)` (`createRecipe`'s new `commitNote`).
+  `inspectUrl(url, {llm})` returns `llm` and `warnings`, and its `recipe` /
+  `draft` are the model's reading. `importItem` (roundups) runs every item
+  through `applyLlm` with the call's `llm` (`ImportListOptionsSchema`);
+  a no-schema item that the model reads trustworthily is imported (commit
+  "(local model)"), one that stays partial still fails with the reason.
+- **Surfaces.** CLI `import`, `inspect`, `import-list` take
+  `--llm auto|force|off` (`llmOption`: anything else is `usage`), the human
+  format prints a "local model (mode): … N/M ingredient lines grounded"
+  line; `--help` lists `RECIPE_LLM_URL/MODEL/API` and a paragraph on the
+  modes. `ImportOptions.llm`, `InspectOptions` and the HTTP backend's
+  `inspect(url, options)`; zod `llm` on `/api/import`, `/api/inspect` and
+  (through the options schema) `/api/import-list`; MCP `recipe_import`,
+  `page_inspect` and `recipe_import_list` take `llm` (tool count unchanged,
+  descriptions say what `llm` in a result means). `RECIPE_LLM_URL`,
+  `RECIPE_LLM_MODEL`, `RECIPE_LLM_API` join `EDITOR_ENV_KEYS`, with the
+  header comment's allow-list now "how to reach something".
+- **Form.** `reduceRecipeImport(state, url, mode)` (page and video paths,
+  still `BROWSER_RETRY`); the action sends `force` when "Extract with AI
+  (local model)" is ticked, else `auto`. The box is disabled with "— No
+  local model configured" when `page.tsx`'s `llmConfig()` is empty; a
+  pending note names the model; the warnings show in a `role="status"`
+  notice (`data-testid="llm-notice"`), and the SEO-only notice is shown only
+  when the model's lines are not in the form.
+- **Settings → Tools:** a "Local model" card — server, API, model, and
+  reachable / unreachable (why) / "reachable, but <model> is not pulled";
+  "No local model configured …" when unset (the Pi). Tools rather than Site
+  details: it sits beside the yt-dlp path, the other external tool.
+
+**D3 amendments.**
+
+- **auto runs when the mapper found no recipe body**: no Recipe node
+  (`partial`), nothing at all (`undefined` from an OK page — T16), or a
+  Recipe node / video with no ingredients and no steps (T15). A non-2xx
+  page is never read.
+- **force fails on any model failure**, not only "unconfigured": a timeout
+  or an unreachable server under force is `import_failed` ("local model
+  failed: …"). Under auto it is a warning ("local model not used — …") and
+  `llm.error`, and the import goes on as before.
+- **force on a roundup with no model is refused before the list is
+  fetched** (`assertLlmMode`), rather than failing every item alike.
+- **The merge** (`mergeExtraction`): the model's name, description,
+  yield and times where it gave them, its ingredients and steps always;
+  the page's image, images, video, source and suggested tags always. A
+  schema's description or times survive a force that has none.
+
+**D4 amendment — the grounding floor** (the orchestrator's decision on
+36a's open question). Under `GROUNDED_FLOOR` (50%) of the model's own lines
+grounded, `applyLlm` throws the reading away: the recipe is what the mapper
+gave (today's SEO partial; the schema's recipe under force), `llm` keeps the
+counts with `discarded: true`, and the warning says "local model output
+discarded — only N/M ingredient lines found on the page". From 50% (exactly
+half is kept) to under 90% the lines are kept and the result is `partial`,
+so a create needs `allowPartial` and its refusal names the model's reading.
+`found: false` keeps the mapper's result with "local model qwen3:8b found no
+recipe on the page".
+
+**`llm` in results:** `{model, mode, found, grounded?, total?, verbatim?,
+ungrounded?, added?, durationMs?, discarded?, error?}` — present whenever
+the model was asked (or, under auto, failed); absent under off, with no
+model, or when auto had no reason to ask.
+
+**Real model** (qwen3:8b on the workstation's Ollama, one call at a time,
+`--dry-run --json --content-dir <scratch clone>`, 2026-10-15; the clone was
+deleted after). Offline = 36a's cached pages served from 127.0.0.1 (no
+network); live = one fetch per host.
+
+| run                                         | result                                                                                                                                                                                                   | model s |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| PUNCH Negroni (microdata only), `off`       | partial: name only, 0 ingredients — today's behaviour                                                                                                                                                    | –       |
+| same, `auto`                                | not partial; 5/5 verbatim, 4 steps                                                                                                                                                                       | 9.4     |
+| CMU Gingerbread Men, `off` / `auto`         | partial / 11/11 verbatim, 5 steps, yield "Makes about 5 dozen"                                                                                                                                           | 5.9     |
+| textfiles.com black bean chili, `auto`      | 16/16 verbatim, 7 steps (was `undefined` → "No schema.org Recipe found" before — T16)                                                                                                                    | 13.1    |
+| Wikibooks `Cookbook:Hummus_I`, `auto`       | 9/9 verbatim, 9 steps                                                                                                                                                                                    | 8.9     |
+| Wikibooks `Cookbook:Hummus` (article)       | `found: false`, stays partial, "found no recipe on the page"                                                                                                                                             | 2.3     |
+| Sally's apple pie, `auto` → `force`         | auto: schema, no model call. force: 10/10 lines **identical** to the JSON-LD, 11/11 steps, times 180/65/420                                                                                              | 29.0    |
+| Sally's Star Bread, `auto` → `force`        | 10/10 identical, 9/9 steps, times 150/30/180 agree                                                                                                                                                       | 27.5    |
+| **live** PUNCH Last Word, `auto`            | not partial; 6/6 verbatim (incl. "Serving: 1" — T20), 4 steps; 17.5 s wall                                                                                                                               | 3.9     |
+| **live** Sally's pumpkin roll, `force`      | 16/16 JSON-LD lines + the "Cream Cheese Frosting:" heading; 11/11 steps; times 25/18/225 agree; 25.7 s wall                                                                                              | 22.7    |
+| **live** CMU Anzac biscuits, `off`          | partial, name only; 2.6 s wall                                                                                                                                                                           | –       |
+| **live** YouTube `lo2pf0pYB9U` (Lagerstrom) | yt-dlp reached it; `auto` read title + description: 28/28 verbatim, "Pasta Salad:" / "Dressing:" headings, 8 steps; no sponsor, link or timestamp line; image, video and source from yt-dlp; 25.1 s wall | 17.5    |
+
+**Gates.** `pnpm --filter recipe-editor typecheck` clean;
+`pnpm --filter recipe-website exec tsc --noEmit` clean; `pnpm exec vitest
+run` 79 files / 1683 tests passed (new: `test/importWithLlm.test.ts`, 6;
+`curation` +9 — auto fills a no-schema page and the dry-run draft, force
+over schema, 3/4 kept partial and 1/4 discarded, an ungrounded force falls
+back to the schema, off and found:false, unreachable under auto and force,
+unconfigured auto no-op and force `import_failed`, inspect, the video path
+through the yt-dlp mimic (new fixture `responses/recipe.json`);
+`importList` +3 — a no-schema roundup item through auto with its
+"(local model)" commit, off / no model still refused, force with no model
+refused before fetching; `cliJson` +1 — `--llm maybe` is `usage`, force
+with no model, the model's URL from `RECIPE_ENV_FILE`; `editorEnv` +1;
+`mcp` +1; the HTTP backend posts `llm`). Playwright (build mode, heavy
+slot) `new-recipe.spec`, `settings-nav.spec`, `accessibility.spec`,
+`import-roundup.spec`, `visual.spec`: **100 passed** (the two
+`/new-recipe` baselines regenerated first, T17).
+
+**Review round** (7 findings, fixed in one commit):
+
+1. **Auto never makes a non-partial result partial** (T21). When the
+   mapper's result was not `partial` (a video, an empty Recipe node), an
+   untrusted reading at ≥ 50% is kept _without_ `partial`, with "local model
+   …'s reading is incomplete — <why>; kept, since the import had nothing in
+   its place; check it against the source". Under force, and over an SEO
+   partial, D4 stands. `partial` is now decided by `applyLlm` on the merged
+   result: the model's lines ≥ 90% grounded (or none of its own, the page's
+   kept), an ingredient and a step.
+2. **Empty lists never wipe the page's** (T22): `mergeExtraction` keeps
+   the mapper's ingredients or steps when the model's are empty, and the
+   warnings say "the local model returned no <list>: the page's own <list>
+   are kept".
+3. **Playwright pins `RECIPE_LLM_URL=""`** in `webServer.env` (T18).
+4. **Force with no text to read** (yt-dlp missing, an empty page) **warns**
+   — "local model not used — no text to read", `llm.error` — rather than
+   raising: the mapper's result is still a result (a video's bare link with
+   `--name`), and nothing was asked of the model that could fail. Under
+   auto it stays silent.
+5. `mapRecipePage` is back inside the fetch `try`: malformed JSON-LD is
+   `import_failed` again (not `internal`), and the message names the URL
+   as given (fragment included).
+6. The model's title hint is the mapper's name first, then the page's
+   `<title>`, so force never trades a schema's clean name for "X | Site".
+7. `displayUrl` strips `user:password@`, the query and the fragment from
+   the model URL in every `LlmError` message and on the Tools card.
+
+Tests: `importWithLlm.test` +6 (exactly 90% trusted and 80% partial, empty
+ingredients / steps under force keep the schema's, auto never partial over
+a video with force partial for comparison, force with no text, the title
+hint, `displayUrl`); `curation` +3 (the ingredients-only video imports and
+creates under auto — new mimic fixture `responses/ingredients-only.json`;
+force with yt-dlp missing warns; malformed JSON-LD is `import_failed`).
+Gates: typecheck and `tsc --noEmit` clean; `vitest` 79 files / 1692 tests;
+Playwright (build mode, heavy slot) `new-recipe`, `settings-nav`,
+`import-roundup`, `visual`: **74 passed**.
+
+**Left for 36c** (as briefed): `ImportOptions` / `api/import` / the CLI
+`import` / MCP `recipe_import` take `url` today; `applyLlm`'s `{text}`
+source, `videoSource` and the result's `llm` / `warnings` are what the
+`text` (+ `source`) mode needs. **Not done:** the form's own submit commit
+says nothing of the model (the form's create is the person's edit, not an
+import); the `import-list` human format prints no per-item `llm` line
+(`--json` carries it).

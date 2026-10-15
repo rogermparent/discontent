@@ -5,6 +5,7 @@ import {
   readTagVocabulary,
 } from "recipe-website-common/controller/data/readTermPage";
 import { reduceRecipeImport } from "./common";
+import { llmConfig } from "recipe-editor/controller/llm/client";
 import {
   PageMain,
   PageSection,
@@ -40,6 +41,7 @@ export default async function NewRecipe({
           initialState={initialState}
           allTags={allTags}
           terms={vocabulary.map(({ slug, label }) => ({ slug, label }))}
+          llmModel={llmConfig()?.model}
         />
       </PageSection>
     </PageMain>

@@ -9,6 +9,10 @@
  * answers 201 like any other create. That difference is the point of the flag:
  * the curator inspects a candidate before deciding, and a dry run must not look
  * like a write in any status code, log line or cache tag.
+ *
+ * `llm` (36b) is the local model's mode — `auto` (default), `force`, `off` —
+ * and a result the model touched carries `llm`. A model call can take most of
+ * a minute (the first one loads the model).
  */
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
 import {
@@ -19,6 +23,7 @@ import { importAndCreate } from "recipe-editor/controller/curation/importRecipe"
 import { ValidationError } from "recipe-editor/controller/curation/errors";
 import { z } from "zod";
 import { parseInput } from "recipe-editor/controller/curation/schema";
+import { LLM_MODES } from "recipe-editor/controller/llm/mode";
 
 const ImportBodySchema = z.strictObject({
   url: z.string().min(1, "An import needs a url"),
@@ -29,6 +34,7 @@ const ImportBodySchema = z.strictObject({
   dryRun: z.boolean().optional(),
   overwrite: z.boolean().optional(),
   allowPartial: z.boolean().optional(),
+  llm: z.enum(LLM_MODES).optional(),
 });
 
 export async function POST(request: Request) {

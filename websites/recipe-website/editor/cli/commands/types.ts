@@ -1,5 +1,7 @@
 import type { ParseArgsOptionsConfig } from "node:util";
 import type { CuratorBackend } from "../backend/types";
+import { UsageError } from "../../controller/curation/errors";
+import { LLM_MODES, isLlmMode, type LlmMode } from "../../controller/llm/mode";
 
 export interface CommandRunContext {
   backend: CuratorBackend;
@@ -81,4 +83,23 @@ export function booleanOption(
   name: string,
 ): boolean {
   return options[name] === true;
+}
+
+/** `--llm auto|force|off` (epic 36, D3): the local model's part in an import. */
+export const LLM_OPTION = { llm: { type: "string" } } as const;
+
+/** The usage text's spelling of `--llm`. */
+export const LLM_USAGE = `[--llm ${LLM_MODES.join("|")}]`;
+
+export function llmOption(
+  options: CommandRunContext["options"],
+): LlmMode | undefined {
+  const value = stringOption(options, "llm");
+  if (value === undefined) return undefined;
+  if (!isLlmMode(value)) {
+    throw new UsageError(
+      `--llm takes ${LLM_MODES.join(", ")} — not "${value}".`,
+    );
+  }
+  return value;
 }

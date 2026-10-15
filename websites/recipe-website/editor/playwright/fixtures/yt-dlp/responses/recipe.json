@@ -1,0 +1,11 @@
+{
+  "url": "https://www.youtube.com/watch?v=RECIPE_TEST",
+  "output": {
+    "title": "Weeknight Pasta Salad",
+    "description": "The pasta salad I make every week.\n\nSponsored by Example Knives: 20% off with code PASTA\n\nPasta Salad:\n200g short pasta\n1 cucumber, diced\n\nBoil the pasta. Toss everything together.\n\n0:00 Intro\n1:30 The salad",
+    "thumbnail": "https://i.ytimg.com/vi/RECIPE_TEST/maxresdefault.jpg",
+    "webpage_url": "https://www.youtube.com/watch?v=RECIPE_TEST",
+    "duration": 420,
+    "channel": "Test Kitchen Channel"
+  }
+}
