@@ -18,7 +18,7 @@ test.describe("Featured Recipes", () => {
       await page.goto("/");
       await expect(page.getByText("Latest Recipes")).toBeVisible();
       await expect(
-        page.getByText("Featured Recipes", { exact: true }),
+        page.getByRole("heading", { name: "Featured", exact: true }),
       ).toHaveCount(0);
     });
 
@@ -30,12 +30,11 @@ test.describe("Featured Recipes", () => {
       await page.goto("/");
 
       await expect(
-        page.getByText("Featured Recipes", { exact: true }),
+        page.getByRole("heading", { name: "Featured", exact: true }),
       ).toBeVisible();
       await expect(
         page
-          .locator("h2", { hasText: "Featured Recipes" })
-          .locator("xpath=ancestor::*[1]")
+          .getByRole("region", { name: "Featured", exact: true })
           .getByText("Featured Recipe", { exact: true }),
       ).toBeVisible();
     });
@@ -48,11 +47,12 @@ test.describe("Featured Recipes", () => {
       await page.goto("/");
 
       await expect(
-        page.getByText("Featured Recipes", { exact: true }),
+        page.getByRole("heading", { name: "Featured", exact: true }),
       ).toBeVisible();
-      const featuredSection = page
-        .locator("h2", { hasText: "Featured Recipes" })
-        .locator("xpath=ancestor::*[1]");
+      const featuredSection = page.getByRole("region", {
+        name: "Featured",
+        exact: true,
+      });
       for (let i = 15; i >= 10; i--) {
         await expect(
           featuredSection.getByText(`Recipe ${i}`, { exact: true }),
@@ -71,11 +71,12 @@ test.describe("Featured Recipes", () => {
       await page.goto("/");
 
       await expect(
-        page.getByText("Featured Recipes", { exact: true }),
+        page.getByRole("heading", { name: "Featured", exact: true }),
       ).toBeVisible();
-      const featuredSection = page
-        .locator("h2", { hasText: "Featured Recipes" })
-        .locator("xpath=ancestor::*[1]");
+      const featuredSection = page.getByRole("region", {
+        name: "Featured",
+        exact: true,
+      });
       await expect(
         featuredSection.getByText("Featured Recipe", { exact: true }),
       ).toBeVisible();
@@ -90,11 +91,12 @@ test.describe("Featured Recipes", () => {
       await page.goto("/");
 
       await expect(
-        page.getByText("Featured Recipes", { exact: true }),
+        page.getByRole("heading", { name: "Featured", exact: true }),
       ).toBeVisible();
-      const featuredSection = page
-        .locator("h2", { hasText: "Featured Recipes" })
-        .locator("xpath=ancestor::*[1]");
+      const featuredSection = page.getByRole("region", {
+        name: "Featured",
+        exact: true,
+      });
       await expect(
         featuredSection.getByText("Featured Recipe", { exact: true }),
       ).toBeVisible();
@@ -260,7 +262,7 @@ test.describe("Featured Recipes", () => {
 
       await expect(page).toHaveURL(baseURL + "/");
       await expect(
-        page.getByText("Featured Recipes", { exact: true }),
+        page.getByRole("heading", { name: "Featured", exact: true }),
       ).toHaveCount(0);
 
       const response = await request.get(featuredRecipeUrl);
@@ -313,8 +315,7 @@ test.describe("Featured Recipes", () => {
       await expect(page).toHaveURL(baseURL + "/");
       await expect(
         page
-          .locator("h2", { hasText: "Featured Recipes" })
-          .locator("xpath=ancestor::*[1]")
+          .getByRole("region", { name: "Featured", exact: true })
           .getByText("Existing Recipe", { exact: true }),
       ).toBeVisible();
     });
@@ -373,8 +374,7 @@ test.describe("Featured Recipes", () => {
         await expect(page).toHaveURL(baseURL + "/");
         await expect(
           page
-            .locator("h2", { hasText: "Featured Recipes" })
-            .locator("xpath=ancestor::*[1]")
+            .getByRole("region", { name: "Featured", exact: true })
             .getByText("Existing Recipe", { exact: true }),
         ).toBeVisible();
       });
@@ -550,8 +550,7 @@ test.describe("Featured Recipes", () => {
       await expect(page).toHaveURL(baseURL + "/");
       await expect(
         page
-          .locator("h2", { hasText: "Featured Recipes" })
-          .locator("xpath=ancestor::*[1]")
+          .getByRole("region", { name: "Featured", exact: true })
           .getByText(/First Recipe/),
       ).toBeVisible();
     });
@@ -872,9 +871,7 @@ test.describe("Featured Recipes", () => {
     const RETITLED = "Retitled Twelve";
 
     function featuredSection(page: Page) {
-      return page
-        .locator("h2", { hasText: "Featured Recipes" })
-        .locator("xpath=ancestor::*[1]");
+      return page.getByRole("region", { name: "Featured", exact: true });
     }
 
     async function retitle(page: Page, slug: string, name: string) {
@@ -1011,7 +1008,7 @@ test.describe("Featured Recipes", () => {
        * recipe also scans for dependents now, which does not help.
        */
       await expect(
-        page.locator("h2", { hasText: "Featured Recipes" }),
+        page.getByRole("heading", { name: "Featured", exact: true }),
       ).toBeVisible({ timeout: 20_000 });
       await expect(page).toHaveURL(baseURL + "/");
 
@@ -1041,16 +1038,13 @@ test.describe("Featured Recipes", () => {
  * this phase's whole point lands and a fixture is the only way to assert it
  * without featuring something first in every test.
  *
- * The heading over the mixed strip is still "Featured Recipes". That was
- * decided with the user: the strip is the place things are featured, and
- * renaming it would make a page that mostly shows recipes read as though the
- * section had changed subject.
+ * The heading over the mixed strip was "Featured Recipes" until 2026-10-15,
+ * when Roger revised that call: the strip holds groups and terms too, so it
+ * is "Featured", and the specs find it as the region that heading names.
  */
 test.describe("Featured groups", () => {
   const featuredSection = (page: Page) =>
-    page
-      .locator("h2", { hasText: "Featured Recipes" })
-      .locator("xpath=ancestor::*[1]");
+    page.getByRole("region", { name: "Featured", exact: true });
 
   test("shows the featured group in the homepage strip", async ({
     page,
@@ -1284,9 +1278,7 @@ test.describe("Featured groups", () => {
  */
 test.describe("Featured terms", () => {
   const featuredSection = (page: Page) =>
-    page
-      .locator("h2", { hasText: "Featured Recipes" })
-      .locator("xpath=ancestor::*[1]");
+    page.getByRole("region", { name: "Featured", exact: true });
 
   test("features a term from the form and shows it in the strip", async ({
     page,
@@ -1322,12 +1314,10 @@ test.describe("Featured terms", () => {
     );
 
     /*
-     * The hero is unchanged: `HeroBench` renders a recipe's whole record, so a
-     * featured *term* is not a hero candidate and the eyebrow stays "Latest".
+     * And it is the strip's only card, the same size as any other: there is
+     * no hero above it since the homepage redesign (2026-10-15).
      */
-    await expect(
-      page.getByRole("region", { name: "Latest recipe" }),
-    ).toBeVisible();
+    await expect(featuredSection(page).getByRole("listitem")).toHaveCount(1);
   });
 
   test("the term page's Feature button preselects the term", async ({

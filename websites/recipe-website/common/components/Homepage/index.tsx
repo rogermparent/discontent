@@ -3,10 +3,8 @@ import RecipeList from "../List";
 import GroupList from "../List/Group";
 import { GroupThumbnail } from "../GroupThumbnail";
 import { MassagedRecipeEntry } from "../../controller/data/read";
-import { readTagLabels } from "../../controller/data/readTermPage";
 import type { GroupListEntry } from "../../controller/groupPaginationConfig";
-import { recipeItems } from "../../controller/data/readRecipeItem";
-import { Recipe } from "../../controller/types";
+import type { HomepageFacet } from "../../controller/homepageFacets";
 import { FeaturedStrip, type FeaturedStripEntry } from "./FeaturedStrip";
 import {
   PageMain,
@@ -15,8 +13,9 @@ import {
 } from "recipe-website-common/components/PageLayout";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { EmptyState } from "recipe-website-common/components/EmptyState";
-import { HeroBench } from "./HeroBench";
 import { BrowseChips } from "./BrowseChips";
+import { BrowseTerms } from "./BrowseTerms";
+import { HomeActions } from "./HomeActions";
 
 function RecipeSection({
   title,
@@ -54,76 +53,66 @@ function RecipeSection({
   );
 }
 
-export default async function Homepage({
+/**
+ * The homepage (redesigned 2026-10-15; `ui-overhaul.md` has the why).
+ *
+ * Top to bottom: the ways in (`HomeActions`), the featured strip, browse by
+ * term, groups, latest recipes. No section is bigger than another's cards:
+ * the hero that gave the newest featured recipe most of the first screen is
+ * gone, and that recipe is now one equal card in the strip it was already in.
+ *
+ * Every value arrives as a prop — the route does all the reading — so this
+ * renders nothing it was not handed, and both apps render it the same way.
+ */
+export default function Homepage({
   recipes,
   featured,
   groups,
+  facets,
+  tags,
   moreRecipes,
+  recipeCount,
+  groupCount,
 }: {
   recipes: MassagedRecipeEntry[];
-  /** The newest few features — recipes and groups mixed, newest first (22g). */
+  /** The newest few features — recipes, groups and terms mixed, newest first (22g). */
   featured: FeaturedStripEntry[];
   /** The newest few groups, or none — an empty list renders no section at all. */
   groups: GroupListEntry[];
+  /** The tag vocabulary's facet roots, ordered and capped (`homepageFacets`). */
+  facets: HomepageFacet[];
+  /**
+   * Flat tag labels for the fallback chips — read only when `facets` is
+   * empty, so a corpus with no term records still has a browse row.
+   */
+  tags: string[];
   moreRecipes: boolean;
+  recipeCount: number;
+  groupCount: number;
 }) {
-  /*
-   * The hero leads with a featured **recipe** when there is one; otherwise it
-   * falls back to the latest recipe. A featured *group* is not a hero candidate
-   * — `HeroBench` renders a recipe's whole record — so filtering here keeps the
-   * rule 22g inherited exactly as it was rather than letting a group in the
-   * strip silently demote the hero to "Latest".
-   */
-  const featuredRecipes: MassagedRecipeEntry[] = featured
-    .filter((entry) => entry.kind === "recipe")
-    .map((entry) => entry.recipe);
-  const heroSlug = featuredRecipes[0]?.slug ?? recipes[0]?.slug;
-  const heroLabel: "Featured" | "Latest" =
-    featuredRecipes.length > 0 ? "Featured" : "Latest";
-
-  /*
-   * The hero reads the chosen recipe's *whole* data file — far more than any
-   * projection carries — at a URL that is `/`. That is the case F19 exists for
-   * (§2): editing this recipe's description changes what the homepage renders
-   * and dirties no page, moves no aggregate, and cannot be reached by
-   * `revalidatePath(itemBasePath + "/" + slug)`. `item:recipes:<slug>` is what
-   * reaches it, and the read is now cached under that tag.
-   *
-   * Nothing needs to fire specially when the *hero changes recipe*: which slug
-   * is chosen comes from the strips, which read pagination heads the featured
-   * and recipe writes already expire (F10a). A different hero is simply a
-   * different cache key.
-   *
-   * The `catch` stays, and no longer looks vestigial: a missing recipe is now
-   * `null` rather than a throw, so this only swallows genuine I/O failures —
-   * which is the difference between a homepage with no hero and a 500.
-   */
-  const [tags, heroRecipe] = await Promise.all([
-    readTagLabels(),
-    heroSlug
-      ? recipeItems.read(heroSlug).catch(() => undefined)
-      : Promise.resolve<Recipe | undefined>(undefined),
-  ]);
-
   return (
     <PageMain>
       <PageSection>
-        {heroRecipe && heroSlug && (
-          <HeroBench recipe={heroRecipe} slug={heroSlug} label={heroLabel} />
+        <HomeActions recipeCount={recipeCount} groupCount={groupCount} />
+        <FeaturedStrip featured={featured} />
+        {facets.length > 0 ? (
+          <BrowseTerms facets={facets} />
+        ) : (
+          <BrowseChips tags={tags} />
         )}
-        <BrowseChips tags={tags} />
         {/*
-         * Groups sit between the browse chips and the featured strip: above the
-         * recipe grids because they are a *way in* rather than more of the same
-         * thing, and below the chips because tags are the shorter, cheaper cut.
-         *
-         * Nothing at all when there are none — which is what keeps the
-         * `three-recipes` homepage baseline still, since that fixture has no
-         * groups and never will.
+         * Groups after the vocabulary: both are ways in, and the facets are
+         * the broader cut. Nothing at all when there are none, which keeps the
+         * `three-recipes` fixture (no groups, ever) free of an empty section.
          */}
         {groups.length > 0 && (
-          <div className="mb-8">
-            <PageHeading className="font-display">Groups</PageHeading>
+          <section aria-labelledby="home-groups" className="mb-8">
+            <h2
+              id="home-groups"
+              className="font-bold text-2xl mb-4 font-display"
+            >
+              Groups
+            </h2>
             <GroupList
               groups={groups}
               renderThumbnail={(group) => (
@@ -142,9 +131,8 @@ export default async function Homepage({
                 <Link href="/groups">More groups</Link>
               </Button>
             </div>
-          </div>
+          </section>
         )}
-        <FeaturedStrip featured={featured} />
         <RecipeSection
           title="Latest Recipes"
           recipes={recipes}

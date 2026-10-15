@@ -2,6 +2,8 @@ import type { MassagedRecipeEntry } from "../../controller/data/read";
 import { featuredRecipePages } from "../../controller/data/readFeaturedRecipePages";
 import { groupPages } from "../../controller/data/readGroupPages";
 import { recipePages } from "../../controller/data/readRecipePages";
+import { readTagLabels, readTagTree } from "../../controller/data/readTermPage";
+import { homepageFacets } from "../../controller/homepageFacets";
 import Homepage from ".";
 import type { FeaturedStripEntry } from "./FeaturedStrip";
 
@@ -9,11 +11,11 @@ import type { FeaturedStripEntry } from "./FeaturedStrip";
 const STRIP_SIZE = 6;
 
 /**
- * How many group cards the homepage shows. Three, not six: the cards are
- * three-up and text-only, so a second row of them would push the recipe grids
- * below the fold on a laptop for a section that is a signpost, not the content.
+ * How many group cards the homepage shows: one row of the six-up grid. It was
+ * three while the cards were text-only and three-up; since 22g they are
+ * thumbnails in the recipe grid's six columns, and three left half a row empty.
  */
-const GROUP_STRIP_SIZE = 3;
+const GROUP_STRIP_SIZE = STRIP_SIZE;
 
 /**
  * The homepage, defined once and re-exported by both apps' `page.tsx`.
@@ -36,7 +38,7 @@ const GROUP_STRIP_SIZE = 3;
  * that do not bound themselves (F2).
  */
 export async function homepageRoute() {
-  const [recipeHead, featuredHead, groupHead] = await Promise.all([
+  const [recipeHead, featuredHead, groupHead, tagTree] = await Promise.all([
     recipePages.readHead(),
     featuredRecipePages.readHead(),
     /*
@@ -46,7 +48,34 @@ export async function homepageRoute() {
      * homepage needs no `revalidatePath("/")` to see a new group (fact 2).
      */
     groupPages.readHead(),
+    /*
+     * The browse section's facets: `/tags`' own tree read (31b), so the
+     * homepage is invalidated exactly when that page is. It reads under three
+     * tags, and every term write reaches one of them through the engine's
+     * generic write path (`revalidateContentWrite` → aggregate results):
+     *
+     * - the term records' `tree` aggregate — `term create`, `update`,
+     *   `rename`, `delete` and `merge` all write a record, and the tree folds
+     *   label, parent, children and image, so a moved value fires its tag;
+     * - the recipes' and groups' `by-tag` maps, whole-value tag — `term
+     *   assign` (and any recipe or group whose tags change) moves a key, and
+     *   a keyed aggregate fires `:whole` beside the key's own tag (32e).
+     *
+     * The cost is breadth, and it is accepted: those whole maps move on any
+     * tag change anywhere, so the homepage now expires on a retag that dirties
+     * no head page. It still expires on nothing else, and the subtree totals
+     * on the chips are what that read buys.
+     */
+    readTagTree(),
   ]);
+  const facets = homepageFacets(tagTree);
+  /*
+   * The flat chips, only for a corpus with no facets (no term records with
+   * children — every test fixture but two). Read after the tree rather than
+   * beside it, so a site with a vocabulary never pays for, or expires on, the
+   * term clouds `readTagLabels` reads.
+   */
+  const tags = facets.length === 0 ? await readTagLabels() : [];
 
   const recipes: MassagedRecipeEntry[] = recipeHead.items.slice(0, STRIP_SIZE);
 
@@ -106,7 +135,15 @@ export async function homepageRoute() {
       recipes={recipes}
       featured={featured}
       groups={groupHead.items.slice(0, GROUP_STRIP_SIZE)}
+      facets={facets}
+      tags={tags}
       moreRecipes={recipeHead.total > STRIP_SIZE}
+      /*
+       * The intro line's counts. `total` is on the head pages already read,
+       * under the same head tags, for the reason `moreRecipes` gives above.
+       */
+      recipeCount={recipeHead.total}
+      groupCount={groupHead.total}
     />
   );
 }

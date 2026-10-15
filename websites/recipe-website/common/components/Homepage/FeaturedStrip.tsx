@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { Button } from "@discontent/component-library/components/ui/button";
-import { PageHeading } from "recipe-website-common/components/PageLayout";
 import type { MassagedRecipeEntry } from "../../controller/data/read";
 import type { GroupKind } from "../../controller/types";
 import { RecipeListItem } from "../List";
@@ -14,8 +13,7 @@ import { RecipeGrid } from "../List/shared";
  * A discriminated union rather than a widened recipe entry, because the two
  * cards render nothing in common: a recipe card carries an image filename and a
  * bookmark button, a group card carries a kind and picks its picture at render
- * time. Keeping them apart is also what lets the hero go on asking for "the
- * first featured *recipe*" without guessing.
+ * time.
  */
 export type FeaturedStripEntry =
   | { kind: "recipe"; recipe: MassagedRecipeEntry }
@@ -34,16 +32,26 @@ export type FeaturedStripEntry =
   | { kind: "term"; slug: string; label: string; image?: string; date: number };
 
 /**
- * The homepage's "Featured Recipes" strip — recipes and groups in one row.
+ * The homepage's "Featured" strip — recipes, groups and terms in one grid of
+ * equal cards, newest first.
  *
- * The heading stays "Featured Recipes" even when a group is in it. That was
- * decided with the user: the strip is the place things are *featured*, and
- * renaming it would make a page that mostly shows recipes read as though the
- * section had changed subject.
+ * **No first item is special** (homepage redesign, 2026-10-15). Until then a
+ * hero above the page drew the newest featured recipe again at full width,
+ * with its photo, timeline and a large button, so one feature outweighed the
+ * rest of the page. That hero is gone; the newest feature is the first card
+ * here and nothing more.
  *
- * Same wrapper as the recipe sections beside it, down to the `RecipeGrid`, so a
- * strip of recipes alone is byte-for-byte what `RecipeSection` rendered before
- * this component existed — which is what keeps the visual baselines still.
+ * **The heading is "Featured"**, revised with Roger on 2026-10-15. It had
+ * stayed "Featured Recipes" through 22g and 24c, decided with him then on the
+ * grounds that the strip is where things are featured and a new name would
+ * read as a change of subject. Once groups and terms were regular cards here,
+ * "Recipes" described only some of them. The `/featured-recipes` page and the
+ * "More Featured Recipes" button that names it keep their titles: that page
+ * is the curator's list of features, and renaming a route is its own change.
+ *
+ * The same `RecipeGrid` as the Latest section, so the cards line up with the
+ * recipe cards below. A `section` labelled by its heading, so the specs find
+ * the strip as the region named "Featured".
  */
 export function FeaturedStrip({
   featured,
@@ -53,8 +61,10 @@ export function FeaturedStrip({
   if (featured.length === 0) return null;
 
   return (
-    <div className="mb-8">
-      <PageHeading className="font-display">Featured Recipes</PageHeading>
+    <section aria-labelledby="home-featured" className="mb-8">
+      <h2 id="home-featured" className="mb-4 font-display text-2xl font-bold">
+        Featured
+      </h2>
       <RecipeGrid>
         {featured.map((entry, index) => (
           <li
@@ -98,7 +108,7 @@ export function FeaturedStrip({
           <Link href="/featured-recipes">More Featured Recipes</Link>
         </Button>
       </div>
-    </div>
+    </section>
   );
 }
 

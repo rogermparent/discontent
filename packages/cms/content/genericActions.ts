@@ -75,8 +75,8 @@ export function revalidateContentWrite(
    * The same two item URLs, as a tag rather than a path — the fifth derived
    * kind (§2). The path calls above reach the item's *own* page; this reaches
    * every surface that renders the item's record from somewhere else, which is
-   * a set the write path cannot enumerate as URLs. The homepage hero (at `/`)
-   * and `/featured-recipe/<slug>` are both in it.
+   * a set the write path cannot enumerate as URLs. `/featured-recipe/<slug>`
+   * is in it (and the recipe site's homepage hero was, until 2026-10-15).
    *
    * No config seat: an item tag's only coupling is the content type, which is
    * already an argument here.

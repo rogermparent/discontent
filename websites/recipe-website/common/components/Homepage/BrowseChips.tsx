@@ -10,6 +10,11 @@ const CHIP_LIMIT = 12;
  * a `?q=tag:<tag>` query rather than a `?tags=` param, so the destination page
  * shows the filter in its search field instead of hiding it in session state.
  * Renders nothing when the corpus has no tags yet.
+ *
+ * Since the homepage redesign (2026-10-15) this is the **fallback**: the page
+ * browses by `BrowseTerms`' facet roots, and draws these flat chips only when
+ * the vocabulary has no roots with carried children — a corpus with no term
+ * records, which is most test fixtures.
  */
 export function BrowseChips({ tags }: { tags: string[] }) {
   if (tags.length === 0) return null;
