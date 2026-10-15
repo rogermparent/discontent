@@ -2172,6 +2172,36 @@ each adds its subsection here.
       indexes built with `recipes reindex` on a scratch copy, taxonomies
       carved out of `.gitignore`.
 
+### U2/U3 — traps and gates
+
+- **Trap: building the editor against the real corpus times out.** The
+  build prerenders every `/tags/<slug>` page and each one passes 60 s
+  against 787 recipes. For real-content screenshots, build against an empty
+  directory and serve the clone with `next start` (shoot the dynamic pages:
+  `/drinks`, `/make`).
+- **Trap: inline code across a line break makes Prettier unstable** in this
+  doc (it re-indents the continuation on every pass, so the pre-commit check
+  fails after a `--write`). Keep backticked spans on one line.
+- **Trap: `toHaveText` reads `textContent`,** which includes the masthead's
+  hidden short label ("MakeWhat can I make?"); the header spec passes
+  `useInnerText`.
+- **Full-page screenshots draw the sticky tab bar where the first viewport
+  ended**, not at the page's foot — an artefact of the capture, stable, so
+  the mobile baselines keep it.
+- **Export build** against a scratch copy of `drinks-bar` whose saved list
+  carried a sentinel item: `/drinks` emitted, sentinel in neither `out/` nor
+  `.next/`.
+- **Gates (2026-10-15):** editor and export `tsc` clean; vitest 88 files,
+  1868 tests. Playwright, build mode through the heavy slot: header,
+  navigation, command-palette, groups, bookmarks, make, drinks,
+  accessibility, footer, empty-state, sticky-chrome, mobile, menus and
+  shopping specs, e2e + mobile — 207/208, the one a `socket hang up` on the
+  cache-invalidate request, which passed on its rerun (drinks.spec 10/10).
+  Baselines regenerated in their own commit after merging main
+  (`--update-snapshots`, changed only): visual.spec 15, mobile.spec 2,
+  empty-state, footer (mobile), header, menus and recipe 1 each, plus the
+  new `drinks-page` (e2e + mobile); 179/179 in that run.
+
 ## Verification (Playwright-first)
 
 Verify UI changes with Playwright; open a real browser only to diagnose
