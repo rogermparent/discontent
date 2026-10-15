@@ -214,6 +214,7 @@ interface Row {
   found: boolean;
   partial?: boolean;
   grounded?: number;
+  verbatim?: number;
   total?: number;
   ingredients?: number;
   steps?: number;
@@ -256,6 +257,7 @@ function rowFromExtraction(
     found: true,
     partial: !!recipe.partial,
     grounded: llm.grounded,
+    verbatim: llm.verbatim,
     total: llm.total,
     ingredients: items.length,
     steps: steps.length,
@@ -458,7 +460,7 @@ function summarise(rows: Row[], model: string, warmMs: number, ps: string) {
     console.log(
       `| ${set} | ${list.length} | ${found.length} | ${
         found.filter((row) => !row.partial).length
-      } | ${pct(sum(found, "grounded"), sum(found, "total"))} | ${
+      } | ${pct(sum(found, "grounded"), sum(found, "total"))} (${pct(sum(found, "verbatim"), sum(found, "total"))} verbatim) | ${
         isSchema
           ? `${pct(sum(list, "recallLoose"), sum(list, "refIngredients"))} / ${pct(sum(list, "recallExact"), sum(list, "refIngredients"))}`
           : "–"

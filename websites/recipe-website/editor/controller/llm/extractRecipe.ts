@@ -137,7 +137,10 @@ export function buildRecipeUserPrompt({
 /** At least this share of ingredient lines must be found in the source. */
 export const GROUNDED_MIN = 0.9;
 
-/** A line is found if at least this share of its words are in the source. */
+/**
+ * A line is found in a source line when at least this share of its words
+ * are in that one line (and every number is, `isGrounded`).
+ */
 export const TOKEN_MATCH_MIN = 0.8;
 
 /**
@@ -156,32 +159,105 @@ export function normaliseForGrounding(text: string): string {
     .trim();
 }
 
-/** The source, normalised once, for any number of `isGrounded` checks. */
-export interface GroundingSource {
-  text: string;
-  tokens: Set<string>;
+/**
+ * Words a heading adds without changing what it names ("For the filling:"
+ * for "Filling"): left out of the word share, never out of the numbers.
+ */
+const FILLER_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "for",
+  "of",
+  "or",
+  "the",
+  "to",
+  "with",
+]);
+
+/** The words that say something: `FILLER_WORDS` out, unless that is all. */
+function contentWords(words: string[]): string[] {
+  const content = words.filter((word) => !FILLER_WORDS.has(word));
+  return content.length > 0 ? content : words;
 }
 
-export function groundingSource(text: string): GroundingSource {
-  const normalised = normaliseForGrounding(text);
+/** The numbers in a normalised line: `1`, `1/2`, `125` out of `125g`. */
+function numbersOf(words: string[]): string[] {
+  return words.flatMap((word) => word.match(/\d+(?:\/\d+)?/g) ?? []);
+}
+
+/** One normalised source line. */
+export interface SourceLine {
+  /** The line as the source has it, trimmed. */
+  raw: string;
+  /** `normaliseForGrounding(raw)`, space-padded for whole-word `includes`. */
+  padded: string;
+  words: string[];
+  wordSet: Set<string>;
+  numbers: Set<string>;
+  /** `words` without `FILLER_WORDS` (all of them, if that leaves none). */
+  content: string[];
+}
+
+/** The source, split and normalised once, for any number of checks. */
+export interface GroundingSource {
+  lines: SourceLine[];
+}
+
+function sourceLine(raw: string): SourceLine {
+  const norm = normaliseForGrounding(raw);
+  const words = norm ? norm.split(" ") : [];
   return {
-    text: ` ${normalised} `,
-    tokens: new Set(normalised.split(" ").filter(Boolean)),
+    raw: raw.trim(),
+    padded: ` ${norm} `,
+    words,
+    wordSet: new Set(words),
+    numbers: new Set(numbersOf(words)),
+    content: contentWords(words),
   };
 }
 
+export function groundingSource(text: string): GroundingSource {
+  return { lines: text.split("\n").map(sourceLine) };
+}
+
+export type Grounding = "verbatim" | "found" | "missing";
+
 /**
- * Whether a line is in the source: as a run of whole words once both are
- * normalised, or with at least `TOKEN_MATCH_MIN` of its words found there.
- * A line with no words left (punctuation only) counts as found.
+ * Where a line stands against the source, line by line — never against the
+ * whole page, where "3 cups flour" would find its 3 in "3 eggs" (36a
+ * review):
+ *
+ * - `verbatim`: once normalised, a run of whole words of one source line;
+ * - `found`: one source line holds every number of it and at least
+ *   `TOKEN_MATCH_MIN` of its words (filler words like "for the" aside);
+ * - `missing`: neither. A line with no words left counts as `verbatim`.
  */
+export function groundLine(line: string, source: GroundingSource): Grounding {
+  const norm = normaliseForGrounding(line);
+  if (!norm) return "verbatim";
+  const padded = ` ${norm} `;
+  const words = norm.split(" ");
+  const numbers = numbersOf(words);
+  const content = words.filter((word) => !FILLER_WORDS.has(word));
+  const counted = content.length > 0 ? content : words;
+  let found = false;
+  for (const candidate of source.lines) {
+    if (candidate.words.length === 0) continue;
+    if (candidate.padded.includes(padded)) return "verbatim";
+    if (found) continue;
+    if (!numbers.every((number) => candidate.numbers.has(number))) continue;
+    const share =
+      counted.filter((word) => candidate.wordSet.has(word)).length /
+      counted.length;
+    if (share >= TOKEN_MATCH_MIN) found = true;
+  }
+  return found ? "found" : "missing";
+}
+
+/** `groundLine(line, source) !== "missing"`. */
 export function isGrounded(line: string, source: GroundingSource): boolean {
-  const normalised = normaliseForGrounding(line);
-  if (!normalised) return true;
-  if (source.text.includes(` ${normalised} `)) return true;
-  const words = normalised.split(" ");
-  const found = words.filter((word) => source.tokens.has(word)).length;
-  return found / words.length >= TOKEN_MATCH_MIN;
+  return groundLine(line, source) !== "missing";
 }
 
 /* ------------------------------------------------------------------ */
@@ -191,58 +267,118 @@ export function isGrounded(line: string, source: GroundingSource): boolean {
 /** Word-multiset Dice similarity of two normalised lines. */
 function dice(left: string[], right: string[]): number {
   if (left.length === 0 || right.length === 0) return 0;
-  const pool = new Map<string, number>();
-  for (const word of right) pool.set(word, (pool.get(word) ?? 0) + 1);
-  let shared = 0;
-  for (const word of left) {
-    const count = pool.get(word) ?? 0;
-    if (count > 0) {
-      shared += 1;
-      pool.set(word, count - 1);
-    }
-  }
-  return (2 * shared) / (left.length + right.length);
+  return (2 * shared(left, right)) / (left.length + right.length);
 }
 
-/** Where in the source a copied line came from: the best unused match. */
-function sourceIndex(
-  line: string,
-  source: { norm: string; words: string[] }[],
-  used: Set<number>,
-): number {
-  const norm = normaliseForGrounding(line);
-  if (!norm) return -1;
-  const words = norm.split(" ");
-  let best = -1;
-  let bestScore = 0;
-  source.forEach((candidate, index) => {
-    if (used.has(index) || !candidate.norm) return;
-    const score =
-      candidate.norm === norm
-        ? 3
-        : candidate.norm.includes(norm) || norm.includes(candidate.norm)
-          ? 2
-          : dice(words, candidate.words);
-    if (score > bestScore && score >= 0.8) {
-      best = index;
-      bestScore = score;
+/** How many words two lines share, counting repeats. */
+function shared(left: string[], right: string[]): number {
+  const pool = new Map<string, number>();
+  for (const word of right) pool.set(word, (pool.get(word) ?? 0) + 1);
+  let count = 0;
+  for (const word of left) {
+    const remaining = pool.get(word) ?? 0;
+    if (remaining > 0) {
+      count += 1;
+      pool.set(word, remaining - 1);
     }
-  });
-  return best;
+  }
+  return count;
+}
+
+/** A position match needs the shorter line to cover this much of the longer. */
+const POSITION_MATCH_MIN = 0.75;
+
+/** A heading only maps to a source line this short. */
+const HEADING_SOURCE_MAX_WORDS = 6;
+
+/**
+ * How well a copied line matches one source line, for finding where it came
+ * from: shared whole words over the *longer* line's words, so "For the
+ * dough:" does not sit on "1 cup water for the dough" and a lone "4" does
+ * not sit on "1/4 tsp salt". Every number of the line must be in the source
+ * line; a heading only matches a short line. 0 when it does not match.
+ */
+function positionScore(
+  words: string[],
+  numbers: string[],
+  heading: boolean,
+  candidate: SourceLine,
+): number {
+  if (candidate.words.length === 0) return 0;
+  if (heading && candidate.words.length > HEADING_SOURCE_MAX_WORDS) return 0;
+  if (!numbers.every((number) => candidate.numbers.has(number))) return 0;
+  const score =
+    shared(words, candidate.content) /
+    Math.max(words.length, candidate.content.length);
+  return score >= POSITION_MATCH_MIN ? score : 0;
 }
 
 /**
- * A source line that reads as an ingredient: it starts (after a bullet) with
- * an amount, and is not a numbered step, a timestamp or a link.
+ * The source line each copied line came from (or -1): the best score, and
+ * on a tie the first line after the previous match — a list is copied in
+ * order, so the earliest line on the page is not the likeliest.
  */
-function looksLikeIngredient(line: string): boolean {
-  const text = line.replace(/^[\s*•▪-]+/, "");
+export function sourcePositions(
+  lines: string[],
+  text: string | SourceLine[],
+): number[] {
+  const source =
+    typeof text === "string" ? text.split("\n").map(sourceLine) : text;
+  const used = new Set<number>();
+  let previous = -1;
+  return lines.map((line) => {
+    const all = normaliseForGrounding(line).split(" ").filter(Boolean);
+    if (all.length === 0) return -1;
+    const words = contentWords(all);
+    const numbers = numbersOf(all);
+    const heading = /:\s*$/.test(line);
+    let best = -1;
+    let bestScore = 0;
+    let bestAfter = false;
+    source.forEach((candidate, index) => {
+      if (used.has(index)) return;
+      const score = positionScore(words, numbers, heading, candidate);
+      if (score === 0) return;
+      const after = index > previous;
+      if (score > bestScore || (score === bestScore && after && !bestAfter)) {
+        best = index;
+        bestScore = score;
+        bestAfter = after;
+      }
+    });
+    if (best >= 0) {
+      used.add(best);
+      previous = best;
+    }
+    return best;
+  });
+}
+
+/** "Instructions", "Directions", "Method"… as a label line of its own. */
+const INSTRUCTIONS_LABEL_LINE =
+  /^(instructions?|directions?|method|preparation|steps|how to make( it)?)$/;
+
+/** Fill a gap of at most this many non-blank source lines, no wider. */
+export const MAX_FILL_GAP = 4;
+
+/**
+ * A source line that reads as an ingredient: it starts (after a bullet) with
+ * an amount, and is not a numbered step, a timestamp, a time ("10 minutes
+ * later…"), a link, a promotion (`%`, "code"), a temperature, or a sentence.
+ */
+function looksLikeIngredient(raw: string): boolean {
+  const text = raw.replace(/^[\s*•▪-]+/, "");
   return (
     /^(\d|[¼-¾⅐-⅞])/.test(text) &&
     !/^\d{1,2}\s*[.)]\s/.test(text) &&
     !/^\d{1,2}:\d{2}/.test(text) &&
-    !/https?:|www\./i.test(text) &&
-    text.length <= 160
+    !/^[\d\s/.,–-]+\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)\b/i.test(
+      text,
+    ) &&
+    !/https?:|www\.|%|°|\bcode\b/i.test(text) &&
+    !/[.!?]$/.test(text) &&
+    !/[.!?]\s+\p{Lu}/u.test(text) &&
+    text.length <= 120
   );
 }
 
@@ -252,68 +388,73 @@ function looksLikeIngredient(line: string): boolean {
  * qwen3:8b sometimes leaves lines out of the middle of a list — four of
  * Brian Lagerstrom's sixteen drunken-noodle lines ("75g (about 2 med-lrg)
  * shallot…", "15g (handful) scallion…") — and grounding cannot see an
- * omission. So the lines the model copied are found in the source; any line
- * *between* the first and the last of them that starts with an amount and
- * was not copied is put back, verbatim, after the copied line before it.
- * Outside that span nothing is added: the model chose where the list is.
+ * omission. So each copied line is placed in the source (`sourcePositions`)
+ * and, between two consecutive placed lines, a *small* gap (at most
+ * `MAX_FILL_GAP` non-blank lines, no "Instructions" label inside) gives back
+ * its ingredient-looking lines (`looksLikeIngredient`), verbatim, in source
+ * order. A model line placed nowhere between the two that shares half its
+ * words with one of them is a garbled copy ("1 cup desicc thaned coconut")
+ * and is replaced by it. Nothing is added outside the copied list.
+ *
+ * What is put back never counts toward grounding (`extractRecipeWithLlm`
+ * grounds the model's own lines): it is reported as `added`.
  */
 export function fillSkippedLines(
   lines: string[],
   source: string,
 ): { lines: string[]; added: string[] } {
-  const sourceLines = source.split("\n").map((raw) => {
-    const norm = normaliseForGrounding(raw);
-    return { raw: raw.trim(), norm, words: norm ? norm.split(" ") : [] };
-  });
-  const used = new Set<number>();
-  const positions = lines.map((line) => {
-    const index = sourceIndex(line, sourceLines, used);
-    if (index >= 0) used.add(index);
-    return index;
-  });
-  const found = positions.filter((index) => index >= 0);
-  if (found.length < 2) return { lines, added: [] };
-  const first = Math.min(...found);
-  const last = Math.max(...found);
+  const sourceLines = source.split("\n").map(sourceLine);
+  const positions = sourcePositions(lines, sourceLines);
+  const placed = positions
+    .map((position, at) => ({ position, at }))
+    .filter(({ position }) => position >= 0);
+  if (placed.length < 2) return { lines, added: [] };
 
-  const skipped: { index: number; line: string }[] = [];
-  for (let index = first + 1; index < last; index += 1) {
-    if (used.has(index)) continue;
-    const { raw } = sourceLines[index];
-    if (!looksLikeIngredient(raw)) continue;
-    skipped.push({ index, line: raw.replace(/^[\s*•▪-]+/, "").trim() });
-  }
-  if (skipped.length === 0) return { lines, added: [] };
-
-  /*
-   * A model line found nowhere that shares half its words with a skipped
-   * line is a garbled copy of it ("1 cup desicc thaned coconut"): the source
-   * line replaces it. Otherwise each skipped line goes after the line
-   * nearest above it in the source.
-   */
+  const result: string[] = [];
+  const added: string[] = [];
+  let next = 0;
   const words = (line: string) =>
     normaliseForGrounding(line).split(" ").filter(Boolean);
-  const result = [...lines];
-  for (const { index, line } of skipped) {
-    const garbled = positions.findIndex(
-      (position, at) =>
-        position < 0 && dice(words(result[at]), words(line)) >= 0.5,
-    );
-    if (garbled >= 0) {
-      result[garbled] = line;
-      positions[garbled] = index;
+
+  for (let pair = 0; pair + 1 < placed.length; pair += 1) {
+    const from = placed[pair];
+    const to = placed[pair + 1];
+    /* Copy the model's lines up to and including `from`. */
+    while (next <= from.at) result.push(lines[next++]);
+    if (to.position <= from.position + 1) continue;
+
+    const gap = sourceLines
+      .slice(from.position + 1, to.position)
+      .filter((line) => line.words.length > 0);
+    if (
+      gap.length === 0 ||
+      gap.length > MAX_FILL_GAP ||
+      gap.some((line) => INSTRUCTIONS_LABEL_LINE.test(line.words.join(" ")))
+    ) {
       continue;
     }
-    let after = -1;
-    positions.forEach((position, at) => {
-      if (position >= 0 && position < index) {
-        if (after < 0 || position > positions[after]) after = at;
-      }
-    });
-    result.splice(after + 1, 0, line);
-    positions.splice(after + 1, 0, index);
+    const candidates = gap
+      .filter((line) => looksLikeIngredient(line.raw))
+      .map((line) => line.raw.replace(/^[\s*•▪-]+/, "").trim());
+    if (candidates.length === 0) continue;
+
+    /* The model's unplaced lines between the two: garbled copies, if alike. */
+    const between: string[] = [];
+    while (next < to.at) between.push(lines[next++]);
+    const garbled = new Set<number>();
+    for (const candidate of candidates) {
+      const twin = between.findIndex(
+        (line, at) =>
+          !garbled.has(at) && dice(words(line), words(candidate)) >= 0.5,
+      );
+      if (twin >= 0) garbled.add(twin);
+    }
+    result.push(...between.filter((_, at) => !garbled.has(at)));
+    result.push(...candidates);
+    added.push(...candidates);
   }
-  return { lines: result, added: skipped.map(({ line }) => line) };
+  while (next < lines.length) result.push(lines[next++]);
+  return { lines: result, added };
 }
 
 /* ------------------------------------------------------------------ */
@@ -349,7 +490,11 @@ const MINUTES_PER: Record<string, number> = {
   d: 1440,
   h: 60,
   m: 1,
+  s: 1 / 60,
 };
+
+/** A number as a time writes it: `1 1/2`, `1/2`, `1.5`, `2`. */
+const NUMBER = "(\\d+ \\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:\\.\\d+)?)";
 
 /** A number as written: `2`, `1.5`, `1/2`, `1 1/2` (fractions already ascii). */
 function amount(text: string): number {
@@ -366,8 +511,9 @@ function amount(text: string): number {
 
 /**
  * A time as a recipe writes it, in whole minutes: "25 minutes", "1 hour 15
- * mins", "3 hours, 45 minutes", "1 1/2 hours", "1h30m", "an hour", "1 day";
- * a range ("17–18 minutes", "4 to 24 hrs") reads as its upper end; a bare
+ * mins", "3 hours, 45 minutes", "1 1/2 hours", "1h30m", "an hour", "half an
+ * hour", "an hour and a half", "1 hour 30", "90 seconds", "1 day"; a range
+ * ("17–18 minutes", "1 1/2 to 2 hours") reads as its upper end; a bare
  * number is minutes. `undefined` for nothing positive under a week — "0
  * minutes", "overnight", "varies".
  */
@@ -378,14 +524,28 @@ export function parseTimeText(value: unknown): number | undefined {
   } else if (typeof value === "string") {
     const text = normalizeIngredientText(value)
       .toLowerCase()
-      .replace(/\b(an?|one)\s+(?=(day|hour|hr|minute|min)s?\b)/g, "1 ")
+      .replace(/\bhalf\s+(an?\s+)?(hour|hr)\b/g, "30 minutes")
+      .replace(/\b(hours?|hrs?)\s+and\s+a\s+half\b/g, "$1 30 minutes")
       .replace(
-        /(\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(?=\d+(?:\.\d+)?\s*[a-z])/g,
+        /\b(an?|one)\s+(?=(day|hour|hr|minute|min|second|sec)s?\b)/g,
+        "1 ",
+      )
+      /* A range reads as its upper end: drop "1 1/2 to " from "1 1/2 to 2 hours". */
+      .replace(
+        new RegExp(
+          `(?<![\\d/.])${NUMBER}\\s*(?:-|–|—|to)\\s*(?=\\d+(?:[./]\\d+)?\\s*[a-z])`,
+          "g",
+        ),
         "",
-      );
+      )
+      /* "1 hour 30": the number after hours is minutes. */
+      .replace(/\b(h|hrs?|hours?)\s*,?\s*(\d+)\s*$/, "$1 $2 minutes");
     const units = [
       ...text.matchAll(
-        /(\d+ \d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?)\s*(d|days?|h|hrs?|hours?|m|mins?|minutes?)(?![a-z])/g,
+        new RegExp(
+          `${NUMBER}\\s*(d|days?|h|hrs?|hours?|m|mins?|minutes?|secs?|seconds?)(?![a-z])`,
+          "g",
+        ),
       ),
     ];
     if (units.length > 0) {
@@ -518,9 +678,15 @@ function firstLine(source: string): string | undefined {
 
 export interface LlmStats {
   model: string;
-  /** Ingredient lines (headings included) found in the source. */
+  /**
+   * The model's own ingredient lines (headings included) found in the
+   * source (`grounding`), out of `total` — lines `added` back are not in
+   * either count.
+   */
   grounded: number;
   total: number;
+  /** How many of `grounded` were found word for word. */
+  verbatim: number;
   /** The lines that were not found, for a person to check (at most 10). */
   ungrounded?: string[];
   /** Source lines the model skipped inside its ingredient list, put back. */
@@ -585,10 +751,28 @@ export async function extractRecipeWithLlm(
   });
   const answer = readLlmAnswer(result.data);
 
+  const modelLines = answer.ingredients
+    .map(markdownHeading)
+    .filter((line) => !BARE_LABEL.test(line));
+  /*
+   * Grounding is the model's own lines, before `fillSkippedLines`: what it
+   * puts back is source text by construction, and counting it would let a
+   * 4-line answer with 2 invented lines read 20/22 (36a review).
+   */
+  const grounding = groundingSource(source);
+  const graded = modelLines.map((line) => ({
+    line,
+    grade: groundLine(line, grounding),
+  }));
+  const ungrounded = graded
+    .filter(({ grade }) => grade === "missing")
+    .map(({ line }) => line);
+  const total = modelLines.length;
+  const grounded = total - ungrounded.length;
+  const verbatim = graded.filter(({ grade }) => grade === "verbatim").length;
+
   const { lines: ingredientLines, added } = fillSkippedLines(
-    answer.ingredients
-      .map(markdownHeading)
-      .filter((line) => !BARE_LABEL.test(line)),
+    modelLines,
     source,
   );
   const ingredients = ingredientLines
@@ -605,12 +789,6 @@ export async function extractRecipeWithLlm(
     };
   }
 
-  const grounding = groundingSource(source);
-  const ungrounded = ingredientLines.filter(
-    (line) => !isGrounded(line, grounding),
-  );
-  const total = ingredientLines.length;
-  const grounded = total - ungrounded.length;
   const trusted =
     items > 0 && steps > 0 && total > 0 && grounded / total >= GROUNDED_MIN;
 
@@ -618,6 +796,7 @@ export async function extractRecipeWithLlm(
     model: result.model,
     grounded,
     total,
+    verbatim,
     ...(ungrounded.length > 0 ? { ungrounded: ungrounded.slice(0, 10) } : {}),
     ...(added.length > 0 ? { added } : {}),
     durationMs: result.durationMs,
@@ -627,9 +806,16 @@ export async function extractRecipeWithLlm(
     name: answer.name ?? input.meta?.title ?? firstLine(source),
     ...(answer.description ? { description: answer.description } : {}),
     ...(answer.recipeYield ? { recipeYield: answer.recipeYield } : {}),
-    prepTime: answer.prepMinutes,
-    cookTime: answer.cookMinutes,
-    totalTime: answer.totalMinutes,
+    /* Only the times it has: a caller merging this over a schema keeps its own. */
+    ...(answer.prepMinutes !== undefined
+      ? { prepTime: answer.prepMinutes }
+      : {}),
+    ...(answer.cookMinutes !== undefined
+      ? { cookTime: answer.cookMinutes }
+      : {}),
+    ...(answer.totalMinutes !== undefined
+      ? { totalTime: answer.totalMinutes }
+      : {}),
     ingredients,
     instructions,
     ...(input.url
@@ -656,12 +842,14 @@ export async function extractRecipeWithLlm(
 
 /** The one warning an extraction carries: what to check, or why it is partial. */
 export function llmWarning(
-  llm: Pick<LlmStats, "model" | "grounded" | "total" | "added">,
+  llm: Pick<LlmStats, "model" | "grounded" | "total" | "verbatim" | "added">,
   { items, steps, trusted }: { items: number; steps: number; trusted: boolean },
   sourceKind: "page" | "text" = "page",
 ): string {
   const where = sourceKind === "text" ? "in the text" : "on the page";
-  const found = `${llm.grounded}/${llm.total} ingredient lines found verbatim ${where}`;
+  const how =
+    llm.verbatim === llm.total && llm.total > 0 ? "found verbatim" : "found";
+  const found = `${llm.grounded}/${llm.total} ingredient lines ${how} ${where}`;
   const added = llm.added?.length
     ? ` (${llm.added.length} it skipped added back from the list)`
     : "";

@@ -127,7 +127,8 @@ const UNWRAP_TAGS = new Set(["a", "strong", "b", "em", "i", "u", "mark"]);
 
 /**
  * Tables as rows of text: the markdown chain has no GFM, and mdast's `table`
- * would not serialise. A row is a paragraph, a cell its text and a space.
+ * would not serialise. A row is a block, a cell its text and a space — or a
+ * block itself, when it holds blocks.
  */
 const TABLE_TAGS: Record<string, string> = {
   table: "div",
@@ -135,7 +136,7 @@ const TABLE_TAGS: Record<string, string> = {
   tbody: "div",
   tfoot: "div",
   caption: "p",
-  tr: "p",
+  tr: "div",
   td: "span",
   th: "span",
 };
@@ -165,10 +166,78 @@ function withBreaks(children: ElementContent[]): ElementContent[] {
 }
 
 /**
- * Remove dropped elements and chrome in place, and unwrap links and emphasis
- * (`UNWRAP_TAGS`).
+ * Never dropped by class, `hidden` or `display:none`: WordPress themes put
+ * `sidebar` on `<body>` itself, and dropping it empties the page.
  */
-function prune(node: Parent, inArticle = false) {
+const PAGE_ROOTS = new Set(["html", "body", "main"]);
+
+/** Block content that makes a table cell a block of its own. */
+const BLOCK_TAGS = new Set([
+  "p",
+  "div",
+  "ul",
+  "ol",
+  "li",
+  "br",
+  "table",
+  "section",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "blockquote",
+  "pre",
+]);
+
+/** An element whose whole text is an amount: `¾`, `1 1/2`, `2–3`. */
+const AMOUNT_ONLY = /^[\d\s¼-¾⅐-⅞⁄/.,–-]{1,10}$/;
+
+/**
+ * An amount in a block of its own, then the rest of the line in the next
+ * block — Bon Appétit's grid, `<p>¾</p><div>cup whole-milk … yogurt</div>` —
+ * as one line: the amount moves into the next element. Otherwise the
+ * markdown has "¾" and "cup whole-milk plain Greek yogurt" on lines of their
+ * own, and no line of the page holds the ingredient the model copies (36a
+ * review: Bon Appétit graded 1/11 once grounding went line by line).
+ */
+function joinAmounts(children: ElementContent[]): ElementContent[] {
+  const joined: ElementContent[] = [];
+  for (let at = 0; at < children.length; at += 1) {
+    const child = children[at];
+    if (child.type === "element" && BLOCK_TAGS.has(child.tagName)) {
+      const amount = textOf(child).replace(/\s+/g, " ").trim();
+      let next = at + 1;
+      while (
+        next < children.length &&
+        children[next].type === "text" &&
+        !(children[next] as { value: string }).value.trim()
+      ) {
+        next += 1;
+      }
+      const following = children[next];
+      if (
+        amount &&
+        AMOUNT_ONLY.test(amount) &&
+        following?.type === "element" &&
+        !AMOUNT_ONLY.test(textOf(following).trim())
+      ) {
+        following.children.unshift({ type: "text", value: `${amount} ` });
+        continue;
+      }
+    }
+    joined.push(child);
+  }
+  return joined;
+}
+
+/**
+ * Remove dropped elements and chrome in place, and unwrap links and emphasis
+ * (`UNWRAP_TAGS`). `minimal` drops only `DROP_TAGS` — the fallback when the
+ * full pass leaves nothing.
+ */
+function prune(node: Parent, inArticle = false, minimal = false) {
   const kept: ElementContent[] = [];
   for (const child of node.children as ElementContent[]) {
     if (child.type === "comment") continue;
@@ -177,17 +246,20 @@ function prune(node: Parent, inArticle = false) {
       continue;
     }
     const tag = child.tagName;
-    if (DROP_TAGS.has(tag) || isDropRegion(child)) continue;
-    if (
-      CHROME_TAGS.has(tag) &&
-      !(inArticle && (tag === "header" || tag === "footer")) &&
-      !RECIPE_PART.test(tokens(child).join(" "))
-    ) {
-      continue;
+    if (DROP_TAGS.has(tag)) continue;
+    if (!minimal && !PAGE_ROOTS.has(tag)) {
+      if (isDropRegion(child)) continue;
+      if (
+        CHROME_TAGS.has(tag) &&
+        !(inArticle && (tag === "header" || tag === "footer")) &&
+        !RECIPE_PART.test(tokens(child).join(" "))
+      ) {
+        continue;
+      }
+      /* Hidden copies: PUNCH repeats each ingredient in a `display:none` <li>. */
+      if (child.properties?.hidden) continue;
+      if (/display\s*:\s*none/i.test(attr(child, "style") ?? "")) continue;
     }
-    /* Hidden copies: PUNCH repeats each ingredient in a `display:none` <li>. */
-    if (child.properties?.hidden) continue;
-    if (/display\s*:\s*none/i.test(attr(child, "style") ?? "")) continue;
     if (UNWRAP_TAGS.has(tag)) {
       child.tagName = "span";
       child.properties = {};
@@ -201,16 +273,23 @@ function prune(node: Parent, inArticle = false) {
     }
     const tableTag = TABLE_TAGS[tag];
     if (tableTag) {
-      child.tagName = tableTag;
+      /* A cell holding blocks is a block: as a span its lines would glue
+       * together ("1 cup flour2 eggs"). */
+      const blockCell =
+        tableTag === "span" &&
+        child.children.some(
+          (inner) => inner.type === "element" && BLOCK_TAGS.has(inner.tagName),
+        );
+      child.tagName = blockCell ? "div" : tableTag;
       child.properties = {};
-      if (tableTag === "span") {
+      if (child.tagName === "span") {
         child.children.push({ type: "text", value: " " });
       }
     }
-    prune(child, inArticle || tag === "article");
+    prune(child, inArticle || tag === "article", minimal);
     kept.push(child);
   }
-  (node as { children: ElementContent[] }).children = kept;
+  (node as { children: ElementContent[] }).children = joinAmounts(kept);
 }
 
 /** A section label: "Ingredients", "Ingredients for the dough". */
@@ -240,20 +319,42 @@ const CARD_ROOTS = new Set([
  */
 const CLIMB_EXTRA_CHARS = 3_000;
 
-/** Text lengths and parents, computed once per page. */
+/**
+ * Text lengths and parents, computed once per page in one bottom-up pass:
+ * measuring each element's text on demand was O(n·depth), 17 s for 400
+ * nested `recipe` divs (36a review).
+ */
 class PageIndex {
-  private lengths = new WeakMap<Element, number>();
-  readonly parents = new WeakMap<Element, Element>();
+  private lengths = new Map<Element, number>();
+  readonly parents = new Map<Element, Element>();
 
   constructor(tree: Root) {
-    const visit = (node: Parent) => {
-      for (const child of node.children) {
-        if (child.type !== "element") continue;
-        if (node.type === "element") this.parents.set(child, node);
-        visit(child);
+    /* Iterative post-order: deep pages must not overflow the stack here. */
+    const stack: { node: Parent; done: boolean }[] = [
+      { node: tree, done: false },
+    ];
+    while (stack.length > 0) {
+      const top = stack.pop()!;
+      if (!top.done) {
+        stack.push({ node: top.node, done: true });
+        for (const child of top.node.children) {
+          if (child.type !== "element") continue;
+          if (top.node.type === "element") this.parents.set(child, top.node);
+          stack.push({ node: child, done: false });
+        }
+        continue;
       }
-    };
-    visit(tree);
+      if (top.node.type !== "element") continue;
+      let length = 0;
+      for (const child of top.node.children) {
+        if (child.type === "text") {
+          length += child.value.replace(/\s+/g, " ").length;
+        } else if (child.type === "element") {
+          length += this.lengths.get(child) ?? 0;
+        }
+      }
+      this.lengths.set(top.node, length);
+    }
   }
 
   /** The element's text, whitespace collapsed. */
@@ -261,13 +362,9 @@ class PageIndex {
     return textOf(element).replace(/\s+/g, " ").trim();
   }
 
+  /** Its text's length, whitespace collapsed per text node (near enough). */
   length(element: Element): number {
-    let length = this.lengths.get(element);
-    if (length === undefined) {
-      length = this.text(element).length;
-      this.lengths.set(element, length);
-    }
-    return length;
+    return this.lengths.get(element) ?? 0;
   }
 
   /** Whether the element holds both an ingredients and an instructions label. */
@@ -409,6 +506,44 @@ function asRoot(node: Element | Root): Root {
   return node.type === "root" ? node : { type: "root", children: [node] };
 }
 
+/** `text` capped, as a result. */
+function result(
+  text: string,
+  container: PageTextContainer,
+  maxChars: number,
+): PageTextResult {
+  const capped = capText(text, maxChars);
+  return {
+    text: capped.text,
+    container,
+    truncated: capped.truncated,
+    fullLength: text.length,
+  };
+}
+
+/**
+ * Tags stripped by pattern, no tree: the fallback for a page nested too deep
+ * for the recursive hast → mdast → markdown chain (a `RangeError`).
+ */
+export function strippedPageText(html: string): string {
+  return decodeHTML(
+    html
+      .replace(/<(script|style|noscript|template)\b[\s\S]*?<\/\1\s*>/gi, "")
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(/<br\s*\/?>|<\/(p|div|li|h[1-6]|tr|pre|section)\s*>/gi, "\n")
+      .replace(/<[^>]*>/g, " "),
+  )
+    .replace(/ /g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function bodyOf(tree: Root): Element | Root {
+  return elements(tree, (element) => element.tagName === "body")[0] ?? tree;
+}
+
 /** `pageText`, with where the text came from and whether it was cut. */
 export function pageTextDetail(
   html: string,
@@ -421,49 +556,47 @@ export function pageTextDetail(
       .replace(/\r\n?/g, "\n")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
-    const capped = capText(plain, maxChars);
-    return {
-      text: capped.text,
-      container: "plain",
-      truncated: capped.truncated,
-      fullLength: plain.length,
-    };
+    return result(plain, "plain", maxChars);
   }
-  const tree = fromHtml(html);
-  prune(tree);
+  try {
+    const tree = fromHtml(html);
+    prune(tree);
 
-  let container: PageTextContainer = "body";
-  let root: Element | Root = tree;
-  const card = recipeCard(tree);
-  if (card) {
-    container = "recipe-card";
-    root = card;
-  } else {
-    const article = enclosingArticle(articleRoot(tree), tree);
-    if (
-      article.type === "element" &&
-      article.tagName !== "body" &&
-      textOf(article).replace(/\s+/g, " ").trim().length >= MIN_ARTICLE_CHARS
-    ) {
-      container = "article";
-      root = article;
+    let container: PageTextContainer = "body";
+    let root: Element | Root;
+    const card = recipeCard(tree);
+    if (card) {
+      container = "recipe-card";
+      root = card;
     } else {
-      const body: Element | undefined = elements(
-        tree,
-        (element) => element.tagName === "body",
-      )[0];
-      root = body ?? tree;
+      const article = enclosingArticle(articleRoot(tree), tree);
+      if (
+        article.type === "element" &&
+        article.tagName !== "body" &&
+        textOf(article).replace(/\s+/g, " ").trim().length >= MIN_ARTICLE_CHARS
+      ) {
+        container = "article";
+        root = article;
+      } else {
+        root = bodyOf(tree);
+      }
     }
-  }
 
-  const rendered = plainLines(hastToMarkdown(asRoot(root)));
-  const capped = capText(rendered, maxChars);
-  return {
-    text: capped.text,
-    container,
-    truncated: capped.truncated,
-    fullLength: rendered.length,
-  };
+    const rendered = plainLines(hastToMarkdown(asRoot(root)));
+    if (rendered) return result(rendered, container, maxChars);
+
+    /* Everything was pruned (a page made of "chrome"): the body, minimally. */
+    const unpruned = fromHtml(html);
+    prune(unpruned, false, true);
+    return result(
+      plainLines(hastToMarkdown(asRoot(bodyOf(unpruned)))),
+      "body",
+      maxChars,
+    );
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    return result(strippedPageText(html), "body", maxChars);
+  }
 }
 
 /** The recipe-bearing part of a page as markdown, capped (D6). */

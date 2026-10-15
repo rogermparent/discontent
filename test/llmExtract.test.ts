@@ -20,6 +20,8 @@ import {
   buildRecipeUserPrompt,
   extractRecipeWithLlm,
   fillSkippedLines,
+  groundLine,
+  sourcePositions,
   groundingSource,
   isGrounded,
   LLM_RECIPE_SCHEMA,
@@ -78,6 +80,7 @@ function stubModel(answer: unknown, api: "ollama" | "openai" = "ollama") {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.useRealTimers();
 });
 
@@ -233,7 +236,6 @@ describe("chatJson", () => {
     const calls = stubModel({ ok: true });
     await chatJson(request);
     expect(calls[0].url).toBe("http://localhost:11434/api/chat");
-    vi.unstubAllEnvs();
   });
 
   it("times out through the abort signal", async () => {
@@ -299,6 +301,53 @@ describe("chatJson", () => {
     expect(error.kind).toBe("bad_json");
   });
 
+  it("refuses a 200 whose body is null or not an object", async () => {
+    for (const body of ["null", "[1,2]", '"text"']) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(body, { status: 200 })),
+      );
+      const error = await chatJson({ ...request, config: OLLAMA }).catch(
+        (caught) => caught,
+      );
+      expect(error).toBeInstanceOf(LlmError);
+      expect(error.kind).toBe("bad_json");
+    }
+  });
+
+  it("strips a trailing slash from a config it did not build", async () => {
+    const calls = stubModel({ ok: true });
+    await chatJson({
+      ...request,
+      config: { ...OLLAMA, url: "http://localhost:11434/" },
+    });
+    expect(calls[0].url).toBe("http://localhost:11434/api/chat");
+  });
+
+  it("passes the caller's own abort through, not as a timeout", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener("abort", () =>
+              reject(init.signal?.reason),
+            );
+          }),
+      ),
+    );
+    const controller = new AbortController();
+    const pending = chatJson({
+      ...request,
+      config: OLLAMA,
+      signal: controller.signal,
+    }).catch((caught) => caught);
+    controller.abort(new DOMException("stop", "AbortError"));
+    const error = await pending;
+    expect(error).not.toBeInstanceOf(LlmError);
+    expect(error.name).toBe("AbortError");
+  });
+
   it("strips a think block and a code fence before parsing", () => {
     expect(parseJsonAnswer('<think>hmm</think>\n{"a":1}')).toEqual({ a: 1 });
     expect(parseJsonAnswer('```json\n{"a":2}\n```')).toEqual({ a: 2 });
@@ -320,6 +369,13 @@ describe("parseTimeText", () => {
     ["4 to 24 hrs", 1440],
     ["45", 45],
     [30, 30],
+    ["1 1/2 to 2 hours", 120],
+    ["1½–2 hours", 120],
+    ["half an hour", 30],
+    ["half hour", 30],
+    ["an hour and a half", 90],
+    ["1 hour 30", 90],
+    ["90 seconds", 2],
   ])("%s → %d", (text, minutes) => {
     expect(parseTimeText(text)).toBe(minutes);
   });
@@ -350,6 +406,36 @@ describe("grounding (D4)", () => {
     expect(isGrounded("pecans, 1 1/2 cups (180g)", source)).toBe(true);
     // An invented line: "vanilla" and "extract" are nowhere.
     expect(isGrounded("2 teaspoons vanilla extract", source)).toBe(false);
+  });
+
+  it("grades verbatim, found and missing", () => {
+    const source = groundingSource(PAGE);
+    expect(groundLine("3 large eggs", source)).toBe("verbatim");
+    expect(groundLine("pecans, 1 1/2 cups (180g)", source)).toBe("found");
+    expect(groundLine("For the crust:", source)).toBe("verbatim");
+    expect(groundLine("2 teaspoons vanilla extract", source)).toBe("missing");
+  });
+
+  it("does not ground a changed amount, even with that number elsewhere", () => {
+    const source = groundingSource(
+      "1 cup (125g) all-purpose flour\n3 large eggs\n2 tablespoons sugar",
+    );
+    // "3" is on the page (the eggs) but not on the flour's line.
+    expect(groundLine("3 cups (125g) all-purpose flour", source)).toBe(
+      "missing",
+    );
+    expect(groundLine("1 cup (250g) all-purpose flour", source)).toBe(
+      "missing",
+    );
+    expect(groundLine("1 cup (125g) all-purpose flour", source)).toBe(
+      "verbatim",
+    );
+  });
+
+  it("grounds against one source line, not the whole page", () => {
+    // Every word is on the page, but no single line has "eggs" and "sugar".
+    const source = groundingSource("3 large eggs\n2 tablespoons sugar");
+    expect(isGrounded("2 large eggs sugar", source)).toBe(false);
   });
 });
 
@@ -385,13 +471,15 @@ describe("extractRecipeWithLlm", () => {
       recipeYield: "8 slices",
       prepTime: 20,
       cookTime: 60,
-      totalTime: undefined,
       source: {
         url: "https://kitchen.example.com/pecan-pie/",
         name: "Kitchen",
       },
     });
     expect(result.recipe.videoImportUrl).toBeUndefined();
+    // A time the model did not give is no key at all, so a caller merging
+    // this over a schema's recipe keeps the schema's.
+    expect("totalTime" in result.recipe).toBe(false);
     // `createIngredient`: numbers multiplyable, the heading detected.
     expect(result.recipe.ingredients?.[0]).toEqual({
       ingredient:
@@ -533,7 +621,6 @@ describe("extractRecipeWithLlm", () => {
     );
     expect(error).toBeInstanceOf(LlmError);
     expect(error.kind).toBe("unconfigured");
-    vi.unstubAllEnvs();
   });
 
   it("works over the OpenAI shape too", async () => {
@@ -722,7 +809,8 @@ Chapters:
       "235g rotini",
       "100g (about ½ cup) pitted Kalamata olives, cut into thirds",
     ]);
-    expect(result.llm).toMatchObject({ grounded: 9, total: 9 });
+    // Grounding counts the model's own seven lines only; the two put back are `added`.
+    expect(result.llm).toMatchObject({ grounded: 7, total: 7, verbatim: 7 });
     expect(
       result.recipe.ingredients?.map((entry) =>
         entry.ingredient.replace(
@@ -763,6 +851,135 @@ Chapters:
       ],
       added: ["1 cup desiccated coconut"],
     });
+  });
+
+  it("grounds the model's own lines: put-back lines cannot lift the ratio", async () => {
+    // A 20-line list; the model returns lines 1 and 5 plus two inventions.
+    const list = Array.from(
+      { length: 20 },
+      (_, i) => `${i + 1} g ingredient number ${i + 1}`,
+    );
+    const text = [
+      "Ingredients",
+      ...list,
+      "",
+      "Instructions",
+      "Mix it all.",
+    ].join("\n");
+    stubModel({
+      found: true,
+      name: "Twenty",
+      ingredients: [
+        list[0],
+        list[4],
+        "2 teaspoons vanilla extract",
+        "1 tablespoon bourbon",
+      ],
+      instructions: ["Mix it all."],
+    });
+    const result = await extractRecipeWithLlm({ text, config: OLLAMA });
+    if (!result.found) throw new Error("expected a recipe");
+    // Lines 2–4 are put back, but grounding stays 2 of the model's 4.
+    expect(result.llm.added).toEqual([list[1], list[2], list[3]]);
+    expect(result.llm).toMatchObject({ grounded: 2, total: 4 });
+    expect(result.recipe.partial).toBe(true);
+    expect(result.warnings[0]).toContain("only 2/4 ingredient lines found");
+    expect(result.warnings[0]).not.toContain("verbatim");
+  });
+
+  it("does not place a heading or a short line on a sentence or a longer line", () => {
+    const source = [
+      "This sauce is the best part, and the dough is easy too.",
+      "20% off with code PIZZA",
+      "Dough",
+      "1 cup water for the dough",
+      "1/4 tsp salt",
+      "2 cups flour",
+      "Sauce",
+      "1 can tomatoes",
+      "Instructions",
+      "Mix.",
+    ].join("\n");
+    // "Sauce:" must not sit on the intro sentence (which would open a span
+    // over "20% off…"), "For the dough:" not on "1 cup water for the dough",
+    // and "4" not on "1/4 tsp salt".
+    expect(
+      sourcePositions(
+        ["Sauce:", "For the dough:", "4", "1 cup water for the dough"],
+        source,
+      ),
+    ).toEqual([6, 2, -1, 3]);
+    const { lines, added } = fillSkippedLines(
+      [
+        "For the dough:",
+        "1 cup water for the dough",
+        "4",
+        "2 cups flour",
+        "Sauce:",
+        "1 can tomatoes",
+      ],
+      source,
+    );
+    // The salt the model mangled to "4" comes back once, from the source.
+    expect(added).toEqual(["1/4 tsp salt"]);
+    expect(lines.filter((line) => line === "1/4 tsp salt")).toHaveLength(1);
+    expect(lines).not.toContain("20% off with code PIZZA");
+  });
+
+  it("fills no promotions, temperatures, times or sentences, and not across Instructions", () => {
+    const source = [
+      "Cake",
+      "2 cups flour",
+      "1 cup sugar",
+      "20% off with code BAKE",
+      "350°F oven, preheated",
+      "1 cup milk",
+      "10 minutes later, stir",
+      "2 eggs. Beat them well.",
+      "2 tbsp butter",
+      "Instructions",
+      "350°F oven: preheat it.",
+      "20% off with code BAKE",
+      "10 minutes later, stir.",
+      "Glaze",
+      "1 cup powdered sugar",
+      "2 tbsp milk",
+    ].join("\n");
+    const { lines, added } = fillSkippedLines(
+      [
+        "Cake:",
+        "2 cups flour",
+        "1 cup milk",
+        "2 tbsp butter",
+        "Glaze:",
+        "1 cup powdered sugar",
+        "2 tbsp milk",
+      ],
+      source,
+    );
+    // Only "1 cup sugar" is an ingredient in the cake's gaps; the glaze is
+    // past "Instructions", so nothing is filled between the two lists.
+    expect(added).toEqual(["1 cup sugar"]);
+    expect(lines).toEqual([
+      "Cake:",
+      "2 cups flour",
+      "1 cup sugar",
+      "1 cup milk",
+      "2 tbsp butter",
+      "Glaze:",
+      "1 cup powdered sugar",
+      "2 tbsp milk",
+    ]);
+  });
+
+  it("fills only small gaps", () => {
+    const list = Array.from(
+      { length: 8 },
+      (_, i) => `${i + 1} g item ${i + 1}`,
+    );
+    expect(fillSkippedLines([list[0], list[7]], list.join("\n")).added).toEqual(
+      [],
+    );
   });
 
   it("adds nothing when the list is whole", () => {

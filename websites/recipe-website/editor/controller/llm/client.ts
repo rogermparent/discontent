@@ -104,10 +104,11 @@ export interface ChatJsonResult {
 }
 
 function endpoint(config: LlmConfig): string {
-  if (config.api === "ollama") return `${config.url}/api/chat`;
-  return /\/v1$/.test(config.url)
-    ? `${config.url}/chat/completions`
-    : `${config.url}/v1/chat/completions`;
+  const url = config.url.replace(/\/+$/, "");
+  if (config.api === "ollama") return `${url}/api/chat`;
+  return /\/v1$/.test(url)
+    ? `${url}/chat/completions`
+    : `${url}/v1/chat/completions`;
 }
 
 function requestBody(request: ChatJsonRequest, config: LlmConfig) {
@@ -242,9 +243,18 @@ export async function chatJson(
         response.status,
       );
     }
-    body = (await response.json()) as Record<string, unknown>;
+    const parsed: unknown = await response.json();
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new LlmError(
+        "bad_json",
+        `the local model at ${config.url} sent a response that is not a JSON object`,
+      );
+    }
+    body = parsed as Record<string, unknown>;
   } catch (error) {
     if (error instanceof LlmError) throw error;
+    /* The caller's own abort is theirs to report, not our timeout. */
+    if (request.signal?.aborted) throw error;
     if (isTimeout(error) || timeout.aborted) {
       throw new LlmError(
         "timeout",
@@ -257,7 +267,6 @@ export async function chatJson(
         `the local model at ${config.url} sent a response that is not JSON`,
       );
     }
-    if (request.signal?.aborted) throw error;
     throw new LlmError(
       "unreachable",
       `the local model at ${config.url} is unreachable: ${(error as Error)?.message ?? error}`,

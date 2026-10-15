@@ -16,6 +16,7 @@ import {
   PAGE_TEXT_MAX_CHARS,
   pageText,
   pageTextDetail,
+  strippedPageText,
 } from "../websites/recipe-website/common/util/pageText";
 
 const FIXTURES = join(__dirname, "fixtures/roundups");
@@ -179,6 +180,66 @@ describe("pageText: the container", () => {
     const text = pageText(html);
     expect(text.match(/1 ounce gin/g)).toHaveLength(1);
     expect(text.match(/1 ounce Campari/g)).toHaveLength(1);
+  });
+
+  it("never drops the body for its class (WordPress's `sidebar` body class)", () => {
+    const html = `<html><body class="post-template has-sidebar sidebar"><main class="sidebar"><h1>Toast</h1><p>1 slice bread</p><p>Toast the bread until golden brown on both sides, then butter it while it is still hot.</p></main></body></html>`;
+    const text = pageText(html);
+    expect(text).toContain("1 slice bread");
+    expect(text).toContain("Toast the bread");
+  });
+
+  it("falls back to the unpruned body when pruning leaves nothing", () => {
+    const html = `<html><body><nav><p>1 cup rice</p><p>Boil the rice for 18 minutes.</p></nav></body></html>`;
+    const detail = pageTextDetail(html);
+    expect(detail.container).toBe("body");
+    expect(detail.text).toContain("1 cup rice");
+  });
+
+  it("joins an amount in a block of its own to its line (Bon Appétit's grid)", () => {
+    const html = page(
+      `<article><h1>Ranch</h1><div class="IngredientList"><h2>Ingredients</h2><div class="List"><p class="Amount">¾</p><div class="Description">cup whole-milk plain Greek yogurt</div><p class="Amount">3</p><div class="Description">tablespoons mayonnaise</div><p class="Amount">1 1/2</p><div class="Description">teaspoons salt</div></div></div><p>Whisk everything together and chill for an hour before serving it.</p></article>`,
+    );
+    const text = pageText(html);
+    expect(text).toContain("¾ cup whole-milk plain Greek yogurt");
+    expect(text).toContain("3 tablespoons mayonnaise");
+    expect(text).toContain("1 1/2 teaspoons salt");
+  });
+
+  it("keeps the lines of a table cell that holds blocks", () => {
+    const html = page(
+      `<article><h1>Layout</h1><table><tr><td><p>1 cup flour</p><p>2 eggs</p></td><td>Mix the flour and the eggs into a smooth batter, then rest it for an hour.</td></tr></table></article>`,
+    );
+    const text = pageText(html);
+    expect(text).not.toContain("flour2 eggs");
+    expect(text).toMatch(/1 cup flour\n+2 eggs/);
+  });
+
+  it("reads 400 nested recipe divs quickly", () => {
+    const depth = 400;
+    const html = page(
+      `${'<div class="recipe-wrap">'.repeat(depth)}<h2>Ingredients</h2><ul><li>1 cup oats</li></ul><h2>Instructions</h2><ol><li>Cook the oats in water for five minutes, stirring now and then.</li></ol>${"</div>".repeat(depth)}`,
+    );
+    const started = performance.now();
+    const text = pageText(html);
+    expect(performance.now() - started).toBeLessThan(3_000);
+    expect(text).toContain("1 cup oats");
+  });
+
+  it("survives very deep nesting (a RangeError falls back to stripped text)", () => {
+    const depth = 10_000;
+    const html = `<html><body>${"<div>".repeat(depth)}<p>1 cup oats</p><p>Cook the oats.</p>${"</div>".repeat(depth)}</body></html>`;
+    const detail = pageTextDetail(html);
+    expect(detail.text).toContain("1 cup oats");
+    expect(detail.text).toContain("Cook the oats.");
+  }, 30_000);
+
+  it("strips a page to lines without a tree (the RangeError fallback)", () => {
+    expect(
+      strippedPageText(
+        "<html><head><script>var x = 1;</script><style>p{}</style></head><body><!-- c --><h1>Oats</h1><ul><li>1 cup oats</li><li>2 cups&nbsp;water</li></ul><p>Cook the <b>oats</b>.<br>Serve.</p></body></html>",
+      ),
+    ).toBe("Oats\n1 cup oats\n2 cups water\nCook the oats .\nServe.");
   });
 
   it("flattens a table into rows of text", () => {
