@@ -2,7 +2,7 @@
 
 import CreateRecipeFields from "recipe-website-common/components/Form/Create";
 import { RecipeFormShell } from "recipe-website-common/components/Form/RecipeFormShell";
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { RecipeFormState } from "recipe-website-common/controller/formState";
@@ -13,7 +13,51 @@ import {
 import { importRecipeAction } from "./actions";
 import { TextInput } from "@discontent/component-library/components/Form/inputs/Text";
 import { TextAreaInput } from "@discontent/component-library/components/Form/inputs/TextArea";
+import {
+  isYouTubeUrl,
+  videoHostName,
+} from "recipe-website-common/util/videoUrl";
 import type { RecipeActionState } from "./common";
+
+/**
+ * What a video import will do (36d): yt-dlp fetches the video's text, and the
+ * local model — when there is one — reads the recipe out of it. Only YouTube
+ * gets its pinned comment (`YTDLP_COMMENT_ARGS`).
+ */
+function videoHint(host: string, url: string, llmModel?: string): string {
+  if (!llmModel) {
+    return `${host} video — yt-dlp fetches its title, description and thumbnail.`;
+  }
+  const fetched = isYouTubeUrl(url)
+    ? "the description and pinned comment"
+    : "the description";
+  return `${host} video — yt-dlp fetches ${fetched}; ${llmModel} reads the recipe.`;
+}
+
+/** The note beside Import while it runs. */
+function pendingNote({
+  textMode,
+  forceLlm,
+  videoHost,
+  llmModel,
+}: {
+  textMode: boolean;
+  forceLlm: boolean;
+  videoHost: boolean;
+  llmModel?: string;
+}): string {
+  if (videoHost) {
+    return llmModel
+      ? `Fetching the video with yt-dlp, then ${llmModel} reads it… (~20–30 s)`
+      : "Fetching the video with yt-dlp…";
+  }
+  if (textMode) {
+    return `Reading the text with ${llmModel}… (the first use loads the model, ~10 s)`;
+  }
+  return forceLlm
+    ? `Reading the page with ${llmModel}… (the first use loads the model, ~10 s)`
+    : `Importing… a page with no recipe data is read by ${llmModel}, which can take a minute`;
+}
 
 export default function NewOrImportRecipeForm({
   slug,
@@ -35,18 +79,29 @@ export default function NewOrImportRecipeForm({
     initialImportState,
   );
   const [forceLlm, setForceLlm] = useState(false);
-  /* The "Paste text" tab (36c): controlled, so a failed import keeps it. */
+  /* Pasting the text (36c; a fallback since 36d): controlled, so a failed
+   * import keeps it. */
   const [textMode, setTextMode] = useState(false);
   const [pastedText, setPastedText] = useState("");
   const [pastedSource, setPastedSource] = useState("");
-  /* The URL too (36c review): it survives a switch to Paste text and back. */
+  /* The URL too (36c review): it survives a switch to pasting and back. */
   const [importUrl, setImportUrl] = useState("");
   /* Switching mode dismisses the last import's message (36c review). */
   const [dismissed, setDismissed] = useState<RecipeActionState | null>(null);
+  /* After a switch, focus lands on the field that appeared (36d). */
+  const switched = useRef(false);
   const switchMode = (toText: boolean) => {
     setTextMode(toText);
     setDismissed(importState);
+    switched.current = true;
   };
+  useEffect(() => {
+    if (!switched.current) return;
+    switched.current = false;
+    document.getElementById(textMode ? "import-text" : "import")?.focus();
+  }, [textMode]);
+  /* What the typed URL is (36d): a video gets its own hint and no force box. */
+  const videoHost = textMode ? undefined : videoHostName(importUrl);
 
   const { recipe, url, key, llm, warnings } = importState || {};
   const message =
@@ -93,42 +148,10 @@ export default function NewOrImportRecipeForm({
             ))}
           </div>
         ) : null}
-        {/* 36c (D8): import from a URL, or from pasted text the local model
-            reads — plain radio buttons, unavailable without a model. */}
-        <fieldset className="my-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-          <legend className="sr-only">Import from</legend>
-          <label className="flex items-center gap-2">
-            <input
-              type="radio"
-              name="importMode"
-              value="url"
-              checked={textMode === false}
-              onChange={() => switchMode(false)}
-            />
-            URL
-          </label>
-          <label
-            className="flex items-center gap-2"
-            title={llmModel ? undefined : "No local model configured"}
-          >
-            <input
-              type="radio"
-              name="importMode"
-              value="text"
-              disabled={!llmModel}
-              checked={textMode}
-              onChange={() => switchMode(true)}
-            />
-            Paste text
-            <span className="text-muted-foreground">
-              {llmModel
-                ? `— ${llmModel} reads a pasted recipe (a video description, an email)`
-                : "— No local model configured"}
-            </span>
-          </label>
-        </fieldset>
         {textMode ? (
           <>
+            {/* 36c (D8), demoted in 36d: a recipe with no link to give. */}
+            <input type="hidden" name="importMode" value="text" />
             <TextAreaInput
               name="importText"
               id="import-text"
@@ -143,50 +166,112 @@ export default function NewOrImportRecipeForm({
               value={pastedSource}
               onChange={(event) => setPastedSource(event.target.value)}
             />
+            <p className="mb-1 text-sm text-muted-foreground">
+              {llmModel} reads the recipe out of the text — an email, a note, a
+              cookbook page typed up.
+            </p>
           </>
         ) : (
           <>
+            {/* 36d: give it the URL, and the server handles everything. */}
             <TextInput
               name="import"
               label="Import from URL"
               value={importUrl}
               onChange={(event) => setImportUrl(event.target.value)}
+              describedBy={
+                videoHost ? "import-help import-video-hint" : "import-help"
+              }
             />
-            <label
-              className="my-1 flex items-center gap-2 text-sm"
-              title={llmModel ? undefined : "No local model configured"}
+            <p id="import-help" className="mb-1 text-sm text-muted-foreground">
+              {llmModel
+                ? `A recipe page or a video link. The server fetches it — yt-dlp for videos — and ${llmModel} reads the recipe out of it when there's no recipe data.`
+                : "A recipe page or a video link. Pages import from their recipe data; videos come in with their title, description and thumbnail."}
+            </p>
+            {/* Always rendered — a live region that is `display: none`
+                until it has text is often not announced (36d review);
+                empty, it takes no height. */}
+            <p
+              id="import-video-hint"
+              data-testid="import-video-hint"
+              aria-live="polite"
+              className="mb-1 text-sm text-muted-foreground empty:mb-0"
             >
-              <input
-                type="checkbox"
-                name="llm"
-                value="force"
-                disabled={!llmModel}
-                checked={forceLlm && !!llmModel}
-                onChange={(event) => setForceLlm(event.target.checked)}
-              />
-              Extract with AI (local model)
-              <span className="text-muted-foreground">
-                {llmModel
-                  ? `— ${llmModel} reads the page even when it has recipe data`
-                  : "— No local model configured"}
-              </span>
-            </label>
+              {videoHost ? videoHint(videoHost, importUrl, llmModel) : null}
+            </p>
+            {videoHost ? null : (
+              /* A video is always read by the model (when there is one):
+               * nothing to force (36d). */
+              <label
+                className="my-1 flex items-center gap-2 text-sm"
+                title={llmModel ? undefined : "No local model configured"}
+              >
+                <input
+                  type="checkbox"
+                  name="llm"
+                  value="force"
+                  disabled={!llmModel}
+                  checked={forceLlm && !!llmModel}
+                  onChange={(event) => setForceLlm(event.target.checked)}
+                />
+                Re-read with AI even if the page has recipe data
+                <span className="text-muted-foreground">
+                  {llmModel ? `— ${llmModel}` : "— No local model configured"}
+                </span>
+              </label>
+            )}
           </>
         )}
-        <SubmitButton disabled={busy}>Import</SubmitButton>
-        {busy ? (
-          <span className="ml-2 text-sm text-muted-foreground">
-            Waiting for the roundup import to finish…
-          </span>
-        ) : importPending && llmModel ? (
-          <span role="status" className="ml-2 text-sm text-muted-foreground">
-            {textMode
-              ? `Reading the text with ${llmModel}… (the first use loads the model, ~10 s)`
-              : forceLlm
-                ? `Reading the page with ${llmModel}… (the first use loads the model, ~10 s)`
-                : `Importing… a page with no recipe data is read by ${llmModel}, which can take a minute`}
-          </span>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <SubmitButton disabled={busy}>Import</SubmitButton>
+          {busy ? (
+            <span className="text-sm text-muted-foreground">
+              Waiting for the roundup import to finish…
+            </span>
+          ) : importPending && (llmModel || videoHost) ? (
+            <span role="status" className="text-sm text-muted-foreground">
+              {pendingNote({
+                textMode,
+                forceLlm,
+                videoHost: !!videoHost,
+                llmModel,
+              })}
+            </span>
+          ) : null}
+        </div>
+        {/* 36d: the paste box is the fallback, not a second way in. */}
+        <div className="my-1 flex flex-wrap items-center gap-x-1 text-sm">
+          {textMode ? (
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto px-0"
+              onClick={() => switchMode(false)}
+            >
+              ← Import from a link instead
+            </Button>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto px-0"
+                disabled={!llmModel}
+                aria-describedby="paste-text-note"
+                onClick={() => switchMode(true)}
+              >
+                No link? Paste the recipe text instead
+              </Button>
+              <span id="paste-text-note" className="text-muted-foreground">
+                {llmModel
+                  ? `— ${llmModel} reads an email, a note or a cookbook page`
+                  : "— No local model configured"}
+              </span>
+            </>
+          )}
+        </div>
       </form>
       <RecipeFormShell
         key={submissionState.formData ? submissionState.message : (key ?? url)}

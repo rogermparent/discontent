@@ -1,0 +1,29 @@
+{
+  "url": "https://www.youtube.com/watch?v=PINNED_VIEWER_TEST",
+  "output": {
+    "title": "Weeknight Banana Bread",
+    "description": "Recipe in the comments!",
+    "thumbnail": "https://i.ytimg.com/vi/PINNED_VIEWER_TEST/maxresdefault.jpg",
+    "webpage_url": "https://www.youtube.com/watch?v=PINNED_VIEWER_TEST",
+    "duration": 480,
+    "channel": "Test Kitchen Channel",
+    "comments": [
+      {
+        "id": "v1",
+        "parent": "root",
+        "author": "@happybaker",
+        "author_is_uploader": false,
+        "is_pinned": true,
+        "text": "I used 2 cups sugar and baked 10 min longer!"
+      },
+      {
+        "id": "u1",
+        "parent": "root",
+        "author": "@TestKitchenChannel",
+        "author_is_uploader": true,
+        "is_pinned": false,
+        "text": "Banana Bread\n\n3 ripe bananas\n1/3 cup melted butter\n3/4 cup sugar\n1 1/2 cups flour\n\n1. Mash the bananas with the butter.\n2. Stir in the sugar and flour.\n3. Bake at 350°F for 55 minutes."
+      }
+    ]
+  }
+}

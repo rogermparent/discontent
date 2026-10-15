@@ -5,19 +5,24 @@
 // (`ytdlpToRecipe`), the thumbnail pick, and which binary runs — against the
 // Playwright suite's `ytdlp-mimic.mjs`, so no real yt-dlp and no network.
 
-import { mkdtemp, outputJson, rm } from "fs-extra";
+import { mkdtemp, outputJson, readFile, rm } from "fs-extra";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  COMMENT_MAX_CHARS,
+  YTDLP_COMMENT_ARGS,
   bestThumbnail,
   fetchYtdlpMetadata,
   pickYtdlpMetadata,
   resolveYtdlpBinary,
+  videoSuggestedTags,
+  ytdlpArgs,
   ytdlpToRecipe,
 } from "../websites/recipe-website/editor/controller/ytdlp";
+import { SUGGESTED_TAGS_LIMIT } from "../websites/recipe-website/common/util/importRecipeData";
 
 const MIMIC = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -93,7 +98,86 @@ describe("ytdlpToRecipe", () => {
       source: { url: VIDEO, name: "YouTube", author: "Bar Channel" },
       videoImportUrl: VIDEO,
       imageImportUrl: "https://i.ytimg.com/vi/x/maxresdefault.jpg",
+      /* 36d: the video's tags, as a page's keywords. */
+      suggestedTags: ["negroni", "cocktail"],
     });
+  });
+
+  /* 36d: tags through `suggestTags` — its limit, and none naming the channel. */
+  it("suggests the video's tags, not the ones naming the channel", () => {
+    const meta = pickYtdlpMetadata(
+      {
+        ...dump,
+        channel: "Brian Lagerstrom",
+        tags: [
+          "Pasta Salad",
+          "brian lagerstrom",
+          "Brian Lagerstrom pasta salad",
+          ...Array.from({ length: 12 }, (_, n) => `tag ${n}`),
+        ],
+      },
+      VIDEO,
+    );
+    const tags = videoSuggestedTags(meta);
+    expect(tags[0]).toBe("pasta salad");
+    expect(tags).toHaveLength(SUGGESTED_TAGS_LIMIT);
+    expect(tags.some((tag) => tag.includes("lagerstrom"))).toBe(false);
+    expect(
+      ytdlpToRecipe(pickYtdlpMetadata({ title: "x" }, VIDEO), VIDEO),
+    ).not.toHaveProperty("suggestedTags");
+  });
+
+  /* 36d: only the uploader's top-level comments survive, pinned first; a
+   * viewer's comment is dropped even when pinned (review). */
+  it("keeps the uploader's comments, pinned first, capped", () => {
+    const meta = pickYtdlpMetadata(
+      {
+        ...dump,
+        comments: [
+          { parent: "root", author: "@viewer", text: "Add 2 cups of sugar!" },
+          {
+            parent: "root",
+            author: "@fan",
+            is_pinned: true,
+            text: "I used 2 cups sugar and baked 10 min longer!",
+          },
+          {
+            parent: "root",
+            author: "@bar",
+            author_is_uploader: true,
+            text: "  Thanks for watching  ",
+          },
+          {
+            parent: "abc",
+            author: "@bar",
+            author_is_uploader: true,
+            text: "A reply.",
+          },
+          {
+            parent: "root",
+            author: "@bar",
+            author_is_uploader: true,
+            is_pinned: true,
+            text: "x".repeat(COMMENT_MAX_CHARS + 50),
+          },
+          { parent: "root", is_pinned: true, text: "" },
+        ],
+      },
+      VIDEO,
+    );
+    expect(meta.comments).toEqual([
+      {
+        text: "x".repeat(COMMENT_MAX_CHARS),
+        author: "@bar",
+        pinned: true,
+      },
+      {
+        text: "Thanks for watching",
+        author: "@bar",
+        pinned: false,
+      },
+    ]);
+    expect(pickYtdlpMetadata({ title: "x" }, VIDEO).comments).toEqual([]);
   });
 
   it("names a non-YouTube site from the extractor", () => {
@@ -159,6 +243,74 @@ describe("resolveYtdlpBinary", () => {
         chapters: [],
       },
     });
+  });
+
+  /* 36d: comments are asked for only on request, and only of YouTube. */
+  it("fetches the pinned comment only when asked", async () => {
+    process.env.YTDLP_PATH = MIMIC;
+    const log = join(settingsDirectory, "mimic.log");
+    process.env.YTDLP_MIMIC_LOG = log;
+    try {
+      const pinned = "https://www.youtube.com/watch?v=PINNED_TEST";
+      const plain = await fetchYtdlpMetadata(pinned);
+      const asked = await fetchYtdlpMetadata(pinned, { comments: true });
+      if (plain.status !== "success" || asked.status !== "success") {
+        throw new Error("expected the fixture");
+      }
+      expect(plain.metadata.comments).toEqual([]);
+      expect(asked.metadata.comments).toMatchObject([
+        { pinned: true, author: "@TestBakeryChannel" },
+      ]);
+      expect(asked.metadata.comments[0]?.text).toMatch(/^Sunday Challah/);
+      /* A non-YouTube host is never asked: its comments are unbounded. */
+      await fetchYtdlpMetadata("https://vimeo.com/404", { comments: true });
+      const calls = (await readFile(log, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as string[]);
+      expect(calls).toEqual([
+        ["--no-playlist", "-J", "--", pinned],
+        [...YTDLP_COMMENT_ARGS, "--no-playlist", "-J", "--", pinned],
+        ["--no-playlist", "-J", "--", "https://vimeo.com/404"],
+      ]);
+    } finally {
+      delete process.env.YTDLP_MIMIC_LOG;
+    }
+  });
+
+  /* 36d review: one video, never a playlist; the URL never an option. */
+  it("builds the argv with --no-playlist and -- before the URL", () => {
+    const listUrl = "https://www.youtube.com/watch?v=X&list=PL123";
+    expect(ytdlpArgs(listUrl)).toEqual(["--no-playlist", "-J", "--", listUrl]);
+    expect(ytdlpArgs("-oops", true)).toEqual([
+      ...YTDLP_COMMENT_ARGS,
+      "--no-playlist",
+      "-J",
+      "--",
+      "-oops",
+    ]);
+  });
+
+  it("retries without comments when the run with them fails", async () => {
+    process.env.YTDLP_PATH = MIMIC;
+    const log = join(settingsDirectory, "mimic.log");
+    process.env.YTDLP_MIMIC_LOG = log;
+    try {
+      /* The fixture fails only when comments are asked for. */
+      const url = "https://www.youtube.com/watch?v=COMMENTS_FAIL_TEST";
+      const result = await fetchYtdlpMetadata(url, { comments: true });
+      expect(result).toMatchObject({
+        status: "success",
+        metadata: { title: "Comments Unavailable", comments: [] },
+      });
+      const calls = (await readFile(log, "utf8")).trim().split("\n");
+      expect(calls.map((line) => JSON.parse(line))).toEqual([
+        [...YTDLP_COMMENT_ARGS, "--no-playlist", "-J", "--", url],
+        ["--no-playlist", "-J", "--", url],
+      ]);
+    } finally {
+      delete process.env.YTDLP_MIMIC_LOG;
+    }
   });
 
   it("reports a missing binary and a failing run distinctly", async () => {

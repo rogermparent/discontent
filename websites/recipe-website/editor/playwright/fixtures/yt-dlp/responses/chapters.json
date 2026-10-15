@@ -1,0 +1,30 @@
+{
+  "url": "https://www.youtube.com/watch?v=CHAPTERS_TEST",
+  "output": {
+    "title": "Sourdough English Muffins",
+    "description": "Tall, fluffy English muffins.\n\nDOUGH\n300g water\n7g salt\n480g AP flour\n\nWatch the video for the method!",
+    "thumbnail": "https://i.ytimg.com/vi/CHAPTERS_TEST/maxresdefault.jpg",
+    "webpage_url": "https://www.youtube.com/watch?v=CHAPTERS_TEST",
+    "duration": 597,
+    "channel": "Test Kitchen Channel",
+    "chapters": [
+      {
+        "title": "Mixing and kneading dough",
+        "start_time": 21,
+        "end_time": 225
+      },
+      {
+        "title": "Shaping and proofing dough",
+        "start_time": 352,
+        "end_time": 415
+      },
+      { "title": "Cooking and enjoying", "start_time": 415, "end_time": 597 }
+    ],
+    "tags": [
+      "english muffins",
+      "Sourdough",
+      "test kitchen channel english muffins",
+      "breakfast"
+    ]
+  }
+}

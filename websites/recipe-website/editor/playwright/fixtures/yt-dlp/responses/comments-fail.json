@@ -1,0 +1,21 @@
+{
+  "url": "https://www.youtube.com/watch?v=COMMENTS_FAIL_TEST",
+  "failWithComments": true,
+  "output": {
+    "title": "Comments Unavailable",
+    "description": "A video whose comment fetch fails.",
+    "thumbnail": "https://i.ytimg.com/vi/COMMENTS_FAIL_TEST/maxresdefault.jpg",
+    "webpage_url": "https://www.youtube.com/watch?v=COMMENTS_FAIL_TEST",
+    "duration": 120,
+    "channel": "Test Kitchen Channel",
+    "comments": [
+      {
+        "parent": "root",
+        "author": "@TestKitchenChannel",
+        "author_is_uploader": true,
+        "is_pinned": true,
+        "text": "Never seen: the run with comments fails."
+      }
+    ]
+  }
+}

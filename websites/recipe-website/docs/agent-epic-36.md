@@ -13,7 +13,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** epic 36 is **closed** (2026-10-15): the extractor (36a, #231), the `--llm` mode on every import surface (36b, #232), and the pasted-text import with this close-out (36c + 36-close, #233). What remains is the morning checklist in Close-out (Roger: `RECIPE_LLM_URL` in `editor/.env`, then `pnpm workstation update`).
+**Now:** epic 36 closed at #233 (2026-10-15) — the extractor (36a, #231), the `--llm` mode on every import surface (36b, #232), the pasted-text import and close-out (36c + 36-close, #233) — and is **reopened for 36d** (in review): "give it the URL", the video path reading the pinned comment and the form saying so (D9). The morning checklist in Close-out still stands.
 
 ## Context
 
@@ -172,15 +172,58 @@ fetch work the same way.
   the tool count is unchanged); `--dry-run` / drafts work as for URLs.
 - The commit message says "Import … (local model, pasted text)".
 
+### D9 — "Give it the URL": the video path reads everything useful (36d)
+
+Roger, 2026-10-15, after pasting a Lagerstrom description into "Paste
+text": _"I'm thinking more a direct 'give the URL and the server handles
+everything' type of feature — if that's already in and the paste box is
+ignored when a URL is provided, we'll want to evoke that idea more in the
+UI."_ The URL path already did it (36b); the form hid it.
+
+- **The model's text for a video** is the title, the description, and the
+  **creator's** comments: their pinned one and their longest, when those
+  differ both ("Creator's pinned comment:" / "Creator's comment:" blocks,
+  each capped at 6 000 characters, so both fit the 24k text cap). D4
+  grounds against the whole of it.
+- **Only the uploader's comments, ever** (review): a channel can pin a
+  _viewer's_ comment ("I used 2 cups sugar and baked 10 min longer!"),
+  which is untrusted, and D4 grounds only ingredients. `pinned` orders the
+  creator's comments; it never admits anyone else's. Replies are dropped
+  too.
+- **Comments only when a model will read them** (`videoFetchOptions`: a
+  model configured and the mode not `off`), YouTube only, with
+  `--write-comments --extractor-args
+"youtube:max_comments=10,10,0,0;comment_sort=top"`: ten top-level
+  comments, no replies; the pinned one is listed first. Measured at
+  +0–1 s per fetch, so they are fetched on every model import rather
+  than only after a first reading fails. A failed run with comments is
+  retried once without.
+- **Every yt-dlp run is `--no-playlist -J -- <url>`** (review): a
+  `watch?v=X&list=PL…` URL would otherwise extract the whole playlist, and
+  `--` keeps any URL from being read as an option.
+- **Not the chapters** — measured (Results): never better, three times
+  worse.
+- **The video's tags** become `suggestedTags` through `suggestTags` (the
+  page path's limit of 10), minus tags that name the channel.
+- **The form says it:** helper text under the URL field, a live hint for a
+  video URL, a video pending note, the force box reworded ("Re-read with AI
+  even if the page has recipe data") and hidden for videos, and pasting
+  demoted from a co-equal radio to a secondary "No link? Paste the recipe
+  text instead" button (D8's "Paste text tab" is now that fallback).
+- **The notice after a video import** names what was read: "read from the
+  video's description and pinned comment by local model qwen3:8b — 28/28
+  ingredient lines found verbatim; check it".
+
 ## Roadmap
 
-| Phase    | Branch               | Size | Status  | What                                                             |
-| -------- | -------------------- | ---- | ------- | ---------------------------------------------------------------- |
-| 36-plan  | `agent/36-plan`      | S    | ✅ #230 | This doc.                                                        |
-| 36a      | `agent/36a-llm-core` | M    | ✅ #231 | D1, D2, D4, D6, D7: `pageText`, the client, the extractor, gate. |
-| 36b      | `agent/36b-llm-wire` | M    | ✅ #232 | D3, D5: `applyLlm` in seats, form, CLI, API, MCP; Settings line. |
-| 36c      | `agent/36c-llm-text` | M    | ✅ #233 | D8: text import mode in the form, CLI, API, MCP.                 |
-| 36-close | `agent/36c-llm-text` | S    | ✅ #233 | Results, D12/SKILL.md updates, backlog, memory, Roger's steps.   |
+| Phase    | Branch                | Size | Status    | What                                                                                   |
+| -------- | --------------------- | ---- | --------- | -------------------------------------------------------------------------------------- |
+| 36-plan  | `agent/36-plan`       | S    | ✅ #230   | This doc.                                                                              |
+| 36a      | `agent/36a-llm-core`  | M    | ✅ #231   | D1, D2, D4, D6, D7: `pageText`, the client, the extractor, gate.                       |
+| 36b      | `agent/36b-llm-wire`  | M    | ✅ #232   | D3, D5: `applyLlm` in seats, form, CLI, API, MCP; Settings line.                       |
+| 36c      | `agent/36c-llm-text`  | M    | ✅ #233   | D8: text import mode in the form, CLI, API, MCP.                                       |
+| 36-close | `agent/36c-llm-text`  | S    | ✅ #233   | Results, D12/SKILL.md updates, backlog, memory, Roger's steps.                         |
+| 36d      | `agent/36d-video-url` | M    | 🟡 review | D9: the video path reads the pinned comment and tags; the form says "give it the URL". |
 
 Ordering: strictly sequential — 36b needs 36a's extractor, 36c needs 36b's
 plumbing (`ImportOptions`, the zod bodies, the form). 36-close after 36c.
@@ -302,6 +345,24 @@ plumbing (`ImportOptions`, the zod bodies, the form). 36-close after 36c.
   optionally `RECIPE_LLM_MODEL`) to `editor/.env`; `pnpm workstation update`
   from the repo root; no Pi deploy needed for function (the Pi stays off),
   though deploying keeps the image current; no reindex.
+
+### 36d — "Give it the URL" (M, reopened 2026-10-15)
+
+- D9 on top of 36c. **A:** the video path sends the pinned comment (only
+  when a model will read it) and maps the video's tags to
+  `suggestedTags`; chapters are measured against the 36a YouTube corpus and
+  kept or left out on the numbers. **B:** `/new-recipe` says the server
+  handles a URL — helper text (`aria-describedby`), a video hint, a video
+  pending note, the paste mode as a secondary toggle, the force box
+  reworded and hidden for videos; `isVideoUrl` in a module the client can
+  load.
+- Tests: unit (the mimic with comments, chapters and tags; the comment
+  fetched only with a model; tags → `suggestedTags`; grounding against the
+  combined text); Playwright `new-recipe`, `ytdlp-import`, `youtube-video`,
+  `visual` (baselines regenerated first), `accessibility`.
+- Real check (qwen3:8b, scratch clone, `--dry-run`): the Lagerstrom pasta
+  salad, a description with no method, a recipe only in a pinned comment —
+  with and without the comment fetch.
 
 ## Verification
 
@@ -510,6 +571,59 @@ key: "text"` issue. The HTTP backend now names the cause.
   pulls in `next/cache`; `vi.mock` of that one module (returning a tmpdir
   context) lets `test/importRoute.test.ts` call `POST` directly, and the
   same handler can sit behind a 127.0.0.1 server for the HTTP backend.
+
+### 36d
+
+- **T35 — Chapter titles become steps.** The D7 prompt says to ignore
+  chapter lists, and qwen3:8b mostly does — until there is nothing else.
+  Sivan's challah (empty description) with only its chapters came back as
+  nine chapter titles for steps and no ingredients, which auto keeps (T21);
+  Lagerstrom's English muffins (ingredients, no method) came back with a
+  "Chapters:" section of "0:21 Preparing the pre-ferment" lines. So the
+  chapters are not sent (D9). If they are ever wanted, they need a
+  deterministic home (an outline note), not the model's text.
+- **T36 — A credit line can be the only step.** The English muffins'
+  description has no method; the model made "THANKS TO AMERICAS TEST
+  KITCHEN AND SERIOUS EATS FOR THE RECIPE INSPIRATION HERE." the one
+  step, and 10/11 grounded with one step is trusted. Same with or without
+  the comment fetch (pre-existing). Backlog.
+- **T37 — A pinned comment of notes costs a model call.** Chinese Cooking
+  Demystified pins 2 400 characters of notes (laomian, yeast, fermentation
+  times — no ingredient list). With it, qwen3:8b invented 67 ingredient
+  lines (0/67 grounded) in 30.5 s, and the 36b floor discarded them: the
+  import is what it was, but the reading took 30 s instead of 1 s. The
+  floor is what makes sending comments safe.
+- **T38 — Keep the comment fetch small and ordered.** With
+  `comment_sort=top` the pinned comment was the first one in all four
+  videos that had one. yt-dlp's `max_comments` is `max-comments,
+max-parents,max-replies,max-replies-per-thread`: `10,10,0,0` is ten
+  top-level comments and no replies. Another extractor ignores the `youtube:` arguments and
+  `--write-comments` would fetch every comment, so comments are asked of
+  YouTube URLs only.
+- **T39 — The mimic answered by argument position.** `ytdlp-mimic.mjs` read
+  the URL as the argument after `-J`; with the review's `-J -- <url>` it
+  reads the one after `--` (falling back to after `-J`). It also drops a
+  fixture's `comments` unless `--write-comments` is passed (as yt-dlp
+  does), fails a `failWithComments` fixture only when comments are asked
+  for, and logs its argv to `YTDLP_MIMIC_LOG` for the unit tests.
+- **T40 — The `/new-recipe` baselines moved again** (T17, T29): the helper
+  text under the URL field and the paste toggle under Import.
+  `new-recipe-form-e2e.png` and `new-recipe-form-overwrite-e2e.png`
+  regenerated in their own heavy-slot run first.
+- **T41 — A pinned comment is not the creator's word** (review). The first
+  cut kept any pinned comment and preferred it; a channel can pin a
+  viewer's tip, which then reached the model as the "recipe" while the
+  creator's own unpinned comment was dropped. Only `author_is_uploader`
+  comments are kept now, and the pinned and the longest both go when they
+  differ. Fixture `responses/pinned-viewer.json`.
+- **T42 — A live region that is `display: none` is often not announced**
+  (review). The video hint's `<p aria-live>` had `empty:hidden`; it is
+  always rendered now, with `empty:mb-0` so an empty one takes no height
+  (the baselines did not move).
+- **T43 — A `&list=` URL extracts the playlist** (review). Without
+  `--no-playlist`, `watch?v=X&list=PL…` asks yt-dlp for every video in the
+  list; with comments that ran into the 45 s timeout and then the 30 s
+  retry before failing.
 
 ## Results
 
@@ -1061,6 +1175,173 @@ skips and `--name`'s message, the normalised source). Playwright (build
 mode, heavy slot) `new-recipe`, `visual`, `accessibility` and `recipe.spec`
 (the one spec that parses the page's JSON-LD): **102 passed**; no baseline
 moved (the renamed label shows only in the Paste text tab).
+
+### 36d — "Give it the URL"
+
+**Reindex needed: no.** No index, schema or spec version changed; a video
+import stores an ordinary recipe (D5).
+
+**Built.**
+
+- `controller/ytdlp.ts` — `fetchYtdlpMetadata(url, {comments})`: with
+  `comments` and a YouTube URL it runs `YTDLP_COMMENT_ARGS` (`--write-comments
+--extractor-args "youtube:max_comments=10,10,0,0;comment_sort=top"`)
+  before the rest, with a 45 s timeout, and retries once without comments
+  if that run fails. Every run's argv is `ytdlpArgs`: `[…comments]
+--no-playlist -J -- <url>` (review). `pickYtdlpMetadata` keeps
+  `comments`: top-level ones **by the uploader** (review: never a viewer's,
+  pinned or not), pinned first, at most three, each capped at
+  `COMMENT_MAX_CHARS` (6 000). `videoSuggestedTags` → `ytdlpToRecipe`'s
+  `suggestedTags` (`suggestTags`, limit 10, tags holding the channel's name
+  dropped).
+- `controller/llm/importWithLlm.ts` — `videoSource` sends the title, the
+  description and `recipeComments` (the creator's pinned comment and their
+  longest, both when they differ) as "Creator's pinned comment:" /
+  "Creator's comment:" blocks, and labels the source ("the video's
+  description and pinned comment", "… and the creator's comment(s)");
+  `videoFetchOptions(mode, config)` asks for comments only with a model and
+  not `off`. The three video call sites (`importFromUrl`, `inspectUrl`,
+  the form's `reduceRecipeImport`) pass it. The label reaches the warnings
+  through `extractRecipe`'s `sourceLabel` / `sourceWhere`: a trusted video
+  reading says "read from the video's … by local model qwen3:8b — N/M
+  ingredient lines found verbatim; check it"; found-nothing and discarded
+  readings say "in the video's …".
+- `inspect` lifts a video's `suggestedTags` to the top level, as for a page.
+- `common/util/videoUrl.ts` — `isVideoUrl`, `videoHostName`, `isYouTubeUrl`
+  with no imports; `importRecipeData` re-exports `isVideoUrl` from it, and
+  `ytdlp.ts`'s YouTube check uses it.
+- **Form** (`new-recipe/form.tsx`): the URL field (still `Import from URL`,
+  `name="import"`) is described (`TextInput`'s new `describedBy`) by helper
+  text — with a model "A recipe page or a video link. The server fetches it
+  — yt-dlp for videos — and qwen3:8b reads the recipe out of it when
+  there's no recipe data.", without one the plain version — and, for a
+  video URL, a live hint (`aria-live`, `data-testid="import-video-hint"`):
+  "YouTube video — yt-dlp fetches the description and pinned comment;
+  qwen3:8b reads the recipe." (no model: "… fetches its title, description
+  and thumbnail."). The force box reads "Re-read with AI even if the page
+  has recipe data" and is not rendered for a video URL. The pending note
+  for a video is "Fetching the video with yt-dlp, then qwen3:8b reads it…
+  (~20–30 s)". Pasting is a link-styled button under Import, "No link?
+  Paste the recipe text instead" (disabled, described by "— No local model
+  configured", without a model), and "← Import from a link instead" in
+  text mode; focus moves to the field that appears. The text mode posts a
+  hidden `importMode=text` (the action is unchanged) and says "qwen3:8b
+  reads the recipe out of the text — an email, a note, a cookbook page
+  typed up."
+- **Mimic and fixtures:** `ytdlp-mimic.mjs` drops a fixture's `comments`
+  unless `--write-comments` is passed and logs its argv to
+  `YTDLP_MIMIC_LOG`; `responses/pinned-comment.json` (recipe only in a
+  pinned comment, plus a viewer's comment, an uploader's reply and
+  chapters) and `responses/chapters.json` (ingredients, "watch the video
+  for the method", chapters, tags incl. one naming the channel).
+
+**Chapters — measured, left out.** The 36a YouTube corpus plus six videos
+found for this phase (Lagerstrom's chili, ciabatta, English muffins and
+butter chicken; Sivan's Kitchen's challah and granola, whose recipes are in
+pinned comments), fetched once with comments (15 s apart) and read offline
+by qwen3:8b, one call at a time, under auto:
+
+| video                                      | description only             | + chapters                                                  | + pinned comment (shipped)             |
+| ------------------------------------------ | ---------------------------- | ----------------------------------------------------------- | -------------------------------------- |
+| Lagerstrom pasta salad `lo2pf0pYB9U`       | 28/28, 8 steps (18.6 s)      | identical (15.6 s)                                          | – (no pinned comment)                  |
+| Lagerstrom focaccia `1_dD-EDA95A`          | 7/7, 16 steps (23.0 s, cold) | same lines, steps reworded (12.3 s)                         | –                                      |
+| Lagerstrom pizza `7CM2VU0e1ks`             | 14/14, 8 steps (20.5 s)      | identical (17.7 s)                                          | –                                      |
+| Lagerstrom peanut butter cookies           | 14/14, 10 steps (15.2 s)     | identical (13.5 s)                                          | –                                      |
+| Lagerstrom noodles `UhOk2SkdD6s`           | 12/12 + 4 put back, 10 steps | – (no chapters)                                             | –                                      |
+| Lagerstrom chili `8h7YSpu98Uc`             | 35/35, 17 steps (25.9 s)     | 35/35 (34 verbatim), same steps                             | –                                      |
+| Lagerstrom ciabatta `jA95tUK2RZU`          | 12/12, 10 steps (19.0 s)     | identical (17.2 s)                                          | –                                      |
+| Lagerstrom butter chicken `ESqF6CW91UQ`    | 35/35, 7 steps (25.0 s)      | identical (22.7 s)                                          | identical (23.6 s; a short note)       |
+| **Lagerstrom English muffins** (no method) | 10/11, 1 step (T36) (6.2 s)  | **8 "steps": a "Chapters" section of `0:21 …` lines** (T35) | –                                      |
+| **Sivan's challah** (empty description)    | found: false (1.1 s)         | **0 ingredients, 9 chapter titles as steps, kept**          | **6/6 verbatim, 10 steps (13.6 s)**    |
+| **Sivan's granola** (empty description)    | found: false (1.2 s)         | **0 ingredients, 6 chapter titles as steps, kept**          | **9/10, 10 lines, 4 steps (7.3 s)**    |
+| CCD danhonggao (links out; notes pinned)   | found: false (1.3 s)         | found: false                                                | 0/67 invented, discarded (30.5 s; T37) |
+
+- **Chapters: never better, three times worse** — so they are not sent
+  (D9, T35). The muffins' chapter outline arrived as timestamped "steps",
+  not a method; where the description has a method the model ignored them.
+- **Pinned comments: two recipes found that were invisible before** (both
+  Sivan's, 6/6 and 9/10 — the granola's one miss is T3's garble, "1 cup
+  (130 g) almonds" for "136 g", swapped back by `fillSkippedLines`); a
+  short non-recipe note changed nothing; a long one of notes cost 30 s and
+  was discarded by the 36b floor (T37).
+- **Tags:** the noise is real but harmless — the muffins' ten are all
+  "english muffin(s) …" SEO variants. Suggestions only (26d).
+
+**Wall time of the comment fetch** (yt-dlp `-J` on the workstation, one
+video at a time, 15 s apart): pasta salad 4.6 s plain vs 5.2 / 5.7 s with
+comments; in the live check below 5.2 → 5.2, 2.1 → 3.0, 4.3 → 5.3 s. About
+**+0–1 s** against a 5–25 s model reading, so comments are fetched on every
+model import, not only after a first reading fails (D9).
+
+**Real model, live** (qwen3:8b, 2026-10-15, one fetch per video and mode,
+15 s apart; the scratch clone was deleted after):
+
+| video                                         | without the comment fetch                     | with it (shipped)                                   |
+| --------------------------------------------- | --------------------------------------------- | --------------------------------------------------- |
+| Lagerstrom pasta salad `lo2pf0pYB9U`          | 28/28 verbatim, 8 steps; 5.2 s + 16.3 s model | 28/28 verbatim, 8 steps; 5.2 s + 15.5 s             |
+| Lagerstrom English muffins `giyFwrD6oBM`      | 10/11, 1 step (T36); 2.1 s + 6.4 s            | the same; 3.0 s + 4.9 s                             |
+| Sivan's challah `5NpWYEQOzDc` (pinned recipe) | found: false — the bare video; 4.3 s + 0.7 s  | **6/6 verbatim, 10 steps, trusted**; 5.3 s + 13.5 s |
+
+- Through the CLI, `recipes import https://www.youtube.com/watch?v=5NpWYEQOzDc
+--dry-run --json --content-dir <scratch>` with `RECIPE_LLM_URL` set: 6/6
+  verbatim, 10 steps, source YouTube / Sivan's Kitchen, `video` set, the
+  warning "read from the video's pinned comment by local model qwen3:8b —
+  6/6 ingredient lines found verbatim; check it"; 65 s wall, 53.6 s of it
+  the model — the machine was under memory pressure then (1.7 GB free);
+  the same reading took 13.5 s minutes earlier.
+- `recipes inspect https://www.youtube.com/watch?v=giyFwrD6oBM --llm off`:
+  `suggestedTags` (10), `video.chapters` (7).
+- No Lagerstrom video in the corpus says "watch the video for the method";
+  the English muffins (ingredients, no method) is the nearest, and its
+  chapters did not help (T35).
+
+**Gates.** `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit` clean; `pnpm exec vitest run` **81 files
+/ 1728 tests** passed (+11: `ytdlp` +4 — comments kept / dropped / capped,
+tags and the channel filter, comments only on request and only of YouTube,
+the retry without; `importWithLlm` +4 — the source text and label, the
+uploader's comment, `videoFetchOptions`, grounding against the combined
+text incl. a viewer's line not grounded; `curation` +3 — a pinned-comment
+recipe through the seat with the comment fetched, no fetch without a model
+or under off, tags in the dry run and `inspect`). Playwright: the two
+`/new-recipe` baselines regenerated first (`visual.spec -g "new-recipe
+form" --update-snapshots`, heavy slot, 2 passed; T40), then
+`new-recipe`, `ytdlp-import`, `youtube-video`, `visual` and
+`accessibility` in build mode through the heavy slot: **104 passed**
+(`new-recipe` +1: the helper text as the field's description, the video
+hint and its `aria-describedby`, the force box gone for a video and back
+for a page; the two "no model" tests moved to the reworded box and the
+paste button).
+
+**Review round** (5 findings, none blocking; one commit):
+
+1. **Only the creator's comments** (MEDIUM, T41): a viewer's comment is
+   dropped even when pinned; the creator's pinned and longest comments both
+   go when they differ ("Creator's pinned comment:" / "Creator's
+   comment:"). Fixture `responses/pinned-viewer.json`.
+2. **The live region stays rendered** (T42): `empty:mb-0` instead of
+   `empty:hidden`.
+3. **The retry test retries for real:** fixture `responses/comments-fail.json`
+   fails only with `--write-comments`; the retry answers `success` with no
+   comments.
+4. **`--no-playlist` and `--`** on every yt-dlp run (`ytdlpArgs`, T43); the
+   mimic reads the URL after `--` (T39).
+5. Stale "Extract with AI" / "Paste text tab" comments in `actions.tsx`
+   and `common.tsx`.
+
+Gates after the review: typecheck and `tsc --noEmit` clean; `pnpm exec
+vitest run` **81 files / 1731 tests** (`ytdlp` +1 — the argv; the comment
+test now holds a pinned viewer's comment; `importWithLlm` — the creator's
+pinned and longest, a pinned viewer's comment never sent; `curation` +1 —
+the creator's comment read, not a viewer's pinned one, through the seat).
+Playwright (build mode, heavy slot) `new-recipe`, `ytdlp-import`,
+`youtube-video`, `accessibility`, `visual`: **104 passed**; no baseline
+moved.
+
+**Backlog** (rows in `backlog.md`): follow a recipe link out of a video's
+description (Chinese Cooking Demystified's Substack case — the model
+answers `found: false`, the page it links is the recipe), and a credit
+line read as the only step (T36).
 
 ## Close-out
 
