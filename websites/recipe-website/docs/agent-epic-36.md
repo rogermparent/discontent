@@ -13,7 +13,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** epic 36 closed at #233 (2026-10-15) — the extractor (36a, #231), the `--llm` mode on every import surface (36b, #232), the pasted-text import and close-out (36c + 36-close, #233) — and is **reopened for 36d** (in review): "give it the URL", the video path reading the pinned comment and the form saying so (D9). The morning checklist in Close-out still stands.
+**Now:** 36e in review (PR open).
 
 ## Context
 
@@ -236,13 +236,24 @@ D9, so it is D10.)
   returning `recipes[]` (the other design) changed single-recipe readings
   (T46); the two stages leave every text that fails the gate, or that the
   list calls one recipe, byte for byte as before.
+- **Looking is its own attempt** (review). The list, the question and the
+  slice readings run under one deadline (`SPLIT_DEADLINE_MS`, 240 s, with
+  the caller's signal); a failed call there — a timeout, bad JSON, the
+  deadline — becomes a note and the text is read as one, as before 36e. A
+  slice's own failed call leaves that recipe out, like a discarded one.
+  Only the caller's abort ends the import.
+- **Heading lines are checked** (review): a heading matched with
+  decoration must be a short line with no amount and no timestamp ("FRIED
+  SHALLOTS (FOR THE CASSEROLE)", not "2 cups fried shallots" nor "5:04
+  Stuffing"), and its first ingredient must follow within a few lines, or
+  the first ingredient is the start.
 - **Only video text and pasted text** (`applyLlm`'s `split`): pages are
   never split, and a page with several JSON-LD `Recipe` nodes still takes
   the first (backlog).
 - **Trust is per recipe.** Each slice is grounded against itself and
   settled on its own (`settleExtraction`: the 36b floor, D4, T21): one
-  reading under the floor is left out with a warning (the rest are
-  renumbered, so `pick` never names a gap); one under 90% is `partial` for
+  reading under the floor is left out with a warning, and its position in
+  the list stays a gap (`leftOut`; a pick of it says why); one under 90% is `partial` for
   pasted text, and kept but marked untrusted (`trusted: false`) for a video
   under auto (T21's rule). Fewer than two left is read as one recipe.
 - **Names** come from the list ("Stuffing", where the slice's reading says
@@ -254,34 +265,47 @@ D9, so it is D10.)
   above"), or nothing but the name — becomes a markdown link,
   `[Crispy fried shallots (or onions) - see recipe below](/recipe/fried-shallots)`:
   the line verbatim as the link's text. Links are made after the batch's
-  slugs are settled: to a recipe created in the same batch, or — when the
+  slugs are settled, and the recipes others name are created first: a line
+  links to a recipe `imported` or `existing` in this batch, or — when the
   named recipe is not in the batch — to the recipe already at its slug if
   that one came from the same source (an earlier `--pick`; T52). Never to
-  another source's recipe of the same name. A dry run and `inspect` link
-  to the slug a create would use. The link is 25c's
+  another source's recipe of the same name; an unlinked line says why in
+  the warnings. A dry run and `inspect` link to the slug a create would
+  use, and so does the form's "Edit this one first". The link is 25c's
   `ingredientRecipeLinks` convention, so `/make` reads it too.
 - **Chapters:** each recipe is placed in the chapter whose title holds most
   of its name's words (≥ half); a component with none of its own (the
   shallots) takes the chapter of the recipe that names it. The start goes
   into `source.url` and the stored `video` as YouTube's `t=<seconds>s`;
+  a recipe with no chapter gets no `t` at all (not the one pasted);
   the recipe page's player starts there (`config.youtube.start`, read from
   the stored URL — the embed ignores `t=`, T47).
 - **Surfaces:** `recipes import` (URL or `--text`) refuses (`usage`, naming
-  the recipes) unless `--all` or `--pick 1,3`; `--dry-run` shows them all,
+  the recipes) unless `--all` or `--pick` — by **name** (`--pick "Green
+  Bean Casserole"`, case and dashes aside; a name not found this time is
+  refused with what was) or by position (`--pick 1,3`, which a re-read can
+  shift); `--as-one` (`asOne`) reads the text as one recipe, never split.
+  A pick whose slug holds the same source's recipe is `existing` and
+  skipped (as a roundup's), so `--all` again after a partial run imports
+  only what is missing; another source's recipe there is a `slug_conflict`
+  for that pick alone — no suffix is made up. `--dry-run` shows them all,
   `--out d.json` writes `d-1.json`, `d-2.json`…; one recipe needs no flag.
   `ImportBatchResult` is `{batch: true, found: [...], recipes: [...]}`.
   `inspect` / `page_inspect` add `recipes: [{n, name, chapter?, slug,
 draft, llm}]` and keep `recipe` / `draft` as the first one's. MCP
-  `recipe_import` and `/api/import` take `pick` / `all` (tool count
-  unchanged). Commits: `Create recipe: <slug> (local model, 3 of 4 from
+  `recipe_import` and `/api/import` take `pick` (names or positions), `all`
+  and `asOne` (tool count unchanged); the HTTP backend waits 285 s for
+  `/api/import`, under undici's 300 s. Commits: `Create recipe: <slug> (local model, 3 of 4 from
 youtube.com/watch?v=…)`, or `(local model, pasted text, 3 of 4)`.
 - **The form** shows a picker (`BatchPicker`, on 35r's `PickList`): name,
   ingredient count, lines found in the text, chapter time; every trusted
   recipe ticked; "Import N selected" creates them in one server action
-  with no second reading (`importBatchPicks`, the seat's own); "Edit this
-  one first" fills the form with one; "Import as one recipe instead" fills
-  it with all the parts as one (`mergeReadings`) — the way out when the
-  model splits a dish anyway.
+  with no second reading (`importBatchPicks`, the seat's own) and unticks
+  everything it tried; a row that failed on a taken slug says so in the
+  form's words and offers a slug field pre-filled `<slug>-<channel>`;
+  "Edit this one first" fills the form with one, its links kept; "Import
+  as one recipe instead" fills it with all the parts as one
+  (`mergeReadings`) — the way out when the model splits a dish anyway.
 
 ## Roadmap
 
@@ -293,7 +317,7 @@ youtube.com/watch?v=…)`, or `(local model, pasted text, 3 of 4)`.
 | 36c      | `agent/36c-llm-text`     | M    | ✅ #233   | D8: text import mode in the form, CLI, API, MCP.                                                                                   |
 | 36-close | `agent/36c-llm-text`     | S    | ✅ #233   | Results, D12/SKILL.md updates, backlog, memory, Roger's steps.                                                                     |
 | 36d      | `agent/36d-video-url`    | M    | 🟡 review | D9: the video path reads the pinned comment and tags; the form says "give it the URL".                                             |
-| 36e      | `agent/36e-multi-recipe` | M–L  | 🟡 review | D10: several recipes in one video or paste — split, trusted and linked per recipe, chapter starts, the picker, `--all` / `--pick`. |
+| 36e      | `agent/36e-multi-recipe` | M–L  | 🟡        | D10: several recipes in one video or paste — split, trusted and linked per recipe, chapter starts, the picker, `--all` / `--pick`. |
 
 Ordering: strictly sequential — 36b needs 36a's extractor, 36c needs 36b's
 plumbing (`ImportOptions`, the zod bodies, the form). 36-close after 36c.
@@ -746,12 +770,15 @@ max-parents,max-replies,max-replies-per-thread`: `10,10,0,0` is ten
 - **T48 — `crypto.randomUUID()` is undefined over plain http.** Browsers
   expose it only in a secure context; the Pi's editor is `http://…:3000`.
   The picker's form keys count instead (the 36c server-side key is fine).
-- **T49 — `createIngredient` wraps numbers inside a link's target.**
-  `[2 cups shallots](/recipe/stuffing-2)` becomes `…(/recipe/stuffing-<Multiplyable baseNumber="2" />)`.
-  The batch import adds its links to lines already parsed, so it is safe;
-  a dry run's or `inspect`'s draft holds the link as plain text, and
-  `create --file` with it would break a slug with a digit (none of the
-  four here). Backlog.
+- **T49 — `createIngredient` wraps numbers inside a link's target** —
+  fixed in the review round, for every caller (a link typed by hand into
+  the form had the same problem, before 36e).
+  `[2 cups 7-layer dip](/recipe/7-layer-dip)` became
+  `…(/recipe/<Multiplyable baseNumber="7" />-layer-dip)`: a dry run's or
+  `inspect`'s draft holds the link as plain text, and `create --file` with
+  it broke a slug with a digit. Now each `](…)` target is held aside while
+  the numbers are marked (a digit-free placeholder — a digit in it would be
+  marked too) and put back.
 - **T50 — A several-recipe import only exists with a model, and the suite
   has none** (T18). `/settings/test-llm?url=` (TEST_MODE only, like
   `/settings/test-editor-role`) points the server at a loopback stand-in
@@ -782,7 +809,38 @@ max-parents,max-replies,max-replies-per-thread`: `10,10,0,0` is ten
   not available" after ~4 s, and the form was still "Fetching the video
   with yt-dlp…" when the 5 s `toBeChecked` gave up — twice, on a branch
   that does not touch that path (CI has no yt-dlp, and the bare link comes
-  back at once). The assertion now waits 30 s.
+  back at once). The test now sets `ytdlpPath` to a missing binary, so it
+  never asks YouTube on any machine; the 5 s wait stands (review).
+- **T55 — The several-recipe look shared the reading's `try`** (review).
+  A list call that timed out or answered bad JSON lost the whole import —
+  the chili, one recipe that passes the gate, would have come back with
+  nothing; a slice's failure lost the slices already read. Now the look is
+  its own attempt under one 240 s deadline, a failed slice is left out
+  alone, and only the caller's own abort ends the import.
+- **T56 — A loose heading match cut a recipe short** (review). The
+  decoration-tolerant pass ("STUFFING" in "STUFFING ✨") also matched
+  "2 cups fried shallots" for a "FRIED SHALLOTS" heading — ending the
+  casserole one line early — and "5:04 Stuffing" in a chapter list at the
+  top. It accepts only short lines with no amount and no timestamp now,
+  and checks the first ingredient follows the heading.
+- **T57 — Positions shift between readings** (review). Every import call
+  reads the video again, and the first cut renumbered the recipes after
+  one was left out: `--pick 3` could name another recipe the second time.
+  Positions are the list's now (gaps allowed, a gap refused with its
+  reason), and names are the recommended pick — the refusal, `--help`,
+  MCP and the skill say so.
+- **T58 — Ollama loads to CPU if VRAM is busy at load time** (the real
+  check, review verification). Roger's own speech-to-text tool
+  (`parakeet-cli`) takes up to ~8 GB of the one shared GPU at times;
+  `ollama`'s fit pass sees too little free VRAM at that instant and
+  offloads 0/37 layers, not some — a four-recipe text that reads in
+  ~40–60 s warm on the GPU took 142–243 s per recipe on the CPU (~3.3
+  tok/s) and the single-call `--text --dry-run` hit the 180 s per-call
+  timeout outright before the GPU was free. `ollama ps`'s `PROCESSOR`
+  column shows the split (`98%/2% CPU/GPU` vs `100% GPU`); `ollama stop
+qwen3:8b` unloads it, and the next call reloads fresh — onto the GPU
+  once VRAM is actually free. Check `ollama ps` before trusting a
+  timing, and stop the model rather than retry if it shows mostly CPU.
 
 ## Results
 
@@ -1633,9 +1691,84 @@ editor named). Playwright (build mode, heavy slot) `multi-recipe`,
 with its wait at 30 s, `youtube-video.spec` **10 passed**. No baseline
 moved: the picker only appears after a several-recipe import.
 
+**Review round** (10 findings — M1–M4, L1–L6 — none blocking; fixed in one
+commit, `dab4bca5`):
+
+1. **M1 — The look shared the reading's `try`** (T55). A list call that
+   timed out or answered bad JSON lost the whole import, and a slice's
+   failure lost the slices already read. The look is now its own attempt
+   under one 240 s deadline (`SPLIT_DEADLINE_MS`, with the caller's
+   signal): a failed list, question or deadline becomes a note and the
+   text is read as one, as before 36e; a slice's own failed call leaves
+   that recipe out alone, like a discarded one; only the caller's abort
+   ends the import.
+2. **M2 — A loose heading match cut a recipe short** (T56). The
+   decoration-tolerant pass ("STUFFING" in "STUFFING ✨") also matched an
+   amount line ("2 cups fried shallots" for "FRIED SHALLOTS") and a
+   timestamp line ("5:04 Stuffing" in a chapter list). It now accepts
+   only a short line with no amount and no timestamp, and checks that the
+   first ingredient follows the heading within a few lines.
+3. **M3 — Positions shift between readings** (T57). Every import call
+   reads the video again, and the first cut's renumbering after a leftout
+   recipe meant `--pick 3` could name a different recipe the second time.
+   Positions are the list's own now (gaps allowed, a gap refused with its
+   reason), and picks may take a **name** instead — case and dashes aside,
+   a name not found this time is refused with what was — which the
+   refusal, `--help`, MCP and the skill all recommend.
+4. **M4 — No way to force one recipe from the CLI, MCP or API.** `asOne` /
+   `--as-one` reads a video or paste as one recipe, never split — the same
+   path as the form's "Import as one recipe instead" (`mergeReadings`),
+   split off so every surface has it.
+5. **L1 — Re-running `--all` after a partial import repeated work and
+   could collide.** A pick whose slug already holds the same source's
+   recipe comes back `existing` and is skipped, so a second `--all` only
+   imports what's missing; the picker unticks everything it tried and, for
+   a taken slug, says so in the form's words and offers `<slug>-<channel>`;
+   "Edit this one first" keeps the recipe's links.
+6. **L2 — A component link could point at nothing.** The recipes a line
+   names are created first, so a line links only to a recipe `imported` or
+   `existing` in the batch, or to an earlier pick of the same source;
+   otherwise it stays plain and says why in the warnings.
+7. **L3 — `createIngredient` wrapped numbers inside a link's target**
+   (T49; the bug predates 36e — a hand-typed link had it too). Now each
+   `](…)` target is held aside while numbers are marked (a digit-free
+   placeholder) and put back, so `[2 cups 7-layer dip](/recipe/7-layer-dip)`
+   keeps its slug intact.
+8. **L4 — A pasted reading could inherit a chapter's start.** No chapter
+   (or a start of 0) now removes `t` rather than keeping one left over
+   from an earlier, video-sourced reading.
+9. **L5 — The HTTP backend could time out under undici first.** It now
+   waits 285 s for `/api/import`, inside undici's own 300 s.
+10. **L6 — `youtube-video.spec`'s first import could ask real YouTube**
+    (T54). The test now sets `ytdlpPath` to a missing binary so it never
+    asks YouTube on any machine; the 5 s wait for "yt-dlp not available"
+    stands.
+
+Gates after the review: `pnpm --filter recipe-editor typecheck` and `pnpm
+--filter recipe-website exec tsc --noEmit` clean; `pnpm exec vitest run`
+**82 files / 1771 tests** passed (one `cliJson` inventory test timed out
+at 30 s under the machine's load and passed alone in 13.6 s — a flake, not
+a regression). Playwright (build mode, heavy slot) `multi-recipe`,
+`new-recipe` (with `new-recipe-duplicate-slug`), `ytdlp-import`,
+`youtube-video`, `import-roundup`, `visual`, `accessibility`:
+**115/115** passed (3.9 min); no baseline moved.
+
+**Real check after the review** (qwen3:8b, `--text desc.txt --source
+<the video>`, a fresh empty scratch repo): refused without `--all` /
+`--pick`, naming all four and mentioning `--pick` by name or position,
+`--dry-run` and `--as-one` (T57, M3, M4); `--pick "Green Bean Casserole"
+--dry-run` alone came back with just the casserole, its shallot line
+unlinked with "\"Fried Shallots\" is not imported — pick it too" (L2); picking
+both names together linked it, same as before. One run (the first, while
+another GPU client held VRAM) answered on the CPU at ~3.3 tokens/s and the
+single-call reading hit the 180 s timeout outright — see T58; re-run once
+`ollama ps` showed `100% GPU`, the picked calls took 7.1–11.3 s each, in
+line with the warm-GPU numbers already measured above.
+
 **Backlog** (rows in `backlog.md`): several JSON-LD Recipe nodes on a page;
-re-reading after a refusal; "import as one" outside the form; a digit in a
-linked slug through `create --file` (T49); a start time on other hosts.
+re-reading after a several-recipe refusal; a start time on other hosts.
+"Import as one" outside the form (M4) and the digit in a linked slug (L3,
+T49) are both done.
 
 ## Close-out
 
