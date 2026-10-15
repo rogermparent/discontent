@@ -2066,6 +2066,143 @@ split-screen or short desktop window has it too.
       and the same `AppLayout`, so its hand-duplicated `@media print` block was
       untouched — the policy lives in one place.
 
+## Usability pass (2026-10-15)
+
+Roger picked a mix of four design directions for the reader side: **direction
+A as the homepage**, a new navigation, direction C's bar home as `/drinks`,
+direction B's count bars on `/tags`, and direction D's pantry-staples default
+on `/make`. One worker per piece (U1–U5), each with its subsection here; U6
+is a cross-cutting rule. Shared rules for every piece:
+
+- **Tokens, not comp colours.** The comps were HTML with the Working Bench
+  palette as hex. Every colour maps onto the existing tokens (`primary`,
+  `card`, `border`, `muted-foreground`, `secondary`), so light, dark and
+  custom themes all work and nothing assumes the default accent.
+- **Copy:** sentence case, plain verbs, counts in the mono face, and no
+  invented numbers — every count on a page comes from data.
+- **U6 — this browser's list first** (Roger): every "ready now" count a
+  reader sees is computed in the browser from what they entered there, in
+  both apps. The editor's shared inventory is the agents' (MCP, CLI) and a
+  secondary, labelled group on `/make`; the export never contains it.
+
+### U1 — Homepage (direction A)
+
+Two steps on one branch (`agent/home-redesign`): first the **redesign**,
+which fixed the page's structure, then **direction A**, which dressed it.
+
+**Why.** The homepage was a hero: `HeroBench` gave the newest featured recipe
+a full-width slab (900×700 photo, timeline panel, a large "View recipe"
+button), so one recipe outweighed the page. The browse row was the first 12
+flat tag strings, ignoring the term records, hierarchy, labels and images of
+epics 24/31/33/34, and nothing linked to `/make`.
+
+**The page, top to bottom** (`common/components/Homepage/`, one component per
+section; `route.tsx` does every read, `index.tsx` only arranges):
+
+1. **Intro** (`HomeIntro`). A date eyebrow, "What are you making?" (an `h2`:
+   the masthead's title stays the only `h1`), then equal **intent tiles** in
+   a wrapping grid (two columns on a phone, the Make tile spanning both):
+   - **What can I make?** — the accent tile, to `/make`. Its count line is
+     `/make`'s own judgement (`analyzeMakeable`, the reader's Make settings)
+     over **this browser's list only** (U6), computed client-side in both
+     apps (`MakeTile`): "N ready now", "Tell it what you have" with nothing
+     entered, blank until storage has been read so the server HTML never
+     claims a number. The ingredient lines are fetched only once there is a
+     list.
+   - **Quick, Vegetarian, A weekend project, A drink** — one constant,
+     `HOMEPAGE_INTENTS` (`controller/homepageIntents.ts`), slugs `quick`,
+     `vegetarian`, `project`, `drink` from epic 33's vocabulary. Each links
+     to its term page and shows the term's subtree total; a tile whose term
+     is absent or empty is hidden.
+2. **Coming up** (`ComingUp`). The `holidays` root's children (34e), with
+   recipe and plan counts, at most four, "All holidays" to the root's page;
+   no section without a `holidays` root (every fixture). Picture: the term's
+   image, else the newest recipe photo under it, else a monogram.
+   - **Dates are a rules table keyed by slug** (`util/holidayDates.ts`):
+     fixed days (new year, Valentine's, St Patrick's, July 4th, Halloween,
+     Christmas Eve/Day, several spellings each), Easter by the Gregorian
+     computus, US Thanksgiving as the fourth Thursday of November. Hanukkah
+     is left out on purpose (Hebrew calendar); it and any other unknown
+     holiday sort after the dated ones with no countdown.
+   - **Ordered in the browser.** The export is static, so a build-time
+     "in 16 days" is wrong the next morning. The server passes every holiday
+     with its picture already rendered and its own day; the client island
+     (`ComingUpCards`, `useToday`) reorders and counts down on the reader's
+     calendar after hydration. Calendar days, never instants, so a DST
+     change can't make a day of 23 hours.
+3. **Featured** — every feature an equal card (recipe, group, term), newest
+   first, **no special first item**; "Everything featured" to
+   `/featured-recipes`. The heading is **"Featured"** (Roger, revising the
+   22g "Featured Recipes" call: the strip holds groups and terms too). The
+   `/featured-recipes` page keeps its title — renaming a route is its own
+   change. The 22g/24c dangling-reference filter in `route.tsx` is unchanged.
+4. **Browse** (`BrowseTerms`). One row per facet root: the root as a mono
+   label (`h3`) linking to its page, then pill chips with subtree counts,
+   then "More". `homepageFacets.ts` decides: roots from `readTagTree()` in a
+   **preferred order** (course, main ingredient, cuisine, speed & effort,
+   holidays, drink, spirit — hard-coded because a record has no ordering
+   field and no rule over the data gives this reading order; unknown roots
+   follow, biggest first), children biggest first, capped at 8, children
+   nothing carries left out. With no facets at all (most fixtures) the flat
+   `BrowseChips` row renders instead, restyled as the same pills.
+5. **New this week** — the latest six, "All N recipes" past six.
+6. **Plans** (`PlansStrip`) — the newest group as one line and "Open the
+   plan" / "All plans", replacing the group grid; nothing without groups.
+
+**Removed:** `HeroBench`, `HeroLivePanel`, `CompactTimeline`,
+`homepage-hero.spec.ts`, the hero's `recipeItems.read`, the hero test in
+`recipe-item-records.spec`, and `TimelineStrip`'s hero-only `size="lg"` /
+`legend`. Nothing else used them.
+
+**Caching.** The route reads the three pagination heads, `readTagTree()`
+(term `tree` aggregate + the recipe and group `by-tag` maps, whole-value
+tags) and, only with no facets, `readTagVocabulary()`. Coming up's rows are
+the same `by-tag` maps `readTagTree` read — `React.cache` returns the same
+values, so no new tag. Every term write (create, update, rename, delete,
+merge, assign) fires one of them through the generic write path. The cost:
+the whole maps move on any retag, so `/` now also expires on a retag that
+dirties no head page — the same breadth `/tags` already accepts. The route
+reads no session and no inventory.
+
+**Decisions and traps.**
+
+- **The date is a `<time>`**, which the visual specs mask by default, and
+  `block` so the masked box doesn't change width with the date. A baseline
+  that printed the day would fail tomorrow.
+- **The intent tiles are links in a `nav`, not a list.** `featured-recipes`'
+  "feature again" counts every `listitem` on `/` unscoped after its redirect;
+  four `<li>` tiles broke it.
+- **A client module can't export helpers to the server.** `dayKey` lives in
+  `holidayDates.ts`, not beside `useToday`: a `"use client"` module imported
+  into the route yields client references, not callable functions.
+- **Real-content screenshots:** build the editor against an **empty**
+  scratch content directory and `next start` against the clone. Building
+  against the real corpus prerenders every tag page and times out at 60 s.
+  Remove the clone's `origin` first: the editor starts in the workstation
+  role and watches the content repo.
+- **Featured term cards have no picture of their own** on the real repo (no
+  term records carry images yet), so they show the group placeholder. A
+  representative-recipe fallback like Coming up's is a small follow-up.
+
+**Gates** (after merging `origin/main` with #236 and 37a's #237).
+typecheck ×2 clean; vitest 87 files / 1871 tests (new for U1:
+`homepageFacets.test.ts` 8, `homepageSections.test.ts` 12). Playwright,
+production build through the heavy slot:
+
+- homepage-browse, homepage, featured-recipes, groups, accessibility,
+  tag-pages, recipe-tags-aggregate, reference-updates, api-write,
+  recipe-item-records, make — **218 passed** (before the 37a merge);
+- after it: homepage-browse, homepage, visual, mobile, empty-state,
+  accessibility, groups, featured-recipes — **157 passed**.
+
+**Baselines** regenerated in their own commit, only the shots of `/`:
+`homepage-three-recipes`, `homepage-two-pages`, `homepage-mobile`,
+`homepage-empty`, and `layout-footer-signed-out` / `-signed-in` (full-page
+shots of the empty homepage). The visual, mobile and empty-state specs then
+passed 30/30 against them. Real-content screenshots (1280 / 390, light /
+dark) against a clone of the content repo: no sideways scroll at either
+width.
+
 ## Verification (Playwright-first)
 
 Verify UI changes with Playwright; open a real browser only to diagnose
