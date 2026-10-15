@@ -1,0 +1,11 @@
+{
+  "url": "https://www.youtube.com/watch?v=INGREDIENTS_TEST",
+  "output": {
+    "title": "Weekend Focaccia",
+    "description": "My favourite focaccia.\n\nFocaccia:\n500g bread flour\n400g water\n10g salt\n\nWatch the video for the method!\n\nGear I use: https://example.com/gear",
+    "thumbnail": "https://i.ytimg.com/vi/INGREDIENTS_TEST/maxresdefault.jpg",
+    "webpage_url": "https://www.youtube.com/watch?v=INGREDIENTS_TEST",
+    "duration": 600,
+    "channel": "Test Kitchen Channel"
+  }
+}

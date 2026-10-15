@@ -124,22 +124,25 @@ export async function importFromUrl(
   } else {
     /* The importer's own rule: no fragment in the fetch or the citation. */
     const pageUrl = url.split("#")[0];
-    let page, parsed;
+    let page, parsed, mapped;
     try {
       /* On the per-site queue (34f), like every page and image fetch. */
       page = await pacedRequest(pageUrl, (retry) =>
         fetchRecipePage(pageUrl, retry),
       );
       parsed = parseRecipePage(page.html, pageUrl);
+      /* Inside the try, as `importRecipeData` was: malformed JSON-LD is
+       * `import_failed`, not `internal`. */
+      mapped = mapRecipePage(pageUrl, parsed, { ok: page.ok });
     } catch (error) {
       throw new ImportError(
-        `Could not fetch ${pageUrl}: ${error instanceof Error ? error.message : String(error)}`,
+        `Could not fetch ${url}: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
     applied = await applyLlm({
       url: pageUrl,
       source: { html: page.html, ok: page.ok, meta: parsed.meta },
-      mapped: mapRecipePage(pageUrl, parsed, { ok: page.ok }),
+      mapped,
       mode,
     });
   }

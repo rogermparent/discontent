@@ -15,11 +15,13 @@
  *   failed call is a warning, not a failed import.
  * - **force**: the model reads the source even over a Recipe node, and its
  *   fields replace the schema's. Unconfigured, or a failed call, is an
- *   `ImportError` (`import_failed`).
+ *   `ImportError` (`import_failed`); no text to read (yt-dlp missing, an
+ *   empty page) is a warning and `llm.error`, and the mapper's result stands.
  * - **off**: never.
  *
  * Image, video, source and `suggestedTags` always stay the page's: the model
  * reads text, and what it would say about pictures or provenance is a guess.
+ * An empty ingredient or step list from the model never replaces the page's.
  *
  * ## The grounding floor (36b, a D4 amendment)
  *
@@ -29,7 +31,10 @@
  * carrying `llm` with the counts, and a warning that says so. 36a's Wikibooks
  * Hummus article came back as nine invented lines, 0/9 grounded. Between the
  * floor and D4's `GROUNDED_MIN` the lines are kept and the result is
- * `partial`, so 26-D3's `allowPartial` still means "not trustworthy".
+ * `partial`, so 26-D3's `allowPartial` still means "not trustworthy" —
+ * except under auto when the mapper's result was not partial (a video, an
+ * empty Recipe node): that imported before the model was asked, so it is
+ * never made partial now; the lines are kept with a warning.
  *
  * ## Startup cost
  *
@@ -137,22 +142,27 @@ export function autoWantsModel(
 /**
  * The model's recipe over the mapper's: the model's name, description,
  * yield, times, ingredients and steps where it has them; the page's image,
- * images, video, source and suggested tags always.
+ * images, video, source and suggested tags always. An empty list from the
+ * model never wipes the page's own (36b review): the mapper's ingredients or
+ * steps stay, and `kept` says which. `partial` is not set here — `applyLlm`
+ * decides it from the merged result.
  */
 export function mergeExtraction(
   mapped: Partial<ImportedRecipe> | undefined,
   extracted: Partial<ImportedRecipe>,
-): Partial<ImportedRecipe> {
+): {
+  recipe: Partial<ImportedRecipe>;
+  kept: ("ingredients" | "instructions")[];
+} {
   const {
     partial: _mappedPartial,
-    ingredients: _ingredients,
-    instructions: _instructions,
+    ingredients: mappedIngredients,
+    instructions: mappedInstructions,
     ...base
   } = mapped ?? {};
   void _mappedPartial;
-  void _ingredients;
-  void _instructions;
   const merged: Partial<ImportedRecipe> = { ...base };
+  const kept: ("ingredients" | "instructions")[] = [];
   for (const key of [
     "name",
     "description",
@@ -166,14 +176,27 @@ export function mergeExtraction(
       (merged as Record<string, unknown>)[key] = value;
     }
   }
-  merged.ingredients = extracted.ingredients ?? [];
-  merged.instructions = extracted.instructions ?? [];
+  if (extracted.ingredients?.length) {
+    merged.ingredients = extracted.ingredients;
+  } else if (mappedIngredients?.length) {
+    merged.ingredients = mappedIngredients;
+    kept.push("ingredients");
+  } else {
+    merged.ingredients = [];
+  }
+  if (extracted.instructions?.length) {
+    merged.instructions = extracted.instructions;
+  } else if (mappedInstructions?.length) {
+    merged.instructions = mappedInstructions;
+    kept.push("instructions");
+  } else {
+    merged.instructions = [];
+  }
   if (!merged.source && extracted.source) merged.source = extracted.source;
   if (!merged.videoImportUrl && extracted.videoImportUrl) {
     merged.videoImportUrl = extracted.videoImportUrl;
   }
-  if (extracted.partial) merged.partial = true;
-  return merged;
+  return { recipe: merged, kept };
 }
 
 function describe(error: unknown): string {
@@ -202,7 +225,8 @@ export async function applyLlm({
   /* A 404 page's text is not a recipe, whatever the mode. */
   if ("html" in source && source.ok === false) return unchanged;
 
-  const { extractRecipeWithLlm } = await import("./extractRecipe");
+  const { extractRecipeWithLlm, llmWarning, GROUNDED_MIN } =
+    await import("./extractRecipe");
   let text: string;
   let meta: ExtractMeta | undefined;
   let sourceKind: "page" | "text";
@@ -222,14 +246,28 @@ export async function applyLlm({
     meta = source.meta;
     sourceKind = "text";
   }
-  if (!text.trim()) return unchanged;
+  if (!text.trim()) {
+    /*
+     * Nothing to read (yt-dlp missing, an empty page). Under auto that is
+     * just "not asked"; under force the caller asked for the model, so say
+     * it was not used — a warning, not a failure: the mapper's result is
+     * still a result (36b review).
+     */
+    if (mode === "auto") return unchanged;
+    return {
+      recipe: mapped,
+      llm: { model: config.model, mode, found: false, error: NO_TEXT },
+      warnings: [`local model not used — ${NO_TEXT}`],
+    };
+  }
 
   let extraction;
   try {
     extraction = await extractRecipeWithLlm({
       text,
       url,
-      meta: { ...meta, title: meta?.title ?? mapped?.name },
+      /* The mapper's name first: a schema's clean name beats "X | Site". */
+      meta: { ...meta, title: mapped?.name ?? meta?.title },
       sourceKind,
       config,
       signal,
@@ -273,12 +311,55 @@ export async function applyLlm({
       ],
     };
   }
-  return {
-    recipe: mergeExtraction(mapped, extraction.recipe),
-    llm: info,
-    warnings: extraction.warnings,
-  };
+  const { recipe, kept } = mergeExtraction(mapped, extraction.recipe);
+  const items = (recipe.ingredients ?? []).filter(
+    (entry) => entry.type !== "heading",
+  ).length;
+  const steps = recipe.instructions?.length ?? 0;
+  /*
+   * D4 on the merged result: the model's own lines grounded (none of its
+   * own, and the page's kept instead, counts as grounded), an ingredient
+   * and a step.
+   */
+  const groundedEnough =
+    stats.total > 0
+      ? stats.grounded / stats.total >= GROUNDED_MIN
+      : kept.includes("ingredients");
+  const trusted = groundedEnough && items > 0 && steps > 0;
+  /*
+   * Under auto a result that was not partial — a video, a Recipe node with
+   * an empty body — never becomes partial: before the model it imported, and
+   * asking the model must not turn that into a refusal (36b review). The
+   * lines stay, with a warning.
+   */
+  const keepWhole = mode === "auto" && !!mapped && !mapped.partial;
+  const warnings: string[] = [];
+  if (trusted) {
+    warnings.push(llmWarning(stats, { items, steps, trusted }, sourceKind));
+  } else if (keepWhole) {
+    const why =
+      items === 0
+        ? "it found no ingredients"
+        : steps === 0
+          ? "it found no instructions"
+          : `only ${stats.grounded}/${stats.total} ingredient lines found ${where}`;
+    warnings.push(
+      `local model ${stats.model}'s reading is incomplete — ${why}; kept, since the import had nothing in its place; check it against the source`,
+    );
+  } else {
+    warnings.push(llmWarning(stats, { items, steps, trusted }, sourceKind));
+    recipe.partial = true;
+  }
+  for (const list of kept) {
+    warnings.push(
+      `the local model returned no ${list}: the page's own ${list} are kept`,
+    );
+  }
+  return { recipe, llm: info, warnings };
 }
+
+/** Why `force` read nothing. */
+const NO_TEXT = "no text to read";
 
 /**
  * `force` with no model configured is refused before anything is fetched

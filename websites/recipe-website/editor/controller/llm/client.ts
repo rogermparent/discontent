@@ -53,6 +53,26 @@ export function llmConfig(
   };
 }
 
+/**
+ * The model server's URL as it is safe to show: no `user:password@`, no
+ * query (an API key in `?key=`), no fragment. Error messages and the
+ * Settings page use it; requests use the URL as configured (36b review).
+ */
+export function displayUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return url
+      .replace(/^([a-z][a-z0-9+.-]*:\/\/)[^@/]*@/i, "$1")
+      .split(/[?#]/)[0];
+  }
+}
+
 /** How long the Settings page waits for the model server (36b). */
 export const LLM_STATUS_TIMEOUT_MS = 2_000;
 
@@ -300,7 +320,7 @@ export async function chatJson(
       const detail = (await response.text().catch(() => "")).slice(0, 200);
       throw new LlmError(
         "http",
-        `the local model at ${config.url} answered ${response.status}${detail ? `: ${detail}` : ""}`,
+        `the local model at ${displayUrl(config.url)} answered ${response.status}${detail ? `: ${detail}` : ""}`,
         response.status,
       );
     }
@@ -308,7 +328,7 @@ export async function chatJson(
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new LlmError(
         "bad_json",
-        `the local model at ${config.url} sent a response that is not a JSON object`,
+        `the local model at ${displayUrl(config.url)} sent a response that is not a JSON object`,
       );
     }
     body = parsed as Record<string, unknown>;
@@ -319,18 +339,18 @@ export async function chatJson(
     if (isTimeout(error) || timeout.aborted) {
       throw new LlmError(
         "timeout",
-        `the local model at ${config.url} did not answer within ${Math.round(timeoutMs / 1000)} s`,
+        `the local model at ${displayUrl(config.url)} did not answer within ${Math.round(timeoutMs / 1000)} s`,
       );
     }
     if (error instanceof SyntaxError) {
       throw new LlmError(
         "bad_json",
-        `the local model at ${config.url} sent a response that is not JSON`,
+        `the local model at ${displayUrl(config.url)} sent a response that is not JSON`,
       );
     }
     throw new LlmError(
       "unreachable",
-      `the local model at ${config.url} is unreachable: ${(error as Error)?.message ?? error}`,
+      `the local model at ${displayUrl(config.url)} is unreachable: ${(error as Error)?.message ?? error}`,
     );
   }
 

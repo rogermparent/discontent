@@ -908,6 +908,78 @@ describe("importAndCreate with a local model (36b)", () => {
     expect(off.draft?.ingredients).toBeUndefined();
   });
 
+  /* Review round: a mapper that throws is the page's fault, not ours (T7). */
+  it("answers malformed JSON-LD as import_failed, with the URL as given", async () => {
+    stubWeb(recipeHtml({ description: "<table><tr><td>x</td></tr></table>" }));
+    await expect(
+      importAndCreate(ctx, `${PAGE_URL}#jump`, { dryRun: true }),
+    ).rejects.toMatchObject({
+      code: "import_failed",
+      message: expect.stringContaining(`Could not fetch ${PAGE_URL}#jump`),
+    });
+  });
+
+  /* Review round: under auto, a video that imported before stays importable. */
+  it("creates a video whose description lists ingredients but no method", async () => {
+    vi.stubEnv("YTDLP_PATH", YTDLP_MIMIC);
+    stubWeb(
+      "",
+      { "https://i.ytimg.com/vi/INGREDIENTS_TEST/maxresdefault.jpg": {} },
+      {
+        found: true,
+        name: "Weekend Focaccia",
+        ingredients: [
+          "Focaccia:",
+          "500g bread flour",
+          "400g water",
+          "10g salt",
+        ],
+        instructions: [],
+      },
+    );
+    const url = "https://www.youtube.com/watch?v=INGREDIENTS_TEST";
+    const dry = await importAndCreate(ctx, url, { dryRun: true });
+    if (!("dryRun" in dry)) throw new Error("expected a dry run");
+    expect(dry.partial).toBeUndefined();
+    expect(dry.llm).toMatchObject({ found: true, grounded: 4, total: 4 });
+    expect(dry.draft.ingredients).toEqual([
+      "Focaccia:",
+      "500g bread flour",
+      "400g water",
+      "10g salt",
+    ]);
+    expect(dry.warnings?.[0]).toMatch(
+      /reading is incomplete — it found no instructions; kept/,
+    );
+
+    /* As with --llm off, the create goes through: no allowPartial needed. */
+    const created = await importAndCreate(ctx, url);
+    if ("dryRun" in created) throw new Error("expected a real import");
+    const stored = await readRecipeFile(created.slug);
+    expect(stored.ingredients).toHaveLength(4);
+    expect(stored.video).toBe(url);
+  });
+
+  it("warns, and keeps yt-dlp's absence harmless, when force has no text", async () => {
+    vi.stubEnv("YTDLP_PATH", "/nonexistent/yt-dlp");
+    const fetchStub = stubWeb("", {}, sconeAnswer());
+    const url = "https://www.youtube.com/watch?v=RECIPE_TEST";
+    const dry = await importAndCreate(ctx, url, {
+      dryRun: true,
+      llm: "force",
+      name: "A Video",
+    });
+    if (!("dryRun" in dry)) throw new Error("expected a dry run");
+    expect(dry.llm).toMatchObject({
+      mode: "force",
+      found: false,
+      error: "no text to read",
+    });
+    expect(dry.warnings).toContain("local model not used — no text to read");
+    expect(dry.draft.videoImportUrl).toBe(url);
+    expect(modelCalls(fetchStub)).toHaveLength(0);
+  });
+
   it("reads a video's title and description under auto (yt-dlp mimic)", async () => {
     vi.stubEnv("YTDLP_PATH", YTDLP_MIMIC);
     stubWeb(

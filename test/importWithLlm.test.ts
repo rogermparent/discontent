@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  displayUrl,
   llmStatus,
   type LlmConfig,
 } from "../websites/recipe-website/editor/controller/llm/client";
@@ -33,9 +34,12 @@ const TEXT = [
   "Whisk everything and fry.",
 ].join("\n");
 
-function stubAnswer(ingredients: string[]) {
+function stubAnswer(
+  ingredients: string[],
+  instructions: string[] = ["Whisk everything and fry."],
+) {
   const fetchStub = vi.fn(
-    async () =>
+    async (_url: string | URL, _init?: RequestInit) =>
       new Response(
         JSON.stringify({
           model: "qwen3:8b",
@@ -46,7 +50,7 @@ function stubAnswer(ingredients: string[]) {
               found: true,
               name: "Pancakes",
               ingredients,
-              instructions: ["Whisk everything and fry."],
+              instructions,
             }),
           },
         }),
@@ -165,6 +169,165 @@ describe("applyLlm (36b)", () => {
     expect(() => assertLlmMode("auto", undefined)).not.toThrow();
     expect(() => assertLlmMode(undefined, undefined)).not.toThrow();
     expect(() => assertLlmMode("force", CONFIG)).not.toThrow();
+  });
+});
+
+/* The review round (36b): the 90% line, empty lists, auto never partial
+ * over a result that was not, force with nothing to read, the title. */
+describe("applyLlm — review round (36b)", () => {
+  const NINE = Array.from(
+    { length: 9 },
+    (_, i) => `${i + 1} cups flour no ${i + 1}`,
+  );
+  const NINE_TEXT = ["Bread", ...NINE, "Bake it."].join("\n");
+  const SCHEMA = {
+    name: "Pancakes",
+    ingredients: [{ ingredient: "1 cup flour" }, { ingredient: "1 egg" }],
+    instructions: [{ text: "Fry." }],
+    source: { url: "https://example.com/p" },
+  };
+
+  it("trusts exactly 90% grounded, and keeps 80% as partial", async () => {
+    stubAnswer([...NINE, "1 cup golden raisins"], ["Bake it."]);
+    const ninety = await applyLlm({
+      source: { text: NINE_TEXT },
+      mapped: MAPPED,
+      config: CONFIG,
+    });
+    expect(ninety.llm).toMatchObject({ grounded: 9, total: 10 });
+    expect(ninety.recipe?.partial).toBeUndefined();
+    expect(ninety.warnings[0]).toMatch(/^extracted by local model/);
+
+    stubAnswer(
+      [...NINE.slice(0, 8), "1 cup golden raisins", "2 tbsp honey"],
+      ["Bake it."],
+    );
+    const eighty = await applyLlm({
+      source: { text: NINE_TEXT },
+      mapped: MAPPED,
+      config: CONFIG,
+    });
+    expect(eighty.llm).toMatchObject({ grounded: 8, total: 10 });
+    expect(eighty.recipe?.partial).toBe(true);
+  });
+
+  it("never wipes the schema's lists with an empty one under force", async () => {
+    stubAnswer([], ["Whisk everything and fry."]);
+    const noIngredients = await applyLlm({
+      source: { text: TEXT },
+      mapped: SCHEMA,
+      mode: "force",
+      config: CONFIG,
+    });
+    expect(noIngredients.recipe?.ingredients).toEqual(SCHEMA.ingredients);
+    expect(noIngredients.recipe?.instructions).toHaveLength(1);
+    expect(noIngredients.recipe?.instructions?.[0]).toMatchObject({
+      text: "Whisk everything and fry.",
+    });
+    expect(noIngredients.recipe?.partial).toBeUndefined();
+    expect(noIngredients.warnings).toContain(
+      "the local model returned no ingredients: the page's own ingredients are kept",
+    );
+
+    stubAnswer(["1 cup flour", "1 egg", "1 cup milk"], []);
+    const noSteps = await applyLlm({
+      source: { text: TEXT },
+      mapped: SCHEMA,
+      mode: "force",
+      config: CONFIG,
+    });
+    expect(noSteps.recipe?.ingredients).toHaveLength(3);
+    expect(noSteps.recipe?.instructions).toEqual(SCHEMA.instructions);
+    expect(noSteps.recipe?.partial).toBeUndefined();
+    expect(noSteps.warnings).toContain(
+      "the local model returned no instructions: the page's own instructions are kept",
+    );
+  });
+
+  it("never makes a result partial under auto when it was not", async () => {
+    /* A video: named, no body, not partial — ingredients but no method. */
+    const video = {
+      name: "Pancakes",
+      videoImportUrl: "https://www.youtube.com/watch?v=x",
+      source: { url: "https://www.youtube.com/watch?v=x", name: "YouTube" },
+    };
+    stubAnswer(["1 cup flour", "1 egg", "1 cup milk"], []);
+    const result = await applyLlm({
+      source: { text: TEXT },
+      mapped: video,
+      config: CONFIG,
+    });
+    expect(result.recipe?.partial).toBeUndefined();
+    expect(result.recipe?.ingredients).toHaveLength(3);
+    expect(result.recipe?.instructions).toEqual([]);
+    expect(result.warnings[0]).toMatch(
+      /reading is incomplete — it found no instructions; kept/,
+    );
+    /* The same reading under force is partial, as D4 says. */
+    stubAnswer(["1 cup flour", "1 egg", "1 cup milk"], []);
+    const forced = await applyLlm({
+      source: { text: TEXT },
+      mapped: video,
+      mode: "force",
+      config: CONFIG,
+    });
+    expect(forced.recipe?.partial).toBe(true);
+  });
+
+  it("says so when force has no text to read, and asks nothing", async () => {
+    const fetchStub = stubAnswer(["1 cup flour"]);
+    const forced = await applyLlm({
+      source: { text: "  " },
+      mapped: SCHEMA,
+      mode: "force",
+      config: CONFIG,
+    });
+    expect(forced.recipe).toBe(SCHEMA);
+    expect(forced.llm).toEqual({
+      model: "qwen3:8b",
+      mode: "force",
+      found: false,
+      error: "no text to read",
+    });
+    expect(forced.warnings).toEqual(["local model not used — no text to read"]);
+    const auto = await applyLlm({
+      source: { text: "" },
+      mapped: MAPPED,
+      config: CONFIG,
+    });
+    expect(auto).toEqual({ recipe: MAPPED, warnings: [] });
+    expect(fetchStub).not.toHaveBeenCalled();
+  });
+
+  it("names the page by the mapper's name, not the <title>", async () => {
+    const fetchStub = stubAnswer(["1 cup flour", "1 egg"]);
+    await applyLlm({
+      source: {
+        html: "<html><head><title>Pancakes | Blog</title></head><body><ul><li>1 cup flour</li><li>1 egg</li></ul><p>Whisk everything and fry.</p></body></html>",
+        meta: { title: "Pancakes | Blog", ogImages: [] },
+      },
+      mapped: SCHEMA,
+      mode: "force",
+      config: CONFIG,
+    });
+    const body = JSON.parse(String(fetchStub.mock.calls[0]?.[1]?.body));
+    const user = body.messages[1].content as string;
+    expect(user).toContain("Title: Pancakes\n");
+    expect(user).not.toContain("Title: Pancakes | Blog");
+  });
+});
+
+describe("displayUrl (36b)", () => {
+  it("drops credentials, query and fragment", () => {
+    expect(displayUrl("http://user:secret@gpu.lan:11434/?key=abc#x")).toBe(
+      "http://gpu.lan:11434",
+    );
+    expect(displayUrl("http://localhost:11434/")).toBe(
+      "http://localhost:11434",
+    );
+    expect(displayUrl("https://api.example/v1?token=t")).toBe(
+      "https://api.example/v1",
+    );
   });
 });
 

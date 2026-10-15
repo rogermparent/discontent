@@ -13,7 +13,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 36a in review (PR open); qwen3:8b passes the gate. 36b (wiring) next.
+**Now:** 36b in review (PR open); 36c (text mode) next.
 
 ## Context
 
@@ -177,8 +177,8 @@ fetch work the same way.
 | Phase    | Branch               | Size | Status  | What                                                             |
 | -------- | -------------------- | ---- | ------- | ---------------------------------------------------------------- |
 | 36-plan  | `agent/36-plan`      | S    | ✅ #230 | This doc.                                                        |
-| 36a      | `agent/36a-llm-core` | M    | 🟡      | D1, D2, D4, D6, D7: `pageText`, the client, the extractor, gate. |
-| 36b      | `agent/36b-llm-wire` | M    | 📝      | D3, D5: `applyLlm` in seats, form, CLI, API, MCP; Settings line. |
+| 36a      | `agent/36a-llm-core` | M    | ✅ #231 | D1, D2, D4, D6, D7: `pageText`, the client, the extractor, gate. |
+| 36b      | `agent/36b-llm-wire` | M    | 🟡      | D3, D5: `applyLlm` in seats, form, CLI, API, MCP; Settings line. |
 | 36c      | `agent/36c-llm-text` | M    | 📝      | D8: text import mode in the form, CLI, API, MCP.                 |
 | 36-close | `agent/36-close`     | S    | 📝      | Results, D12/SKILL.md updates, backlog, memory, Roger's steps.   |
 
@@ -412,11 +412,18 @@ plumbing (`ImportOptions`, the zod bodies, the form). 36-close after 36c.
   `new-recipe-form-e2e.png` and `new-recipe-form-overwrite-e2e.png` were
   regenerated (`--update-snapshots -g "new-recipe form"` through the heavy
   slot). Any change to that row's height does it again.
-- **T18 — A Playwright run with a model configured would fail the toggle
-  test.** The spec asserts "No local model configured"; Next loads
-  `editor/.env`, so a checkout whose `.env` sets `RECIPE_LLM_URL` (the main
-  checkout after Roger's step) sees an enabled box. CI and worktrees have
-  no such file. Unset it for that run, or skip the one test.
+- **T18 — A model in `editor/.env` would leak into the Playwright suite.**
+  Next loads `editor/.env`, so a checkout whose `.env` sets
+  `RECIPE_LLM_URL` (the main checkout after Roger's step) would see an
+  enabled toggle, a "reachable" Tools card, and auto-mode model calls on
+  the fixtures' no-schema imports. `playwright.config.ts` pins
+  `webServer.env: {RECIPE_LLM_URL: ""}` (review round): Playwright spawns
+  with `{...process.env, ...env}` and `@next/env` never overrides a
+  variable already set, `""` included. That covers `new-recipe.spec`'s
+  toggle test, `settings-nav.spec`'s Tools card, the `/new-recipe` visual
+  baselines and the auto-mode fixture imports. **Caveat:** in dev mode
+  `reuseExistingServer` adopts a server already on the port, which keeps
+  its own environment — stop a hand-started `next dev` before a local run.
 - **T19 — A model call is not a site request, so it is not paced** — and
   it overlaps the 15 s gap rather than adding to it. A roundup item read by
   the model costs ~4–30 s more; under `force` with a slow model, six dry-run
@@ -427,6 +434,17 @@ plumbing (`ImportOptions`, the zod bodies, the form). 36-close after 36c.
   on the page, so it grounds). And a step copied as "8 Serve immediately…"
   keeps its bare number (`cleanStep` strips "8." and "8)", not "8 "). Both
   are what "check it" is for; neither is worth a prompt edit (T1).
+- **T21 — An untrusted reading must not turn an import into a refusal**
+  (review). Under auto, a video (or an empty Recipe node) is not `partial`,
+  so it imported before 36b; the first cut set `partial` on any untrusted
+  extraction, so a Lagerstrom description with ingredients and "watch the
+  video for the method" (3/3 verbatim, 0 steps) was refused where `--llm
+off` created it. The rule now: under auto, a result that was not partial
+  never becomes partial.
+- **T22 — An empty list from the model wiped the schema's** (review). Under
+  force, `ingredients: []` has `total = 0`, so the floor never fires, and
+  the merge replaced the schema's list with `[]` (steps likewise). The
+  merge keeps the page's list when the model's is empty, and says so.
 
 ## Results
 
@@ -763,6 +781,44 @@ with no model, the model's URL from `RECIPE_ENV_FILE`; `editorEnv` +1;
 slot) `new-recipe.spec`, `settings-nav.spec`, `accessibility.spec`,
 `import-roundup.spec`, `visual.spec`: **100 passed** (the two
 `/new-recipe` baselines regenerated first, T17).
+
+**Review round** (7 findings, fixed in one commit):
+
+1. **Auto never makes a non-partial result partial** (T21). When the
+   mapper's result was not `partial` (a video, an empty Recipe node), an
+   untrusted reading at ≥ 50% is kept _without_ `partial`, with "local model
+   …'s reading is incomplete — <why>; kept, since the import had nothing in
+   its place; check it against the source". Under force, and over an SEO
+   partial, D4 stands. `partial` is now decided by `applyLlm` on the merged
+   result: the model's lines ≥ 90% grounded (or none of its own, the page's
+   kept), an ingredient and a step.
+2. **Empty lists never wipe the page's** (T22): `mergeExtraction` keeps
+   the mapper's ingredients or steps when the model's are empty, and the
+   warnings say "the local model returned no <list>: the page's own <list>
+   are kept".
+3. **Playwright pins `RECIPE_LLM_URL=""`** in `webServer.env` (T18).
+4. **Force with no text to read** (yt-dlp missing, an empty page) **warns**
+   — "local model not used — no text to read", `llm.error` — rather than
+   raising: the mapper's result is still a result (a video's bare link with
+   `--name`), and nothing was asked of the model that could fail. Under
+   auto it stays silent.
+5. `mapRecipePage` is back inside the fetch `try`: malformed JSON-LD is
+   `import_failed` again (not `internal`), and the message names the URL
+   as given (fragment included).
+6. The model's title hint is the mapper's name first, then the page's
+   `<title>`, so force never trades a schema's clean name for "X | Site".
+7. `displayUrl` strips `user:password@`, the query and the fragment from
+   the model URL in every `LlmError` message and on the Tools card.
+
+Tests: `importWithLlm.test` +6 (exactly 90% trusted and 80% partial, empty
+ingredients / steps under force keep the schema's, auto never partial over
+a video with force partial for comparison, force with no text, the title
+hint, `displayUrl`); `curation` +3 (the ingredients-only video imports and
+creates under auto — new mimic fixture `responses/ingredients-only.json`;
+force with yt-dlp missing warns; malformed JSON-LD is `import_failed`).
+Gates: typecheck and `tsc --noEmit` clean; `vitest` 79 files / 1692 tests;
+Playwright (build mode, heavy slot) `new-recipe`, `settings-nav`,
+`import-roundup`, `visual`: **74 passed**.
 
 **Left for 36c** (as briefed): `ImportOptions` / `api/import` / the CLI
 `import` / MCP `recipe_import` take `url` today; `applyLlm`'s `{text}`

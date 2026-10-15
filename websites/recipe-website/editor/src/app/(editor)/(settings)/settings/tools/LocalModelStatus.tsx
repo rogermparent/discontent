@@ -1,4 +1,8 @@
-import { llmConfig, llmStatus } from "recipe-editor/controller/llm/client";
+import {
+  displayUrl,
+  llmConfig,
+  llmStatus,
+} from "recipe-editor/controller/llm/client";
 
 /**
  * The "Local model" line (epic 36, 36b): read-only, from the environment
@@ -29,7 +33,7 @@ export async function LocalModelStatus() {
     >
       <dt className="text-muted-foreground">Server</dt>
       <dd>
-        <code>{config.url}</code> ({config.api})
+        <code>{displayUrl(config.url)}</code> ({config.api})
       </dd>
       <dt className="text-muted-foreground">Model</dt>
       <dd>
