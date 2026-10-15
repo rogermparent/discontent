@@ -1102,6 +1102,11 @@ queue was not touched.
 - Other long operations — reindex, git sync — joining the queue.
 - The form's "Import N selected" (`importBatchPicks`) as a job kind, and
   `job` on a failed import's error object (37c).
+- A `cancelled` error code (37c): a Ctrl-C'd CLI's stdout error object
+  says `internal` today ("interrupted (SIGINT)"; the job's record says
+  `cancelled`), as there is no such `CurationError` code. 37c adds it to
+  the CLI's, the API's and MCP's error codes, the MCP server's
+  instructions and the curator skill.
 - The save-time image fetch (`editor/controller/actions/index.ts`, a
   recipe's image URL fetched when the form is saved) is unpaced and outside
   the site queue: `retry: { delayMs: 0 }`, one request with at most one
