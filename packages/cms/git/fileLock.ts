@@ -58,8 +58,22 @@ export interface LockFileState<R extends LockRecord = LockRecord> {
   mtimeMs: number;
 }
 
+/**
+ * Where the nonce lives: a registered symbol on `globalThis`, so every copy
+ * of this module in one process — Next loads separate copies into its
+ * action and route bundles — reads the same nonce. A copy with its own
+ * would judge another copy's live job or lock a previous process's
+ * (37a review).
+ */
+const NONCE_KEY = Symbol.for("discontent.fileLock.processNonce");
+
+function processNonce(): string {
+  const global = globalThis as unknown as Record<symbol, string | undefined>;
+  return (global[NONCE_KEY] ??= ulid());
+}
+
 /** This process's nonce: one per process, shared by every lock it takes. */
-export const PROCESS_NONCE = ulid();
+export const PROCESS_NONCE = processNonce();
 
 let pidNamespace: string | null | undefined;
 export function ownPidNamespace(): string | null {

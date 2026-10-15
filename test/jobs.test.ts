@@ -54,6 +54,11 @@ import {
   sameOllamaModel,
 } from "../websites/recipe-website/editor/controller/llm/client";
 import { fetchYtdlpMetadata } from "../websites/recipe-website/editor/controller/ytdlp";
+import {
+  SitePacer,
+  SiteState,
+  type Pacing,
+} from "../websites/recipe-website/editor/controller/curation/sitePacing";
 import { jobsShowCommand } from "../websites/recipe-website/editor/cli/commands/jobs";
 import {
   JOB_HANDLERS,
@@ -736,6 +741,30 @@ describe("the heartbeat (37a review)", () => {
     expect(await readJobMeta(dir, quietButRecent.id)).toBeDefined();
   });
 
+  it("keeps sweeping past a meta it cannot write", async () => {
+    const pid = deadPid();
+    const first = await plant({ pid, pidns: ownPidNamespace() });
+    const second = await plant({ pid, pidns: ownPidNamespace() });
+    /* The first's next write fails (its write chain, as a full disk would). */
+    const chains = ((
+      globalThis as {
+        __discontentJobMetaChains?: Map<string, Promise<unknown>>;
+      }
+    ).__discontentJobMetaChains ??= new Map());
+    const failed = Promise.reject(new Error("disk full"));
+    failed.catch(() => undefined);
+    chains.set(join(dir, `${first.id}.meta.json`), failed);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const closed = await sweepJobs(dir);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining(`could not close ${first.id}: disk full`),
+    );
+    warn.mockRestore();
+    expect(closed).toEqual([second.id]);
+    expect((await readJobMeta(dir, second.id))?.status).toBe("interrupted");
+    expect((await readJobMeta(dir, first.id))?.status).toBe("running");
+  });
+
   it("serialises updates to one meta: none is lost", async () => {
     const meta = newJobMeta(ulid(), { kind: "inspect", label: "x", spec: {} });
     await writeJobMeta(dir, { ...meta, result: { count: 0 } });
@@ -826,6 +855,23 @@ describe("failures (37a review)", () => {
     });
   });
 
+  it("attaches the warnings to a copy, never the thrown object itself", async () => {
+    const shared = new Error("aborted for everyone");
+    const caught = await runJob(
+      { kind: "inspect", label: "x", spec: {} },
+      async ({ log }) => {
+        log.surface("the GPU is busy");
+        throw shared;
+      },
+      { dir, mirror: null },
+    ).catch((error) => error);
+    expect(caught).not.toBe(shared);
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe("aborted for everyone");
+    expect(toErrorObject(caught).error.warnings).toEqual(["the GPU is busy"]);
+    expect("warnings" in shared).toBe(false);
+  });
+
   it("records an error's message through the log's redaction", async () => {
     vi.stubEnv("RECIPE_API_TOKEN", "rcp_supersecretvalue123");
     await runJob(
@@ -880,6 +926,52 @@ describe("the job context (37a review)", () => {
       status: "cancelled",
       error: { code: "cancelled", message: "stop it" },
     });
+  });
+
+  it("ends cancelled when its signal was aborted, even if the work came back", async () => {
+    const { job, result } = await runJob(
+      { kind: "inspect", label: "x", spec: {} },
+      async ({ jobId }) => {
+        cancelJob(jobId!, new Error("too late"));
+        return "came back";
+      },
+      { dir, mirror: null },
+    );
+    expect(result).toBe("came back");
+    expect(await readJobMeta(dir, job)).toMatchObject({
+      status: "cancelled",
+      error: { code: "cancelled", message: "too late" },
+    });
+  });
+
+  it("a cancel during a 403's retry drops no site — in the gap or the retry's fetch", async () => {
+    for (const gapMs of [15_000, 0]) {
+      const state = new SiteState();
+      const pacing: Pacing = {
+        now: () => Date.now(),
+        /* The gap never ends by itself: only the abort ends it. */
+        sleep: () => new Promise(() => {}),
+        gapMs,
+        state,
+      };
+      const controller = new AbortController();
+      const pacer = new SitePacer(pacing, { signal: controller.signal });
+      const url = "https://www.example.com/pie";
+      const pending = pacer.request(url, async (retry) => {
+        /* The first request answered 403: the retry's gap, then its fetch. */
+        const gap = retry.beforeRetry!();
+        if (gapMs > 0) {
+          controller.abort(new Error("cancelled in the gap"));
+          await gap;
+        }
+        await gap;
+        controller.abort(new Error("cancelled in the retry"));
+        throw controller.signal.reason;
+      });
+      await expect(pending).rejects.toThrow(/cancelled in the/);
+      expect(pacer.droppedReason(url)).toBeUndefined();
+      expect(state.droppedUntil.size).toBe(0);
+    }
   });
 
   it("an outside signal reaches the page fetch", async () => {

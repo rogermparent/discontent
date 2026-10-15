@@ -1072,6 +1072,8 @@ export async function importBatchPicks(
         try {
           file = await fetchOnce(imageUrl);
         } catch (error) {
+          /* A cancel is the job's, not a picture to do without (T10). */
+          if (job.signal?.aborted) throw error;
           const why = error instanceof Error ? error.message : String(error);
           log.warn("image", `skipped — ${why}`, { skipped: true });
           warnings.push(
@@ -1106,6 +1108,8 @@ export async function importBatchPicks(
         ...(warnings.length ? { warnings } : { warnings: undefined }),
       });
     } catch (error) {
+      /* A cancel ends the batch, not just this pick. */
+      if (job.signal?.aborted) throw error;
       items.set(pick.n, {
         ...base,
         ...(warnings.length ? { warnings } : {}),

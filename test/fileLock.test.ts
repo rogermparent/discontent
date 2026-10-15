@@ -169,6 +169,17 @@ describe("fileLock", () => {
     expect(processGone(self, () => true)).toBe(false);
   });
 
+  it("keeps one nonce per process, however many copies of the module load", async () => {
+    vi.resetModules();
+    const again = await import("@discontent/cms/git/fileLock");
+    /* A second copy of the module, as a second Next bundle would hold. */
+    expect(again.processIdentity).not.toBe(processIdentity);
+    expect(again.PROCESS_NONCE).toBe(PROCESS_NONCE);
+    expect(again.processIdentity().nonce).toBe(PROCESS_NONCE);
+    /* So another copy judges this copy's records as this live process's. */
+    expect(again.processGone(processIdentity())).toBe(false);
+  });
+
   it("judges a file that is not a record by its mtime", async () => {
     await writeFile(path, "not json");
     const state = (await readLockFile(path, "id"))!;

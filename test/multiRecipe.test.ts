@@ -43,8 +43,15 @@ import { getRecipe } from "../websites/recipe-website/editor/controller/curation
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
 import { formatStart } from "../websites/recipe-website/editor/controller/llm/chapterTime";
 import { memoryJobLog } from "../websites/recipe-website/editor/controller/jobs/log";
-import { runJob } from "../websites/recipe-website/editor/controller/jobs/run";
-import { readJobLog } from "../websites/recipe-website/editor/controller/jobs/store";
+import {
+  cancelJob,
+  runJob,
+  runningJobIds,
+} from "../websites/recipe-website/editor/controller/jobs/run";
+import {
+  readJobLog,
+  readJobMeta,
+} from "../websites/recipe-website/editor/controller/jobs/store";
 import {
   applyLlm,
   videoSource,
@@ -1350,6 +1357,45 @@ describe("the job's step log (37a)", () => {
       lines.find((line) => line.step === "llm.list" && line.phase === "end")
         ?.data,
     ).toMatchObject({ gpu: 2 });
+  });
+
+  it("a cancel during a pick's image download ends the batch: nothing written after it, the job cancelled", async () => {
+    stub();
+    const inner = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        if (String(input) !== THUMB || init?.method === "HEAD") {
+          return inner(input, init);
+        }
+        /* The first image GET: cancel the job while it is in flight. */
+        const signal = init?.signal;
+        const [id] = runningJobIds();
+        cancelJob(id, new Error("cancelled by a person"));
+        return new Promise<Response>((_, reject) => {
+          if (signal?.aborted) return reject(signal.reason);
+          signal?.addEventListener("abort", () => reject(signal.reason));
+        });
+      }),
+    );
+    let jobId = "";
+    const error = await runJob(
+      { kind: "import-url", label: "x", spec: {} },
+      (job) => {
+        jobId = job.jobId!;
+        return importAndCreate(ctx, VIDEO_URL, { all: true }, job);
+      },
+      { mirror: null },
+    ).catch((caught) => caught);
+    expect((error as Error).message).toBe("cancelled by a person");
+    /* No pick was written: the image was not skipped and the write gone on. */
+    expect(await messages(1)).toEqual(["Initial commit"]);
+    expect(
+      await readJobMeta(process.env.RECIPE_JOBS_DIR!, jobId),
+    ).toMatchObject({
+      status: "cancelled",
+      error: { code: "cancelled", message: "cancelled by a person" },
+    });
   });
 
   it("an /api/ps that fails is a note, never a failure", async () => {

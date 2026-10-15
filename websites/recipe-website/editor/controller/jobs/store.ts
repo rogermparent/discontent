@@ -337,7 +337,8 @@ export async function sweepJobs(
     const message = endedWhy(meta, now, staleMs);
     if (!message) continue;
     let closedIt = false;
-    await updateJobMeta(dir, meta.id, (current) => {
+    /* One meta that cannot be written does not stop the sweep. */
+    const written = await updateJobMeta(dir, meta.id, (current) => {
       /* Finished while we looked: leave it. */
       if (!LIVE_STATUSES.includes(current.status)) return undefined;
       closedIt = true;
@@ -346,8 +347,16 @@ export async function sweepJobs(
         endedAt: now,
         error: { code: "interrupted", message },
       };
-    });
-    if (!closedIt) continue;
+    }).then(
+      () => true,
+      (error) => {
+        console.warn(
+          `[jobs] could not close ${meta.id}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return false;
+      },
+    );
+    if (!written || !closedIt) continue;
     await appendNote(dir, meta.id, {
       t: new Date(now).toISOString(),
       step: "job",

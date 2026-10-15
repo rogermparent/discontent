@@ -105,7 +105,8 @@ const processState = new SiteState();
 /** The clock pacing runs on: the real one, or a test's. */
 export interface Pacing {
   now(): number;
-  sleep(ms: number): Promise<void>;
+  /** `signal`: a real clock clears its timer when it aborts. */
+  sleep(ms: number, signal?: AbortSignal): Promise<void>;
   /** Least milliseconds between two requests to one site; default 15 000. */
   gapMs?: number;
   /** Pace loopback hosts too (tests, with a fake clock). */
@@ -128,7 +129,19 @@ function envGapMs(): number | undefined {
 export function realPacing(): Pacing {
   return {
     now: () => Date.now(),
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    sleep: (ms, signal) =>
+      new Promise((resolve, reject) => {
+        if (signal?.aborted) return reject(signal.reason);
+        const stop = () => {
+          clearTimeout(timer);
+          reject(signal?.reason);
+        };
+        const timer = setTimeout(() => {
+          signal?.removeEventListener("abort", stop);
+          resolve();
+        }, ms);
+        signal?.addEventListener("abort", stop, { once: true });
+      }),
     gapMs: envGapMs(),
   };
 }
@@ -216,7 +229,11 @@ export class SitePacer {
           waitMs: wait,
           ...(retry ? { retry } : {}),
         },
-        () => untilAborted(this.pacing.sleep(wait), this.job.signal),
+        () =>
+          untilAborted(
+            this.pacing.sleep(wait, this.job.signal),
+            this.job.signal,
+          ),
       );
     }
   }
@@ -269,8 +286,14 @@ export class SitePacer {
           },
         });
       } catch (error) {
-        /* The retry answered 403 again, or never answered at all. */
-        if (forbidden && (retryStatus === 403 || retryStatus === undefined)) {
+        /* The retry answered 403 again, or never answered at all — unless
+         * the job was cancelled in the retry's gap or its fetch: the site
+         * refused nothing then. */
+        if (
+          forbidden &&
+          !signal?.aborted &&
+          (retryStatus === 403 || retryStatus === undefined)
+        ) {
           this.drop(url, `refused twice (HTTP 403) at ${url}`);
         }
         throw error;

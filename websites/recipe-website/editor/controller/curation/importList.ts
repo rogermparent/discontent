@@ -655,6 +655,8 @@ async function importItem(
         fetchImageFile(imageUrl, { retry, job }),
       );
     } catch (error) {
+      /* A cancel is the job's, not a picture to do without (T10). */
+      if (job.signal?.aborted) throw error;
       log.warn("image", `skipped — ${describe(error)}`, { skipped: true });
       warnings.push(
         `Imported without its image (${describe(error)}) — set one later with recipe_set_image.`,

@@ -8,13 +8,13 @@
  * a top-level `job` step, and writes the outcome:
  *
  * - `done` with the result;
- * - `failed` with the error, rethrown — carrying the job's surfaced
+ * - `failed` with the error, rethrown — a copy carrying the job's surfaced
  *   warnings (`log.surface`, D6's placement) as `warnings`, so a CPU-bound
  *   model's timeout still tells the caller why;
  * - `failed` with the result, returned, when `failureOf` says the result is
  *   a failure (the form's import answers its errors as a state);
- * - `cancelled` when its signal was aborted (`cancelJob`, or the caller's
- *   own `signal`).
+ * - `cancelled` whenever its signal was aborted (`cancelJob`, or the
+ *   caller's own `signal`) — thrown or not.
  *
  * Surfaced warnings are merged into the result's `warnings`.
  *
@@ -190,6 +190,14 @@ function recordedError(error: JobError): JobError {
   };
 }
 
+/** A cancelled job's error, from its abort reason. */
+function cancelledError(reason: unknown): JobError {
+  return {
+    code: "cancelled",
+    message: reason instanceof Error ? reason.message : "the job was cancelled",
+  };
+}
+
 let storeWarned = false;
 
 /**
@@ -299,17 +307,22 @@ export async function runJob<T>(
       },
     );
     const result = withSurfacedWarnings(value, log.surfaced);
+    /* Cancelled is cancelled, even when the work came back anyway. */
+    const cancelled = controller.signal.aborted;
+    const error = cancelled
+      ? cancelledError(controller.signal.reason)
+      : failure;
     await record({
-      status: failure ? "failed" : "done",
+      status: cancelled ? "cancelled" : failure ? "failed" : "done",
       endedAt: Date.now(),
       result,
-      ...(failure ? { error: recordedError(failure) } : {}),
+      ...(error ? { error: recordedError(error) } : {}),
     });
     return { job: id, result };
   } catch (error) {
-    withWarnings(error, log.surfaced);
+    const thrown = withWarnings(error, log.surfaced);
     const cancelled = controller.signal.aborted;
-    const { error: object } = toErrorObject(error);
+    const { error: object } = toErrorObject(thrown);
     await record({
       status: cancelled ? "cancelled" : "failed",
       endedAt: Date.now(),
@@ -317,7 +330,7 @@ export async function runJob<T>(
         cancelled ? { ...object, code: "cancelled" } : object,
       ),
     });
-    throw error;
+    throw thrown;
   } finally {
     clearInterval(timer);
     registry().delete(id);

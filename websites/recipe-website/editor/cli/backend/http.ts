@@ -203,14 +203,15 @@ function rehydrate(status: number, statusText: string, body: unknown): Error {
     if (Array.isArray(source.terms)) {
       details.terms = source.terms as string[];
     }
-    const rehydrated = new CurationError(
-      source.code as CurationErrorCode,
-      source.message as string,
-      details,
-    );
     /* A failed job's surfaced warnings (37a review) ride along. */
-    withWarnings(rehydrated, warningsOf(source) ?? []);
-    return rehydrated;
+    return withWarnings(
+      new CurationError(
+        source.code as CurationErrorCode,
+        source.message as string,
+        details,
+      ),
+      warningsOf(source) ?? [],
+    );
   }
   const message =
     typeof error === "string"
