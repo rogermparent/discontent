@@ -133,6 +133,20 @@ export function buildRecipeJsonLD(
   return jsonLD;
 }
 
+/**
+ * JSON for an inline `<script type="application/ld+json">`. `JSON.stringify`
+ * leaves `<` alone, so a recipe name holding `</script>` (from an imported
+ * page, or pasted text's first line) would close the tag and run what
+ * follows: a stored XSS. `<` is the same character to a JSON parser
+ * and nothing to the HTML tokenizer; `>` and `&` are escaped alike.
+ */
+export function serializeJsonLD(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026");
+}
+
 export function RecipeJsonLD({
   recipe,
   image,
@@ -146,7 +160,7 @@ export function RecipeJsonLD({
   return (
     <script
       type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(recipeJsonLD) }}
+      dangerouslySetInnerHTML={{ __html: serializeJsonLD(recipeJsonLD) }}
     />
   );
 }

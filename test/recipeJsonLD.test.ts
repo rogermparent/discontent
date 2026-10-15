@@ -4,7 +4,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { buildRecipeJsonLD } from "recipe-website-common/components/View/JsonLD";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import {
+  RecipeJsonLD,
+  buildRecipeJsonLD,
+  serializeJsonLD,
+} from "recipe-website-common/components/View/JsonLD";
 import type { Recipe } from "recipe-website-common/controller/types";
 import {
   minutesToDuration,
@@ -118,5 +125,32 @@ describe("buildRecipeJsonLD", () => {
     ).toMatchObject({
       contentUrl: `${ROOT}/uploads/recipe/stew/uploads/s.mp4`,
     });
+  });
+});
+
+/* The inline script must never close early (stored XSS via a recipe name). */
+describe("serializeJsonLD", () => {
+  const hostile: Recipe = {
+    name: 'Pie</script><script>alert("x")</script>',
+    date: 0,
+    description: "A & B <b>bold</b>",
+    ingredients: [{ ingredient: "1 </SCRIPT> crust" }],
+  };
+
+  it("escapes <, > and & and still parses to the same object", () => {
+    const jsonLD = buildRecipeJsonLD(hostile, undefined);
+    const text = serializeJsonLD(jsonLD);
+    expect(text).not.toMatch(/[<>&]/);
+    expect(JSON.parse(text)).toEqual(JSON.parse(JSON.stringify(jsonLD)));
+  });
+
+  it("renders one script element whose body cannot end the tag", () => {
+    const html = renderToStaticMarkup(
+      createElement(RecipeJsonLD, { recipe: hostile }),
+    );
+    expect(html.match(/<\/script>/gi)).toHaveLength(1);
+    expect(html.match(/<script/gi)).toHaveLength(1);
+    const body = html.replace(/^<script[^>]*>/, "").replace(/<\/script>$/, "");
+    expect(JSON.parse(body).name).toBe(hostile.name);
   });
 });
