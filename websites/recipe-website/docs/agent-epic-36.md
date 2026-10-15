@@ -1313,6 +1313,31 @@ hint and its `aria-describedby`, the force box gone for a video and back
 for a page; the two "no model" tests moved to the reworded box and the
 paste button).
 
+**Review round** (5 findings, none blocking; one commit):
+
+1. **Only the creator's comments** (MEDIUM, T41): a viewer's comment is
+   dropped even when pinned; the creator's pinned and longest comments both
+   go when they differ ("Creator's pinned comment:" / "Creator's
+   comment:"). Fixture `responses/pinned-viewer.json`.
+2. **The live region stays rendered** (T42): `empty:mb-0` instead of
+   `empty:hidden`.
+3. **The retry test retries for real:** fixture `responses/comments-fail.json`
+   fails only with `--write-comments`; the retry answers `success` with no
+   comments.
+4. **`--no-playlist` and `--`** on every yt-dlp run (`ytdlpArgs`, T43); the
+   mimic reads the URL after `--` (T39).
+5. Stale "Extract with AI" / "Paste text tab" comments in `actions.tsx`
+   and `common.tsx`.
+
+Gates after the review: typecheck and `tsc --noEmit` clean; `pnpm exec
+vitest run` **81 files / 1731 tests** (`ytdlp` +1 — the argv; the comment
+test now holds a pinned viewer's comment; `importWithLlm` — the creator's
+pinned and longest, a pinned viewer's comment never sent; `curation` +1 —
+the creator's comment read, not a viewer's pinned one, through the seat).
+Playwright (build mode, heavy slot) `new-recipe`, `ytdlp-import`,
+`youtube-video`, `accessibility`, `visual`: **104 passed**; no baseline
+moved.
+
 **Backlog** (rows in `backlog.md`): follow a recipe link out of a video's
 description (Chinese Cooking Demystified's Substack case — the model
 answers `found: false`, the page it links is the recipe), and a credit
