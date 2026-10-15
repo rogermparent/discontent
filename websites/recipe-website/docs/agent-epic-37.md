@@ -183,6 +183,95 @@ retry <id>]`.
   redeploy, which is accepted; there's a backlog row for a volume.
 - CI: a temp `RECIPE_JOBS_DIR`, no hooks, the model pinned off (36-T18).
 
+### Amendments (37b)
+
+- **D4 — the queue is machine-wide; the records stay per checkout.** The
+  queue's state (slot locks, waiters, `state.json`, the GPU hooks' state)
+  lives in `RECIPE_QUEUE_DIR`, default `~/.cache/discontent/queue`; the job
+  records stay in `RECIPE_JOBS_DIR` (`<editor>/jobs`). So a CLI run from a
+  worktree and the workstation editor (the main checkout) wait in one
+  queue. Not `$XDG_RUNTIME_DIR`: tidier (tmpfs, gone at reboot), but a
+  process started without it — cron, a trimmed environment — would
+  silently use another queue, which is the one failure a GPU queue cannot
+  have. A lock a reboot leaves behind is freed by the stale rules. Under
+  `VITEST` or `TEST_MODE` the default is `<jobs dir>/queue` (a suite never
+  waits behind the machine's real imports); `setupTests.js` sets it per
+  test file. In the Pi's container it is the container's own home (D8).
+- **D4 — one file per waiter, not `waiting` in the meta.**
+  `<queue dir>/<resource>/waiters/<id>.json` (pid, host, pid namespace,
+  nonce, tier, since, `jobId`): a waiter need not be a job (a seat called
+  outside one, a script), and a reader lists one small directory instead of
+  every meta. The meta mirrors it as `waiting: {resource, tier, since,
+position}` while the job waits (`JobContext.waiting`), for 37c's display;
+  the status stays `running` — a job waits per step, not before it starts.
+- **D4 — liveness.** A waiter is dead when `processGone` says so (same host
+  and pid namespace, pid dead or reused) **or** its file is untouched for
+  30 s (it touches it at every poll): the second rule is how a waiter from
+  another pid namespace (the Pi's container after a restart) is judged, so
+  none blocks the line forever. Whoever sees a dead waiter deletes it. A
+  slot holder beats every 5 s and is stale when its process is gone or its
+  beat is older than 60 s; the next waiter takes it over (`fileLock`'s
+  rename-aside).
+- **D4 — re-entrancy: acquired around each call, passed through when the
+  caller holds it.** `withResource` marks the resource held in the async
+  context (`AsyncLocalStorage`, on `globalThis` for Next's bundles), so a
+  `chatJson` inside something that already holds `gpu` passes through
+  instead of waiting for itself. No seat holds `gpu` across calls today:
+  each `chatJson` acquires on its own, so a model call never holds the GPU
+  while the job fetches a page.
+- **D4 — `queue.wait` only when it waited** (for the slot, or a site's
+  gap), with `resource`, `tier`, `position` (how many were ahead, the
+  holder counting one), `waitedMs` and `gapMs` — as `pace.wait` logs only
+  real waits.
+- **D4 — sites.** `SitePacer` keeps its per-process queue and clock (this
+  process's order, the 403 retry's gap inside the held slot, and the only
+  thing a fake clock uses); on the real clock (`realPacing`, `shared`) each
+  request also holds `site:<site>`, whose grant waits the polite gap since
+  the previous holder — in any process — let go. A request cancelled in
+  the gap does not move the clock. Loopback is never queued, as it is
+  never paced. Dropped sites (403 twice) stay per process.
+- **D4 — an unwritable queue dir** (a read-only home, a bad
+  `RECIPE_QUEUE_DIR`) is said once on stderr and the work runs unqueued,
+  as a job runs without its record (T6).
+- **D6 — who runs the release.** The spell is shared
+  (`gpu/hooks.json`: `active`, `since`, `releasedAt`), read and written
+  only while holding the `gpu` slot; the idle clock is the slot's
+  `lastRelease`. Then:
+  1. the process that let the slot go sets an `idleMs` timer (unref'd);
+     when it fires and the slot is idle with nobody waiting, it takes the
+     slot for the length of the hook and runs it — the long-lived editor's
+     and the stdio MCP server's case;
+  2. the editor is the **keeper**: with a release command set it
+     registers under `gpu/keepers/` at boot and checks every 10 s, so it
+     closes a spell a CLI run began and did not outlive;
+  3. **no keeper alive: release at exit** — the CLI after its command and
+     the stdio MCP server at shutdown run the release at once when they used
+     the GPU, the spell is on, the slot is free and nobody waits
+     (back-to-back CLI runs without an editor pause and resume once each);
+  4. **an unclosed spell** (a process killed before its exit) is noticed by
+     the next grant — on, but idle past `idleMs` — and the acquire hook runs
+     again; pausing a paused program is harmless, and this spell's release
+     follows.
+- **D6 — the hook's step.** `gpu.hook` with `hook`, `exit`, `outputChars`
+  and an `excerpt` (160 characters, then D2's redaction); never the
+  command, so nothing from the environment is echoed. A failing or hung
+  hook is a failed step, never a failed import; the timeout kills the
+  hook's whole process group.
+- **D6 — the reload covers a timeout too.** When the grant ran the acquire
+  hook and the placement check — after the answer, or after a timeout —
+  reads under 100%, `chatJson` stops the model (`llm.reload`, `POST
+/api/generate {model, keep_alive: 0}`) and asks once more. The first
+  reading is not surfaced; the retry's is. Never a loop.
+- **D7 — a cancel across processes is a file.** `requestJobCancel(id)`
+  aborts a job this process runs, else writes `<jobs dir>/<id>.cancel`;
+  the running process looks for it every second (`JOB_CANCEL_POLL_MS`),
+  while it runs or waits. Not a `cancelRequested` field: only the running
+  process writes its meta, and its heartbeat's read-modify-write would race
+  a flag someone else wrote there. 37c's route only calls
+  `requestJobCancel`.
+- **31-D3, for the form:** its page fetch is paced now, so a 403's one
+  retry waits the polite gap (30-D5) instead of retrying at once.
+
 ## Roadmap
 
 | Phase    | Size | Branch                   | Status | PR   | What                                                                              |
@@ -413,6 +502,39 @@ exec tsc --noEmit`, `pnpm exec vitest run`;
   from 0.7 s to 4.4 s and once hit vitest's 5 s timeout; alone it passed.
   A timeout in a heavy file under load is not a regression until it
   repeats on a quiet machine.
+
+### 37b
+
+- **T13 — A cancel can land while the grant is being made.** `acquire`
+  checks the signal before it starts and polls with it, but the file work
+  between (the waiter file, the first look, the lock) does not watch it. A
+  caller that then hands the aborted signal to `fetch` — whose stub only
+  listens for a future `abort` — hangs, holding the slot. `llmExtract`'s
+  "the caller's own abort" test did exactly that, and every later
+  `chatJson` in the file waited behind it (15 timeouts that looked like a
+  broken queue). `acquire` checks the signal again once granted, and gives
+  the slot straight back.
+- **T14 — Under vitest the queue is per test _file_.** `setupTests.js` gives
+  each file its own `RECIPE_QUEUE_DIR`, so a test that leaves a slot held —
+  a hung stub, a grant never released — makes the file's later tests wait
+  for it. `queue.test` stubs a fresh queue dir per test. The hook state
+  (`gpu/hooks.json`) is per queue dir too: a test that runs the acquire
+  hook needs a fresh one, or the spell is already on.
+- **T15 — Counting waiter files can count the wrong one.** A planted dead
+  waiter made "three waiters" true before the third worker had joined, the
+  holder was released early, and the order came out wrong. Plant after the
+  real waiters are counted.
+- **T16 — A `tsx` worker's start is its import graph.** A worker importing
+  `sitePacing` (the page parsers, `recipe-website-common`) took ~4 s to
+  start, one importing `queue.ts` alone ~1–1.5 s; `support/queueWorker.ts`
+  imports lazily by mode. The cross-process tests are still the file's
+  slowest (13 s of its ~20 s).
+- **T17 — Per-call acquisition interleaves two jobs' model calls.** `gpu`
+  is taken around each `chatJson`, so two several-recipe imports started
+  together alternate call by call (FIFO hands the slot to whoever has
+  waited longest), rather than one finishing before the other starts. That
+  is D4's design — a job between calls holds nothing — and the GPU still
+  sees one call at a time, with one model loaded.
 
 ## Results
 
@@ -719,9 +841,99 @@ typechecks clean; `pnpm exec vitest run` **85 files / 1851 tests** passed
 `multiRecipe` +1); Playwright (build mode, heavy slot) `multi-recipe`,
 `import-roundup`: **7 / 7** passed (1.3 min).
 
+### 37b — The global queue
+
+**Reindex needed: no.** Nothing in the content repository changes. The
+queue's state is a new machine-wide directory, `~/.cache/discontent/queue`
+(D4 amended); nothing to set up.
+
+**Built.**
+
+- `editor/controller/jobs/queue.ts` — `acquire(resource, {tier, signal,
+log, jobId, gapMs, dir})` → a grant (`release({used})`, `await using`
+  works), and `withResource(resource, job, fn)`, the usual way in
+  (re-entrant within one async context). Resources `gpu`, `ytdlp`,
+  `site:<site>`; per resource a directory of waiter files, a `fileLock`
+  slot with a 5 s heartbeat and `state.json`'s `lastRelease`. The grant
+  rule, liveness and logging are D4's amendments above. Polls 250–500 ms,
+  jittered (`RECIPE_QUEUE_POLL_MS`, tests only). Also `queueSnapshot` /
+  `queueSnapshots` (holder and line, for 37c's per-resource view),
+  `sweepQueue` (D5's half for the queue, run with the jobs' boot sweep),
+  `touchResource` (a redirect's final site clocked).
+- `editor/controller/jobs/gpuHooks.ts` — D6's hooks
+  (`RECIPE_GPU_ACQUIRE_CMD`, `RECIPE_GPU_RELEASE_CMD`,
+  `RECIPE_GPU_IDLE_MS`): the shared spell, `gpuGranted` (runs the acquire
+  hook under the slot; answers whether it ran), `gpuReleased` (the
+  process's idle timer), `maybeReleaseGpu`, `startGpuKeeper` (the editor,
+  from `instrumentation.ts`), `settleGpuAtExit` (the CLI after its command,
+  the stdio MCP server at shutdown — loaded only when the process used the
+  GPU, `gpuUsedHere` in `location.ts`, so 35q's lazy startup holds).
+  `/bin/sh -c` in its own process group, 30 s, killed whole.
+- **The seats**: `chatJson` holds `gpu` (tier from `request.job`,
+  `interactive` outside a job) and does D6's reload; `fetchYtdlpMetadata`
+  holds `ytdlp` for both of its runs; `SitePacer#request` holds
+  `site:<site>` on the real clock (public API unchanged; `Pacing.shared`,
+  which `realPacing` sets); the form's page fetch goes through
+  `pacedRequest`. `checkPlacement` answers its reading and takes
+  `{surface}`.
+- **Jobs**: `JobContext.waiting` → `meta.waiting` while it waits;
+  `requestJobCancel(id, {dir, reason})` → `cancelled | requested | ended |
+not_found`, `<id>.cancel` polled every second by the running process
+  (removed at the end; retention drops strays). The meta heartbeat already
+  runs while a job waits (`runJob`'s timer is the job's, not its steps'),
+  so a queued job never looks dead to the sweep.
+- `EDITOR_ENV_KEYS` gains `RECIPE_QUEUE_DIR`, `RECIPE_GPU_ACQUIRE_CMD`,
+  `RECIPE_GPU_RELEASE_CMD`, `RECIPE_GPU_IDLE_MS` (`RECIPE_JOBS_DIR` was
+  37a's); `recipes --help` lists them. `setupTests.js` sets a per-file
+  `RECIPE_QUEUE_DIR` and clears the hooks; `mcpStdio.test` hands its
+  server the queue dir.
+- The mirror names a `queue.wait`'s resource and a `gpu.hook`'s hook:
+  `[job …] queue.wait gpu tier batch · position 1 · waitedMs 1234 · 1.2 s`.
+
+**Tests** — `test/queue.test.ts`, 29:
+
+- one process: the queue dir's defaults; FIFO with the interactive tier
+  jumping two batch waiters; `queue.wait` only when it waited, with its
+  data and mirror line; re-entrancy (`withResource` inside `withResource`,
+  `chatJson` inside a held `gpu`); a dead waiter and an unjudgeable stale
+  one deleted and skipped; an unjudgeable fresh one waited behind; a dead
+  holder and a stale unjudgeable one taken over; a site's gap from the last
+  release; the snapshot; the sweep; an unwritable queue dir (unqueued,
+  said once);
+- jobs: `meta.waiting` while waiting, a cancel removing the place
+  (`queue.wait` ends `ok: false`); a cancel through `<id>.cancel`;
+  `requestJobCancel`'s four answers; a model call cancelled while it runs
+  (the slot let go); yt-dlp cancelled while waiting for its slot (the
+  binary never runs);
+- across processes (`tsx` workers, `support/queueWorker.ts`): FIFO with
+  the tier jump and a dead waiter planted first in line; a holder killed
+  with `-9` (its waiter goes next); `SitePacer`'s gap between two processes
+  (1.2 s set, ≥ 1.15 s seen between one's exit and the other's enter);
+- hooks: acquire once per busy spell and release once after the idle time,
+  then a new spell; the `gpu.hook` step's data and no command in the log; a
+  failing hook and a hung one (killed at the timeout, its child too); an
+  unclosed spell; the CLI-exit release with and without a live keeper; the
+  keeper's registration;
+- D6's reload with a stubbed `/api/ps`: 2% → stop → 100% (no warning), 2% →
+  stop → 3% (one warning, no loop), a timeout at 2% → stop → answer, and no
+  hook → only the warning (as before).
+
+`importList`'s fake-clock pacing tests, `jobs.test`'s pacer tests and
+`ytdlp.test` pass unchanged.
+
+**Gates.** `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit` clean; eslint clean on the changed files;
+`pnpm exec vitest run` **86 files / 1880 tests** passed (+1 file, +29 on
+main's 85 / 1851). Playwright: pending.
+
+**Real checks:** pending (need the GPU).
+
 ## Backlog
 
 - A volume for the Pi container's jobs directory (D8).
 - Other long operations — reindex, git sync — joining the queue.
 - The form's "Import N selected" (`importBatchPicks`) as a job kind, and
   `job` on a failed import's error object (37c).
+- A site dropped after two 403s is dropped per process only (37b kept
+  `SitePacer`'s drop list in memory); it could live in the site's
+  `state.json` beside `lastRelease`.
