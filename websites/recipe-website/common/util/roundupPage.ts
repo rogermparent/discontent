@@ -26,8 +26,17 @@
  * parser `pageMetadata.ts` uses, and no I/O.
  */
 import { fromHtml } from "hast-util-from-html";
-import type { Element, Root, RootContent } from "hast";
+import type { Element, Root } from "hast";
 import { parseJsonLd } from "./pageMetadata";
+import {
+  articleRoot,
+  attr,
+  classes,
+  elements,
+  textOf,
+  walk,
+  type Parent,
+} from "./hastQuery";
 
 export interface RoundupLink {
   /** The canonical URL: no query, no fragment, no `comment-page-N`. */
@@ -286,50 +295,12 @@ function skipUrl(url: string, context: SkipContext): boolean {
 }
 
 /* ------------------------------------------------------------------ */
-/* hast helpers                                                        */
+/* hast helpers (the shared ones are in `hastQuery.ts`)                */
 /* ------------------------------------------------------------------ */
-
-type Parent = Root | Element;
-
-function textOf(node: Root | RootContent): string {
-  if (node.type === "text") return node.value;
-  if ("children" in node) return node.children.map(textOf).join("");
-  return "";
-}
-
-function attr(element: Element, name: string): string | undefined {
-  const value = element.properties?.[name];
-  if (value === undefined || value === null || value === false) return;
-  if (Array.isArray(value)) return value.join(" ");
-  return String(value);
-}
 
 function clean(value: string | undefined): string | undefined {
   const trimmed = value?.replace(/\s+/g, " ").trim();
   return trimmed || undefined;
-}
-
-function classes(element: Element): string {
-  return `${attr(element, "className") ?? ""} ${attr(element, "id") ?? ""}`;
-}
-
-function walk(
-  node: Parent,
-  visit: (element: Element, parent: Parent) => void | "skip",
-) {
-  for (const child of node.children) {
-    if (child.type !== "element") continue;
-    if (visit(child, node) === "skip") continue;
-    walk(child, visit);
-  }
-}
-
-function elements(node: Parent, test: (element: Element) => boolean) {
-  const found: Element[] = [];
-  walk(node, (element) => {
-    if (test(element)) found.push(element);
-  });
-  return found;
 }
 
 const HEADING = /^h[1-6]$/;
@@ -338,28 +309,6 @@ const CARD_HEADING = /^h[2-5]$/;
 /* ------------------------------------------------------------------ */
 /* The article body                                                    */
 /* ------------------------------------------------------------------ */
-
-const CONTENT_CLASS =
-  /(^|\s)(entry-content|post-content|article-content|article-body|post-body|single-content)(\s|$)/;
-
-/**
- * Where the list lives: the first element of the most specific kind found.
- * Falling back to `<body>` is what makes the exclusions below matter.
- */
-function articleRoot(tree: Root): Element | Root {
-  const candidates: ((element: Element) => boolean)[] = [
-    (element) => CONTENT_CLASS.test(attr(element, "className") ?? ""),
-    (element) => attr(element, "itemProp") === "articleBody",
-    (element) => element.tagName === "article",
-    (element) => element.tagName === "main",
-    (element) => element.tagName === "body",
-  ];
-  for (const test of candidates) {
-    const [found] = elements(tree, test);
-    if (found) return found;
-  }
-  return tree;
-}
 
 /**
  * Regions whose links are never list items, by class or id: comments, share
