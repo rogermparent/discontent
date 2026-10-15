@@ -111,7 +111,9 @@ survives a cleared context.
   `editor/.env`): page text, the extractor and its grounding guard, the
   `--llm auto|force|off` mode on every import surface, and a pasted-text
   import mode (36a–36c), and 36d: a video URL's pinned comment and tags,
-  and a form that says "give it the URL". Roger's steps (`RECIPE_LLM_URL`,
+  and a form that says "give it the URL"; 36e: several recipes in one
+  video or paste (`--all` / `--pick`, a picker, linked components, chapter
+  starts). Roger's steps (`RECIPE_LLM_URL`,
   workstation update, no reindex) are in the doc's Close-out.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,

@@ -214,16 +214,86 @@ UI."_ The URL path already did it (36b); the form hid it.
   video's description and pinned comment by local model qwen3:8b — 28/28
   ingredient lines found verbatim; check it".
 
+### D10 — Several recipes in one video or paste (36e)
+
+Roger, 2026-10-15: _"Could we also add support for multiple recipes on one
+video? e.g. https://www.youtube.com/watch?v=Z8J2HgaaSgQ&t=32s is a video
+with three thanksgiving sides, including an extra separate recipe for the
+fried shallots that go on top of green bean casserole"_. Before 36e it came
+back as one recipe, "Holiday Sides 3 Ways", 44/44 lines verbatim and 19
+steps, all four mashed together. (The brief called this D9; 36d had taken
+D9, so it is D10.)
+
+- **Two stages, not one call** — measured (Results). A deterministic gate
+  first (`mayHoldSeveral`: at least two ingredient blocks with prose
+  between them — a method paragraph, a link, a sentence); only a text that
+  passes it gets the model's **list** (`listRecipes`: each separate recipe's
+  name, heading line and first ingredient, copied). A list of two or more
+  gets one short **question** (`isOneDish`); a dish in parts is read as one.
+  Otherwise the text is **cut** at each listed start (`locateRecipes`,
+  `sliceText`: every line from the first start on is in exactly one slice)
+  and each slice goes through the **unchanged** D7 extractor. One call
+  returning `recipes[]` (the other design) changed single-recipe readings
+  (T46); the two stages leave every text that fails the gate, or that the
+  list calls one recipe, byte for byte as before.
+- **Only video text and pasted text** (`applyLlm`'s `split`): pages are
+  never split, and a page with several JSON-LD `Recipe` nodes still takes
+  the first (backlog).
+- **Trust is per recipe.** Each slice is grounded against itself and
+  settled on its own (`settleExtraction`: the 36b floor, D4, T21): one
+  reading under the floor is left out with a warning (the rest are
+  renumbered, so `pick` never names a gap); one under 90% is `partial` for
+  pasted text, and kept but marked untrusted (`trusted: false`) for a video
+  under auto (T21's rule). Fewer than two left is read as one recipe.
+- **Names** come from the list ("Stuffing", where the slice's reading says
+  "STUFFING"), and the video's description is no recipe's description (it
+  is every recipe's at once). The thumbnail, channel, `source` and
+  suggested tags are the batch's.
+- **Components:** an ingredient line naming another recipe of the batch —
+  every word of its name, and "see recipe below" (or "recipe follows", "see
+  above"), or nothing but the name — becomes a markdown link,
+  `[Crispy fried shallots (or onions) - see recipe below](/recipe/fried-shallots)`:
+  the line verbatim as the link's text. Links are made after the batch's
+  slugs are settled: to a recipe created in the same batch, or — when the
+  named recipe is not in the batch — to the recipe already at its slug if
+  that one came from the same source (an earlier `--pick`; T52). Never to
+  another source's recipe of the same name. A dry run and `inspect` link
+  to the slug a create would use. The link is 25c's
+  `ingredientRecipeLinks` convention, so `/make` reads it too.
+- **Chapters:** each recipe is placed in the chapter whose title holds most
+  of its name's words (≥ half); a component with none of its own (the
+  shallots) takes the chapter of the recipe that names it. The start goes
+  into `source.url` and the stored `video` as YouTube's `t=<seconds>s`;
+  the recipe page's player starts there (`config.youtube.start`, read from
+  the stored URL — the embed ignores `t=`, T47).
+- **Surfaces:** `recipes import` (URL or `--text`) refuses (`usage`, naming
+  the recipes) unless `--all` or `--pick 1,3`; `--dry-run` shows them all,
+  `--out d.json` writes `d-1.json`, `d-2.json`…; one recipe needs no flag.
+  `ImportBatchResult` is `{batch: true, found: [...], recipes: [...]}`.
+  `inspect` / `page_inspect` add `recipes: [{n, name, chapter?, slug,
+draft, llm}]` and keep `recipe` / `draft` as the first one's. MCP
+  `recipe_import` and `/api/import` take `pick` / `all` (tool count
+  unchanged). Commits: `Create recipe: <slug> (local model, 3 of 4 from
+youtube.com/watch?v=…)`, or `(local model, pasted text, 3 of 4)`.
+- **The form** shows a picker (`BatchPicker`, on 35r's `PickList`): name,
+  ingredient count, lines found in the text, chapter time; every trusted
+  recipe ticked; "Import N selected" creates them in one server action
+  with no second reading (`importBatchPicks`, the seat's own); "Edit this
+  one first" fills the form with one; "Import as one recipe instead" fills
+  it with all the parts as one (`mergeReadings`) — the way out when the
+  model splits a dish anyway.
+
 ## Roadmap
 
-| Phase    | Branch                | Size | Status    | What                                                                                   |
-| -------- | --------------------- | ---- | --------- | -------------------------------------------------------------------------------------- |
-| 36-plan  | `agent/36-plan`       | S    | ✅ #230   | This doc.                                                                              |
-| 36a      | `agent/36a-llm-core`  | M    | ✅ #231   | D1, D2, D4, D6, D7: `pageText`, the client, the extractor, gate.                       |
-| 36b      | `agent/36b-llm-wire`  | M    | ✅ #232   | D3, D5: `applyLlm` in seats, form, CLI, API, MCP; Settings line.                       |
-| 36c      | `agent/36c-llm-text`  | M    | ✅ #233   | D8: text import mode in the form, CLI, API, MCP.                                       |
-| 36-close | `agent/36c-llm-text`  | S    | ✅ #233   | Results, D12/SKILL.md updates, backlog, memory, Roger's steps.                         |
-| 36d      | `agent/36d-video-url` | M    | 🟡 review | D9: the video path reads the pinned comment and tags; the form says "give it the URL". |
+| Phase    | Branch                   | Size | Status    | What                                                                                                                               |
+| -------- | ------------------------ | ---- | --------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| 36-plan  | `agent/36-plan`          | S    | ✅ #230   | This doc.                                                                                                                          |
+| 36a      | `agent/36a-llm-core`     | M    | ✅ #231   | D1, D2, D4, D6, D7: `pageText`, the client, the extractor, gate.                                                                   |
+| 36b      | `agent/36b-llm-wire`     | M    | ✅ #232   | D3, D5: `applyLlm` in seats, form, CLI, API, MCP; Settings line.                                                                   |
+| 36c      | `agent/36c-llm-text`     | M    | ✅ #233   | D8: text import mode in the form, CLI, API, MCP.                                                                                   |
+| 36-close | `agent/36c-llm-text`     | S    | ✅ #233   | Results, D12/SKILL.md updates, backlog, memory, Roger's steps.                                                                     |
+| 36d      | `agent/36d-video-url`    | M    | 🟡 review | D9: the video path reads the pinned comment and tags; the form says "give it the URL".                                             |
+| 36e      | `agent/36e-multi-recipe` | M–L  | 🟡 review | D10: several recipes in one video or paste — split, trusted and linked per recipe, chapter starts, the picker, `--all` / `--pick`. |
 
 Ordering: strictly sequential — 36b needs 36a's extractor, 36c needs 36b's
 plumbing (`ImportOptions`, the zod bodies, the form). 36-close after 36c.
@@ -363,6 +433,26 @@ plumbing (`ImportOptions`, the zod bodies, the form). 36-close after 36c.
 - Real check (qwen3:8b, scratch clone, `--dry-run`): the Lagerstrom pasta
   salad, a description with no method, a recipe only in a pinned comment —
   with and without the comment fetch.
+
+### 36e — Several recipes in one video or paste (M–L)
+
+- D10 on top of 36d. Measure one call returning `recipes[]` against a list
+  call then the D7 extractor per slice, on Roger's video (Lagerstrom's
+  "Holiday Sides 3 Ways", `Z8J2HgaaSgQ`) and the 36a/36d corpus; pick on
+  the split's correctness, grounding per recipe, wall time and no change
+  to single-recipe readings.
+- Per-recipe trust; component links resolved to the batch's slugs; each
+  recipe's chapter in its `source` (and the player's start).
+- Surfaces: the `/new-recipe` picker on 35r's list; CLI `--all` / `--pick`
+  and the refusal without either; `inspect` `recipes`; MCP and the API's
+  `pick` / `all`; one commit per recipe; the curator SKILL.md note.
+- Tests: unit (the split, the links, the chapters, per-recipe trust, a
+  single recipe unchanged, `--all` / `--pick` / the refusal, MCP, the
+  route); Playwright with a stand-in model behind a TEST_MODE seam
+  (`multi-recipe.spec`), plus `new-recipe`, `ytdlp-import`,
+  `youtube-video`, `import-roundup`, `visual`, `accessibility`.
+- Real check (qwen3:8b, scratch clone): the video gives 4 recipes, the
+  shallot line links, each has its chapter; the pasta salad stays one.
 
 ## Verification
 
@@ -624,6 +714,75 @@ max-parents,max-replies,max-replies-per-thread`: `10,10,0,0` is ten
   `--no-playlist`, `watch?v=X&list=PL…` asks yt-dlp for every video in the
   list; with comments that ran into the 45 s timeout and then the 30 s
   retry before failing.
+
+### 36e
+
+- **T44 — The list splits a recipe in sections.** Asked of every text,
+  stage 1 split Lagerstrom's pasta salad into "Fully Loaded Italian Pasta
+  Salad" (14 lines, no steps, partial) and "Homemade Dressing". The gate
+  is what keeps it out: "Pasta Salad:" and "Dressing:" are one ingredient
+  block (no prose between), so the list is never asked. Of the 16 texts
+  measured, 5 pass the gate: the two real batches and three single
+  recipes (chili, ciabatta, butter chicken).
+- **T45 — One dish in parts reads as several.** The list split the butter
+  chicken ("2 Recipes in 1 Dish": CHICKEN + MARINADE, SAUCE, RICE), both
+  runs, and a title rule in the prompt made it four. A `oneDish` field in
+  the list's own schema fixed the chicken and turned the ciabatta into five
+  "recipes" (BIGA, AUTOLYSE, FINAL MIX…) — T1 again. As a separate short
+  question it answered 15 of 16 texts right (the 16th, Chinese Cooking
+  Demystified's danhonggao, never passes the gate), at 0.3–4 s. The picker's
+  "Import as one recipe instead" is the way out when it is still wrong.
+- **T46 — One call changed single readings.** With `recipes[]` in the
+  schema and the prompt reworded for it, qwen3:8b gave the chili a second
+  "CLIFFS NOTES CHILI VARIATION" recipe (8 lines, no steps), dropped
+  Sally's icing lines (12/12 instead of 16/16), split the butter chicken in
+  four, read Sivan's challah 5/6 and granola 5/6 (6/6 and 9/10 alone), and
+  renamed half the corpus. The split itself was as good as stage 2's.
+- **T47 — The YouTube embed ignores `t=`.** `youtube-video-element` builds
+  its iframe URL from the video id and its own `config`; react-player
+  passes `config.youtube` through, so the view reads the start back out of
+  the stored URL (`videoStartSeconds`) and passes `{youtube: {start}}`. The
+  `source.url` link starts there on YouTube itself.
+- **T48 — `crypto.randomUUID()` is undefined over plain http.** Browsers
+  expose it only in a secure context; the Pi's editor is `http://…:3000`.
+  The picker's form keys count instead (the 36c server-side key is fine).
+- **T49 — `createIngredient` wraps numbers inside a link's target.**
+  `[2 cups shallots](/recipe/stuffing-2)` becomes `…(/recipe/stuffing-<Multiplyable baseNumber="2" />)`.
+  The batch import adds its links to lines already parsed, so it is safe;
+  a dry run's or `inspect`'s draft holds the link as plain text, and
+  `create --file` with it would break a slug with a digit (none of the
+  four here). Backlog.
+- **T50 — A several-recipe import only exists with a model, and the suite
+  has none** (T18). `/settings/test-llm?url=` (TEST_MODE only, like
+  `/settings/test-editor-role`) points the server at a loopback stand-in
+  for one spec; `playwright/fixtures/llm/standInModel.ts` answers by rule,
+  and the unit tests use the same stand-in behind a stubbed `fetch`.
+- **T51 — The shared thumbnail would be paced four times.** Per-site
+  pacing (30-D5) puts 15 s between requests to one host: four creates each
+  downloading the same thumbnail would wait 45 s. The batch probes and
+  downloads each picture URL once.
+- **T52 — Generic names meet the real corpus.** The real `--all` into a
+  scratch clone of the content repo failed the casserole alone:
+  `green-bean-casserole` already exists there. Side dishes are named like
+  side dishes, so a taken slug is the common case, not the edge: the pick
+  fails with `slug_conflict` and "import this one on its own with
+  `--pick 3 --slug <another>`", and the others land. That re-run is a
+  batch of one, so its shallot line would have lost its link — hence the
+  second link rule: a named recipe outside the batch is linked when the
+  recipe at its slug came from the same video (`source.url` without `t`).
+- **T53 — Under load, T37's comment of notes timed out.** With another
+  session's `next build` and a game's shader cache compiling on the same
+  machine, the danhonggao reading (67 invented lines, 30.5 s in 36d) hit
+  the 180 s timeout, read alone and in the two-stage run (the one-call
+  variant answered in 21.6 s, 1/27 grounded — under the floor). Pre-existing; times in
+  36e's tables are from that loaded machine.
+- **T54 — `youtube-video.spec` asks the real YouTube.** Its first test
+  imports `jNQXAC9IVRw` with no mimic, so a machine with yt-dlp on its
+  PATH runs it for real; on 2026-10-15 yt-dlp answered "Requested format is
+  not available" after ~4 s, and the form was still "Fetching the video
+  with yt-dlp…" when the 5 s `toBeChecked` gave up — twice, on a branch
+  that does not touch that path (CI has no yt-dlp, and the bare link comes
+  back at once). The assertion now waits 30 s.
 
 ## Results
 
@@ -1342,6 +1501,141 @@ moved.
 description (Chinese Cooking Demystified's Substack case — the model
 answers `found: false`, the page it links is the recipe), and a credit
 line read as the only step (T36).
+
+### 36e — Several recipes in one video or paste
+
+**Reindex needed: no.** No index, schema or spec version changed: a batch
+stores ordinary recipes, one commit each, and a component link is the
+ingredient-line link 25c already indexes (`ingredientRecipeLinks`).
+
+**Built.**
+
+- `controller/llm/splitRecipes.ts` — the gate (`ingredientBlocks`,
+  `mayHoldSeveral`), the list (`LLM_LIST_SYSTEM_PROMPT`, `listRecipes`,
+  `readListAnswer`), the one-dish question (`isOneDish`), the cut
+  (`locateRecipes`: the heading line, else the first ingredient and the
+  short line above it; `sliceText`), the components (`findComponents`,
+  `linkLine`) and the chapters (`chapterFor`, `placeInChapters`).
+  `chapterTime.ts` (`ChapterRef`, `formatStart`) and `mergeReadings.ts` have
+  no runtime imports, for the CLI's formatter and the client picker.
+- `importWithLlm.ts` — `applyLlm({split})`: the video's and the paste's
+  callers pass it, pages do not. The single reading's tail is now
+  `settleExtraction`, run per slice too; `readSeveral` returns `recipes:
+SplitReading[]` (`n`, `recipe`, `llm`, `warnings`, `trusted`, `heading`,
+  `chapter`, `components`) with `recipe` / `llm` the first one's and the
+  warnings led by "local model qwen3:8b found 4 recipes in the video's
+  description: 1. Potato Puree, … — pick the ones to import". `videoSource`
+  carries the chapters (never into the model's text, 36d).
+- `curation/importRecipe.ts` — `ImportBatchResult` (`batch`, `found`,
+  `recipes`), `finishBatch` (pick / all / the dry run's "all of them" /
+  the `usage` refusal naming them; `slug` and `name` only with one pick),
+  `importBatchPicks` (plan every pick first: the partial gate, the slug,
+  a slug taken or taken twice in the batch; then the links; the picture
+  probed and fetched once; one `createRecipe` per pick with the note
+  `local model, {n} of {total} from <source>`). `slugIsTaken` is exported
+  from `recipes.ts`.
+- `inspect` — `recipes: InspectRecipe[]`, each draft linked to the slugs a
+  create would use.
+- CLI `import … --all | --pick 1,3` (`parseRecipePicks`; `--pick` and
+  `--all` together is `usage`), the batch's human format (found, then each
+  pick's status), exit 1 when a pick failed, `--out d.json` → `d-1.json` …;
+  `--help` has a paragraph. `ImportOptions.pick` / `all`; the HTTP backend
+  names a pre-36e editor (`predatesBatch`).
+- `ImportRequestFields` gains `pick` (1-based, 1–100 entries) and `all`,
+  not both — `/api/import` and MCP `recipe_import` (descriptions say what a
+  batch answers); `page_inspect` describes `recipes`. Tool count unchanged.
+- Form: `BatchPicker.tsx` over `PickList.tsx` (35r's rows, Select all /
+  none and results, now shared — `RoundupImport` renders through it with
+  the same ids and test ids); `batchActions.ts` (`importRecipeBatchAction`,
+  strict zod, `importBatchPicks` with `allowPartial`); `common.tsx` passes
+  `split` and returns `recipes`, a per-import `key` and `batchTitle`;
+  `form.tsx` keeps the form empty for a batch until "Edit this one first"
+  or "Import as one recipe instead".
+- `common/util/videoUrl.ts` — `withVideoStart`, `videoStartSeconds`; the
+  recipe view passes `config.youtube.start` to the player.
+- Test seam (T50): `setLlmUrlOverride` in `client.ts` (read only under
+  `TEST_MODE`), `/settings/test-llm`, `playwright/fixtures/llm/standInModel.ts`
+  and the mimic's `responses/holiday-sides.json` (a paraphrased four-recipe
+  description with the same shape and chapters).
+- Curator SKILL.md: a "Several recipes in one video" paragraph.
+
+**Measured** (qwen3:8b, offline: Roger's video from the cached dump, the
+36d video corpus with its comments, 36c's email and Sally's card text, and
+a paste of the pizza and peanut butter cookie descriptions; one call at a
+time; 2026-10-15 on a loaded machine — T53). Cells are grounded/total ·
+steps per recipe found, then the wall time.
+
+| text                                   | read as one (before 36e)                     | (a) one call, `recipes[]`                                     | (b) list, then D7 per slice (shipped, + gate)               |
+| -------------------------------------- | -------------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------- |
+| **Holiday Sides 3 Ways** `Z8J2HgaaSgQ` | 1 recipe, 44/44 · 19 (63.6 s)                | 4: 5/5·3, 13/13·6, 13/13·4, 9/9·3 (60.4 s); names in capitals | **4: 5/5·3, 13/13·6, 13/13·4, 9/9·3 (60.7 s; list 7.3 s)**  |
+| paste: pizza + peanut butter cookies   | 1 recipe, the pizza only, 14/14 · 8 (34.4 s) | 2: 14/14·9, 15/15·11 (54.3 s)                                 | **2: 14/14·8, 14/14·10 (52.8 s)**                           |
+| Lagerstrom chili (passes the gate)     | 35/35 · 17 (35.0 s)                          | **2**: + "CLIFFS NOTES CHILI VARIATION" 8/8·0                 | 1: unchanged (+ list 5.2 s)                                 |
+| Lagerstrom butter chicken (gate)       | 35/35 · 7 (37.0 s)                           | **4 parts**                                                   | list: **3 parts**; with the one-dish question: 1, unchanged |
+| Lagerstrom ciabatta (gate)             | 12/12 · 10 (25.7 s)                          | 12/12 · 10                                                    | 1: unchanged (+ list 3.4 s)                                 |
+| Lagerstrom pasta salad                 | 26/27 · 8                                    | 28/28 · 8                                                     | gate: never listed (asked anyway: split in two, T44)        |
+| Sally's iced oatmeal (card text)       | 16/16 · 9                                    | **12/12** · 8 — the icing lines gone                          | gate: never listed                                          |
+| Sivan's challah / granola              | 6/6 · 10 / 9/10 · 4                          | **5/6** / **5/6**                                             | gate: never listed                                          |
+| the other 7 single texts               | –                                            | names changed (e.g. "Pizza", "DRUNKEN NOODLES")               | gate: never listed                                          |
+
+- **The split** is the same in (a) and (b) on both real batches; (b) took
+  its names from the list ("Stuffing") and (a) from the headings
+  ("STUFFING"). No ingredient line was lost between recipes in either: the
+  only amount-led lines outside every recipe were gear links ("6.75qt DUTCH
+  OVEN: https://…").
+- **Single-recipe texts:** (a) changed the reading of five of the
+  fourteen beyond their names, and the names of most (T46). (b) leaves
+  every text the gate stops (11 of 16) untouched by construction, and of
+  the three single recipes that pass it, the list kept two whole and the
+  one-dish question kept the third (T45). The list costs 3–8 s and the
+  question 0.3–4 s on the texts that pass the gate, nothing on the rest.
+- **Wall time** for the four-recipe video: ~60–64 s whichever way it is
+  read (one reading of everything, one call returning four, or the list
+  and four slice readings of 9–18 s) — the output's length sets it, as in
+  36a, and the four recipes are the same lines either way.
+- **The one-dish question** (separate call, `ask`): right on 15 of 16 texts,
+  0.3–4 s; the list's own `oneDish` field instead made the ciabatta five
+  recipes. Probe log `36e/stage1.log`.
+
+**Real check** (qwen3:8b; `--content-dir` an absolute scratch clone of the
+content repo, reindexed, deleted after):
+
+| run                                                                        | result                                                                                                                                                                                                                                                                                                                                                        | wall   |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| **live** `import Z8J2HgaaSgQ --dry-run` (one yt-dlp fetch, comments asked) | **4 recipes, every line verbatim, all trusted:** Potato Puree 5/5 at **0:32**, Stuffing 13/13 at **5:04**, Green Bean Casserole 13/13 at **10:52**, Fried Shallots 9/9 at **10:52** (the casserole's chapter); the casserole's last line `[Crispy fried shallots (or onions) - see recipe below](/recipe/fried-shallots)`; readings 9.3 / 16.6 / 15.4 / 9.6 s | –      |
+| `import Z8J2HgaaSgQ` (no flag)                                             | `usage`: "The local model found 4 recipes in …: 1. Potato Puree, 2. Stuffing, 3. Green Bean Casserole, 4. Fried Shallots. Import them all with --all, or some with --pick 1,3 …"                                                                                                                                                                              | 64.0 s |
+| `import Z8J2HgaaSgQ --all`                                                 | potato-puree, stuffing, fried-shallots created, a commit each ("Create recipe: stuffing (local model, 2 of 4 from youtube.com/watch?v=Z8J2HgaaSgQ)"), the thumbnail downloaded once; **the casserole failed alone**, `slug_conflict` — the corpus has a `green-bean-casserole` (T52); exit 1                                                                  | 63.3 s |
+| `import Z8J2HgaaSgQ --pick 3 --slug green-bean-casserole-lagerstrom`       | created; its shallot line links to `/recipe/fried-shallots` (the same video's, from `--all`); `source.url` and `video` end `&t=652s`                                                                                                                                                                                                                          | 61.5 s |
+| `import --text desc.txt --dry-run` (the description pasted)                | the same 4 recipes and link; no source, so no chapters                                                                                                                                                                                                                                                                                                        | 59.8 s |
+| Lagerstrom pasta salad `lo2pf0pYB9U --dry-run`                             | **one recipe**, 28/28 verbatim, 8 steps — the gate never asks the list                                                                                                                                                                                                                                                                                        | 26.0 s |
+| Lagerstrom butter chicken `ESqF6CW91UQ --dry-run`                          | **one recipe**, 35/35, 7 steps; the list said CHICKEN + MARINADE, SAUCE, RICE, the one-dish question said one dish (warning: "… read … as parts of one dish — read as one")                                                                                                                                                                                   | 50.5 s |
+
+- Steps 2–4 and 6–7 read the cached yt-dlp dumps through a scratch
+  stand-in for the binary (one live fetch for the video, as the brief
+  asked); the model calls were real.
+
+**Gates.** `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit` clean; `pnpm exec vitest run` **82 files
+/ 1758 tests** passed (+27: `test/multiRecipe.test.ts` 23 — the gate, the
+cut, the components and their rendering, the chapters and the start, the
+four-recipe dry run through the yt-dlp mimic, the refusal, `--all` with
+its commits and the one download, `--pick` with and without the link, a
+taken slug, an earlier pick of the same video linked and another source's
+not, one invented reading left out and the rest renumbered, `inspect`,
+the paste with its commits, a partial pick, a sectioned single recipe
+read once, the one-dish answer, `mergeReadings`, `parseRecipePicks`, the
+schema; `mcp` +1 — `pick`, `all`, the refusal; `cliJson` +1 — the refusal,
+`--all --pick`, `--dry-run --out`, `--pick 2`'s commit, `--all`'s exit 1;
+`importRoute` +2 — `/api/import` 400 `usage` / 201 batch, a pre-36e
+editor named). Playwright (build mode, heavy slot) `multi-recipe`,
+`new-recipe` (with `new-recipe-duplicate-slug`), `ytdlp-import`,
+`youtube-video`, `import-roundup`, `visual`, `accessibility`: **109 of
+110** — the one failure `youtube-video`'s real-YouTube import (T54), twice;
+with its wait at 30 s, `youtube-video.spec` **10 passed**. No baseline
+moved: the picker only appears after a several-recipe import.
+
+**Backlog** (rows in `backlog.md`): several JSON-LD Recipe nodes on a page;
+re-reading after a refusal; "import as one" outside the form; a digit in a
+linked slug through `create --file` (T49); a start time on other hosts.
 
 ## Close-out
 
