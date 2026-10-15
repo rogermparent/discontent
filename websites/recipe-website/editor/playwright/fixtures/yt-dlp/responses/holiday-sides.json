@@ -1,0 +1,30 @@
+{
+  "url": "https://www.youtube.com/watch?v=SIDES_TEST",
+  "output": {
+    "title": "Holiday Sides 3 Ways",
+    "description": "Three holiday sides, plus the crispy shallots for the casserole.\n\nMY GEAR:\nCUTTING BOARD: https://example.com/board\nFINE MESH STRAINER: https://example.com/strainer\n\nPOTATO PUREE\n2kg russet potatoes, peeled and diced\n230g unsalted butter\n175g heavy cream\n10g salt\n\nBoil the potatoes until tender. Drain, then mash in the butter and the cream. Pass through a strainer and season with the salt.\n\nSTUFFING\n500g white bread, cubed\n115g butter\n300g onion, diced\n200g celery, diced\n2 eggs\n500g chicken stock\n\nDry the bread in a low oven. Cook the onion and celery in the butter. Whisk the eggs into the stock, toss everything together and bake covered, then uncovered until crisp.\n\nGREEN BEAN CASSEROLE\n900g green beans, trimmed\n115g butter\n450g mushrooms, diced\n65g flour\n400g chicken stock\nCrispy fried shallots (or onions) - see recipe below\n\nBlanch the beans. Cook the mushrooms in the butter, stir in the flour, then the stock, and simmer. Fold in the beans, top with the shallots and bake.\n\nFRIED SHALLOTS\n250g shallots, sliced into rings\n200g flour\n225g buttermilk\ncanola oil\n\nToss the shallots in the flour, then the buttermilk, then the flour again. Fry in 175C oil until golden.\n\n0:00 Intro\n0:32 Potato Puree/Mashed Potatoes\n5:04 Stuffing\n10:52 Green Bean Casserole\n17:18 Let's eat",
+    "thumbnail": "http://localhost:3019/uploads/pork-carnitas.webp",
+    "thumbnails": [
+      {
+        "url": "http://localhost:3019/uploads/pork-carnitas.webp",
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "webpage_url": "https://www.youtube.com/watch?v=SIDES_TEST",
+    "duration": 1100,
+    "channel": "Test Kitchen Channel",
+    "chapters": [
+      { "title": "Intro", "start_time": 0, "end_time": 32 },
+      {
+        "title": "Potato Puree/Mashed Potatoes",
+        "start_time": 32,
+        "end_time": 304
+      },
+      { "title": "Stuffing", "start_time": 304, "end_time": 652 },
+      { "title": "Green Bean Casserole", "start_time": 652, "end_time": 1038 },
+      { "title": "Let's eat", "start_time": 1038, "end_time": 1100 }
+    ],
+    "tags": ["thanksgiving sides", "stuffing", "green bean casserole"]
+  }
+}

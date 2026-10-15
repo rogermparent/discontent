@@ -477,7 +477,9 @@ export function createRecipeServer(
         "categories and keywords as `suggestedTags` (hints, never applied), and — for a " +
         "video host — yt-dlp's `video` metadata (full description, chapters, " +
         "thumbnails). `partial: true` means the page had no Recipe node: the draft is " +
-        "only its title, description and image. " +
+        "only its title, description and image. A video holding several recipes adds " +
+        "`recipes: [{n, name, chapter?, slug, draft, llm, partial?}]` — `recipe` and " +
+        "`draft` are then the first one's — and recipe_import takes `pick` / `all`. " +
         LLM_DESCRIPTION,
       inputSchema: z.strictObject({
         url: z.string().min(1),
@@ -504,7 +506,16 @@ export function createRecipeServer(
         "from, cited and never fetched — a video URL also becomes the recipe's video. " +
         "Exactly one of `url` or `text`; `llm` goes only with `url`. With no model " +
         "configured, or no recipe found in the text, it is import_failed; under 90% " +
-        "grounded it is `partial` like a page.",
+        "grounded it is `partial` like a page. " +
+        "Several recipes in one video or paste (a video that makes three side dishes): the " +
+        "answer is `{batch: true, found: [{n, name, ingredients, steps, grounded, total, " +
+        "chapter?}], recipes: [{n, name, status, slug?, chapter?, draft?, error?, " +
+        "warnings?}]}`, each recipe read and trusted on its own, each its own commit, and a " +
+        'line naming another recipe of the batch ("see recipe below") linked to it; a video ' +
+        "recipe's source starts at its chapter (`&t=…s`). Say which with `all: true` or " +
+        "`pick: [1, 3]` (positions from `found`, or from a dryRun, which shows them all); " +
+        "a create with neither is refused with code usage naming them. One recipe needs " +
+        "neither.",
       inputSchema: ImportRequestSchema,
       annotations: WRITES,
     },

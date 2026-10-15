@@ -15,6 +15,7 @@ import {
   type ApplyLlmResult,
   type LlmImportInfo,
   type LlmMode,
+  type SplitReading,
 } from "recipe-editor/controller/llm/importWithLlm";
 import { fetchYtdlpMetadata } from "./ytdlp";
 
@@ -35,11 +36,20 @@ export interface RecipeActionState {
   llm?: LlmImportInfo;
   /** What the local model did, or why it was not used. */
   warnings?: string[];
+  /**
+   * The model found several recipes in a video or a paste (36e): the form
+   * shows a picker instead of filling itself, and `recipe` is unused.
+   */
+  recipes?: SplitReading[];
+  /** A several-recipe video's title: "Import as one recipe" names it so. */
+  batchTitle?: string;
+  /** Read from pasted text (36c): the picker says "This text". */
+  pastedText?: boolean;
 }
 
 function withLlm(
   url: string | undefined,
-  { recipe, llm, warnings }: ApplyLlmResult,
+  { recipe, llm, warnings, recipes }: ApplyLlmResult,
   message?: string,
 ): RecipeActionState {
   return {
@@ -48,6 +58,10 @@ function withLlm(
     ...(message ? { message } : {}),
     ...(llm ? { llm } : {}),
     ...(warnings.length > 0 ? { warnings } : {}),
+    /* A batch remounts its picker on every import, even of the same URL. */
+    ...(recipes && recipes.length > 1
+      ? { recipes, key: `batch-${crypto.randomUUID()}` }
+      : {}),
   };
 }
 
@@ -77,15 +91,20 @@ export async function reduceRecipeImport(
       if (isVideoUrl(url)) {
         const result = await fetchYtdlpMetadata(url, videoFetchOptions(mode));
         if (result.status === "success") {
-          return withLlm(
+          const state = withLlm(
             url,
             await applyLlm({
               url,
               source: videoSource(result.metadata),
               mapped: ytdlpToRecipe(result.metadata, url),
               mode,
+              /* 36e: several recipes come back to a picker. */
+              split: true,
             }),
           );
+          return state.recipes && result.metadata.title
+            ? { ...state, batchTitle: result.metadata.title }
+            : state;
         }
         const message =
           result.status === "not-found"
@@ -150,6 +169,7 @@ export async function reduceTextImport(
       ...withLlm(reading.recipe.source?.url, reading),
       /* Unique per import, even two in one millisecond. */
       key: `text-${crypto.randomUUID()}`,
+      pastedText: true,
     };
   } catch (e: unknown) {
     const message = typeof e === "string" ? e : (e as Error)?.message;

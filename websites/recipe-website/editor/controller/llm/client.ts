@@ -36,6 +36,22 @@ function envValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
   return raw ? raw : undefined;
 }
 
+interface LlmGlobal {
+  __discontentLlmUrlOverride?: string;
+}
+
+/**
+ * Test-only (36e), as `setEditorRoleOverride` is for the role: under
+ * `TEST_MODE`, `/settings/test-llm?url=…` points this server process at a
+ * stand-in model for one Playwright spec — the suite pins `RECIPE_LLM_URL`
+ * empty (T18), and a several-recipe import only exists with a model. On
+ * `globalThis` because a route handler and a page are separate bundles.
+ * `undefined` clears it.
+ */
+export function setLlmUrlOverride(url: string | undefined): void {
+  (globalThis as LlmGlobal).__discontentLlmUrlOverride = url || undefined;
+}
+
 /**
  * The configured model, or `undefined` when `RECIPE_LLM_URL` is unset — the
  * feature is off. `RECIPE_LLM_API` is `ollama` unless it says `openai`.
@@ -43,7 +59,10 @@ function envValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
 export function llmConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): LlmConfig | undefined {
-  const url = envValue(env, "RECIPE_LLM_URL");
+  const override = env.TEST_MODE
+    ? (globalThis as LlmGlobal).__discontentLlmUrlOverride
+    : undefined;
+  const url = override ?? envValue(env, "RECIPE_LLM_URL");
   if (!url) return undefined;
   const api = envValue(env, "RECIPE_LLM_API")?.toLowerCase();
   return {

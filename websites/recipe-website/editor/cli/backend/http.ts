@@ -146,6 +146,28 @@ function codeForStatus(status: number): CurationErrorCode {
 }
 
 /** The shape a curation route's failure arrives in; anything else by status. */
+/**
+ * An editor from before 36e answers `pick` / `all` as unrecognised keys of
+ * its strict `/api/import` body: say what that means (as T33 does for 36c's
+ * `text`, which wins when both are refused).
+ */
+function predatesBatch(error: unknown, root: string): unknown {
+  if (!(error instanceof CurationError) || error.code !== "validation") {
+    return error;
+  }
+  const issues = (error.details.issues ?? []).map((issue) => issue.message);
+  if (
+    issues.some((message) => /unrecognized key.*"(pick|all)"/i.test(message)) &&
+    !issues.some((message) => /unrecognized key.*"text"/i.test(message))
+  ) {
+    return new CurationError(
+      "validation",
+      `The editor at ${new URL(root).origin} predates several-recipe import (36e) — update it, or run with --content-dir.`,
+    );
+  }
+  return error;
+}
+
 function rehydrate(status: number, statusText: string, body: unknown): Error {
   const error = (body as { error?: unknown } | null)?.error;
   if (
@@ -254,17 +276,22 @@ export function createHttpBackend({
   return {
     kind: "http",
 
-    importRecipe(url: string, options: ImportOptions = {}) {
-      return call<ImportResult>("POST", "/api/import", {
-        body: { url, ...options },
-      });
+    async importRecipe(url: string, options: ImportOptions = {}) {
+      try {
+        return await call<ImportResult>("POST", "/api/import", {
+          body: { url, ...options },
+        });
+      } catch (error) {
+        throw predatesBatch(error, root);
+      }
     },
     async importText(text, options = {}) {
       try {
         return await call<ImportResult>("POST", "/api/import", {
           body: { text, ...options },
         });
-      } catch (error) {
+      } catch (caught) {
+        const error = predatesBatch(caught, root);
         /*
          * An editor from before 36c knows only `{url}`: its strict body
          * answers `text` as an unrecognised key. Say what that means.

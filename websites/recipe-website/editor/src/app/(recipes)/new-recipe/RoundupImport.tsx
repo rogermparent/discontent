@@ -19,6 +19,7 @@ import {
 } from "recipe-editor/controller/roundupPicker";
 import { hostnameLabel } from "recipe-website-common/util/hostnameLabel";
 import { importRoundupAction, inspectRoundupAction } from "./roundupActions";
+import { OutcomeList, PickList, SelectAllNone } from "./PickList";
 
 const STATUS_LABEL: Record<RoundupOutcome["status"], string> = {
   imported: "imported",
@@ -238,58 +239,32 @@ export default function RoundupImport({
           <h3 className="font-semibold">
             {list.title ?? list.url} · {list.items.length} recipes
           </h3>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              disabled={running}
-              onClick={() =>
-                setSelected(
-                  new Set(
-                    list.items
-                      .filter((item) => withTerm || !item.existing)
-                      .map((item) => item.n),
-                  ),
-                )
-              }
-            >
-              Select all
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              disabled={running}
-              onClick={() => setSelected(new Set())}
-            >
-              Select none
-            </Button>
-          </div>
-          <ul className="flex flex-col gap-1" data-testid="roundup-items">
-            {list.items.map((item) => {
-              const locked = Boolean(item.existing) && !withTerm;
-              return (
-                <li key={item.n} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    id={`roundup-item-${item.n}`}
-                    checked={selected.has(item.n) && !locked}
-                    disabled={locked || running}
-                    onChange={() => toggle(item.n)}
-                  />
-                  {item.image && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={item.image}
-                      alt=""
-                      className="h-10 w-10 rounded object-cover"
-                      loading="lazy"
-                    />
-                  )}
-                  <label htmlFor={`roundup-item-${item.n}`}>
-                    {item.n}. {item.name}
-                  </label>
+          <SelectAllNone
+            disabled={running}
+            onAll={() =>
+              setSelected(
+                new Set(
+                  list.items
+                    .filter((item) => withTerm || !item.existing)
+                    .map((item) => item.n),
+                ),
+              )
+            }
+            onNone={() => setSelected(new Set())}
+          />
+          <PickList
+            idPrefix="roundup-item"
+            testId="roundup-items"
+            selected={selected}
+            disabled={running}
+            onToggle={toggle}
+            rows={list.items.map((item) => ({
+              n: item.n,
+              name: item.name,
+              image: item.image,
+              locked: Boolean(item.existing) && !withTerm,
+              extra: (
+                <>
                   <span className="text-muted-foreground">
                     {hostnameLabel(item.url)}
                   </span>
@@ -306,10 +281,10 @@ export default function RoundupImport({
                       </Link>
                     </span>
                   )}
-                </li>
-              );
-            })}
-          </ul>
+                </>
+              ),
+            }))}
+          />
           <TextInput
             name="roundup-term"
             id="roundup-term"
@@ -391,35 +366,17 @@ export default function RoundupImport({
               </Button>
             </div>
           )}
-          <ul
-            className="flex flex-col gap-1 text-sm"
-            data-testid="roundup-results"
-          >
-            {outcomes.map((outcome) => (
-              <li key={`${outcome.n}-${outcome.url}`}>
-                {outcome.n}. {outcome.name} — {STATUS_LABEL[outcome.status]}
-                {outcome.slug && (
-                  <>
-                    {" "}
-                    <Link
-                      className="underline"
-                      href={`/recipe/${outcome.slug}`}
-                      target="_blank"
-                      rel="noopener"
-                    >
-                      {outcome.slug}
-                    </Link>
-                  </>
-                )}
-                {outcome.message && (
-                  <span className="text-muted-foreground">
-                    {" "}
-                    ({outcome.message})
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
+          <OutcomeList
+            testId="roundup-results"
+            outcomes={outcomes.map((outcome) => ({
+              n: outcome.n,
+              key: `${outcome.n}-${outcome.url}`,
+              name: outcome.name,
+              status: STATUS_LABEL[outcome.status],
+              slug: outcome.slug,
+              message: outcome.message,
+            }))}
+          />
         </div>
       )}
     </details>

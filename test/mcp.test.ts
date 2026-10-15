@@ -25,6 +25,7 @@ import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 
 import { recipeContentTypes } from "../websites/recipe-website/editor/controller/contentTypes";
+import { standInChat } from "../websites/recipe-website/editor/playwright/fixtures/llm/standInModel";
 
 import {
   createLocalBackend,
@@ -1012,6 +1013,66 @@ describe("the MCP registry over an in-memory transport", () => {
         code: "import_failed",
         message: "no local model configured (RECIPE_LLM_URL)",
       });
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  /* 36e: several recipes in one paste — pick / all, no new tool. */
+  it("takes pick and all on recipe_import, and refuses to guess (36e)", async () => {
+    const model = "http://model.test:11434";
+    vi.stubEnv("RECIPE_LLM_URL", model);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: string | URL, init?: RequestInit) =>
+        Response.json(standInChat(JSON.parse(String(init?.body)))),
+      ),
+    );
+    const text = [
+      "CAKE",
+      "200g flour",
+      "100g sugar",
+      "",
+      "Mix and bake.",
+      "",
+      "GLAZE",
+      "100g icing sugar",
+      "20g lemon juice",
+      "",
+      "Whisk and pour over the cake.",
+    ].join("\n");
+    try {
+      const dry = await call("recipe_import", { text, dryRun: true });
+      expect(dry.isError).toBe(false);
+      expect(dry.data).toMatchObject({
+        batch: true,
+        dryRun: true,
+        found: [
+          { n: 1, name: "Cake" },
+          { n: 2, name: "Glaze" },
+        ],
+      });
+      const refused = await callError("recipe_import", { text });
+      expect(refused.code).toBe("usage");
+      expect(refused.message).toContain("1. Cake, 2. Glaze");
+      /* pick and all together: the tool's own schema (T28). */
+      expect(
+        (await call("recipe_import", { text, pick: [1], all: true })).isError,
+      ).toBe(true);
+      const picked = await call("recipe_import", { text, pick: [2] });
+      expect(picked.data).toMatchObject({
+        batch: true,
+        recipes: [{ n: 2, status: "imported", slug: "glaze" }],
+      });
+      const all = await call("recipe_import", { text, all: true });
+      expect(all.data).toMatchObject({
+        recipes: [
+          { n: 1, status: "imported", slug: "cake" },
+          { n: 2, status: "failed", error: { code: "slug_conflict" } },
+        ],
+      });
+      expect((await call("recipe_list")).data.total).toBe(2);
     } finally {
       vi.unstubAllGlobals();
       vi.unstubAllEnvs();

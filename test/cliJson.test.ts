@@ -29,6 +29,7 @@ import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 
 import { recipeContentTypes } from "../websites/recipe-website/editor/controller/contentTypes";
+import { standInChat } from "../websites/recipe-website/editor/playwright/fixtures/llm/standInModel";
 
 import { groupContentConfig } from "../websites/recipe-website/common/controller/groupContentConfig";
 import { recipeContentConfig } from "../websites/recipe-website/common/controller/recipeContentConfig";
@@ -865,6 +866,20 @@ describe("import tooling as a process (26b)", () => {
               "</article></body></html>",
             ].join(""),
           );
+        /* 36e: the stand-in model, which reads what it is sent. */
+        case "/multi/api/chat": {
+          const chunks: Buffer[] = [];
+          request.on("data", (chunk: Buffer) => chunks.push(chunk));
+          request.on("end", () => {
+            response.writeHead(200, { "content-type": "application/json" });
+            response.end(
+              JSON.stringify(
+                standInChat(JSON.parse(Buffer.concat(chunks).toString())),
+              ),
+            );
+          });
+          return;
+        }
         case "/api/chat":
           response.writeHead(200, { "content-type": "application/json" });
           return response.end(
@@ -1232,6 +1247,98 @@ describe("import tooling as a process (26b)", () => {
       expect(latest?.message).toBe(
         "Create recipe: old-scones (local model, pasted text)",
       );
+    },
+    TIMEOUT * 3,
+  );
+
+  /* 36e: a paste holding two recipes — refused, then --pick / --all. */
+  it(
+    "refuses a several-recipe import without --all or --pick, then takes them",
+    async () => {
+      const text = [
+        "LEMON CAKE",
+        "200g flour",
+        "100g sugar",
+        "",
+        "Mix and bake.",
+        "",
+        "LEMON GLAZE",
+        "100g icing sugar",
+        "20g lemon juice",
+        "",
+        "Whisk and pour over the cake.",
+      ].join("\n");
+      const envFile = join(scratch, "llm-multi.env");
+      await writeFile(envFile, `RECIPE_LLM_URL=${origin}/multi\n`);
+      const withModel = { RECIPE_ENV_FILE: envFile };
+
+      const refused = await run(
+        ["import", "--text", "-", "--json"],
+        withModel,
+        text,
+      );
+      expect(refused.exitCode).toBe(1);
+      expect(JSON.parse(refused.stdout).error).toMatchObject({
+        code: "usage",
+        message: expect.stringContaining("1. Lemon Cake, 2. Lemon Glaze"),
+      });
+      const both = await run(
+        ["import", "--text", "-", "--all", "--pick", "1", "--json"],
+        withModel,
+        text,
+      );
+      expect(JSON.parse(both.stdout).error.code).toBe("usage");
+
+      /* A dry run shows them all; --out writes a draft each. */
+      const out = join(scratch, "lemon.json");
+      const dry = await run(
+        ["import", "--text", "-", "--dry-run", "--out", out, "--json"],
+        withModel,
+        text,
+      );
+      expect(dry.exitCode).toBe(0);
+      expect(JSON.parse(dry.stdout)).toMatchObject({
+        batch: true,
+        dryRun: true,
+        found: [
+          { n: 1, name: "Lemon Cake" },
+          { n: 2, name: "Lemon Glaze" },
+        ],
+      });
+      expect(
+        JSON.parse(await readFile(join(scratch, "lemon-2.json"), "utf8")),
+      ).toMatchObject({ name: "Lemon Glaze" });
+
+      const picked = await run(
+        ["import", "--text", "-", "--pick", "2", "--json"],
+        withModel,
+        text,
+      );
+      expect(picked.exitCode).toBe(0);
+      expect(JSON.parse(picked.stdout).recipes).toEqual([
+        expect.objectContaining({
+          n: 2,
+          status: "imported",
+          slug: "lemon-glaze",
+        }),
+      ]);
+      const latest = (
+        await simpleGit({ baseDir: contentDirectory }).log({ maxCount: 1 })
+      ).latest;
+      expect(latest?.message).toBe(
+        "Create recipe: lemon-glaze (local model, pasted text, 2 of 2)",
+      );
+
+      /* --all: the glaze is there now, so that pick fails and the exit says so. */
+      const all = await run(
+        ["import", "--text", "-", "--all"],
+        withModel,
+        text,
+      );
+      expect(all.exitCode).toBe(1);
+      expect(all.stdout).toContain("2 recipes found");
+      expect(all.stdout).toMatch(/1\.\s+imported\s+lemon-cake/);
+      expect(all.stdout).toMatch(/2\.\s+failed\s+slug_conflict/);
     },
     TIMEOUT * 3,
   );

@@ -541,7 +541,7 @@ export interface RecipeDryRunResult {
   warnings?: string[];
 }
 
-async function slugIsTaken(ctx: CurationContext, slug: string) {
+export async function slugIsTaken(ctx: CurationContext, slug: string) {
   return exists(
     getContentItemDirectory(
       recipeContentConfig as unknown as ContentTypeConfig,
