@@ -18,9 +18,7 @@ import {
   type PageMeta,
   type ParsedRecipePage,
 } from "./pageMetadata";
-import { fromHtml } from "hast-util-from-html";
-import { toMdast } from "hast-util-to-mdast";
-import { toMarkdown } from "mdast-util-to-markdown";
+import { htmlToMarkdown as decodeText } from "./htmlMarkdown";
 
 import { decodeHTML } from "entities";
 import {
@@ -28,13 +26,6 @@ import {
   fetchRetrying403,
   type ForbiddenRetry,
 } from "./politeFetch";
-
-function decodeText(html: string) {
-  const hast = fromHtml(decodeHTML(html), { fragment: true });
-  const mdast = toMdast(hast);
-  const markdown = toMarkdown(mdast);
-  return markdown.trim();
-}
 
 /**
  * schema.org lets `author` be a bare string, a Person/Organization object, or

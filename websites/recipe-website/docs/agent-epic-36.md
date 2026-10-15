@@ -13,7 +13,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 36-plan open; 36a (extractor core + measurement gate) next.
+**Now:** 36a in review (PR open); qwen3:8b passes the gate. 36b (wiring) next.
 
 ## Context
 
@@ -174,13 +174,13 @@ fetch work the same way.
 
 ## Roadmap
 
-| Phase    | Branch               | Size | Status | What                                                             |
-| -------- | -------------------- | ---- | ------ | ---------------------------------------------------------------- |
-| 36-plan  | `agent/36-plan`      | S    | 🟡     | This doc.                                                        |
-| 36a      | `agent/36a-llm-core` | M    | 📝     | D1, D2, D4, D6, D7: `pageText`, the client, the extractor, gate. |
-| 36b      | `agent/36b-llm-wire` | M    | 📝     | D3, D5: `applyLlm` in seats, form, CLI, API, MCP; Settings line. |
-| 36c      | `agent/36c-llm-text` | M    | 📝     | D8: text import mode in the form, CLI, API, MCP.                 |
-| 36-close | `agent/36-close`     | S    | 📝     | Results, D12/SKILL.md updates, backlog, memory, Roger's steps.   |
+| Phase    | Branch               | Size | Status  | What                                                             |
+| -------- | -------------------- | ---- | ------- | ---------------------------------------------------------------- |
+| 36-plan  | `agent/36-plan`      | S    | ✅ #230 | This doc.                                                        |
+| 36a      | `agent/36a-llm-core` | M    | 🟡      | D1, D2, D4, D6, D7: `pageText`, the client, the extractor, gate. |
+| 36b      | `agent/36b-llm-wire` | M    | 📝      | D3, D5: `applyLlm` in seats, form, CLI, API, MCP; Settings line. |
+| 36c      | `agent/36c-llm-text` | M    | 📝      | D8: text import mode in the form, CLI, API, MCP.                 |
+| 36-close | `agent/36-close`     | S    | 📝      | Results, D12/SKILL.md updates, backlog, memory, Roger's steps.   |
 
 Ordering: strictly sequential — 36b needs 36a's extractor, 36c needs 36b's
 plumbing (`ImportOptions`, the zod bodies, the form). 36-close after 36c.
@@ -323,8 +323,285 @@ plumbing (`ImportOptions`, the zod bodies, the form). 36-close after 36c.
 
 ## Traps
 
-(Filled in per phase.)
+### 36a
+
+- **T1 — At temperature 0, qwen3:8b still turns on wording.** Moving one
+  prompt rule from the middle of a bullet list to its end changed Brian
+  Lagerstrom's drunken noodles from 12 to 16 ingredient lines, and adding
+  `"100-150g"` to an example changed the pasta salad. A single probe proves
+  nothing; deterministic guards (`fillSkippedLines`, `parseTimeText`) are what
+  hold. Re-run the whole corpus after any prompt edit.
+- **T2 — Grounding cannot see an omission.** The noodles with four of
+  sixteen lines skipped were 12/12 grounded. `fillSkippedLines` covers the
+  inside of the list; a recipe whose _last_ lines are skipped still loses
+  them.
+- **T3 — Garbled copies.** qwen3:8b now and then mangles a word it is copying
+  ("1 cup desicc cated coconut", "desicc thaned"; "36,0g warm water" for
+  "360g"). An ingredient line like that is ungrounded (and
+  `fillSkippedLines` swaps in the source line); a garbled _step_ is not
+  checked at all — D4 grounds ingredients only. Hence "check it".
+- **T4 — Ollama's grammar emits required properties first.** The answer's
+  key order is `found, name, ingredients, instructions`, then the optional
+  ones — not the schema's order. Nothing depends on it, but don't read an
+  early `instructions: []` as the model "running out".
+- **T5 — qwen3:14b does not fit 8 GB at `num_ctx` 12288:** 11 GB,
+  40%/60% CPU/GPU, 15 s cold load, ~177 s for a King Arthur page, and the
+  first page (Lagerstrom's key lime pie) hit the 180 s timeout. Not usable on
+  the RX 6600 at this context; qwen3:8b is 6.8 GB, 100% GPU.
+- **T6 — `<pre>` became a fenced code block** through hast → mdast →
+  markdown, and inside the fence qwen3:8b returned the ingredients but no
+  steps (CMU's Anzac biscuits). `pageText` renders `pre` as lines.
+- **T7 — The markdown chain has no GFM:** a `<table>` throws "Cannot handle
+  unknown node `table`" in `mdast-util-to-markdown`. `pageText` flattens
+  tables first. `importRecipeData`'s `decodeText` would still throw on a
+  table inside a JSON-LD string (pre-existing, not seen in the wild).
+- **T8 — Pages repeat themselves invisibly.** PUNCH prints every ingredient
+  twice, once in a `display:none` microdata `<li>`; King Arthur puts the
+  ingredient list in an `<aside>`. `pageText` drops `display:none` / `hidden`
+  and keeps chrome elements whose class names the recipe.
+- **T9 — Corpus pitfalls.** `en.wikibooks.org/wiki/Cookbook:Pancake` (and
+  `:Hummus`, `:Banana_Bread`, `:Chocolate_Chip_Cookies`) are articles or
+  disambiguation pages; the recipes are `Cookbook:Hummus_I` etc. — so they
+  served as negatives. thewoksoflife.com answers a Cloudflare challenge (403
+  twice; dropped). The JSON-LD reference has its own typos (Lagerstrom's
+  "instant y east"), which the model "fixes".
+- **T10 — Scripts in the job scratch dir can't import workspace packages by
+  name** (`recipe-website-common/...` resolves from the importing file), and
+  tsx runs them as CommonJS, so no top-level `await`. Use absolute paths and
+  an async IIFE, or put the script under `editor/scripts/`.
+- **T11 — Page-wide grounding passed changed amounts** (review). Checking a
+  line's words against the whole page let "3 cups (125g) flour" find its 3 in
+  "3 eggs". Grounding is now line by line (`groundLine`), which needs the
+  page text to keep an ingredient on one line: Bon Appétit's grid
+  (`<p>¾</p><div>cup … yogurt</div>`) rendered the amount on a line of its
+  own and graded **1/11** until `pageText` joined amount-only blocks to the
+  next block. A sudden low grade on a site whose recall is fine is a
+  `pageText` layout problem, not a model problem.
+- **T12 — Put-back lines inflated the ratio** (review). Grounding counted
+  `fillSkippedLines`' lines, which are source text by construction: a 4-line
+  answer with 2 inventions read 20/22. Grounding now grades the model's own
+  lines before the fill; `added` is reported apart.
+- **T13 — Position matching was too loose** (review). A substring rule with
+  no length limit and "earliest wins" on ties put "Sauce:" on an intro
+  sentence (and the gap then filled "20% off with code …"), a lone "4" on
+  "1/4 tsp salt", "For the dough:" on "1 cup water for the dough". Matching
+  is now whole words over the longer line (filler words aside), headings
+  only to short lines, ties to the line after the previous match; gaps are
+  ≤ 4 lines, never cross an Instructions label, and skip promotions,
+  temperatures, times and sentences.
+- **T14 — Pathological pages.** WordPress puts `sidebar` on `<body>` (the
+  drop-region rule emptied the page); 400 nested `recipe` divs took 17 s in
+  the on-demand text-length index; very deep nesting overflows the
+  recursive hast → mdast → markdown chain (`RangeError`). Fixed by never
+  dropping `html`/`body`/`main`, a bottom-up length pass, and a tag-stripping
+  fallback.
 
 ## Results
 
-(Filled in per phase.)
+### 36a — Extractor core + measurement gate
+
+**Built.**
+
+- `common/util/pageText.ts` — `pageText(html)` / `pageTextDetail` /
+  `capText`, with two helpers factored out rather than copied:
+  `common/util/hastQuery.ts` (`textOf`, `attr`, `classes`, `walk`,
+  `elements`, `CONTENT_CLASS`, `articleRoot`, now also used by
+  `roundupPage.ts`) and `common/util/htmlMarkdown.ts` (`hastToMarkdown`,
+  `htmlToMarkdown` — `importRecipeData`'s `decodeText`, unchanged).
+- `editor/controller/llm/client.ts` — `llmConfig(env)` (D1; `""` is unset),
+  `chatJson` for `ollama` (`/api/chat`, `format`, `think:false`,
+  `num_ctx` 12288, temperature 0, `keep_alive` 10m) and `openai`
+  (`/v1/chat/completions`, `response_format: json_schema`, temperature 0; a
+  URL already ending in `/v1` is not doubled, a trailing slash is stripped),
+  180 s `AbortSignal` timeout, `LlmError` with `kind` `unconfigured |
+unreachable | timeout | http | bad_json` (a 200 whose body is not a JSON
+  object is `bad_json`; the caller's own abort is passed through, not
+  reported as a timeout). Plain `fetch`.
+- `editor/controller/llm/extractRecipe.ts` — `extractRecipeWithLlm({text,
+url?, meta?, sourceKind?})` → `{found: true, recipe, llm: {model, grounded,
+total, verbatim, ungrounded?, added?, durationMs}, warnings}` or `{found:
+false, llm}`. Exports `LLM_RECIPE_SCHEMA`, `LLM_RECIPE_SYSTEM_PROMPT`,
+  `buildRecipeUserPrompt`, `normaliseForGrounding`, `groundLine`,
+  `isGrounded`, `sourcePositions`, `fillSkippedLines`, `parseTimeText`,
+  `llmWarning` for 36b/36c. `url` given: `source` via `buildSource`, and
+  `videoImportUrl` for a video URL (D8). **`recipe` carries only the time
+  keys it has** — no `prepTime: undefined` — so 36b can spread it over a
+  schema's recipe without losing the schema's times.
+- `editor/scripts/measure-llm-import.ts` — `fetch` (polite, once, into a
+  scratch cache; yt-dlp metadata only) and `run --model … [--set …]
+[--only …]` (offline; warm-up call; unloads the model after unless
+  `--keep`).
+- Tests: `test/pageText.test.ts` (22), `test/llmExtract.test.ts` (68), fetch
+  stubbed with `vi.stubGlobal`.
+
+**Corpus** (fetched once, 2026-10-14, 15 s apart, scratch only): 17 schema
+pages — 8 Sally's, 3 Brian Lagerstrom, 2 King Arthur, Bon Appétit, RecipeTin
+Eats, Love & Lemons, A Couple Cooks; 16 no-schema pages — 11 recipes (PUNCH
+×3 with microdata only, Wikibooks `Hummus_I` and `Chocolate_Chip_Cookies_I`,
+CMU's 1993 recipe archive ×2, textfiles.com ×3 plain text, plus Joshua
+Weissman's page whose Recipe node has no ingredients) and 5 negatives (four
+Wikibooks articles and the CMU index); 6 YouTube descriptions — 5 Brian
+Lagerstrom (pasta salad, drunken noodles, Neapolitan pizza, peanut butter
+cookies, focaccia) and Chinese Cooking Demystified's danhonggao, whose
+description only links to the recipe (a negative).
+
+**Gate: qwen3:8b passes, with the review's stricter grounding** (final code,
+`review2-qwen3-8b`; grounding line by line, the model's own lines only):
+
+| set                  | pages | found | trusted | grounded (verbatim) | recall (loose / exact) | precision | steps got/ref | times agree      | lines put back | median s | max s |
+| -------------------- | ----- | ----- | ------- | ------------------- | ---------------------- | --------- | ------------- | ---------------- | -------------- | -------- | ----- |
+| schema (force)       | 17    | 17    | 17      | 100% (99.6%)        | 100% / 99.6%           | 99.6%     | 169/158       | 40/46, 0 made up | 1              | 20.2     | 46.2  |
+| no-schema            | 16    | 11    | 10      | 99.1% (99.1%)       | –                      | –         | 72            | –                | 1              | 3.7      | 25.3  |
+| YouTube (pasted, D8) | 6     | 5     | 5       | 100% (100%)         | 74/74 by hand          | –         | 52            | –                | 5              | 15.9     | 19.5  |
+
+- Target ≥ 95% recall, ≥ 95% grounded, median ≤ 30 s: **100%, 100%,
+  20.2 s.** Cold load 5–9 s (6.8 GB, 100% GPU). The slowest page is Sally's
+  maple pecan sticky buns (8.6k characters of card, ~1 700 output tokens at
+  ~37 tok/s): output length, not page length, sets the time.
+- The one schema line found but not verbatim is Lagerstrom's "1 tiny pinch
+  instant yeast", where the page says "instant y east" (T9).
+- All 11 no-schema recipes found; **10 trusted**. CMU's Anzac biscuits is
+  `partial` at **8/9**: the model garbled "desiccated" ("desicc thaned
+  coconut"); `fillSkippedLines` swaps in the source line, but the guard now
+  grades the model's own lines, and 8/9 is under 90%. That is the guard
+  working as the review asked; it was "trusted" before only because the
+  put-back line counted.
+- All 5 Lagerstrom descriptions found and trusted, every line verbatim;
+  all 6 negatives `found: false` in 1–4 s.
+- Before the amount-join fix (T11), the same run had Bon Appétit at 1/11
+  grounded and `partial` — schema grounded 96.0%, still over the gate.
+- **YouTube noise:** no URL, sponsor, gear, timestamp, chapter or music line
+  became an ingredient or a step (the script's `NOISE` check plus reading
+  every line). Sub-recipe headings kept ("Dough:", "Tomato Sauce:",
+  "Toppings:"; "Pasta Salad:", "Dressing:"), dual-unit lines verbatim
+  ("225g (½ lb) chicken thigh, …"), ranges kept ("5-8g (1tsp) thai chile").
+- Precision's one extra line is King Arthur's footnote "For best results,
+  measure ingredients by weight." The 6 time misses are King Arthur's (its
+  times are outside the card, 6/6) — none made up.
+- Steps run over the reference (169/158) because the model splits a step
+  that holds several sentences; the words are the page's.
+
+**Comparison** (same corpus, one model at a time; measured before the
+review, with page-wide grounding — not re-run, the review asked for
+qwen3:8b only):
+
+| model      | schema recall | grounded | trusted (schema / no-schema / YouTube) | times              | median s | notes                                                                                                                      |
+| ---------- | ------------- | -------- | -------------------------------------- | ------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| qwen3:8b   | 100%          | 100%     | 17/17, 11/11, 5/5                      | 40/46              | 20.2     | 6.8 GB, 100% GPU                                                                                                           |
+| qwen2.5:7b | **88.8%**     | 100%     | 17/17, 11/11, 5/5                      | 38/46 (+1 made up) | 17.6     | 5.4 GB; drops second sections — Sally's frosting and icing, Lagerstrom's dressing (13/26) and 1-dough (3/9); steps 126/158 |
+| qwen3:14b  | –             | –        | –                                      | –                  | ~177     | 11 GB, 40/60 CPU/GPU; first page timed out (T5); stopped after two                                                         |
+
+**Tuning, in order** (qwen3:8b; each re-run over the whole cached corpus):
+
+1. **As planned** (D6 as written, integer minutes, `[{section, steps}]`):
+   recall 99.6%, grounded 100%, median 22.2 s — the gate already passed. But
+   times agreed 29/46 (Sally's "3 hours, 45 minutes" came back as 234), three
+   short no-schema pages had no steps (PUNCH's doubled lines, CMU's `<pre>`
+   fence, textfiles' collapsed lines), and a smallest-element card rule
+   picked Sally's _step list_ (it says "the wet ingredients").
+2. **Times as text** (`prepTime: "3 hours, 45 minutes"` → `parseTimeText`),
+   a "servings line is the yield" and a "an unheaded paragraph is the
+   method" rule, `display:none` dropped, `<pre>` as lines, plain-text pages
+   unparsed: times 40/46, the short pages fixed. Wikibooks' Hummus _article_
+   then came back as an invented recipe — **0/9 grounded, `partial`**: D4
+   caught it (later runs answer `found: false`). Sally's Star Bread lost
+   all its steps (`instructions: []`).
+3. **Flat instructions** (`"Name:"` lines open a section, like
+   ingredients): Star Bread 9/9, every schema page trusted.
+4. **Skipped lines.** Reading the YouTube output found the noodles at 12/16
+   and the pasta salad at 25/26 while grounded 100% (T2). A "copy the whole
+   list, approximate amounts and ranges included" rule fixed it in a probe
+   but not reliably (T1), so `fillSkippedLines` puts back any amount-led
+   source line inside the copied list's span, and replaces a garbled copy
+   (T3). Markdown headings the model copies ("#### Cream Cheese Frosting")
+   become heading lines.
+5. **Review round** (T11–T14): grounding line by line with every number
+   required, graded on the model's own lines before the fill; position
+   matching and gap filling tightened; Bon Appétit's amount grid joined;
+   `parseTimeText` ranges with fractions ("1 1/2 to 2 hours" → 120), "half
+   an hour", "an hour and a half", "1 hour 30", seconds. Schema pages stay
+   at 100% grounded / 100% recall; the no-schema set loses one trusted
+   page (Anzac, above).
+
+**D6 amendments** (what `pageText` does beyond the plan):
+
+- The recipe card is chosen by **labels**, not by `class*=recipe` alone: a
+  known plugin root (`wprm-recipe-container`, `tasty-recipes`,
+  `mv-create-card`, …) holding a short "Ingredients" element and a short
+  "Instructions/Directions/Method" element; else the smallest
+  `recipe`-classed element holding both, widened through `recipe`-classed
+  ancestors that add ≤ 3 000 characters (the card's title/times header).
+  _Why:_ the plain rule chose Sally's instruction list (step 1).
+- `nav`/`aside`/`form`/`header`/`footer` are dropped **unless their class
+  names the recipe** (King Arthur's `<aside class="recipe__ingredients">`);
+  an `<article>`'s own header and footer stay. Comment, sidebar,
+  related-post and share regions are matched by **whole class/id tokens**,
+  so a wrapper's `has-sidebar` doesn't take the page.
+- `display:none` and `hidden` elements dropped (PUNCH's doubled lines).
+- Links, `strong`/`em`/`b`/`i` unwrapped (no URLs, no `**` for the model to
+  copy); tables flattened (T7); `<pre>` rendered as lines (T6); a response
+  with no HTML tag at all is used as text (textfiles.com).
+- The article path widens `.entry-content` to its enclosing `<article>`
+  (the post title lives in the article's header).
+- `html`, `body` and `main` are never dropped by class, `hidden` or
+  `display:none`; if pruning leaves nothing, the body is rendered with only
+  scripts and styles removed (T14).
+- A table cell holding blocks is a block (no "1 cup flour2 eggs"); rows are
+  blocks.
+- An amount-only block followed by another block is joined onto it
+  (Bon Appétit, T11).
+- Text lengths for the card search come from one bottom-up pass; a
+  `RangeError` from very deep nesting falls back to `strippedPageText`, a
+  tag-stripping render with no tree (T14).
+
+**D7 amendments:**
+
+- `prepTime` / `cookTime` / `totalTime` are **strings copied as written**,
+  converted by `parseTimeText` (hours, minutes, seconds, days, fractions,
+  "an hour", "half an hour", "an hour and a half", "1 hour 30", ranges →
+  the upper end, fractions included). _Why:_ arithmetic, not reading, was the error
+  (234 for 3 h 45 min); agreement 29/46 → 40/46, the rest are King Arthur
+  times outside its card.
+- `instructions` is a **flat `string[]`** with `"Name:"` lines as section
+  headings, mapped to `InstructionGroup`s; `{section, steps}` objects are
+  still read. _Why:_ the nested shape let the model close the list empty
+  (Star Bread, step 2).
+- Prompt additions: copy the whole ingredient list (approximate amounts and
+  ranges included); a servings/yield line is `recipeYield`, never an
+  ingredient; an unheaded paragraph after the ingredients is the method;
+  never add up a time.
+
+**D4 amendments (review):**
+
+- **Line by line.** `groundLine` grades a line against each source line:
+  `verbatim` when it is a run of whole words of one line once normalised;
+  `found` when one line holds **every number** of it and ≥ 80% of its words
+  (filler words like "for the" aside); else `missing`. "3 cups (125g)
+  flour" against "1 cup (125g) flour" is missing even with "3 eggs" on the
+  page.
+- **The model's own lines.** `grounded`/`total` and the `partial` gate
+  count only what the model returned, graded before `fillSkippedLines`;
+  put-back lines are `llm.added` and never raise the ratio.
+- **"Verbatim" only when it was.** The warning says "N/M ingredient lines
+  found verbatim" only when every line was `verbatim`, else "found";
+  `llm.verbatim` carries the count.
+
+**D4 addition:** `fillSkippedLines` (step 4) places each copied line in the
+source (`sourcePositions`: whole words over the longer line, every number
+required, headings only on lines of ≤ 6 words, ties to the line after the
+previous match) and fills only gaps of ≤ 4 non-blank lines between two
+consecutive placed lines, never across an Instructions/Directions/Method
+label, and only amount-led lines that are not promotions (`%`, "code"),
+temperatures (`°`), times ("10 minutes later"), links or sentences.
+`llm.added` lists them and the warning says "(N it skipped added back from
+the list)". Open for 36b:
+D4 keeps a low-grounded result as `partial` _with_ the model's lines — the
+Hummus article came back as nine invented lines, all flagged. 36b may want
+to drop an extraction's lines below some floor (say 50%) rather than show
+them in the form.
+
+**Gates** (after the review fixes). `pnpm --filter recipe-editor typecheck`
+clean; `pnpm --filter recipe-website exec tsc --noEmit` clean;
+`pnpm exec vitest run` 78 files / 1662 tests passed; Playwright (build
+mode, heavy slot) `new-recipe.spec` + `import-roundup.spec`:
+43 passed. No reindex, no schema change.
