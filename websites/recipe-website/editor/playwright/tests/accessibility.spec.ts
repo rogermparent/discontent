@@ -168,6 +168,8 @@ const THEME_PAGES: Array<{ path: string; fixture: string }> = [
   { path: "/", fixture: "three-recipes" },
   { path: "/recipe/recipe-6", fixture: "two-pages" },
   { path: "/search", fixture: "three-recipes" },
+  /* U3: spirit tiles, chips and the accent-filled make panel's frame. */
+  { path: "/drinks", fixture: "drinks-bar" },
 ];
 
 const MODES: Mode[] = ["light", "dark"];
@@ -246,6 +248,31 @@ test.describe("Accessibility across custom themes (axe)", () => {
         await seedTheme(page, theme, mode);
         await page.goto("/");
         await expectMode(page, mode);
+        await expectNoViolations(page);
+      });
+    }
+  }
+});
+
+/*
+ * The phone chrome (usability pass, U2): the tab bar and the masthead's search
+ * icon render only below `sm`, so only the `mobile` project's sweep sees them.
+ */
+test.describe("Accessibility on a phone @mobile", () => {
+  for (const mode of MODES) {
+    for (const { path, fixture } of [
+      { path: "/", fixture: "three-recipes" },
+      { path: "/drinks", fixture: "drinks-bar" },
+    ]) {
+      test(`${path} with the tab bar stays WCAG2AA in ${mode} mode`, async ({
+        page,
+        resetData,
+      }) => {
+        await resetData(fixture);
+        await page.emulateMedia({ colorScheme: mode });
+        await page.goto(path);
+        await expectMode(page, mode);
+        await expect(page.getByTestId("phone-tab-bar")).toBeVisible();
         await expectNoViolations(page);
       });
     }

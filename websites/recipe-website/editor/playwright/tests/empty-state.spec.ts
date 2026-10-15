@@ -23,9 +23,7 @@ test.describe("Empty States", () => {
     await page.evaluate(() => localStorage.removeItem("recipe_bookmarks"));
     await page.goto("/bookmarks");
 
-    await expect(
-      page.getByText("You have not bookmarked any recipes yet."),
-    ).toBeVisible();
+    await expect(page.getByText("Nothing saved yet")).toBeVisible();
     await snapshotPage(page, "bookmarks-empty.png");
   });
 

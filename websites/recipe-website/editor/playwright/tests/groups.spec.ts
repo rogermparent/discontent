@@ -36,7 +36,7 @@ test.describe("Groups", () => {
       await page.goto("/groups");
 
       await expect(
-        page.getByRole("heading", { name: "Groups", exact: true }),
+        page.getByRole("heading", { name: "Plans", exact: true }),
       ).toBeVisible();
 
       const cards = page.getByTestId("group-list").getByRole("listitem");
@@ -172,7 +172,7 @@ test.describe("Groups", () => {
       await resetData("three-recipes");
       await page.goto("/groups");
 
-      await expect(page.getByText("No groups yet")).toBeVisible();
+      await expect(page.getByText("No plans yet")).toBeVisible();
       await expect(page.getByTestId("group-list")).toHaveCount(0);
       await expect(
         page.getByRole("link", { name: "Browse all recipes" }),
@@ -185,16 +185,17 @@ test.describe("Groups", () => {
    * entry point but the raw URL, a ⌘K row and a member recipe's "Appears in".
    */
   test.describe("discovery", () => {
-    test("the masthead links to Groups on every page", async ({
+    test("the masthead links to Plans on every page", async ({
       page,
       resetData,
     }) => {
       await resetData("three-recipes-groups");
       await page.goto("/");
 
+      /* "Plans" since the usability pass (U2); still `/groups`. */
       const link = page
         .getByRole("banner")
-        .getByRole("link", { name: "Groups", exact: true });
+        .getByRole("link", { name: "Plans", exact: true });
       await expect(link).toBeVisible();
       await link.click();
       await expect(page).toHaveURL(/\/groups$/);
@@ -204,7 +205,7 @@ test.describe("Groups", () => {
       await resetData("three-recipes");
       await page.goto("/recipe/first-recipe");
       await expect(
-        page.getByRole("banner").getByRole("link", { name: "Groups" }),
+        page.getByRole("banner").getByRole("link", { name: "Plans" }),
       ).toBeVisible();
     });
 
@@ -216,7 +217,7 @@ test.describe("Groups", () => {
       await page.goto("/");
 
       await expect(
-        page.getByRole("heading", { name: "Groups", exact: true }),
+        page.getByRole("heading", { name: "Plans", exact: true }),
       ).toBeVisible();
 
       const cards = page.getByTestId("group-list").getByRole("listitem");
@@ -244,7 +245,7 @@ test.describe("Groups", () => {
 
       await expect(page.getByTestId("group-list")).toHaveCount(0);
       await expect(
-        page.getByRole("heading", { name: "Groups", exact: true }),
+        page.getByRole("heading", { name: "Plans", exact: true }),
       ).toHaveCount(0);
       await expect(page.getByRole("link", { name: "More groups" })).toHaveCount(
         0,
@@ -1168,16 +1169,16 @@ test.describe("Groups", () => {
 });
 
 test.describe("Groups @mobile", () => {
-  test("the hamburger sheet lists Groups too", async ({ page, resetData }) => {
-    // The sheet renders the same `defaultHeaderItems` the desktop row does, so
-    // this is the one assertion that proves the mobile half did not get left
-    // behind when a default item was added.
+  test("the hamburger sheet lists Plans too", async ({ page, resetData }) => {
+    // The sheet renders the `SITE_NAV` items the phone tab bar leaves out
+    // (U2), so this is the one assertion that proves the mobile half did not
+    // get left behind when a default item was added.
     await resetData("three-recipes-groups");
     await page.goto("/");
     await page.getByRole("button", { name: "Open menu" }).click();
 
     const sheet = page.getByRole("dialog");
-    const link = sheet.getByRole("link", { name: "Groups", exact: true });
+    const link = sheet.getByRole("link", { name: "Plans", exact: true });
     await expect(link).toBeVisible();
     await link.click();
     await expect(page).toHaveURL(/\/groups$/);

@@ -9,3 +9,6 @@ import { groupIndexRoutes } from "recipe-website-common/components/GroupIndexPag
  * `/groups/[slug]` would collide with it.
  */
 export default groupIndexRoutes.numbered;
+
+/** U2: `/groups` reads as "Plans" — the URL stays, the label moved. */
+export const metadata = { title: "Plans" };

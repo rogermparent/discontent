@@ -2054,6 +2054,124 @@ split-screen or short desktop window has it too.
       and the same `AppLayout`, so its hand-duplicated `@media print` block was
       untouched — the policy lives in one place.
 
+## Usability pass (2026-10-15)
+
+Roger picked a mix of four design directions: A as the homepage (U1), a new
+navigation (U2), C's Bar home as a Drinks page (U3), B's count bars on
+`/tags` (U4) and D's pantry-staples default on `/make` (U5); U6 then made the
+browser's own list the primary inventory everywhere. One branch per pair;
+each adds its subsection here.
+
+### U2 — Navigation `agent/nav-drinks`
+
+- [x] **One list of destinations.** `AppLayout/siteNav.ts`'s `SITE_NAV` —
+      Recipes, Drinks, What can I make?, Plans, Shopping (owner), Saved — feeds
+      the masthead, the phone tab bar and the footer's default Browse column,
+      so the three cannot drift. URLs never changed; only labels: `/groups` is
+      "Plans" (heading, `<title>`, empty state, "Back to plans", the palette
+      row, with "groups" kept as a palette keyword) and `/bookmarks` is
+      "Saved" (heading, title, a titled empty state, the palette row). Search
+      keeps "Groups" for its group results, because the field they answer is
+      still `group:`.
+- [x] **No Home.** The wordmark links home and stays the page's `h1`. The
+      footer's default column dropped Home too and gained the masthead's
+      destinations (plus Search).
+- [x] **Shopping is the owner's.** The design says "editor only"; its page
+      redirects a guest to sign in, so the link shows only to a signed-in
+      owner (`isOwner`, already threaded for the palette). The export never
+      has an owner, so it never shows Shopping — structurally, as with the
+      palette's owner rows.
+- [x] **Owner menu items still append.** The `header` menu's items follow the
+      defaults; one whose href a default already has is not repeated, and
+      `/search` stays the palette's. `extraNavItems` and Appearance keep their
+      places after the search field.
+- [x] **The search field.** `PaletteTrigger`'s `field` variant draws a field
+      — "Search N recipes" (N in mono) with the shortcut chip — that opens
+      ⌘K. N is the recipe index's `readMeta().total`, read by the server
+      masthead and caught: a reader never creates an index (F30) and a label
+      must not take the page down. Below `lg` it narrows to its magnifier; its
+      accessible name ("Search N recipes") is the same at every width, and
+      every spec that asked for `name: "Search"` still matches it.
+- [x] **Fitting a small tablet.** The desktop row starts at `sm`; below `lg`
+      "What can I make?" shows its short label "Make" (the hidden span leaves
+      the accessible name to the visible one). The promoted destination is
+      always in the accent; the current page sits on an accent pill.
+- [x] **`aria-current="page"`** on the page's own link and its numbered
+      pages (`/recipes/3`, `/groups/2`), not on a recipe or a plan of its own:
+      the attribute claims a page, not a section (`isCurrentPath`).
+- [x] **Phone.** The masthead keeps the wordmark, a 44 px search icon and the
+      sheet; the sheet holds what the tab bar doesn't (Plans, Shopping, owner
+      menu items, Appearance). `PhoneTabBar` — Recipes · Drinks · Make · Saved,
+      icons with labels, ≥ 44 px targets, `aria-current`, safe-area padding,
+      `print:hidden`, `sm:hidden`.
+- [x] **The tab bar is sticky, not fixed.** It is the body's last child,
+      after the footer, with `.sticky-chrome bottom-0`. Pinned, it rides the
+      viewport's bottom; at the end of the page it sits in its own place in
+      the flow, below the footer — so it never covers content and the page
+      needs no bottom padding. And it obeys the sticky-headers setting for
+      free: Off (or a short viewport under Auto) releases it like the
+      masthead. A `fixed` bar would have needed both a padding hack and its
+      own copy of the policy.
+- [x] **Trap: no list markup in global chrome.** The tab bar is a `<div>` of
+      links, like the footer's columns: listitems on every page would break
+      the mobile specs' unscoped `getByRole('listitem')` recipe counts.
+- [x] **Landmarks:** three navs, labelled Site (the desktop row), Menu (the
+      sheet) and Sections (the tab bar).
+
+### U3 — `/drinks` `agent/nav-drinks`
+
+- [x] **Both apps, one component.** `common/components/DrinksPage` renders
+      from `readDrinksPage()` (the reading half) over `drinksPageData()` (pure,
+      `controller/drinksPage.ts`) — the term page's split and its reads: the
+      tree, then one cached by-term row per key of the `drink`, `spirit` and
+      `holidays` subtrees and the styles, so nothing reads a whole by-term map
+      and a write expires the page with the terms it moves. The export
+      prerenders it; two client islands remain (the make panel and the
+      seasonal row).
+- [x] **Counts are distinct drinks.** Every tile and chip counts recipes under
+      `drink` that also sit under the term — a `tea` cake does not count
+      towards Tea, Halloween hand pies are not a Halloween drink, and groups
+      never count.
+- [x] **Styles are a documented constant** (`DRINK_STYLE_SLUGS`): nothing in
+      the data separates the styles from the 56 drink-name families, which
+      are all plain children of `drink` (agent-mixology.md D7, epic 33 D6).
+      The list is the brief's nine plus `collins`, a D7 style the real repo
+      carries on 11 drinks; without it Collins would have landed among the
+      classics. Every other child of `drink` is a classic ("Classics", top 24
+      by count, then "All N classics" → `/tags/drink`).
+- [x] **The make panel judges the browser's list (U6).** The hook
+      `useMakeable` (`MakePage/useMakeable.ts`) runs `/make`'s judge
+      (`analyzeMakeable`, the one `inventory_makeable` uses) over the
+      `SearchProvider` corpus plus the ingredient lines, scoped to
+      `tag:drink`, against `useInventory([])` — this browser's items in both
+      apps. Settings go through `makeableOptions(settings)`, the hook U5's
+      staples switch extends. `/make` itself is untouched (U5 restructures
+      it). Empty list: "What's on your shelf?" and a link to
+      `/make?q=tag:drink`, never a fallback to another list.
+- [x] **The saved inventory is a separate group.** `secondaryInventory()`
+      (`controller/secondaryInventory.ts`) is the one helper both routes ask:
+      the editor passes a reader for the operator's saved list, signed in
+      only; the export passes nothing and gets nothing. The panel shows what
+      that list adds beyond the browser's as a collapsed "Also makeable with
+      your saved inventory" group under the panel — never in its counts. The
+      opt-in "share it on the export" option (U6) belongs in that helper.
+- [x] **Guard: the export never carries it.** `test/exportInventoryGuard.test.ts`
+      walks the import graph of every module under `export/src/app` and fails
+      on editor code or anything naming the inventory file or its reader.
+      It complements 25c's text scan in `test/inventory.test.ts` (no
+      `common/` or `export/` file may even name the file — which is why the
+      helper's docstring doesn't).
+- [x] **Seasonal from the browser's date.** `util/holidays.ts` (rules by
+      slug: fixed days, the fourth Thursday of November, the Easter computus;
+      no Hanukkah) orders the `holidays` root's children; the server renders
+      every holiday that has drinks and the browser shows the next one. The
+      homepage's "Coming up" (U1) should use the same module.
+- [x] **Fixture `drinks-bar`:** `make-drinks` plus `spirit` (vodka, gin),
+      `shaken`, a `gin-and-tonic` family and `holidays` (Halloween on the
+      Vodka Sour and on Hand Pies, Christmas on the Chamomile Collins);
+      indexes built with `recipes reindex` on a scratch copy, taxonomies
+      carved out of `.gitignore`.
+
 ## Verification (Playwright-first)
 
 Verify UI changes with Playwright; open a real browser only to diagnose

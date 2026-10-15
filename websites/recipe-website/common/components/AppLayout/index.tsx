@@ -25,38 +25,55 @@ import {
   type ContactLinks,
   type SiteFooterConfig,
 } from "../../config/site";
-import { HeaderNav, FooterNav, type FooterColumn } from "./nav";
+import { HeaderNav, FooterNav, PhoneTabBar, type FooterColumn } from "./nav";
 import { fontVariables } from "./fonts";
+import { SITE_NAV } from "./siteNav";
+import { recipePages } from "../../controller/data/readRecipePages";
 
 // Reader-facing default footer menu. Owner/management links (New Recipe,
 // Settings, Content Sync, Sign In/Out) no longer live here — they render in the
 // editor-only "Manage" column via `footerNavItems`, so the export footer stays
-// reader-only by construction.
+// reader-only by construction. Since the usability pass (U2) it is the
+// masthead's destinations under the same labels, plus Search: no "Home" (the
+// wordmark links home) and no owner-only Shopping.
 const defaultFooterItems: MenuItem[] = [
-  { name: "Home", href: "/" },
+  ...SITE_NAV.filter((item) => !item.ownerOnly).map(({ name, href }) => ({
+    name,
+    href,
+  })),
   { name: "Search", href: "/search" },
-  { name: "Bookmarks", href: "/bookmarks" },
 ];
 
-/*
- * `Groups` joined Bookmarks here in 22f. Groups shipped in 22b with no entry
- * point at all — a ⌘K row, an "Appears in" block on a member recipe, or the
- * raw URL — and a masthead link is the one that says the feature exists before
- * you know to look for it. It renders on every page, which is why adding it
- * regenerated every visual baseline.
+/**
+ * How many recipes the masthead's search field offers to search, or
+ * `undefined` when there is no recipe index to ask — a reader never creates
+ * one (F30), and a masthead must not take the page down over a label.
  */
-const defaultHeaderItems: MenuItem[] = [
-  { name: "Bookmarks", href: "/bookmarks" },
-  { name: "Groups", href: "/groups" },
-];
+async function readRecipeCount(): Promise<number | undefined> {
+  try {
+    return (await recipePages.readMeta()).total;
+  } catch {
+    return undefined;
+  }
+}
 
 interface SiteHeaderProps {
   extraNavItems?: ReactNode;
+  /** The signed-in owner also sees Shopping (U2). */
+  isOwner?: boolean;
 }
 
-async function SiteHeader({ extraNavItems }: SiteHeaderProps) {
-  const headerMenu = await getMenuBySlug<MenuItem>("header");
-  const headerItems = [...defaultHeaderItems, ...(headerMenu?.items || [])];
+/*
+ * The destinations themselves are `SITE_NAV` (U2): Recipes, Drinks, What can
+ * I make?, Plans, Shopping (owner) and Saved. Groups (22f) and Bookmarks were
+ * the masthead's two links before; every masthead change regenerates every
+ * full-page visual baseline, because the masthead is on every page.
+ */
+async function SiteHeader({ extraNavItems, isOwner = false }: SiteHeaderProps) {
+  const [headerMenu, recipeCount] = await Promise.all([
+    getMenuBySlug<MenuItem>("header"),
+    readRecipeCount(),
+  ]);
   const { title } = getSiteConfig();
 
   // `sticky-chrome`, never `sticky` — the class reads the reader's
@@ -64,11 +81,11 @@ async function SiteHeader({ extraNavItems }: SiteHeaderProps) {
   // out-rank the components layer and silently pin this forever.
   return (
     <header className="sticky-chrome top-0 z-40 h-[var(--header-height)] w-full border-b border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 print:hidden">
-      <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-between gap-2 px-3 sm:px-4">
+      <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-between gap-2 px-3 sm:justify-start sm:gap-3 sm:px-4 lg:gap-5">
         {/* Wordmark stays the page's h1 (kept from the old centered masthead so
             every index page still owns an h1), now left-aligned and inline with
             a lightweight ember-square mark instead of a logo asset. */}
-        <h1 className="text-lg leading-none">
+        <h1 className="min-w-0 shrink-0 text-lg leading-none">
           <Link
             href="/"
             className="flex items-center gap-2 rounded-md font-display font-bold tracking-tight hover:text-primary"
@@ -80,7 +97,12 @@ async function SiteHeader({ extraNavItems }: SiteHeaderProps) {
             {title}
           </Link>
         </h1>
-        <HeaderNav items={headerItems} extraNavItems={extraNavItems} />
+        <HeaderNav
+          menuItems={headerMenu?.items ?? []}
+          extraNavItems={extraNavItems}
+          isOwner={isOwner}
+          recipeCount={recipeCount}
+        />
       </div>
     </header>
   );
@@ -276,9 +298,10 @@ export async function AppLayout({
           isOwner={isOwner}
           commandPaletteAuth={commandPaletteAuth}
         >
-          <SiteHeader extraNavItems={headerNavItems} />
+          <SiteHeader extraNavItems={headerNavItems} isOwner={isOwner} />
           {children}
           <SiteFooter ownerLinks={footerNavItems} footer={footer} />
+          <PhoneTabBar />
         </AppProviders>
       </body>
     </html>

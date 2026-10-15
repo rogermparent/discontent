@@ -17,6 +17,11 @@ import {
   useSortedRecipes,
 } from "recipe-website-common/components/RecipeSort";
 
+/**
+ * `/bookmarks`, labelled "Saved" since the usability pass (U2): the verb
+ * people use. The URL, the storage key and the bookmark button keep their
+ * names.
+ */
 export default function BookmarksPage() {
   const [{ bookmarks }] = useBookmarks();
   const [sort, setSort] = useState<RecipeSort>("newest");
@@ -25,7 +30,7 @@ export default function BookmarksPage() {
   return (
     <PageMain>
       <PageSection grow>
-        <PageHeading>My Bookmarks</PageHeading>
+        <PageHeading>Saved</PageHeading>
         {bookmarks && bookmarks.length > 0 ? (
           <>
             <div className="mb-2 flex justify-end">
@@ -39,10 +44,11 @@ export default function BookmarksPage() {
           </>
         ) : (
           <EmptyState
-            message="You have not bookmarked any recipes yet."
+            title="Nothing saved yet"
+            message="Save a recipe with its bookmark button and it shows up here."
             action={
               <Button asChild>
-                <Link href="/recipes">Browse Recipes</Link>
+                <Link href="/recipes">Browse recipes</Link>
               </Button>
             }
           />

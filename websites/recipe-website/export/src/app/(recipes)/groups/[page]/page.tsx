@@ -13,3 +13,6 @@ export default groupIndexRoutes.numbered;
  * dynamic route whose params come back empty. The factory owns both.
  */
 export const generateStaticParams = groupIndexRoutes.generateStaticParams;
+
+/** U2: `/groups` reads as "Plans" — the URL stays, the label moved. */
+export const metadata = { title: "Plans" };

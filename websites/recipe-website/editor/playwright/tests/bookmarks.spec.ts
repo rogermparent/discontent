@@ -15,12 +15,12 @@ test.describe("Bookmarks", () => {
     }) => {
       await page.goto("/bookmarks");
 
-      await expect(page.getByText("My Bookmarks")).toBeVisible();
       await expect(
-        page.getByText("You have not bookmarked any recipes yet."),
+        page.getByRole("heading", { name: "Saved", exact: true }),
       ).toBeVisible();
+      await expect(page.getByText("Nothing saved yet")).toBeVisible();
       await expect(
-        page.getByRole("link", { name: "Browse Recipes", exact: true }),
+        page.getByRole("link", { name: "Browse recipes", exact: true }),
       ).toHaveAttribute("href", "/recipes");
     });
 
@@ -28,7 +28,7 @@ test.describe("Bookmarks", () => {
       await page.goto("/bookmarks");
 
       await page
-        .getByRole("link", { name: "Browse Recipes", exact: true })
+        .getByRole("link", { name: "Browse recipes", exact: true })
         .click();
       await expect(page).toHaveURL(/\/recipes$/);
     });
@@ -103,11 +103,11 @@ test.describe("Bookmarks", () => {
 
       await page.goto("/bookmarks");
 
-      await expect(page.getByText("My Bookmarks")).toBeVisible();
-      await expect(page.getByText("Recipe 6", { exact: true })).toBeVisible();
       await expect(
-        page.getByText("You have not bookmarked any recipes yet."),
-      ).toHaveCount(0);
+        page.getByRole("heading", { name: "Saved", exact: true }),
+      ).toBeVisible();
+      await expect(page.getByText("Recipe 6", { exact: true })).toBeVisible();
+      await expect(page.getByText("Nothing saved yet")).toHaveCount(0);
     });
 
     test("should display multiple bookmarked recipes", async ({ page }) => {
@@ -121,7 +121,9 @@ test.describe("Bookmarks", () => {
 
       await page.goto("/bookmarks");
 
-      await expect(page.getByText("My Bookmarks")).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: "Saved", exact: true }),
+      ).toBeVisible();
       await expect(page.getByText("Recipe 6", { exact: true })).toBeVisible();
       await expect(page.getByText("Recipe 3", { exact: true })).toBeVisible();
     });
@@ -181,9 +183,7 @@ test.describe("Bookmarks", () => {
       await expect(page.getByTitle("Bookmark", { exact: true })).toBeVisible();
 
       await page.goto("/bookmarks");
-      await expect(
-        page.getByText("You have not bookmarked any recipes yet."),
-      ).toBeVisible();
+      await expect(page.getByText("Nothing saved yet")).toBeVisible();
       await expect(page.getByText("Recipe 6", { exact: true })).toHaveCount(0);
     });
   });
@@ -204,14 +204,15 @@ test.describe("Bookmarks", () => {
   });
 
   test.describe("Header Navigation", () => {
-    test("should have Bookmarks link in header", async ({ page }) => {
+    test("should have the Saved link in header", async ({ page }) => {
       await page.goto("/");
 
-      // Scope to the banner: "Bookmarks" now also appears in the footer's
-      // Browse column, so an unscoped query would match two links.
+      // Scope to the banner: "Saved" also appears in the footer's Browse
+      // column, so an unscoped query would match two links. The label moved
+      // from "Bookmarks" in the usability pass (U2); the URL did not.
       await expect(
-        page.getByRole("banner").getByRole("link", { name: "Bookmarks" }),
-      ).toBeVisible();
+        page.getByRole("banner").getByRole("link", { name: "Saved" }),
+      ).toHaveAttribute("href", "/bookmarks");
     });
 
     test("should navigate to bookmarks page from header", async ({ page }) => {
@@ -219,11 +220,13 @@ test.describe("Bookmarks", () => {
 
       await page
         .getByRole("banner")
-        .getByRole("link", { name: "Bookmarks" })
+        .getByRole("link", { name: "Saved" })
         .click();
 
       await expect(page).toHaveURL(/\/bookmarks/);
-      await expect(page.getByText("My Bookmarks")).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: "Saved", exact: true }),
+      ).toBeVisible();
     });
   });
 });

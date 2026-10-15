@@ -6,3 +6,6 @@ import { groupIndexRoutes } from "recipe-website-common/components/GroupIndexPag
  * 1-to-`perPage` a partial head would give on its own.
  */
 export default groupIndexRoutes.landing;
+
+/** U2: `/groups` reads as "Plans" — the URL stays, the label moved. */
+export const metadata = { title: "Plans" };

@@ -37,43 +37,46 @@ export function useShortcutModifier(): string {
 }
 
 /**
- * The masthead's Search affordance, now a trigger for the ⌘K command palette
- * rather than a plain link to `/search`. Usable with no keyboard (it's a tap
- * target); the ⌘K hint chip is desktop-only decoration.
+ * The masthead's Search affordance: a trigger for the ⌘K command palette
+ * rather than a link to `/search` (which the palette's "Go to" still reaches).
+ * Usable with no keyboard — it's a tap target; the shortcut chip is
+ * decoration.
  *
- * - `desktop` — inline in the header's right cluster, with a `⌘K` hint.
- * - `mobile` — full-width row in the nav `Sheet`, no hint. Pass `onNavigate` to
- *   close the sheet first, so the palette dialog doesn't stack atop the sheet's.
+ * - `field` — the desktop masthead (usability pass, U2): drawn as a search
+ *   field, "Search N recipes" with the shortcut at its end, so a reader who
+ *   has never heard of ⌘K still sees where search is. Below `lg` it narrows
+ *   to its magnifier, and the accessible name stays the same.
+ * - `icon` — the phone masthead, beside the menu button.
+ *
+ * `count` is the corpus size the masthead read on the server; without it
+ * the field just says "Search recipes".
  */
 export function PaletteTrigger({
-  variant = "desktop",
-  onNavigate,
+  variant = "field",
+  count,
   className,
 }: {
-  variant?: "desktop" | "mobile";
-  onNavigate?: () => void;
+  variant?: "field" | "icon";
+  count?: number;
   className?: string;
 }) {
   const { openPalette } = useCommandPalette();
   const modifier = useShortcutModifier();
+  const label =
+    count === undefined ? "Search recipes" : `Search ${count} recipes`;
 
-  const handleClick = () => {
-    onNavigate?.();
-    openPalette();
-  };
-
-  if (variant === "mobile") {
+  if (variant === "icon") {
     return (
       <button
         type="button"
-        onClick={handleClick}
+        onClick={openPalette}
+        aria-label={label}
         className={cn(
-          "flex items-center gap-1.5 rounded-md p-2 text-left hover:text-primary",
+          "inline-flex size-11 items-center justify-center rounded-md hover:bg-accent hover:text-primary",
           className,
         )}
       >
-        <SearchIcon className="size-4 shrink-0" />
-        Search
+        <SearchIcon className="size-5" />
       </button>
     );
   }
@@ -81,19 +84,29 @@ export function PaletteTrigger({
   return (
     <button
       type="button"
-      onClick={handleClick}
+      onClick={openPalette}
+      aria-label={label}
       aria-keyshortcuts="Meta+K Control+K"
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 font-medium hover:text-primary",
+        "inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-input bg-background px-2.5 text-sm text-muted-foreground shadow-xs transition-colors hover:border-ring hover:text-foreground lg:w-64",
         className,
       )}
     >
       <SearchIcon className="size-4 shrink-0" />
-      Search
+      <span className="hidden truncate lg:inline">
+        {count === undefined ? (
+          "Search recipes"
+        ) : (
+          <>
+            Search <span className="font-mono tabular-nums">{count}</span>{" "}
+            recipes
+          </>
+        )}
+      </span>
       <kbd
         aria-hidden
         data-testid="palette-shortcut-hint"
-        className="ml-1 rounded border border-border px-1 font-mono text-[0.7rem] leading-normal text-muted-foreground"
+        className="ml-auto hidden rounded border border-border px-1 font-mono text-[0.7rem] leading-normal lg:inline"
       >
         {modifier}K
       </kbd>
