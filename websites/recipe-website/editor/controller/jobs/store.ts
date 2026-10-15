@@ -47,7 +47,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import type { JobTier } from "./context";
+import type { JobTier, JobWaiting } from "./context";
 import type { JobLine } from "./log";
 
 export type { JobTier } from "./context";
@@ -95,6 +95,11 @@ export interface JobMeta {
   /** What the job answered, `job` aside. */
   result?: unknown;
   error?: JobError;
+  /**
+   * What it is waiting for in the queue now (37b), mirrored from its waiter
+   * file for display; absent when it waits for nothing.
+   */
+  waiting?: JobWaiting;
 }
 
 /** D1: how many jobs are kept, and for how long. */
@@ -113,6 +118,7 @@ const PRUNE_STAMP = ".prune-stamp";
 
 const META = ".meta.json";
 const LOG = ".log.jsonl";
+const CANCEL = ".cancel";
 const JOB_ID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
 export function metaPath(dir: string, id: string): string {
@@ -121,6 +127,46 @@ export function metaPath(dir: string, id: string): string {
 
 export function logPath(dir: string, id: string): string {
   return path.join(dir, `${id}${LOG}`);
+}
+
+/**
+ * A cancel asked of a job from another process (37b): `<id>.cancel`. Its
+ * own file rather than a meta field — only the running process writes the
+ * meta, and its heartbeat's read-modify-write would race a flag written
+ * there by someone else. The running process polls for it (`runJob`).
+ */
+export function cancelPath(dir: string, id: string): string {
+  return path.join(dir, `${id}${CANCEL}`);
+}
+
+/** Ask the process running `id` to cancel it (37c's Cancel, any process). */
+export async function writeCancelRequest(
+  dir: string,
+  id: string,
+  reason?: string,
+): Promise<void> {
+  await writeFile(
+    cancelPath(dir, id),
+    JSON.stringify({ at: Date.now(), ...(reason ? { reason } : {}) }),
+  );
+}
+
+/** The cancel asked of `id`, if any: its reason (or "" for none). */
+export async function readCancelRequest(
+  dir: string,
+  id: string,
+): Promise<string | undefined> {
+  try {
+    const raw = await readFile(cancelPath(dir, id), "utf8");
+    try {
+      const parsed = JSON.parse(raw) as { reason?: unknown };
+      return typeof parsed.reason === "string" ? parsed.reason : "";
+    } catch {
+      return "";
+    }
+  } catch {
+    return undefined;
+  }
 }
 
 /** A new job's meta: this process runs it. */
@@ -417,13 +463,19 @@ export async function pruneJobs(
     }
     await rm(metaPath(dir, id), { force: true });
     await rm(logPath(dir, id), { force: true });
+    await rm(cancelPath(dir, id), { force: true });
     removed.push(id);
   }
-  /* A log whose meta never landed, or a temp file a killed write left. */
+  /*
+   * A log whose meta never landed, a temp file a killed write left, or a
+   * cancel request nobody picked up (its job ended, or never ran).
+   */
   for (const name of await readdir(dir).catch(() => [] as string[])) {
     const orphanLog =
       name.endsWith(LOG) && !ids.includes(name.slice(0, -LOG.length));
-    if (!orphanLog && !name.endsWith(".tmp")) continue;
+    if (!orphanLog && !name.endsWith(".tmp") && !name.endsWith(CANCEL)) {
+      continue;
+    }
     const info = await stat(path.join(dir, name)).catch(() => null);
     if (info && now - info.mtimeMs > (orphanLog ? maxAgeMs : everyMs)) {
       await rm(path.join(dir, name), { force: true });

@@ -29,7 +29,7 @@ import {
 } from "../controller/curation/errors";
 import { resolveBackend } from "./backend/resolve";
 import { EDITOR_DIRECTORY, loadEditorEnv } from "./editorEnv";
-import { setJobsRoot } from "../controller/jobs/location";
+import { gpuUsedHere, setJobsRoot } from "../controller/jobs/location";
 import { setJobMirror } from "../controller/jobs/log";
 import type { CuratorBackend } from "./backend/types";
 import { createCommand } from "./commands/create";
@@ -232,7 +232,8 @@ Environment:
                        editor package. Never passed on argv.
   RECIPE_EDITOR_URL    Same as --editor-url
   RECIPE_ENV_FILE      The file RECIPE_API_TOKEN, RECIPE_EDITOR_URL, the
-                       RECIPE_LLM_* variables and RECIPE_JOBS_DIR are read
+                       RECIPE_LLM_* variables, RECIPE_JOBS_DIR,
+                       RECIPE_QUEUE_DIR and the RECIPE_GPU_* hooks are read
                        from when the environment lacks them (default
                        websites/recipe-website/editor/.env; nothing else in
                        it is read)
@@ -248,6 +249,18 @@ Environment:
   RECIPE_JOBS_DIR      Where import jobs keep their records and step logs
                        (default websites/recipe-website/editor/jobs); read
                        from editor/.env too
+  RECIPE_QUEUE_DIR     The machine-wide queue every import waits in for the
+                       GPU, yt-dlp and each site (default
+                       ~/.cache/discontent/queue)
+  RECIPE_GPU_ACQUIRE_CMD
+                       Shell command run before the first model call after
+                       an idle spell (e.g. pause another GPU program); off
+                       unless set, 30 s timeout
+  RECIPE_GPU_RELEASE_CMD
+                       Shell command run once the GPU has been idle for
+                       RECIPE_GPU_IDLE_MS (by the editor when it runs, else
+                       when the CLI exits)
+  RECIPE_GPU_IDLE_MS   Idle time before the release command (default 60000)
   DISCONTENT_WRITE_LOCK_TIMEOUT_MS
                        How long a write waits for another write's lock on
                        the content repository (default 30000) before it
@@ -563,6 +576,15 @@ if (require.main === module) {
     .catch((error) => {
       emitError(error, false);
       process.exitCode = 1;
+    })
+    /*
+     * D6 (37b): a run that used the GPU and finds no editor alive to keep
+     * the release closes the spell before it exits. Loaded only then.
+     */
+    .then(async () => {
+      if (!gpuUsedHere()) return;
+      const { settleGpuAtExit } = await import("../controller/jobs/gpuHooks");
+      await settleGpuAtExit();
     });
 }
 

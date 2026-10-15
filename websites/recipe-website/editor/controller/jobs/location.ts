@@ -20,7 +20,7 @@
  * `resolve("jobs")` into a directory reference and would enumerate the
  * jobs as build inputs.
  */
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 
 let root: string | undefined;
@@ -40,4 +40,51 @@ export function jobsDirectory(env: NodeJS.ProcessEnv = process.env): string {
     ? env.TEST_JOBS_DIR_NAME || "test-jobs"
     : env.JOBS_DIR_NAME || "jobs";
   return path.resolve(root ?? process.cwd(), name);
+}
+
+/**
+ * Where the queue keeps its state (37b, D4 amended): the slot locks, the
+ * waiters and the GPU hooks' state. **Machine-wide, not per checkout** —
+ * the queue exists to share one GPU, so a CLI run from a worktree and the
+ * workstation's editor (the main checkout) must see one queue even though
+ * their job records live apart.
+ *
+ * 1. `RECIPE_QUEUE_DIR` — absolute, or relative as `RECIPE_JOBS_DIR` is.
+ * 2. Under a test runner (`VITEST`) or the Playwright server (`TEST_MODE`):
+ *    `<jobs dir>/queue`, so a suite never waits behind — or holds up — the
+ *    machine's real imports.
+ * 3. `~/.cache/discontent/queue`: one path for every process of the user,
+ *    whatever its environment carries. (`$XDG_RUNTIME_DIR` would be tidier
+ *    — tmpfs, gone at reboot — but a process started without it, from cron
+ *    or a trimmed environment, would silently use another queue. A lock a
+ *    reboot leaves behind is freed by the stale rules: its pid is dead, or
+ *    its heartbeat is old.) In the Pi's container this is the container's
+ *    own home, as its jobs dir is (D8).
+ */
+interface GpuUseGlobal {
+  __discontentGpuUsed?: boolean;
+}
+
+/** This process took the `gpu` slot (37b; set by the queue's hooks). */
+export function markGpuUsed(): void {
+  (globalThis as GpuUseGlobal).__discontentGpuUsed = true;
+}
+
+/**
+ * Whether this process has used the GPU — here, dependency-free, so the
+ * CLI can ask at exit without loading the queue (35q's lazy startup).
+ */
+export function gpuUsedHere(): boolean {
+  return (globalThis as GpuUseGlobal).__discontentGpuUsed === true;
+}
+
+export function queueDirectory(env: NodeJS.ProcessEnv = process.env): string {
+  const set = env.RECIPE_QUEUE_DIR?.trim();
+  if (set) {
+    return path.resolve(env.INIT_CWD?.trim() || process.cwd(), set);
+  }
+  if (env.VITEST || env.TEST_MODE) {
+    return path.join(jobsDirectory(env), "queue");
+  }
+  return path.join(homedir(), ".cache", "discontent", "queue");
 }
