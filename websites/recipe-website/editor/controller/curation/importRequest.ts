@@ -6,6 +6,7 @@
  * the local model reads, epic 36 D8). `source` is the pasted text's URL, cited
  * and never fetched, so it goes only with `text`; `llm` picks the model's part
  * in a URL import and means nothing for text, which always uses the model.
+ * `pick` / `all` (36e) choose among several recipes in one video or paste.
  *
  * Only `zod` and the mode names are imported: the MCP server builds its
  * schemas at startup and must not load the model client (35q).
@@ -47,6 +48,23 @@ export const ImportRequestFields = z.strictObject({
   overwrite: z.boolean().optional(),
   allowPartial: z.boolean().optional(),
   llm: z.enum(LLM_MODES).optional(),
+  /*
+   * 36e: a video or a paste holding several recipes — which to import, by
+   * 1-based position, or all of them. With neither, a create is `usage`.
+   */
+  pick: z
+    .array(
+      z.union([
+        z.number().int().min(1).max(100),
+        z.string().trim().min(1).max(200),
+      ]),
+    )
+    .min(1)
+    .max(100)
+    .optional(),
+  all: z.boolean().optional(),
+  /* 36e review: read a video or paste as one recipe, never split. */
+  asOne: z.boolean().optional(),
 });
 
 type ImportRequestInput = z.infer<typeof ImportRequestFields>;
@@ -67,6 +85,20 @@ export function checkImportRequest(
       code: "custom",
       path: ["source"],
       message: "`source` is a pasted text's URL: it goes with `text`",
+    });
+  }
+  if (data.pick && data.all) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["pick"],
+      message: "Give `pick` or `all`, not both",
+    });
+  }
+  if (data.asOne && (data.pick || data.all)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["asOne"],
+      message: "`asOne` reads the text as one recipe: no `pick` or `all`",
     });
   }
   if (data.llm && data.text) {

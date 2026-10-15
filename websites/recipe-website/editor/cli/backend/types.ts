@@ -42,7 +42,10 @@ import type {
   GitSyncOptions,
   SyncResult,
 } from "../../controller/curation/sync";
-import type { ImportResult } from "../../controller/curation/importRecipe";
+import type {
+  ImportBatchResult,
+  ImportResult,
+} from "../../controller/curation/importRecipe";
 import type { InspectResult } from "../../controller/curation/inspect";
 import type { LlmMode } from "../../controller/llm/mode";
 import type {
@@ -109,6 +112,7 @@ export type {
   GroupWriteResult,
   ImportListOptions,
   ImportListResult,
+  ImportBatchResult,
   ImportResult,
   InspectListResult,
   InspectResult,
@@ -161,6 +165,14 @@ export interface ImportOptions {
   allowPartial?: boolean;
   /** The local model: `auto` (default), `force` or `off` (epic 36, D3). */
   llm?: LlmMode;
+  /**
+   * A video (or paste) holding several recipes (36e): import these, by
+   * 1-based position, or `all`. With neither, such an import is `usage`.
+   */
+  pick?: (number | string)[];
+  all?: boolean;
+  /** Read a video or paste as one recipe, never split (36e). */
+  asOne?: boolean;
 }
 
 /**

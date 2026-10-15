@@ -18,7 +18,11 @@ test.describe("YouTube Video Support", () => {
 
       test("imports YouTube URL directly into import field", async ({
         page,
+        writeSettings,
       }) => {
+        /* Never the real YouTube (36e, T54): with no yt-dlp the import is
+         * the bare link, on every machine — yt-dlp on the PATH or not. */
+        await writeSettings({ ytdlpPath: "/nonexistent/path/to/yt-dlp" });
         const youtubeUrl = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
         await page.getByLabel("Import from URL").fill(youtubeUrl);
         await page.getByRole("button", { name: "Import" }).click();

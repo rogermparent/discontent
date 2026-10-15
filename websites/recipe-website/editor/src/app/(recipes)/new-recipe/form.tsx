@@ -18,6 +18,12 @@ import {
   videoHostName,
 } from "recipe-website-common/util/videoUrl";
 import type { RecipeActionState } from "./common";
+import BatchPicker, { plannedSlug } from "./BatchPicker";
+import {
+  linkReading,
+  mergeReadings,
+} from "recipe-editor/controller/llm/mergeReadings";
+import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
 
 /**
  * What a video import will do (36d): yt-dlp fetches the video's text, and the
@@ -103,7 +109,35 @@ export default function NewOrImportRecipeForm({
   /* What the typed URL is (36d): a video gets its own hint and no force box. */
   const videoHost = textMode ? undefined : videoHostName(importUrl);
 
-  const { recipe, url, key, llm, warnings } = importState || {};
+  const {
+    recipe: importedRecipe,
+    url,
+    key,
+    llm,
+    warnings: allWarnings,
+    recipes,
+  } = importState || {};
+  /*
+   * Several recipes (36e): the picker, and the form stays empty until one is
+   * sent to it ("Edit this one first", or all of them as one).
+   */
+  const [editing, setEditing] = useState<{
+    from: RecipeActionState;
+    n?: number;
+    key: string;
+    recipe: Partial<ImportedRecipe>;
+  } | null>(null);
+  /* Not `crypto.randomUUID()`: the Pi's editor is plain http, where browsers
+   * leave it undefined. */
+  const editCount = useRef(0);
+  const batch = recipes && recipes.length > 1 ? recipes : undefined;
+  const edited = editing && editing.from === importState ? editing : null;
+  const recipe = batch ? edited?.recipe : importedRecipe;
+  /* A batch's notice is the batch's: each recipe's own lines are the
+   * picker's to show (its counts), not the first recipe's. */
+  const warnings = batch
+    ? allWarnings?.filter((warning) => !batch[0].warnings.includes(warning))
+    : allWarnings;
   const message =
     importState && importState !== dismissed ? importState.message : undefined;
   /* The model's lines are in the form: its notice replaces the SEO one. */
@@ -147,6 +181,41 @@ export default function NewOrImportRecipeForm({
               <p key={warning}>{warning}</p>
             ))}
           </div>
+        ) : null}
+        {batch && importState ? (
+          <BatchPicker
+            /* A new import, a new picker: its ticks and results start over. */
+            key={key ?? url}
+            readings={batch}
+            total={batch.length + (importState.leftOut?.length ?? 0)}
+            url={url}
+            pastedText={importState.pastedText === true}
+            busy={busy}
+            editing={edited?.n}
+            onEdit={(n) => {
+              const reading = batch.find((entry) => entry.n === n);
+              if (!reading) return;
+              setEditing({
+                from: importState,
+                n,
+                key: `edit-${n}-${(editCount.current += 1)}`,
+                /* Its "see recipe below" line links as the batch would:
+                 * to the slug the sibling is created at (36e review). */
+                recipe: linkReading(reading.recipe, reading.components, (to) =>
+                  plannedSlug(
+                    batch.find((entry) => entry.n === to)?.recipe.name,
+                  ),
+                ),
+              });
+            }}
+            onMerge={() =>
+              setEditing({
+                from: importState,
+                key: `merged-${(editCount.current += 1)}`,
+                recipe: mergeReadings(batch, importState.batchTitle),
+              })
+            }
+          />
         ) : null}
         {textMode ? (
           <>
@@ -274,7 +343,11 @@ export default function NewOrImportRecipeForm({
         </div>
       </form>
       <RecipeFormShell
-        key={submissionState.formData ? submissionState.message : (key ?? url)}
+        key={
+          submissionState.formData
+            ? submissionState.message
+            : (edited?.key ?? key ?? url)
+        }
         action={submissionDispatch}
         slug={slug}
         recipe={submissionState.formData || recipe || undefined}

@@ -15,6 +15,11 @@
  * Since 36b the local model (`applyLlm`, epic 36 D3) reads a page with no
  * Recipe node — or every page, under `force` — and the draft is its reading;
  * `llm` says how much of it was found on the page.
+ *
+ * Since 36e a video can hold several recipes: `recipes` lists each with its
+ * own draft, and `recipe` / `draft` stay the first one's, so a caller that
+ * reads only `draft` still gets a recipe — and a warning that says there
+ * are more.
  */
 import {
   fetchRecipePage,
@@ -32,7 +37,9 @@ import {
   videoSource,
   type LlmImportInfo,
   type LlmMode,
+  type SplitReading,
 } from "../llm/importWithLlm";
+import type { ChapterRef } from "../llm/chapterTime";
 import {
   fetchYtdlpMetadata,
   ytdlpToRecipe,
@@ -40,6 +47,7 @@ import {
 } from "../ytdlp";
 import { ImportError } from "./errors";
 import { pacedRequest } from "./sitePacing";
+import { resolveCreateSlug } from "./recipes";
 import type { RecipeInput } from "./schema";
 
 /** How much of the raw Recipe node `inspect` returns, serialized. */
@@ -86,6 +94,32 @@ export interface InspectResult {
   /** The local model's part (epic 36), whenever it was asked. */
   llm?: LlmImportInfo;
   /** What the local model did, or why it was not used (epic 36). */
+  warnings?: string[];
+  /**
+   * The video holds several recipes (36e): each with its own draft, in the
+   * text's order. `recipe` and `draft` above are the first one's.
+   */
+  recipes?: InspectRecipe[];
+}
+
+/** One recipe of several in a video (36e). */
+export interface InspectRecipe {
+  /** 1-based: what `recipe_import`'s `pick` names. */
+  n: number;
+  name: string;
+  /** The video chapter it is made in; the draft's source starts there. */
+  chapter?: ChapterRef;
+  /** The model's reading is not trusted (D4): check it before creating. */
+  partial?: true;
+  /** The slug a create would use — what the other drafts link to. */
+  slug: string;
+  recipe: Partial<ImportedRecipe>;
+  /**
+   * Create-ready; a line naming another recipe of the video links to that
+   * one's `slug` ("[Crispy fried shallots …](/recipe/fried-shallots)").
+   */
+  draft: RecipeDraft;
+  llm: LlmImportInfo;
   warnings?: string[];
 }
 
@@ -203,6 +237,8 @@ export async function inspectUrl(
         source: videoSource(result.metadata),
         mapped: ytdlpToRecipe(result.metadata, url),
         mode,
+        /* 36e: one video, several recipes. */
+        split: true,
       });
       /* `ytdlpToRecipe` always names the video, so a recipe comes back. The
        * video's tags (36d) are top-level here, as a page's keywords are. */
@@ -229,6 +265,9 @@ export async function inspectUrl(
         ...(suggestedTags?.length ? { suggestedTags } : {}),
         video: toVideo(result.metadata),
         ...llmFields(applied),
+        ...(applied.recipes
+          ? { recipes: await inspectRecipes(applied.recipes) }
+          : {}),
       };
     }
     ytdlpNote =
@@ -291,4 +330,48 @@ function llmFields({
     ...(llm ? { llm } : {}),
     ...(warnings.length > 0 ? { warnings } : {}),
   };
+}
+
+/**
+ * Each recipe of a several-recipe video as `inspect` shows it (36e): its own
+ * draft, with a line naming another recipe of the video linked to the slug
+ * that one would be created at — the batch import links the same lines, to
+ * the slugs it actually used.
+ */
+async function inspectRecipes(
+  readings: readonly SplitReading[],
+): Promise<InspectRecipe[]> {
+  const { linkLine } = await import("../llm/splitRecipes");
+  const slugs = new Map(
+    readings.map((reading) => [
+      reading.n,
+      resolveCreateSlug({
+        name: reading.recipe.name ?? `recipe-${reading.n}`,
+      } as RecipeInput),
+    ]),
+  );
+  return readings.map((reading) => {
+    const { suggestedTags: _tags, images: _images, ...recipe } = reading.recipe;
+    void _tags;
+    void _images;
+    const draft = toDraft(recipe);
+    for (const ref of reading.components ?? []) {
+      const target = slugs.get(ref.target);
+      const line = draft.ingredients?.[ref.line];
+      if (target && typeof line === "string") {
+        draft.ingredients![ref.line] = linkLine(line, target);
+      }
+    }
+    return {
+      n: reading.n,
+      name: reading.recipe.name ?? `Recipe ${reading.n}`,
+      ...(reading.chapter ? { chapter: reading.chapter } : {}),
+      ...(reading.recipe.partial ? { partial: true as const } : {}),
+      slug: slugs.get(reading.n)!,
+      recipe,
+      draft,
+      llm: reading.llm,
+      ...(reading.warnings.length ? { warnings: reading.warnings } : {}),
+    };
+  });
 }

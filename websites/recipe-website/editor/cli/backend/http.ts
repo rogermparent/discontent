@@ -146,6 +146,38 @@ function codeForStatus(status: number): CurationErrorCode {
 }
 
 /** The shape a curation route's failure arrives in; anything else by status. */
+/**
+ * An editor from before 36e answers `pick` / `all` as unrecognised keys of
+ * its strict `/api/import` body: say what that means (as T33 does for 36c's
+ * `text`, which wins when both are refused).
+ */
+/**
+ * How long `import` waits for the editor (36e review): a several-recipe
+ * video is a list, a question and a reading per recipe (~60–80 s, the
+ * split's own deadline 240 s, then one more reading) — so name a limit under
+ * undici's 300 s headers timeout, as `import-list` does, and fail clearly.
+ */
+export const IMPORT_HTTP_TIMEOUT_MS = 285_000;
+
+function predatesBatch(error: unknown, root: string): unknown {
+  if (!(error instanceof CurationError) || error.code !== "validation") {
+    return error;
+  }
+  const issues = (error.details.issues ?? []).map((issue) => issue.message);
+  if (
+    issues.some((message) =>
+      /unrecognized key.*"(pick|all|asOne)"/i.test(message),
+    ) &&
+    !issues.some((message) => /unrecognized key.*"text"/i.test(message))
+  ) {
+    return new CurationError(
+      "validation",
+      `The editor at ${new URL(root).origin} predates several-recipe import (36e) — update it, or run with --content-dir.`,
+    );
+  }
+  return error;
+}
+
 function rehydrate(status: number, statusText: string, body: unknown): Error {
   const error = (body as { error?: unknown } | null)?.error;
   if (
@@ -254,17 +286,24 @@ export function createHttpBackend({
   return {
     kind: "http",
 
-    importRecipe(url: string, options: ImportOptions = {}) {
-      return call<ImportResult>("POST", "/api/import", {
-        body: { url, ...options },
-      });
+    async importRecipe(url: string, options: ImportOptions = {}) {
+      try {
+        return await call<ImportResult>("POST", "/api/import", {
+          body: { url, ...options },
+          timeoutMs: IMPORT_HTTP_TIMEOUT_MS,
+        });
+      } catch (error) {
+        throw predatesBatch(error, root);
+      }
     },
     async importText(text, options = {}) {
       try {
         return await call<ImportResult>("POST", "/api/import", {
           body: { text, ...options },
+          timeoutMs: IMPORT_HTTP_TIMEOUT_MS,
         });
-      } catch (error) {
+      } catch (caught) {
+        const error = predatesBatch(caught, root);
         /*
          * An editor from before 36c knows only `{url}`: its strict body
          * answers `text` as an unrecognised key. Say what that means.

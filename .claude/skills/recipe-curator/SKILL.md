@@ -177,6 +177,22 @@ Keep the draft's `name`, channel `source` and thumbnail image, and keep
 `videoImportUrl` — the page embeds the video. Use one only when the ask
 allows videos.
 
+**Several recipes in one video** (or one pasted text — "Holiday Sides 3
+Ways", a dish and the sauce it says "see recipe below" for): `page_inspect`
+adds `recipes: [{n, name, chapter?, slug, draft, llm}]` (`draft` is then the
+first one's), and `recipe_import` refuses (`usage`) until told which —
+`"all": true`, or **by name**, `"pick": ["Green Bean Casserole"]` (positions
+work too, but every call reads the video again and a re-read can number
+them differently); a `dryRun` shows them all. Each is read and trusted on
+its own, each is its own commit, its `source` starts at its chapter
+(`&t=…s`), and an ingredient line that names another recipe of the batch
+becomes a link to it — so pick the recipe a line links to as well. One
+already imported from the same video is `existing` and skipped, so `all`
+again after a partial run fills in the rest; a `slug_conflict` (another
+source's "stuffing") is that pick's alone — import it on its own with a
+`slug`. If the model split one dish into its parts (a chicken, its sauce
+and the rice it is served on), import it with `"asOne": true`.
+
 **A result with `llm`** (on `page_inspect`, `recipe_import` and their drafts)
 was read by the server's local model. `llm.grounded`/`llm.total` is how many
 of its ingredient lines were found word for word on the page, and the

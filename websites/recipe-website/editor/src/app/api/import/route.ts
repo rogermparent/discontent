@@ -18,6 +18,10 @@
  * YouTube description, an email — read by the local model (`importFromText`);
  * `source` is cited and never fetched. The body is `ImportRequestSchema`,
  * shared with the MCP `recipe_import` tool.
+ *
+ * A video or paste holding several recipes (36e) answers `ImportBatchResult`
+ * (`batch: true`); `pick` / `all` say which to create, and a create with
+ * neither is `usage` (400) naming them.
  */
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
 import {

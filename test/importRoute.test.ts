@@ -17,6 +17,7 @@ import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 
 import { createHttpBackend } from "../websites/recipe-website/editor/cli/backend/http";
 import type { CurationContext } from "../websites/recipe-website/editor/controller/curation/context";
+import { standInChat } from "../websites/recipe-website/editor/playwright/fixtures/llm/standInModel";
 
 let ctx: CurationContext;
 vi.mock("recipe-editor/controller/apiContext", () => ({
@@ -271,5 +272,74 @@ describe("the HTTP backend's importText (36c)", () => {
     await expect(backend.importText(TEXT, { dryRun: true })).rejects.toThrow(
       `The editor at ${origin} predates pasted-text import (36c) — update it, or run with --content-dir.`,
     );
+  });
+
+  it("names an editor from before 36e instead of its zod issue", async () => {
+    const origin = await editor(
+      () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "validation",
+              message: "Invalid input",
+              issues: [{ path: "", message: 'Unrecognized key: "all"' }],
+            },
+          }),
+          { status: 400 },
+        ),
+    );
+    const backend = createHttpBackend({ baseUrl: origin });
+    await expect(
+      backend.importRecipe("https://www.youtube.com/watch?v=X", { all: true }),
+    ).rejects.toThrow(
+      `The editor at ${origin} predates several-recipe import (36e) — update it, or run with --content-dir.`,
+    );
+  });
+});
+
+describe("/api/import with several recipes (36e)", () => {
+  const TWO = [
+    "CAKE",
+    "200g flour",
+    "100g sugar",
+    "",
+    "Mix and bake.",
+    "",
+    "GLAZE",
+    "100g icing sugar",
+    "20g lemon juice",
+    "",
+    "Whisk and pour over the cake.",
+  ].join("\n");
+
+  function stubStandIn() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: string | URL, init?: RequestInit) =>
+        Response.json(standInChat(JSON.parse(String(init?.body)))),
+      ),
+    );
+  }
+
+  it("refuses a create with neither pick nor all (400 usage), takes all (201)", async () => {
+    stubStandIn();
+    const refused = await post({ text: TWO });
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).error).toMatchObject({
+      code: "usage",
+      message: expect.stringContaining("1. Cake, 2. Glaze"),
+    });
+    const both = await post({ text: TWO, pick: [1], all: true });
+    expect(both.status).toBe(400);
+    expect((await both.json()).error.code).toBe("validation");
+    const created = await post({ text: TWO, all: true });
+    expect(created.status).toBe(201);
+    expect(await created.json()).toMatchObject({
+      batch: true,
+      recipes: [
+        { n: 1, status: "imported", slug: "cake" },
+        { n: 2, status: "imported", slug: "glaze" },
+      ],
+    });
   });
 });
