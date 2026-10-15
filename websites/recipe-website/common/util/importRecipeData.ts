@@ -19,6 +19,7 @@ import {
   type ParsedRecipePage,
 } from "./pageMetadata";
 import { htmlToMarkdown as decodeText } from "./htmlMarkdown";
+import { isVideoUrl } from "./videoUrl";
 
 import { decodeHTML } from "entities";
 import {
@@ -194,27 +195,8 @@ function getVideoUrl(
   return input.contentUrl || input.embedUrl || input.url;
 }
 
-/** A video platform: imported through yt-dlp where it is available. */
-export function isVideoUrl(url: string): boolean {
-  try {
-    const urlObj = new URL(url);
-    const videoHosts = [
-      "youtube.com",
-      "youtu.be",
-      "vimeo.com",
-      "twitch.tv",
-      "dailymotion.com",
-      "facebook.com",
-      "soundcloud.com",
-      "streamable.com",
-      "wistia.com",
-      "mixcloud.com",
-    ];
-    return videoHosts.some((host) => urlObj.hostname.includes(host));
-  } catch {
-    return false;
-  }
-}
+/* `isVideoUrl` lives in `./videoUrl` (36d), small enough for the browser. */
+export { isVideoUrl } from "./videoUrl";
 
 /**
  * One `recipeIngredient` entry as text.

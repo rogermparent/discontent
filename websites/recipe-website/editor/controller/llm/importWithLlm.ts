@@ -5,8 +5,9 @@
  * Every import surface — `importFromUrl` (the `import` seat), `inspectUrl`,
  * the roundup's `importItem` and the form's `reduceRecipeImport` — maps the
  * page as before and then hands the result here with the page's HTML (or a
- * video's title and description). What comes back is the recipe to use, the
- * model's statistics and the warnings to show.
+ * video's text — title, description and pinned comment, 36d). What
+ * comes back is the recipe to use, the model's statistics and the warnings
+ * to show.
  *
  * - **auto** (the default): the model reads the source only when the mapper
  *   found no recipe body — no Recipe node (the SEO `partial`, or nothing at
@@ -60,7 +61,7 @@ import {
   llmConfig,
   type LlmConfig,
 } from "./client";
-import type { YtdlpMetadata } from "../ytdlp";
+import type { YtdlpComment, YtdlpMetadata } from "../ytdlp";
 import type { ExtractMeta, LlmStats } from "./extractRecipe";
 import { DEFAULT_LLM_MODE, type LlmMode } from "./mode";
 
@@ -94,20 +95,85 @@ export interface LlmImportInfo extends Partial<
 /** Where the text comes from: a page's HTML, or text (a video's description). */
 export type LlmSource =
   | { html: string; ok?: boolean; meta?: ParsedRecipePage["meta"] }
-  | { text: string; meta?: ExtractMeta };
+  | {
+      text: string;
+      meta?: ExtractMeta;
+      /**
+       * What the text is, for the warnings — "the video's description and
+       * pinned comment" (36d). Without it the text is "the text".
+       */
+      label?: string;
+    };
 
 /**
- * A video's title and description as the model's source (D3): the text 36a
- * measured for YouTube descriptions, the channel as the site.
+ * The comment a recipe may sit in (36d): the pinned one, else the uploader's
+ * longest. Many creators post the recipe there instead of the description.
+ * (`pickYtdlpMetadata` has already dropped every other comment.)
+ */
+export function recipeComment(meta: YtdlpMetadata): YtdlpComment | undefined {
+  const comments = meta.comments ?? [];
+  const pinned = comments.find((comment) => comment.pinned);
+  if (pinned) return pinned;
+  return comments.reduce<YtdlpComment | undefined>(
+    (longest, comment) =>
+      comment.byUploader &&
+      (!longest || comment.text.length > longest.text.length)
+        ? comment
+        : longest,
+    undefined,
+  );
+}
+
+/**
+ * A video as the model's source (D3, widened in 36d): the title, the
+ * description, and the pinned (or the uploader's) comment as a "Pinned
+ * comment:" block — many creators post the recipe there. The whole of it is
+ * what D4 grounds the model's lines against. The channel is the site. A
+ * comment is there only when the fetch asked for one, which it does only
+ * when a model will read it (`videoFetchOptions`).
+ *
+ * **Not the chapters** (36d, measured over 12 videos): their titles never
+ * improved a reading and made two worse. A description with the
+ * ingredients but no method came back with a "Chapters" section of
+ * "0:21 Preparing the pre-ferment" lines as its steps; a video whose only
+ * text was its chapters came back with their titles as a steps-only
+ * "recipe", which auto keeps (T21). `inspect` still lists them under
+ * `video.chapters`.
  */
 export function videoSource(meta: YtdlpMetadata): LlmSource {
+  const comment = recipeComment(meta);
+  const description = meta.description.trim();
+  const blocks = [meta.title, description];
+  if (comment) {
+    blocks.push(
+      `${comment.pinned ? "Pinned comment" : "Comment by the uploader"}:\n${comment.text}`,
+    );
+  }
+  const parts = [
+    ...(description ? ["description"] : []),
+    ...(comment ? [comment.pinned ? "pinned comment" : "comment"] : []),
+  ];
   return {
-    text: [meta.title, meta.description].filter(Boolean).join("\n\n"),
+    text: blocks.filter(Boolean).join("\n\n"),
     meta: {
       title: meta.title || undefined,
       siteName: meta.channel || meta.uploader || undefined,
     },
+    label:
+      parts.length > 0 ? `the video's ${parts.join(" and ")}` : "the video",
   };
+}
+
+/**
+ * The yt-dlp fetch for an import (36d): comments only when the local model
+ * will read the video — with no model, or `off`, the extra time buys nothing.
+ * (A video never has a recipe body before the model, so `auto` always asks.)
+ */
+export function videoFetchOptions(
+  mode: LlmMode = DEFAULT_LLM_MODE,
+  config: LlmConfig | undefined = llmConfig(),
+): { comments: boolean } {
+  return { comments: mode !== "off" && !!config };
 }
 
 export interface ApplyLlmInput {
@@ -232,11 +298,12 @@ export async function applyLlm({
   /* A 404 page's text is not a recipe, whatever the mode. */
   if ("html" in source && source.ok === false) return unchanged;
 
-  const { extractRecipeWithLlm, llmWarning, GROUNDED_MIN } =
+  const { extractRecipeWithLlm, llmWarning, sourceWhere, GROUNDED_MIN } =
     await import("./extractRecipe");
   let text: string;
   let meta: ExtractMeta | undefined;
   let sourceKind: "page" | "text";
+  let label: string | undefined;
   if ("html" in source) {
     const { pageText } = await import("recipe-website-common/util/pageText");
     text = pageText(source.html);
@@ -252,6 +319,7 @@ export async function applyLlm({
     text = source.text;
     meta = source.meta;
     sourceKind = "text";
+    label = source.label;
   }
   if (!text.trim()) {
     /*
@@ -276,6 +344,7 @@ export async function applyLlm({
       /* The mapper's name first: a schema's clean name beats "X | Site". */
       meta: { ...meta, title: mapped?.name ?? meta?.title },
       sourceKind,
+      sourceLabel: label,
       config,
       signal,
     });
@@ -291,7 +360,7 @@ export async function applyLlm({
     };
   }
 
-  const where = sourceKind === "text" ? "in the text" : "on the page";
+  const where = sourceWhere(sourceKind, label);
   if (!extraction.found) {
     return {
       recipe: mapped,
@@ -342,7 +411,9 @@ export async function applyLlm({
   const keepWhole = mode === "auto" && !!mapped && !mapped.partial;
   const warnings: string[] = [];
   if (trusted) {
-    warnings.push(llmWarning(stats, { items, steps, trusted }, sourceKind));
+    warnings.push(
+      llmWarning(stats, { items, steps, trusted }, sourceKind, label),
+    );
   } else if (keepWhole) {
     const why =
       items === 0
@@ -354,7 +425,9 @@ export async function applyLlm({
       `local model ${stats.model}'s reading is incomplete — ${why}; kept, since the import had nothing in its place; check it against the source`,
     );
   } else {
-    warnings.push(llmWarning(stats, { items, steps, trusted }, sourceKind));
+    warnings.push(
+      llmWarning(stats, { items, steps, trusted }, sourceKind, label),
+    );
     recipe.partial = true;
   }
   for (const list of kept) {

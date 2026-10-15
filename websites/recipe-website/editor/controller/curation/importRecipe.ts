@@ -41,6 +41,7 @@ import {
   applyLlm,
   readPastedText,
   usedModel,
+  videoFetchOptions,
   videoSource,
   type ApplyLlmResult,
   type LlmImportInfo,
@@ -113,7 +114,7 @@ export async function importFromUrl(
 ): Promise<UrlImport> {
   let applied: ApplyLlmResult;
   if (isVideoUrl(url)) {
-    const result = await fetchYtdlpMetadata(url);
+    const result = await fetchYtdlpMetadata(url, videoFetchOptions(mode));
     applied =
       result.status === "success"
         ? await applyLlm({

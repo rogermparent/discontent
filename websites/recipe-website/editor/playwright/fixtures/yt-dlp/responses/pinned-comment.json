@@ -1,0 +1,43 @@
+{
+  "url": "https://www.youtube.com/watch?v=PINNED_TEST",
+  "output": {
+    "title": "Sunday Challah from Start to Finish",
+    "description": "",
+    "thumbnail": "https://i.ytimg.com/vi/PINNED_TEST/maxresdefault.jpg",
+    "webpage_url": "https://www.youtube.com/watch?v=PINNED_TEST",
+    "duration": 1007,
+    "channel": "Test Bakery Channel",
+    "chapters": [
+      { "title": "Mixing and kneading", "start_time": 0, "end_time": 185 },
+      { "title": "Braiding the loaves", "start_time": 185, "end_time": 765 },
+      { "title": "Final proof and bake", "start_time": 765, "end_time": 1007 }
+    ],
+    "tags": [],
+    "comments": [
+      {
+        "id": "c1",
+        "parent": "root",
+        "author": "@TestBakeryChannel",
+        "author_is_uploader": true,
+        "is_pinned": true,
+        "text": "Sunday Challah\n\nIngredients\n* 1000g all-purpose flour\n* 2 tbsp active dry yeast\n* 3 tsp salt\n* 590ml lukewarm water\n\nInstructions\n1. Mix everything but the water.\n2. Stream in the water and knead for 12 minutes.\n3. Braid, proof and bake at 350°F for 35 minutes."
+      },
+      {
+        "id": "c2",
+        "parent": "root",
+        "author": "@someviewer",
+        "author_is_uploader": false,
+        "is_pinned": false,
+        "text": "I used 2 cups of sugar and it was great!"
+      },
+      {
+        "id": "c3.r1",
+        "parent": "c3",
+        "author": "@TestBakeryChannel",
+        "author_is_uploader": true,
+        "is_pinned": false,
+        "text": "Thanks! A reply, never the recipe."
+      }
+    ]
+  }
+}

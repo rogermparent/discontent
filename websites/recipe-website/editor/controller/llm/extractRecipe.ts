@@ -725,6 +725,11 @@ export interface ExtractRecipeInput {
   meta?: ExtractMeta;
   /** How the warning names the source: "the page" or "the text". */
   sourceKind?: "page" | "text";
+  /**
+   * What the text is, when it is more than "the text": "the video's
+   * description and pinned comment" (36d). The warning names it.
+   */
+  sourceLabel?: string;
   /** Defaults to `llmConfig()`; unset throws `LlmError("unconfigured")`. */
   config?: LlmConfig;
   timeoutMs?: number;
@@ -846,8 +851,27 @@ export async function extractRecipeWithLlm(
     found: true,
     recipe,
     llm,
-    warnings: [llmWarning(llm, { items, steps, trusted }, input.sourceKind)],
+    warnings: [
+      llmWarning(
+        llm,
+        { items, steps, trusted },
+        input.sourceKind,
+        input.sourceLabel,
+      ),
+    ],
   };
+}
+
+/**
+ * Where the model's lines were found: "on the page", "in the text", or — for
+ * a labelled source — "in the video's description" (36d).
+ */
+export function sourceWhere(
+  sourceKind: "page" | "text" = "page",
+  label?: string,
+): string {
+  if (label) return `in ${label}`;
+  return sourceKind === "text" ? "in the text" : "on the page";
 }
 
 /** The one warning an extraction carries: what to check, or why it is partial. */
@@ -855,14 +879,19 @@ export function llmWarning(
   llm: Pick<LlmStats, "model" | "grounded" | "total" | "verbatim" | "added">,
   { items, steps, trusted }: { items: number; steps: number; trusted: boolean },
   sourceKind: "page" | "text" = "page",
+  label?: string,
 ): string {
-  const where = sourceKind === "text" ? "in the text" : "on the page";
+  const where = sourceWhere(sourceKind, label);
   const how =
     llm.verbatim === llm.total && llm.total > 0 ? "found verbatim" : "found";
   const found = `${llm.grounded}/${llm.total} ingredient lines ${how} ${where}`;
   const added = llm.added?.length
     ? ` (${llm.added.length} it skipped added back from the list)`
     : "";
+  if (trusted && label) {
+    /* A video (36d): say what was read — the import never showed it. */
+    return `read from ${label} by local model ${llm.model} — ${llm.grounded}/${llm.total} ingredient lines ${how}${added}; check it`;
+  }
   if (trusted) {
     return `extracted by local model ${llm.model} — ${found}${added}; check it`;
   }

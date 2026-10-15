@@ -17,7 +17,14 @@ import {
   applyLlm,
   assertLlmMode,
   autoWantsModel,
+  recipeComment,
+  videoFetchOptions,
+  videoSource,
 } from "../websites/recipe-website/editor/controller/llm/importWithLlm";
+import {
+  pickYtdlpMetadata,
+  ytdlpToRecipe,
+} from "../websites/recipe-website/editor/controller/ytdlp";
 
 const CONFIG: LlmConfig = {
   url: "http://model.test:11434",
@@ -387,5 +394,133 @@ describe("llmStatus (36b)", () => {
       reachable: false,
       error: "answered 500",
     });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 36d: the video path reads everything yt-dlp gives                   */
+/* ------------------------------------------------------------------ */
+
+const VIDEO_URL = "https://www.youtube.com/watch?v=PINNED";
+
+/** A video whose recipe is only in its pinned comment, with chapters. */
+const PINNED_VIDEO = pickYtdlpMetadata(
+  {
+    title: "Sunday Pancakes",
+    description: "Recipe in the pinned comment!",
+    channel: "Test Kitchen",
+    chapters: [
+      { title: "Mixing", start_time: 0 },
+      { title: "Frying", start_time: 75 },
+      { title: "Long rest", start_time: 3725 },
+    ],
+    comments: [
+      {
+        parent: "root",
+        author: "@viewer",
+        text: "1 cup sugar makes it better",
+      },
+      {
+        parent: "root",
+        author: "@testkitchen",
+        author_is_uploader: true,
+        is_pinned: true,
+        text: TEXT,
+      },
+    ],
+  },
+  VIDEO_URL,
+);
+
+/** The user message the stubbed model was sent. */
+function sentText(fetchStub: ReturnType<typeof stubAnswer>): string {
+  const body = JSON.parse(String(fetchStub.mock.calls[0]?.[1]?.body));
+  return body.messages.find(
+    (message: { role: string }) => message.role === "user",
+  ).content;
+}
+
+describe("the video source (36d)", () => {
+  it("sends the description and the pinned comment, not the chapters, and says so", () => {
+    const source = videoSource(PINNED_VIDEO);
+    if (!("text" in source)) throw new Error("expected text");
+    expect(source.text).toBe(
+      [
+        "Sunday Pancakes",
+        "Recipe in the pinned comment!",
+        `Pinned comment:\n${TEXT}`,
+      ].join("\n\n"),
+    );
+    /* The viewer's comment never reaches the model; nor do the chapters,
+     * which only ever became steps (36d's measurement). */
+    expect(source.text).not.toContain("sugar makes it better");
+    expect(source.text).not.toContain("Frying");
+    expect(source.label).toBe("the video's description and pinned comment");
+    expect(source.meta).toEqual({
+      title: "Sunday Pancakes",
+      siteName: "Test Kitchen",
+    });
+
+    const bare = videoSource(pickYtdlpMetadata({ title: "Clip" }, VIDEO_URL));
+    expect(bare).toMatchObject({ text: "Clip", label: "the video" });
+  });
+
+  it("takes the pinned comment, else the uploader's longest", () => {
+    const comments = [
+      { text: "short", pinned: false, byUploader: true },
+      { text: "the longer one", pinned: false, byUploader: true },
+    ];
+    expect(recipeComment({ ...PINNED_VIDEO, comments })?.text).toBe(
+      "the longer one",
+    );
+    expect(recipeComment(PINNED_VIDEO)?.pinned).toBe(true);
+    const source = videoSource({ ...PINNED_VIDEO, comments });
+    expect(source).toMatchObject({
+      text: expect.stringContaining("Comment by the uploader:\nthe longer one"),
+      label: "the video's description and comment",
+    });
+  });
+
+  it("asks yt-dlp for comments only when a model will read them", () => {
+    expect(videoFetchOptions("auto", CONFIG)).toEqual({ comments: true });
+    expect(videoFetchOptions("force", CONFIG)).toEqual({ comments: true });
+    expect(videoFetchOptions("off", CONFIG)).toEqual({ comments: false });
+    expect(videoFetchOptions("auto", undefined)).toEqual({ comments: false });
+  });
+
+  it("grounds the model's lines against the whole text, and names it", async () => {
+    const fetchStub = stubAnswer([
+      "1 cup flour",
+      "1 egg",
+      "1 cup milk",
+      "1 tbsp sugar",
+    ]);
+    const { recipe, llm, warnings } = await applyLlm({
+      url: VIDEO_URL,
+      source: videoSource(PINNED_VIDEO),
+      mapped: ytdlpToRecipe(PINNED_VIDEO, VIDEO_URL),
+      config: CONFIG,
+    });
+    const sent = sentText(fetchStub);
+    expect(sent).toContain(`Pinned comment:\n${TEXT}`);
+    expect(llm).toMatchObject({ found: true, grounded: 4, total: 4 });
+    expect(recipe?.partial).toBeUndefined();
+    expect(recipe?.videoImportUrl).toBe(VIDEO_URL);
+    expect(warnings).toEqual([
+      "read from the video's description and pinned comment by local model qwen3:8b — 4/4 ingredient lines found verbatim; check it",
+    ]);
+
+    /* A line that is only in a viewer's comment is not grounded. */
+    stubAnswer(["1 cup sugar", "2 bananas", "1 egg"]);
+    const invented = await applyLlm({
+      url: VIDEO_URL,
+      source: videoSource(PINNED_VIDEO),
+      mapped: ytdlpToRecipe(PINNED_VIDEO, VIDEO_URL),
+      config: CONFIG,
+    });
+    expect(invented.llm).toMatchObject({ grounded: 1, total: 3 });
+    expect(invented.warnings).toEqual([
+      "local model output discarded — only 1/3 ingredient lines found in the video's description and pinned comment",
+    ]);
   });
 });

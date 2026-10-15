@@ -10,6 +10,7 @@ import { ytdlpToRecipe } from "recipe-editor/controller/ytdlp";
 import {
   applyLlm,
   readPastedText,
+  videoFetchOptions,
   videoSource,
   type ApplyLlmResult,
   type LlmImportInfo,
@@ -59,7 +60,9 @@ function withLlm(
  * (26a), so a video imported here and one imported with `recipes import` carry
  * the same name, description, citation and thumbnail; the page goes through
  * the importer's own `fetchRecipePage` → `parseRecipePage` → `mapRecipePage`,
- * which `importRecipeData` is, because the model needs the HTML.
+ * which `importRecipeData` is, because the model needs the HTML. A video
+ * fetch asks yt-dlp for the pinned comment too when a model will read it
+ * (`videoFetchOptions`, 36d).
  */
 export async function reduceRecipeImport(
   _state: RecipeActionState | null,
@@ -72,7 +75,7 @@ export async function reduceRecipeImport(
   try {
     if (typeof url === "string") {
       if (isVideoUrl(url)) {
-        const result = await fetchYtdlpMetadata(url);
+        const result = await fetchYtdlpMetadata(url, videoFetchOptions(mode));
         if (result.status === "success") {
           return withLlm(
             url,

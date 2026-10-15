@@ -1502,11 +1502,14 @@ Sprinkle`,
         await expect(page.getByTestId("llm-notice")).toHaveCount(0);
       });
 
-      /* 36b: CI and this suite have no local model (RECIPE_LLM_URL unset). */
-      test("should disable Extract with AI when no local model is configured", async ({
+      /* 36b: CI and this suite have no local model (RECIPE_LLM_URL unset);
+       * 36d reworded the box. */
+      test("should disable the AI re-read when no local model is configured", async ({
         page,
       }) => {
-        const toggle = page.getByLabel("Extract with AI (local model)");
+        const toggle = page.getByLabel(
+          "Re-read with AI even if the page has recipe data",
+        );
         await expect(toggle).toBeDisabled();
         await expect(toggle).not.toBeChecked();
         await expect(
@@ -1517,25 +1520,50 @@ Sprinkle`,
         ).toBeVisible();
       });
 
-      /* 36c: the "Paste text" tab needs the model too; the URL stays. */
-      test("should disable Paste text when no local model is configured", async ({
+      /* 36c, demoted in 36d: pasting needs the model too; the URL stays. */
+      test("should disable pasting text when no local model is configured", async ({
         page,
       }) => {
-        const pasteText = page.getByRole("radio", { name: /^Paste text/ });
+        const pasteText = page.getByRole("button", {
+          name: "No link? Paste the recipe text instead",
+        });
         await expect(pasteText).toBeDisabled();
-        await expect(pasteText).not.toBeChecked();
-        await expect(
-          page.getByRole("radio", { name: "URL", exact: true }),
-        ).toBeChecked();
-        await expect(
-          page
-            .locator("label")
-            .filter({ has: pasteText })
-            .getByText("No local model configured"),
-        ).toBeVisible();
+        await expect(pasteText).toHaveAccessibleDescription(
+          "— No local model configured",
+        );
         /* Still the URL field, and no text box to paste into. */
         await expect(page.getByLabel("Import from URL")).toBeVisible();
         await expect(page.getByLabel("Recipe text")).toHaveCount(0);
+      });
+
+      /* 36d: "give it the URL" — the field says what the server does. */
+      test("should describe the URL field, and hint at what a video import does", async ({
+        page,
+      }) => {
+        const field = page.getByLabel("Import from URL");
+        await expect(field).toHaveAccessibleDescription(
+          "A recipe page or a video link. Pages import from their recipe data; videos come in with their title, description and thumbnail.",
+        );
+        const force = page.getByLabel(
+          "Re-read with AI even if the page has recipe data",
+        );
+        await expect(force).toBeVisible();
+        await expect(page.getByTestId("import-video-hint")).toBeEmpty();
+
+        await field.fill("https://www.youtube.com/watch?v=PINNED_TEST");
+        const hint = page.getByTestId("import-video-hint");
+        await expect(hint).toHaveText(
+          "YouTube video — yt-dlp fetches its title, description and thumbnail.",
+        );
+        await expect(field).toHaveAccessibleDescription(
+          /recipe data;.*thumbnail\. YouTube video — yt-dlp fetches/,
+        );
+        /* A video is always read by the model: nothing to force. */
+        await expect(force).toHaveCount(0);
+
+        await field.fill("https://example.com/a-recipe");
+        await expect(hint).toBeEmpty();
+        await expect(force).toBeVisible();
       });
 
       test("should be able to import a recipe with a singular image", async ({

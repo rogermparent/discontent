@@ -28,6 +28,7 @@ import {
 import type { PageMeta } from "recipe-website-common/util/pageMetadata";
 import {
   applyLlm,
+  videoFetchOptions,
   videoSource,
   type LlmImportInfo,
   type LlmMode,
@@ -195,7 +196,7 @@ export async function inspectUrl(
   let ytdlpNote: string | undefined;
 
   if (isVideoUrl(url)) {
-    const result = await fetchYtdlpMetadata(url);
+    const result = await fetchYtdlpMetadata(url, videoFetchOptions(mode));
     if (result.status === "success") {
       const applied = await applyLlm({
         url,
@@ -203,8 +204,9 @@ export async function inspectUrl(
         mapped: ytdlpToRecipe(result.metadata, url),
         mode,
       });
-      /* `ytdlpToRecipe` always names the video, so a recipe comes back. */
-      const recipe = applied.recipe!;
+      /* `ytdlpToRecipe` always names the video, so a recipe comes back. The
+       * video's tags (36d) are top-level here, as a page's keywords are. */
+      const { suggestedTags, ...recipe } = applied.recipe!;
       const thumbnails = [...result.metadata.thumbnails]
         .filter((thumb) => thumb.width && thumb.height)
         .sort((a, b) => b.width! * b.height! - a.width! * a.height!)
@@ -224,6 +226,7 @@ export async function inspectUrl(
               ),
             ].slice(0, 10)
           : thumbnails,
+        ...(suggestedTags?.length ? { suggestedTags } : {}),
         video: toVideo(result.metadata),
         ...llmFields(applied),
       };

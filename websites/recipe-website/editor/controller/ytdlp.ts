@@ -15,7 +15,11 @@ import { readSettings } from "@discontent/cms/settings";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { siteLabel } from "recipe-website-common/util/siteNames";
-import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
+import { isYouTubeUrl } from "recipe-website-common/util/videoUrl";
+import {
+  suggestTags,
+  type ImportedRecipe,
+} from "recipe-website-common/util/importRecipeData";
 
 export interface YtdlpThumbnail {
   url: string;
@@ -27,6 +31,20 @@ export interface YtdlpChapter {
   title: string;
   start_time: number;
   end_time?: number;
+}
+
+/**
+ * A top-level comment worth reading for a recipe (36d): the one the channel
+ * pinned, or one its uploader wrote. Every other comment is dropped at
+ * `pickYtdlpMetadata` — viewers' comments are noise, and untrusted.
+ */
+export interface YtdlpComment {
+  /** Capped at `COMMENT_MAX_CHARS`. */
+  text: string;
+  author?: string;
+  pinned: boolean;
+  /** Written by the video's uploader (`author_is_uploader`). */
+  byUploader: boolean;
 }
 
 export interface YtdlpMetadata {
@@ -47,6 +65,11 @@ export interface YtdlpMetadata {
   extractor?: string;
   /** `Youtube`, `Vimeo`, … */
   extractor_key?: string;
+  /**
+   * The pinned and the uploader's own comments, pinned first; empty unless
+   * the fetch asked for comments (`{comments: true}`, 36d).
+   */
+  comments: YtdlpComment[];
 }
 
 export type YtdlpResult =
@@ -127,7 +150,67 @@ export function pickYtdlpMetadata(
       : [],
     extractor: asString(data.extractor),
     extractor_key: asString(data.extractor_key),
+    comments: pickComments(data.comments),
   };
+}
+
+/** A comment's text is cut here: it goes to the model, and it is untrusted. */
+export const COMMENT_MAX_CHARS = 6_000;
+
+/** At most this many comments are kept (the pinned one first). */
+const COMMENTS_KEPT = 3;
+
+/**
+ * The comments worth reading out of yt-dlp's `comments`: top-level ones the
+ * channel pinned or its uploader wrote, pinned first, each capped.
+ */
+function pickComments(value: unknown): YtdlpComment[] {
+  if (!Array.isArray(value)) return [];
+  const kept = value.flatMap((entry): YtdlpComment[] => {
+    if (!entry || typeof entry !== "object") return [];
+    const { text, author, parent, is_pinned, author_is_uploader } =
+      entry as Record<string, unknown>;
+    const body = asString(text)?.trim();
+    /* A reply is never the recipe; yt-dlp marks top-level ones "root". */
+    if (!body || (parent !== undefined && parent !== "root")) return [];
+    const pinned = is_pinned === true;
+    const byUploader = author_is_uploader === true;
+    if (!pinned && !byUploader) return [];
+    return [
+      {
+        text: body.slice(0, COMMENT_MAX_CHARS),
+        author: asString(author),
+        pinned,
+        byUploader,
+      },
+    ];
+  });
+  /* Stable: the pinned one first, then the uploader's in yt-dlp's order. */
+  return [
+    ...kept.filter((comment) => comment.pinned),
+    ...kept.filter((comment) => !comment.pinned),
+  ].slice(0, COMMENTS_KEPT);
+}
+
+/**
+ * yt-dlp's arguments for a small comment fetch (36d): ten top-level comments
+ * in "top" order and no replies — the pinned comment is listed first, and the
+ * uploader's own are usually near the top. Measured on the workstation at
+ * about +0.6–1 s over a plain `-J`. YouTube only: the `youtube:` extractor
+ * arguments bound it, and another extractor would fetch every comment.
+ */
+export const YTDLP_COMMENT_ARGS = [
+  "--write-comments",
+  "--extractor-args",
+  "youtube:max_comments=10,10,0,0;comment_sort=top",
+] as const;
+
+export interface FetchYtdlpOptions {
+  /**
+   * Also fetch the pinned and the uploader's comments (YouTube only): the
+   * import asks for them only when a local model will read the video (36d).
+   */
+  comments?: boolean;
 }
 
 const run = promisify(execFile);
@@ -136,14 +219,36 @@ const run = promisify(execFile);
  * `execFile`, not `execa`: execa is ESM-only, and the CLI runs under `tsx` as
  * CommonJS, where requiring it fails on a transitive dependency's `exports`.
  * yt-dlp's `-J` dump runs to megabytes (every format), hence the buffer.
+ *
+ * With `comments`, a failed run is tried once more without them: the
+ * comments are extra, and must not cost an import that worked without.
  */
-export async function fetchYtdlpMetadata(url: string): Promise<YtdlpResult> {
+export async function fetchYtdlpMetadata(
+  url: string,
+  { comments = false }: FetchYtdlpOptions = {},
+): Promise<YtdlpResult> {
+  const withComments = comments && isYouTubeUrl(url);
+  const result = await runYtdlp(url, withComments);
+  if (withComments && result.status === "error") {
+    return runYtdlp(url, false);
+  }
+  return result;
+}
+
+async function runYtdlp(
+  url: string,
+  withComments: boolean,
+): Promise<YtdlpResult> {
   try {
     const binary = await resolveYtdlpBinary();
-    const { stdout } = await run(binary, ["-J", url], {
-      timeout: 30_000,
-      maxBuffer: 64 * 1024 * 1024,
-    });
+    const { stdout } = await run(
+      binary,
+      [...(withComments ? YTDLP_COMMENT_ARGS : []), "-J", url],
+      {
+        timeout: withComments ? 45_000 : 30_000,
+        maxBuffer: 64 * 1024 * 1024,
+      },
+    );
     return {
       status: "success",
       metadata: pickYtdlpMetadata(JSON.parse(stdout), url),
@@ -156,6 +261,20 @@ export async function fetchYtdlpMetadata(url: string): Promise<YtdlpResult> {
       error instanceof Error ? error.message : "Unknown yt-dlp error";
     return { status: "error", message };
   }
+}
+
+/**
+ * The video's tags as `suggestedTags` (36d), through the same `suggestTags`
+ * a page's keywords take (and its limit). Tags naming the channel itself
+ * ("brian lagerstrom pasta salad") are dropped: they say who, not what.
+ */
+export function videoSuggestedTags(meta: YtdlpMetadata): string[] {
+  const channel = (meta.channel || meta.uploader || "").trim().toLowerCase();
+  return suggestTags({
+    keywords: meta.tags.filter(
+      (tag) => !channel || !tag.toLowerCase().includes(channel),
+    ),
+  });
 }
 
 /**
@@ -216,7 +335,7 @@ function videoSiteName(meta: YtdlpMetadata, url: string): string {
       return "";
     }
   })();
-  if (/(^|\.)(youtube\.com|youtu\.be)$/.test(host)) return SITE_NAMES.youtube;
+  if (isYouTubeUrl(url)) return SITE_NAMES.youtube;
   const extractor = meta.extractor?.split(":")[0]?.toLowerCase();
   if (extractor && SITE_NAMES[extractor]) return SITE_NAMES[extractor];
   return meta.extractor_key || siteLabel(url) || host;
@@ -232,6 +351,7 @@ export function ytdlpToRecipe(
 ): Partial<ImportedRecipe> {
   const image = bestThumbnail(meta);
   const author = meta.channel || meta.uploader || undefined;
+  const suggestedTags = videoSuggestedTags(meta);
   return {
     name: meta.title || undefined,
     description: formatYouTubeDescription(meta.description, author),
@@ -242,5 +362,6 @@ export function ytdlpToRecipe(
     },
     videoImportUrl: meta.webpage_url || url,
     ...(image ? { imageImportUrl: image } : {}),
+    ...(suggestedTags.length > 0 ? { suggestedTags } : {}),
   };
 }
