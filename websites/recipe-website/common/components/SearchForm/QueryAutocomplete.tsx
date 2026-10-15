@@ -28,10 +28,12 @@ import {
   completionsAt,
   fold,
   quoteQueryValue,
+  replaceAtom,
   replaceSpan,
   type FilterField,
   type QueryCompletion,
 } from "./queryLanguage";
+import { startsWithFolded } from "./tagMatch";
 
 /**
  * How many operand rows to offer at once.
@@ -122,10 +124,7 @@ export function tagCompletionOptions(
 ): CompletionOption[] {
   const folded = fold(prefix);
   const options: CompletionOption[] = allTags
-    .filter((tag) => {
-      const value = fold(tag);
-      return value.startsWith(folded) && value !== folded;
-    })
+    .filter((tag) => startsWithFolded(tag, folded) && fold(tag) !== folded)
     .slice(0, MAX_OPTIONS)
     .map((tag) => ({
       key: `tag:${tag}`,
@@ -136,7 +135,7 @@ export function tagCompletionOptions(
   for (const { alias, label } of aliases) {
     if (options.length >= MAX_OPTIONS) break;
     if (offered.has(label) || fold(label) === folded) continue;
-    if (!fold(alias).startsWith(folded)) continue;
+    if (!startsWithFolded(alias, folded)) continue;
     offered.add(label);
     options.push({
       key: `tag-alias:${alias}`,
@@ -411,9 +410,38 @@ export function useQueryAutocomplete({
     (option: CompletionOption) => {
       if (!completion) return;
       clearPendingSearch();
-      const next = replaceSpan(raw, completion.span, option.replacement);
+
+      /*
+       * A field name (`tag:`) is half an atom: the caret stays right after the
+       * colon, ready for the operand. An operand finishes the atom, so it is
+       * written with `replaceAtom` — the same write a picked tag goes through
+       * in the palette and the rail — which adds one space and puts the caret
+       * after it: the next keystroke starts the next word, and the list closes
+       * instead of offering longer tags than the one just chosen.
+       *
+       * Submitted trimmed, *then* the field set: `submitSearch` writes the
+       * field too, and the trailing space belongs to the field, not the query.
+       */
+      let next: string;
+      let at: number;
+      if (completion.kind === "operand") {
+        ({ value: next, caret: at } = replaceAtom(
+          raw,
+          completion.span,
+          option.replacement,
+        ));
+      } else {
+        next = replaceSpan(raw, completion.span, option.replacement);
+        // Clamped because `replaceSpan` tidies, which can shorten the string
+        // ahead of the splice; the arithmetic is exact for every query that is
+        // not already carrying doubled whitespace.
+        at = Math.min(
+          completion.span.start + option.replacement.length,
+          next.length,
+        );
+      }
+      submitSearch(next.trim());
       setInputValue(next);
-      submitSearch(next);
       setActiveIndexState(-1);
 
       /*
@@ -421,15 +449,7 @@ export function useQueryAutocomplete({
        * field — 21b found by a failing assertion that clicking a suggestion
        * takes focus off the input, and a bare `tag:` is only "ready for the
        * operand" if the caret is actually there.
-       *
-       * Clamped because `replaceSpan` tidies, which can shorten the string
-       * ahead of the splice; the arithmetic is exact for every query that is
-       * not already carrying doubled whitespace.
        */
-      const at = Math.min(
-        completion.span.start + option.replacement.length,
-        next.length,
-      );
       requestAnimationFrame(() => {
         const element = inputRef.current;
         if (!element) return;
@@ -452,7 +472,7 @@ export function useQueryAutocomplete({
    * The three keys that already meant something in this field, and what each
    * one had to concede.
    *
-   * - **Enter stays submission unless a row is active**, and no row is active
+   * - **Enter (and Tab) stay what they were unless a row is active**, and no row is active
    *   until an arrow key makes one. Auto-highlighting the first suggestion
    *   would mean typing `tag` and pressing Enter inserts `tag:` instead of
    *   searching for the word — a hijack of the field's primary key, and one
@@ -495,7 +515,12 @@ export function useQueryAutocomplete({
         );
         return;
       }
-      if (event.key === "Enter" && active >= 0) {
+      // Tab accepts the active row as Enter does, and only then: with nothing
+      // highlighted it is still the key that leaves the field.
+      if (
+        (event.key === "Enter" || (event.key === "Tab" && !event.shiftKey)) &&
+        active >= 0
+      ) {
         event.preventDefault();
         accept(options[active]);
       }
