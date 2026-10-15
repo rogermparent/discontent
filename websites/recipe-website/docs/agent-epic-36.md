@@ -181,18 +181,28 @@ ignored when a URL is provided, we'll want to evoke that idea more in the
 UI."_ The URL path already did it (36b); the form hid it.
 
 - **The model's text for a video** is the title, the description, and the
-  pinned comment (else the uploader's longest top-level comment) as a
-  "Pinned comment:" block. D4 grounds against the whole of it.
+  **creator's** comments: their pinned one and their longest, when those
+  differ both ("Creator's pinned comment:" / "Creator's comment:" blocks,
+  each capped at 6 000 characters, so both fit the 24k text cap). D4
+  grounds against the whole of it.
+- **Only the uploader's comments, ever** (review): a channel can pin a
+  _viewer's_ comment ("I used 2 cups sugar and baked 10 min longer!"),
+  which is untrusted, and D4 grounds only ingredients. `pinned` orders the
+  creator's comments; it never admits anyone else's. Replies are dropped
+  too.
 - **Comments only when a model will read them** (`videoFetchOptions`: a
   model configured and the mode not `off`), YouTube only, with
   `--write-comments --extractor-args
 "youtube:max_comments=10,10,0,0;comment_sort=top"`: ten top-level
   comments, no replies; the pinned one is listed first. Measured at
   +0–1 s per fetch, so they are fetched on every model import rather
-  than only after a first reading fails. Viewers' comments and replies are
-  dropped at `pickYtdlpMetadata`; a kept comment is capped at 6 000
-  characters. A failed run with comments is retried once without.
-- **Not the chapters** — measured (Results): never better, twice worse.
+  than only after a first reading fails. A failed run with comments is
+  retried once without.
+- **Every yt-dlp run is `--no-playlist -J -- <url>`** (review): a
+  `watch?v=X&list=PL…` URL would otherwise extract the whole playlist, and
+  `--` keeps any URL from being read as an option.
+- **Not the chapters** — measured (Results): never better, three times
+  worse.
 - **The video's tags** become `suggestedTags` through `suggestTags` (the
   page path's limit of 10), minus tags that name the channel.
 - **The form says it:** helper text under the URL field, a live hint for a
@@ -591,14 +601,29 @@ max-parents,max-replies,max-replies-per-thread`: `10,10,0,0` is ten
   `--write-comments` would fetch every comment, so comments are asked of
   YouTube URLs only.
 - **T39 — The mimic answered by argument position.** `ytdlp-mimic.mjs` read
-  the URL as the argument after `-J`, which still holds with the comment
-  flags in front; it now also drops a fixture's `comments` unless
-  `--write-comments` is passed (as yt-dlp does) and logs its arguments to
-  `YTDLP_MIMIC_LOG` for the unit tests.
+  the URL as the argument after `-J`; with the review's `-J -- <url>` it
+  reads the one after `--` (falling back to after `-J`). It also drops a
+  fixture's `comments` unless `--write-comments` is passed (as yt-dlp
+  does), fails a `failWithComments` fixture only when comments are asked
+  for, and logs its argv to `YTDLP_MIMIC_LOG` for the unit tests.
 - **T40 — The `/new-recipe` baselines moved again** (T17, T29): the helper
   text under the URL field and the paste toggle under Import.
   `new-recipe-form-e2e.png` and `new-recipe-form-overwrite-e2e.png`
   regenerated in their own heavy-slot run first.
+- **T41 — A pinned comment is not the creator's word** (review). The first
+  cut kept any pinned comment and preferred it; a channel can pin a
+  viewer's tip, which then reached the model as the "recipe" while the
+  creator's own unpinned comment was dropped. Only `author_is_uploader`
+  comments are kept now, and the pinned and the longest both go when they
+  differ. Fixture `responses/pinned-viewer.json`.
+- **T42 — A live region that is `display: none` is often not announced**
+  (review). The video hint's `<p aria-live>` had `empty:hidden`; it is
+  always rendered now, with `empty:mb-0` so an empty one takes no height
+  (the baselines did not move).
+- **T43 — A `&list=` URL extracts the playlist** (review). Without
+  `--no-playlist`, `watch?v=X&list=PL…` asks yt-dlp for every video in the
+  list; with comments that ran into the 45 s timeout and then the 30 s
+  retry before failing.
 
 ## Results
 
@@ -1161,16 +1186,19 @@ import stores an ordinary recipe (D5).
 - `controller/ytdlp.ts` — `fetchYtdlpMetadata(url, {comments})`: with
   `comments` and a YouTube URL it runs `YTDLP_COMMENT_ARGS` (`--write-comments
 --extractor-args "youtube:max_comments=10,10,0,0;comment_sort=top"`)
-  before `-J`, with a 45 s timeout, and retries once without comments if
-  that run fails. `pickYtdlpMetadata` keeps `comments`: top-level ones
-  that are pinned or by the uploader, pinned first, at most three, each
-  capped at `COMMENT_MAX_CHARS` (6 000). `videoSuggestedTags` →
-  `ytdlpToRecipe`'s `suggestedTags` (`suggestTags`, limit 10, tags holding
-  the channel's name dropped).
+  before the rest, with a 45 s timeout, and retries once without comments
+  if that run fails. Every run's argv is `ytdlpArgs`: `[…comments]
+--no-playlist -J -- <url>` (review). `pickYtdlpMetadata` keeps
+  `comments`: top-level ones **by the uploader** (review: never a viewer's,
+  pinned or not), pinned first, at most three, each capped at
+  `COMMENT_MAX_CHARS` (6 000). `videoSuggestedTags` → `ytdlpToRecipe`'s
+  `suggestedTags` (`suggestTags`, limit 10, tags holding the channel's name
+  dropped).
 - `controller/llm/importWithLlm.ts` — `videoSource` sends the title, the
-  description and `recipeComment` (the pinned comment, else the uploader's
-  longest) as "Pinned comment:" / "Comment by the uploader:", and labels
-  the source ("the video's description and pinned comment");
+  description and `recipeComments` (the creator's pinned comment and their
+  longest, both when they differ) as "Creator's pinned comment:" /
+  "Creator's comment:" blocks, and labels the source ("the video's
+  description and pinned comment", "… and the creator's comment(s)");
   `videoFetchOptions(mode, config)` asks for comments only with a model and
   not `off`. The three video call sites (`importFromUrl`, `inspectUrl`,
   the form's `reduceRecipeImport`) pass it. The label reaches the warnings

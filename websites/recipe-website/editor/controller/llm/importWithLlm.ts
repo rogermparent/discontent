@@ -106,31 +106,35 @@ export type LlmSource =
     };
 
 /**
- * The comment a recipe may sit in (36d): the pinned one, else the uploader's
- * longest. Many creators post the recipe there instead of the description.
- * (`pickYtdlpMetadata` has already dropped every other comment.)
+ * The creator's comments a recipe may sit in (36d): the pinned one, and the
+ * longest when that is another — many creators post the recipe in a comment
+ * instead of the description, not always the one they pinned. At most two,
+ * each capped at 6 000 characters, so both fit the 24k text cap.
+ * (`pickYtdlpMetadata` has already dropped everyone else's comments, pinned
+ * or not.)
  */
-export function recipeComment(meta: YtdlpMetadata): YtdlpComment | undefined {
+export function recipeComments(meta: YtdlpMetadata): YtdlpComment[] {
   const comments = meta.comments ?? [];
   const pinned = comments.find((comment) => comment.pinned);
-  if (pinned) return pinned;
-  return comments.reduce<YtdlpComment | undefined>(
-    (longest, comment) =>
-      comment.byUploader &&
-      (!longest || comment.text.length > longest.text.length)
-        ? comment
-        : longest,
+  const longest = comments.reduce<YtdlpComment | undefined>(
+    (best, comment) =>
+      !best || comment.text.length > best.text.length ? comment : best,
     undefined,
+  );
+  return [pinned, longest].filter(
+    (comment, index, list): comment is YtdlpComment =>
+      !!comment && list.indexOf(comment) === index,
   );
 }
 
 /**
  * A video as the model's source (D3, widened in 36d): the title, the
- * description, and the pinned (or the uploader's) comment as a "Pinned
- * comment:" block — many creators post the recipe there. The whole of it is
- * what D4 grounds the model's lines against. The channel is the site. A
- * comment is there only when the fetch asked for one, which it does only
- * when a model will read it (`videoFetchOptions`).
+ * description, and the creator's comments (`recipeComments`) as "Creator's
+ * pinned comment:" / "Creator's comment:" blocks — many creators post the
+ * recipe there. The whole of it is what D4 grounds the model's lines
+ * against. The channel is the site. Comments are there only when the fetch
+ * asked for them, which it does only when a model will read them
+ * (`videoFetchOptions`), and only the uploader's are kept.
  *
  * **Not the chapters** (36d, measured over 12 videos): their titles never
  * improved a reading and made three worse. A description with the
@@ -141,26 +145,39 @@ export function recipeComment(meta: YtdlpMetadata): YtdlpComment | undefined {
  * `video.chapters`.
  */
 export function videoSource(meta: YtdlpMetadata): LlmSource {
-  const comment = recipeComment(meta);
+  const comments = recipeComments(meta);
   const description = meta.description.trim();
-  const blocks = [meta.title, description];
-  if (comment) {
-    blocks.push(
-      `${comment.pinned ? "Pinned comment" : "Comment by the uploader"}:\n${comment.text}`,
-    );
-  }
-  const parts = [
-    ...(description ? ["description"] : []),
-    ...(comment ? [comment.pinned ? "pinned comment" : "comment"] : []),
+  const blocks = [
+    meta.title,
+    description,
+    ...comments.map(
+      (comment) =>
+        `${comment.pinned ? "Creator's pinned comment" : "Creator's comment"}:\n${comment.text}`,
+    ),
   ];
+  /* "the video's description and pinned comment", "the creator's comment" … */
+  const commentPart =
+    comments.length > 1
+      ? "the creator's comments"
+      : comments[0]?.pinned
+        ? "pinned comment"
+        : comments.length === 1
+          ? "the creator's comment"
+          : undefined;
+  const label = description
+    ? `the video's description${commentPart ? ` and ${commentPart}` : ""}`
+    : !commentPart
+      ? "the video"
+      : commentPart.startsWith("the ")
+        ? commentPart
+        : `the video's ${commentPart}`;
   return {
     text: blocks.filter(Boolean).join("\n\n"),
     meta: {
       title: meta.title || undefined,
       siteName: meta.channel || meta.uploader || undefined,
     },
-    label:
-      parts.length > 0 ? `the video's ${parts.join(" and ")}` : "the video",
+    label,
   };
 }
 

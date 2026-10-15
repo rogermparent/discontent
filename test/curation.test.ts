@@ -1047,12 +1047,49 @@ describe("importAndCreate with a local model (36b)", () => {
     /* The model saw the pinned comment — not a viewer's, nor the chapters. */
     const [, init] = modelCalls(fetchStub)[0]!;
     const sent = String(init?.body);
-    expect(sent).toContain("Pinned comment:\\nSunday Challah");
+    expect(sent).toContain("Creator's pinned comment:\\nSunday Challah");
     expect(sent).not.toContain("2 cups of sugar");
     expect(sent).not.toContain("Braiding the loaves");
     /* yt-dlp was asked for comments. */
     const calls = (await readFile(log, "utf8")).trim().split("\n");
     expect(JSON.parse(calls[0]!)).toContain("--write-comments");
+  });
+
+  /* 36d review: a viewer's comment the channel pinned is not the recipe. */
+  it("reads the creator's comment, not a viewer's pinned one (yt-dlp mimic)", async () => {
+    vi.stubEnv("YTDLP_PATH", YTDLP_MIMIC);
+    const lines = [
+      "3 ripe bananas",
+      "1/3 cup melted butter",
+      "3/4 cup sugar",
+      "1 1/2 cups flour",
+    ];
+    const fetchStub = stubWeb(
+      "",
+      {},
+      {
+        found: true,
+        name: "Banana Bread",
+        ingredients: lines,
+        instructions: [
+          "Mash the bananas with the butter.",
+          "Stir in the sugar and flour.",
+          "Bake at 350°F for 55 minutes.",
+        ],
+      },
+    );
+    const url = "https://www.youtube.com/watch?v=PINNED_VIEWER_TEST";
+    const dry = await importAndCreate(ctx, url, { dryRun: true });
+    if (!("dryRun" in dry)) throw new Error("expected a dry run");
+    expect(dry.llm).toMatchObject({ found: true, grounded: 4, total: 4 });
+    expect(dry.warnings?.[0]).toBe(
+      "read from the video's description and the creator's comment by local model qwen3:8b — 4/4 ingredient lines found verbatim; check it",
+    );
+    const [, init] = modelCalls(fetchStub)[0]!;
+    const sent = String(init?.body);
+    expect(sent).toContain("Creator's comment:\\nBanana Bread");
+    expect(sent).not.toContain("2 cups sugar");
+    expect(sent).not.toContain("pinned comment");
   });
 
   /* 36d: no model, no comment fetch — the extra yt-dlp time buys nothing. */
@@ -1074,8 +1111,8 @@ describe("importAndCreate with a local model (36b)", () => {
       .split("\n")
       .map((line) => JSON.parse(line) as string[]);
     expect(calls).toEqual([
-      ["-J", url],
-      ["-J", url],
+      ["--no-playlist", "-J", "--", url],
+      ["--no-playlist", "-J", "--", url],
     ]);
   });
 

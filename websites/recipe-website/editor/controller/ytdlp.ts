@@ -34,17 +34,18 @@ export interface YtdlpChapter {
 }
 
 /**
- * A top-level comment worth reading for a recipe (36d): the one the channel
- * pinned, or one its uploader wrote. Every other comment is dropped at
- * `pickYtdlpMetadata` — viewers' comments are noise, and untrusted.
+ * A top-level comment the video's uploader wrote (36d): where many creators
+ * put the recipe. Every other comment is dropped at `pickYtdlpMetadata` — a
+ * viewer's comment is untrusted even when the channel pins it (a pinned
+ * "I used 2 cups of sugar and baked it 10 minutes longer!" is not the
+ * recipe, and D4 grounds only ingredients).
  */
 export interface YtdlpComment {
   /** Capped at `COMMENT_MAX_CHARS`. */
   text: string;
   author?: string;
+  /** Pinned by the channel: it orders the comments, nothing more. */
   pinned: boolean;
-  /** Written by the video's uploader (`author_is_uploader`). */
-  byUploader: boolean;
 }
 
 export interface YtdlpMetadata {
@@ -66,7 +67,7 @@ export interface YtdlpMetadata {
   /** `Youtube`, `Vimeo`, … */
   extractor_key?: string;
   /**
-   * The pinned and the uploader's own comments, pinned first; empty unless
+   * The uploader's own top-level comments, pinned first; empty unless
    * the fetch asked for comments (`{comments: true}`, 36d).
    */
   comments: YtdlpComment[];
@@ -162,7 +163,9 @@ const COMMENTS_KEPT = 3;
 
 /**
  * The comments worth reading out of yt-dlp's `comments`: top-level ones the
- * channel pinned or its uploader wrote, pinned first, each capped.
+ * uploader wrote, pinned first, each capped. A pinned comment by anyone else
+ * is dropped (36d review): pinning says the channel liked it, not that it is
+ * the recipe.
  */
 function pickComments(value: unknown): YtdlpComment[] {
   if (!Array.isArray(value)) return [];
@@ -173,15 +176,12 @@ function pickComments(value: unknown): YtdlpComment[] {
     const body = asString(text)?.trim();
     /* A reply is never the recipe; yt-dlp marks top-level ones "root". */
     if (!body || (parent !== undefined && parent !== "root")) return [];
-    const pinned = is_pinned === true;
-    const byUploader = author_is_uploader === true;
-    if (!pinned && !byUploader) return [];
+    if (author_is_uploader !== true) return [];
     return [
       {
         text: body.slice(0, COMMENT_MAX_CHARS),
         author: asString(author),
-        pinned,
-        byUploader,
+        pinned: is_pinned === true,
       },
     ];
   });
@@ -207,13 +207,29 @@ export const YTDLP_COMMENT_ARGS = [
 
 export interface FetchYtdlpOptions {
   /**
-   * Also fetch the pinned and the uploader's comments (YouTube only): the
+   * Also fetch the uploader's comments (YouTube only): the
    * import asks for them only when a local model will read the video (36d).
    */
   comments?: boolean;
 }
 
 const run = promisify(execFile);
+
+/**
+ * The argv for one `-J` run (36d review). `--no-playlist`: a
+ * `watch?v=X&list=PL…` URL would otherwise extract the whole playlist (and,
+ * with comments, take 45 + 30 s to fail). `--` before the URL: whatever the
+ * URL looks like, it is never read as an option.
+ */
+export function ytdlpArgs(url: string, withComments = false): string[] {
+  return [
+    ...(withComments ? YTDLP_COMMENT_ARGS : []),
+    "--no-playlist",
+    "-J",
+    "--",
+    url,
+  ];
+}
 
 /**
  * `execFile`, not `execa`: execa is ESM-only, and the CLI runs under `tsx` as
@@ -241,14 +257,10 @@ async function runYtdlp(
 ): Promise<YtdlpResult> {
   try {
     const binary = await resolveYtdlpBinary();
-    const { stdout } = await run(
-      binary,
-      [...(withComments ? YTDLP_COMMENT_ARGS : []), "-J", url],
-      {
-        timeout: withComments ? 45_000 : 30_000,
-        maxBuffer: 64 * 1024 * 1024,
-      },
-    );
+    const { stdout } = await run(binary, ytdlpArgs(url, withComments), {
+      timeout: withComments ? 45_000 : 30_000,
+      maxBuffer: 64 * 1024 * 1024,
+    });
     return {
       status: "success",
       metadata: pickYtdlpMetadata(JSON.parse(stdout), url),

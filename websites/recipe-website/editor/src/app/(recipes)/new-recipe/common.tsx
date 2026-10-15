@@ -54,7 +54,7 @@ function withLlm(
 /**
  * The form's import: yt-dlp for a video host, the page importer otherwise,
  * then the local model as `mode` says (epic 36, D3: `auto` unless the form's
- * "Extract with AI" box asked for `force`).
+ * "Re-read with AI even if the page has recipe data" box asked for `force`).
  *
  * The video mapping is `ytdlpToRecipe`, the same one the curation layer uses
  * (26a), so a video imported here and one imported with `recipes import` carry
@@ -127,7 +127,8 @@ export async function reduceRecipeImport(
 }
 
 /**
- * The form's "Paste text" tab (36c, D8): the local model reads the pasted
+ * The form's pasted-text mode (36c, D8; since 36d the "No link? Paste the
+ * recipe text instead" fallback): the local model reads the pasted
  * recipe — `readPastedText`, the same reading as `recipes import --text` —
  * and fills the form as a URL import does. `source`, when given, is cited
  * (a video URL is also the video) and never fetched.

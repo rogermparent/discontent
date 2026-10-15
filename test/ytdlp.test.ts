@@ -19,6 +19,7 @@ import {
   pickYtdlpMetadata,
   resolveYtdlpBinary,
   videoSuggestedTags,
+  ytdlpArgs,
   ytdlpToRecipe,
 } from "../websites/recipe-website/editor/controller/ytdlp";
 import { SUGGESTED_TAGS_LIMIT } from "../websites/recipe-website/common/util/importRecipeData";
@@ -126,13 +127,20 @@ describe("ytdlpToRecipe", () => {
     ).not.toHaveProperty("suggestedTags");
   });
 
-  /* 36d: only the pinned and the uploader's top-level comments survive. */
-  it("keeps the pinned and the uploader's comments, pinned first, capped", () => {
+  /* 36d: only the uploader's top-level comments survive, pinned first; a
+   * viewer's comment is dropped even when pinned (review). */
+  it("keeps the uploader's comments, pinned first, capped", () => {
     const meta = pickYtdlpMetadata(
       {
         ...dump,
         comments: [
           { parent: "root", author: "@viewer", text: "Add 2 cups of sugar!" },
+          {
+            parent: "root",
+            author: "@fan",
+            is_pinned: true,
+            text: "I used 2 cups sugar and baked 10 min longer!",
+          },
           {
             parent: "root",
             author: "@bar",
@@ -162,13 +170,11 @@ describe("ytdlpToRecipe", () => {
         text: "x".repeat(COMMENT_MAX_CHARS),
         author: "@bar",
         pinned: true,
-        byUploader: true,
       },
       {
         text: "Thanks for watching",
         author: "@bar",
         pinned: false,
-        byUploader: true,
       },
     ]);
     expect(pickYtdlpMetadata({ title: "x" }, VIDEO).comments).toEqual([]);
@@ -253,7 +259,7 @@ describe("resolveYtdlpBinary", () => {
       }
       expect(plain.metadata.comments).toEqual([]);
       expect(asked.metadata.comments).toMatchObject([
-        { pinned: true, byUploader: true, author: "@TestBakeryChannel" },
+        { pinned: true, author: "@TestBakeryChannel" },
       ]);
       expect(asked.metadata.comments[0]?.text).toMatch(/^Sunday Challah/);
       /* A non-YouTube host is never asked: its comments are unbounded. */
@@ -263,13 +269,26 @@ describe("resolveYtdlpBinary", () => {
         .split("\n")
         .map((line) => JSON.parse(line) as string[]);
       expect(calls).toEqual([
-        ["-J", pinned],
-        [...YTDLP_COMMENT_ARGS, "-J", pinned],
-        ["-J", "https://vimeo.com/404"],
+        ["--no-playlist", "-J", "--", pinned],
+        [...YTDLP_COMMENT_ARGS, "--no-playlist", "-J", "--", pinned],
+        ["--no-playlist", "-J", "--", "https://vimeo.com/404"],
       ]);
     } finally {
       delete process.env.YTDLP_MIMIC_LOG;
     }
+  });
+
+  /* 36d review: one video, never a playlist; the URL never an option. */
+  it("builds the argv with --no-playlist and -- before the URL", () => {
+    const listUrl = "https://www.youtube.com/watch?v=X&list=PL123";
+    expect(ytdlpArgs(listUrl)).toEqual(["--no-playlist", "-J", "--", listUrl]);
+    expect(ytdlpArgs("-oops", true)).toEqual([
+      ...YTDLP_COMMENT_ARGS,
+      "--no-playlist",
+      "-J",
+      "--",
+      "-oops",
+    ]);
   });
 
   it("retries without comments when the run with them fails", async () => {
@@ -277,13 +296,17 @@ describe("resolveYtdlpBinary", () => {
     const log = join(settingsDirectory, "mimic.log");
     process.env.YTDLP_MIMIC_LOG = log;
     try {
-      const url = "https://www.youtube.com/watch?v=ERROR_TEST";
+      /* The fixture fails only when comments are asked for. */
+      const url = "https://www.youtube.com/watch?v=COMMENTS_FAIL_TEST";
       const result = await fetchYtdlpMetadata(url, { comments: true });
-      expect(result.status).toBe("error");
+      expect(result).toMatchObject({
+        status: "success",
+        metadata: { title: "Comments Unavailable", comments: [] },
+      });
       const calls = (await readFile(log, "utf8")).trim().split("\n");
       expect(calls.map((line) => JSON.parse(line))).toEqual([
-        [...YTDLP_COMMENT_ARGS, "-J", url],
-        ["-J", url],
+        [...YTDLP_COMMENT_ARGS, "--no-playlist", "-J", "--", url],
+        ["--no-playlist", "-J", "--", url],
       ]);
     } finally {
       delete process.env.YTDLP_MIMIC_LOG;

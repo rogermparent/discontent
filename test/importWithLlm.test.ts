@@ -17,7 +17,7 @@ import {
   applyLlm,
   assertLlmMode,
   autoWantsModel,
-  recipeComment,
+  recipeComments,
   videoFetchOptions,
   videoSource,
 } from "../websites/recipe-website/editor/controller/llm/importWithLlm";
@@ -448,7 +448,7 @@ describe("the video source (36d)", () => {
       [
         "Sunday Pancakes",
         "Recipe in the pinned comment!",
-        `Pinned comment:\n${TEXT}`,
+        `Creator's pinned comment:\n${TEXT}`,
       ].join("\n\n"),
     );
     /* The viewer's comment never reaches the model; nor do the chapters,
@@ -465,20 +465,71 @@ describe("the video source (36d)", () => {
     expect(bare).toMatchObject({ text: "Clip", label: "the video" });
   });
 
-  it("takes the pinned comment, else the uploader's longest", () => {
+  it("takes the creator's pinned comment and their longest, once each", () => {
     const comments = [
-      { text: "short", pinned: false, byUploader: true },
-      { text: "the longer one", pinned: false, byUploader: true },
+      { text: "short", pinned: false },
+      { text: "the longer one", pinned: false },
     ];
-    expect(recipeComment({ ...PINNED_VIDEO, comments })?.text).toBe(
-      "the longer one",
-    );
-    expect(recipeComment(PINNED_VIDEO)?.pinned).toBe(true);
-    const source = videoSource({ ...PINNED_VIDEO, comments });
-    expect(source).toMatchObject({
-      text: expect.stringContaining("Comment by the uploader:\nthe longer one"),
-      label: "the video's description and comment",
+    expect(recipeComments({ ...PINNED_VIDEO, comments })).toEqual([
+      { text: "the longer one", pinned: false },
+    ]);
+    expect(videoSource({ ...PINNED_VIDEO, comments })).toMatchObject({
+      text: expect.stringContaining("Creator's comment:\nthe longer one"),
+      label: "the video's description and the creator's comment",
     });
+    /* The pinned one is the longest: sent once. */
+    expect(recipeComments(PINNED_VIDEO)).toHaveLength(1);
+
+    /* Pinned and longest differ: both go, pinned first. */
+    const both = [
+      { text: "Thanks for watching!", pinned: true },
+      { text: TEXT, pinned: false },
+    ];
+    const source = videoSource({ ...PINNED_VIDEO, comments: both });
+    expect(source).toMatchObject({
+      text: [
+        "Sunday Pancakes",
+        "Recipe in the pinned comment!",
+        "Creator's pinned comment:\nThanks for watching!",
+        `Creator's comment:\n${TEXT}`,
+      ].join("\n\n"),
+      label: "the video's description and the creator's comments",
+    });
+  });
+
+  /* 36d review: a pinned comment by a viewer is untrusted, and dropped. */
+  it("never sends a viewer's comment, even one the channel pinned", () => {
+    const meta = pickYtdlpMetadata(
+      {
+        title: "Sunday Pancakes",
+        description: "",
+        comments: [
+          {
+            parent: "root",
+            author: "@viewer",
+            is_pinned: true,
+            text: "I used 2 cups sugar and baked 10 min longer!",
+          },
+          {
+            parent: "root",
+            author: "@testkitchen",
+            author_is_uploader: true,
+            text: TEXT,
+          },
+        ],
+      },
+      VIDEO_URL,
+    );
+    expect(meta.comments).toEqual([
+      { text: TEXT, author: "@testkitchen", pinned: false },
+    ]);
+    const source = videoSource(meta);
+    expect(source).toMatchObject({
+      text: `Sunday Pancakes\n\nCreator's comment:\n${TEXT}`,
+      label: "the creator's comment",
+    });
+    if (!("text" in source)) throw new Error("expected text");
+    expect(source.text).not.toContain("2 cups sugar");
   });
 
   it("asks yt-dlp for comments only when a model will read them", () => {
@@ -502,7 +553,7 @@ describe("the video source (36d)", () => {
       config: CONFIG,
     });
     const sent = sentText(fetchStub);
-    expect(sent).toContain(`Pinned comment:\n${TEXT}`);
+    expect(sent).toContain(`Creator's pinned comment:\n${TEXT}`);
     expect(llm).toMatchObject({ found: true, grounded: 4, total: 4 });
     expect(recipe?.partial).toBeUndefined();
     expect(recipe?.videoImportUrl).toBe(VIDEO_URL);

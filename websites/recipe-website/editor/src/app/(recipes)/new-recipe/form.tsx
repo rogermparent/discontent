@@ -84,7 +84,7 @@ export default function NewOrImportRecipeForm({
   const [textMode, setTextMode] = useState(false);
   const [pastedText, setPastedText] = useState("");
   const [pastedSource, setPastedSource] = useState("");
-  /* The URL too (36c review): it survives a switch to Paste text and back. */
+  /* The URL too (36c review): it survives a switch to pasting and back. */
   const [importUrl, setImportUrl] = useState("");
   /* Switching mode dismisses the last import's message (36c review). */
   const [dismissed, setDismissed] = useState<RecipeActionState | null>(null);
@@ -188,11 +188,14 @@ export default function NewOrImportRecipeForm({
                 ? `A recipe page or a video link. The server fetches it — yt-dlp for videos — and ${llmModel} reads the recipe out of it when there's no recipe data.`
                 : "A recipe page or a video link. Pages import from their recipe data; videos come in with their title, description and thumbnail."}
             </p>
+            {/* Always rendered — a live region that is `display: none`
+                until it has text is often not announced (36d review);
+                empty, it takes no height. */}
             <p
               id="import-video-hint"
               data-testid="import-video-hint"
               aria-live="polite"
-              className="mb-1 text-sm text-muted-foreground empty:hidden"
+              className="mb-1 text-sm text-muted-foreground empty:mb-0"
             >
               {videoHost ? videoHint(videoHost, importUrl, llmModel) : null}
             </p>
