@@ -21,11 +21,13 @@ import {
   filterTerms,
   filterUsesField,
   fold,
+  insertTagTerm,
   matchesFilter,
   parseQuery,
   toggleTagTerm as toggleTagTermIn,
   type ParsedQuery,
 } from "./queryLanguage";
+import { tagWordMatch } from "./tagMatch";
 
 // --- sessionStorage-backed state via useSyncExternalStore ---
 
@@ -742,11 +744,26 @@ export function SearchProvider({ children }: SearchProviderProps) {
   // Chip surfaces (the rail, the card chips) rewrite the query rather than
   // holding a selection of their own. Read from the store rather than closing
   // over `query`, so the callback stays stable across keystrokes.
-  const toggleTagTerm = useCallback((tag: string) => {
-    const next = toggleTagTermIn(getQuerySnapshot(), tag);
-    writeSession(QUERY_KEY, next);
-    writeSession(INPUT_KEY, next);
-  }, []);
+  //
+  // Adding a tag replaces the word being typed when the tag is what it was
+  // heading for — `chick` and the "chicken" chip give `tag:chicken`, not
+  // `chick tag:chicken` — as the palette's facet rows do (`insertTagTerm`).
+  // A chip click takes focus off the field, so "being typed" is the last word.
+  const toggleTagTerm = useCallback(
+    (tag: string) => {
+      const next = toggleTagTermIn(getQuerySnapshot(), tag, (raw) =>
+        insertTagTerm(
+          raw,
+          raw.length,
+          tag,
+          tagWordMatch(tag, allTerms),
+        ).value.trim(),
+      );
+      writeSession(QUERY_KEY, next);
+      writeSession(INPUT_KEY, next);
+    },
+    [allTerms],
+  );
 
   // Recent searches. Recorded on *commit* (Enter, a chip click, opening a
   // result) rather than per keystroke, so live typing doesn't leave "c", "cr",

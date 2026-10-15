@@ -1905,6 +1905,30 @@ grammar at the caret.
       visit to a recipe route in a fresh `.next` — that spec alone on the warm
       cache, **36 of 36**. No baseline moved.
 
+- [x] **Follow-up (2026-10-15): a picked tag replaces the word being typed.**
+      Roger's report: `chick` and the palette's "Only tag:chicken" row gave
+      `chick tag:chicken`. `insertTagTerm` (`queryLanguage.ts`) now writes the
+      tag over the word at or just before the caret when the tag is what it
+      was heading for — by folded prefix on the tag, its term's label, slug or
+      alias (`tagWordMatch`, `tagMatch.ts`, the same `startsWithFolded` rule
+      `tagCompletionOptions` offers by) — and appends as before otherwise.
+      `-chick` → `-tag:chicken`, `tag:chi` → `tag:chicken`, `slow coo` →
+      `tag:"slow cooker"` (unquoted runs of up to four words, longest first),
+      the caret after the term and one space. Never replaced: another field's
+      operand, an `AND`/`OR`/`NOT`, and a `tag:` operand that is already a
+      whole tag (`tag:dessert` stays when "dessert bars" is picked). Surfaces:
+      the palette's facet rows (click and Enter share `insertTag`), and the
+      `/search` tag rail and card chips through the context's `toggleTagTerm`
+      (its new `add` hook; a chip click blurs the field, so "being typed" is
+      the last word there). The `/search` completion list already replaced
+      its span; an accepted _operand_ now goes through the same `replaceAtom`
+      — one trailing space, caret after it, list closed — and **Tab** accepts
+      the active row as Enter does. `/make` is unchanged: its "Find a tag" box
+      is its own field and clears on pick. Unit cases in
+      `test/insertTagTerm.test.ts`; e2e in `search-autocomplete.spec.ts` (Tab
+      mid-query, the rail over `sal`) and `command-palette.spec.ts` (`cook` →
+      `tag:cookies` by click and by Enter, `christmas-cookies`).
+
 **PR 21's scope lock is closed.** All four affordances from 2026-07-28 have
 shipped — the language (21a), the chip preview, the chip edits and the palette
 insert rows (21b), and the completion list (21c) — and the fifth item on that

@@ -901,8 +901,15 @@ function tidy(raw: string): string {
  *
  * Matching is exact (not the prefix rule evaluation uses) — a chip for "bread"
  * must not read as pressed just because the query says `tag:b`.
+ *
+ * `add` writes the term when the tag is not there yet; the default appends it.
+ * `/search` passes one that replaces a half-typed word (`insertTagTerm`).
  */
-export function toggleTagTerm(raw: string, tag: string): string {
+export function toggleTagTerm(
+  raw: string,
+  tag: string,
+  add?: (raw: string) => string,
+): string {
   const target = fold(tag).trim();
   const tokens = tokenize(raw);
   const doomed = new Set<number>();
@@ -915,6 +922,7 @@ export function toggleTagTerm(raw: string, tag: string): string {
   });
 
   if (doomed.size > 0) return spliceTokens(raw, doomed);
+  if (add) return add(raw);
 
   const term = `tag:${quoteQueryValue(tag)}`;
   const base = raw.trimEnd();
@@ -1275,4 +1283,166 @@ export function appendFilterTerm(
   const term = value ? `${field}:${quoteQueryValue(value)}` : `${field}:`;
   const base = raw.trimEnd();
   return base ? `${base} ${term}` : term;
+}
+
+// --- writing a picked tag over the word being typed --------------------------
+
+/** A rewritten query, and where the caret goes in it. */
+export interface CaretEdit {
+  value: string;
+  caret: number;
+}
+
+/**
+ * Write a whole atom over a span, then one space, with the caret after that
+ * space — so the next keystroke starts the next word rather than extending this
+ * one, and a completion list keyed on the caret has nothing left to offer.
+ *
+ * No `tidy`: one atom replaced by another orphans no operator and no paren, and
+ * leaving the rest of the string byte-for-byte alone is what keeps the caret
+ * arithmetic exact. Whitespace already after the span is reused rather than
+ * doubled. When something other than whitespace hugs the span — the `)` in
+ * `(chick)` — no space is added, because a space inside a paren is what `tidy`
+ * exists to remove; the caret goes straight after the atom instead.
+ */
+export function replaceAtom(
+  raw: string,
+  span: QuerySpan,
+  replacement: string,
+): CaretEdit {
+  const head = raw.slice(0, span.start);
+  const tail = raw.slice(span.end);
+  if (tail && !/^\s/.test(tail)) {
+    return {
+      value: head + replacement + tail,
+      caret: head.length + replacement.length,
+    };
+  }
+  return {
+    value: `${head}${replacement} ${tail.replace(/^\s+/, "")}`,
+    caret: head.length + replacement.length + 1,
+  };
+}
+
+/** How the word being typed is matched against the tag being inserted. */
+export interface TagWordMatch {
+  /** Would the tag be offered for this typed prefix? Folded on both sides. */
+  matches: (prefix: string) => boolean;
+  /**
+   * Is this already a whole tag? A `tag:` operand that is one is a filter the
+   * user finished, not a word on its way somewhere, so it is never replaced.
+   */
+  isTag?: (value: string) => boolean;
+}
+
+/** Bare words joined into one prefix, at most: "slow cooker" is two. */
+const MAX_RUN_WORDS = 4;
+
+const OPERATOR_WORDS = new Set(["AND", "OR", "NOT"]);
+
+/** A word that could be the start of a multi-word label: nothing but letters. */
+function isPlainWord(raw: string, atom: QuerySpan): boolean {
+  const text = raw.slice(atom.start, atom.end);
+  return !/^-|["():]/.test(text) && !OPERATOR_WORDS.has(text.toUpperCase());
+}
+
+/**
+ * The span of the word being typed, when the tag is what it was heading for.
+ *
+ * "Being typed" is the atom under the caret (`completionsAt`'s rule), or the
+ * atom that ends just before it with nothing but whitespace between — `chick |`
+ * still counts, because a space typed out of habit does not mean the word was
+ * meant as free text.
+ *
+ * - **A bare word** (`chick`, `-chick`, `"slow coo`) matches by prefix. The
+ *   span excludes the `-`, so a negated word becomes a negated term. Unquoted
+ *   multi-word labels are tried too, longest run first: `slow coo` replaces
+ *   both words for "slow cooker", while `chicken sou` replaces only `sou` for
+ *   "soup". An operator (`AND`/`OR`/`NOT`) is never a word.
+ * - **A `tag:` operand** (`tag:chi`, an empty `tag:`) matches the same way,
+ *   unless it is already a whole tag (`isTag`).
+ * - **Anything else** — another field's operand, the field half of an atom, an
+ *   unknown prefix — is not this tag's word.
+ */
+function typedTagSpan(
+  raw: string,
+  caret: number,
+  { matches, isTag = () => false }: TagWordMatch,
+): QuerySpan | undefined {
+  let at = Number.isInteger(caret)
+    ? Math.min(Math.max(caret, 0), raw.length)
+    : raw.length;
+  while (at > 0 && /\s/.test(raw[at - 1])) at -= 1;
+
+  const completion = completionsAt(raw, at);
+  if (!completion) return undefined;
+  const { span, prefix } = completion;
+
+  if (completion.kind === "operand") {
+    if (completion.field !== "tag") return undefined;
+    const colon = raw.indexOf(":", span.start);
+    const operand = unquote(raw.slice(colon + 1, span.end));
+    if (operand && isTag(operand)) return undefined;
+    return matches(prefix) ? span : undefined;
+  }
+
+  // The field half of `field:value` (`ta|g:x`): not a word.
+  if (raw[span.end - 1] === ":") return undefined;
+  const negated = span.start > 0 && raw[span.start - 1] === "-";
+  const word = raw.slice(span.start, span.end);
+  if (!negated && OPERATOR_WORDS.has(word.toUpperCase())) return undefined;
+
+  // Longest run of plain words first, so a two-word label wins over its tail.
+  if (!negated && isPlainWord(raw, span)) {
+    const atoms = scanAtoms(raw);
+    const index = atoms.findIndex(
+      (atom) => atom.start === span.start && atom.end === span.end,
+    );
+    for (let size = Math.min(MAX_RUN_WORDS, index + 1); size > 1; size -= 1) {
+      const run = atoms.slice(index - size + 1, index);
+      const joined = run.every(
+        (atom, i) =>
+          isPlainWord(raw, atom) &&
+          /^\s+$/.test(raw.slice(atom.end, (run[i + 1] ?? span).start)),
+      );
+      if (!joined) continue;
+      const words = run.map((atom) => raw.slice(atom.start, atom.end));
+      if (matches([...words, prefix].join(" "))) {
+        return { start: run[0].start, end: span.end };
+      }
+    }
+  }
+
+  return matches(prefix) ? span : undefined;
+}
+
+/**
+ * Write a picked tag into the query as `tag:<tag>`, **replacing the word being
+ * typed** when the tag is what that word was heading for, and appending it as
+ * before otherwise (`appendFilterTerm`).
+ *
+ * Typing `chick` and picking "chicken" gives `tag:chicken `, not
+ * `chick tag:chicken` — the partial word was a search for the tag, and leaving
+ * it behind narrows the result to recipes that also mention "chick". `-chick`
+ * gives `-tag:chicken`, `tag:chi` gives `tag:chicken`, `chi|ck pasta` (caret
+ * mid-query) replaces only `chick`. A label with a space comes back quoted, as
+ * the language writes it everywhere.
+ *
+ * What counts as a match is the caller's (`TagWordMatch`): it knows the
+ * vocabulary — a tag's label, slug and aliases — and this module does not.
+ *
+ * The caret lands after the term and one space; an append ends with that space
+ * too, so a caller that keeps focus in the field gets the same caret either way.
+ */
+export function insertTagTerm(
+  raw: string,
+  caret: number,
+  tag: string,
+  match: TagWordMatch,
+): CaretEdit {
+  const term = `tag:${quoteQueryValue(tag)}`;
+  const span = typedTagSpan(raw, caret, match);
+  if (span) return replaceAtom(raw, span, term);
+  const value = `${appendFilterTerm(raw, "tag", tag)} `;
+  return { value, caret: value.length };
 }
