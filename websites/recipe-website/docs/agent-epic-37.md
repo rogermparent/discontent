@@ -924,7 +924,11 @@ not_found`, `<id>.cancel` polled every second by the running process
 **Gates.** `pnpm --filter recipe-editor typecheck` and `pnpm --filter
 recipe-website exec tsc --noEmit` clean; eslint clean on the changed files;
 `pnpm exec vitest run` **86 files / 1880 tests** passed (+1 file, +29 on
-main's 85 / 1851). Playwright: pending.
+main's 85 / 1851). Playwright (build mode, heavy slot) `new-recipe`,
+`ytdlp-import`, `multi-recipe`, `import-roundup`, `youtube-video`: **63 /
+63** passed (2.5 min); the run's queue state stayed in
+`test-jobs/queue/` (`gpu`, `ytdlp`), and `~/.cache/discontent` was never
+created.
 
 **Real checks:** pending (need the GPU).
 
