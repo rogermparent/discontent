@@ -403,6 +403,51 @@ test.describe("What can I make? — your saved inventory", () => {
     await expect(chips(page)).toHaveCount(0);
   });
 
+  /* A pre-U6 browser stored an overlay on the saved list: hide gin, add lime. */
+  const LEGACY = JSON.stringify({ added: ["lime"], removed: ["gin"] });
+
+  test("an old overlay becomes the whole list on the owner's first visit", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await signIn(page);
+    await page.evaluate(
+      (value) => localStorage.setItem("make-inventory-v1", value),
+      LEGACY,
+    );
+    await page.goto("/make");
+    await ready(page);
+    /* (gin + tonic water − gin) ∪ lime, kept as this browser's own. */
+    await expect(chips(page).getByRole("listitem")).toHaveText([
+      /tonic water/,
+      /lime/,
+    ]);
+    const stored = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("make-inventory-v1") ?? "null"),
+    );
+    expect(stored).toEqual({
+      added: ["tonic water", "lime"],
+      removed: [],
+      version: 2,
+    });
+  });
+
+  test("a guest leaves an old overlay for the owner, reading its additions", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.evaluate(
+      (value) => localStorage.setItem("make-inventory-v1", value),
+      LEGACY,
+    );
+    await page.goto("/make");
+    await ready(page);
+    await expect(chips(page).getByRole("listitem")).toHaveText([/lime/]);
+    expect(
+      await page.evaluate(() => localStorage.getItem("make-inventory-v1")),
+    ).toBe(LEGACY);
+  });
+
   test("the two lists copy into each other only when asked", async ({
     page,
   }) => {

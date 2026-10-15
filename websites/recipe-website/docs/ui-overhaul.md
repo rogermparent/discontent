@@ -2125,6 +2125,19 @@ tokens, and every count on the pages comes from data.
   the `make-inventory-v1` overlay's `added` is the list, as on the export
   since 25c — an editor browser's old `removed` entries are simply ignored.
   The ticker, sections and Buy next never see another list.
+- **A one-time migration** keeps an owner's old list. Before U6 the editor
+  stored `make-inventory-v1` as an overlay on the saved list — the browser's
+  list was (shared − removed) ∪ added — so reading `added` alone would have
+  silently shrunk it. The value keeps its key and shape but gains
+  `version: 2`, with `added` the whole list and `removed` empty (so a reader
+  that takes `added`, like the homepage tile, needs no change). On `/make`'s
+  first load `useLegacyInventoryMigration` rewrites a version-less value
+  once: in the signed-in editor from the saved list read through the
+  owner's session; on the export, where there never was a shared list, as
+  `added`; an editor guest leaves it for the owner's visit and meanwhile
+  reads `added`, as a guest always did. The page judges nothing until the
+  check is done. Pure halves (`isLegacyOverlay`, `migrateOverlay`,
+  `storedList`) in `inventoryText.ts`, tested there and in `make.spec`.
 - **The empty list invites**: "Tell it what you have", never a fallback.
 - **Secondary group** (`SecondaryMakeGroup`, `data-testid="make-secondary"`):
   below the results, folded, "N" in mono — the recipes ready with the
@@ -2154,7 +2167,10 @@ build` may set the variable itself. Documented in the CLI's `--help` and
   "Also makeable from the house inventory", or nothing. The export's `/make`
   calls it with no reader; U3's `/drinks` already does, so it honours the
   option with no change of its own. A guest in the editor gets the same
-  answer as the export.
+  answer as the export. **Merge order:** the homepage (#239), then this
+  branch, then `agent/nav-drinks`, which created the same file with the
+  same API; nav-drinks keeps this branch's version (a superset) when it
+  merges main.
 - **Guard tests both ways:** `test/exportHouseInventory.test.ts` — off: the
   reader is never called, the variable is empty, no group; on: the variable
   is exactly the saved list and both `houseInventory()` and

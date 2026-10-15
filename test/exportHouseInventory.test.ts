@@ -133,7 +133,10 @@ describe("the snapshot variable is the only road (U6)", () => {
     const readers: string[] = [];
     const editorEnv: string[] = [];
     for (const file of files) {
-      const source = await readFile(file, "utf8");
+      /* The code, less comments: a docstring may name the variable. */
+      const source = (await readFile(file, "utf8"))
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^\s*\/\/.*$/gm, "");
       const name = relative(SITE, file);
       if (
         /SITE_HOUSE_INVENTORY|HOUSE_INVENTORY_ENV\]/.test(source) &&
