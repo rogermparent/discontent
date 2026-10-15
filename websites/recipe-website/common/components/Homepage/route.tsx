@@ -8,7 +8,14 @@ import {
   readTagTree,
   readTagVocabulary,
 } from "../../controller/data/readTermPage";
-import { comingUpEntries } from "../../controller/homepageComingUp";
+import { groupItems } from "../../controller/data/readGroupItem";
+import {
+  HOLIDAYS_ROOT,
+  comingUpEntries,
+  courseLabels,
+  findTermNode,
+  termSummary,
+} from "../../controller/homepageComingUp";
 import { homepageFacets } from "../../controller/homepageFacets";
 import { homepageIntents, termTotals } from "../../controller/homepageIntents";
 import { dayKey, localDay } from "../../util/holidayDates";
@@ -86,7 +93,7 @@ export async function homepageRoute() {
     recipeTagReads.byTerm.read(),
     groupTagReads.byTerm.read(),
   ]);
-  const facets = homepageFacets(tagTree);
+  const allFacets = homepageFacets(tagTree);
   /*
    * The flat vocabulary, only for a corpus with no facets (no term records
    * with children — every test fixture but two): the fallback chips' labels,
@@ -94,16 +101,22 @@ export async function homepageRoute() {
    * than beside it, so a site with a vocabulary never pays for, or expires on,
    * the term clouds it reads.
    */
-  const vocabulary = facets.length === 0 ? await readTagVocabulary() : [];
+  const vocabulary = allFacets.length === 0 ? await readTagVocabulary() : [];
   const tags = vocabulary
     .filter((entry) => entry.count > 0)
     .map((entry) => entry.label);
   const intents = homepageIntents(termTotals(tagTree), vocabulary);
-  const comingUp = comingUpEntries(
-    tagTree,
-    (slug) => byRecipeTag?.[slug]?.items ?? [],
-    (slug) => byGroupTag?.[slug]?.items ?? [],
-  );
+  const recipeRows = (slug: string) => byRecipeTag?.[slug]?.items ?? [];
+  const groupRows = (slug: string) => byGroupTag?.[slug]?.items ?? [];
+  const comingUp = comingUpEntries(tagTree, recipeRows, groupRows);
+  /*
+   * Browse skips the holidays root while Coming up shows it: the same terms
+   * twice, one screen apart. Without a Coming up section it stays a row.
+   */
+  const facets =
+    comingUp && comingUp.length > 0
+      ? allFacets.filter((facet) => facet.slug !== HOLIDAYS_ROOT)
+      : allFacets;
 
   const recipes: MassagedRecipeEntry[] = recipeHead.items.slice(0, STRIP_SIZE);
 
@@ -124,39 +137,65 @@ export async function homepageRoute() {
    * and a deleted term record drops off the homepage exactly as a deleted group
    * does.
    */
-  const featured: FeaturedStripEntry[] = featuredHead.items
-    .slice(0, STRIP_SIZE)
-    .filter((entry) => entry.recipeName || entry.groupName || entry.termLabel)
-    .map((entry): FeaturedStripEntry => {
-      /* Newest discriminator first, as the card list does — see that file. */
-      if (entry.term && entry.termLabel) {
+  /*
+   * Each card's line and picture (2026-10-15): a term's subtree counts and
+   * photo come from the maps above; a recipe's course likewise; a group's
+   * record is one cached read (`item:groups:<slug>`, fired by every group
+   * write) — the read its thumbnail made anyway, now made once here and
+   * handed down.
+   */
+  const courses = courseLabels(tagTree, recipeRows);
+  const featured: FeaturedStripEntry[] = await Promise.all(
+    featuredHead.items
+      .slice(0, STRIP_SIZE)
+      .filter((entry) => entry.recipeName || entry.groupName || entry.termLabel)
+      .map(async (entry): Promise<FeaturedStripEntry> => {
+        /* Newest discriminator first, as the card list does — see that file. */
+        if (entry.term && entry.termLabel) {
+          const node = findTermNode(tagTree, entry.term) ?? {
+            slug: entry.term,
+            children: [],
+          };
+          return {
+            kind: "term",
+            slug: entry.term,
+            label: entry.termLabel,
+            ...(entry.termImage ? { image: entry.termImage } : {}),
+            date: entry.date,
+            summary: termSummary(
+              { ...node, image: entry.termImage },
+              recipeRows,
+              groupRows,
+            ),
+          };
+        }
+        if (entry.group && entry.groupName) {
+          const group = await groupItems
+            .read(entry.group)
+            .catch(() => undefined);
+          return {
+            kind: "group",
+            slug: entry.group,
+            name: entry.groupName,
+            groupKind: entry.groupKind,
+            date: entry.date,
+            ...(group?.image ? { image: group.image } : {}),
+            ...(group ? { items: group.items } : {}),
+          };
+        }
+        const course = courses.get(entry.recipe!);
         return {
-          kind: "term",
-          slug: entry.term,
-          label: entry.termLabel,
-          ...(entry.termImage ? { image: entry.termImage } : {}),
-          date: entry.date,
+          kind: "recipe",
+          recipe: {
+            slug: entry.recipe!,
+            date: entry.date,
+            name: entry.recipeName!,
+            image: entry.recipeImage,
+          } satisfies MassagedRecipeEntry,
+          ...(course ? { meta: course } : {}),
         };
-      }
-      if (entry.group && entry.groupName) {
-        return {
-          kind: "group",
-          slug: entry.group,
-          name: entry.groupName,
-          groupKind: entry.groupKind,
-          date: entry.date,
-        };
-      }
-      return {
-        kind: "recipe",
-        recipe: {
-          slug: entry.recipe!,
-          date: entry.date,
-          name: entry.recipeName!,
-          image: entry.recipeImage,
-        } satisfies MassagedRecipeEntry,
-      };
-    });
+      }),
+  );
 
   return (
     <Homepage

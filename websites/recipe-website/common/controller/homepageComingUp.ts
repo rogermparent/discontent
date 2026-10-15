@@ -21,10 +21,21 @@ export interface ComingUpRow {
   image?: string;
 }
 
-export interface ComingUpEntry {
+export interface ComingUpEntry extends TermSummary {
   slug: string;
   label: string;
-  /** Distinct recipes of the holiday and every term under it. */
+}
+
+function subtree(node: Pick<TermHierarchyNode, "slug" | "children">): string[] {
+  return [node.slug, ...node.children.flatMap(subtree)];
+}
+
+type RecipeRows = (slug: string) => Array<ComingUpRow & { name?: string }>;
+type GroupRows = (slug: string) => ComingUpRow[];
+
+/** A term's picture and counts — what Coming up and the featured strip show. */
+export interface TermSummary {
+  /** Distinct recipes of the term and every term under it. */
   recipes: number;
   /** Distinct groups ("plans") of the same subtree. */
   groups: number;
@@ -34,56 +45,108 @@ export interface ComingUpEntry {
   recipeImage?: { slug: string; image: string; name?: string };
 }
 
-function subtree(node: TermHierarchyNode): string[] {
-  return [node.slug, ...node.children.flatMap(subtree)];
+/** The node for `slug` anywhere in the hierarchy, or `undefined`. */
+export function findTermNode(
+  tree: TermHierarchyNode[],
+  slug: string,
+): TermHierarchyNode | undefined {
+  for (const node of tree) {
+    if (node.slug === slug) return node;
+    const found = findTermNode(node.children, slug);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
+ * One term's counts and picture over its subtree. `recipeRows` and
+ * `groupRows` are a term's **own** carriers (the by-term maps' items); the
+ * subtree is walked here, so a recipe tagged both `christmas` and a child of
+ * it counts once. A term outside the hierarchy (no record, or a leaf root) is
+ * passed as a bare node and counts its own carriers.
+ *
+ * The picture precedence is the one every term tile on the homepage uses:
+ * the record's image, else the newest recipe photo under it, else (in the
+ * component) a monogram.
+ */
+export function termSummary(
+  node: Pick<TermHierarchyNode, "slug" | "image" | "children">,
+  recipeRows: RecipeRows,
+  groupRows: GroupRows,
+): TermSummary {
+  const slugs = subtree(node);
+  const recipes = new Map<string, ComingUpRow & { name?: string }>();
+  for (const slug of slugs) {
+    for (const row of recipeRows(slug)) recipes.set(row.slug, row);
+  }
+  const groups = new Set(
+    slugs.flatMap((slug) => groupRows(slug).map((row) => row.slug)),
+  );
+  const pictured = [...recipes.values()]
+    .filter((row) => row.image)
+    .sort((a, b) => (b.date ?? 0) - (a.date ?? 0))[0];
+  return {
+    recipes: recipes.size,
+    groups: groups.size,
+    ...(node.image ? { image: node.image } : {}),
+    ...(!node.image && pictured?.image
+      ? {
+          recipeImage: {
+            slug: pictured.slug,
+            image: pictured.image,
+            ...(pictured.name ? { name: pictured.name } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+/** The facet root whose children name a dish's course (epic 33, D1). */
+export const COURSE_ROOT = "course";
+
+/**
+ * Recipe slug → its course's label ("Mains", "Desserts"), for the featured
+ * strip's recipe cards. A recipe with two courses gets the bigger one; a
+ * recipe with none is absent, and the card says "Recipe".
+ */
+export function courseLabels(
+  tree: TermHierarchyNode[],
+  recipeRows: RecipeRows,
+): Map<string, string> {
+  const labels = new Map<string, string>();
+  const course = tree.find((node) => node.slug === COURSE_ROOT);
+  if (!course) return labels;
+  const children = [...course.children].sort((a, b) => b.total - a.total);
+  for (const child of children) {
+    for (const slug of subtree(child)) {
+      for (const row of recipeRows(slug)) {
+        if (!labels.has(row.slug)) labels.set(row.slug, child.label);
+      }
+    }
+  }
+  return labels;
 }
 
 /**
  * The holidays, in the tree's order, or `null` when there is no `holidays`
  * root at all — the cue to render no section. A holiday nothing is tagged
  * with is left out: a card that leads to an empty page is a dead end.
- *
- * `recipeRows` and `groupRows` are a term's **own** carriers (the by-term
- * maps' items); the subtree is walked here, and a recipe tagged both
- * `christmas` and a child of it counts once.
  */
 export function comingUpEntries(
   tree: TermHierarchyNode[],
-  recipeRows: (slug: string) => Array<ComingUpRow & { name?: string }>,
-  groupRows: (slug: string) => ComingUpRow[],
+  recipeRows: RecipeRows,
+  groupRows: GroupRows,
   root: string = HOLIDAYS_ROOT,
 ): ComingUpEntry[] | null {
   const holidays = tree.find((node) => node.slug === root);
   if (!holidays) return null;
   return holidays.children
-    .map((node): ComingUpEntry => {
-      const slugs = subtree(node);
-      const recipes = new Map<string, ComingUpRow & { name?: string }>();
-      for (const slug of slugs) {
-        for (const row of recipeRows(slug)) recipes.set(row.slug, row);
-      }
-      const groups = new Set(
-        slugs.flatMap((slug) => groupRows(slug).map((row) => row.slug)),
-      );
-      const pictured = [...recipes.values()]
-        .filter((row) => row.image)
-        .sort((a, b) => (b.date ?? 0) - (a.date ?? 0))[0];
-      return {
+    .map(
+      (node): ComingUpEntry => ({
         slug: node.slug,
         label: node.label,
-        recipes: recipes.size,
-        groups: groups.size,
-        ...(node.image ? { image: node.image } : {}),
-        ...(!node.image && pictured?.image
-          ? {
-              recipeImage: {
-                slug: pictured.slug,
-                image: pictured.image,
-                ...(pictured.name ? { name: pictured.name } : {}),
-              },
-            }
-          : {}),
-      };
-    })
+        ...termSummary(node, recipeRows, groupRows),
+      }),
+    )
     .filter((entry) => entry.recipes + entry.groups > 0);
 }

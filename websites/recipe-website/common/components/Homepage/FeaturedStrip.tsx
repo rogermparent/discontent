@@ -1,10 +1,13 @@
 import type { MassagedRecipeEntry } from "../../controller/data/read";
-import type { GroupKind } from "../../controller/types";
+import type { TermSummary } from "../../controller/homepageComingUp";
+import { countLabel } from "../../controller/homepageIntents";
+import type { GroupItem, GroupKind } from "../../controller/types";
 import { RecipeListItem } from "../List";
 import { GroupCard } from "../List/FeaturedRecipe/GroupCard";
 import { TermCard } from "../List/FeaturedRecipe/TermCard";
-import { RecipeGrid } from "../List/shared";
+import { RecipeGrid, standardRecipeImageProps } from "../List/shared";
 import { HomeSection } from "./HomeSection";
+import { TermPicture } from "./TermPicture";
 
 /**
  * One card of the homepage's featured strip (22g).
@@ -15,20 +18,45 @@ import { HomeSection } from "./HomeSection";
  * time.
  */
 export type FeaturedStripEntry =
-  | { kind: "recipe"; recipe: MassagedRecipeEntry }
+  | {
+      kind: "recipe";
+      recipe: MassagedRecipeEntry;
+      /** The card's line under the name: the recipe's course, when it has one. */
+      meta?: string;
+    }
   | {
       kind: "group";
       slug: string;
       name: string;
       groupKind?: GroupKind;
       date: number;
+      /**
+       * The group's record, read by the route (cached, `item:groups:<slug>`):
+       * its picture and items go to the thumbnail, which then reads nothing,
+       * and the items give the card its recipe count.
+       */
+      image?: string;
+      items?: GroupItem[];
     }
   /**
    * A featured term record (24c). A third member rather than a widened group
    * entry: a term card has an image of its own and no kind badge, where a group
    * card has a badge and picks its picture at render time.
    */
-  | { kind: "term"; slug: string; label: string; image?: string; date: number };
+  | {
+      kind: "term";
+      slug: string;
+      label: string;
+      image?: string;
+      date: number;
+      /** Counts and a picture over the term's subtree (`termSummary`). */
+      summary?: TermSummary;
+    };
+
+/** How many recipes a group lists directly (sub-groups are not recipes). */
+function recipeItems(items: GroupItem[] = []): number {
+  return items.filter((item) => item.recipe !== undefined).length;
+}
 
 /**
  * The homepage's "Featured" strip — recipes, groups and terms in one grid of
@@ -47,6 +75,14 @@ export type FeaturedStripEntry =
  * "Recipes" described only some of them. The `/featured-recipes` page keeps
  * its title: it is the curator's list of features, and renaming a route is
  * its own change. The section's link, "Everything featured", goes there.
+ *
+ * **No timestamps here.** Each card's line under its name says what it is
+ * instead (2026-10-15, Roger): "Tag · 12 recipes", "Plan · 6 recipes", or a
+ * recipe's course ("Mains"). Term cards draw the term's picture — its image,
+ * else the newest recipe photo under it, else its initial — where the old
+ * card showed the group placeholder; group cards already walk to their first
+ * member's photo. `/featured-recipes` keeps dates and the old cards: that
+ * page is the curator's.
  *
  * The same `RecipeGrid` as "New this week", so the cards line up with the
  * recipe cards below. A `HomeSection`, so the specs find the strip as the
@@ -80,13 +116,24 @@ export function FeaturedStrip({
             }
           >
             {entry.kind === "recipe" ? (
-              <RecipeListItem {...entry.recipe} />
+              <RecipeListItem {...entry.recipe} meta={entry.meta ?? "Recipe"} />
             ) : entry.kind === "term" ? (
               <TermCard
                 slug={entry.slug}
                 label={entry.label}
                 image={entry.image}
                 date={entry.date}
+                picture={
+                  <TermPicture
+                    slug={entry.slug}
+                    label={entry.label}
+                    summary={entry.summary ?? { image: entry.image }}
+                    width={standardRecipeImageProps.width}
+                    height={standardRecipeImageProps.height}
+                    sizes={standardRecipeImageProps.sizes}
+                  />
+                }
+                meta={`Tag · ${countLabel(entry.summary?.recipes ?? 0, "recipe")}`}
               />
             ) : (
               <GroupCard
@@ -94,6 +141,9 @@ export function FeaturedStrip({
                 name={entry.name}
                 kind={entry.groupKind}
                 date={entry.date}
+                image={entry.image}
+                items={entry.items}
+                meta={`Plan · ${countLabel(recipeItems(entry.items), "recipe")}`}
               />
             )}
           </li>

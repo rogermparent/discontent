@@ -15,7 +15,12 @@ import {
   homepageIntents,
   termTotals,
 } from "../websites/recipe-website/common/controller/homepageIntents";
-import { comingUpEntries } from "../websites/recipe-website/common/controller/homepageComingUp";
+import {
+  comingUpEntries,
+  courseLabels,
+  findTermNode,
+  termSummary,
+} from "../websites/recipe-website/common/controller/homepageComingUp";
 import type { TermHierarchyNode } from "../websites/recipe-website/common/controller/tagVocabulary";
 
 const day = (key: string) => parseDayKey(key);
@@ -186,5 +191,50 @@ describe("coming up", () => {
     const [entry] = comingUpEntries(tree, rows, groupRows)!;
     expect(entry.image).toBe("tree.png");
     expect(entry).not.toHaveProperty("recipeImage");
+  });
+
+  it("summarises any term for the featured strip, in the tree or not", () => {
+    const tree = [
+      node("holidays", 6, [
+        node("christmas", 4, [node("christmas-cookies", 2)]),
+      ]),
+    ];
+    const nested = findTermNode(tree, "christmas-cookies");
+    expect(nested?.slug).toBe("christmas-cookies");
+    expect(findTermNode(tree, "nowhere")).toBe(undefined);
+
+    expect(
+      termSummary(findTermNode(tree, "christmas")!, rows, groupRows),
+    ).toMatchObject({ recipes: 3, groups: 1, recipeImage: { slug: "spritz" } });
+    /* A bare tag outside the hierarchy counts its own carriers. */
+    expect(
+      termSummary({ slug: "halloween", children: [] }, rows, groupRows),
+    ).toEqual({ recipes: 1, groups: 0 });
+  });
+});
+
+describe("course labels", () => {
+  it("names each recipe's biggest course, and nothing for the rest", () => {
+    const tree = [
+      node("course", 9, [
+        node("dessert", 2, [node("cookies", 1)]),
+        node("main", 5),
+      ]),
+    ];
+    const rows = (slug: string) =>
+      ({
+        main: [{ slug: "chili" }, { slug: "pie" }],
+        cookies: [{ slug: "linzer" }],
+        dessert: [{ slug: "pie" }],
+      })[slug] ?? [];
+    const labels = courseLabels(tree, rows);
+    expect(Object.fromEntries(labels)).toEqual({
+      chili: "Main",
+      pie: "Main",
+      linzer: "Dessert",
+    });
+    expect(
+      courseLabels([node("cuisine", 1, [node("thai", 1)])], rows).size,
+    ).toBe(0);
   });
 });

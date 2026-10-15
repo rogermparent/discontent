@@ -108,11 +108,16 @@ test.describe("Homepage — intro", () => {
     await expect(
       page.getByRole("heading", { level: 2, name: "Featured" }),
     ).toBeInViewport();
+    const featured = page.getByRole("region", {
+      name: "Featured",
+      exact: true,
+    });
     await expect(
-      page
-        .getByRole("region", { name: "Featured", exact: true })
-        .getByRole("link", { name: "Everything featured" }),
+      featured.getByRole("link", { name: "Everything featured" }),
     ).toHaveAttribute("href", "/featured-recipes");
+    /* A line saying what the card is, never a raw timestamp. */
+    await expect(featured.getByTestId("card-meta")).toHaveText("Recipe");
+    await expect(featured.locator("time")).toHaveCount(0);
   });
 });
 
@@ -251,6 +256,13 @@ test.describe("Homepage — browse by term", () => {
     await expect(
       comingUp(page).getByRole("link", { name: "All holidays" }),
     ).toHaveAttribute("href", "/tags/holidays");
+    /* Browse leaves the holidays root to Coming up. */
+    await expect(
+      browse(page).getByRole("heading", { level: 3, name: "Holidays" }),
+    ).toHaveCount(0);
+    await expect(
+      browse(page).getByRole("heading", { level: 3, name: "Dessert" }),
+    ).toBeVisible();
     await expect(page.locator('time[datetime="2026-12-20"]')).toHaveText(
       "Sunday 20 December",
     );

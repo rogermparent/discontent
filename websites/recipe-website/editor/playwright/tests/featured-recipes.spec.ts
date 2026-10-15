@@ -1058,7 +1058,12 @@ test.describe("Featured groups", () => {
     const card = featuredSection(page).getByTestId("featured-group-card");
     await expect(card).toHaveCount(1);
     await expect(card.getByText("Weeknight Favourites")).toBeVisible();
-    await expect(card.getByText("Collection")).toBeVisible();
+    /*
+     * On the homepage the card says what it is in place of a timestamp and
+     * the kind badge (2026-10-15); `/featured-recipes` keeps both.
+     */
+    await expect(card.getByTestId("card-meta")).toHaveText("Plan · 2 recipes");
+    await expect(card.locator("time")).toHaveCount(0);
 
     // The card is a way *into* the group, not into the feature — the feature's
     // own page is reached from `/featured-recipes`, which is where the "View
@@ -1309,6 +1314,8 @@ test.describe("Featured terms", () => {
     await expect(card).toHaveCount(1);
     /* The **record's** label, borrowed onto the index — not the slug. */
     await expect(card.getByText("Cookies", { exact: true })).toBeVisible();
+    /* What it is and what it holds, not when it was featured. */
+    await expect(card.getByTestId("card-meta")).toHaveText("Tag · 8 recipes");
     /* The card is a way into the term, not into the feature. */
     await expect(card.getByRole("link").first()).toHaveAttribute(
       "href",
