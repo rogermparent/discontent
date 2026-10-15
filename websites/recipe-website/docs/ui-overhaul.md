@@ -2136,6 +2136,20 @@ section; `route.tsx` does every read, `index.tsx` only arranges):
    22g "Featured Recipes" call: the strip holds groups and terms too). The
    `/featured-recipes` page keeps its title — renaming a route is its own
    change. The 22g/24c dangling-reference filter in `route.tsx` is unchanged.
+   - **No timestamps on the strip** (review round): each card's line says
+     what it is — "Tag · N recipes" (subtree count), "Plan · N recipes"
+     (direct recipe items), or a recipe's course label ("Mains",
+     `courseLabels`), else "Recipe". `RecipeListItem`, `TermCard` and
+     `GroupCard` take an optional `meta` line; `/featured-recipes` passes
+     none and keeps its dates and kind badges, because that page is the
+     curator's.
+   - **Term cards draw a picture** (`TermPicture`, shared with Coming up):
+     the record's image, else the newest recipe photo under the term, else
+     the monogram — on the real repo no term has an image yet, so four of
+     six featured cards were the grey placeholder. Group cards already walk
+     to their first member's photo; the route now reads the group record
+     once (cached, `item:groups:<slug>`) and hands its image and items down,
+     so the thumbnail reads nothing more.
 4. **Browse** (`BrowseTerms`). One row per facet root: the root as a mono
    label (`h3`) linking to its page, then pill chips with subtree counts,
    then "More". `homepageFacets.ts` decides: roots from `readTagTree()` in a
@@ -2144,7 +2158,9 @@ section; `route.tsx` does every read, `index.tsx` only arranges):
    field and no rule over the data gives this reading order; unknown roots
    follow, biggest first), children biggest first, capped at 8, children
    nothing carries left out. With no facets at all (most fixtures) the flat
-   `BrowseChips` row renders instead, restyled as the same pills.
+   `BrowseChips` row renders instead, restyled as the same pills. The
+   `holidays` root is skipped while Coming up shows it (the same terms one
+   screen apart); without a Coming up section it stays a row.
 5. **New this week** — the latest six, "All N recipes" past six.
 6. **Plans** (`PlansStrip`) — the newest group as one line and "Open the
    plan" / "All plans", replacing the group grid; nothing without groups.
@@ -2180,9 +2196,16 @@ reads no session and no inventory.
   against the real corpus prerenders every tag page and times out at 60 s.
   Remove the clone's `origin` first: the editor starts in the workstation
   role and watches the content repo.
-- **Featured term cards have no picture of their own** on the real repo (no
-  term records carry images yet), so they show the group placeholder. A
-  representative-recipe fallback like Coming up's is a small follow-up.
+- **A screenshot server outlives its script** unless the script kills the
+  `next-server` child: killing the `pnpm exec next start` parent leaves the
+  server on the port. Find it by port and stop it with its parents.
+
+**Review round** (term pictures, card lines, the holidays row): unit
+tests for `termSummary`, `findTermNode` and `courseLabels` (the two homepage
+files, 22 tests); Playwright homepage-browse, homepage, featured-recipes,
+groups, accessibility, visual, mobile, empty-state, api-write and
+reference-updates — **189 passed**. No baseline moved: none of the
+baseline fixtures has a feature or a holidays root.
 
 **Gates** (after merging `origin/main` with #236 and 37a's #237).
 typecheck ×2 clean; vitest 87 files / 1871 tests (new for U1:
