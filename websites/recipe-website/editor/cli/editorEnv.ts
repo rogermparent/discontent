@@ -25,7 +25,14 @@
  *   change what an import reads, never which corpus it writes to;
  * - `RECIPE_JOBS_DIR` — where import jobs keep their records (epic 37, D1),
  *   so a CLI import and the editor share one job store when the editor's is
- *   set somewhere other than the default.
+ *   set somewhere other than the default;
+ * - `RECIPE_QUEUE_DIR` — where the queue's state is (37b), for the same
+ *   reason: the CLI must wait in the editor's queue;
+ * - `RECIPE_GPU_ACQUIRE_CMD`, `RECIPE_GPU_RELEASE_CMD`, `RECIPE_GPU_IDLE_MS`
+ *   — D6's hooks, which free the GPU of another program for a busy spell:
+ *   a CLI import that takes the GPU must run the same hooks the editor does.
+ *   They are commands, run by whichever process starts or ends the spell —
+ *   the file is the workstation owner's own, as the editor's is.
  *
  * Everything else in the file is ignored.
  *
@@ -81,6 +88,10 @@ export const EDITOR_ENV_KEYS = [
   "RECIPE_LLM_MODEL",
   "RECIPE_LLM_API",
   "RECIPE_JOBS_DIR",
+  "RECIPE_QUEUE_DIR",
+  "RECIPE_GPU_ACQUIRE_CMD",
+  "RECIPE_GPU_RELEASE_CMD",
+  "RECIPE_GPU_IDLE_MS",
 ] as const;
 
 function unset(value: string | undefined): boolean {

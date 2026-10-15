@@ -27,10 +27,26 @@
  * ends a wait — in the queue or for the gap — with the abort's reason; a
  * request given up while queued still holds its place until the one before
  * it finishes, so the queue's order is unchanged.
+ *
+ * **Across processes (37b, D4).** On the real clock (`realPacing`, which
+ * every seat uses) a request also holds the global queue's `site:<site>`
+ * slot, whose grant waits for the polite gap since the previous holder —
+ * in *any* process — let go. So the CLI, the stdio MCP server and the editor
+ * space their requests to one site as one process would; such a wait is a
+ * `queue.wait` step. The per-process queue and clock above stay: they keep
+ * this process's order and the 403 retry's gap (inside the held slot), and
+ * they are all a fake clock (`Pacing` without `shared`) uses. Loopback is
+ * never queued, as it is never paced. Dropped sites stay per process.
  */
 import type { ForbiddenRetry } from "recipe-website-common/util/importRecipeData";
 import { siteKey } from "recipe-website-common/util/roundupPage";
 import { jobContext, type JobContext, type JobRun } from "../jobs/context";
+import {
+  acquire,
+  siteResource,
+  touchResource,
+  type ResourceGrant,
+} from "../jobs/queue";
 import { ImportError } from "./errors";
 
 /** `promise`, or the signal's reason once it aborts first. */
@@ -113,6 +129,11 @@ export interface Pacing {
   paceLoopback?: boolean;
   /** Queues and clocks; default this process's. Tests pass a fresh one. */
   state?: SiteState;
+  /**
+   * Also hold the global queue's `site:<site>` slot (37b): the gap across
+   * processes. The real clock's; a fake clock leaves it off.
+   */
+  shared?: boolean;
 }
 
 /**
@@ -143,6 +164,7 @@ export function realPacing(): Pacing {
         signal?.addEventListener("abort", stop, { once: true });
       }),
     gapMs: envGapMs(),
+    shared: true,
   };
 }
 
@@ -263,10 +285,18 @@ export class SitePacer {
     let forbidden = false;
     let retryStatus: number | undefined;
     let started = false;
+    let slot: ResourceGrant | undefined;
     try {
       const reason = this.droppedReason(url);
       if (reason) {
         throw new SiteDroppedError(`${site} is dropped for now: ${reason}`);
+      }
+      /* Every process's requests to the site, one at a time, the gap apart. */
+      if (this.shared(url)) {
+        slot = await acquire(siteResource(site), {
+          ...this.job,
+          gapMs: this.gap(url),
+        });
       }
       await this.waitGap(url);
       started = true;
@@ -304,12 +334,30 @@ export class SitePacer {
       const finalUrl = finalUrlOf?.(value);
       if (finalUrl && URL.canParse(finalUrl) && this.site(finalUrl) !== site) {
         this.end(finalUrl);
+        if (this.shared(finalUrl)) {
+          await touchResource(siteResource(this.site(finalUrl))).catch(
+            () => undefined,
+          );
+        }
       }
       return value;
     } finally {
       if (started) this.end(url);
-      release();
+      try {
+        /* A request never made (cancelled in the gap) does not move the clock. */
+        await slot?.release({ used: started });
+      } finally {
+        release();
+      }
     }
+  }
+
+  /** Whether `url`'s requests also hold the global queue's site slot. */
+  private shared(url: string): boolean {
+    return (
+      this.pacing.shared === true &&
+      (this.pacing.paceLoopback === true || !isLoopback(url))
+    );
   }
 }
 
