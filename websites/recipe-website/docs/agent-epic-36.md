@@ -13,7 +13,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 36c in review (PR open); 36-close next.
+**Now:** epic 36 is **closed** (2026-10-15): the extractor (36a, #231), the `--llm` mode on every import surface (36b, #232), and the pasted-text import with this close-out (36c + 36-close, #233). What remains is the morning checklist in Close-out (Roger: `RECIPE_LLM_URL` in `editor/.env`, then `pnpm workstation update`).
 
 ## Context
 
@@ -179,8 +179,8 @@ fetch work the same way.
 | 36-plan  | `agent/36-plan`      | S    | ✅ #230 | This doc.                                                        |
 | 36a      | `agent/36a-llm-core` | M    | ✅ #231 | D1, D2, D4, D6, D7: `pageText`, the client, the extractor, gate. |
 | 36b      | `agent/36b-llm-wire` | M    | ✅ #232 | D3, D5: `applyLlm` in seats, form, CLI, API, MCP; Settings line. |
-| 36c      | `agent/36c-llm-text` | M    | 🟡      | D8: text import mode in the form, CLI, API, MCP.                 |
-| 36-close | `agent/36-close`     | S    | 📝      | Results, D12/SKILL.md updates, backlog, memory, Roger's steps.   |
+| 36c      | `agent/36c-llm-text` | M    | ✅ #233 | D8: text import mode in the form, CLI, API, MCP.                 |
+| 36-close | `agent/36c-llm-text` | S    | ✅ #233 | Results, D12/SKILL.md updates, backlog, memory, Roger's steps.   |
 
 Ordering: strictly sequential — 36b needs 36a's extractor, 36c needs 36b's
 plumbing (`ImportOptions`, the zod bodies, the form). 36-close after 36c.
@@ -490,6 +490,26 @@ off` created it. The rule now: under auto, a result that was not partial
   card has an `<h4>` and `pageText` keeps it a markdown heading, which the
   extractor turns into a heading line (36a step 4); pasted plain text has
   no such mark. Delete it in the form, or add the colon before pasting.
+- **T31 — A long paste lost its middle silently** (review). `capText` keeps
+  the first ~3k and the last ~21k characters of anything over 24k, so an
+  email thread whose recipe sits in a quoted middle part read as "found no
+  recipe". The cut is now said, in the warnings and in the failure.
+- **T32 — `JSON.stringify` is not an HTML escape** (review, pre-existing).
+  `RecipeJsonLD` put `JSON.stringify(recipe)` into a `<script>` through
+  `dangerouslySetInnerHTML`; a name holding `</script>` closed the tag — a
+  stored XSS reachable from any imported page, and now from a pasted
+  text's first line. `serializeJsonLD` escapes `<`, `>`, `&` as `<`
+  etc. It was the only `ld+json` renderer; the other inline sinks (theme
+  CSS, pre-paint scripts) are built from derived colours and fixed code.
+- **T33 — An old editor answers `text` as a zod issue** (review). The
+  pre-36c `/api/import` body is a `strictObject({url, …})`: a `--remote`
+  `--text` against it came back as "Invalid input" with an `Unrecognized
+key: "text"` issue. The HTTP backend now names the cause.
+- **T34 — Mocking `apiContext` makes a route testable** (review). A route
+  under `src/app/api` imports `recipe-editor/controller/apiContext`, which
+  pulls in `next/cache`; `vi.mock` of that one module (returning a tmpdir
+  context) lets `test/importRoute.test.ts` call `POST` directly, and the
+  same handler can sit behind a 127.0.0.1 server for the HTTP backend.
 
 ## Results
 
@@ -996,3 +1016,104 @@ baselines regenerated first (T29; `visual.spec -g "new-recipe form"
 disabled with "No local model configured", the URL field still there),
 `visual.spec`, `accessibility.spec`, `import-roundup.spec`,
 `settings-nav.spec`: **101 passed**.
+
+**Review round** (9 findings, none blocking; fixed in two commits — the
+JSON-LD escape on its own):
+
+1. **A cut paste says so** (T31). `capText` reports `kept: {head, tail}`;
+   `readPastedText` adds "the text is N characters; the model read the
+   first ~3k and the last ~21k — paste just the recipe" to the warnings,
+   and to the `import_failed` message when nothing was found.
+2. **"Pasted from (URL, optional)"** replaces "Source URL (optional)", which
+   a substring `getByLabel("Source URL")` and a screen reader confused with
+   the recipe form's own field. No spec or baseline named it.
+3. **An editor from before 36c** answers a `--remote` `--text` with
+   "predates pasted-text import (36c) — update it, or run with
+   --content-dir" (T33).
+4. **The first-line name** skips lines holding `http(s)://`, a leading
+   `m:ss` timestamp or an `@handle`, and is `undefined` when none
+   qualifies; `importedToInput`'s message no longer says "page".
+5. **`--text -` on a terminal** prints "Paste the recipe, then press
+   Ctrl-D" to stderr.
+6. **Form state:** the URL field is controlled, so it survives a switch to
+   Paste text and back; switching mode dismisses the last import's
+   message; the per-import `key` is a UUID (two imports in one millisecond
+   would have shared `Date.now()`).
+7. **Tests at the route:** `test/importRoute.test.ts` (6) calls
+   `/api/import`'s `POST` with `{text, source}` and `{text}` (200 / 201),
+   its refusals (`validation` with the issue path; `import_failed` with no
+   model), `reduceTextImport`'s success and failure paths, and the HTTP
+   backend's `importText` against the real handler on 127.0.0.1 plus a
+   pre-36c editor (T34).
+8. **Nits:** the 100k limit counts the text with CRLF normalised (a refine
+   — a transform would not survive the MCP SDK's JSON Schema), so the HTTP
+   and local paths agree; the cited source is the parsed `href` without its
+   hash ("HTTPS://Example.com/x#c" → "https://example.com/x").
+9. **Security, pre-existing** (T32): `fix(jsonld): escape < in JSON-LD
+script (stored XSS via recipe name)` — `serializeJsonLD`, with
+   `test/recipeJsonLD.test.ts` +2 (the escaped text parses back to the
+   same object; the rendered element has exactly one `</script>`).
+
+Gates after the review: `pnpm --filter recipe-editor typecheck` and
+`pnpm --filter recipe-website exec tsc --noEmit` clean; `pnpm exec vitest
+run` **81 files / 1717 tests** passed (curation +3: the cut note, the name
+skips and `--name`'s message, the normalised source). Playwright (build
+mode, heavy slot) `new-recipe`, `visual`, `accessibility` and `recipe.spec`
+(the one spec that parses the page's JSON-LD): **102 passed**; no baseline
+moved (the renamed label shows only in the Paste text tab).
+
+## Close-out
+
+### What landed (2026-10-15)
+
+| PR   | Phase          | Merge      | Notes                                                                                                                        |
+| ---- | -------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| #230 | 36-plan        | `caf0ce0f` | Plan: D1–D8, Roger's text-mode addition.                                                                                     |
+| #231 | 36a            | `1dffe095` | qwen3:8b passes the gate (100% recall, 100% grounded, median 20.2 s); one review round (line-by-line grounding, T11–T14).    |
+| #232 | 36b            | `647381b4` | `--llm auto\|force\|off` on every import surface, the form toggle, the Tools card; one review round (T21, T22, the env pin). |
+| #233 | 36c + 36-close | –          | Pasted-text import; one review round (9 findings, incl. the pre-existing JSON-LD XSS); this close-out.                       |
+
+Every M PR had a review agent before its first push. **No index, schema or
+spec version changed: no reindex is needed.** Nothing new is stored in a
+recipe (D5); the model's part lives in results, warnings and commit
+messages.
+
+### Traps found at close
+
+- **The Pi stays off by design** (D1): with no `RECIPE_LLM_URL` its form
+  shows "No local model configured" on both the toggle and the Paste text
+  tab, `auto` does nothing, and `force` / `text` are `import_failed`. Not a
+  bug to chase after a deploy.
+- **A model in `editor/.env` reaches every Playwright run** unless the
+  config pins it off (T18) — keep `webServer.env: {RECIPE_LLM_URL: ""}`
+  when touching `playwright.config.ts`.
+- **One GPU, one call at a time.** A scripted run that overlaps the
+  workstation editor's own model call (a form import while a CLI batch
+  runs) queues in Ollama; with `keep_alive` 10 m the second model would
+  not fit 8 GB beside qwen3:8b (T5). Unload with `ollama stop` before
+  switching models.
+- **Route tests need only `apiContext` mocked** (T34) — the pattern for any
+  later `/api/*` test.
+
+### Backlog (new rows in `backlog.md`)
+
+- Photo / recipe-card import with a vision model (qwen2.5vl), a follow-up
+  to D8.
+- The model's readings worth a deterministic fix: names in capitals (T25),
+  "all in" read as prep time (T26), colon-less pasted sub-headings (T30), a
+  `--source` line changing the reading (T23), and an unnumbered method
+  left as one step (T24).
+
+### Morning checklist (Roger)
+
+1. Add `RECIPE_LLM_URL=http://localhost:11434` to
+   `websites/recipe-website/editor/.env` (`RECIPE_LLM_MODEL` defaults to
+   `qwen3:8b`).
+2. **`pnpm workstation update`** from the repo root.
+3. **No Pi deploy needed** for function — the Pi stays "No local model
+   configured" — though deploying keeps the image current.
+4. **No reindex.**
+
+Then, on the workstation: Settings → Tools shows "Local model … reachable";
+`/new-recipe` with a no-schema URL fills the form; "Paste text" with a
+Lagerstrom description fills it with the sections and none of the links.

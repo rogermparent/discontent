@@ -201,6 +201,17 @@ not to project settings) or skipped; `recipe_set_image` fixes a picture later.
 The Fallback section maps each new tool to its CLI line. `.mcp.json` passes
 `YTDLP_PATH` through to the stdio server.
 
+> **2026-10-15, epic 36 changed the partial-page path**
+> (`agent-epic-36.md` D3/D4/D8). With a local model configured
+> (`RECIPE_LLM_URL`), `auto` mode fills a page with no Recipe node — and a
+> video's description — with the model's reading, grounded line by line
+> against the page; the result and its draft carry `llm`, and the curator
+> spot-checks such a result against the page rather than rebuilding it.
+> `partial` still means "not trustworthy" (under 90% grounded). WebFetch-and-
+> fill is the fallback only when no model is configured (the Pi) or the
+> model's reading was discarded. `llm: "force"` reads a page whose schema is
+> bad, and `recipe_import {text, source?}` imports a pasted recipe (D8).
+
 ### D13 — `source.name`: publisher → `og:site_name` → known site → hostname (26d)
 
 `buildSource(url, publisher, author, siteName)` takes the page's

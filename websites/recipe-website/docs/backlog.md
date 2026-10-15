@@ -18,6 +18,8 @@ it gets a phase in the epic's own doc and is struck here.
 > content) is in `agent-epic-34.md`.**
 > **Epic 35 (shopping list, Halloween & Christmas content, curation
 > polish, editor hygiene) is in `agent-epic-35.md`.**
+> **Epic 36 (local-model imports: the extractor, `--llm`, pasted text) is in
+> `agent-epic-36.md`.**
 > Rows are struck here as an epic's phases pick them up; the struck rows
 > below name the phase.
 
@@ -47,6 +49,17 @@ Sources: `docs/agent-curation.md` (Deferred, and the D/T lists it names),
 | ~~Search ranking / OR-by-default free text~~                                | ~~Free-text words are ANDed with no relevance order.~~ **Done by 27d** (`agent-epic-27.md` D12: any word, scored name 4 / tags 3 / ingredients 2 / description 1, then newest).                                                                                                                                                                                                              | agent-curation Deferred (22e)                        |
 | ~~Stale-editor hint after a CLI `--dry-run`~~                               | ~~The CLI prints "A running editor is stale until …" after a dry run that wrote nothing. MCP does not: `recipe_import` passes `notify: dryRun !== true`, so the tool path already omits it.~~ **Done by 26b** (`agent-import-tools.md`: `cli/index.ts` skips `afterWrite` on a dry run).                                                                                                     | agent-curation Deferred (22e fact 13); agent-mcp 23f |
 | ~~Server-side `group:` in `recipe_search`~~                                 | ~~`curation/search.ts` filters rows that never carry `groups`, so the term matches nothing from the CLI or the tools while the browser's search box honours it. 23f stopped the tool description advertising it.~~ **Picked up by 24d** (`agent-taxonomy.md`, D6).                                                                                                                           | agent-mcp Deferred; 23f                              |
+
+## Import — the local model (epic 36)
+
+| Candidate                                      | Why                                                                                                                                                                            | Recorded at                  |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------- |
+| Photo / recipe-card import with a vision model | A photo of a handwritten or printed card is the one source the text mode (D8) cannot take. qwen2.5vl runs on Ollama; it would feed the same mapping and an OCR-text grounding. | `agent-epic-36.md` close-out |
+| Names as the text shouts them                  | Lagerstrom's descriptions head the recipe "DRUNKEN NOODLES RECIPE:", and that is the name (T25). A title-case pass for all-caps names, minus a trailing "RECIPE".              | `agent-epic-36.md` T25       |
+| An unlabelled time read as prep                | "Takes about an hour all in" became `prepTime` 60 (T26). An "all in" / "start to finish" phrase is a total time; a rule in `parseTimeText`'s caller, not the prompt (T1).      | `agent-epic-36.md` T26       |
+| Colon-less pasted sub-headings                 | A copied card's "Icing" line arrives as an ingredient (T30). A short, amount-free line directly before amount-led lines, matching no ingredient word, could become a heading.  | `agent-epic-36.md` T30       |
+| One reading per text, whatever the header      | Adding a "Source URL:" line changed a pasted reading (T23). Either drop the URL from the prompt for text mode, or measure whether it ever helps.                               | `agent-epic-36.md` T23       |
+| Split an unnumbered method into steps          | An emailed paragraph stayed one step (T24). A deterministic sentence split for a single long step, minding "min." and "approx.".                                               | `agent-epic-36.md` T24       |
 
 ## Engine
 
