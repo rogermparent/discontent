@@ -37,7 +37,7 @@ import {
   type BackendConfig,
 } from "../cli/backend/resolve";
 import { EDITOR_DIRECTORY, loadEditorEnv } from "../cli/editorEnv";
-import { setJobsRoot } from "../controller/jobs/location";
+import { gpuUsedHere, setJobsRoot } from "../controller/jobs/location";
 import { createRecipeServer } from "./registry";
 
 function describe(config: BackendConfig): string {
@@ -82,6 +82,11 @@ export async function main(): Promise<void> {
         await backend.close();
       } catch (error) {
         console.error(`recipes MCP: backend close failed: ${String(error)}`);
+      }
+      /* D6 (37b): close a GPU spell this server began, if no editor keeps it. */
+      if (gpuUsedHere()) {
+        const { settleGpuAtExit } = await import("../controller/jobs/gpuHooks");
+        await settleGpuAtExit();
       }
       process.exit(0);
     })();

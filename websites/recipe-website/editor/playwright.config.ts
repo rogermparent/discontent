@@ -96,6 +96,15 @@ export default defineConfig({
        * names a jobs directory.
        */
       RECIPE_JOBS_DIR: resolve(__dirname, "test-jobs"),
+      /*
+       * 37b: and its queue inside it — never the machine's
+       * (`~/.cache/discontent/queue`), even when `editor/.env` names one —
+       * with no GPU hooks, so an e2e import never waits behind a real one or
+       * pauses a real GPU program.
+       */
+      RECIPE_QUEUE_DIR: resolve(__dirname, "test-jobs", "queue"),
+      RECIPE_GPU_ACQUIRE_CMD: "",
+      RECIPE_GPU_RELEASE_CMD: "",
     },
   },
 });

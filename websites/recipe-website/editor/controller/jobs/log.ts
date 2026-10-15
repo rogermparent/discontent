@@ -315,6 +315,12 @@ function stepLabel(step: string, data: StepData = {}): string {
     parts.push(data.host);
   } else if (typeof data.site === "string") {
     parts.push(data.site);
+  } else if (typeof data.resource === "string") {
+    /* `queue.wait gpu` (37b). */
+    parts.push(data.resource);
+  } else if (typeof data.hook === "string") {
+    /* `gpu.hook acquire` (37b). */
+    parts.push(data.hook);
   }
   return parts.filter(Boolean).join(" ");
 }
@@ -367,7 +373,7 @@ function summary(step: string, data: StepData = {}, ms?: number): string[] {
   const fields = Object.entries(data)
     .filter(
       ([key, value]) =>
-        !["host", "site", "kind", "label"].includes(key) &&
+        !["host", "site", "kind", "label", "resource", "hook"].includes(key) &&
         (typeof value === "number" ||
           typeof value === "boolean" ||
           (typeof value === "string" && value.length <= 60)),

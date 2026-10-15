@@ -83,6 +83,8 @@ beforeAll(async () => {
       RECIPE_ENV_FILE: join(contentDirectory, "no-such.env"),
       /* Never `editor/jobs/` (epic 37): the test file's own job store. */
       RECIPE_JOBS_DIR: process.env.RECIPE_JOBS_DIR ?? "",
+      /* Nor the machine's queue (37b): the test file's own. */
+      RECIPE_QUEUE_DIR: process.env.RECIPE_QUEUE_DIR ?? "",
     },
     stderr: "pipe",
   });
