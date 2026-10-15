@@ -23,7 +23,11 @@ test.describe("YouTube Video Support", () => {
         await page.getByLabel("Import from URL").fill(youtubeUrl);
         await page.getByRole("button", { name: "Import" }).click();
 
-        await expect(page.getByLabel("Enter URL")).toBeChecked();
+        /* No mimic here: a machine with yt-dlp on its PATH asks YouTube,
+         * which can take longer than 5 s to answer or to fail (36e). */
+        await expect(page.getByLabel("Enter URL")).toBeChecked({
+          timeout: 30_000,
+        });
 
         await expect(page.locator('input[name="videoUrl"]')).toHaveValue(
           youtubeUrl,

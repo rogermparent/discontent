@@ -258,19 +258,17 @@ describe("splitting a text (36e)", () => {
 
   it("renders a linked ingredient line as a link, amounts and all", () => {
     const html = renderToStaticMarkup(
-      createElement(
-        StyledMarkdown,
-        {
-          components: {
-            Multiplyable: ({ baseNumber }: { baseNumber: string }) =>
-              createElement("span", { className: "amount" }, baseNumber),
-          },
+      /* Called as a function: its props type requires `children`. */
+      StyledMarkdown({
+        components: {
+          Multiplyable: ({ baseNumber }: { baseNumber: string }) =>
+            createElement("span", { className: "amount" }, baseNumber),
         },
-        linkLine(
+        children: linkLine(
           '<Multiplyable baseNumber="2" /> cups crispy shallots - see recipe below',
           "fried-shallots",
         ),
-      ),
+      }),
     );
     expect(html).toContain('href="/recipe/fried-shallots"');
     expect(html).toContain(
