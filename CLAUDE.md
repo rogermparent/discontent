@@ -115,6 +115,12 @@ survives a cleared context.
   video or paste (`--all` / `--pick`, a picker, linked components, chapter
   starts). Roger's steps (`RECIPE_LLM_URL`,
   workstation update, no reindex) are in the doc's Close-out.
+- `websites/recipe-website/docs/agent-epic-37.md` — epic 37, import jobs:
+  every import runs as a job with a structured step log (JSON lines, named
+  steps, redaction) in `RECIPE_JOBS_DIR`, a cross-process queue per
+  contended resource (the GPU, yt-dlp, each site) with GPU hooks and a
+  placement check, the `fileLock` primitive, and the `/jobs` page, API, CLI
+  and MCP surfaces (37a–37c).
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
@@ -150,7 +156,7 @@ spec otherwise).
 
 Killing a Playwright run mid-flight leaves stale LMDB envs (`MDB_BAD_RSLOT`,
 phantom ENOENTs); recover with `rm -rf test-content test-settings test-remotes
-test-clones` from `websites/recipe-website/editor`.
+test-clones test-jobs` from `websites/recipe-website/editor`.
 
 An old worktree carries an old `editor/.next`: after a big merge Turbopack
 spends minutes compacting that cache and the first request never returns, so

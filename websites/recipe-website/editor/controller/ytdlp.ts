@@ -20,6 +20,8 @@ import {
   suggestTags,
   type ImportedRecipe,
 } from "recipe-website-common/util/importRecipeData";
+import { jobContext, type JobContext, type JobRun } from "./jobs/context";
+import { hostOf } from "./jobs/steps";
 
 export interface YtdlpThumbnail {
   url: string;
@@ -211,6 +213,11 @@ export interface FetchYtdlpOptions {
    * import asks for them only when a local model will read the video (36d).
    */
   comments?: boolean;
+  /**
+   * The job (epic 37): each run is a `ytdlp` step, and the job's signal
+   * kills the child (an abort rejects with its reason).
+   */
+  job?: JobRun;
 }
 
 const run = promisify(execFile);
@@ -241,37 +248,88 @@ export function ytdlpArgs(url: string, withComments = false): string[] {
  */
 export async function fetchYtdlpMetadata(
   url: string,
-  { comments = false }: FetchYtdlpOptions = {},
+  { comments = false, job: run }: FetchYtdlpOptions = {},
 ): Promise<YtdlpResult> {
+  const job = jobContext(run);
   const withComments = comments && isYouTubeUrl(url);
-  const result = await runYtdlp(url, withComments);
+  const result = await ytdlpStep(url, withComments, job);
   if (withComments && result.status === "error") {
-    return runYtdlp(url, false);
+    return ytdlpStep(url, false, job);
   }
   return result;
+}
+
+/**
+ * One run as a `ytdlp` step (D3): how it ended (`exit`), and what came back
+ * — chapters, the creator's comments kept, the description's length.
+ */
+function ytdlpStep(
+  url: string,
+  withComments: boolean,
+  { log, signal }: JobContext,
+): Promise<YtdlpResult> {
+  return log.step(
+    "ytdlp",
+    { host: hostOf(url), comments: withComments },
+    async (step) => {
+      const result = await runYtdlp(url, withComments, signal);
+      if (result.status === "success") {
+        const { metadata } = result;
+        step.set({
+          exit: 0,
+          chapters: metadata.chapters.length,
+          commentsKept: metadata.comments.length,
+          descriptionChars: metadata.description.length,
+        });
+        return result;
+      }
+      if (result.status === "not-found") {
+        step.fail("yt-dlp is not installed");
+        return result;
+      }
+      if (result.exit !== undefined) step.set({ exit: result.exit });
+      step.fail(result.message);
+      return { status: "error", message: result.message };
+    },
+  );
 }
 
 async function runYtdlp(
   url: string,
   withComments: boolean,
-): Promise<YtdlpResult> {
+  signal: AbortSignal | undefined,
+): Promise<
+  | Exclude<YtdlpResult, { status: "error" }>
+  | { status: "error"; message: string; exit?: number }
+> {
+  signal?.throwIfAborted();
   try {
     const binary = await resolveYtdlpBinary();
+    /* `signal`: an abort kills the child (SIGTERM) and rejects. */
     const { stdout } = await run(binary, ytdlpArgs(url, withComments), {
       timeout: withComments ? 45_000 : 30_000,
       maxBuffer: 64 * 1024 * 1024,
+      ...(signal ? { signal } : {}),
     });
     return {
       status: "success",
       metadata: pickYtdlpMetadata(JSON.parse(stdout), url),
     };
   } catch (error: unknown) {
+    /* A cancel is the job's, not a yt-dlp failure to fall back from. */
+    if (signal?.aborted) throw signal.reason ?? error;
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return { status: "not-found" };
     }
     const message =
       error instanceof Error ? error.message : "Unknown yt-dlp error";
-    return { status: "error", message };
+    /* `execFile`'s error carries the exit code as a number. */
+    const code = (error as { code?: unknown } | undefined)?.code;
+    return {
+      status: "error",
+      message,
+      ...(typeof code === "number" ? { exit: code } : {}),
+    };
   }
 }
 

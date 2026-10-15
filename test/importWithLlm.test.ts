@@ -10,8 +10,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   displayUrl,
   llmStatus,
+  placementWarning,
   type LlmConfig,
 } from "../websites/recipe-website/editor/controller/llm/client";
+import { memoryJobLog } from "../websites/recipe-website/editor/controller/jobs/log";
 import {
   GROUNDED_FLOOR,
   applyLlm,
@@ -572,6 +574,190 @@ describe("the video source (36d)", () => {
     expect(invented.llm).toMatchObject({ grounded: 1, total: 3 });
     expect(invented.warnings).toEqual([
       "local model output discarded — only 1/3 ingredient lines found in the video's description and pinned comment",
+    ]);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* The step log (epic 37, 37a)                                         */
+/* ------------------------------------------------------------------ */
+
+describe("applyLlm's steps (37a)", () => {
+  /** A model answer with Ollama's numbers, and `/api/ps` at `gpu` percent. */
+  function stubOllama(gpu: number | "fail", ingredients: string[]) {
+    const fetchStub = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/ps")) {
+        if (gpu === "fail") return new Response("nope", { status: 500 });
+        return Response.json({
+          models: [{ name: "qwen3:8b", size: 6_800, size_vram: gpu * 68 }],
+        });
+      }
+      return Response.json({
+        model: "qwen3:8b",
+        done: true,
+        prompt_eval_count: 1200,
+        prompt_eval_duration: 3e9,
+        eval_count: 412,
+        eval_duration: 11e9,
+        load_duration: 9.5e9,
+        message: {
+          role: "assistant",
+          content: JSON.stringify({
+            found: true,
+            name: "Pancakes",
+            ingredients,
+            instructions: ["Whisk everything and fry."],
+          }),
+        },
+      });
+    });
+    vi.stubGlobal("fetch", fetchStub);
+    return fetchStub;
+  }
+
+  const LINES = ["1 cup flour", "1 egg", "1 cup milk", "1 tbsp sugar"];
+
+  it("logs the reading as one llm.extract step with its numbers, then a ground note", async () => {
+    stubOllama(100, LINES);
+    const { log, lines } = memoryJobLog();
+    await applyLlm({
+      source: { text: TEXT },
+      mapped: MAPPED,
+      config: CONFIG,
+      job: { log },
+    });
+    expect(lines.map((line) => `${line.step}:${line.phase}`)).toEqual([
+      "llm.extract:start",
+      "llm.extract:end",
+      "ground:note",
+    ]);
+    expect(lines[0].data).toEqual({ chars: TEXT.length });
+    expect(lines[1]).toMatchObject({
+      ok: true,
+      data: {
+        chars: TEXT.length,
+        model: "qwen3:8b",
+        found: true,
+        grounded: 4,
+        total: 4,
+        verbatim: 4,
+        ingredients: 4,
+        steps: 1,
+        promptTokens: 1200,
+        outputTokens: 412,
+        tokPerSec: 37.5,
+        promptTokPerSec: 400,
+        loadMs: 9500,
+        gpu: 100,
+      },
+    });
+    expect(lines[2]).toMatchObject({
+      level: "info",
+      msg: "trusted — 4/4 lines in the source",
+      data: { outcome: "trusted", grounded: 4, total: 4 },
+    });
+    expect(log.surfaced).toEqual([]);
+  });
+
+  it("warns at 2% on the GPU, surfaces it once, and says why a reading is partial", async () => {
+    stubOllama(2, ["1 cup flour", "1 egg", "2 bananas", "1 tsp cinnamon"]);
+    const { log, lines } = memoryJobLog();
+    const half = await applyLlm({
+      source: { text: TEXT },
+      mapped: MAPPED,
+      config: CONFIG,
+      job: { log },
+    });
+    expect(half.recipe?.partial).toBe(true);
+    const placement = lines.find((line) => line.step === "llm.placement");
+    expect(placement).toMatchObject({
+      phase: "note",
+      level: "warn",
+      msg: '2% GPU — another program holds VRAM; run "ollama stop qwen3:8b" once it frees',
+    });
+    expect(lines.find((line) => line.phase === "end")?.data).toMatchObject({
+      gpu: 2,
+    });
+    expect(log.surfaced).toEqual([placementWarning("qwen3:8b", 2)]);
+    const ground = lines.find((line) => line.step === "ground");
+    expect(ground).toMatchObject({
+      level: "warn",
+      data: { outcome: "partial", grounded: 2, total: 4, partial: true },
+    });
+    expect(ground?.data?.why).toMatch(/extraction is partial/);
+  });
+
+  it("checks placement only with Ollama, only in a job, and never fails on it", async () => {
+    const fetchStub = stubOllama("fail", LINES);
+    /* No job: no /api/ps. */
+    await applyLlm({ source: { text: TEXT }, mapped: MAPPED, config: CONFIG });
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+    /* In a job, a 500 from /api/ps is a note. */
+    const { log, lines } = memoryJobLog();
+    const result = await applyLlm({
+      source: { text: TEXT },
+      mapped: MAPPED,
+      config: CONFIG,
+      job: { log },
+    });
+    expect(result.llm?.found).toBe(true);
+    expect(lines.find((line) => line.step === "llm.placement")).toMatchObject({
+      level: "info",
+      msg: "/api/ps answered 500",
+    });
+    /* The OpenAI shape has no /api/ps: not asked. */
+    fetchStub.mockClear();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  found: true,
+                  name: "Pancakes",
+                  ingredients: LINES,
+                  instructions: ["Whisk everything and fry."],
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 100, completion_tokens: 50 },
+        }),
+      ),
+    );
+    const openai = memoryJobLog();
+    await applyLlm({
+      source: { text: TEXT },
+      mapped: MAPPED,
+      config: { ...CONFIG, api: "openai" },
+      job: { log: openai.log },
+    });
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    expect(
+      openai.lines.find((line) => line.phase === "end")?.data,
+    ).toMatchObject({ promptTokens: 100, outputTokens: 50 });
+    expect(openai.lines.some((line) => line.step === "llm.placement")).toBe(
+      false,
+    );
+  });
+
+  it("notes why the model was not asked", async () => {
+    const { log, lines } = memoryJobLog();
+    await applyLlm({
+      source: { text: TEXT },
+      mapped: MAPPED,
+      config: undefined,
+      job: { log },
+    });
+    expect(lines).toMatchObject([
+      {
+        step: "llm",
+        phase: "note",
+        msg: "no local model configured — not asked",
+      },
     ]);
   });
 });

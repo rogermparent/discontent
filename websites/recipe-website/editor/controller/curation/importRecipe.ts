@@ -30,13 +30,16 @@
  * another recipe of the batch to it, and answers `ImportBatchResult`.
  */
 import {
-  fetchRecipePage,
-  importRecipeData,
   isVideoUrl,
-  mapRecipePage,
-  parseRecipePage,
   type ImportedRecipe,
 } from "recipe-website-common/util/importRecipeData";
+import { jobContext, type JobRun } from "../jobs/context";
+import {
+  fetchPageStep,
+  headSha,
+  parsePage,
+  videoLinkStep,
+} from "../jobs/steps";
 import type {
   Recipe,
   RecipeSource,
@@ -45,6 +48,7 @@ import type { ImageProbe } from "../imageImport";
 import { fetchImageFile, probeImageFile } from "../imageImport";
 import {
   applyLlm,
+  pickedWarnings,
   readPastedText,
   usedModel,
   videoFetchOptions,
@@ -79,6 +83,8 @@ import { RecipeInputSchema, parseInput, type RecipeInput } from "./schema";
 import { pacedRequest } from "./sitePacing";
 
 export interface ImportDryRunResult {
+  /** The job that ran it (epic 37): `recipes jobs show <job>` has its steps. */
+  job?: string;
   dryRun: true;
   /** The page; for pasted text, its source URL when one was given. */
   url?: string;
@@ -107,6 +113,8 @@ export interface ImportDryRunResult {
 }
 
 export interface ImportCreateResult extends RecipeWriteResult {
+  /** The job that ran it (epic 37): `recipes jobs show <job>` has its steps. */
+  job?: string;
   source?: RecipeSource;
   /** The local model's part (epic 36), whenever it was asked. */
   llm?: LlmImportInfo;
@@ -160,6 +168,8 @@ export interface FoundRecipe {
  * what became of each pick.
  */
 export interface ImportBatchResult {
+  /** The job that ran it (epic 37): `recipes jobs show <job>` has its steps. */
+  job?: string;
   batch: true;
   dryRun?: true;
   /** The video (or a pasted text's source). */
@@ -196,10 +206,15 @@ export interface UrlImport extends ApplyLlmResult {
 export async function importFromUrl(
   url: string,
   { llm: mode, asOne = false }: { llm?: LlmMode; asOne?: boolean } = {},
+  run?: JobRun,
 ): Promise<UrlImport> {
+  const job = jobContext(run);
   let applied: ApplyLlmResult;
   if (isVideoUrl(url)) {
-    const result = await fetchYtdlpMetadata(url, videoFetchOptions(mode));
+    const result = await fetchYtdlpMetadata(url, {
+      ...videoFetchOptions(mode),
+      job,
+    });
     applied =
       result.status === "success"
         ? await applyLlm({
@@ -209,13 +224,15 @@ export async function importFromUrl(
             mode,
             /* 36e: one video, several recipes — unless asked for one. */
             split: !asOne,
+            job,
           })
         : /* No text to read; `force` still says when there is no model. */
           await applyLlm({
             url,
             source: { text: "" },
-            mapped: await importRecipeData(url),
+            mapped: await videoLinkStep(url, job),
             mode,
+            job,
           });
   } else {
     /* The importer's own rule: no fragment in the fetch or the citation. */
@@ -223,14 +240,18 @@ export async function importFromUrl(
     let page, parsed, mapped;
     try {
       /* On the per-site queue (34f), like every page and image fetch. */
-      page = await pacedRequest(pageUrl, (retry) =>
-        fetchRecipePage(pageUrl, retry),
+      page = await pacedRequest(
+        pageUrl,
+        (retry) => fetchPageStep(pageUrl, retry, job),
+        undefined,
+        job,
       );
-      parsed = parseRecipePage(page.html, pageUrl);
       /* Inside the try, as `importRecipeData` was: malformed JSON-LD is
        * `import_failed`, not `internal`. */
-      mapped = mapRecipePage(pageUrl, parsed, { ok: page.ok });
+      ({ parsed, mapped } = await parsePage(pageUrl, page, { job }));
     } catch (error) {
+      /* A cancel is the job's to report, not a fetch failure. */
+      if (job.signal?.aborted) throw error;
       throw new ImportError(
         `Could not fetch ${url}: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -240,6 +261,7 @@ export async function importFromUrl(
       source: { html: page.html, ok: page.ok, meta: parsed.meta },
       mapped,
       mode,
+      job,
     });
   }
   if (!applied.recipe) {
@@ -332,35 +354,50 @@ export async function importAndCreate(
     /** The local model: `auto` (default), `force` or `off` (epic 36, D3). */
     llm?: LlmMode;
   } = {},
+  run: JobRun = {},
 ): Promise<ImportResult> {
   checkPickOptions(options);
-  const imported = await importFromUrl(url, {
-    llm: mode,
-    asOne: options.asOne,
-  });
+  const imported = await importFromUrl(
+    url,
+    {
+      llm: mode,
+      asOne: options.asOne,
+    },
+    run,
+  );
   if (imported.recipes) {
-    return finishBatch(ctx, imported.recipes, {
-      ...options,
-      url,
-      leftOut: imported.leftOut,
-      suggestedTags: imported.recipe.suggestedTags,
-      batchWarnings: imported.warnings.filter(
-        (warning) => !imported.recipes![0].warnings.includes(warning),
-      ),
-      commitNote: `local model, {n} of {total} from ${shortSource(url)}`,
-    });
+    return finishBatch(
+      ctx,
+      imported.recipes,
+      {
+        ...options,
+        url,
+        leftOut: imported.leftOut,
+        suggestedTags: imported.recipe.suggestedTags,
+        batchWarnings: imported.warnings.filter(
+          (warning) => !imported.recipes![0].warnings.includes(warning),
+        ),
+        commitNote: `local model, {n} of {total} from ${shortSource(url)}`,
+      },
+      run,
+    );
   }
   checkSinglePick(options, imported.recipe.name);
-  return finishImport(ctx, imported, {
-    ...options,
-    url,
-    refusal: (warnings) =>
-      usedModel(imported.llm)
-        ? `The local model's reading of ${url} is partial (${warnings.join("; ")}). `
-        : `No schema.org Recipe found at ${url} — only its title, description and image` +
-          (warnings.length ? ` (${warnings.join("; ")}). ` : ". "),
-    commitNote: usedModel(imported.llm) ? "local model" : undefined,
-  });
+  return finishImport(
+    ctx,
+    imported,
+    {
+      ...options,
+      url,
+      refusal: (warnings) =>
+        usedModel(imported.llm)
+          ? `The local model's reading of ${url} is partial (${warnings.join("; ")}). `
+          : `No schema.org Recipe found at ${url} — only its title, description and image` +
+            (warnings.length ? ` (${warnings.join("; ")}). ` : ". "),
+      commitNote: usedModel(imported.llm) ? "local model" : undefined,
+    },
+    run,
+  );
 }
 
 /**
@@ -382,34 +419,68 @@ export async function importFromText(
     source,
     ...options
   }: ImportWriteOptions & { text: string; source?: string },
+  run?: JobRun,
 ): Promise<ImportResult> {
   checkPickOptions(options);
   const reading = await readPastedText({
     text,
     source,
     split: !options.asOne,
+    job: run,
   });
   if (reading.recipes) {
     const url = source ? reading.recipe.source?.url : undefined;
-    return finishBatch(ctx, reading.recipes, {
-      ...options,
-      url,
-      pastedText: true,
-      leftOut: reading.leftOut,
-      batchWarnings: reading.warnings.filter(
-        (warning) => !reading.recipes![0].warnings.includes(warning),
-      ),
-      commitNote: `local model, pasted text, {n} of {total}`,
-    });
+    return finishBatch(
+      ctx,
+      reading.recipes,
+      {
+        ...options,
+        url,
+        pastedText: true,
+        leftOut: reading.leftOut,
+        batchWarnings: reading.warnings.filter(
+          (warning) => !reading.recipes![0].warnings.includes(warning),
+        ),
+        commitNote: `local model, pasted text, {n} of {total}`,
+      },
+      run,
+    );
   }
   checkSinglePick(options, reading.recipe.name);
-  return finishImport(ctx, reading, {
-    ...options,
-    url: reading.recipe.source?.url,
-    pastedText: true,
-    refusal: (warnings) =>
-      `The local model's reading of the pasted text is partial (${warnings.join("; ")}). `,
-    commitNote: "local model, pasted text",
+  return finishImport(
+    ctx,
+    reading,
+    {
+      ...options,
+      url: reading.recipe.source?.url,
+      pastedText: true,
+      refusal: (warnings) =>
+        `The local model's reading of the pasted text is partial (${warnings.join("; ")}). `,
+      commitNote: "local model, pasted text",
+    },
+    run,
+  );
+}
+
+/**
+ * One recipe write as a `write` step (D3): the slug it landed at and the
+ * repository's HEAD after it — best effort (another writer may have
+ * committed in between) and only in a job.
+ */
+function writeStep(
+  ctx: CurationContext,
+  slug: string | undefined,
+  write: () => Promise<RecipeWriteResult>,
+  run?: JobRun,
+): Promise<RecipeWriteResult> {
+  const { log } = jobContext(run);
+  return log.step("write", slug ? { slug } : {}, async (step) => {
+    const result = await write();
+    step.set({
+      slug: result.slug,
+      ...(log.live ? { commit: await headSha(ctx.contentDirectory) } : {}),
+    });
+    return result;
   });
 }
 
@@ -440,7 +511,9 @@ async function finishImport(
     refusal: (warnings: string[]) => string;
     commitNote?: string;
   },
+  run?: JobRun,
 ): Promise<ImportResult> {
+  const job = jobContext(run);
   const partial = imported.partial === true;
   if (partial && !dryRun && !allowPartial) {
     throw new ImportError(
@@ -467,7 +540,12 @@ async function finishImport(
       date,
       probe: true,
       probeImage: (imageUrl) =>
-        pacedRequest(imageUrl, (retry) => probeImageFile(imageUrl, retry)),
+        pacedRequest(
+          imageUrl,
+          (retry) => probeImageFile(imageUrl, retry, job),
+          undefined,
+          job,
+        ),
     });
     return {
       dryRun: true,
@@ -501,12 +579,23 @@ async function finishImport(
     };
   }
 
-  const result = await createRecipe(ctx, input, {
-    overwrite,
-    fetchImage: (imageUrl) =>
-      pacedRequest(imageUrl, (retry) => fetchImageFile(imageUrl, { retry })),
-    ...(commitNote ? { commitNote } : {}),
-  });
+  const result = await writeStep(
+    ctx,
+    slug,
+    () =>
+      createRecipe(ctx, input, {
+        overwrite,
+        fetchImage: (imageUrl) =>
+          pacedRequest(
+            imageUrl,
+            (retry) => fetchImageFile(imageUrl, { retry, job }),
+            undefined,
+            job,
+          ),
+        ...(commitNote ? { commitNote } : {}),
+      }),
+    job,
+  );
   const allWarnings = [...llmWarnings, ...(result.warnings ?? [])];
   return {
     ...result,
@@ -759,7 +848,10 @@ export async function importBatchPicks(
     commitNote,
     siblings = [],
   }: BatchOptions,
+  run?: JobRun,
 ): Promise<ImportBatchItem[]> {
+  const job = jobContext(run);
+  const { log } = job;
   const { linkLine } = await import("../llm/mergeReadings");
   const items = new Map<number, ImportBatchItem>();
   const planned = new Map<number, { slug: string; pick: BatchPick }>();
@@ -862,7 +954,12 @@ export async function importBatchPicks(
     if (!probes.has(imageUrl)) {
       probes.set(
         imageUrl,
-        pacedRequest(imageUrl, (retry) => probeImageFile(imageUrl, retry)),
+        pacedRequest(
+          imageUrl,
+          (retry) => probeImageFile(imageUrl, retry, job),
+          undefined,
+          job,
+        ),
       );
     }
     return probes.get(imageUrl)!;
@@ -872,7 +969,12 @@ export async function importBatchPicks(
     if (!files.has(imageUrl)) {
       files.set(
         imageUrl,
-        pacedRequest(imageUrl, (retry) => fetchImageFile(imageUrl, { retry })),
+        pacedRequest(
+          imageUrl,
+          (retry) => fetchImageFile(imageUrl, { retry, job }),
+          undefined,
+          job,
+        ),
       );
     }
     return files.get(imageUrl)!;
@@ -970,21 +1072,31 @@ export async function importBatchPicks(
         try {
           file = await fetchOnce(imageUrl);
         } catch (error) {
+          /* A cancel is the job's, not a picture to do without (T10). */
+          if (job.signal?.aborted) throw error;
+          const why = error instanceof Error ? error.message : String(error);
+          log.warn("image", `skipped — ${why}`, { skipped: true });
           warnings.push(
-            `Imported without its image (${error instanceof Error ? error.message : String(error)}) — set one later with recipe_set_image.`,
+            `Imported without its image (${why}) — set one later with recipe_set_image.`,
           );
         }
       }
-      const result = await createRecipe(
+      const result = await writeStep(
         ctx,
-        file ? input : { ...input, imageImportUrl: undefined },
-        {
-          overwrite,
-          ...(file ? { fetchImage: async () => file } : {}),
-          commitNote: commitNote
-            .replace("{n}", String(pick.n))
-            .replace("{total}", String(total)),
-        },
+        plan.slug,
+        () =>
+          createRecipe(
+            ctx,
+            file ? input : { ...input, imageImportUrl: undefined },
+            {
+              overwrite,
+              ...(file ? { fetchImage: async () => file } : {}),
+              commitNote: commitNote
+                .replace("{n}", String(pick.n))
+                .replace("{total}", String(total)),
+            },
+          ),
+        job,
       );
       warnings.push(...(result.warnings ?? []));
       items.set(pick.n, {
@@ -996,6 +1108,8 @@ export async function importBatchPicks(
         ...(warnings.length ? { warnings } : { warnings: undefined }),
       });
     } catch (error) {
+      /* A cancel ends the batch, not just this pick. */
+      if (job.signal?.aborted) throw error;
       items.set(pick.n, {
         ...base,
         ...(warnings.length ? { warnings } : {}),
@@ -1037,6 +1151,7 @@ async function finishBatch(
     leftOut?: { n: number; name: string; reason: string }[];
     commitNote: string;
   },
+  run: JobRun = {},
 ): Promise<ImportBatchResult> {
   void _asOne;
   const found = readings.map(foundRecipe);
@@ -1055,6 +1170,19 @@ async function finishBatch(
       ),
     );
   }
+  /* The found-list warning says what was taken, once picks are made. */
+  const said = (warnings: string[]) =>
+    all
+      ? pickedWarnings(warnings, "all")
+      : pick
+        ? pickedWarnings(
+            warnings,
+            picked.map((reading) => ({
+              n: reading.n,
+              name: reading.recipe.name,
+            })),
+          )
+        : warnings;
   if ((options.slug || options.name) && picked.length > 1) {
     throw new UsageError(
       'slug and name are one recipe\'s: pick one recipe (--pick "Name") to give them.',
@@ -1079,6 +1207,7 @@ async function finishBatch(
         name: reading.recipe.name,
       })),
     },
+    run,
   );
   return {
     batch: true,
@@ -1089,6 +1218,6 @@ async function finishBatch(
     ...(leftOut.length ? { leftOut } : {}),
     recipes,
     ...(suggestedTags?.length ? { suggestedTags } : {}),
-    ...(batchWarnings.length ? { warnings: batchWarnings } : {}),
+    ...(batchWarnings.length ? { warnings: said(batchWarnings) } : {}),
   };
 }

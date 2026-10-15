@@ -20,6 +20,8 @@ import { openAsBlob } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { ImportError, ValidationError } from "./curation/errors";
+import { jobContext, type JobRun } from "./jobs/context";
+import { hostOf, noteRetry } from "./jobs/steps";
 
 /** Generous for a photo; small enough that a mistaken video URL fails fast. */
 export const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
@@ -153,9 +155,28 @@ function describe(error: unknown): string {
  * A file over `LARGE_IMAGE_BYTES` is returned all the same; the caller reports
  * `largeImageWarning(file.size)`.
  */
-export async function fetchImageFile(
+export function fetchImageFile(
   url: string,
-  { retry }: { retry?: ForbiddenRetry } = {},
+  /** `job` (epic 37): the download is an `image` step, aborted with the job. */
+  { retry, job }: { retry?: ForbiddenRetry; job?: JobRun } = {},
+): Promise<File> {
+  const { log, signal } = jobContext(job);
+  /* An `image` step (epic 37, D3): what came back, or why it was refused. */
+  return log.step(
+    "image",
+    { host: hostOf(url), url, mode: "get" },
+    async (step) => {
+      const file = await downloadImageFile(url, noteRetry(step, retry), signal);
+      step.set({ bytes: file.size, type: file.type || undefined });
+      return file;
+    },
+  );
+}
+
+async function downloadImageFile(
+  url: string,
+  retry: ForbiddenRetry | undefined,
+  signal: AbortSignal | undefined,
 ): Promise<File> {
   try {
     new URL(url);
@@ -165,8 +186,10 @@ export async function fetchImageFile(
 
   let response: Response;
   try {
-    response = await fetchWithRetry(url, {}, retry);
+    response = await fetchWithRetry(url, signal ? { signal } : {}, retry);
   } catch (error) {
+    /* A cancel is the job's to report, not an unreachable image. */
+    if (signal?.aborted) throw error;
     throw new ImportError(`Could not fetch image ${url}: ${describe(error)}`);
   }
   const status = response.status ?? 200;
@@ -236,14 +259,44 @@ export interface ImageProbe {
  * A server that refuses `HEAD` (405, 501) is reported with the URL-derived
  * name and no error: the real `GET` may well succeed.
  */
-export async function probeImageFile(
+export function probeImageFile(
   url: string,
   retry?: ForbiddenRetry,
+  /** `job` (epic 37): the probe is an `image` step, aborted with the job. */
+  job?: JobRun,
+): Promise<ImageProbe> {
+  const { log, signal } = jobContext(job);
+  /* An `image` step (epic 37, D3), `head`: what a download would get. */
+  return log.step(
+    "image",
+    { host: hostOf(url), url, mode: "head" },
+    async (step) => {
+      const probe = await headImageFile(url, noteRetry(step, retry), signal);
+      step.set({
+        ...(probe.status !== undefined ? { status: probe.status } : {}),
+        ...(probe.bytes !== undefined ? { bytes: probe.bytes } : {}),
+        ...(probe.contentType ? { type: probe.contentType } : {}),
+      });
+      if (probe.error) step.fail(probe.error);
+      return probe;
+    },
+  );
+}
+
+async function headImageFile(
+  url: string,
+  retry: ForbiddenRetry | undefined,
+  signal: AbortSignal | undefined,
 ): Promise<ImageProbe> {
   let response: Response;
   try {
-    response = await fetchWithRetry(url, { method: "HEAD" }, retry);
+    response = await fetchWithRetry(
+      url,
+      { method: "HEAD", ...(signal ? { signal } : {}) },
+      retry,
+    );
   } catch (error) {
+    if (signal?.aborted) throw error;
     return {
       importUrl: url,
       filename: imageFilename(url),

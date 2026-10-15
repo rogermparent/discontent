@@ -36,12 +36,11 @@ import {
   type ErrorObject,
 } from "recipe-editor/controller/curation/errors";
 import {
-  importList,
-  inspectList,
   type ImportListTermResult,
   type InspectListResult,
 } from "recipe-editor/controller/curation/importList";
 import { parseInput } from "recipe-editor/controller/curation/schema";
+import { corpusOf, runSpec } from "recipe-editor/controller/jobs/kinds";
 import { listTerms } from "recipe-editor/controller/curation/terms";
 import {
   ROUNDUP_CHUNK,
@@ -75,7 +74,13 @@ export async function inspectRoundupAction(
     if (typeof url !== "string" || !url.trim()) {
       throw new ValidationError("Paste the roundup's URL.");
     }
-    return { result: await inspectList(ctx, url.trim()) };
+    /* A job (epic 37): the result carries its `job` id. */
+    return {
+      result: await runSpec(
+        { kind: "inspect-list", ...corpusOf(ctx), url: url.trim() },
+        { ctx },
+      ),
+    };
   } catch (error) {
     return failure(error);
   }
@@ -120,13 +125,22 @@ export async function importRoundupAction(
       ? resolveTermSlug((await listTerms(ctx)).terms, input.term)
       : undefined;
     const termLabel = (term && input.termLabel) || undefined;
-    const result = await importList(ctx, input.url, {
-      /* Back as the seat hands out `remaining`: checked against the list. */
-      pick: input.picks.map(({ n, url }) => ({ n, url })),
-      limit: ROUNDUP_CHUNK,
-      ...(term ? { term } : {}),
-      ...(termLabel ? { termLabel } : {}),
-    });
+    /* A job (epic 37), one per chunk. */
+    const result = await runSpec(
+      {
+        kind: "import-list",
+        ...corpusOf(ctx),
+        url: input.url,
+        options: {
+          /* Back as the seat hands out `remaining`: checked against the list. */
+          pick: input.picks.map(({ n, url }) => ({ n, url })),
+          limit: ROUNDUP_CHUNK,
+          ...(term ? { term } : {}),
+          ...(termLabel ? { termLabel } : {}),
+        },
+      },
+      { ctx },
+    );
     const settled = settleChunk(input.picks, result);
     const warnings = [
       ...(result.warnings ?? []),

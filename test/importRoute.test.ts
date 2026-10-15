@@ -106,7 +106,11 @@ describe("/api/import with pasted text (36c)", () => {
         source: { url: "https://www.youtube.com/watch?v=OLD1" },
       },
     });
-    expect(fetchStub).toHaveBeenCalledTimes(1);
+    /* One model call; the route runs it as a job (epic 37), which also asks
+     * Ollama's /api/ps where the model sits (D6) — nothing else is fetched. */
+    expect(
+      fetchStub.mock.calls.map(([input]) => new URL(String(input)).pathname),
+    ).toEqual(["/api/chat", "/api/ps"]);
   });
 
   it("creates from {text} with 201", async () => {

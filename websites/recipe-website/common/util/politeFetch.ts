@@ -71,10 +71,27 @@ export function forbiddenRetryFromEnv(
   };
 }
 
+/** Wait `ms`, or reject with the signal's reason once it aborts. */
+function delay(ms: number, signal: AbortSignal | null | undefined) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", stop);
+      resolve();
+    }, ms);
+    const stop = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    signal?.addEventListener("abort", stop, { once: true });
+  });
+}
+
 /**
  * `fetch(url, init)`, and on a 403 one more try with `retryHeaders` — after
  * the delay, unless retrying is off. Explicit `retry` fields beat the
  * environment's. The page fetch and the image download share it.
+ * `init.signal` aborts the delay too.
  */
 export async function fetchRetrying403(
   url: string,
@@ -93,8 +110,9 @@ export async function fetchRetrying403(
   if (retry.beforeRetry) {
     await retry.beforeRetry();
   } else if (delayMs > 0) {
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    await delay(delayMs, init.signal);
   }
+  init.signal?.throwIfAborted();
   const retried = await fetch(url, { ...init, headers: retryHeaders });
   retry.afterRetry?.(retried);
   return retried;

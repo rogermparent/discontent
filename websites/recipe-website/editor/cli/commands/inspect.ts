@@ -13,6 +13,7 @@ import { resolveUserPath } from "../input";
 import { formatJsonBlock, formatLlm, formatWarnings } from "../output";
 import {
   LLM_OPTION,
+  VERBOSE_OPTION,
   LLM_USAGE,
   llmOption,
   stringOption,
@@ -29,10 +30,11 @@ export async function writeDraft(file: string, draft: unknown): Promise<void> {
 
 export const inspectCommand: CommandDef<InspectResult> = {
   name: "inspect",
-  usage: `recipes inspect <url> [--out draft.json] ${LLM_USAGE}`,
+  usage: `recipes inspect <url> [--out draft.json] ${LLM_USAGE} [--verbose]`,
   options: {
     out: { type: "string" },
     ...LLM_OPTION,
+    ...VERBOSE_OPTION,
   },
   async run({ backend, positionals, options }) {
     const url = positionals[0];
@@ -61,6 +63,7 @@ export const inspectCommand: CommandDef<InspectResult> = {
         : undefined,
       formatLlm(result.llm),
       ...formatWarnings(result.warnings),
+      result.job ? `job: ${result.job}` : undefined,
       result.ytdlp ? `yt-dlp: ${result.ytdlp}` : undefined,
       result.video
         ? `video: ${result.video.title} (${result.video.channel ?? "?"}, ${result.video.duration}s, ${result.video.chapters.length} chapters)`

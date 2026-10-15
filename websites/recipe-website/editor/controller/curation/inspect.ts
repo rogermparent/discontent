@@ -22,14 +22,13 @@
  * are more.
  */
 import {
-  fetchRecipePage,
   isVideoUrl,
-  mapRecipePage,
-  parseRecipePage,
   type ImageCandidate,
   type ImportedRecipe,
   type JsonLdNode,
 } from "recipe-website-common/util/importRecipeData";
+import { jobContext, type JobRun } from "../jobs/context";
+import { fetchPageStep, parsePage } from "../jobs/steps";
 import type { PageMeta } from "recipe-website-common/util/pageMetadata";
 import {
   applyLlm,
@@ -69,6 +68,8 @@ export interface InspectVideo {
 }
 
 export interface InspectResult {
+  /** The job that ran it (epic 37): `recipes jobs show <job>` has its steps. */
+  job?: string;
   url: string;
   finalUrl: string;
   /** The page's HTTP status; absent when only yt-dlp was asked. */
@@ -225,12 +226,17 @@ function toVideo(meta: YtdlpMetadata): InspectVideo {
 export async function inspectUrl(
   rawUrl: string,
   { llm: mode }: { llm?: LlmMode } = {},
+  run?: JobRun,
 ): Promise<InspectResult> {
+  const job = jobContext(run);
   const url = rawUrl.split("#")[0];
   let ytdlpNote: string | undefined;
 
   if (isVideoUrl(url)) {
-    const result = await fetchYtdlpMetadata(url, videoFetchOptions(mode));
+    const result = await fetchYtdlpMetadata(url, {
+      ...videoFetchOptions(mode),
+      job,
+    });
     if (result.status === "success") {
       const applied = await applyLlm({
         url,
@@ -239,6 +245,7 @@ export async function inspectUrl(
         mode,
         /* 36e: one video, several recipes. */
         split: true,
+        job,
       });
       /* `ytdlpToRecipe` always names the video, so a recipe comes back. The
        * video's tags (36d) are top-level here, as a page's keywords are. */
@@ -281,20 +288,26 @@ export async function inspectUrl(
     /* On the per-site queue (34f): polite after a roundup call, too. */
     page = await pacedRequest(
       url,
-      (retry) => fetchRecipePage(url, retry),
+      (retry) => fetchPageStep(url, retry, job),
       (fetched) => fetched.finalUrl,
+      job,
     );
   } catch (error) {
+    if (job.signal?.aborted) throw error;
     throw new ImportError(
       `Could not fetch ${url}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  const parsed = parseRecipePage(page.html, page.finalUrl);
+  const { parsed, mapped: mappedPage } = await parsePage(url, page, {
+    base: page.finalUrl,
+    job,
+  });
   const applied = await applyLlm({
     url,
     source: { html: page.html, ok: page.ok, meta: parsed.meta },
-    mapped: mapRecipePage(url, parsed, { ok: page.ok }),
+    mapped: mappedPage,
     mode,
+    job,
   });
   const recipe = applied.recipe;
   /* `images` and `suggestedTags` ride on the mapped recipe for the form; here
