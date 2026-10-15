@@ -28,6 +28,11 @@ function plural(count: number, noun: string): string {
  * the site linked to it. The other three are outline buttons to places the
  * masthead or footer also reach, here because a homepage is a list of doors.
  * All four exist in both apps; nothing here reads a session.
+ *
+ * **Links in a `div`, not a list.** Specs count the page's `listitem`s
+ * unscoped right after a write redirects to `/` (`featured-recipes.spec.ts`'s
+ * "feature again" expects only the strips' cards), and four more here would
+ * break them for no reader's benefit: a `nav` of four links reads fine.
  */
 export function HomeActions({
   recipeCount,
@@ -44,40 +49,32 @@ export function HomeActions({
           {groupCount > 0 && <> · {plural(groupCount, "group")}</>}
         </p>
       )}
-      <ul className="flex flex-row flex-wrap items-center gap-2">
-        <li>
-          <Button asChild>
-            <Link href="/make">
-              <CookingPotIcon aria-hidden />
-              What can I make?
-            </Link>
-          </Button>
-        </li>
-        <li>
-          <Button asChild variant="outline">
-            <Link href="/search">
-              <SearchIcon aria-hidden />
-              Search
-            </Link>
-          </Button>
-        </li>
-        <li>
-          <Button asChild variant="outline">
-            <Link href="/recipes">
-              <BookOpenIcon aria-hidden />
-              All recipes
-            </Link>
-          </Button>
-        </li>
-        <li>
-          <Button asChild variant="outline">
-            <Link href="/groups">
-              <LayersIcon aria-hidden />
-              Groups
-            </Link>
-          </Button>
-        </li>
-      </ul>
+      <div className="flex flex-row flex-wrap items-center gap-2">
+        <Button asChild>
+          <Link href="/make">
+            <CookingPotIcon aria-hidden />
+            What can I make?
+          </Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link href="/search">
+            <SearchIcon aria-hidden />
+            Search
+          </Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link href="/recipes">
+            <BookOpenIcon aria-hidden />
+            All recipes
+          </Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link href="/groups">
+            <LayersIcon aria-hidden />
+            Groups
+          </Link>
+        </Button>
+      </div>
     </nav>
   );
 }
