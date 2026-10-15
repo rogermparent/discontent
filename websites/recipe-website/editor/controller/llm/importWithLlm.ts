@@ -19,6 +19,9 @@
  *   empty page) is a warning and `llm.error`, and the mapper's result stands.
  * - **off**: never.
  *
+ * Pasted text (D8, 36c) is `readPastedText`: `force` over nothing mapped,
+ * where every way of not getting a recipe is an `ImportError`.
+ *
  * Image, video, source and `suggestedTags` always stay the page's: the model
  * reads text, and what it would say about pictures or provenance is a guess.
  * An empty ingredient or step list from the model never replaces the page's.
@@ -46,7 +49,11 @@ import type {
   ImportedRecipe,
   ParsedRecipePage,
 } from "recipe-website-common/util/importRecipeData";
-import { ImportError } from "../curation/errors";
+import { ImportError, ValidationError } from "../curation/errors";
+import {
+  PASTED_TEXT_MAX_CHARS,
+  normalisePastedText,
+} from "../curation/importRequest";
 import {
   LLM_UNCONFIGURED_MESSAGE,
   LlmError,
@@ -378,4 +385,114 @@ export function assertLlmMode(
 /** The model's lines are in the recipe: say so in the commit (D5). */
 export function usedModel(llm: LlmImportInfo | undefined): boolean {
   return !!llm?.found && !llm.discarded;
+}
+
+/* ------------------------------------------------------------------ */
+/* Pasted text (D8, 36c)                                               */
+/* ------------------------------------------------------------------ */
+
+export interface PastedTextInput {
+  /** The recipe's text: a video description, an email, a note. */
+  text: string;
+  /**
+   * Where it came from. Cited as `source` (`buildSource`), and a video URL
+   * (`isVideoUrl`) also sets `video`. Never fetched.
+   */
+  source?: string;
+  /** Defaults to `llmConfig()` (the environment, D1). */
+  config?: LlmConfig;
+  signal?: AbortSignal;
+}
+
+/** What the model made of pasted text: always a recipe, always `llm`. */
+export interface PastedTextReading extends ApplyLlmResult {
+  recipe: Partial<ImportedRecipe>;
+  llm: LlmImportInfo;
+}
+
+/**
+ * A pasted text's source URL as cited: http(s) only, without its fragment
+ * (the URL importer's own rule). An empty string is no source.
+ */
+export function pastedSourceUrl(
+  source: string | undefined,
+): string | undefined {
+  const trimmed = source?.trim();
+  if (!trimmed) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new ValidationError(`"${trimmed}" is not a URL`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new ValidationError(`"${trimmed}" is not an http(s) URL`);
+  }
+  /* The parsed form, as cited: no fragment (the URL importer's rule). */
+  parsed.hash = "";
+  return parsed.href;
+}
+
+/**
+ * A paste cut in the middle (`capText`, past `PAGE_TEXT_MAX_CHARS`): what
+ * the model did not read, as a note for the warnings and the failure (36c
+ * review). An email thread with the recipe in a quoted middle part would
+ * otherwise read as "found no recipe" with no hint why.
+ */
+export function pastedTextCutNote(
+  length: number,
+  kept: { head: number; tail: number },
+): string {
+  const k = (chars: number) => `~${Math.max(1, Math.round(chars / 1000))}k`;
+  return `the text is ${length} characters; the model read the first ${k(kept.head)} and the last ${k(kept.tail)} — paste just the recipe`;
+}
+
+/**
+ * Read a pasted recipe with the local model (D8): the text mode of every
+ * surface — the `import` seat's `importFromText`, the form's "Paste text"
+ * tab — goes through here.
+ *
+ * It is `applyLlm` under `force` with nothing mapped: the same extractor,
+ * cap, D4 grounding (against the pasted text) and 36b floor. What differs is
+ * that there is nothing to fall back to, so every way of not getting a
+ * recipe is an `ImportError` (`import_failed`): no model configured, a
+ * failed call, `found: false`, or a reading under `GROUNDED_FLOOR`. Between
+ * the floor and D4's 90% the recipe comes back `partial`, as a page's does.
+ */
+export async function readPastedText({
+  text,
+  source,
+  config = llmConfig(),
+  signal,
+}: PastedTextInput): Promise<PastedTextReading> {
+  const normalised = normalisePastedText(text);
+  if (!normalised.trim()) {
+    throw new ValidationError("No text to import: paste the recipe's text.");
+  }
+  if (normalised.length > PASTED_TEXT_MAX_CHARS) {
+    throw new ValidationError(
+      `The text is ${normalised.length} characters; a pasted recipe can be at most ${PASTED_TEXT_MAX_CHARS}.`,
+    );
+  }
+  const url = pastedSourceUrl(source);
+  if (!config) throw new ImportError(LLM_UNCONFIGURED_MESSAGE);
+  /* The extractor caps the text the same way; this only says so. */
+  const { capText } = await import("recipe-website-common/util/pageText");
+  const { kept } = capText(normalised);
+  const cutNote = kept ? pastedTextCutNote(normalised.length, kept) : undefined;
+  const applied = await applyLlm({
+    url,
+    source: { text: normalised },
+    mapped: undefined,
+    mode: "force",
+    config,
+    signal,
+  });
+  const warnings = cutNote ? [...applied.warnings, cutNote] : applied.warnings;
+  if (!applied.recipe || !applied.llm) {
+    throw new ImportError(
+      ["No recipe read from the pasted text", ...warnings].join(" — "),
+    );
+  }
+  return { ...applied, warnings, recipe: applied.recipe, llm: applied.llm };
 }

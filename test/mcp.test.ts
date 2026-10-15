@@ -931,6 +931,93 @@ describe("the MCP registry over an in-memory transport", () => {
     }
   });
 
+  /* 36c: pasted text through recipe_import — no new tool. */
+  it("imports pasted text through recipe_import, exactly one of url or text (36c)", async () => {
+    const model = "http://model.test:11434";
+    vi.stubEnv("RECIPE_LLM_URL", model);
+    const fetchStub = vi.fn(async (input: string | URL) =>
+      String(input).startsWith(model)
+        ? new Response(
+            JSON.stringify({
+              model: "qwen3:8b",
+              done: true,
+              message: {
+                role: "assistant",
+                content: JSON.stringify({
+                  found: true,
+                  name: "Old Scones",
+                  ingredients: ["2 cups flour", "3/4 cup cream"],
+                  instructions: ["Stir together and bake."],
+                }),
+              },
+            }),
+            { headers: { "content-type": "application/json" } },
+          )
+        : new Response("not here", { status: 404 }),
+    );
+    vi.stubGlobal("fetch", fetchStub);
+    const text = [
+      "Old Scones — subscribe! https://example.com/subscribe",
+      "2 cups flour",
+      "3/4 cup cream",
+      "Stir together and bake.",
+    ].join("\n");
+    try {
+      const dry = await call("recipe_import", {
+        text,
+        source: "https://www.youtube.com/watch?v=OLD1",
+        dryRun: true,
+      });
+      expect(dry.isError).toBe(false);
+      expect(dry.data).toMatchObject({
+        dryRun: true,
+        pastedText: true,
+        url: "https://www.youtube.com/watch?v=OLD1",
+        video: "https://www.youtube.com/watch?v=OLD1",
+        llm: { model: "qwen3:8b", mode: "force", grounded: 2, total: 2 },
+        draft: {
+          name: "Old Scones",
+          ingredients: ["2 cups flour", "3/4 cup cream"],
+        },
+      });
+      /* Only the model was asked: the source URL is never fetched. */
+      expect(
+        fetchStub.mock.calls.every(([url]) => String(url).startsWith(model)),
+      ).toBe(true);
+
+      /* The schema's refusals arrive in the SDK's own shape. */
+      expect(
+        (
+          await call("recipe_import", {
+            url: "https://www.example.com/old-scones",
+            text,
+          })
+        ).isError,
+      ).toBe(true);
+      expect((await call("recipe_import", {})).isError).toBe(true);
+      expect(
+        (await call("recipe_import", { text, llm: "off", dryRun: true }))
+          .isError,
+      ).toBe(true);
+
+      const created = await call("recipe_import", { text });
+      expect(created.isError).toBe(false);
+      expect(created.data).toMatchObject({ slug: "old-scones" });
+      expect((await call("recipe_list")).data.total).toBe(1);
+
+      vi.stubEnv("RECIPE_LLM_URL", "");
+      expect(
+        await callError("recipe_import", { text, dryRun: true }),
+      ).toMatchObject({
+        code: "import_failed",
+        message: "no local model configured (RECIPE_LLM_URL)",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+
   /* 34f: roundup import. Loopback URLs, so the default pacing never waits. */
   it("inspects a roundup and imports its picks with a term (34f)", async () => {
     const origin = "http://127.0.0.1:9";

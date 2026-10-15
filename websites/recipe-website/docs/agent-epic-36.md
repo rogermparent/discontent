@@ -13,7 +13,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 36b in review (PR open); 36c (text mode) next.
+**Now:** epic 36 is **closed** (2026-10-15): the extractor (36a, #231), the `--llm` mode on every import surface (36b, #232), and the pasted-text import with this close-out (36c + 36-close, #233). What remains is the morning checklist in Close-out (Roger: `RECIPE_LLM_URL` in `editor/.env`, then `pnpm workstation update`).
 
 ## Context
 
@@ -178,9 +178,9 @@ fetch work the same way.
 | -------- | -------------------- | ---- | ------- | ---------------------------------------------------------------- |
 | 36-plan  | `agent/36-plan`      | S    | ✅ #230 | This doc.                                                        |
 | 36a      | `agent/36a-llm-core` | M    | ✅ #231 | D1, D2, D4, D6, D7: `pageText`, the client, the extractor, gate. |
-| 36b      | `agent/36b-llm-wire` | M    | 🟡      | D3, D5: `applyLlm` in seats, form, CLI, API, MCP; Settings line. |
-| 36c      | `agent/36c-llm-text` | M    | 📝      | D8: text import mode in the form, CLI, API, MCP.                 |
-| 36-close | `agent/36-close`     | S    | 📝      | Results, D12/SKILL.md updates, backlog, memory, Roger's steps.   |
+| 36b      | `agent/36b-llm-wire` | M    | ✅ #232 | D3, D5: `applyLlm` in seats, form, CLI, API, MCP; Settings line. |
+| 36c      | `agent/36c-llm-text` | M    | ✅ #233 | D8: text import mode in the form, CLI, API, MCP.                 |
+| 36-close | `agent/36c-llm-text` | S    | ✅ #233 | Results, D12/SKILL.md updates, backlog, memory, Roger's steps.   |
 
 Ordering: strictly sequential — 36b needs 36a's extractor, 36c needs 36b's
 plumbing (`ImportOptions`, the zod bodies, the form). 36-close after 36c.
@@ -445,6 +445,71 @@ off` created it. The rule now: under auto, a result that was not partial
   force, `ingredients: []` has `total = 0`, so the floor never fires, and
   the merge replaced the schema's list with `[]` (steps likewise). The
   merge keeps the page's list when the model's is empty, and says so.
+
+### 36c
+
+- **T23 — A source URL changes the reading** (T1 again). The pasta salad
+  pasted alone came back 27/27 verbatim with both "Pasta Salad:" and
+  "Dressing:"; with `--source <its YouTube URL>` the prompt gains one
+  "Source URL:" line, and the same text came back without the "Pasta
+  Salad:" heading and with "50g-75g pepperoncini" garbled to "50g-7,
+  pepperoncini" (25/26, still trusted; `fillSkippedLines` put the source
+  line back). The pizza was identical either way. Don't read a difference
+  between two runs as a regression of the source path.
+- **T24 — An unnumbered, lower-case method stays one step.** Aunt Carol's
+  emailed chili ("brown the chicken … take it out. cook the onion …") came
+  back as a single five-sentence step, despite the prompt's "split it at
+  sentence boundaries" rule. D4 grounds ingredients only and one step
+  counts, so it is trusted. A deterministic sentence split would fix it;
+  not done (a prompt edit is T1's gamble, and a split rule has to step
+  around abbreviations like "min." and "approx.").
+- **T25 — Names come back as the text writes them.** Lagerstrom's
+  descriptions head the recipe "DRUNKEN NOODLES RECIPE:" and "PEANUT BUTTER
+  COOKIE RECIPE:", and that is the name. `--name` (or the form's Name
+  field) is the fix; not normalised, since a case rule would mangle real
+  capitals.
+- **T26 — "Takes about an hour all in" became `prepTime` 60**, not
+  `totalTime`. The prompt says "as the text labels them"; an unlabelled
+  time is a guess either way. "Check it".
+- **T27 — React 19 resets an uncontrolled form after its action.** The
+  "Paste text" box and its source field are controlled (`useState`) so a
+  failed import (no recipe found, model unreachable) keeps the paste; the
+  URL field stays uncontrolled as before.
+- **T28 — A schema refusal on `recipe_import` is the SDK's shape.** `url`
+  and `text` together, or neither, or `llm` with `text`, fail in
+  `ImportRequestSchema`'s refine, which the MCP SDK answers as its own
+  `isError` text (as for any schema error, `mcp.test`'s "hash the schema
+  rejects"), not `{error: {code}}`. `/api/import` answers it as
+  `validation` with the issue paths.
+- **T29 — The `/new-recipe` baselines moved again** (T17): the URL / Paste
+  text radio row sits above the URL field.
+- **T30 — A copied card's colon-less sub-heading is an ingredient.**
+  Sally's card text, copied, reads "Icing" on its own line; the model
+  copied it verbatim (as told) without the colon D7 asks headings to end
+  with, so `createIngredient` made it an ingredient. On a page the same
+  card has an `<h4>` and `pageText` keeps it a markdown heading, which the
+  extractor turns into a heading line (36a step 4); pasted plain text has
+  no such mark. Delete it in the form, or add the colon before pasting.
+- **T31 — A long paste lost its middle silently** (review). `capText` keeps
+  the first ~3k and the last ~21k characters of anything over 24k, so an
+  email thread whose recipe sits in a quoted middle part read as "found no
+  recipe". The cut is now said, in the warnings and in the failure.
+- **T32 — `JSON.stringify` is not an HTML escape** (review, pre-existing).
+  `RecipeJsonLD` put `JSON.stringify(recipe)` into a `<script>` through
+  `dangerouslySetInnerHTML`; a name holding `</script>` closed the tag — a
+  stored XSS reachable from any imported page, and now from a pasted
+  text's first line. `serializeJsonLD` escapes `<`, `>`, `&` as `<`
+  etc. It was the only `ld+json` renderer; the other inline sinks (theme
+  CSS, pre-paint scripts) are built from derived colours and fixed code.
+- **T33 — An old editor answers `text` as a zod issue** (review). The
+  pre-36c `/api/import` body is a `strictObject({url, …})`: a `--remote`
+  `--text` against it came back as "Invalid input" with an `Unrecognized
+key: "text"` issue. The HTTP backend now names the cause.
+- **T34 — Mocking `apiContext` makes a route testable** (review). A route
+  under `src/app/api` imports `recipe-editor/controller/apiContext`, which
+  pulls in `next/cache`; `vi.mock` of that one module (returning a tmpdir
+  context) lets `test/importRoute.test.ts` call `POST` directly, and the
+  same handler can sit behind a 127.0.0.1 server for the HTTP backend.
 
 ## Results
 
@@ -827,3 +892,228 @@ source, `videoSource` and the result's `llm` / `warnings` are what the
 says nothing of the model (the form's create is the person's edit, not an
 import); the `import-list` human format prints no per-item `llm` line
 (`--json` carries it).
+
+### 36c — Text import mode
+
+**Reindex needed: no.** No index, schema or spec version changed; a pasted
+import stores an ordinary recipe (D5).
+
+**Built.**
+
+- `readPastedText({text, source?, config?})` in
+  `controller/llm/importWithLlm.ts` — the one reading of pasted text, used
+  by the seat and the form. It is `applyLlm` under `force` with nothing
+  mapped: the same extractor, `capText` cap, D4 grounding (against the
+  pasted text, "in the text" in the warnings) and 36b's 50% floor. With
+  nothing to fall back to, every way of not getting a recipe is
+  `import_failed`: no model ("no local model configured (RECIPE_LLM_URL)",
+  before any request), a failed call ("local model failed: …"), `found:
+false` and a discarded reading ("No recipe read from the pasted text —
+  <the warning>"). Between 50% and 90% the recipe is `partial`, so a create
+  needs `allowPartial`, as for a page. Empty text, text over
+  `PASTED_TEXT_MAX_CHARS` (100 000; the model still sees at most 24k) and a
+  source that is not an http(s) URL are `validation`. CRLF is normalised.
+  `pastedSourceUrl` drops the fragment (the URL importer's rule); the
+  extractor cites it with `buildSource` and a video URL also sets
+  `videoImportUrl`. **Nothing is fetched from the source** — no image
+  either. The name is the model's, else the text's first non-empty line
+  (36a's `firstLine`); `--name` wins.
+- **Seat:** `importFromText(ctx, {text, source?, …})` in
+  `curation/importRecipe.ts`, beside `importAndCreate`; both now end in one
+  private `finishImport` (the `partial` gate, the dry run and its draft, the
+  create), so the two cannot drift. A create commits `Create recipe:
+<slug> (local model, pasted text)` (36b's `commitNote`). A dry run carries
+  `pastedText: true` and `url` only when a source was given
+  (`ImportDryRunResult.url` is now optional).
+- **One request schema:** `controller/curation/importRequest.ts`
+  (`ImportRequestSchema`, `importTarget`) — `zod` and the mode names only,
+  so the MCP server's startup is unchanged (35q). Exactly one of `url` /
+  `text`; `source` only with `text`; `llm` only with `url` (text always
+  uses the model). `/api/import` and MCP `recipe_import` both use it.
+- **CLI:** `recipes import --text <file|-> [--source <url>]` with `--tags`,
+  `--slug`, `--name`, `--image`, `--dry-run [--out]`, `--overwrite`,
+  `--allow-partial` as for a URL. A URL and `--text` together, `--source`
+  without `--text`, `--llm` with `--text`: `usage`. `-` reads stdin
+  (`readTextInput` in `cli/input.ts`; an unreadable file or empty text is
+  `validation`). The human format says `dry run: pasted text (source …)`.
+  `--help` has the usage line and a paragraph.
+- **Backends:** `CuratorBackend.importText(text, ImportTextOptions)`; the
+  local one calls the seat, the HTTP one posts `{text, source?, …}` to
+  `/api/import`.
+- **MCP:** `recipe_import` takes `text` (+ `source`) as the alternative to
+  `url`; title "Import a recipe from a URL or pasted text", description
+  extended. Tool count unchanged (55).
+- **Form (`/new-recipe`):** "URL" / "Paste text" radio buttons in a
+  fieldset (legend "Import from", screen-reader only) above the import
+  field. "Paste text" is disabled with "— No local model configured" when
+  `llmConfig()` is empty, as the "Extract with AI" box is. The text tab
+  shows a "Recipe text" textarea and a "Source URL (optional)" field
+  (controlled, T27); the action branches on `importMode=text` to
+  `reduceTextImport` (`new-recipe/common.tsx`), which calls
+  `readPastedText` and fills the form as a URL import does. Pending note
+  "Reading the text with qwen3:8b… (the first use loads the model,
+  ~10 s)"; the warnings go to the same `llm-notice`. `RecipeActionState`
+  gains `key` (a pasted import has no URL to remount the form with).
+
+**Real model** (qwen3:8b on the workstation's Ollama, one call at a time;
+`recipes import --text … --dry-run --json --content-dir <absolute scratch
+clone>`, 2026-10-15; the clone was deleted after). The five Lagerstrom
+descriptions are 36a's cached yt-dlp metadata (not fetched again), pasted
+as the raw description; the Sally's recipe is 36a's cached Iced Oatmeal
+Cookies page reduced to its card's text, as a person copying it would get
+(ratings line, "Print Recipe", "Cook Mode" and all); the email is written
+for the check — a reply chain, "Sent from my iPhone" and a realtor's
+signature around Aunt Carol's white chicken chili.
+
+| pasted text                              | trusted | grounded (verbatim)    | ingredients / steps | headings                         | source / video       | model s     |
+| ---------------------------------------- | ------- | ---------------------- | ------------------- | -------------------------------- | -------------------- | ----------- |
+| Lagerstrom drunken noodles (cold model)  | yes     | 15/16 (15), 1 put back | 16 / 10             | –                                | –                    | 24.2 (cold) |
+| Lagerstrom drunken noodles               | yes     | 15/16 (15), 1 put back | 16 / 10             | –                                | –                    | 17.0        |
+| Lagerstrom pasta salad                   | yes     | 27/27 (27), 1 put back | 28 / 8              | Pasta Salad:, Dressing:          | –                    | 16.8        |
+| same, `--source` its YouTube URL (stdin) | yes     | 25/26 (25), 2 put back | 27 / 8              | Dressing: (T23)                  | YouTube, `video` set | 16.3        |
+| Lagerstrom Neapolitan pizza              | yes     | 14/14 (14)             | 14 / 8              | Dough:, Tomato Sauce:, Toppings: | –                    | 19.5        |
+| same, `--source` its YouTube URL (stdin) | yes     | 14/14 (14)             | 14 / 8              | the same                         | YouTube, `video` set | 19.5        |
+| Lagerstrom peanut butter cookies         | yes     | 14/14 (14)             | 14 / 10             | –                                | –                    | 14.9        |
+| Lagerstrom cast-iron focaccia            | yes     | 7/7 (7)                | 7 / 16              | –                                | –                    | 13.8        |
+| Sally's Iced Oatmeal Cookies (card text) | yes     | 16/16 (16)             | 16 / 8              | "Icing" as a line (T30)          | `--source` the page  | 21.0        |
+| Emailed white chicken chili              | yes     | 12/12 (12)             | 12 / 1 (T24)        | –                                | –                    | 7.0         |
+
+- **No marketing line survived**: no URL, sponsor read (the noodles' David
+  protein plug), "WATCH NEXT", gear list, Amazon disclosure, chapter
+  timestamp, "MUSIC: EPIDEMIC SOUND", blog link, email header, quoted
+  reply, "Sent from my iPhone" or signature line became an ingredient or a
+  step — checked by a noise pattern over every line and by reading them.
+- The one ungrounded noodle line is T3's garble ("7,5g (5T) oyster sauce"
+  for "75g (5T)"); `fillSkippedLines` swapped in the source line, so the
+  draft is right and the warning says "found" rather than "verbatim".
+- Sally's: all 15 card ingredients verbatim, yield "28 cookies", times
+  85/12/120 as on the card, the 8 steps. The card's sub-heading "Icing"
+  (no colon, as copied) came back as written — an ingredient line, not a
+  heading — so it is the 16th "ingredient" (T30). The ratings line, "Print
+  Recipe" and "Cook Mode" were skipped.
+- The email: yield "feeds a crowd, 8 or so", every ingredient verbatim
+  ("salt and pepper", "a handful of cilantro" included), name "CAROL'S
+  WHITE CHICKEN CHILI"; one step (T24); `prepTime` 60 (T26).
+- Names: "Pasta Salad", "Neapolitan pizza", "Cast-Iron Focaccia" read well;
+  "DRUNKEN NOODLES RECIPE" and "PEANUT BUTTER COOKIE RECIPE" are the
+  description's own headers (T25).
+
+**Gates.** `pnpm --filter recipe-editor typecheck` clean;
+`pnpm --filter recipe-website exec tsc --noEmit` clean; `pnpm exec vitest
+run` 80 files / 1706 tests passed (new: `test/importRequest.test.ts`, 5 —
+the body's url/text/source/llm rules and `importTarget`; `curation` +7 —
+a pasted description trusted and created with no source, a source URL
+cited and a video URL as the video with no request to either, 3/4 partial
+gated by `allowPartial` and 1/4 `import_failed`, `found: false` and
+unreachable, unconfigured with no request, the first-line name and
+`--name`, empty text; `mcp` +1 — `text` + `source` dry run, creates, the
+refusals, unconfigured; `cliJson` +1 — `--text -` from stdin with
+`--source`, `--text <file>` creating with the "(local model, pasted text)"
+commit, URL + `--text`, `--source` alone, `--llm` with `--text`, empty
+stdin, no model). Playwright (build mode, heavy slot): the two `/new-recipe`
+baselines regenerated first (T29; `visual.spec -g "new-recipe form"
+--update-snapshots`, 2 passed), then `new-recipe.spec` (+1: "Paste text"
+disabled with "No local model configured", the URL field still there),
+`visual.spec`, `accessibility.spec`, `import-roundup.spec`,
+`settings-nav.spec`: **101 passed**.
+
+**Review round** (9 findings, none blocking; fixed in two commits — the
+JSON-LD escape on its own):
+
+1. **A cut paste says so** (T31). `capText` reports `kept: {head, tail}`;
+   `readPastedText` adds "the text is N characters; the model read the
+   first ~3k and the last ~21k — paste just the recipe" to the warnings,
+   and to the `import_failed` message when nothing was found.
+2. **"Pasted from (URL, optional)"** replaces "Source URL (optional)", which
+   a substring `getByLabel("Source URL")` and a screen reader confused with
+   the recipe form's own field. No spec or baseline named it.
+3. **An editor from before 36c** answers a `--remote` `--text` with
+   "predates pasted-text import (36c) — update it, or run with
+   --content-dir" (T33).
+4. **The first-line name** skips lines holding `http(s)://`, a leading
+   `m:ss` timestamp or an `@handle`, and is `undefined` when none
+   qualifies; `importedToInput`'s message no longer says "page".
+5. **`--text -` on a terminal** prints "Paste the recipe, then press
+   Ctrl-D" to stderr.
+6. **Form state:** the URL field is controlled, so it survives a switch to
+   Paste text and back; switching mode dismisses the last import's
+   message; the per-import `key` is a UUID (two imports in one millisecond
+   would have shared `Date.now()`).
+7. **Tests at the route:** `test/importRoute.test.ts` (6) calls
+   `/api/import`'s `POST` with `{text, source}` and `{text}` (200 / 201),
+   its refusals (`validation` with the issue path; `import_failed` with no
+   model), `reduceTextImport`'s success and failure paths, and the HTTP
+   backend's `importText` against the real handler on 127.0.0.1 plus a
+   pre-36c editor (T34).
+8. **Nits:** the 100k limit counts the text with CRLF normalised (a refine
+   — a transform would not survive the MCP SDK's JSON Schema), so the HTTP
+   and local paths agree; the cited source is the parsed `href` without its
+   hash ("HTTPS://Example.com/x#c" → "https://example.com/x").
+9. **Security, pre-existing** (T32): `fix(jsonld): escape < in JSON-LD
+script (stored XSS via recipe name)` — `serializeJsonLD`, with
+   `test/recipeJsonLD.test.ts` +2 (the escaped text parses back to the
+   same object; the rendered element has exactly one `</script>`).
+
+Gates after the review: `pnpm --filter recipe-editor typecheck` and
+`pnpm --filter recipe-website exec tsc --noEmit` clean; `pnpm exec vitest
+run` **81 files / 1717 tests** passed (curation +3: the cut note, the name
+skips and `--name`'s message, the normalised source). Playwright (build
+mode, heavy slot) `new-recipe`, `visual`, `accessibility` and `recipe.spec`
+(the one spec that parses the page's JSON-LD): **102 passed**; no baseline
+moved (the renamed label shows only in the Paste text tab).
+
+## Close-out
+
+### What landed (2026-10-15)
+
+| PR   | Phase          | Merge      | Notes                                                                                                                        |
+| ---- | -------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| #230 | 36-plan        | `caf0ce0f` | Plan: D1–D8, Roger's text-mode addition.                                                                                     |
+| #231 | 36a            | `1dffe095` | qwen3:8b passes the gate (100% recall, 100% grounded, median 20.2 s); one review round (line-by-line grounding, T11–T14).    |
+| #232 | 36b            | `647381b4` | `--llm auto\|force\|off` on every import surface, the form toggle, the Tools card; one review round (T21, T22, the env pin). |
+| #233 | 36c + 36-close | –          | Pasted-text import; one review round (9 findings, incl. the pre-existing JSON-LD XSS); this close-out.                       |
+
+Every M PR had a review agent before its first push. **No index, schema or
+spec version changed: no reindex is needed.** Nothing new is stored in a
+recipe (D5); the model's part lives in results, warnings and commit
+messages.
+
+### Traps found at close
+
+- **The Pi stays off by design** (D1): with no `RECIPE_LLM_URL` its form
+  shows "No local model configured" on both the toggle and the Paste text
+  tab, `auto` does nothing, and `force` / `text` are `import_failed`. Not a
+  bug to chase after a deploy.
+- **A model in `editor/.env` reaches every Playwright run** unless the
+  config pins it off (T18) — keep `webServer.env: {RECIPE_LLM_URL: ""}`
+  when touching `playwright.config.ts`.
+- **One GPU, one call at a time.** A scripted run that overlaps the
+  workstation editor's own model call (a form import while a CLI batch
+  runs) queues in Ollama; with `keep_alive` 10 m the second model would
+  not fit 8 GB beside qwen3:8b (T5). Unload with `ollama stop` before
+  switching models.
+- **Route tests need only `apiContext` mocked** (T34) — the pattern for any
+  later `/api/*` test.
+
+### Backlog (new rows in `backlog.md`)
+
+- Photo / recipe-card import with a vision model (qwen2.5vl), a follow-up
+  to D8.
+- The model's readings worth a deterministic fix: names in capitals (T25),
+  "all in" read as prep time (T26), colon-less pasted sub-headings (T30), a
+  `--source` line changing the reading (T23), and an unnumbered method
+  left as one step (T24).
+
+### Morning checklist (Roger)
+
+1. Add `RECIPE_LLM_URL=http://localhost:11434` to
+   `websites/recipe-website/editor/.env` (`RECIPE_LLM_MODEL` defaults to
+   `qwen3:8b`).
+2. **`pnpm workstation update`** from the repo root.
+3. **No Pi deploy needed** for function — the Pi stays "No local model
+   configured" — though deploying keeps the image current.
+4. **No reindex.**
+
+Then, on the workstation: Settings → Tools shows "Local model … reachable";
+`/new-recipe` with a no-schema URL fills the form; "Paste text" with a
+Lagerstrom description fills it with the sections and none of the links.

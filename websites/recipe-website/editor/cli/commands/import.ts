@@ -6,6 +6,7 @@ import {
   formatWarnings,
 } from "../output";
 import type { ImportResult } from "../backend/types";
+import { readTextInput } from "../input";
 import { writeDraft } from "./inspect";
 import {
   LLM_OPTION,
@@ -18,7 +19,7 @@ import {
 
 export const importCommand: CommandDef<ImportResult> = {
   name: "import",
-  usage: `recipes import <url> [--tags a,b] [--slug s] [--name N] [--image <url>] [--dry-run [--out draft.json]] [--overwrite] [--allow-partial] ${LLM_USAGE}`,
+  usage: `recipes import (<url> ${LLM_USAGE} | --text <file|-> [--source <url>]) [--tags a,b] [--slug s] [--name N] [--image <url>] [--dry-run [--out draft.json]] [--overwrite] [--allow-partial]`,
   options: {
     tags: { type: "string" },
     slug: { type: "string" },
@@ -29,11 +30,28 @@ export const importCommand: CommandDef<ImportResult> = {
     overwrite: { type: "boolean" },
     "allow-partial": { type: "boolean" },
     ...LLM_OPTION,
+    /* 36c (D8): a pasted recipe, read by the local model. */
+    text: { type: "string" },
+    source: { type: "string" },
   },
   write: true,
   async run({ backend, positionals, options }) {
     const url = positionals[0];
-    if (!url) throw new UsageError("import needs a URL.");
+    const textFrom = stringOption(options, "text");
+    const source = stringOption(options, "source");
+    if (url && textFrom !== undefined) {
+      throw new UsageError("import takes a URL or --text <file|->, not both.");
+    }
+    if (!url && !textFrom) {
+      throw new UsageError(
+        "import needs a URL, or --text <file|-> for a pasted recipe.",
+      );
+    }
+    if (source !== undefined && textFrom === undefined) {
+      throw new UsageError(
+        "--source is a pasted text's URL: it goes with --text (import a URL directly otherwise).",
+      );
+    }
     const tagsFlag = stringOption(options, "tags");
     const out = stringOption(options, "out");
     const dryRun = booleanOption(options, "dry-run");
@@ -41,7 +59,12 @@ export const importCommand: CommandDef<ImportResult> = {
       throw new UsageError("--out writes a dry run's draft: pass --dry-run.");
     }
     const llm = llmOption(options);
-    const result = await backend.importRecipe(url, {
+    if (llm && textFrom !== undefined) {
+      throw new UsageError(
+        "--llm is for a URL import: --text always uses the local model.",
+      );
+    }
+    const writeOptions = {
       tags: tagsFlag
         ? tagsFlag
             .split(",")
@@ -54,15 +77,25 @@ export const importCommand: CommandDef<ImportResult> = {
       dryRun,
       overwrite: booleanOption(options, "overwrite"),
       allowPartial: booleanOption(options, "allow-partial"),
-      ...(llm ? { llm } : {}),
-    });
+    };
+    const result = textFrom
+      ? await backend.importText(await readTextInput(textFrom), {
+          ...writeOptions,
+          ...(source ? { source } : {}),
+        })
+      : await backend.importRecipe(url, {
+          ...writeOptions,
+          ...(llm ? { llm } : {}),
+        });
     if (out && "dryRun" in result) await writeDraft(out, result.draft);
     return result;
   },
   format(result) {
     if ("dryRun" in result) {
       return [
-        `dry run: ${result.url}`,
+        result.pastedText
+          ? `dry run: pasted text${result.url ? ` (source ${result.url})` : ""}`
+          : `dry run: ${result.url}`,
         `slug: ${result.slug}`,
         result.partial
           ? result.llm?.found && !result.llm.discarded

@@ -259,6 +259,31 @@ export function createHttpBackend({
         body: { url, ...options },
       });
     },
+    async importText(text, options = {}) {
+      try {
+        return await call<ImportResult>("POST", "/api/import", {
+          body: { text, ...options },
+        });
+      } catch (error) {
+        /*
+         * An editor from before 36c knows only `{url}`: its strict body
+         * answers `text` as an unrecognised key. Say what that means.
+         */
+        if (
+          error instanceof CurationError &&
+          error.code === "validation" &&
+          (error.details.issues ?? []).some((issue) =>
+            /unrecognized key.*"text"/i.test(issue.message),
+          )
+        ) {
+          throw new CurationError(
+            "validation",
+            `The editor at ${new URL(root).origin} predates pasted-text import (36c) — update it, or run with --content-dir.`,
+          );
+        }
+        throw error;
+      }
+    },
     inspect(url, options = {}) {
       return call<InspectResult>("POST", "/api/inspect", {
         body: { url, ...options },

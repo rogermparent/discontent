@@ -13,39 +13,47 @@
  * `llm` (36b) is the local model's mode — `auto` (default), `force`, `off` —
  * and a result the model touched carries `llm`. A model call can take most of
  * a minute (the first one loads the model).
+ *
+ * `{text, source?}` in place of `{url}` (36c, D8) is a pasted recipe — a
+ * YouTube description, an email — read by the local model (`importFromText`);
+ * `source` is cited and never fetched. The body is `ImportRequestSchema`,
+ * shared with the MCP `recipe_import` tool.
  */
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
 import {
   errorResponse,
   readJsonBody,
 } from "recipe-editor/controller/curation/http";
-import { importAndCreate } from "recipe-editor/controller/curation/importRecipe";
+import {
+  importAndCreate,
+  importFromText,
+} from "recipe-editor/controller/curation/importRecipe";
+import {
+  ImportRequestSchema,
+  importTarget,
+} from "recipe-editor/controller/curation/importRequest";
 import { ValidationError } from "recipe-editor/controller/curation/errors";
-import { z } from "zod";
 import { parseInput } from "recipe-editor/controller/curation/schema";
-import { LLM_MODES } from "recipe-editor/controller/llm/mode";
-
-const ImportBodySchema = z.strictObject({
-  url: z.string().min(1, "An import needs a url"),
-  tags: z.array(z.string()).optional(),
-  slug: z.string().optional(),
-  name: z.string().optional(),
-  image: z.string().optional(),
-  dryRun: z.boolean().optional(),
-  overwrite: z.boolean().optional(),
-  allowPartial: z.boolean().optional(),
-  llm: z.enum(LLM_MODES).optional(),
-});
 
 export async function POST(request: Request) {
   try {
     const ctx = await requireCurationContext(request);
-    const body = parseInput(ImportBodySchema, await readJsonBody(request));
-    const { url, ...options } = body;
-    if (!URL.canParse(url)) {
-      throw new ValidationError(`"${url}" is not a URL`);
+    const target = importTarget(
+      parseInput(ImportRequestSchema, await readJsonBody(request)),
+    );
+    let result;
+    if (target.kind === "text") {
+      result = await importFromText(ctx, {
+        text: target.text,
+        source: target.source,
+        ...target.options,
+      });
+    } else {
+      if (!URL.canParse(target.url)) {
+        throw new ValidationError(`"${target.url}" is not a URL`);
+      }
+      result = await importAndCreate(ctx, target.url, target.options);
     }
-    const result = await importAndCreate(ctx, url, options);
     return Response.json(result, {
       status: "dryRun" in result && result.dryRun ? 200 : 201,
     });

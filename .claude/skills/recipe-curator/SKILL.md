@@ -168,16 +168,47 @@ run** created (`dryRun` works there too); `recipe_create` also takes a
 dictated recipe.
 
 **Video recipes.** A YouTube URL's `page_inspect` carries `video.description`
-(often the full ingredient list and method) and `video.chapters`. Build
-`ingredients` and `instructions` from those, keep the draft's `name`,
-channel `source` and thumbnail image, and keep `videoImportUrl` — the page
-embeds the video. Use one only when the ask allows videos.
+(often the full ingredient list and method) and `video.chapters`. When the
+server has a local model, `auto` mode has usually filled the draft's
+`ingredients` and `instructions` from the description already (the result
+carries `llm`, below) — check them against `video.description` rather than
+rebuilding them. Otherwise build them from the description and chapters.
+Keep the draft's `name`, channel `source` and thumbnail image, and keep
+`videoImportUrl` — the page embeds the video. Use one only when the ask
+allows videos.
 
-**Partial pages.** `partial: true` means the page has no Recipe JSON-LD: the
-draft is only its title, description, best image and source. Either read the
-page yourself (WebFetch) and fill in `ingredients` and `instructions` before
-creating — the citation stays the draft's `source` — or skip it and say so in
-the report. Never create a recipe with no ingredients.
+**A result with `llm`** (on `page_inspect`, `recipe_import` and their drafts)
+was read by the server's local model. `llm.grounded`/`llm.total` is how many
+of its ingredient lines were found word for word on the page, and the
+`warnings` say what to check: **spot-check the lines and steps against the
+page** before creating. `partial: true` still means "not trustworthy" — a
+model reading under 90% grounded stays partial. `llm.discarded` means its
+reading was thrown away (under half grounded) and the draft is the page's
+own. For a page whose Recipe JSON-LD is wrong or empty, pass `"llm":
+"force"` to have the model read the page instead of the schema.
+
+**Partial pages.** `partial: true` with no `llm` (no model configured, as on
+the Pi) or with `llm.discarded` means the draft is only the page's title,
+description, best image and source. Either read the page yourself (WebFetch)
+and fill in `ingredients` and `instructions` before creating — the citation
+stays the draft's `source` — or skip it and say so in the report. Never
+create a recipe with no ingredients.
+
+**Pasted text.** When the person pastes a recipe — a YouTube description, an
+email, a note — import it as text, not by retyping it:
+
+```json
+recipe_import {"text": "…the pasted text…", "source": "https://www.youtube.com/watch?v=…", "dryRun": true}
+```
+
+The local model keeps the ingredients and steps and skips links, sponsors
+and timestamps; `source` (optional) cites where it came from — a video URL
+also becomes the recipe's video — and is never fetched. Exactly one of `url`
+or `text`. It needs the local model: without one it is `import_failed`
+("no local model configured"), and so is a text with no recipe in it. Check
+the draft's name (descriptions often shout it: "DRUNKEN NOODLES RECIPE") and
+pass `name`; a sub-heading pasted without its colon ("Icing") arrives as an
+ingredient line — fix it in a `recipe_create` from the draft.
 
 **Fixing an image later:**
 
@@ -516,7 +547,9 @@ wait and run the same command once more, as with the tool.
 - `page_inspect` → `pnpm --silent recipes inspect <url> --json` (`--out d.json`
   writes just the draft);
 - `recipe_import {dryRun}` → `pnpm --silent recipes import <url> --dry-run --out d.json --json`
-  (`--image <url>` picks another image);
+  (`--image <url>` picks another image; `--llm force` as `llm: "force"`);
+  `recipe_import {text, source?, dryRun}` → write the text to a file, then
+  `pnpm --silent recipes import --text t.txt [--source <url>] --dry-run --out d.json --json`;
 - `recipe_create {recipe, dryRun}` → `pnpm --silent recipes create --file d.json --dry-run --json`,
   then the same without `--dry-run`;
 - `page_inspect_list` → `pnpm --silent recipes inspect-list <url> --json`;

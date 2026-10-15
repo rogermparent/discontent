@@ -1509,7 +1509,33 @@ Sprinkle`,
         const toggle = page.getByLabel("Extract with AI (local model)");
         await expect(toggle).toBeDisabled();
         await expect(toggle).not.toBeChecked();
-        await expect(page.getByText("No local model configured")).toBeVisible();
+        await expect(
+          page
+            .locator("label")
+            .filter({ has: toggle })
+            .getByText("No local model configured"),
+        ).toBeVisible();
+      });
+
+      /* 36c: the "Paste text" tab needs the model too; the URL stays. */
+      test("should disable Paste text when no local model is configured", async ({
+        page,
+      }) => {
+        const pasteText = page.getByRole("radio", { name: /^Paste text/ });
+        await expect(pasteText).toBeDisabled();
+        await expect(pasteText).not.toBeChecked();
+        await expect(
+          page.getByRole("radio", { name: "URL", exact: true }),
+        ).toBeChecked();
+        await expect(
+          page
+            .locator("label")
+            .filter({ has: pasteText })
+            .getByText("No local model configured"),
+        ).toBeVisible();
+        /* Still the URL field, and no text box to paste into. */
+        await expect(page.getByLabel("Import from URL")).toBeVisible();
+        await expect(page.getByLabel("Recipe text")).toHaveCount(0);
       });
 
       test("should be able to import a recipe with a singular image", async ({

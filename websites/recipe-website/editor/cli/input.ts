@@ -22,6 +22,34 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/**
+ * Plain text from a file, or from stdin for `-` (`import --text`, 36c). An
+ * unreadable file and empty text are validation errors, not `internal`.
+ */
+export async function readTextInput(fileOrDash: string): Promise<string> {
+  const fromStdin = fileOrDash === "-";
+  /* A terminal, not a pipe: say how to end the paste (36c review). */
+  if (fromStdin && process.stdin.isTTY) {
+    process.stderr.write("Paste the recipe, then press Ctrl-D\n");
+  }
+  let text: string;
+  try {
+    text = fromStdin
+      ? await readStdin()
+      : await readFile(resolveUserPath(fileOrDash), "utf8");
+  } catch (error) {
+    throw new ValidationError(
+      `Could not read ${fileOrDash}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (!text.trim()) {
+    throw new ValidationError(
+      fromStdin ? "No text arrived on stdin." : `${fileOrDash} is empty.`,
+    );
+  }
+  return text;
+}
+
 export async function readJsonInput({
   file,
   stdin,

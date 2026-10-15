@@ -154,6 +154,12 @@ export function createLocalBackend({
         await import("../../controller/curation/importRecipe");
       return importAndCreate(ctx, url, options);
     },
+    async importText(text, options = {}) {
+      if (!options.dryRun) await guard();
+      const { importFromText } =
+        await import("../../controller/curation/importRecipe");
+      return importFromText(ctx, { text, ...options });
+    },
     /* Reads a page and nothing else: no identity, no write. */
     async inspect(url, options = {}) {
       const { inspectUrl } = await import("../../controller/curation/inspect");

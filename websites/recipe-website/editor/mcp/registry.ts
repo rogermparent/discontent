@@ -53,6 +53,10 @@ import {
   IMPORT_LIST_MAX_PICKS,
   ListPickSchema,
 } from "../controller/curation/importList";
+import {
+  ImportRequestSchema,
+  importTarget,
+} from "../controller/curation/importRequest";
 import { LLM_MODES } from "../controller/llm/mode";
 import type { RecipeRow } from "../controller/curation/recipes";
 import {
@@ -487,30 +491,37 @@ export function createRecipeServer(
   register(
     "recipe_import",
     {
-      title: "Import a recipe from a URL",
+      title: "Import a recipe from a URL or pasted text",
       description:
         "Fetch a page, extract its recipe and write it, keeping the source as " +
         "provenance. `dryRun` returns what would be written — and a create-ready " +
         "`draft` — without writing it. `image` replaces the page's best image URL. " +
         "A page with no Recipe node is refused unless `allowPartial`. " +
-        LLM_DESCRIPTION,
-      inputSchema: z.strictObject({
-        url: z.string().min(1),
-        tags: z.array(z.string()).optional(),
-        slug: z.string().optional(),
-        name: z.string().optional(),
-        image: z.string().min(1).optional(),
-        dryRun: z.boolean().optional(),
-        overwrite: z.boolean().optional(),
-        allowPartial: z.boolean().optional(),
-        llm: z.enum(LLM_MODES).optional(),
-      }),
+        LLM_DESCRIPTION +
+        " Pasted text instead of `url`: `text` (a YouTube description, an email, a " +
+        "note) is read by the local model, which keeps the ingredients and steps and " +
+        "skips links, sponsors and timestamps; `source` (optional) is the URL it came " +
+        "from, cited and never fetched — a video URL also becomes the recipe's video. " +
+        "Exactly one of `url` or `text`; `llm` goes only with `url`. With no model " +
+        "configured, or no recipe found in the text, it is import_failed; under 90% " +
+        "grounded it is `partial` like a page.",
+      inputSchema: ImportRequestSchema,
       annotations: WRITES,
     },
-    async ({ url, ...options }) =>
-      write(backend, () => backend.importRecipe(url, options), {
-        notify: options.dryRun !== true,
-      }),
+    async (request) => {
+      const target = importTarget(request);
+      return write(
+        backend,
+        () =>
+          target.kind === "text"
+            ? backend.importText(target.text, {
+                ...target.options,
+                ...(target.source ? { source: target.source } : {}),
+              })
+            : backend.importRecipe(target.url, target.options),
+        { notify: request.dryRun !== true },
+      );
+    },
   );
 
   register(

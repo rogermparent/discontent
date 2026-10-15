@@ -18,6 +18,10 @@
  * fills a page with no Recipe node, under `force` it replaces the schema's
  * fields. The result carries `llm` and its warnings, and a create from the
  * model's lines says "(local model)" in its commit (D5).
+ *
+ * Since 36c `importFromText` is the same import from pasted text (D8): the
+ * model reads it (`readPastedText`), and the gate, the dry run and the create
+ * are shared (`finishImport`).
  */
 import {
   fetchRecipePage,
@@ -35,6 +39,7 @@ import type { ImageProbe } from "../imageImport";
 import { fetchImageFile, probeImageFile } from "../imageImport";
 import {
   applyLlm,
+  readPastedText,
   usedModel,
   videoSource,
   type ApplyLlmResult,
@@ -56,7 +61,10 @@ import { pacedRequest } from "./sitePacing";
 
 export interface ImportDryRunResult {
   dryRun: true;
-  url: string;
+  /** The page; for pasted text, its source URL when one was given. */
+  url?: string;
+  /** Read from pasted text by the local model (D8), not fetched. */
+  pastedText?: true;
   slug: string;
   /** The page had no Recipe node: name, description and image only. */
   partial?: true;
@@ -174,7 +182,7 @@ export function importedToInput(
   const resolvedName = name ?? imported.name;
   if (!resolvedName) {
     throw new ValidationError(
-      "The imported page carries no recipe name (a video host without yt-dlp never does) — pass --name to supply one.",
+      "The import carries no recipe name (a video host without yt-dlp never does, nor pasted text whose lines are all links or timestamps); pass --name.",
     );
   }
   const imageImportUrl = image ?? imported.imageImportUrl;
@@ -200,9 +208,81 @@ export function importedToInput(
   return parseInput(RecipeInputSchema, raw);
 }
 
+/** What an import takes besides its URL or text: the same for both. */
+export interface ImportWriteOptions {
+  tags?: string[];
+  slug?: string;
+  name?: string;
+  /** Use this image URL instead of the page's best one. */
+  image?: string;
+  dryRun?: boolean;
+  overwrite?: boolean;
+  /** Create from an SEO-only page, or a partial reading, anyway. */
+  allowPartial?: boolean;
+}
+
 export async function importAndCreate(
   ctx: CurationContext,
   url: string,
+  {
+    llm: mode,
+    ...options
+  }: ImportWriteOptions & {
+    /** The local model: `auto` (default), `force` or `off` (epic 36, D3). */
+    llm?: LlmMode;
+  } = {},
+): Promise<ImportResult> {
+  const imported = await importFromUrl(url, { llm: mode });
+  return finishImport(ctx, imported, {
+    ...options,
+    url,
+    refusal: (warnings) =>
+      usedModel(imported.llm)
+        ? `The local model's reading of ${url} is partial (${warnings.join("; ")}). `
+        : `No schema.org Recipe found at ${url} — only its title, description and image` +
+          (warnings.length ? ` (${warnings.join("; ")}). ` : ". "),
+    commitNote: usedModel(imported.llm) ? "local model" : undefined,
+  });
+}
+
+/**
+ * Import a pasted recipe (epic 36, D8): a YouTube description, an email, a
+ * note. The local model reads the text (`readPastedText`: no model, a failed
+ * call, no recipe found, or a reading under half grounded is
+ * `import_failed`), and the rest is a URL import's — `importedToInput`, the
+ * dry run and its draft, `allowPartial` for a reading under 90% grounded.
+ *
+ * `source` is cited, and a video URL becomes the recipe's `video`; nothing is
+ * fetched from it, so no image either (`image` supplies one). The name is the
+ * model's, else the text's first line; `name` overrides both. A create
+ * commits "Create recipe: <slug> (local model, pasted text)".
+ */
+export async function importFromText(
+  ctx: CurationContext,
+  {
+    text,
+    source,
+    ...options
+  }: ImportWriteOptions & { text: string; source?: string },
+): Promise<ImportResult> {
+  const reading = await readPastedText({ text, source });
+  return finishImport(ctx, reading, {
+    ...options,
+    url: reading.recipe.source?.url,
+    pastedText: true,
+    refusal: (warnings) =>
+      `The local model's reading of the pasted text is partial (${warnings.join("; ")}). `,
+    commitNote: "local model, pasted text",
+  });
+}
+
+/**
+ * The half of an import that does not care where the recipe came from: the
+ * `partial` gate, the dry run (and its draft), or the create.
+ */
+async function finishImport(
+  ctx: CurationContext,
+  { recipe: imported, llm, warnings: llmWarnings }: UrlImport,
   {
     tags,
     slug,
@@ -211,33 +291,23 @@ export async function importAndCreate(
     dryRun = false,
     overwrite = false,
     allowPartial = false,
-    llm: mode,
-  }: {
-    tags?: string[];
-    slug?: string;
-    name?: string;
-    /** Use this image URL instead of the page's best one. */
-    image?: string;
-    dryRun?: boolean;
-    overwrite?: boolean;
-    /** Create from an SEO-only (no Recipe node) page anyway. */
-    allowPartial?: boolean;
-    /** The local model: `auto` (default), `force` or `off` (epic 36, D3). */
-    llm?: LlmMode;
-  } = {},
+    url,
+    pastedText = false,
+    refusal,
+    commitNote,
+  }: ImportWriteOptions & {
+    /** The page, or a pasted text's source URL. */
+    url: string | undefined;
+    pastedText?: boolean;
+    /** The refusal of a partial result, before the "dry-run it" advice. */
+    refusal: (warnings: string[]) => string;
+    commitNote?: string;
+  },
 ): Promise<ImportResult> {
-  const {
-    recipe: imported,
-    llm,
-    warnings: llmWarnings,
-  } = await importFromUrl(url, { llm: mode });
   const partial = imported.partial === true;
   if (partial && !dryRun && !allowPartial) {
     throw new ImportError(
-      (usedModel(llm)
-        ? `The local model's reading of ${url} is partial (${llmWarnings.join("; ")}). `
-        : `No schema.org Recipe found at ${url} — only its title, description and image` +
-          (llmWarnings.length ? ` (${llmWarnings.join("; ")}). ` : ". ")) +
+      refusal(llmWarnings) +
         "Dry-run it to see them, or pass --allow-partial to create from them anyway.",
     );
   }
@@ -264,7 +334,8 @@ export async function importAndCreate(
     });
     return {
       dryRun: true,
-      url,
+      ...(url ? { url } : {}),
+      ...(pastedText ? { pastedText: true as const } : {}),
       /*
        * `resolveCreateSlug`, imported rather than re-derived, so a dry run
        * cannot advertise a slug the real run would not use.
@@ -297,7 +368,7 @@ export async function importAndCreate(
     overwrite,
     fetchImage: (imageUrl) =>
       pacedRequest(imageUrl, (retry) => fetchImageFile(imageUrl, { retry })),
-    ...(usedModel(llm) ? { commitNote: "local model" } : {}),
+    ...(commitNote ? { commitNote } : {}),
   });
   const allWarnings = [...llmWarnings, ...(result.warnings ?? [])];
   return {

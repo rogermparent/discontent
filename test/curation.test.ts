@@ -51,7 +51,12 @@ import {
   listFeatured,
 } from "../websites/recipe-website/editor/controller/curation/featured";
 import * as groups from "../websites/recipe-website/editor/controller/curation/groups";
-import { importAndCreate } from "../websites/recipe-website/editor/controller/curation/importRecipe";
+import {
+  importAndCreate,
+  importFromText,
+  importedToInput,
+} from "../websites/recipe-website/editor/controller/curation/importRecipe";
+import { firstLine } from "../websites/recipe-website/editor/controller/llm/extractRecipe";
 import { inspectUrl } from "../websites/recipe-website/editor/controller/curation/inspect";
 import { setRecipeImage } from "../websites/recipe-website/editor/controller/curation/recipeImage";
 import {
@@ -1003,6 +1008,346 @@ describe("importAndCreate with a local model (36b)", () => {
       videoImportUrl: url,
       source: { url, name: "YouTube", author: "Test Kitchen Channel" },
     });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 6c. Import from pasted text (epic 36, 36c / D8)                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A pasted video description: the recipe among a sponsor read, a discount
+ * code, chapter timestamps, gear links and a social handle.
+ */
+const PASTED_SCONES = [
+  "These are the scones my grandmother made every Sunday, and they're SO easy.",
+  "Use code SCONES20 for 20% off my baking course: https://example.com/course",
+  "",
+  "0:00 Intro",
+  "1:30 Mixing the dough",
+  "",
+  "🔪MY GEAR:",
+  "PASTRY CUTTER: https://amzn.to/abc123",
+  "",
+  "SCONES RECIPE:",
+  "2 cups flour",
+  "1 tbsp baking powder",
+  "1/2 cup cold butter",
+  "3/4 cup cream",
+  "",
+  "1. Whisk the flour and baking powder.",
+  "2. Cut in the butter.",
+  "3. Stir in the cream and bake for 15 minutes.",
+  "",
+  "Follow me on Instagram @grandmabakes",
+].join("\n");
+
+/** The non-model requests a stub saw: pasted text fetches nothing. */
+function webCalls(fetchStub: ReturnType<typeof stubWeb>) {
+  return fetchStub.mock.calls.filter(
+    ([url]) => !String(url).startsWith(MODEL_URL),
+  );
+}
+
+describe("importFromText (36c)", () => {
+  beforeEach(() => {
+    vi.stubEnv("RECIPE_LLM_URL", MODEL_URL);
+  });
+
+  it("reads a pasted description into a trusted draft, and creates it", async () => {
+    const fetchStub = stubWeb("", {}, sconeAnswer());
+    const dry = await importFromText(ctx, {
+      text: PASTED_SCONES,
+      dryRun: true,
+    });
+    if (!("dryRun" in dry)) throw new Error("expected a dry run");
+    expect(dry.pastedText).toBe(true);
+    expect(dry.url).toBeUndefined();
+    expect(dry.partial).toBeUndefined();
+    expect(dry.llm).toMatchObject({
+      model: "qwen3:8b",
+      mode: "force",
+      found: true,
+      grounded: 4,
+      total: 4,
+    });
+    expect(dry.warnings?.[0]).toMatch(
+      /^extracted by local model qwen3:8b — 4\/4 ingredient lines found verbatim in the text/,
+    );
+    expect(dry.draft).toMatchObject({
+      name: "Grandma's Scones",
+      ingredients: SCONE_LINES,
+      instructions: [
+        "Whisk the flour and baking powder.",
+        "Cut in the butter.",
+        "Stir in the cream and bake for 15 minutes.",
+      ],
+      cookTime: 15,
+    });
+    /* No URL: no citation, no video, no picture. */
+    expect(dry.draft.source).toBeUndefined();
+    expect(dry.draft.videoImportUrl).toBeUndefined();
+    expect(dry.draft.imageImportUrl).toBeUndefined();
+    /* The model saw the pasted text, and nothing else was fetched. */
+    expect(modelCalls(fetchStub)).toHaveLength(1);
+    expect(webCalls(fetchStub)).toHaveLength(0);
+    const body = JSON.parse(String(modelCalls(fetchStub)[0][1]?.body));
+    const user = body.messages.find(
+      (message: { role: string }) => message.role === "user",
+    ).content;
+    expect(user).toContain("SCONES RECIPE:");
+    expect(user).not.toContain("Source URL:");
+
+    const created = await importFromText(ctx, {
+      text: PASTED_SCONES,
+      tags: ["baking"],
+    });
+    if ("dryRun" in created) throw new Error("expected a real import");
+    expect(created.llm).toMatchObject({ found: true, grounded: 4 });
+    expect(created.source).toBeUndefined();
+    const stored = await readRecipeFile("grandmas-scones");
+    expect(stored.ingredients).toHaveLength(4);
+    expect(stored.instructions).toHaveLength(3);
+    expect(stored.tags).toEqual(["baking"]);
+    expect(stored.source).toBeUndefined();
+  });
+
+  it("cites a source URL without fetching it; a video URL is also the video", async () => {
+    const fetchStub = stubWeb("", {}, sconeAnswer());
+    const video = "https://www.youtube.com/watch?v=SCONES1";
+    const dry = await importFromText(ctx, {
+      text: PASTED_SCONES,
+      source: `${video}#t=90`,
+      dryRun: true,
+    });
+    if (!("dryRun" in dry)) throw new Error("expected a dry run");
+    expect(dry.url).toBe(video);
+    expect(dry.video).toBe(video);
+    expect(dry.draft).toMatchObject({
+      source: { url: video, name: "YouTube" },
+      videoImportUrl: video,
+    });
+    expect(dry.draft.imageImportUrl).toBeUndefined();
+
+    const blog = "https://example.com/blog/scones";
+    const cited = await importFromText(ctx, {
+      text: PASTED_SCONES,
+      source: blog,
+      dryRun: true,
+    });
+    if (!("dryRun" in cited)) throw new Error("expected a dry run");
+    expect(cited.draft.source).toMatchObject({ url: blog });
+    expect(cited.draft.videoImportUrl).toBeUndefined();
+    expect(cited.video).toBeUndefined();
+    /* Two model calls, and not one request to either URL. */
+    expect(modelCalls(fetchStub)).toHaveLength(2);
+    expect(webCalls(fetchStub)).toHaveLength(0);
+
+    await expect(
+      importFromText(ctx, {
+        text: PASTED_SCONES,
+        source: "not a url",
+        dryRun: true,
+      }),
+    ).rejects.toMatchObject({ code: "validation" });
+    await expect(
+      importFromText(ctx, {
+        text: PASTED_SCONES,
+        source: "ftp://example.com/scones",
+        dryRun: true,
+      }),
+    ).rejects.toMatchObject({ code: "validation" });
+  });
+
+  it("keeps 50–90% grounded as partial (allowPartial), and fails below half", async () => {
+    stubWeb(
+      "",
+      {},
+      sconeAnswer([...SCONE_LINES.slice(0, 3), "1 cup golden raisins"]),
+    );
+    const kept = await importFromText(ctx, {
+      text: PASTED_SCONES,
+      dryRun: true,
+    });
+    if (!("dryRun" in kept)) throw new Error("expected a dry run");
+    expect(kept.partial).toBe(true);
+    expect(kept.llm).toMatchObject({ grounded: 3, total: 4 });
+    expect(kept.draft.ingredients).toContain("1 cup golden raisins");
+    await expect(
+      importFromText(ctx, { text: PASTED_SCONES }),
+    ).rejects.toMatchObject({
+      code: "import_failed",
+      message: expect.stringContaining(
+        "The local model's reading of the pasted text is partial",
+      ),
+    });
+    const forced = await importFromText(ctx, {
+      text: PASTED_SCONES,
+      allowPartial: true,
+    });
+    if ("dryRun" in forced) throw new Error("expected a real import");
+    expect((await readRecipeFile(forced.slug)).ingredients).toHaveLength(4);
+
+    /* 1/4: nothing to fall back to, so no recipe at all. */
+    stubWeb(
+      "",
+      {},
+      sconeAnswer([
+        "2 cups flour",
+        "1 cup golden raisins",
+        "2 eggs",
+        "1 tsp vanilla",
+      ]),
+    );
+    await expect(
+      importFromText(ctx, { text: PASTED_SCONES, dryRun: true }),
+    ).rejects.toMatchObject({
+      code: "import_failed",
+      message:
+        "No recipe read from the pasted text — local model output discarded — only 1/4 ingredient lines found in the text",
+    });
+  });
+
+  it("fails when the model finds no recipe, or cannot be reached", async () => {
+    stubWeb(
+      "",
+      {},
+      { found: false, name: "", ingredients: [], instructions: [] },
+    );
+    await expect(
+      importFromText(ctx, { text: "Subscribe for more videos!", dryRun: true }),
+    ).rejects.toMatchObject({
+      code: "import_failed",
+      message:
+        "No recipe read from the pasted text — local model qwen3:8b found no recipe in the text",
+    });
+
+    stubWeb("", {}, "unreachable");
+    await expect(
+      importFromText(ctx, { text: PASTED_SCONES, dryRun: true }),
+    ).rejects.toMatchObject({
+      code: "import_failed",
+      message: expect.stringContaining("local model failed"),
+    });
+  });
+
+  it("is import_failed with no model configured, and asks nothing", async () => {
+    vi.stubEnv("RECIPE_LLM_URL", "");
+    const fetchStub = stubWeb("", {}, sconeAnswer());
+    await expect(
+      importFromText(ctx, { text: PASTED_SCONES, dryRun: true }),
+    ).rejects.toMatchObject({
+      code: "import_failed",
+      message: "no local model configured (RECIPE_LLM_URL)",
+    });
+    expect(fetchStub).not.toHaveBeenCalled();
+  });
+
+  it("names a nameless answer from the text's first line; --name wins", async () => {
+    stubWeb("", {}, { ...sconeAnswer(), name: "" });
+    const text = `\n\n  Sunday Scones  \r\n${PASTED_SCONES}`;
+    const dry = await importFromText(ctx, { text, dryRun: true });
+    if (!("dryRun" in dry)) throw new Error("expected a dry run");
+    expect(dry.draft.name).toBe("Sunday Scones");
+
+    const named = await importFromText(ctx, {
+      text,
+      name: "Grandma's Sunday Scones",
+      dryRun: true,
+    });
+    if (!("dryRun" in named)) throw new Error("expected a dry run");
+    expect(named.slug).toBe("grandmas-sunday-scones");
+  });
+
+  /* 36c review: a paste past the cap is read with its middle cut — say so. */
+  it("says when a long paste was cut, in the warnings and in a failure", async () => {
+    const quoted = Array.from(
+      { length: 900 },
+      (_, index) =>
+        `> On an earlier day someone wrote line ${index} of the thread`,
+    ).join("\n");
+    const long = `${quoted}\n${PASTED_SCONES}`;
+    expect(long.length).toBeGreaterThan(24_000);
+    const note = new RegExp(
+      `the text is ${long.length} characters; the model read the first ~3k and the last ~2\\dk — paste just the recipe`,
+    );
+
+    stubWeb("", {}, sconeAnswer());
+    const dry = await importFromText(ctx, { text: long, dryRun: true });
+    if (!("dryRun" in dry)) throw new Error("expected a dry run");
+    expect(dry.warnings?.some((warning) => note.test(warning))).toBe(true);
+
+    stubWeb(
+      "",
+      {},
+      { found: false, name: "", ingredients: [], instructions: [] },
+    );
+    await expect(
+      importFromText(ctx, { text: long, dryRun: true }),
+    ).rejects.toMatchObject({
+      code: "import_failed",
+      message: expect.stringMatching(note),
+    });
+
+    /* A short paste carries no such note. */
+    stubWeb("", {}, sconeAnswer());
+    const short = await importFromText(ctx, {
+      text: PASTED_SCONES,
+      dryRun: true,
+    });
+    if (!("dryRun" in short)) throw new Error("expected a dry run");
+    expect(short.warnings?.join(" ")).not.toMatch(/characters; the model read/);
+  });
+
+  /* 36c review: links, timestamps and handles are never a name. */
+  it("skips links, timestamps and handles for the first-line name", async () => {
+    stubWeb("", {}, { ...sconeAnswer(), name: "" });
+    const text = [
+      "https://example.com/course",
+      "0:00 Intro",
+      "Follow @grandmabakes",
+      "Grandma's Sunday Scones",
+      ...SCONE_LINES,
+    ].join("\n");
+    const dry = await importFromText(ctx, { text, dryRun: true });
+    if (!("dryRun" in dry)) throw new Error("expected a dry run");
+    expect(dry.draft.name).toBe("Grandma's Sunday Scones");
+
+    /* No line qualifies: no name, and --name is the way. */
+    expect(
+      firstLine(
+        [
+          "",
+          "https://example.com/a",
+          "1:30 Mixing",
+          "Follow me @grandmabakes",
+        ].join("\n"),
+      ),
+    ).toBeUndefined();
+    expect(() => importedToInput({ ingredients: [] })).toThrow(
+      /carries no recipe name.*pass --name/,
+    );
+  });
+
+  it("cites the source as parsed: no fragment, normalised", async () => {
+    stubWeb("", {}, sconeAnswer());
+    const dry = await importFromText(ctx, {
+      text: PASTED_SCONES,
+      source: "  HTTPS://Example.com/blog/scones#comments ",
+      dryRun: true,
+    });
+    if (!("dryRun" in dry)) throw new Error("expected a dry run");
+    expect(dry.draft.source).toMatchObject({
+      url: "https://example.com/blog/scones",
+    });
+  });
+
+  it("refuses empty text before asking the model", async () => {
+    const fetchStub = stubWeb("", {}, sconeAnswer());
+    await expect(
+      importFromText(ctx, { text: " \n\t", dryRun: true }),
+    ).rejects.toMatchObject({ code: "validation" });
+    expect(fetchStub).not.toHaveBeenCalled();
   });
 });
 
