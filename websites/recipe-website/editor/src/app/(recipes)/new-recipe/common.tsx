@@ -43,13 +43,15 @@ export interface RecipeActionState {
   recipes?: SplitReading[];
   /** A several-recipe video's title: "Import as one recipe" names it so. */
   batchTitle?: string;
+  /** Listed but left out of `recipes` (36e): counted in "2 of 4". */
+  leftOut?: { n: number; name: string; reason: string }[];
   /** Read from pasted text (36c): the picker says "This text". */
   pastedText?: boolean;
 }
 
 function withLlm(
   url: string | undefined,
-  { recipe, llm, warnings, recipes }: ApplyLlmResult,
+  { recipe, llm, warnings, recipes, leftOut }: ApplyLlmResult,
   message?: string,
 ): RecipeActionState {
   return {
@@ -60,7 +62,11 @@ function withLlm(
     ...(warnings.length > 0 ? { warnings } : {}),
     /* A batch remounts its picker on every import, even of the same URL. */
     ...(recipes && recipes.length > 1
-      ? { recipes, key: `batch-${crypto.randomUUID()}` }
+      ? {
+          recipes,
+          key: `batch-${crypto.randomUUID()}`,
+          ...(leftOut?.length ? { leftOut } : {}),
+        }
       : {}),
   };
 }

@@ -151,13 +151,23 @@ function codeForStatus(status: number): CurationErrorCode {
  * its strict `/api/import` body: say what that means (as T33 does for 36c's
  * `text`, which wins when both are refused).
  */
+/**
+ * How long `import` waits for the editor (36e review): a several-recipe
+ * video is a list, a question and a reading per recipe (~60–80 s, the
+ * split's own deadline 240 s, then one more reading) — so name a limit under
+ * undici's 300 s headers timeout, as `import-list` does, and fail clearly.
+ */
+export const IMPORT_HTTP_TIMEOUT_MS = 285_000;
+
 function predatesBatch(error: unknown, root: string): unknown {
   if (!(error instanceof CurationError) || error.code !== "validation") {
     return error;
   }
   const issues = (error.details.issues ?? []).map((issue) => issue.message);
   if (
-    issues.some((message) => /unrecognized key.*"(pick|all)"/i.test(message)) &&
+    issues.some((message) =>
+      /unrecognized key.*"(pick|all|asOne)"/i.test(message),
+    ) &&
     !issues.some((message) => /unrecognized key.*"text"/i.test(message))
   ) {
     return new CurationError(
@@ -280,6 +290,7 @@ export function createHttpBackend({
       try {
         return await call<ImportResult>("POST", "/api/import", {
           body: { url, ...options },
+          timeoutMs: IMPORT_HTTP_TIMEOUT_MS,
         });
       } catch (error) {
         throw predatesBatch(error, root);
@@ -289,6 +300,7 @@ export function createHttpBackend({
       try {
         return await call<ImportResult>("POST", "/api/import", {
           body: { text, ...options },
+          timeoutMs: IMPORT_HTTP_TIMEOUT_MS,
         });
       } catch (caught) {
         const error = predatesBatch(caught, root);

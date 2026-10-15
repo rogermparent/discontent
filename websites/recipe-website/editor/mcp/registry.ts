@@ -513,9 +513,13 @@ export function createRecipeServer(
         "warnings?}]}`, each recipe read and trusted on its own, each its own commit, and a " +
         'line naming another recipe of the batch ("see recipe below") linked to it; a video ' +
         "recipe's source starts at its chapter (`&t=…s`). Say which with `all: true` or " +
-        "`pick: [1, 3]` (positions from `found`, or from a dryRun, which shows them all); " +
-        "a create with neither is refused with code usage naming them. One recipe needs " +
-        "neither.",
+        '`pick: ["Green Bean Casserole"]` — names from `found`, matched without case; ' +
+        "positions work too but can shift between readings — a create with neither is " +
+        "refused with code usage naming them, and a dryRun shows them all. A recipe " +
+        "already imported from the same source is `existing` and skipped, so `all` again " +
+        "after a partial run imports only what is missing. `asOne: true` reads the text " +
+        "as one recipe instead (a dish the model splits into its parts). One recipe " +
+        "needs neither.",
       inputSchema: ImportRequestSchema,
       annotations: WRITES,
     },

@@ -1060,7 +1060,7 @@ describe("the MCP registry over an in-memory transport", () => {
       expect(
         (await call("recipe_import", { text, pick: [1], all: true })).isError,
       ).toBe(true);
-      const picked = await call("recipe_import", { text, pick: [2] });
+      const picked = await call("recipe_import", { text, pick: ["glaze"] });
       expect(picked.data).toMatchObject({
         batch: true,
         recipes: [{ n: 2, status: "imported", slug: "glaze" }],

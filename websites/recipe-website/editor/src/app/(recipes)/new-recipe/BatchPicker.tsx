@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@discontent/component-library/components/ui/button";
+import createDefaultSlug from "recipe-website-common/controller/createSlug";
 import type { ImportBatchItem } from "recipe-editor/controller/curation/importRecipe";
 import { formatStart } from "recipe-editor/controller/llm/chapterTime";
 import type { SplitReading } from "recipe-editor/controller/llm/importWithLlm";
@@ -15,6 +16,7 @@ import {
 
 const STATUS_LABEL: Record<ImportBatchItem["status"], string> = {
   imported: "imported",
+  existing: "already imported",
   "would-import": "would import",
   failed: "failed",
 };
@@ -26,16 +28,48 @@ function ingredientCount(reading: SplitReading): number {
 }
 
 /**
+ * The slug a recipe would be created at — the seat's own rule
+ * (`resolveCreateSlug`: slugify the name) — so "Edit this one first" can
+ * link to a sibling the way the batch would (36e review).
+ */
+export function plannedSlug(name: string | undefined): string | undefined {
+  return name ? createDefaultSlug({ name }) || undefined : undefined;
+}
+
+/** "green-bean-casserole-brian-lagerstrom": a taken slug, made the channel's. */
+function suggestedSlug(item: ImportBatchItem, reading?: SplitReading): string {
+  const base = item.error?.slug ?? plannedSlug(item.name) ?? `recipe-${item.n}`;
+  const channel = plannedSlug(reading?.recipe.source?.author);
+  return channel ? `${base}-${channel}` : `${base}-2`;
+}
+
+/** A failed pick's message in the form's words, not the CLI's. */
+function formMessage(item: ImportBatchItem): string | undefined {
+  if (!item.error) return item.warnings?.join(" ");
+  if (item.error.code === "slug_conflict") {
+    return `a recipe already has the slug "${item.error.slug ?? item.slug}" — give this one another slug below and import it again`;
+  }
+  if (item.error.code === "import_failed" && item.partial) {
+    return "the reading is not trusted — use “Edit this one first” to check it";
+  }
+  return item.error.message;
+}
+
+/**
  * Several recipes in one video or paste (36e): which to import. Built on the
  * roundup picker's list (`PickList`, 35r): every trusted recipe starts
- * ticked — a partial reading starts unticked, to be checked first — and
- * "Import selected" creates the ticks in one call, one commit each, with no
- * second reading. "Edit this one first" fills the form below with one
- * recipe (and unticks it: it is the form's now); "Import as one recipe
- * instead" fills it with all the parts as one, for a dish the model split.
+ * ticked — a reading that is not trusted starts unticked, to be checked
+ * first — and "Import selected" creates the ticks in one call, one commit
+ * each, with no second reading. What was tried is unticked after; a pick
+ * that failed on a taken slug gets a slug field, pre-filled with the
+ * channel's name added, and editing it ticks the row again.
+ * "Edit this one first" fills the form below with one recipe (and unticks
+ * it: it is the form's now); "Import as one recipe instead" fills it with
+ * all the parts as one, for a dish the model split.
  */
 export default function BatchPicker({
   readings,
+  total = readings.length,
   url,
   pastedText = false,
   busy = false,
@@ -44,6 +78,8 @@ export default function BatchPicker({
   onMerge,
 }: {
   readings: SplitReading[];
+  /** How many the model listed, left-out ones included ("2 of 4"). */
+  total?: number;
   url?: string;
   pastedText?: boolean;
   /** A roundup run is in flight (35r): wait for it. */
@@ -62,6 +98,8 @@ export default function BatchPicker({
       ),
   );
   const [outcomes, setOutcomes] = useState<OutcomeRow[]>([]);
+  /* A slug per pick that failed on a taken one (36e review). */
+  const [slugs, setSlugs] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [importing, startImport] = useTransition();
   const picked = readings.filter((reading) => selected.has(reading.n));
@@ -80,7 +118,7 @@ export default function BatchPicker({
       const answer = await importRecipeBatchAction({
         ...(url ? { url } : {}),
         ...(pastedText ? { pastedText: true } : {}),
-        total: readings.length,
+        total: Math.max(total, 2),
         siblings: readings.map((reading) => ({
           n: reading.n,
           ...(reading.recipe.name ? { name: reading.recipe.name } : {}),
@@ -90,6 +128,9 @@ export default function BatchPicker({
           recipe: reading.recipe as Record<string, unknown>,
           ...(reading.components ? { components: reading.components } : {}),
           ...(reading.chapter ? { chapter: reading.chapter } : {}),
+          ...(slugs[reading.n]?.trim()
+            ? { slug: slugs[reading.n].trim() }
+            : {}),
         })),
       });
       if ("error" in answer) {
@@ -103,18 +144,32 @@ export default function BatchPicker({
           key: `${item.n}-${before.length}`,
           name: item.name,
           status: STATUS_LABEL[item.status],
-          slug: item.status === "imported" ? item.slug : undefined,
-          message: item.error?.message,
+          slug:
+            item.status === "imported" || item.status === "existing"
+              ? item.slug
+              : undefined,
+          message: formMessage(item),
         })),
       ]);
-      /* What landed is done: untick it, so a second click adds nothing. */
-      const landed = new Set(
-        answer.recipes
-          .filter((item) => item.status === "imported")
-          .map((item) => item.n),
-      );
+      /* A taken slug: offer another, the channel's. */
+      setSlugs((before) => {
+        const next = { ...before };
+        for (const item of answer.recipes) {
+          if (item.status !== "failed") delete next[item.n];
+          else if (item.error?.code === "slug_conflict") {
+            next[item.n] = suggestedSlug(
+              item,
+              readings.find((reading) => reading.n === item.n),
+            );
+          }
+        }
+        return next;
+      });
+      /* Everything tried is unticked, landed or not: a second click adds
+       * nothing, and a failed one waits for a change. */
+      const tried = new Set(answer.recipes.map((item) => item.n));
       setSelected(
-        (before) => new Set([...before].filter((n) => !landed.has(n))),
+        (before) => new Set([...before].filter((n) => !tried.has(n))),
       );
     });
 
@@ -164,6 +219,25 @@ export default function BatchPicker({
                   <span className="text-destructive">
                     not trusted — check it
                   </span>
+                )}
+                {slugs[reading.n] !== undefined && (
+                  <label className="flex items-center gap-1">
+                    <span className="text-muted-foreground">slug</span>
+                    <input
+                      className="rounded border px-1"
+                      data-testid={`batch-slug-${reading.n}`}
+                      value={slugs[reading.n]}
+                      disabled={importing || busy}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setSlugs((before) => ({
+                          ...before,
+                          [reading.n]: value,
+                        }));
+                        setSelected((before) => new Set(before).add(reading.n));
+                      }}
+                    />
+                  </label>
                 )}
                 {editing === reading.n ? (
                   <span className="text-muted-foreground">

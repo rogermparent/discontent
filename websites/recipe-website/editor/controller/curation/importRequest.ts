@@ -52,8 +52,19 @@ export const ImportRequestFields = z.strictObject({
    * 36e: a video or a paste holding several recipes — which to import, by
    * 1-based position, or all of them. With neither, a create is `usage`.
    */
-  pick: z.array(z.number().int().min(1).max(100)).min(1).max(100).optional(),
+  pick: z
+    .array(
+      z.union([
+        z.number().int().min(1).max(100),
+        z.string().trim().min(1).max(200),
+      ]),
+    )
+    .min(1)
+    .max(100)
+    .optional(),
   all: z.boolean().optional(),
+  /* 36e review: read a video or paste as one recipe, never split. */
+  asOne: z.boolean().optional(),
 });
 
 type ImportRequestInput = z.infer<typeof ImportRequestFields>;
@@ -81,6 +92,13 @@ export function checkImportRequest(
       code: "custom",
       path: ["pick"],
       message: "Give `pick` or `all`, not both",
+    });
+  }
+  if (data.asOne && (data.pick || data.all)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["asOne"],
+      message: "`asOne` reads the text as one recipe: no `pick` or `all`",
     });
   }
   if (data.llm && data.text) {

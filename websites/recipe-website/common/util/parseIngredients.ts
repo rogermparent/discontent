@@ -102,7 +102,22 @@ export function createIngredient(inputLine: string): Ingredient | undefined {
   if (trimmedInputLine) {
     const isHeading = detectHeading(trimmedInputLine);
 
-    const multiplyableIngredient = addMultipliersToIngredient(trimmedInputLine);
+    /*
+     * A markdown link's target is not an amount: `](/recipe/7-layer-dip)`
+     * would otherwise become `](/recipe/<Multiplyable baseNumber="7" />-…)`
+     * (epic 36, T49). Each target is held aside while the numbers are marked,
+     * then put back.
+     */
+    const targets: string[] = [];
+    const held = trimmedInputLine.replace(/\]\([^)\s]*\)/g, (target) => {
+      targets.push(target);
+      /* No digits in the placeholder: they would be marked too. */
+      return `]\u0000${"x".repeat(targets.length)}\u0000`;
+    });
+    const multiplyableIngredient = addMultipliersToIngredient(held).replace(
+      /\]\u0000(x+)\u0000/g,
+      (_, mark: string) => targets[mark.length - 1],
+    );
 
     return {
       ingredient: multiplyableIngredient,

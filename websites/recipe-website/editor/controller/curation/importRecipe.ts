@@ -114,11 +114,14 @@ export interface ImportCreateResult extends RecipeWriteResult {
 
 /** One recipe of a several-recipe import (36e). */
 export interface ImportBatchItem {
-  /** Its position among the recipes found, 1-based: what `pick` names. */
+  /** Its place in the model's list, 1-based (gaps where one was left out). */
   n: number;
   name: string;
-  /** `would-import` in a dry run; `failed` says why in `error`. */
-  status: "would-import" | "imported" | "failed";
+  /**
+   * `would-import` in a dry run; `existing` when the same source's recipe
+   * is already at its slug (skipped); `failed` says why in `error`.
+   */
+  status: "would-import" | "imported" | "existing" | "failed";
   slug?: string;
   /** The video chapter it is made in; its `source` starts there. */
   chapter?: ChapterRef;
@@ -164,6 +167,8 @@ export interface ImportBatchResult {
   pastedText?: true;
   /** Every recipe the model found, in the text's order. */
   found: FoundRecipe[];
+  /** Listed by the model but left out: no recipe in its part, a failed call. */
+  leftOut?: { n: number; name: string; reason: string }[];
   /** The picks: all of them in a dry run without `pick`. */
   recipes: ImportBatchItem[];
   /** The source's own category signals (26d), the whole batch's. */
@@ -190,7 +195,7 @@ export interface UrlImport extends ApplyLlmResult {
  */
 export async function importFromUrl(
   url: string,
-  { llm: mode }: { llm?: LlmMode } = {},
+  { llm: mode, asOne = false }: { llm?: LlmMode; asOne?: boolean } = {},
 ): Promise<UrlImport> {
   let applied: ApplyLlmResult;
   if (isVideoUrl(url)) {
@@ -202,8 +207,8 @@ export async function importFromUrl(
             source: videoSource(result.metadata),
             mapped: ytdlpToRecipe(result.metadata, url),
             mode,
-            /* 36e: one video, several recipes. */
-            split: true,
+            /* 36e: one video, several recipes — unless asked for one. */
+            split: !asOne,
           })
         : /* No text to read; `force` still says when there is no model. */
           await applyLlm({
@@ -303,12 +308,18 @@ export interface ImportWriteOptions {
   /** Create from an SEO-only page, or a partial reading, anyway. */
   allowPartial?: boolean;
   /**
-   * The model found several recipes (36e): import these, by position
-   * (1-based). Without `pick` or `all` such an import is refused.
+   * The model found several recipes (36e): import these, by name (steady
+   * across re-reads) or by position in its list (1-based). Without `pick`
+   * or `all` such an import is refused.
    */
-  pick?: number[];
+  pick?: RecipePick[];
   /** The model found several recipes: import them all (36e). */
   all?: boolean;
+  /**
+   * Read a video or paste as one recipe, never split (36e review): for a
+   * dish the model would split into its parts.
+   */
+  asOne?: boolean;
 }
 
 export async function importAndCreate(
@@ -323,11 +334,15 @@ export async function importAndCreate(
   } = {},
 ): Promise<ImportResult> {
   checkPickOptions(options);
-  const imported = await importFromUrl(url, { llm: mode });
+  const imported = await importFromUrl(url, {
+    llm: mode,
+    asOne: options.asOne,
+  });
   if (imported.recipes) {
     return finishBatch(ctx, imported.recipes, {
       ...options,
       url,
+      leftOut: imported.leftOut,
       suggestedTags: imported.recipe.suggestedTags,
       batchWarnings: imported.warnings.filter(
         (warning) => !imported.recipes![0].warnings.includes(warning),
@@ -335,7 +350,7 @@ export async function importAndCreate(
       commitNote: `local model, {n} of {total} from ${shortSource(url)}`,
     });
   }
-  checkSinglePick(options);
+  checkSinglePick(options, imported.recipe.name);
   return finishImport(ctx, imported, {
     ...options,
     url,
@@ -369,20 +384,25 @@ export async function importFromText(
   }: ImportWriteOptions & { text: string; source?: string },
 ): Promise<ImportResult> {
   checkPickOptions(options);
-  const reading = await readPastedText({ text, source });
+  const reading = await readPastedText({
+    text,
+    source,
+    split: !options.asOne,
+  });
   if (reading.recipes) {
     const url = source ? reading.recipe.source?.url : undefined;
     return finishBatch(ctx, reading.recipes, {
       ...options,
       url,
       pastedText: true,
+      leftOut: reading.leftOut,
       batchWarnings: reading.warnings.filter(
         (warning) => !reading.recipes![0].warnings.includes(warning),
       ),
       commitNote: `local model, pasted text, {n} of {total}`,
     });
   }
-  checkSinglePick(options);
+  checkSinglePick(options, reading.recipe.name);
   return finishImport(ctx, reading, {
     ...options,
     url: reading.recipe.source?.url,
@@ -500,21 +520,47 @@ async function finishImport(
 /* Several recipes in one video or paste (36e, D10)                    */
 /* ------------------------------------------------------------------ */
 
-/** `pick` and `all` together, or an empty `pick`: refused before any fetch. */
-function checkPickOptions({ pick, all }: ImportWriteOptions): void {
+/** A pick: a recipe's position in the model's list, or its name. */
+export type RecipePick = number | string;
+
+/** `pick` with `all` or `asOne`, or an empty `pick`: refused before any fetch. */
+function checkPickOptions({ pick, all, asOne }: ImportWriteOptions): void {
   if (pick && all) {
-    throw new UsageError("Give pick (--pick 1,3) or all (--all), not both.");
+    throw new UsageError('Give pick (--pick "Name") or all (--all), not both.');
+  }
+  if (asOne && (pick || all)) {
+    throw new UsageError(
+      "asOne (--as-one) reads the text as one recipe: it takes no pick or all.",
+    );
   }
   if (pick && pick.length === 0) {
     throw new UsageError("pick names no recipes.");
   }
 }
 
-/** One recipe found: `pick` can only name it. */
-function checkSinglePick({ pick }: ImportWriteOptions): void {
-  if (pick?.some((n) => n !== 1)) {
+/** A name as picks compare it: case, punctuation and dashes folded. */
+function nameKey(name: string): string {
+  return name
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+/** One recipe found: `pick` can only name it (1, or its name). */
+function checkSinglePick(
+  { pick }: ImportWriteOptions,
+  name: string | undefined,
+): void {
+  const off = (pick ?? []).filter((entry) =>
+    typeof entry === "number"
+      ? entry !== 1
+      : !name || nameKey(entry) !== nameKey(name),
+  );
+  if (off.length > 0) {
     throw new ValidationError(
-      `This import holds one recipe: pick ${pick.join(",")} names none of it (pick 1, or leave it out).`,
+      `This import holds one recipe${name ? ` ("${name}")` : ""}: pick ${off.map((entry) => JSON.stringify(entry)).join(", ")} names none of it (leave pick out).`,
       [{ path: "pick", message: "one recipe found" }],
     );
   }
@@ -557,16 +603,71 @@ export function foundRecipe(reading: SplitReading): FoundRecipe {
   };
 }
 
-/** The refusal of a several-recipe import with no pick (36e). */
+function foundList(found: readonly FoundRecipe[]): string {
+  return found.map((recipe) => `${recipe.n}. ${recipe.name}`).join(", ");
+}
+
+/**
+ * The refusal of a several-recipe import with no pick (36e). Names first: a
+ * position is the model's list's, and a re-read can list differently.
+ */
 export function severalRecipesMessage(
   found: readonly FoundRecipe[],
   where: string,
 ): string {
+  const example = found.find((recipe) => recipe.n > 1) ?? found[0];
   return (
-    `The local model found ${found.length} recipes in ${where}: ` +
-    found.map((recipe) => `${recipe.n}. ${recipe.name}`).join(", ") +
-    ". Import them all with --all, or some with --pick 1,3 (`all` / `pick` over MCP and the API); --dry-run shows them all."
+    `The local model found ${found.length} recipes in ${where}: ${foundList(found)}. ` +
+    `Import them all with --all, or some by name: --pick "${example?.name ?? "Name"}" ` +
+    "(`all` / `pick` over MCP and the API; positions like --pick 1,3 work too, but a re-read can number them differently); " +
+    "--dry-run shows them all; --as-one reads the text as one recipe."
   );
+}
+
+/**
+ * The readings `pick` names, in the list's order: a position (a gap left by
+ * a recipe left out is refused, saying why) or a name, matched without case
+ * or punctuation (and a slug, "green-bean-casserole", matches too). A name
+ * not found this time is refused, listing what was.
+ */
+export function resolvePicks(
+  picks: readonly RecipePick[],
+  readings: readonly SplitReading[],
+  leftOut: readonly { n: number; name: string; reason: string }[] = [],
+): SplitReading[] {
+  const found = readings.map(foundRecipe);
+  const wanted = new Set<number>();
+  for (const pick of picks) {
+    if (typeof pick === "number") {
+      if (readings.some((reading) => reading.n === pick)) {
+        wanted.add(pick);
+        continue;
+      }
+      const left = leftOut.find((entry) => entry.n === pick);
+      throw new ValidationError(
+        left
+          ? `pick ${pick} ("${left.name}") was left out this time (${left.reason}). Found: ${foundList(found)}.`
+          : `pick ${pick}: the local model found ${foundList(found)} — pick by name.`,
+        [{ path: "pick", message: left ? "left out" : "no such position" }],
+      );
+    }
+    const key = nameKey(pick);
+    const match = readings.find(
+      (reading) => nameKey(reading.recipe.name ?? "") === key,
+    );
+    if (match) {
+      wanted.add(match.n);
+      continue;
+    }
+    const left = leftOut.find((entry) => nameKey(entry.name) === key);
+    throw new ValidationError(
+      left
+        ? `pick "${pick}" was left out this time (${left.reason}). Found: ${foundList(found)}.`
+        : `pick "${pick}": no recipe of that name this time. Found: ${foundList(found)}.`,
+      [{ path: "pick", message: left ? "left out" : "not found" }],
+    );
+  }
+  return readings.filter((reading) => wanted.has(reading.n));
 }
 
 /** One recipe of a batch to import, as the seat or the form hands it over. */
@@ -578,9 +679,14 @@ export interface BatchPick {
   chapter?: ChapterRef;
   llm?: LlmImportInfo;
   warnings?: string[];
+  /** This recipe's own slug (the form's retry after a conflict). */
+  slug?: string;
 }
 
-export interface BatchOptions extends Omit<ImportWriteOptions, "pick" | "all"> {
+export interface BatchOptions extends Omit<
+  ImportWriteOptions,
+  "pick" | "all" | "asOne"
+> {
   /** How many recipes the source held: "2 of 4" in each commit. */
   total: number;
   /**
@@ -609,17 +715,34 @@ function withoutStart(url: string | undefined): string | undefined {
   }
 }
 
+/** The recipe at `slug` came from `source` (chapter starts aside). */
+async function sameSource(
+  ctx: CurationContext,
+  slug: string,
+  source: string | undefined,
+): Promise<boolean> {
+  if (!source) return false;
+  const existing = await getRecipe(ctx, slug).catch(() => undefined);
+  return withoutStart(existing?.recipe.source?.url) === source;
+}
+
 /**
  * Import picked recipes of one source (36e), each its own commit: the seat's
  * `--all` / `--pick`, and the form's "Import selected".
  *
- * Every pick is checked before anything is written — a partial reading
- * without `allowPartial`, a slug already taken (unless `overwrite`) or taken
- * twice in the batch fails that pick alone — so the links can be settled: an
- * ingredient line naming another recipe of the batch becomes a link to that
- * recipe's slug, and only when that recipe is being created too. The shared
- * picture (a video's thumbnail) is downloaded once, and probed once in a dry
- * run. One pick failing never fails the batch.
+ * 1. **Plan** every pick before anything is written: a partial reading
+ *    without `allowPartial`, or a slug taken twice in the batch, fails that
+ *    pick; a slug already taken is `existing` when that recipe came from the
+ *    same source (a re-run after a partial success imports only what is
+ *    missing, as a roundup does), else a `slug_conflict` (unless
+ *    `overwrite`). Nothing is suffixed.
+ * 2. **Create** the recipes others link to first, then the rest — so a line
+ *    naming another recipe links to it only once it is there: `imported`
+ *    or `existing` in this batch, or an earlier pick of the same source at
+ *    its slug. Anything else leaves the line as it is, with a warning.
+ *
+ * The shared picture (a video's thumbnail) is downloaded once, and probed
+ * once in a dry run. One pick failing never fails the batch.
  */
 export async function importBatchPicks(
   ctx: CurationContext,
@@ -637,7 +760,7 @@ export async function importBatchPicks(
     siblings = [],
   }: BatchOptions,
 ): Promise<ImportBatchItem[]> {
-  const { linkLine } = await import("../llm/splitRecipes");
+  const { linkLine } = await import("../llm/mergeReadings");
   const items = new Map<number, ImportBatchItem>();
   const planned = new Map<number, { slug: string; pick: BatchPick }>();
   const taken = new Set<string>();
@@ -650,6 +773,8 @@ export async function importBatchPicks(
     ...(pick.llm ? { llm: pick.llm } : {}),
     ...(pick.warnings?.length ? { warnings: pick.warnings } : {}),
   });
+  const inputOf = (pick: BatchPick, recipe = pick.recipe) =>
+    importedToInput(recipe, { tags, slug: pick.slug ?? slug, name, image });
 
   /* 1. Plan: the gate and the slug, nothing written. */
   for (const pick of picks) {
@@ -661,24 +786,41 @@ export async function importBatchPicks(
             ". Dry-run it to see it, or pass --allow-partial to create it anyway.",
         );
       }
-      const recipeSlug = resolveCreateSlug(
-        importedToInput(pick.recipe, { tags, slug, name, image }),
-      );
+      const recipeSlug = resolveCreateSlug(inputOf(pick));
       if (taken.has(recipeSlug)) {
         throw new CurationError(
           "slug_conflict",
-          `Another recipe of this import has the slug "${recipeSlug}" — import this one on its own with --pick ${pick.n} --slug <another>.`,
-          { slug: recipeSlug },
-        );
-      }
-      if (!dryRun && !overwrite && (await slugIsTaken(ctx, recipeSlug))) {
-        throw new CurationError(
-          "slug_conflict",
-          `A recipe already has the slug "${recipeSlug}" — import this one on its own with --pick ${pick.n} --slug <another> (or --overwrite).`,
+          `Another recipe of this import has the slug "${recipeSlug}" — import this one on its own with --pick "${pick.recipe.name}" --slug <another>.`,
           { slug: recipeSlug },
         );
       }
       taken.add(recipeSlug);
+      if (!overwrite && (await slugIsTaken(ctx, recipeSlug))) {
+        if (
+          await sameSource(
+            ctx,
+            recipeSlug,
+            withoutStart(pick.recipe.source?.url),
+          )
+        ) {
+          items.set(pick.n, {
+            ...baseOf(pick),
+            status: "existing",
+            slug: recipeSlug,
+            warnings: [
+              `already imported from this source as "${recipeSlug}" — skipped`,
+            ],
+          });
+          continue;
+        }
+        if (!dryRun) {
+          throw new CurationError(
+            "slug_conflict",
+            `A recipe already has the slug "${recipeSlug}" — import this one on its own with --pick "${pick.recipe.name}" --slug <another> (or --overwrite).`,
+            { slug: recipeSlug },
+          );
+        }
+      }
       planned.set(pick.n, { slug: recipeSlug, pick });
     } catch (error) {
       items.set(pick.n, {
@@ -688,11 +830,7 @@ export async function importBatchPicks(
     }
   }
 
-  /*
-   * 2. Links: to a recipe of the batch that is being made too — or, for one
-   * left out of it, to the recipe already at its slug when that came from
-   * the same source (the shallots imported by an earlier `--pick`).
-   */
+  /* An earlier pick of the same source at a sibling's slug (T52). */
   const earlier = new Map<number, string | null>();
   const earlierSlug = async (n: number, source: string | undefined) => {
     if (!earlier.has(n)) {
@@ -702,39 +840,23 @@ export async function importBatchPicks(
         const siblingSlug = resolveCreateSlug({
           name: sibling.name,
         } as RecipeInput);
-        if (await slugIsTaken(ctx, siblingSlug)) {
-          const existing = await getRecipe(ctx, siblingSlug).catch(
-            () => undefined,
-          );
-          if (withoutStart(existing?.recipe.source?.url) === source) {
-            found = siblingSlug;
-          }
+        if (
+          (await slugIsTaken(ctx, siblingSlug)) &&
+          (await sameSource(ctx, siblingSlug, source))
+        ) {
+          found = siblingSlug;
         }
       }
       earlier.set(n, found);
     }
     return earlier.get(n) ?? undefined;
   };
-  const linked = new Map<number, Partial<ImportedRecipe>>();
-  for (const [n, { pick }] of planned) {
-    const ingredients = [...(pick.recipe.ingredients ?? [])];
-    const source = withoutStart(pick.recipe.source?.url);
-    for (const ref of pick.components ?? []) {
-      const entry = ingredients[ref.line];
-      if (!entry || entry.type === "heading") continue;
-      const targetSlug =
-        planned.get(ref.target)?.slug ??
-        (await earlierSlug(ref.target, source));
-      if (!targetSlug) continue;
-      ingredients[ref.line] = {
-        ...entry,
-        ingredient: linkLine(entry.ingredient, targetSlug),
-      };
-    }
-    linked.set(n, { ...pick.recipe, ingredients });
-  }
+  const nameOf = (n: number) =>
+    picks.find((pick) => pick.n === n)?.recipe.name ??
+    siblings.find((entry) => entry.n === n)?.name ??
+    `recipe ${n}`;
 
-  /* 3. The shared picture, once per URL. */
+  /* The shared picture, once per URL. */
   const probes = new Map<string, Promise<ImageProbe>>();
   const probeOnce = (imageUrl: string) => {
     if (!probes.has(imageUrl)) {
@@ -756,26 +878,71 @@ export async function importBatchPicks(
     return files.get(imageUrl)!;
   };
 
-  /* 4. Each pick: a dry run, or its own commit. */
-  for (const pick of picks) {
+  /* 2. Create: what others link to first (L2), then the rest. */
+  const targets = new Set(
+    picks.flatMap((pick) => (pick.components ?? []).map((ref) => ref.target)),
+  );
+  const order = [...picks].sort(
+    (a, b) => Number(!targets.has(a.n)) - Number(!targets.has(b.n)),
+  );
+  for (const pick of order) {
     const plan = planned.get(pick.n);
     if (!plan) continue;
-    const recipe = linked.get(pick.n)!;
     const base = baseOf(pick);
+    const warnings = [...(base.warnings ?? [])];
     try {
-      const input = importedToInput(recipe, { tags, slug, name, image });
+      /* The links, to what is there now. */
+      const ingredients = [...(pick.recipe.ingredients ?? [])];
+      const source = withoutStart(pick.recipe.source?.url);
+      for (const ref of pick.components ?? []) {
+        const entry = ingredients[ref.line];
+        if (!entry || entry.type === "heading") continue;
+        const target = items.get(ref.target);
+        const targetSlug =
+          target &&
+          (target.status === "imported" ||
+            target.status === "existing" ||
+            target.status === "would-import")
+            ? target.slug
+            : planned.has(ref.target) || target
+              ? undefined
+              : await earlierSlug(ref.target, source);
+        if (!targetSlug) {
+          warnings.push(
+            `"${entry.ingredient.replace(/<Multiplyable\s+baseNumber="([^"]*)"\s*\/>/g, "$1")}" is not linked: "${nameOf(ref.target)}" ${
+              target?.status === "failed"
+                ? "was not imported"
+                : planned.has(ref.target)
+                  ? "is not imported yet"
+                  : "is not imported — pick it too"
+            }`,
+          );
+          continue;
+        }
+        ingredients[ref.line] = {
+          ...entry,
+          ingredient: linkLine(entry.ingredient, targetSlug),
+        };
+      }
+      const recipe = { ...pick.recipe, ingredients };
+      const input = inputOf(pick, recipe);
       if (dryRun) {
         const date = input.date ?? Date.now();
         const {
           data,
           image: probe,
-          warnings,
+          warnings: writeWarnings,
         } = await buildRecipeWrite(input, {
           date,
           probe: true,
           probeImage: probeOnce,
         });
-        const allWarnings = [...(base.warnings ?? []), ...warnings];
+        if (await slugIsTaken(ctx, plan.slug)) {
+          writeWarnings.push(
+            `a recipe already has the slug "${plan.slug}": a create would fail it (slug_conflict)`,
+          );
+        }
+        const allWarnings = [...warnings, ...writeWarnings];
         items.set(pick.n, {
           ...base,
           status: "would-import",
@@ -784,18 +951,19 @@ export async function importBatchPicks(
           draft: {
             ...toDraft(recipe),
             name: input.name,
-            ...(slug ? { slug } : {}),
+            ...((pick.slug ?? slug) ? { slug: pick.slug ?? slug } : {}),
             ...(input.tags ? { tags: input.tags } : {}),
             ...(input.imageImportUrl
               ? { imageImportUrl: input.imageImportUrl }
               : {}),
           },
           ...(probe ? { image: probe } : {}),
-          ...(allWarnings.length ? { warnings: allWarnings } : {}),
+          ...(allWarnings.length
+            ? { warnings: allWarnings }
+            : { warnings: undefined }),
         });
         continue;
       }
-      const warnings = [...(base.warnings ?? [])];
       const imageUrl = input.imageImportUrl ?? undefined;
       let file: File | undefined;
       if (imageUrl) {
@@ -828,10 +996,18 @@ export async function importBatchPicks(
         ...(warnings.length ? { warnings } : { warnings: undefined }),
       });
     } catch (error) {
-      items.set(pick.n, { ...base, error: toErrorObject(error).error });
+      items.set(pick.n, {
+        ...base,
+        ...(warnings.length ? { warnings } : {}),
+        error: toErrorObject(error).error,
+      });
     }
   }
-  return picks.map((pick) => items.get(pick.n)!);
+  return picks.map((pick) => {
+    const item = items.get(pick.n)!;
+    if (item.warnings === undefined) delete item.warnings;
+    return item;
+  });
 }
 
 /**
@@ -845,10 +1021,12 @@ async function finishBatch(
   {
     pick,
     all,
+    asOne: _asOne,
     url,
     pastedText = false,
     suggestedTags,
     batchWarnings,
+    leftOut = [],
     commitNote,
     ...options
   }: ImportWriteOptions & {
@@ -856,25 +1034,17 @@ async function finishBatch(
     pastedText?: boolean;
     suggestedTags?: string[];
     batchWarnings: string[];
+    leftOut?: { n: number; name: string; reason: string }[];
     commitNote: string;
   },
 ): Promise<ImportBatchResult> {
+  void _asOne;
   const found = readings.map(foundRecipe);
   let picked: SplitReading[];
   if (all) {
     picked = readings;
   } else if (pick) {
-    const beyond = pick.filter((n) => n < 1 || n > readings.length);
-    if (beyond.length > 0) {
-      throw new ValidationError(
-        `pick ${beyond.join(",")}: the local model found ${readings.length} recipes (` +
-          found.map((recipe) => `${recipe.n}. ${recipe.name}`).join(", ") +
-          ").",
-        [{ path: "pick", message: `1 to ${readings.length}` }],
-      );
-    }
-    const wanted = new Set(pick);
-    picked = readings.filter((reading) => wanted.has(reading.n));
+    picked = resolvePicks(pick, readings, leftOut);
   } else if (options.dryRun) {
     picked = readings;
   } else {
@@ -887,7 +1057,7 @@ async function finishBatch(
   }
   if ((options.slug || options.name) && picked.length > 1) {
     throw new UsageError(
-      "slug and name are one recipe's: pick one recipe (--pick N) to give them.",
+      'slug and name are one recipe\'s: pick one recipe (--pick "Name") to give them.',
     );
   }
   const recipes = await importBatchPicks(
@@ -902,7 +1072,7 @@ async function finishBatch(
     })),
     {
       ...options,
-      total: readings.length,
+      total: readings.length + leftOut.length,
       commitNote,
       siblings: readings.map((reading) => ({
         n: reading.n,
@@ -916,6 +1086,7 @@ async function finishBatch(
     ...(url ? { url } : {}),
     ...(pastedText ? { pastedText: true as const } : {}),
     found,
+    ...(leftOut.length ? { leftOut } : {}),
     recipes,
     ...(suggestedTags?.length ? { suggestedTags } : {}),
     ...(batchWarnings.length ? { warnings: batchWarnings } : {}),

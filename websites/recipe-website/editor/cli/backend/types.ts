@@ -169,8 +169,10 @@ export interface ImportOptions {
    * A video (or paste) holding several recipes (36e): import these, by
    * 1-based position, or `all`. With neither, such an import is `usage`.
    */
-  pick?: number[];
+  pick?: (number | string)[];
   all?: boolean;
+  /** Read a video or paste as one recipe, never split (36e). */
+  asOne?: boolean;
 }
 
 /**

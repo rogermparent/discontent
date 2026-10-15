@@ -229,11 +229,24 @@ export interface ApplyLlmInput {
    * pasted text. Pages are read as one recipe, as before.
    */
   split?: boolean;
+  /** The several-recipe attempt's deadline (default `SPLIT_DEADLINE_MS`). */
+  splitDeadlineMs?: number;
 }
+
+/**
+ * How long looking for several recipes may take, all calls together (36e
+ * review): then the text is read as one, as if the look had found nothing.
+ * Four ~20 s readings and the list fit; a stuck call does not.
+ */
+export const SPLIT_DEADLINE_MS = 240_000;
 
 /** One recipe of several the model found in one text (36e). */
 export interface SplitReading {
-  /** 1-based, in the text's order. */
+  /**
+   * 1-based, its place in the model's list — kept when a recipe before it
+   * is left out, so the positions can have gaps (36e review); a pick by
+   * name is steadier still.
+   */
   n: number;
   /**
    * D4 held for it: grounded, an ingredient and a step. A video's untrusted
@@ -263,6 +276,8 @@ export interface ApplyLlmResult {
    * gets a recipe — every surface checks for it and asks which to import.
    */
   recipes?: SplitReading[];
+  /** Listed, but left out: no recipe in its part, under the floor, a failed call. */
+  leftOut?: { n: number; name: string; reason: string }[];
 }
 
 /** The mapper found a recipe body: ingredients or steps to keep. */
@@ -360,6 +375,7 @@ export async function applyLlm({
   config = llmConfig(),
   signal,
   split = false,
+  splitDeadlineMs = SPLIT_DEADLINE_MS,
 }: ApplyLlmInput): Promise<ApplyLlmResult> {
   const unchanged: ApplyLlmResult = { recipe: mapped, warnings: [] };
   if (mode === "off") return unchanged;
@@ -407,25 +423,42 @@ export async function applyLlm({
     };
   }
 
-  let extraction: LlmExtraction;
   let several: SeveralReading | undefined;
-  try {
-    several = split
-      ? await readSeveral({
-          text,
-          url,
-          meta,
-          label,
-          chapters: "html" in source ? undefined : source.chapters,
-          mapped,
-          mode,
-          config,
-          signal,
-        })
-      : undefined;
-    if (several?.readings) {
-      return several.readings;
+  if (split) {
+    /*
+     * Looking for several recipes is its own attempt (36e review): a list,
+     * a question or a slice that times out or answers garbage must not cost
+     * the single reading — the chili passes the gate and is one recipe.
+     * One deadline over all of it; the caller's own abort still wins.
+     */
+    const deadline = AbortSignal.timeout(splitDeadlineMs);
+    try {
+      several = await readSeveral({
+        text,
+        url,
+        meta,
+        label,
+        chapters: "html" in source ? undefined : source.chapters,
+        mapped,
+        mode,
+        config,
+        signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
+      });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      if (!(error instanceof LlmError) && !deadline.aborted) throw error;
+      several = {
+        note: `looking for several recipes failed — ${
+          deadline.aborted
+            ? `no answer within ${Math.round(splitDeadlineMs / 1000)} s`
+            : describe(error)
+        }; read as one`,
+      };
     }
+    if (several?.readings) return several.readings;
+  }
+  let extraction: LlmExtraction;
+  try {
     extraction = await extractRecipeWithLlm({
       text,
       url,
@@ -638,7 +671,9 @@ async function readSeveral({
   void _description;
   const slices = split.sliceText(capped, starts);
   const notes: string[] = [];
+  const leftOut: NonNullable<ApplyLlmResult["leftOut"]> = [];
   const kept: {
+    n: number;
     settled: ApplyLlmResult & {
       recipe: Partial<ImportedRecipe>;
       trusted?: boolean;
@@ -648,15 +683,28 @@ async function readSeveral({
   }[] = [];
   for (const [index, slice] of slices.entries()) {
     const listedRecipe = listed.recipes[index];
-    const extraction = await extract.extractRecipeWithLlm({
-      text: slice,
-      url,
-      meta: { ...meta, title: listedRecipe.name || meta?.title },
-      sourceKind: "text",
-      sourceLabel: label,
-      config,
-      signal,
-    });
+    const leave = (reason: string) => {
+      leftOut.push({ n: index + 1, name: names[index], reason });
+      notes.push(`"${names[index]}": ${reason} — left out`);
+    };
+    let extraction: LlmExtraction;
+    try {
+      extraction = await extract.extractRecipeWithLlm({
+        text: slice,
+        url,
+        meta: { ...meta, title: listedRecipe.name || meta?.title },
+        sourceKind: "text",
+        sourceLabel: label,
+        config,
+        signal,
+      });
+    } catch (error) {
+      /* One slice's failed call is that slice's (36e review); an abort —
+       * the caller's or the deadline's — is the whole attempt's. */
+      if (!(error instanceof LlmError) || signal?.aborted) throw error;
+      leave(`local model failed — ${describe(error)}`);
+      continue;
+    }
     const settled = settleExtraction({
       extraction,
       mapped: mapped ? base : undefined,
@@ -666,14 +714,13 @@ async function readSeveral({
       extract,
     });
     if (!settled.recipe || !extraction.found || settled.llm?.discarded) {
-      notes.push(
-        `"${names[index]}": ${settled.warnings.join("; ")} — left out`,
-      );
+      leave(settled.warnings.join("; "));
       continue;
     }
     /* The list's name: it saw the whole text ("Stuffing", not "STUFFING"). */
     if (listedRecipe.name) settled.recipe.name = listedRecipe.name;
     kept.push({
+      n: index + 1,
       settled: { ...settled, recipe: settled.recipe },
       heading: slice.split("\n")[0]?.trim() ?? "",
       names: [
@@ -705,26 +752,23 @@ async function readSeveral({
   );
   const { withVideoStart } =
     await import("recipe-website-common/util/videoUrl");
-  const recipes = kept.map(({ settled, heading }, index): SplitReading => {
+  const recipes = kept.map(({ n, settled, heading }, index): SplitReading => {
     const chapter = placed[index];
+    /* Its chapter's start, or none — never a start the person pasted. */
+    const start = chapter?.start ?? 0;
     const recipe = { ...settled.recipe };
-    if (chapter) {
-      if (recipe.source?.url) {
-        recipe.source = {
-          ...recipe.source,
-          url: withVideoStart(recipe.source.url, chapter.start),
-        };
-      }
-      if (recipe.videoImportUrl) {
-        recipe.videoImportUrl = withVideoStart(
-          recipe.videoImportUrl,
-          chapter.start,
-        );
-      }
+    if (recipe.source?.url) {
+      recipe.source = {
+        ...recipe.source,
+        url: withVideoStart(recipe.source.url, start),
+      };
+    }
+    if (recipe.videoImportUrl) {
+      recipe.videoImportUrl = withVideoStart(recipe.videoImportUrl, start);
     }
     return {
-      /* Renumbered: what was left out leaves no gap in `--pick`. */
-      n: index + 1,
+      /* The list's position: a left-out recipe leaves a gap (M3). */
+      n,
       recipe,
       llm: settled.llm!,
       warnings: settled.warnings,
@@ -735,7 +779,7 @@ async function readSeveral({
         ? {
             components: components[index].map((ref) => ({
               line: ref.line,
-              target: ref.target + 1,
+              target: kept[ref.target].n,
             })),
           }
         : {}),
@@ -744,7 +788,7 @@ async function readSeveral({
   const where = extract.sourceWhere("text", label);
   const found = `local model ${listed.model} found ${recipes.length} recipes ${where}: ${recipes
     .map((reading) => `${reading.n}. ${reading.recipe.name}`)
-    .join(", ")} — pick the ones to import`;
+    .join(", ")} — pick the ones to import, by name`;
   const [first] = recipes;
   return {
     readings: {
@@ -752,6 +796,7 @@ async function readSeveral({
       llm: first.llm,
       warnings: [found, ...notes, ...first.warnings],
       recipes,
+      ...(leftOut.length ? { leftOut } : {}),
     },
   };
 }
@@ -793,6 +838,8 @@ export interface PastedTextInput {
   /** Defaults to `llmConfig()` (the environment, D1). */
   config?: LlmConfig;
   signal?: AbortSignal;
+  /** Look for several recipes (36e); `false` reads the text as one. */
+  split?: boolean;
 }
 
 /** What the model made of pasted text: always a recipe, always `llm`. */
@@ -855,6 +902,7 @@ export async function readPastedText({
   source,
   config = llmConfig(),
   signal,
+  split = true,
 }: PastedTextInput): Promise<PastedTextReading> {
   const normalised = normalisePastedText(text);
   if (!normalised.trim()) {
@@ -878,8 +926,9 @@ export async function readPastedText({
     mode: "force",
     config,
     signal,
-    /* 36e: a paste can hold several recipes, as a video can. */
-    split: true,
+    /* 36e: a paste can hold several recipes, as a video can — unless the
+     * caller asked for one (`asOne`). */
+    split,
   });
   const warnings = cutNote ? [...applied.warnings, cutNote] : applied.warnings;
   if (!applied.recipe || !applied.llm) {

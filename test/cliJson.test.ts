@@ -1288,6 +1288,16 @@ describe("import tooling as a process (26b)", () => {
         text,
       );
       expect(JSON.parse(both.stdout).error.code).toBe("usage");
+      /* --as-one reads it as one: no pick with it (36e review). */
+      const asOneAll = await run(
+        ["import", "--text", "-", "--as-one", "--all", "--json"],
+        withModel,
+        text,
+      );
+      expect(JSON.parse(asOneAll.stdout).error).toMatchObject({
+        code: "usage",
+        message: expect.stringContaining("--as-one"),
+      });
 
       /* A dry run shows them all; --out writes a draft each. */
       const out = join(scratch, "lemon.json");
@@ -1310,7 +1320,7 @@ describe("import tooling as a process (26b)", () => {
       ).toMatchObject({ name: "Lemon Glaze" });
 
       const picked = await run(
-        ["import", "--text", "-", "--pick", "2", "--json"],
+        ["import", "--text", "-", "--pick", "lemon glaze", "--json"],
         withModel,
         text,
       );

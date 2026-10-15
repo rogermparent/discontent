@@ -27,6 +27,8 @@ import {
 } from "../websites/recipe-website/common/util/videoUrl";
 import { recipeLinkSlugs } from "../websites/recipe-website/common/controller/buildIndexValue";
 import { parseRecipePicks } from "../websites/recipe-website/editor/cli/commands/import";
+import { IMPORT_HTTP_TIMEOUT_MS } from "../websites/recipe-website/editor/cli/backend/http";
+import { createIngredient } from "../websites/recipe-website/common/util/parseIngredients";
 import { recipeContentTypes } from "../websites/recipe-website/editor/controller/contentTypes";
 import type { CurationContext } from "../websites/recipe-website/editor/controller/curation/context";
 import { CurationError } from "../websites/recipe-website/editor/controller/curation/errors";
@@ -44,7 +46,10 @@ import {
   applyLlm,
   videoSource,
 } from "../websites/recipe-website/editor/controller/llm/importWithLlm";
-import { mergeReadings } from "../websites/recipe-website/editor/controller/llm/mergeReadings";
+import {
+  linkReading,
+  mergeReadings,
+} from "../websites/recipe-website/editor/controller/llm/mergeReadings";
 import {
   chapterFor,
   findComponents,
@@ -446,11 +451,12 @@ describe("a video with several recipes (36e, yt-dlp mimic)", () => {
       ["imported", "green-bean-casserole"],
       ["imported", "fried-shallots"],
     ]);
+    /* What others link to is created first (36e review, L2). */
     expect(await messages(4)).toEqual([
+      "Create recipe: fried-shallots (local model, 4 of 4 from youtube.com/watch?v=SIDES_TEST)",
       "Create recipe: potato-puree (local model, 1 of 4 from youtube.com/watch?v=SIDES_TEST)",
       "Create recipe: stuffing (local model, 2 of 4 from youtube.com/watch?v=SIDES_TEST)",
       "Create recipe: green-bean-casserole (local model, 3 of 4 from youtube.com/watch?v=SIDES_TEST)",
-      "Create recipe: fried-shallots (local model, 4 of 4 from youtube.com/watch?v=SIDES_TEST)",
     ]);
     expect(imageGets).toBe(1);
     const casserole = (await getRecipe(ctx, "green-bean-casserole")).recipe;
@@ -485,6 +491,9 @@ describe("a video with several recipes (36e, yt-dlp mimic)", () => {
     expect(casserole.ingredients?.at(-1)?.ingredient).toBe(
       "Crispy fried shallots (or onions) - see recipe below",
     );
+    expect(result.recipes[0].warnings).toContain(
+      '"Crispy fried shallots (or onions) - see recipe below" is not linked: "Fried Shallots" is not imported — pick it too',
+    );
     expect(await messages(1)).toEqual([
       "Create recipe: green-bean-casserole (local model, 3 of 4 from youtube.com/watch?v=SIDES_TEST)",
     ]);
@@ -493,7 +502,9 @@ describe("a video with several recipes (36e, yt-dlp mimic)", () => {
       (e) => e,
     );
     expect(beyond.code).toBe("validation");
-    expect(beyond.message).toMatch(/pick 5: the local model found 4 recipes/);
+    expect(beyond.message).toMatch(
+      /^pick 5: the local model found 1\. Potato Puree, .* — pick by name\.$/,
+    );
     const both = await importAndCreate(ctx, VIDEO_URL, {
       pick: [1],
       all: true,
@@ -562,7 +573,9 @@ describe("a video with several recipes (36e, yt-dlp mimic)", () => {
       status: "failed",
       error: { code: "slug_conflict", slug: "stuffing" },
     });
-    expect(result.recipes[1].error?.message).toContain("--pick 2 --slug");
+    expect(result.recipes[1].error?.message).toContain(
+      '--pick "Stuffing" --slug',
+    );
   });
 
   it("trusts each recipe on its own: one invented reading does not sink the rest", async () => {
@@ -579,11 +592,26 @@ describe("a video with several recipes (36e, yt-dlp mimic)", () => {
     expect(dry.warnings?.join(" ")).toMatch(
       /"Stuffing": local model output discarded — only 0\/6 ingredient lines found .* — left out/,
     );
-    /* Renumbered, so pick never names a gap; links follow the new numbers. */
-    expect(dry.found.map((recipe) => recipe.n)).toEqual([1, 2, 3]);
+    /* The list's positions stay (36e review, M3): a gap where it was. */
+    expect(dry.found.map((recipe) => recipe.n)).toEqual([1, 3, 4]);
+    expect(dry.leftOut).toEqual([
+      expect.objectContaining({ n: 2, name: "Stuffing" }),
+    ]);
     expect(dry.recipes[1].draft?.ingredients?.at(-1)).toMatch(
       /\]\(\/recipe\/fried-shallots\)$/,
     );
+    /* A pick of the gap says why, by position or by name. */
+    const gap = await importAndCreate(ctx, VIDEO_URL, { pick: [2] }).catch(
+      (e) => e,
+    );
+    expect(gap.code).toBe("validation");
+    expect(gap.message).toMatch(
+      /^pick 2 \("Stuffing"\) was left out this time/,
+    );
+    const named = await importAndCreate(ctx, VIDEO_URL, {
+      pick: ["stuffing"],
+    }).catch((e) => e);
+    expect(named.message).toMatch(/^pick "stuffing" was left out this time/);
   });
 
   it("inspect lists every recipe with its own draft; draft stays the first", async () => {
@@ -626,8 +654,8 @@ describe("pasted text with several recipes (36e)", () => {
       "imported",
     ]);
     expect(await messages(2)).toEqual([
-      "Create recipe: green-bean-casserole (local model, pasted text, 3 of 4)",
       "Create recipe: fried-shallots (local model, pasted text, 4 of 4)",
+      "Create recipe: green-bean-casserole (local model, pasted text, 3 of 4)",
     ]);
     const casserole = (await getRecipe(ctx, "green-bean-casserole")).recipe;
     expect(casserole.ingredients?.at(-1)?.ingredient).toMatch(
@@ -798,11 +826,17 @@ describe("applyLlm and the picker's helpers (36e)", () => {
 });
 
 describe("pick and all on the way in (36e)", () => {
-  it("parses --pick and refuses junk", () => {
+  it("parses --pick: names, positions, repeated flags; refuses junk", () => {
     expect(parseRecipePicks("1,3")).toEqual([1, 3]);
     expect(parseRecipePicks("2-4,2")).toEqual([2, 3, 4]);
+    expect(parseRecipePicks("Green Bean Casserole")).toEqual([
+      "Green Bean Casserole",
+    ]);
+    expect(parseRecipePicks(["Fried Shallots", "1"])).toEqual([
+      "Fried Shallots",
+      1,
+    ]);
     expect(() => parseRecipePicks("0")).toThrow(/1-based positions/);
-    expect(() => parseRecipePicks("a")).toThrow(/1-based positions/);
     expect(() => parseRecipePicks(",")).toThrow(/names no recipes/);
   });
 
@@ -825,5 +859,335 @@ describe("pick and all on the way in (36e)", () => {
     expect(
       ImportRequestSchema.safeParse({ url: VIDEO_URL, pick: [] }).success,
     ).toBe(false);
+    expect(
+      ImportRequestSchema.safeParse({
+        url: VIDEO_URL,
+        pick: ["Green Bean Casserole", 4],
+      }).success,
+    ).toBe(true);
+    expect(
+      ImportRequestSchema.safeParse({ url: VIDEO_URL, asOne: true }).success,
+    ).toBe(true);
+    expect(
+      ImportRequestSchema.safeParse({ url: VIDEO_URL, asOne: true, all: true })
+        .success,
+    ).toBe(false);
+  });
+
+  it("the CLI waits under undici's 300 s for an import (L5)", () => {
+    expect(IMPORT_HTTP_TIMEOUT_MS).toBe(285_000);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 36e review                                                          */
+/* ------------------------------------------------------------------ */
+
+describe("36e review: locating, failing safely, picks, as-one, re-runs", () => {
+  it("M2: a heading is never an ingredient line or a chapter line", () => {
+    const text = [
+      "0:00 Intro",
+      "5:04 Stuffing",
+      "10:52 Fried Shallots",
+      "",
+      "STUFFING",
+      "500g white bread",
+      "2 eggs",
+      "",
+      "Toss and bake.",
+      "",
+      "GREEN BEAN CASSEROLE",
+      "900g green beans",
+      "2 cups fried shallots",
+      "",
+      "Bake it.",
+      "",
+      "FRIED SHALLOTS (FOR THE CASSEROLE)",
+      "250g shallots",
+      "200g flour",
+      "",
+      "Fry them.",
+    ].join("\n");
+    const lines = text.split("\n");
+    const starts = locateRecipes(text, [
+      {
+        name: "Stuffing",
+        heading: "Stuffing",
+        firstIngredient: "500g white bread",
+      },
+      {
+        name: "Green Bean Casserole",
+        heading: "GREEN BEAN CASSEROLE",
+        firstIngredient: "900g green beans",
+      },
+      {
+        name: "Fried Shallots",
+        heading: "FRIED SHALLOTS",
+        firstIngredient: "250g shallots",
+      },
+    ])!;
+    expect(starts.map((at) => lines[at])).toEqual([
+      "STUFFING",
+      "GREEN BEAN CASSEROLE",
+      "FRIED SHALLOTS (FOR THE CASSEROLE)",
+    ]);
+    /* The casserole keeps its shallot line. */
+    expect(sliceText(text, starts)[1]).toContain("2 cups fried shallots");
+
+    /* A heading whose list is not near it falls back to the first ingredient. */
+    const far = [
+      "Holiday notes",
+      "",
+      "SIDES",
+      "Lots of words about sides here.",
+      "More words about the table.",
+      "Even more words.",
+      "And more.",
+      "300g onion",
+      "2 eggs",
+    ].join("\n");
+    const at = locateRecipes(far, [
+      { name: "Sides", heading: "SIDES", firstIngredient: "300g onion" },
+    ])!;
+    expect(far.split("\n")[at[0]]).toBe("300g onion");
+  });
+
+  it("M1: a failed list call costs nothing — the text is read as one", async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        if (String(input) === THUMB) {
+          return new Response(init?.method === "HEAD" ? null : "img", {
+            headers: { "content-type": "image/webp" },
+          });
+        }
+        calls += 1;
+        const body = JSON.parse(String(init?.body));
+        if (body.messages[0].content.startsWith("You find the separate")) {
+          return new Response("upstream broke", { status: 500 });
+        }
+        return Response.json(standInChat(body));
+      }),
+    );
+    const dry = await importAndCreate(ctx, VIDEO_URL, { dryRun: true });
+    expect("batch" in dry).toBe(false);
+    expect(calls).toBe(2);
+    expect("warnings" in dry && dry.warnings?.join(" ")).toMatch(
+      /looking for several recipes failed — the local model at .* answered 500.*; read as one/,
+    );
+  });
+
+  it("M1: a failed slice is left out with a warning; the rest stay", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        if (String(input) === THUMB) {
+          return new Response("img", {
+            headers: { "content-type": "image/webp" },
+          });
+        }
+        const body = JSON.parse(String(init?.body));
+        if (
+          String(body.messages[1]?.content).includes("--- TEXT ---\nSTUFFING")
+        ) {
+          return new Response("{not json", {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return Response.json(standInChat(body));
+      }),
+    );
+    const dry = asBatch(
+      await importAndCreate(ctx, VIDEO_URL, { dryRun: true }),
+    );
+    expect(dry.found.map((recipe) => recipe.n)).toEqual([1, 3, 4]);
+    expect(dry.leftOut?.[0]).toMatchObject({ n: 2, name: "Stuffing" });
+    expect(dry.leftOut?.[0].reason).toMatch(/^local model failed — /);
+  });
+
+  it("L5: past its deadline the split gives up, and the text is read as one", async () => {
+    const meta = await fixture();
+    let slow = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: string | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        if (
+          slow &&
+          body.messages[0].content.startsWith("You find the separate")
+        ) {
+          slow = false;
+          await new Promise((resolve, reject) => {
+            const timer = setTimeout(resolve, 5_000);
+            init?.signal?.addEventListener("abort", () => {
+              clearTimeout(timer);
+              reject(init.signal!.reason);
+            });
+          });
+        }
+        return Response.json(standInChat(body));
+      }),
+    );
+    const applied = await applyLlm({
+      url: VIDEO_URL,
+      source: videoSource(meta),
+      mapped: ytdlpToRecipe(meta, VIDEO_URL),
+      mode: "auto",
+      split: true,
+      splitDeadlineMs: 50,
+    });
+    /* Read as one: one more call, no batch. */
+    expect(applied.recipes).toBeUndefined();
+    expect(applied.llm).toBeDefined();
+    expect(applied.warnings.join(" ")).toMatch(
+      /looking for several recipes failed — no answer within 0 s; read as one/,
+    );
+  });
+
+  it("M3: picks by name, case and dashes aside; a missing name is refused", async () => {
+    stub();
+    const result = asBatch(
+      await importAndCreate(ctx, VIDEO_URL, {
+        pick: ["green bean casserole", "fried-shallots"],
+      }),
+    );
+    expect(result.recipes.map((recipe) => [recipe.n, recipe.status])).toEqual([
+      [3, "imported"],
+      [4, "imported"],
+    ]);
+    const missing = await importAndCreate(ctx, VIDEO_URL, {
+      pick: ["Gravy"],
+    }).catch((e) => e);
+    expect(missing.code).toBe("validation");
+    expect(missing.message).toBe(
+      'pick "Gravy": no recipe of that name this time. Found: 1. Potato Puree, 2. Stuffing, 3. Green Bean Casserole, 4. Fried Shallots.',
+    );
+    const refused = await importAndCreate(ctx, VIDEO_URL).catch((e) => e);
+    expect(refused.message).toContain('--pick "Stuffing"');
+  });
+
+  it("M4: asOne reads the video as one recipe, no list asked", async () => {
+    stub();
+    const dry = await importAndCreate(ctx, VIDEO_URL, {
+      dryRun: true,
+      asOne: true,
+    });
+    expect("batch" in dry).toBe(false);
+    expect(modelCalls).toEqual([
+      expect.stringMatching(/^You extract one recipe/),
+    ]);
+    const both = await importAndCreate(ctx, VIDEO_URL, {
+      asOne: true,
+      all: true,
+    }).catch((e) => e);
+    expect(both.code).toBe("usage");
+    /* Pasted text too. */
+    stub();
+    const text = await description();
+    /* The stand-in finds nothing in the whole text at once: what counts is
+     * that it was asked once, as one recipe. */
+    await importFromText(ctx, { text, dryRun: true, asOne: true }).catch(
+      () => undefined,
+    );
+    expect(modelCalls).toEqual([
+      expect.stringMatching(/^You extract one recipe/),
+    ]);
+  });
+
+  it("L1: --all again after a partial run imports only what is missing", async () => {
+    stub();
+    await importAndCreate(ctx, VIDEO_URL, { pick: ["Stuffing"] });
+    const again = asBatch(await importAndCreate(ctx, VIDEO_URL, { all: true }));
+    expect(again.recipes.map((recipe) => [recipe.n, recipe.status])).toEqual([
+      [1, "imported"],
+      [2, "existing"],
+      [3, "imported"],
+      [4, "imported"],
+    ]);
+    expect(again.recipes[1]).toMatchObject({ slug: "stuffing" });
+    const third = asBatch(await importAndCreate(ctx, VIDEO_URL, { all: true }));
+    expect(third.recipes.every((recipe) => recipe.status === "existing")).toBe(
+      true,
+    );
+    /* Four commits and the initial one: nothing written the third time. */
+    expect(await messages(6)).toHaveLength(5);
+  });
+
+  it("L2: an existing target is linked; a failed one is not, with a warning", async () => {
+    stub();
+    await importAndCreate(ctx, VIDEO_URL, { pick: ["Fried Shallots"] });
+    const both = asBatch(
+      await importAndCreate(ctx, VIDEO_URL, { pick: [3, 4] }),
+    );
+    expect(both.recipes.map((recipe) => recipe.status)).toEqual([
+      "imported",
+      "existing",
+    ]);
+    expect(
+      (await getRecipe(ctx, "green-bean-casserole")).recipe.ingredients?.at(-1)
+        ?.ingredient,
+    ).toMatch(/\]\(\/recipe\/fried-shallots\)$/);
+  });
+
+  it("L2: a target that fails leaves the line unlinked, said", async () => {
+    stub();
+    await createRecipe(ctx, { name: "Fried Shallots", ingredients: ["1 x"] });
+    const result = asBatch(
+      await importAndCreate(ctx, VIDEO_URL, { pick: [3, 4] }),
+    );
+    expect(result.recipes.map((recipe) => recipe.status)).toEqual([
+      "imported",
+      "failed",
+    ]);
+    expect(result.recipes[0].warnings).toContain(
+      '"Crispy fried shallots (or onions) - see recipe below" is not linked: "Fried Shallots" was not imported',
+    );
+  });
+
+  it("L4: no chapter means no start, not the pasted one", async () => {
+    stub();
+    const dry = asBatch(
+      await importFromText(ctx, {
+        text: await description(),
+        source: `${VIDEO_URL}&t=32s`,
+        dryRun: true,
+      }),
+    );
+    expect(dry.recipes.map((recipe) => recipe.draft?.source?.url)).toEqual(
+      Array(4).fill(VIDEO_URL),
+    );
+    expect(withVideoStart(`${VIDEO_URL}&t=32s`, 0)).toBe(VIDEO_URL);
+  });
+
+  it("L3: a link's target is not an amount", () => {
+    expect(
+      createIngredient("[2 cups 7-layer dip](/recipe/7-layer-dip)")?.ingredient,
+    ).toBe(
+      '[<Multiplyable baseNumber="2" /> cups <Multiplyable baseNumber="7" />-layer dip](/recipe/7-layer-dip)',
+    );
+    expect(
+      createIngredient("1 [beans](/recipe/beans-2) or 3")?.ingredient,
+    ).toBe(
+      '<Multiplyable baseNumber="1" /> [beans](/recipe/beans-2) or <Multiplyable baseNumber="3" />',
+    );
+  });
+
+  it("L1: Edit this one first keeps the link, to the sibling's planned slug", () => {
+    const linked = linkReading(
+      {
+        name: "Green Bean Casserole",
+        ingredients: [
+          { ingredient: "900g beans" },
+          { ingredient: "Crispy fried shallots - see recipe below" },
+        ],
+      },
+      [{ line: 1, target: 4 }],
+      (n) => (n === 4 ? "fried-shallots" : undefined),
+    );
+    expect(linked.ingredients?.[1].ingredient).toBe(
+      "[Crispy fried shallots - see recipe below](/recipe/fried-shallots)",
+    );
   });
 });

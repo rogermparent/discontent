@@ -18,8 +18,11 @@ import {
   videoHostName,
 } from "recipe-website-common/util/videoUrl";
 import type { RecipeActionState } from "./common";
-import BatchPicker from "./BatchPicker";
-import { mergeReadings } from "recipe-editor/controller/llm/mergeReadings";
+import BatchPicker, { plannedSlug } from "./BatchPicker";
+import {
+  linkReading,
+  mergeReadings,
+} from "recipe-editor/controller/llm/mergeReadings";
 import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
 
 /**
@@ -184,6 +187,7 @@ export default function NewOrImportRecipeForm({
             /* A new import, a new picker: its ticks and results start over. */
             key={key ?? url}
             readings={batch}
+            total={batch.length + (importState.leftOut?.length ?? 0)}
             url={url}
             pastedText={importState.pastedText === true}
             busy={busy}
@@ -195,7 +199,13 @@ export default function NewOrImportRecipeForm({
                 from: importState,
                 n,
                 key: `edit-${n}-${(editCount.current += 1)}`,
-                recipe: reading.recipe,
+                /* Its "see recipe below" line links as the batch would:
+                 * to the slug the sibling is created at (36e review). */
+                recipe: linkReading(reading.recipe, reading.components, (to) =>
+                  plannedSlug(
+                    batch.find((entry) => entry.n === to)?.recipe.name,
+                  ),
+                ),
               });
             }}
             onMerge={() =>

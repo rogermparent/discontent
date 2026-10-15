@@ -36,6 +36,7 @@ import {
 } from "./extractRecipe";
 
 export { formatStart, type ChapterRef } from "./chapterTime";
+export { linkLine } from "./mergeReadings";
 
 /* ------------------------------------------------------------------ */
 /* The gate                                                            */
@@ -262,21 +263,48 @@ export async function isOneDish({
 /* Slicing                                                             */
 /* ------------------------------------------------------------------ */
 
-/** A copied line's place in the text, from `from` on: whole line first. */
-function findLine(lines: string[], needle: string, from: number): number {
+/** A chapter or timestamp line: "5:04 Stuffing", "1:02:05". */
+const TIMESTAMP = /^\s*\d{1,2}:\d{2}/;
+
+/**
+ * A line that can be a recipe's heading: short, no amount, no timestamp —
+ * not "2 cups fried shallots", not "5:04 Stuffing" (36e review).
+ */
+function headingLike(raw: string): boolean {
+  const line = raw.trim();
+  return (
+    !!line &&
+    gateLine(line) === "short" &&
+    !AMOUNT_LED.test(line.replace(/^[\s*•▪-]+/, "")) &&
+    !TIMESTAMP.test(line)
+  );
+}
+
+/**
+ * A copied line's place in the text, from `from` on: the whole line first;
+ * then, with `heading`, a heading-like line holding it with a little
+ * decoration ("STUFFING" for "STUFFING ✨", "FRIED SHALLOTS" for "FRIED
+ * SHALLOTS (FOR THE CASSEROLE)"); without, any line holding it.
+ */
+function findLine(
+  lines: string[],
+  needle: string,
+  from: number,
+  { heading = false }: { heading?: boolean } = {},
+): number {
   const target = normaliseForGrounding(needle);
   if (!target) return -1;
   const normalised = lines.map((line) => normaliseForGrounding(line));
   for (let at = from; at < lines.length; at += 1) {
     if (normalised[at] === target) return at;
   }
-  /* A heading copied without its decoration ("STUFFING" for "STUFFING ✨"). */
   for (let at = from; at < lines.length; at += 1) {
     const line = normalised[at];
     if (
       line &&
       ` ${line} `.includes(` ${target} `) &&
-      line.length <= target.length + 20
+      line.length <= target.length + 20 &&
+      (!heading || headingLike(lines[at]))
     ) {
       return at;
     }
@@ -284,11 +312,21 @@ function findLine(lines: string[], needle: string, from: number): number {
   return -1;
 }
 
+/** A heading's own ingredient list starts within this many lines of it. */
+const HEADING_TO_LIST_MAX_LINES = 4;
+
+/** The non-blank lines between `from` and `to`, exclusive. */
+function linesBetween(lines: string[], from: number, to: number): number {
+  return lines.slice(from + 1, to).filter((line) => line.trim()).length;
+}
+
 /**
- * Where each listed recipe starts: its heading's line, else its first
- * ingredient's (and the short heading-like line just above that, if any).
- * In order, each after the last. `undefined` when one cannot be found — the
- * text is then read as one recipe, as before.
+ * Where each listed recipe starts: its heading's line — checked against its
+ * first ingredient, which must follow within a few lines, so a heading
+ * matched in a chapter list or an ingredient line cannot cut a recipe short
+ * — else its first ingredient's (and the short heading-like line just above
+ * that, if any). In order, each after the last. `undefined` when one cannot
+ * be found — the text is then read as one recipe, as before.
  */
 export function locateRecipes(
   text: string,
@@ -298,20 +336,23 @@ export function locateRecipes(
   const starts: number[] = [];
   let from = 0;
   for (const recipe of listed) {
-    let at = findLine(lines, recipe.heading, from);
+    let at = findLine(lines, recipe.heading, from, { heading: true });
+    if (at >= 0 && recipe.firstIngredient) {
+      const first = findLine(lines, recipe.firstIngredient, at + 1);
+      const tooFar =
+        first >= 0
+          ? linesBetween(lines, at, first) >= HEADING_TO_LIST_MAX_LINES
+          : /* Only before the heading: the heading is not this recipe's. */
+            findLine(lines, recipe.firstIngredient, from) >= 0;
+      if (tooFar) at = -1;
+    }
     if (at < 0) {
       at = findLine(lines, recipe.firstIngredient, from);
       if (at < 0) return undefined;
       /* Its heading, if the model left it out: one short line above. */
       let above = at - 1;
       while (above >= from && !lines[above].trim()) above -= 1;
-      if (
-        above >= from &&
-        gateLine(lines[above]) === "short" &&
-        !AMOUNT_LED.test(lines[above].trim())
-      ) {
-        at = above;
-      }
+      if (above >= from && headingLike(lines[above])) at = above;
     }
     starts.push(at);
     from = at + 1;
@@ -421,12 +462,6 @@ export function findComponents(
       return [];
     }),
   );
-}
-
-/** `[line](/recipe/slug)`: the line verbatim as the link's text. */
-export function linkLine(ingredient: string, slug: string): string {
-  const label = ingredient.replace(/([[\]\\])/g, "\\$1");
-  return `[${label}](/recipe/${encodeURIComponent(slug)})`;
 }
 
 /* ------------------------------------------------------------------ */

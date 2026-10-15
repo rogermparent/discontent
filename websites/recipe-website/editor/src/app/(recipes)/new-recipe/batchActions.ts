@@ -69,6 +69,8 @@ const RecipeBatchInputSchema = z.strictObject({
         chapter: z
           .strictObject({ title: z.string(), start: z.number().min(0) })
           .optional(),
+        /* Another slug, after a conflict (36e review). */
+        slug: z.string().trim().min(1).max(200).optional(),
       }),
     )
     .min(1)

@@ -14,13 +14,14 @@ import {
   LLM_USAGE,
   booleanOption,
   llmOption,
+  stringListOption,
   stringOption,
   type CommandDef,
 } from "./types";
 
 export const importCommand: CommandDef<ImportResult> = {
   name: "import",
-  usage: `recipes import (<url> ${LLM_USAGE} | --text <file|-> [--source <url>]) [--all | --pick 1,3] [--tags a,b] [--slug s] [--name N] [--image <url>] [--dry-run [--out draft.json]] [--overwrite] [--allow-partial]`,
+  usage: `recipes import (<url> ${LLM_USAGE} | --text <file|-> [--source <url>]) [--all | --pick "Name",… | --as-one] [--tags a,b] [--slug s] [--name N] [--image <url>] [--dry-run [--out draft.json]] [--overwrite] [--allow-partial]`,
   options: {
     tags: { type: "string" },
     slug: { type: "string" },
@@ -36,7 +37,8 @@ export const importCommand: CommandDef<ImportResult> = {
     source: { type: "string" },
     /* 36e: one video (or paste) holding several recipes. */
     all: { type: "boolean" },
-    pick: { type: "string" },
+    pick: { type: "string", multiple: true },
+    "as-one": { type: "boolean" },
   },
   write: true,
   async run({ backend, positionals, options }) {
@@ -69,12 +71,17 @@ export const importCommand: CommandDef<ImportResult> = {
       );
     }
     const all = booleanOption(options, "all");
-    const pickFlag = stringOption(options, "pick");
-    if (all && pickFlag !== undefined) {
+    const pickFlags = stringListOption(options, "pick");
+    const asOne = booleanOption(options, "as-one");
+    if (all && pickFlags.length > 0) {
       throw new UsageError("--all or --pick, not both.");
     }
-    const pick =
-      pickFlag !== undefined ? parseRecipePicks(pickFlag) : undefined;
+    if (asOne && (all || pickFlags.length > 0)) {
+      throw new UsageError(
+        "--as-one reads the text as one recipe: no --all or --pick with it.",
+      );
+    }
+    const pick = pickFlags.length > 0 ? parseRecipePicks(pickFlags) : undefined;
     const writeOptions = {
       tags: tagsFlag
         ? tagsFlag
@@ -90,6 +97,7 @@ export const importCommand: CommandDef<ImportResult> = {
       allowPartial: booleanOption(options, "allow-partial"),
       ...(all ? { all: true } : {}),
       ...(pick ? { pick } : {}),
+      ...(asOne ? { asOne: true } : {}),
     };
     const result = textFrom
       ? await backend.importText(await readTextInput(textFrom), {
@@ -150,10 +158,20 @@ export const importCommand: CommandDef<ImportResult> = {
 
 export default importCommand;
 
-/** `1,3` or `2-4` → positions; anything else is `usage`. */
-export function parseRecipePicks(value: string): number[] {
-  const picks: number[] = [];
-  for (const part of value.split(",").map((entry) => entry.trim())) {
+/**
+ * `--pick` (36e): names — `--pick "Green Bean Casserole"`, steady across
+ * re-reads — or 1-based positions (`1,3`, `2-4`); commas separate, and the
+ * flag can repeat. A part that is all digits (or a range of them) is a
+ * position; anything else is a name.
+ */
+export function parseRecipePicks(
+  values: string | readonly string[],
+): (number | string)[] {
+  const picks: (number | string)[] = [];
+  const parts = (typeof values === "string" ? [values] : values).flatMap(
+    (value) => value.split(","),
+  );
+  for (const part of parts.map((entry) => entry.trim())) {
     if (!part) continue;
     const range = /^(\d+)\s*-\s*(\d+)$/.exec(part);
     if (range) {
@@ -164,12 +182,16 @@ export function parseRecipePicks(value: string): number[] {
       for (let n = from; n <= to; n += 1) picks.push(n);
       continue;
     }
-    if (!/^\d+$/.test(part) || Number(part) < 1) {
-      throw new UsageError(
-        `--pick takes the recipes' 1-based positions, like 1,3 or 2-4 — not "${part}".`,
-      );
+    if (/^\d+$/.test(part)) {
+      if (Number(part) < 1) {
+        throw new UsageError(
+          `--pick takes names, or 1-based positions — not "${part}".`,
+        );
+      }
+      picks.push(Number(part));
+      continue;
     }
-    picks.push(Number(part));
+    picks.push(part);
   }
   if (picks.length === 0) throw new UsageError("--pick names no recipes.");
   return [...new Set(picks)];

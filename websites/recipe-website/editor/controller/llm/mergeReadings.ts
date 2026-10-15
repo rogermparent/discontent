@@ -16,6 +16,37 @@ import type {
 } from "recipe-website-common/controller/types";
 import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
 
+/** `[line](/recipe/slug)`: the line verbatim as the link's text (36e). */
+export function linkLine(ingredient: string, slug: string): string {
+  const label = ingredient.replace(/([[\]\\])/g, "\\$1");
+  return `[${label}](/recipe/${encodeURIComponent(slug)})`;
+}
+
+/**
+ * One part with its lines that name another part linked (36e review: "Edit
+ * this one first" keeps the link the batch would make), to the slug
+ * `slugOf` says that part would be created at. `components` is
+ * `SplitReading.components` (targets by `n`).
+ */
+export function linkReading(
+  recipe: Partial<ImportedRecipe>,
+  components: readonly { line: number; target: number }[] | undefined,
+  slugOf: (n: number) => string | undefined,
+): Partial<ImportedRecipe> {
+  if (!components?.length || !recipe.ingredients) return recipe;
+  const ingredients = [...recipe.ingredients];
+  for (const ref of components) {
+    const entry = ingredients[ref.line];
+    const slug = slugOf(ref.target);
+    if (!entry || entry.type === "heading" || !slug) continue;
+    ingredients[ref.line] = {
+      ...entry,
+      ingredient: linkLine(entry.ingredient, slug),
+    };
+  }
+  return { ...recipe, ingredients };
+}
+
 /** A video URL without the chapter start a part was given. */
 function withoutStart(url: string | undefined): string | undefined {
   if (!url) return url;

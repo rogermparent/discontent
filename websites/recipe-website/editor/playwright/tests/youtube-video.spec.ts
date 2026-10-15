@@ -18,16 +18,16 @@ test.describe("YouTube Video Support", () => {
 
       test("imports YouTube URL directly into import field", async ({
         page,
+        writeSettings,
       }) => {
+        /* Never the real YouTube (36e, T54): with no yt-dlp the import is
+         * the bare link, on every machine — yt-dlp on the PATH or not. */
+        await writeSettings({ ytdlpPath: "/nonexistent/path/to/yt-dlp" });
         const youtubeUrl = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
         await page.getByLabel("Import from URL").fill(youtubeUrl);
         await page.getByRole("button", { name: "Import" }).click();
 
-        /* No mimic here: a machine with yt-dlp on its PATH asks YouTube,
-         * which can take longer than 5 s to answer or to fail (36e). */
-        await expect(page.getByLabel("Enter URL")).toBeChecked({
-          timeout: 30_000,
-        });
+        await expect(page.getByLabel("Enter URL")).toBeChecked();
 
         await expect(page.locator('input[name="videoUrl"]')).toHaveValue(
           youtubeUrl,

@@ -56,9 +56,13 @@ export function isYouTubeUrl(url: string): boolean {
  * it is — other hosts spell a start differently, or not at all.
  */
 export function withVideoStart(url: string, seconds: number): string {
-  if (!isYouTubeUrl(url) || !(seconds > 0)) return url;
+  if (!isYouTubeUrl(url)) return url;
   const parsed = new URL(url);
-  parsed.searchParams.set("t", `${Math.floor(seconds)}s`);
+  /* No start (0, or no chapter): none — not the `&t=32s` the person
+   * happened to paste, which belongs to one recipe at most (36e review). */
+  if (seconds > 0) parsed.searchParams.set("t", `${Math.floor(seconds)}s`);
+  else if (parsed.searchParams.has("t")) parsed.searchParams.delete("t");
+  else return url;
   return parsed.href;
 }
 

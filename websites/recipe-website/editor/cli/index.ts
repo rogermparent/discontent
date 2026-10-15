@@ -138,7 +138,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   inspect <url> [--out draft.json] [--llm auto|force|off]
   import <url> [--tags a,b] [--slug s] [--name N] [--image <url>]
                [--dry-run [--out draft.json]] [--overwrite] [--allow-partial]
-               [--llm auto|force|off] [--all | --pick 1,3]
+               [--llm auto|force|off] [--all | --pick "Name",… | --as-one]
   import --text <file|-> [--source <url>] [the same options, no --llm]
   inspect-list <url>
   import-list <url> (--pick 1,3,5-7|<url>,… | --all) [--term <slug> [--term-label L]]
@@ -283,10 +283,14 @@ fetched. With no model configured it fails (import_failed).
 
 Several recipes in one video or paste (three side dishes, a recipe and the
 sauce it refers to): each is read and checked on its own, and the import
-refuses (usage) until you say which — --all, or --pick 1,3 by position;
---dry-run lists them all (--out d.json writes d-1.json, d-2.json, …). Each
-becomes its own commit, its source starts at its video chapter, and a line
-that names another recipe of the batch ("see recipe below") links to it.
+refuses (usage) until you say which — --all, or --pick "Green Bean
+Casserole" by name (positions, --pick 1,3, work too but can shift between
+readings); --as-one reads it as one recipe instead. --dry-run lists them
+all (--out d.json writes d-1.json, d-2.json, …). Each becomes its own
+commit, its source starts at its video chapter, and a line that names
+another recipe of the batch ("see recipe below") links to it. A recipe
+already imported from the same source is skipped (existing), so --all
+again after a partial run imports only what is missing.
 
 Piping --json: run it as \`pnpm --silent recipes …\`. Without --silent, pnpm
 prints its own script banner on stdout ahead of the object, so the stream is

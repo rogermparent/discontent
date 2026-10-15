@@ -133,6 +133,43 @@ test.describe("Several recipes in one video", () => {
     expect(stuffing?.status()).toBe(404);
   });
 
+  test("a taken slug fails that row alone, with another slug to try", async ({
+    page,
+  }) => {
+    /* Someone else's Stuffing first, made by hand. */
+    await page.getByLabel("Name", { exact: true }).fill("Stuffing");
+    await page.getByRole("button", { name: "Submit" }).click();
+    await expect(page).toHaveURL(/\/recipe\/stuffing$/);
+    await page.goto("/new-recipe");
+    await markdownEditorReady(page, "description");
+
+    await page.getByLabel("Import from URL", { exact: true }).fill(VIDEO);
+    await page.getByRole("button", { name: "Import", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Import 4 selected", exact: true })
+      .click();
+
+    const results = page.getByTestId("batch-results");
+    await expect(results.locator("li")).toHaveCount(4);
+    await expect(results).toContainText(
+      'a recipe already has the slug "stuffing" — give this one another slug below',
+    );
+    /* Everything tried is unticked; the failed row offers the channel's slug. */
+    const stuffing = page.getByLabel("2. Stuffing", { exact: true });
+    await expect(stuffing).not.toBeChecked();
+    const slug = page.getByTestId("batch-slug-2");
+    await expect(slug).toHaveValue("stuffing-test-kitchen-channel");
+
+    await stuffing.check();
+    await page
+      .getByRole("button", { name: "Import 1 selected", exact: true })
+      .click();
+    await expect(results.locator("li")).toHaveCount(5);
+    await expect(
+      results.getByRole("link", { name: "stuffing-test-kitchen-channel" }),
+    ).toHaveAttribute("href", "/recipe/stuffing-test-kitchen-channel");
+  });
+
   test("sends one recipe to the form, or all of them as one", async ({
     page,
   }) => {
