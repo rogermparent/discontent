@@ -81,6 +81,10 @@ describe("ImportRequestSchema (36c)", () => {
       expect.stringMatching(/^llm: /),
     ]);
     expect(issues({ text: "x".repeat(PASTED_TEXT_MAX_CHARS) })).toEqual([]);
+    /* Counted as the model reads it, CRLF as LF: HTTP and local agree. */
+    const crlf = "x\r\n".repeat(PASTED_TEXT_MAX_CHARS / 2);
+    expect(crlf.length).toBeGreaterThan(PASTED_TEXT_MAX_CHARS);
+    expect(issues({ text: crlf })).toEqual([]);
     expect(
       issues({ text: "x".repeat(PASTED_TEXT_MAX_CHARS + 1) }),
     ).toHaveLength(1);

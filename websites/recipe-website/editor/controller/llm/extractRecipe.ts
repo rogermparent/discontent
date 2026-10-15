@@ -663,11 +663,21 @@ function stepCount(entries: InstructionEntry[]): number {
   );
 }
 
-/** The first line of the text that reads as a title, for a nameless answer. */
-function firstLine(source: string): string | undefined {
+/**
+ * A line that is a link, a chapter timestamp or a social handle — never a
+ * recipe's name (36c review: a pasted description often opens with one).
+ */
+const NOT_A_NAME = /https?:\/\/|^\d{1,2}:\d{2}|(^|\s)@\w/i;
+
+/**
+ * The first line of the text that reads as a title, for a nameless answer;
+ * `undefined` when none does (the caller then asks for `--name`).
+ */
+export function firstLine(source: string): string | undefined {
   for (const line of source.split("\n")) {
     const cleaned = line.replace(/^[#>*\-\s]+/, "").trim();
-    if (cleaned) return cleaned.length > 120 ? cleaned.slice(0, 120) : cleaned;
+    if (!cleaned || NOT_A_NAME.test(cleaned)) continue;
+    return cleaned.length > 120 ? cleaned.slice(0, 120) : cleaned;
   }
   return undefined;
 }

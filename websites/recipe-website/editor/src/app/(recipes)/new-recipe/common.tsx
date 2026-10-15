@@ -144,7 +144,8 @@ export async function reduceTextImport(
     });
     return {
       ...withLlm(reading.recipe.source?.url, reading),
-      key: `text-${Date.now()}`,
+      /* Unique per import, even two in one millisecond. */
+      key: `text-${crypto.randomUUID()}`,
     };
   } catch (e: unknown) {
     const message = typeof e === "string" ? e : (e as Error)?.message;

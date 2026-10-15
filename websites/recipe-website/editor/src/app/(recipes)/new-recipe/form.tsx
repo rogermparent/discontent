@@ -39,8 +39,18 @@ export default function NewOrImportRecipeForm({
   const [textMode, setTextMode] = useState(false);
   const [pastedText, setPastedText] = useState("");
   const [pastedSource, setPastedSource] = useState("");
+  /* The URL too (36c review): it survives a switch to Paste text and back. */
+  const [importUrl, setImportUrl] = useState("");
+  /* Switching mode dismisses the last import's message (36c review). */
+  const [dismissed, setDismissed] = useState<RecipeActionState | null>(null);
+  const switchMode = (toText: boolean) => {
+    setTextMode(toText);
+    setDismissed(importState);
+  };
 
-  const { recipe, message, url, key, llm, warnings } = importState || {};
+  const { recipe, url, key, llm, warnings } = importState || {};
+  const message =
+    importState && importState !== dismissed ? importState.message : undefined;
   /* The model's lines are in the form: its notice replaces the SEO one. */
   const llmLines = !!llm?.found && !llm.discarded;
 
@@ -93,7 +103,7 @@ export default function NewOrImportRecipeForm({
               name="importMode"
               value="url"
               checked={textMode === false}
-              onChange={() => setTextMode(false)}
+              onChange={() => switchMode(false)}
             />
             URL
           </label>
@@ -107,7 +117,7 @@ export default function NewOrImportRecipeForm({
               value="text"
               disabled={!llmModel}
               checked={textMode}
-              onChange={() => setTextMode(true)}
+              onChange={() => switchMode(true)}
             />
             Paste text
             <span className="text-muted-foreground">
@@ -129,14 +139,19 @@ export default function NewOrImportRecipeForm({
             <TextInput
               name="importSource"
               id="import-source"
-              label="Source URL (optional)"
+              label="Pasted from (URL, optional)"
               value={pastedSource}
               onChange={(event) => setPastedSource(event.target.value)}
             />
           </>
         ) : (
           <>
-            <TextInput name="import" label="Import from URL" />
+            <TextInput
+              name="import"
+              label="Import from URL"
+              value={importUrl}
+              onChange={(event) => setImportUrl(event.target.value)}
+            />
             <label
               className="my-1 flex items-center gap-2 text-sm"
               title={llmModel ? undefined : "No local model configured"}

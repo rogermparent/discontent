@@ -28,6 +28,10 @@ async function readStdin(): Promise<string> {
  */
 export async function readTextInput(fileOrDash: string): Promise<string> {
   const fromStdin = fileOrDash === "-";
+  /* A terminal, not a pipe: say how to end the paste (36c review). */
+  if (fromStdin && process.stdin.isTTY) {
+    process.stderr.write("Paste the recipe, then press Ctrl-D\n");
+  }
   let text: string;
   try {
     text = fromStdin

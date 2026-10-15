@@ -468,7 +468,12 @@ function plainLines(markdown: string): string {
 export function capText(
   text: string,
   maxChars: number = PAGE_TEXT_MAX_CHARS,
-): { text: string; truncated: boolean } {
+): {
+  text: string;
+  truncated: boolean;
+  /** When cut: how many characters of the start and of the end were kept. */
+  kept?: { head: number; tail: number };
+} {
   if (text.length <= maxChars) return { text, truncated: false };
   const headLimit = Math.min(PAGE_TEXT_HEAD_CHARS, Math.floor(maxChars / 4));
   let head = text.slice(0, headLimit);
@@ -480,9 +485,12 @@ export function capText(
   if (tailBreak >= 0 && tailBreak < tailLimit / 2) {
     tail = tail.slice(tailBreak + 1);
   }
+  const keptHead = head.trimEnd();
+  const keptTail = tail.trimStart();
   return {
-    text: `${head.trimEnd()}${CUT_MARKER}${tail.trimStart()}`,
+    text: `${keptHead}${CUT_MARKER}${keptTail}`,
     truncated: true,
+    kept: { head: keptHead.length, tail: keptTail.length },
   };
 }
 

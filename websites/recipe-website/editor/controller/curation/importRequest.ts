@@ -20,12 +20,23 @@ import { LLM_MODES } from "../llm/mode";
  */
 export const PASTED_TEXT_MAX_CHARS = 100_000;
 
+/** Line endings as the model reads them: the length limit counts this. */
+export function normalisePastedText(text: string): string {
+  return text.replace(/\r\n?/g, "\n");
+}
+
 export const ImportRequestFields = z.strictObject({
   url: z.string().min(1, "An import needs a url").optional(),
+  /* The limit counts the text with CRLF normalised, as `readPastedText`
+   * does, so the HTTP and local paths agree (a refine, not a transform: the
+   * MCP SDK turns this schema into JSON Schema). */
   text: z
     .string()
     .min(1, "An import needs text")
-    .max(PASTED_TEXT_MAX_CHARS)
+    .refine(
+      (text) => normalisePastedText(text).length <= PASTED_TEXT_MAX_CHARS,
+      `A pasted recipe can be at most ${PASTED_TEXT_MAX_CHARS} characters`,
+    )
     .optional(),
   source: z.string().min(1).optional(),
   tags: z.array(z.string()).optional(),

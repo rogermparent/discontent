@@ -54,7 +54,9 @@ import * as groups from "../websites/recipe-website/editor/controller/curation/g
 import {
   importAndCreate,
   importFromText,
+  importedToInput,
 } from "../websites/recipe-website/editor/controller/curation/importRecipe";
+import { firstLine } from "../websites/recipe-website/editor/controller/llm/extractRecipe";
 import { inspectUrl } from "../websites/recipe-website/editor/controller/curation/inspect";
 import { setRecipeImage } from "../websites/recipe-website/editor/controller/curation/recipeImage";
 import {
@@ -1255,6 +1257,89 @@ describe("importFromText (36c)", () => {
     });
     if (!("dryRun" in named)) throw new Error("expected a dry run");
     expect(named.slug).toBe("grandmas-sunday-scones");
+  });
+
+  /* 36c review: a paste past the cap is read with its middle cut — say so. */
+  it("says when a long paste was cut, in the warnings and in a failure", async () => {
+    const quoted = Array.from(
+      { length: 900 },
+      (_, index) =>
+        `> On an earlier day someone wrote line ${index} of the thread`,
+    ).join("\n");
+    const long = `${quoted}\n${PASTED_SCONES}`;
+    expect(long.length).toBeGreaterThan(24_000);
+    const note = new RegExp(
+      `the text is ${long.length} characters; the model read the first ~3k and the last ~2\\dk — paste just the recipe`,
+    );
+
+    stubWeb("", {}, sconeAnswer());
+    const dry = await importFromText(ctx, { text: long, dryRun: true });
+    if (!("dryRun" in dry)) throw new Error("expected a dry run");
+    expect(dry.warnings?.some((warning) => note.test(warning))).toBe(true);
+
+    stubWeb(
+      "",
+      {},
+      { found: false, name: "", ingredients: [], instructions: [] },
+    );
+    await expect(
+      importFromText(ctx, { text: long, dryRun: true }),
+    ).rejects.toMatchObject({
+      code: "import_failed",
+      message: expect.stringMatching(note),
+    });
+
+    /* A short paste carries no such note. */
+    stubWeb("", {}, sconeAnswer());
+    const short = await importFromText(ctx, {
+      text: PASTED_SCONES,
+      dryRun: true,
+    });
+    if (!("dryRun" in short)) throw new Error("expected a dry run");
+    expect(short.warnings?.join(" ")).not.toMatch(/characters; the model read/);
+  });
+
+  /* 36c review: links, timestamps and handles are never a name. */
+  it("skips links, timestamps and handles for the first-line name", async () => {
+    stubWeb("", {}, { ...sconeAnswer(), name: "" });
+    const text = [
+      "https://example.com/course",
+      "0:00 Intro",
+      "Follow @grandmabakes",
+      "Grandma's Sunday Scones",
+      ...SCONE_LINES,
+    ].join("\n");
+    const dry = await importFromText(ctx, { text, dryRun: true });
+    if (!("dryRun" in dry)) throw new Error("expected a dry run");
+    expect(dry.draft.name).toBe("Grandma's Sunday Scones");
+
+    /* No line qualifies: no name, and --name is the way. */
+    expect(
+      firstLine(
+        [
+          "",
+          "https://example.com/a",
+          "1:30 Mixing",
+          "Follow me @grandmabakes",
+        ].join("\n"),
+      ),
+    ).toBeUndefined();
+    expect(() => importedToInput({ ingredients: [] })).toThrow(
+      /carries no recipe name.*pass --name/,
+    );
+  });
+
+  it("cites the source as parsed: no fragment, normalised", async () => {
+    stubWeb("", {}, sconeAnswer());
+    const dry = await importFromText(ctx, {
+      text: PASTED_SCONES,
+      source: "  HTTPS://Example.com/blog/scones#comments ",
+      dryRun: true,
+    });
+    if (!("dryRun" in dry)) throw new Error("expected a dry run");
+    expect(dry.draft.source).toMatchObject({
+      url: "https://example.com/blog/scones",
+    });
   });
 
   it("refuses empty text before asking the model", async () => {

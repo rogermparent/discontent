@@ -50,7 +50,10 @@ import type {
   ParsedRecipePage,
 } from "recipe-website-common/util/importRecipeData";
 import { ImportError, ValidationError } from "../curation/errors";
-import { PASTED_TEXT_MAX_CHARS } from "../curation/importRequest";
+import {
+  PASTED_TEXT_MAX_CHARS,
+  normalisePastedText,
+} from "../curation/importRequest";
 import {
   LLM_UNCONFIGURED_MESSAGE,
   LlmError,
@@ -425,7 +428,23 @@ export function pastedSourceUrl(
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new ValidationError(`"${trimmed}" is not an http(s) URL`);
   }
-  return trimmed.split("#")[0];
+  /* The parsed form, as cited: no fragment (the URL importer's rule). */
+  parsed.hash = "";
+  return parsed.href;
+}
+
+/**
+ * A paste cut in the middle (`capText`, past `PAGE_TEXT_MAX_CHARS`): what
+ * the model did not read, as a note for the warnings and the failure (36c
+ * review). An email thread with the recipe in a quoted middle part would
+ * otherwise read as "found no recipe" with no hint why.
+ */
+export function pastedTextCutNote(
+  length: number,
+  kept: { head: number; tail: number },
+): string {
+  const k = (chars: number) => `~${Math.max(1, Math.round(chars / 1000))}k`;
+  return `the text is ${length} characters; the model read the first ${k(kept.head)} and the last ${k(kept.tail)} — paste just the recipe`;
 }
 
 /**
@@ -446,7 +465,7 @@ export async function readPastedText({
   config = llmConfig(),
   signal,
 }: PastedTextInput): Promise<PastedTextReading> {
-  const normalised = text.replace(/\r\n?/g, "\n");
+  const normalised = normalisePastedText(text);
   if (!normalised.trim()) {
     throw new ValidationError("No text to import: paste the recipe's text.");
   }
@@ -457,6 +476,10 @@ export async function readPastedText({
   }
   const url = pastedSourceUrl(source);
   if (!config) throw new ImportError(LLM_UNCONFIGURED_MESSAGE);
+  /* The extractor caps the text the same way; this only says so. */
+  const { capText } = await import("recipe-website-common/util/pageText");
+  const { kept } = capText(normalised);
+  const cutNote = kept ? pastedTextCutNote(normalised.length, kept) : undefined;
   const applied = await applyLlm({
     url,
     source: { text: normalised },
@@ -465,10 +488,11 @@ export async function readPastedText({
     config,
     signal,
   });
+  const warnings = cutNote ? [...applied.warnings, cutNote] : applied.warnings;
   if (!applied.recipe || !applied.llm) {
     throw new ImportError(
-      ["No recipe read from the pasted text", ...applied.warnings].join(" — "),
+      ["No recipe read from the pasted text", ...warnings].join(" — "),
     );
   }
-  return { ...applied, recipe: applied.recipe, llm: applied.llm };
+  return { ...applied, warnings, recipe: applied.recipe, llm: applied.llm };
 }

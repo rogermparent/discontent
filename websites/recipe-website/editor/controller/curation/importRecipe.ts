@@ -182,7 +182,7 @@ export function importedToInput(
   const resolvedName = name ?? imported.name;
   if (!resolvedName) {
     throw new ValidationError(
-      "The imported page carries no recipe name (a video host without yt-dlp never does) — pass --name to supply one.",
+      "The import carries no recipe name (a video host without yt-dlp never does, nor pasted text whose lines are all links or timestamps); pass --name.",
     );
   }
   const imageImportUrl = image ?? imported.imageImportUrl;
