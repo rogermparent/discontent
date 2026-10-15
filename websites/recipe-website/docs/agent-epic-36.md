@@ -47,6 +47,8 @@ Roger wants recipe imports that use a local model (2026-10-14).
 - **Default model:** qwen3:8b, configurable.
 - **Also (added while the plan was being opened):** an AI **text** import
   mode — paste a recipe's text and have the model structure it (D8, 36c).
+  His example: a Brian Lagerstrom YouTube description, ingredients and
+  instructions mixed with sponsor and link noise.
 
 ## Decisions
 
@@ -135,21 +137,38 @@ cookMinutes?, totalMinutes?, ingredients: string[], instructions:
 
 ### D8 — Text import mode (36c)
 
-Roger's addition: paste a recipe's text — an email, a note, a scanned card's
-OCR, a page the importer can't fetch — and get a structured recipe.
+Roger's addition: paste a recipe's text and get a structured recipe. **The
+use case he named:** a YouTube description, e.g. a Brian Lagerstrom video,
+which lists the ingredients and instructions among a lot of other material —
+sponsor reads, affiliate and gear links, Patreon and social links, chapter
+timestamps, "music by …" credits. Emails, notes and pages the importer can't
+fetch work the same way.
 
 - The same extractor (D6 skipped: the text is the input, capped the same
   way), the same D7 prompt and mapping, the same D4 grounding against the
   pasted text, the same `partial` gate.
-- No URL, so no `source` unless the person gives one; no image. `name` comes
-  from the model, falling back to the first non-empty line.
+- The D7 prompt also says what to ignore: links, sponsor and merch text,
+  timestamps / chapter lists, social handles, equipment lists. Ingredient
+  lines in descriptions often carry weights and volumes together
+  ("500g (4 cups) bread flour") or several sub-recipes ("Dough:",
+  "Sauce:") — keep them verbatim, the sections as heading lines.
+- An optional **source URL** field: given one, `source` is built from it
+  (`buildSource`), and a video URL (`isVideoUrl`) also sets `video`, so a
+  pasted description keeps its provenance. No image from the text; an image
+  can come from the URL's page the usual way only if the person imports by
+  URL instead. Without a URL, no `source`. `name` comes from the model,
+  falling back to the first non-empty line.
+- Pasting is the reliable path for YouTube: the URL path (D3's video case)
+  depends on yt-dlp reaching the video, which the Pi and some networks can't;
+  pasted text needs only the model.
 - Unlike D3 there is no fallback to fall back from: with no model configured
   the text mode is unavailable (`import_failed` "no local model configured";
   the form hides or disables it the same way as the toggle).
 - **Surfaces:** the form gets a "Paste text" tab beside the URL field; the CLI
-  `import --text <file|->` (mutually exclusive with the URL); the HTTP
-  backend and `api/import` take `{text}` instead of `{url}`; the MCP
-  `recipe_import` takes `text` as an alternative to `url` (no new tool —
+  `import --text <file|-> [--source <url>]` (mutually exclusive with the
+  positional URL); the HTTP backend and `api/import` take `{text, source?}`
+  instead of `{url}`; the MCP `recipe_import` takes `text` (+ `source`) as
+  an alternative to `url` (no new tool —
   the tool count is unchanged); `--dry-run` / drafts work as for URLs.
 - The commit message says "Import … (local model, pasted text)".
 
@@ -205,6 +224,11 @@ plumbing (`ImportOptions`, the zod bodies, the form). 36-close after 36c.
     time-field agreement, wall time per page.
   - **The real use:** about 10 no-schema pages, reported as found /
     grounded / time.
+  - **The text mode (D8):** about 5 YouTube descriptions with a recipe in
+    them (Brian Lagerstrom's first — Roger's example), fetched once with
+    yt-dlp's metadata only (`--skip-download`), run as raw text. Report
+    found / grounded / time and eyeball that no sponsor, link or timestamp
+    line became an ingredient or step.
   - Pages are fetched once into scratch under the polite gap, then re-run
     offline per model: qwen3:8b, plus qwen3:14b and qwen2.5:7b for
     comparison.
@@ -260,8 +284,10 @@ plumbing (`ImportOptions`, the zod bodies, the form). 36-close after 36c.
 - Tests: the seat with stubbed `fetch` (grounded, ungrounded, found:false,
   unconfigured), `cliJson` (`--text -` from stdin, url+text refused), the
   API zod body; Playwright: the tab is disabled when unconfigured.
-- Local check with the real model: a pasted Sally's recipe and a messy
-  emailed one, `--dry-run` against a scratch clone.
+- Local check with the real model: a pasted Brian Lagerstrom YouTube
+  description (with and without its video URL as the source), a pasted
+  Sally's recipe and a messy emailed one, `--dry-run` against a scratch
+  clone.
 
 ### 36-close (S)
 
@@ -289,8 +315,8 @@ plumbing (`ImportOptions`, the zod bodies, the form). 36-close after 36c.
   returns full ingredients and instructions, `llm.grounded/total`, and no
   `partial`; `--llm force` on a Sally's page roughly matches its JSON-LD;
   `--llm off` gives today's partial.
-- **36c:** `recipes import --text - --dry-run --json` on a pasted recipe
-  returns a grounded draft.
+- **36c:** `recipes import --text - --dry-run --json` on a pasted Lagerstrom
+  description returns a grounded draft with no marketing lines in it.
 - **After Roger's `.env` and workstation update:** on the workstation,
   `/new-recipe` with a no-schema URL fills the form, the checkbox and the
   text tab work; on the Pi, both show "No local model configured".
