@@ -44,10 +44,12 @@ import {
   appendFilterTerm,
   filterTerms,
   fold,
+  insertTagTerm,
   positiveTagValues,
   type FilterField,
   type FilterTerm,
 } from "../SearchForm/queryLanguage";
+import { tagWordMatch } from "../SearchForm/tagMatch";
 import { highlightText } from "../SearchList";
 import { groupKindLabel } from "../../util/groupKindLabel";
 import { NAV_DESTINATIONS } from "./destinations";
@@ -219,6 +221,7 @@ export function CommandPalette({
     // says, so honouring it is the only honest thing to do.
     displayedRecipes,
     matchedGroups,
+    allTerms,
     recentSearches,
     recordSearch,
     removeRecentSearch,
@@ -397,11 +400,30 @@ export function CommandPalette({
   // row here because they all navigate or close. These rows leave the user in the
   // field — a bare `ingredient:` is only "ready for the operand" if the caret is
   // actually there — so the focus has to be handed back explicitly.
-  const insertTerm = (next: string) => {
+  //
+  // The caret is placed explicitly too: after a bare field it is the end of the
+  // string, and after a tag it is just past the term and its trailing space,
+  // which may be mid-query when the tag replaced the word under the caret.
+  const insertTerm = (next: string, caret = next.length) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     setValue(next);
-    submitSearch(next);
-    inputRef.current?.focus();
+    submitSearch(next.trim());
+    const input = inputRef.current;
+    input?.focus();
+    // After React has written the new value, which moves the caret to the end.
+    requestAnimationFrame(() => input?.setSelectionRange(caret, caret));
+  };
+
+  // A facet row picked while a word is half-typed replaces that word: typing
+  // `chick` and taking "Only tag:chicken" gives `tag:chicken`, not
+  // `chick tag:chicken` (`insertTagTerm`). A row that is not what the word was
+  // heading for appends, as it always has. Read at the moment of the pick, so a
+  // click and an Enter on the highlighted row see the same caret — a click
+  // moves focus but leaves the input's selection where it was.
+  const insertTag = (tag: string) => {
+    const caret = inputRef.current?.selectionStart ?? value.length;
+    const edit = insertTagTerm(value, caret, tag, tagWordMatch(tag, allTerms));
+    insertTerm(edit.value, edit.caret);
   };
 
   // RECENT leads the empty palette: with nothing typed, the last few committed
@@ -660,9 +682,7 @@ export function CommandPalette({
                 <CommandItem
                   key={tag}
                   value={`${TERM_PREFIX}tag:${tag}`}
-                  onSelect={() =>
-                    insertTerm(appendFilterTerm(value, "tag", tag))
-                  }
+                  onSelect={() => insertTag(tag)}
                 >
                   <Filter className="size-4 shrink-0 text-muted-foreground" />
                   <span className="flex-1">
