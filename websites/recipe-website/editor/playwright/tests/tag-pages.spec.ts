@@ -222,7 +222,7 @@ test.describe("Tag pages", () => {
       /* The block's largest fills the bar; the bar is decoration. */
       const bar = cookies.getByTestId("tag-bar");
       await expect(bar).toHaveAttribute("aria-hidden", "true");
-      await expect(bar).toHaveAttribute("style", /width: 100%/);
+      await expect(bar).toHaveAttribute("style", /width:\s*100%/);
       /* A record outside any hierarchy goes to "More tags", not a block. */
       await expect(
         board.locator("[data-testid='tag-block'][data-slug='holiday']"),

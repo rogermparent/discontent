@@ -148,13 +148,15 @@ export function useLegacyInventoryMigration(
   const defer = source === "defer";
   const pending = raw === null || (!defer && isLegacyOverlay(raw));
   useEffect(() => {
-    if (!pending) return;
+    /* `pending` is also true for the hydration render (no storage read
+     * yet), so a guest's deferral is checked here, not only above. */
+    if (!pending || defer) return;
     const stored = read(STORAGE_KEY);
     if (!isLegacyOverlay(stored)) return;
     /* The write fires the store's event: `raw` turns versioned, and done. */
     const items = migrateOverlay(stored, shared);
     write(STORAGE_KEY, items.length > 0 ? storedList(items) : null);
-  }, [pending, shared]);
+  }, [pending, defer, shared]);
   return !pending;
 }
 
