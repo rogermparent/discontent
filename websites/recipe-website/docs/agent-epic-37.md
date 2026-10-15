@@ -268,6 +268,11 @@ Ordering: strictly sequential — 37b builds on 37a's store and `fileLock`,
   (per user, tmpfs, gone at logout) or `~/.cache/discontent/queue` —
   separate from the job records, **or** move the default jobs dir per user.
   Decide before building; the records can stay per checkout either way.
+- **A `queued` job needs the heartbeat too.** 37a's `updatedAt` is
+  refreshed only while `runJob` runs the work; a job waiting in 37b's queue
+  must beat as well (the waiter's poll is the natural place), or the sweep
+  will interrupt a job another host has queued for longer than
+  `JOB_STALE_MS`.
 
 ### 37c — Async form, `/jobs` page, CLI/API/MCP surfaces (M)
 
@@ -687,6 +692,32 @@ slot) `new-recipe`, `ytdlp-import`, `multi-recipe`, `import-roundup`,
 `youtube-video`: **63 / 63** passed (5.2 min); `test-jobs/` held 33 jobs
 (24 `form-url`, 5 `inspect-list`, 4 `import-list`), all `done`, and no
 `editor/jobs/`.
+
+**Re-review of `b13cb4e9`.** Three more fixes, as their own commit:
+
+- A cancel was still swallowed where an image is optional — the roundup
+  item's and the batch pick's image catches, and the batch's per-pick
+  catch — so a cancelled `--all` went on to write. They rethrow on abort
+  (T10), and `runJob` records `cancelled` whenever its signal was
+  aborted, even when the work came back normally. Tested: a cancel during
+  the first pick's image GET writes nothing and the job ends `cancelled`.
+- A 403 retry cancelled in its gap or its fetch no longer drops the site.
+  Tested both.
+- `PROCESS_NONCE` lives on `globalThis` under
+  `Symbol.for("discontent.fileLock.processNonce")`: Next's bundles may load
+  separate copies of `fileLock`, and one copy's sweep would have judged
+  another's live job a previous process's. The write lock reads the same
+  nonce (`processIdentity`, `processGone`). Tested with `vi.resetModules`.
+- Nits: a real-clock `pace.wait` clears its timer on abort (`Pacing.sleep`
+  takes the signal); `withWarnings` returns a copy (same prototype) rather
+  than mutating a possibly shared abort reason; `sweepJobs` goes on past a
+  meta it cannot write (tested); 37b notes the queued heartbeat.
+
+Gates after the merge of `origin/main` (77cbb0da) and these fixes:
+typechecks clean; `pnpm exec vitest run` **85 files / 1851 tests** passed
+(1845 after the merge, +6: `jobs.test` +4, `fileLock.test` +1,
+`multiRecipe` +1); Playwright (build mode, heavy slot) `multi-recipe`,
+`import-roundup`: **7 / 7** passed (1.3 min).
 
 ## Backlog
 
