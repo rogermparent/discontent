@@ -427,6 +427,52 @@ export function termHierarchy(
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
+/** `/tags`' board (U4): the hierarchy, the loose records, and every record. */
+export interface TagBoard {
+  /** One block each: the roots `termHierarchy` draws. */
+  roots: TermHierarchyNode[];
+  /**
+   * Records outside any hierarchy — no parent the tree knows, no children —
+   * for the "More tags" block, most carried first.
+   */
+  loose: TermHierarchyNode[];
+  /** Every slug with a record: the rest of the vocabulary is bare tags. */
+  recorded: string[];
+}
+
+/**
+ * `/tags` as a board of count bars (usability pass, U4), from the same tree
+ * and counts as `termHierarchy`: its roots become blocks, and the records it
+ * leaves out — a term with a record but no place in a hierarchy — become the
+ * "More tags" block. A loose term's total is its own distinct carriers.
+ */
+export function termBoard(
+  tree: TermTree | null | undefined,
+  counts: Map<string, TagVocabularyEntry>,
+  carriers: (slug: string) => string[],
+): TagBoard {
+  if (!tree) return { roots: [], loose: [], recorded: [] };
+  const roots = termHierarchy(tree, counts, carriers);
+  const placed = new Set<string>();
+  const mark = (node: TermHierarchyNode) => {
+    placed.add(node.slug);
+    node.children.forEach(mark);
+  };
+  roots.forEach(mark);
+  const loose = Object.keys(tree)
+    .filter((slug) => !placed.has(slug))
+    .map((slug): TermHierarchyNode => {
+      const entry = counts.get(slug) ?? {
+        slug,
+        label: tree[slug]?.label ?? slug,
+        count: 0,
+      };
+      return { ...entry, total: new Set(carriers(slug)).size, children: [] };
+    })
+    .sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
+  return { roots, loose, recorded: Object.keys(tree) };
+}
+
 /**
  * The curated front: pinned items first, in the pinned order, then the rest.
  *

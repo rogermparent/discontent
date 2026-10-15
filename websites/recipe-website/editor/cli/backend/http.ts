@@ -500,9 +500,9 @@ export function createHttpBackend({
     setInventory(raw) {
       return call<InventoryWriteResult>("PUT", "/api/inventory", { body: raw });
     },
-    inventoryMakeable(options = {}) {
+    inventoryMakeable({ staples, ...options } = {}) {
       return call<MakeableResult>("GET", "/api/inventory/make", {
-        query: options,
+        query: { ...options, staples: staples === false ? 0 : undefined },
       });
     },
 

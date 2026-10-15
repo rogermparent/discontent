@@ -41,6 +41,7 @@ import {
   aliasTarget,
   mergeTagVocabulary,
   tagOptions,
+  termBoard,
   termHierarchy,
 } from "../websites/recipe-website/common/controller/tagVocabulary";
 import type { CurationContext } from "../websites/recipe-website/editor/controller/curation/context";
@@ -168,6 +169,53 @@ describe("termHierarchy", () => {
       slug: "linzer",
       total: 2,
       children: [],
+    });
+  });
+});
+
+describe("termBoard (U4)", () => {
+  it("draws the roots as blocks and the loose records as More tags", () => {
+    const tree = {
+      dessert: { label: "Dessert", children: ["cookies"] },
+      cookies: { label: "Cookies", parent: "dessert", children: [] },
+      holiday: { label: "Holiday", children: [] },
+      weeknight: { label: "Weeknight", children: [] },
+      /* A parent the tree doesn't know: no hierarchy, so loose. */
+      orphan: { label: "Orphan", parent: "gone", children: [] },
+    };
+    const carriers: Record<string, string[]> = {
+      dessert: ["recipe:a"],
+      cookies: ["recipe:a", "recipe:b"],
+      weeknight: ["recipe:a", "group:g", "recipe:c"],
+      orphan: ["recipe:d"],
+    };
+    const counts = new Map(
+      Object.entries(carriers).map(([slug, items]) => [
+        slug,
+        {
+          slug,
+          label: tree[slug as keyof typeof tree].label,
+          count: items.length,
+        },
+      ]),
+    );
+    const board = termBoard(tree, counts, (slug) => carriers[slug] ?? []);
+    expect(board.roots.map((root) => root.slug)).toEqual(["dessert"]);
+    expect(board.roots[0]).toMatchObject({ total: 2 });
+    /* Most carried first; a record nothing carries still lists, at zero. */
+    expect(board.loose.map(({ slug, total }) => [slug, total])).toEqual([
+      ["weeknight", 3],
+      ["orphan", 1],
+      ["holiday", 0],
+    ]);
+    expect(board.recorded.sort()).toEqual(Object.keys(tree).sort());
+  });
+
+  it("is empty without a tree", () => {
+    expect(termBoard(null, new Map(), () => [])).toEqual({
+      roots: [],
+      loose: [],
+      recorded: [],
     });
   });
 });

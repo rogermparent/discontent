@@ -40,6 +40,36 @@ test.describe("Accessibility (axe)", () => {
     expect(results.violations).toEqual([]);
   });
 
+  /* U4: the count-bar board — blocks, rows, More tags and the chips. */
+  test("tag index board has no WCAG2AA violations", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("christmas-cookies");
+    await page.goto("/tags");
+    await expect(page.getByTestId("tag-board")).toBeVisible();
+    const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    expect(results.violations).toEqual([]);
+  });
+
+  /* U5/U6: the staples switch and the saved-inventory group, signed in. */
+  test("make page with the saved inventory has no WCAG2AA violations", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("make-drinks");
+    await page.goto("/");
+    await signIn(page);
+    await page.goto("/make?q=tag:drink");
+    await expect(page.getByTestId("make-ticker")).toHaveText(/can make/i, {
+      timeout: 20_000,
+    });
+    await page.getByTestId("saved-inventory").locator("summary").click();
+    await page.getByTestId("make-secondary").locator("summary").click();
+    const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    expect(results.violations).toEqual([]);
+  });
+
   test("bookmarks empty state has no WCAG2AA violations", async ({
     page,
     resetData,

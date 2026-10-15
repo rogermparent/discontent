@@ -3,6 +3,8 @@
 import { commandAction } from "@/app/(recipes)/scriptAction";
 import { readSettings } from "@/settings";
 import { rebuildAllIndexes } from "recipe-editor/controller/actions";
+import { readInventory } from "recipe-editor/controller/curation/inventory";
+import { exportBuildEnv } from "recipe-editor/controller/exportEnv";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { RepositoryBusyError } from "@discontent/cms/git/writeLock";
 import { ensureSymlink } from "fs-extra";
@@ -49,19 +51,16 @@ export async function buildExport() {
     resolve(exportDirectory, "public", "uploads"),
   );
 
-  // Bake the owner's site-default theme + footer content into the static build.
-  // The export layout reads SITE_THEME via getSiteTheme() and
-  // SITE_FOOTER_NOTE / SITE_CONTACT via getSiteFooter(); absent → built-in
-  // defaults. The deploy path is unaffected (it redeploys the already-built
-  // out/).
-  const { theme, footerNote, contact } = await readSettings();
-  const extraEnv: Record<string, string> = {};
-  if (theme) extraEnv.SITE_THEME = JSON.stringify(theme);
-  if (footerNote) extraEnv.SITE_FOOTER_NOTE = footerNote;
-  if (contact) extraEnv.SITE_CONTACT = JSON.stringify(contact);
-
-  return commandAction(
-    "build",
-    Object.keys(extraEnv).length > 0 ? extraEnv : undefined,
+  // Bake the owner's site-default theme, footer content and — only when the
+  // owner opted in (U6) — a snapshot of the saved inventory into the static
+  // build. The export reads SITE_THEME via getSiteTheme(), SITE_FOOTER_NOTE /
+  // SITE_CONTACT via getSiteFooter() and SITE_HOUSE_INVENTORY via
+  // secondaryInventory(); absent or empty → built-in defaults. The deploy
+  // path is unaffected (it redeploys the already-built out/).
+  const extraEnv = await exportBuildEnv(
+    await readSettings(),
+    async () => (await readInventory({ contentDirectory })).items,
   );
+
+  return commandAction("build", extraEnv);
 }

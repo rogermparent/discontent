@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { DEFAULT_STAPLES } from "../../util/makeable";
+import { assumedStaples, DEFAULT_STAPLES } from "../../util/makeable";
 import {
   applyOverlay,
   dedupeItems,
@@ -143,23 +143,37 @@ export function useLastMakeQuery(): [
 }
 
 /**
- * `/make`'s two judgement settings (32j), per browser like the list itself:
- * whether a close match counts as had (on by default), and what this
- * kitchen always has (`DEFAULT_STAPLES` until edited). Each is stored only
- * once changed, so a better default reaches everyone who never touched it.
+ * `/make`'s judgement settings, per browser like the list itself: whether a
+ * close match counts as had (32j, on by default), what this kitchen always
+ * has (32j, `DEFAULT_STAPLES` until edited), and whether pantry staples are
+ * assumed too (U5, on by default). Each is stored only once changed, so a
+ * better default reaches everyone who never touched it.
+ *
+ * `staples` is the **whole** assumed list — the always-on items plus, while
+ * the switch is on, `PANTRY_STAPLES` — so any page that hands it to
+ * `analyzeMakeable` (the homepage's Make tile, `/drinks`' panel) follows the
+ * switch without knowing it exists.
  */
 export interface MakeSettings {
   countClose: boolean;
+  /** Everything assumed on hand: `alwaysHave` ∪ pantry staples when on. */
   staples: string[];
-  /** True while `staples` is the default list. */
+  /** The editable "Assume I always have" list (32j). */
+  alwaysHave: string[];
+  /** True while `alwaysHave` is the default list. */
   defaultStaples: boolean;
+  /** "Assume pantry staples" (U5): on unless this browser turned it off. */
+  pantryStaples: boolean;
   setCountClose: (value: boolean) => void;
+  setPantryStaples: (value: boolean) => void;
   setStaples: (items: string[]) => void;
   resetStaples: () => void;
 }
 
 interface StoredSettings {
   countClose?: boolean;
+  /** Stored only as `false`: on is the default. */
+  pantryStaples?: boolean;
   staples?: string[];
 }
 
@@ -167,9 +181,13 @@ function parseSettings(raw: string): StoredSettings {
   try {
     const parsed = raw ? (JSON.parse(raw) as unknown) : {};
     if (!parsed || typeof parsed !== "object") return {};
-    const { countClose, staples } = parsed as Record<string, unknown>;
+    const { countClose, pantryStaples, staples } = parsed as Record<
+      string,
+      unknown
+    >;
     const out: StoredSettings = {};
     if (typeof countClose === "boolean") out.countClose = countClose;
+    if (typeof pantryStaples === "boolean") out.pantryStaples = pantryStaples;
     if (Array.isArray(staples)) {
       out.staples = staples.filter(
         (item): item is string => typeof item === "string",
@@ -193,6 +211,9 @@ export function useMakeSettings(): MakeSettings {
       const merged: StoredSettings = { ...stored, ...next };
       const kept: StoredSettings = {};
       if (merged.countClose !== undefined) kept.countClose = merged.countClose;
+      if (merged.pantryStaples !== undefined) {
+        kept.pantryStaples = merged.pantryStaples;
+      }
       if (merged.staples !== undefined) kept.staples = merged.staples;
       write(
         SETTINGS_KEY,
@@ -205,16 +226,30 @@ export function useMakeSettings(): MakeSettings {
     (value: boolean) => save({ countClose: value ? undefined : false }),
     [save],
   );
+  const setPantryStaples = useCallback(
+    (value: boolean) => save({ pantryStaples: value ? undefined : false }),
+    [save],
+  );
   const setStaples = useCallback(
     (items: string[]) => save({ staples: dedupeItems(items) }),
     [save],
   );
   const resetStaples = useCallback(() => save({ staples: undefined }), [save]);
+  const alwaysHave = stored.staples ?? DEFAULT_STAPLES;
+  const pantryStaples = stored.pantryStaples ?? true;
+  /* One array per stored value, so a memo keyed on `staples` holds. */
+  const staples = useMemo(
+    () => assumedStaples(alwaysHave, pantryStaples),
+    [alwaysHave, pantryStaples],
+  );
   return {
     countClose: stored.countClose ?? true,
-    staples: stored.staples ?? DEFAULT_STAPLES,
+    staples,
+    alwaysHave,
     defaultStaples: stored.staples === undefined,
+    pantryStaples,
     setCountClose,
+    setPantryStaples,
     setStaples,
     resetStaples,
   };

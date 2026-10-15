@@ -29,10 +29,14 @@ import {
   toggleTagTerm,
 } from "../SearchForm/queryLanguage";
 import { SearchSkeleton } from "../SearchForm/SearchSkeleton";
-import { inventoryKey } from "../../util/inventoryText";
+import { dedupeItems } from "../../util/inventoryText";
+import type { SecondaryInventory } from "../../controller/secondaryInventory";
 import { InventoryPanel } from "./InventoryPanel";
-import { SharedChanges, type InventoryDiff } from "./SharedChanges";
-import { BuyNextList, MakeResults } from "./MakeResults";
+import {
+  SavedInventoryEditor,
+  type SavedInventoryProps,
+} from "./SavedInventory";
+import { BuyNextList, MakeResults, SecondaryMakeGroup } from "./MakeResults";
 import { MakeTicker } from "./MakeTicker";
 import { scopeRecipes } from "./scope";
 import { TagPicks } from "./TagPicks";
@@ -90,22 +94,25 @@ function corpusTagOptions(recipes: MassagedRecipeEntry[]): TagOption[] {
  * `tags` is the vocabulary with its tree (28g), read on the server by both
  * routes: the root chips, their children, and the tag search come from it.
  *
- * `shared` and `saveShared` are 25d's: the editor's committed list, which
- * this browser's changes overlay, and the action that commits those changes.
- * The export passes neither — and neither does the editor for a guest — so
- * the browser's list is all there is.
+ * **This browser's list first** (U6), in both apps: every count, section and
+ * Buy next judges what this visitor entered (plus the staples). Another list
+ * only ever feeds a separate, folded group below the results —
+ * `SecondaryMakeGroup`, the recipes it makes that this list doesn't:
+ *
+ * - `saved` — a signed-in editor: the operator's saved inventory (25d's
+ *   committed list), with its editor in the panel;
+ * - `secondary` — otherwise: `secondaryInventory()`'s answer, the house
+ *   snapshot an export was built with when the operator opted in, and
+ *   nothing by default.
  */
 export function MakePage({
   tags,
-  shared,
-  saveShared,
+  secondary,
+  saved,
 }: {
   tags?: TagOption[];
-  shared?: string[];
-  saveShared?: (diff: {
-    add: string[];
-    remove: string[];
-  }) => Promise<{ items: string[] } | { error: string }>;
+  secondary?: SecondaryInventory;
+  saved?: SavedInventoryProps;
 }) {
   const searchParams = useSearchParams();
   const urlQuery = searchParams.get("q");
@@ -125,26 +132,19 @@ export function MakePage({
     [rememberQuery],
   );
 
-  /* After a save, the list the server answered with — until the next load
-   * brings the same list back as `shared`. */
-  const [savedShared, setSavedShared] = useState<string[] | undefined>();
-  const effectiveShared = savedShared ?? shared;
-  const sharedItems = useMemo(() => effectiveShared ?? [], [effectiveShared]);
-  const inventory = useInventory(sharedItems);
-  /* What this browser would change about the shared list, or nothing when
-   * there is no shared list to change. */
-  const pendingDiff = useMemo<InventoryDiff | undefined>(() => {
-    if (!effectiveShared) return undefined;
-    const keys = new Set(effectiveShared.map(inventoryKey));
-    return {
-      add: inventory.overlay.added.filter(
-        (item) => !keys.has(inventoryKey(item)),
-      ),
-      remove: inventory.overlay.removed.filter((item) =>
-        keys.has(inventoryKey(item)),
-      ),
-    };
-  }, [effectiveShared, inventory.overlay]);
+  /* The browser's list alone: no shared list under the overlay, so its
+   * `added` is the list (25c/D10's export shape, now both apps'). */
+  const inventory = useInventory(NO_SHARED);
+  /* After a save, the saved list the server answered with — until the next
+   * load brings the same list back as `saved.items`. */
+  const [savedItems, setSavedItems] = useState<string[] | undefined>();
+  const savedList = savedItems ?? saved?.items;
+  const secondaryList = useMemo<SecondaryInventory | undefined>(() => {
+    if (!saved) return secondary;
+    return savedList?.length
+      ? { label: saved.label, items: savedList }
+      : undefined;
+  }, [saved, savedList, secondary]);
   const inputRef = useRef<HTMLInputElement>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const queryInputId = useId();
@@ -196,6 +196,29 @@ export function MakePage({
       }),
     [scoped, prepared, inventory.have, countClose, staples],
   );
+  /* U6: what the secondary list adds — ready with it and this browser's
+   * list together, not ready with this browser's alone. */
+  const secondaryOnly = useMemo(() => {
+    if (!secondaryList) return undefined;
+    const withSecondary = analyzeMakeable(
+      scoped,
+      prepared,
+      dedupeItems([...inventory.have, ...secondaryList.items]),
+      { countClose, staples },
+    );
+    const ready = new Set(analysis.canMake.map((match) => match.recipe.slug));
+    return withSecondary.canMake.filter(
+      (match) => !ready.has(match.recipe.slug),
+    );
+  }, [
+    secondaryList,
+    scoped,
+    prepared,
+    inventory.have,
+    countClose,
+    staples,
+    analysis,
+  ]);
 
   const pending =
     status === "pending" || ingredientsQuery.isPending || !inventory.ready;
@@ -309,10 +332,12 @@ export function MakePage({
       />
     );
   } else if (inventory.have.length === 0) {
+    /* U6: never a fallback to another list — an invitation, and the
+     * secondary group (if any) stays a separate group below it. */
     body = (
       <EmptyState
-        title="Start with what you have"
-        message="Add what's in your kitchen or bar — produce, pantry staples, bottles — and what you can make shows up here."
+        title="Tell it what you have"
+        message="Add what's in your kitchen or bar — produce, bottles, what's in the fridge — and what you can make shows up here."
         action={
           <div className="flex flex-wrap justify-center gap-2">
             <Button type="button" onClick={() => inputRef.current?.focus()}>
@@ -340,6 +365,18 @@ export function MakePage({
       </>
     );
   }
+  const secondaryGroup =
+    !failed &&
+    !pending &&
+    scoped.length > 0 &&
+    secondaryList &&
+    secondaryOnly ? (
+      <SecondaryMakeGroup
+        label={secondaryList.label}
+        matches={secondaryOnly}
+        recipes={recipesBySlug}
+      />
+    ) : null;
 
   return (
     <>
@@ -347,19 +384,14 @@ export function MakePage({
       <div className="flex flex-col gap-6 lg:flex-row">
         <InventoryPanel
           inventory={inventory}
-          shared={effectiveShared}
-          pending={
-            pendingDiff && saveShared ? (
-              <SharedChanges
-                diff={pendingDiff}
-                onDiscard={inventory.discard}
-                onSave={async (diff) => {
-                  const result = await saveShared(diff);
-                  if ("error" in result) return result.error;
-                  setSavedShared(result.items);
-                  inventory.discard();
-                  return undefined;
-                }}
+          saved={
+            saved ? (
+              <SavedInventoryEditor
+                items={savedList ?? []}
+                have={inventory.have}
+                save={saved.save}
+                onSaved={setSavedItems}
+                onCopyToBrowser={inventory.add}
               />
             ) : undefined
           }
@@ -431,10 +463,14 @@ export function MakePage({
             </label>
           </div>
           {body}
+          {secondaryGroup}
         </div>
       </div>
     </>
   );
 }
+
+/** `useInventory`'s shared list, always empty (U6). One array, so its memo holds. */
+const NO_SHARED: string[] = [];
 
 export default MakePage;

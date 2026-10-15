@@ -168,6 +168,42 @@ export function BuyNextList({
   );
 }
 
+/**
+ * The secondary group (U6): what another list — the operator's saved
+ * inventory in a signed-in editor, or the house snapshot an export was
+ * built with — makes now that this browser's list doesn't. Below the
+ * results, folded away, and never in the ticker or Buy next.
+ */
+export function SecondaryMakeGroup({
+  label,
+  matches,
+  recipes,
+}: {
+  label: string;
+  matches: RecipeMatch[];
+  recipes: Map<string, MassagedRecipeEntry>;
+}) {
+  return (
+    <details data-testid="make-secondary" className="my-6 border-t pt-4">
+      <summary className="cursor-pointer text-xl font-bold">
+        {label}{" "}
+        <span className="font-mono text-sm font-normal text-muted-foreground">
+          {matches.length}
+        </span>
+      </summary>
+      <div className="mt-2">
+        {matches.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nothing more than this browser&apos;s list makes.
+          </p>
+        ) : (
+          <MatchGrid matches={matches} recipes={recipes} />
+        )}
+      </div>
+    </details>
+  );
+}
+
 export function MakeResults({
   analysis,
   recipes,

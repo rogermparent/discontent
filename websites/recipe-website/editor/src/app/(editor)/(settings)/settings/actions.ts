@@ -91,6 +91,15 @@ export async function updateSettings(
     next.contact = Object.keys(contact).length > 0 ? contact : undefined;
   }
 
+  /*
+   * U6's export switch (the Export page): a checkbox posts nothing when off,
+   * so its form carries a marker field that says the switch was on the page.
+   */
+  if (formData.has("shareInventoryOnExport.present")) {
+    next.shareInventoryOnExport =
+      formData.get("shareInventoryOnExport") === "on" ? true : undefined;
+  }
+
   try {
     await writeSettings(next);
     // The site default is injected in the root layout, so refresh every route.

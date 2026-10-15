@@ -218,9 +218,11 @@ describe("makeable", () => {
     await patchInventory(ctx, {
       add: ["vodka", "simple syrup", "Gnista", "tonic", "sugar", "lavender"],
     });
-    const result = await makeable(ctx);
+    /* Pantry staples off (U5): flour would otherwise answer for Hand Pies. */
+    const result = await makeable(ctx, { staples: false });
     expect(result).toMatchObject({
       query: "",
+      staples: false,
       inventory: 6,
       total: 4,
       canMake: [
@@ -262,7 +264,10 @@ describe("makeable", () => {
 
   it("takes a scope, and reads stored headings off the index", async () => {
     await patchInventory(ctx, { add: ["jam"] });
-    const result = await makeable(ctx, { query: "tag:dessert" });
+    const result = await makeable(ctx, {
+      query: "tag:dessert",
+      staples: false,
+    });
     expect(result.oneAway).toEqual([
       { slug: "hand-pies", name: "Hand Pies", missing: ["flour"] },
     ]);
@@ -281,7 +286,7 @@ describe("makeable", () => {
       ],
     });
     await patchInventory(ctx, { add: ["onion", "rice", "vegetable oil"] });
-    const result = await makeable(ctx, { query: "-tag:drink" });
+    const result = await makeable(ctx, { query: "-tag:drink", staples: false });
     expect(result.canMake).toEqual([
       {
         slug: "shallot-rice",
@@ -291,6 +296,19 @@ describe("makeable", () => {
           { needs: "olive oil", have: "vegetable oil" },
         ],
       },
+    ]);
+  });
+
+  it("assumes pantry staples by default, and not with staples: false (U5)", async () => {
+    await patchInventory(ctx, { add: ["jam"] });
+    const on = await makeable(ctx, { query: "tag:dessert" });
+    expect(on.staples).toBe(true);
+    expect(on.canMake).toEqual([{ slug: "hand-pies", name: "Hand Pies" }]);
+    const off = await makeable(ctx, { query: "tag:dessert", staples: false });
+    expect(off.staples).toBe(false);
+    expect(off.canMake).toEqual([]);
+    expect(off.oneAway).toEqual([
+      { slug: "hand-pies", name: "Hand Pies", missing: ["flour"] },
     ]);
   });
 

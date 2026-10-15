@@ -58,6 +58,7 @@ import {
   importTarget,
 } from "../controller/curation/importRequest";
 import { LLM_MODES } from "../controller/llm/mode";
+import { PANTRY_STAPLES } from "recipe-website-common/util/makeable";
 import type { RecipeRow } from "../controller/curation/recipes";
 import {
   FeaturedInputSchema,
@@ -1219,7 +1220,9 @@ export function createRecipeServer(
         "language; every recipe by default — `tag:drink` for drinks, `-tag:drink` " +
         "for food): which can be made now, which are one or two items short and " +
         "what's missing, how many are further, and what to buy next. Salt, black " +
-        "pepper, water and ice count as on hand. A line can be met by making " +
+        "pepper, water and ice count as on hand, and so do the pantry staples " +
+        `(${PANTRY_STAPLES.join(", ")}) unless \`staples: false\` — as the site's ` +
+        '"Assume pantry staples" switch, on by default. A line can be met by making ' +
         "another recipe first (`makeFirst`), or by a close item (`close`: " +
         "{needs, have}, e.g. onion for a shallot), which counts as had. The same " +
         "rules the site's /make page uses.",

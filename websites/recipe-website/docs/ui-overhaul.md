@@ -2054,6 +2054,133 @@ split-screen or short desktop window has it too.
       and the same `AppLayout`, so its hand-duplicated `@media print` block was
       untouched — the policy lives in one place.
 
+## Usability pass (2026-10-15)
+
+Roger's mix of four design directions, built as three branches: the homepage
+(U1), the navigation and `/drinks` (U2, U3), and `/tags`, pantry staples and
+the browser-first `/make` (U4–U6, `agent/tags-staples`). The comps are
+read-only `.dc.html` files; their hex palette maps onto the Working Bench
+tokens, and every count on the pages comes from data.
+
+### U4 — `/tags` as a board of count bars `agent/tags-staples`
+
+- **A block per facet root**, laid out as CSS columns (`columns-[15rem]`,
+  `break-inside: avoid`): the heading links to the root's term page and
+  prints the subtree's distinct total ("143 in all"); each child is a row —
+  label, mono count, and a 3px bar whose width is the count over the
+  block's largest. Rows sort most-carried first. A child with narrower
+  terms lists them indented beneath on the same scale, so 31b's tree
+  survives inside the board.
+- **"More tags"** collects the records outside any hierarchy — no parent the
+  tree knows and no children — most carried first; a record nothing carries
+  still lists at 0 (it is a real page since 24c).
+- **Bare tags** (no record) stay the chips they were, now under "Other tags"
+  and only the bare ones. With no records at all there is no board and the
+  chips are every tag, exactly as before — the `search-corpus` fixture's
+  index is unchanged.
+- **Data:** `termBoard()` in `tagVocabulary.ts` (pure, beside
+  `termHierarchy`, which it wraps) and `readTagBoard()` replacing
+  `readTagTree()`; the routes pass `board` to `TagIndexPage`.
+- **A11y:** the bar is `aria-hidden`; the count is the text, so a row reads
+  "Cookies 8". Headings are h3 under the page's "By kind" h2.
+
+### U5 — Pantry staples, on by default
+
+- **One constant**, `PANTRY_STAPLES` in `common/util/makeable.ts`: flour,
+  sugar, butter, eggs, vegetable oil, olive oil, milk, baking soda, baking
+  powder. `oil` alone is a vague head (`isGenericHead`), so the two oils are
+  named; the close tier then stands vegetable oil in for canola, peanut and
+  the rest of its group, and eggs for yolks and whites (`CLOSE_PAIRS`) — the
+  close note says so, and "Count close matches" decides whether it counts.
+- **Matched as items are**, generic ⊂ specific: `flour` meets "all-purpose
+  flour", `sugar` "granulated sugar". `STAPLE_NOT_MODIFIERS` (almond, rice,
+  oat, coconut, brown, powdered, condensed, apple, maple, cocoa…) keeps a
+  staple off lines that only share its last word — almond flour, brown
+  sugar, oat milk, apple butter stay missing; an inventory item still meets
+  them. Measured against a probe of 48 lines before choosing the list.
+- **The judge owns the option.** `MakeableOptions.pantryStaples`; `staples`
+  is now the _whole_ assumed list. Absent, the judge assumes
+  `DEFAULT_STAPLES` + the pantry; a given `staples` list is whole unless
+  `pantryStaples: true`. `assumedStaples(base, pantry)` builds the list, and
+  `useMakeSettings().staples` is that built list — so a page that hands it to
+  `analyzeMakeable` (the homepage's Make tile, `/drinks`' panel) follows the
+  switch without knowing it exists. `alwaysHave` is the editable "Assume I
+  always have" list (32j, still salt/pepper/water/ice by default).
+- **Staples join the close tier** through their own index, consulted only
+  when no inventory item is close — the list's own item wins.
+- **The switch:** "Assume pantry staples" in the What I have panel, a
+  `role="switch"` checkbox with the list as its description, stored in
+  `make-settings-v1` as `pantryStaples: false` only when turned off.
+- **Seats agree:** MCP `inventory_makeable` takes `staples?: boolean`
+  (default true) and answers `staples`; `/api/inventory/make?staples=0`;
+  CLI `recipes inventory make --no-staples`. The tool description, the CLI
+  usage and the curator skill (§8) say so.
+- **Shopping is unchanged:** its "probably on hand" fold keeps
+  `DEFAULT_STAPLES`; only the modifier guard reaches it (water no longer
+  meets a "rice water" line).
+
+### U6 — This browser's list first; the saved inventory second
+
+- **Both apps judge the browser's list alone.** `useInventory(NO_SHARED)`:
+  the `make-inventory-v1` overlay's `added` is the list, as on the export
+  since 25c — an editor browser's old `removed` entries are simply ignored.
+  The ticker, sections and Buy next never see another list.
+- **The empty list invites**: "Tell it what you have", never a fallback.
+- **Secondary group** (`SecondaryMakeGroup`, `data-testid="make-secondary"`):
+  below the results, folded, "N" in mono — the recipes ready with the
+  browser's list ∪ the other list that the browser's list alone can't make.
+  It shows under the invitation too, since it is labelled as someone else's.
+- **Signed-in editor:** the other list is the operator's saved inventory
+  (25d's committed file), "Also makeable with your saved inventory". Its
+  editor moved below the browser's list, folded: "Your saved inventory (N)"
+  — chips with remove, an add field, "Save this browser's list to it" and
+  "Copy it to this browser". Each change is one `{add, remove}` commit
+  through 25d's `saveInventoryChanges`. The overlay's Save/Discard bar and
+  the "hidden on this browser" list are gone (`SharedChanges.tsx` removed).
+- **The export's option, off by default:** Export page → "Share my saved
+  inventory on the export" (`settings.shareInventoryOnExport`, per instance,
+  not a mirror key — the Pi never builds the export). The established
+  pattern for export-facing switches is an editor setting the export build
+  reads as env (PR 2b `SITE_THEME`, PR 13 `SITE_FOOTER_NOTE`): on,
+  `exportBuildEnv()` (`editor/controller/exportEnv.ts`) reads the saved list
+  and sets `SITE_HOUSE_INVENTORY` to its JSON; off, it never reads the list
+  and sets the variable **empty**, because execa hands the build the
+  editor's whole environment. A hand-run `pnpm --filter recipe-website
+build` may set the variable itself. Documented in the CLI's `--help` and
+  `deploy-pi.md`.
+- **One helper:** `common/controller/secondaryInventory.ts`.
+  `secondaryInventory(readSaved?)` answers the saved list for a signed-in
+  editor, and otherwise `houseInventory()` — the build's snapshot, labelled
+  "Also makeable from the house inventory", or nothing. The export's `/make`
+  calls it with no reader; U3's `/drinks` already does, so it honours the
+  option with no change of its own. A guest in the editor gets the same
+  answer as the export.
+- **Guard tests both ways:** `test/exportHouseInventory.test.ts` — off: the
+  reader is never called, the variable is empty, no group; on: the variable
+  is exactly the saved list and both `houseInventory()` and
+  `secondaryInventory()` answer it; only `secondaryInventory.ts` names the
+  variable in common/ or export/, and nothing there reaches `exportEnv` or
+  `recipe-editor/`. 25d's `inventory.test.ts` scan still keeps the file
+  itself out of common/ and export/.
+
+### Traps
+
+- **A given `staples` list is whole.** Before U5 the judge's default was
+  `DEFAULT_STAPLES`; now an absent list means the pantry too. A caller that
+  passes its own list (the browser) passes the built one; a test pinning a
+  pre-U5 rule passes `pantryStaples: false` (`strictJudge` in
+  `makeable.test.ts`).
+- **Two inventories, one corpus:** the judgement cache keyed one inventory
+  per prepared corpus, so judging the browser's list and the union in turn
+  thrashed it on every keystroke. It now keeps four, most recent first.
+- **Specs that drew one-away rows from the whole `make-drinks` corpus** now
+  scope to `tag:drink`: Hand Pies and Lavender Syrup are one away on the
+  pantry alone, and they sort before Vodka Sour.
+
+### Gate results (U4–U6)
+
+Pending.
+
 ## Verification (Playwright-first)
 
 Verify UI changes with Playwright; open a real browser only to diagnose

@@ -499,12 +499,13 @@ export const InventorySetSchema = z.strictObject({ items: InventoryItems });
 
 /**
  * What to judge the list against: a search-language scope (every recipe when
- * absent; `tag:drink` narrows to drinks) and how many rows each bucket
- * answers with.
+ * absent; `tag:drink` narrows to drinks), how many rows each bucket answers
+ * with, and whether pantry staples count as on hand (U5: on unless `false`).
  */
 export const InventoryMakeQuerySchema = z.strictObject({
   query: z.string().optional(),
   limit: z.number().int().min(1).max(500).optional(),
+  staples: z.boolean().optional(),
 });
 
 /* --- shopping list (35c) ------------------------------------------------- */

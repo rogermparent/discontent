@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Badge } from "@discontent/component-library/components/ui/badge";
 import Markdown from "@discontent/component-library/components/Markdown";
 import type {
+  TagBoard,
   TagVocabularyEntry,
   TermCrumb,
   TermHierarchyNode,
@@ -272,27 +273,39 @@ export function TagPage({
   );
 }
 
-/** The full tag list — every tag, with how many things carry it. */
 /**
- * One branch of `/tags`' tree (31b): the term with its subtree total — what
- * `tag:<term>` finds, descendants included — then its children, indented.
+ * One row of a `/tags` block (U4): the term's label and count, and a thin bar
+ * whose width is the count over the block's largest. The bar is decoration
+ * (`aria-hidden`); the count is the text. A term with narrower terms of its
+ * own lists them indented beneath, on the same scale.
  */
-function TermBranch({ node }: { node: TermHierarchyNode }) {
+function TermRow({ node, max }: { node: TermHierarchyNode; max: number }) {
+  const width =
+    max > 0 && node.total > 0 ? Math.max(2, (node.total / max) * 100) : 0;
   return (
     <li>
       <Link
         href={`/tags/${node.slug}`}
-        className="underline-offset-2 hover:underline"
+        data-testid="tag-row"
+        className="group flex flex-col gap-1 border-b border-border py-1.5 underline-offset-2"
       >
-        {node.label}
+        <span className="flex items-baseline justify-between gap-3 text-sm">
+          <span className="group-hover:underline">{node.label}</span>
+          <span className="font-mono text-xs text-muted-foreground">
+            {node.total}
+          </span>
+        </span>
+        <span
+          aria-hidden
+          data-testid="tag-bar"
+          className="block h-[3px] rounded-full bg-primary/45"
+          style={{ width: `${width}%` }}
+        />
       </Link>
-      <span className="ml-1.5 font-mono text-[0.7em] text-muted-foreground">
-        {node.total}
-      </span>
       {node.children.length > 0 && (
-        <ul className="ml-4 border-l border-border pl-3">
-          {node.children.map((child) => (
-            <TermBranch key={child.slug} node={child} />
+        <ul className="pl-4">
+          {sortRows(node.children).map((child) => (
+            <TermRow key={child.slug} node={child} max={max} />
           ))}
         </ul>
       )}
@@ -300,54 +313,165 @@ function TermBranch({ node }: { node: TermHierarchyNode }) {
   );
 }
 
+/** Most carried first, then by label — the order a bar chart reads in. */
+function sortRows(nodes: TermHierarchyNode[]): TermHierarchyNode[] {
+  return [...nodes].sort(
+    (a, b) => b.total - a.total || a.label.localeCompare(b.label),
+  );
+}
+
+/** The largest count anywhere in a block, nested rows included. */
+function blockMax(nodes: TermHierarchyNode[]): number {
+  return nodes.reduce(
+    (max, node) => Math.max(max, node.total, blockMax(node.children)),
+    0,
+  );
+}
+
+/**
+ * One block of the `/tags` board (U4): a heading — the root's link, or plain
+ * "More tags" — with its total, then a row per term. Kept whole within a
+ * column (`break-inside: avoid`).
+ */
+function TagBlock({
+  slug,
+  title,
+  total,
+  rows,
+}: {
+  /** The root's slug; absent for "More tags", which has no page. */
+  slug?: string;
+  title: string;
+  total: string;
+  rows: TermHierarchyNode[];
+}) {
+  const max = blockMax(rows);
+  const heading = (
+    <>
+      <span>{title}</span>
+      <span className="font-mono text-xs font-normal text-muted-foreground">
+        {total}
+      </span>
+    </>
+  );
+  const headingClass =
+    "mb-1 flex items-baseline justify-between gap-3 border-b-2 border-foreground pb-2 font-display text-lg font-bold";
+  return (
+    <section
+      className="mb-8 break-inside-avoid"
+      data-testid="tag-block"
+      data-slug={slug}
+    >
+      <h3>
+        {slug ? (
+          <Link
+            href={`/tags/${slug}`}
+            className={`${headingClass} underline-offset-4 hover:underline`}
+          >
+            {heading}
+          </Link>
+        ) : (
+          <span className={headingClass}>{heading}</span>
+        )}
+      </h3>
+      <ul>
+        {sortRows(rows).map((node) => (
+          <TermRow key={node.slug} node={node} max={max} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+const EMPTY_BOARD: TagBoard = { roots: [], loose: [], recorded: [] };
+
+/**
+ * `/tags` (U4): a board of count bars — one block per facet root, then the
+ * records outside any hierarchy as "More tags" — and below it the bare tags
+ * (no record) as chips, as the page always showed them. With no records at
+ * all there is no board, and the chips are every tag.
+ */
 export function TagIndexPage({
   tags,
-  tree = [],
+  board = EMPTY_BOARD,
   actions,
 }: {
   tags: TagVocabularyEntry[];
-  /** The hierarchy's roots (31b); absent or empty when no term has a parent. */
-  tree?: TermHierarchyNode[];
+  /** The hierarchy and the loose records (31b, U4); empty without records. */
+  board?: TagBoard;
   /** Editor-only affordances (31e: "New term"); the export passes none. */
   actions?: ReactNode;
 }) {
+  const hasBoard = board.roots.length > 0 || board.loose.length > 0;
+  const recorded = new Set(board.recorded);
+  const bare = tags.filter((tag) => !recorded.has(tag.slug));
   return (
     <PageMain>
-      <PageSection grow>
+      <PageSection grow maxWidth="none" className="max-w-7xl mx-auto">
         <PageHeading>Tags</PageHeading>
         {actions && (
           <div className="mb-6 flex flex-row flex-wrap items-center gap-2">
             {actions}
           </div>
         )}
-        {tree.length > 0 && (
-          <nav aria-label="Tags by kind" className="mb-6">
-            <h2 className="mb-2 font-display text-lg font-semibold">By kind</h2>
-            <ul className="flex flex-col gap-1 text-sm" data-testid="tag-tree">
-              {tree.map((node) => (
-                <TermBranch key={node.slug} node={node} />
+        {hasBoard && (
+          <nav aria-labelledby="tags-by-kind" className="mb-8">
+            <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+              <h2
+                id="tags-by-kind"
+                className="font-display text-xl font-semibold"
+              >
+                By kind
+              </h2>
+              <span className="font-mono text-xs text-muted-foreground">
+                bar = how many carry the tag
+              </span>
+            </div>
+            <div className="columns-[15rem] gap-x-10" data-testid="tag-board">
+              {board.roots.map((root) => (
+                <TagBlock
+                  key={root.slug}
+                  slug={root.slug}
+                  title={root.label}
+                  total={`${root.total} in all`}
+                  rows={root.children}
+                />
               ))}
-            </ul>
+              {board.loose.length > 0 && (
+                <TagBlock
+                  title="More tags"
+                  total={`${board.loose.length} ${board.loose.length === 1 ? "tag" : "tags"}`}
+                  rows={board.loose}
+                />
+              )}
+            </div>
           </nav>
         )}
-        {tags.length > 0 ? (
-          <div
-            className="flex flex-row flex-wrap items-center gap-2"
-            data-testid="tag-index"
-          >
-            {tags.map((tag) => (
-              <Badge key={tag.slug} asChild variant="secondary">
-                <Link href={`/tags/${tag.slug}`}>
-                  {tag.label}
-                  <span className="ml-1.5 font-mono text-[0.7em] opacity-70">
-                    {tag.count}
-                  </span>
-                </Link>
-              </Badge>
-            ))}
-          </div>
+        {bare.length > 0 ? (
+          <>
+            {hasBoard && (
+              <h2 className="mb-2 font-display text-xl font-semibold">
+                Other tags
+              </h2>
+            )}
+            <div
+              className="flex flex-row flex-wrap items-center gap-2"
+              data-testid="tag-index"
+            >
+              {bare.map((tag) => (
+                <Badge key={tag.slug} asChild variant="secondary">
+                  <Link href={`/tags/${tag.slug}`}>
+                    {tag.label}
+                    <span className="ml-1.5 font-mono text-[0.7em] opacity-70">
+                      {tag.count}
+                    </span>
+                  </Link>
+                </Badge>
+              ))}
+            </div>
+          </>
         ) : (
-          <EmptyState message="No recipes have tags yet." />
+          !hasBoard && <EmptyState message="No recipes have tags yet." />
         )}
       </PageSection>
     </PageMain>
