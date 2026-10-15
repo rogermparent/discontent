@@ -253,6 +253,21 @@ Ordering: strictly sequential — 37b builds on 37a's store and `fileLock`,
   contend for `gpu` — FIFO, the tier jump, a dead waiter skipped, the stale
   lock freed; hook commands run once per busy spell, with a debounced
   release; a cancel while waiting and while running.
+- From 37a's review round: the `JobContext` (`jobs/context.ts`) already
+  reaches every seat that would acquire (`pacedRequest`/`SitePacer`,
+  `fetchYtdlpMetadata`, `chatJson` — `request.job`), with `tier` on it; the
+  signal already reaches `fetch` and yt-dlp's child, and `runJob` already
+  has the `jobId → AbortController` registry (`cancelJob`) and an outside
+  `signal` option. 37b adds the acquire around them and the cancel while
+  waiting.
+- **Open question — where the queue's state lives.** The default jobs dir
+  is per checkout (`<editor>/jobs`), so a CLI run from a worktree and the
+  workstation editor (the main checkout) do not share it — and a queue that
+  coordinates the one GPU must be machine-wide. 37b must keep the slot locks
+  and waiters somewhere every checkout sees — e.g. `$XDG_RUNTIME_DIR/discontent`
+  (per user, tmpfs, gone at logout) or `~/.cache/discontent/queue` —
+  separate from the job records, **or** move the default jobs dir per user.
+  Decide before building; the records can stay per checkout either way.
 
 ### 37c — Async form, `/jobs` page, CLI/API/MCP surfaces (M)
 
@@ -277,6 +292,13 @@ Ordering: strictly sequential — 37b builds on 37a's store and `fileLock`,
   - **Specs:** `new-recipe`, `ytdlp-import`, `multi-recipe` and
     `import-roundup` updated for the async panel; the visual baselines
     regenerated in their own run; `accessibility` passes.
+
+- From 37a's review round: **Retry runs with the editor's own context**
+  (`requireCurationContext`, its author and caches) and refuses a spec
+  whose `contentDirectory` differs from the editor's — a job recorded by a
+  CLI run against a scratch clone must not be replayed into the real repo,
+  nor the reverse. `runSpec` builds a context from the spec only when it is
+  given none; the retry route must always give one.
 
 ### 37-close (S)
 
@@ -360,6 +382,32 @@ exec tsc --noEmit`, `pnpm exec vitest run`;
   hands its server a minimal environment, so it passes `RECIPE_JOBS_DIR`
   explicitly. Under `VITEST` with none set, `jobsDirectory` falls back to a
   temp dir, never `editor/jobs/`.
+- **T8 — A fresh worktree has no `editor/.env`, so the local model is
+  unconfigured.** `.env` is gitignored and holds `RECIPE_LLM_URL`; without
+  it a worktree's `recipes import --llm force` (or a real-model check)
+  fails with "no local model configured (RECIPE_LLM_URL)". Copy it from the
+  main checkout with the other gitignored files (the worker contract's
+  setup step 2).
+- **T9 — A video URL is never fetched as a page.** `importRecipeData` maps
+  a video-host URL to the bare link without a request, so the yt-dlp
+  fallback (the form's and `importFromUrl`'s) is a `parse` step
+  (`videoLinkStep`, data `{video, bareLink}`) and no `fetch` step — there
+  is nothing to fetch.
+- **T10 — A cancel must not become a fallback.** The import path turns
+  most failures into something softer: yt-dlp's error into the bare link,
+  a failed image probe into `probe.error`, a page fetch's into
+  `ImportError`, a roundup item's into a `failed` row, the form's into a
+  message. Each of those catches now rethrows when the job's signal is
+  aborted, or a cancelled job would carry on (or end `done`).
+- **T11 — `execFile`'s `signal` kills the direct child only (SIGTERM).** A
+  shell wrapper that forks yt-dlp would leave the grandchild running; the
+  test's stand-in uses `exec` so its pid is the child's. The real binary is
+  one process (a PyInstaller build forwards the signal to its child).
+- **T12 — The machine's load moves the suite's timings.** At a load average
+  of ~41 (other sessions' builds), `multiRecipe`'s "L1: --all again" went
+  from 0.7 s to 4.4 s and once hit vitest's 5 s timeout; alone it passed.
+  A timeout in a heavy file under load is not a regression until it
+  repeats on a quiet machine.
 
 ## Results
 
@@ -530,6 +578,115 @@ given and honored (only Stuffing came back `would-import`). The warning
 text isn't conditioned on whether a pick was supplied — worth a follow-up
 if it reads as confusing in the form/CLI output, but it didn't affect the
 steps, their order, or the extraction result.
+
+#### 37a — Review round
+
+What the review asked, and what changed (all on `agent/37a-job-log`):
+
+- **Retention keeps running in a long-lived editor.** `maintainJobs`
+  memoises only the boot sweep; every `runJob` asks `pruneJobs`, whose
+  hourly stamp keeps that to one `stat`. Tested: a job an hour after the
+  last prune prunes.
+- **A failure keeps the job's warnings.** `runJob` attaches `log.surfaced`
+  to the thrown error (`withWarnings`, `errors.ts`); `toErrorObject` reads
+  them back as `error.warnings`, so the HTTP body (`errorResponse`), the
+  CLI's error JSON (and `  ! …` lines on stderr), MCP's error object and
+  the HTTP backend's rehydrated error all carry them. The meta's `error`
+  has them too. Tested with `/api/ps` at 2% and a stubbed chat timeout: the
+  import's `import_failed` says "ran 2% on the GPU".
+- **A form import that answers a message and no recipe is `failed`.**
+  `runJob` takes `failureOf(result)`; `runSpec` gives the form kinds one
+  (`formFailure`: a `message`, no `recipe`/`recipes`). The job ends
+  `job:end ok:false`, the meta `failed` with `error: {code:
+"import_failed", message}` and the state as `result`, and the form still
+  gets its state. Tested.
+- **A heartbeat.** The meta gains `updatedAt`, refreshed every 30 s
+  (`JOB_HEARTBEAT_MS`, an `unref`ed timer) and at every step start and end
+  (coalesced; never over an outcome already written). The sweep marks a
+  live job `interrupted` when its process cannot be judged (another host
+  or pid namespace) and its heartbeat is older than `JOB_STALE_MS` (10
+  min); retention drops a live job whose process is not provably alive
+  once its heartbeat is past `maxAgeMs`. Tested both, and the step-boundary
+  and timer beats.
+- **One job context.** `jobs/context.ts`: `JobContext {log, signal, tier,
+jobId}`, `JobRun` (any part of it), `NO_JOB`, `jobContext(run)`. Every
+  seat 37a gave a positional `log` now takes the context as one options
+  object: `pacedRequest(url, run, finalUrlOf?, job?)`, `new
+SitePacer(pacing?, job?)`, `probeImageFile(url, retry?, job?)`,
+  `fetchImageFile(url, {retry, job})`, `fetchPageStep(url, retry?, job?)`,
+  `parsePage(url, page, {base, job})`, `fetchYtdlpMetadata(url, {comments,
+job})`, the LLM inputs' `job` (`applyLlm`, `readPastedText`,
+  `extractRecipeWithLlm`, `listRecipes`, `isOneDish`, `chatJson`'s
+  `request.job`), and the seats' trailing `run` (`importFromUrl`,
+  `importAndCreate`, `importFromText`, `finishImport`, `importBatchPicks`,
+  `inspectUrl`, `inspectList`/`importList` via `{job}`, the form's
+  reducers). `runJob`'s function takes the context (`fn(job)`). Defaults
+  are `NO_JOB`, so callers and tests from before 37a are unchanged.
+  - The signal reaches `fetch` (`fetchRecipePage(url, retry, {signal})`,
+    the image GET and HEAD) and the 403 retry's wait; `SitePacer`'s queue
+    and gap waits end on abort (a place given up keeps the queue's order);
+    yt-dlp's `execFile` gets it, so an abort kills the child. Tested: an
+    outside signal reaches the page `fetch` and the job ends `cancelled`;
+    an aborted yt-dlp's child is dead.
+  - `runJob` keeps a per-process registry `jobId → AbortController` on
+    `globalThis` (`cancelJob(id)`, `runningJobIds()`) and takes an outside
+    `signal`; an aborted job ends `cancelled` (code `cancelled`).
+  - `updateJobMeta` is serialised per meta file (a promise chain on
+    `globalThis`) and may take a function of the meta as read. Tested: 20
+    concurrent increments, none lost.
+- **Nits.**
+  - Step lines gain `n` (per-job sequence) and `parent` (the enclosing
+    step's `n`, on notes too), tracked with `AsyncLocalStorage`, so
+    concurrent `llm.extract` steps pair. Additive. Tested.
+  - `readJobLog` clamps `from` to a whole non-negative number (`NaN` → 0)
+    and counts `next` from the clamped value. Tested.
+  - `meta.error` (and its warnings) go through the log's redaction
+    (`redactText`). Tested.
+  - `/api/import-list` parses the body's options
+    (`ImportListOptionsSchema`) before the job, and the spec keeps the
+    parsed object (`options: ImportListOptions`).
+  - `checkPlacement` surfaces one warning per kind (`log.surface(message,
+kind)`, the latest reading: 2% then 3% is one, saying 3%) and matches
+    the model as Ollama resolves names (`qwen3` ↔ `qwen3:latest`,
+    `sameOllamaModel`). Tested.
+  - `recipes jobs show --json`: `job` is the id string, the record is
+    `meta`. Tested.
+  - The mirror builds an end line from its parts (a label with `·` no
+    longer loses its first separator). Tested.
+  - `RECIPE_JOBS_DIR` is in `EDITOR_ENV_KEYS` (read from `editor/.env`)
+    and `--help` says so.
+  - `settleExtraction` calls `log[level](…)`, bound.
+  - The yt-dlp fallback's bare link is a `parse` step in the form and in
+    `importFromUrl` (T9).
+  - `fileLock`: `tryCreateLock` and `acquireLock` refuse an id that is not
+    a non-empty string; the heartbeat test polls (`vi.waitFor`) instead of
+    sleeping 120 ms. Tested.
+  - **Pick-aware warning:** with `pick` or `all`, the several-recipes
+    warning ends "— picked 2. Stuffing" or "— all picked" instead of
+    "pick the ones to import, by name" (`pickedWarnings`, in
+    `finishBatch`, the one place a batch result's summary is built; the
+    form's picker and `inspect` still ask). Tested.
+- `chatJson`'s behaviour is unchanged beyond plumbing (`request.job`'s
+  signal as the default caller signal), so no new real-model run.
+
+**Gates (review round).** `pnpm --filter recipe-editor typecheck` and
+`pnpm --filter recipe-website exec tsc --noEmit` clean; eslint clean on
+the changed files; `pnpm exec vitest run` **84 files / 1827 tests**
+passed (+20 on the first round's 1807: `jobs.test` +19 — retention an
+hour on, the heartbeat at a step and on its timer, the stale sweep, the
+stale prune, serialised meta updates, a timeout's 2% warning on the
+error, the form's failed job, a redacted `meta.error`, the context, a
+cancel by id, an outside signal at the page fetch, yt-dlp's child killed,
+`n`/`parent`, `readJobLog`'s offsets, one placement warning per kind,
+Ollama's names, the mirror's parts, `jobs show --json`; `fileLock.test`
++1 — an empty id refused; `multiRecipe` asserts the picked and all-picked
+warnings). A first full run at a load average of ~45 timed out 20 tests
+in six files (all timeouts, T12); the six files alone and then the whole
+suite passed once the load fell to ~5. Playwright (build mode, heavy
+slot) `new-recipe`, `ytdlp-import`, `multi-recipe`, `import-roundup`,
+`youtube-video`: **63 / 63** passed (5.2 min); `test-jobs/` held 33 jobs
+(24 `form-url`, 5 `inspect-list`, 4 `import-list`), all `done`, and no
+`editor/jobs/`.
 
 ## Backlog
 
