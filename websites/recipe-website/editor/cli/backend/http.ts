@@ -259,6 +259,11 @@ export function createHttpBackend({
         body: { url, ...options },
       });
     },
+    importText(text, options = {}) {
+      return call<ImportResult>("POST", "/api/import", {
+        body: { text, ...options },
+      });
+    },
     inspect(url, options = {}) {
       return call<InspectResult>("POST", "/api/inspect", {
         body: { url, ...options },

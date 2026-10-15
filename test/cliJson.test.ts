@@ -97,13 +97,14 @@ afterAll(async () => {
   await rm(contentDirectory, { recursive: true, force: true });
 });
 
-function run(args: string[], env: NodeJS.ProcessEnv = {}) {
+function run(args: string[], env: NodeJS.ProcessEnv = {}, input?: string) {
   return execa(
     "pnpm",
     ["exec", "tsx", "cli/index.ts", ...args, "--content-dir", contentDirectory],
     {
       cwd: EDITOR_DIR,
       reject: false,
+      ...(input !== undefined ? { input } : {}),
       /*
        * `CONTENT_DIRECTORY` unset, so a bug in `--content-dir` resolution
        * cannot be masked by the ambient environment the runner inherited —
@@ -1121,6 +1122,116 @@ describe("import tooling as a process (26b)", () => {
       expect(inspected.exitCode).toBe(0);
       expect(JSON.parse(inspected.stdout)).toMatchObject({ partial: true });
       expect(JSON.parse(inspected.stdout).llm).toBeUndefined();
+    },
+    TIMEOUT * 3,
+  );
+
+  /* 36c: `import --text <file|->`, a pasted recipe read by the model. */
+  it(
+    "imports pasted text from stdin or a file, and refuses a URL with it",
+    async () => {
+      const text = [
+        "Old Scones from my grandmother — use code SCONE10 for 10% off!",
+        "0:00 Intro",
+        "2 cups flour",
+        "1/2 cup cold butter",
+        "3/4 cup cream",
+        "Rub in the butter, stir in the cream, bake.",
+        "Follow me @oldscones",
+      ].join("\n");
+      const url = `${origin}/old-scones.html`;
+
+      /* No model anywhere: import_failed, before anything else. */
+      const none = await run(["import", "--text", "-", "--json"], {}, text);
+      expect(none.exitCode).toBe(1);
+      expect(JSON.parse(none.stdout).error).toMatchObject({
+        code: "import_failed",
+        message: "no local model configured (RECIPE_LLM_URL)",
+      });
+
+      const envFile = join(scratch, "llm-text.env");
+      await writeFile(
+        envFile,
+        [`RECIPE_LLM_URL=${origin}`, "RECIPE_LLM_MODEL=qwen3:8b"].join("\n"),
+      );
+      const withModel = { RECIPE_ENV_FILE: envFile };
+
+      const both = await run(
+        ["import", url, "--text", "-", "--json"],
+        withModel,
+        text,
+      );
+      expect(both.exitCode).toBe(1);
+      expect(JSON.parse(both.stdout).error).toMatchObject({
+        code: "usage",
+        message: expect.stringContaining("not both"),
+      });
+      const sourceOnly = await run(
+        ["import", url, "--source", url, "--json"],
+        withModel,
+      );
+      expect(JSON.parse(sourceOnly.stdout).error.code).toBe("usage");
+      const withLlm = await run(
+        ["import", "--text", "-", "--llm", "off", "--json"],
+        withModel,
+        text,
+      );
+      expect(JSON.parse(withLlm.stdout).error.code).toBe("usage");
+      const empty = await run(
+        ["import", "--text", "-", "--json"],
+        withModel,
+        "  \n",
+      );
+      expect(JSON.parse(empty.stdout).error.code).toBe("validation");
+
+      /* From stdin: a dry run, cited to the source, nothing fetched. */
+      const dry = await run(
+        [
+          "import",
+          "--text",
+          "-",
+          "--source",
+          `${origin}/my-email`,
+          "--dry-run",
+          "--json",
+        ],
+        withModel,
+        text,
+      );
+      expect(dry.exitCode).toBe(0);
+      const dryResult = JSON.parse(dry.stdout);
+      expect(dryResult).toMatchObject({
+        dryRun: true,
+        pastedText: true,
+        url: `${origin}/my-email`,
+        slug: "old-scones",
+        llm: { model: "qwen3:8b", mode: "force", grounded: 3, total: 3 },
+        draft: {
+          name: "Old Scones",
+          ingredients: ["2 cups flour", "1/2 cup cold butter", "3/4 cup cream"],
+          source: { url: `${origin}/my-email` },
+        },
+      });
+      expect(dryResult.partial).toBeUndefined();
+
+      /* From a file: a create, and the commit says how it was read. */
+      const file = join(scratch, "scones.txt");
+      await writeFile(file, text);
+      const created = await run(
+        ["import", "--text", file, "--tags", "baking", "--json"],
+        withModel,
+      );
+      expect(created.exitCode).toBe(0);
+      expect(JSON.parse(created.stdout)).toMatchObject({
+        slug: "old-scones",
+        llm: { mode: "force", found: true },
+      });
+      const latest = (
+        await simpleGit({ baseDir: contentDirectory }).log({ maxCount: 1 })
+      ).latest;
+      expect(latest?.message).toBe(
+        "Create recipe: old-scones (local model, pasted text)",
+      );
     },
     TIMEOUT * 3,
   );

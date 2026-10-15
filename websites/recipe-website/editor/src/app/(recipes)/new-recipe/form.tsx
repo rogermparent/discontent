@@ -12,6 +12,7 @@ import {
 } from "recipe-editor/controller/actions";
 import { importRecipeAction } from "./actions";
 import { TextInput } from "@discontent/component-library/components/Form/inputs/Text";
+import { TextAreaInput } from "@discontent/component-library/components/Form/inputs/TextArea";
 import type { RecipeActionState } from "./common";
 
 export default function NewOrImportRecipeForm({
@@ -34,8 +35,12 @@ export default function NewOrImportRecipeForm({
     initialImportState,
   );
   const [forceLlm, setForceLlm] = useState(false);
+  /* The "Paste text" tab (36c): controlled, so a failed import keeps it. */
+  const [textMode, setTextMode] = useState(false);
+  const [pastedText, setPastedText] = useState("");
+  const [pastedSource, setPastedSource] = useState("");
 
-  const { recipe, message, url, llm, warnings } = importState || {};
+  const { recipe, message, url, key, llm, warnings } = importState || {};
   /* The model's lines are in the form: its notice replaces the SEO one. */
   const llmLines = !!llm?.found && !llm.discarded;
 
@@ -78,26 +83,81 @@ export default function NewOrImportRecipeForm({
             ))}
           </div>
         ) : null}
-        <TextInput name="import" label="Import from URL" />
-        <label
-          className="my-1 flex items-center gap-2 text-sm"
-          title={llmModel ? undefined : "No local model configured"}
-        >
-          <input
-            type="checkbox"
-            name="llm"
-            value="force"
-            disabled={!llmModel}
-            checked={forceLlm && !!llmModel}
-            onChange={(event) => setForceLlm(event.target.checked)}
-          />
-          Extract with AI (local model)
-          <span className="text-muted-foreground">
-            {llmModel
-              ? `— ${llmModel} reads the page even when it has recipe data`
-              : "— No local model configured"}
-          </span>
-        </label>
+        {/* 36c (D8): import from a URL, or from pasted text the local model
+            reads — plain radio buttons, unavailable without a model. */}
+        <fieldset className="my-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+          <legend className="sr-only">Import from</legend>
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name="importMode"
+              value="url"
+              checked={textMode === false}
+              onChange={() => setTextMode(false)}
+            />
+            URL
+          </label>
+          <label
+            className="flex items-center gap-2"
+            title={llmModel ? undefined : "No local model configured"}
+          >
+            <input
+              type="radio"
+              name="importMode"
+              value="text"
+              disabled={!llmModel}
+              checked={textMode}
+              onChange={() => setTextMode(true)}
+            />
+            Paste text
+            <span className="text-muted-foreground">
+              {llmModel
+                ? `— ${llmModel} reads a pasted recipe (a video description, an email)`
+                : "— No local model configured"}
+            </span>
+          </label>
+        </fieldset>
+        {textMode ? (
+          <>
+            <TextAreaInput
+              name="importText"
+              id="import-text"
+              label="Recipe text"
+              value={pastedText}
+              onChange={(event) => setPastedText(event.target.value)}
+            />
+            <TextInput
+              name="importSource"
+              id="import-source"
+              label="Source URL (optional)"
+              value={pastedSource}
+              onChange={(event) => setPastedSource(event.target.value)}
+            />
+          </>
+        ) : (
+          <>
+            <TextInput name="import" label="Import from URL" />
+            <label
+              className="my-1 flex items-center gap-2 text-sm"
+              title={llmModel ? undefined : "No local model configured"}
+            >
+              <input
+                type="checkbox"
+                name="llm"
+                value="force"
+                disabled={!llmModel}
+                checked={forceLlm && !!llmModel}
+                onChange={(event) => setForceLlm(event.target.checked)}
+              />
+              Extract with AI (local model)
+              <span className="text-muted-foreground">
+                {llmModel
+                  ? `— ${llmModel} reads the page even when it has recipe data`
+                  : "— No local model configured"}
+              </span>
+            </label>
+          </>
+        )}
         <SubmitButton disabled={busy}>Import</SubmitButton>
         {busy ? (
           <span className="ml-2 text-sm text-muted-foreground">
@@ -105,14 +165,16 @@ export default function NewOrImportRecipeForm({
           </span>
         ) : importPending && llmModel ? (
           <span role="status" className="ml-2 text-sm text-muted-foreground">
-            {forceLlm
-              ? `Reading the page with ${llmModel}… (the first use loads the model, ~10 s)`
-              : `Importing… a page with no recipe data is read by ${llmModel}, which can take a minute`}
+            {textMode
+              ? `Reading the text with ${llmModel}… (the first use loads the model, ~10 s)`
+              : forceLlm
+                ? `Reading the page with ${llmModel}… (the first use loads the model, ~10 s)`
+                : `Importing… a page with no recipe data is read by ${llmModel}, which can take a minute`}
           </span>
         ) : null}
       </form>
       <RecipeFormShell
-        key={submissionState.formData ? submissionState.message : url}
+        key={submissionState.formData ? submissionState.message : (key ?? url)}
         action={submissionDispatch}
         slug={slug}
         recipe={submissionState.formData || recipe || undefined}

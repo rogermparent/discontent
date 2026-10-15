@@ -163,6 +163,15 @@ export interface ImportOptions {
   llm?: LlmMode;
 }
 
+/**
+ * What a pasted-text import takes besides the text (36c, D8): a URL import's
+ * options, without `llm` — text always goes through the local model.
+ */
+export interface ImportTextOptions extends Omit<ImportOptions, "llm"> {
+  /** The text's URL: cited as `source` (a video URL is also `video`), never fetched. */
+  source?: string;
+}
+
 /** What `inspect` takes besides the URL (36b). */
 export interface InspectOptions {
   /** The local model: `auto` (default), `force` or `off` (epic 36, D3). */
@@ -173,6 +182,11 @@ export interface CuratorBackend {
   kind: "local" | "http";
 
   importRecipe(url: string, options?: ImportOptions): Promise<ImportResult>;
+  /**
+   * A pasted recipe, read by the local model (36c, D8): `import_failed` with
+   * no model configured, or when it finds no recipe in the text.
+   */
+  importText(text: string, options?: ImportTextOptions): Promise<ImportResult>;
   /**
    * A page, read and not written (26b): the mapped import, a create-ready
    * draft, the raw JSON-LD, its SEO metadata, ranked images and — for a video

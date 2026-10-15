@@ -9,6 +9,7 @@ import {
 import { ytdlpToRecipe } from "recipe-editor/controller/ytdlp";
 import {
   applyLlm,
+  readPastedText,
   videoSource,
   type ApplyLlmResult,
   type LlmImportInfo,
@@ -21,6 +22,11 @@ const BROWSER_RETRY = { delayMs: 0 };
 
 export interface RecipeActionState {
   url?: string;
+  /**
+   * Remounts the recipe form on each import: a pasted text has no URL to do
+   * it with (36c).
+   */
+  key?: string;
   message?: string;
   error?: Error;
   recipe?: Partial<ImportedRecipe>;
@@ -31,12 +37,12 @@ export interface RecipeActionState {
 }
 
 function withLlm(
-  url: string,
+  url: string | undefined,
   { recipe, llm, warnings }: ApplyLlmResult,
   message?: string,
 ): RecipeActionState {
   return {
-    url,
+    ...(url ? { url } : {}),
     recipe,
     ...(message ? { message } : {}),
     ...(llm ? { llm } : {}),
@@ -114,5 +120,34 @@ export async function reduceRecipeImport(
       return { message };
     }
     return { message: "Unknown error occurred!" };
+  }
+}
+
+/**
+ * The form's "Paste text" tab (36c, D8): the local model reads the pasted
+ * recipe — `readPastedText`, the same reading as `recipes import --text` —
+ * and fills the form as a URL import does. `source`, when given, is cited
+ * (a video URL is also the video) and never fetched.
+ */
+export async function reduceTextImport(
+  _state: RecipeActionState | null,
+  text: string | null,
+  source?: string | null,
+): Promise<RecipeActionState> {
+  if (!text?.trim()) {
+    return { message: "No text provided" };
+  }
+  try {
+    const reading = await readPastedText({
+      text,
+      source: source || undefined,
+    });
+    return {
+      ...withLlm(reading.recipe.source?.url, reading),
+      key: `text-${Date.now()}`,
+    };
+  } catch (e: unknown) {
+    const message = typeof e === "string" ? e : (e as Error)?.message;
+    return { message: message || "Unknown error occurred!" };
   }
 }

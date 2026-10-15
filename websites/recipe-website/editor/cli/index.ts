@@ -139,6 +139,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   import <url> [--tags a,b] [--slug s] [--name N] [--image <url>]
                [--dry-run [--out draft.json]] [--overwrite] [--allow-partial]
                [--llm auto|force|off]
+  import --text <file|-> [--source <url>] [the same options, no --llm]
   inspect-list <url>
   import-list <url> (--pick 1,3,5-7|<url>,… | --all) [--term <slug> [--term-label L]]
               [--limit 1-6] [--dry-run] [--llm auto|force|off]
@@ -273,6 +274,12 @@ with no Recipe node; --llm force has it read every page, its lines replacing
 the schema's; --llm off never asks it. The result's \`llm\` says how many
 ingredient lines it found on the page — fewer than half and its reading is
 dropped, fewer than 90% and the result stays partial. A call takes ~5–45 s.
+
+A pasted recipe: \`import --text recipe.txt\` (or \`--text -\` for stdin) has the
+local model read the text — a YouTube description, an email, a note — and
+skip the links, sponsors and timestamps around it. \`--source <url>\` cites
+where it came from (a video URL is also the recipe's video); it is never
+fetched. With no model configured it fails (import_failed).
 
 Piping --json: run it as \`pnpm --silent recipes …\`. Without --silent, pnpm
 prints its own script banner on stdout ahead of the object, so the stream is
