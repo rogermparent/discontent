@@ -4,9 +4,23 @@
  * and a step log, whatever surface started it.
  *
  * `runJob(init, fn)` writes the meta (`running`), opens the log, runs
- * `fn(log, signal)` inside a top-level `job` step, and writes the outcome:
- * `done` with the result, or `failed` with the error (rethrown). D6's
- * surfaced warnings (`log.surface`) are merged into the result's `warnings`.
+ * `fn(job)` — the job's `JobContext`: its log, signal, tier and id — inside
+ * a top-level `job` step, and writes the outcome:
+ *
+ * - `done` with the result;
+ * - `failed` with the error, rethrown — carrying the job's surfaced
+ *   warnings (`log.surface`, D6's placement) as `warnings`, so a CPU-bound
+ *   model's timeout still tells the caller why;
+ * - `failed` with the result, returned, when `failureOf` says the result is
+ *   a failure (the form's import answers its errors as a state);
+ * - `cancelled` when its signal was aborted (`cancelJob`, or the caller's
+ *   own `signal`).
+ *
+ * Surfaced warnings are merged into the result's `warnings`.
+ *
+ * While it runs, the meta's `updatedAt` is refreshed every
+ * `JOB_HEARTBEAT_MS` and at each step boundary (the sweep's way to tell a
+ * quiet job from a lost one when it cannot judge the pid).
  *
  * The store never fails the work: a jobs directory that cannot be written
  * (a read-only disk, a bad `RECIPE_JOBS_DIR`) is said once on stderr and the
@@ -14,25 +28,30 @@
  * record.
  *
  * The first job in a process sweeps the store first (D5: dead writers'
- * jobs become `interrupted`) and prunes it (D1, at most hourly). The editor
- * also sweeps at boot (`src/instrumentation.ts`).
+ * jobs become `interrupted`); every job asks for a prune (D1), which runs at
+ * most hourly by its stamp. The editor also sweeps at boot
+ * (`src/instrumentation.ts`).
  */
 import { ulid } from "@discontent/cms/util/ulid";
-import { toErrorObject } from "../curation/errors";
+import { toErrorObject, withWarnings } from "../curation/errors";
+import type { JobContext } from "./context";
 import { jobsDirectory } from "./location";
 import {
   createJobLog,
   defaultJobMirror,
-  type JobLog,
+  redactText,
   type JobMirror,
 } from "./log";
 import {
+  JOB_HEARTBEAT_MS,
+  LIVE_STATUSES,
   logPath,
   newJobMeta,
   pruneJobs,
   sweepJobs,
   updateJobMeta,
   writeJobMeta,
+  type JobError,
   type JobMeta,
   type JobTier,
 } from "./store";
@@ -46,11 +65,20 @@ export interface JobInit {
   resources?: string[];
 }
 
-export interface RunJobOptions {
+export interface RunJobOptions<T = unknown> {
   /** Default `jobsDirectory()`. */
   dir?: string;
   /** Default the process's (`defaultJobMirror`); `null` mirrors nowhere. */
   mirror?: JobMirror | null;
+  /** An outside abort (a request's signal); `cancelJob` aborts the job too. */
+  signal?: AbortSignal;
+  /**
+   * Whether a result is a failure all the same — the job ends `failed` with
+   * this error, and the result is still returned.
+   */
+  failureOf?: (result: T) => JobError | undefined;
+  /** Default `JOB_HEARTBEAT_MS` (tests). */
+  heartbeatMs?: number;
 }
 
 export interface JobOutcome<T> {
@@ -58,32 +86,81 @@ export interface JobOutcome<T> {
   result: T;
 }
 
-/** Directories this process has swept and pruned. */
-const maintained = new Map<string, Promise<void>>();
+/* ------------------------------------------------------------------ */
+/* Housekeeping                                                        */
+/* ------------------------------------------------------------------ */
+
+/** Directories this process has swept. */
+const swept = new Map<string, Promise<void>>();
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/**
- * Sweep and prune `dir` once per process (the prune itself is hourly).
- * Housekeeping only: a failure is a line on stderr.
- */
-export function maintainJobs(dir: string = jobsDirectory()): Promise<void> {
-  let done = maintained.get(dir);
+/** Sweep `dir` once per process (D5): its dead processes' jobs end. */
+function sweepOnce(dir: string): Promise<void> {
+  let done = swept.get(dir);
   if (!done) {
-    done = (async () => {
-      try {
-        await sweepJobs(dir);
-        await pruneJobs(dir);
-      } catch (error) {
-        console.warn(`[jobs] could not tidy ${dir}: ${describe(error)}`);
-      }
-    })();
-    maintained.set(dir, done);
+    done = sweepJobs(dir).then(
+      () => undefined,
+      (error) => {
+        console.warn(`[jobs] could not sweep ${dir}: ${describe(error)}`);
+      },
+    );
+    swept.set(dir, done);
   }
   return done;
 }
+
+/**
+ * Sweep `dir` (once per process) and prune it (the prune's own stamp makes
+ * it at most hourly, however often this is called). Housekeeping only: a
+ * failure is a line on stderr.
+ */
+export async function maintainJobs(
+  dir: string = jobsDirectory(),
+): Promise<void> {
+  await sweepOnce(dir);
+  try {
+    await pruneJobs(dir);
+  } catch (error) {
+    console.warn(`[jobs] could not prune ${dir}: ${describe(error)}`);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Cancellation: this process's running jobs                           */
+/* ------------------------------------------------------------------ */
+
+interface RegistryGlobal {
+  /** On `globalThis`: a cancel route and the job's action are separate bundles (T5). */
+  __discontentRunningJobs?: Map<string, AbortController>;
+}
+
+function registry(): Map<string, AbortController> {
+  const global = globalThis as RegistryGlobal;
+  return (global.__discontentRunningJobs ??= new Map());
+}
+
+/**
+ * Abort a job this process is running (37b/37c's Cancel). False when it is
+ * not running here — finished, or another process's.
+ */
+export function cancelJob(id: string, reason?: unknown): boolean {
+  const controller = registry().get(id);
+  if (!controller) return false;
+  controller.abort(reason ?? new Error("the job was cancelled"));
+  return true;
+}
+
+/** The ids of the jobs this process is running now. */
+export function runningJobIds(): string[] {
+  return [...registry().keys()];
+}
+
+/* ------------------------------------------------------------------ */
+/* Running                                                             */
+/* ------------------------------------------------------------------ */
 
 /** The result with the surfaced warnings added to its `warnings`, once each. */
 export function withSurfacedWarnings<T>(
@@ -102,16 +179,33 @@ export function withSurfacedWarnings<T>(
   return { ...result, warnings };
 }
 
+/** An error as a meta keeps it: the log's redaction on its message. */
+function recordedError(error: JobError): JobError {
+  return {
+    ...error,
+    message: redactText(error.message),
+    ...(error.warnings
+      ? { warnings: error.warnings.map((warning) => redactText(warning)) }
+      : {}),
+  };
+}
+
 let storeWarned = false;
 
 /**
  * Run `fn` as a job. Resolves with the job's id and its result; a failure
- * is recorded and rethrown as it was.
+ * is recorded and rethrown as it was, with the job's surfaced warnings.
  */
 export async function runJob<T>(
   init: JobInit,
-  fn: (log: JobLog, signal: AbortSignal) => Promise<T>,
-  { dir = jobsDirectory(), mirror }: RunJobOptions = {},
+  fn: (job: JobContext) => Promise<T>,
+  {
+    dir = jobsDirectory(),
+    mirror,
+    signal: outside,
+    failureOf,
+    heartbeatMs = JOB_HEARTBEAT_MS,
+  }: RunJobOptions<T> = {},
 ): Promise<JobOutcome<T>> {
   await maintainJobs(dir);
   const id = ulid();
@@ -132,36 +226,101 @@ export async function runJob<T>(
       );
     }
   }
+
+  /* The heartbeat: coalesced, and never over an outcome already written. */
+  let beating = false;
+  let beatAgain = false;
+  const beat = (): void => {
+    if (!stored) return;
+    if (beating) {
+      beatAgain = true;
+      return;
+    }
+    beating = true;
+    void updateJobMeta(dir, id, (current) =>
+      LIVE_STATUSES.includes(current.status)
+        ? { updatedAt: Date.now() }
+        : undefined,
+    )
+      .catch(() => undefined)
+      .finally(() => {
+        beating = false;
+        if (beatAgain) {
+          beatAgain = false;
+          beat();
+        }
+      });
+  };
+
   const log = createJobLog({
     id,
     ...(stored ? { file: logPath(dir, id) } : {}),
     mirror: mirror === null ? undefined : (mirror ?? defaultJobMirror()),
+    onLine: (line) => {
+      if (line.phase !== "note") beat();
+    },
   });
   const record = async (patch: Partial<JobMeta>) => {
     if (!stored) return;
-    await updateJobMeta(dir, id, patch).catch((error) => {
+    await updateJobMeta(dir, id, {
+      ...patch,
+      updatedAt: Date.now(),
+    }).catch((error) => {
       console.warn(
         `[job ${id}] could not record its outcome: ${describe(error)}`,
       );
     });
   };
-  /* 37b's cancel aborts it; nothing does yet. */
+
   const controller = new AbortController();
+  const fromOutside = () => controller.abort(outside?.reason);
+  if (outside?.aborted) fromOutside();
+  else outside?.addEventListener("abort", fromOutside, { once: true });
+  registry().set(id, controller);
+  const timer = setInterval(beat, heartbeatMs);
+  timer.unref?.();
+
+  const job: JobContext = {
+    log,
+    signal: controller.signal,
+    tier: meta.tier,
+    jobId: id,
+  };
   try {
-    const result = withSurfacedWarnings(
-      await log.step("job", { kind: init.kind, label: init.label }, () =>
-        fn(log, controller.signal),
-      ),
-      log.surfaced,
+    let failure: JobError | undefined;
+    const value = await log.step(
+      "job",
+      { kind: init.kind, label: init.label },
+      async (step) => {
+        const answer = await fn(job);
+        failure = failureOf?.(answer);
+        if (failure) step.fail(failure.message);
+        return answer;
+      },
     );
-    await record({ status: "done", endedAt: Date.now(), result });
+    const result = withSurfacedWarnings(value, log.surfaced);
+    await record({
+      status: failure ? "failed" : "done",
+      endedAt: Date.now(),
+      result,
+      ...(failure ? { error: recordedError(failure) } : {}),
+    });
     return { job: id, result };
   } catch (error) {
+    withWarnings(error, log.surfaced);
+    const cancelled = controller.signal.aborted;
+    const { error: object } = toErrorObject(error);
     await record({
-      status: "failed",
+      status: cancelled ? "cancelled" : "failed",
       endedAt: Date.now(),
-      error: toErrorObject(error).error,
+      error: recordedError(
+        cancelled ? { ...object, code: "cancelled" } : object,
+      ),
     });
     throw error;
+  } finally {
+    clearInterval(timer);
+    registry().delete(id);
+    outside?.removeEventListener("abort", fromOutside);
   }
 }

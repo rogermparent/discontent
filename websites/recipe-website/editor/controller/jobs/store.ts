@@ -10,15 +10,28 @@
  *
  * Ids are the engine's ULIDs (34-D5), so a directory listing sorts by start.
  *
+ * **The heartbeat**: a running job's process refreshes `updatedAt` every
+ * `JOB_HEARTBEAT_MS` and at each step boundary (`run.ts`), so a reader can
+ * tell a job that is still going from one whose process vanished where this
+ * one cannot see it.
+ *
  * **The boot sweep** (`sweepJobs`, D5): a `queued` or `running` job whose
  * process is gone — same host, same pid namespace, pid dead or reused
  * (`processGone`, the write lock's rule) — becomes `interrupted`. A job from
- * another host or another pid namespace (the Pi's container) is never
- * judged. Nothing is replayed: Retry is a person's choice.
+ * another host or another pid namespace (the Pi's container) cannot be
+ * judged by its pid; it becomes `interrupted` only once its heartbeat is
+ * older than `JOB_STALE_MS`. Nothing is replayed: Retry is a person's
+ * choice.
  *
  * **Retention** (`pruneJobs`): the newest `JOB_RETENTION_COUNT` jobs, none
- * older than `JOB_RETENTION_MS`; a live job is never removed. At most once
- * an hour per directory — a stamp file's mtime says when it last ran.
+ * older than `JOB_RETENTION_MS`. A live job is kept while its process is
+ * alive, or while its heartbeat is younger than `JOB_RETENTION_MS`. At most
+ * once an hour per directory — a stamp file's mtime says when it last ran;
+ * every job start asks (`runJob`), so a long-lived editor keeps pruning.
+ *
+ * **Writes to one meta are serialised** within a process (a promise chain
+ * per file): the heartbeat and the outcome, both read-modify-write, never
+ * lose each other's change.
  */
 import { processGone, processIdentity } from "@discontent/cms/git/fileLock";
 import { writeJsonAtomic } from "@discontent/cms/fs/atomicWrite";
@@ -34,7 +47,10 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import type { JobTier } from "./context";
 import type { JobLine } from "./log";
+
+export type { JobTier } from "./context";
 
 export type JobStatus =
   | "queued"
@@ -44,14 +60,13 @@ export type JobStatus =
   | "cancelled"
   | "interrupted";
 
-/** `interactive` (form, API, MCP) goes ahead of `batch` (D4, 37b). */
-export type JobTier = "interactive" | "batch";
-
 export const LIVE_STATUSES: readonly JobStatus[] = ["queued", "running"];
 
 export interface JobError {
   code: string;
   message: string;
+  /** What the job surfaced before it failed (D6's placement). */
+  warnings?: string[];
 }
 
 export interface JobMeta {
@@ -72,6 +87,8 @@ export interface JobMeta {
   /** Epoch milliseconds. */
   queuedAt: number;
   startedAt?: number;
+  /** The running process's last sign of life (the heartbeat). */
+  updatedAt?: number;
   endedAt?: number;
   /** JSON, no secrets, enough to run the job again (`kinds.ts`). */
   spec: unknown;
@@ -85,6 +102,13 @@ export const JOB_RETENTION_COUNT = 300;
 export const JOB_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 /** Pruned at most this often per directory. */
 export const JOB_PRUNE_EVERY_MS = 60 * 60 * 1000;
+/** A running job refreshes `updatedAt` this often (and at each step). */
+export const JOB_HEARTBEAT_MS = 30 * 1000;
+/**
+ * A live job whose process cannot be judged (another host, another pid
+ * namespace) and whose heartbeat is older than this is `interrupted`.
+ */
+export const JOB_STALE_MS = 10 * 60 * 1000;
 const PRUNE_STAMP = ".prune-stamp";
 
 const META = ".meta.json";
@@ -119,8 +143,14 @@ export function newJobMeta(
     pidns: self.pidns,
     nonce: self.nonce,
     queuedAt: now,
+    updatedAt: now,
     spec: init.spec,
   };
+}
+
+/** When the job's process last showed life: its heartbeat, else its start. */
+export function lastSeen(meta: JobMeta): number {
+  return meta.updatedAt ?? meta.startedAt ?? meta.queuedAt;
 }
 
 export async function writeJobMeta(dir: string, meta: JobMeta): Promise<void> {
@@ -141,16 +171,43 @@ export async function readJobMeta(
   }
 }
 
-/** Read, change and write a job's meta; undefined when it is gone. */
-export async function updateJobMeta(
+interface ChainGlobal {
+  /** Per meta file, the tail of its writes (shared by the editor's bundles). */
+  __discontentJobMetaChains?: Map<string, Promise<unknown>>;
+}
+
+function metaChains(): Map<string, Promise<unknown>> {
+  const global = globalThis as ChainGlobal;
+  return (global.__discontentJobMetaChains ??= new Map());
+}
+
+/**
+ * Read, change and write a job's meta; undefined when it is gone. `patch`
+ * may be a function of the meta as read, answering undefined to leave it
+ * alone. Updates to one meta run one after another in this process.
+ */
+export function updateJobMeta(
   dir: string,
   id: string,
-  patch: Partial<JobMeta>,
+  patch: Partial<JobMeta> | ((meta: JobMeta) => Partial<JobMeta> | undefined),
 ): Promise<JobMeta | undefined> {
-  const meta = await readJobMeta(dir, id);
-  if (!meta) return undefined;
-  const next = { ...meta, ...patch };
-  await writeJobMeta(dir, next);
+  const key = metaPath(dir, id);
+  const chains = metaChains();
+  const previous = chains.get(key) ?? Promise.resolve();
+  const next = previous.then(async () => {
+    const meta = await readJobMeta(dir, id);
+    if (!meta) return undefined;
+    const change = typeof patch === "function" ? patch(meta) : patch;
+    if (!change) return meta;
+    const updated = { ...meta, ...change };
+    await writeJobMeta(dir, updated);
+    return updated;
+  });
+  const tail = next.catch(() => undefined);
+  chains.set(key, tail);
+  void tail.then(() => {
+    if (chains.get(key) === tail) chains.delete(key);
+  });
   return next;
 }
 
@@ -205,8 +262,11 @@ export async function findJob(
 export async function readJobLog(
   dir: string,
   id: string,
-  from = 0,
+  rawFrom = 0,
 ): Promise<{ lines: JobLine[]; next: number }> {
+  /* A query string's `?from=` may be anything: a whole byte offset, ≥ 0. */
+  const from =
+    Number.isFinite(rawFrom) && rawFrom > 0 ? Math.floor(rawFrom) : 0;
   let buffer: Buffer;
   try {
     buffer = await readFile(logPath(dir, id));
@@ -216,7 +276,7 @@ export async function readJobLog(
     }
     throw error;
   }
-  const chunk = buffer.subarray(Math.max(0, from));
+  const chunk = buffer.subarray(from);
   const end = chunk.lastIndexOf(0x0a);
   if (end < 0) return { lines: [], next: from };
   const lines = chunk
@@ -242,23 +302,52 @@ async function appendNote(dir: string, id: string, line: JobLine) {
 }
 
 /**
- * The boot sweep (D5): every `queued`/`running` job whose process is gone
- * becomes `interrupted`. Answers the ids it closed.
+ * Why a live job is over: its process is gone, or — when this process
+ * cannot judge it (another host or pid namespace) — its heartbeat is older
+ * than `staleMs`. Undefined while it may still be running.
+ */
+function endedWhy(
+  meta: JobMeta,
+  now: number,
+  staleMs: number,
+): string | undefined {
+  const gone = processGone(meta);
+  if (gone === true) {
+    return `the process that ran it (pid ${meta.pid} on ${meta.host}) ended before it finished`;
+  }
+  if (gone === undefined && now - lastSeen(meta) > staleMs) {
+    return `no sign of life from its process (pid ${meta.pid} on ${meta.host}) for ${Math.round((now - lastSeen(meta)) / 60_000)} min`;
+  }
+  return undefined;
+}
+
+/**
+ * The boot sweep (D5): every `queued`/`running` job whose process is gone,
+ * or that this process cannot judge and has gone quiet (`staleMs`), becomes
+ * `interrupted`. Answers the ids it closed.
  */
 export async function sweepJobs(
   dir: string,
   now = Date.now(),
+  { staleMs = JOB_STALE_MS }: { staleMs?: number } = {},
 ): Promise<string[]> {
   const closed: string[] = [];
   for (const meta of await listJobs(dir)) {
     if (!LIVE_STATUSES.includes(meta.status)) continue;
-    if (processGone(meta) !== true) continue;
-    const message = `the process that ran it (pid ${meta.pid} on ${meta.host}) ended before it finished`;
-    await updateJobMeta(dir, meta.id, {
-      status: "interrupted",
-      endedAt: now,
-      error: { code: "interrupted", message },
+    const message = endedWhy(meta, now, staleMs);
+    if (!message) continue;
+    let closedIt = false;
+    await updateJobMeta(dir, meta.id, (current) => {
+      /* Finished while we looked: leave it. */
+      if (!LIVE_STATUSES.includes(current.status)) return undefined;
+      closedIt = true;
+      return {
+        status: "interrupted",
+        endedAt: now,
+        error: { code: "interrupted", message },
+      };
     });
+    if (!closedIt) continue;
     await appendNote(dir, meta.id, {
       t: new Date(now).toISOString(),
       step: "job",
@@ -272,8 +361,10 @@ export async function sweepJobs(
 }
 
 /**
- * Retention (D1): keep the newest `count` jobs, none older than `maxAgeMs`,
- * and never a live one. Runs at most once per `everyMs` per directory
+ * Retention (D1): keep the newest `count` jobs, none older than `maxAgeMs`;
+ * a live job only while its process is alive or its heartbeat is younger
+ * than `maxAgeMs` (one whose process cannot be judged would otherwise live
+ * forever). Runs at most once per `everyMs` per directory
  * (`force` skips the check). Answers the ids it removed.
  */
 export async function pruneJobs(
@@ -308,7 +399,13 @@ export async function pruneJobs(
     const age = now - ulidTime(id);
     if (index < count && age <= maxAgeMs) continue;
     const meta = await readJobMeta(dir, id).catch(() => undefined);
-    if (meta && LIVE_STATUSES.includes(meta.status)) continue;
+    if (
+      meta &&
+      LIVE_STATUSES.includes(meta.status) &&
+      (processGone(meta) === false || now - lastSeen(meta) <= maxAgeMs)
+    ) {
+      continue;
+    }
     await rm(metaPath(dir, id), { force: true });
     await rm(logPath(dir, id), { force: true });
     removed.push(id);

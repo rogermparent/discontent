@@ -158,14 +158,29 @@ export function isLockStale(
 }
 
 /**
+ * A lock's id must name its holder: a non-empty string. An empty or
+ * missing one would make every holder's lock look like every other's (and
+ * name the temp file `<path>.undefined.new`).
+ */
+function assertLockId(id: unknown, what: string): asserts id is string {
+  if (typeof id !== "string" || id === "") {
+    throw new TypeError(
+      `${what} must be a non-empty string, got ${String(id)}`,
+    );
+  }
+}
+
+/**
  * Create the lock whole, or report that one exists. The temp file is
- * `<path>.<tag>.new`, so a sweep can recognise a waiter's leftovers.
+ * `<path>.<tag>.new`, so a sweep can recognise a waiter's leftovers. `tag`
+ * is the record's id.
  */
 export async function tryCreateLock(
   path: string,
   record: LockRecord,
   tag: string,
 ): Promise<boolean> {
+  assertLockId(tag, "a lock's id");
   const temporary = `${path}.${tag}.new`;
   await writeFile(temporary, JSON.stringify(record));
   try {
@@ -252,7 +267,9 @@ export async function acquireLock(
   record: LockRecord,
   { idKey, deadline, staleMs, ownHold, signal }: AcquireOptions,
 ): Promise<{ tookOver: boolean }> {
-  const tag = String(field(record, idKey));
+  const id = field(record, idKey);
+  assertLockId(id, `the lock record's ${idKey}`);
+  const tag = id;
   let tookOver = false;
   let delay = 20;
   for (;;) {

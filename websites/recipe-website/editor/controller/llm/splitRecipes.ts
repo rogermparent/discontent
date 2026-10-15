@@ -29,7 +29,7 @@
  */
 import type { ChapterRef } from "./chapterTime";
 import { chatJson, type LlmConfig } from "./client";
-import { NO_LOG, type JobLog } from "../jobs/log";
+import { jobContext, type JobRun } from "../jobs/context";
 import {
   buildRecipeUserPrompt,
   normaliseForGrounding,
@@ -181,16 +181,17 @@ export function listRecipes({
   meta,
   config,
   signal,
-  log = NO_LOG,
+  job,
 }: {
   text: string;
   url?: string;
   meta?: ExtractMeta;
   config?: LlmConfig;
   signal?: AbortSignal;
-  /** The job's step log (epic 37): an `llm.list` step. */
-  log?: JobLog;
+  /** The job (epic 37): an `llm.list` step. */
+  job?: JobRun;
 }): Promise<{ recipes: ListedRecipe[]; model: string; durationMs: number }> {
+  const { log } = jobContext(job);
   return log.step("llm.list", { chars: text.length }, async (step) => {
     const result = await chatJson({
       system: LLM_LIST_SYSTEM_PROMPT,
@@ -202,6 +203,7 @@ export function listRecipes({
       schemaName: LLM_LIST_SCHEMA_NAME,
       config,
       signal,
+      job,
       step,
     });
     const recipes = readListAnswer(result.data);
@@ -246,16 +248,17 @@ export function isOneDish({
   meta,
   config,
   signal,
-  log = NO_LOG,
+  job,
 }: {
   text: string;
   url?: string;
   meta?: ExtractMeta;
   config?: LlmConfig;
   signal?: AbortSignal;
-  /** The job's step log (epic 37): an `llm.oneDish` step. */
-  log?: JobLog;
+  /** The job (epic 37): an `llm.oneDish` step. */
+  job?: JobRun;
 }): Promise<boolean> {
+  const { log } = jobContext(job);
   return log.step("llm.oneDish", { chars: text.length }, async (step) => {
     const result = await chatJson({
       system: LLM_ONE_DISH_SYSTEM_PROMPT,
@@ -267,6 +270,7 @@ export function isOneDish({
       schemaName: "dishes",
       config,
       signal,
+      job,
       step,
     });
     const data = result.data as Record<string, unknown> | undefined;

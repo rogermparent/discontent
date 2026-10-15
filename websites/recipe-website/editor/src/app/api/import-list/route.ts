@@ -19,6 +19,8 @@ import {
 } from "recipe-editor/controller/curation/http";
 import { corpusOf, runSpec } from "recipe-editor/controller/jobs/kinds";
 import { ValidationError } from "recipe-editor/controller/curation/errors";
+import { ImportListOptionsSchema } from "recipe-editor/controller/curation/importList";
+import { parseInput } from "recipe-editor/controller/curation/schema";
 
 export async function POST(request: Request) {
   try {
@@ -27,12 +29,14 @@ export async function POST(request: Request) {
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       throw new ValidationError("The body must be a JSON object");
     }
-    const { url, ...options } = body as Record<string, unknown>;
+    const { url, ...rest } = body as Record<string, unknown>;
     if (typeof url !== "string" || !url) {
       throw new ValidationError("import-list needs a url", [
         { path: "url", message: "Required" },
       ]);
     }
+    /* The job's spec keeps the options as parsed, never the raw body. */
+    const options = parseInput(ImportListOptionsSchema, rest);
     /* A job (epic 37): the answer carries its `job` id. */
     return Response.json(
       await runSpec(

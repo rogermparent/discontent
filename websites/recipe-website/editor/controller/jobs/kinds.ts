@@ -21,15 +21,16 @@ import type {
   ImportWriteOptions,
 } from "../curation/importRecipe";
 import type {
+  ImportListOptions,
   ImportListResult,
   InspectListResult,
 } from "../curation/importList";
 import type { InspectResult } from "../curation/inspect";
 import type { RecipeActionState } from "../formImport";
 import type { LlmMode } from "../llm/mode";
-import type { JobLog } from "./log";
+import type { JobContext } from "./context";
 import { runJob, type RunJobOptions } from "./run";
-import type { JobTier } from "./store";
+import type { JobError, JobTier } from "./store";
 
 /** Where a corpus job reads and writes, and who it commits as. */
 interface CorpusSpec {
@@ -55,7 +56,12 @@ export type JobSpec =
   | { kind: "inspect"; url: string; llm?: LlmMode }
   /** A roundup's list (34f): CLI, API, MCP, the form's picker. */
   | (CorpusSpec & { kind: "inspect-list"; url: string })
-  | (CorpusSpec & { kind: "import-list"; url: string; options: unknown })
+  /** `options` as the seat's schema parsed them (`ImportListOptionsSchema`). */
+  | (CorpusSpec & {
+      kind: "import-list";
+      url: string;
+      options: ImportListOptions;
+    })
   /** The `/new-recipe` form's import: fills the form, writes nothing. */
   | { kind: "form-url"; url: string; llm?: LlmMode }
   | { kind: "form-text"; text: string; source?: string };
@@ -78,8 +84,8 @@ export type SpecOf<K extends JobKind> = Extract<JobSpec, { kind: K }>;
 export interface JobEnv {
   /** The caller's context; a retry builds one from the spec. */
   ctx?: CurationContext;
-  log: JobLog;
-  signal: AbortSignal;
+  /** The job's log, signal, tier and id: what every seat takes as `job`. */
+  job: JobContext;
 }
 
 type Handler<K extends JobKind> = (
@@ -97,14 +103,11 @@ function contextFor(spec: CorpusSpec, ctx?: CurationContext): CurationContext {
 }
 
 export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
-  async "import-url"(spec, { ctx, log, signal }) {
+  async "import-url"(spec, { ctx, job }) {
     const { importAndCreate } = await import("../curation/importRecipe");
-    return importAndCreate(contextFor(spec, ctx), spec.url, spec.options, {
-      log,
-      signal,
-    });
+    return importAndCreate(contextFor(spec, ctx), spec.url, spec.options, job);
   },
-  async "import-text"(spec, { ctx, log, signal }) {
+  async "import-text"(spec, { ctx, job }) {
     const { importFromText } = await import("../curation/importRecipe");
     return importFromText(
       contextFor(spec, ctx),
@@ -113,35 +116,49 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
         ...(spec.source ? { source: spec.source } : {}),
         ...spec.options,
       },
-      { log, signal },
+      job,
     );
   },
-  async inspect(spec, { log, signal }) {
+  async inspect(spec, { job }) {
     const { inspectUrl } = await import("../curation/inspect");
-    return inspectUrl(spec.url, spec.llm ? { llm: spec.llm } : {}, {
-      log,
-      signal,
-    });
+    return inspectUrl(spec.url, spec.llm ? { llm: spec.llm } : {}, job);
   },
-  async "inspect-list"(spec, { ctx, log, signal }) {
+  async "inspect-list"(spec, { ctx, job }) {
     const { inspectList } = await import("../curation/importList");
-    return inspectList(contextFor(spec, ctx), spec.url, { log, signal });
+    return inspectList(contextFor(spec, ctx), spec.url, { job });
   },
-  async "import-list"(spec, { ctx, log, signal }) {
+  async "import-list"(spec, { ctx, job }) {
     const { importList } = await import("../curation/importList");
-    return importList(contextFor(spec, ctx), spec.url, spec.options, {
-      log,
-      signal,
-    });
+    return importList(contextFor(spec, ctx), spec.url, spec.options, { job });
   },
-  async "form-url"(spec, { log, signal }) {
+  async "form-url"(spec, { job }) {
     const { reduceRecipeImport } = await import("../formImport");
-    return reduceRecipeImport(null, spec.url, spec.llm, { log, signal });
+    return reduceRecipeImport(null, spec.url, spec.llm, job);
   },
-  async "form-text"(spec, { log, signal }) {
+  async "form-text"(spec, { job }) {
     const { reduceTextImport } = await import("../formImport");
-    return reduceTextImport(null, spec.text, spec.source, { log, signal });
+    return reduceTextImport(null, spec.text, spec.source, job);
   },
+};
+
+/**
+ * The form's import answers its failures as a state — a `message` and no
+ * recipe — rather than throwing, because the form shows them. Its job is
+ * `failed` all the same (the state is still returned to the form).
+ */
+function formFailure(state: RecipeActionState): JobError | undefined {
+  if (!state.message || state.recipe || state.recipes?.length) {
+    return undefined;
+  }
+  return { code: "import_failed", message: state.message };
+}
+
+/** Kinds whose result can be a failure (`runJob`'s `failureOf`). */
+const JOB_FAILURES: {
+  [K in JobKind]?: (result: JobResults[K]) => JobError | undefined;
+} = {
+  "form-url": formFailure,
+  "form-text": formFailure,
 };
 
 /** "www.example.com/pies/apple": a URL as a list names it. */
@@ -198,7 +215,7 @@ export function jobResources(spec: JobSpec): string[] {
   }
 }
 
-export interface RunSpecOptions extends RunJobOptions {
+export interface RunSpecOptions extends Omit<RunJobOptions, "failureOf"> {
   ctx?: CurationContext;
   tier?: JobTier;
 }
@@ -216,6 +233,9 @@ export async function runSpec<S extends JobSpec>(
     spec: S,
     env: JobEnv,
   ) => Promise<JobResults[S["kind"]]>;
+  const failureOf = JOB_FAILURES[spec.kind] as
+    | ((result: JobResults[S["kind"]]) => JobError | undefined)
+    | undefined;
   const { job, result } = await runJob(
     {
       kind: spec.kind,
@@ -224,8 +244,8 @@ export async function runSpec<S extends JobSpec>(
       tier: tier ?? jobTier(spec),
       resources: jobResources(spec),
     },
-    (log, signal) => handler(spec, { ctx, log, signal }),
-    options,
+    (context) => handler(spec, { ctx, job: context }),
+    { ...options, ...(failureOf ? { failureOf } : {}) },
   );
   return { ...result, job };
 }

@@ -231,9 +231,9 @@ Environment:
                        --notify. Mint one with \`pnpm create-token\` in the
                        editor package. Never passed on argv.
   RECIPE_EDITOR_URL    Same as --editor-url
-  RECIPE_ENV_FILE      The file RECIPE_API_TOKEN, RECIPE_EDITOR_URL and the
-                       RECIPE_LLM_* variables are read from when the
-                       environment lacks them (default
+  RECIPE_ENV_FILE      The file RECIPE_API_TOKEN, RECIPE_EDITOR_URL, the
+                       RECIPE_LLM_* variables and RECIPE_JOBS_DIR are read
+                       from when the environment lacks them (default
                        websites/recipe-website/editor/.env; nothing else in
                        it is read)
   RECIPE_LLM_URL       A local model server for imports (Ollama, e.g.
@@ -246,7 +246,8 @@ Environment:
   YTDLP_PATH           yt-dlp binary for video imports (else the Settings
                        page's path, else \`yt-dlp\` on the PATH)
   RECIPE_JOBS_DIR      Where import jobs keep their records and step logs
-                       (default websites/recipe-website/editor/jobs)
+                       (default websites/recipe-website/editor/jobs); read
+                       from editor/.env too
   DISCONTENT_WRITE_LOCK_TIMEOUT_MS
                        How long a write waits for another write's lock on
                        the content repository (default 30000) before it

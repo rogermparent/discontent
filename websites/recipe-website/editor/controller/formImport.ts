@@ -9,7 +9,6 @@
  */
 import {
   ImportedRecipe,
-  importRecipeData,
   isVideoUrl,
 } from "recipe-website-common/util/importRecipeData";
 import { fetchYtdlpMetadata, ytdlpToRecipe } from "./ytdlp";
@@ -23,8 +22,8 @@ import {
   type LlmMode,
   type SplitReading,
 } from "./llm/importWithLlm";
-import { NO_LOG, type JobRun } from "./jobs/log";
-import { fetchPageStep, parsePage } from "./jobs/steps";
+import { jobContext, type JobRun } from "./jobs/context";
+import { fetchPageStep, parsePage, videoLinkStep } from "./jobs/steps";
 
 /** A person is waiting on the form: a 403 is retried at once (epic 31, D3). */
 const BROWSER_RETRY = { delayMs: 0 };
@@ -97,8 +96,9 @@ export async function reduceRecipeImport(
   _state: RecipeActionState | null,
   url: string | null,
   mode?: LlmMode,
-  { log = NO_LOG, signal }: JobRun = {},
+  run?: JobRun,
 ): Promise<RecipeActionState> {
+  const job = jobContext(run);
   if (!url) {
     return { message: "No URL provided" };
   }
@@ -107,7 +107,7 @@ export async function reduceRecipeImport(
       if (isVideoUrl(url)) {
         const result = await fetchYtdlpMetadata(url, {
           ...videoFetchOptions(mode),
-          log,
+          job,
         });
         if (result.status === "success") {
           const state = withLlm(
@@ -119,8 +119,7 @@ export async function reduceRecipeImport(
               mode,
               /* 36e: several recipes come back to a picker. */
               split: true,
-              log,
-              signal,
+              job,
             }),
           );
           return state.recipes && result.metadata.title
@@ -136,18 +135,18 @@ export async function reduceRecipeImport(
           await applyLlm({
             url,
             source: { text: "" },
-            mapped: await importRecipeData(url, BROWSER_RETRY),
+            /* The bare link, as a `parse` step: a video URL is not fetched. */
+            mapped: await videoLinkStep(url, job),
             mode,
-            log,
-            signal,
+            job,
           }),
           message,
         );
       }
       const pageUrl = url.split("#")[0];
       /* Unpaced: a person is waiting (37b puts it on the site's queue). */
-      const page = await fetchPageStep(log, pageUrl, BROWSER_RETRY);
-      const { parsed, mapped } = await parsePage(log, pageUrl, page);
+      const page = await fetchPageStep(pageUrl, BROWSER_RETRY, job);
+      const { parsed, mapped } = await parsePage(pageUrl, page, { job });
       return withLlm(
         url,
         await applyLlm({
@@ -155,14 +154,15 @@ export async function reduceRecipeImport(
           source: { html: page.html, ok: page.ok, meta: parsed.meta },
           mapped,
           mode,
-          log,
-          signal,
+          job,
         }),
       );
     } else {
       return { message: "Invalid URL provided" };
     }
   } catch (e: unknown) {
+    /* A cancel is the job's to record (37b/37c), not a form message. */
+    if (job.signal?.aborted) throw e;
     const message = typeof e === "string" ? e : (e as Error)?.message;
     if (message) {
       return { message };
@@ -182,8 +182,9 @@ export async function reduceTextImport(
   _state: RecipeActionState | null,
   text: string | null,
   source?: string | null,
-  { log = NO_LOG, signal }: JobRun = {},
+  run?: JobRun,
 ): Promise<RecipeActionState> {
+  const job = jobContext(run);
   if (!text?.trim()) {
     return { message: "No text provided" };
   }
@@ -191,8 +192,7 @@ export async function reduceTextImport(
     const reading = await readPastedText({
       text,
       source: source || undefined,
-      log,
-      signal,
+      job,
     });
     return {
       ...withLlm(reading.recipe.source?.url, reading),
@@ -201,6 +201,7 @@ export async function reduceTextImport(
       pastedText: true,
     };
   } catch (e: unknown) {
+    if (job.signal?.aborted) throw e;
     const message = typeof e === "string" ? e : (e as Error)?.message;
     return { message: message || "Unknown error occurred!" };
   }

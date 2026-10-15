@@ -410,7 +410,40 @@ export interface ErrorObject {
     recipes?: string[];
     groups?: string[];
     terms?: string[];
+    /**
+     * What the failed job had found worth saying before it failed (epic 37,
+     * 37a review) — D6's "ran 2% on the GPU" behind a model's timeout.
+     */
+    warnings?: string[];
   };
+}
+
+/** A failure's carried warnings (`withWarnings`), if any. */
+export function warningsOf(error: unknown): string[] | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const warnings = (error as { warnings?: unknown }).warnings;
+  if (!Array.isArray(warnings)) return undefined;
+  const strings = warnings.filter(
+    (warning): warning is string => typeof warning === "string",
+  );
+  return strings.length ? strings : undefined;
+}
+
+/**
+ * Attach `warnings` to a thrown error (once each, after any it carries), so
+ * every transport's error object says them: `toErrorObject` reads them back.
+ * A thrown non-object cannot carry them and is left as it is.
+ */
+export function withWarnings(
+  error: unknown,
+  warnings: readonly string[],
+): void {
+  if (warnings.length === 0 || !error || typeof error !== "object") return;
+  const merged = [...(warningsOf(error) ?? [])];
+  for (const warning of warnings) {
+    if (!merged.includes(warning)) merged.push(warning);
+  }
+  (error as { warnings?: string[] }).warnings = merged;
 }
 
 /** zod's issue list, flattened to something a terminal and a JSON body agree on. */
@@ -431,6 +464,12 @@ export function issuesOf(
  * is still an answer.
  */
 export function toErrorObject(error: unknown): ErrorObject {
+  const object = errorObjectOf(error);
+  const warnings = warningsOf(error);
+  return warnings ? { error: { ...object.error, warnings } } : object;
+}
+
+function errorObjectOf(error: unknown): ErrorObject {
   if (error instanceof SlugConflictError) {
     return {
       error: {

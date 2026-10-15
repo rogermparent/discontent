@@ -625,7 +625,7 @@ describe("applyLlm's steps (37a)", () => {
       source: { text: TEXT },
       mapped: MAPPED,
       config: CONFIG,
-      log,
+      job: { log },
     });
     expect(lines.map((line) => `${line.step}:${line.phase}`)).toEqual([
       "llm.extract:start",
@@ -667,7 +667,7 @@ describe("applyLlm's steps (37a)", () => {
       source: { text: TEXT },
       mapped: MAPPED,
       config: CONFIG,
-      log,
+      job: { log },
     });
     expect(half.recipe?.partial).toBe(true);
     const placement = lines.find((line) => line.step === "llm.placement");
@@ -699,7 +699,7 @@ describe("applyLlm's steps (37a)", () => {
       source: { text: TEXT },
       mapped: MAPPED,
       config: CONFIG,
-      log,
+      job: { log },
     });
     expect(result.llm?.found).toBe(true);
     expect(lines.find((line) => line.step === "llm.placement")).toMatchObject({
@@ -733,7 +733,7 @@ describe("applyLlm's steps (37a)", () => {
       source: { text: TEXT },
       mapped: MAPPED,
       config: { ...CONFIG, api: "openai" },
-      log: openai.log,
+      job: { log: openai.log },
     });
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
     expect(
@@ -750,7 +750,7 @@ describe("applyLlm's steps (37a)", () => {
       source: { text: TEXT },
       mapped: MAPPED,
       config: undefined,
-      log,
+      job: { log },
     });
     expect(lines).toMatchObject([
       {

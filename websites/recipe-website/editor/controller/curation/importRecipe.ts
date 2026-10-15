@@ -30,12 +30,16 @@
  * another recipe of the batch to it, and answers `ImportBatchResult`.
  */
 import {
-  importRecipeData,
   isVideoUrl,
   type ImportedRecipe,
 } from "recipe-website-common/util/importRecipeData";
-import { NO_LOG, type JobLog, type JobRun } from "../jobs/log";
-import { fetchPageStep, headSha, parsePage } from "../jobs/steps";
+import { jobContext, type JobRun } from "../jobs/context";
+import {
+  fetchPageStep,
+  headSha,
+  parsePage,
+  videoLinkStep,
+} from "../jobs/steps";
 import type {
   Recipe,
   RecipeSource,
@@ -44,6 +48,7 @@ import type { ImageProbe } from "../imageImport";
 import { fetchImageFile, probeImageFile } from "../imageImport";
 import {
   applyLlm,
+  pickedWarnings,
   readPastedText,
   usedModel,
   videoFetchOptions,
@@ -201,13 +206,14 @@ export interface UrlImport extends ApplyLlmResult {
 export async function importFromUrl(
   url: string,
   { llm: mode, asOne = false }: { llm?: LlmMode; asOne?: boolean } = {},
-  { log = NO_LOG, signal }: JobRun = {},
+  run?: JobRun,
 ): Promise<UrlImport> {
+  const job = jobContext(run);
   let applied: ApplyLlmResult;
   if (isVideoUrl(url)) {
     const result = await fetchYtdlpMetadata(url, {
       ...videoFetchOptions(mode),
-      log,
+      job,
     });
     applied =
       result.status === "success"
@@ -218,17 +224,15 @@ export async function importFromUrl(
             mode,
             /* 36e: one video, several recipes — unless asked for one. */
             split: !asOne,
-            log,
-            signal,
+            job,
           })
         : /* No text to read; `force` still says when there is no model. */
           await applyLlm({
             url,
             source: { text: "" },
-            mapped: await importRecipeData(url),
+            mapped: await videoLinkStep(url, job),
             mode,
-            log,
-            signal,
+            job,
           });
   } else {
     /* The importer's own rule: no fragment in the fetch or the citation. */
@@ -238,14 +242,16 @@ export async function importFromUrl(
       /* On the per-site queue (34f), like every page and image fetch. */
       page = await pacedRequest(
         pageUrl,
-        (retry) => fetchPageStep(log, pageUrl, retry),
+        (retry) => fetchPageStep(pageUrl, retry, job),
         undefined,
-        log,
+        job,
       );
       /* Inside the try, as `importRecipeData` was: malformed JSON-LD is
        * `import_failed`, not `internal`. */
-      ({ parsed, mapped } = await parsePage(log, pageUrl, page));
+      ({ parsed, mapped } = await parsePage(pageUrl, page, { job }));
     } catch (error) {
+      /* A cancel is the job's to report, not a fetch failure. */
+      if (job.signal?.aborted) throw error;
       throw new ImportError(
         `Could not fetch ${url}: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -255,8 +261,7 @@ export async function importFromUrl(
       source: { html: page.html, ok: page.ok, meta: parsed.meta },
       mapped,
       mode,
-      log,
-      signal,
+      job,
     });
   }
   if (!applied.recipe) {
@@ -414,15 +419,14 @@ export async function importFromText(
     source,
     ...options
   }: ImportWriteOptions & { text: string; source?: string },
-  run: JobRun = {},
+  run?: JobRun,
 ): Promise<ImportResult> {
   checkPickOptions(options);
   const reading = await readPastedText({
     text,
     source,
     split: !options.asOne,
-    log: run.log,
-    signal: run.signal,
+    job: run,
   });
   if (reading.recipes) {
     const url = source ? reading.recipe.source?.url : undefined;
@@ -464,11 +468,12 @@ export async function importFromText(
  * committed in between) and only in a job.
  */
 function writeStep(
-  log: JobLog,
   ctx: CurationContext,
   slug: string | undefined,
   write: () => Promise<RecipeWriteResult>,
+  run?: JobRun,
 ): Promise<RecipeWriteResult> {
+  const { log } = jobContext(run);
   return log.step("write", slug ? { slug } : {}, async (step) => {
     const result = await write();
     step.set({
@@ -506,8 +511,9 @@ async function finishImport(
     refusal: (warnings: string[]) => string;
     commitNote?: string;
   },
-  { log = NO_LOG }: JobRun = {},
+  run?: JobRun,
 ): Promise<ImportResult> {
+  const job = jobContext(run);
   const partial = imported.partial === true;
   if (partial && !dryRun && !allowPartial) {
     throw new ImportError(
@@ -536,9 +542,9 @@ async function finishImport(
       probeImage: (imageUrl) =>
         pacedRequest(
           imageUrl,
-          (retry) => probeImageFile(imageUrl, retry, log),
+          (retry) => probeImageFile(imageUrl, retry, job),
           undefined,
-          log,
+          job,
         ),
     });
     return {
@@ -573,18 +579,22 @@ async function finishImport(
     };
   }
 
-  const result = await writeStep(log, ctx, slug, () =>
-    createRecipe(ctx, input, {
-      overwrite,
-      fetchImage: (imageUrl) =>
-        pacedRequest(
-          imageUrl,
-          (retry) => fetchImageFile(imageUrl, { retry, log }),
-          undefined,
-          log,
-        ),
-      ...(commitNote ? { commitNote } : {}),
-    }),
+  const result = await writeStep(
+    ctx,
+    slug,
+    () =>
+      createRecipe(ctx, input, {
+        overwrite,
+        fetchImage: (imageUrl) =>
+          pacedRequest(
+            imageUrl,
+            (retry) => fetchImageFile(imageUrl, { retry, job }),
+            undefined,
+            job,
+          ),
+        ...(commitNote ? { commitNote } : {}),
+      }),
+    job,
   );
   const allWarnings = [...llmWarnings, ...(result.warnings ?? [])];
   return {
@@ -838,8 +848,10 @@ export async function importBatchPicks(
     commitNote,
     siblings = [],
   }: BatchOptions,
-  { log = NO_LOG }: JobRun = {},
+  run?: JobRun,
 ): Promise<ImportBatchItem[]> {
+  const job = jobContext(run);
+  const { log } = job;
   const { linkLine } = await import("../llm/mergeReadings");
   const items = new Map<number, ImportBatchItem>();
   const planned = new Map<number, { slug: string; pick: BatchPick }>();
@@ -944,9 +956,9 @@ export async function importBatchPicks(
         imageUrl,
         pacedRequest(
           imageUrl,
-          (retry) => probeImageFile(imageUrl, retry, log),
+          (retry) => probeImageFile(imageUrl, retry, job),
           undefined,
-          log,
+          job,
         ),
       );
     }
@@ -959,9 +971,9 @@ export async function importBatchPicks(
         imageUrl,
         pacedRequest(
           imageUrl,
-          (retry) => fetchImageFile(imageUrl, { retry, log }),
+          (retry) => fetchImageFile(imageUrl, { retry, job }),
           undefined,
-          log,
+          job,
         ),
       );
     }
@@ -1067,18 +1079,22 @@ export async function importBatchPicks(
           );
         }
       }
-      const result = await writeStep(log, ctx, plan.slug, () =>
-        createRecipe(
-          ctx,
-          file ? input : { ...input, imageImportUrl: undefined },
-          {
-            overwrite,
-            ...(file ? { fetchImage: async () => file } : {}),
-            commitNote: commitNote
-              .replace("{n}", String(pick.n))
-              .replace("{total}", String(total)),
-          },
-        ),
+      const result = await writeStep(
+        ctx,
+        plan.slug,
+        () =>
+          createRecipe(
+            ctx,
+            file ? input : { ...input, imageImportUrl: undefined },
+            {
+              overwrite,
+              ...(file ? { fetchImage: async () => file } : {}),
+              commitNote: commitNote
+                .replace("{n}", String(pick.n))
+                .replace("{total}", String(total)),
+            },
+          ),
+        job,
       );
       warnings.push(...(result.warnings ?? []));
       items.set(pick.n, {
@@ -1150,6 +1166,19 @@ async function finishBatch(
       ),
     );
   }
+  /* The found-list warning says what was taken, once picks are made. */
+  const said = (warnings: string[]) =>
+    all
+      ? pickedWarnings(warnings, "all")
+      : pick
+        ? pickedWarnings(
+            warnings,
+            picked.map((reading) => ({
+              n: reading.n,
+              name: reading.recipe.name,
+            })),
+          )
+        : warnings;
   if ((options.slug || options.name) && picked.length > 1) {
     throw new UsageError(
       'slug and name are one recipe\'s: pick one recipe (--pick "Name") to give them.',
@@ -1185,6 +1214,6 @@ async function finishBatch(
     ...(leftOut.length ? { leftOut } : {}),
     recipes,
     ...(suggestedTags?.length ? { suggestedTags } : {}),
-    ...(batchWarnings.length ? { warnings: batchWarnings } : {}),
+    ...(batchWarnings.length ? { warnings: said(batchWarnings) } : {}),
   };
 }

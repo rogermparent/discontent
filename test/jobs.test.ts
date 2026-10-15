@@ -6,6 +6,7 @@
 
 import { spawnSync } from "node:child_process";
 import {
+  chmod,
   mkdtemp,
   readFile,
   readdir,
@@ -17,7 +18,7 @@ import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ownPidNamespace } from "@discontent/cms/git/fileLock";
+import { ownPidNamespace, pidAlive } from "@discontent/cms/git/fileLock";
 import { ulid } from "@discontent/cms/util/ulid";
 import {
   NO_LOG,
@@ -29,6 +30,7 @@ import {
 } from "../websites/recipe-website/editor/controller/jobs/log";
 import { jobsDirectory } from "../websites/recipe-website/editor/controller/jobs/location";
 import {
+  JOB_STALE_MS,
   findJob,
   listJobs,
   newJobMeta,
@@ -41,9 +43,18 @@ import {
   type JobMeta,
 } from "../websites/recipe-website/editor/controller/jobs/store";
 import {
+  cancelJob,
   runJob,
+  runningJobIds,
   withSurfacedWarnings,
 } from "../websites/recipe-website/editor/controller/jobs/run";
+import { toErrorObject } from "../websites/recipe-website/editor/controller/curation/errors";
+import {
+  placementWarning,
+  sameOllamaModel,
+} from "../websites/recipe-website/editor/controller/llm/client";
+import { fetchYtdlpMetadata } from "../websites/recipe-website/editor/controller/ytdlp";
+import { jobsShowCommand } from "../websites/recipe-website/editor/cli/commands/jobs";
 import {
   JOB_HANDLERS,
   jobLabel,
@@ -78,7 +89,7 @@ describe("the job store (D1)", () => {
   it("runs a job inline: a meta written whole, a step log, the result", async () => {
     const { job, result } = await runJob(
       { kind: "inspect", label: "example.com/pie", spec: { kind: "inspect" } },
-      async (log) => {
+      async ({ log }) => {
         await log.step("fetch", { host: "example.com" }, (step) => {
           step.set({ status: 200, bytes: 1234 });
         });
@@ -129,7 +140,7 @@ describe("the job store (D1)", () => {
   it("records a failure and rethrows it as it was", async () => {
     const error = await runJob(
       { kind: "inspect", label: "x", spec: {} },
-      async (log) => {
+      async ({ log }) => {
         await log.step("fetch", async () => {
           throw new Error("connection refused");
         });
@@ -207,7 +218,7 @@ describe("the job store (D1)", () => {
     await writeFile(file, "");
     const { job, result } = await runJob(
       { kind: "inspect", label: "x", spec: {} },
-      async (log) => log.step("fetch", () => "page"),
+      async ({ log }) => log.step("fetch", () => "page"),
       { dir: join(file, "jobs"), mirror: null },
     );
     expect(result).toBe("page");
@@ -454,7 +465,7 @@ describe("the step log (D2)", () => {
     expect(withSurfacedWarnings({ x: 1 }, [])).toEqual({ x: 1 });
     const { result } = await runJob(
       { kind: "inspect", label: "x", spec: {} },
-      async (log) => {
+      async ({ log }) => {
         log.surface("the GPU is busy");
         log.surface("the GPU is busy");
         return { recipe: true };
@@ -585,5 +596,464 @@ describe("the registry", () => {
       ingredients: 2,
       steps: 1,
     });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 37a review                                                          */
+/* ------------------------------------------------------------------ */
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+describe("retention in a long-lived process (37a review)", () => {
+  it("prunes again on a job an hour after the last prune", async () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const plantOld = async () => {
+      const meta = {
+        ...newJobMeta(ulid(Date.now() - 20 * DAY), {
+          kind: "inspect",
+          label: "old",
+          spec: {},
+        }),
+        status: "done" as const,
+      };
+      await writeJobMeta(dir, meta);
+      return meta.id;
+    };
+    const quick = () =>
+      runJob({ kind: "inspect", label: "x", spec: {} }, async () => 1, {
+        dir,
+        mirror: null,
+      });
+    const first = await plantOld();
+    await quick();
+    expect(await readJobMeta(dir, first)).toBeUndefined();
+    /* Within the hour: the stamp holds it back. */
+    const second = await plantOld();
+    await quick();
+    expect(await readJobMeta(dir, second)).toBeDefined();
+    /* An hour on (the stamp aged): the next job prunes. */
+    const hourAgo = new Date(Date.now() - 61 * 60 * 1000);
+    await utimes(join(dir, ".prune-stamp"), hourAgo, hourAgo);
+    await quick();
+    expect(await readJobMeta(dir, second)).toBeUndefined();
+  });
+});
+
+describe("the heartbeat (37a review)", () => {
+  async function plant(patch: Partial<JobMeta>): Promise<JobMeta> {
+    const meta = {
+      ...newJobMeta(ulid(), { kind: "import-url", label: "x", spec: {} }),
+      status: "running" as const,
+      ...patch,
+    };
+    await writeJobMeta(dir, meta);
+    return meta;
+  }
+
+  it("refreshes updatedAt at each step boundary while the job runs", async () => {
+    await runJob(
+      { kind: "inspect", label: "x", spec: {} },
+      async ({ log, jobId }) => {
+        const started = (await readJobMeta(dir, jobId!))!.updatedAt!;
+        await sleep(20);
+        /* The timer is 30 s away: only the step can have moved it. */
+        await log.step("fetch", () => undefined);
+        await vi.waitFor(async () => {
+          const now = (await readJobMeta(dir, jobId!))!.updatedAt!;
+          expect(now).toBeGreaterThanOrEqual(started + 20);
+        });
+      },
+      { dir, mirror: null },
+    );
+  });
+
+  it("beats on its timer too", async () => {
+    await runJob(
+      { kind: "inspect", label: "x", spec: {} },
+      async ({ jobId }) => {
+        const started = (await readJobMeta(dir, jobId!))!.updatedAt!;
+        await vi.waitFor(
+          async () => {
+            expect(
+              (await readJobMeta(dir, jobId!))!.updatedAt!,
+            ).toBeGreaterThan(started);
+          },
+          { timeout: 5_000, interval: 20 },
+        );
+      },
+      { dir, mirror: null, heartbeatMs: 15 },
+    );
+  });
+
+  it("sweeps a job it cannot judge once its heartbeat is stale, not before", async () => {
+    const now = Date.now();
+    const quietHost = await plant({
+      host: "another-host",
+      updatedAt: now - JOB_STALE_MS - 1_000,
+    });
+    const quietContainer = await plant({
+      pidns: "pid:[1]",
+      updatedAt: now - JOB_STALE_MS - 1_000,
+    });
+    const liveHost = await plant({
+      host: "another-host",
+      updatedAt: now - 60_000,
+    });
+    const closed = await sweepJobs(dir, now);
+    expect(closed.sort()).toEqual([quietHost.id, quietContainer.id].sort());
+    expect(await readJobMeta(dir, quietHost.id)).toMatchObject({
+      status: "interrupted",
+      error: { code: "interrupted" },
+    });
+    expect((await readJobMeta(dir, quietHost.id))?.error?.message).toMatch(
+      /no sign of life from its process .* for 1[01] min/,
+    );
+    expect((await readJobMeta(dir, liveHost.id))?.status).toBe("running");
+  });
+
+  it("drops a live job it cannot judge once its heartbeat is past the retention age", async () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const lost = await plant({
+      id: ulid(now - 20 * DAY),
+      host: "another-host",
+      updatedAt: now - 20 * DAY,
+    });
+    const mineOld = await plant({
+      id: ulid(now - 20 * DAY),
+      updatedAt: now - 20 * DAY,
+    });
+    const quietButRecent = await plant({
+      id: ulid(now - 20 * DAY),
+      host: "another-host",
+      updatedAt: now - DAY,
+    });
+    const removed = await pruneJobs(dir, { now, force: true });
+    expect(removed).toEqual([lost.id]);
+    /* This process is alive, and a recent heartbeat may still be running. */
+    expect(await readJobMeta(dir, mineOld.id)).toBeDefined();
+    expect(await readJobMeta(dir, quietButRecent.id)).toBeDefined();
+  });
+
+  it("serialises updates to one meta: none is lost", async () => {
+    const meta = newJobMeta(ulid(), { kind: "inspect", label: "x", spec: {} });
+    await writeJobMeta(dir, { ...meta, result: { count: 0 } });
+    await Promise.all(
+      Array.from({ length: 20 }, () =>
+        updateJobMeta(dir, meta.id, (current) => ({
+          result: { count: (current.result as { count: number }).count + 1 },
+        })),
+      ),
+    );
+    expect((await readJobMeta(dir, meta.id))?.result).toEqual({ count: 20 });
+  });
+});
+
+describe("failures (37a review)", () => {
+  const LLM = "http://model.test:11434";
+  const TEXT = [
+    "Pancakes",
+    "1 cup flour",
+    "1 egg",
+    "1 cup milk",
+    "Whisk everything and fry.",
+  ].join("\n");
+
+  it("a failed job's error carries its surfaced warnings: a CPU-bound model's timeout says 2%", async () => {
+    vi.stubEnv("RECIPE_JOBS_DIR", dir);
+    vi.stubEnv("RECIPE_LLM_URL", LLM);
+    vi.stubEnv("RECIPE_LLM_MODEL", "qwen3:8b");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        if (String(input).endsWith("/api/ps")) {
+          return Response.json({
+            models: [
+              { name: "qwen3:8b", model: "qwen3:8b", size: 100, size_vram: 2 },
+            ],
+          });
+        }
+        /* The chat call: Ollama never answered within the timeout. */
+        throw Object.assign(new Error("The operation timed out."), {
+          name: "TimeoutError",
+        });
+      }),
+    );
+    const error = await runSpec(
+      {
+        kind: "import-text",
+        contentDirectory: join(dir, "no-corpus"),
+        text: TEXT,
+        options: { dryRun: true },
+      },
+      { mirror: null },
+    ).catch((caught) => caught);
+    const warning = placementWarning("qwen3:8b", 2);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/did not answer within/);
+    const object = toErrorObject(error);
+    expect(object.error.code).toBe("import_failed");
+    expect(object.error.warnings).toEqual([warning]);
+    const [meta] = await listJobs(dir);
+    expect(meta.status).toBe("failed");
+    expect(meta.error?.warnings).toEqual([warning]);
+  });
+
+  it("a form import that answers a message and no recipe is a failed job, and the form still gets its state", async () => {
+    vi.stubEnv("RECIPE_JOBS_DIR", dir);
+    vi.stubEnv("RECIPE_LLM_URL", "");
+    const state = await runSpec(
+      { kind: "form-text", text: TEXT },
+      { mirror: null },
+    );
+    expect(state.message).toBe("no local model configured (RECIPE_LLM_URL)");
+    expect(state.recipe).toBeUndefined();
+    const meta = (await readJobMeta(dir, state.job))!;
+    expect(meta).toMatchObject({
+      status: "failed",
+      error: {
+        code: "import_failed",
+        message: "no local model configured (RECIPE_LLM_URL)",
+      },
+      result: { message: "no local model configured (RECIPE_LLM_URL)" },
+    });
+    expect((await logLines(state.job)).at(-1)).toMatchObject({
+      step: "job",
+      phase: "end",
+      ok: false,
+      error: "no local model configured (RECIPE_LLM_URL)",
+    });
+  });
+
+  it("records an error's message through the log's redaction", async () => {
+    vi.stubEnv("RECIPE_API_TOKEN", "rcp_supersecretvalue123");
+    await runJob(
+      { kind: "inspect", label: "x", spec: {} },
+      async () => {
+        throw new Error(
+          `refused rcp_supersecretvalue123 at https://u:hunter2@example.com/ ${"e".repeat(400)}`,
+        );
+      },
+      { dir, mirror: null },
+    ).catch(() => undefined);
+    const [meta] = await listJobs(dir);
+    expect(meta.error?.message).toContain("[redacted]");
+    expect(meta.error?.message).not.toContain("rcp_supersecretvalue123");
+    expect(meta.error?.message).not.toContain("hunter2");
+    expect(meta.error!.message.length).toBeLessThanOrEqual(200);
+  });
+});
+
+describe("the job context (37a review)", () => {
+  it("hands the work one context: its log, signal, tier and id", async () => {
+    const { job } = await runJob(
+      { kind: "import-list", label: "x", spec: {}, tier: "batch" },
+      async (context) => {
+        expect(context.log.live).toBe(true);
+        expect(context.signal?.aborted).toBe(false);
+        expect(context.tier).toBe("batch");
+        expect(context.jobId).toBe(context.log.jobId);
+        expect(runningJobIds()).toContain(context.jobId);
+        return "ok";
+      },
+      { dir, mirror: null },
+    );
+    expect(runningJobIds()).not.toContain(job);
+    expect(cancelJob(job)).toBe(false);
+  });
+
+  it("cancels a running job by its id: the work sees the abort, the job ends cancelled", async () => {
+    const pending = runJob(
+      { kind: "inspect", label: "x", spec: {} },
+      ({ signal }) =>
+        new Promise((_, reject) => {
+          signal!.addEventListener("abort", () => reject(signal!.reason));
+        }),
+      { dir, mirror: null },
+    );
+    await vi.waitFor(() => expect(runningJobIds()).toHaveLength(1));
+    const [id] = runningJobIds();
+    expect(cancelJob(id, new Error("stop it"))).toBe(true);
+    await expect(pending).rejects.toThrow("stop it");
+    expect(await readJobMeta(dir, id)).toMatchObject({
+      status: "cancelled",
+      error: { code: "cancelled", message: "stop it" },
+    });
+  });
+
+  it("an outside signal reaches the page fetch", async () => {
+    vi.stubEnv("RECIPE_JOBS_DIR", dir);
+    vi.stubEnv("RECIPE_LLM_URL", "");
+    const seen: (AbortSignal | null | undefined)[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_input: string | URL, init?: RequestInit) =>
+          new Promise<Response>((_, reject) => {
+            seen.push(init?.signal);
+            init?.signal?.addEventListener("abort", () =>
+              reject(init.signal!.reason),
+            );
+          }),
+      ),
+    );
+    const outside = new AbortController();
+    const pending = runSpec(
+      { kind: "inspect", url: "https://pies.test/apple" },
+      { mirror: null, signal: outside.signal },
+    );
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    outside.abort(new Error("the request went away"));
+    await expect(pending).rejects.toThrow("the request went away");
+    expect(seen[0]?.aborted).toBe(true);
+    const [meta] = await listJobs(dir);
+    expect(meta.status).toBe("cancelled");
+  });
+
+  it("kills yt-dlp's child when the job is aborted", async () => {
+    const pidFile = join(dir, "ytdlp.pid");
+    const script = join(dir, "fake-yt-dlp");
+    /* `exec`: the shell becomes the sleep, so its pid is the child's. */
+    await writeFile(script, `#!/bin/sh\necho $$ > "$PIDFILE"\nexec sleep 30\n`);
+    await chmod(script, 0o755);
+    vi.stubEnv("YTDLP_PATH", script);
+    vi.stubEnv("PIDFILE", pidFile);
+    const controller = new AbortController();
+    const pending = fetchYtdlpMetadata("https://www.youtube.com/watch?v=x", {
+      job: { signal: controller.signal },
+    });
+    let pid = 0;
+    await vi.waitFor(
+      async () => {
+        pid = Number((await readFile(pidFile, "utf8")).trim());
+        expect(pid).toBeGreaterThan(0);
+      },
+      { timeout: 10_000, interval: 25 },
+    );
+    expect(pidAlive(pid)).toBe(true);
+    controller.abort(new Error("cancelled"));
+    await expect(pending).rejects.toThrow("cancelled");
+    await vi.waitFor(() => expect(pidAlive(pid)).toBe(false), {
+      timeout: 10_000,
+      interval: 25,
+    });
+  });
+});
+
+describe("the step log, review round (37a review)", () => {
+  it("numbers each step and names its parent, so concurrent same-name steps pair", async () => {
+    const { log, lines } = memoryJobLog();
+    await log.step("job", async ({ log: inner }) => {
+      await Promise.all(
+        ["a", "b"].map((name) =>
+          inner.step("llm.extract", { name }, async () => {
+            await sleep(name === "a" ? 20 : 5);
+            inner.info("ground", name);
+          }),
+        ),
+      );
+    });
+    const job = lines.find((line) => line.step === "job")!;
+    expect(job).toMatchObject({ n: 1 });
+    expect(job.parent).toBeUndefined();
+    const starts = lines.filter(
+      (line) => line.step === "llm.extract" && line.phase === "start",
+    );
+    expect(starts.map((line) => [line.n, line.parent])).toEqual([
+      [2, 1],
+      [3, 1],
+    ]);
+    /* b ends first; its end line still names its own n. */
+    const ends = lines.filter(
+      (line) => line.step === "llm.extract" && line.phase === "end",
+    );
+    expect(ends.map((line) => [line.data?.name, line.n])).toEqual([
+      ["b", 3],
+      ["a", 2],
+    ]);
+    const notes = lines.filter((line) => line.step === "ground");
+    expect(notes.map((line) => [line.msg, line.parent])).toEqual([
+      ["b", 3],
+      ["a", 2],
+    ]);
+  });
+
+  it("reads the log from any offset a query string can carry", async () => {
+    const id = ulid();
+    const log = createJobLog({ id, file: join(dir, `${id}.log.jsonl`) });
+    log.info("a", "one");
+    log.info("b", "two");
+    const all = await readJobLog(dir, id);
+    for (const from of [Number.NaN, -5, Number.NEGATIVE_INFINITY]) {
+      expect(await readJobLog(dir, id, from)).toEqual(all);
+    }
+    const first = await readJobLog(dir, id, 0);
+    const lineLength =
+      (await readFile(join(dir, `${id}.log.jsonl`), "utf8")).split("\n")[0]
+        .length + 1;
+    const second = await readJobLog(dir, id, lineLength + 0.7);
+    expect(second.lines.map((line) => line.msg)).toEqual(["two"]);
+    expect(second.next).toBe(first.next);
+    expect(Number.isInteger(second.next)).toBe(true);
+  });
+
+  it("keeps one surfaced warning per kind, the latest", () => {
+    const { log } = memoryJobLog();
+    log.surface(placementWarning("qwen3:8b", 2), "llm.placement");
+    log.surface("something else");
+    log.surface(placementWarning("qwen3:8b", 3), "llm.placement");
+    expect(log.surfaced).toEqual([
+      placementWarning("qwen3:8b", 3),
+      "something else",
+    ]);
+  });
+
+  it("matches a model name the way Ollama resolves it", () => {
+    expect(sameOllamaModel("qwen3:latest", "qwen3")).toBe(true);
+    expect(sameOllamaModel("qwen3", "qwen3:latest")).toBe(true);
+    expect(sameOllamaModel("qwen3:8b", "qwen3:8b")).toBe(true);
+    expect(sameOllamaModel("qwen3:8b", "qwen3")).toBe(false);
+    expect(sameOllamaModel("host:5000/qwen3", "host:5000/qwen3:latest")).toBe(
+      true,
+    );
+    expect(sameOllamaModel(undefined, "qwen3")).toBe(false);
+  });
+
+  it("builds a mirrored line from its parts, whatever the label holds", () => {
+    expect(
+      formatJobLine("01JA0000000000000004V2Q9K7", {
+        t: "2026-10-15T00:00:00.000Z",
+        step: "job",
+        phase: "end",
+        level: "info",
+        ms: 1_000,
+        ok: true,
+        data: { kind: "inspect", label: "a · b" },
+      }),
+    ).toBe('[job 04V2Q9K7] job inspect "a · b" 1.0 s');
+  });
+});
+
+describe("recipes jobs show (37a review)", () => {
+  it("answers job as the id, as every result does, and the record under meta", async () => {
+    vi.stubEnv("RECIPE_JOBS_DIR", dir);
+    const { job } = await runJob(
+      { kind: "inspect", label: "x", spec: {} },
+      async ({ log }) => log.step("fetch", () => 1),
+      { dir, mirror: null },
+    );
+    const shown = await jobsShowCommand.run({
+      backend: { kind: "local" },
+      positionals: [job.slice(-8)],
+    } as unknown as Parameters<typeof jobsShowCommand.run>[0]);
+    expect(shown.job).toBe(job);
+    expect(shown.meta).toMatchObject({ id: job, status: "done" });
+    expect(shown.steps.map((line) => line.step)).toEqual([
+      "job",
+      "fetch",
+      "fetch",
+      "job",
+    ]);
   });
 });

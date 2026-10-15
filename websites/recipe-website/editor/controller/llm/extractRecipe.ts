@@ -29,12 +29,8 @@ import {
   type ImportedRecipe,
 } from "recipe-website-common/util/importRecipeData";
 import { chatJson, type LlmConfig } from "./client";
-import {
-  NO_LOG,
-  type JobLog,
-  type StepData,
-  type StepHandle,
-} from "../jobs/log";
+import { jobContext, type JobRun } from "../jobs/context";
+import type { StepData, StepHandle } from "../jobs/log";
 
 /* ------------------------------------------------------------------ */
 /* Prompt and schema (D7, D8)                                          */
@@ -740,9 +736,10 @@ export interface ExtractRecipeInput {
   config?: LlmConfig;
   timeoutMs?: number;
   numCtx?: number;
+  /** The caller's abort; default the job's. */
   signal?: AbortSignal;
-  /** The job's step log (epic 37): the reading is an `llm.extract` step. */
-  log?: JobLog;
+  /** The job (epic 37): the reading is an `llm.extract` step. */
+  job?: JobRun;
   /** What the step says it reads: a slice's `part` ("2/4") and `name`. */
   stepData?: StepData;
 }
@@ -763,8 +760,8 @@ export interface ExtractRecipeInput {
 export function extractRecipeWithLlm(
   input: ExtractRecipeInput,
 ): Promise<LlmExtraction> {
-  const { log = NO_LOG, stepData } = input;
-  return log.step(
+  const { stepData } = input;
+  return jobContext(input.job).log.step(
     "llm.extract",
     { ...stepData, chars: input.text.length },
     async (step) => {
@@ -815,6 +812,7 @@ async function readRecipe(
     timeoutMs: input.timeoutMs,
     numCtx: input.numCtx,
     signal: input.signal,
+    job: input.job,
   });
   const answer = readLlmAnswer(result.data);
 

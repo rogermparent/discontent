@@ -454,6 +454,9 @@ describe("a video with several recipes (36e, yt-dlp mimic)", () => {
       ["imported", "green-bean-casserole"],
       ["imported", "fried-shallots"],
     ]);
+    expect(result.warnings).toContainEqual(
+      expect.stringMatching(/found 4 recipes .* — all picked$/),
+    );
     /* What others link to is created first (36e review, L2). */
     expect(await messages(4)).toEqual([
       "Create recipe: fried-shallots (local model, 4 of 4 from youtube.com/watch?v=SIDES_TEST)",
@@ -1318,12 +1321,8 @@ describe("the job's step log (37a)", () => {
     const text = await description();
     const { result, job } = await runJob(
       { kind: "import-text", label: "x", spec: {} },
-      (log) =>
-        importFromText(
-          ctx,
-          { text, pick: ["Stuffing"], dryRun: true },
-          { log },
-        ),
+      (job) =>
+        importFromText(ctx, { text, pick: ["Stuffing"], dryRun: true }, job),
       { mirror: null },
     );
     const warning =
@@ -1331,6 +1330,11 @@ describe("the job's step log (37a)", () => {
     /* Once, however many calls saw it. */
     expect(result.warnings?.filter((entry) => entry === warning)).toHaveLength(
       1,
+    );
+    /* A pick was given: the found list says what was taken (37a review). */
+    expect(result.warnings?.join("\n")).not.toMatch(/pick the ones/);
+    expect(result.warnings).toContainEqual(
+      expect.stringMatching(/found 4 recipes .* — picked \d+\. Stuffing$/),
     );
     const { lines } = await readJobLog(process.env.RECIPE_JOBS_DIR!, job);
     const placements = lines.filter((line) => line.step === "llm.placement");

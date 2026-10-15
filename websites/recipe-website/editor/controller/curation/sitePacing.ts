@@ -22,11 +22,39 @@
  * Redirects: a request is queued under the URL it was asked for; when the
  * caller can say where it ended up (`finalUrl`), the final site's clock is
  * advanced too. A redirect to a third site is not paced before it happens.
+ *
+ * In a job (epic 37) a wait is a `pace.wait` step, and the job's signal
+ * ends a wait — in the queue or for the gap — with the abort's reason; a
+ * request given up while queued still holds its place until the one before
+ * it finishes, so the queue's order is unchanged.
  */
 import type { ForbiddenRetry } from "recipe-website-common/util/importRecipeData";
 import { siteKey } from "recipe-website-common/util/roundupPage";
-import { NO_LOG, type JobLog } from "../jobs/log";
+import { jobContext, type JobContext, type JobRun } from "../jobs/context";
 import { ImportError } from "./errors";
+
+/** `promise`, or the signal's reason once it aborts first. */
+function untilAborted<T>(
+  promise: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => reject(signal.reason);
+    signal.addEventListener("abort", stop, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", stop);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", stop);
+        reject(error);
+      },
+    );
+  });
+}
 
 /** 30-D5: the least time between two requests to one site. */
 export const POLITE_GAP_MS = 15_000;
@@ -45,8 +73,11 @@ export class SiteState {
     return this.tails.has(site);
   }
 
-  /** Wait for the site's queue; the returned function releases it. */
-  async acquire(site: string): Promise<() => void> {
+  /**
+   * Wait for the site's queue; the returned function releases it. An abort
+   * while waiting rejects, and the place is released when its turn comes.
+   */
+  async acquire(site: string, signal?: AbortSignal): Promise<() => void> {
     const previous = this.tails.get(site) ?? Promise.resolve();
     let release!: () => void;
     const mine = new Promise<void>((resolve) => {
@@ -54,12 +85,18 @@ export class SiteState {
     });
     const tail = previous.then(() => mine);
     this.tails.set(site, tail);
-    await previous;
-    return () => {
+    const done = () => {
       release();
       /* Forget an idle queue, so the map holds only busy sites. */
       if (this.tails.get(site) === tail) this.tails.delete(site);
     };
+    try {
+      await untilAborted(previous, signal);
+    } catch (error) {
+      void previous.then(done);
+      throw error;
+    }
+    return done;
   }
 }
 
@@ -118,15 +155,18 @@ export class SitePacer {
   requests = 0;
   readonly dropped = new Map<string, string>();
 
+  private readonly job: JobContext;
+
   /**
-   * `log` (epic 37): a wait — behind another request to the site, or for
-   * the polite gap — is a `pace.wait` step.
+   * `job` (epic 37): a wait — behind another request to the site, or for
+   * the polite gap — is a `pace.wait` step, and the job's signal ends it.
    */
   constructor(
     private readonly pacing: Pacing = realPacing(),
-    private readonly log: JobLog = NO_LOG,
+    job?: JobRun,
   ) {
     this.state = pacing.state ?? processState;
+    this.job = jobContext(job);
   }
 
   site(url: string): string {
@@ -168,7 +208,7 @@ export class SitePacer {
     if (last === undefined) return;
     const wait = last + this.gap(url) - this.pacing.now();
     if (wait > 0) {
-      await this.log.step(
+      await this.job.log.step(
         "pace.wait",
         {
           site,
@@ -176,7 +216,7 @@ export class SitePacer {
           waitMs: wait,
           ...(retry ? { retry } : {}),
         },
-        () => this.pacing.sleep(wait),
+        () => untilAborted(this.pacing.sleep(wait), this.job.signal),
       );
     }
   }
@@ -196,11 +236,13 @@ export class SitePacer {
     finalUrlOf?: (value: T) => string | undefined,
   ): Promise<T> {
     const site = this.site(url);
+    const { log, signal } = this.job;
+    signal?.throwIfAborted();
     const release = this.state.busy(site)
-      ? await this.log.step("pace.wait", { site, queued: true }, () =>
-          this.state.acquire(site),
+      ? await log.step("pace.wait", { site, queued: true }, () =>
+          this.state.acquire(site, signal),
         )
-      : await this.state.acquire(site);
+      : await this.state.acquire(site, signal);
     let forbidden = false;
     let retryStatus: number | undefined;
     let started = false;
@@ -248,12 +290,15 @@ export class SitePacer {
   }
 }
 
-/** `SitePacer#request` on this process's real clock, for one-off seats. */
+/**
+ * `SitePacer#request` on this process's real clock, for one-off seats;
+ * `job` (epic 37) logs its waits and can abort them.
+ */
 export function pacedRequest<T>(
   url: string,
   run: (retry: ForbiddenRetry) => Promise<T>,
   finalUrlOf?: (value: T) => string | undefined,
-  log: JobLog = NO_LOG,
+  job?: JobRun,
 ): Promise<T> {
-  return new SitePacer(realPacing(), log).request(url, run, finalUrlOf);
+  return new SitePacer(realPacing(), job).request(url, run, finalUrlOf);
 }

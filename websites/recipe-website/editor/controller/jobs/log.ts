@@ -12,8 +12,12 @@
  *   placement): `runJob` merges the surfaced ones into the result's
  *   `warnings`, once each.
  *
- * Line shape: `{t, step, phase: "start"|"end"|"note", level, ms?, ok?, msg?,
- * error?, data?}`, `t` an ISO timestamp.
+ * Line shape: `{t, step, phase: "start"|"end"|"note", level, n?, parent?,
+ * ms?, ok?, msg?, error?, data?}`, `t` an ISO timestamp. A step's `start`
+ * and `end` lines carry its `n`, a sequence number per job, so two steps of
+ * one name running at once still pair; `parent` is the enclosing step's `n`
+ * (on notes too) — tracked through async context, so concurrent steps nest
+ * correctly.
  *
  * **Redaction happens here, in one place** (`redactLine`), on every line
  * before it is written or mirrored: a string longer than
@@ -36,6 +40,7 @@
  * `live` is false — so a seat called outside a job (a unit test, a script)
  * behaves exactly as before, and costs nothing extra (no `/api/ps` check).
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { appendFileSync } from "node:fs";
 
@@ -49,6 +54,10 @@ export interface JobLine {
   step: string;
   phase: "start" | "end" | "note";
   level: LineLevel;
+  /** `start`/`end` lines: the step's sequence number in its job (from 1). */
+  n?: number;
+  /** The enclosing step's `n`; absent at the top. */
+  parent?: number;
   /** `end` lines: the step's wall time. */
   ms?: number;
   /** `end` lines: whether it did what it set out to. */
@@ -80,18 +89,13 @@ export interface JobLog {
   step<T>(name: string, data: StepData | undefined, fn: StepFn<T>): Promise<T>;
   info(step: string, msg?: string, data?: StepData): void;
   warn(step: string, msg?: string, data?: StepData): void;
-  /** A warning the job's result carries too (deduplicated). */
-  surface(message: string): void;
+  /**
+   * A warning the job's result carries too, once. With a `kind`, a later
+   * warning of the same kind replaces the earlier one (D6's placement: 2%
+   * then 3% is one warning, the latest reading).
+   */
+  surface(message: string, kind?: string): void;
   readonly surfaced: readonly string[];
-}
-
-/**
- * What a seat takes besides its own arguments, so a job can watch it: the
- * log (default `NO_LOG`) and the job's signal.
- */
-export interface JobRun {
-  log?: JobLog;
-  signal?: AbortSignal;
 }
 
 /* ------------------------------------------------------------------ */
@@ -208,6 +212,18 @@ function redactValue(
 }
 
 /**
+ * A message as the log would keep it (secrets out, cut to
+ * `LOG_TEXT_MAX_CHARS`): what a job's meta records as its `error`, so the
+ * meta says no more than the log does.
+ */
+export function redactText(
+  text: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return cut(scrub(text, secretValues(env)));
+}
+
+/**
  * A line as it may be written: the one place redaction happens (D2). Every
  * line passes here before the file and the console see it.
  */
@@ -222,6 +238,8 @@ export function redactLine(
     phase: line.phase,
     level: line.level,
   };
+  if (line.n !== undefined) out.n = line.n;
+  if (line.parent !== undefined) out.parent = line.parent;
   if (line.ms !== undefined) out.ms = line.ms;
   if (line.ok !== undefined) out.ok = line.ok;
   if (line.msg !== undefined) out.msg = cut(scrub(line.msg, secrets));
@@ -374,15 +392,12 @@ export function formatJobLine(id: string, line: JobLine): string {
   if (line.phase === "start") {
     return `${tag} ${stepLabel(line.step, line.data)} …`;
   }
-  const parts = summary(line.step, line.data, line.ms);
-  return [
-    `${tag} ${stepLabel(line.step, line.data)}`,
-    parts.join(" · "),
+  const label = `${tag} ${stepLabel(line.step, line.data)}`;
+  const details = [
+    ...summary(line.step, line.data, line.ms),
     line.ok === false ? `failed${line.error ? `: ${line.error}` : ""}` : "",
-  ]
-    .filter(Boolean)
-    .join(" · ")
-    .replace(/ · /, " ");
+  ].filter(Boolean);
+  return details.length ? `${label} ${details.join(" · ")}` : label;
 }
 
 /* ------------------------------------------------------------------ */
@@ -410,7 +425,12 @@ export function createJobLog({
   onLine,
 }: JobLogOptions): JobLog {
   const surfaced: string[] = [];
+  /* The kind each surfaced warning was given, by index. */
+  const surfacedKinds: (string | undefined)[] = [];
   let fileFailed = false;
+  /* Step numbers, and the step a line is written inside. */
+  let sequence = 0;
+  const enclosing = new AsyncLocalStorage<number>();
 
   const write = (raw: JobLine) => {
     const line = redactLine(raw);
@@ -436,15 +456,18 @@ export function createJobLog({
   };
 
   const note =
-    (level: LineLevel) => (step: string, msg?: string, data?: StepData) =>
+    (level: LineLevel) => (step: string, msg?: string, data?: StepData) => {
+      const parent = enclosing.getStore();
       write({
         t: new Date().toISOString(),
         step,
         phase: "note",
         level,
+        ...(parent !== undefined ? { parent } : {}),
         ...(msg !== undefined ? { msg } : {}),
         ...(data ? { data } : {}),
       });
+    };
 
   const log: JobLog = {
     jobId: id,
@@ -467,11 +490,16 @@ export function createJobLog({
         },
         log,
       };
+      sequence += 1;
+      const n = sequence;
+      const parent = enclosing.getStore();
+      const place = { n, ...(parent !== undefined ? { parent } : {}) };
       write({
         t: new Date().toISOString(),
         step: name,
         phase: "start",
         level: "info",
+        ...place,
         ...(start && Object.keys(start).length ? { data: start } : {}),
       });
       const began = performance.now();
@@ -481,6 +509,7 @@ export function createJobLog({
           step: name,
           phase: "end",
           level: ok ? "info" : "warn",
+          ...place,
           ms: Math.round(performance.now() - began),
           ok,
           ...(error !== undefined ? { error } : {}),
@@ -488,7 +517,7 @@ export function createJobLog({
         });
       let value: T;
       try {
-        value = await fn(handle);
+        value = await enclosing.run(n, () => fn(handle));
       } catch (error) {
         end(false, describe(error));
         throw error;
@@ -498,8 +527,15 @@ export function createJobLog({
     },
     info: note("info"),
     warn: note("warn"),
-    surface(message) {
-      if (!surfaced.includes(message)) surfaced.push(message);
+    surface(message, kind) {
+      const same = kind === undefined ? -1 : surfacedKinds.indexOf(kind);
+      if (same >= 0) {
+        surfaced[same] = message;
+        return;
+      }
+      if (surfaced.includes(message)) return;
+      surfaced.push(message);
+      surfacedKinds.push(kind);
     },
     surfaced,
   };

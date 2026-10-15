@@ -20,7 +20,7 @@ import { openAsBlob } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { ImportError, ValidationError } from "./curation/errors";
-import { NO_LOG, type JobLog } from "./jobs/log";
+import { jobContext, type JobRun } from "./jobs/context";
 import { hostOf, noteRetry } from "./jobs/steps";
 
 /** Generous for a photo; small enough that a mistaken video URL fails fast. */
@@ -157,14 +157,16 @@ function describe(error: unknown): string {
  */
 export function fetchImageFile(
   url: string,
-  { retry, log = NO_LOG }: { retry?: ForbiddenRetry; log?: JobLog } = {},
+  /** `job` (epic 37): the download is an `image` step, aborted with the job. */
+  { retry, job }: { retry?: ForbiddenRetry; job?: JobRun } = {},
 ): Promise<File> {
+  const { log, signal } = jobContext(job);
   /* An `image` step (epic 37, D3): what came back, or why it was refused. */
   return log.step(
     "image",
     { host: hostOf(url), url, mode: "get" },
     async (step) => {
-      const file = await downloadImageFile(url, noteRetry(step, retry));
+      const file = await downloadImageFile(url, noteRetry(step, retry), signal);
       step.set({ bytes: file.size, type: file.type || undefined });
       return file;
     },
@@ -173,7 +175,8 @@ export function fetchImageFile(
 
 async function downloadImageFile(
   url: string,
-  retry?: ForbiddenRetry,
+  retry: ForbiddenRetry | undefined,
+  signal: AbortSignal | undefined,
 ): Promise<File> {
   try {
     new URL(url);
@@ -183,8 +186,10 @@ async function downloadImageFile(
 
   let response: Response;
   try {
-    response = await fetchWithRetry(url, {}, retry);
+    response = await fetchWithRetry(url, signal ? { signal } : {}, retry);
   } catch (error) {
+    /* A cancel is the job's to report, not an unreachable image. */
+    if (signal?.aborted) throw error;
     throw new ImportError(`Could not fetch image ${url}: ${describe(error)}`);
   }
   const status = response.status ?? 200;
@@ -257,14 +262,16 @@ export interface ImageProbe {
 export function probeImageFile(
   url: string,
   retry?: ForbiddenRetry,
-  log: JobLog = NO_LOG,
+  /** `job` (epic 37): the probe is an `image` step, aborted with the job. */
+  job?: JobRun,
 ): Promise<ImageProbe> {
+  const { log, signal } = jobContext(job);
   /* An `image` step (epic 37, D3), `head`: what a download would get. */
   return log.step(
     "image",
     { host: hostOf(url), url, mode: "head" },
     async (step) => {
-      const probe = await headImageFile(url, noteRetry(step, retry));
+      const probe = await headImageFile(url, noteRetry(step, retry), signal);
       step.set({
         ...(probe.status !== undefined ? { status: probe.status } : {}),
         ...(probe.bytes !== undefined ? { bytes: probe.bytes } : {}),
@@ -278,12 +285,18 @@ export function probeImageFile(
 
 async function headImageFile(
   url: string,
-  retry?: ForbiddenRetry,
+  retry: ForbiddenRetry | undefined,
+  signal: AbortSignal | undefined,
 ): Promise<ImageProbe> {
   let response: Response;
   try {
-    response = await fetchWithRetry(url, { method: "HEAD" }, retry);
+    response = await fetchWithRetry(
+      url,
+      { method: "HEAD", ...(signal ? { signal } : {}) },
+      retry,
+    );
   } catch (error) {
+    if (signal?.aborted) throw error;
     return {
       importUrl: url,
       filename: imageFilename(url),

@@ -9,6 +9,7 @@
  * `EDITOR_ENV_KEYS` (36b). Nothing set means the feature is off — how the Pi,
  * which has no model, stays off without checking which host it is on.
  */
+import type { JobRun } from "../jobs/context";
 import type { StepHandle } from "../jobs/log";
 
 export type LlmApi = "ollama" | "openai";
@@ -188,7 +189,13 @@ export interface ChatJsonRequest {
   timeoutMs?: number;
   /** Ollama's `num_ctx`. */
   numCtx?: number;
+  /** The caller's abort; default the job's. */
   signal?: AbortSignal;
+  /**
+   * The job this call runs in (epic 37): its signal (when `signal` is not
+   * given) and, from 37b, its tier for the `gpu` queue.
+   */
+  job?: JobRun;
   /**
    * The job step this call runs in (epic 37): the call hands it its token
    * counts and rates, and — with Ollama, in a job — the model's GPU share
@@ -333,8 +340,9 @@ export async function chatJson(
   if (!config) throw new LlmError("unconfigured", LLM_UNCONFIGURED_MESSAGE);
   const timeoutMs = request.timeoutMs ?? LLM_TIMEOUT_MS;
   const timeout = AbortSignal.timeout(timeoutMs);
-  const signal = request.signal
-    ? AbortSignal.any([request.signal, timeout])
+  const callerSignal = request.signal ?? request.job?.signal;
+  const signal = callerSignal
+    ? AbortSignal.any([callerSignal, timeout])
     : timeout;
   const started = Date.now();
 
@@ -366,7 +374,7 @@ export async function chatJson(
   } catch (error) {
     if (error instanceof LlmError) throw error;
     /* The caller's own abort is theirs to report, not our timeout. */
-    if (request.signal?.aborted) throw error;
+    if (callerSignal?.aborted) throw error;
     if (isTimeout(error) || timeout.aborted) {
       /* A timeout is when a CPU-resident model shows (36-T58): say so. */
       if (request.step && config.api === "ollama" && request.step.log.live) {
@@ -446,6 +454,24 @@ export function callStats(
 /** How long the placement check waits for Ollama's `/api/ps`. */
 export const PLACEMENT_TIMEOUT_MS = 2_000;
 
+/** The kind D6's placement warning is surfaced under: one per job, the latest. */
+export const PLACEMENT_WARNING_KIND = "llm.placement";
+
+/**
+ * Whether `/api/ps`'s `name` is the configured model, the way Ollama
+ * resolves a name: no tag means `:latest` (`qwen3` is `qwen3:latest`).
+ */
+export function sameOllamaModel(listed: string | undefined, wanted: string) {
+  if (!listed) return false;
+  /* The tag is after the last `/` (a registry host may carry a port). */
+  const full = (name: string) =>
+    (name.slice(name.lastIndexOf("/") + 1).includes(":")
+      ? name
+      : `${name}:latest`
+    ).toLowerCase();
+  return full(listed) === full(wanted);
+}
+
 /** D6's warning for a model that is not wholly on the GPU. */
 export function placementWarning(model: string, gpuPercent: number): string {
   return `local model ${model} ran ${gpuPercent}% on the GPU — another program holds VRAM, and the rest runs on the CPU, many times slower; run "ollama stop ${model}" once it frees`;
@@ -481,7 +507,9 @@ export async function checkPlacement(
       }[];
     };
     const entry = body.models?.find(
-      (model) => model.name === config.model || model.model === config.model,
+      (model) =>
+        sameOllamaModel(model.name, config.model) ||
+        sameOllamaModel(model.model, config.model),
     );
     if (!entry || !entry.size || typeof entry.size_vram !== "number") {
       log.info("llm.placement", `/api/ps does not list ${config.model}`);
@@ -500,7 +528,8 @@ export async function checkPlacement(
           sizeVram: entry.size_vram,
         },
       );
-      log.surface(placementWarning(config.model, gpu));
+      /* One result warning however many calls ran: the latest reading. */
+      log.surface(placementWarning(config.model, gpu), PLACEMENT_WARNING_KIND);
     }
   } catch (error) {
     log.info(

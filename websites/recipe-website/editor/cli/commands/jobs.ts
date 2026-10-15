@@ -13,7 +13,10 @@ import type { JobMeta } from "../../controller/jobs/store";
 import type { CommandDef } from "./types";
 
 export interface JobShowResult {
-  job: JobMeta;
+  /** The job's id, as `job` is in every other result. */
+  job: string;
+  /** Its record: kind, label, status, times, spec, result or error. */
+  meta: JobMeta;
   /** The step log, line by line (`log.ts`'s `JobLine`). */
   steps: JobLine[];
 }
@@ -48,9 +51,9 @@ export const jobsShowCommand: CommandDef<JobShowResult> = {
       );
     }
     const { lines } = await readJobLog(dir, job.id);
-    return { job, steps: lines };
+    return { job: job.id, meta: job, steps: lines };
   },
-  format({ job, steps }) {
+  format({ meta: job, steps }) {
     const took =
       job.startedAt !== undefined && job.endedAt !== undefined
         ? `${((job.endedAt - job.startedAt) / 1000).toFixed(1)} s`

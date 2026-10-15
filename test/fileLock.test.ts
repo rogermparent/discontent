@@ -16,7 +16,7 @@ import {
 } from "fs/promises";
 import { hostname, tmpdir } from "os";
 import { join } from "path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   LockTimeoutError,
   PROCESS_NONCE,
@@ -181,16 +181,35 @@ describe("fileLock", () => {
     const then = new Date(Date.now() - 30_000);
     await utimes(path, then, then);
     const stop = startLockHeartbeat(path, "id", "a", 20);
-    await sleep(120);
+    /* Polled, not slept: a loaded machine may be slow to fire the timer. */
+    await vi.waitFor(
+      async () => {
+        expect(Date.now() - (await stat(path)).mtimeMs).toBeLessThan(5_000);
+      },
+      { timeout: 10_000, interval: 25 },
+    );
     stop();
-    expect(Date.now() - (await stat(path)).mtimeMs).toBeLessThan(5_000);
     /* A heartbeat for another id never touches it. */
     await utimes(path, then, then);
     const other = startLockHeartbeat(path, "id", "b", 20);
-    await sleep(120);
+    await sleep(200);
     other();
     expect(Date.now() - (await stat(path)).mtimeMs).toBeGreaterThan(20_000);
     expect(JSON.parse(await readFile(path, "utf8")).id).toBe("a");
+  });
+
+  it("refuses a lock without an id", async () => {
+    await expect(tryCreateLock(path, owner(""), "")).rejects.toThrow(
+      /non-empty string/,
+    );
+    await expect(
+      acquireLock(path, owner("a"), {
+        idKey: "missing",
+        deadline: Date.now() + 1_000,
+        staleMs: 60_000,
+      }),
+    ).rejects.toThrow(/missing must be a non-empty string/);
+    expect(await readdir(dir)).toEqual([]);
   });
 
   it("stops waiting when the signal aborts", async () => {

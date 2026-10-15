@@ -6,6 +6,7 @@
 import { runGit } from "@discontent/cms/git/run";
 import {
   fetchRecipePage,
+  importRecipeData,
   mapRecipePage,
   parseRecipePage,
   type FetchedPage,
@@ -13,7 +14,8 @@ import {
   type ImportedRecipe,
   type ParsedRecipePage,
 } from "recipe-website-common/util/importRecipeData";
-import type { JobLog, StepHandle } from "./log";
+import { jobContext, type JobRun } from "./context";
+import type { StepHandle } from "./log";
 
 export function hostOf(url: string): string {
   try {
@@ -40,14 +42,20 @@ export function noteRetry(
   };
 }
 
-/** One page fetch as a `fetch` step: `fetchRecipePage`, logged. */
+/**
+ * One page fetch as a `fetch` step: `fetchRecipePage`, logged, and aborted
+ * with the job.
+ */
 export function fetchPageStep(
-  log: JobLog,
   url: string,
   retry?: ForbiddenRetry,
+  run?: JobRun,
 ): Promise<FetchedPage> {
+  const { log, signal } = jobContext(run);
   return log.step("fetch", { host: hostOf(url) }, async (step) => {
-    const page = await fetchRecipePage(url, noteRetry(step, retry));
+    const page = await fetchRecipePage(url, noteRetry(step, retry), {
+      signal,
+    });
     const finalHost = hostOf(page.finalUrl);
     step.set({
       status: page.status,
@@ -79,15 +87,14 @@ export function recipeShape(
  * `partial`. `base` resolves relative image URLs (where the page ended up).
  */
 export function parsePage(
-  log: JobLog,
   url: string,
   page: FetchedPage,
-  base: string = url,
+  { base = url, job }: { base?: string; job?: JobRun } = {},
 ): Promise<{
   parsed: ParsedRecipePage;
   mapped: Partial<ImportedRecipe> | undefined;
 }> {
-  return log.step("parse", async (step) => {
+  return jobContext(job).log.step("parse", async (step) => {
     const parsed = parseRecipePage(page.html, base);
     const mapped = mapRecipePage(url, parsed, { ok: page.ok });
     step.set({
@@ -97,6 +104,27 @@ export function parsePage(
     });
     return { parsed, mapped };
   });
+}
+
+/**
+ * A video URL yt-dlp could not read, as a `parse` step: the importer's
+ * bare link (`importRecipeData` maps a video URL without fetching it — the
+ * video's page is not a recipe page), so the log says what the import fell
+ * back to.
+ */
+export function videoLinkStep(
+  url: string,
+  run?: JobRun,
+): Promise<Partial<ImportedRecipe> | undefined> {
+  return jobContext(run).log.step(
+    "parse",
+    { host: hostOf(url), video: true },
+    async (step) => {
+      const mapped = await importRecipeData(url);
+      step.set({ bareLink: true, ...recipeShape(mapped) });
+      return mapped;
+    },
+  );
 }
 
 /**
