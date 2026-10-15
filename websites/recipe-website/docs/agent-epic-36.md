@@ -13,7 +13,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 36-plan open; 36a (extractor core + measurement gate) next.
+**Now:** 36a in review (PR open); qwen3:8b passes the gate. 36b (wiring) next.
 
 ## Context
 
@@ -174,13 +174,13 @@ fetch work the same way.
 
 ## Roadmap
 
-| Phase    | Branch               | Size | Status | What                                                             |
-| -------- | -------------------- | ---- | ------ | ---------------------------------------------------------------- |
-| 36-plan  | `agent/36-plan`      | S    | 🟡     | This doc.                                                        |
-| 36a      | `agent/36a-llm-core` | M    | 📝     | D1, D2, D4, D6, D7: `pageText`, the client, the extractor, gate. |
-| 36b      | `agent/36b-llm-wire` | M    | 📝     | D3, D5: `applyLlm` in seats, form, CLI, API, MCP; Settings line. |
-| 36c      | `agent/36c-llm-text` | M    | 📝     | D8: text import mode in the form, CLI, API, MCP.                 |
-| 36-close | `agent/36-close`     | S    | 📝     | Results, D12/SKILL.md updates, backlog, memory, Roger's steps.   |
+| Phase    | Branch               | Size | Status  | What                                                             |
+| -------- | -------------------- | ---- | ------- | ---------------------------------------------------------------- |
+| 36-plan  | `agent/36-plan`      | S    | ✅ #230 | This doc.                                                        |
+| 36a      | `agent/36a-llm-core` | M    | 🟡      | D1, D2, D4, D6, D7: `pageText`, the client, the extractor, gate. |
+| 36b      | `agent/36b-llm-wire` | M    | 📝      | D3, D5: `applyLlm` in seats, form, CLI, API, MCP; Settings line. |
+| 36c      | `agent/36c-llm-text` | M    | 📝      | D8: text import mode in the form, CLI, API, MCP.                 |
+| 36-close | `agent/36-close`     | S    | 📝      | Results, D12/SKILL.md updates, backlog, memory, Roger's steps.   |
 
 Ordering: strictly sequential — 36b needs 36a's extractor, 36c needs 36b's
 plumbing (`ImportOptions`, the zod bodies, the form). 36-close after 36c.
