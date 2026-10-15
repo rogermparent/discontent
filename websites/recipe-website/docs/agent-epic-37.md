@@ -15,7 +15,8 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 37b (the global queue, cancellation, GPU hooks) in progress.
+**Now:** 37c (the async form, `/jobs`, the job API, CLI and MCP surfaces) in
+progress.
 
 ## Context
 
@@ -316,8 +317,8 @@ position}` while the job waits (`JobContext.waiting`), for 37c's display;
 | Phase    | Size | Branch                   | Status | PR   | What                                                                              |
 | -------- | ---- | ------------------------ | ------ | ---- | --------------------------------------------------------------------------------- |
 | 37a      | M    | `agent/37a-job-log`      | ✅     | #237 | D1, D2, D3, D6's placement check: the store, the step log, every import in a job. |
-| 37b      | M    | `agent/37b-queue`        | 🟡     | –    | D4, D5's waiters, D6's hooks: the cross-process queue, cancellation.              |
-| 37c      | M    | `agent/37c-job-surfaces` | 📝     | –    | D7: the async form, `/jobs`, the job API, CLI `jobs …`, MCP `job_list`/`job_get`. |
+| 37b      | M    | `agent/37b-queue`        | ✅     | #238 | D4, D5's waiters, D6's hooks: the cross-process queue, cancellation.              |
+| 37c      | M    | `agent/37c-job-surfaces` | 🟡     | –    | D7: the async form, `/jobs`, the job API, CLI `jobs …`, MCP `job_list`/`job_get`. |
 | 37-close | S    | `agent/37-close`         | 📝     | –    | Results, 36-T58 marked automated, backlog rows, memory, Roger's steps.            |
 
 Ordering: strictly sequential — 37b builds on 37a's store and `fileLock`,
