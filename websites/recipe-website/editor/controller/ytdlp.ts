@@ -196,7 +196,7 @@ function pickComments(value: unknown): YtdlpComment[] {
  * yt-dlp's arguments for a small comment fetch (36d): ten top-level comments
  * in "top" order and no replies — the pinned comment is listed first, and the
  * uploader's own are usually near the top. Measured on the workstation at
- * about +0.6–1 s over a plain `-J`. YouTube only: the `youtube:` extractor
+ * about +0–1 s over a plain `-J`. YouTube only: the `youtube:` extractor
  * arguments bound it, and another extractor would fetch every comment.
  */
 export const YTDLP_COMMENT_ARGS = [

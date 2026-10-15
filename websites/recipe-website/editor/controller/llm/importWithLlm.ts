@@ -133,7 +133,7 @@ export function recipeComment(meta: YtdlpMetadata): YtdlpComment | undefined {
  * when a model will read it (`videoFetchOptions`).
  *
  * **Not the chapters** (36d, measured over 12 videos): their titles never
- * improved a reading and made two worse. A description with the
+ * improved a reading and made three worse. A description with the
  * ingredients but no method came back with a "Chapters" section of
  * "0:21 Preparing the pre-ferment" lines as its steps; a video whose only
  * text was its chapters came back with their titles as a steps-only
