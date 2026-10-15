@@ -30,10 +30,12 @@ export const RECIPE_FETCH_HEADERS: Readonly<Record<string, string>> = {
 /**
  * How the importer retries a 403 with browser headers (epic 31, D3).
  *
- * A retry is a second request to a host that has just refused one, so off the
- * browser form it waits first: Roger's scraping rule (30-D5) wants requests to
- * one host at least 15 s apart. The browser `/new-recipe` form passes
- * `delayMs: 0`, because a person is waiting on it.
+ * A retry is a second request to a host that has just refused one, so it
+ * waits first: Roger's scraping rule (30-D5) wants requests to one host at
+ * least 15 s apart. Since 37b the `/new-recipe` form's page fetch is paced on
+ * the site's queue like every other (`pacedRequest`), so its retry waits the
+ * gap too; only the save-time image fetch (`editor/controller/actions`)
+ * still passes `delayMs: 0`.
  */
 export interface ForbiddenRetry {
   /** Wait this long before the retry. */

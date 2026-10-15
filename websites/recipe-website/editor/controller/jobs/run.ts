@@ -91,7 +91,8 @@ export interface RunJobOptions<T = unknown> {
 
 /**
  * How often a running job looks for a cancel asked from another process
- * (`<id>.cancel`, 37b): one `stat`.
+ * (`<id>.cancel`, 37b): one `readFile` — an ENOENT when none was asked, the
+ * reason when one was.
  */
 export const JOB_CANCEL_POLL_MS = 1_000;
 

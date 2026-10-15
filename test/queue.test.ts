@@ -16,6 +16,8 @@ import {
   utimes,
   writeFile,
 } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { homedir, hostname, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,7 +28,10 @@ import {
   memoryJobLog,
   formatJobLine,
 } from "../websites/recipe-website/editor/controller/jobs/log";
-import { queueDirectory } from "../websites/recipe-website/editor/controller/jobs/location";
+import {
+  queueDirectory,
+  setJobsRoot,
+} from "../websites/recipe-website/editor/controller/jobs/location";
 import {
   acquire,
   queueSnapshot,
@@ -85,7 +90,26 @@ beforeEach(async () => {
   vi.stubEnv("RECIPE_GPU_RELEASE_CMD", "");
 });
 
+/*
+ * Every child a test spawns (the `tsx` workers, the CLI): killed after the
+ * test, so a failed or timed-out one never outlives the suite still holding
+ * a slot or polling a deleted queue dir.
+ */
+const children = new Set<ChildProcess>();
+
+function track(child: ChildProcess): ChildProcess {
+  children.add(child);
+  child.on("exit", () => children.delete(child));
+  return child;
+}
+
 afterEach(async () => {
+  for (const child of children) {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+    }
+  }
+  children.clear();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   await rm(dir, { recursive: true, force: true });
@@ -219,6 +243,18 @@ describe("the queue in one process (D4)", () => {
     expect(
       queueDirectory({ RECIPE_QUEUE_DIR: "/abs/q" } as NodeJS.ProcessEnv),
     ).toBe("/abs/q");
+    /* Relative: the editor package's, never the caller's INIT_CWD. */
+    setJobsRoot("/editor");
+    try {
+      expect(
+        queueDirectory({
+          RECIPE_QUEUE_DIR: "q",
+          INIT_CWD: "/caller",
+        } as NodeJS.ProcessEnv),
+      ).toBe("/editor/q");
+    } finally {
+      setJobsRoot(undefined);
+    }
     expect(
       queueDirectory({
         VITEST: "true",
@@ -392,12 +428,59 @@ describe("the queue in one process (D4)", () => {
     }
   });
 
+  it("prunes a site's directory idle for a day, and nothing else", async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const old = resourceDirectory("site:old.example.com", queue);
+    const recent = resourceDirectory("site:recent.example.com", queue);
+    const waiting = resourceDirectory("site:waiting.example.com", queue);
+    const gpu = resourceDirectory("gpu", queue);
+    for (const resourceDir of [old, recent, waiting, gpu]) {
+      await mkdir(resourceDir, { recursive: true });
+    }
+    await writeFile(
+      join(old, "state.json"),
+      JSON.stringify({ lastRelease: now - day - 60_000 }),
+    );
+    await writeFile(
+      join(recent, "state.json"),
+      JSON.stringify({ lastRelease: now - 60_000 }),
+    );
+    await writeFile(
+      join(waiting, "state.json"),
+      JSON.stringify({ lastRelease: now - 2 * day }),
+    );
+    await writeFile(
+      join(gpu, "state.json"),
+      JSON.stringify({ lastRelease: now - 2 * day }),
+    );
+    /* A live waiter in that site's line (the runner's pid: alive). */
+    await plantWaiter("site:waiting.example.com", { pid: process.ppid });
+    expect(await sweepQueue(queue, { now })).toEqual({
+      waiters: 0,
+      slots: 0,
+      sites: 1,
+    });
+    await expect(readdir(old)).rejects.toThrow();
+    expect(await readdir(recent)).toEqual(["state.json"]);
+    expect(await readdir(gpu)).toEqual(["state.json"]);
+    expect(await waiterCount("site:waiting.example.com")).toBe(1);
+  });
+
   it("sweeps dead waiters and stale slots (D5)", async () => {
     await plantWaiter("gpu", { pid: deadPid() });
     await plantWaiter("ytdlp", { pid: process.pid, nonce: "a-previous-one" });
     await plantSlot("site:www.example.com", { pid: deadPid() });
-    expect(await sweepQueue(queue)).toEqual({ waiters: 2, slots: 1 });
-    expect(await sweepQueue(queue)).toEqual({ waiters: 0, slots: 0 });
+    expect(await sweepQueue(queue)).toEqual({
+      waiters: 2,
+      slots: 1,
+      sites: 0,
+    });
+    expect(await sweepQueue(queue)).toEqual({
+      waiters: 0,
+      slots: 0,
+      sites: 0,
+    });
   });
 });
 
@@ -542,16 +625,18 @@ function worker(
   spec: Record<string, unknown>,
   env: Record<string, string> = {},
 ): Worker {
-  const child = spawn(TSX, [WORKER, JSON.stringify(spec)], {
-    cwd: EDITOR_DIR,
-    env: {
-      ...process.env,
-      RECIPE_QUEUE_DIR: queue,
-      RECIPE_QUEUE_POLL_MS: "20",
-      ...env,
-    },
-    stdio: ["ignore", "ignore", "pipe"],
-  });
+  const child = track(
+    spawn(TSX, [WORKER, JSON.stringify(spec)], {
+      cwd: EDITOR_DIR,
+      env: {
+        ...process.env,
+        RECIPE_QUEUE_DIR: queue,
+        RECIPE_QUEUE_POLL_MS: "20",
+        ...env,
+      },
+      stdio: ["ignore", "ignore", "pipe"],
+    }),
+  );
   let stderr = "";
   child.stderr?.on("data", (chunk) => (stderr += String(chunk)));
   const done = new Promise<{ code: number | null; stderr: string }>(
@@ -685,30 +770,39 @@ describe("the GPU hooks (D6)", () => {
     const file = join(dir, "hooks.log");
     vi.stubEnv("RECIPE_GPU_ACQUIRE_CMD", `echo acquire >> "${file}"`);
     vi.stubEnv("RECIPE_GPU_RELEASE_CMD", `echo release >> "${file}"`);
-    vi.stubEnv("RECIPE_GPU_IDLE_MS", "300");
+    /*
+     * Idle 1 s, calls 50 ms apart: a loaded machine has 950 ms of margin
+     * before a gap between calls looks like the end of the spell.
+     */
+    vi.stubEnv("RECIPE_GPU_IDLE_MS", "1000");
     const ran: boolean[] = [];
     for (let call = 0; call < 3; call += 1) {
       await withResource("gpu", {}, async (grant) => {
         ran.push(grant.hookRan);
       });
-      await new Promise((done) => setTimeout(done, 60));
+      await new Promise((done) => setTimeout(done, 50));
     }
     expect(ran).toEqual([true, false, false]);
     expect(await hookLines(file)).toEqual(["acquire"]);
-    /* Debounced: not before the slot has been idle 300 ms. */
+    /*
+     * Debounced: not before the slot has been idle 1 s. The line lands
+     * while the hook runs, the spell's end after it exits: wait for both.
+     */
     await vi.waitFor(
-      async () => expect(await hookLines(file)).toEqual(["acquire", "release"]),
-      { timeout: 3_000, interval: 50 },
+      async () => {
+        expect(await hookLines(file)).toEqual(["acquire", "release"]);
+        expect((await readHookState(queue)).active).toBe(false);
+      },
+      { timeout: 6_000, interval: 50 },
     );
-    expect((await readHookState(queue)).active).toBe(false);
     /* The next call starts a new spell. */
     await withResource("gpu", {}, async () => undefined);
     expect(await hookLines(file)).toEqual(["acquire", "release", "acquire"]);
     await vi.waitFor(
       async () => expect((await hookLines(file)).length).toBe(4),
-      { timeout: 3_000, interval: 50 },
+      { timeout: 6_000, interval: 50 },
     );
-  });
+  }, 20_000);
 
   it("logs a hook as a gpu.hook step: exit, output length, an excerpt — never the command", async () => {
     vi.stubEnv("RECIPE_GPU_ACQUIRE_CMD", "echo paused transcriptions; true");
@@ -808,6 +902,83 @@ describe("the GPU hooks (D6)", () => {
     expect(await hookLines(file)).toEqual(["release"]);
     expect((await readHookState(queue)).active).toBe(false);
   });
+
+  it("closes the spell and cancels the job when the CLI is interrupted (Ctrl-C)", async () => {
+    /* A model that takes the request and never answers. */
+    let asked = 0;
+    const model = createServer(() => {
+      asked += 1;
+    });
+    await new Promise<void>((done) => model.listen(0, "127.0.0.1", done));
+    const { port } = model.address() as AddressInfo;
+    const file = join(dir, "hooks.log");
+    try {
+      const cli = track(
+        spawn(
+          TSX,
+          [
+            "cli/index.ts",
+            "import",
+            "--text",
+            "-",
+            "--dry-run",
+            "--json",
+            "--content-dir",
+            join(dir, "content"),
+          ],
+          {
+            cwd: EDITOR_DIR,
+            env: {
+              ...process.env,
+              RECIPE_ENV_FILE: "/dev/null",
+              RECIPE_LLM_URL: `http://127.0.0.1:${port}`,
+              RECIPE_JOBS_DIR: dir,
+              RECIPE_QUEUE_DIR: queue,
+              RECIPE_GPU_ACQUIRE_CMD: `echo acquire >> "${file}"`,
+              RECIPE_GPU_RELEASE_CMD: `echo release >> "${file}"`,
+              RECIPE_GPU_IDLE_MS: "60000",
+            },
+            stdio: ["pipe", "pipe", "pipe"],
+          },
+        ),
+      );
+      let stdout = "";
+      let stderr = "";
+      cli.stdout?.on("data", (chunk) => (stdout += String(chunk)));
+      cli.stderr?.on("data", (chunk) => (stderr += String(chunk)));
+      const closed = new Promise<number | null>((done) =>
+        cli.on("close", (code) => done(code)),
+      );
+      cli.stdin?.end("2 cups flour\nbake it\n");
+      await vi.waitFor(() => expect(asked, stderr).toBe(1), {
+        timeout: 30_000,
+        interval: 50,
+      });
+      expect(await hookLines(file)).toEqual(["acquire"]);
+      cli.kill("SIGINT");
+      expect(await closed, stderr).toBe(130);
+      /* The release ran before the exit: no editor keeps it here. */
+      expect(await hookLines(file)).toEqual(["acquire", "release"]);
+      expect((await readHookState(queue)).active).toBe(false);
+      expect((await queueSnapshot("gpu")).holder).toBeUndefined();
+      const metas = (await readdir(dir)).filter((name) =>
+        name.endsWith(".meta.json"),
+      );
+      expect(metas).toHaveLength(1);
+      const meta = await readJobMeta(
+        dir,
+        metas[0].replace(/\.meta\.json$/, ""),
+      );
+      expect(meta).toMatchObject({
+        status: "cancelled",
+        error: { code: "cancelled", message: "interrupted (SIGINT)" },
+      });
+      expect(JSON.parse(stdout).error.message).toBe("interrupted (SIGINT)");
+    } finally {
+      model.closeAllConnections();
+      await new Promise((done) => model.close(done));
+    }
+  }, 60_000);
 
   it("registers a keeper only with a release command", async () => {
     const keepers = join(resourceDirectory("gpu", queue), "keepers");

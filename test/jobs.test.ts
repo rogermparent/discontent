@@ -28,7 +28,10 @@ import {
   redactLine,
   type JobLine,
 } from "../websites/recipe-website/editor/controller/jobs/log";
-import { jobsDirectory } from "../websites/recipe-website/editor/controller/jobs/location";
+import {
+  jobsDirectory,
+  setJobsRoot,
+} from "../websites/recipe-website/editor/controller/jobs/location";
 import {
   JOB_STALE_MS,
   findJob,
@@ -486,12 +489,22 @@ describe("where the store lives (D1)", () => {
     expect(
       jobsDirectory({ RECIPE_JOBS_DIR: "/abs/jobs" } as NodeJS.ProcessEnv),
     ).toBe("/abs/jobs");
-    expect(
-      jobsDirectory({
-        RECIPE_JOBS_DIR: "rel",
-        INIT_CWD: "/caller",
-      } as NodeJS.ProcessEnv),
-    ).toBe("/caller/rel");
+    /*
+     * A relative value is the editor package's, whoever reads it (37b
+     * review): never the caller's INIT_CWD, so the editor and the CLI
+     * reading one `editor/.env` share one store.
+     */
+    setJobsRoot("/editor");
+    try {
+      expect(
+        jobsDirectory({
+          RECIPE_JOBS_DIR: "rel",
+          INIT_CWD: "/caller",
+        } as NodeJS.ProcessEnv),
+      ).toBe("/editor/rel");
+    } finally {
+      setJobsRoot(undefined);
+    }
     expect(jobsDirectory({ VITEST: "true" } as NodeJS.ProcessEnv)).toBe(
       join(tmpdir(), "discontent-jobs-vitest"),
     );

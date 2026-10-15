@@ -68,6 +68,7 @@ import {
 } from "@discontent/cms/git/fileLock";
 import { ulid } from "@discontent/cms/util/ulid";
 import { jobContext, type JobRun, type JobTier } from "./context";
+import type { JobLog } from "./log";
 import { gpuGranted, gpuReleased } from "./gpuHooks";
 import { queueDirectory } from "./location";
 
@@ -185,6 +186,31 @@ export function holdsHere(
   dir: string = queueDirectory(),
 ): boolean {
   return heldStorage().getStore()?.has(heldKey(dir, resource)) ?? false;
+}
+
+/**
+ * Create `resource`'s slot lock as this process's hold. The id goes into
+ * `processHolds` **before** the lock exists and leaves it only if the lock
+ * was not created — so no look from this process (another waiter's poll, a
+ * snapshot) ever sees the fresh lock, with this process's pid and nonce,
+ * while the hold is unregistered, judges it a previous process's and takes
+ * it over: a double grant (37b review). The release side keeps the same
+ * order: the id is dropped only once the lock is gone (`letGo`,
+ * `maybeReleaseGpu`).
+ */
+export async function createSlotLock(
+  lockPath: string,
+  record: SlotRecord,
+): Promise<boolean> {
+  const holds = processHolds();
+  holds.add(record.holderId);
+  let created = false;
+  try {
+    created = await tryCreateLock(lockPath, record, record.holderId);
+    return created;
+  } finally {
+    if (!created) holds.delete(record.holderId);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -398,15 +424,53 @@ export async function queueSnapshots(
   return out;
 }
 
+/** A site's directory idle longer than this is pruned by the sweep. */
+export const SITE_IDLE_PRUNE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Whether a resource directory is a site's (`site:<site>`, escaped) that has
+ * been idle for `SITE_IDLE_PRUNE_MS`: no holder, no waiter file at all, and
+ * its clock — `lastRelease`, else the directory's own mtime — a day old.
+ * `gpu` and `ytdlp` are never pruned (a handful of files, and `gpu` keeps
+ * the hooks' spell).
+ */
+async function idleSiteDirectory(
+  resourceDir: string,
+  now: number,
+): Promise<boolean> {
+  if (!path.basename(resourceDir).startsWith(resourceDirName("site:"))) {
+    return false;
+  }
+  if (await readLockFile(slotLockPath(resourceDir), SLOT_ID_KEY)) return false;
+  const waiters = await readdir(path.join(resourceDir, WAITERS)).catch(
+    () => [] as string[],
+  );
+  if (waiters.length > 0) return false;
+  const { lastRelease } = await readResourceState(resourceDir);
+  const clock =
+    lastRelease ?? (await stat(resourceDir).catch(() => null))?.mtimeMs;
+  return clock !== undefined && now - clock > SITE_IDLE_PRUNE_MS;
+}
+
 /**
  * The boot sweep's half for the queue (D5): dead waiters dropped, stale
- * slot locks freed. Answers how many of each.
+ * slot locks freed, and sites idle for a day pruned (one small directory
+ * per site ever fetched would otherwise pile up). Answers how many of each.
+ *
+ * A prune racing a process that joins that site's line in the same instant
+ * is covered by the waiter's own recovery: a waiter that finds its file gone
+ * writes it again (its parent directory too) and keeps its place. What is
+ * left — the directory removed between a waiter's look and its slot lock's
+ * temp write, which then fails that one request — needs a site idle for a
+ * day to be fetched in the microseconds of a sweep: accepted.
  */
 export async function sweepQueue(
   dir: string = queueDirectory(),
-): Promise<{ waiters: number; slots: number }> {
+  { now = Date.now() }: { now?: number } = {},
+): Promise<{ waiters: number; slots: number; sites: number }> {
   let waiters = 0;
   let slots = 0;
+  let sites = 0;
   for (const resourceDir of await resourceDirs(dir)) {
     const waitersDir = path.join(resourceDir, WAITERS);
     const before = (
@@ -415,8 +479,12 @@ export async function sweepQueue(
     waiters += before - (await liveWaiters(resourceDir)).length;
     const had = await readLockFile(slotLockPath(resourceDir), SLOT_ID_KEY);
     if (had && !(await currentHolder(resourceDir))) slots += 1;
+    if (await idleSiteDirectory(resourceDir, now)) {
+      await rm(resourceDir, { recursive: true, force: true });
+      sites += 1;
+    }
   }
-  return { waiters, slots };
+  return { waiters, slots, sites };
 }
 
 /* ------------------------------------------------------------------ */
@@ -431,6 +499,25 @@ export interface AcquireOptions extends JobRun {
   gapMs?: number;
   /** Default `queueDirectory()`. */
   dir?: string;
+}
+
+/**
+ * Said once per grant: a holder's heartbeat found the slot no longer its own
+ * — taken over as stale while this process was suspended (a laptop lid, a
+ * stopped terminal) past `SLOT_STALE_MS`. The call goes on; another holder
+ * may be using the resource beside it.
+ */
+function lostSlot(
+  resource: QueueResource,
+  state: LockFileState | null,
+  log: JobLog,
+): void {
+  const holder = (state?.owner as SlotRecord | null | undefined)?.holderId;
+  const message = `the ${resource} slot was taken over while this process held it${
+    holder ? ` (now ${holder})` : ""
+  } — suspended past the stale limit? The call goes on unqueued`;
+  if (log.live) log.warn("queue.lost", message, { resource });
+  else console.warn(`[queue] ${message}`);
 }
 
 /** A held resource. `release` is idempotent. */
@@ -495,10 +582,25 @@ export async function acquire(
     ...(job.jobId ? { jobId: job.jobId } : {}),
   };
   const waiterFile = path.join(waitersDir, `${id}.json`);
+  /*
+   * Registered before the file exists, as the slot's hold is
+   * (`createSlotLock`): a poll in this process that lands between the write
+   * and the registration would judge our own waiter dead and delete it.
+   */
+  processWaiters().add(id);
   try {
-    await mkdir(waitersDir, { recursive: true });
-    await writeJsonAtomic(waiterFile, waiter);
+    /* Twice on ENOENT: the sweep may prune an idle site's directory under us. */
+    for (let tries = 1; ; tries += 1) {
+      try {
+        await mkdir(waitersDir, { recursive: true });
+        await writeJsonAtomic(waiterFile, waiter);
+        break;
+      } catch (error) {
+        if (tries >= 2 || errorCode(error) !== "ENOENT") throw error;
+      }
+    }
   } catch (error) {
+    processWaiters().delete(id);
     /*
      * A queue dir that cannot be written (a read-only home, a bad
      * `RECIPE_QUEUE_DIR`): said once, and the work goes on unqueued — as a
@@ -512,16 +614,21 @@ export async function acquire(
     }
     return passThroughGrant(resource);
   }
-  processWaiters().add(id);
 
   let stopBeat: (() => void) | undefined;
   let held = false;
   let showedWaiting = false;
 
+  /** The slot lock exists, and `processHolds` has had `id` since before. */
   const take = (): void => {
     held = true;
-    processHolds().add(id);
-    stopBeat = startLockHeartbeat(lockPath, SLOT_ID_KEY, id, SLOT_HEARTBEAT_MS);
+    stopBeat = startLockHeartbeat(
+      lockPath,
+      SLOT_ID_KEY,
+      id,
+      SLOT_HEARTBEAT_MS,
+      { onLost: (state) => lostSlot(resource, state, job.log) },
+    );
   };
 
   /** Let go of the slot; `stamp`: the holder used it (the gap's clock moves). */
@@ -565,7 +672,7 @@ export async function acquire(
       since: Date.now(),
       ...(job.jobId ? { jobId: job.jobId } : {}),
     };
-    if (!(await tryCreateLock(lockPath, record, id))) {
+    if (!(await createSlotLock(lockPath, record))) {
       return { granted: false, ahead: 1 };
     }
     take();
@@ -618,8 +725,9 @@ export async function acquire(
     if (wasHeld && resource === "gpu") gpuReleased(dir);
     throw error;
   } finally {
+    /* The file first, then the registration (as `letGo` does). */
+    await rm(waiterFile, { force: true }).catch(() => undefined);
     processWaiters().delete(id);
-    await rm(waiterFile, { force: true });
     if (showedWaiting) job.waiting?.(undefined);
   }
 

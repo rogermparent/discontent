@@ -46,7 +46,6 @@ import {
   processGone,
   processIdentity,
   releaseLock,
-  tryCreateLock,
 } from "@discontent/cms/git/fileLock";
 import { ulid } from "@discontent/cms/util/ulid";
 import type { JobContext } from "./context";
@@ -54,6 +53,7 @@ import { gpuUsedHere, markGpuUsed, queueDirectory } from "./location";
 import { createJobLog, defaultJobMirror, type JobLog } from "./log";
 import {
   SLOT_ID_KEY,
+  createSlotLock,
   currentHolder,
   liveWaiters,
   processHolds,
@@ -361,8 +361,8 @@ export async function maybeReleaseGpu(
     purpose: "release hook",
   };
   const lockPath = slotLockPath(gpuDir);
-  if (!(await tryCreateLock(lockPath, record, id))) return false;
-  processHolds().add(id);
+  /* Registered as this process's hold before the lock exists (`createSlotLock`). */
+  if (!(await createSlotLock(lockPath, record))) return false;
   try {
     /* Under the slot: nothing can have started since we looked. */
     if (!(await readHookState(dir)).active) return false;
@@ -371,8 +371,12 @@ export async function maybeReleaseGpu(
     await writeHookState(dir, { active: false, releasedAt: Date.now() });
     return true;
   } finally {
-    processHolds().delete(id);
-    await releaseLock(lockPath, SLOT_ID_KEY, id);
+    /* The lock first, then the hold: never a lock of ours without one. */
+    try {
+      await releaseLock(lockPath, SLOT_ID_KEY, id);
+    } finally {
+      processHolds().delete(id);
+    }
   }
 }
 
