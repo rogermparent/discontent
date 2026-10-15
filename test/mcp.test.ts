@@ -869,6 +869,68 @@ describe("the MCP registry over an in-memory transport", () => {
     }
   });
 
+  /* 36b: the local model's mode on the import tools; tool count unchanged. */
+  it("passes llm through page_inspect and refuses a mode that is not one (36b)", async () => {
+    const model = "http://model.test:11434";
+    const page = [
+      "<html><head><title>Old Scones</title></head><body><article>",
+      "<h1>Old Scones</h1><ul><li>2 cups flour</li><li>3/4 cup cream</li></ul>",
+      "<p>Stir together and bake.</p></article></body></html>",
+    ].join("");
+    vi.stubEnv("RECIPE_LLM_URL", model);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input).startsWith(model)
+          ? new Response(
+              JSON.stringify({
+                model: "qwen3:8b",
+                done: true,
+                message: {
+                  role: "assistant",
+                  content: JSON.stringify({
+                    found: true,
+                    name: "Old Scones",
+                    ingredients: ["2 cups flour", "3/4 cup cream"],
+                    instructions: ["Stir together and bake."],
+                  }),
+                },
+              }),
+              { headers: { "content-type": "application/json" } },
+            )
+          : new Response(page, { headers: { "content-type": "text/html" } }),
+      ),
+    );
+    try {
+      const auto = await call("page_inspect", {
+        url: "https://www.example.com/old-scones",
+      });
+      expect(auto.isError).toBe(false);
+      expect(auto.data).toMatchObject({
+        partial: false,
+        llm: { model: "qwen3:8b", mode: "auto", grounded: 2, total: 2 },
+        draft: { ingredients: ["2 cups flour", "3/4 cup cream"] },
+      });
+
+      const off = await call("page_inspect", {
+        url: "https://www.example.com/old-scones",
+        llm: "off",
+      });
+      expect(off.data).toMatchObject({ partial: true });
+      expect(off.data.llm).toBeUndefined();
+
+      const bad = await call("recipe_import", {
+        url: "https://www.example.com/old-scones",
+        dryRun: true,
+        llm: "always",
+      });
+      expect(bad.isError).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+
   /* 34f: roundup import. Loopback URLs, so the default pacing never waits. */
   it("inspects a roundup and imports its picks with a term (34f)", async () => {
     const origin = "http://127.0.0.1:9";

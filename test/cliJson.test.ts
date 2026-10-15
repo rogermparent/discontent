@@ -97,7 +97,7 @@ afterAll(async () => {
   await rm(contentDirectory, { recursive: true, force: true });
 });
 
-function run(args: string[]) {
+function run(args: string[], env: NodeJS.ProcessEnv = {}) {
   return execa(
     "pnpm",
     ["exec", "tsx", "cli/index.ts", ...args, "--content-dir", contentDirectory],
@@ -106,9 +106,17 @@ function run(args: string[]) {
       reject: false,
       /*
        * `CONTENT_DIRECTORY` unset, so a bug in `--content-dir` resolution
-       * cannot be masked by the ambient environment the runner inherited.
+       * cannot be masked by the ambient environment the runner inherited —
+       * and no local model (36b) unless a test names one.
        */
-      env: { ...process.env, CONTENT_DIRECTORY: undefined },
+      env: {
+        ...process.env,
+        CONTENT_DIRECTORY: undefined,
+        RECIPE_LLM_URL: undefined,
+        RECIPE_LLM_MODEL: undefined,
+        RECIPE_LLM_API: undefined,
+        ...env,
+      },
     },
   );
 }
@@ -844,6 +852,39 @@ describe("import tooling as a process (26b)", () => {
               recipeInstructions: "Shake with ice.",
             })}</script></head><body></body></html>`,
           );
+        /* 36b: an old post with no Recipe node, and a model to read it. */
+        case "/old-scones.html":
+          return page(
+            [
+              "<html><head><title>Old Scones</title></head><body><article>",
+              "<h1>Old Scones</h1><h2>Ingredients</h2><ul>",
+              "<li>2 cups flour</li><li>1/2 cup cold butter</li>",
+              "<li>3/4 cup cream</li></ul><h2>Method</h2>",
+              "<p>Rub in the butter, stir in the cream, bake.</p>",
+              "</article></body></html>",
+            ].join(""),
+          );
+        case "/api/chat":
+          response.writeHead(200, { "content-type": "application/json" });
+          return response.end(
+            JSON.stringify({
+              model: "qwen3:8b",
+              done: true,
+              message: {
+                role: "assistant",
+                content: JSON.stringify({
+                  found: true,
+                  name: "Old Scones",
+                  ingredients: [
+                    "2 cups flour",
+                    "1/2 cup cold butter",
+                    "3/4 cup cream",
+                  ],
+                  instructions: ["Rub in the butter, stir in the cream, bake."],
+                }),
+              },
+            }),
+          );
         case "/plane.png":
         case "/plane-225x225.png":
           response.writeHead(200, { "content-type": "image/png" });
@@ -1005,6 +1046,83 @@ describe("import tooling as a process (26b)", () => {
       expect(JSON.parse(usage.stdout).error.code).toBe("usage");
     },
     TIMEOUT * 2,
+  );
+
+  /* 36b: `--llm`, and the model's URL from the editor env file. */
+  it(
+    "takes --llm, and finds the local model through the editor env file",
+    async () => {
+      const url = `${origin}/old-scones.html`;
+      const bad = await run([
+        "import",
+        url,
+        "--dry-run",
+        "--llm",
+        "maybe",
+        "--json",
+      ]);
+      expect(bad.exitCode).toBe(1);
+      expect(JSON.parse(bad.stdout).error).toMatchObject({
+        code: "usage",
+        message: expect.stringContaining("--llm takes auto, force, off"),
+      });
+
+      /* No model anywhere: auto is today's partial, force is refused. */
+      const auto = await run(["import", url, "--dry-run", "--json"]);
+      expect(auto.exitCode).toBe(0);
+      const autoResult = JSON.parse(auto.stdout);
+      expect(autoResult.partial).toBe(true);
+      expect(autoResult.llm).toBeUndefined();
+      const force = await run([
+        "import",
+        url,
+        "--dry-run",
+        "--llm",
+        "force",
+        "--json",
+      ]);
+      expect(force.exitCode).toBe(1);
+      expect(JSON.parse(force.stdout).error).toMatchObject({
+        code: "import_failed",
+        message: "no local model configured (RECIPE_LLM_URL)",
+      });
+
+      /* The model's URL from the file (EDITOR_ENV_KEYS): auto fills it. */
+      const envFile = join(scratch, "llm.env");
+      await writeFile(
+        envFile,
+        [`RECIPE_LLM_URL=${origin}`, "RECIPE_LLM_MODEL=qwen3:8b"].join("\n"),
+      );
+      const withModel = { RECIPE_ENV_FILE: envFile };
+      const filled = await run(
+        ["import", url, "--dry-run", "--json"],
+        withModel,
+      );
+      expect(filled.exitCode).toBe(0);
+      const filledResult = JSON.parse(filled.stdout);
+      expect(filledResult.partial).toBeUndefined();
+      expect(filledResult.llm).toMatchObject({
+        model: "qwen3:8b",
+        mode: "auto",
+        found: true,
+        grounded: 3,
+        total: 3,
+      });
+      expect(filledResult.draft.ingredients).toEqual([
+        "2 cups flour",
+        "1/2 cup cold butter",
+        "3/4 cup cream",
+      ]);
+
+      const inspected = await run(
+        ["inspect", url, "--llm", "off", "--json"],
+        withModel,
+      );
+      expect(inspected.exitCode).toBe(0);
+      expect(JSON.parse(inspected.stdout)).toMatchObject({ partial: true });
+      expect(JSON.parse(inspected.stdout).llm).toBeUndefined();
+    },
+    TIMEOUT * 3,
   );
 
   /* 34f: roundup import, as a process. Loopback, so nothing is paced. */

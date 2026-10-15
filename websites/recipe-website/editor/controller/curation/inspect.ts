@@ -11,6 +11,10 @@
  *
  * The tweak loop it serves: `inspect` (or `import --dry-run --out d.json`) →
  * edit the draft → `create --file d.json`.
+ *
+ * Since 36b the local model (`applyLlm`, epic 36 D3) reads a page with no
+ * Recipe node — or every page, under `force` — and the draft is its reading;
+ * `llm` says how much of it was found on the page.
  */
 import {
   fetchRecipePage,
@@ -22,6 +26,12 @@ import {
   type JsonLdNode,
 } from "recipe-website-common/util/importRecipeData";
 import type { PageMeta } from "recipe-website-common/util/pageMetadata";
+import {
+  applyLlm,
+  videoSource,
+  type LlmImportInfo,
+  type LlmMode,
+} from "../llm/importWithLlm";
 import {
   fetchYtdlpMetadata,
   ytdlpToRecipe,
@@ -72,6 +82,10 @@ export interface InspectResult {
   video?: InspectVideo;
   /** Why yt-dlp was not used for a video host, when it was tried and failed. */
   ytdlp?: string;
+  /** The local model's part (epic 36), whenever it was asked. */
+  llm?: LlmImportInfo;
+  /** What the local model did, or why it was not used (epic 36). */
+  warnings?: string[];
 }
 
 /** `<Multiplyable baseNumber="1 1/2" />` → `1 1/2`: the markup the form adds. */
@@ -173,14 +187,24 @@ function toVideo(meta: YtdlpMetadata): InspectVideo {
  * with no recipe — or one that answered 404 — is a result with no `recipe`
  * and no `draft`, because what the page *does* say is the useful part.
  */
-export async function inspectUrl(rawUrl: string): Promise<InspectResult> {
+export async function inspectUrl(
+  rawUrl: string,
+  { llm: mode }: { llm?: LlmMode } = {},
+): Promise<InspectResult> {
   const url = rawUrl.split("#")[0];
   let ytdlpNote: string | undefined;
 
   if (isVideoUrl(url)) {
     const result = await fetchYtdlpMetadata(url);
     if (result.status === "success") {
-      const recipe = ytdlpToRecipe(result.metadata, url);
+      const applied = await applyLlm({
+        url,
+        source: videoSource(result.metadata),
+        mapped: ytdlpToRecipe(result.metadata, url),
+        mode,
+      });
+      /* `ytdlpToRecipe` always names the video, so a recipe comes back. */
+      const recipe = applied.recipe!;
       const thumbnails = [...result.metadata.thumbnails]
         .filter((thumb) => thumb.width && thumb.height)
         .sort((a, b) => b.width! * b.height! - a.width! * a.height!)
@@ -201,6 +225,7 @@ export async function inspectUrl(rawUrl: string): Promise<InspectResult> {
             ].slice(0, 10)
           : thumbnails,
         video: toVideo(result.metadata),
+        ...llmFields(applied),
       };
     }
     ytdlpNote =
@@ -223,7 +248,13 @@ export async function inspectUrl(rawUrl: string): Promise<InspectResult> {
     );
   }
   const parsed = parseRecipePage(page.html, page.finalUrl);
-  const recipe = mapRecipePage(url, parsed, { ok: page.ok });
+  const applied = await applyLlm({
+    url,
+    source: { html: page.html, ok: page.ok, meta: parsed.meta },
+    mapped: mapRecipePage(url, parsed, { ok: page.ok }),
+    mode,
+  });
+  const recipe = applied.recipe;
   /* `images` and `suggestedTags` ride on the mapped recipe for the form; here
    * they are top-level. */
   const { images: _images, partial, suggestedTags, ...mapped } = recipe ?? {};
@@ -242,5 +273,19 @@ export async function inspectUrl(rawUrl: string): Promise<InspectResult> {
     meta: parsed.meta,
     images: parsed.images.slice(0, 10),
     ...(ytdlpNote ? { ytdlp: ytdlpNote } : {}),
+    ...llmFields(applied),
+  };
+}
+
+function llmFields({
+  llm,
+  warnings,
+}: {
+  llm?: LlmImportInfo;
+  warnings: string[];
+}): Pick<InspectResult, "llm" | "warnings"> {
+  return {
+    ...(llm ? { llm } : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 }

@@ -13,11 +13,18 @@
  * reasonably put there would change *which corpus* a bare `pnpm recipes`
  * writes to: `RECIPE_API_URL` would turn every command into a remote one,
  * `CONTENT_DIRECTORY` would point it somewhere else. A file meant for the
- * editor must not do that behind the CLI's back, so only the two variables
- * that say how to *reach* an editor are taken — `RECIPE_API_TOKEN` (the bearer
- * for `--notify` and `--remote`) and `RECIPE_EDITOR_URL` (where `--notify`
- * goes; set alone, it turns notify on, as it does from a shell). Everything
- * else in the file is ignored.
+ * editor must not do that behind the CLI's back, so only variables that say
+ * how to *reach* something are taken:
+ *
+ * - `RECIPE_API_TOKEN` (the bearer for `--notify` and `--remote`) and
+ *   `RECIPE_EDITOR_URL` (where `--notify` goes; set alone, it turns notify
+ *   on, as it does from a shell) — how to reach the editor (35-D11);
+ * - `RECIPE_LLM_URL`, `RECIPE_LLM_MODEL` and `RECIPE_LLM_API` — how to reach
+ *   the local model that imports use (epic 36, D1), so `recipes import` and
+ *   the stdio MCP server find the model the workstation's editor uses. They
+ *   change what an import reads, never which corpus it writes to.
+ *
+ * Everything else in the file is ignored.
  *
  * ## The environment wins — and `""` is not set
  *
@@ -64,6 +71,9 @@ export const EDITOR_ENV_FILE = path.resolve(__dirname, "../.env");
 export const EDITOR_ENV_KEYS = [
   "RECIPE_API_TOKEN",
   "RECIPE_EDITOR_URL",
+  "RECIPE_LLM_URL",
+  "RECIPE_LLM_MODEL",
+  "RECIPE_LLM_API",
 ] as const;
 
 function unset(value: string | undefined): boolean {

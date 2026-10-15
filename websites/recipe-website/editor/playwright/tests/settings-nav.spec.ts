@@ -86,6 +86,10 @@ test.describe("Settings navigation", () => {
     await expect(page).toHaveURL(/\/settings\/tools/);
     await expect(page.getByRole("heading", { name: "Tools" })).toBeVisible();
     await expect(page.getByLabel("yt-dlp Binary Path")).toBeVisible();
+    // 36b: the read-only "Local model" line; this suite configures none.
+    await expect(page.getByTestId("local-model-status")).toContainText(
+      "No local model configured",
+    );
     await expect(sidebar.getByRole("link", { name: "Tools" })).toHaveAttribute(
       "aria-current",
       "page",

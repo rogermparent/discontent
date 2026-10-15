@@ -11,7 +11,10 @@ import { UsageError } from "../../controller/curation/errors";
 import type { ImportListResult, InspectListResult } from "../backend/types";
 import { formatWarnings } from "../output";
 import {
+  LLM_OPTION,
+  LLM_USAGE,
   booleanOption,
+  llmOption,
   numberOption,
   stringOption,
   type CommandDef,
@@ -86,8 +89,7 @@ export const inspectListCommand: CommandDef<InspectListResult> = {
 
 export const importListCommand: CommandDef<ImportListResult> = {
   name: "import-list",
-  usage:
-    "recipes import-list <url> (--pick 1,3,5-7|<url>,… | --all) [--term <slug> [--term-label L]] [--limit 1-6] [--dry-run]",
+  usage: `recipes import-list <url> (--pick 1,3,5-7|<url>,… | --all) [--term <slug> [--term-label L]] [--limit 1-6] [--dry-run] ${LLM_USAGE}`,
   options: {
     pick: { type: "string" },
     all: { type: "boolean" },
@@ -95,6 +97,7 @@ export const importListCommand: CommandDef<ImportListResult> = {
     "term-label": { type: "string" },
     limit: { type: "string" },
     "dry-run": { type: "boolean" },
+    ...LLM_OPTION,
   },
   write: true,
   async run({ backend, positionals, options }) {
@@ -117,12 +120,14 @@ export const importListCommand: CommandDef<ImportListResult> = {
     if (termLabel && !term) {
       throw new UsageError("--term-label labels the --term: pass --term too.");
     }
+    const llm = llmOption(options);
     return backend.importList(url, {
       ...(pickFlag ? { pick: parsePicks(pickFlag) } : { all: true }),
       ...(term ? { term } : {}),
       ...(termLabel ? { termLabel } : {}),
       ...(limit !== undefined ? { limit } : {}),
       ...(booleanOption(options, "dry-run") ? { dryRun: true } : {}),
+      ...(llm ? { llm } : {}),
     });
   },
   format(result) {

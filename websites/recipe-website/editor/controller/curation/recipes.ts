@@ -380,7 +380,13 @@ export async function createRecipe(
   {
     overwrite = false,
     fetchImage,
-  }: { overwrite?: boolean; fetchImage?: ImageFetcher } = {},
+    commitNote,
+  }: {
+    overwrite?: boolean;
+    fetchImage?: ImageFetcher;
+    /** Said after the commit message, in parentheses: "local model" (36-D5). */
+    commitNote?: string;
+  } = {},
 ): Promise<RecipeWriteResult> {
   const input = parseInput(RecipeInputSchema, raw);
   const slug = resolveCreateSlug(input);
@@ -412,7 +418,7 @@ export async function createRecipe(
     uploads,
     contentDirectory: ctx.contentDirectory,
     author: ctx.author,
-    commitMessage: `Create recipe: ${slug}`,
+    commitMessage: `Create recipe: ${slug}${commitNote ? ` (${commitNote})` : ""}`,
   });
   ctx.onWrite?.({
     contentType: recipeContentConfig.contentType,

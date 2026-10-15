@@ -259,8 +259,10 @@ export function createHttpBackend({
         body: { url, ...options },
       });
     },
-    inspect(url) {
-      return call<InspectResult>("POST", "/api/inspect", { body: { url } });
+    inspect(url, options = {}) {
+      return call<InspectResult>("POST", "/api/inspect", {
+        body: { url, ...options },
+      });
     },
     inspectList(url) {
       return call<InspectListResult>("POST", "/api/inspect-list", {

@@ -7,6 +7,7 @@ import {
 } from "recipe-website-common/components/PageLayout";
 import { SettingsCard } from "../../SettingsCard";
 import { SettingsForm } from "../SettingsForm";
+import { LocalModelStatus } from "./LocalModelStatus";
 
 export default async function ToolsPage() {
   const user = await auth();
@@ -24,6 +25,12 @@ export default async function ToolsPage() {
             description="Configure yt-dlp for importing recipes from video links."
           >
             <SettingsForm settings={settings} />
+          </SettingsCard>
+          <SettingsCard
+            title="Local model"
+            description="A local model reads recipe pages that carry no recipe data (epic 36). Configured in the editor's environment, not here."
+          >
+            <LocalModelStatus />
           </SettingsCard>
         </div>
       </PageSection>

@@ -53,6 +53,67 @@ export function llmConfig(
   };
 }
 
+/** How long the Settings page waits for the model server (36b). */
+export const LLM_STATUS_TIMEOUT_MS = 2_000;
+
+export interface LlmStatus {
+  /** The server answered its model list. */
+  reachable: boolean;
+  /** The configured model is in that list; unknown when it has none. */
+  modelAvailable?: boolean;
+  /** Why it is not reachable. */
+  error?: string;
+}
+
+/**
+ * Is the model server up, and does it have the model? One `GET` of its model
+ * list — Ollama's `/api/tags`, OpenAI's `/v1/models` — with a short timeout:
+ * the Settings page's "Local model" line (36b). Never throws.
+ */
+export async function llmStatus(
+  config: LlmConfig,
+  timeoutMs = LLM_STATUS_TIMEOUT_MS,
+): Promise<LlmStatus> {
+  const url = config.url.replace(/\/+$/, "");
+  const listUrl =
+    config.api === "ollama"
+      ? `${url}/api/tags`
+      : /\/v1$/.test(url)
+        ? `${url}/models`
+        : `${url}/v1/models`;
+  try {
+    const response = await fetch(listUrl, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) {
+      return { reachable: false, error: `answered ${response.status}` };
+    }
+    const body = (await response.json().catch(() => undefined)) as
+      | {
+          models?: { name?: string; model?: string }[];
+          data?: { id?: string }[];
+        }
+      | undefined;
+    const names =
+      config.api === "ollama"
+        ? body?.models?.flatMap((entry) => [entry.name, entry.model])
+        : body?.data?.map((entry) => entry.id);
+    const listed = names?.filter((name): name is string => !!name);
+    return {
+      reachable: true,
+      ...(listed ? { modelAvailable: listed.includes(config.model) } : {}),
+    };
+  } catch (error) {
+    return {
+      reachable: false,
+      error:
+        isTimeout(error) || (error as Error)?.name === "AbortError"
+          ? `no answer within ${Math.round(timeoutMs / 1000)} s`
+          : ((error as Error)?.message ?? String(error)),
+    };
+  }
+}
+
 export type LlmErrorKind =
   | "unconfigured"
   | "unreachable"

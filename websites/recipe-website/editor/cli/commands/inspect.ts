@@ -10,8 +10,14 @@ import { outputFile } from "fs-extra";
 import { UsageError } from "../../controller/curation/errors";
 import type { InspectResult } from "../backend/types";
 import { resolveUserPath } from "../input";
-import { formatJsonBlock } from "../output";
-import { stringOption, type CommandDef } from "./types";
+import { formatJsonBlock, formatLlm, formatWarnings } from "../output";
+import {
+  LLM_OPTION,
+  LLM_USAGE,
+  llmOption,
+  stringOption,
+  type CommandDef,
+} from "./types";
 
 /** Write a draft for `create --file`; shared with `import --dry-run --out`. */
 export async function writeDraft(file: string, draft: unknown): Promise<void> {
@@ -23,14 +29,16 @@ export async function writeDraft(file: string, draft: unknown): Promise<void> {
 
 export const inspectCommand: CommandDef<InspectResult> = {
   name: "inspect",
-  usage: "recipes inspect <url> [--out draft.json]",
+  usage: `recipes inspect <url> [--out draft.json] ${LLM_USAGE}`,
   options: {
     out: { type: "string" },
+    ...LLM_OPTION,
   },
   async run({ backend, positionals, options }) {
     const url = positionals[0];
     if (!url) throw new UsageError("inspect needs a URL.");
-    const result = await backend.inspect(url);
+    const llm = llmOption(options);
+    const result = await backend.inspect(url, llm ? { llm } : {});
     const out = stringOption(options, "out");
     if (out) {
       if (!result.draft) {
@@ -47,8 +55,12 @@ export const inspectCommand: CommandDef<InspectResult> = {
       `${result.url}${result.finalUrl !== result.url ? ` → ${result.finalUrl}` : ""}`,
       result.status !== undefined ? `status: ${result.status}` : undefined,
       result.partial
-        ? "partial: no Recipe node — title, description and image only"
+        ? result.llm?.found && !result.llm.discarded
+          ? "partial: the local model's reading is not trusted — check it"
+          : "partial: no Recipe node — title, description and image only"
         : undefined,
+      formatLlm(result.llm),
+      ...formatWarnings(result.warnings),
       result.ytdlp ? `yt-dlp: ${result.ytdlp}` : undefined,
       result.video
         ? `video: ${result.video.title} (${result.video.channel ?? "?"}, ${result.video.duration}s, ${result.video.chapters.length} chapters)`

@@ -8,6 +8,7 @@
  * branch on the exit code without parsing prose.
  */
 import { toErrorObject } from "../controller/curation/errors";
+import type { LlmImportInfo } from "../controller/llm/importWithLlm";
 import type { CommandDef } from "./commands/types";
 
 export function emit<TResult>(
@@ -37,6 +38,27 @@ export function emitError(error: unknown, json: boolean): void {
 
 export function warn(message: string): void {
   process.stderr.write(`${message}\n`);
+}
+
+/**
+ * The local model's line (epic 36): its grounded count, or why it gave
+ * nothing. `undefined` when it was not asked.
+ */
+export function formatLlm(
+  llm: LlmImportInfo | undefined,
+  indent = "",
+): string | undefined {
+  if (!llm) return undefined;
+  const time =
+    llm.durationMs !== undefined
+      ? `, ${(llm.durationMs / 1000).toFixed(1)} s`
+      : "";
+  const what = llm.error
+    ? `not used (${llm.error})`
+    : !llm.found
+      ? "found no recipe"
+      : `${llm.grounded ?? 0}/${llm.total ?? 0} ingredient lines grounded${llm.discarded ? " — discarded" : ""}`;
+  return `${indent}local model (${llm.mode}): ${llm.model} ${what}${time}`;
 }
 
 /** A result's `warnings`, as the indented `! …` lines a human format ends with. */

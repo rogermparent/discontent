@@ -135,12 +135,13 @@ function subcommandTableFor(
 
 const USAGE = `Usage: pnpm recipes <command> [options]
 
-  inspect <url> [--out draft.json]
+  inspect <url> [--out draft.json] [--llm auto|force|off]
   import <url> [--tags a,b] [--slug s] [--name N] [--image <url>]
                [--dry-run [--out draft.json]] [--overwrite] [--allow-partial]
+               [--llm auto|force|off]
   inspect-list <url>
   import-list <url> (--pick 1,3,5-7|<url>,… | --all) [--term <slug> [--term-label L]]
-              [--limit 1-6] [--dry-run]
+              [--limit 1-6] [--dry-run] [--llm auto|force|off]
   create (--file recipe.json | --stdin) [--overwrite] [--dry-run]
   update <slug> (--file patch.json | --stdin) [--dry-run]
   image <slug> (--url <image-url> | --file <path> | --clear)
@@ -222,10 +223,16 @@ Environment:
                        --notify. Mint one with \`pnpm create-token\` in the
                        editor package. Never passed on argv.
   RECIPE_EDITOR_URL    Same as --editor-url
-  RECIPE_ENV_FILE      The file RECIPE_API_TOKEN and RECIPE_EDITOR_URL are
-                       read from when the environment lacks them (default
+  RECIPE_ENV_FILE      The file RECIPE_API_TOKEN, RECIPE_EDITOR_URL and the
+                       RECIPE_LLM_* variables are read from when the
+                       environment lacks them (default
                        websites/recipe-website/editor/.env; nothing else in
                        it is read)
+  RECIPE_LLM_URL       A local model server for imports (Ollama, e.g.
+                       http://localhost:11434); unset, --llm auto does
+                       nothing and --llm force fails
+  RECIPE_LLM_MODEL     The model (default qwen3:8b)
+  RECIPE_LLM_API       ollama (default) or openai (/v1/chat/completions)
   RECIPE_AUTHOR        "Name <email>" for local commits; same as --author
   CONTENT_DIRECTORY    Local content directory; same as --content-dir
   YTDLP_PATH           yt-dlp binary for video imports (else the Settings
@@ -260,6 +267,12 @@ the picks one commit each, 15 s apart per site (images and 403 retries
 count), at most --limit per run (3, or 6 for --dry-run; 6 at most). Re-run with
 --pick <the remaining URLs> to continue; a run forgets the last one's clock,
 so leave 15 s between runs against one site.
+
+A local model (RECIPE_LLM_URL): --llm auto (the default) has it read a page
+with no Recipe node; --llm force has it read every page, its lines replacing
+the schema's; --llm off never asks it. The result's \`llm\` says how many
+ingredient lines it found on the page — fewer than half and its reading is
+dropped, fewer than 90% and the result stays partial. A call takes ~5–45 s.
 
 Piping --json: run it as \`pnpm --silent recipes …\`. Without --silent, pnpm
 prints its own script banner on stdout ahead of the object, so the stream is

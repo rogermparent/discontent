@@ -53,6 +53,7 @@ import {
   IMPORT_LIST_MAX_PICKS,
   ListPickSchema,
 } from "../controller/curation/importList";
+import { LLM_MODES } from "../controller/llm/mode";
 import type { RecipeRow } from "../controller/curation/recipes";
 import {
   FeaturedInputSchema,
@@ -315,6 +316,16 @@ function toRef(recipe?: string, subgroup?: string): GroupItemRef {
 
 const READ_ONLY = { readOnlyHint: true } as const;
 const WRITES = { readOnlyHint: false } as const;
+
+/** The `llm` option of the import tools (epic 36, D3/D4). */
+const LLM_DESCRIPTION =
+  "`llm` is the local model's part (when the server has one configured): `auto` " +
+  "(default) has it read a page with no Recipe node (or a video's description), " +
+  "`force` has it read every page with its lines replacing the schema's, `off` never. " +
+  "A result it touched carries `llm: {model, found, grounded, total, …}` — how many " +
+  "of its ingredient lines were found on the page; under half and its reading is " +
+  "dropped (`discarded`), under 90% the result stays `partial`. Spot-check it " +
+  "against the page. A model call takes ~5–45 s; `force` with no model is import_failed.";
 const IDEMPOTENT_WRITE = { readOnlyHint: false, idempotentHint: true } as const;
 const DESTRUCTIVE_WRITE = {
   readOnlyHint: false,
@@ -462,11 +473,15 @@ export function createRecipeServer(
         "categories and keywords as `suggestedTags` (hints, never applied), and — for a " +
         "video host — yt-dlp's `video` metadata (full description, chapters, " +
         "thumbnails). `partial: true` means the page had no Recipe node: the draft is " +
-        "only its title, description and image.",
-      inputSchema: z.strictObject({ url: z.string().min(1) }),
+        "only its title, description and image. " +
+        LLM_DESCRIPTION,
+      inputSchema: z.strictObject({
+        url: z.string().min(1),
+        llm: z.enum(LLM_MODES).optional(),
+      }),
       annotations: READ_ONLY,
     },
-    async ({ url }) => read(() => backend.inspect(url)),
+    async ({ url, ...options }) => read(() => backend.inspect(url, options)),
   );
 
   register(
@@ -477,7 +492,8 @@ export function createRecipeServer(
         "Fetch a page, extract its recipe and write it, keeping the source as " +
         "provenance. `dryRun` returns what would be written — and a create-ready " +
         "`draft` — without writing it. `image` replaces the page's best image URL. " +
-        "A page with no Recipe node is refused unless `allowPartial`.",
+        "A page with no Recipe node is refused unless `allowPartial`. " +
+        LLM_DESCRIPTION,
       inputSchema: z.strictObject({
         url: z.string().min(1),
         tags: z.array(z.string()).optional(),
@@ -487,6 +503,7 @@ export function createRecipeServer(
         dryRun: z.boolean().optional(),
         overwrite: z.boolean().optional(),
         allowPartial: z.boolean().optional(),
+        llm: z.enum(LLM_MODES).optional(),
       }),
       annotations: WRITES,
     },
@@ -543,7 +560,9 @@ export function createRecipeServer(
         "before anything is fetched: validation (no pick, a pick past the end, a termLabel " +
         "that is another term's alias), no_git_identity (no committer for a real run); " +
         "after: import_failed (the list page cannot be fetched). A write refused mid-call " +
-        "(dirty_tree) fails that item.",
+        "(dirty_tree) fails that item. `llm` as for recipe_import, on each item: under " +
+        "`auto` a page with no Recipe node is imported when a local model reads it " +
+        "trustworthily, and each such result carries `llm`.",
       inputSchema: z.strictObject({
         url: z.string().min(1),
         pick: z.array(ListPickSchema).max(IMPORT_LIST_MAX_PICKS).optional(),
@@ -552,6 +571,7 @@ export function createRecipeServer(
         termLabel: z.string().min(1).optional(),
         dryRun: z.boolean().optional(),
         limit: z.number().int().min(1).max(IMPORT_LIST_MAX_LIMIT).optional(),
+        llm: z.enum(LLM_MODES).optional(),
       }),
       annotations: WRITES,
     },
