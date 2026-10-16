@@ -15,7 +15,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 38a ∥ 38b (wave 1).
+**Now:** closed (2026-10-16).
 
 ## Context
 
@@ -76,15 +76,15 @@ The content repo is never pushed from a session.
 
 ## Roadmap
 
-| Phase    | Size | Branch                  | Status | PR  | What                                                                                    |
-| -------- | ---- | ----------------------- | ------ | --- | --------------------------------------------------------------------------------------- |
-| 38a      | M    | `agent/38a-reader-ux`   | 🟡     |     | D1, D2: `/drinks` window + families, tile counts, `/tags` aliases, Make matching, AA.   |
-| 38b      | M    | `agent/38b-jobs-polish` | 🟡     |     | D3: dish names, `/jobs` idle refresh and Pi card, Pi jobs volume, roundup steps, queue. |
-| 38c      | M    | `agent/38c-reading`     | 📝     |     | Local-model post-processing (36-T23–T36), video link follow, several JSON-LD, cache.    |
-| 38d      | M    | `agent/38d-shopping-v2` | 📝     |     | D4: `OR:` lines, sub-recipe expansion, amount-less merge, browser-held ticks.           |
-| 38e      | L    | `agent/38e-photo`       | 📝     |     | D5: photo / recipe-card import (vision transcribe → text import) on every surface.      |
-| 38f      | S    | (content repo)          | 📝     |     | D6: duplicate merges, `lunch` → `sandwich`, drink fixes; Roger's calls listed.          |
-| 38-close | S    | `agent/38-close`        | 📝     |     | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                       |
+| Phase    | Size | Branch                  | Status | PR            | What                                                                                    |
+| -------- | ---- | ----------------------- | ------ | ------------- | --------------------------------------------------------------------------------------- |
+| 38a      | M    | `agent/38a-reader-ux`   | ✅     | #246          | D1, D2: `/drinks` window + families, tile counts, `/tags` aliases, Make matching, AA.   |
+| 38b      | M    | `agent/38b-jobs-polish` | ✅     | #245          | D3: dish names, `/jobs` idle refresh and Pi card, Pi jobs volume, roundup steps, queue. |
+| 38c      | M    | `agent/38c-reading`     | ✅     | #247          | Local-model post-processing (36-T23–T36), video link follow, several JSON-LD, cache.    |
+| 38d      | M    | `agent/38d-shopping-v2` | ✅     | #248          | D4: `OR:` lines, sub-recipe expansion, amount-less merge, browser-held ticks.           |
+| 38e      | L    | `agent/38e-photo`       | ✅     | #249          | D5: photo / recipe-card import (vision transcribe → text import) on every surface.      |
+| 38f      | S    | (content repo)          | ✅     | — (no writes) | D6: duplicate merges, `lunch` → `sandwich`, drink fixes; Roger's calls listed.          |
+| 38-close | S    | `agent/38-close`        | ✅     | #250          | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                       |
 
 Ordering, in waves: 38a ∥ 38b (disjoint: common/reader vs editor/jobs), then
 38c ∥ 38d, then 38e (the GPU and a model pull), 38f whenever the workstation
@@ -401,6 +401,13 @@ stopped … vk::Queue::submit: ErrorDeviceLost"}`; 1024×680 (0.70 MP,
   Ollama.
 
 ### 38f
+
+- **Tf1 — bare `curl` gets Cloudflare's JS challenge on acouplecooks.com,
+  even with the importer's UA.** A direct `curl -A "<importer UA>" …`
+  against `acouplecooks.com` answers Cloudflare's JS-challenge page (403);
+  the CLI's `inspect` (Node `fetch`, the same code path a real import
+  uses) gets 200 on the same URL. Check a page's content through `recipes
+inspect`, not a bare `curl`, before concluding a source is unreachable.
 
 ## Results
 
@@ -1340,4 +1347,150 @@ repo and a scratch `RECIPE_JOBS_DIR`.
 
 ### 38f — Content round
 
+**No content-repo writes.** The real repo was left clean at 746e4336;
+the workstation editor was never stopped, since nothing here needed a
+scripted write.
+
+**What was verified.**
+
+- **The epic-35 cleanup had already landed.** `tag:lunch` is 0 and
+  `marble-rye-bread` is `not_found` (no `lunch` term record either) — the
+  35h content round (`agent-epic-35.md` Results) already removed `lunch`
+  from its two carriers (both were already tagged `sandwich`) and deleted
+  `marble-rye-bread` (the same 9 ingredients as `marble-rye`, which has the
+  photo). The other three "pairs" noticed at epic 33 are distinct recipes
+  with their own display names: `white-chili` ("White Chili", tasteofhome)
+  vs `white-chicken-chili` ("White Chicken Chili", no source);
+  `barbacoa-beef` ("Slow Cooker Barbacoa Beef") vs `barbacoa-beef-2` ("…
+  2"); `arayes` ("Arayes", no source) vs
+  `arayes-lebanese-meat-stuffed-pita` (recipetineats) — kept as written,
+  as 35h judged.
+- **The Sake Cosmo image was already set, at creation.** Set since
+  bddc1379 (2026-10-09, `Sake-Cosmo-9.jpg`) and renders; the backlog row
+  naming it as open was stale.
+- **The red-wine-spritzer citation has no fix that needs no decision.**
+  Its source, `https://www.acouplecooks.com/red-wine-spritzer/`, redirects
+  to `/white-wine-spritzer/`, which has no red-wine variation (grep: 0
+  matches). Left alone — Roger's call (re-point the citation, drop it, or
+  re-source the recipe).
+- **Counts:** `tag:lunch` 0, `tag:drink` 217.
+
+**Trap Tf1** — see Traps, above: a bare `curl` gets Cloudflare's
+JS-challenge 403 on `acouplecooks.com` even with the importer's UA; the
+CLI's `inspect` (Node `fetch`) gets 200 on the same URL. Use the CLI to
+check a source page, not a bare `curl`.
+
+**Roger's calls, listed and not applied:** the two kid-party drinks
+(`mermaid-lemonade-foodnetwork` / `cotton-candy-fizz-foodnetwork`, keep or
+delete), a source for the Spicy Cascara Highball (none in the repo), the
+Zero-Proof Spritz (only `zero-proof-aperol-spritz-acouplecooks` exists),
+the red-wine-spritzer citation (re-point to `/white-wine-spritzer/`, drop,
+or re-source), and the 51 uncertain facet calls from epic 33 (its own
+review list isn't recoverable from `agent-epic-33.md` — the list named at
+Method step 5, ~l.127, and Results, ~l.156, doesn't store the review
+artifact's URL; re-run a review if this is wanted).
+
 ## Close-out
+
+**What shipped, phase by phase.**
+
+- **38a — Reader UX follow-through.** `/drinks`' seasonal row now hides
+  past a 60-day window (D1, `withinDays`/`nextSeasonal`) and groups its
+  ready list by drink family ("Daiquiri · 2 drinks") instead of listing
+  each one bare. Tag-board counts — the homepage's intent tiles, Coming
+  up, browse chips and `/tags` — now count a recipe through every alias of
+  a term (D2, `termKeys`), and `/tags` prints a term's aliases. Make
+  matching reads agave ages in either word order ("tequila blanco" ≡
+  "blanco tequila", Da1), and a signed-in editor's "Assume I always have"
+  staples save to `settings.json` and seed the browser (Da2). A
+  `settings.json` write is now atomic with a cross-process lock
+  (`updateSettings`), fixing a read-modify-write race that could wipe
+  theme, mirrors or another device's staples (Ta6). AA contrast fixed on
+  three error lines.
+- **38b — Jobs polish.** `/jobs` now refreshes itself (2 s live, 10 s
+  idle, paused while hidden); Jobs is its own Settings item, shown on
+  every role (mirror included), while Tools stays workstation-only.
+  `/new-recipe?import=<url>` prefills and waits for the Import button
+  (D3) rather than starting a job on a GET. The roundup picker now shows
+  each chunk's live steps instead of a silent wait. Image downloads at
+  save time are paced per host like every other fetch (Db5), a host's
+  403-drop is a file the whole machine's queue honours and outlives a
+  redeploy (Db3/Db4), `SiteState` serves interactive waiters ahead of
+  batch ones, and pacing keys by host minus `www.` rather than
+  `siteKey`'s last two labels, which over-grouped CDNs and `.co.uk`
+  sites (Db6). `deploy:pi` now mounts a host directory for
+  `RECIPE_JOBS_DIR`.
+- **38c — Import reading fixes.** A deterministic `tidy` pass now runs on
+  the model's raw reading before extraction, fixing six real 36-T23–T36
+  misreads (ALL-CAPS names, an "all in" total time, an unnumbered method
+  split into steps, colon-less sub-headings, a source line that changed a
+  pasted reading, a credit line taken as the only step) — each logged as
+  a `tidy` note with its trap number. A page with several JSON-LD
+  `Recipe` nodes now goes to the 36e picker instead of always taking the
+  first (Dc4); a video with no recipe but one recipe link in its
+  description is followed, once, through the normal import path (Dc5,
+  with an SSRF fix for a private-network link). A reading is kept by spec
+  hash in the job store for 30 minutes, so a `--pick` retry after a
+  several-recipe refusal doesn't re-run the model (Dc6). Vimeo's `#t=`
+  start times are now written, read and played.
+- **38d — Shopping list v2.** `OR:` lines fold onto the row above them
+  instead of standing as their own item (Dd5/Dd10), a `[text](/recipe/
+slug)` line expands into its sub-recipe's ingredients when the link
+  text names only that recipe (Dd1/Dd2/Dd9), amount-less lines like
+  "pinch salt" merge into the measured row instead of sitting apart
+  (Dd7), and "Done shopping" can hold ticks in the browser and send them
+  as one `PATCH` instead of one commit per tick (Dd8/Dd13, off by
+  default). Both the sub-recipe and the held-tick behaviours are
+  settings, matching 35's "every feature a switch".
+- **38e — Photo / recipe-card import.** A photographed or screenshotted
+  recipe card can now be imported: the vision model
+  (`RECIPE_LLM_VISION_MODEL`, opt-in, De1) transcribes each photo in its
+  own call, then the existing pasted-text path reads, grounds and
+  (36e-)splits the transcription exactly as a paste would — on the form
+  ("Photo" mode, up to 4 photos), `recipes import --photo`, `/api/import`
+  multipart, and `recipe_import`'s `photos`. Every photo is fitted inside
+  1024 px / 0.75 MP before it is sent: a real-GPU check found a larger
+  image crashes Ollama's runner on the RX 6600 (Te5), and a crashed or
+  errored call now unloads the model and surfaces the server's words
+  instead of reading as "no text found". "Use the photo as the recipe's
+  image" commits the photo fitted to 2000 px, not the 1024 px copy the
+  model read (De7).
+- **38f — Content round.** No content-repo writes were needed: the
+  epic-35 content round had already resolved the duplicate-merge and
+  `lunch` → `sandwich` candidates, and the Sake Cosmo image had been set
+  since the recipe's creation. The red-wine-spritzer citation and five
+  other calls are left for Roger (see 38f Results, above).
+
+**Roger's steps.**
+
+1. `pnpm workstation update` on the workstation (main checkout). **No
+   reindex** — no phase changed an index layout or spec version (38a's
+   alias counts are read-time).
+2. Turn on photo import: add `RECIPE_LLM_VISION_MODEL=qwen2.5vl:7b` to
+   `websites/recipe-website/editor/.env` (the model is already pulled on
+   the workstation; it's opt-in, De1). Photos are fitted to 1024 px
+   (Te5: larger images crash Ollama's runner on the RX 6600).
+3. Optional `pnpm deploy:pi` — it now mounts `~/recipe-editor/jobs` for
+   `RECIPE_JOBS_DIR` (38b). Until the Pi is deployed, its old build
+   rejects/drops 38d's new shopping keys (`features.subRecipes`,
+   `holdTicks`, an item's `for`) — transient.
+4. Behaviour notes: a corrupt `settings.json` now makes `PUT
+/api/settings/site` answer an error instead of silently replacing it
+   (38a); `/new-recipe?import=` waits for the Import button (D3); `/jobs`
+   is now in Settings on the Pi too.
+5. Content calls (from 38f): keep or delete
+   `mermaid-lemonade-foodnetwork` / `cotton-candy-fizz-foodnetwork`; a
+   source for the Spicy Cascara Highball; the Zero-Proof Spritz (only
+   `zero-proof-aperol-spritz-acouplecooks` exists); the red-wine-spritzer
+   citation (re-point to `/white-wine-spritzer/`, drop, or re-source);
+   the 51 uncertain facet calls from epic 33 (its review list isn't
+   recoverable from the doc — re-run a review if wanted).
+
+**Backlog** (also added to `backlog.md`): the form's single-URL import
+panel has the no-store gap the picker had (Tb5); site keys by host minus
+`www.` — a public-suffix list would group subdomains properly (Db6); no
+flag to bypass the 30-minute reading cache (38c); a recipe line that
+names a sub-recipe without linking it isn't expanded (38d); held ticks
+have no age limit (38d); a re-pulled vision model reuses kept transcripts
+(Te6); `RECIPE_LLM_API=openai` against Ollama's `/v1` skips unload and
+placement (Te7).
