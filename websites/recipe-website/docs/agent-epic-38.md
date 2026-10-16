@@ -1044,11 +1044,14 @@ Deferred:
 - No undo of an expansion on the list (remove the rows, or switch off and
   add again).
 
-Gates (after the review fixes and the merge of `origin/main` with 38b, all
-through the heavy slot): `pnpm --filter recipe-editor typecheck` and
-`pnpm --filter recipe-website exec tsc --noEmit` clean; full vitest 98
-files / 2043 tests passed (before the merge); Playwright build mode
-`shopping.spec make.spec` 41/41. Its first run found the expansion spec
+Gates (after the review fixes and the merges of `origin/main` with 38b,
+38a and 38c, all through the heavy slot): `pnpm --filter recipe-editor
+typecheck` and `pnpm --filter recipe-website exec tsc --noEmit` clean;
+the parser and shopping vitest files 373/373 and the full suite 101 files
+/ 2081 tests (after 38a, before 38c, which touches no shopping code);
+Playwright build mode `shopping.spec make.spec` 42/42 after both merges.
+38a's `readableLine` merged without conflict: the `OR:` label is read
+from its output. The first Playwright run found the expansion spec
 asserting no "Simple Syrup" on a list whose notes name the syrup; the
 spec now checks that the linking line ("batch Simple Syrup") is no row.
 
