@@ -72,6 +72,10 @@ test.describe("yt-dlp Import", () => {
     await page.getByRole("button", { name: "Import" }).click();
 
     await expect(page.getByText("yt-dlp binary was not found")).toBeVisible();
+    /* 37c: still a filled form (the bare link), so the job is done. */
+    await expect(
+      page.getByTestId("import-progress").getByRole("heading", { level: 3 }),
+    ).toHaveText("Import done");
   });
 
   test("should prevent the user from submitting another request while one is currently running", async ({
@@ -85,6 +89,12 @@ test.describe("yt-dlp Import", () => {
     await page.getByRole("button", { name: "Import" }).click();
 
     await expect(page.getByRole("button", { name: "Import" })).toBeDisabled();
+    /* 37c: the job's panel says what runs — yt-dlp, while the mimic sleeps. */
+    const panel = page.getByTestId("import-progress");
+    await expect(panel.locator('[data-step="ytdlp"]')).toHaveAttribute(
+      "data-status",
+      "running",
+    );
 
     await expect(page.locator('[name="name"]')).toHaveValue(
       "Slow Recipe Video",
@@ -92,5 +102,8 @@ test.describe("yt-dlp Import", () => {
     );
 
     await expect(page.getByRole("button", { name: "Import" })).toBeEnabled();
+    await expect(panel.getByRole("heading", { level: 3 })).toHaveText(
+      "Import done",
+    );
   });
 });

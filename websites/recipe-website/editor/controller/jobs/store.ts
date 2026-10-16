@@ -100,6 +100,8 @@ export interface JobMeta {
    * file for display; absent when it waits for nothing.
    */
   waiting?: JobWaiting;
+  /** The job this one ran again (37c's Retry). */
+  retryOf?: string;
 }
 
 /** D1: how many jobs are kept, and for how long. */
@@ -173,11 +175,12 @@ export async function readCancelRequest(
 export function newJobMeta(
   id: string,
   init: Pick<JobMeta, "kind" | "label" | "spec"> &
-    Partial<Pick<JobMeta, "tier" | "resources" | "status">>,
+    Partial<Pick<JobMeta, "tier" | "resources" | "status" | "retryOf">>,
   now = Date.now(),
 ): JobMeta {
   const self = processIdentity();
   return {
+    ...(init.retryOf ? { retryOf: init.retryOf } : {}),
     id,
     kind: init.kind,
     label: init.label,

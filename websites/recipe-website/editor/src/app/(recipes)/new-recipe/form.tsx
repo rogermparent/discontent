@@ -2,7 +2,13 @@
 
 import CreateRecipeFields from "recipe-website-common/components/Form/Create";
 import { RecipeFormShell } from "recipe-website-common/components/Form/RecipeFormShell";
-import { useActionState, useEffect, useRef, useState } from "react";
+import {
+  useActionState,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { RecipeFormState } from "recipe-website-common/controller/formState";
@@ -10,7 +16,7 @@ import {
   createRecipe,
   overwriteRecipe,
 } from "recipe-editor/controller/actions";
-import { importRecipeAction } from "./actions";
+import { importRecipeAction, type ImportStartState } from "./actions";
 import { TextInput } from "@discontent/component-library/components/Form/inputs/Text";
 import { TextAreaInput } from "@discontent/component-library/components/Form/inputs/TextArea";
 import {
@@ -19,6 +25,8 @@ import {
 } from "recipe-website-common/util/videoUrl";
 import type { RecipeActionState } from "./common";
 import BatchPicker, { plannedSlug } from "./BatchPicker";
+import ImportProgress from "./ImportProgress";
+import type { JobRecord } from "recipe-editor/controller/jobs/views";
 import {
   linkReading,
   mergeReadings,
@@ -68,22 +76,62 @@ function pendingNote({
 export default function NewOrImportRecipeForm({
   slug,
   initialState: initialImportState,
+  initialJob,
   allTags = [],
   busy = false,
   llmModel,
 }: {
   slug?: string;
   initialState: RecipeActionState | null;
+  /**
+   * A job to follow from the start (37c: `/new-recipe?job=<id>`); with
+   * `initialState`, its result is already in the form.
+   */
+  initialJob?: string;
   allTags?: string[];
   /** A roundup import is running (35r): Import and Submit wait for it. */
   busy?: boolean;
   /** The local model's name, or nothing when none is configured (36b). */
   llmModel?: string;
 }) {
-  const [importState, importDispatch, importPending] = useActionState(
-    importRecipeAction,
+  /*
+   * The import is a job (37c, D7): the action answers its id at once, the
+   * progress panel follows it, and its result lands here when it ends.
+   */
+  const [importState, setImportState] = useState<RecipeActionState | null>(
     initialImportState,
   );
+  const [activeJob, setActiveJob] = useState<string | undefined>(initialJob);
+  /* The job whose end the form has seen (its result is in `importState`). */
+  const [settledJob, setSettledJob] = useState<string | undefined>(
+    initialImportState ? initialJob : undefined,
+  );
+  const importPending = !!activeJob && settledJob !== activeJob;
+  const [, importDispatch] = useActionState(
+    async (previous: ImportStartState | null, formData: FormData) => {
+      const started = await importRecipeAction(previous, formData);
+      if (started.job) {
+        setActiveJob(started.job);
+        /* Leaving the page loses nothing: back here reopens the job. */
+        window.history.replaceState(
+          window.history.state,
+          "",
+          `/new-recipe?job=${encodeURIComponent(started.job)}`,
+        );
+      } else if (started.message) {
+        setImportState({ message: started.message });
+      }
+      return started;
+    },
+    null,
+  );
+  const onSettled = useCallback((meta: JobRecord) => {
+    setSettledJob(meta.id);
+    const result = meta.result as RecipeActionState | undefined;
+    if (result && typeof result === "object") {
+      setImportState({ ...result, job: meta.id });
+    }
+  }, []);
   const [forceLlm, setForceLlm] = useState(false);
   /* Pasting the text (36c; a fallback since 36d): controlled, so a failed
    * import keeps it. */
@@ -152,6 +200,13 @@ export default function NewOrImportRecipeForm({
 
   return (
     <div>
+      {activeJob ? (
+        <ImportProgress
+          key={activeJob}
+          job={activeJob}
+          onSettled={settledJob === activeJob ? undefined : onSettled}
+        />
+      ) : null}
       <form id="import-form" action={importDispatch}>
         {message ? (
           <div className="my-1 rounded bg-muted px-2 py-1 text-sm text-muted-foreground">
@@ -292,7 +347,7 @@ export default function NewOrImportRecipeForm({
           </>
         )}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <SubmitButton disabled={busy}>Import</SubmitButton>
+          <SubmitButton disabled={busy || importPending}>Import</SubmitButton>
           {busy ? (
             <span className="text-sm text-muted-foreground">
               Waiting for the roundup import to finish…

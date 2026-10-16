@@ -78,6 +78,13 @@ import type {
   RecipeWriteResult,
 } from "../../controller/curation/recipes";
 import type { ReindexResult } from "../../controller/curation/reindex";
+import type {
+  JobCancelResult,
+  JobListOptions,
+  JobListResult,
+  JobRetryResult,
+  JobView,
+} from "../../controller/jobs/views";
 import type { SearchResult } from "../../controller/curation/search";
 import type {
   TermAssignResult,
@@ -118,6 +125,11 @@ export type {
   InspectResult,
   InventoryResult,
   InventoryWriteResult,
+  JobCancelResult,
+  JobListOptions,
+  JobListResult,
+  JobRetryResult,
+  JobView,
   MakeableResult,
   PullResult,
   PushResult,
@@ -399,6 +411,24 @@ export interface CuratorBackend {
    * rebuilds every index. Expected failures are an `outcome`, not a throw.
    */
   gitSync(options?: GitSyncOptions): Promise<SyncResult>;
+
+  /*
+   * The job store (epic 37, 37c): local, this machine's store
+   * (`RECIPE_JOBS_DIR`); remote, the editor's, over `/api/jobs`.
+   */
+  /** Newest first; `status`, `kind`, `limit` filter. */
+  listJobs(options?: JobListOptions): Promise<JobListResult>;
+  /** One job: its record and its step log from byte `from` on. */
+  getJob(id: string, options?: { from?: number }): Promise<JobView>;
+  /** Stop a job wherever it runs (`requestJobCancel`). */
+  cancelJob(id: string): Promise<JobCancelResult>;
+  /**
+   * Run a job again with this backend's own context: locally it runs here
+   * and the answer is its end; remotely the editor starts it and answers
+   * at once (`status: "running"`). A spec recorded against another content
+   * directory is `usage`.
+   */
+  retryJob(id: string): Promise<JobRetryResult>;
 
   /**
    * Run after a command whose `write` flag is set; the string it resolves to is

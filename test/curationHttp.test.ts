@@ -67,6 +67,8 @@ describe("statusFor", () => {
       dirty_tree: 409,
       git_conflict: 409,
       bad_revision: 422,
+      /* 37c: a job a person stopped — the server's state, like a conflict. */
+      cancelled: 409,
       internal: 500,
     };
     for (const [code, status] of Object.entries(table)) {

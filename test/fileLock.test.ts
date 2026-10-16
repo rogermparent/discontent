@@ -9,6 +9,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  rename,
   rm,
   stat,
   utimes,
@@ -217,9 +218,13 @@ describe("fileLock", () => {
     });
     await sleep(60);
     expect(lost).toEqual([]);
-    /* Taken over while this holder was suspended: another id holds it now. */
-    await rm(path);
-    await tryCreateLock(path, owner("b"), "b");
+    /*
+     * Taken over while this holder was suspended: another id holds it now.
+     * Swapped in with one rename (37c): `rm` then create left a gap in which
+     * a beat under load read no lock at all, and reported that loss first.
+     */
+    await tryCreateLock(`${path}.b`, owner("b"), "b");
+    await rename(`${path}.b`, path);
     await vi.waitFor(() => expect(lost).toEqual(["b"]), {
       timeout: 10_000,
       interval: 20,

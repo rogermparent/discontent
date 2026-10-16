@@ -26,11 +26,11 @@ import {
   type ErrorObject,
 } from "recipe-editor/controller/curation/errors";
 import {
-  importBatchPicks,
   shortSource,
   type BatchPick,
   type ImportBatchItem,
 } from "recipe-editor/controller/curation/importRecipe";
+import { corpusOf, runSpec } from "recipe-editor/controller/jobs/kinds";
 import { parseInput } from "recipe-editor/controller/curation/schema";
 import { authenticateUser } from "recipe-editor/controller/actions/shared";
 
@@ -82,7 +82,9 @@ export type RecipeBatchInput = z.input<typeof RecipeBatchInputSchema>;
 /** Create the picked recipes, one commit each. */
 export async function importRecipeBatchAction(
   raw: RecipeBatchInput,
-): Promise<{ recipes: ImportBatchItem[] } | { error: ErrorObject["error"] }> {
+): Promise<
+  { recipes: ImportBatchItem[]; job?: string } | { error: ErrorObject["error"] }
+> {
   try {
     const email = await authenticateUser();
     if (!email) throw new UnauthenticatedError();
@@ -91,13 +93,20 @@ export async function importRecipeBatchAction(
     const commitNote = input.pastedText
       ? "local model, pasted text, {n} of {total}"
       : `local model, {n} of {total}${input.url ? ` from ${shortSource(input.url)}` : ""}`;
-    const recipes = await importBatchPicks(ctx, input.picks as BatchPick[], {
-      total: input.total,
-      ...(input.siblings ? { siblings: input.siblings } : {}),
-      commitNote,
-      allowPartial: true,
-    });
-    return { recipes };
+    /* A job since 37c (`form-batch`): a step log, `/jobs`, Cancel, Retry. */
+    const { recipes, job } = await runSpec(
+      {
+        kind: "form-batch",
+        ...corpusOf(ctx),
+        ...(input.url ? { url: input.url } : {}),
+        picks: input.picks as BatchPick[],
+        total: input.total,
+        ...(input.siblings ? { siblings: input.siblings } : {}),
+        commitNote,
+      },
+      { ctx },
+    );
+    return { recipes, job };
   } catch (error) {
     return { error: toErrorObject(error).error };
   }

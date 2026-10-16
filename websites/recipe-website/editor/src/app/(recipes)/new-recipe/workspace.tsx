@@ -13,11 +13,14 @@ import type { RecipeActionState } from "./common";
  */
 export default function NewRecipeWorkspace({
   initialState,
+  initialJob,
   allTags,
   terms,
   llmModel,
 }: {
   initialState: RecipeActionState | null;
+  /** `/new-recipe?job=<id>` (37c): the form import to reopen or follow. */
+  initialJob?: string;
   allTags: string[];
   terms: { slug: string; label: string }[];
   /** The local model's name, or nothing when none is configured (36b). */
@@ -29,6 +32,7 @@ export default function NewRecipeWorkspace({
       <RoundupImport terms={terms} onRunningChange={setRoundupRunning} />
       <CreateForm
         initialState={initialState}
+        initialJob={initialJob}
         allTags={allTags}
         busy={roundupRunning}
         llmModel={llmModel}

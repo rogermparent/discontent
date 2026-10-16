@@ -1,7 +1,7 @@
 ---
 name: recipe-curator
 description: Find, import, cite and organize recipes for the recipe website — meal plans, collections and nested collections (as tag terms), the homepage strip, the shared list of what's on hand and the shopping list — through the `recipes` MCP tools. Use for asks like "plan dinners for the week", "import this recipe", "import the recipes from this roundup", "make a collection of …", "put it on the homepage", "I bought Gnista", "what can I make?", "put this week's plan on the shopping list", "I bought eggs".
-allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__page_inspect, mcp__recipes__recipe_import, mcp__recipes__page_inspect_list, mcp__recipes__recipe_import_list, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__recipe_set_image, mcp__recipes__tag_list, mcp__recipes__term_list, mcp__recipes__term_get, mcp__recipes__term_create, mcp__recipes__term_update, mcp__recipes__term_set_image, mcp__recipes__term_assign, mcp__recipes__term_rename, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__inventory_get, mcp__recipes__inventory_add, mcp__recipes__inventory_remove, mcp__recipes__inventory_makeable, mcp__recipes__shopping_get, mcp__recipes__shopping_add, mcp__recipes__shopping_check, mcp__recipes__shopping_remove, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, mcp__recipes__git_fetch, WebSearch, WebFetch, Bash(pnpm --silent recipes:*)
+allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__page_inspect, mcp__recipes__recipe_import, mcp__recipes__page_inspect_list, mcp__recipes__recipe_import_list, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__recipe_set_image, mcp__recipes__tag_list, mcp__recipes__term_list, mcp__recipes__term_get, mcp__recipes__term_create, mcp__recipes__term_update, mcp__recipes__term_set_image, mcp__recipes__term_assign, mcp__recipes__term_rename, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__inventory_get, mcp__recipes__inventory_add, mcp__recipes__inventory_remove, mcp__recipes__inventory_makeable, mcp__recipes__shopping_get, mcp__recipes__shopping_add, mcp__recipes__shopping_check, mcp__recipes__shopping_remove, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, mcp__recipes__git_fetch, mcp__recipes__job_list, mcp__recipes__job_get, WebSearch, WebFetch, Bash(pnpm --silent recipes:*)
 ---
 
 # Recipe curator
@@ -14,8 +14,17 @@ with a `warnings` array — information, never failure. `code: "busy"` means
 another write (the editor, a sync, another agent) held the content
 repository's write lock and nothing was written: wait 10–30 seconds and make
 the same call once more; if it is still busy, report the holder the message
-names rather than retrying in a loop. Worked transcripts:
+names rather than retrying in a loop. `code: "cancelled"` means a person
+stopped that import (from the editor's Jobs page or the CLI): leave it, do
+not run it again unasked, and say so in the report. Worked transcripts:
 [examples.md](examples.md).
+
+Every `page_inspect`, `recipe_import`, `page_inspect_list` and
+`recipe_import_list` result — and such a call's error — carries `job`, an
+id. When one is slow, fails, or reads oddly, `job_get {"id": "<job>"}` shows
+its steps (the fetch, yt-dlp, each model call with its tokens and GPU share,
+waits in the queue for the GPU or a site) and `job_list {"status": "live"}`
+what else is running. Both only read.
 
 ## 1. Check where writes go, first
 
@@ -562,6 +571,8 @@ wait and run the same command once more, as with the tool.
 
 - `page_inspect` → `pnpm --silent recipes inspect <url> --json` (`--out d.json`
   writes just the draft);
+- `job_get` → `pnpm --silent recipes jobs show <id> --json`; `job_list` →
+  `pnpm --silent recipes jobs list [--status live] --json`;
 - `recipe_import {dryRun}` → `pnpm --silent recipes import <url> --dry-run --out d.json --json`
   (`--image <url>` picks another image; `--llm force` as `llm: "force"`);
   `recipe_import {text, source?, dryRun}` → write the text to a file, then

@@ -974,6 +974,9 @@ describe("the GPU hooks (D6)", () => {
         error: { code: "cancelled", message: "interrupted (SIGINT)" },
       });
       expect(JSON.parse(stdout).error.message).toBe("interrupted (SIGINT)");
+      /* 37c: a Ctrl-C'd import says `cancelled`, not `internal`, and names its job. */
+      expect(JSON.parse(stdout).error.code).toBe("cancelled");
+      expect(JSON.parse(stdout).error.job).toBe(meta?.id);
     } finally {
       model.closeAllConnections();
       await new Promise((done) => model.close(done));

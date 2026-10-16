@@ -55,6 +55,12 @@ export function statusFor(code: CurationErrorCode): number {
     case "not_a_repo":
     case "dirty_tree":
     case "git_conflict":
+    /*
+     * A job cancelled while this request waited for it (37c): the request
+     * was fine, and the job's state — someone pressed Cancel — is what ended
+     * it.
+     */
+    case "cancelled":
       return 409;
     case "unknown_recipe":
     /* Same reasoning, other content type: well-formed body, absent target. */
