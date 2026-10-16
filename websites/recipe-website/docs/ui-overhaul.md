@@ -2438,6 +2438,26 @@ through the heavy slot (2026-10-15):
   - The full static export of the real repo timed out on page generation in
     this box, so the shots come from the editor.
 
+**Review round** (block and group caps, the migration in the shared reader),
+then main merged at `c8573684` (#239, the homepage):
+
+- **The merge:** the homepage reads `readTagTree()`, which is kept as
+  `readTagBoard()`'s roots. Its Make tile reads through `useInventory` and
+  `useMakeSettings().staples`, so it migrates and follows the pantry switch
+  with no change of its own.
+- Both typechecks clean.
+- vitest 1931/1931, 90 files.
+- Playwright, production build:
+  - before the merge: `make`, `tag-pages` and `accessibility`, 83/83, with
+    new tests for the 15-row cap and "Show all 13";
+  - after it: those three plus `homepage*`, `visual`, `mobile` and
+    `empty-state`, 130/130.
+  - No baseline moved: no fixture group or block passes its cap.
+- **Real content, retaken:** `/tags` at 1280 is 2,112px tall with four
+  balanced columns (it was 3,558 with one column running and the fourth
+  empty), and Drinks ends "All 217 in Drinks →". `/make` at 1280 is 4,538px
+  (it was 17,254).
+
 ## Verification (Playwright-first)
 
 Verify UI changes with Playwright; open a real browser only to diagnose
