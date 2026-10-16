@@ -42,6 +42,16 @@ import type { ReadingCache } from "./readingCache";
 import { startJob, type RunJobOptions } from "./run";
 import type { JobError, JobMeta, JobTier } from "./store";
 
+/**
+ * How an import reads (39a): `fresh` skips the kept reading (38c,
+ * `readingCache.ts`) and a photo set's kept transcription (38-De5), and
+ * still keeps what it reads. The seats never see it: the handlers take it
+ * off the options.
+ */
+interface ReadOptions {
+  fresh?: boolean;
+}
+
 /** Where a corpus job reads and writes, and who it commits as. */
 interface CorpusSpec {
   contentDirectory: string;
@@ -53,14 +63,14 @@ export type JobSpec =
   | (CorpusSpec & {
       kind: "import-url";
       url: string;
-      options: ImportWriteOptions & { llm?: LlmMode };
+      options: ImportWriteOptions & ReadOptions & { llm?: LlmMode };
     })
   /** `recipes import --text`, `/api/import {text}`, MCP `recipe_import`. */
   | (CorpusSpec & {
       kind: "import-text";
       text: string;
       source?: string;
-      options: ImportWriteOptions;
+      options: ImportWriteOptions & ReadOptions;
     })
   /**
    * `recipes import --photo`, `/api/import` multipart, MCP `photos` (38e):
@@ -71,7 +81,7 @@ export type JobSpec =
       kind: "import-photo";
       photos: StoredPhoto[];
       source?: string;
-      options: ImportWriteOptions & { photoAsImage?: boolean };
+      options: ImportWriteOptions & ReadOptions & { photoAsImage?: boolean };
     })
   /** `recipes inspect`, `/api/inspect`, MCP `page_inspect`. */
   | { kind: "inspect"; url: string; llm?: LlmMode }
@@ -169,18 +179,22 @@ function contextFor(spec: CorpusSpec, ctx?: CurationContext): CurationContext {
 export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
   async "import-url"(spec, { ctx, job, dir }) {
     const { importAndCreate } = await import("../curation/importRecipe");
-    return importAndCreate(contextFor(spec, ctx), spec.url, spec.options, job, {
+    const { fresh: _fresh, ...options } = spec.options;
+    void _fresh;
+    return importAndCreate(contextFor(spec, ctx), spec.url, options, job, {
       cache: await importReadingCache(spec, dir, job),
     });
   },
   async "import-text"(spec, { ctx, job, dir }) {
     const { importFromText } = await import("../curation/importRecipe");
+    const { fresh: _fresh, ...options } = spec.options;
+    void _fresh;
     return importFromText(
       contextFor(spec, ctx),
       {
         text: spec.text,
         ...(spec.source ? { source: spec.source } : {}),
-        ...spec.options,
+        ...options,
       },
       job,
       { cache: await importReadingCache(spec, dir, job) },
@@ -188,16 +202,18 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
   },
   async "import-photo"(spec, { ctx, job, dir }) {
     const { importFromPhotos } = await import("../curation/importPhoto");
+    const { fresh, ...options } = spec.options;
     return importFromPhotos(
       contextFor(spec, ctx),
       {
         photos: spec.photos,
         ...(spec.source ? { source: spec.source } : {}),
-        ...spec.options,
+        ...options,
       },
       job,
       {
         ...(dir ? { dir } : {}),
+        ...(fresh ? { fresh: true } : {}),
         /* 38c's kept reading, keyed by the transcription: a `--pick` after
          * a several-recipe refusal reads neither the photo nor the text again. */
         cacheFor: (text) =>
@@ -284,6 +300,7 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
  * The kept reading of an import job (38c, `readingCache.ts`): keyed by the
  * spec's reading half, the model and the reading version — `undefined`
  * when no model will read (none configured, or `off`), or with no store.
+ * The spec's `fresh` (39a) is not in the key: it skips the read only.
  */
 async function importReadingCache(
   spec: SpecOf<"import-url"> | SpecOf<"import-text">,
@@ -312,7 +329,10 @@ async function importReadingCache(
     asOne: spec.options.asOne === true,
     ...extra,
   });
-  return readingCache<UrlImport>(dir, key, { job: job.jobId });
+  return readingCache<UrlImport>(dir, key, {
+    job: job.jobId,
+    fresh: spec.options.fresh === true,
+  });
 }
 
 /**
@@ -511,6 +531,16 @@ async function resolvedDirectory(directory: string): Promise<string> {
 export async function retrySpecFor(
   meta: Pick<JobMeta, "id" | "kind" | "spec">,
   ctx: CurationContext,
+  {
+    fresh = false,
+  }: {
+    /**
+     * Read it again (39a): an import's kept reading (and a photo set's
+     * transcription) is skipped. Retry decides, whatever the first run
+     * asked: without it, a recorded `fresh` is dropped.
+     */
+    fresh?: boolean;
+  } = {},
 ): Promise<JobSpec> {
   const spec = meta.spec as JobSpec | undefined;
   if (
@@ -534,7 +564,24 @@ export async function retrySpecFor(
         "Run it again from a process that uses that directory (recipes jobs retry with --content-dir).",
     );
   }
-  return { ...spec, ...corpusOf(ctx) };
+  return withFresh({ ...spec, ...corpusOf(ctx) }, fresh);
+}
+
+/** A spec with `fresh` set as asked, for the kinds that read a kept reading. */
+function withFresh(spec: JobSpec, fresh: boolean): JobSpec {
+  if (
+    spec.kind !== "import-url" &&
+    spec.kind !== "import-text" &&
+    spec.kind !== "import-photo"
+  ) {
+    return spec;
+  }
+  const { fresh: _recorded, ...options } = spec.options;
+  void _recorded;
+  return {
+    ...spec,
+    options: { ...options, ...(fresh ? { fresh: true } : {}) },
+  } as JobSpec;
 }
 
 /**
@@ -545,9 +592,9 @@ export async function retrySpecFor(
 export async function retryJob(
   meta: Pick<JobMeta, "id" | "kind" | "spec">,
   ctx: CurationContext,
-  { dir }: { dir?: string } = {},
+  { dir, fresh = false }: { dir?: string; fresh?: boolean } = {},
 ): Promise<{ job: string; retryOf: string; done: Promise<unknown> }> {
-  const spec = await retrySpecFor(meta, ctx);
+  const spec = await retrySpecFor(meta, ctx, { fresh });
   const started = await startSpec(spec, {
     ctx,
     retryOf: meta.id,

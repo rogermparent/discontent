@@ -294,6 +294,7 @@ describe("applyLlm — review round (36b)", () => {
     expect(forced.recipe).toBe(SCHEMA);
     expect(forced.llm).toEqual({
       model: "qwen3:8b",
+      api: "ollama",
       mode: "force",
       found: false,
       error: "no text to read",

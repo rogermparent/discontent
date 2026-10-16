@@ -32,6 +32,8 @@ import {
   type ImportBatchItem,
 } from "recipe-editor/controller/curation/importRecipe";
 import { corpusOf, runSpec } from "recipe-editor/controller/jobs/kinds";
+import { llmConfig } from "recipe-editor/controller/llm/client";
+import { readerNote } from "recipe-editor/controller/llm/readerLabel";
 import { PHOTO_PATH } from "recipe-editor/controller/jobs/photos";
 import { parseInput } from "recipe-editor/controller/curation/schema";
 import { authenticateUser } from "recipe-editor/controller/actions/shared";
@@ -114,13 +116,16 @@ export async function importRecipeBatchAction(
     const ctx = curationContextFor(email, getContentDirectory());
     const input = parseInput(RecipeBatchInputSchema, raw);
     const from = input.url ? ` from ${shortSource(input.url)}` : "";
+    /* 39a (38-Dg9): the model this editor reads with — "Claude API
+     * claude-sonnet-5" under the Claude API, else "local model". */
+    const reader = readerNote(llmConfig());
     const commitNote = input.fromPhotos
-      ? "local model, photo, {n} of {total}"
+      ? `${reader}, photo, {n} of {total}`
       : input.pastedText
-        ? "local model, pasted text, {n} of {total}"
+        ? `${reader}, pasted text, {n} of {total}`
         : input.fromPage
           ? `{n} of {total}${from}`
-          : `local model, {n} of {total}${from}`;
+          : `${reader}, {n} of {total}${from}`;
     /* A job since 37c (`form-batch`): a step log, `/jobs`, Cancel, Retry. */
     const { recipes, job } = await runSpec(
       {

@@ -145,7 +145,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   import <url> [--tags a,b] [--slug s] [--name N] [--image <url>]
                [--dry-run [--out draft.json]] [--overwrite] [--allow-partial]
                [--llm auto|force|off] [--all | --pick "Name",… | --as-one]
-               [--verbose]
+               [--fresh] [--verbose]
   import --text <file|-> [--source <url>] [the same options, no --llm]
   import --photo <file> [<file>…] [--source <url>] [--photo-as-image]
                [the same options, no --llm]
@@ -157,7 +157,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   jobs show <id>
   jobs log <id> [--follow] [--from <byte>]
   jobs cancel <id>
-  jobs retry <id>
+  jobs retry <id> [--fresh]
   create (--file recipe.json | --stdin) [--overwrite] [--dry-run]
   update <slug> (--file patch.json | --stdin) [--dry-run]
   image <slug> (--url <image-url> | --file <path> | --clear)
@@ -360,7 +360,9 @@ again after a partial run imports only what is missing. A page that
 publishes several recipes of its own is the same kind of batch, read by no
 model (--as-one imports its first). The model's reading is kept for half
 an hour in the job store, so --pick after a refusal, or a create after a
---dry-run, of the same URL or text is not read again. A video whose
+--dry-run, of the same URL or text is not read again; --fresh reads it
+again anyway (and keeps that reading), as does \`jobs retry <id> --fresh\`
+— for a photo, the photos are transcribed again too. A video whose
 description holds no recipe but links one recipe page imports that page,
 the video kept as its video.
 

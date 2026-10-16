@@ -83,8 +83,15 @@ interface Call {
   body?: Record<string, unknown>;
 }
 
-/** The stand-in model behind `fetch`: chat, `/api/ps` and the unload. */
-function stubModel(transcripts: Record<string, string>): Call[] {
+/**
+ * The stand-in model behind `fetch`: chat, `/api/ps`, the unload, and the
+ * model list (`/api/tags`), where the vision model's digest is
+ * `tags.digest` as it is when asked (39a, Te6).
+ */
+function stubModel(
+  transcripts: Record<string, string>,
+  tags: { digest?: string } = {},
+): Call[] {
   const calls: Call[] = [];
   vi.stubGlobal(
     "fetch",
@@ -102,6 +109,18 @@ function stubModel(transcripts: Record<string, string>): Call[] {
         return Response.json({
           models: [
             { name: body?.model ?? "qwen2.5vl:7b", size: 100, size_vram: 100 },
+          ],
+        });
+      }
+      if (url.pathname === "/api/tags") {
+        return Response.json({
+          models: [
+            {
+              name: "qwen2.5vl:7b",
+              model: "qwen2.5vl:7b",
+              ...(tags.digest ? { digest: tags.digest } : {}),
+            },
+            { name: "qwen3:8b", model: "qwen3:8b", digest: "text-model" },
           ],
         });
       }
@@ -511,8 +530,10 @@ describe("recipes import --photo, through the local backend", () => {
       expect((result as { warnings?: string[] }).warnings?.[0]).toMatch(
         /^read from the photo's transcription by local model qwen3:8b — 4\/4/,
       );
-      /* Two acquires: the vision call (unloaded after), then the text call. */
+      /* The vision model's digest, once (39a), then two acquires: the
+       * vision call (unloaded after), then the text call. */
       expect(calls.map((call) => [call.path, call.body?.model])).toEqual([
+        ["/api/tags", undefined],
         ["/api/chat", "qwen2.5vl:7b"],
         ["/api/ps", undefined],
         ["/api/generate", "qwen2.5vl:7b"],
@@ -531,13 +552,15 @@ describe("recipes import --photo, through the local backend", () => {
       const again = await backend.importPhotos([file(card, "card.jpg")], {
         dryRun: true,
       });
-      expect(calls).toEqual([]);
+      /* Only the model list is read (the digest, 39a): no model call. */
+      expect(calls.map((call) => call.path)).toEqual(["/api/tags"]);
       expect(again).toMatchObject({ photos: 1, transcription: CARD_TEXT });
       expect((again as { warnings?: string[] }).warnings).toContainEqual(
         expect.stringMatching(/reading from .* was reused, not read again$/),
       );
       /* A pasted text of the same words is another reading (its warnings
        * name the text, not the photo). */
+      calls.length = 0;
       await backend.importText(CARD_TEXT, { dryRun: true });
       expect(calls.map((call) => call.body?.model ?? call.path)).toEqual([
         "qwen3:8b",
@@ -639,6 +662,79 @@ describe("recipes import --photo, through the local backend", () => {
           prompt: transcribeKey(),
         }),
       ).toBeUndefined();
+    } finally {
+      await backend.close();
+    }
+  });
+
+  it("reads the photos again when the vision model's digest changes (39a, Te6)", async () => {
+    const card = await cardJpeg();
+    const tags = { digest: "sha256:aaaa" };
+    const calls = stubModel({ [await sentPhotoKey(card)]: CARD_TEXT }, tags);
+    const backend = createLocalBackend({ contentDirectory });
+    const chats = () =>
+      calls
+        .filter((call) => call.path === "/api/chat")
+        .map((call) => call.body?.model);
+    try {
+      await backend.importPhotos([file(card, "card.jpg")], { dryRun: true });
+      expect(chats()).toEqual(["qwen2.5vl:7b", "qwen3:8b"]);
+      /* The same weights: the kept transcript (and reading) reused. */
+      calls.length = 0;
+      await backend.importPhotos([file(card, "card.jpg")], { dryRun: true });
+      expect(chats()).toEqual([]);
+      /* A re-pull under the same name: the photo is transcribed again; the
+       * same words keep 38c's kept reading of them. */
+      tags.digest = "sha256:bbbb";
+      calls.length = 0;
+      await backend.importPhotos([file(card, "card.jpg")], { dryRun: true });
+      expect(chats()).toEqual(["qwen2.5vl:7b"]);
+      expect(calls.filter((call) => call.path === "/api/tags")).toHaveLength(1);
+      const [photo] = await storePhotos(jobsDir, [file(card, "card.jpg")]);
+      const { transcribeKey } =
+        await import("../websites/recipe-website/editor/controller/llm/vision");
+      expect(transcribeKey(undefined, "sha256:aaaa")).not.toBe(
+        transcribeKey(undefined, "sha256:bbbb"),
+      );
+      expect(
+        await loadTranscript(jobsDir, [photo], {
+          model: "qwen2.5vl:7b",
+          prompt: transcribeKey(undefined, "sha256:bbbb"),
+        }),
+      ).toMatchObject({ text: CARD_TEXT, digest: "sha256:bbbb" });
+    } finally {
+      await backend.close();
+    }
+  });
+
+  it("fresh reads the photos and the text again, and keeps what it read (39a)", async () => {
+    const card = await cardJpeg();
+    const calls = stubModel(
+      { [await sentPhotoKey(card)]: CARD_TEXT },
+      { digest: "sha256:aaaa" },
+    );
+    const backend = createLocalBackend({ contentDirectory });
+    const chats = () =>
+      calls
+        .filter((call) => call.path === "/api/chat")
+        .map((call) => call.body?.model);
+    try {
+      await backend.importPhotos([file(card, "card.jpg")], { dryRun: true });
+      calls.length = 0;
+      const fresh = await backend.importPhotos([file(card, "card.jpg")], {
+        dryRun: true,
+        fresh: true,
+      });
+      expect(chats()).toEqual(["qwen2.5vl:7b", "qwen3:8b"]);
+      expect(
+        (fresh as { warnings?: string[] }).warnings ?? [],
+      ).not.toContainEqual(
+        expect.stringMatching(/was reused, not read again$/),
+      );
+      /* The fresh run's reading is the kept one now. */
+      calls.length = 0;
+      await backend.importPhotos([file(card, "card.jpg")], { dryRun: true });
+      expect(chats()).toEqual([]);
     } finally {
       await backend.close();
     }

@@ -604,7 +604,11 @@ describe("extractRecipeWithLlm", () => {
     });
     expect(result).toEqual({
       found: false,
-      llm: { model: "qwen3:8b", durationMs: expect.any(Number) },
+      llm: {
+        model: "qwen3:8b",
+        api: "ollama",
+        durationMs: expect.any(Number),
+      },
     });
   });
 

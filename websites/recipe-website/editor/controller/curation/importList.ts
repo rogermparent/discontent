@@ -74,6 +74,7 @@ import {
   type ErrorObject,
 } from "./errors";
 import { importedToInput } from "./importRecipe";
+import { readerNote, readerNoun } from "../llm/readerLabel";
 import {
   LLM_MODES,
   applyLlm,
@@ -615,7 +616,7 @@ async function importItem(
   if (imported.partial) {
     throw new ImportError(
       (usedModel(llm)
-        ? `The local model's reading of ${item.url} is partial${said}. `
+        ? `The ${readerNoun(llm?.api)}'s reading of ${item.url} is partial${said}. `
         : `No schema.org Recipe at ${item.url} — only its title, description and image${said}. `) +
         "Inspect it and create it by hand, or skip it.",
     );
@@ -672,7 +673,7 @@ async function importItem(
       file ? input : { ...input, imageImportUrl: undefined },
       {
         ...(file ? { fetchImage: async () => file } : {}),
-        ...(usedModel(llm) ? { commitNote: "local model" } : {}),
+        ...(usedModel(llm) ? { commitNote: readerNote(llm) } : {}),
       },
     );
     step.set({

@@ -600,6 +600,49 @@ describe("POST /api/jobs/<id>/retry", () => {
     ).rejects.toMatchObject({ code: "usage" });
   });
 
+  it("Retry decides fresh (39a): set when asked, dropped when not, other kinds untouched", async () => {
+    const meta = {
+      id: "01AAAAAAAAAAAAAAAAAAAAAAAA",
+      kind: "import-url",
+      spec: {
+        kind: "import-url",
+        contentDirectory,
+        url: "https://example.com/pie",
+        options: { llm: "force", fresh: true },
+      } satisfies JobSpec,
+    };
+    expect(await retrySpecFor(meta, ctx, { fresh: true })).toMatchObject({
+      options: { llm: "force", fresh: true },
+    });
+    const plain = await retrySpecFor(meta, ctx);
+    expect(plain).toMatchObject({ options: { llm: "force" } });
+    expect((plain as { options: object }).options).not.toHaveProperty("fresh");
+    const inspect = await retrySpecFor(
+      {
+        id: "01B",
+        kind: "inspect",
+        spec: { kind: "inspect", url: "https://example.com/pie" },
+      },
+      ctx,
+      { fresh: true },
+    );
+    expect(inspect).toEqual({
+      kind: "inspect",
+      url: "https://example.com/pie",
+    });
+    /* The route refuses a body it does not know. */
+    const id = await finishedJob();
+    const refused = await retryRoute.POST(
+      new Request(`http://editor.test/api/jobs/${id}/retry`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ fresh: "yes" }),
+      }),
+      params(id),
+    );
+    expect(refused.status).toBe(400);
+  });
+
   it("needs a write-scoped caller", async () => {
     const id = await finishedJob();
     readOnly = true;

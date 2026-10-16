@@ -4,6 +4,7 @@ import {
   formatJsonBlock,
   formatLlm,
   formatWarnings,
+  partialReadingLine,
 } from "../output";
 import type { ImportBatchResult, ImportResult } from "../backend/types";
 import { formatStart } from "../../controller/llm/chapterTime";
@@ -23,7 +24,7 @@ import {
 
 export const importCommand: CommandDef<ImportResult> = {
   name: "import",
-  usage: `recipes import (<url> ${LLM_USAGE} | --text <file|-> [--source <url>] | --photo <file> [<file>…] [--source <url>] [--photo-as-image]) [--all | --pick "Name",… | --as-one] [--tags a,b] [--slug s] [--name N] [--image <url>] [--dry-run [--out draft.json]] [--overwrite] [--allow-partial] [--verbose]`,
+  usage: `recipes import (<url> ${LLM_USAGE} | --text <file|-> [--source <url>] | --photo <file> [<file>…] [--source <url>] [--photo-as-image]) [--all | --pick "Name",… | --as-one] [--tags a,b] [--slug s] [--name N] [--image <url>] [--dry-run [--out draft.json]] [--overwrite] [--allow-partial] [--fresh] [--verbose]`,
   options: {
     tags: { type: "string" },
     slug: { type: "string" },
@@ -45,6 +46,8 @@ export const importCommand: CommandDef<ImportResult> = {
     /* 38e: photos of a recipe card, transcribed by the vision model. */
     photo: { type: "string", multiple: true },
     "photo-as-image": { type: "boolean" },
+    /* 39a: read it again — skip the kept reading (38c) and transcription. */
+    fresh: { type: "boolean" },
   },
   write: true,
   async run({ backend, positionals, options }) {
@@ -129,6 +132,7 @@ export const importCommand: CommandDef<ImportResult> = {
       ...(all ? { all: true } : {}),
       ...(pick ? { pick } : {}),
       ...(asOne ? { asOne: true } : {}),
+      ...(booleanOption(options, "fresh") ? { fresh: true } : {}),
     };
     let result: ImportResult;
     if (photoPaths.length > 0) {
@@ -179,7 +183,7 @@ export const importCommand: CommandDef<ImportResult> = {
         `slug: ${result.slug}`,
         result.partial
           ? result.llm?.found && !result.llm.discarded
-            ? "partial: the local model's reading is not trusted — check it"
+            ? partialReadingLine(result.llm)
             : "partial: no Recipe node — title, description and image only"
           : undefined,
         formatLlm(result.llm),

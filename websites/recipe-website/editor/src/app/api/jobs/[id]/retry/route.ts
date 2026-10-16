@@ -20,12 +20,23 @@
  * `withExecuteRevalidates` — the tags the job's writes queued meanwhile
  * are executed when it ends.
  *
+ * An optional JSON body `{"fresh": true}` (39a, `/jobs/<id>`'s "Read it
+ * again" box, `recipes jobs retry --fresh`) makes an import skip its kept
+ * reading; no body, or `fresh` false, is a plain retry.
+ *
  * Curation auth, write scope.
  */
 import { after } from "next/server";
+import { z } from "zod";
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
-import { errorResponse } from "recipe-editor/controller/curation/http";
+import {
+  errorResponse,
+  readJsonBody,
+} from "recipe-editor/controller/curation/http";
+import { parseInput } from "recipe-editor/controller/curation/schema";
 import { retryJobById } from "recipe-editor/controller/jobs/views";
+
+const RetryBodySchema = z.strictObject({ fresh: z.boolean().optional() });
 
 export async function POST(
   request: Request,
@@ -34,8 +45,12 @@ export async function POST(
   try {
     const ctx = await requireCurationContext(request);
     const { id } = await params;
+    const body = await readJsonBody(request, { optional: true });
+    const { fresh } =
+      body === undefined ? {} : parseInput(RetryBodySchema, body);
     return Response.json(
       await retryJobById(id, ctx, {
+        ...(fresh ? { fresh: true } : {}),
         /* The job records its own failure: nothing to rethrow here. */
         background: (done) =>
           after(() =>

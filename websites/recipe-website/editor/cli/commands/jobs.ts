@@ -270,11 +270,16 @@ export const jobsCancelCommand: CommandDef<JobCancelResult> = {
 
 export const jobsRetryCommand: CommandDef<JobRetryResult> = {
   name: "jobs retry",
-  usage: "recipes jobs retry <id> [--json]",
-  options: {},
+  usage: "recipes jobs retry <id> [--fresh] [--json]",
+  /* 39a: an import reads its page (or text, or photos) again instead of
+   * reusing the kept reading. */
+  options: { fresh: { type: "boolean" } },
   write: true,
-  async run({ backend, positionals }) {
-    return backend.retryJob(needId(positionals, "retry"));
+  async run({ backend, positionals, options }) {
+    return backend.retryJob(
+      needId(positionals, "retry"),
+      booleanOption(options, "fresh") ? { fresh: true } : {},
+    );
   },
   format({ job, retryOf, status, error }) {
     return [

@@ -510,10 +510,13 @@ export async function retryJobById(
     dir = jobsDirectory(),
     wait = false,
     background,
+    fresh = false,
   }: {
     dir?: string;
     wait?: boolean;
     background?: (done: Promise<unknown>) => void;
+    /** Read it again (39a): an import skips its kept reading. */
+    fresh?: boolean;
   } = {},
 ): Promise<JobRetryResult> {
   const meta = await settledMeta(dir, await requireJob(id, dir));
@@ -526,6 +529,7 @@ export async function retryJobById(
     return retryJobById(id, ctx, {
       dir,
       wait,
+      fresh,
       ...(background ? { background } : {}),
     });
   }
@@ -546,7 +550,7 @@ export async function retryJobById(
     }
     const live = await liveRetryOf(meta.id, dir);
     if (live) throw liveRetryError(meta.id, live.id);
-    started = await retryJob(meta, ctx, { dir });
+    started = await retryJob(meta, ctx, { dir, fresh });
   } finally {
     settle(started?.job);
     if (starting.get(meta.id) === marker) starting.delete(meta.id);

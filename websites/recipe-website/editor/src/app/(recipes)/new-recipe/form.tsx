@@ -18,7 +18,11 @@ import {
   createRecipe,
   overwriteRecipe,
 } from "recipe-editor/controller/actions";
-import { importRecipeAction, type ImportStartState } from "./actions";
+import {
+  importRecipeAction,
+  importResultAction,
+  type ImportStartState,
+} from "./actions";
 import { TextInput } from "@discontent/component-library/components/Form/inputs/Text";
 import { TextAreaInput } from "@discontent/component-library/components/Form/inputs/TextArea";
 import {
@@ -27,7 +31,7 @@ import {
 } from "recipe-website-common/util/videoUrl";
 import type { RecipeActionState } from "./common";
 import BatchPicker, { plannedSlug } from "./BatchPicker";
-import ImportProgress from "./ImportProgress";
+import ImportProgress, { type UnfollowedImport } from "./ImportProgress";
 import type { JobRecord } from "recipe-editor/controller/jobs/views";
 import {
   linkReading,
@@ -132,6 +136,13 @@ export default function NewOrImportRecipeForm({
     initialImportState ? initialJob : undefined,
   );
   const importPending = !!activeJob && settledJob !== activeJob;
+  /*
+   * A job with no record (39a, 38-Tb5): the panel follows nothing, and the
+   * outcome comes from `importResultAction`, which awaits the job.
+   */
+  const [unfollowed, setUnfollowed] = useState<
+    (UnfollowedImport & { job: string }) | undefined
+  >();
   /* Photos (38e): the pages of one recipe, in order, at most MAX_PHOTOS. */
   const [photos, setPhotoList] = useState<File[]>([]);
   /* What the import action reads: the photos as they are when it runs. */
@@ -155,7 +166,33 @@ export default function NewOrImportRecipeForm({
         setPhotosRead(photosRef.current);
       }
       const started = await importRecipeAction(previous, formData);
-      if (started.job) {
+      if (started.job && started.stored === false) {
+        /* No record to follow or reopen (38-Tb5): no `?job=` either. */
+        const job = started.job;
+        setUnfollowed({ job });
+        setActiveJob(job);
+        void importResultAction(job).then(
+          (answer) => {
+            const result = answer.result;
+            const filled =
+              !!result && (!!result.recipe || !!result.recipes?.length);
+            setUnfollowed({ job, status: filled ? "done" : "failed" });
+            setSettledJob(job);
+            setImportState(
+              result
+                ? { ...result, job }
+                : { message: answer.message ?? "The import ended." },
+            );
+          },
+          (error: unknown) => {
+            setUnfollowed({ job, status: "failed" });
+            setSettledJob(job);
+            setImportState({
+              message: error instanceof Error ? error.message : String(error),
+            });
+          },
+        );
+      } else if (started.job) {
         setActiveJob(started.job);
         /* Leaving the page loses nothing: back here reopens the job. */
         window.history.replaceState(
@@ -287,6 +324,11 @@ export default function NewOrImportRecipeForm({
           key={activeJob}
           job={activeJob}
           onSettled={settledJob === activeJob ? undefined : onSettled}
+          unfollowed={
+            unfollowed?.job === activeJob
+              ? { ...(unfollowed.status ? { status: unfollowed.status } : {}) }
+              : undefined
+          }
         />
       ) : null}
       <form id="import-form" action={importDispatch}>

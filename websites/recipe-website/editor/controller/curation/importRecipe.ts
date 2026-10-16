@@ -64,6 +64,7 @@ import {
 
 export { MAX_BATCH_RECIPES };
 import type { ChapterRef } from "../llm/chapterTime";
+import { readerNote, readerNoun } from "../llm/readerLabel";
 import { PHOTO_TEXT_LABEL } from "../photoLimits";
 import type { ReadingCache } from "../jobs/readingCache";
 import type { ComponentRef } from "../llm/splitRecipes";
@@ -432,7 +433,7 @@ export async function importAndCreate(
           (warning) => !imported.recipes![0].warnings.includes(warning),
         ),
         /* A page's own Recipe nodes (38c) were read by no model. */
-        commitNote: `${fromPage(imported.recipes) ? "" : "local model, "}{n} of {total} from ${shortSource(url)}`,
+        commitNote: `${fromPage(imported.recipes) ? "" : `${readerNote(readingLlm(imported.recipes))}, `}{n} of {total} from ${shortSource(url)}`,
       },
       run,
     );
@@ -446,10 +447,12 @@ export async function importAndCreate(
       url,
       refusal: (warnings) =>
         usedModel(imported.llm)
-          ? `The local model's reading of ${url} is partial (${warnings.join("; ")}). `
+          ? `The ${readerNoun(imported.llm?.api)}'s reading of ${url} is partial (${warnings.join("; ")}). `
           : `No schema.org Recipe found at ${url} — only its title, description and image` +
             (warnings.length ? ` (${warnings.join("; ")}). ` : ". "),
-      commitNote: usedModel(imported.llm) ? "local model" : undefined,
+      commitNote: usedModel(imported.llm)
+        ? readerNote(imported.llm)
+        : undefined,
     },
     run,
   );
@@ -498,7 +501,10 @@ export async function importFromText(
       }
     : { pastedText: true };
   const what = photos ? "the photo" : "the pasted text";
-  const note = photos ? "local model, photo" : "local model, pasted text";
+  const reader = readerNote(
+    reading.recipes ? readingLlm(reading.recipes) : reading.llm,
+  );
+  const note = photos ? `${reader}, photo` : `${reader}, pasted text`;
   if (reading.recipes) {
     const url = source ? reading.recipe.source?.url : undefined;
     return finishBatch(
@@ -527,7 +533,7 @@ export async function importFromText(
       url: reading.recipe.source?.url,
       ...from,
       refusal: (warnings) =>
-        `The local model's reading of ${what} is partial (${warnings.join("; ")}). `,
+        `The ${readerNoun(reading.llm?.api)}'s reading of ${what} is partial (${warnings.join("; ")}). `,
       commitNote: note,
     },
     run,
@@ -552,6 +558,12 @@ async function keptReading(
   read: () => Promise<UrlImport>,
 ): Promise<UrlImport> {
   const { log } = jobContext(run);
+  if (cache?.fresh) {
+    /* 39a: `--fresh` — no kept reading is looked at; this one is kept. */
+    log.info("reading", "fresh: any kept reading skipped — read again", {
+      fresh: true,
+    });
+  }
   const kept = await cache?.load();
   if (kept) {
     const ageMs = Math.max(0, Date.now() - kept.savedAt);
@@ -566,7 +578,7 @@ async function keptReading(
       ...kept.value,
       warnings: [
         ...kept.value.warnings,
-        `the local model's reading from ${minutes} min ago (${from}) was reused, not read again`,
+        `the ${readerNoun(kept.value.llm?.api)}'s reading from ${minutes} min ago (${from}) was reused, not read again`,
       ],
     };
   }
@@ -826,6 +838,13 @@ function foundList(found: readonly FoundRecipe[]): string {
   return found.map((recipe) => `${recipe.n}. ${recipe.name}`).join(", ");
 }
 
+/** The model a batch was read by (39a): its first reading's. */
+function readingLlm(
+  readings: readonly SplitReading[],
+): LlmImportInfo | undefined {
+  return readings.find((reading) => reading.llm)?.llm;
+}
+
 /** A batch of a page's own Recipe nodes (38c): no reading has `llm`. */
 export function fromPage(readings: readonly SplitReading[]): boolean {
   return readings.length > 0 && readings.every((reading) => !reading.llm);
@@ -840,12 +859,14 @@ export function severalRecipesMessage(
   where: string,
   /** A page's own Recipe nodes (38c), not the model's reading. */
   page = false,
+  /** The model that found them (39a): "The Claude API found …". */
+  api?: LlmImportInfo["api"],
 ): string {
   const example = found.find((recipe) => recipe.n > 1) ?? found[0];
   return (
     (page
       ? `The page ${where} has ${found.length} recipes: ${foundList(found)}. `
-      : `The local model found ${found.length} recipes in ${where}: ${foundList(found)}. `) +
+      : `The ${readerNoun(api)} found ${found.length} recipes in ${where}: ${foundList(found)}. `) +
     `Import them all with --all, or some by name: --pick "${example?.name ?? "Name"}" ` +
     "(`all` / `pick` over MCP and the API; positions like --pick 1,3 work too, but a re-read can number them differently); " +
     (page
@@ -877,7 +898,7 @@ export function resolvePicks(
       throw new ValidationError(
         left
           ? `pick ${pick} ("${left.name}") was left out this time (${left.reason}). Found: ${foundList(found)}.`
-          : `pick ${pick}: the local model found ${foundList(found)} — pick by name.`,
+          : `pick ${pick}: the ${readerNoun(readingLlm(readings)?.api)} found ${foundList(found)} — pick by name.`,
         [{ path: "pick", message: left ? "left out" : "no such position" }],
       );
     }
@@ -1014,7 +1035,7 @@ export async function importBatchPicks(
     try {
       if (pick.recipe.partial && !dryRun && !allowPartial) {
         throw new ImportError(
-          `The local model's reading of "${pick.recipe.name ?? pick.n}" is partial` +
+          `The ${readerNoun(pick.llm?.api)}'s reading of "${pick.recipe.name ?? pick.n}" is partial` +
             (pick.warnings?.length ? ` (${pick.warnings.join("; ")})` : "") +
             ". Dry-run it to see it, or pass --allow-partial to create it anyway.",
         );
@@ -1319,6 +1340,7 @@ async function finishBatch(
         found,
         where ?? (pastedText ? "the pasted text" : (url ?? "the text")),
         fromPage(readings),
+        readingLlm(readings)?.api,
       ),
     );
   }
