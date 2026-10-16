@@ -24,6 +24,15 @@ process.env.RECIPE_POLITE_GAP_MS ??= "0";
  */
 const jobsDir = mkdtempSync(join(tmpdir(), "discontent-jobs-"));
 process.env.RECIPE_JOBS_DIR = jobsDir;
+/*
+ * 37b: the queue's state (slots, waiters, the GPU hooks) is machine-wide by
+ * default; a test file's is its own, inside its jobs dir — and said
+ * explicitly, so a child handed a trimmed environment can be handed it too.
+ * No GPU hooks run under test unless a test sets them.
+ */
+process.env.RECIPE_QUEUE_DIR = join(jobsDir, "queue");
+delete process.env.RECIPE_GPU_ACQUIRE_CMD;
+delete process.env.RECIPE_GPU_RELEASE_CMD;
 afterAll(() => {
   rmSync(jobsDir, { recursive: true, force: true });
 });

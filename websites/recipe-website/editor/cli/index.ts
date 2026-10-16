@@ -29,7 +29,7 @@ import {
 } from "../controller/curation/errors";
 import { resolveBackend } from "./backend/resolve";
 import { EDITOR_DIRECTORY, loadEditorEnv } from "./editorEnv";
-import { setJobsRoot } from "../controller/jobs/location";
+import { gpuUsedHere, setJobsRoot } from "../controller/jobs/location";
 import { setJobMirror } from "../controller/jobs/log";
 import type { CuratorBackend } from "./backend/types";
 import { createCommand } from "./commands/create";
@@ -232,7 +232,8 @@ Environment:
                        editor package. Never passed on argv.
   RECIPE_EDITOR_URL    Same as --editor-url
   RECIPE_ENV_FILE      The file RECIPE_API_TOKEN, RECIPE_EDITOR_URL, the
-                       RECIPE_LLM_* variables and RECIPE_JOBS_DIR are read
+                       RECIPE_LLM_* variables, RECIPE_JOBS_DIR,
+                       RECIPE_QUEUE_DIR and the RECIPE_GPU_* hooks are read
                        from when the environment lacks them (default
                        websites/recipe-website/editor/.env; nothing else in
                        it is read)
@@ -247,7 +248,22 @@ Environment:
                        page's path, else \`yt-dlp\` on the PATH)
   RECIPE_JOBS_DIR      Where import jobs keep their records and step logs
                        (default websites/recipe-website/editor/jobs); read
-                       from editor/.env too
+                       from editor/.env too. A relative path is the editor
+                       package's (websites/recipe-website/editor), never the
+                       shell's directory, so the editor and the CLI agree
+  RECIPE_QUEUE_DIR     The machine-wide queue every import waits in for the
+                       GPU, yt-dlp and each site (default
+                       ~/.cache/discontent/queue); relative as
+                       RECIPE_JOBS_DIR
+  RECIPE_GPU_ACQUIRE_CMD
+                       Shell command run before the first model call after
+                       an idle spell (e.g. pause another GPU program); off
+                       unless set, 30 s timeout
+  RECIPE_GPU_RELEASE_CMD
+                       Shell command run once the GPU has been idle for
+                       RECIPE_GPU_IDLE_MS (by the editor when it runs, else
+                       when the CLI exits)
+  RECIPE_GPU_IDLE_MS   Idle time before the release command (default 60000)
   DISCONTENT_WRITE_LOCK_TIMEOUT_MS
                        How long a write waits for another write's lock on
                        the content repository (default 30000) before it
@@ -556,14 +572,90 @@ if (require.main === module) {
   loadEditorEnv();
   /* The job store's default home, `editor/jobs/` (epic 37, D1). */
   setJobsRoot(EDITOR_DIRECTORY);
-  main(process.argv.slice(2))
+  const finished = main(process.argv.slice(2))
     .then((code) => {
       process.exitCode = code;
     })
     .catch((error) => {
       emitError(error, false);
       process.exitCode = 1;
-    });
+    })
+    /*
+     * D6 (37b): a run that used the GPU and finds no editor alive to keep
+     * the release closes the spell before it exits. Loaded only then.
+     */
+    .then(settleGpu);
+  exitOnSignals(finished);
+}
+
+/** D6: close a GPU spell this run began, if no editor keeps it. */
+async function settleGpu(): Promise<void> {
+  if (!gpuUsedHere()) return;
+  const { settleGpuAtExit } = await import("../controller/jobs/gpuHooks");
+  await settleGpuAtExit();
+}
+
+/** How long a Ctrl-C waits for the command to wind down, the GPU's release included. */
+const SIGNAL_GRACE_MS = 10_000;
+
+/** 37a's registry of this process's running jobs, there only once one ran. */
+function jobsRanHere(): boolean {
+  return (
+    (globalThis as { __discontentRunningJobs?: Map<string, unknown> })
+      .__discontentRunningJobs !== undefined
+  );
+}
+
+/**
+ * D6 (37b review): Ctrl-C (SIGINT) or SIGTERM must not leave the other GPU
+ * program paused when no editor keeps the release. The running jobs are
+ * cancelled through their own aborts (37a's registry), so the model call or
+ * yt-dlp stops, the queue's slot is let go and the record ends `cancelled`;
+ * the command winds down (its `finally`s close the backend), the spell is
+ * closed (`settleGpuAtExit`, the same path as a normal exit), and the
+ * process exits 130 or 143. The wait is capped at `SIGNAL_GRACE_MS`, then
+ * the release is tried once more and the exit forced; a second signal exits
+ * at once. SIGKILL cannot be caught: the spell it leaves is closed by the
+ * next grant (D6, step 4).
+ */
+function exitOnSignals(finished: Promise<void>): void {
+  let stopping = false;
+  const capped = (work: Promise<unknown>, ms: number) =>
+    Promise.race([
+      work.then(() => true),
+      new Promise<boolean>((resolve) =>
+        setTimeout(() => resolve(false), ms).unref(),
+      ),
+    ]);
+  const onSignal = (signal: NodeJS.Signals): void => {
+    const code = signal === "SIGINT" ? 130 : 143;
+    if (stopping) process.exit(code);
+    stopping = true;
+    void (async () => {
+      try {
+        if (jobsRanHere()) {
+          const { cancelJob, runningJobIds } =
+            await import("../controller/jobs/run");
+          const reason = new Error(`interrupted (${signal})`);
+          for (const id of runningJobIds()) cancelJob(id, reason);
+        }
+        if (await capped(finished, SIGNAL_GRACE_MS)) {
+          /* Wound down: a natural exit, so a piped `--json` object flushes. */
+          process.exitCode = code;
+          return;
+        }
+        await capped(
+          settleGpu().catch(() => undefined),
+          SIGNAL_GRACE_MS,
+        );
+      } catch {
+        /* Exiting all the same. */
+      }
+      process.exit(code);
+    })();
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
 }
 
 export default main;

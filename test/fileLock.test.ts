@@ -209,6 +209,37 @@ describe("fileLock", () => {
     expect(JSON.parse(await readFile(path, "utf8")).id).toBe("a");
   });
 
+  it("says once when a beat finds the lock taken from it, and never after it stopped", async () => {
+    await tryCreateLock(path, owner("a"), "a");
+    const lost: (string | undefined)[] = [];
+    const stop = startLockHeartbeat(path, "id", "a", 20, {
+      onLost: (state) => lost.push((state?.owner as { id?: string })?.id),
+    });
+    await sleep(60);
+    expect(lost).toEqual([]);
+    /* Taken over while this holder was suspended: another id holds it now. */
+    await rm(path);
+    await tryCreateLock(path, owner("b"), "b");
+    await vi.waitFor(() => expect(lost).toEqual(["b"]), {
+      timeout: 10_000,
+      interval: 20,
+    });
+    await sleep(100);
+    expect(lost).toEqual(["b"]);
+    stop();
+    /* A holder that let go and stopped its beat: no loss reported. */
+    await rm(path);
+    await tryCreateLock(path, owner("c"), "c");
+    const quiet: unknown[] = [];
+    const stopC = startLockHeartbeat(path, "id", "c", 20, {
+      onLost: (state) => quiet.push(state),
+    });
+    stopC();
+    await rm(path);
+    await sleep(100);
+    expect(quiet).toEqual([]);
+  }, 20_000);
+
   it("refuses a lock without an id", async () => {
     await expect(tryCreateLock(path, owner(""), "")).rejects.toThrow(
       /non-empty string/,

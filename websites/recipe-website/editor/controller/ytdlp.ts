@@ -21,6 +21,7 @@ import {
   type ImportedRecipe,
 } from "recipe-website-common/util/importRecipeData";
 import { jobContext, type JobContext, type JobRun } from "./jobs/context";
+import { withResource } from "./jobs/queue";
 import { hostOf } from "./jobs/steps";
 
 export interface YtdlpThumbnail {
@@ -245,6 +246,9 @@ export function ytdlpArgs(url: string, withComments = false): string[] {
  *
  * With `comments`, a failed run is tried once more without them: the
  * comments are extra, and must not cost an import that worked without.
+ *
+ * Both runs hold the machine's one `ytdlp` slot (37b, D4), in the job's
+ * tier; a wait is a `queue.wait` step, and a cancel ends it.
  */
 export async function fetchYtdlpMetadata(
   url: string,
@@ -252,11 +256,13 @@ export async function fetchYtdlpMetadata(
 ): Promise<YtdlpResult> {
   const job = jobContext(run);
   const withComments = comments && isYouTubeUrl(url);
-  const result = await ytdlpStep(url, withComments, job);
-  if (withComments && result.status === "error") {
-    return ytdlpStep(url, false, job);
-  }
-  return result;
+  return withResource("ytdlp", job, async () => {
+    const result = await ytdlpStep(url, withComments, job);
+    if (withComments && result.status === "error") {
+      return ytdlpStep(url, false, job);
+    }
+    return result;
+  });
 }
 
 /**

@@ -317,24 +317,41 @@ export async function releaseLock(
  * Touch the lock's mtime every `everyMs` while it still holds `id`; the
  * returned function stops it. The timer is `unref`ed: a heartbeat never
  * keeps a process alive.
+ *
+ * `onLost` is called once, the first time a beat finds the lock no longer
+ * holds `id` — taken over while this process was suspended, say — and never
+ * after the heartbeat was stopped (a release in flight is not a loss).
  */
 export function startLockHeartbeat(
   path: string,
   idKey: string,
   id: string,
   everyMs: number,
+  { onLost }: { onLost?: (state: LockFileState | null) => void } = {},
 ): () => void {
+  let stopped = false;
+  let lost = false;
   const timer = setInterval(() => {
     void readLockFile(path, idKey)
       .then((state) => {
-        if (field(state?.owner, idKey) !== id) return;
+        if (stopped) return;
+        if (field(state?.owner, idKey) !== id) {
+          if (!lost) {
+            lost = true;
+            onLost?.(state);
+          }
+          return;
+        }
         const now = new Date();
         return utimes(path, now, now);
       })
       .catch(() => undefined);
   }, everyMs);
   timer.unref?.();
-  return () => clearInterval(timer);
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
 }
 
 /** Whether the lock at `path` holds `id` now. */

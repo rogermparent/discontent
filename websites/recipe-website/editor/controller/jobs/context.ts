@@ -23,6 +23,21 @@ export interface JobContext {
   readonly tier: JobTier;
   /** The job's id; none outside a job. */
   readonly jobId?: string;
+  /**
+   * Told when the job starts and stops waiting for a resource (37b): `runJob`
+   * mirrors it into the meta's `waiting`, for the `/jobs` page.
+   */
+  readonly waiting?: (waiting: JobWaiting | undefined) => void;
+}
+
+/** What a job is waiting for in the queue (D4), as its meta shows it. */
+export interface JobWaiting {
+  resource: string;
+  tier: JobTier;
+  /** Epoch ms: when it joined the queue. */
+  since: number;
+  /** How many were ahead of it then (the holder counts as one). */
+  position: number;
 }
 
 /** What a seat accepts: any part of a context (the rest is `NO_JOB`'s). */
@@ -44,5 +59,6 @@ export function jobContext(run: JobRun | undefined): JobContext {
     tier: run.tier ?? "interactive",
     ...(run.signal ? { signal: run.signal } : {}),
     ...(jobId ? { jobId } : {}),
+    ...(run.waiting ? { waiting: run.waiting } : {}),
   };
 }

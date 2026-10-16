@@ -22,11 +22,9 @@ import {
   type LlmMode,
   type SplitReading,
 } from "./llm/importWithLlm";
+import { pacedRequest } from "./curation/sitePacing";
 import { jobContext, type JobRun } from "./jobs/context";
 import { fetchPageStep, parsePage, videoLinkStep } from "./jobs/steps";
-
-/** A person is waiting on the form: a 403 is retried at once (epic 31, D3). */
-const BROWSER_RETRY = { delayMs: 0 };
 
 export interface RecipeActionState {
   url?: string;
@@ -144,8 +142,17 @@ export async function reduceRecipeImport(
         );
       }
       const pageUrl = url.split("#")[0];
-      /* Unpaced: a person is waiting (37b puts it on the site's queue). */
-      const page = await fetchPageStep(pageUrl, BROWSER_RETRY, job);
+      /*
+       * On the site's queue (37b), like every other page fetch: the polite
+       * gap holds across processes, and a 403's one retry waits it too
+       * (30-D5 over 31-D3's retry at once).
+       */
+      const page = await pacedRequest(
+        pageUrl,
+        (retry) => fetchPageStep(pageUrl, retry, job),
+        (fetched) => fetched.finalUrl,
+        job,
+      );
       const { parsed, mapped } = await parsePage(pageUrl, page, { job });
       return withLlm(
         url,
