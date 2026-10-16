@@ -14,7 +14,9 @@ import {
 import {
   buildShoppingView,
   formatShoppingText,
+  itemsForSubRecipe,
   shoppingNameOf,
+  subRecipeGroups,
   viewForStore,
   type ShoppingRow,
   type ShoppingView,
@@ -692,5 +694,64 @@ describe("normalizeShoppingSettings", () => {
     expect(read.storeByAisle).toEqual({ frozen: "hannaford" });
     expect(read.storeOverrides).toEqual({ egg: "hannaford" });
     expect(read.aisleOverrides).toEqual({ flour: "bakery" });
+  });
+});
+
+describe("sub-recipe groups (39c)", () => {
+  const syrup = { slug: "simple-syrup", name: "Simple Syrup" };
+  const lavender = { slug: "lavender-syrup", name: "Lavender Syrup" };
+  const lemonade = { recipe: "lemonade", recipeName: "Lemonade" };
+  const party = {
+    recipe: "lavender-lemonade",
+    recipeName: "Lavender Lemonade",
+  };
+
+  it("groups the list's sub-recipe lines by slug, at any depth, in order", () => {
+    const juice = item("1 cup lemon juice", lemonade);
+    const sugar = item("1/2 cup sugar", { ...lemonade, for: [syrup] });
+    const water = item("1/2 cup water", { ...lemonade, for: [syrup] });
+    const own = item("1/4 cup sugar", lemonade);
+    const nestedSugar = item("1/2 cup sugar", {
+      ...party,
+      for: [lavender, syrup],
+      checked: true,
+    });
+    const flowers = item("2 Tbsp dried lavender", {
+      ...party,
+      for: [lavender],
+    });
+    const typed = item("simple syrup", { manual: true });
+    const items = [flowers, juice, sugar, water, own, nestedSugar, typed];
+
+    expect(subRecipeGroups(items)).toEqual([
+      {
+        slug: "simple-syrup",
+        name: "Simple Syrup",
+        /* Ticked lines too: Remove these takes every line it put there. */
+        ids: [sugar.id, water.id, nestedSugar.id],
+        usedBy: ["Lemonade", "Lavender Syrup"],
+      },
+      {
+        slug: "lavender-syrup",
+        name: "Lavender Syrup",
+        ids: [nestedSugar.id, flowers.id],
+        usedBy: ["Lavender Lemonade"],
+      },
+    ]);
+    /* The recipe's own sugar and a typed line are no sub-recipe's. */
+    expect(itemsForSubRecipe(items, "simple-syrup")).toEqual([
+      sugar,
+      water,
+      nestedSugar,
+    ]);
+    expect(itemsForSubRecipe(items, "lavender-syrup")).toEqual([
+      flowers,
+      nestedSugar,
+    ]);
+    expect(itemsForSubRecipe(items, "nothing")).toEqual([]);
+  });
+
+  it("is empty for a list with no sub-recipe lines", () => {
+    expect(subRecipeGroups([item("eggs"), item("milk", lemonade)])).toEqual([]);
   });
 });
