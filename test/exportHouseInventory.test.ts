@@ -150,11 +150,14 @@ describe("the snapshot variable is the only road (U6)", () => {
     expect(editorEnv).toEqual([]);
   });
 
-  it("the export's /make asks for the secondary list with no reader", async () => {
-    const page = await readFile(
-      join(SITE, "export/src/app/(recipes)/make/page.tsx"),
-      "utf8",
-    );
-    expect(page).toMatch(/secondaryInventory\(\)/);
-  });
+  it.each(["make", "drinks"])(
+    "the export's /%s asks for the secondary list with no reader",
+    async (route) => {
+      const page = await readFile(
+        join(SITE, `export/src/app/(recipes)/${route}/page.tsx`),
+        "utf8",
+      );
+      expect(page).toMatch(/secondaryInventory\(\)/);
+    },
+  );
 });

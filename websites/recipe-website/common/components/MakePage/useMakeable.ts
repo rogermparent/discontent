@@ -52,9 +52,10 @@ export interface Makeable {
  * the corpus `SearchProvider` already holds plus the ingredient lines, for a
  * page that shows a summary rather than `/make` itself (U3's `/drinks`).
  *
- * **The browser's list first** (U6): the list is `useInventory([])` — the
- * items this browser added, in both apps — and never the editor's saved
- * list. A page with a secondary list (`secondaryInventory()`: the operator's
+ * **The browser's list first** (U6): the list is `useInventory()` — the
+ * items this browser added, in both apps, with a pre-U6 overlay migrated by
+ * the shared hook — and never the editor's saved list. The staples are
+ * `/make`'s settings (`makeableOptions`), as on the homepage's Make tile. A page with a secondary list (`secondaryInventory()`: the operator's
  * saved inventory in the editor) passes its items as `secondary`, and gets a
  * second analysis to show apart from the first.
  */
@@ -84,7 +85,7 @@ export function useMakeable(scope: string, secondary?: string[]): Makeable {
     [corpus, scope, resolver],
   );
 
-  const inventory = useInventory(NO_SHARED);
+  const inventory = useInventory();
   /* Keyed by value: `useMakeSettings` answers a fresh object every render,
    * and a fresh options object would rerun the whole judge each time. */
   const optionsKey = JSON.stringify(makeableOptions(useMakeSettings()));
@@ -132,9 +133,3 @@ export function useMakeable(scope: string, secondary?: string[]): Makeable {
     },
   };
 }
-
-/**
- * `useInventory`'s shared list, always empty here: its overlay's `added` is
- * then exactly this browser's list. One array, so its memo holds.
- */
-const NO_SHARED: string[] = [];

@@ -144,7 +144,8 @@ function DrinkCards({ cards }: { cards: DrinkCard[] }) {
  * Static apart from two client islands: the make panel (the browser's list)
  * and the seasonal row (today's date). `secondary` is
  * `secondaryInventory()`'s answer — the operator's saved list in a signed-in
- * editor, nothing in the export.
+ * editor; on the export (and for an editor guest) the house snapshot when
+ * "Share my saved inventory on the export" is on, and nothing by default.
  */
 export function DrinksPage({
   data,

@@ -11,7 +11,8 @@ export const metadata = { title: "Drinks" };
  * The editor's `/drinks` (U3). The make panel judges this browser's list,
  * as the export's does (U6); a signed-in session also gets the secondary
  * group over the operator's saved inventory. A guest gets exactly the
- * export's page — no saved list read, nothing about it in the payload.
+ * export's page — no saved list read; the house snapshot only when this
+ * process was built with one, which by default it is not (as on `/make`).
  */
 export default async function Drinks() {
   const session = await auth();

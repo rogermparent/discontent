@@ -12,12 +12,14 @@
 // one of its modules reads, so a module graph without a reader is an export
 // without the list. It complements 25c's text scan in `inventory.test.ts`
 // (no common/ or export/ file names the file), which a reader hidden behind
-// an editor import would slip past. When the opt-in "share the inventory on the export"
-// option lands (U5's branch), this test gains its "on → present" half.
+// an editor import would slip past. The opt-in "Share my saved inventory on
+// the export" reaches the export only as the build-time snapshot variable;
+// `exportHouseInventory.test.ts` pins both halves of that (off → absent,
+// on → present).
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { secondaryInventory } from "../websites/recipe-website/common/controller/secondaryInventory";
 
 const site = resolve(__dirname, "../websites/recipe-website");
@@ -132,7 +134,13 @@ describe("the export never carries the saved inventory (U6)", () => {
     }).not.toHaveProperty("recipe-editor");
   });
 
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("asks the secondary helper for nothing, and gets nothing", async () => {
+    /* With the share option off the export build sets the snapshot empty. */
+    vi.stubEnv("SITE_HOUSE_INVENTORY", "");
     await expect(secondaryInventory()).resolves.toBeUndefined();
     await expect(
       secondaryInventory(async () => ["gin"]),

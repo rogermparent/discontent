@@ -87,7 +87,8 @@ function BuyNextColumn({ buyNext }: { buyNext: BuyNext[] }) {
 
 /**
  * The secondary group (U6): what the other list — the operator's saved
- * inventory, in the editor — makes that this browser's list doesn't. Below
+ * inventory in a signed-in editor, or the house snapshot the operator chose
+ * to share on the export — makes that this browser's list doesn't. Below
  * the panel, collapsed, and never in its counts.
  */
 function SecondaryGroup({
@@ -136,7 +137,8 @@ function SecondaryGroup({
  * this browser's list (U6) in both apps.
  *
  * `secondary` comes from `secondaryInventory()`: the operator's saved list
- * in a signed-in editor, nothing in the export.
+ * in a signed-in editor; elsewhere the house snapshot when the export option
+ * is on, and nothing by default.
  */
 export function DrinksMakePanel({
   secondary,

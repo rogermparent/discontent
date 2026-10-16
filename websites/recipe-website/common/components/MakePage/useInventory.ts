@@ -129,16 +129,7 @@ const IN_EDITOR = process.env.NEXT_PUBLIC_RECIPE_APP === "editor";
  * A list storage refuses to keep (the quota, mid-migration or on a change)
  * is held in memory while the stored value stays as it was (`refused`).
  */
-export function useInventory(legacy?: { shared: string[] }): Inventory;
-/**
- * @deprecated The pre-review form, from before every caller dropped the
- * shared list (U6): the array is ignored. Call `useInventory()`.
- */
-export function useInventory(noShared: readonly string[]): Inventory;
-export function useInventory(
-  arg?: { shared: string[] } | readonly string[],
-): Inventory {
-  const legacy = arg && "shared" in arg ? arg : undefined;
+export function useInventory(legacy?: { shared: string[] }): Inventory {
   const raw = useSyncExternalStore(
     subscribe,
     getOverlaySnapshot,
