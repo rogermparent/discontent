@@ -172,6 +172,34 @@ export function createLocalBackend({
         { ctx },
       );
     },
+    /*
+     * 38e: the photos go into the job store first — the spec names them
+     * there, so `recipes jobs retry` reads them again — after the vision
+     * model is known to be configured (`usage` otherwise).
+     */
+    async importPhotos(files, options = {}) {
+      const { assertPhotoImport } = await import("../../controller/llm/vision");
+      assertPhotoImport();
+      const { checkPhotoOptions } =
+        await import("../../controller/curation/importPhoto");
+      checkPhotoOptions(options);
+      if (!options.dryRun) await guard();
+      const { runSpec, corpusOf } = await import("../../controller/jobs/kinds");
+      const { jobsDirectory } = await import("../../controller/jobs/location");
+      const { storePhotos } = await import("../../controller/jobs/photos");
+      const photos = await storePhotos(jobsDirectory(), files);
+      const { source, ...rest } = options;
+      return runSpec(
+        {
+          kind: "import-photo",
+          ...corpusOf(ctx),
+          photos,
+          ...(source ? { source } : {}),
+          options: rest,
+        },
+        { ctx },
+      );
+    },
     /* Reads a page and nothing else: no identity, no write. */
     async inspect(url, options = {}) {
       const { runSpec } = await import("../../controller/jobs/kinds");

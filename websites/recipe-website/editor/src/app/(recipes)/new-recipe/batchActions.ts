@@ -32,6 +32,7 @@ import {
   type ImportBatchItem,
 } from "recipe-editor/controller/curation/importRecipe";
 import { corpusOf, runSpec } from "recipe-editor/controller/jobs/kinds";
+import { PHOTO_PATH } from "recipe-editor/controller/jobs/photos";
 import { parseInput } from "recipe-editor/controller/curation/schema";
 import { authenticateUser } from "recipe-editor/controller/actions/shared";
 
@@ -46,8 +47,23 @@ const RecipeBatchInputSchema = z.strictObject({
   /** The video, or a pasted text's source. */
   url: z.string().trim().min(1).optional(),
   pastedText: z.boolean().optional(),
+  /** Read from photos' transcription (38e). */
+  fromPhotos: z.boolean().optional(),
   /** A page's own Recipe nodes (38c): no model read them. */
   fromPage: z.boolean().optional(),
+  /**
+   * The photo import's first photo, in the job store (38e review): each
+   * created recipe gets it as its image. Only a stored photo's path —
+   * `PHOTO_PATH`, checked again when it is read.
+   */
+  photo: z
+    .strictObject({
+      path: z.string().regex(PHOTO_PATH),
+      name: z.string().min(1).max(255),
+      type: z.string().max(100),
+      bytes: z.number().int().min(0),
+    })
+    .optional(),
   /** How many recipes were found: "2 of 4" in each commit. */
   total: z.number().int().min(2).max(BATCH_MAX),
   /** Every recipe found, by name: a link may point at one imported earlier. */
@@ -98,11 +114,13 @@ export async function importRecipeBatchAction(
     const ctx = curationContextFor(email, getContentDirectory());
     const input = parseInput(RecipeBatchInputSchema, raw);
     const from = input.url ? ` from ${shortSource(input.url)}` : "";
-    const commitNote = input.pastedText
-      ? "local model, pasted text, {n} of {total}"
-      : input.fromPage
-        ? `{n} of {total}${from}`
-        : `local model, {n} of {total}${from}`;
+    const commitNote = input.fromPhotos
+      ? "local model, photo, {n} of {total}"
+      : input.pastedText
+        ? "local model, pasted text, {n} of {total}"
+        : input.fromPage
+          ? `{n} of {total}${from}`
+          : `local model, {n} of {total}${from}`;
     /* A job since 37c (`form-batch`): a step log, `/jobs`, Cancel, Retry. */
     const { recipes, job } = await runSpec(
       {
@@ -113,6 +131,7 @@ export async function importRecipeBatchAction(
         total: input.total,
         ...(input.siblings ? { siblings: input.siblings } : {}),
         commitNote,
+        ...(input.photo ? { photos: [input.photo] } : {}),
       },
       { ctx },
     );

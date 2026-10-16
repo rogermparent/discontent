@@ -15,7 +15,7 @@ import { DateTimeInput } from "@discontent/component-library/components/Form/inp
 import { TextInput } from "@discontent/component-library/components/Form/inputs/Text";
 import { LexicalMarkdownInput } from "@discontent/component-library/components/Form/inputs/LexicalMarkdown";
 import { RECIPE_MARKDOWN } from "@discontent/component-library/components/Form/inputs/LexicalMarkdown/transformers";
-import { ImageInput } from "./Image";
+import { ImageInput, fileKey } from "./Image";
 import { VideoInput } from "@discontent/component-library/components/Form/inputs/Video";
 import { StaticImageProps } from "@discontent/next-static-image/src";
 import { VideoPlayerProvider } from "@discontent/component-library/components/VideoPlayer/Provider";
@@ -51,12 +51,15 @@ export default function RecipeFields({
   state,
   defaultImage,
   allTags = [],
+  imageFile,
 }: {
   recipe?: Partial<ImportedRecipe>;
   slug?: string;
   state?: RecipeFormState;
   defaultImage?: StaticImageProps;
   allTags?: string[];
+  /** A file the image field starts with (38e: the photo a recipe was read from). */
+  imageFile?: File;
 }) {
   const form = useRecipeForm();
   // Read the live name reactively (drives the slug placeholder) without nesting
@@ -121,11 +124,17 @@ export default function RecipeFields({
         TanStack Form state.
       */}
       <ImageInput
+        /* 38e review: the photo arriving or going (the "use the first
+         * photo" box ticked or unticked after an import) starts the field
+         * over — holding it, with its preview, or empty — since a file
+         * input cannot be told to drop just the file a script gave it. */
+        key={fileKey(imageFile)}
         defaultImage={defaultImage}
         errors={state?.errors?.image}
         imageToImport={imageImportUrl}
         candidates={images}
         allowUrl
+        initialFile={imageFile}
       />
       <VideoInput
         label="Video"

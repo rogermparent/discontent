@@ -38,6 +38,25 @@ function httpUrl(text: string): string | undefined {
   }
 }
 
+/* A number per `File` seen, for `fileKey`: a File has no identity of its own to print. */
+const fileIds = new WeakMap<File, number>();
+let lastFileId = 0;
+
+/**
+ * A key that changes with the identity of `file` (38e review): the parent
+ * keys `ImageInput` on its `initialFile`, so a photo arriving or going
+ * remounts the field holding it, or empty. `"none"` without one.
+ */
+export function fileKey(file: File | undefined): string {
+  if (!file) return "none";
+  let id = fileIds.get(file);
+  if (id === undefined) {
+    id = lastFileId += 1;
+    fileIds.set(file, id);
+  }
+  return `file-${id}`;
+}
+
 /**
  * The file input, its preview and the "Remove Image" checkbox — and, since
  * 26c, two more ways in: a choice among the images an import found, and an
@@ -57,6 +76,13 @@ function httpUrl(text: string): string | undefined {
  * both, as it always has. The URL field is opt-in (`allowUrl`): the group form
  * shares this component and parses no import URL.
  *
+ * `initialFile` (38e) starts the file input holding a file — the photo a
+ * photo import was read from, when "use the photo as the recipe's image"
+ * was ticked — through a `DataTransfer`, the one way a script may fill a
+ * file input. It uploads like a picked file, and Cancel upload drops it.
+ * It is read when the field mounts: a parent whose `initialFile` changes
+ * keys the field on it (`fileKey`), so the field starts over.
+ *
  * The file input is opt-out (`allowFile`, 31e): a form whose seat takes a
  * picture only as `imageImportUrl` shows the URL field alone rather than a
  * file input whose upload would be dropped, and the field's errors then sit on
@@ -72,6 +98,7 @@ export function ImageInput({
   allowFile = true,
   id = "recipe-form-image",
   existingAlt = "Existing Recipe Image",
+  initialFile,
 }: {
   defaultImage?: StaticImageProps;
   errors: string[] | undefined;
@@ -84,8 +111,12 @@ export function ImageInput({
   allowFile?: boolean;
   id?: string;
   existingAlt?: string;
+  /** A file to start the file input with (38e: an imported photo). */
+  initialFile?: File;
 }) {
-  const [imagePreviewURL, setImagePreviewURL] = useState<string>();
+  const [imagePreviewURL, setImagePreviewURL] = useState<string | undefined>(
+    () => (initialFile ? URL.createObjectURL(initialFile) : undefined),
+  );
   const [chosen, setChosen] = useState<string | undefined>(
     imageToImport ?? candidates?.[0]?.url,
   );
@@ -100,6 +131,15 @@ export function ImageInput({
   }, [imagePreviewURL]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /* 38e: start holding `initialFile`, as if it had been picked (its
+   * preview is the state's first value, above). */
+  useEffect(() => {
+    const input = fileInputRef.current;
+    if (!initialFile || !input || typeof DataTransfer === "undefined") return;
+    const transfer = new DataTransfer();
+    transfer.items.add(initialFile);
+    input.files = transfer.files;
+  }, [initialFile]);
   const typedUrl = httpUrl(typed);
   const importUrl = typedUrl ?? chosen;
   const showPicker = !typedUrl && candidates && candidates.length > 1;

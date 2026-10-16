@@ -14,13 +14,26 @@
  *   name, the lines up to the first blank line are the ingredients, and the
  *   paragraph after them is the method, a step a sentence. `invent` names
  *   recipes whose lines are made up instead (a reading the guard must catch).
+ * - **A photo** (38e, the vision model's `TRANSCRIBE_SYSTEM_PROMPT`): the
+ *   transcript filed for each picture's bytes as **sent** (`transcripts`,
+ *   keyed by `sentPhotoKey`), as text.
  */
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+import { photoForVision } from "../../../controller/llm/photoPrep";
 
 export interface StandInOptions {
   /** Recipe names (as the text's first line) whose lines are invented. */
   invent?: string[];
   /** Answer the one-dish question "yes" (default "no"). */
   oneDish?: boolean;
+  /**
+   * The vision model's answers (38e): a transcript per photo, keyed by the
+   * bytes it is sent as (`sentPhotoKey`; `photoTranscripts` reads a
+   * directory of them).
+   */
+  transcripts?: Record<string, string>;
 }
 
 function textBlock(user: string): string {
@@ -87,16 +100,80 @@ export function recipeAnswer(text: string, options: StandInOptions = {}) {
   };
 }
 
+/** Bytes as the transcripts are keyed: sha256, hex. */
+export function photoKey(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+/**
+ * A photo's key as the stand-in sees it (38-Te4): the hash of the bytes
+ * the vision model is **sent** — every photo is re-encoded first
+ * (`photoForVision`, 38-Te5), so the file's own hash never arrives. The
+ * same code as the seats' (`photoPrep.ts` loads `sharp` only when called,
+ * so a spec that sends no photo never loads it).
+ */
+export async function sentPhotoKey(bytes: Uint8Array): Promise<string> {
+  return photoKey(await photoForVision(Buffer.from(bytes)));
+}
+
+/**
+ * The transcripts of the photos in `dir` (38e): each `<name>.txt` beside
+ * a `<name>.jpg` / `.png`, keyed by that picture's `sentPhotoKey`.
+ */
+export async function photoTranscripts(
+  dir: string,
+): Promise<Record<string, string>> {
+  const transcripts: Record<string, string> = {};
+  for (const name of readdirSync(dir)) {
+    const match = /^(.*)\.(jpe?g|png)$/i.exec(name);
+    if (!match) continue;
+    const text = path.join(dir, `${match[1]}.txt`);
+    if (!existsSync(text)) continue;
+    transcripts[await sentPhotoKey(readFileSync(path.join(dir, name)))] =
+      readFileSync(text, "utf8");
+  }
+  return transcripts;
+}
+
+/**
+ * The vision model's transcription (38e): each photo's transcript by the
+ * hash of the bytes sent, in order, a blank line between — never a real
+ * model. A photo with none reads as nothing (the import says so).
+ */
+export function transcribeAnswer(
+  images: readonly string[],
+  transcripts: Record<string, string> = {},
+): string {
+  return images
+    .map((image) => transcripts[photoKey(Buffer.from(image, "base64"))] ?? "")
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 /** Ollama's `/api/chat` answer to `body` (a parsed request). */
 export function standInChat(
   body: {
     model?: string;
-    messages?: { role: string; content: string }[];
+    messages?: { role: string; content: string; images?: string[] }[];
   },
   options: StandInOptions = {},
 ) {
   const system = body.messages?.find((m) => m.role === "system")?.content ?? "";
-  const user = body.messages?.find((m) => m.role === "user")?.content ?? "";
+  const userMessage = body.messages?.find((m) => m.role === "user");
+  const user = userMessage?.content ?? "";
+  if (system.startsWith("You transcribe photographs")) {
+    return {
+      model: body.model ?? "qwen2.5vl:7b",
+      message: {
+        role: "assistant",
+        content: transcribeAnswer(
+          userMessage?.images ?? [],
+          options.transcripts,
+        ),
+      },
+      done: true,
+    };
+  }
   const text = textBlock(user);
   const answer = system.startsWith("You find the separate recipes")
     ? listAnswer(text)

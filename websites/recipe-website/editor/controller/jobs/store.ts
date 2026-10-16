@@ -7,6 +7,8 @@
  *   Only the process that runs a job writes its meta — and the boot sweep,
  *   for a job whose process is gone.
  * - `<id>.log.jsonl`: the step log (`log.ts`), appended a line at a time.
+ * - `photos/`: a photo import's pictures and transcripts (38e, `photos.ts`),
+ *   named by a spec and pruned with the jobs.
  * - `readings/<key>.json`: an import's last model reading (38c,
  *   `readingCache.ts`), pruned with the jobs once past its reuse.
  *
@@ -515,5 +517,36 @@ export async function pruneJobs(
   }
   /* 38c: the kept model readings past their reuse (`readingCache.ts`). */
   await pruneReadings(dir, { now });
+  /*
+   * 38e: the photos and transcripts no remaining job names (`photos.ts`) —
+   * only when every remaining job's meta was read: a listing that failed,
+   * or one meta that could not be read, would look like a job naming no
+   * photo, and its photos would go (38e review).
+   */
+  const remaining = await readEveryJob(dir);
+  if (remaining) {
+    const { prunePhotos } = await import("./photos");
+    await prunePhotos(
+      dir,
+      remaining.map((meta) => meta.spec),
+      { now },
+    ).catch(() => 0);
+  }
   return removed;
+}
+
+/**
+ * Every job's meta, or `undefined` when the directory could not be listed
+ * or any meta could not be read (unlike `listJobs`, which skips those). A
+ * meta gone since the listing (ENOENT) is a job pruned meanwhile: skipped.
+ */
+async function readEveryJob(dir: string): Promise<JobMeta[] | undefined> {
+  try {
+    const metas = await Promise.all(
+      (await listJobIds(dir)).map((id) => readJobMeta(dir, id)),
+    );
+    return metas.filter((meta): meta is JobMeta => !!meta);
+  } catch {
+    return undefined;
+  }
 }

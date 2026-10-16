@@ -18,6 +18,7 @@ export default function NewRecipeWorkspace({
   allTags,
   terms,
   llmModel,
+  visionModel,
 }: {
   initialState: RecipeActionState | null;
   /** `/new-recipe?job=<id>` (37c): the form import to reopen or follow. */
@@ -28,6 +29,8 @@ export default function NewRecipeWorkspace({
   terms: { slug: string; label: string }[];
   /** The local model's name, or nothing when none is configured (36b). */
   llmModel?: string;
+  /** The vision model's name, or nothing: no Photo mode (38e). */
+  visionModel?: string;
 }) {
   const [roundupRunning, setRoundupRunning] = useState(false);
   return (
@@ -40,6 +43,7 @@ export default function NewRecipeWorkspace({
         allTags={allTags}
         busy={roundupRunning}
         llmModel={llmModel}
+        visionModel={visionModel}
       />
     </>
   );

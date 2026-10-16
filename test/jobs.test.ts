@@ -535,6 +535,9 @@ describe("the registry", () => {
         "form-batch",
         "form-text",
         "form-url",
+        /* 38e: photos, from the form and from the CLI / API / MCP. */
+        "form-photo",
+        "import-photo",
         "import-list",
         "import-text",
         "import-url",
@@ -542,6 +545,31 @@ describe("the registry", () => {
         "inspect-list",
       ].sort(),
     );
+    const photo = {
+      path: "photos/0123456789abcdef0123456789abcdef.jpg",
+      name: "card.jpg",
+      type: "image/jpeg",
+      bytes: 10,
+    };
+    expect(jobLabel({ kind: "form-photo", photos: [photo] })).toBe(
+      "photo card.jpg",
+    );
+    expect(
+      jobLabel({
+        kind: "import-photo",
+        contentDirectory: "/c",
+        photos: [photo, { ...photo, name: "back.jpg" }],
+        options: {},
+      }),
+    ).toBe("2 photos: card.jpg, back.jpg");
+    expect(
+      jobTier({
+        kind: "import-photo",
+        contentDirectory: "/c",
+        photos: [photo],
+        options: { all: true },
+      }),
+    ).toBe("batch");
     expect(
       jobLabel({
         kind: "import-text",

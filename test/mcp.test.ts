@@ -25,7 +25,10 @@ import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 
 import { recipeContentTypes } from "../websites/recipe-website/editor/controller/contentTypes";
-import { standInChat } from "../websites/recipe-website/editor/playwright/fixtures/llm/standInModel";
+import {
+  sentPhotoKey,
+  standInChat,
+} from "../websites/recipe-website/editor/playwright/fixtures/llm/standInModel";
 
 import {
   createLocalBackend,
@@ -1016,6 +1019,67 @@ describe("the MCP registry over an in-memory transport", () => {
     } finally {
       vi.unstubAllGlobals();
       vi.unstubAllEnvs();
+    }
+  });
+
+  /* 38e: photos on recipe_import — local paths, no new tool. */
+  it("imports from photo paths on recipe_import (38e)", async () => {
+    const model = "http://model.test:11434";
+    vi.stubEnv("RECIPE_LLM_URL", model);
+    vi.stubEnv("RECIPE_LLM_VISION_MODEL", "qwen2.5vl:7b");
+    const { default: sharp } = await import("sharp");
+    const bytes = await sharp({
+      create: { width: 40, height: 30, channels: 3, background: "#fbf6e9" },
+    })
+      .jpeg()
+      .toBuffer();
+    const card = join(contentDirectory, "..", `card-${Date.now()}.jpg`);
+    await writeFile(card, bytes);
+    const key = await sentPhotoKey(bytes);
+    const transcripts = {
+      [key]: "Old Scones\n2 cups flour\n3/4 cup cream\n\nStir and bake.",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) =>
+        new URL(String(input)).pathname === "/api/chat"
+          ? Response.json(
+              standInChat(JSON.parse(String(init?.body)), { transcripts }),
+            )
+          : Response.json({}),
+      ),
+    );
+    try {
+      const dry = await call("recipe_import", { photos: [card], dryRun: true });
+      expect(dry.isError).toBe(false);
+      expect(dry.data).toMatchObject({
+        dryRun: true,
+        photos: 1,
+        transcription: transcripts[key],
+        draft: { name: "Old Scones" },
+      });
+      /* The schema's refusals: photos with text, more than four. */
+      expect(
+        (await call("recipe_import", { photos: [card], text: "x" })).isError,
+      ).toBe(true);
+      expect(
+        (
+          await call("recipe_import", {
+            photos: [card, card, card, card, card],
+          })
+        ).isError,
+      ).toBe(true);
+      vi.stubEnv("RECIPE_LLM_VISION_MODEL", "");
+      expect(
+        await callError("recipe_import", { photos: [card], dryRun: true }),
+      ).toMatchObject({
+        code: "usage",
+        message: expect.stringContaining("RECIPE_LLM_VISION_MODEL"),
+      });
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+      await rm(card, { force: true });
     }
   });
 

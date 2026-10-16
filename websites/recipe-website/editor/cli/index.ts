@@ -147,6 +147,8 @@ const USAGE = `Usage: pnpm recipes <command> [options]
                [--llm auto|force|off] [--all | --pick "Name",… | --as-one]
                [--verbose]
   import --text <file|-> [--source <url>] [the same options, no --llm]
+  import --photo <file> [<file>…] [--source <url>] [--photo-as-image]
+               [the same options, no --llm]
   inspect-list <url> [--verbose]
   import-list <url> (--pick 1,3,5-7|<url>,… | --all) [--term <slug> [--term-label L]]
               [--limit 1-6] [--dry-run] [--llm auto|force|off] [--verbose]
@@ -238,7 +240,8 @@ Environment:
                        editor package. Never passed on argv.
   RECIPE_EDITOR_URL    Same as --editor-url
   RECIPE_ENV_FILE      The file RECIPE_API_TOKEN, RECIPE_EDITOR_URL, the
-                       RECIPE_LLM_* variables, RECIPE_JOBS_DIR,
+                       RECIPE_LLM_* variables (the vision model's too),
+                       RECIPE_JOBS_DIR,
                        RECIPE_QUEUE_DIR and the RECIPE_GPU_* hooks are read
                        from when the environment lacks them (default
                        websites/recipe-website/editor/.env; nothing else in
@@ -247,6 +250,10 @@ Environment:
                        http://localhost:11434); unset, --llm auto does
                        nothing and --llm force fails
   RECIPE_LLM_MODEL     The model (default qwen3:8b)
+  RECIPE_LLM_VISION_MODEL
+                       The vision model that transcribes photos for
+                       import --photo, on the same server (e.g.
+                       qwen2.5vl:7b); unset, photo import is off
   RECIPE_LLM_API       ollama (default) or openai (/v1/chat/completions)
   RECIPE_AUTHOR        "Name <email>" for local commits; same as --author
   CONTENT_DIRECTORY    Local content directory; same as --content-dir
@@ -322,6 +329,16 @@ local model read the text — a YouTube description, an email, a note — and
 skip the links, sponsors and timestamps around it. \`--source <url>\` cites
 where it came from (a video URL is also the recipe's video); it is never
 fetched. With no model configured it fails (import_failed).
+
+A photo of a recipe — a card, a cookbook page, a handwritten note:
+\`import --photo card.jpg\` (up to 4 photos, the pages in order) has the
+vision model (RECIPE_LLM_VISION_MODEL) transcribe it, then the local model
+reads the transcription as it reads pasted text, and checks its lines
+against it. --dry-run prints the transcription. --photo-as-image also makes
+the first photo the recipe's image (off by default: a card is rarely a
+picture of the dish). JPEG, PNG, WebP, AVIF, TIFF and GIF are read; HEIC is
+refused — save the photo as a JPEG. With no vision model configured it fails
+(usage).
 
 Several recipes in one video or paste (three side dishes, a recipe and the
 sauce it refers to): each is read and checked on its own, and the import

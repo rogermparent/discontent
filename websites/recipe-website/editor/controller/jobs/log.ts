@@ -318,7 +318,7 @@ function quoted(value: unknown): string | undefined {
 /** `llm.extract 2/4 "Stuffing"`, `fetch www.example.com`: the step and what it is about. */
 function stepLabel(step: string, data: StepData = {}): string {
   const parts = [step];
-  if (step.startsWith("llm.")) {
+  if (step.startsWith("llm.") || step.startsWith("vision.")) {
     if (typeof data.part === "string") parts.push(data.part);
     parts.push(quoted(data.name) ?? "");
   } else if (step === "job") {
@@ -345,7 +345,7 @@ function gpuText(gpu: unknown): string | undefined {
 
 /** What an `end` line says, by step. */
 function summary(step: string, data: StepData = {}, ms?: number): string[] {
-  if (step.startsWith("llm.")) {
+  if (step.startsWith("llm.") || step.startsWith("vision.")) {
     const tokens =
       typeof data.outputTokens === "number"
         ? `${data.outputTokens} tok${
@@ -355,6 +355,13 @@ function summary(step: string, data: StepData = {}, ms?: number): string[] {
           }`
         : undefined;
     return [
+      /* 38e: a transcription's photos and what was read. */
+      step.startsWith("vision.") && typeof data.photos === "number"
+        ? `${data.photos} photo${data.photos === 1 ? "" : "s"}`
+        : undefined,
+      step.startsWith("vision.") && typeof data.chars === "number"
+        ? `${data.chars} chars read`
+        : undefined,
       typeof data.total === "number"
         ? `${data.grounded ?? 0}/${data.total} grounded`
         : undefined,

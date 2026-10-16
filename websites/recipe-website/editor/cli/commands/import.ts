@@ -8,6 +8,7 @@ import {
 import type { ImportBatchResult, ImportResult } from "../backend/types";
 import { formatStart } from "../../controller/llm/chapterTime";
 import { readTextInput } from "../input";
+import { MAX_PHOTOS } from "../../controller/photoLimits";
 import { writeDraft } from "./inspect";
 import {
   LLM_OPTION,
@@ -22,7 +23,7 @@ import {
 
 export const importCommand: CommandDef<ImportResult> = {
   name: "import",
-  usage: `recipes import (<url> ${LLM_USAGE} | --text <file|-> [--source <url>]) [--all | --pick "Name",… | --as-one] [--tags a,b] [--slug s] [--name N] [--image <url>] [--dry-run [--out draft.json]] [--overwrite] [--allow-partial] [--verbose]`,
+  usage: `recipes import (<url> ${LLM_USAGE} | --text <file|-> [--source <url>] | --photo <file> [<file>…] [--source <url>] [--photo-as-image]) [--all | --pick "Name",… | --as-one] [--tags a,b] [--slug s] [--name N] [--image <url>] [--dry-run [--out draft.json]] [--overwrite] [--allow-partial] [--verbose]`,
   options: {
     tags: { type: "string" },
     slug: { type: "string" },
@@ -41,23 +42,51 @@ export const importCommand: CommandDef<ImportResult> = {
     all: { type: "boolean" },
     pick: { type: "string", multiple: true },
     "as-one": { type: "boolean" },
+    /* 38e: photos of a recipe card, transcribed by the vision model. */
+    photo: { type: "string", multiple: true },
+    "photo-as-image": { type: "boolean" },
   },
   write: true,
   async run({ backend, positionals, options }) {
-    const url = positionals[0];
+    /* `--photo a.jpg b.jpg` as well as `--photo a.jpg --photo b.jpg`. */
+    const photoFlags = stringListOption(options, "photo");
+    const photoPaths =
+      photoFlags.length > 0 ? [...photoFlags, ...positionals] : [];
+    const url = photoPaths.length > 0 ? undefined : positionals[0];
     const textFrom = stringOption(options, "text");
     const source = stringOption(options, "source");
+    const photoAsImage = booleanOption(options, "photo-as-image");
+    if (photoPaths.length > 0 && textFrom !== undefined) {
+      throw new UsageError("import takes --text or --photo, not both.");
+    }
     if (url && textFrom !== undefined) {
       throw new UsageError("import takes a URL or --text <file|->, not both.");
     }
-    if (!url && !textFrom) {
+    if (!url && !textFrom && photoPaths.length === 0) {
       throw new UsageError(
-        "import needs a URL, or --text <file|-> for a pasted recipe.",
+        "import needs a URL, --text <file|-> for a pasted recipe, or --photo <file> for a photo of one.",
       );
     }
-    if (source !== undefined && textFrom === undefined) {
+    if (photoPaths.length > MAX_PHOTOS) {
       throw new UsageError(
-        "--source is a pasted text's URL: it goes with --text (import a URL directly otherwise).",
+        `--photo takes at most ${MAX_PHOTOS} photos (the pages of one recipe, in order); ${photoPaths.length} given.`,
+      );
+    }
+    if (
+      source !== undefined &&
+      textFrom === undefined &&
+      photoPaths.length === 0
+    ) {
+      throw new UsageError(
+        "--source is a pasted text's (or a photo's) URL: it goes with --text or --photo (import a URL directly otherwise).",
+      );
+    }
+    if (photoAsImage && photoPaths.length === 0) {
+      throw new UsageError("--photo-as-image goes with --photo.");
+    }
+    if (photoAsImage && stringOption(options, "image") !== undefined) {
+      throw new UsageError(
+        "--photo-as-image or --image, not both: the recipe has one image.",
       );
     }
     const tagsFlag = stringOption(options, "tags");
@@ -67,9 +96,9 @@ export const importCommand: CommandDef<ImportResult> = {
       throw new UsageError("--out writes a dry run's draft: pass --dry-run.");
     }
     const llm = llmOption(options);
-    if (llm && textFrom !== undefined) {
+    if (llm && (textFrom !== undefined || photoPaths.length > 0)) {
       throw new UsageError(
-        "--llm is for a URL import: --text always uses the local model.",
+        "--llm is for a URL import: --text and --photo always use the local model.",
       );
     }
     const all = booleanOption(options, "all");
@@ -101,15 +130,30 @@ export const importCommand: CommandDef<ImportResult> = {
       ...(pick ? { pick } : {}),
       ...(asOne ? { asOne: true } : {}),
     };
-    const result = textFrom
-      ? await backend.importText(await readTextInput(textFrom), {
-          ...writeOptions,
-          ...(source ? { source } : {}),
-        })
-      : await backend.importRecipe(url, {
-          ...writeOptions,
-          ...(llm ? { llm } : {}),
-        });
+    let result: ImportResult;
+    if (photoPaths.length > 0) {
+      /* Read here, so a remote import uploads them (38e). */
+      const { readImageFile } = await import("../../controller/imageImport");
+      const photos: File[] = [];
+      for (const photoPath of photoPaths) {
+        photos.push(await readImageFile(photoPath));
+      }
+      result = await backend.importPhotos(photos, {
+        ...writeOptions,
+        ...(source ? { source } : {}),
+        ...(photoAsImage ? { photoAsImage: true } : {}),
+      });
+    } else if (textFrom) {
+      result = await backend.importText(await readTextInput(textFrom), {
+        ...writeOptions,
+        ...(source ? { source } : {}),
+      });
+    } else {
+      result = await backend.importRecipe(url!, {
+        ...writeOptions,
+        ...(llm ? { llm } : {}),
+      });
+    }
     if (out) {
       if ("batch" in result) await writeBatchDrafts(out, result);
       else if ("dryRun" in result) await writeDraft(out, result.draft);
@@ -127,9 +171,11 @@ export const importCommand: CommandDef<ImportResult> = {
     if ("batch" in result) return formatBatch(result);
     if ("dryRun" in result) {
       return [
-        result.pastedText
-          ? `dry run: pasted text${result.url ? ` (source ${result.url})` : ""}`
-          : `dry run: ${result.url}`,
+        result.photos
+          ? `dry run: ${photoCount(result.photos)}${result.url ? ` (source ${result.url})` : ""}`
+          : result.pastedText
+            ? `dry run: pasted text${result.url ? ` (source ${result.url})` : ""}`
+            : `dry run: ${result.url}`,
         `slug: ${result.slug}`,
         result.partial
           ? result.llm?.found && !result.llm.discarded
@@ -141,6 +187,7 @@ export const importCommand: CommandDef<ImportResult> = {
         result.video ? `video: ${result.video}` : undefined,
         ...formatWarnings(result.warnings),
         result.job ? `job: ${result.job}` : undefined,
+        ...formatTranscription(result.transcription),
         formatJsonBlock(result.recipe),
       ]
         .filter(Boolean)
@@ -151,6 +198,7 @@ export const importCommand: CommandDef<ImportResult> = {
       `  ${result.url}`,
       `  ${result.path}`,
       result.source ? `  source: ${result.source.url}` : undefined,
+      result.photos ? `  read from ${photoCount(result.photos)}` : undefined,
       formatLlm(result.llm, "  "),
       ...formatWarnings(result.warnings),
       result.job ? `  job: ${result.job}` : undefined,
@@ -223,10 +271,23 @@ async function writeBatchDrafts(
   }
 }
 
+/** "1 photo", "2 photos". */
+function photoCount(count: number): string {
+  return `${count} photo${count === 1 ? "" : "s"}`;
+}
+
+/** A dry run's transcription (38e): what the vision model read, indented. */
+function formatTranscription(text: string | undefined): string[] {
+  if (!text) return [];
+  return ["transcription:", ...text.split("\n").map((line) => `  ${line}`)];
+}
+
 function formatBatch(result: ImportBatchResult): string {
-  const where = result.pastedText
-    ? `pasted text${result.url ? ` (source ${result.url})` : ""}`
-    : result.url;
+  const where = result.photos
+    ? `${photoCount(result.photos)}${result.url ? ` (source ${result.url})` : ""}`
+    : result.pastedText
+      ? `pasted text${result.url ? ` (source ${result.url})` : ""}`
+      : result.url;
   return [
     `${result.dryRun ? "dry run: " : ""}${where} — ${result.found.length} recipes found`,
     ...result.found.map(
@@ -258,6 +319,7 @@ function formatBatch(result: ImportBatchResult): string {
     ]),
     ...formatWarnings(result.warnings),
     result.job ? `job: ${result.job}` : undefined,
+    ...formatTranscription(result.transcription),
   ]
     .filter(Boolean)
     .join("\n");

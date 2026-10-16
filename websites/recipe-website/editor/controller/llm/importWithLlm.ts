@@ -1112,6 +1112,12 @@ export interface PastedTextInput {
   split?: boolean;
   /** The job (epic 37): its log, and its signal as the default `signal`. */
   job?: JobRun;
+  /**
+   * What the text is, when it is not a paste (38e): "the photo's
+   * transcription". The warnings name it ("read from the photo's
+   * transcription by local model …"), and the log's `text` note.
+   */
+  label?: string;
 }
 
 /** What the model made of pasted text: always a recipe, always `llm`. */
@@ -1176,9 +1182,10 @@ export async function readPastedText({
   signal,
   split = true,
   job,
+  label,
 }: PastedTextInput): Promise<PastedTextReading> {
   const normalised = normalisePastedText(text);
-  jobContext(job).log.info("text", "pasted text", {
+  jobContext(job).log.info("text", label ?? "pasted text", {
     chars: normalised.length,
     ...(source ? { source } : {}),
   });
@@ -1198,7 +1205,7 @@ export async function readPastedText({
   const cutNote = kept ? pastedTextCutNote(normalised.length, kept) : undefined;
   const applied = await applyLlm({
     url,
-    source: { text: normalised, pasted: true },
+    source: { text: normalised, pasted: true, ...(label ? { label } : {}) },
     mapped: undefined,
     mode: "force",
     config,
@@ -1211,7 +1218,9 @@ export async function readPastedText({
   const warnings = cutNote ? [...applied.warnings, cutNote] : applied.warnings;
   if (!applied.recipe || !applied.llm) {
     throw new ImportError(
-      ["No recipe read from the pasted text", ...warnings].join(" — "),
+      [`No recipe read from ${label ?? "the pasted text"}`, ...warnings].join(
+        " — ",
+      ),
     );
   }
   return { ...applied, warnings, recipe: applied.recipe, llm: applied.llm };

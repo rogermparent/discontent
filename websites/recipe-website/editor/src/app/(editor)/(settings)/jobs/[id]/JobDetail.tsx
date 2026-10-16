@@ -21,7 +21,7 @@ import { JobStatusBadge, formatWhen } from "../JobStatusBadge";
 const JOB_POLL_MS = 2_000;
 
 /** The form kinds `/new-recipe?job=` reopens. */
-const FORM_KINDS = new Set(["form-url", "form-text"]);
+const FORM_KINDS = new Set(["form-url", "form-text", "form-photo"]);
 
 /** What a result says, whatever its kind: names, slugs, counts. */
 function ResultSummary({ meta }: { meta: JobRecord }) {

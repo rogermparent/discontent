@@ -29,7 +29,10 @@ import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 
 import { recipeContentTypes } from "../websites/recipe-website/editor/controller/contentTypes";
-import { standInChat } from "../websites/recipe-website/editor/playwright/fixtures/llm/standInModel";
+import {
+  photoTranscripts,
+  standInChat,
+} from "../websites/recipe-website/editor/playwright/fixtures/llm/standInModel";
 
 import { groupContentConfig } from "../websites/recipe-website/common/controller/groupContentConfig";
 import { recipeContentConfig } from "../websites/recipe-website/common/controller/recipeContentConfig";
@@ -48,6 +51,9 @@ const EDITOR_DIR = join(
 );
 
 const TIMEOUT = 30_000;
+
+/** 38e: the Playwright fixture card and its transcript. */
+const PHOTO_FIXTURES = join(EDITOR_DIR, "playwright/fixtures/photos");
 
 let contentDirectory: string;
 
@@ -117,6 +123,7 @@ function run(args: string[], env: NodeJS.ProcessEnv = {}, input?: string) {
         RECIPE_LLM_URL: undefined,
         RECIPE_LLM_MODEL: undefined,
         RECIPE_LLM_API: undefined,
+        RECIPE_LLM_VISION_MODEL: undefined,
         ...env,
       },
     },
@@ -894,6 +901,27 @@ describe("import tooling as a process (26b)", () => {
           });
           return;
         }
+        /* 38e: the stand-in again, transcribing the fixture card by hash. */
+        case "/photo/api/chat": {
+          const chunks: Buffer[] = [];
+          request.on("data", (chunk: Buffer) => chunks.push(chunk));
+          request.on("end", async () => {
+            const transcripts = await photoTranscripts(PHOTO_FIXTURES);
+            response.writeHead(200, { "content-type": "application/json" });
+            response.end(
+              JSON.stringify(
+                standInChat(JSON.parse(Buffer.concat(chunks).toString()), {
+                  transcripts,
+                }),
+              ),
+            );
+          });
+          return;
+        }
+        case "/photo/api/ps":
+        case "/photo/api/generate":
+          response.writeHead(200, { "content-type": "application/json" });
+          return response.end("{}");
         case "/api/chat":
           response.writeHead(200, { "content-type": "application/json" });
           return response.end(
@@ -1363,6 +1391,95 @@ describe("import tooling as a process (26b)", () => {
       expect(all.stdout).toContain("2 recipes found");
       expect(all.stdout).toMatch(/1\.\s+imported\s+lemon-cake/);
       expect(all.stdout).toMatch(/2\.\s+failed\s+slug_conflict/);
+    },
+    TIMEOUT * 3,
+  );
+
+  /* 38e: `import --photo`, a recipe card read by the vision model. */
+  it(
+    "imports a photo: transcribed, read, and with --photo-as-image its picture",
+    async () => {
+      const card = join(PHOTO_FIXTURES, "oat-cookie-card.jpg");
+      const envFile = join(scratch, "llm-photo.env");
+      await writeFile(
+        envFile,
+        [
+          `RECIPE_LLM_URL=${origin}/photo`,
+          "RECIPE_LLM_VISION_MODEL=qwen2.5vl:7b",
+        ].join("\n"),
+      );
+      const withVision = { RECIPE_ENV_FILE: envFile };
+
+      /* The flags' own rules, before anything is read. */
+      const both = await run(
+        ["import", "--photo", card, "--text", "-", "--json"],
+        withVision,
+        "x",
+      );
+      expect(JSON.parse(both.stdout).error).toMatchObject({
+        code: "usage",
+        message: "import takes --text or --photo, not both.",
+      });
+      const five = await run(
+        ["import", "--photo", card, card, card, card, card, "--json"],
+        withVision,
+      );
+      expect(JSON.parse(five.stdout).error.message).toMatch(
+        /^--photo takes at most 4 photos/,
+      );
+      const asImage = await run(
+        ["import", `${origin}/old-scones.html`, "--photo-as-image", "--json"],
+        withVision,
+      );
+      expect(JSON.parse(asImage.stdout).error.message).toBe(
+        "--photo-as-image goes with --photo.",
+      );
+      /* No vision model: usage, naming the variable. */
+      const off = await run(["import", "--photo", card, "--dry-run", "--json"]);
+      expect(off.exitCode).toBe(1);
+      expect(JSON.parse(off.stdout).error).toMatchObject({
+        code: "usage",
+        message: expect.stringContaining("RECIPE_LLM_VISION_MODEL"),
+      });
+
+      const dry = await run(
+        ["import", "--photo", card, "--dry-run", "--json"],
+        withVision,
+      );
+      expect(dry.exitCode).toBe(0);
+      expect(JSON.parse(dry.stdout)).toMatchObject({
+        dryRun: true,
+        photos: 1,
+        transcription: expect.stringContaining("3 cups rolled oats"),
+        slug: "grandmas-oat-cookies",
+        llm: { mode: "force", grounded: 4, total: 4 },
+      });
+      /* The human output prints the transcription. */
+      const human = await run(
+        ["import", "--photo", card, "--dry-run"],
+        withVision,
+      );
+      expect(human.stdout).toContain("dry run: 1 photo");
+      expect(human.stdout).toContain("transcription:\n  Grandma's Oat Cookies");
+
+      const before = await commitCount();
+      const created = await run(
+        ["import", "--photo", card, "--photo-as-image", "--json"],
+        withVision,
+      );
+      expect(created.exitCode).toBe(0);
+      expect(JSON.parse(created.stdout)).toMatchObject({
+        slug: "grandmas-oat-cookies",
+        photos: 1,
+      });
+      expect(await commitCount()).toBe(before + 2);
+      const log = await simpleGit({ baseDir: contentDirectory }).log({
+        maxCount: 2,
+      });
+      expect(log.all.map((entry) => entry.message)).toEqual([
+        "Update recipe image: grandmas-oat-cookies",
+        "Create recipe: grandmas-oat-cookies (local model, photo)",
+      ]);
     },
     TIMEOUT * 3,
   );

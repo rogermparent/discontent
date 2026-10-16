@@ -8,11 +8,18 @@
  * in a URL import and means nothing for text, which always uses the model.
  * `pick` / `all` (36e) choose among several recipes in one video or paste.
  *
+ * `photos` (38e) is the third source: local image paths, read by the MCP
+ * server's process — `/api/import` refuses them in a JSON body (a request
+ * must not name the server's files) and takes the photos themselves as
+ * multipart parts instead. `source` goes with `text` or `photos`;
+ * `photoAsImage` only with photos.
+ *
  * Only `zod` and the mode names are imported: the MCP server builds its
  * schemas at startup and must not load the model client (35q).
  */
 import { z } from "zod";
 import { LLM_MODES } from "../llm/mode";
+import { MAX_PHOTOS } from "../photoLimits";
 
 /**
  * The most text a paste may carry. The extractor caps what the model reads
@@ -39,6 +46,14 @@ export const ImportRequestFields = z.strictObject({
       `A pasted recipe can be at most ${PASTED_TEXT_MAX_CHARS} characters`,
     )
     .optional(),
+  /* 38e: local photo paths (MCP), the pages of one recipe in order. */
+  photos: z
+    .array(z.string().min(1))
+    .min(1, "photos names no photo")
+    .max(MAX_PHOTOS, `A photo import takes at most ${MAX_PHOTOS} photos`)
+    .optional(),
+  /* 38e: the first photo becomes each created recipe's image. */
+  photoAsImage: z.boolean().optional(),
   source: z.string().min(1).optional(),
   tags: z.array(z.string()).optional(),
   slug: z.string().optional(),
@@ -73,18 +88,33 @@ export function checkImportRequest(
   data: ImportRequestInput,
   ctx: z.RefinementCtx,
 ): void {
-  if (Boolean(data.url) === Boolean(data.text)) {
+  if ([data.url, data.text, data.photos].filter(Boolean).length !== 1) {
     ctx.addIssue({
       code: "custom",
       path: ["url"],
-      message: "Give exactly one of `url` or `text`",
+      message: "Give exactly one of `url`, `text` or `photos`",
     });
   }
-  if (data.source && !data.text) {
+  if (data.source && !data.text && !data.photos) {
     ctx.addIssue({
       code: "custom",
       path: ["source"],
-      message: "`source` is a pasted text's URL: it goes with `text`",
+      message:
+        "`source` is a pasted text's (or a photo's) URL: it goes with `text` or `photos`",
+    });
+  }
+  if (data.photoAsImage && !data.photos) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["photoAsImage"],
+      message: "`photoAsImage` goes with `photos`",
+    });
+  }
+  if (data.photoAsImage && data.image) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["photoAsImage"],
+      message: "`photoAsImage` or `image`, not both: the recipe has one image",
     });
   }
   if (data.pick && data.all) {
@@ -101,11 +131,12 @@ export function checkImportRequest(
       message: "`asOne` reads the text as one recipe: no `pick` or `all`",
     });
   }
-  if (data.llm && data.text) {
+  if (data.llm && (data.text || data.photos)) {
     ctx.addIssue({
       code: "custom",
       path: ["llm"],
-      message: "`llm` is for a URL import: `text` always uses the local model",
+      message:
+        "`llm` is for a URL import: `text` and `photos` always use the local model",
     });
   }
 }
@@ -115,7 +146,10 @@ export const ImportRequestSchema =
 
 export type ImportRequest = z.infer<typeof ImportRequestSchema>;
 
-type WriteOptions = Omit<ImportRequest, "url" | "text" | "source" | "llm">;
+type WriteOptions = Omit<
+  ImportRequest,
+  "url" | "text" | "source" | "llm" | "photos" | "photoAsImage"
+>;
 
 /** A checked request as the seat it goes to. */
 export type ImportTarget =
@@ -129,6 +163,13 @@ export type ImportTarget =
       text: string;
       source?: string;
       options: WriteOptions;
+    }
+  | {
+      kind: "photos";
+      /** Local paths, read by the caller's process. */
+      photos: string[];
+      source?: string;
+      options: WriteOptions & Pick<ImportRequest, "photoAsImage">;
     };
 
 export function importTarget({
@@ -136,8 +177,18 @@ export function importTarget({
   text,
   source,
   llm,
+  photos,
+  photoAsImage,
   ...options
 }: ImportRequest): ImportTarget {
+  if (photos !== undefined) {
+    return {
+      kind: "photos",
+      photos,
+      ...(source ? { source } : {}),
+      options: { ...options, ...(photoAsImage ? { photoAsImage } : {}) },
+    };
+  }
   if (text !== undefined) {
     return { kind: "text", text, ...(source ? { source } : {}), options };
   }

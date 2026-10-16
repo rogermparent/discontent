@@ -64,6 +64,7 @@ import {
 
 export { MAX_BATCH_RECIPES };
 import type { ChapterRef } from "../llm/chapterTime";
+import { PHOTO_TEXT_LABEL } from "../photoLimits";
 import type { ReadingCache } from "../jobs/readingCache";
 import type { ComponentRef } from "../llm/splitRecipes";
 import { fetchYtdlpMetadata, ytdlpToRecipe } from "../ytdlp";
@@ -96,6 +97,10 @@ export interface ImportDryRunResult {
   url?: string;
   /** Read from pasted text by the local model (D8), not fetched. */
   pastedText?: true;
+  /** Read from this many photos' transcription (38e). */
+  photos?: number;
+  /** The vision model's transcription the recipe was read from (38e). */
+  transcription?: string;
   slug: string;
   /** The page had no Recipe node: name, description and image only. */
   partial?: true;
@@ -122,6 +127,8 @@ export interface ImportCreateResult extends RecipeWriteResult {
   /** The job that ran it (epic 37): `recipes jobs show <job>` has its steps. */
   job?: string;
   source?: RecipeSource;
+  /** Read from this many photos' transcription (38e). */
+  photos?: number;
   /** The local model's part (epic 36), whenever it was asked. */
   llm?: LlmImportInfo;
 }
@@ -181,6 +188,10 @@ export interface ImportBatchResult {
   /** The video (or a pasted text's source). */
   url?: string;
   pastedText?: true;
+  /** Read from this many photos' transcription (38e). */
+  photos?: number;
+  /** The vision model's transcription, with a dry run (38e). */
+  transcription?: string;
   /** Every recipe the model found, in the text's order. */
   found: FoundRecipe[];
   /** Listed by the model but left out: no recipe in its part, a failed call. */
@@ -464,7 +475,10 @@ export async function importFromText(
     ...options
   }: ImportWriteOptions & { text: string; source?: string },
   run?: JobRun,
-  { cache }: { cache?: ReadingCache<UrlImport> } = {},
+  {
+    cache,
+    photos,
+  }: { cache?: ReadingCache<UrlImport>; photos?: PhotoOrigin } = {},
 ): Promise<ImportResult> {
   checkPickOptions(options);
   const reading = await keptReading(cache, run, () =>
@@ -473,8 +487,18 @@ export async function importFromText(
       source,
       split: !options.asOne,
       job: run,
+      ...(photos ? { label: PHOTO_TEXT_LABEL } : {}),
     }),
   );
+  /* 38e: the text is a photo's transcription — said so, and kept with a dry run. */
+  const from = photos
+    ? {
+        photos: photos.count,
+        ...(options.dryRun ? { transcription: text } : {}),
+      }
+    : { pastedText: true };
+  const what = photos ? "the photo" : "the pasted text";
+  const note = photos ? "local model, photo" : "local model, pasted text";
   if (reading.recipes) {
     const url = source ? reading.recipe.source?.url : undefined;
     return finishBatch(
@@ -483,12 +507,13 @@ export async function importFromText(
       {
         ...options,
         url,
-        pastedText: true,
+        ...from,
+        where: what,
         leftOut: reading.leftOut,
         batchWarnings: reading.warnings.filter(
           (warning) => !reading.recipes![0].warnings.includes(warning),
         ),
-        commitNote: `local model, pasted text, {n} of {total}`,
+        commitNote: `${note}, {n} of {total}`,
       },
       run,
     );
@@ -500,13 +525,19 @@ export async function importFromText(
     {
       ...options,
       url: reading.recipe.source?.url,
-      pastedText: true,
+      ...from,
       refusal: (warnings) =>
-        `The local model's reading of the pasted text is partial (${warnings.join("; ")}). `,
-      commitNote: "local model, pasted text",
+        `The local model's reading of ${what} is partial (${warnings.join("; ")}). `,
+      commitNote: note,
     },
     run,
   );
+}
+
+/** A text import whose text is a photo's transcription (38e). */
+export interface PhotoOrigin {
+  /** How many photos were read. */
+  count: number;
 }
 
 /**
@@ -590,12 +621,17 @@ async function finishImport(
     allowPartial = false,
     url,
     pastedText = false,
+    photos,
+    transcription,
     refusal,
     commitNote,
   }: ImportWriteOptions & {
     /** The page, or a pasted text's source URL. */
     url: string | undefined;
     pastedText?: boolean;
+    /** A photo import (38e): how many photos, and — dry run — what they said. */
+    photos?: number;
+    transcription?: string;
     /** The refusal of a partial result, before the "dry-run it" advice. */
     refusal: (warnings: string[]) => string;
     commitNote?: string;
@@ -641,6 +677,8 @@ async function finishImport(
       dryRun: true,
       ...(url ? { url } : {}),
       ...(pastedText ? { pastedText: true as const } : {}),
+      ...(photos ? { photos } : {}),
+      ...(transcription ? { transcription } : {}),
       /*
        * `resolveCreateSlug`, imported rather than re-derived, so a dry run
        * cannot advertise a slug the real run would not use.
@@ -690,6 +728,7 @@ async function finishImport(
   const allWarnings = [...llmWarnings, ...(result.warnings ?? [])];
   return {
     ...result,
+    ...(photos ? { photos } : {}),
     ...(input.source ? { source: input.source } : {}),
     ...(llm ? { llm } : {}),
     ...(allWarnings.length > 0 ? { warnings: allWarnings } : {}),
@@ -1242,6 +1281,9 @@ async function finishBatch(
     asOne: _asOne,
     url,
     pastedText = false,
+    photos,
+    transcription,
+    where,
     suggestedTags,
     batchWarnings,
     leftOut = [],
@@ -1250,6 +1292,11 @@ async function finishBatch(
   }: ImportWriteOptions & {
     url: string | undefined;
     pastedText?: boolean;
+    /** A photo import (38e): how many photos, and — dry run — what they said. */
+    photos?: number;
+    transcription?: string;
+    /** What the refusal calls the source, when not the URL ("the photo"). */
+    where?: string;
     suggestedTags?: string[];
     batchWarnings: string[];
     leftOut?: { n: number; name: string; reason: string }[];
@@ -1270,7 +1317,7 @@ async function finishBatch(
     throw new UsageError(
       severalRecipesMessage(
         found,
-        pastedText ? "the pasted text" : (url ?? "the text"),
+        where ?? (pastedText ? "the pasted text" : (url ?? "the text")),
         fromPage(readings),
       ),
     );
@@ -1319,6 +1366,8 @@ async function finishBatch(
     ...(options.dryRun ? { dryRun: true as const } : {}),
     ...(url ? { url } : {}),
     ...(pastedText ? { pastedText: true as const } : {}),
+    ...(photos ? { photos } : {}),
+    ...(transcription ? { transcription } : {}),
     found,
     ...(leftOut.length ? { leftOut } : {}),
     recipes,
