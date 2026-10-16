@@ -6,7 +6,7 @@ import {
   countdownLabel,
   parseDayKey,
   withinComingUpWindow,
-} from "../../util/holidayDates";
+} from "../../util/holidays";
 import { useToday } from "./useToday";
 
 /** How many holidays the section shows. */

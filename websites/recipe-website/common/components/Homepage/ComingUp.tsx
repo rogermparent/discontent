@@ -3,7 +3,7 @@ import {
   type ComingUpEntry,
 } from "../../controller/homepageComingUp";
 import { countLabel } from "../../controller/homepageIntents";
-import { parseDayKey, withinComingUpWindow } from "../../util/holidayDates";
+import { parseDayKey, withinComingUpWindow } from "../../util/holidays";
 import { ComingUpCards } from "./ComingUpCards";
 import { HomeSection } from "./HomeSection";
 import { TermPicture } from "./TermPicture";

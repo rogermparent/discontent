@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { type ReactNode, useId, useSyncExternalStore } from "react";
-import { orderByNextOccurrence } from "../../util/holidays";
+import { type ReactNode, useId } from "react";
+import { orderByNextOccurrence, parseDayKey } from "../../util/holidays";
+import { useToday } from "../Homepage/useToday";
 
 export interface SeasonalOption {
   slug: string;
@@ -15,32 +16,23 @@ export interface SeasonalOption {
   cards: ReactNode;
 }
 
-/* Today, as the browser sees it: a string, so the snapshot compares equal
- * between renders, and `null` on the server — the static export cannot know
- * the date it will be read on. */
-const noSubscription = () => () => {};
-const todaySnapshot = () => new Date().toDateString();
-const serverSnapshot = () => null;
-
 /**
  * "For Halloween" (U3): the drinks of the next holiday that has any. Every
  * candidate is rendered on the server and the browser picks one, because a
- * choice made at build time goes stale on the static export. A holiday
- * `util/holidays` has no date for is never "next".
+ * choice made at build time goes stale on the static export. The dates are
+ * `util/holidays`, the homepage's "Coming up" calendar; the policy is this
+ * row's own: the soonest dated holiday with drinks, however far off (no
+ * 180-day window), and a holiday with no rule is never "next". Today is the
+ * browser's (`useToday(null)`): nothing on the server, so the static HTML
+ * never names a holiday.
  */
 export function SeasonalDrinks({ options }: { options: SeasonalOption[] }) {
   const headingId = useId();
-  const today = useSyncExternalStore(
-    noSubscription,
-    todaySnapshot,
-    serverSnapshot,
-  );
+  const today = useToday(null);
   if (today === null) return null;
-  const next = orderByNextOccurrence(
-    options,
-    (option) => option.slug,
-    new Date(today),
-  ).find((entry) => entry.date)?.item;
+  const next = orderByNextOccurrence(options, parseDayKey(today)).find(
+    (option) => option.days !== undefined,
+  );
   if (!next) return null;
 
   return (

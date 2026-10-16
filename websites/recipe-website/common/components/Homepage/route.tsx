@@ -18,7 +18,7 @@ import {
 } from "../../controller/homepageComingUp";
 import { homepageFacets } from "../../controller/homepageFacets";
 import { homepageIntents, termTotals } from "../../controller/homepageIntents";
-import { dayKey, localDay } from "../../util/holidayDates";
+import { dayKey, localDay } from "../../util/holidays";
 import Homepage from ".";
 import type { FeaturedStripEntry } from "./FeaturedStrip";
 

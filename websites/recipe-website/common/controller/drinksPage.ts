@@ -1,5 +1,6 @@
 import type { TermTree } from "@discontent/cms/taxonomies/tree";
 import type { RecipeListEntry } from "./paginationConfigs";
+import { HOLIDAYS_ROOT } from "../util/holidays";
 import { tagSlug } from "./tagSlug";
 import {
   mergeTermRows,
@@ -22,8 +23,7 @@ import {
 export const DRINK_ROOT = "drink";
 /** "Spirit & base" (epic 33, D6): `vodka`, `gin`, `tea`… */
 export const SPIRIT_ROOT = "spirit";
-/** The holidays root (epic 34); its children are dated by `util/holidays`. */
-export const HOLIDAYS_ROOT = "holidays";
+export { HOLIDAYS_ROOT };
 
 /**
  * Which children of `drink` are styles rather than drink names.
