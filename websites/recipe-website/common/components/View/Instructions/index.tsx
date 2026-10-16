@@ -8,6 +8,7 @@ import { Multiplyable } from "../Multiplier/Multiplyable";
 import { VideoTime } from "./VideoTime";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { Checkbox } from "@discontent/component-library/components/ui/checkbox";
+import { INSTRUCTIONS_ID } from "../JumpLinks";
 
 const stepHeadingStyle = "text-lg font-bold my-2 border-b border-border";
 const childHeadingStyle = "text-base font-bold my-1 border-b border-border";
@@ -87,7 +88,11 @@ export function Instructions({
   return (
     instructions && (
       <section className="max-w-xl mx-auto lg:mx-0 print:w-full print:max-w-full bg-card rounded-md px-4 grow-1 h-auto py-1 mb-2">
-        <h2 className="text-xl font-bold flex flex-row flex-nowrap items-center">
+        {/* 39c: the jump row's target; the margin clears the masthead. */}
+        <h2
+          id={INSTRUCTIONS_ID}
+          className="scroll-mt-[calc(var(--sticky-chrome-offset)+1rem)] text-xl font-bold flex flex-row flex-nowrap items-center"
+        >
           Instructions
           <Button
             type="button"

@@ -56,6 +56,7 @@ import {
 import {
   buildShoppingView,
   formatShoppingText,
+  itemsForSubRecipe,
   orParents,
   shoppingNameOf,
   viewForStore,
@@ -755,21 +756,30 @@ async function patchLocked(
     parts.push({ id: item.id, text: `−${labelOf(item)}` });
   }
   if (input.removeSource) {
-    const { recipe, group } = input.removeSource;
-    const from = items.filter((item) =>
-      recipe !== undefined
-        ? item.recipe === recipe
-        : (item.via ?? []).includes(group as string),
-    );
-    let label = recipe ?? (group as string);
-    if (recipe !== undefined) {
+    const { recipe, group, for: sub } = input.removeSource;
+    const source = (recipe ?? group ?? sub) as string;
+    let from: ShoppingItem[];
+    let label: string;
+    if (sub !== undefined) {
+      /*
+       * 39c, undo a sub-recipe expansion: every item whose `for` path names
+       * it, whole — a merged row keeps the recipe's own line of that name.
+       */
+      from = itemsForSubRecipe(items, sub);
+      const name = from
+        .flatMap((item) => item.for ?? [])
+        .find((entry) => entry.slug === sub)?.name;
+      label = `for ${name ?? sub}`;
+    } else if (recipe !== undefined) {
+      from = items.filter((item) => item.recipe === recipe);
       label = from.find((item) => item.recipeName)?.recipeName ?? recipe;
     } else {
-      label = (await readGroup(ctx, group as string))?.name ?? label;
+      from = items.filter((item) => (item.via ?? []).includes(source));
+      label = (await readGroup(ctx, source))?.name ?? source;
     }
     const fresh = from.filter((item) => !removed.has(item.id));
     for (const item of fresh) removed.add(item.id);
-    if (from.length === 0) unmatched.push(recipe ?? (group as string));
+    if (from.length === 0) unmatched.push(source);
     else if (fresh.length > 0) {
       parts.push({ text: `-${label} (${count(fresh.length)})` });
     }

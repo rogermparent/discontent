@@ -323,6 +323,76 @@ test.describe("Single Recipe View", () => {
     });
   });
 
+  test.describe("jump to Ingredients · Instructions (39c)", () => {
+    /* A phone, where the two lists start well below the hero. */
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    test.beforeEach(async ({ resetData }) => {
+      await resetData("linked-recipes");
+    });
+
+    test("a long recipe jumps to each heading, by keyboard, below the masthead", async ({
+      page,
+    }) => {
+      // Yogurt Potato Bread: 9 ingredient lines + 8 steps = 17, past the 15.
+      await page.goto("/recipe/yogurt-potato-bread");
+      const jump = page.getByRole("navigation", { name: "Jump to" });
+      await expect(jump).toBeVisible();
+      await expect(page.locator("#ingredients")).toHaveCount(1);
+      await expect(page.locator("#instructions")).toHaveCount(1);
+
+      // Keyboard: Tab from the row's own text onto the first link.
+      await jump.click({ position: { x: 4, y: 8 } });
+      await page.keyboard.press("Tab");
+      const toIngredients = jump.getByRole("link", { name: "Ingredients" });
+      await expect(toIngredients).toBeFocused();
+      // A visible focus ring (`focus-visible:outline-2`).
+      expect(
+        await toIngredients.evaluate((link) => {
+          const style = getComputedStyle(link);
+          return [style.outlineStyle, style.outlineWidth];
+        }),
+      ).toEqual(["solid", "2px"]);
+
+      await page.keyboard.press("Tab");
+      await expect(
+        jump.getByRole("link", { name: "Instructions" }),
+      ).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(/#instructions$/);
+      const instructions = page.getByRole("heading", {
+        level: 2,
+        name: /^Instructions/,
+      });
+      await expect(instructions).toBeInViewport();
+      // Not under the sticky masthead (3.5rem): the scroll margin clears it.
+      const header = await page.locator("header").first().boundingBox();
+      const heading = await instructions.boundingBox();
+      expect(heading!.y).toBeGreaterThanOrEqual(header!.y + header!.height);
+
+      await toIngredients.click();
+      await expect(page).toHaveURL(/#ingredients$/);
+      await expect(
+        page.getByRole("heading", { level: 2, name: "Ingredients" }),
+      ).toBeInViewport();
+    });
+
+    test("a short recipe has no row, and its headings keep their ids", async ({
+      page,
+    }) => {
+      // Baked Potatoes: 6 ingredient lines + 8 steps = 14, one short.
+      await page.goto("/recipe/baked-potatoes");
+      await expect(
+        page.getByRole("heading", { level: 1, name: "Baked Potatoes" }),
+      ).toBeVisible();
+      await expect(page.getByTestId("recipe-jump-links")).toHaveCount(0);
+      await expect(page.locator("h2#ingredients")).toHaveText("Ingredients");
+      await expect(page.locator("h2#instructions")).toContainText(
+        "Instructions",
+      );
+    });
+  });
+
   test.describe("hero meta bar", () => {
     test("renders Prep · Cook · Total in the hero", async ({
       page,

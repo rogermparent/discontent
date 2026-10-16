@@ -568,21 +568,30 @@ export type ShoppingAddInput = z.infer<typeof ShoppingAddSchema>;
 const ShoppingIds = z.array(z.string().trim().min(1).max(64)).max(2000);
 const ShoppingNames = z.array(ShoppingTextSchema).max(200);
 
-/** `{recipe}` or `{group}`: every item that came from it. */
+/**
+ * `{recipe}` or `{group}`: every item that came from it. `{for}` (39c): every
+ * item a sub-recipe's expansion put there — `for` names that sub-recipe's
+ * slug, at any depth of an item's `for` path.
+ */
 export const ShoppingSourceSchema = z
   .strictObject({
     recipe: z.string().min(1).optional(),
     group: z.string().min(1).optional(),
+    for: z.string().min(1).optional(),
   })
-  .refine((data) => Boolean(data.recipe) !== Boolean(data.group), {
-    message: "Name exactly one of `recipe` or `group`",
-    path: ["recipe"],
-  });
+  .refine(
+    (data) => [data.recipe, data.group, data.for].filter(Boolean).length === 1,
+    {
+      message: "Name exactly one of `recipe`, `group` or `for`",
+      path: ["recipe"],
+    },
+  );
 
 /**
  * Changes to items already on the list, in one commit. Ids name items;
  * `names` ticks every unticked item of that ingredient ("I bought eggs") and
- * `uncheckNames` unticks; `removeSource` drops what a recipe or plan added;
+ * `uncheckNames` unticks; `removeSource` drops what a recipe or plan added,
+ * or what a sub-recipe expanded into (39c);
  * `set` puts items on one store (`null` clears it).
  */
 export const ShoppingPatchSchema = z

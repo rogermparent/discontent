@@ -1,6 +1,13 @@
 "use client";
 
-import { useId, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import {
   DialogContent,
@@ -14,8 +21,10 @@ import { cn } from "@discontent/component-library/lib/utils";
 import {
   buildShoppingView,
   formatShoppingText,
+  subRecipeGroups,
   viewForStore,
   type ShoppingRow,
+  type ShoppingSubRecipeGroup,
   type ShoppingView,
 } from "../../util/shoppingView";
 import { SettingsSheet } from "./SettingsSheet";
@@ -350,6 +359,184 @@ function DoneShopping({ list, rows }: { list: ShoppingList; rows: number }) {
   );
 }
 
+/**
+ * 39-D3: held ticks over a week old were dropped instead of sent — one line,
+ * dismissible, so a tick left on a phone for weeks never replays over what
+ * other devices have done since, and the shopper knows to tick again.
+ */
+function ExpiredTicks({ count, dismiss }: { count: number; dismiss(): void }) {
+  /*
+   * Always mounted, its live region empty until there is something to say:
+   * a region that arrives already filled in goes unannounced by many screen
+   * readers. Empty, it is `sr-only` — out of the header's flow and gap.
+   */
+  return (
+    <div
+      className={
+        count > 0
+          ? "flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm print:hidden"
+          : "sr-only"
+      }
+      data-testid="shopping-expired-ticks"
+    >
+      <span className="flex-1" role="status">
+        {count === 1 &&
+          "Dropped a tick this device held for over a week — tick again what you bought."}
+        {count > 1 &&
+          `Dropped ticks on ${count} lines this device held for over a week — tick again what you bought.`}
+      </span>
+      {count > 0 && (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-10"
+          onClick={dismiss}
+        >
+          Dismiss
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 39c: undo a sub-recipe's expansion (38d). One row per sub-recipe on the
+ * list — "for Simple Syrup · 2 lines · in Lemonade", counting the rows it is
+ * on as the page shows them (39-Dc7) — whose "Remove these" takes every item
+ * it put there, ticked or not, as one change. Shown
+ * whatever the `subRecipes` switch says: it governs adds, and these lines are
+ * already on the list. The linking line ("1 batch Simple Syrup") is not put
+ * back: nothing stored says how it read (39-Dc2).
+ */
+function SubRecipes({
+  groups,
+  view,
+  list,
+}: {
+  groups: ShoppingSubRecipeGroup[];
+  /** The whole list's view, to count the rows each sub-recipe is on. */
+  view: ShoppingView;
+  list: ShoppingList;
+}) {
+  return (
+    <details
+      className="rounded-md border px-3 py-2 print:hidden"
+      data-testid="shopping-subrecipes"
+    >
+      <summary className="min-h-10 cursor-pointer py-2 font-semibold">
+        Sub-recipes ({groups.length})
+      </summary>
+      <p className="text-sm text-muted-foreground">
+        Lines added for a recipe that another one links. Have it already, or
+        buying it ready-made? Remove its lines.
+      </p>
+      <ul className="flex flex-col divide-y divide-border">
+        {groups.map((group) => (
+          <SubRecipeRow
+            key={group.slug}
+            group={group}
+            rows={rowsWith(view, new Set(group.ids))}
+            list={list}
+          />
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+function SubRecipeRow({
+  group,
+  rows,
+  list,
+}: {
+  group: ShoppingSubRecipeGroup;
+  /** Rows it is on — merged rows count once, as the page shows them. */
+  rows: number;
+  list: ShoppingList;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const questionId = useId();
+  const removeRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  /* Where focus goes after the next render: into the question, or back. */
+  const focusNext = useRef<"cancel" | "remove" | undefined>(undefined);
+  useEffect(() => {
+    const target = focusNext.current;
+    focusNext.current = undefined;
+    if (target === "cancel") cancelRef.current?.focus();
+    if (target === "remove") removeRef.current?.focus();
+  }, [confirming]);
+  const ask = () => {
+    focusNext.current = "cancel";
+    setConfirming(true);
+  };
+  const cancel = () => {
+    focusNext.current = "remove";
+    setConfirming(false);
+  };
+  return (
+    <li
+      className="flex flex-wrap items-center gap-2 py-2"
+      data-testid="shopping-subrecipe"
+    >
+      <span className="min-w-0 flex-1">
+        <span className="font-medium">for {group.name}</span>
+        <span className="text-sm text-muted-foreground">
+          {" "}
+          · {lineCount(rows)}
+          {group.usedBy.length > 0 && ` · in ${group.usedBy.join(", ")}`}
+        </span>
+      </span>
+      {confirming ? (
+        <span
+          className="flex flex-wrap items-center gap-2"
+          role="group"
+          aria-labelledby={questionId}
+        >
+          <span className="text-sm" id={questionId}>
+            Remove what {group.name} added to {lineCount(rows)}?
+          </span>
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            className="h-10"
+            disabled={list.working}
+            onClick={() => {
+              setConfirming(false);
+              void list.removeSubRecipe(group.slug, group.ids);
+            }}
+          >
+            Remove
+          </Button>
+          <Button
+            ref={cancelRef}
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-10"
+            onClick={cancel}
+          >
+            Cancel
+          </Button>
+        </span>
+      ) : (
+        <Button
+          ref={removeRef}
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-10"
+          onClick={ask}
+        >
+          Remove these<span className="sr-only"> lines for {group.name}</span>
+        </Button>
+      )}
+    </li>
+  );
+}
+
 /** "1 line", "3 lines". */
 function lineCount(count: number): string {
   return `${count} ${count === 1 ? "line" : "lines"}`;
@@ -360,7 +547,15 @@ function pendingRows(
   view: ShoppingView,
   pending: ReadonlyMap<string, boolean>,
 ) {
-  if (pending.size === 0) return 0;
+  return rowsWith(view, pending);
+}
+
+/** How many rows hold any of `ids` (lines, as the page counts them). */
+function rowsWith(
+  view: ShoppingView,
+  ids: { has(id: string): boolean; size: number },
+) {
+  if (ids.size === 0) return 0;
   const all = [
     ...view.stores.flatMap((list) =>
       list.sections.flatMap((section) => section.rows),
@@ -368,7 +563,7 @@ function pendingRows(
     ...view.onHand,
     ...view.checked,
   ];
-  return all.filter((row) => row.ids.some((id) => pending.has(id))).length;
+  return all.filter((row) => row.ids.some((id) => ids.has(id))).length;
 }
 
 function syncLabel(list: ShoppingList, held: number): string | undefined {
@@ -422,6 +617,14 @@ export function ShoppingPage({
     () => pendingRows(fullView, list.pending),
     [fullView, list.pending],
   );
+  /* 39-D3: lines whose held tick expired; none when they have left the list. */
+  const expired = useMemo(
+    () => rowsWith(fullView, new Set(list.expiredTicks)),
+    [fullView, list.expiredTicks],
+  );
+
+  /* 39c: the sub-recipes on the list, each with what "Remove these" takes. */
+  const subRecipes = useMemo(() => subRecipeGroups(list.items), [list.items]);
 
   const handlers: RowHandlers = {
     tick: list.tick,
@@ -486,6 +689,7 @@ export function ShoppingPage({
             </Button>
           </div>
         )}
+        <ExpiredTicks count={expired} dismiss={list.dismissExpired} />
         {list.holding && <DoneShopping list={list} rows={held} />}
       </header>
 
@@ -575,6 +779,10 @@ export function ShoppingPage({
             />
           </div>
         </details>
+      )}
+
+      {subRecipes.length > 0 && (
+        <SubRecipes groups={subRecipes} view={fullView} list={list} />
       )}
     </div>
   );
