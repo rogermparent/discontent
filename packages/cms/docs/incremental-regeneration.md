@@ -94,13 +94,13 @@ and each derived kind is defined by how a content write maps to the artifacts it
 Naming the kinds is most of the work — once a surface has a name here, "what does a write to X
 do to it" is a question with an answer rather than a shrug.
 
-| Derived kind         | Examples in this repo                                | What a write invalidates today                                                                           |
-| -------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| **Item pages**       | `/recipe/<slug>`, `/project/<slug>`                  | **precise**, including a dependent's own item page — recipes fill `dependentItemBasePaths` in D2a (§6.3) |
-| **Item records**     | the homepage hero, `/featured-recipe/<slug>`         | **precise** — `item:<type>:<slug>`, fired by every write and keyed by item rather than by path (F19)     |
-| **Pagination pages** | `/recipes`, `/featured-recipes`, and their `/<n>`    | **precise** — `dirtyPages` / `removedPages` (§3–§5); featured recipes joined in D2b                      |
-| **Aggregates**       | `getAllTags`, the demo's note tag cloud              | **precise** — a stored value plus a hash, so a write reports `changed` or nothing (F10b/F10c)            |
-| **Corpus documents** | `search/all`, `search/ingredients`, `search/version` | one blob per corpus, rebuilt whole on any write — but no longer all fetched on every load (F4a)          |
+| Derived kind         | Examples in this repo                                      | What a write invalidates today                                                                           |
+| -------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **Item pages**       | `/recipe/<slug>`, `/project/<slug>`                        | **precise**, including a dependent's own item page — recipes fill `dependentItemBasePaths` in D2a (§6.3) |
+| **Item records**     | `/featured-recipe/<slug>` (and the hero, until 2026-10-15) | **precise** — `item:<type>:<slug>`, fired by every write and keyed by item rather than by path (F19)     |
+| **Pagination pages** | `/recipes`, `/featured-recipes`, and their `/<n>`          | **precise** — `dirtyPages` / `removedPages` (§3–§5); featured recipes joined in D2b                      |
+| **Aggregates**       | `getAllTags`, the demo's note tag cloud                    | **precise** — a stored value plus a hash, so a write reports `changed` or nothing (F10b/F10c)            |
+| **Corpus documents** | `search/all`, `search/ingredients`, `search/version`       | one blob per corpus, rebuilt whole on any write — but no longer all fetched on every load (F4a)          |
 
 **Item pages and item records are two kinds, not one, and F19 is where that became clear.** Both
 depend on one item's whole record; they differ in whether the depending surface has a URL the
@@ -108,7 +108,8 @@ writer can name. `/recipe/<slug>` does, so `revalidatePath(itemBasePath + "/" + 
 The homepage hero renders the same record at `/`, and `/featured-recipe/<slug>` renders an entire
 recipe under a _different content type's_ slug — neither is reachable by path from the write that
 changed the record, at any amount of configuration, because the set of such URLs is not a function
-of the item. Keying the tag by item instead of by path is what makes the reach exact. It also
+of the item. (The recipe site's homepage redesign removed the hero on 2026-10-15; see the note
+under §11's F19c entry. `/featured-recipe/<slug>` is the surface left, and the sharper case.) Keying the tag by item instead of by path is what makes the reach exact. It also
 costs nothing to declare: an item tag's only coupling is the content type, so unlike a pagination
 index or an aggregate it needs no seat on the content config at all.
 
@@ -1451,6 +1452,13 @@ a stale comment. Covering the hero is a small, well-shaped follow-up — an item
 `getRecipeBySlug`, fired by the write path that already knows the slug — and it is the last thing
 between recipes and a genuinely precise write.
 
+> **2026-10-15: the hero is gone.** The recipe site's homepage redesign removed `HeroBench`, so
+> `homepageRoute` no longer reads any recipe's whole record. It reads the three pagination heads,
+> `readTagTree()` (the term tree aggregate plus the recipe and group `by-tag` maps, whole-value
+> tags) and, on a corpus with no facet roots, `readTagVocabulary()` — every one tagged and fired by
+> the generic write path. `paginationOnly` stays right for the same reason it was: nothing on `/`
+> is untagged. `ui-overhaul.md` ("Homepage redesign" and "Usability pass") has the page itself.
+>
 > **Now on, as of F19c.** The hero's read is tagged, so the homepage has no untagged reader left.
 > `homepageRoute` reads exactly four things, and every one of them carries a tag the write path
 > fires when it moves them: `recipePages.readHead()` and `featuredRecipePages.readHead()` (head
@@ -1477,6 +1485,17 @@ between recipes and a genuinely precise write.
 > has **no `deleteSuccessConfig`**, so deleting a feature runs through `successConfig` and
 > redirects to `/`. With the flag on, the featured head tag alone has to carry the homepage there.
 > `featured-recipes.spec.ts:237` already asserted exactly that, and still passes.
+>
+> **Grew with the homepage redesign (usability pass, 2026-10-15), still all tagged.** The
+> featured strip now renders groups and terms as cards, not just recipes, so the four reads above
+> are the floor, not the whole list: a featured **group** entry reads its own record once
+> (`groupItems.read(slug)`, `item:groups:<slug>`, fired by every group write) for its picture and
+> items, and `GroupThumbnail` — when a card has no image of its own to show, borrowed or read —
+> reads each candidate member's own recipe (`recipeItems.read(member)`, `item:recipes:<member>`).
+> Both are the same item-scoped tags the write path already fires for those records, so the
+> homepage still has no untagged reader; a page with featured groups just carries as many
+> `item:groups:<slug>` and `item:recipes:<member>` tags as it has group cards and thumbnail
+> fallbacks.
 
 **What F8 built — and what it deliberately did not.** `/tags/<slug>` and `/tags` as pre-baked
 static pages, served from a second aggregate (`recipesByTag`) that maps each slugified tag to the
@@ -3513,8 +3532,9 @@ module graph to learn a string.
 tests, all editing `description` — chosen rather than convenient, because no index value carries
 it, no pagination projection carries it and no featured recipe borrows it, so every other derived
 kind reports nothing and only `item:recipes:<slug>` can reach anything. The **homepage hero**
-follows the edit, which is the surface that blocked `paginationOnly`; **`/featured-recipe/<slug>`**
-follows it too, which is the surface no path could ever have reached. Plus the two halves of the
+followed the edit, which is the surface that blocked `paginationOnly` (that test went with the hero
+on 2026-10-15, leaving four); **`/featured-recipe/<slug>`** follows it too, which is the surface no
+path could ever have reached. Plus the two halves of the
 `null` contract at the API route — 404 for a missing slug, 200 for a present one — and a fixture
 rollback proving the type-wide catch-all seat in `test-invalidate-cache`.
 

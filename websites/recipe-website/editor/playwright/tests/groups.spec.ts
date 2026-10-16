@@ -208,45 +208,41 @@ test.describe("Groups", () => {
       ).toBeVisible();
     });
 
-    test("the homepage lists the newest groups and links to the rest", async ({
+    test("the homepage's plans strip shows the newest group and links to the rest", async ({
       page,
       resetData,
     }) => {
       await resetData("three-recipes-groups");
       await page.goto("/");
 
-      await expect(
-        page.getByRole("heading", { name: "Groups", exact: true }),
-      ).toBeVisible();
+      /*
+       * One line since the usability pass (2026-10-15): the newest group —
+       * the head page of `pagination:groups:by-date`, as `/groups` reads it.
+       */
+      const plans = page.getByRole("region", { name: "Plans", exact: true });
+      await expect(plans.getByTestId("plans-strip-latest")).toContainText(
+        "Week of May 4",
+      );
 
-      const cards = page.getByTestId("group-list").getByRole("listitem");
-      await expect(cards).toHaveCount(2);
-      // Newest first, the same order `/groups` uses — both read the head page
-      // of `pagination:groups:by-date`.
-      await expect(cards.nth(0)).toContainText("Week of May 4");
-      await expect(cards.nth(1)).toContainText("Weeknight Favourites");
-
-      await page.getByRole("link", { name: "More groups" }).click();
+      await plans.getByRole("link", { name: "All plans" }).click();
       await expect(page).toHaveURL(/\/groups$/);
     });
 
-    test("the homepage shows no Groups section when there are none", async ({
+    test("the homepage shows no plans strip when there are none", async ({
       page,
       resetData,
     }) => {
       /*
-       * The promise that keeps `three-recipes`' visual baselines still: every
-       * surface this phase adds renders *nothing* on a corpus with no groups,
-       * so the only thing that moved in those shots is the masthead link.
+       * Every group surface on the homepage renders *nothing* on a corpus
+       * with no groups.
        */
       await resetData("three-recipes");
       await page.goto("/");
 
-      await expect(page.getByTestId("group-list")).toHaveCount(0);
       await expect(
-        page.getByRole("heading", { name: "Groups", exact: true }),
+        page.getByRole("region", { name: "Plans", exact: true }),
       ).toHaveCount(0);
-      await expect(page.getByRole("link", { name: "More groups" })).toHaveCount(
+      await expect(page.getByRole("link", { name: "All plans" })).toHaveCount(
         0,
       );
     });
@@ -380,15 +376,6 @@ test.describe("Groups", () => {
         groupCards(page).nth(1).getByTestId("group-thumbnail-placeholder"),
       ).toBeVisible();
 
-      // The homepage Groups section reads the same head page of the index.
-      await page.goto("/");
-      await expect(
-        groupCards(page).nth(0).getByTestId("group-thumbnail").getByRole("img"),
-      ).toHaveAttribute("src", OWN_IMAGE);
-      await expect(
-        groupCards(page).nth(1).getByTestId("group-thumbnail-placeholder"),
-      ).toBeVisible();
-
       // And the group's own page shows it full width, above the description.
       await page.goto("/group/week-of-may-4");
       await expect(
@@ -428,14 +415,12 @@ test.describe("Groups", () => {
       ).toHaveAttribute("src", MEMBER_IMAGE);
 
       await page.goto("/");
-      await expect(
-        groupCards(page).nth(1).getByTestId("group-thumbnail").getByRole("img"),
-      ).toHaveAttribute("src", MEMBER_IMAGE);
-
       /*
-       * And the featured group card, which is the surface with no group write
-       * behind it at all: nothing about `featured-weeknight` changed, and the
-       * card is fresh because the read is tagged `item:recipes:third-recipe`.
+       * And the homepage's featured group card — the homepage lists no group
+       * cards of its own since the usability pass (2026-10-15) — which is the
+       * surface with no group write behind it at all: nothing about
+       * `featured-weeknight` changed, and the card is fresh because the read
+       * is tagged `item:recipes:third-recipe`.
        */
       await expect(
         page
@@ -475,9 +460,6 @@ test.describe("Groups", () => {
       ).toHaveAttribute("src", WEEKNIGHT_OWN_IMAGE);
 
       await page.goto("/");
-      await expect(
-        weeknightCard().getByTestId("group-thumbnail").getByRole("img"),
-      ).toHaveAttribute("src", WEEKNIGHT_OWN_IMAGE);
       await expect(
         page
           .getByTestId("featured-group-card")

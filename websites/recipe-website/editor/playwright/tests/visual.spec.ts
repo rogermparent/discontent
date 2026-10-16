@@ -16,14 +16,14 @@ test.describe("Visual baselines @visual", () => {
     await snapshotPage(page, "homepage-three-recipes.png");
   });
 
-  test("homepage with two-page recipe set shows 'More Latest Recipes'", async ({
+  test("homepage with two-page recipe set shows 'All 7 recipes'", async ({
     page,
     resetData,
   }) => {
     await resetData("two-pages");
     await page.goto("/");
     await expect(
-      page.getByRole("link", { name: "More Latest Recipes", exact: true }),
+      page.getByRole("link", { name: "All 7 recipes", exact: true }),
     ).toBeVisible();
     await snapshotPage(page, "homepage-two-pages.png");
   });

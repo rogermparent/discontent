@@ -2,6 +2,23 @@ import type { MassagedRecipeEntry } from "../../controller/data/read";
 import { featuredRecipePages } from "../../controller/data/readFeaturedRecipePages";
 import { groupPages } from "../../controller/data/readGroupPages";
 import { recipePages } from "../../controller/data/readRecipePages";
+import { groupTagReads } from "../../controller/data/readGroupTagIndex";
+import { recipeTagReads } from "../../controller/data/readRecipeTagIndex";
+import {
+  readTagTree,
+  readTagVocabulary,
+} from "../../controller/data/readTermPage";
+import { groupItems } from "../../controller/data/readGroupItem";
+import {
+  HOLIDAYS_ROOT,
+  comingUpEntries,
+  courseLabels,
+  findTermNode,
+  termSummary,
+} from "../../controller/homepageComingUp";
+import { homepageFacets } from "../../controller/homepageFacets";
+import { homepageIntents, termTotals } from "../../controller/homepageIntents";
+import { dayKey, localDay } from "../../util/holidayDates";
 import Homepage from ".";
 import type { FeaturedStripEntry } from "./FeaturedStrip";
 
@@ -9,14 +26,9 @@ import type { FeaturedStripEntry } from "./FeaturedStrip";
 const STRIP_SIZE = 6;
 
 /**
- * How many group cards the homepage shows. Three, not six: the cards are
- * three-up and text-only, so a second row of them would push the recipe grids
- * below the fold on a laptop for a section that is a signpost, not the content.
- */
-const GROUP_STRIP_SIZE = 3;
-
-/**
- * The homepage, defined once and re-exported by both apps' `page.tsx`.
+ * The homepage, defined once and re-exported by both apps' `page.tsx`. It
+ * reads no session and no inventory: the Make tile counts from the browser's
+ * own list (U6), so the page is the same for every reader.
  *
  * Both strips read the pre-baked keyspace rather than the content index. The
  * trade is deliberate and worth stating: `readHead` hands back `perPage + 1`
@@ -36,7 +48,14 @@ const GROUP_STRIP_SIZE = 3;
  * that do not bound themselves (F2).
  */
 export async function homepageRoute() {
-  const [recipeHead, featuredHead, groupHead] = await Promise.all([
+  const [
+    recipeHead,
+    featuredHead,
+    groupHead,
+    tagTree,
+    byRecipeTag,
+    byGroupTag,
+  ] = await Promise.all([
     recipePages.readHead(),
     featuredRecipePages.readHead(),
     /*
@@ -46,7 +65,58 @@ export async function homepageRoute() {
      * homepage needs no `revalidatePath("/")` to see a new group (fact 2).
      */
     groupPages.readHead(),
+    /*
+     * The browse section's facets: `/tags`' own tree read (31b), so the
+     * homepage is invalidated exactly when that page is. It reads under three
+     * tags, and every term write reaches one of them through the engine's
+     * generic write path (`revalidateContentWrite` → aggregate results):
+     *
+     * - the term records' `tree` aggregate — `term create`, `update`,
+     *   `rename`, `delete` and `merge` all write a record, and the tree folds
+     *   label, parent, children and image, so a moved value fires its tag;
+     * - the recipes' and groups' `by-tag` maps, whole-value tag — `term
+     *   assign` (and any recipe or group whose tags change) moves a key, and
+     *   a keyed aggregate fires `:whole` beside the key's own tag (32e).
+     *
+     * The cost is breadth, and it is accepted: those whole maps move on any
+     * tag change anywhere, so the homepage now expires on a retag that dirties
+     * no head page. It still expires on nothing else, and the subtree totals
+     * on the chips and intent tiles are what that read buys.
+     */
+    readTagTree(),
+    /*
+     * The same two whole maps `readTagTree` just read — `React.cache` hands
+     * back the same values, so this is no second read and no new tag. "Coming
+     * up" needs their rows, not only their counts: recipes and plans per
+     * holiday, and a recipe photo for a holiday with no picture of its own.
+     */
+    recipeTagReads.byTerm.read(),
+    groupTagReads.byTerm.read(),
   ]);
+  const allFacets = homepageFacets(tagTree);
+  /*
+   * The flat vocabulary, only for a corpus with no facets (no term records
+   * with children — every test fixture but two): the fallback chips' labels,
+   * and the intent tiles' counts for bare tags. Read after the tree rather
+   * than beside it, so a site with a vocabulary never pays for, or expires on,
+   * the term clouds it reads.
+   */
+  const vocabulary = allFacets.length === 0 ? await readTagVocabulary() : [];
+  const tags = vocabulary
+    .filter((entry) => entry.count > 0)
+    .map((entry) => entry.label);
+  const intents = homepageIntents(termTotals(tagTree), vocabulary);
+  const recipeRows = (slug: string) => byRecipeTag?.[slug]?.items ?? [];
+  const groupRows = (slug: string) => byGroupTag?.[slug]?.items ?? [];
+  const comingUp = comingUpEntries(tagTree, recipeRows, groupRows);
+  /*
+   * Browse skips the holidays root while Coming up shows it: the same terms
+   * twice, one screen apart. Without a Coming up section it stays a row.
+   */
+  const facets =
+    comingUp && comingUp.length > 0
+      ? allFacets.filter((facet) => facet.slug !== HOLIDAYS_ROOT)
+      : allFacets;
 
   const recipes: MassagedRecipeEntry[] = recipeHead.items.slice(0, STRIP_SIZE);
 
@@ -67,46 +137,87 @@ export async function homepageRoute() {
    * and a deleted term record drops off the homepage exactly as a deleted group
    * does.
    */
-  const featured: FeaturedStripEntry[] = featuredHead.items
-    .slice(0, STRIP_SIZE)
-    .filter((entry) => entry.recipeName || entry.groupName || entry.termLabel)
-    .map((entry): FeaturedStripEntry => {
-      /* Newest discriminator first, as the card list does — see that file. */
-      if (entry.term && entry.termLabel) {
+  /*
+   * Each card's line and picture (2026-10-15): a term's subtree counts and
+   * photo come from the maps above; a recipe's course likewise; a group's
+   * record is one cached read (`item:groups:<slug>`, fired by every group
+   * write) — the read its thumbnail made anyway, now made once here and
+   * handed down.
+   */
+  const courses = courseLabels(tagTree, recipeRows);
+  const featured: FeaturedStripEntry[] = await Promise.all(
+    featuredHead.items
+      .slice(0, STRIP_SIZE)
+      .filter((entry) => entry.recipeName || entry.groupName || entry.termLabel)
+      .map(async (entry): Promise<FeaturedStripEntry> => {
+        /* Newest discriminator first, as the card list does — see that file. */
+        if (entry.term && entry.termLabel) {
+          const node = findTermNode(tagTree, entry.term) ?? {
+            slug: entry.term,
+            children: [],
+          };
+          return {
+            kind: "term",
+            slug: entry.term,
+            label: entry.termLabel,
+            ...(entry.termImage ? { image: entry.termImage } : {}),
+            date: entry.date,
+            summary: termSummary(
+              { ...node, image: entry.termImage },
+              recipeRows,
+              groupRows,
+            ),
+          };
+        }
+        if (entry.group && entry.groupName) {
+          const group = await groupItems
+            .read(entry.group)
+            .catch(() => undefined);
+          return {
+            kind: "group",
+            slug: entry.group,
+            name: entry.groupName,
+            groupKind: entry.groupKind,
+            date: entry.date,
+            ...(group?.image ? { image: group.image } : {}),
+            ...(group ? { items: group.items } : {}),
+          };
+        }
+        const course = courses.get(entry.recipe!);
         return {
-          kind: "term",
-          slug: entry.term,
-          label: entry.termLabel,
-          ...(entry.termImage ? { image: entry.termImage } : {}),
-          date: entry.date,
+          kind: "recipe",
+          recipe: {
+            slug: entry.recipe!,
+            date: entry.date,
+            name: entry.recipeName!,
+            image: entry.recipeImage,
+          } satisfies MassagedRecipeEntry,
+          ...(course ? { meta: course } : {}),
         };
-      }
-      if (entry.group && entry.groupName) {
-        return {
-          kind: "group",
-          slug: entry.group,
-          name: entry.groupName,
-          groupKind: entry.groupKind,
-          date: entry.date,
-        };
-      }
-      return {
-        kind: "recipe",
-        recipe: {
-          slug: entry.recipe!,
-          date: entry.date,
-          name: entry.recipeName!,
-          image: entry.recipeImage,
-        } satisfies MassagedRecipeEntry,
-      };
-    });
+      }),
+  );
 
   return (
     <Homepage
       recipes={recipes}
       featured={featured}
-      groups={groupHead.items.slice(0, GROUP_STRIP_SIZE)}
+      plan={groupHead.items[0]}
+      facets={facets}
+      tags={tags}
+      intents={intents}
+      comingUp={comingUp}
+      /*
+       * The server's day, for the countdowns' first render only — the browser
+       * replaces it with its own (`useToday`). On the static export this is
+       * the build's day, which is exactly why it is never the final answer.
+       */
+      serverDay={dayKey(localDay(new Date()))}
       moreRecipes={recipeHead.total > STRIP_SIZE}
+      /*
+       * "All N recipes". `total` is on the head page already read, under the
+       * same head tag, for the reason `moreRecipes` gives above.
+       */
+      recipeCount={recipeHead.total}
     />
   );
 }

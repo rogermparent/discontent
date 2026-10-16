@@ -7,7 +7,9 @@ import {
 
 /*
  * F19's payoff for recipes: the surfaces that render one recipe's **whole
- * record** at a URL that is not that recipe's.
+ * record** at a URL that is not that recipe's. The homepage hero was one until
+ * the homepage redesign (2026-10-15) removed it; `/featured-recipe/<slug>` is
+ * the one left, and the sharper case anyway.
  *
  * `description` is the field every assertion below edits, and it is chosen
  * rather than convenient: no index value carries it, no pagination projection
@@ -48,27 +50,6 @@ async function editDescription(
 }
 
 test.describe("item records — recipes", () => {
-  test("the homepage hero shows a description edit, which no index projects", async ({
-    page,
-    resetData,
-  }) => {
-    await resetData("one-featured-recipe");
-
-    /* Prime the cache, so a stale entry would have something to serve. */
-    await page.goto("/");
-    await expect(page.getByText(DESCRIPTION)).toHaveCount(0);
-
-    await editDescription(page, "featured-recipe", DESCRIPTION);
-
-    /*
-     * The hero renders `getRecipeBySlug`'s whole record at `/`. This is the
-     * case that blocked `paginationOnly`: an item-page dependency embedded in
-     * a page whose URL is `/`.
-     */
-    await page.goto("/");
-    await expect(page.getByText(DESCRIPTION)).toBeVisible();
-  });
-
   test("/featured-recipe/<slug> shows an edit to the recipe it references", async ({
     page,
     resetData,

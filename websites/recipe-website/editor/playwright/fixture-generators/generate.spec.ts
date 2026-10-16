@@ -94,10 +94,12 @@ test.describe("Fixture Generation", () => {
 
     await expect(page).toHaveURL(/\/$/);
 
-    await expect(page.getByText("Featured Recipes")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { level: 2, name: "Featured", exact: true }),
+    ).toBeVisible();
     await expect(
       page
-        .locator("h2", { hasText: "Featured Recipes" })
+        .getByRole("heading", { level: 2, name: "Featured", exact: true })
         .locator("xpath=ancestor::*[1]")
         .getByText("Featured Recipe"),
     ).toBeVisible();
