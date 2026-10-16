@@ -222,6 +222,21 @@ pre-epic branches) are Roger's to keep or delete.
 
 ### 39e
 
+- **Te1 — an unlayered global rule beats every kit utility.**
+  resume-builder's `globals.css` had `svg { width: 100%; height: 100% }`
+  outside any layer; Tailwind v4's utilities live in `@layer utilities`,
+  and unlayered CSS wins over any layer, so the kit's `size-4` on a lucide
+  chevron lost and each one stretched across its pagination link ("Newer"
+  pushed into the page number). It showed only once the `@source` fix
+  emitted the kit's classes. Before adding an `@source` for the kit to a
+  site, look for unlayered element rules in its `globals.css`.
+- **Te2 — resume-builder's own Playwright suite was already 7 red on
+  `main`**, and nothing runs it in CI (no workflow names it). The same 7
+  fail before and after this phase (below); don't read them as 39e's.
+- **Te3 — a dynamic `import("fs-extra")` in a Playwright spec** gives the
+  CJS module under `default` (`readJson is not a function`); import it
+  statically, as `support/tasks.ts` does.
+
 ### 39f
 
 ## Results
@@ -235,6 +250,107 @@ pre-epic branches) are Roger's to keep or delete.
 ### 39d — Unattended Pi sync
 
 ### 39e — Hygiene
+
+**`paceKey` by registrable domain (38-Db6).**
+
+- **De1 — `tldts`, the private section on, and a two-entry shared-host
+  list.** `tldts@7.0.21` was already in the lockfile (under tough-cookie
+  6), so it is now a direct dependency of `recipe-website-common` at that
+  exact version: one importer entry in `pnpm-lock.yaml`, no download.
+  `paceKey` (`common/util/roundupPage.ts`) is
+  `getDomain(host, {allowPrivateDomains: true})`: `a.example.co.uk` ≡
+  `b.example.co.uk` ≡ `example.co.uk`, `www.x.com` ≡ `cdn.x.com` ≡ `x.com`,
+  `example.co.uk` ≢ `other.co.uk`. The private section keeps
+  `*.cloudfront.net`, `*.github.io`, `*.blogspot.com` and
+  `*.s3.amazonaws.com` tenants apart, which was Db6's worry. Two shared
+  hosts the list doesn't know, `wp.com` (Jetpack's `i0`/`i1`/`i2`) and
+  `wordpress.com` (one blog per subdomain), are keyed by the host as
+  before (`SHARED_HOSTS`), as is a host that is itself a public suffix.
+  IP literals and single labels (`127.0.0.1:4001`, `[::1]:4001`,
+  `localhost:3019`) keep their port. `tldts` is server-only here:
+  `roundupPage.ts` is imported only by editor controllers.
+- **`siteKey`** (the page parsers: share targets, a roundup's same-site
+  links first) now uses the same list, ICANN section only. It stays
+  separate from `paceKey`, since grouping a CDN with its tenants is
+  harmless for ordering links, but `bbcgoodfood.co.uk` no longer reads
+  as `co.uk`.
+- **The callers agree.** `SitePacer.site()` (the per-process line, the
+  queue's `site:<key>` slot, `droppedReason` / the machine-wide
+  `dropped.json`) and `settleChunk` (the picker's dropped picks) already
+  called `paceKey`, so they move together. `jobs/timeline.ts` and
+  `views.ts` only read the `site:` resource back. `steps.ts` and
+  `ytdlp.ts` take a hostname for display, and the reading-cache keys
+  (`importRecipe.ts`, `kinds.ts`) identify a page, not a site. None of
+  those is a pacing key, so they stay as they are.
+- **The cost.** A page's own CDN subdomain (`cdn.example.com`) now waits
+  its turn behind the page, 15 s apart, where 38b paced it separately.
+  That is 30-D5's "one site". Most recipe sites serve their pictures from
+  the page's own host anyway. Old `site:<host>` directories and drops
+  under the previous keys expire on their own (an hour, a day idle).
+
+**resume-builder.** `globals.css`'s `@source` now points at
+`node_modules/@discontent/component-library/components` (the
+pre-rename path matched nothing). Screenshots of every page at 1280 and
+390 px, build mode, before and after:
+
+- **Changed, better:** `/new-resume`, `/resume/<slug>/edit`, `…/copy`
+  and `/settings`. The kit's text inputs get their border and padding;
+  before, they were invisible on the dark background (labels with no
+  field under them). The kit's "Append Skill", the new-resume Submit and
+  "Reload Database" become solid buttons where they were bare text.
+- **Unchanged (byte-identical):** `/`, `/resumes` (one resume and empty),
+  `/resume/<slug>`. These use only the app's own classes.
+- **Regressed, then fixed:** with 25 resumes, `/resumes`' kit
+  `ListPagination` (the backlog's 35q case) rendered with each chevron
+  stretched by the unlayered global `svg {width: 100%}` rule (Te1). That
+  rule moved into `@layer base`, after which only the paginated shots
+  changed: "‹ Newer · 2" / "1 · Older ›" lay out as in the editors. The
+  rule still sizes un-classed inline SVGs as before. The view page's icons
+  are `<img>`, so it doesn't touch them.
+- One inconsistency is left as it is. The kit's buttons are the kit's
+  near-black `primary`, beside the app's own slate "Append Item" and the
+  edit form's slate Submit. That's a design choice for the resume app,
+  not a regression.
+
+resume-builder Playwright (`e2e`, `next build` + `next start` on 3010):
+**44 passed / 7 failed before, 44 / 7 after, and the same 7** (Te2). The 7
+are create ×2, update ×2, git ×2 and view ×1. Each one expects the view
+page to show the company (it doesn't render it), a Cancel link on the
+edit page (there is none), or an "Update resume" commit after an edit.
+They're pre-existing app/test drift, out of this phase's scope; a
+backlog row records them.
+
+**Docs.** `agent-epic-36.md`: the **Now** line, the 36d/36e roadmap rows
+(✅ #234 / #235) and two rows in "What landed". `agent-epic-37.md`: both
+AA-contrast rows (Backlog, Close-out backlog) struck, **Done in 38a**
+(38-Da5, checked in the code: `border-l-2 border-destructive` in the
+form, `BatchPicker`, `RoundupImport`, `ImportProgress`). `backlog.md`:
+"Featured recipes as a group kind" struck as **superseded by taxonomy
+D5**; the `paceKey` row and the resume-builder `@source` row struck,
+**Done in 39e**; a new row for resume-builder's 7 red specs. The sweep for
+other rows done by epics 36–38 found none still open: every 36–38 row
+was already struck, and the open ones (Tb5's form panel, the reading
+cache, Te6, Dg9 → 39a; held ticks → 39c; Te7, the plain-text sub-recipe,
+F32 borrowing, term clouds, 2c) aren't done. The 29 doc's Pi number
+belongs to 39b.
+
+**Tests.** `roundupPage.test` (the old `.co.uk`/CDN test is replaced by
+two): `siteKey`'s registrable domain, and `paceKey`'s ≡ / ≢ pairs, the
+private section, `SHARED_HOSTS`, a trailing dot, a host that is a public
+suffix, IPv4/IPv6/`localhost` ports. `queue.test` +1: a drop on
+`a.example.co.uk` refuses `b.example.co.uk` from another process's pacer
+and writes `site:example.co.uk/dropped.json`, while `other.co.uk`, the
+next `wp.com` host and the next `cloudfront.net` tenant are still asked.
+`roundupPicker.test`: the dropped-pick case now keys on `example.co.uk`,
+and `other.co.uk` goes back on the queue.
+
+**Gates.** `recipe-editor` typecheck clean; `recipe-website` `tsc
+--noEmit` clean; `pnpm exec vitest run` **105 files / 2195 tests**
+passed; resume-builder Playwright as above (twice more for the
+pagination fix: the screenshot spec 18/18 and the full run with the same
+44 + 7); `import-roundup.spec` (build mode, e2e + mobile) **5/5** — the
+picker's pacing path; its fixtures are loopback, whose keys are
+unchanged.
 
 ### 39f — Content calls
 

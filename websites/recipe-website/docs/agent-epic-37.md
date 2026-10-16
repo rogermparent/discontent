@@ -1495,11 +1495,12 @@ footer snapshots pass on the merged tree.
 - ~~`/jobs` stops polling when nothing is live; a job another process starts
   afterwards shows on Refresh or a reload, not by itself (D7's "stops when
   idle", 37c).~~ **Done in 38b** (10 s while idle, none while hidden).
-- `text-destructive` as text is under AA on the page background (T25),
+- ~~`text-destructive` as text is under AA on the page background (T25),
   and older surfaces use it (the form's submit error, the 36e picker's
   "not trusted — check it", the roundup picker): a theme fix in
   `--destructive`, or the rule-and-foreground treatment the jobs pages use
-  (37c).
+  (37c).~~ **Done in 38a** (38-Da5: the rule-and-foreground treatment on
+  all three; `--destructive` unchanged).
 - The form's progress panel shows the queue position read at the job's
   `GET` (`getJobView` re-reads the line); a job's meta still records only
   the position at enqueue (37c).
@@ -1628,9 +1629,9 @@ Consolidated and de-duplicated from the phase-by-phase list above:
 - ~~`/jobs` on a mirror (the Pi): the page and API work there, but the
   Settings → Tools link to it is workstation-only (epic 28, D2), so a
   mirror reaches `/jobs` only by its URL.~~ **Done in 38b.**
-- Older screens' red error text (`text-destructive`) is under AA contrast
+- ~~Older screens' red error text (`text-destructive`) is under AA contrast
   on the page background — the form's submit error, the 36e picker's
-  "not trusted — check it", the roundup picker.
+  "not trusted — check it", the roundup picker.~~ **Done in 38a** (38-Da5).
 - ~~`/new-recipe?import=<url>` starts a job on a GET render; a reload of
   that address, a restored tab or a history replay starts the fetch (and
   the model) again. A POST from the picker, or a confirm step, would make
