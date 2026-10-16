@@ -50,6 +50,7 @@ import {
   type SyncOutcome,
 } from "@discontent/cms/git/syncState";
 import { isMirror, mirrorRefusal } from "recipe-website-common/config/role";
+import type { JobRun } from "../jobs/context";
 import type { CurationContext } from "./context";
 import {
   CurationError,
@@ -77,6 +78,11 @@ export interface GitSyncOptions {
   mirror?: SyncMirrorTarget;
   /** The merge step's wait for the write lock; `SYNC_LOCK_TIMEOUT_MS` by default. Not on the wire. */
   lockTimeoutMs?: number;
+  /**
+   * The `git-sync` job this sync runs in (epic 39 D2): the merge's rebuild
+   * logs its `reindex.<type>` steps there. Not on the wire.
+   */
+  job?: JobRun;
 }
 
 export type SyncStepName = "preflight" | "fetch" | "merge" | "media" | "push";
@@ -175,7 +181,7 @@ async function mirrorDirtyFiles(
 
 export async function gitSync(
   ctx: CurationContext,
-  { remote, mirror, lockTimeoutMs }: GitSyncOptions = {},
+  { remote, mirror, lockTimeoutMs, job }: GitSyncOptions = {},
 ): Promise<SyncResult> {
   if (isMirror()) {
     throw new ForbiddenError(mirrorRefusal("syncing"));
@@ -295,6 +301,7 @@ export async function gitSync(
         remote: target,
         lockTimeoutMs: lockTimeoutMs ?? SYNC_LOCK_TIMEOUT_MS,
         fetched: true,
+        ...(job ? { job } : {}),
       });
       pulled = result.newCommits;
       steps.push({

@@ -1173,7 +1173,9 @@ export function createRecipeServer(
       title: "Rebuild indexes",
       description:
         "Rebuild the derived indexes and aggregates for one content type, or all of " +
-        "them. Reads nothing external and commits nothing; safe to repeat.",
+        "them. Reads nothing external and commits nothing; safe to repeat. Runs as a " +
+        "job (`job` in the result; job_get shows a step per content type), after any " +
+        "sync or rebuild of the same repository already running.",
       inputSchema: z.strictObject({
         contentType: z.string().min(1).optional(),
       }),
@@ -1440,7 +1442,9 @@ export function createRecipeServer(
         "Whether the content directory is a Git repository, and where it stands: " +
         "branch, upstream, ahead/behind (`diverged` when both), uncommitted changes, " +
         "remotes, the most recent commits, and `indexStale` — HEAD moved without a " +
-        "full rebuild, so run reindex. `pendingIndex` lists paths that are " +
+        "full rebuild, or the indexes were built by other code " +
+        "(`indexVersionStale`; a running editor rebuilds those at start) — so run " +
+        "reindex. `pendingIndex` lists paths that are " +
         "committed but not yet re-staged in git's index (another process held its " +
         "lock); they are not uncommitted changes and catch up on the next write. " +
         "ahead/behind are as of `fetchedAt`; pass " +

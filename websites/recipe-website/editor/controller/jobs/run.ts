@@ -54,6 +54,7 @@ import {
   LIVE_STATUSES,
   cancelPath,
   logPath,
+  metaPath,
   newJobMeta,
   pruneJobs,
   readCancelRequest,
@@ -94,6 +95,12 @@ export interface RunJobOptions<T = unknown> {
   heartbeatMs?: number;
   /** How often to look for another process's cancel; default `JOB_CANCEL_POLL_MS`. */
   cancelPollMs?: number;
+  /**
+   * Whether a finished job leaves no record (39b: a git sync that found
+   * nothing to do, so `/jobs` is not flooded by the sync after every
+   * commit). Asked only of a `done` result; the meta and log are deleted.
+   */
+  discardIf?: (result: T) => boolean;
 }
 
 /**
@@ -163,6 +170,8 @@ export async function maintainJobs(
 interface RegistryGlobal {
   /** On `globalThis`: a cancel route and the job's action are separate bundles (T5). */
   __discontentRunningJobs?: Map<string, AbortController>;
+  /** Jobs this process runs that are past cancelling (`beyondCancel`, 39b). */
+  __discontentSealedJobs?: Set<string>;
 }
 
 function registry(): Map<string, AbortController> {
@@ -170,13 +179,19 @@ function registry(): Map<string, AbortController> {
   return (global.__discontentRunningJobs ??= new Map());
 }
 
+function sealedJobs(): Set<string> {
+  const global = globalThis as RegistryGlobal;
+  return (global.__discontentSealedJobs ??= new Set());
+}
+
 /**
  * Abort a job this process is running (37b/37c's Cancel). False when it is
- * not running here — finished, or another process's.
+ * not running here — finished, or another process's — or when it is past
+ * the point a cancel may stop it (`beyondCancel`).
  */
 export function cancelJob(id: string, reason?: unknown): boolean {
   const controller = registry().get(id);
-  if (!controller) return false;
+  if (!controller || sealedJobs().has(id)) return false;
   controller.abort(reason ?? new Error("the job was cancelled"));
   return true;
 }
@@ -193,6 +208,11 @@ export type CancelOutcome =
   | "requested"
   /** It has already ended. */
   | "ended"
+  /**
+   * It is past the point a cancel may stop it (39b: a reindex that has begun
+   * swapping indexes) and runs to its end.
+   */
+  | "refused"
   | "not_found";
 
 /**
@@ -205,12 +225,14 @@ export async function requestJobCancel(
   id: string,
   { dir = jobsDirectory(), reason }: { dir?: string; reason?: string } = {},
 ): Promise<CancelOutcome> {
+  if (sealedJobs().has(id)) return "refused";
   if (cancelJob(id, reason ? new Error(reason) : undefined)) {
     return "cancelled";
   }
   const meta = await readJobMeta(dir, id);
   if (!meta) return "not_found";
   if (!LIVE_STATUSES.includes(meta.status)) return "ended";
+  if (meta.cancellable === false) return "refused";
   await writeCancelRequest(dir, id, reason);
   return "requested";
 }
@@ -298,6 +320,7 @@ export async function startJob<T>(
     mirror,
     signal: outside,
     failureOf,
+    discardIf,
     heartbeatMs = JOB_HEARTBEAT_MS,
     cancelPollMs = JOB_CANCEL_POLL_MS,
   }: RunJobOptions<T> = {},
@@ -369,7 +392,11 @@ export async function startJob<T>(
   };
 
   const controller = new AbortController();
-  const fromOutside = () => controller.abort(outside?.reason);
+  /* Past cancelling (`beyondCancel`): nothing may abort it any more. */
+  let sealed = false;
+  const fromOutside = () => {
+    if (!sealed) controller.abort(outside?.reason);
+  };
   if (outside?.aborted) fromOutside();
   else outside?.addEventListener("abort", fromOutside, { once: true });
   registry().set(id, controller);
@@ -380,11 +407,13 @@ export async function startJob<T>(
   let looking = false;
   const cancelPoll = stored
     ? setInterval(() => {
-        if (looking || controller.signal.aborted) return;
+        if (looking || sealed || controller.signal.aborted) return;
         looking = true;
         void readCancelRequest(dir, id)
           .then((reason) => {
-            if (reason === undefined || controller.signal.aborted) return;
+            if (reason === undefined || sealed || controller.signal.aborted) {
+              return;
+            }
             controller.abort(
               new Error(reason || "the job was cancelled from another process"),
             );
@@ -407,12 +436,42 @@ export async function startJob<T>(
     ).catch(() => undefined);
   };
 
+  /*
+   * 39b: past this point a cancel is refused. A cancel already asked —
+   * here, or by another process's `<id>.cancel` the poll has not read yet —
+   * still wins: it is checked once more before the seal.
+   */
+  const beyondCancel = async (reason: string): Promise<void> => {
+    if (sealed) return;
+    controller.signal.throwIfAborted();
+    if (stored) {
+      const asked = await readCancelRequest(dir, id).catch(() => undefined);
+      if (asked !== undefined && !controller.signal.aborted) {
+        controller.abort(
+          new Error(asked || "the job was cancelled from another process"),
+        );
+      }
+    }
+    controller.signal.throwIfAborted();
+    sealed = true;
+    sealedJobs().add(id);
+    log.info("job.sealed", reason);
+    if (stored) {
+      await updateJobMeta(dir, id, (current) =>
+        LIVE_STATUSES.includes(current.status)
+          ? { cancellable: false, updatedAt: Date.now() }
+          : undefined,
+      ).catch(() => undefined);
+    }
+  };
+
   const job: JobContext = {
     log,
     signal: controller.signal,
     tier: meta.tier,
     jobId: id,
     waiting,
+    beyondCancel,
   };
   const done = (async (): Promise<JobOutcome<T>> => {
     try {
@@ -433,6 +492,21 @@ export async function startJob<T>(
       const error = cancelled
         ? cancelledError(controller.signal.reason)
         : failure;
+      if (stored && !error && discardIf?.(value)) {
+        /*
+         * 39b: nothing worth a row on `/jobs` (a sync with nothing to do).
+         * No heartbeat writes from here on (`stored`), and the delete waits
+         * behind any meta write already in flight, so none lands after it.
+         */
+        stored = false;
+        await updateJobMeta(dir, id, () => undefined).catch(() => undefined);
+        await Promise.all([
+          rm(metaPath(dir, id), { force: true }),
+          rm(logPath(dir, id), { force: true }),
+          rm(cancelPath(dir, id), { force: true }),
+        ]).catch(() => undefined);
+        return { job: id, result };
+      }
       await record({
         status: cancelled ? "cancelled" : failure ? "failed" : "done",
         endedAt: Date.now(),
@@ -469,6 +543,7 @@ export async function startJob<T>(
       clearInterval(timer);
       if (cancelPoll) clearInterval(cancelPoll);
       registry().delete(id);
+      sealedJobs().delete(id);
       outside?.removeEventListener("abort", fromOutside);
       if (stored)
         await rm(cancelPath(dir, id), { force: true }).catch(() => {});

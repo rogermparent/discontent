@@ -20,18 +20,43 @@
  * `timings` (29a) is wall-clock milliseconds per type rebuilt, plus `total`,
  * so `--json` and `/api/reindex` can say where a slow sync went without a
  * profiler.
+ *
+ * Epic 39: the all-types pass also writes the **index version** (D1,
+ * `currentIndexVersion`) beside the HEAD stamp, and inside a job (D2,
+ * `jobs/kinds.ts`'s `reindex` and `git-sync`) each type is a
+ * `reindex.<type>` step, so `/jobs` shows where the time went. The job's
+ * cancel is honoured only until the rebuild begins (`beyondCancel`): each
+ * type ends in an atomic swap, and a rebuild stopped between two swaps
+ * would leave the indexes from two trees and the stamp unwritten.
  */
 import { rebuildIndex } from "@discontent/cms/content/rebuildIndex";
-import { readHead, writeIndexedHead } from "@discontent/cms/git/indexStamp";
+import {
+  readHead,
+  writeIndexedHead,
+  writeIndexVersion,
+} from "@discontent/cms/git/indexStamp";
 import { withWriteLock } from "@discontent/cms/git/writeLock";
 import { recipeContentTypes } from "../contentTypes";
+import { currentIndexVersion } from "../indexVersion";
+import { jobContext, type JobRun } from "../jobs/context";
 import type { CurationContext } from "./context";
 import { NotFoundError } from "./errors";
 
 export interface ReindexResult {
   rebuilt: string[];
   timings?: Record<string, number>;
+  /** The job it ran as (epic 39, D2), when it ran as one. */
+  job?: string;
 }
+
+export interface ReindexOptions {
+  /** The job this rebuild runs in: per-type steps, and the cancel point. */
+  job?: JobRun;
+}
+
+/** The step note a job's log gets when its cancel stops being honoured. */
+const BEGUN =
+  "the rebuild has begun: each index is swapped whole, so it runs to its end";
 
 function elapsed(start: number): number {
   return Math.round(performance.now() - start);
@@ -49,18 +74,21 @@ function elapsed(start: number): number {
 export async function reindex(
   ctx: CurationContext,
   contentType?: string,
+  { job }: ReindexOptions = {},
 ): Promise<ReindexResult> {
   return withWriteLock(
     ctx.contentDirectory,
     contentType ? `reindex ${contentType}` : "reindex",
-    () => reindexLocked(ctx, contentType),
+    () => reindexLocked(ctx, contentType, job),
   );
 }
 
 async function reindexLocked(
   ctx: CurationContext,
-  contentType?: string,
+  contentType: string | undefined,
+  run: JobRun | undefined,
 ): Promise<ReindexResult> {
+  const job = jobContext(run);
   if (contentType) {
     const config = recipeContentTypes.find(
       (candidate) => candidate.contentType === contentType,
@@ -72,9 +100,12 @@ async function reindexLocked(
           .join(", ")}`,
       );
     }
+    await job.beyondCancel?.(BEGUN);
     /* One type named: let the cascade reach whatever borrows from it. */
     const start = performance.now();
-    await rebuildIndex({ config, contentDirectory: ctx.contentDirectory });
+    await job.log.step(`reindex.${config.contentType}`, () =>
+      rebuildIndex({ config, contentDirectory: ctx.contentDirectory }),
+    );
     const total = elapsed(start);
     return {
       rebuilt: [config.contentType],
@@ -82,19 +113,24 @@ async function reindexLocked(
     };
   }
 
+  await job.beyondCancel?.(BEGUN);
   const start = performance.now();
   const timings: Record<string, number> = {};
   const head = await readHead(ctx.contentDirectory);
   for (const config of recipeContentTypes) {
     const typeStart = performance.now();
-    await rebuildIndex({
-      config,
-      contentDirectory: ctx.contentDirectory,
-      cascadeDependents: false,
-    });
+    await job.log.step(`reindex.${config.contentType}`, () =>
+      rebuildIndex({
+        config,
+        contentDirectory: ctx.contentDirectory,
+        cascadeDependents: false,
+      }),
+    );
     timings[config.contentType] = elapsed(typeStart);
   }
   await writeIndexedHead(ctx.contentDirectory, head);
+  /* After the loop and the HEAD: a rebuild that threw part-way claims neither. */
+  await writeIndexVersion(ctx.contentDirectory, currentIndexVersion());
   timings.total = elapsed(start);
   return {
     rebuilt: recipeContentTypes.map((config) => config.contentType),

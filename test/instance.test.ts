@@ -18,6 +18,7 @@ import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 import {
   readIndexFreshness,
   writeIndexedHead,
+  writeIndexVersion,
 } from "@discontent/cms/git/indexStamp";
 import {
   readSyncState,
@@ -29,6 +30,11 @@ import { recipeContentTypes } from "../websites/recipe-website/editor/controller
 import { reindex } from "../websites/recipe-website/editor/controller/curation/reindex";
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
 import { changesOnlyUnindexed } from "../websites/recipe-website/editor/controller/curation/unindexed";
+import { currentIndexVersion } from "../websites/recipe-website/editor/controller/indexVersion";
+import {
+  getJobView,
+  listJobSummaries,
+} from "../websites/recipe-website/editor/controller/jobs/views";
 import { createSyncRunner } from "../websites/recipe-website/editor/controller/instance/runner";
 import { createCoalescedTask } from "../websites/recipe-website/editor/controller/instance/coalesce";
 import { sshTargetOf } from "../websites/recipe-website/editor/controller/instance/mirrors";
@@ -641,6 +647,55 @@ describe("the instance", () => {
     expect(freshness.stale).toBe(false);
   }, 45_000);
 
+  /*
+   * Epic 39 D1: indexes built by other code (a deploy that bumped a spec, or
+   * the first start after the stamp existed) are rebuilt once at start, as a
+   * `reindex` job (D2) — once, even with HEAD stale too, and not again.
+   */
+  it.each([
+    ["the version alone", false, "0123456789abcdef"],
+    ["the version and HEAD", true, "fedcba9876543210"],
+  ])(
+    "rebuilds once at start when %s is stale (39-D1)",
+    async (_name, headToo, stale) => {
+      const dir = await scratchDir("version-");
+      const repo = await initRepo(dir);
+      process.env.CONTENT_DIRECTORY = dir;
+      process.env.SETTINGS_DIRECTORY = await scratchDir("settings-");
+      process.env.TEST_MODE = "true";
+      process.env.INSTANCE_EVENTS = "on";
+      process.env.EDITOR_ROLE = "mirror";
+      process.env.EDITOR_INTERNAL_URL = "http://127.0.0.1:9";
+      await reindex({ contentDirectory: dir });
+      await writeIndexVersion(dir, stale);
+      if (headToo)
+        await shellCommit(repo, dir, "recipes/data/shell/recipe.json");
+      const version = currentIndexVersion();
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      const ours = async () =>
+        (await listJobSummaries({ kind: "reindex", limit: 300 })).jobs.filter(
+          (job) => job.label.includes(`index version changed (${stale}`),
+        );
+
+      await startInstance();
+      const fresh = await eventually(
+        () => readIndexFreshness(dir, { version }),
+        (value) => !value.versionStale && !value.stale,
+      );
+      expect(fresh).toMatchObject({ versionStale: false, stale: false });
+      expect(fresh.indexedVersion).toBe(version);
+      /* A second look after the watcher's debounce and the settle: still one. */
+      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      const jobs = await eventually(ours, (list) =>
+        list.every((job) => job.status === "done"),
+      );
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]).toMatchObject({ kind: "reindex", status: "done" });
+      info.mockRestore();
+    },
+    45_000,
+  );
+
   it("syncs a workstation commit to its mirror with no one asking (D4)", async () => {
     const dir = await scratchDir("workstation-");
     const repo = await initRepo(dir);
@@ -689,5 +744,18 @@ describe("the instance", () => {
     const state = (await readSyncState(dir)).uraninite;
     expect(["synced", "nothing"]).toContain(state?.outcome);
     expect(state?.consecutiveFailures).toBe(0);
+
+    /*
+     * Epic 39 D2: each sync was a `git-sync` job, and one that moved
+     * nothing left no record — the one that pushed the commit did.
+     */
+    const syncs = (await listJobSummaries({ kind: "git-sync", limit: 300 }))
+      .jobs;
+    expect(syncs.length).toBeGreaterThanOrEqual(1);
+    for (const job of syncs) {
+      expect(job.status).toBe("done");
+      const view = await getJobView(job.id);
+      expect(view.meta.result).toMatchObject({ outcome: "synced" });
+    }
   }, 90_000);
 });

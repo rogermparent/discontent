@@ -216,6 +216,50 @@ pre-epic branches) are Roger's to keep or delete.
 
 ### 39b
 
+- **Tb1 — The first start after 39b rebuilds every instance once.** No
+  repository has `.git/discontent-index-version` yet, and a missing version
+  counts as stale (D1), so the workstation's first `pnpm workstation update`
+  and the Pi's next deploy each rebuild at start (logged
+  `[instance] no index version recorded yet; reindexing`, a `reindex` job
+  labelled so). On the Pi that start-time rebuild and the deploy's own
+  `POST /api/reindex` run back to back — two rebuilds, the second queued in
+  the repository's line behind the first. The deploy keeps its explicit
+  rebuild (it also covers a HEAD the stamp had not seen); its printed
+  `timings.total` is its own rebuild, but the curl time includes the wait.
+- **Tb2 — A hold leaks into fire-and-forget work started inside it.**
+  `withResource` marks the resource held in the async context
+  (`AsyncLocalStorage`), and a promise started inside inherits that context
+  after the hold is gone. A sync's `finally` kicks the instance's deferred
+  rebuild; that rebuild's `reindex` job then saw `repo:` as held and passed
+  straight through the line. `outsideQueue(fn)` (`jobs/queue.ts`) runs work
+  meant to outlive the hold outside it — as `outsideWriteLock` does for the
+  write lock.
+- **Tb3 — `measure-reindex.ts` measures React's development build.** Run
+  bare under `tsx`, `NODE_ENV` is unset and `flattenMarkdown`'s element
+  building costs about twice what the editor pays (787 recipes: 1.1 s
+  against 0.7 s with `NODE_ENV=production`). 29a's numbers were taken the
+  same way, so they compare with each other, not with the running editor.
+- **Tb4 — A discarded sync's `job` names a job that no longer exists.**
+  `syncMirror` answers the result with `job` (the route's body too); for a
+  sync that moved nothing the record is deleted at the end (Db7), so
+  `/api/jobs/<id>` answers 404 for it. Nothing follows that id today.
+- **Tb4b — A cross-process cancel can land in the seal's last instant.**
+  Another process's `requestJobCancel` reads the meta (live, not yet
+  `cancellable: false`), the job checks for `<id>.cancel` (none) and seals,
+  then the request writes the file and answers `requested`: the job runs to
+  its end and the file is removed with it. The window is a few
+  milliseconds between two file reads; closing it would need a lock the
+  cancel path does not take, so it is accepted.
+- **Tb5 — `reindex` was a test's example of an unknown kind.**
+  `jobSurfaces.test.ts` refused a retry of `{kind: "reindex"}` as "a spec
+  this version cannot run"; it is a kind now, so the example is `compact`.
+- **Tb6 — `reindexJobs.test.ts` pins this site's index version.** Like
+  `specVersions.test.ts`, it fails on any declared spec change (a pagination,
+  aggregate or taxonomy version, a type's `indexVersion`, a reference's
+  fields). Accept it with `vitest -u`; the rebuild that follows on every
+  instance is automatic, but the moved pin is the reminder that one will
+  happen.
+
 ### 39c
 
 ### 39d
@@ -229,6 +273,191 @@ pre-epic branches) are Roger's to keep or delete.
 ### 39a — Import reliability
 
 ### 39b — Reindex follow-through
+
+**Measured first** (full numbers and the go/no-go in `agent-epic-29.md`,
+"39b: re-measure and go/no-go"). A scratch clone of the content repo at
+`746e4336` (787 recipes, 24 featured, 1 group, 135 term records, 0 pages),
+`scripts/measure-reindex.ts`, `RUNS=7`, through the heavy slot, the clone
+deleted after:
+
+| Run                                  | recipes min / med | total min / med  |
+| ------------------------------------ | ----------------- | ---------------- |
+| dev React, load 16–20                | 1157 / 1249 ms    | 1391 / 1496 ms   |
+| dev React, load ~9–10                | 900 / 1148 ms     | 1107 / 1312 ms   |
+| `NODE_ENV=production`, load ~13      | 575 / 673 ms      | **699 / 867 ms** |
+| epic 29 (644 recipes, dev, load ~10) | 401 / 552 ms      | 455 / 644 ms     |
+
+- The production-React row is what the editor pays (Tb3): ~0.7 s, inside
+  29-D4's ≤ ~1 s. A CPU profile puts markdown-to-jsx plus React's dev
+  build at about half of the dev runs' recipes time.
+- **The Pi's 4.9 s** (deploy of 89c3f8da) is the deploy's cold rebuild —
+  29a's cold reading was 4.1 s at 644 recipes, which scales to 5.0 s at
+  787; the warm median then was 2.55 s (~3.1 s scaled). The next Pi number
+  is **pending**: Roger's next `pnpm deploy:pi` prints it, and the Pi's
+  `/jobs` now records every warm rebuild with per-type steps (D2).
+- **Go/no-go: no-go** for incremental reindex (29b–29d) in this epic; the
+  trigger is restated as the Pi's **warm** median passing ~5 s (or a cold
+  deploy rebuild ~8 s). The 29 doc's "Pi 2.5 s" lines now say warm, with the
+  4.9 s cold reading dated beside them.
+
+**D1 — the index-version stamp.**
+
+- `computeIndexVersion(registry)`, `readIndexVersion`, `writeIndexVersion`
+  and `ENGINE_INDEX_FORMAT` in `packages/cms/git/indexStamp.ts`;
+  `.git/discontent-index-version` (via `rev-parse --git-path`, beside the
+  HEAD stamp). `readIndexFreshness(dir, {version})` adds `indexedVersion`,
+  `version` and `versionStale`; without a `version` nothing changes for old
+  callers.
+- The site's version is `currentIndexVersion()` (`editor/controller/
+indexVersion.ts`, once per process): today `8c67321604d73888`, pinned in
+  `test/reindexJobs.test.ts` (Tb6).
+- The all-types `reindex` writes it after the loop and the HEAD stamp; a
+  one-type rebuild writes neither. Also written where the HEAD stamp is
+  claimed without a rebuild: the editor's Initialize and the Playwright
+  harness's `initializeContentGit`. `deploy-pi.sh --ship-indexes` ships the
+  file with the indexes (`swap-index.sh`'s header says so).
+- **At start, both roles:** `reindexWhenForeign` (D12's coalesced task, run
+  once at start and on every HEAD move) now rebuilds when HEAD **or** the
+  version is stale — one rebuild for both — and skips the settle when only
+  the version is. The shopping/inventory-only shortcut (35c), and the same
+  shortcut in `gitPull`, are skipped while the version is stale.
+- `git_status` / `recipes git status` / `GET /api/git/status`:
+  `indexStale` is now HEAD-stale **or** version-stale, with
+  `indexVersionStale`, `indexVersion` and `indexedVersion` beside it; the CLI
+  prints which. `/git` gets a line "Indexes: built from <sha>, index version
+  <v>" (`git-index-stamp`, "(this editor: …)" when they differ), and the
+  stale-index banner a version variant ("built by an older version of the
+  editor … rebuilds them by itself when it starts").
+- **Checklists:** `deploy-pi.md` ("Indexes") now says a spec bump needs no
+  step of its own. The living docs had no other "reindex after a spec bump"
+  step; the close-outs of epics 32–38 that carry one are history and stay.
+  39-close should leave reindex out of Roger's steps (the stamp does it;
+  watch for Tb1's one-time rebuild).
+
+**D2 — reindex and git sync as jobs.**
+
+- Kinds `reindex` (`contentType?`, `trigger`: `api` | `editor` | `local` |
+  `mcp` | `instance`, `reason?`) and `git-sync` (`remote?`, `triggers`) in
+  `jobs/kinds.ts` and `listing.ts`; labels "rebuild every index (the API)",
+  "rebuild every index (index version changed (a → b))", "sync with
+  uraninite (change, ping)"; `jobResources` = the repository's line.
+- **`repo:<name>-<hash>`** (`repoResource`, `jobs/queue.ts`), one line per
+  repository (Db4), held for the whole job; `/jobs`' queue panel lists the
+  `repo:` lines with a holder or waiters ("recipe-content repository"); idle
+  ones are pruned after a day like a site's.
+- **Every trigger:** `POST /api/reindex` (answers `job`), `rebuildAllIndexes`
+  (the banner, `/git`'s pull/merge/abort/checkout, Export), the local
+  backend's `reindex` (CLI and stdio MCP: `local`; MCP over HTTP: `mcp`),
+  MCP `reindex` through it, the instance's start-time and foreign-HEAD
+  rebuild (`instance`), and `syncMirror` (the runner, `/api/git/sync`, Sync
+  now) as `git-sync`. The CLI's `reindex` prints "Rebuilt: … in 0.7 s (job
+  …)". `recipes git sync` and MCP `git_sync` (local, held back) stay direct
+  `gitSync` calls under the sync lock, not jobs.
+- **Steps:** `reindex.<type>` per content type (ms each) — in a `reindex`
+  job, and inside a `git-sync` job under its `sync` step when the merge
+  rebuilds (the job is threaded through `gitSync` → `gitPull` →
+  `rebuildAfterRewind`); a sync's own steps as `sync.preflight` …
+  `sync.push` notes with their status and detail, and the `sync` step ends
+  with `outcome`, `pulled`, `pushed`. `timeline.ts` titles them ("Rebuild
+  recipes", "Sync with uraninite").
+- **Cancel (Db6):** honoured while the job waits in the repository's line
+  (and for a rebuild, while it waits for the write lock); refused after.
+  `JobContext.beyondCancel(reason)` checks for a cancel one last time — the
+  in-process abort and another process's `<id>.cancel` — then seals the job:
+  `requestJobCancel` answers the new outcome **`refused`**, the meta and
+  summaries carry `cancellable: false`, the job page shows "Past the point a
+  cancel can stop it", `recipes jobs cancel` says so, and an outside signal
+  (a closed request) no longer aborts it. A rebuild seals right after it
+  takes the write lock, before its first swap; a sync as soon as it has the
+  line.
+- **The live queue position** (37c backlog row, struck in
+  `agent-epic-37.md`, with the "reindex, git sync joining the queue" row): a
+  waiter writes its new place into the meta's `waiting.position` each time
+  it moves, so `/jobs`' list and the panel read it from the record.
+- **Not flooding `/jobs` (Db7):** a `git-sync` whose outcome is `nothing`
+  with nothing pulled or pushed leaves no record (`JOB_DISCARDS` →
+  `runJob`'s `discardIf`: meta, log and cancel file deleted, through the
+  meta's write chain). Every sync after a workstation commit pushes
+  (recorded); the mirror's ping after that push finds nothing (discarded) —
+  about half of all syncs. The sync state file and the Mirrors card still
+  record every attempt. Rebuilds are always recorded: D12 rebuilds only when
+  indexed content moved, so the Pi gets one `reindex` row per synced
+  content commit, and the store's retention (300 jobs / 14 days) bounds it.
+  A sync ending `conflict`, `mirror_dirty`, `unreachable`, `blocked` or
+  `error` is a `failed` job with that code; `raced` and `busy` are `done`.
+
+**Decisions (amendments).**
+
+- **Db1 — The version hashes declarations, never source.** Declared
+  versions (pagination, aggregate, taxonomy via `aggregatesOf`), each type's
+  identity and directories, reference fields, plus a new optional
+  `ContentTypeConfig.indexVersion` for what `buildIndexKey` /
+  `buildIndexValue` produce — the content index had no declared version at
+  all (F23: "nothing self-heals"). Not `specVersions.test.ts`'s source
+  hashes: those move on a comment edit, which would rebuild every instance
+  on every deploy for nothing, and differ between builds (F16). The price is
+  the one F16 already accepted: an author who changes a projection without
+  bumping its version gets no rebuild — `specVersions.test.ts` is still the
+  net for that.
+- **Db2 — `indexStale` includes the version.** One flag for "run reindex"
+  (the MCP instructions' rule stands), with `indexVersionStale` saying why.
+- **Db3 — One start-time path.** The version check rides D12's coalesced
+  task rather than a second start hook, so HEAD and version staleness cost
+  one rebuild and share its deferral while a sync runs.
+- **Db4 — A line per repository, not one `repo` slot,** because the queue
+  is machine-wide (37b): one slot would put a CLI reindex of a scratch
+  clone behind the workstation's sync of the real repo. Keyed by the
+  resolved path, so `editor/content` and the repo it links to are one line.
+- **Db5 — Lock order: the `repo:` line, then the sync lock, then the write
+  lock** (`jobs/repo.ts`). Nothing holding a later one waits for an earlier
+  one: writes never take the line or the sync lock; the sync lock never
+  waits (`busy`); the line is taken only outermost. The one place a
+  `reindex` job is asked for inside the write lock — `/git`'s pull, merge
+  and checkout calling `rebuildAllIndexes` in their locked scope — skips the
+  line (`currentWriteId()`), since waiting there behind a sync that waits
+  for the same lock would deadlock. A rebuild inside a sync (28-D12, the
+  merge's) is the sync's steps, not a second job; a job started inside a
+  held line passes through it. Every holder is bounded (a lock wait of 30 s,
+  60 s for a sync's merge, plus the work). Tested: a `reindex` job inside
+  `withWriteLock` while another holds the line completes (`queue.skip`, no
+  `queue.wait`).
+- **Db6 — Cancel is refused, not ignored, past the swap.** Ignoring it would
+  record a finished rebuild as `cancelled` (runJob's "cancelled is
+  cancelled" rule) over indexes it had replaced; refusing tells the person.
+- **Db7 — An empty sync leaves no job** (above). A sync that pulled or
+  pushed, failed, raced or found the lock busy is recorded.
+- **Db8 — Tiers:** the instance's own rebuilds and every sync are `batch`;
+  a person's or a script's rebuild (`api`, `editor`, `local`, `mcp`) is
+  `interactive`, so it goes ahead of a waiting background sync.
+
+**Reindex needed: no manual one** — no index layout changed. The stamp is
+new, so every instance rebuilds once at its first start after this lands
+(Tb1); confirmed by `instance.test.ts` (one rebuild at start, as a `reindex`
+job, for a stale version alone and for version + HEAD).
+
+**Tests.** `test/reindexJobs.test.ts` (12): the version is a stable 16-hex
+hash, pinned; it does not move when every function in the registry is
+swapped for one with other source text (the comment-only case); it moves
+with a pagination version or `perPage`, an aggregate version, a taxonomy
+version, `indexVersion`, a reference's fields, a new type; a full rebuild
+writes it; a CLI (local backend) reindex records a `reindex` job labelled
+"(CLI or MCP)" with one `reindex.<type>` step per type, sealed, on the
+repository's line; a symlink and its target share one line; a cancel while
+waiting in the line stops it with nothing rebuilt; a cancel after the seal
+is `refused` and the job ends `done`; a cancel asked just before the seal
+wins; the write-lock skip (Db5); a waiting job's meta position goes 2 → 1
+as the line moves. `instance.test.ts` +2 (start-time rebuild, once) and the
+D4 case now checks every recorded `git-sync` job synced (the empty startup
+sync left none). `curationGit.test.ts` +1 (version stale → `indexStale`,
+a one-type rebuild leaves it, a full one clears it) and the freshness
+shapes. `jobs.test.ts` (kinds, labels, tier). Playwright: `git.spec` +1
+(the stamp line, the version banner, Rebuild → a `reindex` job on `/jobs`
+with five `reindex.<type>` steps); `api-write.spec`'s reindex case reads
+the job's steps over `/api/jobs/<id>`.
+
+**Gates.** Both typechecks clean. vitest **106 files / 2208 tests**.
+Playwright (build mode, `heavy-pw.sh`): `jobs`, `git`, `api-write`,
+`mirrors-card`, `mirror-role`, `mcp-http` — **84 passed**.
 
 ### 39c — Cooking UX
 

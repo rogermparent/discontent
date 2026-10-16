@@ -543,8 +543,42 @@ describe("the registry", () => {
         "import-url",
         "inspect",
         "inspect-list",
+        /* 39b (epic 39 D2): the repository's own long operations. */
+        "reindex",
+        "git-sync",
       ].sort(),
     );
+    expect(
+      jobLabel({
+        kind: "reindex",
+        contentDirectory: "/c",
+        trigger: "instance",
+        reason: "index version changed (a → b)",
+      }),
+    ).toBe("rebuild every index (index version changed (a → b))");
+    expect(
+      jobLabel({
+        kind: "reindex",
+        contentDirectory: "/c",
+        contentType: "groups",
+        trigger: "api",
+      }),
+    ).toBe("rebuild the groups index (the API)");
+    expect(
+      jobLabel({
+        kind: "git-sync",
+        contentDirectory: "/c",
+        remote: "uraninite",
+        triggers: ["change", "ping"],
+      }),
+    ).toBe("sync with uraninite (change, ping)");
+    expect(
+      jobTier({
+        kind: "git-sync",
+        contentDirectory: "/c",
+        triggers: ["startup"],
+      }),
+    ).toBe("batch");
     const photo = {
       path: "photos/0123456789abcdef0123456789abcdef.jpg",
       name: "card.jpg",

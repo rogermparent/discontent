@@ -594,7 +594,8 @@ describe("POST /api/jobs/<id>/retry", () => {
     /* A spec this version cannot run is refused, not guessed at. */
     await expect(
       retrySpecFor(
-        { id: "01A", kind: "reindex", spec: { kind: "reindex" } },
+        /* Not `reindex`, a kind since 39b. */
+        { id: "01A", kind: "compact", spec: { kind: "compact" } },
         ctx,
       ),
     ).rejects.toMatchObject({ code: "usage" });

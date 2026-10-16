@@ -78,7 +78,11 @@ const gitStatus: CommandDef<SyncStatus> = {
         ? `${result.dirtyCount} uncommitted change${result.dirtyCount === 1 ? "" : "s"}`
         : "clean",
     ];
-    if (result.indexStale) {
+    if (result.indexVersionStale) {
+      lines.push(
+        `indexes stale: built by other code (index version ${result.indexedVersion ?? "not recorded"}, this code ${result.indexVersion ?? "?"}) — a running editor rebuilds at start; otherwise run \`recipes reindex\``,
+      );
+    } else if (result.indexStale) {
       lines.push(
         "indexes stale: HEAD moved without a full rebuild — run `recipes reindex`",
       );

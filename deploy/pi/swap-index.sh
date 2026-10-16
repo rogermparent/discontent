@@ -6,7 +6,9 @@
 # Run by `pnpm deploy:pi` (and `--sync-index`) with the editor container
 # already stopped: LMDB maps its files, so they are only swapped while nothing
 # has them open. The archive holds every `data.mdb` (never `lock.mdb`, which
-# is per-machine) and `.git/discontent-indexed-head`, built from <commit>.
+# is per-machine), `.git/discontent-indexed-head`, built from <commit>, and
+# `.git/discontent-index-version` (epic 39 D1: the code that built them, so
+# the editor does not rebuild them again at its start).
 #
 # Refuses, changing nothing, unless the content repo is still at <commit> with
 # a clean tree — an index built from another tree would hide or invent

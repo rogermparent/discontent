@@ -128,6 +128,10 @@ export function resourceName(resource: string): string {
   if (resource === "gpu") return "the GPU";
   if (resource === "ytdlp") return "yt-dlp";
   if (resource.startsWith("site:")) return resource.slice("site:".length);
+  /* 39b: `repo:recipe-content-1a2b3c4d` — the repository, by its name. */
+  if (resource.startsWith("repo:")) {
+    return `the ${resource.slice("repo:".length).replace(/-[0-9a-f]{8}$/, "")} repository`;
+  }
   return resource;
 }
 
@@ -203,7 +207,13 @@ export function stepTitle(node: Pick<StepNode, "step" | "data">): string {
       return `Image${typeof data.host === "string" ? ` from ${data.host}` : ""}`;
     case "write":
       return `Write${typeof data.slug === "string" ? ` ${data.slug}` : ""}`;
+    /* 39b: the repository's jobs. */
+    case "sync":
+      return `Sync${typeof data.remote === "string" ? ` with ${data.remote}` : ""}`;
     default:
+      if (step.startsWith("reindex.")) {
+        return `Rebuild ${step.slice("reindex.".length)}`;
+      }
       return `${step}${part}${quoted}`;
   }
 }

@@ -252,7 +252,8 @@ build_indexes() {
     && (
       cd "$workdir/content" \
         && { find . -path ./.git -prune -o -type f -name data.mdb -print
-             echo ./.git/discontent-indexed-head; } \
+             echo ./.git/discontent-indexed-head
+             echo ./.git/discontent-index-version; } \
         | tar -cf - -T - | zstd -q -19 -o "$workdir/indexes.tar.zst"
     ) \
     || { note "building the indexes failed" >&2; rm -rf "$workdir"; return 1; }

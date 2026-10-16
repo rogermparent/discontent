@@ -604,6 +604,64 @@ test.describe("Git content", () => {
       ).toBeVisible();
     });
 
+    test("shows the index version, flags older code's indexes, and the rebuild is a reindex job (39b)", async ({
+      page,
+      resetData,
+      initializeContentGit,
+      writeContentIndexVersion,
+    }) => {
+      await resetData();
+      await initializeContentGit();
+      await page.goto("/git");
+      await fillSignInForm(page);
+      await expect(page.getByTestId("index-stale-banner")).toHaveCount(0);
+      await expect(page.getByTestId("git-index-stamp")).toHaveText(
+        /^Indexes: built from [0-9a-f]{7}, index version [0-9a-f]{16}\.$/,
+      );
+
+      /* As after a deploy whose code declares other index specs (D1). */
+      await writeContentIndexVersion("0000000000000000");
+      await page.goto("/git");
+      const banner = page.getByTestId("index-stale-banner");
+      await expect(banner).toContainText(
+        "The indexes were built by an older version of the editor",
+      );
+      await expect(page.getByTestId("git-index-stamp")).toContainText(
+        "index version 0000000000000000 (this editor: ",
+      );
+      const rebuilt = page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().includes("/git"),
+      );
+      await banner.getByRole("button", { name: "Rebuild indexes" }).click();
+      await rebuilt;
+      await expect(page.getByTestId("index-stale-banner")).toHaveCount(0);
+
+      /* D2: that rebuild was a job, with a step per content type. */
+      await page.goto("/jobs");
+      const row = page
+        .getByTestId("job-list")
+        .locator("[data-job]")
+        .filter({ hasText: "rebuild every index (the editor)" })
+        .first();
+      await expect(row).toContainText("reindex");
+      await expect(row.getByTestId("job-status")).toHaveText("done");
+      await row.getByRole("link").click();
+      const timeline = page.getByTestId("job-timeline");
+      for (const type of [
+        "recipes",
+        "featured-recipes",
+        "pages",
+        "groups",
+        "tag-terms",
+      ]) {
+        await expect(
+          timeline.locator(`[data-step="reindex.${type}"]`),
+        ).toHaveAttribute("data-status", "ok");
+      }
+    });
+
     test("should flag a push received from elsewhere, and Rebuild indexes clears it (27b)", async ({
       page,
       resetData,

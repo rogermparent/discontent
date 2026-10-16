@@ -10,7 +10,8 @@
  * workstation's instance is running, the sync goes through it — queued
  * behind any run in progress, under the repository lock, with the mirror's
  * ssh preflight read off the remote URL — and the HEAD it produces is noted
- * so the ref watcher does not start a second run for it.
+ * so the ref watcher does not start a second run for it. It runs as a
+ * `git-sync` job (epic 39 D2) and the answer carries its id as `job`.
  */
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
 import {
@@ -36,11 +37,9 @@ export async function POST(request: Request) {
     const options = parseInput(GitSyncSchema, body ?? {});
     const instance = getInstance();
     if (instance && instance.role === "workstation") {
-      const result = await syncMirror(
-        ctx.contentDirectory,
-        options.remote,
-        instance.exclusive,
-      );
+      const result = await syncMirror(ctx.contentDirectory, options.remote, [
+        "ping",
+      ]);
       instance.runner?.noteOwnHead(result.head);
       return Response.json(result);
     }

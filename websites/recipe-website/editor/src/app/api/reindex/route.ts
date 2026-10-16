@@ -19,8 +19,8 @@ import {
   errorResponse,
   readJsonBody,
 } from "recipe-editor/controller/curation/http";
-import { reindex } from "recipe-editor/controller/curation/reindex";
 import { parseInput } from "recipe-editor/controller/curation/schema";
+import { corpusOf, runSpec } from "recipe-editor/controller/jobs/kinds";
 import { z } from "zod";
 
 const ReindexBodySchema = z.strictObject({
@@ -40,7 +40,16 @@ export async function POST(request: Request) {
       body === undefined
         ? { contentType: undefined }
         : parseInput(ReindexBodySchema, body);
-    const result = await reindex(ctx, contentType);
+    /* A `reindex` job (epic 39 D2): `job` in the answer, steps on `/jobs`. */
+    const result = await runSpec(
+      {
+        kind: "reindex",
+        ...corpusOf(ctx),
+        ...(contentType ? { contentType } : {}),
+        trigger: "api",
+      },
+      { ctx },
+    );
     revalidateDerivedState(recipeContentTypes);
     return Response.json(result);
   } catch (error) {

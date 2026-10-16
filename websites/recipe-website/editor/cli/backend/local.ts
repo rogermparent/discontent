@@ -26,7 +26,6 @@ import {
 import * as inventory from "../../controller/curation/inventory";
 import * as recipes from "../../controller/curation/recipes";
 import * as shopping from "../../controller/curation/shopping";
-import { reindex } from "../../controller/curation/reindex";
 import { listTags, searchRecipes } from "../../controller/curation/search";
 import * as terms from "../../controller/curation/terms";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
@@ -313,8 +312,24 @@ export function createLocalBackend({
       return terms.assignTerm(ctx, slug, raw);
     },
 
-    /* `rebuildIndex` writes LMDB only and never commits: no identity needed. */
-    reindex: (contentType) => reindex(ctx, contentType),
+    /*
+     * `rebuildIndex` writes LMDB only and never commits: no identity needed.
+     * A `reindex` job (epic 39 D2), so the editor's `/jobs` shows a CLI
+     * rebuild too, with its per-type steps, and it waits in the
+     * repository's line behind a sync instead of racing it.
+     */
+    async reindex(contentType) {
+      const { runSpec, corpusOf } = await import("../../controller/jobs/kinds");
+      return runSpec(
+        {
+          kind: "reindex",
+          ...corpusOf(ctx),
+          ...(contentType ? { contentType } : {}),
+          trigger: inProcess ? "mcp" : "local",
+        },
+        { ctx },
+      );
+    },
 
     getInventory: () => inventory.readInventory(ctx),
     async patchInventory(raw) {

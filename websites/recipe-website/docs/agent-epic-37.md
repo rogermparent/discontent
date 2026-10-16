@@ -1479,7 +1479,9 @@ footer snapshots pass on the merged tree.
 - ~~A volume for the Pi container's jobs directory (D8).~~ **Done in 38b**
   (`deploy/pi/run.sh`: `~/recipe-editor/jobs` at `/jobs`, the queue inside
   it; `deploy-pi.md`).
-- Other long operations — reindex, git sync — joining the queue.
+- ~~Other long operations — reindex, git sync — joining the queue.~~
+  **Done in 39b** (epic 39 D2: `reindex` and `git-sync` job kinds on a
+  per-repository `repo:` line; `agent-epic-39.md`).
 - ~~The form's "Import N selected" (`importBatchPicks`) as a job kind, and
   `job` on a failed import's error object~~ — done in 37c (`form-batch`,
   `error.job`).
@@ -1500,9 +1502,10 @@ footer snapshots pass on the merged tree.
   "not trusted — check it", the roundup picker): a theme fix in
   `--destructive`, or the rule-and-foreground treatment the jobs pages use
   (37c).
-- The form's progress panel shows the queue position read at the job's
+- ~~The form's progress panel shows the queue position read at the job's
   `GET` (`getJobView` re-reads the line); a job's meta still records only
-  the position at enqueue (37c).
+  the position at enqueue (37c).~~ **Done in 39b** (a waiter writes its
+  place into the meta's `waiting.position` each time it moves).
 - ~~The save-time image fetch (`editor/controller/actions/index.ts`, a
   recipe's image URL fetched when the form is saved) is unpaced and outside
   the site queue: `retry: { delayMs: 0 }`, one request with at most one
@@ -1609,7 +1612,8 @@ list|show|log --follow|cancel|retry`, and MCP `job_list`/`job_get`.
 Consolidated and de-duplicated from the phase-by-phase list above:
 
 - ~~A volume for the Pi container's jobs directory (D8).~~ **Done in 38b.**
-- Other long operations — reindex, git sync — joining the queue.
+- ~~Other long operations — reindex, git sync — joining the queue.~~
+  **Done in 39b.**
 - ~~A dropped site is tracked per process only (`SitePacer`'s drop list is
   in memory); it could live in the site's `state.json` beside
   `lastRelease`, to share a 403 drop across processes.~~ **Done in 38b**

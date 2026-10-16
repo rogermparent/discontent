@@ -9,7 +9,9 @@
  * - `ytdlp` — every `fetchYtdlpMetadata`;
  * - `site:<site>` — every paced request to a site (`SitePacer`), with the
  *   polite gap (30-D5) measured from the previous holder's release, in any
- *   process.
+ *   process;
+ * - `repo:<name>-<hash>` — one content repository's reindexes and git syncs
+ *   (39b, `repoResource`), held for the whole job, not per call.
  *
  * A resource is taken **around each call that uses it** (`withResource`),
  * never for a whole job, so a page fetch never waits behind another job's
@@ -55,6 +57,8 @@
  * `gapMs`); a call granted at once logs nothing, as `pace.wait` does.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, stat, utimes } from "node:fs/promises";
 import path from "node:path";
 import { writeJsonAtomic } from "@discontent/cms/fs/atomicWrite";
@@ -130,6 +134,29 @@ export function siteResource(site: string): QueueResource {
   return `site:${site}`;
 }
 
+/**
+ * One content repository's line (39b, epic 39 D2): reindexes and git syncs
+ * of that repository wait here, one at a time, in any process.
+ *
+ * **Keyed per repository**, not one `repo` slot: the queue is machine-wide
+ * (37b), so a single slot would put a CLI reindex of a scratch clone behind
+ * the workstation editor's sync of the real repository. The key is the
+ * directory as the filesystem resolves it (the editor's `content` symlink
+ * and the path it points at are one line), shown as its name plus a short
+ * hash: `repo:recipe-content-1a2b3c4d`.
+ */
+export function repoResource(contentDirectory: string): QueueResource {
+  const absolute = path.resolve(contentDirectory);
+  let real = absolute;
+  try {
+    real = realpathSync.native(absolute);
+  } catch {
+    /* Not there (yet): the path as given. */
+  }
+  const hash = createHash("sha256").update(real).digest("hex").slice(0, 8);
+  return `repo:${path.basename(real) || "root"}-${hash}`;
+}
+
 /** A resource as a directory name: anything but `[A-Za-z0-9.-]` escaped. */
 export function resourceDirName(resource: QueueResource): string {
   return resource.replace(
@@ -183,6 +210,16 @@ function heldStorage(): AsyncLocalStorage<ReadonlySet<string>> {
 
 function heldKey(dir: string, resource: QueueResource): string {
   return `${dir}\0${resource}`;
+}
+
+/**
+ * Run `fn` with no resource counted as held (39b): for work started inside
+ * a hold that outlives it — a sync's `finally` kicking the instance's
+ * rebuild — which would otherwise pass straight through the line as if it
+ * still held the slot, after the slot is gone.
+ */
+export function outsideQueue<T>(fn: () => T): T {
+  return heldStorage().exit(fn);
 }
 
 /** Whether the current async context already holds `resource`. */
@@ -496,7 +533,12 @@ async function idleSiteDirectory(
   resourceDir: string,
   now: number,
 ): Promise<boolean> {
-  if (!path.basename(resourceDir).startsWith(resourceDirName("site:"))) {
+  /* A repository's line (39b) too: one per scratch clone ever reindexed. */
+  const name = path.basename(resourceDir);
+  if (
+    !name.startsWith(resourceDirName("site:")) &&
+    !name.startsWith(resourceDirName("repo:"))
+  ) {
     return false;
   }
   if (await readLockFile(slotLockPath(resourceDir), SLOT_ID_KEY)) return false;
@@ -757,12 +799,27 @@ export async function acquire(
         "queue.wait",
         { resource, tier, position },
         async (step) => {
+          /*
+           * The place in line as it moves, into the job's meta (39b, the
+           * 37c backlog row): `/jobs` and the panel read it from the record
+           * rather than only from the position at enqueue.
+           */
+          let shown = position;
           while (!outcome.granted) {
             await sleep(pollDelay(), signal);
             await utimes(waiterFile, new Date(), new Date()).catch(
               () => undefined,
             );
             outcome = await attempt();
+            if (!outcome.granted && outcome.ahead !== shown) {
+              shown = outcome.ahead;
+              job.waiting?.({
+                resource,
+                tier,
+                since: enqueued,
+                position: shown,
+              });
+            }
           }
           gap = await gapLeft();
           if (gap > 0) {

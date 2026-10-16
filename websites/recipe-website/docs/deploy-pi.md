@@ -140,9 +140,23 @@ it is a per-instance setting, never sent to a mirror.
 
 Index layouts change with the code (27d's `sourceName`, for one), so every
 deploy rebuilds them. **By default the Pi rebuilds them itself**
-(`POST /api/reindex`). Since epic 29 that takes about 2.5 s there (15 s
-before), and the editor keeps serving the old indexes until the new ones
-commit.
+(`POST /api/reindex`). Since epic 29 a warm rebuild takes about 2.5 s there
+(15 s before); the deploy's own rebuild runs cold, just after the container
+starts, and read 4 s at the 29a deploy and **4.9 s** at the 2026-10-16
+deploy (89c3f8da, 787 recipes; `agent-epic-29.md`, the 39b go/no-go). The
+editor keeps serving the old indexes until the new ones commit.
+
+**The index version stamp (epic 39, D1)** makes a spec bump need no step of
+its own: a full rebuild writes `.git/discontent-index-version` (a hash of
+the declared index specs) beside the HEAD stamp, and the editor, on either
+role, rebuilds once at start when the running code's version differs (or
+none was recorded — the first start after 39b). So after a deploy or
+`pnpm workstation update` that moved a spec, the indexes rebuild themselves;
+no checklist needs "reindex after a spec bump" any more. That start-time
+rebuild and the deploy's `POST /api/reindex` are both `reindex` jobs in the
+repository's line (D2), so the deploy's request waits behind the start-time
+one rather than racing it; its printed `timings.total` is its own rebuild,
+and `/jobs` on the Pi shows both with a step per content type.
 
 On 2026-10-07, the old systemd setup's refresh never finished: the unit had
 used 21 min 36 s of CPU when it was killed. That was the CRLF markdown hang
@@ -169,8 +183,10 @@ busy (`--ship-indexes` on a deploy, `--sync-index` alone):
 3. Run `pnpm recipes reindex --content-dir <temp>` **with this checkout's
    code**, which must be the image's code. `--sync-index` checks that the
    running container's tag label equals HEAD and refuses otherwise.
-4. Archive every `data.mdb` plus `.git/discontent-indexed-head` (~220 KB),
-   never `lock.mdb`, which is per-machine.
+4. Archive every `data.mdb` plus `.git/discontent-indexed-head` and (39b)
+   `.git/discontent-index-version` (~220 KB), never `lock.mdb`, which is
+   per-machine. Without the version file the editor would rebuild the
+   shipped indexes again at its start.
 5. On the Pi, with the container **stopped** (LMDB maps its files),
    `swap-index.sh` re-checks HEAD and a clean tree, deletes every `*.mdb`
    outside `.git`, and unpacks. Then `run.sh` starts a fresh container, which

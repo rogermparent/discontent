@@ -146,6 +146,17 @@ export interface ContentTypeConfig<
   /** Function to build the index key from slug and data */
   buildIndexKey: (slug: string, data: TData) => TKey;
 
+  /**
+   * The declared version of what `buildIndexKey` and `buildIndexValue`
+   * produce. The content index carries no spec hash of its own (F23: a
+   * projection change there self-heals nowhere), so this is the one way to
+   * say it moved: it feeds `computeIndexVersion`, and every instance whose
+   * indexes were built under another value rebuilds them once at its next
+   * start (epic 39, D1). Optional — absent hashes as it always did; bump it
+   * (to `"2"`, and so on) when either function changes its output.
+   */
+  indexVersion?: string;
+
   /** Optional function to generate a default slug from data */
   createDefaultSlug?: (data: TData) => string;
 

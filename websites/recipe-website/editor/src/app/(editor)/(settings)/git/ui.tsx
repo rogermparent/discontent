@@ -39,6 +39,29 @@ function GitPageWithoutGit() {
   );
 }
 
+/**
+ * Which commit and which code the indexes were built from (27b's stamp and
+ * epic 39's D1 version), so a deploy that moved a spec can be seen to have
+ * rebuilt. The banner above speaks only when either is stale.
+ */
+function IndexStampLine({ status }: { status: SyncStatus }) {
+  const built = status.indexedHead
+    ? `built from ${status.indexedHead.slice(0, 7)}`
+    : "no full rebuild recorded";
+  const version = status.indexedVersion
+    ? `index version ${status.indexedVersion}`
+    : "no index version recorded";
+  return (
+    <p className="my-2 text-sm" data-testid="git-index-stamp">
+      Indexes: {built}, {version}
+      {status.indexVersion && status.indexVersion !== status.indexedVersion
+        ? ` (this editor: ${status.indexVersion})`
+        : ""}
+      .
+    </p>
+  );
+}
+
 function GitPageWithGit({
   status,
   role,
@@ -63,6 +86,8 @@ function GitPageWithGit({
       {mirror ? <WorkstationCard /> : <MirrorsCard remotes={status.remotes} />}
 
       {status.merge.inProgress && <ConflictResolver merge={status.merge} />}
+
+      <IndexStampLine status={status} />
 
       <details className="my-4" open>
         <summary className="text-lg font-bold cursor-pointer">

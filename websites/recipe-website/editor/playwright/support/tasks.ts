@@ -12,9 +12,13 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import simpleGit from "simple-git";
 import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
-import { writeIndexedHead } from "@discontent/cms/git/indexStamp";
+import {
+  writeIndexedHead,
+  writeIndexVersion,
+} from "@discontent/cms/git/indexStamp";
 import { ulid } from "@discontent/cms/util/ulid";
 import { recipeContentTypes } from "../../controller/contentTypes";
+import { currentIndexVersion } from "../../controller/indexVersion";
 import { newJobMeta, writeJobMeta } from "../../controller/jobs/store";
 import { addTokenToUser, removeTokensFromUser } from "../../src/users";
 
@@ -186,9 +190,16 @@ export async function initializeContentGit(): Promise<void> {
   /*
    * The fixture's prebuilt indexes describe exactly what was just committed,
    * so record that — as the editor's own Initialize does (27b). Without it
-   * every `/git` visit would show the stale-index banner.
+   * every `/git` visit would show the stale-index banner. And the code that
+   * built them (epic 39, D1): the fixture rebuild runs this checkout's specs.
    */
   await writeIndexedHead(testContentDir);
+  await writeIndexVersion(testContentDir, currentIndexVersion());
+}
+
+/** The test content's recorded index version (epic 39, D1), set by hand. */
+export async function writeContentIndexVersion(version: string): Promise<void> {
+  await writeIndexVersion(testContentDir, version);
 }
 
 export async function writeSettings(

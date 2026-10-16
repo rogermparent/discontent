@@ -29,6 +29,9 @@ export const JOB_KIND_NAMES = [
   "form-text",
   "form-photo",
   "form-batch",
+  /* 39b (epic 39 D2): the repository's own long operations. */
+  "reindex",
+  "git-sync",
 ] as const;
 
 /** `GET /api/jobs`, `recipes jobs list`, MCP `job_list`: at most this many rows. */

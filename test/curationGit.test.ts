@@ -58,7 +58,9 @@ import {
 } from "../websites/recipe-website/editor/controller/curation/git";
 import { reindex } from "../websites/recipe-website/editor/controller/curation/reindex";
 import { gitSync } from "../websites/recipe-website/editor/controller/curation/sync";
+import { currentIndexVersion } from "../websites/recipe-website/editor/controller/indexVersion";
 import { readSyncState } from "@discontent/cms/git/syncState";
+import { writeIndexVersion } from "@discontent/cms/git/indexStamp";
 import { searchRecipes } from "../websites/recipe-website/editor/controller/curation/search";
 import {
   createGroup,
@@ -852,12 +854,46 @@ describe("the index stamp", () => {
     expect(await indexFreshness(ctx)).toMatchObject({
       indexedHead: null,
       stale: true,
+      indexedVersion: null,
+      versionStale: true,
     });
     await reindex(ctx);
     expect(await indexFreshness(ctx)).toEqual({
       indexedHead: await head(),
       head: await head(),
       stale: false,
+      indexedVersion: currentIndexVersion(),
+      version: currentIndexVersion(),
+      versionStale: false,
+    });
+  });
+
+  /*
+   * Epic 39 D1: the version a full rebuild records is the running code's;
+   * one that differs — or none, a repository indexed before 39b — makes
+   * `indexStale` true with `indexVersionStale` saying why. A one-type
+   * rebuild writes neither stamp.
+   */
+  it("reports an index version written by other code, and a rebuild clears it", async () => {
+    await reindex(ctx);
+    expect(await gitStatus(ctx)).toMatchObject({
+      indexStale: false,
+      indexVersionStale: false,
+      indexVersion: currentIndexVersion(),
+      indexedVersion: currentIndexVersion(),
+    });
+    await writeIndexVersion(contentDirectory, "0000000000000000");
+    expect(await gitStatus(ctx)).toMatchObject({
+      indexStale: true,
+      indexVersionStale: true,
+      indexedVersion: "0000000000000000",
+    });
+    await reindex(ctx, "groups");
+    expect((await gitStatus(ctx)).indexVersionStale).toBe(true);
+    await reindex(ctx);
+    expect(await gitStatus(ctx)).toMatchObject({
+      indexStale: false,
+      indexVersionStale: false,
     });
   });
 
@@ -1847,10 +1883,11 @@ describe("private-index commits (34c)", () => {
   it("carries a current index stamp to the new commit", async () => {
     await reindex(ctx);
     await createRecipe(ctx, { name: "Naan" });
-    expect(await indexFreshness(ctx)).toEqual({
+    expect(await indexFreshness(ctx)).toMatchObject({
       indexedHead: await head(),
       head: await head(),
       stale: false,
+      versionStale: false,
     });
   });
 

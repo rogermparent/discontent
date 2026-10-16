@@ -13,10 +13,38 @@ import {
  * rebuild has been recorded yet. The editor's own writes never trigger it —
  * each one carries the stamp forward. Renders nothing when the indexes are
  * current or the content directory is not a repository.
+ *
+ * Also while the indexes were built by other code (epic 39, D1: the index
+ * version moved). The editor rebuilds those by itself at start, so the
+ * banner is seen only if that rebuild failed or has not finished.
  */
 export async function IndexStaleBanner() {
-  const { stale, indexedHead, head } = await getIndexFreshness();
-  if (!stale) return null;
+  const { stale, indexedHead, head, versionStale, indexedVersion, version } =
+    await getIndexFreshness();
+  if (!stale && !versionStale) return null;
+  if (!stale) {
+    return (
+      <div
+        role="status"
+        data-testid="index-stale-banner"
+        className="my-4 rounded-md border border-warning bg-warning/10 p-4"
+      >
+        <p className="font-bold text-warning">
+          The indexes were built by an older version of the editor
+        </p>
+        <p className="text-sm my-2">
+          {indexedVersion
+            ? `They were built under index version ${indexedVersion}; this editor reads ${version}. `
+            : "They predate the index version stamp. "}
+          The editor rebuilds them by itself when it starts; if this stays,
+          rebuild them here.
+        </p>
+        <form action={rebuildIndexesAction}>
+          <SubmitButton size="sm">Rebuild indexes</SubmitButton>
+        </form>
+      </div>
+    );
+  }
   return (
     <div
       role="status"

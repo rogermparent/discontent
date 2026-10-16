@@ -217,7 +217,11 @@ export function JobDetail({
           </dl>
         )}
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {live ? (
+          {live && meta?.cancellable === false ? (
+            <p className="text-sm" data-testid="job-not-cancellable">
+              Past the point a cancel can stop it — it runs to its end.
+            </p>
+          ) : live ? (
             <Button
               type="button"
               size="sm"
