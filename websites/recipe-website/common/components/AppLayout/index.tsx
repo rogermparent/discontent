@@ -81,7 +81,7 @@ async function SiteHeader({ extraNavItems, isOwner = false }: SiteHeaderProps) {
   // out-rank the components layer and silently pin this forever.
   return (
     <header className="sticky-chrome top-0 z-40 h-[var(--header-height)] w-full border-b border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 print:hidden">
-      <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-between gap-2 px-3 sm:justify-start sm:gap-3 sm:px-4 lg:gap-5">
+      <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-between gap-2 px-3 sm:gap-3 md:justify-start sm:px-4 lg:gap-5">
         {/* Wordmark stays the page's h1 (kept from the old centered masthead so
             every index page still owns an h1), now left-aligned and inline with
             a lightweight ember-square mark instead of a logo asset. */}

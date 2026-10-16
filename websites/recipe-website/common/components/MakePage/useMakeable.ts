@@ -29,8 +29,12 @@ export function makeableOptions(settings: MakeSettings): MakeableOptions {
 }
 
 export interface Makeable {
-  /** The corpus, the ingredient lines and the browser's storage are in. */
-  status: "pending" | "error" | "ready";
+  /**
+   * `ready`: the corpus, the ingredient lines and the browser's storage are
+   * in. `empty`: the storage is in and there is nothing to judge — no list
+   * here and no secondary items — so nothing else was fetched or awaited.
+   */
+  status: "pending" | "error" | "ready" | "empty";
   /** This browser's list (U6): what this visitor entered, nothing shared. */
   have: string[];
   /** `scope` judged against `have` (plus the staples). */
@@ -61,10 +65,17 @@ export interface Makeable {
  */
 export function useMakeable(scope: string, secondary?: string[]): Makeable {
   const { allRecipes, allTerms, status, retry } = useSearch();
+  const inventory = useInventory();
+  /* The ingredient lines are the one extra fetch, and only once there is a
+   * list to judge — as on the homepage's Make tile. */
+  const wanted =
+    inventory.ready &&
+    (inventory.have.length > 0 || (secondary?.length ?? 0) > 0);
   const ingredientsQuery = useQuery({
     queryKey: ["recipe-ingredients"],
     queryFn: fetchIngredients,
     staleTime: Infinity,
+    enabled: wanted,
   });
   const ingredientsBySlug = ingredientsQuery.data;
   const corpus = useMemo<MassagedRecipeEntry[]>(() => {
@@ -85,7 +96,6 @@ export function useMakeable(scope: string, secondary?: string[]): Makeable {
     [corpus, scope, resolver],
   );
 
-  const inventory = useInventory();
   /* Keyed by value: `useMakeSettings` answers a fresh object every render,
    * and a fresh options object would rerun the whole judge each time. */
   const optionsKey = JSON.stringify(makeableOptions(useMakeSettings()));
@@ -94,8 +104,7 @@ export function useMakeable(scope: string, secondary?: string[]): Makeable {
     [optionsKey],
   );
 
-  const ready =
-    status === "success" && ingredientsQuery.isSuccess && inventory.ready;
+  const ready = wanted && status === "success" && ingredientsQuery.isSuccess;
   const analysis = useMemo(
     () =>
       ready
@@ -118,11 +127,13 @@ export function useMakeable(scope: string, secondary?: string[]): Makeable {
 
   return {
     status:
-      status === "error" || ingredientsQuery.isError
-        ? "error"
-        : ready
-          ? "ready"
-          : "pending",
+      inventory.ready && !wanted
+        ? "empty"
+        : status === "error" || ingredientsQuery.isError
+          ? "error"
+          : ready
+            ? "ready"
+            : "pending",
     have: inventory.have,
     analysis,
     withSecondary,

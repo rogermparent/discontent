@@ -2257,10 +2257,19 @@ width.
       the masthead, the phone tab bar and the footer's default Browse column,
       so the three cannot drift. URLs never changed; only labels: `/groups` is
       "Plans" (heading, `<title>`, empty state, "Back to plans", the palette
-      row, with "groups" kept as a palette keyword) and `/bookmarks` is
+      row, a term page's list of the plans carrying it, with "groups" kept as
+      a palette keyword) and `/bookmarks` is
       "Saved" (heading, title, a titled empty state, the palette row). Search
       keeps "Groups" for its group results, because the field they answer is
       still `group:`.
+- [x] **The homepage intro and the masthead.** The intro (#239) links its
+      "Ways in" tiles only: "What can I make?" (`/make`, with this browser's
+      count) and up to four term pages — Quick, Vegetarian, A weekend project
+      and A drink (`/tags/quick`, `/tags/vegetarian`, `/tags/project`,
+      `/tags/drink`), each shown only when its term carries something. Only
+      the Make tile shares a destination with the masthead; "A drink" goes to
+      the term page, not `/drinks`. The Plans strip below says "Plans" and
+      "All plans", as the rename does.
 - [x] **No Home.** The wordmark links home and stays the page's `h1`. The
       footer's default column dropped Home too and gained the masthead's
       destinations (plus Search).
@@ -2280,9 +2289,15 @@ width.
       must not take the page down. Below `lg` it narrows to its magnifier; its
       accessible name ("Search N recipes") is the same at every width, and
       every spec that asked for `name: "Search"` still matches it.
-- [x] **Fitting a small tablet.** The desktop row starts at `sm`; below `lg`
+- [x] **Fitting a small tablet.** The desktop row starts at `md`; below `lg`
       "What can I make?" shows its short label "Make" (the hidden span leaves
-      the accessible name to the visible one). The promoted destination is
+      the accessible name to the visible one). It first started at `sm`, and
+      at 640 px the signed-in owner's six links ran 14 px past the row into
+      the search field (768 and 1023 px fitted, with 110+ px to spare).
+      Between `sm` and `md` the masthead is the phone's — search icon and
+      sheet — but with no tab bar (that stays `sm:hidden`), so the sheet
+      holds every destination there. `header.spec` checks 768 px signed in
+      (no overflow, a gap before the search field) and the 640 px sheet. The promoted destination is
       always in the accent; the current page sits on an accent pill.
 - [x] **`aria-current="page"`** on the page's own link and its numbered
       pages (`/recipes/3`, `/groups/2`), not on a recipe or a plan of its own:
@@ -2295,8 +2310,10 @@ width.
 - [x] **The tab bar is sticky, not fixed.** It is the body's last child,
       after the footer, with `.sticky-chrome bottom-0`. Pinned, it rides the
       viewport's bottom; at the end of the page it sits in its own place in
-      the flow, below the footer — so it never covers content and the page
-      needs no bottom padding. And it obeys the sticky-headers setting for
+      the flow, below the footer — so its own height pads the page's end and
+      the last content clears the bar when scrolled to the bottom (mid-page,
+      pinned, it rides over the content scrolling beneath it, as the masthead
+      does at the top). No separate bottom padding is needed. And it obeys the sticky-headers setting for
       free: Off (or a short viewport under Auto) releases it like the
       masthead. A `fixed` bar would have needed both a padding hack and its
       own copy of the policy.
@@ -2343,7 +2360,8 @@ width.
 - [x] **The saved inventory is a separate group.** `secondaryInventory()`
       (`controller/secondaryInventory.ts`) is the one helper both routes ask:
       the editor passes a reader for the operator's saved list, signed in
-      only; the export passes nothing and gets nothing. The panel shows what
+      only; the export passes no reader and gets nothing unless the share
+      option is on (below). The panel shows what
       that list adds beyond the browser's as a collapsed "Also makeable with
       your saved inventory" group under the panel — never in its counts.
       #240's version of the helper is the one kept: with no reader (the
@@ -2426,6 +2444,18 @@ width.
   and `make-page`; 134/134 in that run. Then the gate list plus
   ingredient-preview, paste-replace, yield and recipe, without updating:
   319/319.
+- **Review fixes (#243).** An empty list on `/drinks` invites at once:
+  `useMakeable` fetches the ingredient lines only when there is something to
+  judge (this browser's list or a secondary one, as the homepage's Make tile
+  does) and answers `status: "empty"` otherwise, which the panel checks
+  before pending and error — so a failed ingredients fetch (search's index
+  fill still asks for them) never shows "Drinks are unavailable" to an empty
+  list; `drinks.spec` aborts that fetch to prove it. `/make` keeps its
+  unconditional fetch: its add-item suggestions need the lines. The masthead
+  row moved to `md` (above), and a term page heads its group list "Plans".
+  Gates: editor and export `tsc` clean; vitest 97 files, 1992 tests;
+  Playwright, build mode, e2e + mobile, header, drinks, make, tag-pages,
+  mobile, visual and accessibility: 140/140, no baseline changed.
 
 ### U4 — `/tags` as a board of count bars `agent/tags-staples`
 

@@ -84,8 +84,17 @@ test.describe("Drinks", () => {
   test("an empty list is an invitation, never the saved inventory", async ({
     page,
   }) => {
+    /* With nothing to judge the panel needs no ingredient lines, so their
+     * failure (search's own index fill still asks for them) never turns the
+     * invitation into an error. */
+    await page.route("**/search/ingredients", (route) => route.abort());
+    const aborted = page.waitForEvent("requestfailed", (request) =>
+      request.url().includes("/search/ingredients"),
+    );
     await page.goto("/drinks");
+    await aborted;
     await panelReady(page);
+    await expect(panel(page)).not.toContainText("Drinks are unavailable");
     await expect(
       panel(page).getByRole("heading", { name: "What's on your shelf?" }),
     ).toBeVisible();

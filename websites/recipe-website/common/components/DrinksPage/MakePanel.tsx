@@ -159,8 +159,30 @@ export function DrinksMakePanel({
     );
   }, [withSecondary, ready]);
 
+  const invitation = (
+    <div className="flex flex-col items-start gap-4 p-6 sm:p-7">
+      <h2
+        id={headingId}
+        className="font-display text-3xl font-bold leading-none tracking-tight sm:text-4xl"
+      >
+        What&apos;s on your shelf?
+      </h2>
+      <p className="max-w-prose text-muted-foreground">
+        Tell it the bottles, mixers and syrups you have, and the drinks you can
+        mix show up here.
+      </p>
+      <Button asChild>
+        <Link href={DRINKS_MAKE_HREF}>Add what you have</Link>
+      </Button>
+    </div>
+  );
+
   let body;
-  if (status === "error") {
+  /* An empty list invites at once: it never waits on, or fails with, the
+   * corpus or the ingredient lines it has no use for. */
+  if (status === "empty") {
+    body = invitation;
+  } else if (status === "error") {
     body = (
       <div className="flex flex-col items-start gap-3 p-6 sm:p-7">
         <h2 id={headingId} className="font-display text-2xl font-bold">
@@ -187,23 +209,9 @@ export function DrinksMakePanel({
       </div>
     );
   } else if (have.length === 0) {
-    body = (
-      <div className="flex flex-col items-start gap-4 p-6 sm:p-7">
-        <h2
-          id={headingId}
-          className="font-display text-3xl font-bold leading-none tracking-tight sm:text-4xl"
-        >
-          What&apos;s on your shelf?
-        </h2>
-        <p className="max-w-prose text-muted-foreground">
-          Tell it the bottles, mixers and syrups you have, and the drinks you
-          can mix show up here.
-        </p>
-        <Button asChild>
-          <Link href={DRINKS_MAKE_HREF}>Add what you have</Link>
-        </Button>
-      </div>
-    );
+    /* Nothing here, but a secondary list to judge: the invitation still
+     * leads, and the secondary group shows below. */
+    body = invitation;
   } else {
     const oneAway = analysis.oneAway.length;
     body = (

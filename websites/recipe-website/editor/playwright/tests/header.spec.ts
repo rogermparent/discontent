@@ -72,6 +72,54 @@ test.describe("Masthead", () => {
     );
   });
 
+  test("fits a small tablet signed in: inline from md, the sheet below", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await signIn(page);
+    const banner = page.getByRole("banner");
+    const nav = banner.getByRole("navigation", { name: "Site" });
+
+    /* 768 px: the owner's six links fit beside the search field. */
+    await page.setViewportSize({ width: 768, height: 900 });
+    await page.goto("/");
+    await expect(nav.getByRole("link")).toHaveCount(6);
+    const fit = await page.evaluate(() => {
+      const site = document.querySelector('nav[aria-label="Site"]')!;
+      const row = document.querySelector("header")!.firstElementChild!;
+      const links = [...site.querySelectorAll("a")];
+      const controls = site.nextElementSibling!.getBoundingClientRect();
+      return {
+        page: document.documentElement.scrollWidth - window.innerWidth,
+        row: row.scrollWidth - row.clientWidth,
+        nav: site.scrollWidth - site.clientWidth,
+        gap: controls.left - links.at(-1)!.getBoundingClientRect().right,
+      };
+    });
+    expect(fit.page).toBeLessThanOrEqual(0);
+    expect(fit.row).toBeLessThanOrEqual(0);
+    expect(fit.nav).toBeLessThanOrEqual(0);
+    expect(fit.gap).toBeGreaterThan(0);
+
+    /* 640 px, where the row of six collided: no inline row and no tab bar,
+     * so the sheet holds every destination. */
+    await page.setViewportSize({ width: 640, height: 900 });
+    await expect(nav).toBeHidden();
+    await expect(page.getByTestId("phone-tab-bar")).toBeHidden();
+    await page.getByRole("button", { name: "Open menu" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(
+      dialog.getByRole("navigation", { name: "Menu" }).getByRole("link"),
+    ).toHaveText([
+      "Recipes",
+      "Drinks",
+      "What can I make?",
+      "Plans",
+      "Shopping",
+      "Saved",
+    ]);
+  });
+
   test("marks the current page, numbered pages included", async ({ page }) => {
     const nav = page.getByRole("banner").getByRole("navigation", {
       name: "Site",

@@ -96,11 +96,13 @@ function MastheadLink({ item }: { item: SiteNavItem }) {
 }
 
 /**
- * Header navigation (U2): the site's destinations inline on desktop, then
- * the search field, `extraNavItems` and Appearance; on a phone the masthead
- * keeps a search icon and the sheet, and the four thumb-reach destinations
- * move to `PhoneTabBar`. The sheet holds the rest — Plans, Shopping, the
- * owner's menu items.
+ * Header navigation (U2): the site's destinations inline from `md` up, then
+ * the search field, `extraNavItems` and Appearance; below `md` the masthead
+ * keeps a search icon and the sheet. On a phone the four thumb-reach
+ * destinations move to `PhoneTabBar` and the sheet holds the rest — Plans,
+ * Shopping, the owner's menu items. Between `sm` and `md` (a small tablet,
+ * where the signed-in row of six collided with the search field at 640 px)
+ * there is no tab bar, so the sheet holds every destination.
  *
  * `menuItems` is the owner-editable `header` menu, appended after the
  * defaults (a link the defaults already have is not repeated, and `/search`
@@ -125,17 +127,14 @@ export function HeaderNav({
   const extras = menuItems.filter(
     (item) => item.href !== "/search" && !known.has(item.href),
   );
-  const sheetItems: MenuItem[] = [
-    ...items.filter((item) => !item.tab),
-    ...extras,
-  ];
+  const sheetItems: (MenuItem & { tab?: boolean })[] = [...items, ...extras];
 
   /*
    * Built once and handed to *both* surfaces. The desktop popover and the
    * mobile sheet are separate call sites — `AppearanceMenu`'s prop does not
    * reach the sheet's `AppearanceControls` — and the sheet is the easy miss.
-   * Sharing one element is safe: the desktop controls are `hidden sm:flex`,
-   * the sheet is `sm:hidden`, and both Radix surfaces unmount when closed.
+   * Sharing one element is safe: the desktop controls are `hidden md:flex`,
+   * the sheet is `md:hidden`, and both Radix surfaces unmount when closed.
    */
   const stickyChromeField = (
     <AppearanceField label="Sticky headers">
@@ -147,7 +146,7 @@ export function HeaderNav({
     <>
       <nav
         aria-label="Site"
-        className="hidden min-w-0 flex-1 items-center gap-0.5 text-sm sm:flex"
+        className="hidden min-w-0 flex-1 items-center gap-0.5 text-sm md:flex"
       >
         {items.map((item) => (
           <MastheadLink key={item.href} item={item} />
@@ -161,13 +160,13 @@ export function HeaderNav({
           />
         ))}
       </nav>
-      <div className="hidden shrink-0 items-center gap-1 text-sm sm:flex">
+      <div className="hidden shrink-0 items-center gap-1 text-sm md:flex">
         <PaletteTrigger count={recipeCount} />
         {extraNavItems}
         <AppearanceMenu className="ml-1" extraControls={stickyChromeField} />
       </div>
 
-      <div className="flex items-center sm:hidden">
+      <div className="flex items-center md:hidden">
         <PaletteTrigger variant="icon" count={recipeCount} />
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
@@ -187,7 +186,8 @@ export function HeaderNav({
                 <NavLink
                   key={item.href}
                   item={item}
-                  className="p-2"
+                  /* The tab bar's four are its own below `sm`. */
+                  className={cn("p-2", item.tab && "hidden sm:inline-flex")}
                   onNavigate={close}
                 />
               ))}
@@ -205,7 +205,7 @@ export function HeaderNav({
 
 /**
  * The phone's tab bar (U2): Recipes · Drinks · Make · Saved within thumb
- * reach, `sm:hidden` like the sheet it sits beside.
+ * reach, `sm:hidden`; between `sm` and `md` the sheet carries them instead.
  *
  * Rendered after the footer as the body's last child and **sticky** to the
  * bottom rather than fixed, through `.sticky-chrome` — the reader's
