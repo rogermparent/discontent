@@ -239,6 +239,12 @@ editor is stopped (content only, no heavy work), then 38-close.
 - **Tb4 — `document.hidden` in a spec.** Playwright cannot hide a tab;
   `jobs.spec` redefines `document.hidden` on the document and dispatches
   `visibilitychange`, which `useSyncExternalStore` reads like the real one.
+- **Tb5 — a job without a record has an id nobody can follow.** When the
+  jobs dir cannot be written (37-T6), `startJob` runs the job anyway and
+  `/api/jobs/<id>` answers 404 — which `useJobPoll` takes as final. A
+  surface that starts a job and then follows it must check `stored` and
+  await `done` instead; the roundup picker does since the review. (The
+  form's import panel is 37c's and was not changed here.)
 
 ### 38c
 
@@ -347,7 +353,31 @@ not run here).
   ten-minute heartbeat rule.
 - **Db5 — every save-time image download is paced**, not only the form's:
   `recipe_create`/`recipe_update`/group writes with an `imageImportUrl`
-  are the same request to the same site.
+  are the same request to the same site. Since the review, so are
+  `recipe_set_image` / `term_set_image` with a URL and a term write's
+  `imageImportUrl` (`setImage`, `termImageFile`): both download before the
+  write and its lock, and inside no held site (Tb1).
+- **Db6 — pacing and drops key by host, not `siteKey`** (review). Once a
+  drop is the machine's and outlives the process, `siteKey`'s last two
+  labels reach too far: every `.co.uk` site is `co.uk`, and a CDN
+  (`i0.wp.com` → `wp.com`, `*.cloudfront.net`) is one site for everyone it
+  serves, so two 403s on one Jetpack image would stop every `wp.com`
+  request for an hour. No public-suffix list is a dependency (`tldts` is in
+  the lockfile only under tough-cookie), so `paceKey` (`roundupPage.ts`) is
+  the host, less a leading `www.`; an IP or single-label host keeps its
+  port, as before. `SitePacer.site()` and `settleChunk`'s dropped-pick
+  match use it; `siteKey` stays for the page parsers (share targets,
+  same-site-first ordering). The cost: `cdn.example.com` and
+  `www.example.com` are paced apart now — two requests 15 s apart each,
+  not one line — which 30-D5's "one host" allows.
+- **Db7 — an image's 403s never drop a site** (review). With images keyed
+  by their own host, a hotlink guard on the page's own host would still
+  drop the page's site; so `SitePacer#request` / `pacedRequest` take
+  `{image: true}` — every picture download and probe (`fetchImageFilePaced`,
+  importList's, importRecipe's four) — which waits its turn and retries a
+  403 once like any request but drops nothing. The recipe is imported
+  without its picture, as before. A host already dropped still refuses an
+  image request.
 
 **Tests.** `queue.test.ts` +6 ("a site's line and its drop (38b)"): a site
 dropped by one pacer is dropped for another with its own state on the same
@@ -367,6 +397,31 @@ now fills and waits); `settings-nav.spec` +1 and `mirror-role.spec` (Jobs
 on both roles, lit on `/jobs` and a job's page; Tools still absent on the
 mirror).
 
+**Review fixes.**
+
+- **The picker without a job store** (Tb5): `startJob` / `startSpec` say
+  whether the record was `stored`; when it was not, `inspectRoundupAction`
+  and `importRoundupAction` await the job and answer inline
+  (`{job, answer}`, the pre-38b path) and the picker follows nothing.
+  New `roundupActions.test.ts` (3): with the jobs dir under a regular
+  file, listing and a two-pick import answer inline with the recipes
+  already written, and a failing job's error comes back inline; with a
+  store, only the id, and the result read back.
+- Db5's two unpaced seats, Db6 and Db7 above. `roundupPage.test` +1
+  (`.co.uk`, `i0.wp.com`, `cloudfront.net`, `www.`, `cdn.`); `queue.test`
+  +1 (an image refused twice writes no `dropped.json`, and the page host is
+  still asked); `importList.test`'s pies case now expects nothing dropped
+  and the cake on the same site imported in the same call; three tests that
+  paced `cdn.` with `www.` now use `example.com` and `www.example.com`.
+- `?import=a&import=b` (or a repeated `?job=`) is ignored, not trimmed into
+  a 500 (`new-recipe.spec`'s D3 test visits it first); `/jobs` stops
+  polling on a 401/403, as `useJobPoll` does (Refresh still reads, and a
+  good read starts it again); the picker settles a pending follow when it
+  unmounts; `run.sh` gives a trial instance (`NAME=` set, `JOBS=` not)
+  `~/recipe-editor/jobs-<name>`, noted in `deploy-pi.md`.
+- Not done, by the review's call: a "waiting for <site>" Save button text
+  (Tb3 stays a trap note).
+
 **Gates.** `pnpm --filter recipe-editor typecheck` and `pnpm --filter
 recipe-website exec tsc --noEmit` clean; eslint clean on the changed
 files; `pnpm exec vitest run` **97 files / 1998 tests** passed (303 s).
@@ -375,6 +430,11 @@ Playwright (build mode, heavy slot) `jobs`, `new-recipe`, `import-roundup`,
 7.2 min, the three `new-recipe` saves of a kingarthurbaking.com image
 (Tb3); with the e2e gap at 0, `new-recipe` again **43 / 43** (4.6 min). No
 visual baseline moved (the git page's settings sidebar included).
+
+After the review fixes: both `tsc` gates and eslint clean; `pnpm exec
+vitest run` **98 files / 2003 tests** passed (280 s); Playwright (build
+mode, heavy slot) `new-recipe`, `import-roundup`, `jobs`, `settings-nav`,
+`mirror-role`: **73 / 73** in 4.1 min.
 
 ### 38c — Import reading fixes
 
