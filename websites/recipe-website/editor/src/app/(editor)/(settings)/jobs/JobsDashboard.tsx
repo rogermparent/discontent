@@ -52,7 +52,7 @@ function anyLive(list: JobListResult, queue: ResourceView[]): boolean {
 
 function resourceTitle(resource: string): string {
   const name = resourceName(resource);
-  return name === "the GPU" ? "GPU" : name;
+  return name === "the GPU" ? "GPU" : name.replace(/^the /, "");
 }
 
 function EntryText({

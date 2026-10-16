@@ -8,7 +8,14 @@
  *   from the workstation, a `git commit` in a shell, a CLI write. The
  *   editor's own commits advance the index stamp, so they never trigger it
  *   (the stamp is re-read after a short settle, since it lands just after
- *   HEAD moves).
+ *   HEAD moves);
+ * - **reindexes once at start when the index version moved** (epic 39 D1):
+ *   the indexes were built by code whose declared specs differ from this
+ *   process's, or by code from before the version stamp.
+ *
+ * Every rebuild and every sync here runs as a job (epic 39 D2: `reindex`,
+ * `git-sync`) in the repository's line (`jobs/repo.ts`), so `/jobs` shows
+ * them beside imports.
  *
  * A **workstation** with mirrors in its settings also runs the **sync
  * runner** (D4): at startup, after every HEAD move that was not its own, on
@@ -26,7 +33,11 @@
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { directoryIsGitRepo } from "@discontent/cms/git/commit";
 import { readHead, readIndexFreshness } from "@discontent/cms/git/indexStamp";
-import type { MirrorSyncState } from "@discontent/cms/git/syncState";
+import {
+  readSyncState,
+  type MirrorSyncState,
+} from "@discontent/cms/git/syncState";
+import simpleGit from "simple-git";
 import { watchRefs, type RefWatcher } from "@discontent/cms/git/watchRefs";
 import {
   getEditorRole,
@@ -34,8 +45,10 @@ import {
 } from "recipe-website-common/config/role";
 import { readSettings } from "../../src/settings";
 import { updateAnnexedWorktree } from "../curation/annex";
-import { reindex } from "../curation/reindex";
 import { advanceStampPastUnindexed } from "../curation/unindexed";
+import { currentIndexVersion } from "../indexVersion";
+import { jobContext, type JobRun } from "../jobs/context";
+import { outsideQueue, repoResource } from "../jobs/queue";
 import { gitSync, type SyncResult } from "../curation/sync";
 import { LockBusyError, withRepoLock } from "./lock";
 import { mirrorTargets } from "./mirrors";
@@ -109,10 +122,18 @@ function retryAfterBusy(outcome: SyncResult["outcome"]): void {
   }
   if (busyRetryTimer || busyRetries >= BUSY_RETRY_LIMIT) return;
   busyRetries += 1;
-  busyRetryTimer = setTimeout(() => {
-    busyRetryTimer = undefined;
-    getInstance()?.runner?.request("change");
-  }, BUSY_RETRY_MS);
+  /*
+   * Scheduled from inside the sync's job, in the repository's line: the
+   * timer starts outside it, so the retried sync waits in line like any
+   * other (a released hold no longer counts either — M1 — but this one
+   * need not rely on that).
+   */
+  busyRetryTimer = outsideQueue(() =>
+    setTimeout(() => {
+      busyRetryTimer = undefined;
+      getInstance()?.runner?.request("change");
+    }, BUSY_RETRY_MS),
+  );
   (busyRetryTimer as { unref?: () => void }).unref?.();
 }
 
@@ -128,41 +149,157 @@ export const FOREIGN_SETTLE_MS = 2000;
  * D12: rebuild the indexes if HEAD moved without the editor. A stale stamp is
  * re-read after `settleMs`, so a commit the editor is still finishing is not
  * mistaken for a foreign one. Answers whether it rebuilt.
+ *
+ * Epic 39 D1: also when the indexes were built by other code — the index
+ * version (`currentIndexVersion`) differs from the one the last full rebuild
+ * wrote, or none was written (the first start after 39b). That is what the
+ * check at start catches after a deploy or `pnpm workstation update` that
+ * moved a spec: one rebuild, as a `reindex` job (D2) in the repository's
+ * line, and the version is written with the HEAD stamp. Both stale at once
+ * is still one rebuild.
  */
 export async function reindexWhenForeign(
   contentDirectory: string,
   { settleMs = FOREIGN_SETTLE_MS }: { settleMs?: number } = {},
 ): Promise<boolean> {
-  if (!(await readIndexFreshness(contentDirectory)).stale) return false;
-  await new Promise((resolve) => setTimeout(resolve, settleMs));
-  if (!(await readIndexFreshness(contentDirectory)).stale) return false;
+  const version = currentIndexVersion();
+  let freshness = await readIndexFreshness(contentDirectory, { version });
+  if (!freshness.stale && !freshness.versionStale) return false;
+  if (freshness.stale) {
+    await new Promise((resolve) => setTimeout(resolve, settleMs));
+    freshness = await readIndexFreshness(contentDirectory, { version });
+    if (!freshness.stale && !freshness.versionStale) return false;
+  }
   /*
    * Commits that touch only the shopping list or the inventory (another
    * device's ticks, synced in) change nothing an index or a page cache holds
-   * (35c review): move the stamp, skip the rebuild and the refresh.
+   * (35c review): move the stamp, skip the rebuild and the refresh. Not when
+   * the code that built the indexes changed: then everything rebuilds.
    */
-  if (await advanceStampPastUnindexed(contentDirectory)) {
+  if (
+    !freshness.versionStale &&
+    (await advanceStampPastUnindexed(contentDirectory))
+  ) {
     console.info(
       "[instance] HEAD moved outside the editor in shopping/ or inventory/ only; no reindex",
     );
     return false;
   }
-  console.info("[instance] HEAD moved outside the editor; reindexing");
-  await reindex({ contentDirectory });
+  const reason = freshness.versionStale
+    ? freshness.indexedVersion
+      ? `index version changed (${freshness.indexedVersion} → ${version})`
+      : "no index version recorded yet"
+    : "HEAD moved outside the editor";
+  console.info(`[instance] ${reason}; reindexing`);
+  const { runSpec } = await import("../jobs/kinds");
+  /*
+   * The job re-reads freshness once it has the line (39b review, L3): a
+   * deploy's `POST /api/reindex` or a sync's merge just ahead of it may
+   * have rebuilt already, and then it records "already fresh" and stops.
+   * A failure is the job's (`failed` on `/jobs`) and is not retried here:
+   * the next HEAD move asks again, and the stale-index banner says so.
+   */
+  const result = await runSpec({
+    kind: "reindex",
+    contentDirectory,
+    trigger: "instance",
+    reason,
+  });
+  if (result.skipped) return false;
   await refreshEditor();
   return true;
 }
 
 /**
- * Sync one mirror on the workstation, the way every trigger does: inside the
- * process mutex and the repository lock, with the ssh preflight read off the
- * remote's URL. Used by the runner and by `/api/git/sync`.
+ * Sync one mirror on the workstation, the way every trigger does — as a
+ * `git-sync` job (39b, epic 39 D2): in the repository's line, then inside
+ * the process mutex and the sync lock, with the ssh preflight read off the
+ * remote's URL. Used by the runner, `/api/git/sync` and Sync now. Answers
+ * the sync's result with the job's id as `job` (a sync that merged nothing
+ * in and needs no look leaves no record — `syncWorthRecording`; the id is
+ * then a job that no longer exists, answered 404 / `not_found`).
  */
 export async function syncMirror(
   contentDirectory: string,
   remote: string | undefined,
-  exclusive: Instance["exclusive"],
+  triggers: readonly SyncTrigger[] = ["manual"],
+): Promise<SyncResult & { job: string }> {
+  const { runSpec } = await import("../jobs/kinds");
+  return runSpec({
+    kind: "git-sync",
+    contentDirectory,
+    ...(remote ? { remote } : {}),
+    triggers: [...triggers],
+  });
+}
+
+/* --- the git-sync job's work ------------------------------------------- */
+
+/** Syncs outside a running instance (TEST_MODE), one at a time. */
+const fallbackExclusive = createMutex();
+
+/** The instance's mutex when it runs this repository, else the fallback. */
+function exclusiveFor(contentDirectory: string): Instance["exclusive"] {
+  const instance = getInstance();
+  return instance && sameDirectory(instance.contentDirectory, contentDirectory)
+    ? instance.exclusive
+    : fallbackExclusive;
+}
+
+function sameDirectory(a: string, b: string): boolean {
+  return repoResource(a) === repoResource(b);
+}
+
+/**
+ * A sync that lost the sync lock to another process's (39b review, L1):
+ * `busy`, with one skipped `preflight` step naming the holder. Nothing was
+ * fetched or written, and the sync state file is left to the winner, which
+ * records its own attempt; `state` is the remote's record as it stands, with
+ * this attempt's outcome. Not worth a row on `/jobs` (`syncWorthRecording`).
+ */
+async function lockRaceResult(
+  contentDirectory: string,
+  remote: string | undefined,
+  error: LockBusyError,
 ): Promise<SyncResult> {
+  const git = simpleGit({ baseDir: contentDirectory });
+  const status = await git.status().catch(() => null);
+  const name = remote ?? status?.tracking?.split("/")[0] ?? "";
+  const previous = name
+    ? (await readSyncState(contentDirectory))[name]
+    : undefined;
+  const message = `${error.message} This sync did nothing; that one records its own.`;
+  return {
+    remote: name,
+    branch: status?.current ?? "",
+    outcome: "busy",
+    message,
+    pulled: 0,
+    pushed: 0,
+    steps: [{ step: "preflight", status: "skipped", detail: error.message }],
+    head: (await readHead(contentDirectory)) ?? "",
+    state: {
+      ...previous,
+      remote: name,
+      lastAttempt: new Date().toISOString(),
+      outcome: "busy",
+      message,
+      consecutiveFailures: previous?.consecutiveFailures ?? 0,
+    },
+  };
+}
+
+/**
+ * One sync, as the `git-sync` job runs it (`jobs/kinds.ts`), already in the
+ * repository's line: the sync's steps go into the job's log as they ended
+ * (`sync.<step>`), and the merge's rebuild as `reindex.<type>` steps.
+ */
+export async function runMirrorSync(
+  contentDirectory: string,
+  remote: string | undefined,
+  job: JobRun = {},
+): Promise<SyncResult> {
+  const { log } = jobContext(job);
   const settings = await readSettings();
   const targets = await mirrorTargets(
     contentDirectory,
@@ -171,19 +308,51 @@ export async function syncMirror(
   const target = remote
     ? targets.find((candidate) => candidate.remote === remote)
     : targets[0];
-  return exclusive(async () => {
+  return exclusiveFor(contentDirectory)(async () => {
     activeSyncs += 1;
     try {
-      const result = await withRepoLock(contentDirectory, () =>
-        gitSync(
-          { contentDirectory, onBulkChange: () => void refreshEditor() },
-          {
-            ...(remote ? { remote } : target ? { remote: target.remote } : {}),
-            ...(target?.sshHost
-              ? { mirror: { sshHost: target.sshHost, dir: target.dir } }
-              : {}),
-          },
-        ),
+      const result = await log.step(
+        "sync",
+        { remote: remote ?? target?.remote },
+        async (step) => {
+          const synced = await withRepoLock(contentDirectory, () =>
+            gitSync(
+              { contentDirectory, onBulkChange: () => void refreshEditor() },
+              {
+                ...(remote
+                  ? { remote }
+                  : target
+                    ? { remote: target.remote }
+                    : {}),
+                ...(target?.sshHost
+                  ? { mirror: { sshHost: target.sshHost, dir: target.dir } }
+                  : {}),
+                job,
+              },
+            ),
+          ).catch((error: unknown) => {
+            /* L1: another process's sync holds the lock — `busy`, not a failure. */
+            if (!(error instanceof LockBusyError)) throw error;
+            return lockRaceResult(
+              contentDirectory,
+              remote ?? target?.remote,
+              error,
+            );
+          });
+          for (const entry of synced.steps) {
+            (entry.status === "failed" ? log.warn : log.info)(
+              `sync.${entry.step}`,
+              entry.detail,
+              { status: entry.status },
+            );
+          }
+          step.set({
+            outcome: synced.outcome,
+            pulled: synced.pulled,
+            pushed: synced.pushed,
+          });
+          return synced;
+        },
       );
       /* D7: a mirror that is in step gets the site settings too. */
       if (
@@ -207,8 +376,12 @@ export async function syncMirror(
       return result;
     } finally {
       activeSyncs -= 1;
-      /* A HEAD move that arrived mid-sync gets its re-check now. */
-      void getInstance()?.reindexIfForeign?.kick();
+      /*
+       * A HEAD move that arrived mid-sync gets its re-check now — outside
+       * this job's hold on the repository's line, which is let go as soon
+       * as this returns; the rebuild waits in line like any other.
+       */
+      outsideQueue(() => void getInstance()?.reindexIfForeign?.kick());
     }
   });
 }
@@ -262,13 +435,14 @@ async function start(): Promise<Instance | undefined> {
         const result = await syncMirror(
           contentDirectory,
           target.remote,
-          exclusive,
+          triggers,
         );
         console.info(
           `[sync] ${target.remote} (${triggers.join(",")}): ${result.outcome}` +
             (result.message ? ` — ${result.message}` : ""),
         );
-        notifyIfNew(result.state);
+        /* `busy` never needs a person (and a lost lock race left no record). */
+        if (result.outcome !== "busy") notifyIfNew(result.state);
         results.push(result);
       } catch (error) {
         if (error instanceof LockBusyError) {

@@ -23,24 +23,16 @@ async function signedIn(): Promise<boolean> {
   return Boolean(session?.user?.email);
 }
 
-/** Fallback when the instance is off (TEST_MODE): run directly, one at a time. */
-let tail: Promise<unknown> = Promise.resolve();
-function localExclusive<T>(fn: () => Promise<T>): Promise<T> {
-  const result = tail.then(fn, fn);
-  tail = result.catch(() => undefined);
-  return result;
-}
-
+/*
+ * A `git-sync` job (epic 39 D2) in the repository's line; with the instance
+ * off (TEST_MODE) `syncMirror` serialises it by itself.
+ */
 export async function syncMirrorNowAction(formData: FormData): Promise<void> {
   if (!(await signedIn()) || isMirror()) return;
   const remote = String(formData.get("remote") ?? "") || undefined;
   const instance = getInstance();
   try {
-    const result = await syncMirror(
-      getContentDirectory(),
-      remote,
-      instance?.exclusive ?? localExclusive,
-    );
+    const result = await syncMirror(getContentDirectory(), remote, ["manual"]);
     instance?.runner?.noteOwnHead(result.head);
   } catch (error) {
     console.error("[sync] Sync now failed:", error);

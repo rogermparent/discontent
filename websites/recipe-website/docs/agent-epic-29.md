@@ -16,10 +16,19 @@ Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴
 
 **Now:** epic 29 is **closed at 29a** (2026-10-09). The batched atomic
 rebuild (#182) is deployed on the Pi (`a23a488c`, the same tree as merge
-9a888d64). A full reindex there went from 13.5 s to 2.5 s (median), and on
-tourmaline to 0.46–0.64 s. Both are inside the decision rule, so 29b–29d
-(incremental reindex) are ⏸️ deferred. The full plan for them stays below,
-along with the trigger for reopening it.
+9a888d64). A full reindex there went from 13.5 s to 2.5 s (warm median; the
+deploy's own cold rebuild 4.1 s), and on tourmaline to 0.46–0.64 s. Both are
+inside the decision rule, so 29b–29d (incremental reindex) are ⏸️ deferred.
+The full plan for them stays below, along with the trigger for reopening it.
+
+**2026-10-16 (epic 39, 39b):** the Pi's deploy printed **4.9 s** (89c3f8da,
+787 recipes) — a cold reading, against 29a's cold 4.1 s, not its warm
+2.5 s. The workstation re-measured at 0.70 s min / 0.87 s median with
+`NODE_ENV=production` (the editor's React; 1.1–1.4 s with the script's
+default development build) under a load average of 8–20. Decision:
+**still deferred** — see
+[39b: re-measure and go/no-go](#39b-re-measure-and-gono-go-2026-10-16). 29b's
+index-version slice landed in 39b on its own (epic 39 D1).
 
 ## Context
 
@@ -235,7 +244,9 @@ on tourmaline, under heavy load from other jobs (load average 20–35), so
 #### Decision (2026-10-09): stop at 29a
 
 The Pi is at 2.5 s (rule: ≤ ~3 s) and the workstation at 0.5–0.6 s (rule:
-≤ ~1 s), so 29b–29d are deferred. What is left of a reindex is CPU,
+≤ ~1 s), so 29b–29d are deferred. _(2026-10-16: 2.5 s is the warm median;
+the cold rebuild a deploy prints was 4.1 s then and 4.9 s at 89c3f8da — see
+[39b](#39b-re-measure-and-gono-go-2026-10-16).)_ What is left of a reindex is CPU,
 roughly linear in the corpus: ~1.2 ms per recipe on a loaded tourmaline,
 ~3.5 ms on the Pi. Incremental would only pay off again at a much larger
 corpus.
@@ -251,6 +262,84 @@ still applies.
 `deploy-pi.sh --ship-indexes` uses it. Shipping indexes was already the
 slower path (43 s against 15 s in place), and with an in-place rebuild now
 at 2.5 s there is even less reason to choose it.
+
+### 39b: re-measure and go/no-go (2026-10-16)
+
+Epic 39 (`agent-epic-39.md`, 39b) re-measured before touching anything,
+because the Pi's deploy on 2026-10-16 (89c3f8da) printed a full reindex of
+**4.9 s**, right at the ~5 s reopen trigger above.
+
+**The Pi's 4.9 s is a cold number.** `deploy-pi.sh` calls
+`POST /api/reindex` as soon as the new container answers, so it pays the
+first-request costs (module loading, JIT, a cold page cache on the SD card).
+29a's own deploy printed 4.1 s cold the same way, while five warm calls
+after it gave a 2.55 s median. Scaled by the corpus (644 → 787 recipes,
+×1.22), 4.1 s cold predicts 5.0 s, and 2.55 s warm predicts ~3.1 s. So the
+reading is what corpus growth alone explains; nothing regressed, and the
+warm cost is still near the ≤ ~3 s rule. The trigger as written ("passes
+~5 s") did not say which kind of number it meant; from here it means the
+**warm** median.
+
+**The workstation** (`scripts/measure-reindex.ts`, `RUNS=7`, in-process, on
+a scratch clone of the content repo at `746e4336`: 787 recipes, 24
+featured, 1 group, 135 term records, 0 pages; parallel worker builds kept
+the load average at 8–20, so min is the number to read). Three runs:
+
+| Type             | dev, load 16–20 min / med | dev, load ~9–10 min / med | `NODE_ENV=production`, load ~13 min / med |
+| ---------------- | ------------------------- | ------------------------- | ----------------------------------------- |
+| recipes          | 1157 / 1249               | 900 / 1148                | 575 / 673                                 |
+| featured-recipes | 57 / 62                   | 38 / 53                   | 28 / 38                                   |
+| pages            | 6 / 8                     | 5 / 8                     | 5 / 7                                     |
+| groups           | 33 / 54                   | 31 / 38                   | 20 / 25                                   |
+| tag-terms        | 26 / 55                   | 31 / 34                   | 27 / 38                                   |
+| **total (ms)**   | **1391 / 1496**           | **1107 / 1312**           | **699 / 867**                             |
+
+Peak heap 44–64 MiB; 13 commits per full rebuild (29a: 11; the two more are
+the keyed `by-tag` aggregates' own transactions, 32e).
+
+**Measure with `NODE_ENV=production`.** Run bare, the script (and so 29a's
+numbers) loads React's _development_ build, and a CPU profile of three runs
+puts markdown-to-jsx plus React — `flattenMarkdown` building elements to
+flatten a recipe's markdown, with the dev build's key-warning getters — at
+about half of the recipes' time. The editor runs production React (`next
+start` on the workstation, the Pi's container), so the last column is what
+a rebuild costs there: **~0.7 s**, inside the workstation's ≤ ~1 s half of
+D4's rule even under load. The dev numbers are 1.1–1.4 s; against 29a's
+dev re-measure (455 / 644 ms at load ~10) that is about twice the cost per
+recipe (1.41 against 0.71 ms), which only an A/B on one host at one time
+(this code against `a23a488c`, same clone, production React) could
+attribute — load, the larger index value since epic 30, or both. It is a
+lead, not a blocker: production cost is what the decision reads.
+
+**Decision: no-go for 29b–29d code in epic 39.** The warm Pi cost is
+estimated near 3 s — and is bounded by the 4.9 s cold reading, a warm
+rebuild never being the slower — and the workstation's is ~0.7 s with the
+React the editor runs. Incremental reindex would buy a few seconds per
+foreign HEAD move on the Pi at the price of the correctness surface the
+risks below list. What changed instead, in 39b:
+
+- **29b's index-version slice landed** (epic 39 D1): `computeIndexVersion`
+  in `packages/cms/git/indexStamp.ts` hashes the registry's _declared_
+  versions (not function source, which would also move on a comment edit),
+  `.git/discontent-index-version` is written by every full rebuild, and an
+  instance rebuilds once at start when it moved. Incremental would reuse it
+  as D5's "index-version mismatch → full" fallback.
+- **Every reindex is now a job** (epic 39 D2) with a `reindex.<type>` step
+  per content type, so the Pi's `/jobs` (and `job_list` with
+  `kind: "reindex"`) records each rebuild's per-type time — the warm number
+  this trigger needs, without a manual `curl` drill.
+
+**Reopen 29b–29d when** the **warm** full rebuild on the Pi — the median of
+the `reindex` jobs `/jobs` records there after foreign HEAD moves, or of
+five `POST /api/reindex` — passes ~5 s, or a cold deploy rebuild passes
+~8 s, or heap during a rebuild becomes a problem there. At ~3.9 ms/recipe
+warm on the Pi, 5 s is roughly 1,300 recipes.
+
+**Pending:** the Pi's next number comes from Roger's next `pnpm deploy:pi`
+(39-close): its printed `timings.total` (cold, and since 39b possibly
+queued behind the start-time version rebuild, which records its own
+`reindex` job), plus the warm `reindex` jobs on the Pi's `/jobs`
+afterwards.
 
 ### The decision rule
 

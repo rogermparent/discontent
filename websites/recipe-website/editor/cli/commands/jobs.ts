@@ -263,6 +263,8 @@ export const jobsCancelCommand: CommandDef<JobCancelResult> = {
         return `${job} cancelled.`;
       case "requested":
         return `${job}: cancel asked of the process that runs it — it stops within a second.`;
+      case "refused":
+        return `${job} is past the point a cancel can stop it (a rebuild swapping indexes); it runs to its end.`;
       default:
         return `${job} had already ended (${status}).`;
     }

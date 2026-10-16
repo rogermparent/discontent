@@ -24,12 +24,40 @@
  * — but only when the stamp named the HEAD the commit was made on top of. A
  * stamp that was already behind stays behind: an incremental write does not
  * repair a corpus that changed underneath it.
+ *
+ * ## The index version (epic 39, D1)
+ *
+ * The HEAD stamp says *which files* the indexes describe; the version stamp,
+ * `.git/discontent-index-version` beside it, says *which code* built them.
+ * `computeIndexVersion(registry)` hashes what the registry **declares** about
+ * every index it owns — each type's identity and directories, its
+ * `indexVersion`, the fields its references borrow, and the spec hash of
+ * every pagination index and aggregate (taxonomies included, through
+ * `aggregatesOf`) — plus `ENGINE_INDEX_FORMAT`. Declared versions, never
+ * function source: source text differs between a minified build and a dev
+ * server (F16), and a comment-only edit must not rebuild every instance at
+ * its next start. A full rebuild writes it; an instance that starts with a
+ * different one (or none, the first start after this landed) rebuilds once.
  */
 import { access, readFile, writeFile } from "fs/promises";
 import { isAbsolute, join } from "path";
 import simpleGit from "simple-git";
+import { computeAggregateSpecHash } from "../aggregates/database";
+import type { AnyContentTypeConfig } from "../content/types";
+import { hashValue } from "../pagination/hash";
+import { computeSpecHash } from "../pagination/database";
+import { aggregatesOf } from "../taxonomies/aggregates";
 
 const STAMP_NAME = "discontent-indexed-head";
+const VERSION_NAME = "discontent-index-version";
+
+/**
+ * The engine's half of the index version: bump it when the engine changes
+ * what it stores for every site — an index key's layout, a META shape, a
+ * keyspace's encoding — so each instance rebuilds once at its next start.
+ * A site's own changes bump the declared versions on its configs instead.
+ */
+export const ENGINE_INDEX_FORMAT = "1";
 
 /** `commit.ts`'s check, repeated here because that module imports this one. */
 async function directoryIsGitRepo(contentDirectory: string): Promise<boolean> {
@@ -41,15 +69,22 @@ async function directoryIsGitRepo(contentDirectory: string): Promise<boolean> {
   }
 }
 
-async function stampPath(contentDirectory: string): Promise<string> {
+async function gitPath(
+  contentDirectory: string,
+  name: string,
+): Promise<string> {
   const raw = String(
     await simpleGit({ baseDir: contentDirectory }).raw([
       "rev-parse",
       "--git-path",
-      STAMP_NAME,
+      name,
     ]),
   ).trim();
   return isAbsolute(raw) ? raw : join(contentDirectory, raw);
+}
+
+function stampPath(contentDirectory: string): Promise<string> {
+  return gitPath(contentDirectory, STAMP_NAME);
 }
 
 /** HEAD's commit, or `null` for a directory that is not a repo or has none. */
@@ -124,6 +159,79 @@ export async function advanceIndexedHead(
   }
 }
 
+/**
+ * What a site's registry declares about its indexes, as one short hash (D1).
+ *
+ * Only declarations go in, so the answer is the same in a dev server, a
+ * production build and a CLI, and a comment, a rename or a reformatting
+ * changes nothing: bumping a config's `version` (or `indexVersion`, or a
+ * taxonomy's) is what moves it, as `test/specVersions.test.ts` asks authors
+ * to. A reference's `config` thunk is called for the referenced type's name —
+ * by the time anything asks for a version, every config module has loaded.
+ */
+export function computeIndexVersion(
+  registry: readonly AnyContentTypeConfig[],
+): string {
+  return hashValue({
+    engine: ENGINE_INDEX_FORMAT,
+    types: registry.map((config) => ({
+      contentType: config.contentType,
+      dataDirectory: config.dataDirectory,
+      indexDirectory: config.indexDirectory,
+      dataFilename: config.dataFilename,
+      indexVersion: config.indexVersion,
+      references: config.references?.map((reference) => ({
+        type: reference.config().contentType,
+        dataField: reference.dataField,
+        indexField: reference.indexField,
+        fields: [...reference.fields],
+      })),
+      pagination: config.paginationIndexes?.map((index) =>
+        computeSpecHash(
+          index as unknown as Parameters<typeof computeSpecHash>[0],
+        ),
+      ),
+      aggregates: aggregatesOf(config).map((aggregate) =>
+        computeAggregateSpecHash(
+          aggregate as unknown as Parameters<
+            typeof computeAggregateSpecHash
+          >[0],
+        ),
+      ),
+    })),
+  }).slice(0, 16);
+}
+
+/** The version the last full rebuild recorded, or `null` if none was. */
+export async function readIndexVersion(
+  contentDirectory: string,
+): Promise<string | null> {
+  if (!(await directoryIsGitRepo(contentDirectory))) return null;
+  try {
+    const value = (
+      await readFile(await gitPath(contentDirectory, VERSION_NAME), "utf8")
+    ).trim();
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Record that the indexes were built by `version`. Written by a full rebuild
+ * beside the HEAD stamp; a no-op outside a repository.
+ */
+export async function writeIndexVersion(
+  contentDirectory: string,
+  version: string,
+): Promise<void> {
+  if (!(await directoryIsGitRepo(contentDirectory))) return;
+  await writeFile(
+    await gitPath(contentDirectory, VERSION_NAME),
+    `${version}\n`,
+  );
+}
+
 export interface IndexFreshness {
   /** The commit the last full rebuild indexed; `null` if none was recorded. */
   indexedHead: string | null;
@@ -135,12 +243,35 @@ export interface IndexFreshness {
    * shell), or no rebuild was ever recorded. Always false without a HEAD.
    */
   stale: boolean;
+  /**
+   * The index version the last full rebuild recorded (D1); `null` if none
+   * was — every repository indexed before epic 39.
+   */
+  indexedVersion: string | null;
+  /** The version asked about (the running code's), when one was given. */
+  version?: string;
+  /**
+   * The indexes were built by other code than the version asked about, or
+   * no version was recorded. False when no version was given, and — like
+   * `stale` — without a HEAD.
+   */
+  versionStale: boolean;
 }
 
 export async function readIndexFreshness(
   contentDirectory: string,
+  { version }: { version?: string } = {},
 ): Promise<IndexFreshness> {
   const head = await readHead(contentDirectory);
   const indexedHead = head ? await readIndexedHead(contentDirectory) : null;
-  return { indexedHead, head, stale: head !== null && indexedHead !== head };
+  const indexedVersion = head ? await readIndexVersion(contentDirectory) : null;
+  return {
+    indexedHead,
+    head,
+    stale: head !== null && indexedHead !== head,
+    indexedVersion,
+    ...(version !== undefined ? { version } : {}),
+    versionStale:
+      version !== undefined && head !== null && indexedVersion !== version,
+  };
 }

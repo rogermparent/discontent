@@ -9,7 +9,9 @@
  * - `ytdlp` — every `fetchYtdlpMetadata`;
  * - `site:<site>` — every paced request to a site (`SitePacer`), with the
  *   polite gap (30-D5) measured from the previous holder's release, in any
- *   process.
+ *   process;
+ * - `repo:<name>-<hash>` — one content repository's reindexes and git syncs
+ *   (39b, `repoResource`), held for the whole job, not per call.
  *
  * A resource is taken **around each call that uses it** (`withResource`),
  * never for a whole job, so a page fetch never waits behind another job's
@@ -48,13 +50,21 @@
  * **Re-entrancy**: `withResource` runs its function with the resource marked
  * held in the async context, so a call that would take it again inside —
  * a `chatJson` inside a step that already holds `gpu` — passes straight
- * through instead of waiting for itself.
+ * through instead of waiting for itself. A hold counts only while it is
+ * held: work started inside it that runs on after the release (a timer, a
+ * runner's rerun) waits in line like anyone (39b review, M1).
+ *
+ * **A bounded wait** (`maxWaitMs`, 39b review M2): a caller that would
+ * rather answer "busy" than wait behind a long holder — a person's rebuild
+ * — leaves the line after that long with a `QueueTimeoutError`.
  *
  * **Logging**: a call that had to wait — for the slot, or for a site's gap —
  * is a `queue.wait` step (resource, tier, position at enqueue, `waitedMs`,
  * `gapMs`); a call granted at once logs nothing, as `pace.wait` does.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, stat, utimes } from "node:fs/promises";
 import path from "node:path";
 import { writeJsonAtomic } from "@discontent/cms/fs/atomicWrite";
@@ -130,6 +140,29 @@ export function siteResource(site: string): QueueResource {
   return `site:${site}`;
 }
 
+/**
+ * One content repository's line (39b, epic 39 D2): reindexes and git syncs
+ * of that repository wait here, one at a time, in any process.
+ *
+ * **Keyed per repository**, not one `repo` slot: the queue is machine-wide
+ * (37b), so a single slot would put a CLI reindex of a scratch clone behind
+ * the workstation editor's sync of the real repository. The key is the
+ * directory as the filesystem resolves it (the editor's `content` symlink
+ * and the path it points at are one line), shown as its name plus a short
+ * hash: `repo:recipe-content-1a2b3c4d`.
+ */
+export function repoResource(contentDirectory: string): QueueResource {
+  const absolute = path.resolve(contentDirectory);
+  let real = absolute;
+  try {
+    real = realpathSync.native(absolute);
+  } catch {
+    /* Not there (yet): the path as given. */
+  }
+  const hash = createHash("sha256").update(real).digest("hex").slice(0, 8);
+  return `repo:${path.basename(real) || "root"}-${hash}`;
+}
+
 /** A resource as a directory name: anything but `[A-Za-z0-9.-]` escaped. */
 export function resourceDirName(resource: QueueResource): string {
   return resource.replace(
@@ -158,8 +191,13 @@ interface QueueGlobal {
   __discontentQueueHolds?: Set<string>;
   /** The waiter ids this process is waiting with now. */
   __discontentQueueWaiters?: Set<string>;
-  /** The resources held in the current async context (re-entrancy). */
-  __discontentQueueHeld?: AsyncLocalStorage<ReadonlySet<string>>;
+  /**
+   * The resources held in the current async context (re-entrancy), each
+   * with the hold's `{active}` entry (39b review, M1).
+   */
+  __discontentQueueHeldEntries?: AsyncLocalStorage<
+    ReadonlyMap<string, HeldEntry>
+  >;
   /** Said once: the queue dir could not be written. */
   __discontentQueueWarned?: boolean;
 }
@@ -177,20 +215,43 @@ function processWaiters(): Set<string> {
   return (queueGlobal().__discontentQueueWaiters ??= new Set());
 }
 
-function heldStorage(): AsyncLocalStorage<ReadonlySet<string>> {
-  return (queueGlobal().__discontentQueueHeld ??= new AsyncLocalStorage());
+/**
+ * One hold as the async context sees it. `active` drops when the hold is let
+ * go, so a timer, a promise or a runner's rerun started inside — which keeps
+ * this context after the hold is gone — cannot pass through a slot it no
+ * longer holds (39b review, M1; `writeLock.ts`'s `Hold` is the same shape).
+ */
+interface HeldEntry {
+  active: boolean;
+}
+
+function heldStorage(): AsyncLocalStorage<ReadonlyMap<string, HeldEntry>> {
+  return (queueGlobal().__discontentQueueHeldEntries ??=
+    new AsyncLocalStorage());
 }
 
 function heldKey(dir: string, resource: QueueResource): string {
   return `${dir}\0${resource}`;
 }
 
-/** Whether the current async context already holds `resource`. */
+/**
+ * Run `fn` with no resource counted as held (39b): for work started inside
+ * a hold that is meant to outlive it — a sync's `finally` kicking the
+ * instance's rebuild. A released hold no longer counts (`HeldEntry`), but
+ * that work starts while the hold is still active: its `acquire` could run
+ * before the release and take a pass-through grant, then go on after the
+ * slot is gone. Outside the hold it waits in line like anyone.
+ */
+export function outsideQueue<T>(fn: () => T): T {
+  return heldStorage().exit(fn);
+}
+
+/** Whether the current async context holds `resource` now. */
 export function holdsHere(
   resource: QueueResource,
   dir: string = queueDirectory(),
 ): boolean {
-  return heldStorage().getStore()?.has(heldKey(dir, resource)) ?? false;
+  return heldStorage().getStore()?.get(heldKey(dir, resource))?.active === true;
 }
 
 /**
@@ -496,7 +557,12 @@ async function idleSiteDirectory(
   resourceDir: string,
   now: number,
 ): Promise<boolean> {
-  if (!path.basename(resourceDir).startsWith(resourceDirName("site:"))) {
+  /* A repository's line (39b) too: one per scratch clone ever reindexed. */
+  const name = path.basename(resourceDir);
+  if (
+    !name.startsWith(resourceDirName("site:")) &&
+    !name.startsWith(resourceDirName("repo:"))
+  ) {
     return false;
   }
   if (await readLockFile(slotLockPath(resourceDir), SLOT_ID_KEY)) return false;
@@ -557,6 +623,35 @@ export interface AcquireOptions extends JobRun {
   gapMs?: number;
   /** Default `queueDirectory()`. */
   dir?: string;
+  /**
+   * Leave the line after this long without the slot, rejecting with a
+   * `QueueTimeoutError` (39b review, M2); unbounded when absent. The polite
+   * gap after a grant is not counted.
+   */
+  maxWaitMs?: number;
+}
+
+/**
+ * A bounded wait ran out (`maxWaitMs`): the caller's place in line is gone
+ * and nothing was taken. Names the holder, so the "busy" it becomes says
+ * who to wait for.
+ */
+export class QueueTimeoutError extends Error {
+  constructor(
+    public readonly resource: QueueResource,
+    public readonly waitedMs: number,
+    public readonly holder: SlotRecord | null,
+  ) {
+    const by = holder
+      ? ` (held${holder.jobId ? ` by job ${holder.jobId}` : ""}${
+          holder.purpose ? `, ${holder.purpose}` : ""
+        } for ${Math.round((Date.now() - holder.since) / 1000)} s)`
+      : "";
+    super(
+      `Waited ${(waitedMs / 1000).toFixed(1)} s for ${resource}${by} and gave up.`,
+    );
+    this.name = "QueueTimeoutError";
+  }
 }
 
 /**
@@ -618,7 +713,7 @@ export async function acquire(
   resource: QueueResource,
   options: AcquireOptions = {},
 ): Promise<ResourceGrant> {
-  const { dir = queueDirectory(), gapMs = 0 } = options;
+  const { dir = queueDirectory(), gapMs = 0, maxWaitMs } = options;
   const job = jobContext(options);
   if (holdsHere(resource, dir)) return passThroughGrant(resource);
   const { signal, log, tier } = job;
@@ -757,12 +852,43 @@ export async function acquire(
         "queue.wait",
         { resource, tier, position },
         async (step) => {
+          /*
+           * The place in line as it moves, into the job's meta (39b, the
+           * 37c backlog row): `/jobs` and the panel read it from the record
+           * rather than only from the position at enqueue.
+           */
+          let shown = position;
+          const deadline =
+            maxWaitMs !== undefined ? enqueued + maxWaitMs : undefined;
           while (!outcome.granted) {
-            await sleep(pollDelay(), signal);
+            if (deadline !== undefined && Date.now() >= deadline) {
+              const holder = await currentHolder(resourceDir).catch(() => null);
+              step.set({ waitedMs: Date.now() - enqueued, gaveUp: true });
+              throw new QueueTimeoutError(
+                resource,
+                Date.now() - enqueued,
+                holder?.owner ?? null,
+              );
+            }
+            await sleep(
+              deadline === undefined
+                ? pollDelay()
+                : Math.min(pollDelay(), Math.max(0, deadline - Date.now())),
+              signal,
+            );
             await utimes(waiterFile, new Date(), new Date()).catch(
               () => undefined,
             );
             outcome = await attempt();
+            if (!outcome.granted && outcome.ahead !== shown) {
+              shown = outcome.ahead;
+              job.waiting?.({
+                resource,
+                tier,
+                since: enqueued,
+                position: shown,
+              });
+            }
           }
           gap = await gapLeft();
           if (gap > 0) {
@@ -818,11 +944,14 @@ export async function withResource<T>(
   const dir = options.dir ?? queueDirectory();
   const grant = await acquire(resource, { ...options, dir });
   if (grant.passThrough) return fn(grant);
-  const held = new Set(heldStorage().getStore() ?? []);
-  held.add(heldKey(dir, resource));
+  const entry: HeldEntry = { active: true };
+  const held = new Map(heldStorage().getStore() ?? []);
+  held.set(heldKey(dir, resource), entry);
   try {
     return await heldStorage().run(held, () => fn(grant));
   } finally {
+    /* Before the slot goes: from here nothing in this context passes through. */
+    entry.active = false;
     await grant.release();
   }
 }

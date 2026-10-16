@@ -11,6 +11,14 @@
  * Over the whole registry rather than the rebuilt type: this is a repair seat,
  * and a repair seat wants everything. The narrow seats (`rebuildRecipeIndex`,
  * `rebuildFeaturedRecipeIndex`) are narrow on purpose and stay that way.
+ *
+ * `?ifStale=1` (39b review, L3): a full rebuild that, once it has the
+ * repository's line, finds HEAD and the index version current skips the
+ * work and answers `{rebuilt: [], skipped: "fresh"}`. The Pi deploy asks it
+ * so, since the new container's own start-time rebuild is usually just
+ * ahead of it in line. A query parameter, not a body field: an older image
+ * (a rollback) ignores it and rebuilds, where its strict body schema would
+ * have refused an unknown key.
  */
 import { revalidateDerivedState } from "@discontent/cms/content/next/revalidateDerived";
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
@@ -19,8 +27,8 @@ import {
   errorResponse,
   readJsonBody,
 } from "recipe-editor/controller/curation/http";
-import { reindex } from "recipe-editor/controller/curation/reindex";
 import { parseInput } from "recipe-editor/controller/curation/schema";
+import { corpusOf, runSpec } from "recipe-editor/controller/jobs/kinds";
 import { z } from "zod";
 
 const ReindexBodySchema = z.strictObject({
@@ -40,8 +48,20 @@ export async function POST(request: Request) {
       body === undefined
         ? { contentType: undefined }
         : parseInput(ReindexBodySchema, body);
-    const result = await reindex(ctx, contentType);
-    revalidateDerivedState(recipeContentTypes);
+    const flag = new URL(request.url).searchParams.get("ifStale");
+    const ifStale = flag === "1" || flag === "true";
+    /* A `reindex` job (epic 39 D2): `job` in the answer, steps on `/jobs`. */
+    const result = await runSpec(
+      {
+        kind: "reindex",
+        ...corpusOf(ctx),
+        ...(contentType ? { contentType } : {}),
+        trigger: "api",
+        ...(ifStale ? { ifStale: true } : {}),
+      },
+      { ctx },
+    );
+    if (!result.skipped) revalidateDerivedState(recipeContentTypes);
     return Response.json(result);
   } catch (error) {
     return errorResponse(error);

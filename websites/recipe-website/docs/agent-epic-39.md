@@ -262,6 +262,77 @@ pnpm install --frozen-lockfile` installs cleanly.
 
 ### 39b
 
+- **Tb1 — The first start after 39b rebuilds every instance once.** No
+  repository has `.git/discontent-index-version` yet, and a missing version
+  counts as stale (D1), so the workstation's first `pnpm workstation update`
+  and the Pi's next deploy each rebuild at start (logged
+  `[instance] no index version recorded yet; reindexing`, a `reindex` job
+  labelled so). On the Pi that start-time rebuild and the deploy's own
+  `POST /api/reindex` run back to back, the second queued in the
+  repository's line behind the first. The deploy keeps its explicit
+  request (it also covers a HEAD the stamp had not seen), but since the
+  review round (Db11) it asks `?ifStale=1`, and whichever of the two gets
+  the line second finds the indexes fresh and records "already fresh"
+  instead of rebuilding again — one rebuild per deploy, not two. The curl
+  time still includes the wait.
+- **Tb2 — A hold leaks into fire-and-forget work started inside it.**
+  `withResource` marks the resource held in the async context
+  (`AsyncLocalStorage`), and a promise started inside inherits that context
+  after the hold is gone. A sync's `finally` kicks the instance's deferred
+  rebuild; that rebuild's `reindex` job then saw `repo:` as held and passed
+  straight through the line. `outsideQueue(fn)` (`jobs/queue.ts`) runs work
+  meant to outlive the hold outside it — as `outsideWriteLock` does for the
+  write lock. The review found the class still open (M1): the sync's
+  busy-retry timer and the runner's rerun inherit the hold the same way.
+  Fixed as `writeLock.ts` fixes it — each held key is a mutable
+  `{active}` entry, set false before the slot is released, and `holdsHere`
+  ignores a released one — so nothing that outlives a hold passes through
+  it. `outsideQueue` stays for work started _while_ the hold is active
+  (the kick in the sync's `finally`, the busy-retry timer): its `acquire`
+  may run before the release, take a pass-through, and then go on after
+  the slot is gone.
+- **Tb3 — `measure-reindex.ts` measures React's development build.** Run
+  bare under `tsx`, `NODE_ENV` is unset and `flattenMarkdown`'s element
+  building costs about twice what the editor pays (787 recipes: 1.1 s
+  against 0.7 s with `NODE_ENV=production`). 29a's numbers were taken the
+  same way, so they compare with each other, not with the running editor.
+- **Tb4 — A discarded sync's `job` names a job that no longer exists.**
+  `syncMirror` answers the result with `job` (the route's body too); for a
+  sync not worth a row the record is deleted at the end (Db7 — since the
+  review, every push-only sync too), so `/api/jobs/<id>` answers 404 and
+  MCP `job_get` `not_found` for it — a clean answer, tested
+  (`jobSurfaces.test.ts`). Nothing follows that id today.
+- **Tb4b — A cross-process cancel can land in the seal's last instant.**
+  Another process's `requestJobCancel` reads the meta (live, not yet
+  `cancellable: false`), the job checks for `<id>.cancel` (none) and seals,
+  then the request writes the file and answers `requested`: the job runs to
+  its end and the file is removed with it. The window is a few
+  milliseconds between two file reads; closing it would need a lock the
+  cancel path does not take, so it is accepted.
+- **Tb5 — `reindex` was a test's example of an unknown kind.**
+  `jobSurfaces.test.ts` refused a retry of `{kind: "reindex"}` as "a spec
+  this version cannot run"; it is a kind now, so the example is `compact`.
+- **Tb6 — `reindexJobs.test.ts` pins this site's index version.** Like
+  `specVersions.test.ts`, it fails on any declared spec change (a pagination,
+  aggregate or taxonomy version, a type's `indexVersion`, a reference's
+  fields). Accept it with `vitest -u`; the rebuild that follows on every
+  instance is automatic, but the moved pin is the reminder that one will
+  happen.
+- **Tb7 — `?ifStale=1` is a query parameter, not a body field.** The
+  route's body schema is strict, so an older image (the deploy's rollback
+  target) would answer 400 to an unknown `ifStale` key; it ignores a query
+  string and rebuilds. The rollback path passes none anyway.
+- **Tb8 — simple-git's `timeout.block` measures silence on git's own
+  output, and git prints nothing while it transfers without
+  `--progress`.** So for a silent push the block timeout is in effect a
+  total-duration cap, which is why it is generous (10 min) and the
+  inactivity bound over ssh is the keepalives (`ServerAliveInterval=15`,
+  `ServerAliveCountMax=4`: a link that stops answering is dropped after a
+  minute, however long a moving transfer takes). `--progress` would make
+  the block an inactivity timer but puts progress lines ahead of the error
+  in stderr, which the outcome matching (`firstLine`, `UNREACHABLE`)
+  reads.
+
 ### 39c
 
 - **A fresh worktree's `pnpm install --frozen-lockfile` fails on sharp.**
@@ -516,6 +587,303 @@ change. **New finding:** qwen3:8b now lands 10%/90% CPU/GPU at idle
 (Ta6, a backlog row).
 
 ### 39b — Reindex follow-through
+
+**Measured first** (full numbers and the go/no-go in `agent-epic-29.md`,
+"39b: re-measure and go/no-go"). A scratch clone of the content repo at
+`746e4336` (787 recipes, 24 featured, 1 group, 135 term records, 0 pages),
+`scripts/measure-reindex.ts`, `RUNS=7`, through the heavy slot, the clone
+deleted after:
+
+| Run                                  | recipes min / med | total min / med  |
+| ------------------------------------ | ----------------- | ---------------- |
+| dev React, load 16–20                | 1157 / 1249 ms    | 1391 / 1496 ms   |
+| dev React, load ~9–10                | 900 / 1148 ms     | 1107 / 1312 ms   |
+| `NODE_ENV=production`, load ~13      | 575 / 673 ms      | **699 / 867 ms** |
+| epic 29 (644 recipes, dev, load ~10) | 401 / 552 ms      | 455 / 644 ms     |
+
+- The production-React row is what the editor pays (Tb3): ~0.7 s, inside
+  29-D4's ≤ ~1 s. A CPU profile puts markdown-to-jsx plus React's dev
+  build at about half of the dev runs' recipes time.
+- **The Pi's 4.9 s** (deploy of 89c3f8da) is the deploy's cold rebuild —
+  29a's cold reading was 4.1 s at 644 recipes, which scales to 5.0 s at
+  787; the warm median then was 2.55 s (~3.1 s scaled). The next Pi number
+  is **pending**: Roger's next `pnpm deploy:pi` prints it, and the Pi's
+  `/jobs` now records every warm rebuild with per-type steps (D2).
+- **Go/no-go: no-go** for incremental reindex (29b–29d) in this epic; the
+  trigger is restated as the Pi's **warm** median passing ~5 s (or a cold
+  deploy rebuild ~8 s). The 29 doc's "Pi 2.5 s" lines now say warm, with the
+  4.9 s cold reading dated beside them.
+
+**D1 — the index-version stamp.**
+
+- `computeIndexVersion(registry)`, `readIndexVersion`, `writeIndexVersion`
+  and `ENGINE_INDEX_FORMAT` in `packages/cms/git/indexStamp.ts`;
+  `.git/discontent-index-version` (via `rev-parse --git-path`, beside the
+  HEAD stamp). `readIndexFreshness(dir, {version})` adds `indexedVersion`,
+  `version` and `versionStale`; without a `version` nothing changes for old
+  callers.
+- The site's version is `currentIndexVersion()` (`editor/controller/
+indexVersion.ts`, once per process): today `8c67321604d73888`, pinned in
+  `test/reindexJobs.test.ts` (Tb6).
+- The all-types `reindex` writes it after the loop and the HEAD stamp; a
+  one-type rebuild writes neither. Also written where the HEAD stamp is
+  claimed without a rebuild: the editor's Initialize and the Playwright
+  harness's `initializeContentGit`. `deploy-pi.sh --ship-indexes` ships the
+  file with the indexes (`swap-index.sh`'s header says so).
+- **At start, both roles:** `reindexWhenForeign` (D12's coalesced task, run
+  once at start and on every HEAD move) now rebuilds when HEAD **or** the
+  version is stale — one rebuild for both — and skips the settle when only
+  the version is. The shopping/inventory-only shortcut (35c), and the same
+  shortcut in `gitPull`, are skipped while the version is stale.
+- `git_status` / `recipes git status` / `GET /api/git/status`:
+  `indexStale` is now HEAD-stale **or** version-stale, with
+  `indexVersionStale`, `indexVersion` and `indexedVersion` beside it; the CLI
+  prints which. `/git` gets a line "Indexes: built from <sha>, index version
+  <v>" (`git-index-stamp`, "(this editor: …)" when they differ), and the
+  stale-index banner a version variant ("built by an older version of the
+  editor … rebuilds them by itself when it starts").
+- **Checklists:** `deploy-pi.md` ("Indexes") now says a spec bump needs no
+  step of its own. The living docs had no other "reindex after a spec bump"
+  step; the close-outs of epics 32–38 that carry one are history and stay.
+  39-close should leave reindex out of Roger's steps (the stamp does it;
+  watch for Tb1's one-time rebuild).
+
+**D2 — reindex and git sync as jobs.**
+
+- Kinds `reindex` (`contentType?`, `trigger`: `api` | `editor` | `local` |
+  `mcp` | `instance`, `reason?`) and `git-sync` (`remote?`, `triggers`) in
+  `jobs/kinds.ts` and `listing.ts`; labels "rebuild every index (the API)",
+  "rebuild every index (index version changed (a → b))", "sync with
+  uraninite (change, ping)"; `jobResources` = the repository's line.
+- **`repo:<name>-<hash>`** (`repoResource`, `jobs/queue.ts`), one line per
+  repository (Db4), held for the whole job; `/jobs`' queue panel lists the
+  `repo:` lines with a holder or waiters ("recipe-content repository"); idle
+  ones are pruned after a day like a site's.
+- **Every trigger:** `POST /api/reindex` (answers `job`), `rebuildAllIndexes`
+  (the banner, `/git`'s pull/merge/abort/checkout, Export), the local
+  backend's `reindex` (CLI and stdio MCP: `local`; MCP over HTTP: `mcp`),
+  MCP `reindex` through it, the instance's start-time and foreign-HEAD
+  rebuild (`instance`), and `syncMirror` (the runner, `/api/git/sync`, Sync
+  now) as `git-sync`. The CLI's `reindex` prints "Rebuilt: … in 0.7 s (job
+  …)". `recipes git sync` and MCP `git_sync` (local, held back) stay direct
+  `gitSync` calls under the sync lock, not jobs.
+- **Steps:** `reindex.<type>` per content type (ms each) — in a `reindex`
+  job, and inside a `git-sync` job under its `sync` step when the merge
+  rebuilds (the job is threaded through `gitSync` → `gitPull` →
+  `rebuildAfterRewind`); a sync's own steps as `sync.preflight` …
+  `sync.push` notes with their status and detail, and the `sync` step ends
+  with `outcome`, `pulled`, `pushed`. `timeline.ts` titles them ("Rebuild
+  recipes", "Sync with uraninite").
+- **Cancel (Db6):** honoured while the job waits in the repository's line
+  (and for a rebuild, while it waits for the write lock); refused after.
+  `JobContext.beyondCancel(reason)` checks for a cancel one last time — the
+  in-process abort and another process's `<id>.cancel` — then seals the job:
+  `requestJobCancel` answers the new outcome **`refused`**, the meta and
+  summaries carry `cancellable: false`, the job page shows "Past the point a
+  cancel can stop it", `recipes jobs cancel` says so, and an outside signal
+  (a closed request) no longer aborts it. A rebuild seals right after it
+  takes the write lock, before its first swap; a sync as soon as it has the
+  line.
+- **The live queue position** (37c backlog row, struck in
+  `agent-epic-37.md`, with the "reindex, git sync joining the queue" row): a
+  waiter writes its new place into the meta's `waiting.position` each time
+  it moves, so `/jobs`' list and the panel read it from the record.
+- **Not flooding `/jobs` (Db7, amended in the review round):** a
+  `git-sync` is recorded only when it merged commits in, failed, had its
+  push refused (`raced`), or gave up on the write lock at the merge
+  (`busy` with a failed merge step) — `syncWorthRecording`, via
+  `JOB_DISCARDS` → `runJob`'s `discardIf` (meta, log and cancel file
+  deleted, through the meta's write chain). A push-only sync — every
+  editor commit on the workstation makes one — and the mirror's ping after
+  it, which finds nothing, leave no record. The sync state file and the
+  Mirrors card still record every attempt. Rebuilds are always recorded: D12 rebuilds only when
+  indexed content moved, so the Pi gets one `reindex` row per synced
+  content commit, and the store's retention (300 jobs / 14 days) bounds it.
+  A sync ending `conflict`, `mirror_dirty`, `unreachable`, `blocked` or
+  `error` is a `failed` job with that code; `raced` and `busy` are `done`.
+
+**Decisions (amendments).**
+
+- **Db1 — The version hashes declarations, never source.** Declared
+  versions (pagination, aggregate, taxonomy via `aggregatesOf`), each type's
+  identity and directories, reference fields, plus a new optional
+  `ContentTypeConfig.indexVersion` for what `buildIndexKey` /
+  `buildIndexValue` produce — the content index had no declared version at
+  all (F23: "nothing self-heals"). Not `specVersions.test.ts`'s source
+  hashes: those move on a comment edit, which would rebuild every instance
+  on every deploy for nothing, and differ between builds (F16). The price is
+  the one F16 already accepted: an author who changes a projection without
+  bumping its version gets no rebuild — `specVersions.test.ts` is still the
+  net for that.
+- **Db2 — `indexStale` includes the version.** One flag for "run reindex"
+  (the MCP instructions' rule stands), with `indexVersionStale` saying why.
+- **Db3 — One start-time path.** The version check rides D12's coalesced
+  task rather than a second start hook, so HEAD and version staleness cost
+  one rebuild and share its deferral while a sync runs.
+- **Db4 — A line per repository, not one `repo` slot,** because the queue
+  is machine-wide (37b): one slot would put a CLI reindex of a scratch
+  clone behind the workstation's sync of the real repo. Keyed by the
+  resolved path, so `editor/content` and the repo it links to are one line.
+- **Db5 — Lock order: the `repo:` line, then the sync lock, then the write
+  lock** (`jobs/repo.ts`). Nothing holding a later one waits for an earlier
+  one: writes never take the line or the sync lock; the sync lock never
+  waits (`busy`); the line is taken only outermost. The one place a
+  `reindex` job is asked for inside the write lock — `/git`'s pull, merge
+  and checkout calling `rebuildAllIndexes` in their locked scope — skips the
+  line (`currentWriteId()`), since waiting there behind a sync that waits
+  for the same lock would deadlock. A rebuild inside a sync (28-D12, the
+  merge's) is the sync's steps, not a second job; a job started inside a
+  held line passes through it — while it is held (Tb2, M1). Tested: a
+  `reindex` job inside `withWriteLock` while another holds the line
+  completes (`queue.skip`, no `queue.wait`). _Amended in the review round:_
+  the first wording said every holder was "bounded by the network"; the
+  fetch and push had no bound at all, and a hung one held every rebuild
+  behind it. Now (Db9, Db10) the fetch and push are cut off on silence,
+  and a person's rebuild leaves the line after 30 s as `busy`; the longest
+  legitimate holder is a sync copying annex media (annex's own 30-minute
+  cap), which only the instance's background rebuild waits out.
+- **Db6 — Cancel is refused, not ignored, past the swap.** Ignoring it would
+  record a finished rebuild as `cancelled` (runJob's "cancelled is
+  cancelled" rule) over indexes it had replaced; refusing tells the person.
+- **Db7 — Only a sync worth a look leaves a job** (above). _Amended in the
+  review round (L2):_ first it was "an empty sync leaves no job", and
+  every push-only sync was recorded — on the workstation one per editor
+  commit, against a store of 300 that imports share. Now a sync is
+  recorded when it merged commits in, failed, raced, or was `busy` at the
+  merge; push-only, nothing, and a lost sync-lock race (L1) are not. Per-kind
+  retention (keep N syncs apart from imports) was the alternative; it
+  would still show a row per commit on `/jobs` for no reason to look, so
+  the rule changed instead and the store's single retention stands.
+- **Db9 — A sync's fetch and push are cut off on silence (review, M2).**
+  `networkGit` (`curation/sync.ts`): simple-git `timeout.block` of
+  `SYNC_NETWORK_IDLE_MS` (10 min without a byte from git — Tb8) and, unless
+  the person set `GIT_SSH_COMMAND`, `GIT_SSH` or the repository's
+  `core.sshCommand`, `GIT_SSH_COMMAND="ssh -o ConnectTimeout=10 -o
+ServerAliveInterval=15 -o ServerAliveCountMax=4"` — a dead link ends the
+  sync within a minute, a slow moving one never does. Either cut-off is
+  `unreachable` ("not responding", "block timeout reached" added to the
+  pattern). annex already had its own caps (30 min for media, 2 min for its
+  branch push).
+- **Db10 — A person's rebuild waits 30 s in the line, then answers `busy`
+  (review, M2).** `acquire`'s new `maxWaitMs` leaves the line with a
+  `QueueTimeoutError` naming the holder; `withRepoSlot` turns it into
+  `busy` ("The repository is busy: waited 30.0 s for repo:… (held by job
+  … for 42 s) and gave up. Nothing was rebuilt; try again shortly."), the
+  same answer and the same 30 s a rebuild behind a long write gave before
+  39b (`REINDEX_QUEUE_WAIT_MS`). The instance's own rebuild — start, a
+  foreign HEAD move — runs in the background (`void reindexIfForeign()`
+  at start, so startup never waits for it) and waits up to 15 min
+  (`REINDEX_INSTANCE_QUEUE_WAIT_MS`). Syncs wait unbounded: they are
+  background, and every holder is now bounded. `RECIPE_REINDEX_QUEUE_WAIT_MS`
+  overrides both bounds (tests).
+- **Db11 — A rebuild asked only if stale re-reads freshness once it has
+  the line (review, L3).** The `reindex` spec's `ifStale` (always for
+  `trigger: "instance"`; a deploy's `POST /api/reindex?ifStale=1`, Tb7):
+  after the line and before the write lock, a full rebuild whose HEAD and
+  index version are both current records a `reindex.skip` step ("already
+  fresh: built from abc1234, index version …") and answers
+  `{rebuilt: [], skipped: "fresh"}`; the route then skips its revalidate,
+  and `reindexWhenForeign` its editor refresh. A person's rebuild never
+  skips (it is a repair seat).
+- **Db12 — A sync that loses the sync lock is `busy`, unrecorded (review,
+  L1).** `runMirrorSync` maps `LockBusyError` to a `busy` result with one
+  skipped `preflight` step naming the holder; the sync state file is left
+  to the winner (which records its own attempt), the job is discarded
+  (Db7), the runner sends no notification for `busy`, and the busy retry
+  (15 s, at most five in a row) asks again — the other process may have
+  been syncing another mirror. Before, it was a `failed` job with code
+  `internal` and a 500 from `/api/git/sync`.
+- **Db13 — Retry refuses `reindex` and `git-sync` jobs (review, L6).** A
+  replay would carry the first run's reason long after it stopped being
+  true, and a sync retried from the CLI would run without the editor's
+  instance (its mutex, mirrors, notifications). `retrySpecFor` answers
+  `usage` ("A rebuild is not retried: run a new one (recipes reindex, MCP
+  reindex, or Rebuild on the editor's Git page)."), so the API (400), the
+  CLI and the local MCP seat all refuse; the job page shows that sentence
+  in place of the Retry button (`NOT_RETRIED_KINDS`, `listing.ts`).
+- **Db8 — Tiers:** the instance's own rebuilds and every sync are `batch`;
+  a person's or a script's rebuild (`api`, `editor`, `local`, `mcp`) is
+  `interactive`, so it goes ahead of a waiting background sync.
+
+**Reindex needed: no manual one** — no index layout changed. The stamp is
+new, so every instance rebuilds once at its first start after this lands
+(Tb1); confirmed by `instance.test.ts` (one rebuild at start, as a `reindex`
+job, for a stale version alone and for version + HEAD).
+
+**Tests.** `test/reindexJobs.test.ts` (12): the version is a stable 16-hex
+hash, pinned; it does not move when every function in the registry is
+swapped for one with other source text (the comment-only case); it moves
+with a pagination version or `perPage`, an aggregate version, a taxonomy
+version, `indexVersion`, a reference's fields, a new type; a full rebuild
+writes it; a CLI (local backend) reindex records a `reindex` job labelled
+"(CLI or MCP)" with one `reindex.<type>` step per type, sealed, on the
+repository's line; a symlink and its target share one line; a cancel while
+waiting in the line stops it with nothing rebuilt; a cancel after the seal
+is `refused` and the job ends `done`; a cancel asked just before the seal
+wins; the write-lock skip (Db5); a waiting job's meta position goes 2 → 1
+as the line moves. `instance.test.ts` +2 (start-time rebuild, once) and the
+D4 case now checks every recorded `git-sync` job synced (the empty startup
+sync left none). `curationGit.test.ts` +1 (version stale → `indexStale`,
+a one-type rebuild leaves it, a full one clears it) and the freshness
+shapes. `jobs.test.ts` (kinds, labels, tier). Playwright: `git.spec` +1
+(the stamp line, the version banner, Rebuild → a `reindex` job on `/jobs`
+with five `reindex.<type>` steps); `api-write.spec`'s reindex case reads
+the job's steps over `/api/jobs/<id>`.
+
+**Gates.** Both typechecks clean. vitest **106 files / 2208 tests** on the
+branch, **110 files / 2261 tests** after merging main (39a, 39c, 39e).
+Playwright (build mode, `heavy-pw.sh`): `jobs`, `git`, `api-write`,
+`mirrors-card`, `mirror-role`, `mcp-http` — **84 passed** on the branch,
+**84 passed** again after it. One fix on the merge: the D4 case's new job check
+waits for the last sync's record (under the full suite's load a final run
+could still be `running` when the sync state had converged).
+
+**Review round** (fresh worker, on 7c9dd234). Fixed as new commits:
+
+- **M1** — a released `repo:` (or `gpu`, `site:`) hold no longer passes
+  anything through: `{active}` entries in the queue's async context (Tb2).
+- **M2** — Db9 (fetch and push cut off on silence) and Db10 (a person's
+  rebuild leaves the line after 30 s as `busy`); Db5's "bounded by the
+  network" corrected.
+- **L1** — Db12. **L2** — Db7 amended. **L3** — Db11, and the deploy asks
+  `?ifStale=1` (Tb1).
+- **L4** — MCP's instructions and `git_status` description, and the
+  curator skill: `indexVersionStale` means the indexes were built by
+  different code; with an editor running against that repository, an
+  agent does not reindex — the editor rebuilds them itself at start. Tool
+  counts unchanged (57 / 43).
+- **L5 — a failed start-time rebuild has no retry of its own.** The
+  instance's `reindex` job fails like any job (`failed` on `/jobs`, the
+  error on the editor's log) and the coalesced task does not run it again:
+  the next HEAD move asks again, and until then the stale-index banner
+  (version variant) offers Rebuild indexes.
+- **L6** — Db13.
+- **The missing test:** a full rebuild failing part-way (the second type's
+  `rebuildIndex` throws) leaves the version file and the HEAD stamp as they
+  were; the next full rebuild writes both.
+
+Tests added: `reindexJobs.test.ts` +6 (M1: a timer started inside a hold
+and run after it, and a sync runner's run requested inside one, both wait
+in line — and `outsideQueue` drops a live hold; M2: a reindex behind a
+held line answers `busy` within the bound, its `queue.wait` ending
+`gaveUp`, its place in line gone, nothing rebuilt; L3: fresh indexes are
+skipped for `instance` and `ifStale`, never for a plain API rebuild, and
+rebuilt when the version or HEAD is stale; the part-way failure).
+`instance.test.ts` +3 (L1: a sync under another holder's sync lock is
+`busy`, unrecorded, the sync state untouched; M2: a push whose receiving
+side goes silent is cut off as `unreachable`; the ssh command and when the
+person's own wins) and the D4 case now checks that no push-only sync left
+a record. `jobSurfaces.test.ts` +5 (L6: Retry of each kind refused over the
+API and the local seat; L2: the record rule, both ways, and a discarded
+sync's id answering 404 over the API and `not_found` over MCP). Playwright
+`git.spec`'s 39b case: the rebuild's job page shows "A rebuild is not
+retried" and no Retry button.
+
+Review-round gates: both typechecks clean; the affected vitest files
+(reindexJobs, queue, queueRegistration, instance, jobSurfaces, jobs,
+curationGit, mcp, curatorSkill, specVersions) **10 files / 320 tests**; the
+full vitest **110 files / 2275 tests**; Playwright (build mode,
+`heavy-pw.sh`) `jobs.spec`, `git.spec`, `mirror-role.spec` — **47 passed**.
 
 ### 39c — Cooking UX
 

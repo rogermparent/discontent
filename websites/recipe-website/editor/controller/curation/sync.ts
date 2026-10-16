@@ -36,6 +36,14 @@
  *    non-fast-forward (it committed after our fetch) → `raced`, which the
  *    commit's own trigger retries.
  *
+ * **Bounded network** (39b review, M2): the sync holds the repository's
+ * line (`jobs/repo.ts`) from start to end, so a fetch or push that hangs
+ * would hold every rebuild behind it. Both run on `networkGit`: cut off
+ * after `SYNC_NETWORK_IDLE_MS` without a byte from git, and — over ssh —
+ * after a minute of unanswered keepalives (`syncSshCommand`). Both measure
+ * silence, not duration, so a large transfer that keeps moving is never cut
+ * short. Either cut-off is `unreachable`.
+ *
  * The outcome is folded into `.git/discontent-sync.json` (`syncState.ts`) and
  * returned. Expected failures are outcomes, not throws: an unattended caller
  * wants a status, not an exception. Only a misuse throws (a mirror calling it,
@@ -50,6 +58,7 @@ import {
   type SyncOutcome,
 } from "@discontent/cms/git/syncState";
 import { isMirror, mirrorRefusal } from "recipe-website-common/config/role";
+import type { JobRun } from "../jobs/context";
 import type { CurationContext } from "./context";
 import {
   CurationError,
@@ -77,6 +86,13 @@ export interface GitSyncOptions {
   mirror?: SyncMirrorTarget;
   /** The merge step's wait for the write lock; `SYNC_LOCK_TIMEOUT_MS` by default. Not on the wire. */
   lockTimeoutMs?: number;
+  /** The fetch's and push's idle cut-off; `SYNC_NETWORK_IDLE_MS` by default (tests). Not on the wire. */
+  networkIdleMs?: number;
+  /**
+   * The `git-sync` job this sync runs in (epic 39 D2): the merge's rebuild
+   * logs its `reindex.<type>` steps there. Not on the wire.
+   */
+  job?: JobRun;
 }
 
 export type SyncStepName = "preflight" | "fetch" | "merge" | "media" | "push";
@@ -120,7 +136,56 @@ const HOST_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._@-]*$/;
 const DIR_PATTERN = /^~?[A-Za-z0-9._/-]+$/;
 
 const UNREACHABLE =
-  /could not read from remote|connection (refused|timed out|closed)|could not resolve|no route to host|network is unreachable|operation timed out|host key verification failed|permission denied \(publickey/i;
+  /could not read from remote|connection (refused|timed out|closed)|could not resolve|no route to host|network is unreachable|operation timed out|host key verification failed|permission denied \(publickey|not responding|block timeout reached/i;
+
+/**
+ * How long a fetch or push may go without a byte on git's stdout or stderr
+ * (simple-git's `timeout.block`) before it is killed — the backstop for a
+ * transport the ssh keepalives do not cover (a local path, an http remote,
+ * a hook that hangs). Silence, not duration: generous, because git prints
+ * nothing while it transfers without `--progress`.
+ */
+export const SYNC_NETWORK_IDLE_MS = 10 * 60_000;
+
+/** `ServerAliveInterval` × `ServerAliveCountMax`: a dead link is dropped after a minute. */
+const SSH_KEEPALIVE = [
+  "-o",
+  "ServerAliveInterval=15",
+  "-o",
+  "ServerAliveCountMax=4",
+];
+
+/**
+ * The ssh command git uses for this sync's fetch and push: keepalives, so a
+ * mirror that stops answering mid-transfer (a sleeping laptop, a dropped
+ * Wi-Fi link) ends the sync within a minute instead of never, and a 10 s
+ * connect timeout like the preflight's. `undefined` — git's own choice —
+ * when the person has set `GIT_SSH_COMMAND`, `GIT_SSH` or the repository's
+ * `core.sshCommand`: theirs wins (ssh's own config may carry the same
+ * options).
+ */
+export async function syncSshCommand(
+  git: SimpleGit,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string | undefined> {
+  if (env.GIT_SSH_COMMAND || env.GIT_SSH) return undefined;
+  const configured = String(
+    await git.raw(["config", "--get", "core.sshCommand"]).catch(() => ""),
+  ).trim();
+  if (configured) return undefined;
+  return ["ssh", "-o", "ConnectTimeout=10", ...SSH_KEEPALIVE].join(" ");
+}
+
+/** A git for the fetch and push: the idle cut-off, and `syncSshCommand`. */
+async function networkGit(
+  baseDir: string,
+  git: SimpleGit,
+  idleMs: number,
+): Promise<SimpleGit> {
+  const network = simpleGit({ baseDir, timeout: { block: idleMs } });
+  const ssh = await syncSshCommand(git);
+  return ssh ? network.env({ ...process.env, GIT_SSH_COMMAND: ssh }) : network;
+}
 const MIRROR_DIRTY =
   /unstaged changes|uncommitted|working (directory|tree) .*(dirty|changes)|would be overwritten/i;
 const NON_FAST_FORWARD = /non-fast-forward|fetch first|\[rejected\]/i;
@@ -175,7 +240,13 @@ async function mirrorDirtyFiles(
 
 export async function gitSync(
   ctx: CurationContext,
-  { remote, mirror, lockTimeoutMs }: GitSyncOptions = {},
+  {
+    remote,
+    mirror,
+    lockTimeoutMs,
+    networkIdleMs = SYNC_NETWORK_IDLE_MS,
+    job,
+  }: GitSyncOptions = {},
 ): Promise<SyncResult> {
   if (isMirror()) {
     throw new ForbiddenError(mirrorRefusal("syncing"));
@@ -274,8 +345,9 @@ export async function gitSync(
   });
 
   /* 2. fetch -------------------------------------------------------------- */
+  const network = await networkGit(ctx.contentDirectory, git, networkIdleMs);
   try {
-    await git.raw(["fetch", "--prune", target]);
+    await network.raw(["fetch", "--prune", target]);
     steps.push({ step: "fetch", status: "ok" });
   } catch (error) {
     const line = firstLine(messageOf(error));
@@ -295,6 +367,7 @@ export async function gitSync(
         remote: target,
         lockTimeoutMs: lockTimeoutMs ?? SYNC_LOCK_TIMEOUT_MS,
         fetched: true,
+        ...(job ? { job } : {}),
       });
       pulled = result.newCommits;
       steps.push({
@@ -376,7 +449,7 @@ export async function gitSync(
     );
   } else {
     try {
-      await git.raw(["push", target, `${branch}:${branch}`]);
+      await network.raw(["push", target, `${branch}:${branch}`]);
       pushed = ahead;
       steps.push({ step: "push", status: "ok", detail: `${ahead}` });
     } catch (error) {

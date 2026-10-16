@@ -12,7 +12,10 @@ import {
   noteText,
   resultRows,
 } from "recipe-editor/controller/jobs/timeline";
-import { KEPT_READING_KINDS } from "recipe-editor/controller/jobs/listing";
+import {
+  KEPT_READING_KINDS,
+  NOT_RETRIED_KINDS,
+} from "recipe-editor/controller/jobs/listing";
 import type { JobRecord } from "recipe-editor/controller/jobs/views";
 import { StepTimeline } from "@/jobs/StepTimeline";
 import { requestCancel, useJobPoll } from "@/jobs/useJobPoll";
@@ -109,6 +112,8 @@ export function JobDetail({
   /* 39a: Retry reads the source again, past the kept reading. */
   const [fresh, setFresh] = useState(false);
   const offersFresh = KEPT_READING_KINDS.includes(kind);
+  /* 39b review (L6): a rebuild or a sync is run anew, never replayed. */
+  const retryable = !(NOT_RETRIED_KINDS as readonly string[]).includes(kind);
 
   useEffect(() => {
     if (!live) return;
@@ -225,7 +230,11 @@ export function JobDetail({
           </dl>
         )}
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {live ? (
+          {live && meta?.cancellable === false ? (
+            <p className="text-sm" data-testid="job-not-cancellable">
+              Past the point a cancel can stop it — it runs to its end.
+            </p>
+          ) : live ? (
             <Button
               type="button"
               size="sm"
@@ -235,6 +244,15 @@ export function JobDetail({
             >
               {acting === "cancel" ? "Cancelling…" : "Cancel"}
             </Button>
+          ) : meta && !retryable ? (
+            <p
+              className="text-sm text-muted-foreground"
+              data-testid="job-not-retried"
+            >
+              {kind === "reindex"
+                ? "A rebuild is not retried: rebuild again from the Git page."
+                : "A sync is not retried: use Sync now on the Git page."}
+            </p>
           ) : meta ? (
             <>
               <Button

@@ -10,7 +10,13 @@ export const reindexCommand: CommandDef<ReindexResult> = {
     return backend.reindex(positionals[0]);
   },
   format(result) {
-    return `Rebuilt: ${result.rebuilt.join(", ")}`;
+    const total = result.timings?.total;
+    return (
+      `Rebuilt: ${result.rebuilt.join(", ")}` +
+      (total !== undefined ? ` in ${(total / 1000).toFixed(1)} s` : "") +
+      /* Epic 39 D2: a job, so `recipes jobs show` has its per-type steps. */
+      (result.job ? ` (job ${result.job})` : "")
+    );
   },
 };
 

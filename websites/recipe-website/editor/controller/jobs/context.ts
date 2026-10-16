@@ -28,6 +28,15 @@ export interface JobContext {
    * mirrors it into the meta's `waiting`, for the `/jobs` page.
    */
   readonly waiting?: (waiting: JobWaiting | undefined) => void;
+  /**
+   * The job has reached a point a cancel must not interrupt (39b: a
+   * reindex's first atomic swap). Rejects with the abort's reason if a
+   * cancel arrived before it — from this process or another's `<id>.cancel`;
+   * after it, a cancel is **refused** (`requestJobCancel` answers `refused`,
+   * the meta says `cancellable: false`) and the job runs to its end. Absent
+   * outside a job.
+   */
+  readonly beyondCancel?: (reason: string) => Promise<void>;
 }
 
 /** What a job is waiting for in the queue (D4), as its meta shows it. */
@@ -60,5 +69,6 @@ export function jobContext(run: JobRun | undefined): JobContext {
     ...(run.signal ? { signal: run.signal } : {}),
     ...(jobId ? { jobId } : {}),
     ...(run.waiting ? { waiting: run.waiting } : {}),
+    ...(run.beyondCancel ? { beyondCancel: run.beyondCancel } : {}),
   };
 }

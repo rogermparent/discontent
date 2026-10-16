@@ -20,6 +20,11 @@
  * Min leads, as in `measure-engine-scale.ts`: a rebuild is a fixed amount of
  * work, so every run above the minimum is the host doing something else.
  *
+ * **Add `NODE_ENV=production`** for what the editor pays (epic 39, 39b):
+ * run bare, React loads its development build, and `flattenMarkdown`'s
+ * element building with it roughly doubles the recipes' time (1.1 s against
+ * 0.7 s on 787 recipes).
+ *
  * **Writes to the directory it is pointed at** — it rebuilds every index there
  * and moves the index stamp. Point it at a copy (`git clone` of the content
  * repo, or `seed-scale-corpus.ts` output). It refuses the editor's own

@@ -60,9 +60,12 @@ import { ulid } from "@discontent/cms/util/ulid";
 import {
   readIndexFreshness,
   readIndexedHead,
+  readIndexVersion,
   writeIndexedHead,
   type IndexFreshness,
 } from "@discontent/cms/git/indexStamp";
+import { currentIndexVersion } from "../indexVersion";
+import type { JobRun } from "../jobs/context";
 import { featuredRecipeContentConfig } from "recipe-website-common/controller/featuredRecipeContentConfig";
 import { groupContentConfig } from "recipe-website-common/controller/groupContentConfig";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
@@ -154,10 +157,23 @@ export interface SyncStatus {
    * received into this repository, a checkout behind the editor's back — or no
    * rebuild has been recorded yet (27b/D3). The `/git` page and Settings →
    * Maintenance show a "Rebuild indexes" banner while it is true.
+   *
+   * Since epic 39 (D1) also true while `indexVersionStale` is.
    */
   indexStale: boolean;
   /** The commit the indexes were last fully rebuilt from, when recorded. */
   indexedHead?: string;
+  /**
+   * The indexes were built by code whose declared index specs differ from
+   * this code's (`indexVersion`), or before the version was recorded
+   * (epic 39, D1). A running editor rebuilds by itself at start; a reindex
+   * clears it.
+   */
+  indexVersionStale: boolean;
+  /** This code's index version (`computeIndexVersion` over the registry). */
+  indexVersion?: string;
+  /** The version the last full rebuild recorded, when one was. */
+  indexedVersion?: string;
   log: CommitSummary[];
   /** More commits exist beyond the first page. */
   hasMore: boolean;
@@ -496,6 +512,7 @@ export const EMPTY_STATUS: SyncStatus = {
   pendingIndex: [],
   diverged: false,
   indexStale: false,
+  indexVersionStale: false,
   log: [],
   hasMore: false,
 };
@@ -668,7 +685,9 @@ export async function gitStatus(
     work.not_added.length +
     work.renamed.length;
 
-  const freshness = await readIndexFreshness(contentDirectory);
+  const freshness = await readIndexFreshness(contentDirectory, {
+    version: currentIndexVersion(),
+  });
   const fetchedAt = await fetchedAtOf(contentDirectory);
 
   return {
@@ -690,8 +709,13 @@ export async function gitStatus(
     pendingIndex,
     diverged: status.ahead > 0 && status.behind > 0,
     ...(fetchedAt ? { fetchedAt } : {}),
-    indexStale: freshness.stale,
+    indexStale: freshness.stale || freshness.versionStale,
     ...(freshness.indexedHead ? { indexedHead: freshness.indexedHead } : {}),
+    indexVersionStale: freshness.versionStale,
+    ...(freshness.version ? { indexVersion: freshness.version } : {}),
+    ...(freshness.indexedVersion
+      ? { indexedVersion: freshness.indexedVersion }
+      : {}),
     log,
     hasMore,
   };
@@ -703,9 +727,13 @@ export async function gitStatus(
  * The engine's own `readIndexFreshness`, under the name the plan and the
  * routes use. `stale` is true when HEAD moved without a full rebuild, or when
  * no rebuild was ever recorded; it is false outside a repository.
+ * `versionStale` (epic 39, D1) compares the recorded index version with this
+ * code's.
  */
 export function indexFreshness(ctx: CurationContext): Promise<IndexFreshness> {
-  return readIndexFreshness(ctx.contentDirectory);
+  return readIndexFreshness(ctx.contentDirectory, {
+    version: currentIndexVersion(),
+  });
 }
 
 export interface GitLogOptions {
@@ -895,8 +923,11 @@ function authorOption(ctx: CurationContext): Record<string, string> {
  * from before that until `onBulkChange` fires. `reindex` is Node-safe and lives
  * here; the invalidation cannot (D8), so it arrives through the context.
  */
-async function rebuildAfterRewind(ctx: CurationContext): Promise<string[]> {
-  const { rebuilt } = await reindex(ctx);
+async function rebuildAfterRewind(
+  ctx: CurationContext,
+  job?: JobRun,
+): Promise<string[]> {
+  const { rebuilt } = await reindex(ctx, undefined, job ? { job } : {});
   ctx.onBulkChange?.();
   return rebuilt;
 }
@@ -1242,6 +1273,8 @@ export interface GitPullOptions {
    * pre-check and the fetch, so the call waits for the lock once.
    */
   fetched?: boolean;
+  /** The job the pull runs in (a `git-sync`): the rebuild's steps go there. */
+  job?: JobRun;
 }
 
 /**
@@ -1276,7 +1309,7 @@ export interface GitPullOptions {
  */
 export async function gitPull(
   ctx: CurationContext,
-  { remote, lockTimeoutMs, fetched = false }: GitPullOptions = {},
+  { remote, lockTimeoutMs, fetched = false, job }: GitPullOptions = {},
 ): Promise<PullResult> {
   const safeRemote =
     remote === undefined ? undefined : assertArgument(remote, "remote");
@@ -1323,7 +1356,7 @@ export async function gitPull(
           `The branch changed while ${from} was being fetched (${status.current ?? "detached"} → ${now.current ?? "detached"}), so nothing was merged. Pull again.`,
         );
       }
-      return mergeLocked(ctx, git, from);
+      return mergeLocked(ctx, git, from, job);
     },
     lockOptions,
   );
@@ -1352,6 +1385,7 @@ async function mergeLocked(
   ctx: CurationContext,
   git: SimpleGit,
   from: string,
+  job?: JobRun,
 ): Promise<PullResult> {
   const before = String(await git.revparse(["HEAD"])).trim();
   const newCommits = Number(
@@ -1437,6 +1471,7 @@ async function mergeLocked(
    */
   if (
     (await readIndexedHead(ctx.contentDirectory)) === before &&
+    (await readIndexVersion(ctx.contentDirectory)) === currentIndexVersion() &&
     (await changesOnlyUnindexed(ctx.contentDirectory, before, head))
   ) {
     await writeIndexedHead(ctx.contentDirectory, head);
@@ -1455,6 +1490,6 @@ async function mergeLocked(
     fastForward,
     newCommits,
     head,
-    rebuilt: await rebuildAfterRewind(ctx),
+    rebuilt: await rebuildAfterRewind(ctx, job),
   };
 }

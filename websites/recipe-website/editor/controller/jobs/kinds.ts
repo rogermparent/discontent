@@ -25,6 +25,7 @@ import type {
 } from "../curation/importRecipe";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
+import { FAILED_OUTCOMES } from "@discontent/cms/git/syncState";
 import { UsageError } from "../curation/errors";
 import type {
   ImportListOptions,
@@ -32,12 +33,15 @@ import type {
   InspectListResult,
 } from "../curation/importList";
 import type { InspectResult } from "../curation/inspect";
+import type { ReindexResult } from "../curation/reindex";
+import type { SyncResult } from "../curation/sync";
 import type { RecipeActionState } from "../formImport";
 import type { LlmMode } from "../llm/mode";
 import type { JobContext } from "./context";
-import type { JOB_KIND_NAMES } from "./listing";
+import { NOT_RETRIED_KINDS, type JOB_KIND_NAMES } from "./listing";
 import { jobsDirectory } from "./location";
 import type { StoredPhoto } from "./photos";
+import { repoResource } from "./queue";
 import type { ReadingCache } from "./readingCache";
 import { startJob, type RunJobOptions } from "./run";
 import type { JobError, JobMeta, JobTier } from "./store";
@@ -118,7 +122,50 @@ export type JobSpec =
        * photos, so the prune keeps it while this job remains.
        */
       photos?: StoredPhoto[];
+    })
+  /**
+   * A full rebuild, or one type's (39b, epic 39 D2): `/api/reindex`, the
+   * editor's `rebuildAllIndexes` (the banner, Maintenance, the `/git`
+   * page's pulls and merges), `recipes reindex`, MCP `reindex`, and the
+   * instance's own rebuild at start or after a foreign HEAD move. Waits in
+   * the repository's line (`repo:`), then rebuilds under the write lock.
+   */
+  | (CorpusSpec & {
+      kind: "reindex";
+      contentType?: string;
+      trigger: ReindexTrigger;
+      /** Why the instance rebuilt by itself ("index version changed", …). */
+      reason?: string;
+      /**
+       * Skip a full rebuild that finds the indexes fresh once it has the
+       * line — HEAD and index version both current (39b review, L3): the
+       * instance's own rebuilds always, a deploy's `POST /api/reindex?ifStale=1`.
+       */
+      ifStale?: boolean;
+    })
+  /**
+   * One sync with one mirror, on the workstation (39b; epic 28 D3): the
+   * runner's (startup, a HEAD move, a ping, Sync now) and `/api/git/sync`'s.
+   * Only a sync worth a look leaves a record (`syncWorthRecording`).
+   */
+  | (CorpusSpec & {
+      kind: "git-sync";
+      remote?: string;
+      triggers: string[];
     });
+
+/** Who asked for a rebuild — the label says it. */
+export type ReindexTrigger =
+  /** `POST /api/reindex` (the HTTP backend, a deploy). */
+  | "api"
+  /** The editor's own pages: the banner, Maintenance, `/git`, Export. */
+  | "editor"
+  /** The CLI or the stdio MCP server (the local backend). */
+  | "local"
+  /** MCP over HTTP, in the editor. */
+  | "mcp"
+  /** The instance by itself: at start, or after a HEAD move it did not make. */
+  | "instance";
 
 export type JobKind = JobSpec["kind"];
 
@@ -144,6 +191,8 @@ export interface JobResults {
   "form-text": RecipeActionState;
   "form-photo": RecipeActionState;
   "form-batch": FormBatchResult;
+  reindex: ReindexResult;
+  "git-sync": SyncResult;
 }
 
 /** What "Import N selected" answers: one row per pick. */
@@ -294,6 +343,59 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
     }
     return { recipes: withImages };
   },
+  async reindex(spec, { ctx, job }) {
+    const [
+      { reindex, freshIndexes },
+      {
+        withRepoSlot,
+        reindexQueueWaitMs,
+        REINDEX_QUEUE_WAIT_MS,
+        REINDEX_INSTANCE_QUEUE_WAIT_MS,
+      },
+    ] = await Promise.all([import("../curation/reindex"), import("./repo")]);
+    const corpus = contextFor(spec, ctx);
+    const instance = spec.trigger === "instance";
+    return withRepoSlot(
+      corpus.contentDirectory,
+      job,
+      async () => {
+        /*
+         * L3: the rebuild ahead of this one in line (the start-time one, a
+         * deploy's) may have done the work already.
+         */
+        if ((instance || spec.ifStale) && !spec.contentType) {
+          const fresh = await freshIndexes(corpus.contentDirectory);
+          if (fresh) {
+            job.log.info(
+              "reindex.skip",
+              `already fresh: built from ${fresh.head.slice(0, 7)}, index version ${fresh.version}`,
+            );
+            return { rebuilt: [], skipped: "fresh" as const };
+          }
+        }
+        return reindex(corpus, spec.contentType, { job });
+      },
+      /* M2: a person's rebuild answers `busy` rather than wait out a sync. */
+      {
+        maxWaitMs: reindexQueueWaitMs(
+          instance ? REINDEX_INSTANCE_QUEUE_WAIT_MS : REINDEX_QUEUE_WAIT_MS,
+        ),
+      },
+    );
+  },
+  async "git-sync"(spec, { job }) {
+    const [{ runMirrorSync }, { withRepoSlot }] = await Promise.all([
+      import("../instance/start"),
+      import("./repo"),
+    ]);
+    return withRepoSlot(spec.contentDirectory, job, async () => {
+      /* A sync runs to its end once it starts: the line is the cancel point. */
+      await job.beyondCancel?.(
+        "the sync has begun: fetch, merge and push run to their end",
+      );
+      return runMirrorSync(spec.contentDirectory, spec.remote, job);
+    });
+  },
 };
 
 /**
@@ -347,6 +449,19 @@ function formFailure(state: RecipeActionState): JobError | undefined {
   return { code: "import_failed", message: state.message };
 }
 
+/**
+ * A sync answers its expected failures as an `outcome` (epic 28 D3), never a
+ * throw. On `/jobs` the ones a person must look at are `failed`; `raced` and
+ * `busy` retry by themselves, so they are `done`.
+ */
+function syncFailure(result: SyncResult): JobError | undefined {
+  if (!FAILED_OUTCOMES.includes(result.outcome)) return undefined;
+  return {
+    code: result.outcome,
+    message: result.message ?? `the sync ended ${result.outcome}`,
+  };
+}
+
 /** Kinds whose result can be a failure (`runJob`'s `failureOf`). */
 const JOB_FAILURES: {
   [K in JobKind]?: (result: JobResults[K]) => JobError | undefined;
@@ -354,6 +469,43 @@ const JOB_FAILURES: {
   "form-url": formFailure,
   "form-text": formFailure,
   "form-photo": formFailure,
+  "git-sync": syncFailure,
+};
+
+/**
+ * Whether a finished sync is worth a row on `/jobs` (Db7 as amended by the
+ * 39b review, L2): it **merged** commits in from the mirror, or it needs a
+ * look — a failure (`conflict`, `mirror_dirty`, `unreachable`, `blocked`,
+ * `error`), a refused push (`raced`), or a merge that gave up on the write
+ * lock (`busy` with a failed merge step: the mirror's commits are still
+ * waiting). Everything else leaves no record: a sync that only pushed —
+ * every editor commit on the workstation is one, then the mirror's ping
+ * after it finds nothing — or found nothing, or lost the sync lock to
+ * another process's sync (`busy` before any step; that one records its
+ * own). A row each would push imports out of the store's 300; the sync's
+ * own state (`.git/discontent-sync.json`, the Mirrors card) still records
+ * every attempt.
+ */
+export function syncWorthRecording(result: SyncResult): boolean {
+  if (result.pulled > 0) return true;
+  if (FAILED_OUTCOMES.includes(result.outcome)) return true;
+  if (result.outcome === "raced") return true;
+  if (result.outcome === "busy") {
+    return result.steps.some(
+      (entry) => entry.step === "merge" && entry.status === "failed",
+    );
+  }
+  return false;
+}
+
+/**
+ * Kinds whose finished job may leave no record (`runJob`'s `discardIf`,
+ * 39b): a sync not worth a row (`syncWorthRecording`).
+ */
+const JOB_DISCARDS: {
+  [K in JobKind]?: (result: JobResults[K]) => boolean;
+} = {
+  "git-sync": (result) => !syncWorthRecording(result),
 };
 
 /** "www.example.com/pies/apple": a URL as a list names it. */
@@ -392,10 +544,26 @@ export function jobLabel(spec: JobSpec): string {
       const picks = `${spec.picks.length} of ${spec.total} recipes`;
       return spec.url ? `${picks} from ${shortUrl(spec.url)}` : picks;
     }
+    case "reindex": {
+      const what = spec.contentType
+        ? `rebuild the ${spec.contentType} index`
+        : "rebuild every index";
+      return `${what} (${spec.reason ?? REINDEX_TRIGGER_TEXT[spec.trigger]})`;
+    }
+    case "git-sync":
+      return `sync with ${spec.remote ?? "the upstream"} (${spec.triggers.join(", ") || "manual"})`;
     default:
       return shortUrl(spec.url);
   }
 }
+
+const REINDEX_TRIGGER_TEXT: Record<ReindexTrigger, string> = {
+  api: "the API",
+  editor: "the editor",
+  local: "CLI or MCP",
+  mcp: "MCP",
+  instance: "by itself",
+};
 
 /**
  * Roundup lists and `--all` batches wait behind a person's single import
@@ -403,6 +571,9 @@ export function jobLabel(spec: JobSpec): string {
  */
 export function jobTier(spec: JobSpec): JobTier {
   if (spec.kind === "import-list") return "batch";
+  /* 39b: what nobody is waiting on — a sync, the instance's own rebuild. */
+  if (spec.kind === "git-sync") return "batch";
+  if (spec.kind === "reindex" && spec.trigger === "instance") return "batch";
   if (
     (spec.kind === "import-url" ||
       spec.kind === "import-text" ||
@@ -428,12 +599,19 @@ export function jobResources(spec: JobSpec): string[] {
     /* The picks' pictures: the readings are in hand. */
     case "form-batch":
       return ["site"];
+    /* 39b: the repository's line, held for the whole job. */
+    case "reindex":
+    case "git-sync":
+      return [repoResource(spec.contentDirectory)];
     default:
       return ["gpu", "ytdlp", "site"];
   }
 }
 
-export interface RunSpecOptions extends Omit<RunJobOptions, "failureOf"> {
+export interface RunSpecOptions extends Omit<
+  RunJobOptions,
+  "failureOf" | "discardIf"
+> {
   ctx?: CurationContext;
   tier?: JobTier;
 }
@@ -476,6 +654,9 @@ export async function startSpec<S extends JobSpec>(
   const failureOf = JOB_FAILURES[spec.kind] as
     | ((result: JobResults[S["kind"]]) => JobError | undefined)
     | undefined;
+  const discardIf = JOB_DISCARDS[spec.kind] as
+    | ((result: JobResults[S["kind"]]) => boolean)
+    | undefined;
   const dir = options.dir ?? jobsDirectory();
   const started = await startJob(
     {
@@ -487,7 +668,12 @@ export async function startSpec<S extends JobSpec>(
       ...(retryOf ? { retryOf } : {}),
     },
     (context) => handler(spec, { ctx, job: context, dir }),
-    { ...options, dir, ...(failureOf ? { failureOf } : {}) },
+    {
+      ...options,
+      dir,
+      ...(failureOf ? { failureOf } : {}),
+      ...(discardIf ? { discardIf } : {}),
+    },
   );
   const done = started.done.then(({ job, result }) => ({ ...result, job }));
   /* Handled here, so a caller that never awaits it leaves nothing unhandled. */
@@ -504,6 +690,9 @@ export function specWrites(spec: JobSpec): boolean {
     case "import-list":
       return !spec.options.dryRun;
     case "form-batch":
+    /* A merge commits; a rebuild writes no commit but replaces every index. */
+    case "git-sync":
+    case "reindex":
       return true;
     default:
       return false;
@@ -520,6 +709,22 @@ async function resolvedDirectory(directory: string): Promise<string> {
   const absolute = path.resolve(directory);
   return realpath(absolute).catch(() => absolute);
 }
+
+type NotRetriedKind = (typeof NOT_RETRIED_KINDS)[number];
+
+/**
+ * Why Retry refuses a rebuild or a sync (39b review, L6): a replay would
+ * carry the first run's reason ("index version changed (a → b)") long after
+ * it stopped being true, and a sync retried from the CLI would run without
+ * the editor's instance (its mutex, its mirrors, its notifications). Each
+ * has its own way to run now.
+ */
+const NOT_RETRIED_TEXT: Record<NotRetriedKind, string> = {
+  reindex:
+    "A rebuild is not retried: run a new one (recipes reindex, MCP reindex, or Rebuild on the editor's Git page).",
+  "git-sync":
+    "A sync is not retried: run a new one (Sync now on the editor's Git page, or POST /api/git/sync).",
+};
 
 /**
  * A recorded job's spec, ready to run again with **this caller's** context
@@ -552,6 +757,9 @@ export async function retrySpecFor(
     throw new UsageError(
       `Job ${meta.id} (${meta.kind}) cannot be run again: its record holds no spec this version knows.`,
     );
+  }
+  if ((NOT_RETRIED_KINDS as readonly string[]).includes(spec.kind)) {
+    throw new UsageError(NOT_RETRIED_TEXT[spec.kind as NotRetriedKind]);
   }
   if (!isCorpusSpec(spec)) return spec;
   const [recorded, here] = await Promise.all([

@@ -764,6 +764,25 @@ test.describe("JSON write API", () => {
       /* The `tag` vocabulary's records, appended to the registry at 24c. */
       "tag-terms",
     ]);
+    /* A `reindex` job since 39b (epic 39 D2): its id, and its per-type steps. */
+    const { job } = await reindexed.json();
+    expect(job).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+    const view = await (
+      await request.get(`/api/jobs/${job}`, { headers: auth() })
+    ).json();
+    expect(view.meta).toMatchObject({ kind: "reindex", status: "done" });
+    expect(
+      view.lines
+        .filter((line: { phase: string }) => line.phase === "end")
+        .map((line: { step: string }) => line.step)
+        .filter((step: string) => step.startsWith("reindex.")),
+    ).toEqual([
+      "reindex.recipes",
+      "reindex.featured-recipes",
+      "reindex.pages",
+      "reindex.groups",
+      "reindex.tag-terms",
+    ]);
 
     /* The body is optional, not unchecked: a malformed one is still a 400. */
     const malformed = await request.post("/api/reindex", {

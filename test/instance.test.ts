@@ -7,7 +7,7 @@
 // its mirror with no one asking).
 
 import { createServer, type Server } from "http";
-import { mkdtemp, outputFile, rm, writeFile } from "fs-extra";
+import { chmod, mkdtemp, outputFile, rm, writeFile } from "fs-extra";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,6 +18,7 @@ import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 import {
   readIndexFreshness,
   writeIndexedHead,
+  writeIndexVersion,
 } from "@discontent/cms/git/indexStamp";
 import {
   readSyncState,
@@ -28,7 +29,16 @@ import { watchRefs } from "@discontent/cms/git/watchRefs";
 import { recipeContentTypes } from "../websites/recipe-website/editor/controller/contentTypes";
 import { reindex } from "../websites/recipe-website/editor/controller/curation/reindex";
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
+import {
+  gitSync,
+  syncSshCommand,
+} from "../websites/recipe-website/editor/controller/curation/sync";
 import { changesOnlyUnindexed } from "../websites/recipe-website/editor/controller/curation/unindexed";
+import { currentIndexVersion } from "../websites/recipe-website/editor/controller/indexVersion";
+import {
+  getJobView,
+  listJobSummaries,
+} from "../websites/recipe-website/editor/controller/jobs/views";
 import { createSyncRunner } from "../websites/recipe-website/editor/controller/instance/runner";
 import { createCoalescedTask } from "../websites/recipe-website/editor/controller/instance/coalesce";
 import { sshTargetOf } from "../websites/recipe-website/editor/controller/instance/mirrors";
@@ -50,6 +60,7 @@ import {
   getInstance,
   reindexWhenForeign,
   startInstance,
+  syncMirror,
 } from "../websites/recipe-website/editor/controller/instance/start";
 
 /* ------------------------------------------------------------------ */
@@ -641,6 +652,55 @@ describe("the instance", () => {
     expect(freshness.stale).toBe(false);
   }, 45_000);
 
+  /*
+   * Epic 39 D1: indexes built by other code (a deploy that bumped a spec, or
+   * the first start after the stamp existed) are rebuilt once at start, as a
+   * `reindex` job (D2) — once, even with HEAD stale too, and not again.
+   */
+  it.each([
+    ["the version alone", false, "0123456789abcdef"],
+    ["the version and HEAD", true, "fedcba9876543210"],
+  ])(
+    "rebuilds once at start when %s is stale (39-D1)",
+    async (_name, headToo, stale) => {
+      const dir = await scratchDir("version-");
+      const repo = await initRepo(dir);
+      process.env.CONTENT_DIRECTORY = dir;
+      process.env.SETTINGS_DIRECTORY = await scratchDir("settings-");
+      process.env.TEST_MODE = "true";
+      process.env.INSTANCE_EVENTS = "on";
+      process.env.EDITOR_ROLE = "mirror";
+      process.env.EDITOR_INTERNAL_URL = "http://127.0.0.1:9";
+      await reindex({ contentDirectory: dir });
+      await writeIndexVersion(dir, stale);
+      if (headToo)
+        await shellCommit(repo, dir, "recipes/data/shell/recipe.json");
+      const version = currentIndexVersion();
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      const ours = async () =>
+        (await listJobSummaries({ kind: "reindex", limit: 300 })).jobs.filter(
+          (job) => job.label.includes(`index version changed (${stale}`),
+        );
+
+      await startInstance();
+      const fresh = await eventually(
+        () => readIndexFreshness(dir, { version }),
+        (value) => !value.versionStale && !value.stale,
+      );
+      expect(fresh).toMatchObject({ versionStale: false, stale: false });
+      expect(fresh.indexedVersion).toBe(version);
+      /* A second look after the watcher's debounce and the settle: still one. */
+      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      const jobs = await eventually(ours, (list) =>
+        list.every((job) => job.status === "done"),
+      );
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]).toMatchObject({ kind: "reindex", status: "done" });
+      info.mockRestore();
+    },
+    45_000,
+  );
+
   it("syncs a workstation commit to its mirror with no one asking (D4)", async () => {
     const dir = await scratchDir("workstation-");
     const repo = await initRepo(dir);
@@ -689,5 +749,107 @@ describe("the instance", () => {
     const state = (await readSyncState(dir)).uraninite;
     expect(["synced", "nothing"]).toContain(state?.outcome);
     expect(state?.consecutiveFailures).toBe(0);
+
+    /*
+     * Epic 39 D2: each sync was a `git-sync` job, and none here is worth a
+     * row (Db7 as amended, L2): the startup sync found nothing, and the one
+     * that pushed the commit merged nothing in.
+     */
+    /* A last run may still be finishing (its record goes after the state). */
+    const ours = async () => {
+      const listed = await listJobSummaries({ kind: "git-sync", limit: 300 });
+      const mine = [];
+      for (const job of listed.jobs) {
+        const view = await getJobView(job.id).catch(() => undefined);
+        const spec = view?.meta.spec as { contentDirectory?: string };
+        if (view && spec?.contentDirectory === dir) mine.push(view.meta);
+      }
+      return mine;
+    };
+    const syncs = await eventually(ours, (list) => list.length === 0);
+    expect(syncs).toEqual([]);
   }, 90_000);
+
+  /*
+   * 39b review, L1: a sync that loses the sync lock to another process's is
+   * `busy` — not a failed `internal` job — and leaves no record (L2); the
+   * winner records its own attempt in the sync state.
+   */
+  it("answers busy, recording nothing, when another process holds the sync lock", async () => {
+    const dir = await scratchDir("lock-race-");
+    const repo = await initRepo(dir);
+    process.env.CONTENT_DIRECTORY = dir;
+    const settings = await scratchDir("settings-");
+    process.env.SETTINGS_DIRECTORY = settings;
+    await writeFile(
+      join(settings, "settings.json"),
+      JSON.stringify({ mirrors: ["uraninite"] }),
+    );
+    delete process.env.EDITOR_ROLE;
+    const mirrorDir = await scratchDir("mirror-");
+    await simpleGit().clone(dir, mirrorDir, ["--bare"]);
+    await repo.addRemote("uraninite", mirrorDir);
+    await recordSyncAttempt(dir, { remote: "uraninite", outcome: "nothing" });
+    const before = await readSyncState(dir);
+
+    const result = await withRepoLock(dir, () =>
+      syncMirror(dir, "uraninite", ["manual"]),
+    );
+    expect(result).toMatchObject({
+      remote: "uraninite",
+      outcome: "busy",
+      pulled: 0,
+      pushed: 0,
+      steps: [{ step: "preflight", status: "skipped" }],
+    });
+    expect(result.message).toContain("is syncing this repository");
+    await expect(getJobView(result.job)).rejects.toMatchObject({
+      code: "not_found",
+    });
+    expect(await readSyncState(dir)).toEqual(before);
+  }, 30_000);
+});
+
+describe("a sync's network steps are bounded (39b review, M2)", () => {
+  it("cuts off a push that goes silent, as unreachable", async () => {
+    const dir = await scratchDir("silent-push-");
+    const repo = await initRepo(dir);
+    delete process.env.EDITOR_ROLE;
+    const mirrorDir = await scratchDir("mirror-");
+    await simpleGit().clone(dir, mirrorDir, ["--bare"]);
+    /* A receiving side that says nothing for longer than the cut-off. */
+    const hook = join(mirrorDir, "hooks", "pre-receive");
+    await outputFile(hook, "#!/bin/sh\nsleep 3\n");
+    await chmod(hook, 0o755);
+    await repo.addRemote("uraninite", mirrorDir);
+    await shellCommit(repo, dir, "recipes/data/naan/recipe.json");
+
+    const started = Date.now();
+    const result = await gitSync(
+      { contentDirectory: dir },
+      { remote: "uraninite", networkIdleMs: 300 },
+    );
+    expect(Date.now() - started).toBeLessThan(2_500);
+    expect(result.outcome).toBe("unreachable");
+    expect(result.steps.at(-1)).toMatchObject({
+      step: "push",
+      status: "failed",
+    });
+    expect(result.message).toContain("block timeout");
+  }, 30_000);
+
+  it("gives git's ssh keepalives unless the person chose their own ssh command", async () => {
+    const dir = await scratchDir("ssh-command-");
+    const repo = await initRepo(dir);
+    const ours = await syncSshCommand(repo, {});
+    expect(ours).toContain("ServerAliveInterval=15");
+    expect(ours).toContain("ServerAliveCountMax=4");
+    expect(ours).toContain("ConnectTimeout=10");
+    expect(
+      await syncSshCommand(repo, { GIT_SSH_COMMAND: "ssh -i key" }),
+    ).toBeUndefined();
+    expect(await syncSshCommand(repo, { GIT_SSH: "/bin/ssh" })).toBeUndefined();
+    await repo.addConfig("core.sshCommand", "ssh -F my-config");
+    expect(await syncSshCommand(repo, {})).toBeUndefined();
+  });
 });

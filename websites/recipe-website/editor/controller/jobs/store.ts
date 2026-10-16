@@ -109,6 +109,12 @@ export interface JobMeta {
   waiting?: JobWaiting;
   /** The job this one ran again (37c's Retry). */
   retryOf?: string;
+  /**
+   * `false` once the job is past the point a cancel may stop it (39b: a
+   * reindex's first atomic swap, `JobContext.beyondCancel`); absent while
+   * a cancel is still honoured.
+   */
+  cancellable?: false;
 }
 
 /** D1: how many jobs are kept, and for how long. */

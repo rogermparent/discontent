@@ -62,6 +62,8 @@ export interface JobSummary {
   error?: Pick<JobError, "code" | "message">;
   waiting?: JobMeta["waiting"];
   retryOf?: string;
+  /** `false` once a cancel is refused (39b: a reindex past its first swap). */
+  cancellable?: false;
   /** The process that runs (or ran) it. */
   pid: number;
   host: string;
@@ -101,7 +103,8 @@ export interface JobCancelResult {
   /**
    * `cancelled` (it ran here and is stopped), `requested` (another process
    * runs it and will see the request within a second), `ended` (it had
-   * already finished).
+   * already finished), `refused` (it is past the point a cancel may stop it
+   * — a reindex that has begun swapping — and runs to its end; 39b).
    */
   outcome: Exclude<CancelOutcome, "not_found">;
   status: JobStatus;
@@ -146,6 +149,7 @@ export function summarizeJob(meta: JobMeta, now = Date.now()): JobSummary {
       : {}),
     ...(meta.waiting ? { waiting: meta.waiting } : {}),
     ...(meta.retryOf ? { retryOf: meta.retryOf } : {}),
+    ...(meta.cancellable === false ? { cancellable: false as const } : {}),
     pid: meta.pid,
     host: meta.host,
   };
@@ -323,8 +327,13 @@ export async function queueOverview(
     queueSnapshot("ytdlp", queueDir),
     queueSnapshots(queueDir),
   ]);
+  /* Each site's and each repository's line (39b) with a holder or waiters. */
   const sites = active
-    .filter((snapshot) => snapshot.resource.startsWith("site:"))
+    .filter(
+      (snapshot) =>
+        snapshot.resource.startsWith("site:") ||
+        snapshot.resource.startsWith("repo:"),
+    )
     .sort((a, b) => a.resource.localeCompare(b.resource));
   const metas = new Map<string, JobMeta | undefined>();
   const metaOf = async (id: string | undefined) => {

@@ -13,7 +13,10 @@ import type { UploadSpec } from "@discontent/cms/content/types";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { directoryIsGitRepo } from "@discontent/cms/git/commit";
 import { withWriteLock } from "@discontent/cms/git/writeLock";
-import { writeIndexedHead } from "@discontent/cms/git/indexStamp";
+import {
+  writeIndexedHead,
+  writeIndexVersion,
+} from "@discontent/cms/git/indexStamp";
 import { writeFile } from "fs-extra";
 import { revalidatePath } from "next/cache";
 import { join } from "node:path";
@@ -34,8 +37,8 @@ import { z } from "zod";
 import parseRecipeFormData, { ParsedRecipeFormData } from "../parseFormData";
 import { recipeContentTypes } from "../contentTypes";
 import { ImportError } from "../curation/errors";
-import { reindex } from "../curation/reindex";
 import { fetchImageFilePaced } from "../imageImport";
+import { currentIndexVersion } from "../indexVersion";
 import type { EditorContentConfig } from "@discontent/cms/content/editorContentConfig";
 import { createGenericActions } from "@discontent/cms/content/genericActions";
 import { authenticateUser } from "./shared";
@@ -403,9 +406,20 @@ export async function rebuildRecipeIndex() {
  * records left those indexes describing the old tree (`agent-epic-27.md` D2).
  * The loop is `reindex`'s all-types pass, which also stamps the HEAD it
  * indexed — the stamp the stale-index banner reads.
+ *
+ * A `reindex` job since epic 39 (D2), so `/jobs` shows it with its per-type
+ * steps. Called inside the write lock by the `/git` page's pull, merge and
+ * checkout, it runs in that scope and skips the repository's line
+ * (`jobs/repo.ts`: waiting there for a sync that waits for the lock would
+ * be a deadlock).
  */
 export async function rebuildAllIndexes() {
-  await reindex({ contentDirectory: getContentDirectory() });
+  const { runSpec } = await import("../jobs/kinds");
+  await runSpec({
+    kind: "reindex",
+    contentDirectory: getContentDirectory(),
+    trigger: "editor",
+  });
   /* One call over the whole registry: everything moved, so everything expires. */
   revalidateDerivedState(recipeContentTypes);
 }
@@ -624,9 +638,11 @@ export async function initializeContentGit() {
     /*
      * The indexes already described these files before there was a
      * repository; the first commit names them, so stamp it (27b) rather than
-     * greet a freshly initialized repo with the stale-index banner.
+     * greet a freshly initialized repo with the stale-index banner — and the
+     * index version (epic 39, D1): this process's code built them.
      */
     await writeIndexedHead(contentDirectory);
+    await writeIndexVersion(contentDirectory, currentIndexVersion());
   }
   revalidatePath("/git");
 }

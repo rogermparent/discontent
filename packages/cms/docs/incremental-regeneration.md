@@ -2928,6 +2928,11 @@ site. One flattener, two consumers, one fix.
 > one of them the index goes on serving the old projection with every test green. A derived kind
 > with no hash is a derived kind whose staleness is invisible.
 >
+> _(Recipe-website epic 39, D1: a content type may now declare `indexVersion`, and
+> `computeIndexVersion(registry)` in `git/indexStamp.ts` folds it with every pagination and
+> aggregate spec hash into `.git/discontent-index-version`. A live editor whose recorded version
+> differs rebuilds every index once at its next start; fixtures still need the script.)_
+>
 > **It costs 81 KiB on the unconditional page-load path**, which is the honest price of a field
 > that was supposed to be there. Measured in §12.9.
 

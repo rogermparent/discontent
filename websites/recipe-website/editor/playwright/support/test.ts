@@ -34,6 +34,8 @@ type Fixtures = {
   pushClone: (cloneDir: string) => Promise<void>;
   pushIntoContent: (slug: string, name: string) => Promise<void>;
   getRemoteLog: (remoteUrl: string) => Promise<string[]>;
+  /** As if older code had built the indexes (epic 39, D1). */
+  writeContentIndexVersion: (version: string) => Promise<void>;
 };
 
 export const test = base.extend<Fixtures>({
@@ -116,6 +118,10 @@ export const test = base.extend<Fixtures>({
    * point is that the editor is not told, and the stale-index banner is how
    * it finds out (27b).
    */
+  /* Read per request (`gitStatus`, the banner): nothing cached to expire. */
+  writeContentIndexVersion: async ({}, use) => {
+    await use(tasks.writeContentIndexVersion);
+  },
   pushIntoContent: async ({}, use) => {
     await use(tasks.pushIntoContent);
   },

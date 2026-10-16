@@ -145,10 +145,16 @@ export async function requestCancel(id: string): Promise<string | undefined> {
     const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/cancel`, {
       method: "POST",
     });
-    if (response.ok) return undefined;
     const body = (await response.json().catch(() => null)) as {
+      outcome?: string;
       error?: { message?: string };
     } | null;
+    if (response.ok) {
+      /* 39b: a reindex past its first swap runs to its end. */
+      return body?.outcome === "refused"
+        ? "This job is past the point a cancel can stop it; it runs to its end."
+        : undefined;
+    }
     return body?.error?.message ?? `The editor answered ${response.status}`;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
