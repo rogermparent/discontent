@@ -3,7 +3,7 @@ import type { AddressInfo } from "net";
 import type { APIRequestContext, Page } from "@playwright/test";
 import { test, expect } from "../support/test";
 import { fillSignInForm, markdownEditorReady } from "../support/helpers";
-import { fixturePath } from "../support/tasks";
+import { fixturePath, recordOutsideJob } from "../support/tasks";
 import { standInChat } from "../fixtures/llm/standInModel";
 
 /*
@@ -283,6 +283,55 @@ test.describe("Import jobs", () => {
     ).toHaveAttribute("href", `/new-recipe?job=${job}`);
     await page.getByText(/^Raw log \(\d+ lines\)$/).click();
     await expect(page.getByTestId("job-raw-log")).toContainText('"step":"job"');
+  });
+
+  test("an idle /jobs shows another process's job by itself, and rests while the tab is hidden (38b)", async ({
+    page,
+  }) => {
+    await page.goto("/jobs");
+    await expect(
+      page.getByRole("heading", { name: "Jobs", exact: true }),
+    ).toBeVisible();
+    let reads = 0;
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/api/jobs") reads += 1;
+    });
+    const setHidden = (hidden: boolean) =>
+      page.evaluate((value) => {
+        Object.defineProperty(document, "hidden", {
+          configurable: true,
+          get: () => value,
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      }, hidden);
+
+    /* Hidden: a job recorded meanwhile is not read for, past the idle 10 s. */
+    await setHidden(true);
+    const first = `outside job ${Date.now()}`;
+    await recordOutsideJob(first);
+    const before = reads;
+    await page.waitForTimeout(11_000);
+    expect(reads).toBe(before);
+    await expect(
+      page.getByRole("link", { name: first, exact: true }),
+    ).toHaveCount(0);
+
+    /* Shown again: read at once. */
+    await setHidden(false);
+    await expect(
+      page.getByRole("link", { name: first, exact: true }),
+    ).toBeVisible({
+      timeout: 3_000,
+    });
+
+    /* Idle and shown: the next one within the idle interval, no Refresh. */
+    const second = `outside job ${Date.now()} again`;
+    await recordOutsideJob(second);
+    await expect(
+      page.getByRole("link", { name: second, exact: true }),
+    ).toBeVisible({
+      timeout: 12_000,
+    });
   });
 
   test("Cancel stops a long import: from the panel, and from its page", async ({

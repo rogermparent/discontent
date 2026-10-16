@@ -274,6 +274,12 @@ export async function runJob<T>(
 export interface StartedJob<T> {
   /** Its id: the meta is written, so `/api/jobs/<id>` answers at once. */
   job: string;
+  /**
+   * Whether its record was written. False when the store could not be
+   * (37-T6): the job runs anyway, but nothing answers for its id — a caller
+   * that would have followed it must await `done` instead (38b review).
+   */
+  stored: boolean;
   /** Its outcome, as `runJob` answers it. */
   done: Promise<JobOutcome<T>>;
 }
@@ -468,5 +474,5 @@ export async function startJob<T>(
         await rm(cancelPath(dir, id), { force: true }).catch(() => {});
     }
   })();
-  return { job: id, done };
+  return { job: id, stored, done };
 }

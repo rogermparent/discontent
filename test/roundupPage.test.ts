@@ -14,6 +14,7 @@ import {
   isPrivateHost,
   nameFromUrl,
   parseRoundupPage,
+  paceKey,
   siteKey,
   sourceUrlKey,
 } from "../websites/recipe-website/common/util/roundupPage";
@@ -56,6 +57,30 @@ describe("URL helpers", () => {
     expect(siteKey("http://127.0.0.1:4001/a")).toBe("127.0.0.1:4001");
     expect(siteKey("http://127.0.0.1:4002/a")).toBe("127.0.0.1:4002");
     expect(siteKey("http://localhost:3019/a")).toBe("localhost:3019");
+  });
+
+  it("paces and drops by host (38b review): a .co.uk site and a CDN are their own", () => {
+    /* `siteKey` lumps both; `paceKey` keeps them apart. */
+    expect(siteKey("https://www.bbcgoodfood.co.uk/r/")).toBe("co.uk");
+    expect(paceKey("https://www.bbcgoodfood.co.uk/r/")).toBe(
+      "bbcgoodfood.co.uk",
+    );
+    expect(paceKey("https://www.deliciousmagazine.co.uk/r/")).toBe(
+      "deliciousmagazine.co.uk",
+    );
+    expect(paceKey("https://i0.wp.com/example.com/a.jpg")).toBe("i0.wp.com");
+    expect(paceKey("https://i1.wp.com/other.org/b.jpg")).toBe("i1.wp.com");
+    expect(paceKey("https://d1abc.cloudfront.net/x.jpg")).toBe(
+      "d1abc.cloudfront.net",
+    );
+    /* `www.` is the same server; any other label is a host of its own. */
+    expect(paceKey("https://WWW.Example.com/a/")).toBe("example.com");
+    expect(paceKey("https://example.com/a/")).toBe("example.com");
+    expect(paceKey("https://cdn.example.com/a.jpg")).toBe("cdn.example.com");
+    expect(paceKey("https://www.com/")).toBe("www.com");
+    expect(paceKey("http://127.0.0.1:4001/a")).toBe("127.0.0.1:4001");
+    expect(paceKey("http://localhost:3019/a")).toBe("localhost:3019");
+    expect(paceKey("not a url")).toBeUndefined();
   });
 
   it("names a page from its URL when nothing else does", () => {

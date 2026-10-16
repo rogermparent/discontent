@@ -251,7 +251,7 @@ async function fetchListPage(
     throw new ImportError(`Could not fetch ${url}: ${describe(error)}`);
   }
   if (page.status === 403) {
-    pacer.drop(url, `refused (HTTP 403) at ${url}`);
+    await pacer.drop(url, `refused (HTTP 403) at ${url}`);
     throw new ImportError(
       `${url} answered 403 twice — its site is dropped for an hour.`,
     );
@@ -585,7 +585,7 @@ async function importItem(
     (fetched) => fetched.finalUrl,
   );
   if (page.status === 403) {
-    pacer.drop(item.url, `refused (HTTP 403) at ${item.url}`);
+    await pacer.drop(item.url, `refused (HTTP 403) at ${item.url}`);
     throw new ImportError(`${item.url} answered 403 twice.`);
   }
   /* Relative image URLs resolve against where the page ended up. */
@@ -651,8 +651,11 @@ async function importItem(
   let file: File | undefined;
   if (imageUrl) {
     try {
-      file = await pacer.request(imageUrl, (retry) =>
-        fetchImageFile(imageUrl, { retry, job }),
+      file = await pacer.request(
+        imageUrl,
+        (retry) => fetchImageFile(imageUrl, { retry, job }),
+        undefined,
+        { image: true },
       );
     } catch (error) {
       /* A cancel is the job's, not a picture to do without (T10). */
@@ -809,7 +812,7 @@ export async function importList(
       });
       continue;
     }
-    if (attempted >= limit || pacer.droppedReason(item.url)) {
+    if (attempted >= limit || (await pacer.droppedReason(item.url))) {
       remaining.push({ n: item.n, url: item.url });
       continue;
     }

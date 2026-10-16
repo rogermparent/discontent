@@ -25,8 +25,25 @@
  *
  * Answers are plain objects — an error is `{error: {code, message}}`, never a
  * throw — because the client keeps looping and needs to know why it stopped.
+ *
+ * **Each call is two (38b): start, then read the answer.** The start action
+ * enqueues the chunk's job (`inspect-list` / `import-list`) and answers its
+ * id at once; the picker follows the job's steps live (`useJobPoll`, as the
+ * form's import panel does) and, once it ends, asks the result action for
+ * the answer — read back from the job's record, so a chunk's outcome is
+ * the one the job recorded, whoever looks. A failed, cancelled or
+ * interrupted job answers its error. The job's writes outlive the start
+ * action's answer, so their revalidation is handed to `after()` (37-T26).
+ *
+ * **Without a job store** (37-T6: the jobs dir cannot be written) the job
+ * runs with no record, and its id would answer 404 to the picker's poll —
+ * read as the end, so a run would stop while its chunk went on importing,
+ * and Resume would import the same picks again. So when the record was not
+ * written, the start action awaits the job and answers inline (`answer`),
+ * as it did before 38b; the picker then has nothing to follow.
  */
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
+import { after } from "next/server";
 import { z } from "zod";
 import { curationContextFor } from "recipe-editor/controller/apiContext";
 import {
@@ -36,11 +53,13 @@ import {
   type ErrorObject,
 } from "recipe-editor/controller/curation/errors";
 import {
+  type ImportListResult,
   type ImportListTermResult,
   type InspectListResult,
 } from "recipe-editor/controller/curation/importList";
 import { parseInput } from "recipe-editor/controller/curation/schema";
-import { corpusOf, runSpec } from "recipe-editor/controller/jobs/kinds";
+import { corpusOf, startSpec } from "recipe-editor/controller/jobs/kinds";
+import { getJobView } from "recipe-editor/controller/jobs/views";
 import { listTerms } from "recipe-editor/controller/curation/terms";
 import {
   ROUNDUP_CHUNK,
@@ -65,22 +84,78 @@ function failure(error: unknown): Failure {
   return { error: toErrorObject(error).error };
 }
 
-/** The list, with `existing` marked; nothing written. */
+/** A started chunk: the job to follow. */
+export interface RoundupJobStarted {
+  job: string;
+}
+
+/** A chunk answered inline: the job had no record to follow (no store). */
+export interface RoundupJobAnswered<T> {
+  job: string;
+  answer: T;
+}
+
+/**
+ * The record of a job this picker started, once it has ended: its result,
+ * or its error as the answer's (`job` naming it). `kind` guards against an
+ * id of some other job (a stale tab, a typo'd address).
+ */
+async function endedResult<T>(
+  job: string,
+  kind: string,
+): Promise<{ result: T & { job: string } } | Failure> {
+  if (typeof job !== "string" || !job.trim()) {
+    throw new ValidationError("No job given.");
+  }
+  const { meta, live } = await getJobView(job.trim());
+  if (meta.kind !== kind) {
+    throw new ValidationError(`Job ${meta.id} is a ${meta.kind} job.`);
+  }
+  if (live) throw new ValidationError(`Job ${meta.id} is still running.`);
+  if (meta.status !== "done") {
+    const error = meta.error ?? {
+      code: "import_failed",
+      message: `Job ${meta.id} ended ${meta.status}.`,
+    };
+    return {
+      error: { ...error, job: meta.id } as Failure["error"],
+    };
+  }
+  return { result: { ...(meta.result as T), job: meta.id } };
+}
+
+/** Start listing the roundup (an `inspect-list` job); nothing written. */
 export async function inspectRoundupAction(
   url: string,
-): Promise<{ result: InspectListResult } | Failure> {
+): Promise<
+  | RoundupJobStarted
+  | RoundupJobAnswered<{ result: InspectListResult }>
+  | Failure
+> {
   try {
     const ctx = await context();
     if (typeof url !== "string" || !url.trim()) {
       throw new ValidationError("Paste the roundup's URL.");
     }
-    /* A job (epic 37): the result carries its `job` id. */
-    return {
-      result: await runSpec(
-        { kind: "inspect-list", ...corpusOf(ctx), url: url.trim() },
-        { ctx },
-      ),
-    };
+    const { job, stored, done } = await startSpec(
+      { kind: "inspect-list", ...corpusOf(ctx), url: url.trim() },
+      { ctx },
+    );
+    /* No record to follow: wait for the job here (a failure is thrown). */
+    if (!stored) return { job, answer: { result: await done } };
+    return { job };
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+/** The list, with `existing` marked: an ended `inspect-list` job's result. */
+export async function inspectRoundupResult(
+  job: string,
+): Promise<{ result: InspectListResult } | Failure> {
+  try {
+    await context();
+    return await endedResult<InspectListResult>(job, "inspect-list");
   } catch (error) {
     return failure(error);
   }
@@ -104,6 +179,9 @@ const RoundupImportInputSchema = z.strictObject({
 
 export type RoundupImportInput = z.input<typeof RoundupImportInputSchema>;
 
+/** The picks a chunk was started with, to read its answer against. */
+const RoundupPicksSchema = RoundupImportInputSchema.shape.picks;
+
 export interface RoundupImportAnswer {
   outcomes: RoundupOutcome[];
   /** Picks to put back at the front of the queue. */
@@ -114,10 +192,15 @@ export interface RoundupImportAnswer {
   warnings?: string[];
 }
 
-/** Import up to `ROUNDUP_CHUNK` picks, one commit each, then the term. */
+/**
+ * Start importing up to `ROUNDUP_CHUNK` picks, one commit each, then the
+ * term: an `import-list` job, one per chunk.
+ */
 export async function importRoundupAction(
   raw: RoundupImportInput,
-): Promise<RoundupImportAnswer | Failure> {
+): Promise<
+  RoundupJobStarted | RoundupJobAnswered<RoundupImportAnswer> | Failure
+> {
   try {
     const ctx = await context();
     const input = parseInput(RoundupImportInputSchema, raw);
@@ -125,8 +208,7 @@ export async function importRoundupAction(
       ? resolveTermSlug((await listTerms(ctx)).terms, input.term)
       : undefined;
     const termLabel = (term && input.termLabel) || undefined;
-    /* A job (epic 37), one per chunk. */
-    const result = await runSpec(
+    const { job, stored, done } = await startSpec(
       {
         kind: "import-list",
         ...corpusOf(ctx),
@@ -141,18 +223,54 @@ export async function importRoundupAction(
       },
       { ctx },
     );
-    const settled = settleChunk(input.picks, result);
-    const warnings = [
-      ...(result.warnings ?? []),
-      ...(result.term?.warnings ?? []),
-      ...(result.term?.error ? [result.term.error.message] : []),
-    ];
-    return {
-      ...settled,
-      ...(result.term ? { term: result.term } : {}),
-      ...(warnings.length ? { warnings } : {}),
-    };
+    /* No record to follow: wait for the job here, its writes included. */
+    if (!stored) {
+      return { job, answer: chunkAnswer(input.picks, await done) };
+    }
+    /* The writes land after this answer: their revalidation runs when the
+     * job ends (37-T26). The job records its own failure. */
+    after(() =>
+      done.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return { job };
   } catch (error) {
     return failure(error);
   }
+}
+
+/** What an ended chunk's job means for each of its picks. */
+export async function importRoundupResult(
+  job: string,
+  picks: RoundupImportInput["picks"],
+): Promise<RoundupImportAnswer | Failure> {
+  try {
+    await context();
+    const chunk = parseInput(RoundupPicksSchema, picks);
+    const ended = await endedResult<ImportListResult>(job, "import-list");
+    if ("error" in ended) return ended;
+    return chunkAnswer(chunk, ended.result);
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+/** A chunk's picks against its job's result: the picker's answer. */
+function chunkAnswer(
+  chunk: RoundupPick[],
+  result: ImportListResult,
+): RoundupImportAnswer {
+  const settled = settleChunk(chunk, result);
+  const warnings = [
+    ...(result.warnings ?? []),
+    ...(result.term?.warnings ?? []),
+    ...(result.term?.error ? [result.term.error.message] : []),
+  ];
+  return {
+    ...settled,
+    ...(result.term ? { term: result.term } : {}),
+    ...(warnings.length ? { warnings } : {}),
+  };
 }

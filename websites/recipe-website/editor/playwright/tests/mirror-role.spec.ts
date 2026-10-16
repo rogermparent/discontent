@@ -27,7 +27,7 @@ test.describe("Mirror role", () => {
     await setRole(request, "workstation");
   });
 
-  test("settings nav leaves out Export and Tools and says it is a mirror", async ({
+  test("settings nav leaves out Export and Tools, keeps Jobs, and says it is a mirror", async ({
     page,
     resetData,
   }) => {
@@ -46,12 +46,23 @@ test.describe("Mirror role", () => {
       "Navigation",
       "Pages",
       "Content Sync",
+      /* 38b: a mirror's imports are jobs too. */
+      "Jobs",
       "Maintenance",
     ]) {
       await expect(sidebar.getByRole("link", { name })).toBeVisible();
     }
     await expect(sidebar.getByRole("link", { name: "Export" })).toHaveCount(0);
     await expect(sidebar.getByRole("link", { name: "Tools" })).toHaveCount(0);
+
+    await sidebar.getByRole("link", { name: "Jobs", exact: true }).click();
+    await expect(page).toHaveURL(/\/jobs$/);
+    await expect(
+      page.getByRole("heading", { name: "Jobs", exact: true }),
+    ).toBeVisible();
+    await expect(
+      sidebar.getByRole("link", { name: "Jobs", exact: true }),
+    ).toHaveAttribute("aria-current", "page");
   });
 
   test("the Export page explains, without buttons", async ({

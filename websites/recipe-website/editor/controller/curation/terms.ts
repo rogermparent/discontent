@@ -100,7 +100,7 @@ import type {
 } from "recipe-website-common/controller/types";
 import {
   checkImageFile,
-  fetchImageFile,
+  fetchImageFilePaced,
   largeImageWarning,
 } from "../imageImport";
 import { withBatchCommit, countsTail } from "./batch";
@@ -1112,7 +1112,8 @@ async function termImageFile(
     }
   } else if (imageImportUrl) {
     url = imageImportUrl;
-    file = await fetchImageFile(url);
+    /* Before the write and its lock, on the site's queue (38b, Tb1). */
+    file = await fetchImageFilePaced(url);
   }
   const warning = file && largeImageWarning(file.size, url);
   return { file, ...(warning ? { warning } : {}) };

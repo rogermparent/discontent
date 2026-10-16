@@ -4,15 +4,25 @@
  *
  * - **One queue per site.** A request to a site waits for the one before it
  *   to finish, then for 15 s after it ended, then runs. The queue is per
- *   process and per `siteKey` (`cdn.example.com` paces with
- *   `www.example.com`), so two calls at once — two `page_inspect_list`s, a
+ *   process and per `paceKey` — the host, less `www.` (38b review, Db6:
+ *   `cdn.example.com` has its own; `example.co.uk` and `i0.wp.com` are not
+ *   lumped with every other `.co.uk` or `wp.com` host) — so two calls at once — two `page_inspect_list`s, a
  *   client that retried `/api/import-list` after its own timeout, a
  *   `recipe_import` right after a list call — are spaced against each other,
  *   not just within themselves. A 403 retry holds the queue: it waits the gap
- *   and counts as a request.
- * - **A site that refuses twice is dropped** for an hour, process-wide: the
- *   retry also answered 403, or failed outright. A 403 whose retry succeeded
- *   drops nothing, whatever the caller then thinks of the body.
+ *   and counts as a request. **The line honours tiers** (38b), as the shared
+ *   one does: an `interactive` request (the form, the API, MCP) goes ahead
+ *   of every queued `batch` one (a roundup's), first come first served
+ *   within a tier.
+ * - **A site that refuses twice is dropped** for an hour: the retry also
+ *   answered 403, or failed outright. A 403 whose retry succeeded drops
+ *   nothing, whatever the caller then thinks of the body. **An image never
+ *   drops a site** (`{image: true}`, 38b review, Db7): a hotlink guard
+ *   refusing a picture says nothing about the pages — often on the same
+ *   host — so a refused image is only that image, done without. On the real clock
+ *   the drop is the machine's (38b): written beside the site's slot in the
+ *   global queue (`writeSiteDrop`), so the CLI, the stdio MCP server and the
+ *   editor stop asking a site that refused any one of them.
  * - **Loopback is not paced** (`127.x`, `::1`, `localhost`): a fixture server
  *   is not a site to be polite to. The vitest suite asks for pacing anyway
  *   (`paceLoopback`) with a fake clock, and `RECIPE_POLITE_GAP_MS` sets the
@@ -25,8 +35,8 @@
  *
  * In a job (epic 37) a wait is a `pace.wait` step, and the job's signal
  * ends a wait — in the queue or for the gap — with the abort's reason; a
- * request given up while queued still holds its place until the one before
- * it finishes, so the queue's order is unchanged.
+ * request given up while queued leaves the line, and the rest keep their
+ * order.
  *
  * **Across processes (37b, D4).** On the real clock (`realPacing`, which
  * every seat uses) a request also holds the global queue's `site:<site>`
@@ -36,16 +46,25 @@
  * `queue.wait` step. The per-process queue and clock above stay: they keep
  * this process's order and the 403 retry's gap (inside the held slot), and
  * they are all a fake clock (`Pacing` without `shared`) uses. Loopback is
- * never queued, as it is never paced. Dropped sites stay per process.
+ * never queued, as it is never paced. A fake clock's dropped sites stay
+ * in its `SiteState`.
  */
 import type { ForbiddenRetry } from "recipe-website-common/util/importRecipeData";
-import { siteKey } from "recipe-website-common/util/roundupPage";
-import { jobContext, type JobContext, type JobRun } from "../jobs/context";
+import { paceKey } from "recipe-website-common/util/roundupPage";
+import {
+  jobContext,
+  type JobContext,
+  type JobRun,
+  type JobTier,
+} from "../jobs/context";
 import {
   acquire,
+  readSiteDrop,
   siteResource,
   touchResource,
+  writeSiteDrop,
   type ResourceGrant,
+  type SiteDrop,
 } from "../jobs/queue";
 import { ImportError } from "./errors";
 
@@ -75,44 +94,82 @@ function untilAborted<T>(
 /** 30-D5: the least time between two requests to one site. */
 export const POLITE_GAP_MS = 15_000;
 
-/** How long a site that refused twice stays dropped, process-wide. */
+/** How long a site that refused twice stays dropped (machine-wide, 38b). */
 export const DROP_MS = 60 * 60 * 1000;
+
+const TIER_RANK: Record<JobTier, number> = { interactive: 0, batch: 1 };
+
+/** One site's line in this process, while a request to it runs: who waits. */
+interface SiteLine {
+  waiters: { tier: JobTier; grant: () => void }[];
+}
 
 /** Per-process queues, clocks and dropped sites. */
 export class SiteState {
   readonly lastEnd = new Map<string, number>();
-  readonly droppedUntil = new Map<string, { until: number; reason: string }>();
-  private readonly tails = new Map<string, Promise<void>>();
+  readonly droppedUntil = new Map<string, SiteDrop>();
+  /** A site is here while a request to it runs; its waiters, in grant order. */
+  private readonly lines = new Map<string, SiteLine>();
 
   /** Another request to the site is queued or running: an `acquire` would wait. */
   busy(site: string): boolean {
-    return this.tails.has(site);
+    return this.lines.has(site);
   }
 
   /**
-   * Wait for the site's queue; the returned function releases it. An abort
-   * while waiting rejects, and the place is released when its turn comes.
+   * Wait for the site's queue; the returned function releases it. Waiters
+   * are granted by tier, then in order (38b): an `interactive` one goes
+   * ahead of every `batch` one still waiting. An abort while waiting
+   * rejects and leaves the line.
    */
-  async acquire(site: string, signal?: AbortSignal): Promise<() => void> {
-    const previous = this.tails.get(site) ?? Promise.resolve();
-    let release!: () => void;
-    const mine = new Promise<void>((resolve) => {
-      release = resolve;
+  async acquire(
+    site: string,
+    signal?: AbortSignal,
+    tier: JobTier = "interactive",
+  ): Promise<() => void> {
+    signal?.throwIfAborted();
+    const line = this.lines.get(site);
+    if (!line) {
+      const fresh: SiteLine = { waiters: [] };
+      this.lines.set(site, fresh);
+      return this.releaser(site, fresh);
+    }
+    let grant!: () => void;
+    const granted = new Promise<void>((resolve) => {
+      grant = resolve;
     });
-    const tail = previous.then(() => mine);
-    this.tails.set(site, tail);
-    const done = () => {
-      release();
-      /* Forget an idle queue, so the map holds only busy sites. */
-      if (this.tails.get(site) === tail) this.tails.delete(site);
-    };
+    const waiter = { tier, grant };
+    /* After every waiter of this tier or a better one. */
+    const at = line.waiters.findIndex(
+      (other) => TIER_RANK[other.tier] > TIER_RANK[tier],
+    );
+    if (at < 0) line.waiters.push(waiter);
+    else line.waiters.splice(at, 0, waiter);
     try {
-      await untilAborted(previous, signal);
+      await untilAborted(granted, signal);
     } catch (error) {
-      void previous.then(done);
+      const index = line.waiters.indexOf(waiter);
+      if (index >= 0) {
+        line.waiters.splice(index, 1);
+      } else {
+        /* Granted in the same instant as the abort: hand it on. */
+        this.releaser(site, line)();
+      }
       throw error;
     }
-    return done;
+    return this.releaser(site, line);
+  }
+
+  /** Let go of the site: the next waiter runs, or the line is forgotten. */
+  private releaser(site: string, line: SiteLine): () => void {
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const next = line.waiters.shift();
+      if (next) next.grant();
+      else if (this.lines.get(site) === line) this.lines.delete(site);
+    };
   }
 }
 
@@ -178,6 +235,12 @@ export function isLoopback(url: string): boolean {
   return IPV4.test(host) && host.startsWith("127.");
 }
 
+/** How one request is made (`SitePacer#request`). */
+export interface RequestOptions {
+  /** A picture's download or probe: paced, but it never drops the site. */
+  image?: boolean;
+}
+
 /** Thrown before a request to a dropped site; nothing was fetched. */
 export class SiteDroppedError extends ImportError {}
 
@@ -205,13 +268,21 @@ export class SitePacer {
   }
 
   site(url: string): string {
-    return siteKey(url) ?? url;
+    return paceKey(url) ?? url;
   }
 
-  /** The reason `url`'s site is dropped, if it is (and notes it). */
-  droppedReason(url: string): string | undefined {
+  /**
+   * The reason `url`'s site is dropped, if it is (and notes it): this
+   * process's drop, else — on the real clock — the machine's (38b), which
+   * another process may have written.
+   */
+  async droppedReason(url: string): Promise<string | undefined> {
     const site = this.site(url);
-    const entry = this.state.droppedUntil.get(site);
+    let entry = this.state.droppedUntil.get(site);
+    if (!entry && this.shared(url)) {
+      entry = await readSiteDrop(siteResource(site)).catch(() => undefined);
+      if (entry) this.state.droppedUntil.set(site, entry);
+    }
     if (!entry) return undefined;
     if (entry.until <= this.pacing.now()) {
       this.state.droppedUntil.delete(site);
@@ -221,7 +292,8 @@ export class SitePacer {
     return entry.reason;
   }
 
-  drop(url: string, reason: string): void {
+  /** Drop `url`'s site for `DROP_MS`: here, and for the machine (38b). */
+  async drop(url: string, reason: string): Promise<void> {
     const site = this.site(url);
     if (!this.state.droppedUntil.has(site)) {
       this.state.droppedUntil.set(site, {
@@ -229,7 +301,12 @@ export class SitePacer {
         reason,
       });
     }
-    this.dropped.set(site, this.state.droppedUntil.get(site)!.reason);
+    const entry = this.state.droppedUntil.get(site)!;
+    this.dropped.set(site, entry.reason);
+    if (this.shared(url)) {
+      /* The machine's copy is a courtesy: this process has its own. */
+      await writeSiteDrop(siteResource(site), entry).catch(() => undefined);
+    }
   }
 
   private gap(url: string): number {
@@ -267,27 +344,31 @@ export class SitePacer {
   /**
    * Run one request (and its 403 retry) in the site's queue. `run` gets the
    * `ForbiddenRetry` to hand `fetchRetrying403`; `finalUrlOf` names where the
-   * request ended up, so a redirect's site is clocked too.
+   * request ended up, so a redirect's site is clocked too. `image`: a
+   * picture's download or probe, which waits like any request but never
+   * drops the site (Db7).
    */
   async request<T>(
     url: string,
     run: (retry: ForbiddenRetry) => Promise<T>,
     finalUrlOf?: (value: T) => string | undefined,
+    { image = false }: RequestOptions = {},
   ): Promise<T> {
     const site = this.site(url);
     const { log, signal } = this.job;
     signal?.throwIfAborted();
+    const { tier } = this.job;
     const release = this.state.busy(site)
       ? await log.step("pace.wait", { site, queued: true }, () =>
-          this.state.acquire(site, signal),
+          this.state.acquire(site, signal, tier),
         )
-      : await this.state.acquire(site, signal);
+      : await this.state.acquire(site, signal, tier);
     let forbidden = false;
     let retryStatus: number | undefined;
     let started = false;
     let slot: ResourceGrant | undefined;
     try {
-      const reason = this.droppedReason(url);
+      const reason = await this.droppedReason(url);
       if (reason) {
         throw new SiteDroppedError(`${site} is dropped for now: ${reason}`);
       }
@@ -297,6 +378,11 @@ export class SitePacer {
           ...this.job,
           gapMs: this.gap(url),
         });
+        /* Another process may have been refused while this one waited. */
+        const late = await this.droppedReason(url);
+        if (late) {
+          throw new SiteDroppedError(`${site} is dropped for now: ${late}`);
+        }
       }
       await this.waitGap(url);
       started = true;
@@ -321,15 +407,16 @@ export class SitePacer {
          * refused nothing then. */
         if (
           forbidden &&
+          !image &&
           !signal?.aborted &&
           (retryStatus === 403 || retryStatus === undefined)
         ) {
-          this.drop(url, `refused twice (HTTP 403) at ${url}`);
+          await this.drop(url, `refused twice (HTTP 403) at ${url}`);
         }
         throw error;
       }
-      if (forbidden && retryStatus === 403) {
-        this.drop(url, `refused twice (HTTP 403) at ${url}`);
+      if (forbidden && !image && retryStatus === 403) {
+        await this.drop(url, `refused twice (HTTP 403) at ${url}`);
       }
       const finalUrl = finalUrlOf?.(value);
       if (finalUrl && URL.canParse(finalUrl) && this.site(finalUrl) !== site) {
@@ -370,6 +457,12 @@ export function pacedRequest<T>(
   run: (retry: ForbiddenRetry) => Promise<T>,
   finalUrlOf?: (value: T) => string | undefined,
   job?: JobRun,
+  options?: RequestOptions,
 ): Promise<T> {
-  return new SitePacer(realPacing(), job).request(url, run, finalUrlOf);
+  return new SitePacer(realPacing(), job).request(
+    url,
+    run,
+    finalUrlOf,
+    options,
+  );
 }

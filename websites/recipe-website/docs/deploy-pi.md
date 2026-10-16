@@ -56,6 +56,7 @@ repo copies are the ones to edit. On the Pi:
   run.sh  swap-index.sh
   .env            AUTH_SECRET, WORKSTATION_URL, WORKSTATION_SYNC_TOKEN (600)
   settings/       SETTINGS_DIRECTORY, seeded from the old checkout, minus ytdlpPath
+  jobs/           the import jobs and the queue's state, mounted at /jobs (38b)
   deployed.log    "<date> <tag>" per switch — what --rollback reads
 ~/recipes/        the content repo, mounted at /content
 ```
@@ -68,7 +69,16 @@ The container, `recipe-editor`:
   dubious ownership. `~/.gitconfig` and `~/.ssh` are mounted read-only into
   `/home/editor`. `GIT_SSH_COMMAND="ssh -o User=<pi user>"` makes the image's
   passwd name (`editor`) irrelevant to ssh;
-- `--init`, `--restart unless-stopped`, `--stop-timeout 15`.
+- `--init`, `--restart unless-stopped`, `--stop-timeout 15`;
+- (epic 38, 38b) **the jobs directory**, `~/recipe-editor/jobs` mounted at
+  `/jobs`, with `RECIPE_JOBS_DIR=/jobs` and `RECIPE_QUEUE_DIR=/jobs/queue`:
+  every import's record and step log (`/jobs`), and the queue's state — a
+  site dropped after two 403s, a site's polite-gap clock — outlive a
+  redeploy. `run.sh` makes the directory as the Pi user before
+  `docker run`: one Docker made for a missing `-v` source would be root's,
+  and the editor would run every import without a record (37-T6). A trial
+  instance (`NAME=` set, `JOBS=` not) gets `~/recipe-editor/jobs-<name>`,
+  so it never shares the real container's records or queue.
 
 The image sets `CONTENT_DIRECTORY=/content`, `SETTINGS_DIRECTORY=/settings`,
 `YTDLP_PATH=/usr/local/bin/yt-dlp` and `EDITOR_ROLE=mirror` (epic 28: no
@@ -177,7 +187,8 @@ end it took 43 s (clone 4 s, reindex 8 s, ship, swap, restart and health
 
 `pnpm deploy:pi --setup` is idempotent. It:
 
-- creates `~/recipe-editor/settings` and copies `run.sh` and `swap-index.sh`;
+- creates `~/recipe-editor/settings` and (38b) `~/recipe-editor/jobs`, and
+  copies `run.sh` and `swap-index.sh`;
 - writes `.env` with `AUTH_SECRET` from `~/content-engine/…/editor/.env.local`,
   parsed on the Pi and never shown in the workstation's terminal. That line is
   `AUTH_SECRET="…" # comment`, and `docker --env-file` would keep the quotes
@@ -205,6 +216,22 @@ pi-deploy API token" and pushed to the Pi. The plaintext exists only in the
 config file above and in the Pi's `.env` (as `WORKSTATION_SYNC_TOKEN`, since
 epic 28). Revoking it stops both deploys and the mirror's pings. To revoke it:
 `pnpm revoke-token -e rogermparent@gmail.com --name pi-deploy`.
+
+### What changed with epic 38 (38b, not yet deployed)
+
+`run.sh` mounts `~/recipe-editor/jobs` at `/jobs` and sets
+`RECIPE_JOBS_DIR=/jobs` and `RECIPE_QUEUE_DIR=/jobs/queue`. Before, the jobs
+lived inside the container (`<editor>/jobs`) and the queue in the container's
+home, both lost at every redeploy (37-D8). Nothing to do by hand: the next
+`pnpm deploy:pi` copies the new `run.sh` and it makes the directory; `--setup`
+makes it too. A `--rollback` to an image from before epic 37 runs with the
+same `run.sh`, which sets two variables that image never reads — harmless.
+
+After a redeploy that cut an import short, its record says `running` until
+the new container's readers judge it: the old container's pid namespace is
+not the new one's, so the job ends `interrupted` once its heartbeat is ten
+minutes old (37-T27), and a slot it held is freed after 60 s (37b, D4).
+`/jobs` is in the mirror's Settings nav since 38b.
 
 ## Rollback
 

@@ -395,7 +395,7 @@ case "$mode" in
     pi 'bash -s' <<'PI_SETUP'
 set -eu
 cd ~/recipe-editor
-mkdir -p settings
+mkdir -p settings jobs
 old=~/content-engine/websites/recipe-website/editor
 # AUTH_SECRET from the old checkout's .env.local, never through the
 # workstation's terminal. NEXTAUTH_URL is not needed (trustHost).
