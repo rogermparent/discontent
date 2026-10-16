@@ -380,4 +380,106 @@ describe("TickSync holding ticks for Done shopping (38d)", () => {
     expect(calls[0].body).toEqual({ check: ["a"], uncheck: [] });
     expect(held.value).toBeNull();
   });
+
+  describe("two tabs sharing one held storage", () => {
+    const heldIn = (storage: { value: string | null }) =>
+      storage.value
+        ? (JSON.parse(storage.value) as { ticks: [string, boolean][] }).ticks
+        : [];
+
+    it("keeps both tabs' ticks, and Done in one sends them all", async () => {
+      const held = memoryStorage();
+      const a = setupHeld({ held });
+      const b = setupHeld({ held });
+      a.sync.tick(["a"], true);
+      b.sync.tick(["b"], true);
+      expect(heldIn(held)).toEqual([
+        ["a", true],
+        ["b", true],
+      ]);
+      /* B's `storage` event. */
+      b.sync.refresh();
+      expect([...b.last().pending.keys()]).toEqual(["a", "b"]);
+
+      const done = a.sync.done();
+      await settled();
+      expect(a.calls[0].body).toEqual({ check: ["a", "b"], uncheck: [] });
+      a.calls[0].resolve(ok());
+      expect(await done).toEqual({ ok: true, sent: 2 });
+      expect(held.value).toBeNull();
+      b.sync.refresh();
+      expect(b.last()).toMatchObject({ status: "idle" });
+      expect(b.last().pending.size).toBe(0);
+    });
+
+    it("settles only what a Done sent: a tick in the other tab meanwhile stays held", async () => {
+      const held = memoryStorage();
+      const a = setupHeld({ held });
+      const b = setupHeld({ held });
+      a.sync.tick(["a"], true);
+      const done = a.sync.done();
+      await settled();
+      b.sync.tick(["b"], true);
+      /* Unticked in B while A's Done is on its way: newer than what A sent. */
+      b.sync.tick(["a"], false);
+      a.calls[0].resolve(ok());
+      await settled();
+      expect(heldIn(held)).toEqual([
+        ["a", false],
+        ["b", true],
+      ]);
+      /* Done keeps going until nothing is held: B's ticks are the next batch. */
+      expect(a.calls[1].body).toEqual({ check: ["b"], uncheck: ["a"] });
+      a.calls[1].resolve(ok());
+      expect((await done).ok).toBe(true);
+      expect(held.value).toBeNull();
+    });
+
+    it("a tab that is not holding leaves the held ticks alone", async () => {
+      const held = memoryStorage();
+      /* Open before anything was held, with the switch still off there. */
+      const off = setupHeld({ held, hold: false });
+      const holding = setupHeld({ held });
+      holding.sync.tick(["a"], true);
+      off.sync.tick(["x"], true);
+      off.sync.forget(["x"]);
+      off.sync.tick(["y"], true);
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(off.calls).toHaveLength(1);
+      off.calls[0].resolve(ok());
+      await settled();
+      off.sync.flushNow();
+      off.sync.detach();
+      expect(heldIn(held)).toEqual([["a", true]]);
+    });
+
+    it("a tab whose switch is off takes the held ticks when it mounts, and sends them", async () => {
+      const held = memoryStorage();
+      const holding = setupHeld({ held });
+      holding.sync.tick(["a"], true);
+      const session = memoryStorage();
+      const off = setupHeld({ held, session, hold: false });
+      expect(held.value).toBeNull();
+      expect(session.value).not.toBeNull();
+      off.sync.tick(["x"], true);
+      expect(held.value).toBeNull();
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(off.calls[0].body).toEqual({ check: ["a", "x"], uncheck: [] });
+    });
+
+    it("keeps ticks in memory when the held storage keeps nothing", async () => {
+      const broken = { read: () => null, write: () => {}, clear: () => {} };
+      const { sync, calls, last } = setupHeld({
+        held: { ...broken, value: null } as ReturnType<typeof memoryStorage>,
+      });
+      sync.tick(["a"], true);
+      sync.tick(["b"], true);
+      expect([...last().pending.keys()]).toEqual(["a", "b"]);
+      const done = sync.done();
+      await settled();
+      expect(calls[0].body).toEqual({ check: ["a", "b"], uncheck: [] });
+      calls[0].resolve(ok());
+      expect(await done).toEqual({ ok: true, sent: 2 });
+    });
+  });
 });

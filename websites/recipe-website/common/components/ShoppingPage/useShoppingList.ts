@@ -177,11 +177,19 @@ export function useShoppingList({
       else void reloadRef.current();
     };
     const onPageHide = () => ticks.flushNow();
+    /* Another tab changed the held ticks (38d): show them here too. */
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === HELD_STORAGE_KEY || event.key === null) {
+        ticks.refresh();
+      }
+    };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("storage", onStorage);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("storage", onStorage);
       ticks.detach();
     };
   }, [ticks]);
