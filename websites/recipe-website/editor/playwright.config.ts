@@ -105,6 +105,15 @@ export default defineConfig({
       RECIPE_QUEUE_DIR: resolve(__dirname, "test-jobs", "queue"),
       RECIPE_GPU_ACQUIRE_CMD: "",
       RECIPE_GPU_RELEASE_CMD: "",
+      /*
+       * 38b: the form's Save downloads an imported recipe's image on the
+       * site's queue, the polite gap after the last request there. A few
+       * `new-recipe` fixtures name a real host's image (kingarthurbaking.com),
+       * saved test after test, which would wait 15 s each — so the gap is 0
+       * here, as it is under vitest (`test/setupTests.js`). Loopback, which
+       * every other fixture uses, is never paced.
+       */
+      RECIPE_POLITE_GAP_MS: "0",
     },
   },
 });
