@@ -73,6 +73,7 @@ export async function photoText(
     transcribePhotos,
     transcribeKey,
     visionDigest,
+    NO_DIGEST,
   } = await import("../llm/vision");
   const { llmConfig } = await import("../llm/client");
   const { loadTranscript, readStoredPhotos, saveTranscript } =
@@ -112,7 +113,8 @@ export async function photoText(
   await saveTranscript(dir, photos, {
     text: transcription.text,
     model: transcription.model,
-    ...(digest ? { digest } : {}),
+    /* The sentinel keys it, but is no digest to record. */
+    ...(digest && digest !== NO_DIGEST ? { digest } : {}),
     prompt,
     ...(job.jobId ? { job: job.jobId } : {}),
   });

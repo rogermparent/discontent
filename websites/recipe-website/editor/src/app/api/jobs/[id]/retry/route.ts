@@ -22,7 +22,9 @@
  *
  * An optional JSON body `{"fresh": true}` (39a, `/jobs/<id>`'s "Read it
  * again" box, `recipes jobs retry --fresh`) makes an import skip its kept
- * reading; no body, or `fresh` false, is a plain retry.
+ * reading; no body, or `fresh` false, is a plain retry. The answer echoes
+ * `fresh: true` when it was honoured, so a client can tell this editor
+ * from one that predates it.
  *
  * Curation auth, write scope.
  */

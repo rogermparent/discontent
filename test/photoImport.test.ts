@@ -18,14 +18,18 @@ import { createLocalBackend } from "../websites/recipe-website/editor/cli/backen
 import {
   chatJson,
   chatText,
+  ollamaDigest,
   type LlmConfig,
 } from "../websites/recipe-website/editor/controller/llm/client";
 import {
+  NO_DIGEST,
   PHOTO_MAX_PIXELS,
   PHOTO_MAX_SIDE,
   preparePhoto,
+  transcribeKey,
   transcribePhotos,
   visionConfig,
+  visionDigest,
 } from "../websites/recipe-website/editor/controller/llm/vision";
 import { fittedSize } from "../websites/recipe-website/editor/controller/llm/photoPrep";
 import {
@@ -162,6 +166,60 @@ describe("the vision model's configuration (De1)", () => {
     vi.stubEnv("RECIPE_LLM_VISION_MODEL", "qwen2.5vl:7b");
     vi.stubEnv("RECIPE_LLM_URL", "");
     expect(visionConfig()).toBeUndefined();
+  });
+});
+
+describe("the vision model's digest (39a, Te6)", () => {
+  const VISION: LlmConfig = {
+    url: MODEL_URL,
+    model: "qwen2.5vl:7b",
+    api: "ollama",
+  };
+
+  it("finds the model by its name, or by name:latest for an untagged pull", () => {
+    const models = [
+      { name: "llava:latest", model: "llava:latest", digest: "sha256:llava" },
+      { name: "qwen2.5vl:7b", model: "qwen2.5vl:7b", digest: "sha256:qwen" },
+      { name: "other", digest: 42 },
+    ];
+    expect(ollamaDigest(models, "qwen2.5vl:7b")).toBe("sha256:qwen");
+    expect(ollamaDigest(models, "llava")).toBe("sha256:llava");
+    expect(ollamaDigest(models, "llava:latest")).toBe("sha256:llava");
+    /* A tagged name never matches another tag. */
+    expect(ollamaDigest(models, "qwen2.5vl:3b")).toBeUndefined();
+    /* A digest that is no string is none. */
+    expect(ollamaDigest(models, "other")).toBeUndefined();
+    expect(ollamaDigest(undefined, "llava")).toBeUndefined();
+  });
+
+  it("answers the sentinel when /api/tags fails, so the key misses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("connect ECONNREFUSED");
+      }),
+    );
+    const digest = await visionDigest(VISION);
+    expect(digest).toBe(NO_DIGEST);
+    /* Neither a pre-39a key nor a real digest's. */
+    expect(transcribeKey(undefined, digest)).not.toBe(transcribeKey());
+    expect(transcribeKey(undefined, digest)).not.toBe(
+      transcribeKey(undefined, "sha256:qwen"),
+    );
+    /* A list without the model is the same. */
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ models: [{ name: "llava:7b" }] })),
+    );
+    expect(await visionDigest(VISION)).toBe(NO_DIGEST);
+    /* Under the Claude API there is no digest to ask for. */
+    expect(
+      await visionDigest({
+        ...VISION,
+        api: "anthropic",
+        model: "claude-sonnet-5",
+      }),
+    ).toBeUndefined();
   });
 });
 
@@ -647,19 +705,25 @@ describe("recipes import --photo, through the local backend", () => {
     try {
       await backend.importPhotos([file(card, "card.jpg")], { dryRun: true });
       const [photo] = await storePhotos(jobsDir, [file(card, "card.jpg")]);
-      const { transcribeKey } =
-        await import("../websites/recipe-website/editor/controller/llm/vision");
+      /* The list names no digest for it: kept under the sentinel's key. */
+      expect(
+        await loadTranscript(jobsDir, [photo], {
+          model: "qwen2.5vl:7b",
+          prompt: transcribeKey(undefined, NO_DIGEST),
+        }),
+      ).toMatchObject({ text: CARD_TEXT, model: "qwen2.5vl:7b" });
+      /* …and no transcript kept before 39a is trusted for it. */
       expect(
         await loadTranscript(jobsDir, [photo], {
           model: "qwen2.5vl:7b",
           prompt: transcribeKey(),
         }),
-      ).toMatchObject({ text: CARD_TEXT, model: "qwen2.5vl:7b" });
+      ).toBeUndefined();
       /* Another vision model reads again. */
       expect(
         await loadTranscript(jobsDir, [photo], {
           model: "llava:7b",
-          prompt: transcribeKey(),
+          prompt: transcribeKey(undefined, NO_DIGEST),
         }),
       ).toBeUndefined();
     } finally {
@@ -691,8 +755,6 @@ describe("recipes import --photo, through the local backend", () => {
       expect(chats()).toEqual(["qwen2.5vl:7b"]);
       expect(calls.filter((call) => call.path === "/api/tags")).toHaveLength(1);
       const [photo] = await storePhotos(jobsDir, [file(card, "card.jpg")]);
-      const { transcribeKey } =
-        await import("../websites/recipe-website/editor/controller/llm/vision");
       expect(transcribeKey(undefined, "sha256:aaaa")).not.toBe(
         transcribeKey(undefined, "sha256:bbbb"),
       );

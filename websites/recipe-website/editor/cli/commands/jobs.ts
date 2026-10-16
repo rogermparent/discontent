@@ -38,6 +38,7 @@ import {
   stringOption,
   type CommandDef,
 } from "./types";
+import { formatWarnings } from "../output";
 
 export interface JobShowResult {
   /** The job's id, as `job` is in every other result. */
@@ -268,7 +269,14 @@ export const jobsCancelCommand: CommandDef<JobCancelResult> = {
   },
 };
 
-export const jobsRetryCommand: CommandDef<JobRetryResult> = {
+/** Asked for `--fresh`, answered without the 39a echo. */
+export const RETRY_NOT_FRESH =
+  "this editor predates --fresh on retry (39a); ran a plain retry";
+
+/** A retry's answer, with the CLI's own warning when one applies. */
+export type JobsRetryOutput = JobRetryResult & { warnings?: string[] };
+
+export const jobsRetryCommand: CommandDef<JobsRetryOutput> = {
   name: "jobs retry",
   usage: "recipes jobs retry <id> [--fresh] [--json]",
   /* 39a: an import reads its page (or text, or photos) again instead of
@@ -276,18 +284,25 @@ export const jobsRetryCommand: CommandDef<JobRetryResult> = {
   options: { fresh: { type: "boolean" } },
   write: true,
   async run({ backend, positionals, options }) {
-    return backend.retryJob(
+    const fresh = booleanOption(options, "fresh");
+    const result = await backend.retryJob(
       needId(positionals, "retry"),
-      booleanOption(options, "fresh") ? { fresh: true } : {},
+      fresh ? { fresh: true } : {},
     );
+    /* A pre-39a editor ignores the body: no echo, a plain retry. */
+    if (fresh && result.fresh !== true) {
+      return { ...result, warnings: [RETRY_NOT_FRESH] };
+    }
+    return result;
   },
-  format({ job, retryOf, status, error }) {
+  format({ job, retryOf, status, error, warnings }) {
     return [
       `${job} runs ${retryOf} again: ${status}`,
       error ? `  error: ${error.code}: ${error.message}` : undefined,
       status === "running"
         ? `  follow it: recipes jobs log ${job} --follow`
         : undefined,
+      ...formatWarnings(warnings),
     ]
       .filter(Boolean)
       .join("\n");

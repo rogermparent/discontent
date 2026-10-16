@@ -53,8 +53,8 @@ describe("the import panel without a job record (38-Tb5)", () => {
     expect(screen.getByTestId("import-unfollowed").textContent).toContain(
       "can't be followed step by step",
     );
-    /* Nothing to cancel or open: the id answers 404. */
-    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    /* Nothing to open (the id answers 404); Cancel still works (39a review). */
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Job details" })).toBeNull();
     expect(screen.queryByText(/Lost touch/)).toBeNull();
 
@@ -69,6 +69,36 @@ describe("the import panel without a job record (38-Tb5)", () => {
       "Import done: the form is filled.",
     );
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("Cancel asks the cancel route, and the form's end says cancelled", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        job: "01UNSTORED",
+        outcome: "cancelled",
+        status: "cancelled",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(
+      <ImportProgress job="01UNSTORED" unfollowed={{}} />,
+    );
+    await act(async () => {
+      screen.getByRole("button", { name: "Cancel" }).click();
+    });
+    expect(fetchMock).toHaveBeenCalledWith("/api/jobs/01UNSTORED/cancel", {
+      method: "POST",
+    });
+    rerender(
+      <ImportProgress job="01UNSTORED" unfollowed={{ status: "cancelled" }} />,
+    );
+    expect(screen.getByTestId("import-progress").dataset.status).toBe(
+      "cancelled",
+    );
+    expect(screen.getByTestId("import-announce").textContent).toBe(
+      "Import cancelled.",
+    );
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
   });
 
   it("a followed job still polls its record", async () => {

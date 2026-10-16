@@ -3,7 +3,7 @@
 import { startSpec, type JobSpec } from "recipe-editor/controller/jobs/kinds";
 import {
   keepUnstored,
-  takeUnstored,
+  waitUnstored,
 } from "recipe-editor/controller/jobs/unstored";
 import { authenticateUser } from "recipe-editor/controller/actions/shared";
 import type { RecipeActionState } from "recipe-editor/controller/formImport";
@@ -26,10 +26,17 @@ export interface ImportStartState {
   at?: number;
 }
 
-/** What `importResultAction` answers: the filled state, or why there is none. */
+/**
+ * What `importResultAction` answers: still running (ask again), the filled
+ * state, or why there is none.
+ */
 export interface ImportResultState {
+  /** Still running after the wait (`UNSTORED_WAIT_MS`): ask again. */
+  pending?: true;
   result?: RecipeActionState;
   message?: string;
+  /** It was cancelled (the panel's Cancel): `message` says by whom. */
+  cancelled?: true;
 }
 
 /**
@@ -48,10 +55,13 @@ async function startFormImport(
 }
 
 /**
- * The outcome of a form import that runs with no record (39a, 38-Tb5):
- * awaited here, as the roundup picker's start actions await theirs. A job
- * this process does not hold (another instance, an outcome already taken,
- * or one forgotten after half an hour) answers a message.
+ * The outcome of a form import that runs with no record (39a, 38-Tb5), as
+ * a bounded long-poll (39a review): it waits at most `UNSTORED_WAIT_MS`
+ * and answers `{pending: true}` or the outcome, and the form asks again —
+ * an action that awaited the whole job would hold this tab's other server
+ * actions (a hand-typed Create) behind a GPU-queued import. A job this
+ * process does not hold (another instance, an outcome already answered, or
+ * one forgotten after half an hour) answers a message.
  */
 export async function importResultAction(
   job: string,
@@ -59,24 +69,39 @@ export async function importResultAction(
   if (!(await authenticateUser())) {
     return { message: "Sign in to import." };
   }
-  const done =
+  const answer =
     typeof job === "string"
-      ? takeUnstored<RecipeActionState & { job: string }>(job)
-      : undefined;
-  if (!done) {
-    return {
-      message: `Import ${job} is not running in this editor any more — import it again.`,
-    };
+      ? await waitUnstored<RecipeActionState & { job: string }>(job)
+      : ({ status: "missing" } as const);
+  switch (answer.status) {
+    case "missing":
+      return {
+        message: `Import ${String(job)} is not running in this editor any more — import it again.`,
+      };
+    case "pending":
+      return { pending: true };
+    case "done": {
+      const { job: _job, ...result } = answer.value;
+      void _job;
+      return { result };
+    }
+    default: {
+      const { error } = answer;
+      return {
+        message: error instanceof Error ? error.message : String(error),
+        ...(isCancelled(error) ? { cancelled: true } : {}),
+      };
+    }
   }
-  try {
-    const { job: _job, ...result } = await done;
-    void _job;
-    return { result };
-  } catch (error) {
-    return {
-      message: error instanceof Error ? error.message : String(error),
-    };
-  }
+}
+
+/** A `CancelledError` (code `cancelled`), told apart without importing it. */
+function isCancelled(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code === "cancelled"
+  );
 }
 
 /**

@@ -426,7 +426,7 @@ export async function llmStatus(
  * A model's digest in Ollama's `/api/tags` list (39a): the entry named
  * `model` (or `model:latest`, as Ollama lists an untagged pull).
  */
-function ollamaDigest(
+export function ollamaDigest(
   models: { name?: string; model?: string; digest?: unknown }[] | undefined,
   model: string,
 ): string | undefined {

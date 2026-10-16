@@ -20,11 +20,12 @@ export const IMPORT_POLL_MS = 1_000;
 /**
  * A job with no record (39a, 38-Tb5): the panel follows nothing — its id
  * answers 404 — and says so; the form hands it the end (`status`) once
- * `importResultAction` answers.
+ * `importResultAction` answers. Cancel still works: the cancel route
+ * aborts a job this editor runs by its id, record or none.
  */
 export interface UnfollowedImport {
   /** Unset while the job runs. */
-  status?: "done" | "failed";
+  status?: "done" | "failed" | "cancelled";
 }
 
 function capitalized(text: string): string {
@@ -45,7 +46,9 @@ function announcement(
       ? "Import done: the form is filled."
       : unfollowed.status === "failed"
         ? "Import failed."
-        : "Importing…";
+        : unfollowed.status === "cancelled"
+          ? "Import cancelled."
+          : "Importing…";
   }
   if (!meta) return "Import started.";
   switch (meta.status) {
@@ -179,7 +182,7 @@ export default function ImportProgress({
           </span>
         )}
         <span className="ml-auto flex items-center gap-2">
-          {live && !unfollowed && (
+          {live && (
             <Button
               type="button"
               size="sm"

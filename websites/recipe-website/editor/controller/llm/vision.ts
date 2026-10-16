@@ -233,9 +233,9 @@ export function transcribeUserPrompt(page = 1, pages = 1): string {
  *
  * `digest` (39a, closing 38-Te6): the vision model's Ollama digest
  * (`visionDigest`), so weights re-pulled under the same name read the
- * photos again. None under the Claude API, whose model name is enough —
- * and none when Ollama's list could not be read, which misses a
- * transcript kept with one rather than trusting it.
+ * photos again. None under the Claude API, whose model name is enough;
+ * `NO_DIGEST` when Ollama's list could not be read, which misses every
+ * transcript kept with a digest or before 39a rather than trusting it.
  */
 export function transcribeKey(
   limits: PhotoLimits = OLLAMA_PHOTO_LIMITS,
@@ -256,16 +256,24 @@ export function transcribeKey(
 }
 
 /**
+ * What `visionDigest` answers under Ollama when its list cannot be read, or
+ * does not name the model (39a review): a key no transcript was kept under
+ * with a real digest, nor before 39a — so the photos are read again rather
+ * than an old transcript trusted.
+ */
+export const NO_DIGEST = "no-digest";
+
+/**
  * The vision model's digest (39a, 38-Te6): one `GET /api/tags` per import
  * (`llmStatus`, the Settings line's own model check), never per photo.
- * Ollama only; `undefined` under another API, or when the list cannot be
- * read or does not name the model.
+ * Ollama only; `undefined` under another API; `NO_DIGEST` when the list
+ * cannot be read or does not name the model.
  */
 export async function visionDigest(
   config: LlmConfig,
 ): Promise<string | undefined> {
   if (config.api !== "ollama") return undefined;
-  return (await llmStatus(config)).digest;
+  return (await llmStatus(config)).digest ?? NO_DIGEST;
 }
 
 /** Shown in the step log (37-D2): a short excerpt, never the whole text. */

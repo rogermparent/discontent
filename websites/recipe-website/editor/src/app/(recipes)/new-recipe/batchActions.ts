@@ -54,6 +54,16 @@ const RecipeBatchInputSchema = z.strictObject({
   /** A page's own Recipe nodes (38c): no model read them. */
   fromPage: z.boolean().optional(),
   /**
+   * The model that read them (39a review), from the readings' own
+   * `llm` — the commit note names it; without it, this editor's model.
+   */
+  reader: z
+    .strictObject({
+      model: z.string().trim().min(1).max(200),
+      api: z.enum(["ollama", "openai", "anthropic"]).optional(),
+    })
+    .optional(),
+  /**
    * The photo import's first photo, in the job store (38e review): each
    * created recipe gets it as its image. Only a stored photo's path —
    * `PHOTO_PATH`, checked again when it is read.
@@ -116,9 +126,10 @@ export async function importRecipeBatchAction(
     const ctx = curationContextFor(email, getContentDirectory());
     const input = parseInput(RecipeBatchInputSchema, raw);
     const from = input.url ? ` from ${shortSource(input.url)}` : "";
-    /* 39a (38-Dg9): the model this editor reads with — "Claude API
-     * claude-sonnet-5" under the Claude API, else "local model". */
-    const reader = readerNote(llmConfig());
+    /* 39a (38-Dg9): the model that read them — "Claude API
+     * claude-sonnet-5" under the Claude API, else "local model"; the
+     * readings' own when the picker sends it, else this editor's. */
+    const reader = readerNote(input.reader ?? llmConfig());
     const commitNote = input.fromPhotos
       ? `${reader}, photo, {n} of {total}`
       : input.pastedText
