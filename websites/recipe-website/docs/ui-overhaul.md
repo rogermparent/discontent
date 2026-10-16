@@ -2411,6 +2411,21 @@ width.
   (`--update-snapshots`, changed only): visual.spec 15, mobile.spec 2,
   empty-state, footer (mobile), header, menus and recipe 1 each, plus the
   new `drinks-page` (e2e + mobile); 179/179 in that run.
+- **Gates after merging #239–#242** (the homepage, `/tags` and staples,
+  37c's `/jobs`, the epic 37 close-out; then the holiday module and
+  `useInventory()`): editor and export `tsc` clean; vitest 97 files, 1992
+  tests. Playwright, build mode through the heavy slot, e2e + mobile:
+  header, navigation, command-palette, groups, bookmarks, make, drinks,
+  accessibility, footer, empty-state, sticky-chrome, mobile, menus,
+  shopping, homepage-browse, homepage, tag-pages, visual and jobs — 281/288,
+  the seven being main's new baselines of `/` and `/make` under the new
+  masthead. Those regenerated in one commit (`--update-snapshots` over every
+  visual-bearing spec, changed only): `homepage-empty` (empty-state),
+  `homepage-mobile` (mobile), and visual's `homepage-three-recipes`,
+  `homepage-two-pages`, `layout-footer-signed-in`, `layout-footer-signed-out`
+  and `make-page`; 134/134 in that run. Then the gate list plus
+  ingredient-preview, paste-replace, yield and recipe, without updating:
+  319/319.
 
 ### U4 — `/tags` as a board of count bars `agent/tags-staples`
 
