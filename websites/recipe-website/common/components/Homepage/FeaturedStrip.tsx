@@ -1,12 +1,13 @@
-import Link from "next/link";
-import { Button } from "@discontent/component-library/components/ui/button";
-import { PageHeading } from "recipe-website-common/components/PageLayout";
 import type { MassagedRecipeEntry } from "../../controller/data/read";
-import type { GroupKind } from "../../controller/types";
+import type { TermSummary } from "../../controller/homepageComingUp";
+import { countLabel } from "../../controller/homepageIntents";
+import type { GroupItem, GroupKind } from "../../controller/types";
 import { RecipeListItem } from "../List";
 import { GroupCard } from "../List/FeaturedRecipe/GroupCard";
 import { TermCard } from "../List/FeaturedRecipe/TermCard";
-import { RecipeGrid } from "../List/shared";
+import { RecipeGrid, standardRecipeImageProps } from "../List/shared";
+import { HomeSection } from "./HomeSection";
+import { TermPicture } from "./TermPicture";
 
 /**
  * One card of the homepage's featured strip (22g).
@@ -14,36 +15,87 @@ import { RecipeGrid } from "../List/shared";
  * A discriminated union rather than a widened recipe entry, because the two
  * cards render nothing in common: a recipe card carries an image filename and a
  * bookmark button, a group card carries a kind and picks its picture at render
- * time. Keeping them apart is also what lets the hero go on asking for "the
- * first featured *recipe*" without guessing.
+ * time.
  */
 export type FeaturedStripEntry =
-  | { kind: "recipe"; recipe: MassagedRecipeEntry }
+  | {
+      kind: "recipe";
+      recipe: MassagedRecipeEntry;
+      /** The card's line under the name: the recipe's course, when it has one. */
+      meta?: string;
+    }
   | {
       kind: "group";
       slug: string;
       name: string;
       groupKind?: GroupKind;
       date: number;
+      /**
+       * The group's record, read by the route (cached, `item:groups:<slug>`):
+       * its picture and items go to the thumbnail, which then reads nothing,
+       * and the items give the card its recipe count.
+       */
+      image?: string;
+      items?: GroupItem[];
     }
   /**
    * A featured term record (24c). A third member rather than a widened group
    * entry: a term card has an image of its own and no kind badge, where a group
    * card has a badge and picks its picture at render time.
    */
-  | { kind: "term"; slug: string; label: string; image?: string; date: number };
+  | {
+      kind: "term";
+      slug: string;
+      label: string;
+      image?: string;
+      date: number;
+      /** Counts and a picture over the term's subtree (`termSummary`). */
+      summary?: TermSummary;
+    };
+
+/** How many recipes a group lists directly (sub-groups are not recipes). */
+function recipeItems(items: GroupItem[] = []): number {
+  return items.filter((item) => item.recipe !== undefined).length;
+}
 
 /**
- * The homepage's "Featured Recipes" strip — recipes and groups in one row.
+ * A card's kind line, with its count only when there is one to show — "Tag ·
+ * 12 recipes", or plain "Tag" for a term carried only by plans, a failed
+ * group read, or any other zero. "Tag · 0 recipes" is not information.
+ */
+function kindMeta(label: string, count: number, noun: string): string {
+  return count > 0 ? `${label} · ${countLabel(count, noun)}` : label;
+}
+
+/**
+ * The homepage's "Featured" strip — recipes, groups and terms in one grid of
+ * equal cards, newest first.
  *
- * The heading stays "Featured Recipes" even when a group is in it. That was
- * decided with the user: the strip is the place things are *featured*, and
- * renaming it would make a page that mostly shows recipes read as though the
- * section had changed subject.
+ * **No first item is special** (homepage redesign, 2026-10-15). Until then a
+ * hero above the page drew the newest featured recipe again at full width,
+ * with its photo, timeline and a large button, so one feature outweighed the
+ * rest of the page. That hero is gone; the newest feature is the first card
+ * here and nothing more.
  *
- * Same wrapper as the recipe sections beside it, down to the `RecipeGrid`, so a
- * strip of recipes alone is byte-for-byte what `RecipeSection` rendered before
- * this component existed — which is what keeps the visual baselines still.
+ * **The heading is "Featured"**, revised with Roger on 2026-10-15. It had
+ * stayed "Featured Recipes" through 22g and 24c, decided with him then on the
+ * grounds that the strip is where things are featured and a new name would
+ * read as a change of subject. Once groups and terms were regular cards here,
+ * "Recipes" described only some of them. The `/featured-recipes` page keeps
+ * its title: it is the curator's list of features, and renaming a route is
+ * its own change. The section's link, "Everything featured", goes there.
+ *
+ * **No timestamps here.** Each card's line under its name says what it is
+ * instead (2026-10-15, Roger): "Tag · 12 recipes", "Plan · 6 recipes", or a
+ * recipe's course ("Mains"). Term cards draw the term's picture — its image,
+ * else the newest recipe photo under it, else its initial — where the old
+ * card showed the group placeholder; group cards already walk to their first
+ * member's photo. `/featured-recipes` keeps dates and the old cards: that
+ * page is the curator's.
+ *
+ * The same `RecipeGrid` as "New this week", so the cards line up with the
+ * recipe cards below. A `HomeSection`, so the specs find the strip as the
+ * region named "Featured".
  */
 export function FeaturedStrip({
   featured,
@@ -53,8 +105,11 @@ export function FeaturedStrip({
   if (featured.length === 0) return null;
 
   return (
-    <div className="mb-8">
-      <PageHeading className="font-display">Featured Recipes</PageHeading>
+    <HomeSection
+      id="home-featured"
+      title="Featured"
+      link={{ href: "/featured-recipes", label: "Everything featured" }}
+    >
       <RecipeGrid>
         {featured.map((entry, index) => (
           <li
@@ -70,13 +125,24 @@ export function FeaturedStrip({
             }
           >
             {entry.kind === "recipe" ? (
-              <RecipeListItem {...entry.recipe} />
+              <RecipeListItem {...entry.recipe} meta={entry.meta ?? "Recipe"} />
             ) : entry.kind === "term" ? (
               <TermCard
                 slug={entry.slug}
                 label={entry.label}
                 image={entry.image}
                 date={entry.date}
+                picture={
+                  <TermPicture
+                    slug={entry.slug}
+                    label={entry.label}
+                    summary={entry.summary ?? { image: entry.image }}
+                    width={standardRecipeImageProps.width}
+                    height={standardRecipeImageProps.height}
+                    sizes={standardRecipeImageProps.sizes}
+                  />
+                }
+                meta={kindMeta("Tag", entry.summary?.recipes ?? 0, "recipe")}
               />
             ) : (
               <GroupCard
@@ -84,6 +150,9 @@ export function FeaturedStrip({
                 name={entry.name}
                 kind={entry.groupKind}
                 date={entry.date}
+                image={entry.image}
+                items={entry.items}
+                meta={kindMeta("Plan", recipeItems(entry.items), "recipe")}
               />
             )}
           </li>
@@ -93,12 +162,7 @@ export function FeaturedStrip({
        * No "View Feature" line and no note on either card kind here — the
        * homepage has never shown them, and `featured-recipes.spec.ts` pins it.
        */}
-      <div className="flex flex-row items-center justify-center my-2">
-        <Button asChild variant="secondary" size="sm">
-          <Link href="/featured-recipes">More Featured Recipes</Link>
-        </Button>
-      </div>
-    </div>
+    </HomeSection>
   );
 }
 

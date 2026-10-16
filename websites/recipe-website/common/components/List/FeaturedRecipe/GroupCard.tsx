@@ -8,6 +8,7 @@ import {
   RecipeCardDate,
   RecipeCardImageContainer,
   RecipeCardLink,
+  RecipeCardMeta,
   RecipeCardName,
 } from "../shared";
 
@@ -35,6 +36,7 @@ export function GroupCard({
   date,
   image,
   items,
+  meta,
   footer,
   testId = "featured-group-card",
 }: {
@@ -51,6 +53,11 @@ export function GroupCard({
    */
   image?: string;
   items?: GroupItem[];
+  /**
+   * A line in place of the kind badge and the date (the homepage's "Plan · N
+   * recipes"). `/featured-recipes` and the group page pass none.
+   */
+  meta?: ReactNode;
   footer?: ReactNode;
   /**
    * What a test finds this card by. Defaults to the featured strip's name,
@@ -86,12 +93,18 @@ export function GroupCard({
         >
           {name ?? "Group not found"}
         </RecipeCardName>
-        {kind && (
-          <div className="mx-2 mb-1">
-            <Badge variant="secondary">{groupKindLabel(kind)}</Badge>
-          </div>
+        {meta !== undefined ? (
+          <RecipeCardMeta>{meta}</RecipeCardMeta>
+        ) : (
+          <>
+            {kind && (
+              <div className="mx-2 mb-1">
+                <Badge variant="secondary">{groupKindLabel(kind)}</Badge>
+              </div>
+            )}
+            <RecipeCardDate date={date} showTime />
+          </>
         )}
-        <RecipeCardDate date={date} showTime />
       </RecipeCardLink>
       {footer}
     </RecipeCard>
