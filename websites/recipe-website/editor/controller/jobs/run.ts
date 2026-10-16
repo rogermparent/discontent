@@ -32,10 +32,17 @@
  * most hourly by its stamp. The editor also sweeps at boot
  * (`src/instrumentation.ts`).
  */
+import { rm } from "node:fs/promises";
 import { ulid } from "@discontent/cms/util/ulid";
-import { toErrorObject, withWarnings } from "../curation/errors";
-import type { JobContext } from "./context";
-import { jobsDirectory } from "./location";
+import {
+  CancelledError,
+  toErrorObject,
+  withJob,
+  withWarnings,
+} from "../curation/errors";
+import type { JobContext, JobWaiting } from "./context";
+import { jobsDirectory, queueDirectory } from "./location";
+import { sweepQueue } from "./queue";
 import {
   createJobLog,
   defaultJobMirror,
@@ -45,11 +52,15 @@ import {
 import {
   JOB_HEARTBEAT_MS,
   LIVE_STATUSES,
+  cancelPath,
   logPath,
   newJobMeta,
   pruneJobs,
+  readCancelRequest,
+  readJobMeta,
   sweepJobs,
   updateJobMeta,
+  writeCancelRequest,
   writeJobMeta,
   type JobError,
   type JobMeta,
@@ -63,6 +74,8 @@ export interface JobInit {
   spec: unknown;
   tier?: JobTier;
   resources?: string[];
+  /** The job this one runs again (37c's Retry). */
+  retryOf?: string;
 }
 
 export interface RunJobOptions<T = unknown> {
@@ -79,7 +92,16 @@ export interface RunJobOptions<T = unknown> {
   failureOf?: (result: T) => JobError | undefined;
   /** Default `JOB_HEARTBEAT_MS` (tests). */
   heartbeatMs?: number;
+  /** How often to look for another process's cancel; default `JOB_CANCEL_POLL_MS`. */
+  cancelPollMs?: number;
 }
+
+/**
+ * How often a running job looks for a cancel asked from another process
+ * (`<id>.cancel`, 37b): one `readFile` — an ENOENT when none was asked, the
+ * reason when one was.
+ */
+export const JOB_CANCEL_POLL_MS = 1_000;
 
 export interface JobOutcome<T> {
   job: string;
@@ -97,16 +119,22 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Sweep `dir` once per process (D5): its dead processes' jobs end. */
+/**
+ * Sweep `dir` once per process (D5): its dead processes' jobs end — and the
+ * queue's dead waiters and stale slots go (37b).
+ */
 function sweepOnce(dir: string): Promise<void> {
   let done = swept.get(dir);
   if (!done) {
-    done = sweepJobs(dir).then(
-      () => undefined,
-      (error) => {
+    const queue = queueDirectory();
+    done = Promise.all([
+      sweepJobs(dir).catch((error) => {
         console.warn(`[jobs] could not sweep ${dir}: ${describe(error)}`);
-      },
-    );
+      }),
+      sweepQueue(queue).catch((error) => {
+        console.warn(`[queue] could not sweep ${queue}: ${describe(error)}`);
+      }),
+    ]).then(() => undefined);
     swept.set(dir, done);
   }
   return done;
@@ -158,6 +186,35 @@ export function runningJobIds(): string[] {
   return [...registry().keys()];
 }
 
+export type CancelOutcome =
+  /** It ran here and is aborted. */
+  | "cancelled"
+  /** Another process runs it; it will see the request within a second. */
+  | "requested"
+  /** It has already ended. */
+  | "ended"
+  | "not_found";
+
+/**
+ * Cancel a job wherever it runs (37b; 37c's Cancel button and route): here,
+ * through its abort controller; in another process, by leaving
+ * `<id>.cancel` for it to find (it polls every `JOB_CANCEL_POLL_MS`, while
+ * it runs or waits in the queue).
+ */
+export async function requestJobCancel(
+  id: string,
+  { dir = jobsDirectory(), reason }: { dir?: string; reason?: string } = {},
+): Promise<CancelOutcome> {
+  if (cancelJob(id, reason ? new Error(reason) : undefined)) {
+    return "cancelled";
+  }
+  const meta = await readJobMeta(dir, id);
+  if (!meta) return "not_found";
+  if (!LIVE_STATUSES.includes(meta.status)) return "ended";
+  await writeCancelRequest(dir, id, reason);
+  return "requested";
+}
+
 /* ------------------------------------------------------------------ */
 /* Running                                                             */
 /* ------------------------------------------------------------------ */
@@ -202,9 +259,32 @@ let storeWarned = false;
 
 /**
  * Run `fn` as a job. Resolves with the job's id and its result; a failure
- * is recorded and rethrown as it was, with the job's surfaced warnings.
+ * is recorded and rethrown with the job's surfaced warnings and its id as
+ * `job` (37c) — a cancelled job's as a `CancelledError` (code `cancelled`).
  */
 export async function runJob<T>(
+  init: JobInit,
+  fn: (job: JobContext) => Promise<T>,
+  options: RunJobOptions<T> = {},
+): Promise<JobOutcome<T>> {
+  return (await startJob(init, fn, options)).done;
+}
+
+/** A job started and still running (`startJob`). */
+export interface StartedJob<T> {
+  /** Its id: the meta is written, so `/api/jobs/<id>` answers at once. */
+  job: string;
+  /** Its outcome, as `runJob` answers it. */
+  done: Promise<JobOutcome<T>>;
+}
+
+/**
+ * Start `fn` as a job and answer as soon as its record exists (37c, D7: the
+ * form's import enqueues and returns `{jobId}`; Retry on `/jobs`). The work
+ * goes on in this process; `done` settles as `runJob` would — a caller that
+ * does not await it must still handle its rejection.
+ */
+export async function startJob<T>(
   init: JobInit,
   fn: (job: JobContext) => Promise<T>,
   {
@@ -213,8 +293,9 @@ export async function runJob<T>(
     signal: outside,
     failureOf,
     heartbeatMs = JOB_HEARTBEAT_MS,
+    cancelPollMs = JOB_CANCEL_POLL_MS,
   }: RunJobOptions<T> = {},
-): Promise<JobOutcome<T>> {
+): Promise<StartedJob<T>> {
   await maintainJobs(dir);
   const id = ulid();
   const now = Date.now();
@@ -272,6 +353,7 @@ export async function runJob<T>(
     if (!stored) return;
     await updateJobMeta(dir, id, {
       ...patch,
+      waiting: undefined,
       updatedAt: Date.now(),
     }).catch((error) => {
       console.warn(
@@ -288,52 +370,103 @@ export async function runJob<T>(
   const timer = setInterval(beat, heartbeatMs);
   timer.unref?.();
 
+  /* A cancel asked from another process (37b): `<id>.cancel`. */
+  let looking = false;
+  const cancelPoll = stored
+    ? setInterval(() => {
+        if (looking || controller.signal.aborted) return;
+        looking = true;
+        void readCancelRequest(dir, id)
+          .then((reason) => {
+            if (reason === undefined || controller.signal.aborted) return;
+            controller.abort(
+              new Error(reason || "the job was cancelled from another process"),
+            );
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            looking = false;
+          });
+      }, cancelPollMs)
+    : undefined;
+  cancelPoll?.unref?.();
+
+  /* The queue says what the job waits for; the meta shows it (37b). */
+  const waiting = (state: JobWaiting | undefined): void => {
+    if (!stored) return;
+    void updateJobMeta(dir, id, (current) =>
+      LIVE_STATUSES.includes(current.status)
+        ? { waiting: state, updatedAt: Date.now() }
+        : undefined,
+    ).catch(() => undefined);
+  };
+
   const job: JobContext = {
     log,
     signal: controller.signal,
     tier: meta.tier,
     jobId: id,
+    waiting,
   };
-  try {
-    let failure: JobError | undefined;
-    const value = await log.step(
-      "job",
-      { kind: init.kind, label: init.label },
-      async (step) => {
-        const answer = await fn(job);
-        failure = failureOf?.(answer);
-        if (failure) step.fail(failure.message);
-        return answer;
-      },
-    );
-    const result = withSurfacedWarnings(value, log.surfaced);
-    /* Cancelled is cancelled, even when the work came back anyway. */
-    const cancelled = controller.signal.aborted;
-    const error = cancelled
-      ? cancelledError(controller.signal.reason)
-      : failure;
-    await record({
-      status: cancelled ? "cancelled" : failure ? "failed" : "done",
-      endedAt: Date.now(),
-      result,
-      ...(error ? { error: recordedError(error) } : {}),
-    });
-    return { job: id, result };
-  } catch (error) {
-    const thrown = withWarnings(error, log.surfaced);
-    const cancelled = controller.signal.aborted;
-    const { error: object } = toErrorObject(thrown);
-    await record({
-      status: cancelled ? "cancelled" : "failed",
-      endedAt: Date.now(),
-      error: recordedError(
-        cancelled ? { ...object, code: "cancelled" } : object,
-      ),
-    });
-    throw thrown;
-  } finally {
-    clearInterval(timer);
-    registry().delete(id);
-    outside?.removeEventListener("abort", fromOutside);
-  }
+  const done = (async (): Promise<JobOutcome<T>> => {
+    try {
+      let failure: JobError | undefined;
+      const value = await log.step(
+        "job",
+        { kind: init.kind, label: init.label },
+        async (step) => {
+          const answer = await fn(job);
+          failure = failureOf?.(answer);
+          if (failure) step.fail(failure.message);
+          return answer;
+        },
+      );
+      const result = withSurfacedWarnings(value, log.surfaced);
+      /* Cancelled is cancelled, even when the work came back anyway. */
+      const cancelled = controller.signal.aborted;
+      const error = cancelled
+        ? cancelledError(controller.signal.reason)
+        : failure;
+      await record({
+        status: cancelled ? "cancelled" : failure ? "failed" : "done",
+        endedAt: Date.now(),
+        result,
+        ...(error ? { error: recordedError(error) } : {}),
+      });
+      return { job: id, result };
+    } catch (error) {
+      const cancelled = controller.signal.aborted;
+      /*
+       * A cancel is `cancelled` on every transport (37c), not the abort
+       * reason's plain `Error` — which `toErrorObject` would call `internal`.
+       */
+      const thrown = withJob(
+        withWarnings(
+          cancelled
+            ? new CancelledError(
+                cancelledError(controller.signal.reason).message,
+              )
+            : error,
+          log.surfaced,
+        ),
+        id,
+      );
+      const { error: object } = toErrorObject(thrown);
+      const { job: _job, ...kept } = object;
+      await record({
+        status: cancelled ? "cancelled" : "failed",
+        endedAt: Date.now(),
+        error: recordedError(kept),
+      });
+      throw thrown;
+    } finally {
+      clearInterval(timer);
+      if (cancelPoll) clearInterval(cancelPoll);
+      registry().delete(id);
+      outside?.removeEventListener("abort", fromOutside);
+      if (stored)
+        await rm(cancelPath(dir, id), { force: true }).catch(() => {});
+    }
+  })();
+  return { job: id, done };
 }

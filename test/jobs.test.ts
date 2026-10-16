@@ -28,7 +28,10 @@ import {
   redactLine,
   type JobLine,
 } from "../websites/recipe-website/editor/controller/jobs/log";
-import { jobsDirectory } from "../websites/recipe-website/editor/controller/jobs/location";
+import {
+  jobsDirectory,
+  setJobsRoot,
+} from "../websites/recipe-website/editor/controller/jobs/location";
 import {
   JOB_STALE_MS,
   findJob,
@@ -60,6 +63,7 @@ import {
   type Pacing,
 } from "../websites/recipe-website/editor/controller/curation/sitePacing";
 import { jobsShowCommand } from "../websites/recipe-website/editor/cli/commands/jobs";
+import { createLocalBackend } from "../websites/recipe-website/editor/cli/backend/local";
 import {
   JOB_HANDLERS,
   jobLabel,
@@ -486,12 +490,22 @@ describe("where the store lives (D1)", () => {
     expect(
       jobsDirectory({ RECIPE_JOBS_DIR: "/abs/jobs" } as NodeJS.ProcessEnv),
     ).toBe("/abs/jobs");
-    expect(
-      jobsDirectory({
-        RECIPE_JOBS_DIR: "rel",
-        INIT_CWD: "/caller",
-      } as NodeJS.ProcessEnv),
-    ).toBe("/caller/rel");
+    /*
+     * A relative value is the editor package's, whoever reads it (37b
+     * review): never the caller's INIT_CWD, so the editor and the CLI
+     * reading one `editor/.env` share one store.
+     */
+    setJobsRoot("/editor");
+    try {
+      expect(
+        jobsDirectory({
+          RECIPE_JOBS_DIR: "rel",
+          INIT_CWD: "/caller",
+        } as NodeJS.ProcessEnv),
+      ).toBe("/editor/rel");
+    } finally {
+      setJobsRoot(undefined);
+    }
     expect(jobsDirectory({ VITEST: "true" } as NodeJS.ProcessEnv)).toBe(
       join(tmpdir(), "discontent-jobs-vitest"),
     );
@@ -517,6 +531,8 @@ describe("the registry", () => {
   it("has a handler for every kind, a label and a tier", () => {
     expect(Object.keys(JOB_HANDLERS).sort()).toEqual(
       [
+        /* 37c: the picker's "Import N selected". */
+        "form-batch",
         "form-text",
         "form-url",
         "import-list",
@@ -552,6 +568,16 @@ describe("the registry", () => {
       }),
     ).toBe("batch");
     expect(jobTier({ kind: "inspect", url: "u" })).toBe("interactive");
+    expect(
+      jobLabel({
+        kind: "form-batch",
+        contentDirectory: "/c",
+        url: "https://www.youtube.com/watch?v=Z8J2HgaaSgQ",
+        picks: [{ n: 2, recipe: { name: "Stuffing" } }],
+        total: 4,
+        commitNote: "local model, {n} of {total}",
+      }),
+    ).toBe("1 of 4 recipes from youtube.com/watch?v=Z8J2HgaaSgQ");
   });
 
   it("runs a spec, stores it as JSON, and replays it from the meta (37c's Retry)", async () => {
@@ -1135,8 +1161,9 @@ describe("recipes jobs show (37a review)", () => {
       async ({ log }) => log.step("fetch", () => 1),
       { dir, mirror: null },
     );
+    /* Through the backend since 37c (`--remote` reads the editor's jobs). */
     const shown = await jobsShowCommand.run({
-      backend: { kind: "local" },
+      backend: createLocalBackend({ contentDirectory: dir }),
       positionals: [job.slice(-8)],
     } as unknown as Parameters<typeof jobsShowCommand.run>[0]);
     expect(shown.job).toBe(job);

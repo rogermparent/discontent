@@ -25,13 +25,14 @@ is a symlink to it (and is gitignored here). Never commit anything under
 
 The `recipe-curator` skill (`.claude/skills/recipe-curator/`) imports, cites,
 groups and features recipes through the **`recipes` MCP server** — `.mcp.json`
-registers its 55 tools, `.claude/settings.json` pre-approves its 41
-non-destructive ones, and the skill's frontmatter lists the same 41. Held back,
+registers its 57 tools, `.claude/settings.json` pre-approves its 43
+non-destructive ones, and the skill's frontmatter lists the same 43. Held back,
 deliberately (the other 14):
 `recipe_delete`, `group_delete`, `term_delete`, `term_merge`, `unfeature`,
 `reindex`, `git_revert`, `git_restore`, `git_push`, `git_pull`, `git_sync`,
 `inventory_set`, `shopping_clear`, `shopping_settings_set`. `git_fetch` is
-pre-approved: it moves only remote-tracking refs. The server reads `CONTENT_DIRECTORY` (or
+pre-approved: it moves only remote-tracking refs; so are `job_list` and
+`job_get`, which read the import job store. The server reads `CONTENT_DIRECTORY` (or
 `RECIPE_API_URL` for a running editor, with `RECIPE_API_TOKEN`); with neither
 set it writes — and commits — to the real content repo through that symlink.
 
@@ -115,12 +116,13 @@ survives a cleared context.
   video or paste (`--all` / `--pick`, a picker, linked components, chapter
   starts). Roger's steps (`RECIPE_LLM_URL`,
   workstation update, no reindex) are in the doc's Close-out.
-- `websites/recipe-website/docs/agent-epic-37.md` — epic 37, import jobs:
-  every import runs as a job with a structured step log (JSON lines, named
-  steps, redaction) in `RECIPE_JOBS_DIR`, a cross-process queue per
-  contended resource (the GPU, yt-dlp, each site) with GPU hooks and a
-  placement check, the `fileLock` primitive, and the `/jobs` page, API, CLI
-  and MCP surfaces (37a–37c).
+- `websites/recipe-website/docs/agent-epic-37.md` — epic 37, import jobs
+  (closed): every import runs as a job with a structured step log (JSON
+  lines, named steps, redaction) in `RECIPE_JOBS_DIR`, a machine-wide,
+  cross-process queue per contended resource (the GPU, yt-dlp, each site)
+  with GPU hooks and a placement check, the `fileLock` primitive, the
+  form's live import panel, and the `/jobs` page, API, CLI and MCP
+  surfaces (37a–37c, 37-close).
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed

@@ -21,7 +21,9 @@
  * another host or another pid namespace (the Pi's container) cannot be
  * judged by its pid; it becomes `interrupted` only once its heartbeat is
  * older than `JOB_STALE_MS`. Nothing is replayed: Retry is a person's
- * choice.
+ * choice. The readers apply the same rule to each live job they read
+ * (`settleOrphanedJob`, 37c review), so a job orphaned after the sweep
+ * ends too.
  *
  * **Retention** (`pruneJobs`): the newest `JOB_RETENTION_COUNT` jobs, none
  * older than `JOB_RETENTION_MS`. A live job is kept while its process is
@@ -47,7 +49,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import type { JobTier } from "./context";
+import type { JobTier, JobWaiting } from "./context";
 import type { JobLine } from "./log";
 
 export type { JobTier } from "./context";
@@ -95,6 +97,13 @@ export interface JobMeta {
   /** What the job answered, `job` aside. */
   result?: unknown;
   error?: JobError;
+  /**
+   * What it is waiting for in the queue now (37b), mirrored from its waiter
+   * file for display; absent when it waits for nothing.
+   */
+  waiting?: JobWaiting;
+  /** The job this one ran again (37c's Retry). */
+  retryOf?: string;
 }
 
 /** D1: how many jobs are kept, and for how long. */
@@ -113,6 +122,7 @@ const PRUNE_STAMP = ".prune-stamp";
 
 const META = ".meta.json";
 const LOG = ".log.jsonl";
+const CANCEL = ".cancel";
 const JOB_ID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
 export function metaPath(dir: string, id: string): string {
@@ -123,15 +133,56 @@ export function logPath(dir: string, id: string): string {
   return path.join(dir, `${id}${LOG}`);
 }
 
+/**
+ * A cancel asked of a job from another process (37b): `<id>.cancel`. Its
+ * own file rather than a meta field — only the running process writes the
+ * meta, and its heartbeat's read-modify-write would race a flag written
+ * there by someone else. The running process polls for it (`runJob`).
+ */
+export function cancelPath(dir: string, id: string): string {
+  return path.join(dir, `${id}${CANCEL}`);
+}
+
+/** Ask the process running `id` to cancel it (37c's Cancel, any process). */
+export async function writeCancelRequest(
+  dir: string,
+  id: string,
+  reason?: string,
+): Promise<void> {
+  await writeFile(
+    cancelPath(dir, id),
+    JSON.stringify({ at: Date.now(), ...(reason ? { reason } : {}) }),
+  );
+}
+
+/** The cancel asked of `id`, if any: its reason (or "" for none). */
+export async function readCancelRequest(
+  dir: string,
+  id: string,
+): Promise<string | undefined> {
+  try {
+    const raw = await readFile(cancelPath(dir, id), "utf8");
+    try {
+      const parsed = JSON.parse(raw) as { reason?: unknown };
+      return typeof parsed.reason === "string" ? parsed.reason : "";
+    } catch {
+      return "";
+    }
+  } catch {
+    return undefined;
+  }
+}
+
 /** A new job's meta: this process runs it. */
 export function newJobMeta(
   id: string,
   init: Pick<JobMeta, "kind" | "label" | "spec"> &
-    Partial<Pick<JobMeta, "tier" | "resources" | "status">>,
+    Partial<Pick<JobMeta, "tier" | "resources" | "status" | "retryOf">>,
   now = Date.now(),
 ): JobMeta {
   const self = processIdentity();
   return {
+    ...(init.retryOf ? { retryOf: init.retryOf } : {}),
     id,
     kind: init.kind,
     label: init.label,
@@ -322,6 +373,51 @@ function endedWhy(
 }
 
 /**
+ * Close one live job whose process is gone (or, when this process cannot
+ * judge it, has gone quiet for `staleMs`): `interrupted`, its reason in
+ * `error` and a note in its log. Answers the meta as it now stands — the
+ * same one when the job may still be running, or had ended meanwhile.
+ *
+ * The boot sweep runs it over the store once per process; the readers
+ * (37c review: `getJobView`, `listJobSummaries`, `cancelJobById`) run it
+ * on each live meta they read, so a job orphaned after the sweep — its
+ * process killed while this one ran on — stops being reported `running`,
+ * and `/jobs`, the form's panel and `jobs log --follow` stop following it.
+ */
+export async function settleOrphanedJob(
+  dir: string,
+  meta: JobMeta,
+  now = Date.now(),
+  { staleMs = JOB_STALE_MS }: { staleMs?: number } = {},
+): Promise<{ meta: JobMeta; closed: boolean }> {
+  if (!LIVE_STATUSES.includes(meta.status)) return { meta, closed: false };
+  const message = endedWhy(meta, now, staleMs);
+  if (!message) return { meta, closed: false };
+  let closedIt = false;
+  const written = await updateJobMeta(dir, meta.id, (current) => {
+    /* Finished while we looked: leave it. */
+    if (!LIVE_STATUSES.includes(current.status)) return undefined;
+    closedIt = true;
+    return {
+      status: "interrupted",
+      endedAt: now,
+      error: { code: "interrupted", message },
+    };
+  });
+  if (!written) return { meta, closed: false };
+  if (closedIt) {
+    await appendNote(dir, meta.id, {
+      t: new Date(now).toISOString(),
+      step: "job",
+      phase: "note",
+      level: "warn",
+      msg: `interrupted — ${message}`,
+    });
+  }
+  return { meta: written, closed: closedIt };
+}
+
+/**
  * The boot sweep (D5): every `queued`/`running` job whose process is gone,
  * or that this process cannot judge and has gone quiet (`staleMs`), becomes
  * `interrupted`. Answers the ids it closed.
@@ -334,37 +430,16 @@ export async function sweepJobs(
   const closed: string[] = [];
   for (const meta of await listJobs(dir)) {
     if (!LIVE_STATUSES.includes(meta.status)) continue;
-    const message = endedWhy(meta, now, staleMs);
-    if (!message) continue;
-    let closedIt = false;
     /* One meta that cannot be written does not stop the sweep. */
-    const written = await updateJobMeta(dir, meta.id, (current) => {
-      /* Finished while we looked: leave it. */
-      if (!LIVE_STATUSES.includes(current.status)) return undefined;
-      closedIt = true;
-      return {
-        status: "interrupted",
-        endedAt: now,
-        error: { code: "interrupted", message },
-      };
-    }).then(
-      () => true,
-      (error) => {
-        console.warn(
-          `[jobs] could not close ${meta.id}: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        return false;
-      },
-    );
-    if (!written || !closedIt) continue;
-    await appendNote(dir, meta.id, {
-      t: new Date(now).toISOString(),
-      step: "job",
-      phase: "note",
-      level: "warn",
-      msg: `interrupted — ${message}`,
+    const settled = await settleOrphanedJob(dir, meta, now, {
+      staleMs,
+    }).catch((error: unknown) => {
+      console.warn(
+        `[jobs] could not close ${meta.id}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return undefined;
     });
-    closed.push(meta.id);
+    if (settled?.closed) closed.push(meta.id);
   }
   return closed;
 }
@@ -417,13 +492,19 @@ export async function pruneJobs(
     }
     await rm(metaPath(dir, id), { force: true });
     await rm(logPath(dir, id), { force: true });
+    await rm(cancelPath(dir, id), { force: true });
     removed.push(id);
   }
-  /* A log whose meta never landed, or a temp file a killed write left. */
+  /*
+   * A log whose meta never landed, a temp file a killed write left, or a
+   * cancel request nobody picked up (its job ended, or never ran).
+   */
   for (const name of await readdir(dir).catch(() => [] as string[])) {
     const orphanLog =
       name.endsWith(LOG) && !ids.includes(name.slice(0, -LOG.length));
-    if (!orphanLog && !name.endsWith(".tmp")) continue;
+    if (!orphanLog && !name.endsWith(".tmp") && !name.endsWith(CANCEL)) {
+      continue;
+    }
     const info = await stat(path.join(dir, name)).catch(() => null);
     if (info && now - info.mtimeMs > (orphanLog ? maxAgeMs : everyMs)) {
       await rm(path.join(dir, name), { force: true });

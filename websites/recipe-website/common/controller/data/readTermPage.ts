@@ -7,8 +7,9 @@ import {
   mergeTagVocabulary,
   subtreeKeys,
   tagOptions,
-  termHierarchy,
+  termBoard,
   termPageData,
+  type TagBoard,
   type TagOption,
   type TermHierarchyNode,
   type TagVocabularyEntry,
@@ -44,20 +45,28 @@ export async function readTagVocabulary(): Promise<TagVocabularyEntry[]> {
 }
 
 /**
- * `/tags`' tree (31b): the hierarchy roots with distinct subtree totals, from
- * the tree and the two inverted maps.
+ * `/tags`' board (31b, U4): the hierarchy roots with distinct subtree totals,
+ * and the records outside any hierarchy, from the tree and the two inverted
+ * maps.
  *
  * The one reader of the **whole** by-term maps left (32e): a distinct subtree
  * total needs every term's carriers, so this pays for every term and expires
  * when any term's rows move. It is one page. Term pages read one term each.
  */
 export async function readTagTree(): Promise<TermHierarchyNode[]> {
+  return (await readTagBoard()).roots;
+}
+
+/** `/tags`' whole board (U4): `readTagTree`'s roots plus the loose records. */
+export async function readTagBoard(): Promise<TagBoard> {
   const [byRecipeTag, byGroupTag, tree] = await Promise.all([
     recipeTagReads.byTerm.read(),
     groupTagReads.byTerm.read(),
     tagTermReads.tree.read(),
   ]);
-  if (!tree || Object.keys(tree).length === 0) return [];
+  if (!tree || Object.keys(tree).length === 0) {
+    return { roots: [], loose: [], recorded: [] };
+  }
   const counts = new Map(
     mergeTagVocabulary({
       recipeTerms: Object.entries(byRecipeTag ?? {}).map(([slug, entry]) => ({
@@ -73,7 +82,7 @@ export async function readTagTree(): Promise<TermHierarchyNode[]> {
       tree,
     }).map((entry) => [entry.slug, entry]),
   );
-  return termHierarchy(tree, counts, (slug) => [
+  return termBoard(tree, counts, (slug) => [
     ...(byRecipeTag?.[slug]?.items ?? []).map((item) => `recipe:${item.slug}`),
     ...(byGroupTag?.[slug]?.items ?? []).map((item) => `group:${item.slug}`),
   ]);

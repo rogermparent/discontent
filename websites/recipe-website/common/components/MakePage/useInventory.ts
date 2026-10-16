@@ -1,22 +1,20 @@
 "use client";
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { DEFAULT_STAPLES } from "../../util/makeable";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { assumedStaples, DEFAULT_STAPLES } from "../../util/makeable";
 import {
-  applyOverlay,
   dedupeItems,
-  EMPTY_OVERLAY,
   inventoryKey,
-  overlayFor,
+  isLegacyOverlay,
+  migrateOverlay,
   parseOverlay,
-  type InventoryOverlay,
+  storedList,
 } from "../../util/inventoryText";
 
 /**
- * What this browser has on hand (25c/D10), as an overlay on a shared list:
- * the items it added and the shared items it hid. On the static export there
- * is no shared list, so the overlay's `added` *is* the inventory; 25d's
- * editor passes the content repository's list in as `shared`.
+ * What this browser has on hand (25c/D10, U6): its whole list, in both apps,
+ * stored as `storedList` (`inventoryText.ts`). A pre-U6 value — an overlay on
+ * the editor's shared list — is migrated once (see `useInventory`).
  *
  * The same `localStorage` + `useSyncExternalStore` shape as `useListMode`:
  * a custom event for this tab, the `storage` event for the others, and every
@@ -44,58 +42,143 @@ function read(key: string): string | null {
   }
 }
 
-function write(key: string, value: string | null) {
+/** False when storage refused the write (a private window, the quota). */
+function store(key: string, value: string | null): boolean {
   try {
     if (value === null) localStorage.removeItem(key);
     else localStorage.setItem(key, value);
+    return true;
   } catch {
-    /* Storage refused: the change lives until the tab closes. */
+    return false;
   }
+}
+
+function write(key: string, value: string | null) {
+  store(key, value);
+  window.dispatchEvent(new Event(LOCAL_EVENT));
+}
+
+/**
+ * A list storage refused to keep (the quota), over the stored value it
+ * failed to replace. The snapshot answers it while storage still holds that
+ * value, so a migration finishes rather than leaving the page on its
+ * skeleton, and a change lives until the tab closes.
+ */
+let refused: { over: string; value: string } | null = null;
+
+function writeList(value: string | null) {
+  const over = read(STORAGE_KEY) ?? "";
+  refused = store(STORAGE_KEY, value) ? null : { over, value: value ?? "" };
   window.dispatchEvent(new Event(LOCAL_EVENT));
 }
 
 /* `""` rather than `null` once on the client, so the server's `null` can mean
  * "not read yet" and the page shows a skeleton instead of an empty state. */
-const getOverlaySnapshot = () => read(STORAGE_KEY) ?? "";
+const getOverlaySnapshot = () => {
+  const stored = read(STORAGE_KEY) ?? "";
+  return refused && refused.over === stored ? refused.value : stored;
+};
 const getLastQuerySnapshot = () => read(LAST_QUERY_KEY) ?? "";
 const getSettingsSnapshot = () => read(SETTINGS_KEY) ?? "";
 const getServerSnapshot = (): string | null => null;
 
+const NOTHING: string[] = [];
+
 export interface Inventory {
-  /** False until the browser's storage has been read. */
+  /** False until the browser's storage has been read (and migrated). */
   ready: boolean;
-  /** What this browser has: (shared − removed) ∪ added. */
+  /** This browser's whole list. */
   have: string[];
-  overlay: InventoryOverlay;
-  /** Replace the whole list; stored as the smallest overlay on `shared`. */
+  /** Replace the whole list. */
   setHave: (items: string[]) => void;
   add: (items: string[]) => void;
   remove: (item: string) => void;
-  /** Forget this browser's changes — back to the shared list. */
-  discard: () => void;
 }
 
-export function useInventory(shared: string[] = []): Inventory {
+/**
+ * Where a pre-U6 overlay's shared list comes from, for its one-time
+ * migration (`migrateOverlay`):
+ *
+ * - `{ shared }` — the signed-in editor's `/make`: the saved inventory the
+ *   overlay was made over, read through the owner's session;
+ * - `"browser"` — the export, which never had a shared list: `added` was
+ *   the whole list already;
+ * - `"defer"` — anywhere else in the editor (a guest, a page that can't read
+ *   the saved list, like the homepage tile, or a `/make` whose saved file
+ *   doesn't exist yet): the value is left for the owner's next signed-in
+ *   `/make`, and meanwhile reads as `added` — and is written back in its
+ *   pre-U6 shape, so that migration still merges the saved list in.
+ */
+export type LegacyInventorySource = { shared: string[] } | "browser" | "defer";
+
+/**
+ * Which app this bundle is: the editor's `next.config.mjs` sets
+ * `NEXT_PUBLIC_RECIPE_APP=editor` at build time; the export leaves it unset.
+ */
+const IN_EDITOR = process.env.NEXT_PUBLIC_RECIPE_APP === "editor";
+
+/**
+ * This browser's list (U6) — the one reader every page shares: `/make`,
+ * the homepage's Make tile, `/drinks`' panel.
+ *
+ * It also migrates a pre-U6 overlay, once, wherever it is first read: on the
+ * export as `added`; in the editor only where `legacy` brings the saved list
+ * (the signed-in `/make`), deferring everywhere else. `ready` stays false
+ * until that is settled, so no page judges a half-read list.
+ *
+ * A list storage refuses to keep (the quota, mid-migration or on a change)
+ * is held in memory while the stored value stays as it was (`refused`).
+ */
+export function useInventory(legacy?: { shared: string[] }): Inventory;
+/**
+ * @deprecated The pre-review form, from before every caller dropped the
+ * shared list (U6): the array is ignored. Call `useInventory()`.
+ */
+export function useInventory(noShared: readonly string[]): Inventory;
+export function useInventory(
+  arg?: { shared: string[] } | readonly string[],
+): Inventory {
+  const legacy = arg && "shared" in arg ? arg : undefined;
   const raw = useSyncExternalStore(
     subscribe,
     getOverlaySnapshot,
     getServerSnapshot,
   );
-  const overlay = useMemo(
-    () => (raw === null ? EMPTY_OVERLAY : parseOverlay(raw)),
-    [raw],
-  );
-  const have = useMemo(() => applyOverlay(shared, overlay), [shared, overlay]);
+  const source: LegacyInventorySource =
+    legacy ?? (IN_EDITOR ? "defer" : "browser");
+  const legacyShared = typeof source === "object" ? source.shared : undefined;
+  const defer = source === "defer";
+  const legacyStored = raw !== null && isLegacyOverlay(raw);
+  const migrating = legacyStored && !defer;
+  useEffect(() => {
+    if (!migrating || raw === null) return;
+    /* The write fires the store's event: `raw` turns versioned, and done. */
+    const items = migrateOverlay(raw, legacyShared);
+    writeList(items.length > 0 ? storedList(items) : null);
+  }, [migrating, raw, legacyShared]);
+
+  const have = useMemo(() => (raw ? parseOverlay(raw).added : NOTHING), [raw]);
 
   const setHave = useCallback(
     (items: string[]) => {
-      const next = overlayFor(shared, dedupeItems(items));
-      write(
-        STORAGE_KEY,
-        next.added.length || next.removed.length ? JSON.stringify(next) : null,
-      );
+      const list = dedupeItems(items);
+      /*
+       * While a migration waits (`"defer"`), keep the pre-U6 shape — `added`
+       * the list as shown, `removed` as it was, no version — never `null`:
+       * an empty overlay still means "the saved list" to that migration.
+       */
+      const value =
+        defer && legacyStored
+          ? JSON.stringify({
+              added: list,
+              removed: parseOverlay(raw).removed,
+            })
+          : list.length > 0
+            ? storedList(list)
+            : null;
+      writeList(value);
     },
-    [shared],
+    [defer, legacyStored, raw],
   );
   const add = useCallback(
     (items: string[]) => setHave([...have, ...items]),
@@ -106,9 +189,14 @@ export function useInventory(shared: string[] = []): Inventory {
       setHave(have.filter((kept) => inventoryKey(kept) !== inventoryKey(item))),
     [have, setHave],
   );
-  const discard = useCallback(() => write(STORAGE_KEY, null), []);
 
-  return { ready: raw !== null, have, overlay, setHave, add, remove, discard };
+  return {
+    ready: raw !== null && !migrating,
+    have,
+    setHave,
+    add,
+    remove,
+  };
 }
 
 /**
@@ -143,23 +231,37 @@ export function useLastMakeQuery(): [
 }
 
 /**
- * `/make`'s two judgement settings (32j), per browser like the list itself:
- * whether a close match counts as had (on by default), and what this
- * kitchen always has (`DEFAULT_STAPLES` until edited). Each is stored only
- * once changed, so a better default reaches everyone who never touched it.
+ * `/make`'s judgement settings, per browser like the list itself: whether a
+ * close match counts as had (32j, on by default), what this kitchen always
+ * has (32j, `DEFAULT_STAPLES` until edited), and whether pantry staples are
+ * assumed too (U5, on by default). Each is stored only once changed, so a
+ * better default reaches everyone who never touched it.
+ *
+ * `staples` is the **whole** assumed list — the always-on items plus, while
+ * the switch is on, `PANTRY_STAPLES` — so any page that hands it to
+ * `analyzeMakeable` (the homepage's Make tile, `/drinks`' panel) follows the
+ * switch without knowing it exists.
  */
 export interface MakeSettings {
   countClose: boolean;
+  /** Everything assumed on hand: `alwaysHave` ∪ pantry staples when on. */
   staples: string[];
-  /** True while `staples` is the default list. */
+  /** The editable "Assume I always have" list (32j). */
+  alwaysHave: string[];
+  /** True while `alwaysHave` is the default list. */
   defaultStaples: boolean;
+  /** "Assume pantry staples" (U5): on unless this browser turned it off. */
+  pantryStaples: boolean;
   setCountClose: (value: boolean) => void;
+  setPantryStaples: (value: boolean) => void;
   setStaples: (items: string[]) => void;
   resetStaples: () => void;
 }
 
 interface StoredSettings {
   countClose?: boolean;
+  /** Stored only as `false`: on is the default. */
+  pantryStaples?: boolean;
   staples?: string[];
 }
 
@@ -167,9 +269,13 @@ function parseSettings(raw: string): StoredSettings {
   try {
     const parsed = raw ? (JSON.parse(raw) as unknown) : {};
     if (!parsed || typeof parsed !== "object") return {};
-    const { countClose, staples } = parsed as Record<string, unknown>;
+    const { countClose, pantryStaples, staples } = parsed as Record<
+      string,
+      unknown
+    >;
     const out: StoredSettings = {};
     if (typeof countClose === "boolean") out.countClose = countClose;
+    if (typeof pantryStaples === "boolean") out.pantryStaples = pantryStaples;
     if (Array.isArray(staples)) {
       out.staples = staples.filter(
         (item): item is string => typeof item === "string",
@@ -193,6 +299,9 @@ export function useMakeSettings(): MakeSettings {
       const merged: StoredSettings = { ...stored, ...next };
       const kept: StoredSettings = {};
       if (merged.countClose !== undefined) kept.countClose = merged.countClose;
+      if (merged.pantryStaples !== undefined) {
+        kept.pantryStaples = merged.pantryStaples;
+      }
       if (merged.staples !== undefined) kept.staples = merged.staples;
       write(
         SETTINGS_KEY,
@@ -205,16 +314,30 @@ export function useMakeSettings(): MakeSettings {
     (value: boolean) => save({ countClose: value ? undefined : false }),
     [save],
   );
+  const setPantryStaples = useCallback(
+    (value: boolean) => save({ pantryStaples: value ? undefined : false }),
+    [save],
+  );
   const setStaples = useCallback(
     (items: string[]) => save({ staples: dedupeItems(items) }),
     [save],
   );
   const resetStaples = useCallback(() => save({ staples: undefined }), [save]);
+  const alwaysHave = stored.staples ?? DEFAULT_STAPLES;
+  const pantryStaples = stored.pantryStaples ?? true;
+  /* One array per stored value, so a memo keyed on `staples` holds. */
+  const staples = useMemo(
+    () => assumedStaples(alwaysHave, pantryStaples),
+    [alwaysHave, pantryStaples],
+  );
   return {
     countClose: stored.countClose ?? true,
-    staples: stored.staples ?? DEFAULT_STAPLES,
+    staples,
+    alwaysHave,
     defaultStaples: stored.staples === undefined,
+    pantryStaples,
     setCountClose,
+    setPantryStaples,
     setStaples,
     resetStaples,
   };

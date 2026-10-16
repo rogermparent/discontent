@@ -5,7 +5,8 @@
  *   inventory add <item…>        add items (one commit)
  *   inventory remove <item…>     remove items (one commit)
  *   inventory set --file <f>     replace the list whole (one commit)
- *   inventory make [<query…>]    what the list can make (every recipe by default)
+ *   inventory make [<query…>]    what the list can make (every recipe by default;
+ *                                pantry staples assumed unless --no-staples)
  *
  * Items are positionals, one per argument — quote the ones with spaces
  * (`inventory add "simple syrup" Gnista`). `set --file` reads what `/make`'s
@@ -27,7 +28,13 @@ import type {
   MakeableResult,
 } from "../backend/types";
 import { resolveUserPath } from "../input";
-import { numberOption, stringOption, type CommandDef } from "./types";
+import { PANTRY_STAPLES } from "recipe-website-common/util/makeable";
+import {
+  booleanOption,
+  numberOption,
+  stringOption,
+  type CommandDef,
+} from "./types";
 
 function formatList(items: string[]): string {
   return items.length > 0 ? items.join("\n") : "Nothing on hand yet.";
@@ -101,9 +108,12 @@ const setCommand: CommandDef<InventoryWriteResult> = {
 const makeCommand: CommandDef<MakeableResult> = {
   name: "inventory make",
   usage:
-    "recipes inventory make [<query…>] [--limit 20]   every recipe by default; e.g. inventory make tag:drink, inventory make -tag:drink",
+    "recipes inventory make [<query…>] [--limit 20] [--no-staples]   every recipe by default; e.g. inventory make tag:drink, inventory make -tag:drink\n" +
+    "  Salt, black pepper, water and ice always count as on hand, and so do the pantry\n" +
+    `  staples (${PANTRY_STAPLES.join(", ")}) unless --no-staples.`,
   options: {
     limit: { type: "string" },
+    "no-staples": { type: "boolean" },
   },
   takesDashedPositionals: true,
   async run({ backend, positionals, options }) {
@@ -111,6 +121,7 @@ const makeCommand: CommandDef<MakeableResult> = {
     return backend.inventoryMakeable({
       ...(query ? { query } : {}),
       limit: numberOption(options, "limit"),
+      ...(booleanOption(options, "no-staples") ? { staples: false } : {}),
     });
   },
   format(result) {
@@ -135,7 +146,7 @@ const makeCommand: CommandDef<MakeableResult> = {
             ),
           ];
     return [
-      `${result.total} recipes for ${JSON.stringify(result.query)}, ${result.inventory} items on hand`,
+      `${result.total} recipes for ${JSON.stringify(result.query)}, ${result.inventory} items on hand${result.staples === false ? ", no pantry staples" : ", pantry staples assumed"}`,
       ...rows("Can make now", result.canMake),
       ...rows("One away", result.oneAway),
       ...rows("Two away", result.twoAway),

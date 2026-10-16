@@ -42,6 +42,13 @@ test.describe("New Recipe View", () => {
 
         const form = page.locator("#recipe-form");
         await expect(form.locator('[name="name"]')).toHaveValue("Naan");
+        /* 37c: a job — the panel folds when it ends, the URL can reopen it. */
+        await expect(
+          page
+            .getByTestId("import-progress")
+            .getByRole("heading", { level: 3 }),
+        ).toHaveText("Import done");
+        await expect(page).toHaveURL(/\/new-recipe\?job=[0-9A-Z]{26}$/);
         await expect(form.getByTitle("Prep Time Minutes")).toHaveValue("30");
         await expect(form.getByTitle("Cook Time Minutes")).toHaveValue("15");
         await expect(form.getByTitle("Total Time Hours")).toHaveValue("2");

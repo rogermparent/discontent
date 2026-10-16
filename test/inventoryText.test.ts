@@ -4,10 +4,12 @@ import {
   applyOverlay,
   exportInventory,
   inventoryKey,
+  isLegacyOverlay,
   MAX_ITEMS,
-  overlayFor,
+  migrateOverlay,
   parseInventoryText,
   parseOverlay,
+  storedList,
 } from "recipe-website-common/util/inventoryText";
 
 describe("exportInventory", () => {
@@ -121,17 +123,6 @@ describe("overlay", () => {
     ).toEqual(["vodka", "lime", "Gnista"]);
   });
 
-  it("is the smallest overlay that reaches a list", () => {
-    expect(overlayFor(["vodka", "gin"], ["vodka", "tonic"])).toEqual({
-      added: ["tonic"],
-      removed: ["gin"],
-    });
-    expect(overlayFor(["vodka"], ["Vodka"])).toEqual({
-      added: [],
-      removed: [],
-    });
-  });
-
   it("forgives malformed storage", () => {
     expect(parseOverlay(null)).toEqual({ added: [], removed: [] });
     expect(parseOverlay("nope")).toEqual({ added: [], removed: [] });
@@ -139,5 +130,43 @@ describe("overlay", () => {
       added: ["vodka"],
       removed: [],
     });
+  });
+});
+
+/*
+ * Usability pass, U6: the browser's list stopped being an overlay on the
+ * editor's shared list. A pre-U6 value is migrated once into the whole list.
+ */
+describe("the pre-U6 overlay migration", () => {
+  const legacy = JSON.stringify({ added: ["lime"], removed: ["gin"] });
+
+  it("tells the old form from the new", () => {
+    expect(isLegacyOverlay(legacy)).toBe(true);
+    expect(isLegacyOverlay(storedList(["lime"]))).toBe(false);
+    expect(isLegacyOverlay(null)).toBe(false);
+    expect(isLegacyOverlay("")).toBe(false);
+    expect(isLegacyOverlay("not json")).toBe(false);
+  });
+
+  it("editor: shared ∪ added − removed, from the owner's saved list", () => {
+    expect(migrateOverlay(legacy, ["gin", "tonic water"])).toEqual([
+      "tonic water",
+      "lime",
+    ]);
+  });
+
+  it("export: no shared list, so only added is kept", () => {
+    expect(migrateOverlay(legacy)).toEqual(["lime"]);
+  });
+
+  it("stores the whole list in the shape every reader already takes", () => {
+    const stored = storedList(["lime", "Lime", "vodka"]);
+    expect(JSON.parse(stored)).toEqual({
+      added: ["lime", "vodka"],
+      removed: [],
+      version: 2,
+    });
+    /* `added` is the list for a reader that knows nothing of the version. */
+    expect(applyOverlay([], parseOverlay(stored))).toEqual(["lime", "vodka"]);
   });
 });

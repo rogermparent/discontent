@@ -9,8 +9,9 @@
  * `EDITOR_ENV_KEYS` (36b). Nothing set means the feature is off — how the Pi,
  * which has no model, stays off without checking which host it is on.
  */
-import type { JobRun } from "../jobs/context";
+import { jobContext, type JobRun } from "../jobs/context";
 import type { StepHandle } from "../jobs/log";
+import { withResource } from "../jobs/queue";
 
 export type LlmApi = "ollama" | "openai";
 
@@ -164,6 +165,9 @@ export type LlmErrorKind =
 
 /** Every failure of a model call, by kind; the message is for people. */
 export class LlmError extends Error {
+  /** A timeout's placement reading, when one was taken (D6, 37b). */
+  gpu?: number;
+
   constructor(
     readonly kind: LlmErrorKind,
     message: string,
@@ -332,19 +336,73 @@ function isTimeout(error: unknown): boolean {
  * Throws `LlmError`: `unconfigured` (no `RECIPE_LLM_URL`), `unreachable` (no
  * server answered), `timeout` (`LLM_TIMEOUT_MS`, model load included),
  * `http` (a non-2xx answer — a model that isn't pulled is a 404), `bad_json`.
+ *
+ * **The `gpu` queue (37b, D4).** Every call holds the machine's one `gpu`
+ * slot, in its job's tier (`interactive` outside a job), so the editor, the
+ * CLI and the MCP server never ask the model at once; a wait is a
+ * `queue.wait` step, and the caller's signal ends it. A call made while its
+ * caller already holds `gpu` passes through (`withResource`).
+ *
+ * **D6's reload (36-T58, automated).** When this call's grant ran the
+ * acquire hook and the model is still partly on the CPU afterwards — the
+ * placement check, after the answer or after a timeout — Ollama is told to
+ * unload it (`POST /api/generate {model, keep_alive: 0}`, an `llm.reload`
+ * step) and the call is made once more, now that the GPU is free. Once:
+ * never a loop. The first reading is not surfaced; the retry's is.
  */
 export async function chatJson(
   request: ChatJsonRequest,
 ): Promise<ChatJsonResult> {
   const config = request.config ?? llmConfig();
   if (!config) throw new LlmError("unconfigured", LLM_UNCONFIGURED_MESSAGE);
+  const job = jobContext(request.job);
+  const signal = request.signal ?? job.signal;
+  return withResource(
+    "gpu",
+    { ...job, ...(signal ? { signal } : {}) },
+    async (grant) => {
+      const step = request.step;
+      const reloadable =
+        grant.hookRan && config.api === "ollama" && !!step?.log.live;
+      let reading: number;
+      try {
+        const first = await callModel(request, config, signal, !reloadable);
+        if (!reloadable || first.gpu === undefined || first.gpu >= 100) {
+          return first.result;
+        }
+        reading = first.gpu;
+      } catch (error) {
+        if (
+          !reloadable ||
+          !(error instanceof LlmError) ||
+          error.kind !== "timeout" ||
+          error.gpu === undefined ||
+          error.gpu >= 100
+        ) {
+          throw error;
+        }
+        reading = error.gpu;
+      }
+      await reloadModel(config, step!, reading, signal);
+      return (await callModel(request, config, signal, true)).result;
+    },
+  );
+}
+
+/** One request to the model server, and — in a job — where the model sat. */
+async function callModel(
+  request: ChatJsonRequest,
+  config: LlmConfig,
+  callerSignal: AbortSignal | undefined,
+  surface: boolean,
+): Promise<{ result: ChatJsonResult; gpu?: number }> {
   const timeoutMs = request.timeoutMs ?? LLM_TIMEOUT_MS;
   const timeout = AbortSignal.timeout(timeoutMs);
-  const callerSignal = request.signal ?? request.job?.signal;
   const signal = callerSignal
     ? AbortSignal.any([callerSignal, timeout])
     : timeout;
   const started = Date.now();
+  const placed = !!request.step?.log.live && config.api === "ollama";
 
   let response: Response;
   let body: Record<string, unknown>;
@@ -377,13 +435,15 @@ export async function chatJson(
     if (callerSignal?.aborted) throw error;
     if (isTimeout(error) || timeout.aborted) {
       /* A timeout is when a CPU-resident model shows (36-T58): say so. */
-      if (request.step && config.api === "ollama" && request.step.log.live) {
-        await checkPlacement(config, request.step);
-      }
-      throw new LlmError(
+      const gpu = placed
+        ? await checkPlacement(config, request.step!, { surface })
+        : undefined;
+      const timedOut = new LlmError(
         "timeout",
         `the local model at ${displayUrl(config.url)} did not answer within ${Math.round(timeoutMs / 1000)} s`,
       );
+      if (gpu !== undefined) timedOut.gpu = gpu;
+      throw timedOut;
     }
     if (error instanceof SyntaxError) {
       throw new LlmError(
@@ -399,11 +459,10 @@ export async function chatJson(
 
   const { content, ...stats } = readResponse(body, config.api);
   const durationMs = Date.now() - started;
+  let gpu: number | undefined;
   if (request.step) {
     request.step.set(callStats({ ...stats, durationMs, model: config.model }));
-    if (config.api === "ollama" && request.step.log.live) {
-      await checkPlacement(config, request.step);
-    }
+    if (placed) gpu = await checkPlacement(config, request.step, { surface });
   }
   if (typeof content !== "string") {
     throw new LlmError(
@@ -412,11 +471,57 @@ export async function chatJson(
     );
   }
   return {
-    ...stats,
-    data: parseJsonAnswer(content),
-    model: config.model,
-    durationMs,
+    result: {
+      ...stats,
+      data: parseJsonAnswer(content),
+      model: config.model,
+      durationMs,
+    },
+    ...(gpu !== undefined ? { gpu } : {}),
   };
+}
+
+/** How long `ollama stop`'s request may take. */
+export const RELOAD_TIMEOUT_MS = 30_000;
+
+/**
+ * D6's fix for a model loaded while another program held VRAM: unload it
+ * (`ollama stop`'s request), so the next call loads it onto the GPU the
+ * acquire hook just freed. An `llm.reload` step; a failure is noted there
+ * and the call is still retried once.
+ */
+async function reloadModel(
+  config: LlmConfig,
+  step: StepHandle,
+  gpu: number,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  const { log } = step;
+  step.set({ reloaded: true, firstGpu: gpu });
+  await log.step("llm.reload", { model: config.model, gpu }, async (reload) => {
+    const timeout = AbortSignal.timeout(RELOAD_TIMEOUT_MS);
+    try {
+      const response = await fetch(`${config.url}/api/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: config.model, keep_alive: 0 }),
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      });
+      reload.set({ status: response.status });
+      if (!response.ok) {
+        reload.fail(`/api/generate answered ${response.status}`);
+      }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      reload.fail(
+        `could not stop the model: ${(error as Error)?.message ?? error}`,
+      );
+    }
+  });
+  log.info(
+    "llm.reload",
+    `${gpu}% GPU after the acquire hook — stopped ${config.model}; asking once more`,
+  );
 }
 
 /**
@@ -484,11 +589,16 @@ export function placementWarning(model: string, gpuPercent: number): string {
  * job's result too (36-T58: a model loaded while another program held VRAM
  * runs on the CPU, ~20× slower, and nothing said so). Never fails the call:
  * an unreachable `/api/ps`, or a model it does not list, is a note.
+ *
+ * Answers the reading (undefined when there is none). `surface: false`
+ * (37b): only the step's `gpu` — `chatJson` is about to reload the model
+ * and ask again, and the retry's reading is the one that counts.
  */
 export async function checkPlacement(
   config: LlmConfig,
   step: StepHandle,
-): Promise<void> {
+  { surface = true }: { surface?: boolean } = {},
+): Promise<number | undefined> {
   const { log } = step;
   try {
     const response = await fetch(`${config.url}/api/ps`, {
@@ -496,7 +606,7 @@ export async function checkPlacement(
     });
     if (!response.ok) {
       log.info("llm.placement", `/api/ps answered ${response.status}`);
-      return;
+      return undefined;
     }
     const body = (await response.json()) as {
       models?: {
@@ -513,11 +623,11 @@ export async function checkPlacement(
     );
     if (!entry || !entry.size || typeof entry.size_vram !== "number") {
       log.info("llm.placement", `/api/ps does not list ${config.model}`);
-      return;
+      return undefined;
     }
     const gpu = Math.floor((entry.size_vram / entry.size) * 100);
     step.set({ gpu });
-    if (gpu < 100) {
+    if (gpu < 100 && surface) {
       log.warn(
         "llm.placement",
         `${gpu}% GPU — another program holds VRAM; run "ollama stop ${config.model}" once it frees`,
@@ -531,10 +641,12 @@ export async function checkPlacement(
       /* One result warning however many calls ran: the latest reading. */
       log.surface(placementWarning(config.model, gpu), PLACEMENT_WARNING_KIND);
     }
+    return gpu;
   } catch (error) {
     log.info(
       "llm.placement",
       `could not read /api/ps: ${(error as Error)?.message ?? error}`,
     );
+    return undefined;
   }
 }

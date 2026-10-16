@@ -1,30 +1,49 @@
 "use server";
 
-import { runSpec } from "recipe-editor/controller/jobs/kinds";
-import type { RecipeActionState } from "./common";
+import { startSpec } from "recipe-editor/controller/jobs/kinds";
+import { authenticateUser } from "recipe-editor/controller/actions/shared";
+
+/**
+ * What the form's Import answers (37c, D7): the job it started, at once, or
+ * why it started none. The form's progress panel polls the job
+ * (`GET /api/jobs/<id>`) and fills the form from its result.
+ */
+export interface ImportStartState {
+  job?: string;
+  message?: string;
+  /** Tells two starts apart, even with the same answer. */
+  at?: number;
+}
 
 /**
  * The form's import, as a job (epic 37): the same reducers as before
- * (`controller/formImport.ts`), with a step log, and the state carries its
- * `job` id. Still synchronous — 37c makes it enqueue and poll.
+ * (`controller/formImport.ts`), now **enqueued** — the action answers the
+ * job's id as soon as its record exists, and the work goes on in the
+ * editor. A failure is the job's (`failed`, with the state as its result);
+ * a cancel is the panel's.
  */
 export async function importRecipeAction(
-  _previousState: RecipeActionState | null,
+  _previousState: ImportStartState | null,
   formData: FormData,
-): Promise<RecipeActionState> {
+): Promise<ImportStartState> {
+  const at = Date.now();
+  if (!(await authenticateUser())) {
+    return { message: "Sign in to import.", at };
+  }
   /* Pasted text (36c; since 36d the "No link? Paste the recipe text
    * instead" fallback): the local model reads the text. */
   if (formData.get("importMode") === "text") {
     const text = formData.get("importText");
     const source = formData.get("importSource");
     if (typeof text !== "string" || !text.trim()) {
-      return { message: "No text provided" };
+      return { message: "No text provided", at };
     }
-    return await runSpec({
+    const { job } = await startSpec({
       kind: "form-text",
       text,
       ...(typeof source === "string" && source ? { source } : {}),
     });
+    return { job, at };
   }
   const url = formData.get("import");
   /* The "Re-read with AI even if the page has recipe data" box (36b,
@@ -32,7 +51,8 @@ export async function importRecipeAction(
    * `auto`. */
   const mode = formData.get("llm") === "force" ? "force" : "auto";
   if (typeof url !== "string" || !url) {
-    return { message: "No URL provided" };
+    return { message: "No URL provided", at };
   }
-  return await runSpec({ kind: "form-url", url, llm: mode });
+  const { job } = await startSpec({ kind: "form-url", url, llm: mode });
+  return { job, at };
 }

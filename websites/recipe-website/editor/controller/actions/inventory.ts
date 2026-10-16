@@ -8,9 +8,10 @@ import { patchInventory } from "../curation/inventory";
 export type SaveInventoryResult = { items: string[] } | { error: string };
 
 /**
- * "Save to shared list" on the signed-in `/make` (25d): this browser's
- * changes, sent as the `{add, remove}` diff they are, committed as one
- * "Update inventory: …" commit authored by whoever is signed in.
+ * The saved-inventory editor on the signed-in `/make` (25d, U6): an add, a
+ * remove or "Save this browser's list to it", sent as the `{add, remove}`
+ * diff it is, committed as one "Update inventory: …" commit authored by
+ * whoever is signed in.
  *
  * A diff rather than the whole list, so a save from a browser that loaded the
  * page before someone else (or the agent) added Gnista doesn't take it away.

@@ -25,4 +25,14 @@ export async function register() {
   } catch (error) {
     console.error("[jobs] boot sweep failed:", error);
   }
+  /*
+   * 37b (D6 amended): with a GPU release hook set, the editor keeps it for
+   * the machine — it closes a spell a CLI run began and did not outlive.
+   */
+  try {
+    const { startGpuKeeper } = await import("../controller/jobs/gpuHooks");
+    startGpuKeeper();
+  } catch (error) {
+    console.error("[queue] GPU keeper failed to start:", error);
+  }
 }

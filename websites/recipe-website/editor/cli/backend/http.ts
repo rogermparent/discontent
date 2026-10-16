@@ -30,7 +30,9 @@ import {
   CurationError,
   type CurationErrorCode,
   type CurationErrorDetails,
+  jobOf,
   warningsOf,
+  withJob,
   withWarnings,
 } from "../../controller/curation/errors";
 import type {
@@ -53,6 +55,10 @@ import type {
   InspectResult,
   InventoryResult,
   InventoryWriteResult,
+  JobCancelResult,
+  JobListResult,
+  JobRetryResult,
+  JobView,
   MakeableResult,
   FetchResult,
   PullResult,
@@ -203,14 +209,17 @@ function rehydrate(status: number, statusText: string, body: unknown): Error {
     if (Array.isArray(source.terms)) {
       details.terms = source.terms as string[];
     }
-    /* A failed job's surfaced warnings (37a review) ride along. */
-    return withWarnings(
-      new CurationError(
-        source.code as CurationErrorCode,
-        source.message as string,
-        details,
+    /* A failed job's surfaced warnings (37a review) and its id (37c) ride along. */
+    return withJob(
+      withWarnings(
+        new CurationError(
+          source.code as CurationErrorCode,
+          source.message as string,
+          details,
+        ),
+        warningsOf(source) ?? [],
       ),
-      warningsOf(source) ?? [],
+      jobOf(source),
     );
   }
   const message =
@@ -500,9 +509,9 @@ export function createHttpBackend({
     setInventory(raw) {
       return call<InventoryWriteResult>("PUT", "/api/inventory", { body: raw });
     },
-    inventoryMakeable(options = {}) {
+    inventoryMakeable({ staples, ...options } = {}) {
       return call<MakeableResult>("GET", "/api/inventory/make", {
-        query: options,
+        query: { ...options, staples: staples === false ? 0 : undefined },
       });
     },
 
@@ -649,6 +658,29 @@ export function createHttpBackend({
       return call<SyncResult>("POST", "/api/git/sync", {
         body: options.remote ? { remote: options.remote } : {},
       });
+    },
+
+    /* The editor's job store (37c). */
+    listJobs(options = {}) {
+      return call<JobListResult>("GET", "/api/jobs", { query: { ...options } });
+    },
+    getJob(id, options = {}) {
+      return call<JobView>("GET", `/api/jobs/${encodeURIComponent(id)}`, {
+        query: { from: options.from },
+      });
+    },
+    cancelJob(id) {
+      return call<JobCancelResult>(
+        "POST",
+        `/api/jobs/${encodeURIComponent(id)}/cancel`,
+      );
+    },
+    /* The editor starts it and answers at once: `status: "running"`. */
+    retryJob(id) {
+      return call<JobRetryResult>(
+        "POST",
+        `/api/jobs/${encodeURIComponent(id)}/retry`,
+      );
     },
 
     /* The server revalidated in the same request; there is nothing to report. */

@@ -8,7 +8,7 @@ import { mkdtemp, readdir, readFile, readJson, rm, writeFile } from "fs-extra";
 import { tmpdir } from "os";
 import { dirname, join, relative } from "path";
 import { fileURLToPath } from "url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import simpleGit, { type SimpleGit } from "simple-git";
 import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
@@ -24,6 +24,14 @@ import {
   setInventory,
 } from "../websites/recipe-website/editor/controller/curation/inventory";
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
+
+/* `/api/inventory/make` with its auth stood in for: the route's own
+ * parameters are what its test reads (U5 review). */
+vi.mock("recipe-editor/controller/apiContext", () => ({
+  requireCurationContext: async () => ctx,
+}));
+const { GET: makeRoute } =
+  await import("../websites/recipe-website/editor/src/app/api/inventory/make/route");
 
 let contentDirectory: string;
 let git: SimpleGit;
@@ -218,9 +226,11 @@ describe("makeable", () => {
     await patchInventory(ctx, {
       add: ["vodka", "simple syrup", "Gnista", "tonic", "sugar", "lavender"],
     });
-    const result = await makeable(ctx);
+    /* Pantry staples off (U5): flour would otherwise answer for Hand Pies. */
+    const result = await makeable(ctx, { staples: false });
     expect(result).toMatchObject({
       query: "",
+      staples: false,
       inventory: 6,
       total: 4,
       canMake: [
@@ -262,7 +272,10 @@ describe("makeable", () => {
 
   it("takes a scope, and reads stored headings off the index", async () => {
     await patchInventory(ctx, { add: ["jam"] });
-    const result = await makeable(ctx, { query: "tag:dessert" });
+    const result = await makeable(ctx, {
+      query: "tag:dessert",
+      staples: false,
+    });
     expect(result.oneAway).toEqual([
       { slug: "hand-pies", name: "Hand Pies", missing: ["flour"] },
     ]);
@@ -281,7 +294,7 @@ describe("makeable", () => {
       ],
     });
     await patchInventory(ctx, { add: ["onion", "rice", "vegetable oil"] });
-    const result = await makeable(ctx, { query: "-tag:drink" });
+    const result = await makeable(ctx, { query: "-tag:drink", staples: false });
     expect(result.canMake).toEqual([
       {
         slug: "shallot-rice",
@@ -292,6 +305,41 @@ describe("makeable", () => {
         ],
       },
     ]);
+  });
+
+  it("assumes pantry staples by default, and not with staples: false (U5)", async () => {
+    await patchInventory(ctx, { add: ["jam"] });
+    const on = await makeable(ctx, { query: "tag:dessert" });
+    expect(on.staples).toBe(true);
+    expect(on.canMake).toEqual([{ slug: "hand-pies", name: "Hand Pies" }]);
+    const off = await makeable(ctx, { query: "tag:dessert", staples: false });
+    expect(off.staples).toBe(false);
+    expect(off.canMake).toEqual([]);
+    expect(off.oneAway).toEqual([
+      { slug: "hand-pies", name: "Hand Pies", missing: ["flour"] },
+    ]);
+  });
+
+  it("takes staples=0 on /api/inventory/make, and assumes them otherwise (U5)", async () => {
+    await patchInventory(ctx, { add: ["jam"] });
+    const get = async (search: string) =>
+      (await (
+        await makeRoute(
+          new Request(`http://editor.test/api/inventory/make${search}`),
+        )
+      ).json()) as Awaited<ReturnType<typeof makeable>>;
+    const on = await get("?query=tag:dessert");
+    expect(on.staples).toBe(true);
+    expect(on.canMake).toEqual([{ slug: "hand-pies", name: "Hand Pies" }]);
+    for (const off of ["0", "false"]) {
+      const result = await get(`?query=tag:dessert&staples=${off}`);
+      expect(result.staples).toBe(false);
+      expect(result.canMake).toEqual([]);
+      expect(result.oneAway).toEqual([
+        { slug: "hand-pies", name: "Hand Pies", missing: ["flour"] },
+      ]);
+    }
+    expect((await get("?query=tag:dessert&staples=1")).staples).toBe(true);
   });
 
   it("caps each bucket at `limit`", async () => {

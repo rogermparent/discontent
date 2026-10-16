@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { auth, signIn } from "@/auth";
 import { readSettings } from "@/settings";
 import {
@@ -31,6 +32,14 @@ export default async function ToolsPage() {
             description="A local model reads recipe pages that carry no recipe data (epic 36). Configured in the editor's environment, not here."
           >
             <LocalModelStatus />
+          </SettingsCard>
+          <SettingsCard
+            title="Import jobs"
+            description="Every import, inspect and roundup runs as a job with a step log, and waits in one queue for the GPU, yt-dlp and each site."
+          >
+            <Link href="/jobs" className="text-sm underline underline-offset-2">
+              See the jobs and the queue
+            </Link>
           </SettingsCard>
         </div>
       </PageSection>
