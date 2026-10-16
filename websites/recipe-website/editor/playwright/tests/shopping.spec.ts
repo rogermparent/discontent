@@ -262,7 +262,8 @@ test.describe("Shopping list", () => {
     await expect(
       page.getByLabel("4½ cups water", { exact: true }),
     ).toBeVisible();
-    await expect(list(page)).not.toContainText("Simple Syrup");
+    /* The linking line itself is no row (the notes name the syrup). */
+    await expect(list(page)).not.toContainText("batch Simple Syrup");
     const sugar = rows(page).filter({ hasText: "¾ cup sugar" });
     await expect(sugar.getByTestId("shopping-row-note")).toHaveText(
       "partly for Simple Syrup",

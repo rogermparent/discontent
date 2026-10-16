@@ -622,7 +622,13 @@ Deferred:
 - No undo of an expansion on the list (remove the rows, or switch off and
   add again).
 
-Gates: see the PR (heavy slot held for the run).
+Gates (after the review fixes and the merge of `origin/main` with 38b, all
+through the heavy slot): `pnpm --filter recipe-editor typecheck` and
+`pnpm --filter recipe-website exec tsc --noEmit` clean; full vitest 98
+files / 2043 tests passed (before the merge); Playwright build mode
+`shopping.spec make.spec` 41/41. Its first run found the expansion spec
+asserting no "Simple Syrup" on a list whose notes name the syrup; the
+spec now checks that the linking line ("batch Simple Syrup") is no row.
 
 ### 38e — Photo / recipe-card import
 
