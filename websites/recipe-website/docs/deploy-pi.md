@@ -155,8 +155,14 @@ none was recorded — the first start after 39b). So after a deploy or
 no checklist needs "reindex after a spec bump" any more. That start-time
 rebuild and the deploy's `POST /api/reindex` are both `reindex` jobs in the
 repository's line (D2), so the deploy's request waits behind the start-time
-one rather than racing it; its printed `timings.total` is its own rebuild,
-and `/jobs` on the Pi shows both with a step per content type.
+one rather than racing it. Since the 39b review the deploy asks
+`POST /api/reindex?ifStale=1`: whichever of the two gets the line second
+finds the indexes built from HEAD by this code and records "already fresh"
+instead of rebuilding again. Usually that is the deploy's, which then
+prints `"skipped": "fresh"` (no `timings`; the start-time rebuild's steps
+are on the Pi's `/jobs`); when the deploy's request is first in line it
+rebuilds and prints its `timings` as before. A rollback's rebuild passes no query (an older image
+ignores it and rebuilds anyway).
 
 On 2026-10-07, the old systemd setup's refresh never finished: the unit had
 used 21 min 36 s of CPU when it was killed. That was the CRLF markdown hang
