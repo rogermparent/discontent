@@ -48,6 +48,7 @@ import {
   chatText,
   LlmError,
   llmConfig,
+  llmStatus,
   type ChatImage,
   type ChatTextResult,
   type LlmConfig,
@@ -226,12 +227,19 @@ export function transcribeUserPrompt(page = 1, pages = 1): string {
 /**
  * What a kept transcription must have been made with to be reused
  * (`photos.ts`): the prompts and how the photos are sent. The model's name
- * is checked beside it — so a re-pulled model under the same name reuses
- * it (38-Te6). The size caps are the server's (`photoLimits`, 38g); the
- * default is the key every transcript kept before 38g was made with.
+ * is checked beside it. The size caps are the server's (`photoLimits`,
+ * 38g); the default is the key every transcript kept before 38g was made
+ * with.
+ *
+ * `digest` (39a, closing 38-Te6): the vision model's Ollama digest
+ * (`visionDigest`), so weights re-pulled under the same name read the
+ * photos again. None under the Claude API, whose model name is enough;
+ * `NO_DIGEST` when Ollama's list could not be read, which misses every
+ * transcript kept with a digest or before 39a rather than trusting it.
  */
 export function transcribeKey(
   limits: PhotoLimits = OLLAMA_PHOTO_LIMITS,
+  digest?: string,
 ): string {
   return textSha(
     JSON.stringify([
@@ -242,8 +250,30 @@ export function transcribeKey(
       limits.maxSide,
       limits.maxPixels,
       VISION_NUM_CTX,
+      ...(digest ? [digest] : []),
     ]),
   );
+}
+
+/**
+ * What `visionDigest` answers under Ollama when its list cannot be read, or
+ * does not name the model (39a review): a key no transcript was kept under
+ * with a real digest, nor before 39a — so the photos are read again rather
+ * than an old transcript trusted.
+ */
+export const NO_DIGEST = "no-digest";
+
+/**
+ * The vision model's digest (39a, 38-Te6): one `GET /api/tags` per import
+ * (`llmStatus`, the Settings line's own model check), never per photo.
+ * Ollama only; `undefined` under another API; `NO_DIGEST` when the list
+ * cannot be read or does not name the model.
+ */
+export async function visionDigest(
+  config: LlmConfig,
+): Promise<string | undefined> {
+  if (config.api !== "ollama") return undefined;
+  return (await llmStatus(config)).digest ?? NO_DIGEST;
 }
 
 /** Shown in the step log (37-D2): a short excerpt, never the whole text. */

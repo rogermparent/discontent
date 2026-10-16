@@ -28,7 +28,7 @@
  * Loaded lazily with the extractor (35q): nothing here runs without a model.
  */
 import type { ChapterRef } from "./chapterTime";
-import { chatJson, type LlmConfig } from "./client";
+import { chatJson, type LlmApi, type LlmConfig } from "./client";
 import { jobContext, type JobRun } from "../jobs/context";
 import {
   buildRecipeUserPrompt,
@@ -190,7 +190,13 @@ export function listRecipes({
   signal?: AbortSignal;
   /** The job (epic 37): an `llm.list` step. */
   job?: JobRun;
-}): Promise<{ recipes: ListedRecipe[]; model: string; durationMs: number }> {
+}): Promise<{
+  recipes: ListedRecipe[];
+  model: string;
+  /** The API that answered (39a). */
+  api?: LlmApi;
+  durationMs: number;
+}> {
   const { log } = jobContext(job);
   return log.step("llm.list", { chars: text.length }, async (step) => {
     const result = await chatJson({
@@ -211,6 +217,7 @@ export function listRecipes({
     return {
       recipes,
       model: result.model,
+      ...(result.api ? { api: result.api } : {}),
       durationMs: result.durationMs,
     };
   });

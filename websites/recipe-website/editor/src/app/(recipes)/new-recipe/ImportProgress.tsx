@@ -17,6 +17,17 @@ import type { RecipeActionState } from "./common";
 /** How often the panel reads the job (D7: every second). */
 export const IMPORT_POLL_MS = 1_000;
 
+/**
+ * A job with no record (39a, 38-Tb5): the panel follows nothing — its id
+ * answers 404 — and says so; the form hands it the end (`status`) once
+ * `importResultAction` answers. Cancel still works: the cancel route
+ * aborts a job this editor runs by its id, record or none.
+ */
+export interface UnfollowedImport {
+  /** Unset while the job runs. */
+  status?: "done" | "failed" | "cancelled";
+}
+
 function capitalized(text: string): string {
   return text ? text[0].toUpperCase() + text.slice(1) : text;
 }
@@ -26,7 +37,19 @@ function capitalized(text: string): string {
  * does — started, waiting (and where), running, and how it ended — never
  * per step, so a screen reader is told what matters without a stream.
  */
-function announcement(meta: JobRecord | undefined): string {
+function announcement(
+  meta: JobRecord | undefined,
+  unfollowed?: UnfollowedImport,
+): string {
+  if (unfollowed) {
+    return unfollowed.status === "done"
+      ? "Import done: the form is filled."
+      : unfollowed.status === "failed"
+        ? "Import failed."
+        : unfollowed.status === "cancelled"
+          ? "Import cancelled."
+          : "Importing…";
+  }
   if (!meta) return "Import started.";
   switch (meta.status) {
     case "queued":
@@ -63,12 +86,21 @@ function announcement(meta: JobRecord | undefined): string {
 export default function ImportProgress({
   job,
   onSettled,
+  unfollowed,
 }: {
   job: string;
   /** Called once, when the job is seen to end. */
   onSettled?: (meta: JobRecord) => void;
+  /**
+   * The job has no record (38-Tb5): nothing is polled, and the panel stays
+   * "running" until the form says how it ended — never "finished" on a 404.
+   */
+  unfollowed?: UnfollowedImport;
 }) {
-  const { meta, lines, live, error, refresh } = useJobPoll(job, IMPORT_POLL_MS);
+  const poll = useJobPoll(unfollowed ? undefined : job, IMPORT_POLL_MS);
+  const { lines, error, refresh } = poll;
+  const meta = unfollowed ? undefined : poll.meta;
+  const live = unfollowed ? !unfollowed.status : poll.live;
   const [now, setNow] = useState(() => Date.now());
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | undefined>();
@@ -94,7 +126,9 @@ export default function ImportProgress({
   const started = meta?.startedAt ?? meta?.queuedAt;
   const elapsed =
     started === undefined ? undefined : (meta?.endedAt ?? now) - started;
-  const status = meta?.status ?? "running";
+  const status = unfollowed
+    ? (unfollowed.status ?? "running")
+    : (meta?.status ?? "running");
   /* With a result, the form shows its message and warnings; without one
    * (a thrown failure), they are the panel's to show. */
   const formHasIt = meta?.result !== undefined;
@@ -131,7 +165,7 @@ export default function ImportProgress({
     >
       {/* Polite, and one sentence per phase: never a line per step. */}
       <p className="sr-only" aria-live="polite" data-testid="import-announce">
-        {announcement(meta)}
+        {announcement(meta, unfollowed)}
       </p>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h3 id="import-progress-heading" className="font-semibold">
@@ -159,14 +193,26 @@ export default function ImportProgress({
               {cancelling ? "Cancelling…" : "Cancel"}
             </Button>
           )}
-          <Link
-            href={`/jobs/${job}`}
-            className="text-sm underline underline-offset-2"
-          >
-            Job details
-          </Link>
+          {!unfollowed && (
+            <Link
+              href={`/jobs/${job}`}
+              className="text-sm underline underline-offset-2"
+            >
+              Job details
+            </Link>
+          )}
         </span>
       </div>
+      {unfollowed && (
+        <p
+          className="mt-1 text-sm text-muted-foreground"
+          data-testid="import-unfollowed"
+        >
+          {live
+            ? "This import can't be followed step by step: the editor could not write its job record (check the jobs directory). The form fills when it ends."
+            : "Its steps were not recorded: the editor could not write its job record."}
+        </p>
+      )}
       {!live && status === "failed" && !formHasIt && meta?.error && (
         <p
           className="mt-1 border-l-2 border-destructive pl-2 text-sm"

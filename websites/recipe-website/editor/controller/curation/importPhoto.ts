@@ -54,24 +54,43 @@ export function checkPhotoOptions({
 
 /**
  * The transcription of `photos`: the one kept beside them when the same
- * model and prompt made it, else the vision model's, kept for next time.
+ * model (by name and, under Ollama, digest — 39a) and prompt made it, else
+ * the vision model's, kept for next time. `fresh` (39a) never looks at the
+ * kept one, and keeps the new one.
  */
 export async function photoText(
   photos: readonly StoredPhoto[],
-  { dir = jobsDirectory(), job: run }: { dir?: string; job?: JobRun } = {},
+  {
+    dir = jobsDirectory(),
+    job: run,
+    fresh = false,
+  }: { dir?: string; job?: JobRun; fresh?: boolean } = {},
 ): Promise<string> {
   const job = jobContext(run);
-  const { assertPhotoImport, photoLimits, transcribePhotos, transcribeKey } =
-    await import("../llm/vision");
+  const {
+    assertPhotoImport,
+    photoLimits,
+    transcribePhotos,
+    transcribeKey,
+    visionDigest,
+    NO_DIGEST,
+  } = await import("../llm/vision");
   const { llmConfig } = await import("../llm/client");
   const { loadTranscript, readStoredPhotos, saveTranscript } =
     await import("../jobs/photos");
   const vision = assertPhotoImport();
-  const prompt = transcribeKey(photoLimits(vision));
-  const kept = await loadTranscript(dir, photos, {
-    model: vision.model,
-    prompt,
-  });
+  const digest = await visionDigest(vision);
+  const prompt = transcribeKey(photoLimits(vision), digest);
+  if (fresh) {
+    job.log.info(
+      "vision",
+      "fresh: any kept transcription skipped — the photos are read again",
+      { fresh: true },
+    );
+  }
+  const kept = fresh
+    ? undefined
+    : await loadTranscript(dir, photos, { model: vision.model, prompt });
   if (kept) {
     job.log.info(
       "vision",
@@ -94,6 +113,8 @@ export async function photoText(
   await saveTranscript(dir, photos, {
     text: transcription.text,
     model: transcription.model,
+    /* The sentinel keys it, but is no digest to record. */
+    ...(digest && digest !== NO_DIGEST ? { digest } : {}),
     prompt,
     ...(job.jobId ? { job: job.jobId } : {}),
   });
@@ -115,15 +136,18 @@ export async function importFromPhotos(
   run?: JobRun,
   {
     dir = jobsDirectory(),
+    fresh = false,
     cacheFor,
   }: {
     dir?: string;
+    /** Read the photos again (39a): the kept transcription is skipped. */
+    fresh?: boolean;
     /** 38c's kept reading for this transcription (`kinds.ts`). */
     cacheFor?: (text: string) => Promise<ReadingCache<UrlImport> | undefined>;
   } = {},
 ): Promise<ImportResult> {
   checkPhotoOptions({ photoAsImage, ...options });
-  const text = await photoText(photos, { dir, job: run });
+  const text = await photoText(photos, { dir, job: run, fresh });
   const { importFromText } = await import("./importRecipe");
   const cache = await cacheFor?.(text);
   const result = await importFromText(

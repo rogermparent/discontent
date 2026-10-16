@@ -30,7 +30,7 @@ import {
 import { jobsDirectory, queueDirectory } from "./location";
 import { queueSnapshot, queueSnapshots } from "./queue";
 import { retryJob } from "./kinds";
-import { requestJobCancel, type CancelOutcome } from "./run";
+import { cancelJob, requestJobCancel, type CancelOutcome } from "./run";
 import {
   LIVE_STATUSES,
   findJob,
@@ -116,6 +116,11 @@ export interface JobRetryResult {
   status: JobStatus;
   result?: unknown;
   error?: JobError;
+  /**
+   * Echoed when the retry was asked to read again (39a): a pre-39a editor
+   * never says it, and the CLI warns that it ran a plain retry.
+   */
+  fresh?: true;
 }
 
 function durationOf(meta: JobMeta, now: number): number | undefined {
@@ -425,13 +430,23 @@ export async function getJobView(
 /**
  * Cancel a job wherever it runs (`requestJobCancel`): here through its
  * abort, in another process through `<id>.cancel`.
+ *
+ * A job this process runs **with no record** (39a, 38-Tb5: the jobs
+ * directory cannot be written) is found by nothing but its full id in the
+ * running registry: it is aborted there and answers `cancelled` — the
+ * form's unfollowed panel offers Cancel through this.
  */
 export async function cancelJobById(
   id: string,
   { dir = jobsDirectory(), reason }: { dir?: string; reason?: string } = {},
 ): Promise<JobCancelResult> {
+  const found = await requireJob(id, dir).catch((error: unknown) => {
+    if (cancelJob(id, new Error(reason ?? "cancelled"))) return undefined;
+    throw error;
+  });
+  if (!found) return { job: id, outcome: "cancelled", status: "cancelled" };
   /* An orphan is `interrupted` first, so the cancel answers `ended`. */
-  const meta = await settledMeta(dir, await requireJob(id, dir));
+  const meta = await settledMeta(dir, found);
   const outcome = await requestJobCancel(meta.id, {
     dir,
     reason: reason ?? "cancelled",
@@ -510,10 +525,13 @@ export async function retryJobById(
     dir = jobsDirectory(),
     wait = false,
     background,
+    fresh = false,
   }: {
     dir?: string;
     wait?: boolean;
     background?: (done: Promise<unknown>) => void;
+    /** Read it again (39a): an import skips its kept reading. */
+    fresh?: boolean;
   } = {},
 ): Promise<JobRetryResult> {
   const meta = await settledMeta(dir, await requireJob(id, dir));
@@ -526,6 +544,7 @@ export async function retryJobById(
     return retryJobById(id, ctx, {
       dir,
       wait,
+      fresh,
       ...(background ? { background } : {}),
     });
   }
@@ -546,12 +565,16 @@ export async function retryJobById(
     }
     const live = await liveRetryOf(meta.id, dir);
     if (live) throw liveRetryError(meta.id, live.id);
-    started = await retryJob(meta, ctx, { dir });
+    started = await retryJob(meta, ctx, { dir, fresh });
   } finally {
     settle(started?.job);
     if (starting.get(meta.id) === marker) starting.delete(meta.id);
   }
-  const base = { job: started.job, retryOf: meta.id };
+  const base = {
+    job: started.job,
+    retryOf: meta.id,
+    ...(fresh ? { fresh: true as const } : {}),
+  };
   if (!wait) {
     background?.(started.done);
     return { ...base, status: "running" };

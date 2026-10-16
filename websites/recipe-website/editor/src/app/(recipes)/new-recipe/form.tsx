@@ -18,7 +18,11 @@ import {
   createRecipe,
   overwriteRecipe,
 } from "recipe-editor/controller/actions";
-import { importRecipeAction, type ImportStartState } from "./actions";
+import {
+  importRecipeAction,
+  importResultAction,
+  type ImportStartState,
+} from "./actions";
 import { TextInput } from "@discontent/component-library/components/Form/inputs/Text";
 import { TextAreaInput } from "@discontent/component-library/components/Form/inputs/TextArea";
 import {
@@ -27,7 +31,8 @@ import {
 } from "recipe-website-common/util/videoUrl";
 import type { RecipeActionState } from "./common";
 import BatchPicker, { plannedSlug } from "./BatchPicker";
-import ImportProgress from "./ImportProgress";
+import ImportProgress, { type UnfollowedImport } from "./ImportProgress";
+import { UNSTORED_KEEP_MS } from "recipe-editor/controller/jobs/unstored";
 import type { JobRecord } from "recipe-editor/controller/jobs/views";
 import {
   linkReading,
@@ -132,6 +137,13 @@ export default function NewOrImportRecipeForm({
     initialImportState ? initialJob : undefined,
   );
   const importPending = !!activeJob && settledJob !== activeJob;
+  /*
+   * A job with no record (39a, 38-Tb5): the panel follows nothing, and the
+   * outcome comes from `importResultAction`, which awaits the job.
+   */
+  const [unfollowed, setUnfollowed] = useState<
+    (UnfollowedImport & { job: string }) | undefined
+  >();
   /* Photos (38e): the pages of one recipe, in order, at most MAX_PHOTOS. */
   const [photos, setPhotoList] = useState<File[]>([]);
   /* What the import action reads: the photos as they are when it runs. */
@@ -155,7 +167,14 @@ export default function NewOrImportRecipeForm({
         setPhotosRead(photosRef.current);
       }
       const started = await importRecipeAction(previous, formData);
-      if (started.job) {
+      if (started.job && started.stored === false) {
+        /* No record to follow or reopen (38-Tb5): no `?job=` either. */
+        const job = started.job;
+        setUnfollowed({ job });
+        setActiveJob(job);
+      } else if (started.job) {
+        /* An earlier unfollowed job's wait stops: its end is not this one's. */
+        setUnfollowed(undefined);
         setActiveJob(started.job);
         /* Leaving the page loses nothing: back here reopens the job. */
         window.history.replaceState(
@@ -170,6 +189,81 @@ export default function NewOrImportRecipeForm({
     },
     null,
   );
+  /*
+   * The unfollowed job's outcome (39a review): a bounded long-poll —
+   * `importResultAction` waits at most `UNSTORED_WAIT_MS` and answers
+   * `pending` or the outcome, and this asks again — so the tab's other
+   * server actions (Create) never queue behind a whole import. It gives up
+   * after `UNSTORED_KEEP_MS` (the outcome is forgotten then anyway), and
+   * stops when the form unmounts or another import starts.
+   */
+  const unfollowedJob =
+    unfollowed && !unfollowed.status ? unfollowed.job : undefined;
+  useEffect(() => {
+    if (!unfollowedJob) return;
+    const job = unfollowedJob;
+    let stopped = false;
+    const deadline = Date.now() + UNSTORED_KEEP_MS;
+    const settle = (
+      status: NonNullable<UnfollowedImport["status"]>,
+      state?: RecipeActionState,
+    ) => {
+      if (stopped) return;
+      setUnfollowed({ job, status });
+      setSettledJob(job);
+      if (state) setImportState(state);
+    };
+    const pause = (ms: number) =>
+      new Promise((resolve) => setTimeout(resolve, ms));
+    void (async () => {
+      let failures = 0;
+      while (!stopped) {
+        const asked = Date.now();
+        let answer: Awaited<ReturnType<typeof importResultAction>>;
+        try {
+          answer = await importResultAction(job);
+          failures = 0;
+        } catch (error) {
+          /* A dropped request: the outcome is still kept, so ask again. */
+          failures += 1;
+          if (failures >= 3 || Date.now() > deadline) {
+            settle("failed", {
+              message: error instanceof Error ? error.message : String(error),
+            });
+            return;
+          }
+          await pause(2_000);
+          continue;
+        }
+        if (stopped) return;
+        if (answer.pending) {
+          if (Date.now() > deadline) {
+            settle("failed", {
+              message:
+                "Stopped waiting for this import after half an hour — import it again.",
+            });
+            return;
+          }
+          /* Never a tight loop, whatever the server answers. */
+          if (Date.now() - asked < 1_000) await pause(1_000);
+          continue;
+        }
+        if (answer.cancelled) return settle("cancelled");
+        const result = answer.result;
+        const filled =
+          !!result && (!!result.recipe || !!result.recipes?.length);
+        return settle(
+          filled ? "done" : "failed",
+          result
+            ? { ...result, job }
+            : { message: answer.message ?? "The import ended." },
+        );
+      }
+    })();
+    return () => {
+      stopped = true;
+    };
+  }, [unfollowedJob]);
   const onSettled = useCallback((meta: JobRecord) => {
     setSettledJob(meta.id);
     const result = meta.result as RecipeActionState | undefined;
@@ -287,6 +381,11 @@ export default function NewOrImportRecipeForm({
           key={activeJob}
           job={activeJob}
           onSettled={settledJob === activeJob ? undefined : onSettled}
+          unfollowed={
+            unfollowed?.job === activeJob
+              ? { ...(unfollowed.status ? { status: unfollowed.status } : {}) }
+              : undefined
+          }
         />
       ) : null}
       <form id="import-form" action={importDispatch}>
