@@ -335,8 +335,8 @@ test.describe("Import jobs", () => {
     /*
      * 37c review: the retry route answers 202 and the job writes later, so
      * its revalidations happen after the route returned. A `form-batch`
-     * job writes a recipe; delete it, read `/` without it (warming the
-     * cached reads), retry the job, and `/` must show the recipe again.
+     * job writes a recipe; delete it, read `/recipes` without it (warming
+     * the cached reads), retry the job, and `/recipes` must list it again.
      */
     await page.getByLabel("Import from URL", { exact: true }).fill(VIDEO);
     await page.getByRole("button", { name: "Import", exact: true }).click();
@@ -370,12 +370,14 @@ test.describe("Import jobs", () => {
     await expect(page).toHaveURL(/\/jobs\/[0-9A-Z]{26}$/);
     const batch = new URL(page.url()).pathname.split("/").pop()!;
 
+    const listed = page.getByRole("main").getByText("Fried Shallots");
+    await page.goto("/recipes");
+    await expect(listed.first()).toBeVisible();
     const deleted = await page.request.delete("/api/recipe/fried-shallots");
     expect(deleted.ok()).toBe(true);
-    await page.goto("/");
-    const list = page.getByTestId("recipe-list");
-    await expect(list.first()).toBeVisible();
-    await expect(page.getByText("Fried Shallots")).toHaveCount(0);
+    await page.goto("/recipes");
+    await expect(page.getByRole("main")).toBeVisible();
+    await expect(listed).toHaveCount(0);
 
     await page.goto(`/jobs/${batch}`);
     await page.getByRole("button", { name: "Retry", exact: true }).click();
@@ -384,10 +386,8 @@ test.describe("Import jobs", () => {
       timeout: 15_000,
     });
 
-    await page.goto("/");
-    await expect(
-      page.getByTestId("recipe-list").getByText("Fried Shallots").first(),
-    ).toBeVisible();
+    await page.goto("/recipes");
+    await expect(listed.first()).toBeVisible();
   });
 
   test("a second Retry while the first still runs links to it", async ({
