@@ -2261,9 +2261,11 @@ width.
   survives inside the board.
 - **At most 15 rows a block** (`BLOCK_ROW_LIMIT`, from the review): the real
   Drinks root has ~70 children and ran one column to 3,000px with the
-  fourth empty. Nested rows count toward the cap; the bars still scale to
-  the block's largest; past it, "All N in Drinks →" links the root's term
-  page. "More tags" has no page, so its rest folds into a `<details>`.
+  fourth empty. Top-level rows fill it first and nested rows only take what
+  is left (`blockRows`, second review round), so a big child's subtree never
+  hides a bigger sibling; the bars still scale to the block's largest; past
+  it, "See all of Drinks →" links the root's term page. "More tags" has no
+  page, so its rest folds into a `<details>`.
 - **"More tags"** collects the records outside any hierarchy — no parent the
   tree knows and no children — most carried first; a record nothing carries
   still lists at 0 (it is a real page since 24c).
@@ -2290,7 +2292,9 @@ width.
   oat, coconut, brown, powdered, condensed, apple, maple, cocoa…) keeps a
   staple off lines that only share its last word — almond flour, brown
   sugar, oat milk, apple butter stay missing; an inventory item still meets
-  them. Measured against a probe of 48 lines before choosing the list.
+  them, and so does a staple whose own name has the word — an "Assume I
+  always have" `maple syrup` or `soy sauce` meets its line. Measured against
+  a probe of 48 lines before choosing the list.
 - **The judge owns the option.** `MakeableOptions.pantryStaples`; `staples`
   is now the _whole_ assumed list. Absent, the judge assumes
   `DEFAULT_STAPLES` + the pantry; a given `staples` list is whole unless
@@ -2314,9 +2318,9 @@ width.
 
 ### U6 — This browser's list first; the saved inventory second
 
-- **Both apps judge the browser's list alone.** `useInventory(NO_SHARED)`:
-  the `make-inventory-v1` overlay's `added` is the list, as on the export
-  since 25c — an editor browser's old `removed` entries are simply ignored.
+- **Both apps judge the browser's list alone.** `useInventory()`: the
+  `make-inventory-v1` value's `added` is the list, as on the export since
+  25c (the hook takes no shared list any more).
   The ticker, sections and Buy next never see another list.
 - **A one-time migration** keeps an owner's old list. Before U6 the editor
   stored `make-inventory-v1` as an overlay on the saved list — the browser's
@@ -2332,7 +2336,9 @@ width.
   - **signed-in editor `/make`**: from the saved list, which only that page
     has (it passes it as `legacy`), read through the owner's session;
   - **anywhere else in the editor** (a guest, or the tile and `/drinks` for a
-    signed-in owner): deferred, showing `added` meanwhile. **The owner
+    signed-in owner, or a `/make` whose saved file doesn't exist yet):
+    deferred, showing `added` meanwhile and writing changes back in the
+    old shape, so the owner's migration still merges. **The owner
     limit:** until the owner opens `/make` once, the editor's tile and
     `/drinks` count only the old additions. The editor's `next.config.mjs`
     sets `NEXT_PUBLIC_RECIPE_APP=editor` so the shared hook can tell.
@@ -2457,6 +2463,49 @@ then main merged at `c8573684` (#239, the homepage):
   balanced columns (it was 3,558 with one column running and the fourth
   empty), and Drinks ends "All 217 in Drinks →". `/make` at 1280 is 4,538px
   (it was 17,254).
+
+**Second review round** (PR #240):
+
+- **Custom staples meet their own lines again.** The modifier guard applied
+  to every staple, so an "Assume I always have" `maple syrup` or `soy sauce`
+  left its recipes one away. A staple is now kept off only the modifier
+  words its own name lacks (`stapleModifiers`; the close tier groups staples
+  by them). Built-in flour still misses almond and rye flour. New modifiers:
+  turbinado, demerara, muscovado, palm, rye, spelt.
+- **Deferred writes keep the old shape.** In the editor without the saved
+  list (`"defer"`), a change to a not-yet-migrated value is written back as
+  a pre-U6 overlay (`added` the list, `removed` kept, no version, never
+  `null`), so the owner's next signed-in `/make` still merges the saved
+  list. A `/make` whose saved file doesn't exist yet defers too, rather than
+  migrating over a list it can't see: pre-U6 the overlay lay over whatever
+  the saved list is now, so merging it later is what that browser showed.
+- **Storage refusing the migrated list** (the quota) no longer leaves the
+  skeleton up: the store's snapshot answers the refused value while storage
+  still holds the one it failed to replace (`refused` in `useInventory.ts`).
+- **`useInventory()` takes no shared list:** `overlay`, `discard`,
+  `overlayFor` and the stale comments are gone. A deprecated
+  `useInventory(array)` overload ignores its argument, because
+  `agent/nav-drinks`' `useMakeable` (unpushed) calls `useInventory(NO_SHARED)`,
+  always an empty list.
+- **The Export page's Build checks the session first.** `buildExport` ran
+  the full reindex and read the settings and saved inventory before
+  `commandAction`'s auth check, so a signed-out server-action POST could
+  start a reindex.
+- **`/tags` fills top-level rows first** (`blockRows`): up to 15 of them,
+  then nested rows while the budget lasts, so a big child's subtree can't
+  push a bigger sibling out. The overflow link reads "See all of Drinks →".
+  The old wording, "All 217 in Drinks", could read as 217 tags.
+- **Tests:** custom staples and the new modifiers (`makeable.test.ts`), the
+  hook in jsdom (`useInventory.test.tsx`: migration, deferred writes, the
+  quota, the old overload), `exportAction.test.ts` (signed out does nothing,
+  and the env comes from `exportBuildEnv`), `tagBlockRows.test.ts`, CLI
+  `--no-staples` (`cliJson.test.ts`) and `/api/inventory/make?staples=0`
+  (`inventory.test.ts`).
+- **Gates:** both typechecks clean. vitest on the affected files plus the
+  export guard tests, 130/130 across 9 files (`makeable`, `useInventory`,
+  `exportAction`, `tagBlockRows`, `inventory`, `inventoryText`, `cliJson`,
+  `exportHouseInventory`, `specVersions`). Playwright, production build,
+  `make`, `tag-pages` and `accessibility`, 83/83 on the final head. No baseline moved.
 
 ## Verification (Playwright-first)
 
