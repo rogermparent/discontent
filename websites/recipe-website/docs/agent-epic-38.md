@@ -1312,7 +1312,31 @@ exec tsc --noEmit` clean; `pnpm exec vitest run` 104 files, 2161 tests
 passed; Playwright, build mode through the heavy slot (`photo-import`,
 `new-recipe`, `multi-recipe`, `jobs`, `settings-nav`): 67 passed (4.1 min).
 
-**Real check.** _(after "GPU go")_
+**Real check** (orchestrator, 2026-10-16, head 31f3f3d4; Archilyzer paused,
+79 MiB VRAM in use at the start; RX 6600 8 GB, Ollama 0.34.3 on Vulkan).
+**The cards were rendered, not photographed:** recipe-card HTML in a
+typewriter font on a ruled, off-white, slightly rotated and grainy card,
+turned into JPEGs. There is no camera here. Each ran as
+`recipes import --photo … --dry-run --verbose` against a scratch content
+repo and a scratch `RECIPE_JOBS_DIR`.
+
+- **Banana bread** (`banana-bread-card.jpg`, 1833×1217, fitted to
+  1024 px): `vision.transcribe` 1 photo · 321 chars · 17.0 s (load
+  5.8 s) · GPU → `llm.unload` → `llm.extract` 8/8 grounded · 9.6 s (load
+  5.0 s) · GPU; the job 26.7 s in all (wall 29.7 s). Draft: "Aunt Ruth's
+  Banana Bread", all 8 ingredients and the transcription verbatim. The same
+  card had crashed the runner before the fixes (Te5).
+- **Chili, two pages** (`chili-page-1.jpg`, `chili-page-2.jpg`, one call
+  per page, De4): `vision.transcribe 1/2` 203 chars · 15.0 s (load
+  5.4 s) · GPU; `vision.transcribe 2/2` 252 chars · 9.6 s · GPU; one
+  `llm.unload` after the last page; the swap note "read 457 characters
+  from 2 photos and was unloaded — qwen3:8b reads the transcription";
+  `llm.extract` 8/8 grounded · 8.3 s (load 3.2 s) · GPU; the job 33.2 s in
+  all (wall 36.0 s). Draft: "Grandpa Joe's Chili", 8 ingredients and 5
+  steps, grounded across both pages.
+- Every model call ran at 100% GPU, and the two models were never loaded
+  together. Afterwards `ollama ps` listed only qwen3:8b (6.8 GB,
+  100% GPU, ctx 12 288).
 
 ### 38f — Content round
 
