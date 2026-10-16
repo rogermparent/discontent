@@ -184,15 +184,22 @@ carries `llm`, below) — check them against `video.description` rather than
 rebuilding them. Otherwise build them from the description and chapters.
 Keep the draft's `name`, channel `source` and thumbnail image, and keep
 `videoImportUrl` — the page embeds the video. Use one only when the ask
-allows videos.
+allows videos. When the description holds no recipe but links one recipe
+page ("full written recipe: …"), the server reads that page instead:
+`followed` names it, the draft and its `source` are the page's, and the
+video stays `videoImportUrl`.
 
 **Several recipes in one video** (or one pasted text — "Holiday Sides 3
 Ways", a dish and the sauce it says "see recipe below" for): `page_inspect`
 adds `recipes: [{n, name, chapter?, slug, draft, llm}]` (`draft` is then the
 first one's), and `recipe_import` refuses (`usage`) until told which —
 `"all": true`, or **by name**, `"pick": ["Green Bean Casserole"]` (positions
-work too, but every call reads the video again and a re-read can number
-them differently); a `dryRun` shows them all. Each is read and trusted on
+work too, but a re-read can number them differently — the server keeps a
+reading for half an hour, so a `pick` right after the refusal or a `dryRun`
+is not read again, and later ones are); a `dryRun` shows them all. A page
+that publishes several recipes of its own (several Recipe nodes) answers
+the same way, with no `llm` — its recipe cards, not a model's reading;
+`"asOne": true` imports its first. Each is read and trusted on
 its own, each is its own commit, its `source` starts at its chapter
 (`&t=…s`), and an ingredient line that names another recipe of the batch
 becomes a link to it — so pick the recipe a line links to as well. One

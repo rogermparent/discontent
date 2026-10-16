@@ -21,6 +21,7 @@ import type {
   ImportBatchItem,
   ImportResult,
   ImportWriteOptions,
+  UrlImport,
 } from "../curation/importRecipe";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
@@ -37,6 +38,7 @@ import type { JobContext } from "./context";
 import type { JOB_KIND_NAMES } from "./listing";
 import { jobsDirectory } from "./location";
 import type { StoredPhoto } from "./photos";
+import type { ReadingCache } from "./readingCache";
 import { startJob, type RunJobOptions } from "./run";
 import type { JobError, JobMeta, JobTier } from "./store";
 
@@ -158,11 +160,13 @@ function contextFor(spec: CorpusSpec, ctx?: CurationContext): CurationContext {
 }
 
 export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
-  async "import-url"(spec, { ctx, job }) {
+  async "import-url"(spec, { ctx, job, dir }) {
     const { importAndCreate } = await import("../curation/importRecipe");
-    return importAndCreate(contextFor(spec, ctx), spec.url, spec.options, job);
+    return importAndCreate(contextFor(spec, ctx), spec.url, spec.options, job, {
+      cache: await importReadingCache(spec, dir, job),
+    });
   },
-  async "import-text"(spec, { ctx, job }) {
+  async "import-text"(spec, { ctx, job, dir }) {
     const { importFromText } = await import("../curation/importRecipe");
     return importFromText(
       contextFor(spec, ctx),
@@ -172,6 +176,7 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
         ...spec.options,
       },
       job,
+      { cache: await importReadingCache(spec, dir, job) },
     );
   },
   async "import-photo"(spec, { ctx, job, dir }) {
@@ -184,7 +189,24 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
         ...spec.options,
       },
       job,
-      { ...(dir ? { dir } : {}) },
+      {
+        ...(dir ? { dir } : {}),
+        /* 38c's kept reading, keyed by the transcription: a `--pick` after
+         * a several-recipe refusal reads neither the photo nor the text again. */
+        cacheFor: (text) =>
+          importReadingCache(
+            {
+              kind: "import-text",
+              contentDirectory: spec.contentDirectory,
+              text,
+              ...(spec.source ? { source: spec.source } : {}),
+              options: spec.options,
+            },
+            dir,
+            job,
+            { photo: true },
+          ),
+      },
     );
   },
   async inspect(spec, { job }) {
@@ -229,6 +251,41 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
     return { recipes };
   },
 };
+
+/**
+ * The kept reading of an import job (38c, `readingCache.ts`): keyed by the
+ * spec's reading half, the model and the reading version — `undefined`
+ * when no model will read (none configured, or `off`), or with no store.
+ */
+async function importReadingCache(
+  spec: SpecOf<"import-url"> | SpecOf<"import-text">,
+  dir: string | undefined,
+  job: JobContext,
+  /** More of the key: 38e's `{photo: true}` (its warnings name the photo). */
+  extra: Record<string, unknown> = {},
+): Promise<ReadingCache<UrlImport> | undefined> {
+  const mode =
+    spec.kind === "import-url" ? (spec.options.llm ?? "auto") : "force";
+  if (!dir || mode === "off") return undefined;
+  const { llmConfig } = await import("../llm/client");
+  const config = llmConfig();
+  if (!config) return undefined;
+  const { readingCache, readingKey, readingVersion } =
+    await import("./readingCache");
+  const key = readingKey({
+    version: await readingVersion(),
+    model: config.model,
+    api: config.api,
+    server: config.url,
+    ...(spec.kind === "import-url"
+      ? { url: spec.url }
+      : { text: spec.text, source: spec.source }),
+    mode,
+    asOne: spec.options.asOne === true,
+    ...extra,
+  });
+  return readingCache<UrlImport>(dir, key, { job: job.jobId });
+}
 
 /**
  * The form's import answers its failures as a state — a `message` and no

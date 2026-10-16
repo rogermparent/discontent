@@ -328,6 +328,7 @@ export default function NewOrImportRecipeForm({
             url={url}
             pastedText={importState.pastedText === true}
             fromPhotos={!!importState.fromPhotos}
+            fromPage={importState.fromPage === true}
             busy={busy}
             editing={edited?.n}
             onEdit={(n) => {

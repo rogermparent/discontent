@@ -26,6 +26,7 @@ import {
   type ErrorObject,
 } from "recipe-editor/controller/curation/errors";
 import {
+  MAX_BATCH_RECIPES,
   shortSource,
   type BatchPick,
   type ImportBatchItem,
@@ -34,8 +35,12 @@ import { corpusOf, runSpec } from "recipe-editor/controller/jobs/kinds";
 import { parseInput } from "recipe-editor/controller/curation/schema";
 import { authenticateUser } from "recipe-editor/controller/actions/shared";
 
-/** More than a video or a paste holds: a bad request, not a batch. */
-const BATCH_MAX = 30;
+/**
+ * More than a video, a paste or a page's own recipes holds: a bad request,
+ * not a batch — the same bound `schemaReadings` caps a page's Recipe nodes
+ * to (38-Dc7), so the two never disagree.
+ */
+const BATCH_MAX = MAX_BATCH_RECIPES;
 
 const RecipeBatchInputSchema = z.strictObject({
   /** The video, or a pasted text's source. */
@@ -43,6 +48,8 @@ const RecipeBatchInputSchema = z.strictObject({
   pastedText: z.boolean().optional(),
   /** Read from photos' transcription (38e). */
   fromPhotos: z.boolean().optional(),
+  /** A page's own Recipe nodes (38c): no model read them. */
+  fromPage: z.boolean().optional(),
   /** How many recipes were found: "2 of 4" in each commit. */
   total: z.number().int().min(2).max(BATCH_MAX),
   /** Every recipe found, by name: a link may point at one imported earlier. */
@@ -92,11 +99,14 @@ export async function importRecipeBatchAction(
     if (!email) throw new UnauthenticatedError();
     const ctx = curationContextFor(email, getContentDirectory());
     const input = parseInput(RecipeBatchInputSchema, raw);
+    const from = input.url ? ` from ${shortSource(input.url)}` : "";
     const commitNote = input.fromPhotos
       ? "local model, photo, {n} of {total}"
       : input.pastedText
         ? "local model, pasted text, {n} of {total}"
-        : `local model, {n} of {total}${input.url ? ` from ${shortSource(input.url)}` : ""}`;
+        : input.fromPage
+          ? `{n} of {total}${from}`
+          : `local model, {n} of {total}${from}`;
     /* A job since 37c (`form-batch`): a step log, `/jobs`, Cancel, Retry. */
     const { recipes, job } = await runSpec(
       {

@@ -456,8 +456,20 @@ describe("recipes import --photo, through the local backend", () => {
         expect.stringMatching(/^[0-9a-f]{32}\.jpg$/),
         expect.stringMatching(/^[0-9a-f]{32}\.transcript\.json$/),
       ]);
+      /* Again: the transcript is reused, and 38c's kept reading of it too —
+       * no model is asked at all. */
       calls.length = 0;
-      await backend.importPhotos([file(card, "card.jpg")], { dryRun: true });
+      const again = await backend.importPhotos([file(card, "card.jpg")], {
+        dryRun: true,
+      });
+      expect(calls).toEqual([]);
+      expect(again).toMatchObject({ photos: 1, transcription: CARD_TEXT });
+      expect((again as { warnings?: string[] }).warnings).toContainEqual(
+        expect.stringMatching(/reading from .* was reused, not read again$/),
+      );
+      /* A pasted text of the same words is another reading (its warnings
+       * name the text, not the photo). */
+      await backend.importText(CARD_TEXT, { dryRun: true });
       expect(calls.map((call) => call.body?.model ?? call.path)).toEqual([
         "qwen3:8b",
         "/api/ps",

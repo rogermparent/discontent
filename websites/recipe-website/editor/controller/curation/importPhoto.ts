@@ -24,10 +24,12 @@ import { jobsDirectory } from "../jobs/location";
 import type { StoredPhoto } from "../jobs/photos";
 import type { CurationContext } from "./context";
 import { UsageError } from "./errors";
+import type { ReadingCache } from "../jobs/readingCache";
 import type {
   ImportBatchResult,
   ImportResult,
   ImportWriteOptions,
+  UrlImport,
 } from "./importRecipe";
 
 /** What a photo import takes besides the photos. */
@@ -111,16 +113,24 @@ export async function importFromPhotos(
     ...options
   }: PhotoImportOptions & { photos: readonly StoredPhoto[] },
   run?: JobRun,
-  { dir = jobsDirectory() }: { dir?: string } = {},
+  {
+    dir = jobsDirectory(),
+    cacheFor,
+  }: {
+    dir?: string;
+    /** 38c's kept reading for this transcription (`kinds.ts`). */
+    cacheFor?: (text: string) => Promise<ReadingCache<UrlImport> | undefined>;
+  } = {},
 ): Promise<ImportResult> {
   checkPhotoOptions({ photoAsImage, ...options });
   const text = await photoText(photos, { dir, job: run });
   const { importFromText } = await import("./importRecipe");
+  const cache = await cacheFor?.(text);
   const result = await importFromText(
     ctx,
     { text, ...(source ? { source } : {}), ...options },
     run,
-    { photos: { count: photos.length } },
+    { photos: { count: photos.length }, ...(cache ? { cache } : {}) },
   );
   if (!photoAsImage) return result;
   return withPhotoImage(ctx, result, photos[0], { dir, job: run });
