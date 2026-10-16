@@ -2264,12 +2264,13 @@ width.
       still `group:`.
 - [x] **The homepage intro and the masthead.** The intro (#239) links its
       "Ways in" tiles only: "What can I make?" (`/make`, with this browser's
-      count) and up to four term pages — Quick, Vegetarian, A weekend project
-      and A drink (`/tags/quick`, `/tags/vegetarian`, `/tags/project`,
-      `/tags/drink`), each shown only when its term carries something. Only
-      the Make tile shares a destination with the masthead; "A drink" goes to
-      the term page, not `/drinks`. The Plans strip below says "Plans" and
-      "All plans", as the rename does.
+      count) and up to four intents — Quick, Vegetarian and A weekend project
+      (`/tags/quick`, `/tags/vegetarian`, `/tags/project`) and A drink
+      (`/drinks`, the bar home; its count is the `drink` subtree), each shown
+      only when its term carries something. A tile links to its term page
+      unless `HOMEPAGE_INTENTS` names an `href`. The Make and Drink tiles
+      share their destinations with the masthead. The Plans strip below says
+      "Plans" and "All plans", as the rename does.
 - [x] **No Home.** The wordmark links home and stays the page's `h1`. The
       footer's default column dropped Home too and gained the masthead's
       destinations (plus Search).

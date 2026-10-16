@@ -11,6 +11,7 @@ import type { TermHierarchyNode, TagVocabularyEntry } from "./tagVocabulary";
  * and the `drink` root. A tile whose term does not exist, or that nothing
  * carries, is left out, so a corpus without this vocabulary (every test
  * fixture) shows the Make tile alone. Change a slug here and nowhere else.
+ * A tile links to `/tags/<slug>` unless it names its own `href`.
  *
  * The one-line descriptions are copy, not data; the count under each is the
  * term's own subtree total, the number its page lists.
@@ -39,6 +40,7 @@ export const HOMEPAGE_INTENTS: readonly HomepageIntentConfig[] = [
     label: "A drink",
     description: "Cocktails, spritzes, tea and zero-proof",
     noun: "drink",
+    href: "/drinks",
   },
 ];
 
@@ -48,6 +50,11 @@ export interface HomepageIntentConfig {
   description: string;
   /** What the count line counts: "121 recipes", "217 drinks". */
   noun: string;
+  /**
+   * Where the tile goes, when not the term's own page: the drink tile opens
+   * `/drinks`, the bar home, whose count is the same `drink` subtree.
+   */
+  href?: string;
 }
 
 export interface HomepageIntent extends HomepageIntentConfig {

@@ -11,7 +11,7 @@ import { intentTileClassName } from "./tileStyles";
 function IntentTile({ intent }: { intent: HomepageIntent }) {
   return (
     <Link
-      href={`/tags/${intent.slug}`}
+      href={intent.href ?? `/tags/${intent.slug}`}
       className={intentTileClassName()}
       data-testid="intent-tile"
     >

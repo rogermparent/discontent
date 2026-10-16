@@ -65,7 +65,7 @@ test.describe("Homepage — intro", () => {
     await page.goto("/");
 
     const drink = waysIn(page).getByRole("link", { name: /^A drink/ });
-    await expect(drink).toHaveAttribute("href", "/tags/drink");
+    await expect(drink).toHaveAttribute("href", "/drinks");
     await expect(drink).toContainText("5 drinks");
     /* `quick`, `vegetarian` and `project` are not in this fixture. */
     await expect(waysIn(page).getByRole("link")).toHaveCount(2);
