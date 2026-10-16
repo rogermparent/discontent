@@ -24,7 +24,9 @@ import {
 } from "./llm/importWithLlm";
 import { pacedRequest } from "./curation/sitePacing";
 import { jobContext, type JobRun } from "./jobs/context";
+import type { StoredPhoto } from "./jobs/photos";
 import { fetchPageStep, parsePage, videoLinkStep } from "./jobs/steps";
+import { PHOTO_TEXT_LABEL } from "./photoLimits";
 
 export interface RecipeActionState {
   url?: string;
@@ -51,6 +53,13 @@ export interface RecipeActionState {
   leftOut?: { n: number; name: string; reason: string }[];
   /** Read from pasted text (36c): the picker says "This text". */
   pastedText?: boolean;
+  /**
+   * Read from this many photos' transcription (38e): the picker says "This
+   * photo", and the form may set the first photo as the recipe's image.
+   */
+  fromPhotos?: number;
+  /** What the vision model read in the photos (38e): the form shows it. */
+  transcription?: string;
   /** The import's job (epic 37): its step log. */
   job?: string;
 }
@@ -211,5 +220,48 @@ export async function reduceTextImport(
     if (job.signal?.aborted) throw e;
     const message = typeof e === "string" ? e : (e as Error)?.message;
     return { message: message || "Unknown error occurred!" };
+  }
+}
+
+/**
+ * The form's Photo mode (38e, D5): the vision model transcribes the photos
+ * (stored in the job store when the action started the job), then the
+ * local model reads the transcription as it reads a paste — and fills the
+ * form, or the 36e picker. The transcription comes back too, for the form
+ * to show beside what was read from it.
+ */
+export async function reducePhotoImport(
+  _state: RecipeActionState | null,
+  photos: readonly StoredPhoto[],
+  run?: JobRun,
+  { dir }: { dir?: string } = {},
+): Promise<RecipeActionState> {
+  const job = jobContext(run);
+  if (photos.length === 0) {
+    return { message: "No photos provided" };
+  }
+  /* A failed reading still shows what the vision model read. */
+  let text: string | undefined;
+  try {
+    const { photoText } = await import("./curation/importPhoto");
+    text = await photoText(photos, { ...(dir ? { dir } : {}), job });
+    const reading = await readPastedText({
+      text,
+      label: PHOTO_TEXT_LABEL,
+      job,
+    });
+    return {
+      ...withLlm(reading.recipe.source?.url, reading),
+      key: `photo-${crypto.randomUUID()}`,
+      fromPhotos: photos.length,
+      transcription: text,
+    };
+  } catch (e: unknown) {
+    if (job.signal?.aborted) throw e;
+    const message = typeof e === "string" ? e : (e as Error)?.message;
+    return {
+      message: message || "Unknown error occurred!",
+      ...(text ? { transcription: text } : {}),
+    };
   }
 }

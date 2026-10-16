@@ -189,6 +189,12 @@ export function stepTitle(node: Pick<StepNode, "step" | "data">): string {
       return "Model: one dish or several?";
     case "llm.reload":
       return "Reload the model";
+    case "llm.unload":
+      return "Unload the model";
+    case "vision.transcribe": {
+      const photos = typeof data.photos === "number" ? data.photos : 1;
+      return `Vision model reads the photo${photos === 1 ? "" : "s"}${part}`;
+    }
     case "gpu.hook":
       return `GPU hook (${String(data.hook ?? "")})`;
     case "image":
@@ -210,7 +216,11 @@ function secondsText(ms: number): string {
 export function stepDetail(node: Pick<StepNode, "step" | "data">): string[] {
   const { step, data } = node;
   const parts: (string | undefined)[] = [];
-  if (step.startsWith("llm.")) {
+  if (step.startsWith("llm.") || step.startsWith("vision.")) {
+    /* 38e: what the vision model read. */
+    if (step.startsWith("vision.") && typeof data.chars === "number") {
+      parts.push(`${data.chars} chars read`);
+    }
     if (typeof data.total === "number") {
       parts.push(`${Number(data.grounded ?? 0)}/${data.total} lines found`);
     }

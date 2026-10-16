@@ -338,6 +338,33 @@ export function createHttpBackend({
         throw error;
       }
     },
+    /* 38e: multipart, one `photo` part per photo and the rest as `request`. */
+    async importPhotos(photos, options = {}) {
+      const form = new FormData();
+      for (const photo of photos) form.append("photo", photo, photo.name);
+      form.set("request", JSON.stringify(options));
+      try {
+        return await call<ImportResult>("POST", "/api/import", {
+          form,
+          timeoutMs: IMPORT_HTTP_TIMEOUT_MS,
+        });
+      } catch (caught) {
+        const error = predatesBatch(caught, root);
+        /* An editor from before 38e reads no multipart body: it answers
+         * the upload as a body that is not JSON. */
+        if (
+          error instanceof CurationError &&
+          error.code === "validation" &&
+          /^Invalid JSON body/.test(error.message)
+        ) {
+          throw new CurationError(
+            "validation",
+            `The editor at ${new URL(root).origin} predates photo import (38e) — update it, or run with --content-dir.`,
+          );
+        }
+        throw error;
+      }
+    },
     inspect(url, options = {}) {
       return call<InspectResult>("POST", "/api/inspect", {
         body: { url, ...options },

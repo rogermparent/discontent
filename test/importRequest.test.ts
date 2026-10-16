@@ -54,10 +54,12 @@ describe("ImportRequestSchema (36c)", () => {
   });
 
   it("wants exactly one of url or text", () => {
-    expect(issues({})).toEqual(["url: Give exactly one of `url` or `text`"]);
+    expect(issues({})).toEqual([
+      "url: Give exactly one of `url`, `text` or `photos`",
+    ]);
     expect(
       issues({ url: "https://example.com/naan", text: "2 cups flour" }),
-    ).toEqual(["url: Give exactly one of `url` or `text`"]);
+    ).toEqual(["url: Give exactly one of `url`, `text` or `photos`"]);
     expect(issues({ text: "" })).toContain("text: An import needs text");
   });
 
@@ -67,9 +69,49 @@ describe("ImportRequestSchema (36c)", () => {
         url: "https://example.com/naan",
         source: "https://example.com/naan",
       }),
-    ).toEqual(["source: `source` is a pasted text's URL: it goes with `text`"]);
+    ).toEqual([
+      "source: `source` is a pasted text's (or a photo's) URL: it goes with `text` or `photos`",
+    ]);
     expect(issues({ text: "2 cups flour", llm: "force" })).toEqual([
-      "llm: `llm` is for a URL import: `text` always uses the local model",
+      "llm: `llm` is for a URL import: `text` and `photos` always use the local model",
+    ]);
+  });
+
+  it("takes photos (38e): 1–4 paths, a source, photoAsImage", () => {
+    const body = {
+      photos: ["/tmp/card-front.jpg", "/tmp/card-back.jpg"],
+      source: "https://example.com/cookbook",
+      photoAsImage: true,
+      dryRun: true,
+    };
+    expect(issues(body)).toEqual([]);
+    expect(importTarget(ImportRequestSchema.parse(body))).toEqual({
+      kind: "photos",
+      photos: ["/tmp/card-front.jpg", "/tmp/card-back.jpg"],
+      source: "https://example.com/cookbook",
+      options: { dryRun: true, photoAsImage: true },
+    });
+    expect(issues({ photos: ["a", "b", "c", "d", "e"] })).toEqual([
+      "photos: A photo import takes at most 4 photos",
+    ]);
+    expect(issues({ photos: [] })).toEqual(["photos: photos names no photo"]);
+    expect(issues({ photos: ["a.jpg"], text: "x" })).toEqual([
+      "url: Give exactly one of `url`, `text` or `photos`",
+    ]);
+    expect(
+      issues({ url: "https://example.com/x", photoAsImage: true }),
+    ).toEqual(["photoAsImage: `photoAsImage` goes with `photos`"]);
+    expect(
+      issues({
+        photos: ["a.jpg"],
+        photoAsImage: true,
+        image: "https://x/y.jpg",
+      }),
+    ).toEqual([
+      "photoAsImage: `photoAsImage` or `image`, not both: the recipe has one image",
+    ]);
+    expect(issues({ photos: ["a.jpg"], llm: "off" })).toEqual([
+      "llm: `llm` is for a URL import: `text` and `photos` always use the local model",
     ]);
   });
 

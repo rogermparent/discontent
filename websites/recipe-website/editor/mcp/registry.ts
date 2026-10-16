@@ -56,6 +56,7 @@ import {
 import {
   ImportRequestSchema,
   importTarget,
+  type ImportTarget,
 } from "../controller/curation/importRequest";
 import { LLM_MODES } from "../controller/llm/mode";
 import { PANTRY_STAPLES } from "recipe-website-common/util/makeable";
@@ -372,6 +373,23 @@ export interface RecipeServerInfo {
   readOnly?: boolean;
 }
 
+/**
+ * `recipe_import`'s `photos` (38e): local paths, read by this process as
+ * `recipe_set_image`'s `path` is, and handed to the backend as files — a
+ * local backend stores them in its job store, a remote one uploads them.
+ */
+async function importPhotoPaths(
+  backend: CuratorBackend,
+  target: Extract<ImportTarget, { kind: "photos" }>,
+) {
+  const files: File[] = [];
+  for (const photo of target.photos) files.push(await readImageFile(photo));
+  return backend.importPhotos(files, {
+    ...target.options,
+    ...(target.source ? { source: target.source } : {}),
+  });
+}
+
 export function createRecipeServer(
   backend: CuratorBackend,
   info: RecipeServerInfo = {},
@@ -503,7 +521,7 @@ export function createRecipeServer(
   register(
     "recipe_import",
     {
-      title: "Import a recipe from a URL or pasted text",
+      title: "Import a recipe from a URL, pasted text or photos",
       description:
         "Fetch a page, extract its recipe and write it, keeping the source as " +
         "provenance. `dryRun` returns what would be written — and a create-ready " +
@@ -529,7 +547,13 @@ export function createRecipeServer(
         "already imported from the same source is `existing` and skipped, so `all` again " +
         "after a partial run imports only what is missing. `asOne: true` reads the text " +
         "as one recipe instead (a dish the model splits into its parts). One recipe " +
-        "needs neither.",
+        "needs neither. " +
+        "Photos instead of `url` or `text`: `photos` (1–4 local image paths, read by this " +
+        "server's process — a recipe card, a cookbook page, the pages in order) are " +
+        "transcribed by the vision model, then read as pasted text is (a dryRun answers the " +
+        "`transcription`); `photoAsImage: true` also makes the first photo the recipe's " +
+        "image (off by default). With no vision model configured it is usage. JPEG, PNG, " +
+        "WebP, AVIF, TIFF, GIF; HEIC is refused.",
       inputSchema: ImportRequestSchema,
       annotations: WRITES,
     },
@@ -538,12 +562,14 @@ export function createRecipeServer(
       return write(
         backend,
         () =>
-          target.kind === "text"
-            ? backend.importText(target.text, {
-                ...target.options,
-                ...(target.source ? { source: target.source } : {}),
-              })
-            : backend.importRecipe(target.url, target.options),
+          target.kind === "photos"
+            ? importPhotoPaths(backend, target)
+            : target.kind === "text"
+              ? backend.importText(target.text, {
+                  ...target.options,
+                  ...(target.source ? { source: target.source } : {}),
+                })
+              : backend.importRecipe(target.url, target.options),
         { notify: request.dryRun !== true },
       );
     },
@@ -1596,7 +1622,8 @@ export function createRecipeServer(
         "startedAt?, endedAt?, durationMs?, error?, waiting?, retryOf?}], total, more}. " +
         "`status` filters by queued, running, done, failed, cancelled, interrupted, or " +
         "`live` (queued and running); `kind` by import-url, import-text, inspect, " +
-        "inspect-list, import-list, form-url, form-text or form-batch. A `waiting` " +
+        "inspect-list, import-list, import-photo, form-url, form-text, form-photo or " +
+        "form-batch. A `waiting` " +
         "job is in the queue for the GPU, yt-dlp or a site.",
       inputSchema: z.strictObject({
         status: z.enum(JOB_STATUS_FILTERS).optional(),

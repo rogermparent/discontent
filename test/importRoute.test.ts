@@ -17,7 +17,10 @@ import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 
 import { createHttpBackend } from "../websites/recipe-website/editor/cli/backend/http";
 import type { CurationContext } from "../websites/recipe-website/editor/controller/curation/context";
-import { standInChat } from "../websites/recipe-website/editor/playwright/fixtures/llm/standInModel";
+import {
+  photoKey,
+  standInChat,
+} from "../websites/recipe-website/editor/playwright/fixtures/llm/standInModel";
 
 let ctx: CurationContext;
 vi.mock("recipe-editor/controller/apiContext", () => ({
@@ -129,7 +132,12 @@ describe("/api/import with pasted text (36c)", () => {
     expect(both.status).toBe(400);
     expect((await both.json()).error).toMatchObject({
       code: "validation",
-      issues: [{ path: "url", message: "Give exactly one of `url` or `text`" }],
+      issues: [
+        {
+          path: "url",
+          message: "Give exactly one of `url`, `text` or `photos`",
+        },
+      ],
     });
     const badUrl = await post({ url: "not a url" });
     expect((await badUrl.json()).error.code).toBe("validation");
@@ -344,6 +352,176 @@ describe("/api/import with several recipes (36e)", () => {
         { n: 1, status: "imported", slug: "cake" },
         { n: 2, status: "imported", slug: "glaze" },
       ],
+    });
+  });
+});
+
+/* 38e: photos as multipart; the stand-in model transcribes them by hash. */
+describe("/api/import with photos (38e)", () => {
+  const CARD = [
+    "Oat Cookies",
+    "1 cup butter",
+    "3 cups oats",
+    "",
+    "Mix and bake.",
+  ].join("\n");
+
+  let server: Server | undefined;
+
+  afterEach(async () => {
+    const running = server;
+    server = undefined;
+    if (running) await new Promise<void>((done) => running.close(() => done()));
+  });
+
+  async function card(): Promise<Buffer> {
+    const { default: sharp } = await import("sharp");
+    return sharp({
+      create: { width: 60, height: 40, channels: 3, background: "#fbf6e9" },
+    })
+      .jpeg()
+      .toBuffer();
+  }
+
+  function stubVision(bytes: Buffer) {
+    vi.stubEnv("RECIPE_LLM_VISION_MODEL", "qwen2.5vl:7b");
+    const transcripts = { [photoKey(bytes)]: CARD };
+    const modelStub = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/chat") {
+        return Response.json(
+          standInChat(JSON.parse(String(init?.body)), { transcripts }),
+        );
+      }
+      return Response.json({ models: [] });
+    });
+    vi.stubGlobal("fetch", modelStub);
+    return modelStub;
+  }
+
+  function multipart(
+    photos: { bytes: Buffer; name: string }[],
+    request?: unknown,
+  ): Promise<Response> {
+    const form = new FormData();
+    for (const photo of photos) {
+      form.append(
+        "photo",
+        new File([new Uint8Array(photo.bytes)], photo.name, {
+          type: "image/jpeg",
+        }),
+        photo.name,
+      );
+    }
+    if (request !== undefined) form.set("request", JSON.stringify(request));
+    return POST(
+      new Request("http://editor.test/api/import", {
+        method: "POST",
+        body: form,
+      }),
+    );
+  }
+
+  it("dry-runs an upload: transcribed, then read and grounded", async () => {
+    const bytes = await card();
+    const modelStub = stubVision(bytes);
+    const response = await multipart([{ bytes, name: "card.jpg" }], {
+      dryRun: true,
+      tags: ["cookies"],
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      dryRun: true,
+      photos: 1,
+      transcription: CARD,
+      llm: { grounded: 2, total: 2 },
+      draft: { name: "Oat Cookies", tags: ["cookies"] },
+    });
+    expect(
+      modelStub.mock.calls.map(([input]) => new URL(String(input)).pathname),
+    ).toEqual([
+      "/api/chat",
+      "/api/ps",
+      "/api/generate",
+      "/api/chat",
+      "/api/ps",
+    ]);
+  });
+
+  it("refuses photo paths in a JSON body, too many photos, and no vision model", async () => {
+    const bytes = await card();
+    stubVision(bytes);
+    const paths = await post({ photos: ["/etc/passwd.jpg"], dryRun: true });
+    expect(paths.status).toBe(400);
+    expect((await paths.json()).error.message).toMatch(
+      /^`photos` are local paths, for the MCP tool/,
+    );
+    const five = await multipart(
+      [1, 2, 3, 4, 5].map((n) => ({ bytes, name: `${n}.jpg` })),
+      { dryRun: true },
+    );
+    expect((await five.json()).error).toMatchObject({
+      code: "validation",
+      issues: [
+        { path: "photos", message: "A photo import takes at most 4 photos" },
+      ],
+    });
+    const named = await multipart([{ bytes, name: "a.jpg" }], {
+      photos: ["/x.jpg"],
+    });
+    expect((await named.json()).error.code).toBe("validation");
+    vi.stubEnv("RECIPE_LLM_VISION_MODEL", "");
+    const off = await multipart([{ bytes, name: "a.jpg" }], { dryRun: true });
+    expect(off.status).toBe(400);
+    expect((await off.json()).error).toMatchObject({
+      code: "usage",
+      message: expect.stringContaining("RECIPE_LLM_VISION_MODEL"),
+    });
+  });
+
+  it("the HTTP backend's importPhotos uploads them to the route", async () => {
+    const bytes = await card();
+    const realFetch = globalThis.fetch;
+    server = createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => chunks.push(chunk));
+      request.on("end", async () => {
+        const answer = await POST(
+          new Request("http://editor.test/api/import", {
+            method: "POST",
+            headers: { "content-type": request.headers["content-type"]! },
+            body: Buffer.concat(chunks),
+          }),
+        );
+        response.writeHead(answer.status, {
+          "content-type": "application/json",
+        });
+        response.end(await answer.text());
+      });
+    });
+    await new Promise<void>((resolve) =>
+      server!.listen(0, "127.0.0.1", resolve),
+    );
+    const origin = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`;
+    const modelStub = stubVision(bytes);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL, init?: RequestInit) =>
+        String(input).startsWith(origin)
+          ? realFetch(input, init)
+          : modelStub(input, init),
+      ),
+    );
+    const backend = createHttpBackend({ baseUrl: origin });
+    const result = await backend.importPhotos(
+      [new File([new Uint8Array(bytes)], "card.jpg", { type: "image/jpeg" })],
+      { dryRun: true, source: "https://example.com/cookbook" },
+    );
+    expect(result).toMatchObject({
+      dryRun: true,
+      photos: 1,
+      url: "https://example.com/cookbook",
+      draft: { name: "Oat Cookies" },
     });
   });
 });

@@ -7,6 +7,8 @@
  *   Only the process that runs a job writes its meta — and the boot sweep,
  *   for a job whose process is gone.
  * - `<id>.log.jsonl`: the step log (`log.ts`), appended a line at a time.
+ * - `photos/`: a photo import's pictures and transcripts (38e, `photos.ts`),
+ *   named by a spec and pruned with the jobs.
  *
  * Ids are the engine's ULIDs (34-D5), so a directory listing sorts by start.
  *
@@ -510,5 +512,13 @@ export async function pruneJobs(
       await rm(path.join(dir, name), { force: true });
     }
   }
+  /* 38e: the photos and transcripts no remaining job names (`photos.ts`). */
+  const remaining = await listJobs(dir).catch(() => [] as JobMeta[]);
+  const { prunePhotos } = await import("./photos");
+  await prunePhotos(
+    dir,
+    remaining.map((meta) => meta.spec),
+    { now },
+  ).catch(() => 0);
   return removed;
 }

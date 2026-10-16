@@ -235,6 +235,23 @@ the draft's name (descriptions often shout it: "DRUNKEN NOODLES RECIPE") and
 pass `name`; a sub-heading pasted without its colon ("Icing") arrives as an
 ingredient line — fix it in a `recipe_create` from the draft.
 
+**Photos of a recipe.** A recipe card, a cookbook page, a handwritten note
+the person has as an image file: pass the paths, the pages in order (at most
+four):
+
+```json
+recipe_import {"photos": ["/path/to/card-front.jpg", "/path/to/card-back.jpg"], "dryRun": true}
+```
+
+The vision model transcribes them, and the local model reads the
+transcription as it reads pasted text (the dry run answers `transcription`
+— check the draft against it, and the transcription against the photo:
+the lines are only as right as what was read). `photoAsImage: true` also
+makes the first photo the recipe's image (a card is rarely a picture of the
+dish, so leave it off unless asked). Exactly one of `url`, `text` or
+`photos`. It needs a vision model: without one it is `usage` naming
+`RECIPE_LLM_VISION_MODEL`. HEIC is refused — ask for a JPEG.
+
 **Fixing an image later:**
 
 ```json
@@ -581,6 +598,8 @@ wait and run the same command once more, as with the tool.
   (`--image <url>` picks another image; `--llm force` as `llm: "force"`);
   `recipe_import {text, source?, dryRun}` → write the text to a file, then
   `pnpm --silent recipes import --text t.txt [--source <url>] --dry-run --out d.json --json`;
+  `recipe_import {photos, dryRun}` →
+  `pnpm --silent recipes import --photo front.jpg back.jpg --dry-run --out d.json --json`;
 - `recipe_create {recipe, dryRun}` → `pnpm --silent recipes create --file d.json --dry-run --json`,
   then the same without `--dry-run`;
 - `page_inspect_list` → `pnpm --silent recipes inspect-list <url> --json`;

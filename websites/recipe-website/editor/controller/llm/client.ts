@@ -181,6 +181,13 @@ export class LlmError extends Error {
 export const LLM_UNCONFIGURED_MESSAGE =
   "no local model configured (RECIPE_LLM_URL)";
 
+/** A picture sent with the user's message (38e): its bytes and media type. */
+export interface ChatImage {
+  bytes: Buffer;
+  /** `image/jpeg` or `image/png`: what the `data:` URL says (OpenAI shape). */
+  type: string;
+}
+
 export interface ChatJsonRequest {
   system: string;
   user: string;
@@ -188,6 +195,18 @@ export interface ChatJsonRequest {
   schema: Record<string, unknown>;
   /** The schema's name, for the OpenAI shape. */
   schemaName?: string;
+  /**
+   * Pictures for a vision model (38e), in order: Ollama's `images` (base64)
+   * on the user message, or OpenAI-style `image_url` parts (`data:` URLs).
+   */
+  images?: ChatImage[];
+  /**
+   * Unload the model once it has answered (38e): `POST /api/generate
+   * {model, keep_alive: 0}` — an `llm.unload` step — after the placement
+   * reading, still holding the `gpu` slot, so the next call's model never
+   * shares the GPU with this one. Ollama only.
+   */
+  unload?: boolean;
   /** Defaults to `llmConfig()`. */
   config?: LlmConfig;
   timeoutMs?: number;
@@ -207,6 +226,17 @@ export interface ChatJsonRequest {
    */
   step?: StepHandle;
 }
+
+/**
+ * A call whose answer is free text (38e, `chatText`): no schema. A
+ * transcription is text, and JSON mode would have the model escape every
+ * line of it inside one string.
+ */
+export type ChatTextRequest = Omit<ChatJsonRequest, "schema" | "schemaName">;
+
+/** Either kind of call, as the transport sees it. */
+type ChatRequest = ChatTextRequest &
+  Partial<Pick<ChatJsonRequest, "schema" | "schemaName">>;
 
 export interface ChatJsonResult {
   /** The parsed answer: still unchecked against the schema. */
@@ -232,16 +262,26 @@ function endpoint(config: LlmConfig): string {
     : `${url}/v1/chat/completions`;
 }
 
-function requestBody(request: ChatJsonRequest, config: LlmConfig) {
-  const messages = [
-    { role: "system", content: request.system },
-    { role: "user", content: request.user },
-  ];
+/**
+ * A request as the server takes it. `schema` undefined is `chatText`'s
+ * free answer (38e): no `format` / `response_format` at all.
+ */
+function requestBody(request: ChatRequest, config: LlmConfig) {
+  const images = request.images ?? [];
   if (config.api === "ollama") {
     return {
       model: config.model,
-      messages,
-      format: request.schema,
+      messages: [
+        { role: "system", content: request.system },
+        {
+          role: "user",
+          content: request.user,
+          ...(images.length > 0
+            ? { images: images.map((image) => image.bytes.toString("base64")) }
+            : {}),
+        },
+      ],
+      ...(request.schema ? { format: request.schema } : {}),
       stream: false,
       think: false,
       keep_alive: LLM_KEEP_ALIVE,
@@ -250,15 +290,36 @@ function requestBody(request: ChatJsonRequest, config: LlmConfig) {
   }
   return {
     model: config.model,
-    messages,
-    temperature: 0,
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: request.schemaName ?? "answer",
-        schema: request.schema,
+    messages: [
+      { role: "system", content: request.system },
+      {
+        role: "user",
+        content:
+          images.length > 0
+            ? [
+                { type: "text", text: request.user },
+                ...images.map((image) => ({
+                  type: "image_url",
+                  image_url: {
+                    url: `data:${image.type};base64,${image.bytes.toString("base64")}`,
+                  },
+                })),
+              ]
+            : request.user,
       },
-    },
+    ],
+    temperature: 0,
+    ...(request.schema
+      ? {
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: request.schemaName ?? "answer",
+              schema: request.schema,
+            },
+          },
+        }
+      : {}),
   };
 }
 
@@ -353,6 +414,37 @@ function isTimeout(error: unknown): boolean {
 export async function chatJson(
   request: ChatJsonRequest,
 ): Promise<ChatJsonResult> {
+  const { content, ...result } = await chat(request);
+  return { ...result, data: parseJsonAnswer(content) };
+}
+
+/** What `chatText` answers: `chatJson`'s numbers, and the answer as text. */
+export interface ChatTextResult extends Omit<ChatJsonResult, "data"> {
+  /** The answer, a leading `<think>` block and outer whitespace removed. */
+  text: string;
+}
+
+/**
+ * `chatJson` without a schema (38e, De2): the answer is free text — a
+ * vision model's transcription of a photo. The same transport, `gpu` slot,
+ * D6 reload and placement check; `images` and `unload` as `chatJson` takes
+ * them. Throws `LlmError` as `chatJson` does (`bad_json` only for a reply
+ * that is not a JSON object, or carries no message).
+ */
+export async function chatText(
+  request: ChatTextRequest,
+): Promise<ChatTextResult> {
+  const { content, ...result } = await chat(request);
+  return {
+    ...result,
+    text: content.replace(/^\s*<think>[\s\S]*?<\/think>/, "").trim(),
+  };
+}
+
+/** One call, either kind: the queue, D6's reload, and `unload`. */
+async function chat(
+  request: ChatRequest,
+): Promise<Omit<ChatJsonResult, "data"> & { content: string }> {
   const config = request.config ?? llmConfig();
   if (!config) throw new LlmError("unconfigured", LLM_UNCONFIGURED_MESSAGE);
   const job = jobContext(request.job);
@@ -364,38 +456,82 @@ export async function chatJson(
       const step = request.step;
       const reloadable =
         grant.hookRan && config.api === "ollama" && !!step?.log.live;
-      let reading: number;
       try {
-        const first = await callModel(request, config, signal, !reloadable);
-        if (!reloadable || first.gpu === undefined || first.gpu >= 100) {
-          return first.result;
+        let reading: number;
+        try {
+          const first = await callModel(request, config, signal, !reloadable);
+          if (!reloadable || first.gpu === undefined || first.gpu >= 100) {
+            return first.result;
+          }
+          reading = first.gpu;
+        } catch (error) {
+          if (
+            !reloadable ||
+            !(error instanceof LlmError) ||
+            error.kind !== "timeout" ||
+            error.gpu === undefined ||
+            error.gpu >= 100
+          ) {
+            throw error;
+          }
+          reading = error.gpu;
         }
-        reading = first.gpu;
-      } catch (error) {
-        if (
-          !reloadable ||
-          !(error instanceof LlmError) ||
-          error.kind !== "timeout" ||
-          error.gpu === undefined ||
-          error.gpu >= 100
-        ) {
-          throw error;
+        await reloadModel(config, step!, reading, signal);
+        return (await callModel(request, config, signal, true)).result;
+      } finally {
+        /* 38e: still holding `gpu`, so no other call's model loads beside it. */
+        if (request.unload && config.api === "ollama" && !signal?.aborted) {
+          await unloadModel(config, step);
         }
-        reading = error.gpu;
       }
-      await reloadModel(config, step!, reading, signal);
-      return (await callModel(request, config, signal, true)).result;
     },
   );
 }
 
+/** How long `unload`'s request may take. */
+export const UNLOAD_TIMEOUT_MS = 30_000;
+
+/**
+ * Unload a model now (38e): `POST /api/generate {model, keep_alive: 0}`,
+ * the request `ollama stop` makes. An `llm.unload` step in a job; a failure
+ * is the step's, never the call's — the next model's load evicts it anyway,
+ * only later.
+ */
+export async function unloadModel(
+  config: LlmConfig,
+  step?: StepHandle,
+): Promise<void> {
+  const run = async (unload?: StepHandle) => {
+    try {
+      const response = await fetch(`${config.url}/api/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: config.model, keep_alive: 0 }),
+        signal: AbortSignal.timeout(UNLOAD_TIMEOUT_MS),
+      });
+      unload?.set({ status: response.status });
+      if (!response.ok)
+        unload?.fail(`/api/generate answered ${response.status}`);
+    } catch (error) {
+      unload?.fail(
+        `could not unload the model: ${(error as Error)?.message ?? error}`,
+      );
+    }
+  };
+  if (!step) return run();
+  await step.log.step("llm.unload", { model: config.model }, run);
+}
+
 /** One request to the model server, and — in a job — where the model sat. */
 async function callModel(
-  request: ChatJsonRequest,
+  request: ChatRequest,
   config: LlmConfig,
   callerSignal: AbortSignal | undefined,
   surface: boolean,
-): Promise<{ result: ChatJsonResult; gpu?: number }> {
+): Promise<{
+  result: Omit<ChatJsonResult, "data"> & { content: string };
+  gpu?: number;
+}> {
   const timeoutMs = request.timeoutMs ?? LLM_TIMEOUT_MS;
   const timeout = AbortSignal.timeout(timeoutMs);
   const signal = callerSignal
@@ -457,7 +593,8 @@ async function callModel(
     );
   }
 
-  const { content, ...stats } = readResponse(body, config.api);
+  const { content, data: _unparsed, ...stats } = readResponse(body, config.api);
+  void _unparsed;
   const durationMs = Date.now() - started;
   let gpu: number | undefined;
   if (request.step) {
@@ -473,7 +610,7 @@ async function callModel(
   return {
     result: {
       ...stats,
-      data: parseJsonAnswer(content),
+      content,
       model: config.model,
       durationMs,
     },

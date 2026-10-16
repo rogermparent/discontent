@@ -90,6 +90,9 @@ export default defineConfig({
      */
     env: {
       RECIPE_LLM_URL: "",
+      /* 38e: nor a vision model — `photo-import.spec` turns one on through
+       * `/settings/test-llm?vision=`, read by its loopback stand-in. */
+      RECIPE_LLM_VISION_MODEL: "",
       /*
        * Epic 37: the server's import jobs go to `test-jobs`, beside
        * `test-content` — never `editor/jobs/`, even when `editor/.env`

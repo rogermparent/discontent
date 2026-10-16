@@ -51,12 +51,15 @@ export default function RecipeFields({
   state,
   defaultImage,
   allTags = [],
+  imageFile,
 }: {
   recipe?: Partial<ImportedRecipe>;
   slug?: string;
   state?: RecipeFormState;
   defaultImage?: StaticImageProps;
   allTags?: string[];
+  /** A file the image field starts with (38e: the photo a recipe was read from). */
+  imageFile?: File;
 }) {
   const form = useRecipeForm();
   // Read the live name reactively (drives the slug placeholder) without nesting
@@ -126,6 +129,7 @@ export default function RecipeFields({
         imageToImport={imageImportUrl}
         candidates={images}
         allowUrl
+        initialFile={imageFile}
       />
       <VideoInput
         label="Video"

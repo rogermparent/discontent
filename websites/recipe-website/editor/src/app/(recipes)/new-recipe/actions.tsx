@@ -30,6 +30,34 @@ export async function importRecipeAction(
   if (!(await authenticateUser())) {
     return { message: "Sign in to import.", at };
   }
+  /*
+   * Photo mode (38e): the photos are checked and stored in the job store
+   * here, before the job starts — the spec names them there, never their
+   * bytes — then the vision model transcribes them and the local model
+   * reads the transcription.
+   */
+  if (formData.get("importMode") === "photo") {
+    const files = formData
+      .getAll("importPhotos")
+      .filter((part): part is File => part instanceof File && part.size > 0);
+    try {
+      const { assertPhotoImport } =
+        await import("recipe-editor/controller/llm/vision");
+      assertPhotoImport();
+      const { storePhotos } =
+        await import("recipe-editor/controller/jobs/photos");
+      const { jobsDirectory } =
+        await import("recipe-editor/controller/jobs/location");
+      const photos = await storePhotos(jobsDirectory(), files);
+      const { job } = await startSpec({ kind: "form-photo", photos });
+      return { job, at };
+    } catch (error) {
+      return {
+        message: error instanceof Error ? error.message : String(error),
+        at,
+      };
+    }
+  }
   /* Pasted text (36c; since 36d the "No link? Paste the recipe text
    * instead" fallback): the local model reads the text. */
   if (formData.get("importMode") === "text") {

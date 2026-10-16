@@ -21,11 +21,13 @@ export const JOB_STATUS_FILTERS = [...JOB_STATUS_NAMES, "live"] as const;
 export const JOB_KIND_NAMES = [
   "import-url",
   "import-text",
+  "import-photo",
   "inspect",
   "inspect-list",
   "import-list",
   "form-url",
   "form-text",
+  "form-photo",
   "form-batch",
 ] as const;
 

@@ -1,11 +1,13 @@
 "use client";
 
 import CreateRecipeFields from "recipe-website-common/components/Form/Create";
+import Image from "next/image";
 import { RecipeFormShell } from "recipe-website-common/components/Form/RecipeFormShell";
 import {
   useActionState,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -32,6 +34,10 @@ import {
   mergeReadings,
 } from "recipe-editor/controller/llm/mergeReadings";
 import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
+import { MAX_PHOTOS, PHOTO_ACCEPT } from "recipe-editor/controller/photoLimits";
+
+/** The import's three ways in: a link, pasted text (36c), photos (38e). */
+type ImportMode = "url" | "text" | "photo";
 
 /**
  * What a video import will do (36d): yt-dlp fetches the video's text, and the
@@ -51,15 +57,22 @@ function videoHint(host: string, url: string, llmModel?: string): string {
 /** The note beside Import while it runs. */
 function pendingNote({
   textMode,
+  photoMode,
   forceLlm,
   videoHost,
   llmModel,
+  visionModel,
 }: {
   textMode: boolean;
+  photoMode: boolean;
   forceLlm: boolean;
   videoHost: boolean;
   llmModel?: string;
+  visionModel?: string;
 }): string {
+  if (photoMode) {
+    return `${visionModel} reads the photo, then ${llmModel} reads the recipe… (~30–60 s; each model loads on first use)`;
+  }
   if (videoHost) {
     return llmModel
       ? `Fetching the video with yt-dlp, then ${llmModel} reads it… (~20–30 s)`
@@ -81,6 +94,7 @@ export default function NewOrImportRecipeForm({
   allTags = [],
   busy = false,
   llmModel,
+  visionModel,
 }: {
   slug?: string;
   initialState: RecipeActionState | null;
@@ -99,6 +113,11 @@ export default function NewOrImportRecipeForm({
   busy?: boolean;
   /** The local model's name, or nothing when none is configured (36b). */
   llmModel?: string;
+  /**
+   * The vision model's name (38e), or nothing — no Photo mode: none is
+   * configured, or no local model to read its transcription.
+   */
+  visionModel?: string;
 }) {
   /*
    * The import is a job (37c, D7): the action answers its id at once, the
@@ -113,8 +132,28 @@ export default function NewOrImportRecipeForm({
     initialImportState ? initialJob : undefined,
   );
   const importPending = !!activeJob && settledJob !== activeJob;
+  /* Photos (38e): the pages of one recipe, in order, at most MAX_PHOTOS. */
+  const [photos, setPhotoList] = useState<File[]>([]);
+  /* What the import action reads: the photos as they are when it runs. */
+  const photosRef = useRef<File[]>([]);
+  const setPhotos = (next: File[]) => {
+    photosRef.current = next;
+    setPhotoList(next);
+  };
+  /* The photos the last photo import read: the image the form may start with. */
+  const [photosRead, setPhotosRead] = useState<File[]>([]);
   const [, importDispatch] = useActionState(
     async (previous: ImportStartState | null, formData: FormData) => {
+      /* 38e: the photos are the state's, not a file input's — React resets
+       * the form after its action (36-T27), and a file input cannot be
+       * filled back. */
+      if (formData.get("importMode") === "photo") {
+        formData.delete("importPhotos");
+        for (const photo of photosRef.current) {
+          formData.append("importPhotos", photo);
+        }
+        setPhotosRead(photosRef.current);
+      }
       const started = await importRecipeAction(previous, formData);
       if (started.job) {
         setActiveJob(started.job);
@@ -141,8 +180,31 @@ export default function NewOrImportRecipeForm({
   const [forceLlm, setForceLlm] = useState(false);
   /* Pasting the text (36c; a fallback since 36d): controlled, so a failed
    * import keeps it. */
-  const [textMode, setTextMode] = useState(false);
+  const [mode, setMode] = useState<ImportMode>("url");
+  const textMode = mode === "text";
+  const photoMode = mode === "photo";
   const [pastedText, setPastedText] = useState("");
+  const [photoAsImage, setPhotoAsImage] = useState(false);
+  const [photoNote, setPhotoNote] = useState<string>();
+  const previews = useMemo(
+    () => photos.map((photo) => URL.createObjectURL(photo)),
+    [photos],
+  );
+  useEffect(
+    () => () => previews.forEach((preview) => URL.revokeObjectURL(preview)),
+    [previews],
+  );
+  const addPhotos = (list: FileList | null) => {
+    const added = Array.from(list ?? []);
+    if (added.length === 0) return;
+    const next = [...photos, ...added];
+    setPhotoNote(
+      next.length > MAX_PHOTOS
+        ? `At most ${MAX_PHOTOS} photos — the first ${MAX_PHOTOS} are kept.`
+        : undefined,
+    );
+    setPhotos(next.slice(0, MAX_PHOTOS));
+  };
   const [pastedSource, setPastedSource] = useState("");
   /* The URL too (36c review): it survives a switch to pasting and back. */
   const [importUrl, setImportUrl] = useState(initialImportUrl ?? "");
@@ -150,18 +212,26 @@ export default function NewOrImportRecipeForm({
   const [dismissed, setDismissed] = useState<RecipeActionState | null>(null);
   /* After a switch, focus lands on the field that appeared (36d). */
   const switched = useRef(false);
-  const switchMode = (toText: boolean) => {
-    setTextMode(toText);
+  const switchMode = (to: ImportMode) => {
+    setMode(to);
     setDismissed(importState);
     switched.current = true;
   };
   useEffect(() => {
     if (!switched.current) return;
     switched.current = false;
-    document.getElementById(textMode ? "import-text" : "import")?.focus();
-  }, [textMode]);
+    document
+      .getElementById(
+        mode === "text"
+          ? "import-text"
+          : mode === "photo"
+            ? "import-photos"
+            : "import",
+      )
+      ?.focus();
+  }, [mode]);
   /* What the typed URL is (36d): a video gets its own hint and no force box. */
-  const videoHost = textMode ? undefined : videoHostName(importUrl);
+  const videoHost = mode === "url" ? videoHostName(importUrl) : undefined;
 
   const {
     recipe: importedRecipe,
@@ -196,6 +266,12 @@ export default function NewOrImportRecipeForm({
     importState && importState !== dismissed ? importState.message : undefined;
   /* The model's lines are in the form: its notice replaces the SEO one. */
   const llmLines = !!llm?.found && !llm.discarded;
+  /* 38e: "use the photo as the recipe's image" — the form's image field
+   * starts holding the first photo the import read. */
+  const imageFile =
+    photoAsImage && importState?.fromPhotos && recipe
+      ? photosRead[0]
+      : undefined;
 
   const initialSubmissionState = { message: "", errors: {} } as RecipeFormState;
   const [submissionState, submissionDispatch] = useActionState(
@@ -251,6 +327,7 @@ export default function NewOrImportRecipeForm({
             total={batch.length + (importState.leftOut?.length ?? 0)}
             url={url}
             pastedText={importState.pastedText === true}
+            fromPhotos={!!importState.fromPhotos}
             busy={busy}
             editing={edited?.n}
             onEdit={(n) => {
@@ -278,7 +355,105 @@ export default function NewOrImportRecipeForm({
             }
           />
         ) : null}
-        {textMode ? (
+        {importState?.transcription ? (
+          /* 38e: what the vision model read — the source the recipe's lines
+           * were checked against. */
+          <details className="my-1 text-sm" data-testid="import-transcription">
+            <summary className="cursor-pointer text-muted-foreground">
+              What {visionModel ?? "the vision model"} read in the photo
+            </summary>
+            <pre className="mt-1 whitespace-pre-wrap rounded bg-muted px-2 py-1 font-sans">
+              {importState.transcription}
+            </pre>
+          </details>
+        ) : null}
+        {photoMode ? (
+          <>
+            {/* 38e: a recipe card, a cookbook page — the pages in order. */}
+            <input type="hidden" name="importMode" value="photo" />
+            <label
+              htmlFor="import-photos"
+              className="mt-1 block text-sm font-medium"
+            >
+              Add photos of the recipe
+            </label>
+            <input
+              id="import-photos"
+              type="file"
+              accept={PHOTO_ACCEPT}
+              multiple
+              aria-describedby="import-photos-help"
+              disabled={photos.length >= MAX_PHOTOS}
+              className="my-1 block text-sm"
+              onChange={(event) => {
+                addPhotos(event.target.files);
+                /* The list below holds them: the input only adds. */
+                event.target.value = "";
+              }}
+            />
+            <p
+              id="import-photos-help"
+              className="mb-1 text-sm text-muted-foreground"
+            >
+              Up to {MAX_PHOTOS}, in page order — a card&apos;s front and back,
+              a cookbook spread. {visionModel} transcribes them, then {llmModel}{" "}
+              reads the recipe.
+            </p>
+            {photoNote ? (
+              <p role="status" className="mb-1 text-sm">
+                {photoNote}
+              </p>
+            ) : null}
+            {photos.length > 0 ? (
+              <ol
+                className="my-1 flex flex-wrap gap-2"
+                data-testid="import-photo-list"
+                aria-label="Photos to read, in page order"
+              >
+                {photos.map((photo, index) => (
+                  <li
+                    key={`${index}-${photo.name}-${photo.size}`}
+                    className="flex w-32 flex-col gap-1 text-xs"
+                  >
+                    <Image
+                      src={previews[index]}
+                      alt={`Page ${index + 1}: ${photo.name}`}
+                      width={128}
+                      height={96}
+                      unoptimized={true}
+                      className="aspect-[4/3] w-full rounded border object-cover"
+                    >
+                      {null}
+                    </Image>
+                    <span className="truncate">
+                      {index + 1}. {photo.name}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      aria-label={`Remove page ${index + 1}, ${photo.name}`}
+                      onClick={() => {
+                        setPhotoNote(undefined);
+                        setPhotos(photos.filter((_, at) => at !== index));
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </li>
+                ))}
+              </ol>
+            ) : null}
+            <label className="my-1 flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={photoAsImage}
+                onChange={(event) => setPhotoAsImage(event.target.checked)}
+              />
+              Use the first photo as the recipe&apos;s image
+            </label>
+          </>
+        ) : textMode ? (
           <>
             {/* 36c (D8), demoted in 36d: a recipe with no link to give. */}
             <input type="hidden" name="importMode" value="text" />
@@ -354,7 +529,9 @@ export default function NewOrImportRecipeForm({
         )}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <SubmitButton
-            disabled={busy || importPending}
+            disabled={
+              busy || importPending || (photoMode && photos.length === 0)
+            }
             /* Prefilled from `?import=` (D3): one key or click away. */
             autoFocus={!!initialImportUrl}
           >
@@ -368,13 +545,15 @@ export default function NewOrImportRecipeForm({
             <span role="status" className="text-sm text-muted-foreground">
               {pendingNote({
                 textMode,
+                photoMode,
                 forceLlm,
                 videoHost: !!videoHost,
                 llmModel,
+                visionModel,
               })}
             </span>
           ) : !activeJob &&
-            !textMode &&
+            mode === "url" &&
             initialImportUrl &&
             importUrl === initialImportUrl ? (
             <span
@@ -387,13 +566,13 @@ export default function NewOrImportRecipeForm({
         </div>
         {/* 36d: the paste box is the fallback, not a second way in. */}
         <div className="my-1 flex flex-wrap items-center gap-x-1 text-sm">
-          {textMode ? (
+          {mode !== "url" ? (
             <Button
               type="button"
               variant="link"
               size="sm"
               className="h-auto px-0"
-              onClick={() => switchMode(false)}
+              onClick={() => switchMode("url")}
             >
               ← Import from a link instead
             </Button>
@@ -406,7 +585,7 @@ export default function NewOrImportRecipeForm({
                 className="h-auto px-0"
                 disabled={!llmModel}
                 aria-describedby="paste-text-note"
-                onClick={() => switchMode(true)}
+                onClick={() => switchMode("text")}
               >
                 No link? Paste the recipe text instead
               </Button>
@@ -418,6 +597,24 @@ export default function NewOrImportRecipeForm({
             </>
           )}
         </div>
+        {/* 38e: only where a vision model is configured (not the Pi). */}
+        {mode === "url" && visionModel && llmModel ? (
+          <div className="my-1 flex flex-wrap items-center gap-x-1 text-sm">
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto px-0"
+              aria-describedby="photo-note"
+              onClick={() => switchMode("photo")}
+            >
+              Or read a photo of a recipe card
+            </Button>
+            <span id="photo-note" className="text-muted-foreground">
+              — {visionModel} transcribes it
+            </span>
+          </div>
+        ) : null}
       </form>
       <RecipeFormShell
         key={
@@ -437,6 +634,7 @@ export default function NewOrImportRecipeForm({
             slug={slug}
             recipe={submissionState.formData || recipe || undefined}
             allTags={allTags}
+            imageFile={submissionState.formData ? undefined : imageFile}
           />
           <div id="missing-fields-error" aria-live="polite" aria-atomic="true">
             {submissionState.message && (

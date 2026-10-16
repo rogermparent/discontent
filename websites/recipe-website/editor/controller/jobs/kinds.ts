@@ -35,6 +35,8 @@ import type { RecipeActionState } from "../formImport";
 import type { LlmMode } from "../llm/mode";
 import type { JobContext } from "./context";
 import type { JOB_KIND_NAMES } from "./listing";
+import { jobsDirectory } from "./location";
+import type { StoredPhoto } from "./photos";
 import { startJob, type RunJobOptions } from "./run";
 import type { JobError, JobMeta, JobTier } from "./store";
 
@@ -58,6 +60,17 @@ export type JobSpec =
       source?: string;
       options: ImportWriteOptions;
     })
+  /**
+   * `recipes import --photo`, `/api/import` multipart, MCP `photos` (38e):
+   * the photos stored in the job store at enqueue time (`storePhotos`),
+   * named by their path there — never their bytes.
+   */
+  | (CorpusSpec & {
+      kind: "import-photo";
+      photos: StoredPhoto[];
+      source?: string;
+      options: ImportWriteOptions & { photoAsImage?: boolean };
+    })
   /** `recipes inspect`, `/api/inspect`, MCP `page_inspect`. */
   | { kind: "inspect"; url: string; llm?: LlmMode }
   /** A roundup's list (34f): CLI, API, MCP, the form's picker. */
@@ -71,6 +84,8 @@ export type JobSpec =
   /** The `/new-recipe` form's import: fills the form, writes nothing. */
   | { kind: "form-url"; url: string; llm?: LlmMode }
   | { kind: "form-text"; text: string; source?: string }
+  /** The form's Photo mode (38e): fills the form, writes nothing. */
+  | { kind: "form-photo"; photos: StoredPhoto[] }
   /**
    * The form's "Import N selected" (36e's picker; a job since 37c): the
    * readings already in hand, written one commit each by
@@ -102,11 +117,13 @@ void KIND_LIST_MATCHES;
 export interface JobResults {
   "import-url": ImportResult;
   "import-text": ImportResult;
+  "import-photo": ImportResult;
   inspect: InspectResult;
   "inspect-list": InspectListResult;
   "import-list": ImportListResult;
   "form-url": RecipeActionState;
   "form-text": RecipeActionState;
+  "form-photo": RecipeActionState;
   "form-batch": FormBatchResult;
 }
 
@@ -122,6 +139,8 @@ export interface JobEnv {
   ctx?: CurationContext;
   /** The job's log, signal, tier and id: what every seat takes as `job`. */
   job: JobContext;
+  /** The job store it runs in: where its kept reading lives (38c). */
+  dir?: string;
 }
 
 type Handler<K extends JobKind> = (
@@ -155,6 +174,19 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
       job,
     );
   },
+  async "import-photo"(spec, { ctx, job, dir }) {
+    const { importFromPhotos } = await import("../curation/importPhoto");
+    return importFromPhotos(
+      contextFor(spec, ctx),
+      {
+        photos: spec.photos,
+        ...(spec.source ? { source: spec.source } : {}),
+        ...spec.options,
+      },
+      job,
+      { ...(dir ? { dir } : {}) },
+    );
+  },
   async inspect(spec, { job }) {
     const { inspectUrl } = await import("../curation/inspect");
     return inspectUrl(spec.url, spec.llm ? { llm: spec.llm } : {}, job);
@@ -174,6 +206,12 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
   async "form-text"(spec, { job }) {
     const { reduceTextImport } = await import("../formImport");
     return reduceTextImport(null, spec.text, spec.source, job);
+  },
+  async "form-photo"(spec, { job, dir }) {
+    const { reducePhotoImport } = await import("../formImport");
+    return reducePhotoImport(null, spec.photos, job, {
+      ...(dir ? { dir } : {}),
+    });
   },
   async "form-batch"(spec, { ctx, job }) {
     const { importBatchPicks } = await import("../curation/importRecipe");
@@ -210,6 +248,7 @@ const JOB_FAILURES: {
 } = {
   "form-url": formFailure,
   "form-text": formFailure,
+  "form-photo": formFailure,
 };
 
 /** "www.example.com/pies/apple": a URL as a list names it. */
@@ -227,12 +266,23 @@ function pastedLabel(text: string, source?: string): string {
   return `pasted text (${text.length} chars${source ? `, from ${shortUrl(source)}` : ""})`;
 }
 
+/** "photo card.jpg", "2 photos: card-1.jpg, card-2.jpg" (38e). */
+function photoLabel(photos: readonly StoredPhoto[]): string {
+  const names = photos.map((photo) => photo.name).join(", ");
+  return photos.length === 1
+    ? `photo ${names}`
+    : `${photos.length} photos: ${names}`;
+}
+
 /** What a person reads for a job in a list. */
 export function jobLabel(spec: JobSpec): string {
   switch (spec.kind) {
     case "import-text":
     case "form-text":
       return pastedLabel(spec.text, spec.source);
+    case "import-photo":
+    case "form-photo":
+      return photoLabel(spec.photos);
     case "form-batch": {
       const picks = `${spec.picks.length} of ${spec.total} recipes`;
       return spec.url ? `${picks} from ${shortUrl(spec.url)}` : picks;
@@ -249,7 +299,9 @@ export function jobLabel(spec: JobSpec): string {
 export function jobTier(spec: JobSpec): JobTier {
   if (spec.kind === "import-list") return "batch";
   if (
-    (spec.kind === "import-url" || spec.kind === "import-text") &&
+    (spec.kind === "import-url" ||
+      spec.kind === "import-text" ||
+      spec.kind === "import-photo") &&
     spec.options.all
   ) {
     return "batch";
@@ -263,6 +315,10 @@ export function jobResources(spec: JobSpec): string[] {
     case "import-text":
     case "form-text":
       return ["gpu", "site"];
+    /* The vision model, then the text model; the photo is no download. */
+    case "import-photo":
+    case "form-photo":
+      return ["gpu"];
     case "inspect-list":
     /* The picks' pictures: the readings are in hand. */
     case "form-batch":
@@ -315,6 +371,7 @@ export async function startSpec<S extends JobSpec>(
   const failureOf = JOB_FAILURES[spec.kind] as
     | ((result: JobResults[S["kind"]]) => JobError | undefined)
     | undefined;
+  const dir = options.dir ?? jobsDirectory();
   const started = await startJob(
     {
       kind: spec.kind,
@@ -324,8 +381,8 @@ export async function startSpec<S extends JobSpec>(
       resources: jobResources(spec),
       ...(retryOf ? { retryOf } : {}),
     },
-    (context) => handler(spec, { ctx, job: context }),
-    { ...options, ...(failureOf ? { failureOf } : {}) },
+    (context) => handler(spec, { ctx, job: context, dir }),
+    { ...options, dir, ...(failureOf ? { failureOf } : {}) },
   );
   const done = started.done.then(({ job, result }) => ({ ...result, job }));
   /* Handled here, so a caller that never awaits it leaves nothing unhandled. */
@@ -338,6 +395,7 @@ export function specWrites(spec: JobSpec): boolean {
   switch (spec.kind) {
     case "import-url":
     case "import-text":
+    case "import-photo":
     case "import-list":
       return !spec.options.dryRun;
     case "form-batch":

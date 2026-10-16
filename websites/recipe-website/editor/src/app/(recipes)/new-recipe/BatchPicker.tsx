@@ -72,6 +72,7 @@ export default function BatchPicker({
   total = readings.length,
   url,
   pastedText = false,
+  fromPhotos = false,
   busy = false,
   editing,
   onEdit,
@@ -82,6 +83,8 @@ export default function BatchPicker({
   total?: number;
   url?: string;
   pastedText?: boolean;
+  /** Read from photos' transcription (38e): "This photo holds …". */
+  fromPhotos?: boolean;
   /** A roundup run is in flight (35r): wait for it. */
   busy?: boolean;
   /** The recipe the form holds, if one was sent there. */
@@ -118,6 +121,7 @@ export default function BatchPicker({
       const answer = await importRecipeBatchAction({
         ...(url ? { url } : {}),
         ...(pastedText ? { pastedText: true } : {}),
+        ...(fromPhotos ? { fromPhotos: true } : {}),
         total: Math.max(total, 2),
         siblings: readings.map((reading) => ({
           n: reading.n,
@@ -173,7 +177,11 @@ export default function BatchPicker({
       );
     });
 
-  const source = pastedText ? "This text" : "This video";
+  const source = fromPhotos
+    ? "This photo"
+    : pastedText
+      ? "This text"
+      : "This video";
   return (
     <section
       className="my-2 rounded-md border p-3"

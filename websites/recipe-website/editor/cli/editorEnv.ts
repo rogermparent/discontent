@@ -22,7 +22,9 @@
  * - `RECIPE_LLM_URL`, `RECIPE_LLM_MODEL` and `RECIPE_LLM_API` — how to reach
  *   the local model that imports use (epic 36, D1), so `recipes import` and
  *   the stdio MCP server find the model the workstation's editor uses. They
- *   change what an import reads, never which corpus it writes to;
+ *   change what an import reads, never which corpus it writes to; so does
+ *   `RECIPE_LLM_VISION_MODEL` (38e), the model a photo import transcribes
+ *   with;
  * - `RECIPE_JOBS_DIR` — where import jobs keep their records (epic 37, D1),
  *   so a CLI import and the editor share one job store when the editor's is
  *   set somewhere other than the default;
@@ -87,6 +89,7 @@ export const EDITOR_ENV_KEYS = [
   "RECIPE_LLM_URL",
   "RECIPE_LLM_MODEL",
   "RECIPE_LLM_API",
+  "RECIPE_LLM_VISION_MODEL",
   "RECIPE_JOBS_DIR",
   "RECIPE_QUEUE_DIR",
   "RECIPE_GPU_ACQUIRE_CMD",

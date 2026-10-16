@@ -7,6 +7,7 @@ import {
 import { jobsDirectory } from "recipe-editor/controller/jobs/location";
 import { findJob } from "recipe-editor/controller/jobs/store";
 import { llmConfig } from "recipe-editor/controller/llm/client";
+import { visionConfig } from "recipe-editor/controller/llm/vision";
 import {
   PageMain,
   PageSection,
@@ -14,7 +15,7 @@ import {
 import type { RecipeActionState } from "./common";
 
 /** The form kinds whose result fills this page (37c). */
-const FORM_KINDS = new Set(["form-url", "form-text"]);
+const FORM_KINDS = new Set(["form-url", "form-text", "form-photo"]);
 
 /**
  * One search param as a string: a repeated one (`?import=a&import=b`) is an
@@ -98,6 +99,7 @@ export default async function NewRecipe({
           allTags={allTags}
           terms={vocabulary.map(({ slug, label }) => ({ slug, label }))}
           llmModel={llmConfig()?.model}
+          visionModel={visionConfig()?.model}
         />
       </PageSection>
     </PageMain>

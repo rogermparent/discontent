@@ -196,6 +196,15 @@ export interface ImportTextOptions extends Omit<ImportOptions, "llm"> {
   source?: string;
 }
 
+/**
+ * What a photo import takes besides the photos (38e): a pasted text's
+ * options, and `photoAsImage`.
+ */
+export interface ImportPhotoOptions extends ImportTextOptions {
+  /** Set the first photo as each created recipe's image (default off). */
+  photoAsImage?: boolean;
+}
+
 /** What `inspect` takes besides the URL (36b). */
 export interface InspectOptions {
   /** The local model: `auto` (default), `force` or `off` (epic 36, D3). */
@@ -211,6 +220,15 @@ export interface CuratorBackend {
    * no model configured, or when it finds no recipe in the text.
    */
   importText(text: string, options?: ImportTextOptions): Promise<ImportResult>;
+  /**
+   * Photos of a recipe — a card, a cookbook page — the pages in order (38e):
+   * transcribed by the vision model, then read as pasted text is. `usage`
+   * with no vision model configured (`RECIPE_LLM_VISION_MODEL`).
+   */
+  importPhotos(
+    photos: File[],
+    options?: ImportPhotoOptions,
+  ): Promise<ImportResult>;
   /**
    * A page, read and not written (26b): the mapped import, a create-ready
    * draft, the raw JSON-LD, its SEO metadata, ranked images and — for a video

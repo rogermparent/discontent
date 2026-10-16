@@ -3,6 +3,10 @@ import {
   llmConfig,
   llmStatus,
 } from "recipe-editor/controller/llm/client";
+import {
+  RECOMMENDED_VISION_MODEL,
+  visionConfig,
+} from "recipe-editor/controller/llm/vision";
 
 /**
  * The "Local model" line (epic 36, 36b): read-only, from the environment
@@ -21,6 +25,7 @@ export async function LocalModelStatus() {
     );
   }
   const status = await llmStatus(config);
+  const vision = visionConfig();
   const state = !status.reachable
     ? `unreachable (${status.error ?? "no answer"})`
     : status.modelAvailable === false
@@ -41,6 +46,18 @@ export async function LocalModelStatus() {
       </dd>
       <dt className="text-muted-foreground">Status</dt>
       <dd>{state}</dd>
+      {/* 38e: photo import's model, on the same server. */}
+      <dt className="text-muted-foreground">Vision model</dt>
+      <dd>
+        {vision ? (
+          <code>{vision.model}</code>
+        ) : (
+          <>
+            None — photo import is off. Set <code>RECIPE_LLM_VISION_MODEL</code>{" "}
+            (e.g. <code>{RECOMMENDED_VISION_MODEL}</code>) to read recipe cards.
+          </>
+        )}
+      </dd>
     </dl>
   );
 }

@@ -41,6 +41,8 @@ const RecipeBatchInputSchema = z.strictObject({
   /** The video, or a pasted text's source. */
   url: z.string().trim().min(1).optional(),
   pastedText: z.boolean().optional(),
+  /** Read from photos' transcription (38e). */
+  fromPhotos: z.boolean().optional(),
   /** How many recipes were found: "2 of 4" in each commit. */
   total: z.number().int().min(2).max(BATCH_MAX),
   /** Every recipe found, by name: a link may point at one imported earlier. */
@@ -90,9 +92,11 @@ export async function importRecipeBatchAction(
     if (!email) throw new UnauthenticatedError();
     const ctx = curationContextFor(email, getContentDirectory());
     const input = parseInput(RecipeBatchInputSchema, raw);
-    const commitNote = input.pastedText
-      ? "local model, pasted text, {n} of {total}"
-      : `local model, {n} of {total}${input.url ? ` from ${shortSource(input.url)}` : ""}`;
+    const commitNote = input.fromPhotos
+      ? "local model, photo, {n} of {total}"
+      : input.pastedText
+        ? "local model, pasted text, {n} of {total}"
+        : `local model, {n} of {total}${input.url ? ` from ${shortSource(input.url)}` : ""}`;
     /* A job since 37c (`form-batch`): a step log, `/jobs`, Cancel, Retry. */
     const { recipes, job } = await runSpec(
       {
