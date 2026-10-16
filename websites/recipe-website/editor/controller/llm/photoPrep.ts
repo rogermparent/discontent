@@ -28,6 +28,34 @@ export const PHOTO_MAX_SIDE = 1024;
 export const PHOTO_MAX_PIXELS = 750_000;
 
 /**
+ * The longest side a photo is sent to the Claude API at (38g, Dg7): the
+ * 1024 px cap is the workstation GPU's limit (38-Te5), not Claude's. 1568 px
+ * is Claude's own downscale point for its smaller models (`claude-haiku-4-5`
+ * resizes anything larger; `claude-sonnet-5` reads up to 2576 px, at up to
+ * ~3× the image tokens), so a card's small print keeps its detail without
+ * paying for pixels the cheaper model throws away.
+ */
+export const CLAUDE_PHOTO_MAX_SIDE = 1568;
+
+/** How a photo is fitted before it is sent: the longest side, and the area. */
+export interface PhotoLimits {
+  maxSide: number;
+  maxPixels: number;
+}
+
+/** Ollama on the workstation's 8 GB GPU (38-Te5). */
+export const OLLAMA_PHOTO_LIMITS: PhotoLimits = {
+  maxSide: PHOTO_MAX_SIDE,
+  maxPixels: PHOTO_MAX_PIXELS,
+};
+
+/** The Claude API (38g): the side only — the API takes any shape. */
+export const CLAUDE_PHOTO_LIMITS: PhotoLimits = {
+  maxSide: CLAUDE_PHOTO_MAX_SIDE,
+  maxPixels: CLAUDE_PHOTO_MAX_SIDE * CLAUDE_PHOTO_MAX_SIDE,
+};
+
+/**
  * The longest side of a photo kept as a recipe's image (`photoAsImage`):
  * upright and re-encoded, large enough for the site's own sizes, and not a
  * phone's 10 MB original in the content repository.
@@ -93,13 +121,16 @@ async function fitJpeg(
   );
 }
 
-/** The photo as the vision model is sent it: upright, ≤ 1024 px and 0.75 MP, a JPEG. */
-export function photoForVision(bytes: Buffer): Promise<Buffer> {
-  return fitJpeg(bytes, {
-    maxSide: PHOTO_MAX_SIDE,
-    maxPixels: PHOTO_MAX_PIXELS,
-    quality: 90,
-  });
+/**
+ * The photo as the vision model is sent it: upright, a JPEG, fitted inside
+ * `limits` — ≤ 1024 px and 0.75 MP for Ollama (the default, which the
+ * Playwright stand-in keys by), ≤ 1568 px for the Claude API (38g).
+ */
+export function photoForVision(
+  bytes: Buffer,
+  limits: PhotoLimits = OLLAMA_PHOTO_LIMITS,
+): Promise<Buffer> {
+  return fitJpeg(bytes, { ...limits, quality: 90 });
 }
 
 /** The photo as a recipe keeps it (`photoAsImage`): upright, ≤ 2000 px, a JPEG. */

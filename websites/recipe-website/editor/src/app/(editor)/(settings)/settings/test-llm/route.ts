@@ -1,6 +1,8 @@
 import {
   llmConfig,
+  publicLlmConfig,
   setLlmUrlOverride,
+  type LlmConfig,
 } from "recipe-editor/controller/llm/client";
 import {
   setVisionModelOverride,
@@ -41,7 +43,15 @@ export async function GET(request: Request) {
   setLlmUrlOverride(url ?? undefined);
   setVisionModelOverride(url ? (vision ?? undefined) : undefined);
   return Response.json(
-    { model: llmConfig() ?? null, vision: visionConfig() ?? null },
+    {
+      model: publicConfig(llmConfig()),
+      vision: publicConfig(visionConfig()),
+    },
     { status: 200 },
   );
+}
+
+/** A config as this route answers it: never the API key (38g, Dg6). */
+function publicConfig(config: LlmConfig | undefined) {
+  return config ? publicLlmConfig(config) : null;
 }

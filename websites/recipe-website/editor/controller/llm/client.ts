@@ -1,28 +1,67 @@
 /**
- * The local-model client (epic 36, D1/D2): one schema-constrained chat call
- * to Ollama or an OpenAI-compatible server (llama.cpp, LM Studio, vLLM).
+ * The model client (epic 36, D1/D2): one schema-constrained chat call to
+ * Ollama, an OpenAI-compatible server (llama.cpp, LM Studio, vLLM) or — 38g —
+ * the Claude API (`RECIPE_LLM_API=anthropic`, the Messages API).
  *
  * Plain `fetch` and no SDK — the CLI runs under `tsx` as CommonJS and an
  * ESM-only package would not load (26-T1). Next-free and settings-free on
  * purpose: the configuration is the environment (`RECIPE_LLM_*`, D1), which
  * the editor reads from `editor/.env` and the CLI and stdio MCP load through
- * `EDITOR_ENV_KEYS` (36b). Nothing set means the feature is off — how the Pi,
- * which has no model, stays off without checking which host it is on.
+ * `EDITOR_ENV_KEYS` (36b). Nothing set means the feature is off — how a
+ * machine with no model stays off without checking which host it is on.
+ *
+ * **The Claude API (38g).** On only with `RECIPE_LLM_API=anthropic` **and**
+ * `RECIPE_LLM_API_KEY` (an explicit key: a shell's `ANTHROPIC_API_KEY` is
+ * never read); `RECIPE_LLM_URL` defaults to `https://api.anthropic.com`. A
+ * hosted API takes none of the GPU machinery — no `gpu` slot, no placement
+ * check, no unload or reload (Dg3). JSON answers use the API's structured
+ * outputs (`output_config.format`, Dg2); 429/529/5xx get one retry after
+ * `retry-after` (Dg5). The key never leaves this module but in a request
+ * header: not in a message, a step, a status or a test route (Dg6).
  */
 import { jobContext, type JobRun } from "../jobs/context";
 import type { StepHandle } from "../jobs/log";
 import { withResource } from "../jobs/queue";
 
-export type LlmApi = "ollama" | "openai";
+export type LlmApi = "ollama" | "openai" | "anthropic";
 
 export interface LlmConfig {
   /** Base URL, e.g. `http://localhost:11434`. */
   url: string;
   model: string;
   api: LlmApi;
+  /**
+   * `RECIPE_LLM_API_KEY` (38g): the Claude API's `x-api-key`, and an
+   * OpenAI-style server's `Authorization: Bearer` when set (Dg1). Never
+   * shown: `publicLlmConfig` is the config as it may be shown.
+   */
+  apiKey?: string;
 }
 
 export const DEFAULT_LLM_MODEL = "qwen3:8b";
+
+/** The Claude API's default model (38g); `RECIPE_LLM_MODEL` overrides it. */
+export const DEFAULT_CLAUDE_MODEL = "claude-sonnet-5";
+
+/** The cheaper Claude model the docs name (38g). */
+export const CHEAPER_CLAUDE_MODEL = "claude-haiku-4-5";
+
+/** `RECIPE_LLM_URL`'s default under `RECIPE_LLM_API=anthropic`. */
+export const ANTHROPIC_DEFAULT_URL = "https://api.anthropic.com";
+
+/** The Messages API version every request names. */
+export const ANTHROPIC_VERSION = "2023-06-01";
+
+/**
+ * `max_tokens` of a Claude API call (38g, Dg4): a long recipe's JSON is a
+ * few thousand tokens and a four-page card's transcription less; the rest is
+ * room for the adaptive thinking `claude-sonnet-5` runs by default, which
+ * counts against the same limit. Hitting it is a failure, never half a JSON.
+ */
+export const ANTHROPIC_MAX_TOKENS = 16_000;
+
+/** The key's variable: explicit, so a shell's `ANTHROPIC_API_KEY` is never used by accident. */
+export const LLM_API_KEY_ENV = "RECIPE_LLM_API_KEY";
 
 /** Context window asked of Ollama: fits 8 GB of VRAM with qwen3:8b (D6). */
 export const LLM_NUM_CTX = 12_288;
@@ -55,9 +94,16 @@ export function setLlmUrlOverride(url: string | undefined): void {
   (globalThis as LlmGlobal).__discontentLlmUrlOverride = url || undefined;
 }
 
+function llmApi(env: NodeJS.ProcessEnv): LlmApi {
+  const api = envValue(env, "RECIPE_LLM_API")?.toLowerCase();
+  return api === "openai" || api === "anthropic" ? api : "ollama";
+}
+
 /**
- * The configured model, or `undefined` when `RECIPE_LLM_URL` is unset — the
- * feature is off. `RECIPE_LLM_API` is `ollama` unless it says `openai`.
+ * The configured model, or `undefined` when the feature is off: no
+ * `RECIPE_LLM_URL` — or, for `RECIPE_LLM_API=anthropic` (38g), no
+ * `RECIPE_LLM_API_KEY`, the URL defaulting to `ANTHROPIC_DEFAULT_URL`.
+ * `RECIPE_LLM_API` is `ollama` unless it says `openai` or `anthropic`.
  */
 export function llmConfig(
   env: NodeJS.ProcessEnv = process.env,
@@ -65,14 +111,82 @@ export function llmConfig(
   const override = env.TEST_MODE
     ? (globalThis as LlmGlobal).__discontentLlmUrlOverride
     : undefined;
+  const api = llmApi(env);
+  const apiKey = envValue(env, LLM_API_KEY_ENV);
+  if (api === "anthropic") {
+    if (!apiKey) return undefined;
+    const url =
+      override ?? envValue(env, "RECIPE_LLM_URL") ?? ANTHROPIC_DEFAULT_URL;
+    return {
+      url: url.replace(/\/+$/, ""),
+      model: envValue(env, "RECIPE_LLM_MODEL") ?? DEFAULT_CLAUDE_MODEL,
+      api,
+      apiKey,
+    };
+  }
   const url = override ?? envValue(env, "RECIPE_LLM_URL");
   if (!url) return undefined;
-  const api = envValue(env, "RECIPE_LLM_API")?.toLowerCase();
   return {
     url: url.replace(/\/+$/, ""),
     model: envValue(env, "RECIPE_LLM_MODEL") ?? DEFAULT_LLM_MODEL,
-    api: api === "openai" ? "openai" : "ollama",
+    api,
+    ...(api === "openai" && apiKey ? { apiKey } : {}),
   };
+}
+
+/** The config as it may be shown (a test route, a log): never the key, only that one is set. */
+export function publicLlmConfig(
+  config: LlmConfig,
+): Omit<LlmConfig, "apiKey"> & { apiKey?: "set" } {
+  const { apiKey, ...shown } = config;
+  return { ...shown, ...(apiKey ? { apiKey: "set" as const } : {}) };
+}
+
+/** `RECIPE_LLM_API=anthropic` with no key: off, and the Settings line says so. */
+export const CLAUDE_NO_KEY_MESSAGE = `the Claude API is off: RECIPE_LLM_API=anthropic needs ${LLM_API_KEY_ENV}`;
+
+/** A call's failure with nothing configured: why, for this environment. */
+export function llmUnconfiguredMessage(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return llmApi(env) === "anthropic" && !envValue(env, LLM_API_KEY_ENV)
+    ? CLAUDE_NO_KEY_MESSAGE
+    : LLM_UNCONFIGURED_MESSAGE;
+}
+
+/**
+ * Who answered, for a message (38g): "the local model at <url>", or "the
+ * Claude API (claude-sonnet-5)" — "at <url>" added only when it is not the
+ * default. The URL is always `displayUrl`'s.
+ */
+export function modelLabel(config: LlmConfig): string {
+  if (config.api === "anthropic") {
+    const url = config.url.replace(/\/+$/, "");
+    return `the Claude API (${config.model})${url === ANTHROPIC_DEFAULT_URL ? "" : ` at ${displayUrl(url)}`}`;
+  }
+  return `the local model at ${displayUrl(config.url)}`;
+}
+
+/** A request's headers: the key as its API takes it, when there is one. */
+function requestHeaders(
+  config: LlmConfig,
+  { json = true }: { json?: boolean } = {},
+): Record<string, string> {
+  const headers: Record<string, string> = json
+    ? { "content-type": "application/json" }
+    : {};
+  if (config.api === "anthropic") {
+    if (config.apiKey) headers["x-api-key"] = config.apiKey;
+    headers["anthropic-version"] = ANTHROPIC_VERSION;
+  } else if (config.api === "openai" && config.apiKey) {
+    headers.authorization = `Bearer ${config.apiKey}`;
+  }
+  return headers;
+}
+
+/** A server's words with the key taken out, should it ever echo it (Dg6). */
+function withoutKey(text: string, config: LlmConfig): string {
+  return config.apiKey ? text.split(config.apiKey).join("[redacted]") : text;
 }
 
 /**
@@ -105,12 +219,16 @@ export interface LlmStatus {
   modelAvailable?: boolean;
   /** Why it is not reachable. */
   error?: string;
+  /** The server refused the API key (38g): a 401 or 403. */
+  keyRefused?: boolean;
 }
 
 /**
  * Is the model server up, and does it have the model? One `GET` of its model
  * list — Ollama's `/api/tags`, OpenAI's `/v1/models` — with a short timeout:
- * the Settings page's "Local model" line (36b). Never throws.
+ * the Settings page's "Local model" line (36b). The Claude API (38g) is asked
+ * for the one model, `/v1/models/{model}`, with the key: 200 is the model
+ * there, 404 a model it does not know, 401/403 a refused key. Never throws.
  */
 export async function llmStatus(
   config: LlmConfig,
@@ -118,15 +236,33 @@ export async function llmStatus(
 ): Promise<LlmStatus> {
   const url = config.url.replace(/\/+$/, "");
   const listUrl =
-    config.api === "ollama"
-      ? `${url}/api/tags`
-      : /\/v1$/.test(url)
-        ? `${url}/models`
-        : `${url}/v1/models`;
+    config.api === "anthropic"
+      ? `${url}/v1/models/${encodeURIComponent(config.model)}`
+      : config.api === "ollama"
+        ? `${url}/api/tags`
+        : /\/v1$/.test(url)
+          ? `${url}/models`
+          : `${url}/v1/models`;
   try {
     const response = await fetch(listUrl, {
+      headers: requestHeaders(config, { json: false }),
       signal: AbortSignal.timeout(timeoutMs),
     });
+    if (response.status === 401 || response.status === 403) {
+      return {
+        reachable: false,
+        keyRefused: true,
+        error: `the API key was refused (${response.status})`,
+      };
+    }
+    if (config.api === "anthropic") {
+      if (response.status === 404) {
+        return { reachable: true, modelAvailable: false };
+      }
+      return response.ok
+        ? { reachable: true, modelAvailable: true }
+        : { reachable: false, error: `answered ${response.status}` };
+    }
     if (!response.ok) {
       return { reachable: false, error: `answered ${response.status}` };
     }
@@ -151,7 +287,7 @@ export async function llmStatus(
       error:
         isTimeout(error) || (error as Error)?.name === "AbortError"
           ? `no answer within ${Math.round(timeoutMs / 1000)} s`
-          : ((error as Error)?.message ?? String(error)),
+          : withoutKey((error as Error)?.message ?? String(error), config),
     };
   }
 }
@@ -192,14 +328,14 @@ export const LLM_UNCONFIGURED_MESSAGE =
 /** A picture sent with the user's message (38e): its bytes and media type. */
 export interface ChatImage {
   bytes: Buffer;
-  /** `image/jpeg` or `image/png`: what the `data:` URL says (OpenAI shape). */
+  /** `image/jpeg` or `image/png`: the `data:` URL's type (OpenAI), the `media_type` (Claude). */
   type: string;
 }
 
 export interface ChatJsonRequest {
   system: string;
   user: string;
-  /** The JSON Schema the answer must match (Ollama `format`, OpenAI `response_format`). */
+  /** The JSON Schema the answer must match (Ollama `format`, OpenAI `response_format`, Claude `output_config.format`). */
   schema: Record<string, unknown>;
   /** The schema's name, for the OpenAI shape. */
   schemaName?: string;
@@ -342,7 +478,11 @@ function requestBody(request: ChatRequest, config: LlmConfig) {
  * may lead with a `<think>…</think>` block, and some servers wrap the object
  * in a code fence: both are stripped first.
  */
-export function parseJsonAnswer(content: string): unknown {
+export function parseJsonAnswer(
+  content: string,
+  /** Who answered, for the message (`modelLabel`'s noun). */
+  who = "the local model",
+): unknown {
   const text = content
     .replace(/^\s*<think>[\s\S]*?<\/think>/, "")
     .trim()
@@ -352,7 +492,7 @@ export function parseJsonAnswer(content: string): unknown {
   } catch {
     throw new LlmError(
       "bad_json",
-      `the local model's answer is not JSON: ${text.slice(0, 120)}`,
+      `${who}'s answer is not JSON: ${text.slice(0, 120)}`,
     );
   }
 }
@@ -429,7 +569,14 @@ export async function chatJson(
   request: ChatJsonRequest,
 ): Promise<ChatJsonResult> {
   const { content, ...result } = await chat(request);
-  return { ...result, data: parseJsonAnswer(content) };
+  const config = request.config ?? llmConfig();
+  return {
+    ...result,
+    data: parseJsonAnswer(
+      content,
+      config?.api === "anthropic" ? modelLabel(config) : undefined,
+    ),
+  };
 }
 
 /** What `chatText` answers: `chatJson`'s numbers, and the answer as text. */
@@ -460,9 +607,12 @@ async function chat(
   request: ChatRequest,
 ): Promise<Omit<ChatJsonResult, "data"> & { content: string }> {
   const config = request.config ?? llmConfig();
-  if (!config) throw new LlmError("unconfigured", LLM_UNCONFIGURED_MESSAGE);
+  if (!config) throw new LlmError("unconfigured", llmUnconfiguredMessage());
   const job = jobContext(request.job);
   const signal = request.signal ?? job.signal;
+  /* 38g (Dg3): a hosted API holds no `gpu` slot, and has no placement to
+   * read nor a model to unload or reload. */
+  if (config.api === "anthropic") return callClaude(request, config, signal);
   return withResource(
     "gpu",
     { ...job, ...(signal ? { signal } : {}) },
@@ -582,7 +732,7 @@ async function callModel(
   try {
     response = await fetch(endpoint(config), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: requestHeaders(config),
       body: JSON.stringify(requestBody(request, config)),
       signal,
     });
@@ -592,7 +742,7 @@ async function callModel(
       const detail = said ?? raw;
       const failed = new LlmError(
         "http",
-        `the local model at ${displayUrl(config.url)} answered ${response.status}${detail ? `: ${capped(detail)}` : ""}`,
+        `${modelLabel(config)} answered ${response.status}${detail ? `: ${capped(withoutKey(detail, config))}` : ""}`,
         response.status,
       );
       /* Ollama answers 500 `{"error": …}` when the model's runner died
@@ -606,7 +756,7 @@ async function callModel(
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new LlmError(
         "bad_json",
-        `the local model at ${displayUrl(config.url)} sent a response that is not a JSON object`,
+        `${modelLabel(config)} sent a response that is not a JSON object`,
       );
     }
     body = parsed as Record<string, unknown>;
@@ -621,7 +771,7 @@ async function callModel(
         : undefined;
       const timedOut = new LlmError(
         "timeout",
-        `the local model at ${displayUrl(config.url)} did not answer within ${Math.round(timeoutMs / 1000)} s`,
+        `${modelLabel(config)} did not answer within ${Math.round(timeoutMs / 1000)} s`,
       );
       if (gpu !== undefined) timedOut.gpu = gpu;
       throw timedOut;
@@ -629,12 +779,12 @@ async function callModel(
     if (error instanceof SyntaxError) {
       throw new LlmError(
         "bad_json",
-        `the local model at ${displayUrl(config.url)} sent a response that is not JSON`,
+        `${modelLabel(config)} sent a response that is not JSON`,
       );
     }
     throw new LlmError(
       "unreachable",
-      `the local model at ${displayUrl(config.url)} is unreachable: ${(error as Error)?.message ?? error}`,
+      `${modelLabel(config)} is unreachable: ${withoutKey(String((error as Error)?.message ?? error), config)}`,
     );
   }
 
@@ -664,6 +814,277 @@ async function callModel(
     },
     ...(gpu !== undefined ? { gpu } : {}),
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* The Claude API (38g)                                                */
+/* ------------------------------------------------------------------ */
+
+/** Keywords structured outputs do not take (Dg2); none of ours uses them. */
+const CLAUDE_UNSUPPORTED_SCHEMA_KEYS = [
+  "minimum",
+  "maximum",
+  "exclusiveMinimum",
+  "exclusiveMaximum",
+  "multipleOf",
+  "minLength",
+  "maxLength",
+  "maxItems",
+];
+
+/**
+ * A schema as structured outputs take it (Dg2): every object closed
+ * (`additionalProperties: false`, which the API requires), the numeric and
+ * length constraints it does not take dropped — the answer is checked by
+ * its reader anyway (`chatJson`'s data is "still unchecked"). The root
+ * must be an object: all three of ours are (`LLM_RECIPE_SCHEMA`,
+ * `LLM_LIST_SCHEMA`, `LLM_ONE_DISH_SCHEMA`), so a schema that is not is a
+ * programming error, not a reason to wrap.
+ */
+export function claudeSchema(
+  schema: Record<string, unknown>,
+): Record<string, unknown> {
+  if (schema.type !== "object") {
+    throw new Error(
+      "the Claude API's structured outputs need a schema whose root is an object",
+    );
+  }
+  const close = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(close);
+    if (!node || typeof node !== "object") return node;
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(node)) {
+      if (CLAUDE_UNSUPPORTED_SCHEMA_KEYS.includes(key)) continue;
+      if (key === "minItems" && typeof value === "number" && value > 1) {
+        continue;
+      }
+      out[key] =
+        key === "properties" || key === "$defs" || key === "definitions"
+          ? Object.fromEntries(
+              Object.entries(value as Record<string, unknown>).map(
+                ([name, entry]) => [name, close(entry)],
+              ),
+            )
+          : key === "items" || key === "anyOf" || key === "allOf"
+            ? close(value)
+            : value;
+    }
+    if (out.type === "object") out.additionalProperties = false;
+    return out;
+  };
+  return close(schema) as Record<string, unknown>;
+}
+
+/**
+ * A Messages API request: a top-level `system`, the pictures as base64
+ * `image` blocks before the text, `max_tokens`, and — for `chatJson` —
+ * structured outputs (`output_config.format`, Dg2). No `temperature`
+ * (`claude-sonnet-5` refuses sampling parameters with a 400, Tg1) and no
+ * `thinking` (each model's own default).
+ */
+export function claudeRequestBody(request: ChatRequest, config: LlmConfig) {
+  const images = request.images ?? [];
+  return {
+    model: config.model,
+    max_tokens: ANTHROPIC_MAX_TOKENS,
+    system: request.system,
+    messages: [
+      {
+        role: "user",
+        content: [
+          ...images.map((image) => ({
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: image.type,
+              data: image.bytes.toString("base64"),
+            },
+          })),
+          { type: "text", text: request.user },
+        ],
+      },
+    ],
+    ...(request.schema
+      ? {
+          output_config: {
+            format: {
+              type: "json_schema",
+              schema: claudeSchema(request.schema),
+            },
+          },
+        }
+      : {}),
+  };
+}
+
+/** The longest `retry-after` the one retry waits (Dg5). */
+export const CLAUDE_RETRY_MAX_MS = 30_000;
+
+/** The wait when a retryable answer names none. */
+export const CLAUDE_RETRY_DEFAULT_MS = 5_000;
+
+/** 429 (rate limit), 529 (overloaded) and any other 5xx: worth one retry. */
+function retryable(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+/** `retry-after` (seconds, or an HTTP date) as milliseconds, capped. */
+export function retryDelayMs(header: string | null, now = Date.now()): number {
+  if (!header?.trim()) return CLAUDE_RETRY_DEFAULT_MS;
+  const seconds = Number(header);
+  const ms = Number.isFinite(seconds)
+    ? seconds * 1000
+    : Date.parse(header) - now;
+  if (!Number.isFinite(ms)) return CLAUDE_RETRY_DEFAULT_MS;
+  return Math.min(CLAUDE_RETRY_MAX_MS, Math.max(0, Math.round(ms)));
+}
+
+/** Wait `ms`, or reject with the signal's reason when it aborts first. */
+function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", stop);
+      resolve();
+    }, ms);
+    const stop = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    signal?.addEventListener("abort", stop, { once: true });
+  });
+}
+
+/**
+ * One Claude API call (38g): `POST {url}/v1/messages`, no `gpu` slot (Dg3).
+ * A 429/529/5xx is asked once more after its `retry-after` (≤ 30 s, else
+ * 5 s), an `llm.retry` note in the step (Dg5). A 401/403 is the key refused
+ * — never the key; `stop_reason: "max_tokens"` is an answer cut off and
+ * `"refusal"` one declined, both `model` failures; an `{type: "error"}`
+ * body is surfaced by its message, capped. The text is the concatenated
+ * `text` blocks; `usage` goes to the step as the other styles' counts do.
+ */
+async function callClaude(
+  request: ChatRequest,
+  config: LlmConfig,
+  callerSignal: AbortSignal | undefined,
+): Promise<Omit<ChatJsonResult, "data"> & { content: string }> {
+  const who = modelLabel(config);
+  const url = `${config.url.replace(/\/+$/, "")}/v1/messages`;
+  const payload = JSON.stringify(claudeRequestBody(request, config));
+  const timeoutMs = request.timeoutMs ?? LLM_TIMEOUT_MS;
+  const started = Date.now();
+  let body: Record<string, unknown> | undefined;
+  for (let attempt = 1; !body; attempt++) {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const signal = callerSignal
+      ? AbortSignal.any([callerSignal, timeout])
+      : timeout;
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: requestHeaders(config),
+        body: payload,
+        signal,
+      });
+      if (!response.ok) {
+        const raw = await response.text().catch(() => "");
+        const said = serverError(raw);
+        if (attempt === 1 && retryable(response.status)) {
+          const waitMs = retryDelayMs(response.headers.get("retry-after"));
+          request.step?.log.info(
+            "llm.retry",
+            `${who} answered ${response.status} — asking once more in ${Math.round(waitMs / 1000)} s`,
+            { status: response.status, waitMs },
+          );
+          await pause(waitMs, callerSignal);
+          continue;
+        }
+        if (response.status === 401 || response.status === 403) {
+          throw new LlmError(
+            "http",
+            `${who} refused the API key (${LLM_API_KEY_ENV}): ${response.status}${said ? ` — ${capped(withoutKey(said, config))}` : ""}`,
+            response.status,
+          );
+        }
+        const detail = said ?? raw;
+        throw new LlmError(
+          "http",
+          `${who} answered ${response.status}${detail ? `: ${capped(withoutKey(detail, config))}` : ""}`,
+          response.status,
+        );
+      }
+      const parsed: unknown = await response.json();
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new LlmError(
+          "bad_json",
+          `${who} sent a response that is not a JSON object`,
+        );
+      }
+      body = parsed as Record<string, unknown>;
+    } catch (error) {
+      if (error instanceof LlmError) throw error;
+      if (callerSignal?.aborted) throw error;
+      if (isTimeout(error) || timeout.aborted) {
+        throw new LlmError(
+          "timeout",
+          `${who} did not answer within ${Math.round(timeoutMs / 1000)} s`,
+        );
+      }
+      if (error instanceof SyntaxError) {
+        throw new LlmError(
+          "bad_json",
+          `${who} sent a response that is not JSON`,
+        );
+      }
+      throw new LlmError(
+        "unreachable",
+        `${who} is unreachable: ${withoutKey(String((error as Error)?.message ?? error), config)}`,
+      );
+    }
+  }
+
+  if (body.type === "error") {
+    const said = errorText(body.error) ?? JSON.stringify(body.error ?? body);
+    throw new LlmError(
+      "model",
+      `${who} failed: ${capped(withoutKey(said, config))}`,
+    );
+  }
+  const usage = body.usage as
+    | { input_tokens?: unknown; output_tokens?: unknown }
+    | undefined;
+  const stats = {
+    promptTokens: count(usage?.input_tokens),
+    outputTokens: count(usage?.output_tokens),
+  };
+  const durationMs = Date.now() - started;
+  request.step?.set(callStats({ ...stats, durationMs, model: config.model }));
+  const stop = body.stop_reason;
+  if (stop === "max_tokens") {
+    throw new LlmError(
+      "model",
+      `${who}'s answer was cut off: it reached max_tokens (${ANTHROPIC_MAX_TOKENS}) before it finished`,
+    );
+  }
+  if (stop === "refusal") {
+    throw new LlmError("model", `${who} declined to answer (a refusal)`);
+  }
+  const blocks = Array.isArray(body.content)
+    ? (body.content as { type?: unknown; text?: unknown }[])
+    : [];
+  const content = blocks
+    .filter((block) => block?.type === "text" && typeof block.text === "string")
+    .map((block) => block.text as string)
+    .join("");
+  if (!content.trim()) {
+    throw new LlmError(
+      "bad_json",
+      `${who}'s response carries no text${typeof stop === "string" ? ` (stop_reason: ${stop})` : ""}`,
+    );
+  }
+  return { ...stats, content, model: config.model, durationMs };
 }
 
 /** A server's text in a message: capped, as 37-D2 caps an excerpt. */

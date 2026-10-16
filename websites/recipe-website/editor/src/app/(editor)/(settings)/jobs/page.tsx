@@ -1,4 +1,7 @@
+import { Suspense } from "react";
 import { auth, signIn } from "@/auth";
+import { llmConfig } from "recipe-editor/controller/llm/client";
+import { LocalModelStatus } from "../settings/tools/LocalModelStatus";
 import {
   PageMain,
   PageSection,
@@ -39,6 +42,25 @@ export default async function JobsPage() {
           started it: this editor, the CLI or an agent.
         </p>
         <JobsDashboard initialList={list} initialQueue={queue} limit={RECENT} />
+        {/*
+         * 38g (Dg8): the model that reads imports, on every role — Settings
+         * → Tools, its other home, is the workstation's only, and the Pi
+         * may now read with the Claude API. Only when one is configured.
+         */}
+        {llmConfig() ? (
+          <section className="mt-8" aria-labelledby="jobs-model-heading">
+            <h2 id="jobs-model-heading" className="mb-2 text-sm font-semibold">
+              The model imports read with
+            </h2>
+            <Suspense
+              fallback={
+                <p className="text-sm text-muted-foreground">Checking…</p>
+              }
+            >
+              <LocalModelStatus />
+            </Suspense>
+          </section>
+        ) : null}
       </PageSection>
     </PageMain>
   );

@@ -24,7 +24,9 @@
  *   the stdio MCP server find the model the workstation's editor uses. They
  *   change what an import reads, never which corpus it writes to; so does
  *   `RECIPE_LLM_VISION_MODEL` (38e), the model a photo import transcribes
- *   with;
+ *   with, and `RECIPE_LLM_API_KEY` (38g), the Claude API's key (or an
+ *   OpenAI-style server's bearer) — a secret like `RECIPE_API_TOKEN`, which
+ *   the job log's redaction already scrubs by its name (37-D2);
  * - `RECIPE_JOBS_DIR` — where import jobs keep their records (epic 37, D1),
  *   so a CLI import and the editor share one job store when the editor's is
  *   set somewhere other than the default;
@@ -89,6 +91,7 @@ export const EDITOR_ENV_KEYS = [
   "RECIPE_LLM_URL",
   "RECIPE_LLM_MODEL",
   "RECIPE_LLM_API",
+  "RECIPE_LLM_API_KEY",
   "RECIPE_LLM_VISION_MODEL",
   "RECIPE_JOBS_DIR",
   "RECIPE_QUEUE_DIR",

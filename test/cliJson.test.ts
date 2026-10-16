@@ -123,6 +123,7 @@ function run(args: string[], env: NodeJS.ProcessEnv = {}, input?: string) {
         RECIPE_LLM_URL: undefined,
         RECIPE_LLM_MODEL: undefined,
         RECIPE_LLM_API: undefined,
+        RECIPE_LLM_API_KEY: undefined,
         RECIPE_LLM_VISION_MODEL: undefined,
         ...env,
       },

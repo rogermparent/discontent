@@ -85,6 +85,7 @@ The content repo is never pushed from a session.
 | 38e      | L    | `agent/38e-photo`       | ✅     | #249          | D5: photo / recipe-card import (vision transcribe → text import) on every surface.      |
 | 38f      | S    | (content repo)          | ✅     | — (no writes) | D6: duplicate merges, `lunch` → `sandwich`, drink fixes; Roger's calls listed.          |
 | 38-close | S    | `agent/38-close`        | ✅     | #250          | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                       |
+| 38g      | M    | `agent/38g-claude-api`  | 🟡     |               | Post-close: the Claude API as a third model style, for the Pi's imports (Dg1–Dg10).     |
 
 Ordering, in waves: 38a ∥ 38b (disjoint: common/reader vs editor/jobs), then
 38c ∥ 38d, then 38e (the GPU and a model pull), 38f whenever the workstation
@@ -1390,6 +1391,222 @@ review list isn't recoverable from `agent-epic-33.md` — the list named at
 Method step 5, ~l.127, and Results, ~l.156, doesn't store the review
 artifact's URL; re-run a review if this is wanted).
 
+### 38g — Claude API backend (post-close)
+
+Roger, 2026-10-16, after deploying epic 38 to the Pi: _"Can we have the pi
+set up to use Anthropic Claude API for the import feature since it probably
+can't run a good model locally?"_ Branch `agent/38g-claude-api`.
+
+**Reindex needed: no.** Nothing in the content repository changes.
+
+**What kept the Pi off before.** Only the environment: `llmConfig()` was
+`undefined` without `RECIPE_LLM_URL` (36-D1). No role check sits on the
+model path — not in `controller/llm/`, the import seats, `/api/import`, the
+MCP tools, nor the form (`new-recipe/page.tsx` passes `llmConfig()?.model`
+on every role). The one role-gated piece was the **Settings → Tools** nav
+item (workstation-only since 38b), the home of the "Local model" status
+line; the page itself answers by URL on a mirror too. So setting the
+variables on the Pi is enough to turn imports on there; Dg8 puts the status
+line where a mirror can find it.
+
+#### Decisions
+
+- **Dg1 — A third style, `RECIPE_LLM_API=anthropic`, on only with a key.**
+  `RECIPE_LLM_API_KEY` is new and explicit — a shell's `ANTHROPIC_API_KEY`
+  is never read. `RECIPE_LLM_URL` is optional for this style (default
+  `https://api.anthropic.com`); the other styles are unchanged and still
+  gated on it. The default model is `claude-sonnet-5`
+  (`DEFAULT_CLAUDE_MODEL`); `claude-haiku-4-5` is the cheaper one the docs
+  and `--help` name. `anthropic` without a key is off, and the Settings line
+  and `force`'s `import_failed` say "the Claude API is off:
+  RECIPE_LLM_API=anthropic needs RECIPE_LLM_API_KEY". The bonus is taken:
+  with `RECIPE_LLM_API=openai` a set key goes as `Authorization: Bearer`
+  (`llmStatus` too); Ollama never gets it.
+- **Dg2 — JSON answers by structured outputs, not a forced tool call.**
+  Checked 2026-10-16 against
+  `platform.claude.com/docs/en/build-with-claude/structured-outputs`:
+  `output_config: {format: {type: "json_schema", schema}}` is GA, with no
+  beta header, on every current model; the answer is the text block's JSON.
+  A forced `tool_choice` returns a 400 on `claude-opus-5-5` and
+  `claude-fable-5-1`, so a forced-tool client would break the day
+  `RECIPE_LLM_MODEL` names one; structured outputs do not. They need every
+  object closed (`additionalProperties: false`) and take no
+  `minimum`/`maxLength`-style constraints: `claudeSchema` closes and drops
+  them (ours use none). The root must be an object — all three schemas
+  passed to `chatJson` (`LLM_RECIPE_SCHEMA`, `LLM_LIST_SCHEMA`,
+  `LLM_ONE_DISH_SCHEMA`) are, a test pins it, and a non-object root throws
+  rather than being wrapped (none exists to wrap). `chatText` sends no
+  format and reads the concatenated `text` blocks.
+- **Dg3 — No GPU machinery for a hosted API.** `chat()` sends an
+  `anthropic` call straight to `callClaude`: no `gpu` acquire (so no
+  `queue.wait`, no acquire hook), no placement check, no unload or D6
+  reload. The photo path still logs `vision.transcribe` then `llm.extract`;
+  the `vision` note drops "and was unloaded". `openai` is unchanged
+  (38-Te7) beyond the bearer.
+- **Dg4 — The request.** `POST {url}/v1/messages`; headers `x-api-key`,
+  `anthropic-version: 2023-06-01`, `content-type`; a top-level `system`;
+  pictures as `{type: "image", source: {type: "base64", media_type,
+data}}` blocks before the text block; **`max_tokens` 16 000**
+  (`ANTHROPIC_MAX_TOKENS`): a long recipe's JSON is a few thousand tokens
+  and a four-page transcription less, and `claude-sonnet-5`'s default
+  adaptive thinking counts against the same limit. No `temperature` (Tg1)
+  and no `thinking` parameter (each model's default). `stop_reason:
+"max_tokens"` is a `model` failure "…'s answer was cut off: it reached
+  max_tokens (16000) before it finished" — never a parse error on half a
+  JSON; `"refusal"` is "declined to answer". `usage.input_tokens` /
+  `output_tokens` go to the step as the other styles' counts do.
+- **Dg5 — One retry, for 429, 529 and other 5xx.** After `retry-after`
+  (seconds or an HTTP date), capped at 30 s, else 5 s; an `llm.retry` note
+  in the step ("…answered 429 — asking once more in 5 s"); the wait ends on
+  a cancel. A second failure is the call's. A timeout, an unreachable host
+  or a 4xx is not retried. A 401/403 is "…refused the API key
+  (RECIPE_LLM_API_KEY): 401 — <the API's words>"; an `{type: "error",
+error: {message}}` body is surfaced by its message, capped at 200
+  characters as before.
+- **Dg6 — The key never leaks.** It is only ever a request header. Server
+  text in a message passes `withoutKey` (should a proxy echo it); the
+  TEST_MODE `/settings/test-llm` route answers `publicLlmConfig` (`apiKey:
+"set"`); the Settings line shows "API key: set". 37-D2's redaction
+  already covers it twice over: `SECRET_ENV_NAME` matches
+  `RECIPE_LLM_API_KEY` (`…API_KEY$`), so its value is scrubbed from every
+  log line, mirror line (`--verbose`) and job meta error, and a field named
+  `apiKey` is `[redacted]` by `SECRET_NAME`. A test runs a failed call in a
+  job against a server that echoes the key and finds it in no error, step
+  line or file of the job store.
+- **Dg7 — Photos under Claude.** The vision model defaults to the text
+  model (Claude reads images), so photo mode is on with the key alone;
+  `RECIPE_LLM_VISION_MODEL` still overrides. The 1024 px / 0.75 MP cap is
+  the workstation GPU's (38-Te5): under `anthropic` a photo is fitted to
+  **1568 px** on its long edge (`CLAUDE_PHOTO_LIMITS`; Claude's own
+  downscale point for `claude-haiku-4-5` — `claude-sonnet-5` would read up
+  to 2576 px at up to ~3× the image tokens). Ollama keeps 1024. The 15 MB
+  file cap stays. `transcribeKey(limits)` folds the limits in, so a
+  transcript kept for one size is not reused for the other; the Ollama key
+  is unchanged, so transcripts kept before 38g still count.
+- **Dg8 — The status line on `/jobs`, every role, when a model is
+  configured.** Tools stays workstation-only (its yt-dlp path form is the
+  workstation's; the mirror image sets `YTDLP_PATH`). `/jobs` — a Settings
+  item on every role since 38b — gains "The model imports read with" and
+  the same `LocalModelStatus` (in a `Suspense`, as it probes the API), only
+  when `llmConfig()` is set, so the workstation suite (no model) and its
+  baselines are unchanged. For Claude it says "The Claude API at
+  https://api.anthropic.com (anthropic)", the model, "API key: set", and
+  `reachable` / "the API knows no model …" / "the API key was refused (401)
+  — check RECIPE_LLM_API_KEY", from `GET {url}/v1/models/{model}` with the
+  key (200 / 404 / 401).
+- **Dg9 — Wording: the client's messages and the Settings line, not the
+  provenance strings.** `modelLabel(config)` says "the Claude API
+  (claude-sonnet-5)" (with "at <displayUrl>" only off the default URL)
+  where 36/38e said "the local model at …". The reading's warnings
+  ("extracted by local model claude-sonnet-5 — …"), form notices and commit
+  notes ("(local model)") still say "local model" whatever answered: they
+  are pinned by many tests and are provenance in git history; a wording
+  pass is a backlog row.
+- **Dg10 — The Pi gets its settings from the deploy config.**
+  `scripts/deploy-pi.sh` copies `RECIPE_LLM_API`, `RECIPE_LLM_API_KEY`,
+  `RECIPE_LLM_MODEL`, `RECIPE_LLM_URL` and `RECIPE_LLM_VISION_MODEL` from
+  `~/.config/recipe-deploy/uraninite.env` into the Pi's
+  `~/recipe-editor/.env` **every time it starts the container**
+  (`switch_to`: deploy, `--sync-index`, `--rollback`), before anything
+  stops — only the ones the config sets: their lines replaced, every other
+  line left (umask 077, `grep -v … > .env.new`, `chmod 600`, as
+  `WORKSTATION_URL` in `--setup`). The lines travel on ssh's stdin; the
+  terminal shows ".env: model settings (RECIPE_LLM_API=anthropic, key set,
+  RECIPE_LLM_MODEL=…)" — never the key, and a URL without `user:pw@`. The
+  five names are `unset` before the config is sourced, so the
+  workstation's own shell can never send its `RECIPE_LLM_URL` to the Pi.
+  Before `--setup` has made `.env`, nothing is written (a `.env` holding
+  only these lines would make `--setup` skip `AUTH_SECRET`).
+
+#### Results
+
+**Built.**
+
+- `controller/llm/client.ts`: `LlmApi` gains `anthropic`, `LlmConfig`
+  gains `apiKey`; `llmConfig` (Dg1), `publicLlmConfig`,
+  `llmUnconfiguredMessage`, `modelLabel` (Dg9), `requestHeaders`;
+  `llmStatus` asks `/v1/models/{model}` and reports `keyRefused`;
+  `callClaude` with `claudeRequestBody`, `claudeSchema` (Dg2), one retry
+  (`retryDelayMs`, Dg5) and the failures of Dg4. `parseJsonAnswer` takes
+  who answered.
+- `controller/llm/photoPrep.ts`: `PhotoLimits`, `OLLAMA_PHOTO_LIMITS`
+  (1024 / 0.75 MP, the default — the Playwright stand-in's key),
+  `CLAUDE_PHOTO_LIMITS` (1568); `photoForVision(bytes, limits)`.
+  `vision.ts`: the vision model's default (Dg7), `photoLimits(config)`,
+  `preparePhoto(photo, limits)`, `transcribeKey(limits)`, no "unloaded"
+  under Claude. `importPhoto.ts` keys the kept transcript by the limits.
+- Surfaces: `EDITOR_ENV_KEYS` takes `RECIPE_LLM_API_KEY`; `recipes --help`
+  lists it and the `anthropic` style, model and vision defaults;
+  Settings → Tools' card and `/jobs` (Dg8); the test route answers no key;
+  `playwright.config.ts` pins `RECIPE_LLM_API` and `RECIPE_LLM_API_KEY`
+  empty (Tg3).
+- `scripts/deploy-pi.sh` (Dg10) and `deploy-pi.md` ("The model on the Pi
+  (38g)").
+
+**Not done, on purpose.** Prompt caching (each import is one call with a
+different text after a short system prompt: little to save), streaming (a
+recipe's answer is far below `max_tokens`; a call past the 180 s
+`LLM_TIMEOUT_MS` times out as any model's does), the server-side refusal
+fallback (a beta header for a risk a recipe does not carry), and a
+per-call `effort` (Haiku 4.5 rejects the parameter). The 36-D4 grounding guard is unchanged and applies as it does
+to qwen3.
+
+**Rough cost** (list prices, an estimate, not measured): a recipe page is
+≤ ~7 k input tokens (36-D6's 24 k-character cap) and ~1–3 k output, so a
+Sonnet 5 import is a few cents and a Haiku 4.5 one about half that; a photo
+page adds ~2 k image tokens at 1568 px.
+
+**Gates.**
+
+- `pnpm --filter recipe-editor typecheck` ✓;
+  `pnpm --filter recipe-website exec tsc --noEmit` ✓.
+- `pnpm exec vitest run`: **105 files, 2186 tests, all pass** (new
+  `test/claudeApi.test.ts`, 25 tests: config and the URL default, the key
+  never picked up from `ANTHROPIC_API_KEY`, the vision default, the request
+  shape — headers, `system`, image blocks before the text, structured
+  outputs with closed objects, no `temperature` — text and `usage`,
+  `max_tokens`, refusal, 401, an error body capped, the 429 retry logged
+  and a second 529 failing, no retry on 400, `retry-after` parsing, the key
+  absent from a failed job's error, steps and files, `llmStatus`
+  200/404/401 and the openai bearer, the 1568 px / 1024 px caps, a Claude
+  transcription with no unload; `editorEnv.test.ts` takes the key).
+- `scripts/deploy-pi.sh`: `bash -n` ✓; the `.env` rewrite dry-tested on a
+  scratch "Pi" directory (`push_llm_env` with `pi` run locally): nothing
+  before `.env` exists; API, key and model written beside `AUTH_SECRET` and
+  `WORKSTATION_URL`, mode 600; a second run replaces the key, no
+  duplicate; nothing set → `.env` byte-identical; a URL with `user:pw@`
+  printed without it; a two-line value refused; the key never on the
+  terminal.
+- Playwright (build mode, `heavy-pw.sh`): `jobs.spec`, `settings-nav.spec`,
+  `mirror-role.spec` — **26 passed** (2.2 min), including the new "/jobs
+  names the model imports read with, on a mirror too, and nothing when
+  there is none (38g)".
+- **No real API call** was made, here or in CI; no key exists on this
+  machine. The real check is Roger's, after deploying (Close-out, step 6).
+
+#### Traps
+
+- **Tg1 — `claude-sonnet-5` refuses sampling parameters.** `temperature`
+  (and `top_p`/`top_k`) is a 400 on Sonnet 5 and the Opus 4.7+/Fable
+  family; Ollama's and OpenAI's `temperature: 0` must not be copied into
+  the Claude request.
+- **Tg2 — A Pi `.env` line the config does not set is left alone.** The
+  deploy replaces only the variables the config sets (Dg10), so a stale
+  `RECIPE_LLM_URL` (say, an Ollama address) on the Pi would become the
+  Claude API's URL under `anthropic`. The Pi has no LLM lines today; if one
+  appears, set `RECIPE_LLM_URL=https://api.anthropic.com` in the config or
+  delete the line on the Pi.
+- **Tg3 — `anthropic` needs no URL, so `RECIPE_LLM_URL: ""` no longer
+  pins the suite off.** An `editor/.env` with `RECIPE_LLM_API=anthropic`
+  and a key would have turned the model on in every Playwright run (36-T18)
+  and sent the stand-in model a Messages API request. `playwright.config`
+  now pins `RECIPE_LLM_API` and `RECIPE_LLM_API_KEY` empty as well.
+- **Tg4 — Sonnet 5 thinks by default.** Omitting `thinking` runs adaptive
+  thinking: `thinking` blocks come before the `text` block (read only the
+  text), and their tokens count against `max_tokens` and are billed.
+  `claude-haiku-4-5` does not think unless asked — the cheaper choice for a
+  plain transcription or extraction.
+
 ## Close-out
 
 **What shipped, phase by phase.**
@@ -1485,6 +1702,36 @@ slug)` line expands into its sub-recipe's ingredients when the link
    citation (re-point to `/white-wine-spritzer/`, drop, or re-source);
    the 51 uncertain facet calls from epic 33 (its review list isn't
    recoverable from the doc — re-run a review if wanted).
+6. **(38g) The Claude API on the Pi** — the real check, which no session
+   could make (no key on this machine, never in CI):
+   1. Add to `~/.config/recipe-deploy/uraninite.env` (mode 600):
+      ```
+      RECIPE_LLM_API=anthropic
+      RECIPE_LLM_API_KEY=sk-ant-…
+      # optional: RECIPE_LLM_MODEL=claude-haiku-4-5   (cheaper; default claude-sonnet-5)
+      ```
+   2. `pnpm deploy:pi` from a clean main with 38g merged. The switch step
+      prints `.env: model settings (RECIPE_LLM_API=anthropic, key set)` —
+      never the key.
+   3. On the Pi editor, `/jobs` (Settings → Jobs) shows "The model imports
+      read with": "The Claude API at https://api.anthropic.com
+      (anthropic)", `claude-sonnet-5`, "API key: set", Status `reachable`.
+      "the API key was refused" means a wrong key; "the API knows no
+      model" a wrong `RECIPE_LLM_MODEL`.
+   4. A URL import with `--llm force`, from the workstation against the
+      Pi: `RECIPE_API_TOKEN=<the Pi's token> pnpm --silent recipes
+--remote http://uraninite:3000 import <a recipe URL> --llm force
+--dry-run --json` (or the Pi's `/new-recipe` with "Re-read with AI even
+      if the page has recipe data" ticked, which now names
+      `claude-sonnet-5`). Its job on the Pi's `/jobs` shows `llm.extract`
+      with `promptTokens` / `outputTokens`, and no `queue.wait` for the GPU,
+      no `llm.placement`, no `llm.unload`.
+   5. A photo import on the Pi's `/new-recipe` ("Or read a photo of a recipe
+      card" now shows there), or `… recipes --remote http://uraninite:3000
+import --photo card.jpg --dry-run --json`: `vision.transcribe` then
+      `llm.extract`, the `vision` note without "and was unloaded".
+   6. Nothing to do on the workstation, which keeps its Ollama settings in
+      `editor/.env`. No reindex.
 
 **Backlog** (also added to `backlog.md`): the form's single-URL import
 panel has the no-store gap the picker had (Tb5); site keys by host minus
@@ -1493,4 +1740,5 @@ flag to bypass the 30-minute reading cache (38c); a recipe line that
 names a sub-recipe without linking it isn't expanded (38d); held ticks
 have no age limit (38d); a re-pulled vision model reuses kept transcripts
 (Te6); `RECIPE_LLM_API=openai` against Ollama's `/v1` skips unload and
-placement (Te7).
+placement (Te7); (38g) "local model" in warnings and commit notes under the
+Claude API (Dg9).

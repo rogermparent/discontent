@@ -29,7 +29,7 @@ export default async function ToolsPage() {
           </SettingsCard>
           <SettingsCard
             title="Local model"
-            description="A local model reads recipe pages that carry no recipe data (epic 36). Configured in the editor's environment, not here."
+            description="A local model — or the Claude API — reads recipe pages that carry no recipe data, pasted text and photos (epics 36, 38). Configured in the editor's environment, not here."
           >
             <LocalModelStatus />
           </SettingsCard>

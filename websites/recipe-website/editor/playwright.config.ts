@@ -90,6 +90,10 @@ export default defineConfig({
      */
     env: {
       RECIPE_LLM_URL: "",
+      /* 38g: nor the Claude API — `anthropic` turns on with a key alone,
+       * and would send a stand-in Claude's request shape. */
+      RECIPE_LLM_API: "",
+      RECIPE_LLM_API_KEY: "",
       /* 38e: nor a vision model — `photo-import.spec` turns one on through
        * `/settings/test-llm?vision=`, read by its loopback stand-in. */
       RECIPE_LLM_VISION_MODEL: "",

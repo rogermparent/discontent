@@ -58,6 +58,11 @@ Roger wants recipe imports that use a local model (2026-10-14).
   (default `qwen3:8b`) and `RECIPE_LLM_API` (`ollama` by default, or `openai`
   for llama.cpp / LM Studio / vLLM `/v1/chat/completions` with
   `response_format: json_schema`).
+- _Amended by 38g (`agent-epic-38.md` Dg1):_ a third style,
+  `RECIPE_LLM_API=anthropic` — the Claude API, on only with the new
+  `RECIPE_LLM_API_KEY`; `RECIPE_LLM_URL` is optional for it (default
+  `https://api.anthropic.com`) and `RECIPE_LLM_MODEL` defaults to
+  `claude-sonnet-5`. This is how the Pi reads imports with a model.
 - Next loads `editor/.env` for the workstation service. The CLI and the stdio
   MCP load it once the keys are added to `EDITOR_ENV_KEYS`
   (`editor/cli/editorEnv.ts:23`, 35-D11).

@@ -54,7 +54,8 @@ repo copies are the ones to edit. On the Pi:
 ```
 ~/recipe-editor/
   run.sh  swap-index.sh
-  .env            AUTH_SECRET, WORKSTATION_URL, WORKSTATION_SYNC_TOKEN (600)
+  .env            AUTH_SECRET, WORKSTATION_URL, WORKSTATION_SYNC_TOKEN, and (38g)
+                  any RECIPE_LLM_* the deploy config sets (600)
   settings/       SETTINGS_DIRECTORY, seeded from the old checkout, minus ytdlpPath
   jobs/           the import jobs and the queue's state, mounted at /jobs (38b)
   deployed.log    "<date> <tag>" per switch — what --rollback reads
@@ -232,6 +233,41 @@ the new container's readers judge it: the old container's pid namespace is
 not the new one's, so the job ends `interrupted` once its heartbeat is ten
 minutes old (37-T27), and a slot it held is freed after 60 s (37b, D4).
 `/jobs` is in the mirror's Settings nav since 38b.
+
+## The model on the Pi (38g)
+
+The Pi cannot run a useful model itself, so its imports — a page with no
+recipe data, `--llm force`, pasted text, photos — can read with the **Claude
+API** instead (`agent-epic-38.md` 38g, Dg1–Dg10). To turn it on, put the
+settings in the deploy config, `~/.config/recipe-deploy/uraninite.env`
+(mode 600), and deploy:
+
+```
+RECIPE_LLM_API=anthropic
+RECIPE_LLM_API_KEY=sk-ant-…          # never printed by the deploy
+# RECIPE_LLM_MODEL=claude-haiku-4-5  # optional: cheaper; default claude-sonnet-5
+# RECIPE_LLM_URL=…                   # optional: default https://api.anthropic.com
+# RECIPE_LLM_VISION_MODEL=…          # optional: default the model (photos)
+```
+
+then `pnpm deploy:pi`. Every time the deploy starts the container (a deploy,
+`--sync-index`, `--rollback`) it writes those of the five that the config
+sets into `~/recipe-editor/.env` — their lines replaced, every other line
+left — on ssh's stdin, umask 077 and `chmod 600`, and says
+`.env: model settings (RECIPE_LLM_API=anthropic, key set, …)`. The names are
+read from the config file only (the script unsets them before sourcing it),
+so the workstation's own environment never reaches the Pi.
+
+- **To turn it off:** remove the lines from the Pi's `.env` by hand
+  (`ssh uraninite 'sed -i "/^RECIPE_LLM_/d" ~/recipe-editor/.env'`) and from
+  the config, then redeploy (or `docker restart recipe-editor`). Removing them
+  from the config alone leaves the Pi's lines as they are.
+- **A stale line stays** (38-Tg2): a `RECIPE_LLM_URL` on the Pi that the
+  config does not set is kept, and under `anthropic` it is the API's URL.
+- **Before `--setup`** nothing is written: `.env` must exist first.
+- Check it on the Pi's `/jobs` — "The model imports read with" names the
+  Claude API, the model, "API key: set" and whether the key and model were
+  accepted. Settings → Tools stays workstation-only.
 
 ## Rollback
 

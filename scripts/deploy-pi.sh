@@ -20,6 +20,13 @@
 #   PI_TOKEN=…                         write-scoped API token on the Pi
 #   CONTENT_REPO=…/recipe-content      this machine's clone of the content
 #   CONTENT_REMOTE=uraninite           that clone's name for the Pi
+# and, optionally (38g), the model the Pi's imports read with — written into
+# the Pi's ~/recipe-editor/.env on every deploy, only the ones set here:
+#   RECIPE_LLM_API=anthropic           the Claude API
+#   RECIPE_LLM_API_KEY=sk-ant-…        its key (never printed)
+#   RECIPE_LLM_MODEL=claude-sonnet-5   (default; claude-haiku-4-5 is cheaper)
+#   RECIPE_LLM_URL=…                   (default https://api.anthropic.com)
+#   RECIPE_LLM_VISION_MODEL=…          (default: the model)
 set -euo pipefail
 
 usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; }
@@ -45,6 +52,11 @@ repo_root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$repo_root"
 
 config=${DEPLOY_CONFIG:-$HOME/.config/recipe-deploy/uraninite.env}
+# 38g: the model settings come from the config file alone — never from this
+# shell, where a workstation's own RECIPE_LLM_URL would point the Pi at it.
+LLM_ENV_KEYS="RECIPE_LLM_API RECIPE_LLM_API_KEY RECIPE_LLM_MODEL RECIPE_LLM_URL RECIPE_LLM_VISION_MODEL"
+# shellcheck disable=SC2086
+unset $LLM_ENV_KEYS
 if [ -r "$config" ]; then
   # shellcheck disable=SC1090
   . "$config"
@@ -147,6 +159,54 @@ ship_image() {
 push_pi_files() {
   pi "mkdir -p $PI_DIR && chmod 700 $PI_DIR"
   scp -q deploy/pi/run.sh deploy/pi/swap-index.sh "$PI_HOST:recipe-editor/"
+}
+
+# What push_llm_env wrote, for the terminal: the values, but never the key —
+# only that it is set — and a URL without any user:password@.
+llm_env_summary() {
+  local key out=""
+  for key in $LLM_ENV_KEYS; do
+    [ -n "${!key:-}" ] || continue
+    if [ "$key" = RECIPE_LLM_API_KEY ]; then
+      out+="${out:+, }key set"
+    else
+      out+="${out:+, }$key=$(printf '%s' "${!key}" | sed -E 's#://[^@/]*@#://#')"
+    fi
+  done
+  printf '%s' "$out"
+}
+
+# 38g: the model settings the deploy config sets — and only those — replace
+# their lines in the Pi's .env, every time the container is (re)started; the
+# Pi's other lines (AUTH_SECRET, WORKSTATION_*), and any LLM line the config
+# does not set, are left as they are. The lines go on ssh's stdin, never on a
+# command line, as WORKSTATION_SYNC_TOKEN does in --setup. Before --setup has
+# made .env this writes nothing: a .env holding only these lines would make
+# --setup skip AUTH_SECRET.
+push_llm_env() {
+  local key lines="" names=""
+  for key in $LLM_ENV_KEYS; do
+    [ -n "${!key:-}" ] || continue
+    case "${!key}" in
+      *$'\n'* | *$'\r'*) die "$key in $config spans more than one line" ;;
+    esac
+    lines+="$key=${!key}"$'\n'
+    names+="${names:+|}$key"
+  done
+  [ -n "$names" ] || return 0
+  local said
+  said=$(printf '%s' "$lines" \
+    | pi "cd $PI_DIR && umask 077 \
+        && if [ ! -s .env ]; then echo skipped; exit 0; fi \
+        && { grep -v -E '^($names)=' .env || true; } > .env.new \
+        && cat >> .env.new && mv .env.new .env && chmod 600 .env \
+        && echo written") \
+    || die "could not write the model settings into the Pi's .env"
+  if [ "$said" = written ]; then
+    note ".env: model settings ($(llm_env_summary))"
+  else
+    note ".env: not there yet — run pnpm deploy:pi --setup, then deploy again for the model settings"
+  fi
 }
 
 running_tag() {
@@ -258,6 +318,8 @@ switch_to() {
   local to=$1 archive=${2:-} commit=${3:-}
   SWAPPED=0
   step "Switch the Pi to recipe-editor:$to"
+  # Before anything stops: the container reads .env when it starts (38g).
+  push_llm_env
   retire_old_unit
   if [ -n "$archive" ]; then
     scp -q "$archive" "$PI_HOST:recipe-editor/indexes.tar.zst"
