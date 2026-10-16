@@ -4,9 +4,10 @@
  *
  * - **One queue per site.** A request to a site waits for the one before it
  *   to finish, then for 15 s after it ended, then runs. The queue is per
- *   process and per `paceKey` — the host, less `www.` (38b review, Db6:
- *   `cdn.example.com` has its own; `example.co.uk` and `i0.wp.com` are not
- *   lumped with every other `.co.uk` or `wp.com` host) — so two calls at once — two `page_inspect_list`s, a
+ *   process and per `paceKey` — the registrable domain (39e De1, after
+ *   38-Db6: `cdn.example.com` is `example.com`; `example.co.uk` and
+ *   `i0.wp.com` are not lumped with every other `.co.uk` or `wp.com`
+ *   host) — so two calls at once — two `page_inspect_list`s, a
  *   client that retried `/api/import-list` after its own timeout, a
  *   `recipe_import` right after a list call — are spaced against each other,
  *   not just within themselves. A 403 retry holds the queue: it waits the gap

@@ -810,6 +810,42 @@ describe("a site's line and its drop (38b)", () => {
     );
   });
 
+  it("drops a registrable domain, not a public suffix or a shared host (39e De1)", async () => {
+    const first = pacerOf();
+    const second = pacerOf();
+    await first.request("https://a.example.co.uk/r/", refusedTwice);
+
+    /* Another host of the same site is the same line and the same drop… */
+    expect(second.site("https://b.example.co.uk/s/")).toBe("example.co.uk");
+    const asked = vi.fn(async () => "page");
+    await expect(
+      second.request("https://b.example.co.uk/s/", asked),
+    ).rejects.toThrow(SiteDroppedError);
+    expect(asked).not.toHaveBeenCalled();
+    await expect(
+      readFile(
+        join(resourceDirectory("site:example.co.uk", queue), "dropped.json"),
+        "utf8",
+      ),
+    ).resolves.toMatch(/403/);
+
+    /* …but another site under `co.uk` is not. */
+    expect(
+      await second.request("https://other.co.uk/r/", async () => "ok"),
+    ).toBe("ok");
+
+    /* A shared host's tenants stay apart: one Jetpack host refusing twice
+     * leaves the next one (and the list's private-section tenants) alone. */
+    await first.request("https://i0.wp.com/x.org/a/", refusedTwice);
+    expect(
+      await second.request("https://i1.wp.com/y.org/b/", async () => "ok"),
+    ).toBe("ok");
+    await first.request("https://d1.cloudfront.net/a/", refusedTwice);
+    expect(
+      await second.request("https://d2.cloudfront.net/b/", async () => "ok"),
+    ).toBe("ok");
+  });
+
   it("never drops a site for an image refused twice (38b review)", async () => {
     const pacer = pacerOf();
     /* A hotlink guard on the page's own host: the picture is refused… */
