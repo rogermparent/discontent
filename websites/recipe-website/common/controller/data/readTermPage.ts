@@ -67,7 +67,7 @@ export async function readTagBoard(): Promise<TagBoard> {
     tagTermReads.tree.read(),
   ]);
   if (!tree || Object.keys(tree).length === 0) {
-    return { roots: [], loose: [], recorded: [] };
+    return { roots: [], loose: [], recorded: [], aliased: [] };
   }
   const counts = new Map(
     vocabularyOfRows({

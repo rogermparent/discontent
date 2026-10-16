@@ -148,7 +148,7 @@ test.describe("Drinks", () => {
       "You can mix 2 drinks right now",
     );
     const ready = page.getByTestId("drinks-ready");
-    await expect(ready.getByRole("link")).toHaveText(["Daiquiri · 2 recipes"]);
+    await expect(ready.getByRole("link")).toHaveText(["Daiquiri · 2 drinks"]);
     await ready.getByRole("link").click();
     await expect(page).toHaveURL(/\/tags\/daiquiri$/);
     await expect(page.getByRole("main")).toContainText("Classic Daiquiri");

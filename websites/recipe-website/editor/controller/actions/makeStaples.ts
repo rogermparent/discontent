@@ -1,20 +1,24 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
-import { readSettings, writeSettings } from "@/settings";
+import { updateSettings } from "@/settings";
+import {
+  MAX_STAPLE_LENGTH,
+  MAX_STAPLES,
+} from "recipe-website-common/components/MakePage/stapleLimits";
 
 export type SaveMakeStaplesResult = { ok: true } | { error: string };
-
-/** More than any kitchen assumes; a longer list is a mistake, not a pantry. */
-const MAX_STAPLES = 200;
-const MAX_LENGTH = 200;
 
 /**
  * The signed-in `/make`'s "Assume I always have" list (38a), kept in the
  * editor's settings so a new browser starts from it (`useSavedStaples`).
  * `null` clears it — the browser went back to the default list. Per
  * instance, like the rest of `settings.json`; no commit, nothing for the
- * export.
+ * export. The read-modify-write holds the settings lock (`updateSettings`),
+ * so a concurrent writer's keys survive; an unchanged list writes nothing.
+ * `/make` is revalidated so a later visit isn't seeded from a stale payload
+ * (a Reset undone by the old list).
  */
 export async function saveMakeStaples(
   items: string[] | null,
@@ -27,22 +31,31 @@ export async function saveMakeStaples(
       items.length > MAX_STAPLES ||
       items.some(
         (item) =>
-          typeof item !== "string" || !item.trim() || item.length > MAX_LENGTH,
+          typeof item !== "string" ||
+          !item.trim() ||
+          item.length > MAX_STAPLE_LENGTH,
       ))
   ) {
     return { error: "Invalid staples list" };
   }
+  const makeStaples =
+    items === null ? undefined : items.map((item) => item.trim());
   try {
-    const settings = await readSettings();
-    await writeSettings({
-      ...settings,
-      makeStaples:
-        items === null ? undefined : items.map((item) => item.trim()),
-    });
+    await updateSettings((settings) =>
+      sameList(settings.makeStaples, makeStaples)
+        ? undefined
+        : { ...settings, makeStaples },
+    );
+    revalidatePath("/make");
     return { ok: true };
   } catch {
     return { error: "Failed to save staples" };
   }
+}
+
+function sameList(a: string[] | undefined, b: string[] | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return a.length === b.length && a.every((item, index) => item === b[index]);
 }
 
 export default saveMakeStaples;

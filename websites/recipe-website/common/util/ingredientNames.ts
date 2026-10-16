@@ -448,6 +448,19 @@ export function stripMarkup(text: string): string {
     .replace(/&amp;/g, "&");
 }
 
+/**
+ * A stored line as the line readers (`parseIngredientLine`, `parseAmount`)
+ * see it: markup undone, `normalizeIngredientText`, then the combining marks
+ * NFKD split off dropped (38a). Left in, "añejo" is `an` + a mark + `ejo`,
+ * and JS `\b` sees a word end after `an` — the leading-article cut read
+ * "2 oz añejo tequila" as `ejo tequila`, and the amount reader read
+ * "añejo tequila, to rinse" as one of something. Names are folded later
+ * anyway; an amount has no accents to lose.
+ */
+export function readableLine(line: string): string {
+  return normalizeIngredientText(stripMarkup(line)).replace(/\p{M}+/gu, "");
+}
+
 /** Split `text` at depth-0 parentheses: the outside, and each group's inside. */
 function splitParentheses(text: string): { outside: string; groups: string[] } {
   let outside = "";
@@ -696,16 +709,8 @@ export function parseIngredientLine(
   meta: LineMeta = {},
 ): Requirement[] {
   const index = meta.index ?? 0;
-  let text = normalizeIngredientText(stripMarkup(line))
-    /*
-     * The marks NFKD split off (38a): left in, "añejo" is `an` + a mark +
-     * `ejo`, and the leading-article cut below took the `an` — "2 oz añejo
-     * tequila" read as `ejo tequila`. The name is folded later anyway.
-     */
-    .replace(/\p{M}+/gu, "")
-    .replace(/\*+/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  /* Marks stripped (`readableLine`): the article cut below needs it. */
+  let text = readableLine(line).replace(/\*+/g, "").replace(/\s+/g, " ").trim();
   if (!text || meta.heading || detectHeading(text)) return [];
 
   // 2. Optional.
@@ -824,7 +829,7 @@ export function parseIngredientList(
   const out: Requirement[] = [];
   let optionalSection = false;
   lines.forEach((line, index) => {
-    const clean = normalizeIngredientText(stripMarkup(line)).trim();
+    const clean = readableLine(line).trim();
     if (!clean) return;
     if (headingSet.has(index) || detectHeading(clean)) {
       optionalSection = OPTIONAL_HEADING.test(clean);

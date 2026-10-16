@@ -454,6 +454,14 @@ test.describe("Tag pages", () => {
       expect((await cookies.innerText()).replace(/\s+/g, " ").trim()).toBe(
         "Cookies 9 also: biscuits",
       );
+      /* The alias is Cookies', not a bare tag of its own (38a review). */
+      const chips = page.getByTestId("tag-index");
+      await expect(chips.getByRole("link", { name: /christmas/ })).toHaveCount(
+        1,
+      );
+      await expect(chips.getByRole("link", { name: /biscuits/i })).toHaveCount(
+        0,
+      );
     });
 
     test("a record with no carriers is a real page, not a 404", async ({

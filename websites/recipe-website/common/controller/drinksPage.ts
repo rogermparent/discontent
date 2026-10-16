@@ -91,14 +91,15 @@ export interface DrinksPageData {
   /** The newest drinks. */
   latest: DrinkCard[];
   /**
-   * Each drink's drink-name family (38a): recipe slug → the family term, for
-   * the make panel's ready list, which groups several sources of one drink
-   * (Daiquiri ×2) behind one entry. A family is a child of `drink` that is no
-   * style (`DRINK_STYLE_SLUGS`), with its subtree and aliases. A drink in two
-   * families is put in the one with more drinks (then by label), so the
-   * answer is the same on every render; a drink in none is absent.
+   * Each drink's drink-name families (38a): recipe slug → the family terms
+   * it carries, most drinks first (then by label), for the make panel's
+   * ready list, which groups several sources of one drink (Daiquiri ×2)
+   * behind one entry. A family is a child of `drink` that is no style
+   * (`DRINK_STYLE_SLUGS`), with its subtree and aliases. Which family a drink
+   * in two of them is listed under depends on what is ready, so the list
+   * picks (`groupReady`); a drink in none is absent.
    */
-  familyOf: Record<string, Pick<DrinkTerm, "slug" | "label">>;
+  familyOf: Record<string, Array<Pick<DrinkTerm, "slug" | "label">>>;
 }
 
 /** One entry of the make panel's ready list (38a). */
@@ -116,15 +117,36 @@ export type ReadyEntry<T extends { recipe: { slug: string } }> =
  * The ready drinks as the panel lists them (38a): two or more of one family
  * become one entry, at the place of the first of them; a family of one, and
  * a drink with no family, stays its own entry. The judge's order is kept.
+ *
+ * A drink in two families goes to the one with more *ready* drinks, then
+ * the one with more drinks, then by label (`familyOf`'s order) — so a
+ * Hemingway Daiquiri joins two ready Daiquiris rather than standing alone
+ * as a Hemingway of one.
  */
 export function groupReady<T extends { recipe: { slug: string } }>(
   matches: T[],
   familyOf: DrinksPageData["familyOf"],
 ): ReadyEntry<T>[] {
+  const readyIn = new Map<string, number>();
+  for (const match of matches) {
+    for (const family of familyOf[match.recipe.slug] ?? []) {
+      readyIn.set(family.slug, (readyIn.get(family.slug) ?? 0) + 1);
+    }
+  }
+  const chosen = new Map<T, Pick<DrinkTerm, "slug" | "label">>();
   const byFamily = new Map<string, T[]>();
   for (const match of matches) {
-    const family = familyOf[match.recipe.slug];
+    let family: Pick<DrinkTerm, "slug" | "label"> | undefined;
+    for (const candidate of familyOf[match.recipe.slug] ?? []) {
+      if (
+        !family ||
+        (readyIn.get(candidate.slug) ?? 0) > (readyIn.get(family.slug) ?? 0)
+      ) {
+        family = candidate;
+      }
+    }
     if (!family) continue;
+    chosen.set(match, family);
     const list = byFamily.get(family.slug);
     if (list) list.push(match);
     else byFamily.set(family.slug, [match]);
@@ -132,7 +154,7 @@ export function groupReady<T extends { recipe: { slug: string } }>(
   const entries: ReadyEntry<T>[] = [];
   const placed = new Set<string>();
   for (const match of matches) {
-    const family = familyOf[match.recipe.slug];
+    const family = chosen.get(match);
     const members = family && byFamily.get(family.slug);
     if (!family || !members || members.length < 2) {
       entries.push({ kind: "recipe", match });
@@ -242,11 +264,14 @@ export function drinksPageData({
     })
     .filter((holiday) => holiday.count > 0);
 
-  /* Biggest family first (`families`' own order), so the first claim wins. */
+  /* Each drink's families in `families`' own order: most drinks, then label. */
   const familyOf: DrinksPageData["familyOf"] = {};
   for (const family of families) {
     for (const recipe of drinksUnder(family.slug)) {
-      familyOf[recipe.slug] ??= { slug: family.slug, label: family.label };
+      (familyOf[recipe.slug] ??= []).push({
+        slug: family.slug,
+        label: family.label,
+      });
     }
   }
 

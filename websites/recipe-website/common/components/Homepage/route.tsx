@@ -122,15 +122,24 @@ export async function homepageRoute() {
    * after the board rather than beside it, so a site with a hierarchy never
    * expires on the term clouds.
    */
-  const tags =
-    allFacets.length === 0
-      ? (await readTagVocabulary())
-          .filter((entry) => entry.count > 0)
-          .map((entry) => entry.label)
-      : [];
   /* A term's rows include its aliases' (38a, D2), for Coming up's counts. */
   const recipeRows = aliasedRows(termTree, byRecipeTag);
   const groupRows = aliasedRows(termTree, byGroupTag);
+  /* An alias slug is its term's, not a chip of its own (38a review); a term
+   * carried only through an alias still gets its chip. */
+  const aliased = new Set(board.aliased);
+  const tags =
+    allFacets.length === 0
+      ? (await readTagVocabulary())
+          .filter(
+            (entry) =>
+              !aliased.has(entry.slug) &&
+              (entry.count > 0 ||
+                recipeRows(entry.slug).length + groupRows(entry.slug).length >
+                  0),
+          )
+          .map((entry) => entry.label)
+      : [];
   const comingUp = comingUpEntries(tagTree, recipeRows, groupRows);
   /*
    * Browse skips the holidays root while Coming up shows it: the same terms

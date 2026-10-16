@@ -23,7 +23,7 @@ const readyClassName =
 
 /**
  * The ready drinks as buttons (U3), several sources of one drink behind one
- * entry (38a): "Daiquiri · 2 recipes" opens the family's term page.
+ * entry (38a): "Daiquiri · 2 drinks" opens the family's term page.
  */
 function ReadyLinks({
   matches,
@@ -49,7 +49,7 @@ function ReadyLinks({
             <Link href={`/tags/${entry.slug}`} className={readyClassName}>
               {entry.label}&nbsp;·&nbsp;
               <span className="font-mono">{entry.matches.length}</span>
-              &nbsp;recipes
+              &nbsp;drinks
             </Link>
           </li>
         ) : (
@@ -170,7 +170,7 @@ function SecondaryGroup({
  * `secondary` comes from `secondaryInventory()`: the operator's saved list
  * in a signed-in editor; elsewhere the house snapshot when the export option
  * is on, and nothing by default. `familyOf` is the page data's drink →
- * family map, which groups the ready list (38a).
+ * families map, which groups the ready list (38a).
  */
 export function DrinksMakePanel({
   secondary,

@@ -417,7 +417,12 @@ function TagBlock({
   );
 }
 
-const EMPTY_BOARD: TagBoard = { roots: [], loose: [], recorded: [] };
+const EMPTY_BOARD: TagBoard = {
+  roots: [],
+  loose: [],
+  recorded: [],
+  aliased: [],
+};
 
 /**
  * `/tags` (U4): a board of count bars — one block per facet root, then the
@@ -437,8 +442,10 @@ export function TagIndexPage({
   actions?: ReactNode;
 }) {
   const hasBoard = board.roots.length > 0 || board.loose.length > 0;
-  const recorded = new Set(board.recorded);
-  const bare = tags.filter((tag) => !recorded.has(tag.slug));
+  /* A record's slug, or an alias of one (its carriers count under the
+   * term — 38a review), is no bare tag. */
+  const notBare = new Set([...board.recorded, ...board.aliased]);
+  const bare = tags.filter((tag) => !notBare.has(tag.slug));
   return (
     <PageMain>
       <PageSection grow maxWidth="none" className="max-w-7xl mx-auto">

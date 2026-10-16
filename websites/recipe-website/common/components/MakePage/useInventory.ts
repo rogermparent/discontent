@@ -249,6 +249,8 @@ export interface MakeSettings {
   setPantryStaples: (value: boolean) => void;
   setStaples: (items: string[]) => void;
   resetStaples: () => void;
+  /** 38a: why the signed-in editor couldn't save the list, when it couldn't. */
+  staplesNotice?: string;
 }
 
 interface StoredSettings {

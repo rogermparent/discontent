@@ -222,12 +222,32 @@ export function termKeys(
   tree: TermTree | null | undefined,
   slug: string,
 ): string[] {
-  const keys = new Set([slug]);
-  for (const alias of tree?.[slug]?.aliases ?? []) {
+  return [
+    ...new Set([
+      slug,
+      ...ownAliases(tree, slug).map((alias) => tagSlug(alias)),
+    ]),
+  ];
+}
+
+/**
+ * The aliases of `slug`'s record that are its own, as stored: the ones
+ * `termKeys` counts — an alias whose slug is a record's own slug (another
+ * term's, or this one's) is that record's spelling, not this term's other
+ * name, so `/tags` doesn't print it under this term either (38a review).
+ * Each slug once, first spelling kept.
+ */
+export function ownAliases(
+  tree: TermTree | null | undefined,
+  slug: string,
+): string[] {
+  const seen = new Set<string>();
+  return (tree?.[slug]?.aliases ?? []).filter((alias) => {
     const key = tagSlug(alias);
-    if (key && !tree?.[key]) keys.add(key);
-  }
-  return [...keys];
+    if (!key || tree?.[key] || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /**
@@ -502,7 +522,7 @@ export function termHierarchy(
     };
     children.forEach(collect);
     const image = tree[slug]?.image;
-    const aliases = tree[slug]?.aliases;
+    const aliases = ownAliases(tree, slug);
     return {
       ...entry,
       total: reached.size,
@@ -533,6 +553,11 @@ export interface TagBoard {
   loose: TermHierarchyNode[];
   /** Every slug with a record: the rest of the vocabulary is bare tags. */
   recorded: string[];
+  /**
+   * Every alias slug that is not a record (`aliasSlugs`): its carriers count
+   * under the term it names, so it is no bare tag either (38a review).
+   */
+  aliased: string[];
 }
 
 /**
@@ -546,7 +571,7 @@ export function termBoard(
   counts: Map<string, TagVocabularyEntry>,
   carriers: (slug: string) => string[],
 ): TagBoard {
-  if (!tree) return { roots: [], loose: [], recorded: [] };
+  if (!tree) return { roots: [], loose: [], recorded: [], aliased: [] };
   const roots = termHierarchy(tree, counts, carriers);
   const placed = new Set<string>();
   const mark = (node: TermHierarchyNode) => {
@@ -562,7 +587,7 @@ export function termBoard(
         label: tree[slug]?.label ?? slug,
         count: 0,
       };
-      const aliases = tree[slug]?.aliases;
+      const aliases = ownAliases(tree, slug);
       return {
         ...entry,
         total: new Set(carriers(slug)).size,
@@ -571,7 +596,13 @@ export function termBoard(
       };
     })
     .sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
-  return { roots, loose, recorded: Object.keys(tree) };
+  const recorded = Object.keys(tree);
+  return {
+    roots,
+    loose,
+    recorded,
+    aliased: aliasSlugs(tree, new Set(recorded)),
+  };
 }
 
 /**

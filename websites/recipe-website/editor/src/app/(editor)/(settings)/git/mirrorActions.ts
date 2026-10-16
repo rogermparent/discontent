@@ -7,7 +7,7 @@
  * returning it, so the cards show exactly what the runner and pinger record.
  */
 import { auth } from "@/auth";
-import { readSettings, writeSettings } from "@/settings";
+import { updateSettings } from "@/settings";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { revalidatePath } from "next/cache";
 import simpleGit from "simple-git";
@@ -55,10 +55,11 @@ export async function addMirrorAction(formData: FormData): Promise<void> {
     .getRemotes()
     .then((list) => list.map((entry) => entry.name));
   if (!remotes.includes(remote)) return;
-  const settings = await readSettings();
-  const mirrors = new Set(settings.mirrors ?? []);
-  mirrors.add(remote);
-  await writeSettings({ ...settings, mirrors: [...mirrors] });
+  await updateSettings((settings) => {
+    const mirrors = new Set(settings.mirrors ?? []);
+    mirrors.add(remote);
+    return { ...settings, mirrors: [...mirrors] };
+  });
   getInstance()?.runner?.request("manual");
   revalidatePath("/git");
 }
@@ -66,11 +67,10 @@ export async function addMirrorAction(formData: FormData): Promise<void> {
 export async function removeMirrorAction(formData: FormData): Promise<void> {
   if (!(await signedIn()) || isMirror()) return;
   const remote = String(formData.get("remote") ?? "");
-  const settings = await readSettings();
-  await writeSettings({
+  await updateSettings((settings) => ({
     ...settings,
     mirrors: (settings.mirrors ?? []).filter((name) => name !== remote),
-  });
+  }));
   revalidatePath("/git");
 }
 

@@ -3,6 +3,7 @@ import {
   nameLabel,
   parseIngredientLine,
   parseIngredientList,
+  readableLine,
   requirementLabel,
   singular,
   toName,
@@ -236,6 +237,18 @@ describe("parseIngredientLine — quantities, units and alternatives", () => {
       "Japanese breadcrumbs",
     ]);
     expect(only("2 garlic cloves (minced)").aliases).toEqual([]);
+  });
+});
+
+describe("readableLine (38a review)", () => {
+  it("drops NFKD's marks, undoes markup and keeps the fractions", () => {
+    expect(readableLine("2 oz añejo tequila")).toBe("2 oz anejo tequila");
+    expect(readableLine("crème fraîche, jalapeño")).toBe(
+      "creme fraiche, jalapeno",
+    );
+    expect(
+      readableLine('<Multiplyable baseNumber="1½" /> oz [syrup](/x)'),
+    ).toBe("1 1/2 oz syrup");
   });
 });
 

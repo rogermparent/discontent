@@ -147,7 +147,7 @@ describe("drink families (38a)", () => {
     recipe("daiquiri", 5, ["drink", "daiquiri", "sour"]),
     /* Only the family's alias: still a Daiquiri, and still a drink. */
     recipe("daiquiri-no-2", 4, ["daiquiris"]),
-    /* Two families: the bigger one (Daiquiri, three drinks) claims it. */
+    /* Two families: the list picks between them by what is ready. */
     recipe("hemingway-daiquiri", 3, ["drink", "daiquiri", "hemingway"]),
     recipe("margarita", 2, ["drink", "margarita", "sour"]),
     recipe("gimlet", 1, ["drink", "sour"]),
@@ -168,11 +168,16 @@ describe("drink families (38a)", () => {
 
   it("maps each drink to its family, styles aside, aliases included", () => {
     expect(page.count).toBe(5);
+    const daiquiri = { slug: "daiquiri", label: "Daiquiri" };
     expect(page.familyOf).toEqual({
-      daiquiri: { slug: "daiquiri", label: "Daiquiri" },
-      "daiquiri-no-2": { slug: "daiquiri", label: "Daiquiri" },
-      "hemingway-daiquiri": { slug: "daiquiri", label: "Daiquiri" },
-      margarita: { slug: "margarita", label: "Margarita" },
+      daiquiri: [daiquiri],
+      "daiquiri-no-2": [daiquiri],
+      /* Most drinks first: Daiquiri (three), then Hemingway (one). */
+      "hemingway-daiquiri": [
+        daiquiri,
+        { slug: "hemingway", label: "Hemingway" },
+      ],
+      margarita: [{ slug: "margarita", label: "Margarita" }],
     });
   });
 
@@ -198,5 +203,32 @@ describe("drink families (38a)", () => {
     expect(groupReady([match("margarita")], page.familyOf)).toEqual([
       { kind: "recipe", match: match("margarita") },
     ]);
+  });
+
+  it("puts a drink in two families with the one that has more ready drinks", () => {
+    const match = (slug: string) => ({ recipe: { slug, name: slug } });
+    const families = {
+      a: [{ slug: "hemingway", label: "Hemingway" }],
+      b: [{ slug: "hemingway", label: "Hemingway" }],
+      /* Daiquiri has more drinks in all, Hemingway more ready ones. */
+      both: [
+        { slug: "daiquiri", label: "Daiquiri" },
+        { slug: "hemingway", label: "Hemingway" },
+      ],
+      c: [{ slug: "daiquiri", label: "Daiquiri" }],
+    };
+    const label = (entries: ReturnType<typeof groupReady>) =>
+      entries.map((entry) =>
+        entry.kind === "family"
+          ? `${entry.label} ×${entry.matches.length}`
+          : entry.match.recipe.slug,
+      );
+    expect(
+      label(groupReady([match("both"), match("a"), match("b")], families)),
+    ).toEqual(["Hemingway ×3"]);
+    /* A tie on ready drinks: the family with more drinks (listed first). */
+    expect(
+      label(groupReady([match("both"), match("a"), match("c")], families)),
+    ).toEqual(["Daiquiri ×2", "a"]);
   });
 });

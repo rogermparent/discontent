@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dedupeItems } from "../../util/inventoryText";
+import { capStaples } from "./stapleLimits";
 import type { MakeSettings } from "./useInventory";
 
 /**
@@ -40,13 +41,20 @@ export function staplesSync(
   }
   return saved
     ? { kind: "none" }
-    : { kind: "upload", items: browser.alwaysHave };
+    : { kind: "upload", items: capStaples(browser.alwaysHave) };
 }
+
+/** The one quiet line a failed save shows under the staples. */
+export const STAPLES_NOT_SAVED =
+  "Not saved to the editor — this browser keeps the list.";
 
 /**
  * `settings` with the saved list wired in: once storage is read, the first
  * load applies `staplesSync`, and every change to the list (an add, a
- * remove, "Reset") saves it too. Without `saved` it is `settings` itself.
+ * remove, "Reset") saves it too, capped at the server's limits
+ * (`capStaples`). A save that answers `{error}` (or throws) sets
+ * `staplesNotice` until the next one succeeds. Without `saved` it is
+ * `settings` itself.
  */
 export function useSavedStaples(
   settings: MakeSettings,
@@ -55,29 +63,40 @@ export function useSavedStaples(
   const { ready, defaultStaples, alwaysHave, setStaples, resetStaples } =
     settings;
   const settled = useRef(false);
+  const [failed, setFailed] = useState(false);
+  /* A failed save leaves this browser's list as it is — it is the primary
+   * one — and says so once, quietly. */
+  const send = useCallback(
+    (items: string[] | null) => {
+      if (!saved) return;
+      void saved.save(items).then(
+        (result) => setFailed("error" in result),
+        () => setFailed(true),
+      );
+    },
+    [saved],
+  );
   useEffect(() => {
     if (!saved || !ready || settled.current) return;
     settled.current = true;
     const sync = staplesSync({ defaultStaples, alwaysHave }, saved.items);
     if (sync.kind === "seed") setStaples(sync.items);
-    else if (sync.kind === "upload") void saved.save(sync.items).catch(noop);
-  }, [saved, ready, defaultStaples, alwaysHave, setStaples]);
+    else if (sync.kind === "upload") send(sync.items);
+  }, [saved, ready, defaultStaples, alwaysHave, setStaples, send]);
 
   return useMemo(() => {
     if (!saved) return settings;
     return {
       ...settings,
+      staplesNotice: failed ? STAPLES_NOT_SAVED : undefined,
       setStaples: (items: string[]) => {
         setStaples(items);
-        void saved.save(dedupeItems(items)).catch(noop);
+        send(capStaples(dedupeItems(items)));
       },
       resetStaples: () => {
         resetStaples();
-        void saved.save(null).catch(noop);
+        send(null);
       },
     };
-  }, [settings, saved, setStaples, resetStaples]);
+  }, [settings, saved, setStaples, resetStaples, send, failed]);
 }
-
-/* A failed save leaves this browser's list as it is: it is the primary one. */
-function noop() {}

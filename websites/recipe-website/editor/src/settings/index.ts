@@ -1,6 +1,7 @@
 import {
   getSettingsDirectory,
   readSettings as readSettingsGeneric,
+  updateSettings as updateSettingsGeneric,
   writeSettings as writeSettingsGeneric,
 } from "@discontent/cms/settings";
 import type {
@@ -67,4 +68,18 @@ export async function readSettings(): Promise<Settings> {
 
 export async function writeSettings(settings: Settings): Promise<void> {
   return writeSettingsGeneric(settings);
+}
+
+/**
+ * A read-modify-write of `settings.json` under the engine's settings lock
+ * (38a review): `update` answers the new settings, or `undefined` for no
+ * change (nothing is written). Use it, not `readSettings` + `writeSettings`,
+ * wherever a writer keeps keys it did not set.
+ */
+export async function updateSettings(
+  update: (
+    current: Settings,
+  ) => Settings | undefined | Promise<Settings | undefined>,
+): Promise<Settings> {
+  return updateSettingsGeneric<Settings>(update);
 }
