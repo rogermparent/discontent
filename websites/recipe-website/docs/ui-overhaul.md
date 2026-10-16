@@ -2250,6 +2250,263 @@ width.
   aliases it in. A recipe tagged only with an alias doesn't count anywhere
   it should.
 
+### U4 — `/tags` as a board of count bars `agent/tags-staples`
+
+- **A block per facet root**, laid out as CSS columns (`columns-[15rem]`,
+  `break-inside: avoid`): the heading links to the root's term page and
+  prints the subtree's distinct total ("143 in all"); each child is a row —
+  label, mono count, and a 3px bar whose width is the count over the
+  block's largest. Rows sort most-carried first. A child with narrower
+  terms lists them indented beneath on the same scale, so 31b's tree
+  survives inside the board.
+- **At most 15 rows a block** (`BLOCK_ROW_LIMIT`, from the review): the real
+  Drinks root has ~70 children and ran one column to 3,000px with the
+  fourth empty. Top-level rows fill it first and nested rows only take what
+  is left (`blockRows`, second review round), so a big child's subtree never
+  hides a bigger sibling; the bars still scale to the block's largest; past
+  it, "See all of Drinks →" links the root's term page. "More tags" has no
+  page, so its rest folds into a `<details>`.
+- **"More tags"** collects the records outside any hierarchy — no parent the
+  tree knows and no children — most carried first; a record nothing carries
+  still lists at 0 (it is a real page since 24c).
+- **Bare tags** (no record) stay the chips they were, now under "Other tags"
+  and only the bare ones. With no records at all there is no board and the
+  chips are every tag, exactly as before — the `search-corpus` fixture's
+  index is unchanged.
+- **Data:** `termBoard()` in `tagVocabulary.ts` (pure, beside
+  `termHierarchy`, which it wraps) and `readTagBoard()` replacing
+  `readTagTree()`; the routes pass `board` to `TagIndexPage`.
+- **A11y:** the bar is `aria-hidden`; the count is the text, so a row reads
+  "Cookies 8". Headings are h3 under the page's "By kind" h2.
+
+### U5 — Pantry staples, on by default
+
+- **One constant**, `PANTRY_STAPLES` in `common/util/makeable.ts`: flour,
+  sugar, butter, eggs, vegetable oil, olive oil, milk, baking soda, baking
+  powder. `oil` alone is a vague head (`isGenericHead`), so the two oils are
+  named; the close tier then stands vegetable oil in for canola, peanut and
+  the rest of its group, and eggs for yolks and whites (`CLOSE_PAIRS`) — the
+  close note says so, and "Count close matches" decides whether it counts.
+- **Matched as items are**, generic ⊂ specific: `flour` meets "all-purpose
+  flour", `sugar` "granulated sugar". `STAPLE_NOT_MODIFIERS` (almond, rice,
+  oat, coconut, brown, powdered, condensed, apple, maple, cocoa…) keeps a
+  staple off lines that only share its last word — almond flour, brown
+  sugar, oat milk, apple butter stay missing; an inventory item still meets
+  them, and so does a staple whose own name has the word — an "Assume I
+  always have" `maple syrup` or `soy sauce` meets its line. Measured against
+  a probe of 48 lines before choosing the list.
+- **The judge owns the option.** `MakeableOptions.pantryStaples`; `staples`
+  is now the _whole_ assumed list. Absent, the judge assumes
+  `DEFAULT_STAPLES` + the pantry; a given `staples` list is whole unless
+  `pantryStaples: true`. `assumedStaples(base, pantry)` builds the list, and
+  `useMakeSettings().staples` is that built list — so a page that hands it to
+  `analyzeMakeable` (the homepage's Make tile, `/drinks`' panel) follows the
+  switch without knowing it exists. `alwaysHave` is the editable "Assume I
+  always have" list (32j, still salt/pepper/water/ice by default).
+- **Staples join the close tier** through their own index, consulted only
+  when no inventory item is close — the list's own item wins.
+- **The switch:** "Assume pantry staples" in the What I have panel, a
+  `role="switch"` checkbox with the list as its description, stored in
+  `make-settings-v1` as `pantryStaples: false` only when turned off.
+- **Seats agree:** MCP `inventory_makeable` takes `staples?: boolean`
+  (default true) and answers `staples`; `/api/inventory/make?staples=0`;
+  CLI `recipes inventory make --no-staples`. The tool description, the CLI
+  usage and the curator skill (§8) say so.
+- **Shopping is unchanged:** its "probably on hand" fold keeps
+  `DEFAULT_STAPLES`; only the modifier guard reaches it (water no longer
+  meets a "rice water" line).
+
+### U6 — This browser's list first; the saved inventory second
+
+- **Both apps judge the browser's list alone.** `useInventory()`: the
+  `make-inventory-v1` value's `added` is the list, as on the export since
+  25c (the hook takes no shared list any more).
+  The ticker, sections and Buy next never see another list.
+- **A one-time migration** keeps an owner's old list. Before U6 the editor
+  stored `make-inventory-v1` as an overlay on the saved list — the browser's
+  list was (shared − removed) ∪ added — so reading `added` alone would have
+  silently shrunk it. The value keeps its key and shape but gains
+  `version: 2`, with `added` the whole list and `removed` empty (so a reader
+  that takes `added` needs no change). The shared reader, `useInventory`
+  — `/make`, the homepage's Make tile and `/drinks`' panel all read through
+  it — rewrites a version-less value once, wherever it is first read, and
+  answers `ready: false` until it has:
+  - **export** (`NEXT_PUBLIC_RECIPE_APP` unset): as `added`, since there
+    never was a shared list;
+  - **signed-in editor `/make`**: from the saved list, which only that page
+    has (it passes it as `legacy`), read through the owner's session;
+  - **anywhere else in the editor** (a guest, or the tile and `/drinks` for a
+    signed-in owner, or a `/make` whose saved file doesn't exist yet):
+    deferred, showing `added` meanwhile and writing changes back in the
+    old shape, so the owner's migration still merges. **The owner
+    limit:** until the owner opens `/make` once, the editor's tile and
+    `/drinks` count only the old additions. The editor's `next.config.mjs`
+    sets `NEXT_PUBLIC_RECIPE_APP=editor` so the shared hook can tell.
+    Pure halves (`isLegacyOverlay`, `migrateOverlay`, `storedList`) in
+    `inventoryText.ts`, tested there and in `make.spec`.
+- **At most 12 cards a group, 24 for "Can make now"** (`GROUP_LIMIT`,
+  `READY_LIMIT`, from the review): a real list made the page ~17,000px —
+  25 ready, 78 one away, 118 two away. "Show all N" is a `<button>` with
+  `aria-expanded`/`aria-controls` that expands in place; headings keep the
+  full counts. The folds (Further away, the secondary group) use the same
+  grid and cap.
+- **The empty list invites**: "Tell it what you have", never a fallback.
+- **Secondary group** (`SecondaryMakeGroup`, `data-testid="make-secondary"`):
+  below the results, folded, "N" in mono — the recipes ready with the
+  browser's list ∪ the other list that the browser's list alone can't make.
+  It shows under the invitation too, since it is labelled as someone else's.
+- **Signed-in editor:** the other list is the operator's saved inventory
+  (25d's committed file), "Also makeable with your saved inventory". Its
+  editor moved below the browser's list, folded: "Your saved inventory (N)"
+  — chips with remove, an add field, "Save this browser's list to it" and
+  "Copy it to this browser". Each change is one `{add, remove}` commit
+  through 25d's `saveInventoryChanges`. The overlay's Save/Discard bar and
+  the "hidden on this browser" list are gone (`SharedChanges.tsx` removed).
+- **The export's option, off by default:** Export page → "Share my saved
+  inventory on the export" (`settings.shareInventoryOnExport`, per instance,
+  not a mirror key — the Pi never builds the export). The established
+  pattern for export-facing switches is an editor setting the export build
+  reads as env (PR 2b `SITE_THEME`, PR 13 `SITE_FOOTER_NOTE`): on,
+  `exportBuildEnv()` (`editor/controller/exportEnv.ts`) reads the saved list
+  and sets `SITE_HOUSE_INVENTORY` to its JSON; off, it never reads the list
+  and sets the variable **empty**, because execa hands the build the
+  editor's whole environment. A hand-run `pnpm --filter recipe-website
+build` may set the variable itself. Documented in the CLI's `--help` and
+  `deploy-pi.md`.
+- **One helper:** `common/controller/secondaryInventory.ts`.
+  `secondaryInventory(readSaved?)` answers the saved list for a signed-in
+  editor, and otherwise `houseInventory()` — the build's snapshot, labelled
+  "Also makeable from the house inventory", or nothing. The export's `/make`
+  calls it with no reader; U3's `/drinks` already does, so it honours the
+  option with no change of its own. A guest in the editor gets the same
+  answer as the export. **Merge order:** the homepage (#239), then this
+  branch, then `agent/nav-drinks`, which created the same file with the
+  same API; nav-drinks keeps this branch's version (a superset) when it
+  merges main.
+- **Guard tests both ways:** `test/exportHouseInventory.test.ts` — off: the
+  reader is never called, the variable is empty, no group; on: the variable
+  is exactly the saved list and both `houseInventory()` and
+  `secondaryInventory()` answer it; only `secondaryInventory.ts` names the
+  variable in common/ or export/, and nothing there reaches `exportEnv` or
+  `recipe-editor/`. 25d's `inventory.test.ts` scan still keeps the file
+  itself out of common/ and export/.
+
+### Traps (U4–U6)
+
+- **A given `staples` list is whole.** Before U5 the judge's default was
+  `DEFAULT_STAPLES`; now an absent list means the pantry too. A caller that
+  passes its own list (the browser) passes the built one; a test pinning a
+  pre-U5 rule passes `pantryStaples: false` (`strictJudge` in
+  `makeable.test.ts`).
+- **Two inventories, one corpus:** the judgement cache keyed one inventory
+  per prepared corpus, so judging the browser's list and the union in turn
+  thrashed it on every keystroke. It now keeps four, most recent first.
+- **Specs that drew one-away rows from the whole `make-drinks` corpus** now
+  scope to `tag:drink`: Hand Pies and Lavender Syrup are one away on the
+  pantry alone, and they sort before Vodka Sour.
+
+### Gate results (U4–U6)
+
+On `agent/tags-staples` after merging main at `114040c5` (37b), every run
+through the heavy slot (2026-10-15):
+
+- Both typechecks clean.
+- vitest 1907/1907 across 88 files. New: U5 cases in `makeable.test.ts`, the
+  `staples` flag in `inventory.test.ts`, `termBoard` in `tagExpansion.test.ts`,
+  the overlay migration in `inventoryText.test.ts`, and
+  `exportHouseInventory.test.ts`. Pre-U5 matching cases pass
+  `pantryStaples: false`. The first full run, before the merge and under
+  memory pressure, had a tenth failure in a file it didn't name; it did not
+  come back.
+- Playwright on a production build, e2e + mobile: `make`, `tag-pages`,
+  `accessibility`, `bar-tools` and `shopping`, 94 tests.
+  - 92/94 on the first run. The two failures were a bar style matched as
+    `width: 100%` when React writes `width:100%`, and a real bug: an editor
+    guest migrated the old overlay on the hydration render, where storage
+    reads as not-yet-known. The fix is in `useLegacyInventoryMigration`.
+  - Rerun of `make` + `tag-pages`: 53/53.
+  - New axe tests for the `/tags` board and the signed-in `/make` with both
+    folds open pass.
+- `visual.spec` `make-page` baseline regenerated in its own commit; the
+  page gained the switch, and pantry staples change the one-away row.
+- **The export guard, both ways, in real builds:** `recipe-website build`
+  against a copy of `make-drinks` whose saved list carries a marker item.
+  - Off (the variable unset): 0 files in `out/` or `.next/` name it.
+  - On (`SITE_HOUSE_INVENTORY` set): 4 files name it, all `/make`'s
+    (`make.html`, `make.txt` and its two RSC payloads), with the "Also
+    makeable from the house inventory" group.
+- **Real-content screenshots:** a scratch clone of the content repo,
+  reindexed, served by the editor's production build as a guest, with a
+  14-item browser list seeded. `/tags` and `/make` at 1280 and 390, light
+  and dark, no sideways scroll at 390. The clone was deleted afterwards.
+  - `/make` with pantry staples: 787 recipes, 25 can make, 78 one away, 118
+    two away. Buy next leads with instant yeast and sourdough starter.
+  - The full static export of the real repo timed out on page generation in
+    this box, so the shots come from the editor.
+
+**Review round** (block and group caps, the migration in the shared reader),
+then main merged at `c8573684` (#239, the homepage):
+
+- **The merge:** the homepage reads `readTagTree()`, which is kept as
+  `readTagBoard()`'s roots. Its Make tile reads through `useInventory` and
+  `useMakeSettings().staples`, so it migrates and follows the pantry switch
+  with no change of its own.
+- Both typechecks clean.
+- vitest 1931/1931, 90 files.
+- Playwright, production build:
+  - before the merge: `make`, `tag-pages` and `accessibility`, 83/83, with
+    new tests for the 15-row cap and "Show all 13";
+  - after it: those three plus `homepage*`, `visual`, `mobile` and
+    `empty-state`, 130/130.
+  - No baseline moved: no fixture group or block passes its cap.
+- **Real content, retaken:** `/tags` at 1280 is 2,112px tall with four
+  balanced columns (it was 3,558 with one column running and the fourth
+  empty), and Drinks ends "All 217 in Drinks →". `/make` at 1280 is 4,538px
+  (it was 17,254).
+
+**Second review round** (PR #240):
+
+- **Custom staples meet their own lines again.** The modifier guard applied
+  to every staple, so an "Assume I always have" `maple syrup` or `soy sauce`
+  left its recipes one away. A staple is now kept off only the modifier
+  words its own name lacks (`stapleModifiers`; the close tier groups staples
+  by them). Built-in flour still misses almond and rye flour. New modifiers:
+  turbinado, demerara, muscovado, palm, rye, spelt.
+- **Deferred writes keep the old shape.** In the editor without the saved
+  list (`"defer"`), a change to a not-yet-migrated value is written back as
+  a pre-U6 overlay (`added` the list, `removed` kept, no version, never
+  `null`), so the owner's next signed-in `/make` still merges the saved
+  list. A `/make` whose saved file doesn't exist yet defers too, rather than
+  migrating over a list it can't see: pre-U6 the overlay lay over whatever
+  the saved list is now, so merging it later is what that browser showed.
+- **Storage refusing the migrated list** (the quota) no longer leaves the
+  skeleton up: the store's snapshot answers the refused value while storage
+  still holds the one it failed to replace (`refused` in `useInventory.ts`).
+- **`useInventory()` takes no shared list:** `overlay`, `discard`,
+  `overlayFor` and the stale comments are gone. A deprecated
+  `useInventory(array)` overload ignores its argument, because
+  `agent/nav-drinks`' `useMakeable` (unpushed) calls `useInventory(NO_SHARED)`,
+  always an empty list.
+- **The Export page's Build checks the session first.** `buildExport` ran
+  the full reindex and read the settings and saved inventory before
+  `commandAction`'s auth check, so a signed-out server-action POST could
+  start a reindex.
+- **`/tags` fills top-level rows first** (`blockRows`): up to 15 of them,
+  then nested rows while the budget lasts, so a big child's subtree can't
+  push a bigger sibling out. The overflow link reads "See all of Drinks →".
+  The old wording, "All 217 in Drinks", could read as 217 tags.
+- **Tests:** custom staples and the new modifiers (`makeable.test.ts`), the
+  hook in jsdom (`useInventory.test.tsx`: migration, deferred writes, the
+  quota, the old overload), `exportAction.test.ts` (signed out does nothing,
+  and the env comes from `exportBuildEnv`), `tagBlockRows.test.ts`, CLI
+  `--no-staples` (`cliJson.test.ts`) and `/api/inventory/make?staples=0`
+  (`inventory.test.ts`).
+- **Gates:** both typechecks clean. vitest on the affected files plus the
+  export guard tests, 130/130 across 9 files (`makeable`, `useInventory`,
+  `exportAction`, `tagBlockRows`, `inventory`, `inventoryText`, `cliJson`,
+  `exportHouseInventory`, `specVersions`). Playwright, production build,
+  `make`, `tag-pages` and `accessibility`, 83/83 on the final head. No baseline moved.
+
 ## Verification (Playwright-first)
 
 Verify UI changes with Playwright; open a real browser only to diagnose

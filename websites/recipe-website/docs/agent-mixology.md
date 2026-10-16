@@ -172,6 +172,12 @@ registry entry or build ever sees it. Plain-text import/export (one per line;
 a comma line, bullets, checkboxes, `#` comments, JSON array or `{items}`
 accepted; 80 chars, 500 items) is the bridge between sites and browsers.
 
+_Superseded in part by the usability pass (2026-10-15, U6 in
+`ui-overhaul.md`): both apps now judge this browser's list alone, and the
+committed list below is a separate "Also makeable with your saved inventory"
+group in the signed-in editor — no overlay. The file and its seats are
+unchanged._
+
 The editor (25d) layers that overlay on a committed list,
 `<content>/inventory/on-hand.json` = `{"items": [...]}` (sorted, so it diffs
 line by line), read **only for a signed-in session** — a guest's `/make` is

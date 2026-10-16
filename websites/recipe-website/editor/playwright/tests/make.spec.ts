@@ -22,6 +22,10 @@ async function ready(page: Page) {
   await expect(ticker(page)).toHaveText(/can make/i, { timeout: 20_000 });
 }
 
+/** "Assume pantry staples" (U5) — on unless this browser turned it off. */
+const pantrySwitch = (page: Page) =>
+  page.getByRole("switch", { name: "Assume pantry staples" });
+
 async function addItems(page: Page, text: string) {
   const input = page.getByTestId("inventory-input");
   await input.fill(text);
@@ -41,7 +45,7 @@ test.describe("What can I make?", () => {
     await ready(page);
     await expect(ticker(page)).toHaveText(/^7 recipes/i);
     await expect(page.getByTestId("make-query")).toHaveValue("");
-    await expect(page.getByText("Start with what you have")).toBeVisible();
+    await expect(page.getByText("Tell it what you have")).toBeVisible();
     /* `drink` is a root like any other now (28g), labelled by its record. */
     await expect(
       page
@@ -60,7 +64,8 @@ test.describe("What can I make?", () => {
   });
 
   test("adding items moves cards between sections", async ({ page }) => {
-    await page.goto("/make");
+    /* Drinks: Hand Pies and Lavender Syrup are one away on the pantry. */
+    await page.goto("/make?q=tag:drink");
     await ready(page);
 
     await addItems(page, "vodka, simple syrup");
@@ -108,7 +113,7 @@ test.describe("What can I make?", () => {
   });
 
   test("buy next names what one more item unlocks", async ({ page }) => {
-    await page.goto("/make");
+    await page.goto("/make?q=tag:drink");
     await ready(page);
     await addItems(page, "vodka, simple syrup");
 
@@ -240,6 +245,8 @@ test.describe("What can I make?", () => {
   test("stored headings are never listed as missing", async ({ page }) => {
     await page.goto("/make?q=tag:dessert");
     await ready(page);
+    /* Butter would be assumed on hand otherwise (U5). */
+    await pantrySwitch(page).uncheck();
     await addItems(page, "jam, flour");
     const oneAway = section(page, "make-one-away");
     await expect(oneAway).toContainText("Hand Pies");
@@ -275,6 +282,45 @@ test.describe("What can I make?", () => {
     await expect(page).toHaveURL(/\/make$/);
   });
 
+  test("a group shows 12 cards, then Show all expands in place", async ({
+    page,
+    request,
+    createApiToken,
+  }) => {
+    const token = await createApiToken();
+    for (let i = 1; i <= 13; i += 1) {
+      const created = await request.post("/api/recipes", {
+        headers: { authorization: `Bearer ${token}` },
+        data: {
+          name: `Quince Tart ${String(i).padStart(2, "0")}`,
+          tags: ["quince-test"],
+          ingredients: ["1 quince", "1 cup jam"],
+        },
+      });
+      expect(created.status()).toBe(201);
+    }
+    await page.goto("/make?q=tag:quince-test");
+    await expect(ticker(page)).toHaveText(/^13 recipes/i, { timeout: 20_000 });
+    await addItems(page, "jam");
+    const oneAway = section(page, "make-one-away");
+    /* The heading keeps the whole count. */
+    await expect(oneAway.getByRole("heading", { level: 2 })).toHaveText(
+      /One ingredient away\s*13/,
+    );
+    await expect(
+      oneAway.getByRole("link", { name: /Quince Tart/ }),
+    ).toHaveCount(12);
+    const more = oneAway.getByRole("button", { name: "Show all 13" });
+    await expect(more).toHaveAttribute("aria-expanded", "false");
+    await more.click();
+    await expect(
+      oneAway.getByRole("link", { name: /Quince Tart/ }),
+    ).toHaveCount(13);
+    await expect(
+      oneAway.getByRole("button", { name: "Show fewer" }),
+    ).toHaveAttribute("aria-expanded", "true");
+  });
+
   test("has no WCAG2AA violations, empty or filled", async ({ page }) => {
     await page.goto("/make");
     await ready(page);
@@ -294,21 +340,24 @@ test.describe("What can I make?", () => {
 });
 
 /*
- * 25d: the editor's shared list. `make-drinks` carries
- * `inventory/on-hand.json` = gin + tonic water — which only a signed-in
- * session may see.
+ * U6: this browser's list first; the saved inventory second. `make-drinks`
+ * carries `inventory/on-hand.json` = gin + tonic water — the operator's
+ * saved inventory, which only a signed-in session may see, and then only as
+ * a separate group that never counts toward this browser's results.
  */
-test.describe("What can I make? — the shared list", () => {
+test.describe("What can I make? — your saved inventory", () => {
   test.beforeEach(async ({ resetData }) => {
     await resetData("make-drinks");
   });
 
   const chips = (page: Page) => page.getByTestId("inventory-chips");
+  const secondary = (page: Page) => page.getByTestId("make-secondary");
+  const saved = (page: Page) => page.getByTestId("saved-inventory");
 
-  async function signInToMake(page: Page) {
+  async function signInToMake(page: Page, query = "") {
     await page.goto("/");
     await signIn(page);
-    await page.goto("/make");
+    await page.goto(`/make${query ? `?q=${query}` : ""}`);
     await ready(page);
   }
 
@@ -319,50 +368,145 @@ test.describe("What can I make? — the shared list", () => {
     await page.goto("/make");
     await ready(page);
     await expect(chips(page)).toHaveCount(0);
-    await expect(page.getByText("Start with what you have")).toBeVisible();
+    await expect(page.getByText("Tell it what you have")).toBeVisible();
+    await expect(secondary(page)).toHaveCount(0);
+    await expect(saved(page)).toHaveCount(0);
+    await expect(page.getByText(/saved inventory/i)).toHaveCount(0);
 
     expect((await request.get("/api/inventory")).status()).toBe(401);
     expect((await request.get("/api/inventory/make")).status()).toBe(401);
   });
 
-  test("signed in, the shared list shows and counts", async ({ page }) => {
-    await signInToMake(page);
-    await expect(chips(page).locator("[data-source='shared']")).toHaveCount(2);
-    await expect(chips(page)).toContainText("tonic water");
+  test("signed in, an empty browser list still invites, and the saved list is a separate group", async ({
+    page,
+  }) => {
+    await signInToMake(page, "tag:drink");
+    /* Never a fallback: nothing on this browser is nothing on this browser. */
+    await expect(chips(page)).toHaveCount(0);
+    await expect(page.getByText("Tell it what you have")).toBeVisible();
+    await expect(ticker(page)).toHaveText(/0 can make/i);
+
+    const group = secondary(page);
+    await expect(group).toContainText(
+      "Also makeable with your saved inventory",
+    );
+    await group.locator("summary").click();
+    await expect(group).toContainText("Gin and Tonic");
+    await expect(section(page, "make-can")).toHaveCount(0);
+  });
+
+  test("the group lists only what the browser's list can't make", async ({
+    page,
+  }) => {
+    await signInToMake(page, "tag:drink");
+    await addItems(page, "gin");
+    await expect(section(page, "make-one-away")).toContainText("Gin and Tonic");
+    const group = secondary(page);
+    await group.locator("summary").click();
+    await expect(group).toContainText("Gin and Tonic");
+
+    await addItems(page, "tonic");
     await expect(section(page, "make-can")).toContainText("Gin and Tonic");
-    await expect(page.getByTestId("inventory-pending")).toHaveCount(0);
+    await expect(group.getByText("Gin and Tonic")).toHaveCount(0);
+    await expect(group).toContainText("Nothing more than this browser");
   });
 
-  test("hiding a shared item here can be undone", async ({ page }) => {
+  test("the saved list is edited in place, one commit per change", async ({
+    page,
+  }) => {
     await signInToMake(page);
-    await page.getByRole("button", { name: "Remove gin" }).click();
-    const hidden = page.getByTestId("inventory-hidden");
-    await expect(hidden).toContainText("gin");
-    await expect(page.getByTestId("inventory-pending")).toContainText(
-      "1 change on this browser",
-    );
-    await page.getByRole("button", { name: "Undo hiding gin" }).click();
-    await expect(hidden).toHaveCount(0);
-    await expect(page.getByTestId("inventory-pending")).toHaveCount(0);
-  });
+    await saved(page).locator("summary").click();
+    const savedChips = page.getByTestId("saved-inventory-chips");
+    await expect(savedChips.getByRole("listitem")).toHaveCount(2);
 
-  test("saving this browser's changes persists them", async ({ page }) => {
-    await signInToMake(page);
-    await addItems(page, "lime");
-    await expect(chips(page).locator("[data-source='browser']")).toHaveText(
-      /lime/,
-    );
-    const pending = page.getByTestId("inventory-pending");
-    await expect(pending).toContainText("1 change on this browser");
-    await pending.getByRole("button", { name: "Save to shared list" }).click();
-    await expect(pending).toHaveCount(0);
+    await page
+      .getByLabel("Add to your saved inventory", { exact: true })
+      .fill("lime");
+    await saved(page).getByRole("button", { name: "Add", exact: true }).click();
+    await expect(savedChips).toContainText("lime");
+    await expect(saved(page)).toContainText("Your saved inventory (3)");
 
-    /* A fresh browser signed in as the same person sees it as shared. */
+    await page
+      .getByRole("button", { name: "Remove gin from your saved inventory" })
+      .click();
+    await expect(saved(page)).toContainText("Your saved inventory (2)");
+
+    /* Persisted: a fresh browser signed in as the same person sees it. */
     await page.evaluate(() => localStorage.clear());
     await page.reload();
     await ready(page);
-    await expect(chips(page).locator("[data-source='shared']")).toHaveCount(3);
-    await expect(chips(page)).toContainText("lime");
+    await saved(page).locator("summary").click();
+    await expect(savedChips).toContainText("lime");
+    await expect(savedChips.getByText("gin", { exact: true })).toHaveCount(0);
+    /* And this browser's list stayed its own. */
+    await expect(chips(page)).toHaveCount(0);
+  });
+
+  /* A pre-U6 browser stored an overlay on the saved list: hide gin, add lime. */
+  const LEGACY = JSON.stringify({ added: ["lime"], removed: ["gin"] });
+
+  test("an old overlay becomes the whole list on the owner's first visit", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await signIn(page);
+    await page.evaluate(
+      (value) => localStorage.setItem("make-inventory-v1", value),
+      LEGACY,
+    );
+    await page.goto("/make");
+    await ready(page);
+    /* (gin + tonic water − gin) ∪ lime, kept as this browser's own. */
+    await expect(chips(page).getByRole("listitem")).toHaveText([
+      /tonic water/,
+      /lime/,
+    ]);
+    const stored = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("make-inventory-v1") ?? "null"),
+    );
+    expect(stored).toEqual({
+      added: ["tonic water", "lime"],
+      removed: [],
+      version: 2,
+    });
+  });
+
+  test("a guest leaves an old overlay for the owner, reading its additions", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.evaluate(
+      (value) => localStorage.setItem("make-inventory-v1", value),
+      LEGACY,
+    );
+    await page.goto("/make");
+    await ready(page);
+    await expect(chips(page).getByRole("listitem")).toHaveText([/lime/]);
+    expect(
+      await page.evaluate(() => localStorage.getItem("make-inventory-v1")),
+    ).toBe(LEGACY);
+  });
+
+  test("the two lists copy into each other only when asked", async ({
+    page,
+  }) => {
+    await signInToMake(page);
+    await addItems(page, "vodka");
+    await saved(page).locator("summary").click();
+
+    await saved(page)
+      .getByRole("button", { name: "Copy it to this browser" })
+      .click();
+    await expect(chips(page)).toContainText("tonic water");
+    await expect(chips(page)).toContainText("gin");
+
+    await saved(page)
+      .getByRole("button", { name: "Save this browser's list to it" })
+      .click();
+    await expect(page.getByTestId("saved-inventory-chips")).toContainText(
+      "vodka",
+    );
+    await expect(saved(page)).toContainText("Your saved inventory (3)");
   });
 });
 
@@ -458,7 +602,7 @@ test.describe("What can I make? — dinner as well as drinks", () => {
     );
 
     await page.getByLabel(/Count close matches/).uncheck();
-    await expect(can).toHaveCount(0);
+    await expect(can.getByText("Shallot Rice Pilaf")).toHaveCount(0);
     await expect(section(page, "make-one-away")).toContainText(
       "Missing: shallot (close: onion)",
     );
@@ -487,6 +631,32 @@ test.describe("What can I make? — dinner as well as drinks", () => {
     await expect(section(page, "make-can")).toContainText("Simple Omelette");
   });
 
+  test("pantry staples are assumed until the switch says otherwise (U5)", async ({
+    page,
+  }) => {
+    await page.goto("/make?q=-tag:drink");
+    await ready(page);
+    const pantry = pantrySwitch(page);
+    await expect(pantry).toBeChecked();
+    await expect(page.getByTestId("pantry-staples")).toContainText(
+      "flour, sugar, butter, eggs",
+    );
+    /* Pancakes are all pantry: one thing on the list shows them. */
+    await addItems(page, "zucchini");
+    await expect(section(page, "make-can")).toContainText("Pancakes");
+
+    await pantry.uncheck();
+    await expect(section(page, "make-can")).toHaveCount(0);
+    await expect(ticker(page)).toHaveText(/0 can make/i);
+
+    /* Per browser: the choice survives a reload. */
+    await page.reload();
+    await ready(page);
+    await expect(pantrySwitch(page)).not.toBeChecked();
+    await pantrySwitch(page).check();
+    await expect(section(page, "make-can")).toContainText("Pancakes");
+  });
+
   test("lines read loosely: prep phrases and British names", async ({
     page,
   }) => {
@@ -495,6 +665,10 @@ test.describe("What can I make? — dinner as well as drinks", () => {
     await addItems(page, "courgette, red onion, olive oil");
     const can = section(page, "make-can");
     await expect(can).toContainText("Roasted Vegetables");
-    await expect(can.getByTestId("make-close")).toHaveCount(0);
+    await expect(
+      can
+        .getByRole("link", { name: /Roasted Vegetables/ })
+        .getByTestId("make-close"),
+    ).toHaveCount(0);
   });
 });

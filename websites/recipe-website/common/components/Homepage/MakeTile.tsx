@@ -10,9 +10,6 @@ import { useInventory, useMakeSettings } from "../MakePage/useInventory";
 import { countLabel } from "../../controller/homepageIntents";
 import { intentTileClassName } from "./tileStyles";
 
-/* No shared list, ever (U6): the browser's own list is laid over nothing. */
-const NO_SHARED: string[] = [];
-
 /**
  * The primary intent tile: "What can I make?", linking to `/make`, with how
  * many recipes are ready right now (usability pass, 2026-10-15).
@@ -32,7 +29,7 @@ const NO_SHARED: string[] = [];
  * blank too rather than stuck on "Checking…" forever.
  */
 export function MakeTile() {
-  const inventory = useInventory(NO_SHARED);
+  const inventory = useInventory();
   const { countClose, staples } = useMakeSettings();
   const have = inventory.have;
   const wanted = inventory.ready && have.length > 0;

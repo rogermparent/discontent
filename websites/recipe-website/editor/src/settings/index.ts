@@ -40,6 +40,14 @@ export interface Settings extends ThemedSettings {
    * host on :3000 is wrong (D7: site settings are sent there after a sync).
    */
   mirrorUrls?: Record<string, string>;
+  /**
+   * Usability pass, U6: bake a snapshot of the saved inventory into the
+   * static export, where visitors see what it adds as "Also makeable from
+   * the house inventory". Off (absent) by default: nothing about the list
+   * reaches the export. Per instance, like `mirrors` — the workstation is
+   * where exports are built — so it is never sent to a mirror.
+   */
+  shareInventoryOnExport?: boolean;
 }
 
 export type { NamedPreset };

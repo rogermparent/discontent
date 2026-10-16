@@ -120,7 +120,10 @@ ssh transfers run `git-annex-shell` there. Activation is
 The export package is not in the image, so the Export page says "Exporting
 isn't available in this deployment — run it from a full checkout." in place of
 its buttons. That's `src/app/(editor)/(settings)/export/availability.ts`, and
-`commandAction` refuses too.
+`commandAction` refuses too. So the Pi never builds the export, and the
+Export page's "Share my saved inventory on the export" switch (usability
+pass U6, off by default; `ui-overhaul.md`) matters only on the workstation:
+it is a per-instance setting, never sent to a mirror.
 
 ## Indexes
 

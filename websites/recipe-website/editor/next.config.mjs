@@ -5,6 +5,9 @@ const nextConfig = {
     // The public export app uses the neutral default from getSiteConfig().
     NEXT_PUBLIC_SITE_TITLE:
       process.env.NEXT_PUBLIC_SITE_TITLE || "Recipe Editor",
+    // Which app a shared client module is in (U6: the browser list's
+    // one-time migration defers in the editor, where the saved list lives).
+    NEXT_PUBLIC_RECIPE_APP: "editor",
   },
   // lmdb is a native module read at runtime; it is not in Next's default
   // external list, so it would otherwise be bundled into the server graph.

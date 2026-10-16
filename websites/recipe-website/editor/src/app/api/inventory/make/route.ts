@@ -1,10 +1,11 @@
 /**
- * `/api/inventory/make?query=…&limit=…` — what the shared list can make
+ * `/api/inventory/make?query=…&limit=…&staples=0` — what the shared list can make
  * (25d), the seat behind `inventory_makeable` over `--remote`.
  *
  * Authenticated like its parent: the answer is the list, restated as recipes.
  * `query` is the search language (every recipe when absent); `limit` caps each
- * bucket's rows.
+ * bucket's rows; `staples=0` (or `false`) stops assuming pantry staples (U5),
+ * which are on otherwise.
  */
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
 import {
@@ -19,10 +20,14 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const query = url.searchParams.get("query");
     const limit = intParam(url, "limit");
+    const staples = url.searchParams.get("staples");
     return Response.json(
       await makeable(ctx, {
         ...(query !== null ? { query } : {}),
         ...(limit !== undefined ? { limit } : {}),
+        ...(staples !== null
+          ? { staples: !/^(0|false|no|off)$/i.test(staples.trim()) }
+          : {}),
       }),
     );
   } catch (error) {

@@ -5,8 +5,11 @@ import {
 } from "recipe-website-common/util/ingredientNames";
 import {
   analyzeMakeable,
+  assumedStaples,
   closeTo,
   DEFAULT_STAPLES,
+  PANTRY_STAPLES,
+  type MakeableOptions,
   parseInventoryItem,
   prepareCorpus,
   satisfies,
@@ -14,6 +17,23 @@ import {
   type AliasIndex,
   type MakeRecipe,
 } from "recipe-website-common/util/makeable";
+
+/**
+ * The judge with pantry staples off (U5) — the rules these cases were
+ * written against: each pins one matching rule, and flour, sugar or butter
+ * assumed on hand would answer for the list.
+ */
+function strictJudge(
+  scoped: Parameters<typeof analyzeMakeable>[0],
+  corpus: Parameters<typeof analyzeMakeable>[1],
+  inventory: string[],
+  options: MakeableOptions = {},
+) {
+  return analyzeMakeable(scoped, corpus, inventory, {
+    pantryStaples: false,
+    ...options,
+  });
+}
 
 /** Does `item` meet the one requirement `line` yields? */
 function meets(item: string, line: string, aliases?: AliasIndex): boolean {
@@ -188,7 +208,7 @@ describe("analyzeMakeable", () => {
     matches.map((match) => match.recipe.slug);
 
   it("buckets by missing lines, ignoring optional ones and staples", () => {
-    const result = analyzeMakeable(corpus, prepared, [
+    const result = strictJudge(corpus, prepared, [
       "vodka",
       "lime",
       "simple syrup",
@@ -202,7 +222,7 @@ describe("analyzeMakeable", () => {
   });
 
   it("does not count a stored heading as missing", () => {
-    const result = analyzeMakeable(
+    const result = strictJudge(
       corpus.filter((r) => r.slug === "hand-pies"),
       prepared,
       ["jam"],
@@ -286,7 +306,7 @@ describe("analyzeMakeable", () => {
   });
 
   it("ranks what to buy next by what it unlocks, then what it helps", () => {
-    const result = analyzeMakeable(corpus, prepared, ["vodka", "simple syrup"]);
+    const result = strictJudge(corpus, prepared, ["vodka", "simple syrup"]);
     /*
      * One away: Vodka Sour (lime juice). Two away: Gin and Tonic (gin,
      * tonic) and the Zero-Proof G&T (non-alcoholic gin, tonic). Further:
@@ -561,7 +581,7 @@ describe("food (32j)", () => {
   });
 
   it("with close matches off, a close line is missing and still reported", () => {
-    const result = analyzeMakeable(
+    const result = strictJudge(
       dinner,
       dinner,
       ["onion", "rice", "vegetable broth", "butter"],
@@ -579,7 +599,7 @@ describe("food (32j)", () => {
   });
 
   it("reads a prep phrase and a British name in the same recipe", () => {
-    const result = analyzeMakeable(dinner, dinner, [
+    const result = strictJudge(dinner, dinner, [
       "courgette",
       "red onion",
       "olive oil",
@@ -599,23 +619,23 @@ describe("food (32j)", () => {
         ]),
       );
     const items = ["onion", "rice", "vegetable stock", "butter"];
-    const first = analyzeMakeable(dinner, preparedDinner, items);
-    expect(view(analyzeMakeable(dinner, preparedDinner, items))).toEqual(
+    const first = strictJudge(dinner, preparedDinner, items);
+    expect(view(strictJudge(dinner, preparedDinner, items))).toEqual(
       view(first),
     );
     /* The toggle reuses the answers, but buckets them its own way. */
-    const strict = analyzeMakeable(dinner, preparedDinner, items, {
+    const strict = strictJudge(dinner, preparedDinner, items, {
       countClose: false,
     });
     expect(strict.canMake).toEqual([]);
     /* A changed list or staples is judged afresh. */
-    const fewer = analyzeMakeable(dinner, preparedDinner, ["onion"]);
+    const fewer = strictJudge(dinner, preparedDinner, ["onion"]);
     expect(fewer.canMake).toEqual([]);
-    const noSalt = analyzeMakeable(dinner, preparedDinner, items, {
+    const noSalt = strictJudge(dinner, preparedDinner, items, {
       staples: [],
     });
     expect(noSalt.canMake).toEqual([]);
-    expect(view(analyzeMakeable(dinner, preparedDinner, items))).toEqual(
+    expect(view(strictJudge(dinner, preparedDinner, items))).toEqual(
       view(first),
     );
   });
@@ -651,5 +671,176 @@ describe("food (32j)", () => {
       expect(slugs(loose[bucket])).toEqual(slugs(strict[bucket]));
     }
     expect(loose.oneAway.flatMap((match) => match.close)).toEqual([]);
+  });
+});
+
+/*
+ * Usability pass, U5: pantry staples, on by default — in the judge, so the
+ * page, `inventory_makeable` and `recipes inventory make` agree.
+ */
+describe("pantry staples (U5)", () => {
+  const baking: MakeRecipe[] = [
+    {
+      slug: "jam-bars",
+      name: "Jam Bars",
+      ingredients: [
+        "2 cups all-purpose flour",
+        "1/2 cup granulated sugar",
+        "1 cup jam",
+      ],
+    },
+    {
+      slug: "macarons",
+      name: "Macarons",
+      ingredients: ["1 cup almond flour", "1 cup powdered sugar", "1 cup jam"],
+    },
+    {
+      slug: "custard",
+      name: "Custard",
+      ingredients: ["3 egg yolks", "1 cup whole milk", "1/4 cup sugar"],
+    },
+    {
+      slug: "fried-rice",
+      name: "Fried Rice",
+      ingredients: ["2 cups cooked rice", "2 tbsp canola oil"],
+    },
+  ];
+  const slugs = (matches: { recipe: MakeRecipe }[]) =>
+    matches.map((match) => match.recipe.slug);
+  const find = (result: ReturnType<typeof analyzeMakeable>, slug: string) =>
+    [
+      ...result.canMake,
+      ...result.oneAway,
+      ...result.twoAway,
+      ...result.further,
+    ].find((match) => match.recipe.slug === slug);
+
+  it("flour + sugar + jam: ready with staples on, two away with them off", () => {
+    const scoped = baking.filter((recipe) => recipe.slug === "jam-bars");
+    const on = analyzeMakeable(scoped, baking, ["jam"]);
+    expect(slugs(on.canMake)).toEqual(["jam-bars"]);
+    const off = analyzeMakeable(scoped, baking, ["jam"], {
+      pantryStaples: false,
+    });
+    expect(slugs(off.twoAway)).toEqual(["jam-bars"]);
+    expect(off.twoAway[0].missing.map(requirementLabel)).toEqual([
+      "all purpose flour",
+      "granulated sugar",
+    ]);
+  });
+
+  it("never stands a staple in for a different ingredient", () => {
+    const result = analyzeMakeable(baking, baking, ["jam"]);
+    expect(find(result, "macarons")?.missing.map(requirementLabel)).toEqual([
+      "almond flour",
+      "powdered sugar",
+    ]);
+  });
+
+  it("stands in through the close tier, and says so", () => {
+    const result = analyzeMakeable(baking, baking, ["rice"]);
+    const rice = find(result, "fried-rice");
+    expect(rice?.missing).toEqual([]);
+    expect(rice?.close.map(({ item }) => item)).toEqual(["vegetable oil"]);
+    const custard = find(result, "custard");
+    expect(custard?.missing).toEqual([]);
+    expect(custard?.close.map(({ item }) => item)).toEqual(["eggs"]);
+
+    /* Close matches off: a staple's close line is missing, as an item's is. */
+    const strict = analyzeMakeable(baking, baking, ["rice"], {
+      countClose: false,
+    });
+    expect(find(strict, "fried-rice")?.missing.map(requirementLabel)).toEqual([
+      "canola oil",
+    ]);
+  });
+
+  it("prefers the list's own close item to a staple", () => {
+    const result = analyzeMakeable(baking, baking, ["rice", "peanut oil"]);
+    expect(find(result, "fried-rice")?.close.map(({ item }) => item)).toEqual([
+      "peanut oil",
+    ]);
+  });
+
+  it("builds the assumed list: base, plus the pantry while it is on", () => {
+    expect(assumedStaples()).toEqual([...DEFAULT_STAPLES, ...PANTRY_STAPLES]);
+    expect(assumedStaples(["salt"], false)).toEqual(["salt"]);
+    /* No repeats when the base already has one. */
+    expect(
+      assumedStaples(["Flour", "salt"]).filter((s) => /flour/i.test(s)),
+    ).toHaveLength(1);
+  });
+
+  it("treats a given staples list as whole unless asked for the pantry too", () => {
+    const scoped = baking.filter((recipe) => recipe.slug === "jam-bars");
+    const given = analyzeMakeable(scoped, baking, ["jam"], {
+      staples: ["salt"],
+    });
+    expect(slugs(given.twoAway)).toEqual(["jam-bars"]);
+    const both = analyzeMakeable(scoped, baking, ["jam"], {
+      staples: ["salt"],
+      pantryStaples: true,
+    });
+    expect(slugs(both.canMake)).toEqual(["jam-bars"]);
+  });
+
+  /* Review fix: the modifier rule keeps built-ins off other ingredients, not
+   * a person's own "Assume I always have" items off the lines they name. */
+  it("lets a custom staple meet the line it names", () => {
+    const pantry: MakeRecipe[] = [
+      {
+        slug: "pancakes",
+        name: "Pancakes",
+        ingredients: ["1 cup flour", "1/4 cup maple syrup"],
+      },
+      {
+        slug: "stir-fry",
+        name: "Stir-Fry",
+        ingredients: ["2 cups cooked rice", "2 tbsp soy sauce"],
+      },
+      {
+        slug: "crackers",
+        name: "Crackers",
+        ingredients: ["1 cup almond flour", "1 cup rye flour", "1 cup jam"],
+      },
+    ];
+    const staples = [...DEFAULT_STAPLES, "soy sauce", "maple syrup"];
+    const result = analyzeMakeable(pantry, pantry, ["rice", "jam"], {
+      staples,
+      pantryStaples: true,
+    });
+    expect(slugs(result.canMake)).toEqual(["pancakes", "stir-fry"]);
+    /* Built-in flour still meets neither almond nor rye flour. */
+    expect(find(result, "crackers")?.missing.map(requirementLabel)).toEqual([
+      "almond flour",
+      "rye flour",
+    ]);
+    /* Off the pantry, the same custom list still answers on its own. */
+    const custom = analyzeMakeable(pantry, pantry, ["rice"], { staples });
+    expect(slugs(custom.canMake)).toEqual(["stir-fry"]);
+  });
+
+  it("keeps the newer sugar and flour modifiers off the built-ins", () => {
+    const sugars: MakeRecipe[] = [
+      {
+        slug: "crumble",
+        name: "Crumble",
+        ingredients: [
+          "1 cup turbinado sugar",
+          "1 cup demerara sugar",
+          "1 cup muscovado sugar",
+          "1 cup palm sugar",
+          "1 cup spelt flour",
+        ],
+      },
+    ];
+    const result = analyzeMakeable(sugars, sugars, []);
+    expect(find(result, "crumble")?.missing.map(requirementLabel)).toEqual([
+      "turbinado sugar",
+      "demerara sugar",
+      "muscovado sugar",
+      "palm sugar",
+      "spelt flour",
+    ]);
   });
 });

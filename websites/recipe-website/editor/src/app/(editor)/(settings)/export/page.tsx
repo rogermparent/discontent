@@ -1,5 +1,7 @@
 import { auth, signIn } from "@/auth";
+import { readSettings } from "@/settings";
 import { Exporters } from "./exporter";
+import { ShareInventoryForm } from "./ShareInventoryForm";
 import { exportUnavailableReason } from "./availability";
 import {
   PageMain,
@@ -14,13 +16,21 @@ export default async function SettingsPage() {
       redirectTo: `/export`,
     });
   }
-  const unavailable = await exportUnavailableReason();
+  const [unavailable, settings] = await Promise.all([
+    exportUnavailableReason(),
+    readSettings(),
+  ]);
   return (
     <PageMain>
       <PageSection maxWidth="4xl" grow>
         <PageHeading>Export</PageHeading>
         {!unavailable ? (
-          <Exporters />
+          <>
+            <ShareInventoryForm
+              enabled={settings.shareInventoryOnExport === true}
+            />
+            <Exporters />
+          </>
         ) : (
           <p
             className="p-2 text-muted-foreground"

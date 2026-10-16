@@ -1,6 +1,6 @@
 /**
  * An inventory as text (25c/D10): what Export prints, what Import reads, and
- * how a shared list and one browser's changes combine.
+ * the browser's stored list — with the pre-U6 overlay form it migrates from.
  *
  * Text, because it is the one format that crosses every boundary the
  * inventory has to — the editor and the static export, two browsers, a note
@@ -116,8 +116,9 @@ export function applyImport(
 }
 
 /**
- * One browser's changes on top of a shared list. Both hold items as written;
- * they are compared by `inventoryKey`.
+ * The stored shape: before U6, one browser's changes on top of the editor's
+ * shared list; since, `added` is the whole list (`storedList`). Both hold
+ * items as written; they are compared by `inventoryKey`.
  */
 export interface InventoryOverlay {
   added: string[];
@@ -139,20 +140,53 @@ export function applyOverlay(
 }
 
 /**
- * The smallest overlay that turns `shared` into `have` — so every change goes
- * through one function, and an item removed and re-added cancels out.
+ * The stored list's format since U6 (usability pass, 2026-10-15): the same
+ * `{added, removed}` shape under the same key — so a reader that takes
+ * `added` (the homepage tile, `/drinks`) reads it unchanged — with `added`
+ * now this browser's **whole** list, `removed` empty, and `version: 2`.
+ *
+ * Before U6 the editor stored an overlay on its shared list: the browser's
+ * list was (shared − removed) ∪ added, and `added` alone was only part of
+ * it. A value without the version is that old form, and `migrateOverlay`
+ * turns it into the new one once.
  */
-export function overlayFor(shared: string[], have: string[]): InventoryOverlay {
-  const sharedKeys = new Set(shared.map(inventoryKey));
-  const haveKeys = new Set(have.map(inventoryKey));
-  return {
-    added: dedupeItems(
-      have.filter((item) => !sharedKeys.has(inventoryKey(item))),
-    ),
-    removed: dedupeItems(
-      shared.filter((item) => !haveKeys.has(inventoryKey(item))),
-    ),
-  };
+export const OVERLAY_VERSION = 2;
+
+/** The stored value for a whole browser list (U6). */
+export function storedList(items: string[]): string {
+  return JSON.stringify({
+    added: dedupeItems(items),
+    removed: [],
+    version: OVERLAY_VERSION,
+  });
+}
+
+/** A stored value in the pre-U6 overlay form: an object with no `version: 2`. */
+export function isLegacyOverlay(raw: string | null): boolean {
+  if (!raw) return false;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return (
+      !!parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      (parsed as { version?: unknown }).version !== OVERLAY_VERSION
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The browser's whole list from a pre-U6 overlay: (shared − removed) ∪
+ * added, given the shared list it was made over — the signed-in editor's
+ * saved inventory — or just `added` where there never was one (the export).
+ */
+export function migrateOverlay(
+  raw: string | null,
+  shared: string[] = [],
+): string[] {
+  return applyOverlay(shared, parseOverlay(raw));
 }
 
 /** Read a stored overlay, forgiving anything malformed. */

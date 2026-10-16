@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { buttonVariants } from "@discontent/component-library/components/ui/button";
 import {
-  readTagTree,
+  readTagBoard,
   readTagVocabulary,
   readTermPageSlugs,
   readTermPageSlugsWithAliases,
@@ -35,8 +35,11 @@ import { TagIndexPage, TagPage } from "./shared";
  * summed, records included.
  */
 export async function tagIndexRoute() {
-  const [tags, tree] = await Promise.all([readTagVocabulary(), readTagTree()]);
-  return <TagIndexPage tags={tags} tree={tree} />;
+  const [tags, board] = await Promise.all([
+    readTagVocabulary(),
+    readTagBoard(),
+  ]);
+  return <TagIndexPage tags={tags} board={board} />;
 }
 
 /**
@@ -49,11 +52,14 @@ export async function tagIndexRoute() {
  * make the index a per-request render for the sake of one link.
  */
 export async function editorTagIndexRoute() {
-  const [tags, tree] = await Promise.all([readTagVocabulary(), readTagTree()]);
+  const [tags, board] = await Promise.all([
+    readTagVocabulary(),
+    readTagBoard(),
+  ]);
   return (
     <TagIndexPage
       tags={tags}
-      tree={tree}
+      board={board}
       actions={
         <Link
           href="/tags/new"

@@ -361,6 +361,8 @@ export interface CuratorBackend {
   inventoryMakeable(options?: {
     query?: string;
     limit?: number;
+    /** Pantry staples count as on hand (U5); `false` turns them off. */
+    staples?: boolean;
   }): Promise<MakeableResult>;
 
   /* --- shopping list (35c) ---------------------------------------------- */

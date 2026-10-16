@@ -40,6 +40,90 @@ export const DEFAULT_MAKE_QUERY = "";
  */
 export const DEFAULT_STAPLES = ["salt", "black pepper", "water", "ice"];
 
+/**
+ * Pantry staples (usability pass, U5): what most kitchens keep, assumed on
+ * hand while "Assume pantry staples" is on — **on by default**, on `/make`,
+ * in `inventory_makeable` (`staples: false` turns it off) and in `recipes
+ * inventory make` (`--no-staples`). Matched as an inventory item is, so
+ * `flour` meets "all-purpose flour" and `sugar` "granulated sugar"; and
+ * through the close tier, so `vegetable oil` stands in for canola oil and
+ * `eggs` for egg yolks — the close note says so, and "Count close matches"
+ * still decides whether that counts. `STAPLE_NOT_MODIFIERS` keeps a staple
+ * off the lines it only shares a last word with (almond flour, brown sugar).
+ *
+ * The page prints this list beside the switch, so it reads as people write.
+ */
+export const PANTRY_STAPLES = [
+  "flour",
+  "sugar",
+  "butter",
+  "eggs",
+  "vegetable oil",
+  "olive oil",
+  "milk",
+  "baking soda",
+  "baking powder",
+];
+
+/**
+ * Words that make a staple's name another ingredient: almond flour is not
+ * flour, brown sugar is not sugar, oat milk is not milk, apple butter is not
+ * butter. A line naming one of these before its last word is never met — or
+ * stood in for — by a staple whose own name lacks that word; it is by an
+ * inventory item. A staple that names the word itself meets it: an
+ * "Assume I always have" `maple syrup` meets "maple syrup", `soy sauce`
+ * "soy sauce".
+ */
+export const STAPLE_NOT_MODIFIERS = new Set([
+  "almond",
+  "apple",
+  "brown",
+  "buckwheat",
+  "cashew",
+  "chickpea",
+  "chocolate",
+  "cocoa",
+  "coconut",
+  "condensed",
+  "confectioner",
+  "confectioners",
+  "evaporated",
+  "hazelnut",
+  "icing",
+  "demerara",
+  "maple",
+  "muscovado",
+  "nut",
+  "oat",
+  "palm",
+  "pistachio",
+  "powdered",
+  "rice",
+  "rye",
+  "soy",
+  "spelt",
+  "tapioca",
+  "turbinado",
+]);
+
+/**
+ * The staples `analyzeMakeable` assumes: `base` (the always-on list,
+ * `DEFAULT_STAPLES` unless edited) plus `PANTRY_STAPLES` while `pantry` is
+ * on. `/make` builds its list with this, so a page that passes
+ * `useMakeSettings().staples` to the judge gets the switch for free.
+ */
+export function assumedStaples(
+  base: string[] = DEFAULT_STAPLES,
+  pantry = true,
+): string[] {
+  if (!pantry) return base;
+  const seen = new Set(base.map((item) => item.trim().toLowerCase()));
+  return [
+    ...base,
+    ...PANTRY_STAPLES.filter((item) => !seen.has(item.toLowerCase())),
+  ];
+}
+
 /** The slice of a recipe the matcher reads — structurally `MassagedRecipeEntry`. */
 export interface MakeRecipe {
   slug: string;
@@ -549,8 +633,29 @@ export interface RecipeMatch {
 export interface MakeableOptions {
   /** Count a close match as had (default `true`; `/make`'s toggle). */
   countClose?: boolean;
-  /** Assumed on hand, matched like inventory items (default `DEFAULT_STAPLES`). */
+  /**
+   * Assumed on hand, matched like inventory items: the whole list. Absent,
+   * `DEFAULT_STAPLES` plus — unless `pantryStaples` is `false` —
+   * `PANTRY_STAPLES` (U5: pantry staples are on by default).
+   */
   staples?: string[];
+  /**
+   * Add `PANTRY_STAPLES` to `staples` (U5). Defaults to `true` when `staples`
+   * is absent and to `false` when it is given, since a given list is whole:
+   * `/make` passes `assumedStaples(alwaysHave, switch)` already built.
+   */
+  pantryStaples?: boolean;
+}
+
+/** `options`' staples as the judge sees them (see `MakeableOptions`). */
+export function resolveStaples({
+  staples,
+  pantryStaples,
+}: Pick<MakeableOptions, "staples" | "pantryStaples"> = {}): string[] {
+  return assumedStaples(
+    staples ?? DEFAULT_STAPLES,
+    pantryStaples ?? staples === undefined,
+  );
 }
 
 export interface BuyNext {
@@ -579,6 +684,70 @@ export interface MakeableAnalysis {
 const BUY_NEXT_LIMIT = 5;
 
 /**
+ * The `STAPLE_NOT_MODIFIERS` words a staple's own name uses, sorted: none
+ * for `flour`, `maple` for `maple syrup`. Memoized per parsed staple.
+ */
+const stapleOwn = new WeakMap<InventoryItem, string[]>();
+function stapleModifiers(staple: InventoryItem): string[] {
+  let own = stapleOwn.get(staple);
+  if (!own) {
+    const found = new Set<string>();
+    for (const { words } of staple.names) {
+      for (const word of words.join(" ").split(" ")) {
+        if (STAPLE_NOT_MODIFIERS.has(word)) found.add(word);
+      }
+    }
+    own = [...found].sort();
+    stapleOwn.set(staple, own);
+  }
+  return own;
+}
+
+/**
+ * The alternatives a staple naming `own` (see `stapleModifiers`) may meet:
+ * those with no `STAPLE_NOT_MODIFIERS` word before their last that `own`
+ * lacks — "almond flour" and "brown sugar" are out for `flour` and `sugar`,
+ * "all-purpose flour" is in, and "maple syrup" is in for `maple syrup`.
+ * Memoized per requirement and `own`, which a prepared corpus keeps across
+ * calls.
+ */
+const stapleOpen = new WeakMap<Requirement, Map<string, IngredientName[]>>();
+function stapleAlternatives(
+  requirement: Requirement,
+  own: string[],
+): IngredientName[] {
+  let byOwn = stapleOpen.get(requirement);
+  if (!byOwn) {
+    byOwn = new Map();
+    stapleOpen.set(requirement, byOwn);
+  }
+  const key = own.join(" ");
+  let open = byOwn.get(key);
+  if (!open) {
+    open = requirement.alternatives.filter(
+      ({ words }) =>
+        !words
+          .slice(0, -1)
+          .some(
+            (word) => STAPLE_NOT_MODIFIERS.has(word) && !own.includes(word),
+          ),
+    );
+    byOwn.set(key, open);
+  }
+  return open;
+}
+
+/** `requirement` narrowed to `open`, or itself when nothing was left out. */
+function narrowedTo(
+  requirement: Requirement,
+  open: IngredientName[],
+): Requirement {
+  return open.length === requirement.alternatives.length
+    ? requirement
+    : { ...requirement, alternatives: open };
+}
+
+/**
  * A staple meets a line as an item would — `salt` meets "kosher salt",
  * `black pepper` meets "pepper" — and a one-word staple also meets the water
  * and ice lines `STAPLES` marks: `water` meets "tap water", which a vague
@@ -589,7 +758,9 @@ function stapleMeets(
   requirement: Requirement,
   aliases?: AliasIndex,
 ): boolean {
-  if (satisfies(staple, requirement, aliases)) return true;
+  const open = stapleAlternatives(requirement, stapleModifiers(staple));
+  if (open.length === 0) return false;
+  if (satisfies(staple, narrowedTo(requirement, open), aliases)) return true;
   if (!requirement.staple) return false;
   return staple.names.some(
     (name) =>
@@ -617,6 +788,24 @@ export function probablyOnHand(
   );
 }
 
+/** Staples by `stapleModifiers`, groups in first-appearance order. */
+function groupStaples(
+  staples: InventoryItem[],
+): { own: string[]; items: InventoryItem[] }[] {
+  const groups = new Map<string, { own: string[]; items: InventoryItem[] }>();
+  for (const staple of staples) {
+    const own = stapleModifiers(staple);
+    const key = own.join(" ");
+    let group = groups.get(key);
+    if (!group) {
+      group = { own, items: [] };
+      groups.set(key, group);
+    }
+    group.items.push(staple);
+  }
+  return [...groups.values()];
+}
+
 function isMet(
   requirement: Requirement,
   items: InventoryItem[],
@@ -639,20 +828,30 @@ interface JudgementCache {
   close: Map<string, InventoryItem | null>;
 }
 
-const judgements = new WeakMap<PreparedCorpus, JudgementCache>();
+const judgements = new WeakMap<PreparedCorpus, JudgementCache[]>();
 
-/** The last inventory's answers for this corpus, or fresh maps for a new one. */
+/**
+ * Answers kept per corpus: one per inventory a page judges side by side
+ * (U6: this browser's list, and it with the secondary list), most recent
+ * first, so alternating between them re-judges nothing.
+ */
+const JUDGEMENTS_KEPT = 4;
+
+/** An inventory's answers for this corpus, or fresh maps for a new one. */
 function judgementCache(
   prepared: PreparedCorpus,
   inventory: string[],
   staples: string[],
 ): JudgementCache {
   const key = JSON.stringify([inventory, staples]);
-  let cache = judgements.get(prepared);
-  if (!cache || cache.key !== key) {
-    cache = { key, met: new Map(), close: new Map() };
-    judgements.set(prepared, cache);
-  }
+  const kept = judgements.get(prepared) ?? [];
+  const found = kept.findIndex((cache) => cache.key === key);
+  const cache =
+    found >= 0 ? kept[found] : { key, met: new Map(), close: new Map() };
+  judgements.set(prepared, [
+    cache,
+    ...kept.filter((other) => other !== cache).slice(0, JUDGEMENTS_KEPT - 1),
+  ]);
   return cache;
 }
 
@@ -668,8 +867,10 @@ export function analyzeMakeable(
   scoped: MakeRecipe[],
   corpus: MakeRecipe[] | PreparedCorpus,
   inventory: string[],
-  { countClose = true, staples = DEFAULT_STAPLES }: MakeableOptions = {},
+  options: MakeableOptions = {},
 ): MakeableAnalysis {
+  const { countClose = true } = options;
+  const staples = resolveStaples(options);
   const prepared = Array.isArray(corpus) ? prepareCorpus(corpus) : corpus;
   const items = inventory.map(parseInventoryItem);
   const stapleItems = staples.map(parseInventoryItem);
@@ -694,12 +895,37 @@ export function analyzeMakeable(
     return known;
   };
   let closeIndex: CloseIndex | undefined;
+  /*
+   * Staples grouped by the modifier words their names use (most use none),
+   * in list order, each group with its own close index: a group stands in
+   * only for the alternatives open to it.
+   */
+  let stapleGroups:
+    | { own: string[]; items: InventoryItem[]; index?: CloseIndex }[]
+    | undefined;
+  /* The list's own items first; a staple stands in only where no item does
+   * and the line is one that staple may meet at all (U5). */
   const nearest = (requirement: Requirement): InventoryItem | undefined => {
     const key = requirementSignature(requirement);
     let known = closeCache.get(key);
     if (known === undefined) {
       closeIndex ??= buildCloseIndex(items);
       known = firstClose(closeIndex, requirement, prepared.words) ?? null;
+      if (!known && stapleItems.length > 0) {
+        stapleGroups ??= groupStaples(stapleItems);
+        for (const group of stapleGroups) {
+          const open = stapleAlternatives(requirement, group.own);
+          if (open.length === 0) continue;
+          group.index ??= buildCloseIndex(group.items);
+          known =
+            firstClose(
+              group.index,
+              narrowedTo(requirement, open),
+              prepared.words,
+            ) ?? null;
+          if (known) break;
+        }
+      }
       closeCache.set(key, known);
     }
     return known ?? undefined;

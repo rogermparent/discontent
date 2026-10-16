@@ -265,6 +265,8 @@ export interface MakeableRow {
 
 export interface MakeableResult {
   query: string;
+  /** Whether pantry staples counted as on hand (U5; on by default). */
+  staples: boolean;
   /** How many items the judged list holds. */
   inventory: number;
   /** Recipes in scope. */
@@ -323,17 +325,19 @@ async function readMakeCorpus(ctx: CurationContext): Promise<MakeRecipe[]> {
 
 /**
  * What the shared list can make in `query`'s scope — every recipe by default
- * (32j) — with `DEFAULT_STAPLES` assumed and close matches counted as had,
- * as `/make` does out of the box.
+ * (32j) — with `DEFAULT_STAPLES` and, unless `staples: false`,
+ * `PANTRY_STAPLES` assumed (U5), and close matches counted as had, as `/make`
+ * does out of the box.
  */
 export async function makeable(
   ctx: CurationContext,
   raw: unknown = {},
 ): Promise<MakeableResult> {
-  const { query = DEFAULT_MAKE_QUERY, limit = 20 } = parseInput(
-    InventoryMakeQuerySchema,
-    raw,
-  );
+  const {
+    query = DEFAULT_MAKE_QUERY,
+    limit = 20,
+    staples = true,
+  } = parseInput(InventoryMakeQuerySchema, raw);
   const [{ items }, corpus, scope] = await Promise.all([
     readInventory(ctx),
     readMakeCorpus(ctx),
@@ -341,9 +345,12 @@ export async function makeable(
   ]);
   const inScope = new Set(scope.recipes.map((row) => row.slug));
   const scoped = corpus.filter((recipe) => inScope.has(recipe.slug));
-  const analysis = analyzeMakeable(scoped, corpus, items);
+  const analysis = analyzeMakeable(scoped, corpus, items, {
+    pantryStaples: staples,
+  });
   return {
     query,
+    staples,
     inventory: items.length,
     total: scoped.length,
     unjudged: analysis.unjudged,

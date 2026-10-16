@@ -197,7 +197,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   inventory add <item…>
   inventory remove <item…>
   inventory set --file <list.txt|list.json>
-  inventory make [<query…>] [--limit 20]
+  inventory make [<query…>] [--limit 20] [--no-staples]
   shopping [list] [--store <id>]
   shopping add (--recipe <slug> | --group <slug>) [--scale 2] | <line…>
   shopping check <id|name…>
@@ -274,6 +274,16 @@ Environment:
                        How long a write waits for another write's lock on
                        the content repository (default 30000) before it
                        fails with code \`busy\`
+
+What's on hand: \`inventory make\` judges the saved inventory, with salt,
+pepper, water, ice and the pantry staples (flour, sugar, butter, eggs, oil,
+milk, baking soda and powder) assumed — \`--no-staples\` drops the pantry, as
+/make's "Assume pantry staples" switch does. The site's /make and /drinks
+lead with each visitor's own list, kept in their browser; the saved list is a
+separate group for a signed-in editor, and reaches the static export only
+when the Export page's "Share my saved inventory on the export" is on (off
+by default): the build then bakes it in as SITE_HOUSE_INVENTORY, a JSON array
+of items, which a hand-run export build may also set.
 
 Exit codes: 0 done; 1 failed (also \`term assign\` when a named carrier does
 not exist: --force lets an --add through as \`missing\`, printed, exit 1);

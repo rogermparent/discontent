@@ -382,6 +382,20 @@ describe("the CLI as a process", () => {
       expect(JSON.parse(make.stdout)).toMatchObject({
         query: "-tag:drink",
         inventory: 2,
+        staples: true,
+      });
+      /* U5: `--no-staples` turns the pantry staples off. */
+      const strict = await run([
+        "inventory",
+        "make",
+        "-tag:drink",
+        "--no-staples",
+        "--json",
+      ]);
+      expect(strict.exitCode).toBe(0);
+      expect(JSON.parse(strict.stdout)).toMatchObject({
+        query: "-tag:drink",
+        staples: false,
       });
 
       const usage = await run(["inventory", "add", "--json"]);

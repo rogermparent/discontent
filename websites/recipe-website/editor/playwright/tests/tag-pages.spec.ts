@@ -197,23 +197,36 @@ test.describe("Tag pages", () => {
       );
     });
 
-    test("/tags draws the hierarchy with subtree totals (31b)", async ({
+    test("/tags draws a block per root with subtree totals and bars (31b, U4)", async ({
       page,
     }) => {
       await page.goto("/tags");
-      const tree = page.getByTestId("tag-tree");
+      const board = page.getByTestId("tag-board");
       /* Dessert's eight carriers are the cookies; each counts once. */
-      const dessert = tree.locator("> li").filter({ hasText: /^Dessert/ });
-      await expect(dessert).toHaveCount(1);
-      /* The count sits beside the label by margin, not by a space. */
-      expect((await dessert.innerText()).replace(/\s+/g, "")).toBe(
-        "Dessert8Cookies8",
+      const dessert = board.locator(
+        "[data-testid='tag-block'][data-slug='dessert']",
       );
+      await expect(dessert).toHaveCount(1);
       await expect(
-        dessert.getByRole("link", { name: "Cookies" }),
-      ).toHaveAttribute("href", "/tags/cookies");
-      /* A term outside any hierarchy is left to the flat list. */
-      await expect(tree.getByRole("link", { name: "Holiday" })).toHaveCount(0);
+        dessert.getByRole("heading", { level: 3 }).getByRole("link"),
+      ).toHaveAttribute("href", "/tags/dessert");
+      await expect(dessert.getByRole("heading", { level: 3 })).toHaveText(
+        /Dessert\s*8 in all/,
+      );
+      const cookies = dessert.getByTestId("tag-row");
+      await expect(cookies).toHaveCount(1);
+      await expect(cookies).toHaveAttribute("href", "/tags/cookies");
+      expect((await cookies.innerText()).replace(/\s+/g, " ").trim()).toBe(
+        "Cookies 8",
+      );
+      /* The block's largest fills the bar; the bar is decoration. */
+      const bar = cookies.getByTestId("tag-bar");
+      await expect(bar).toHaveAttribute("aria-hidden", "true");
+      await expect(bar).toHaveAttribute("style", /width:\s*100%/);
+      /* A record outside any hierarchy goes to "More tags", not a block. */
+      await expect(
+        board.locator("[data-testid='tag-block'][data-slug='holiday']"),
+      ).toHaveCount(0);
     });
 
     test("tag:dessert finds a recipe that carries only a narrower term (31b)", async ({
@@ -417,14 +430,52 @@ test.describe("Tag pages", () => {
       ).toBeVisible();
     });
 
-    test("the tag index lists a record-only term at zero", async ({ page }) => {
+    test("a block shows 15 rows, biggest first, then links to its root (U4)", async ({
+      page,
+      request,
+      createApiToken,
+    }) => {
+      const token = await createApiToken();
+      for (let i = 1; i <= 16; i += 1) {
+        const created = await request.post("/api/taxonomies/tag", {
+          headers: { authorization: `Bearer ${token}` },
+          data: {
+            label: `Treat ${String(i).padStart(2, "0")}`,
+            parent: "dessert",
+          },
+        });
+        expect(created.status()).toBe(201);
+      }
       await page.goto("/tags");
-      const chip = page
-        .getByTestId("tag-index")
-        .getByRole("link", { name: /Holiday/ });
-      await expect(chip).toHaveAttribute("href", "/tags/holiday");
-      expect((await chip.innerText()).replace(/\s+/g, " ").trim()).toBe(
+      const dessert = page.locator(
+        "[data-testid='tag-block'][data-slug='dessert']",
+      );
+      const rows = dessert.getByTestId("tag-row");
+      await expect(rows).toHaveCount(15);
+      /* Biggest first: Cookies leads the sixteen empty records. */
+      await expect(rows.first()).toHaveText(/Cookies\s*8/);
+      const all = dessert.getByTestId("tag-block-all");
+      await expect(all).toHaveText(/See all of Dessert/);
+      await expect(all).toHaveAttribute("href", "/tags/dessert");
+    });
+
+    test("the tag index lists a record-only term at zero, under More tags (U4)", async ({
+      page,
+    }) => {
+      await page.goto("/tags");
+      const more = page
+        .getByTestId("tag-block")
+        .filter({ has: page.getByRole("heading", { name: /More tags/ }) });
+      const row = more.getByRole("link", { name: /Holiday/ });
+      await expect(row).toHaveAttribute("href", "/tags/holiday");
+      expect((await row.innerText()).replace(/\s+/g, " ").trim()).toBe(
         "Holiday 0",
+      );
+      /* Recorded terms leave the chips below to the bare tags. */
+      const chips = page.getByTestId("tag-index");
+      await expect(chips.getByRole("link", { name: /Holiday/ })).toHaveCount(0);
+      await expect(chips.getByRole("link", { name: /^christmas/ })).toHaveCount(
+        1,
       );
     });
 
