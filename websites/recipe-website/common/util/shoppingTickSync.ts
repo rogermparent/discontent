@@ -24,12 +24,12 @@
  * the page sends nothing. A held tick expires `HELD_TICKS_MAX_AGE_MS` (a
  * week, 39-D3) after it was made: it is dropped when the storage is next
  * read, and the snapshot's `expired` names it for the page to say so. A
- * failed `done()` keeps them and says so; it does not retry by itself. Turning the switch
- * off sends what was held, the usual way. Every tab of the browser shares
- * that storage: each change is read-change-write (`mutate`), a tab takes up
- * another's ticks on the `storage` event (`refresh`), "Done shopping" sends
- * them all, and a tab that is not holding touches it only to take its ticks
- * and send them.
+ * failed `done()` keeps them and says so; it does not retry by itself.
+ * Turning the switch off sends what was held, the usual way. Every tab of
+ * the browser shares that storage: each change is read-change-write
+ * (`mutate`), a tab takes up another's ticks on the `storage` event
+ * (`refresh`), "Done shopping" sends them all, and a tab that is not
+ * holding touches it only to take its ticks and send them.
  *
  * Pure apart from the injected `fetch`, storage and timers.
  */
