@@ -441,7 +441,7 @@ export default function NewOrImportRecipeForm({
           />
           <div id="missing-fields-error" aria-live="polite" aria-atomic="true">
             {submissionState.message && (
-              <p className="mt-2 text-sm text-destructive">
+              <p className="mt-2 border-l-2 border-destructive pl-2 text-sm">
                 {submissionState.message}
               </p>
             )}

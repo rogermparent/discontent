@@ -1,9 +1,9 @@
 /**
  * When each holiday falls (usability pass, 2026-10-15): the one calendar the
  * site keeps, shared by the homepage's "Coming up" (U1, through
- * `withinComingUpWindow`) and the Drinks page's seasonal row (U3, the first
- * dated entry of `orderByNextOccurrence`). Each caller keeps its own policy;
- * the date rules are these. Pure and safe in the browser — both callers run
+ * `withinComingUpWindow`, 180 days) and the Drinks page's seasonal row (U3,
+ * `nextSeasonal`, 60 days — 38a). Both windows are `withinDays`; each caller
+ * keeps its own length; the date rules are these. Pure and safe in the browser — both callers run
  * it there, because the export is static and a date chosen at build time
  * goes stale.
  *
@@ -209,6 +209,21 @@ export function orderByNextOccurrence<T extends { slug: string }>(
 }
 
 /**
+ * Whether `date` falls on `today` or within the `n` days after it — the one
+ * window rule both holiday rows apply (38a, D1): "Coming up" with
+ * `COMING_UP_WINDOW_DAYS`, the Drinks page's seasonal row with
+ * `SEASONAL_WINDOW_DAYS`. A date already past is outside it.
+ */
+export function withinDays(
+  today: CalendarDay,
+  date: CalendarDay,
+  n: number,
+): boolean {
+  const days = daysBetween(today, date);
+  return days >= 0 && days <= n;
+}
+
+/**
  * How far ahead "Coming up" looks (review round, 2026-10-15). A holiday
  * further off than this doesn't show — the section counts down, it doesn't
  * list every holiday there is — and an undated one never qualifies, since it
@@ -228,7 +243,29 @@ export function withinComingUpWindow<T extends { slug: string }>(
   windowDays: number = COMING_UP_WINDOW_DAYS,
 ): Array<T & { days: number }> {
   return orderByNextOccurrence(items, today).filter(
-    (item): item is T & { days: number } =>
-      item.days !== undefined && item.days <= windowDays,
+    (item): item is T & { days: number } => {
+      const next = nextOccurrence(item.slug, today);
+      return next !== undefined && withinDays(today, next, windowDays);
+    },
   );
+}
+
+/**
+ * How far ahead the Drinks page's seasonal row looks (38a, D1 — Roger's
+ * pick): a holiday two months off is worth a row; one ten months off is not.
+ */
+export const SEASONAL_WINDOW_DAYS = 60;
+
+/**
+ * The Drinks page's seasonal pick (U3, 38a): the soonest dated holiday among
+ * `items`, if it falls within `windowDays` — else `undefined`, and the row
+ * hides. A holiday with no rule is never "next".
+ */
+export function nextSeasonal<T extends { slug: string }>(
+  items: T[],
+  today: CalendarDay,
+  windowDays: number = SEASONAL_WINDOW_DAYS,
+): (T & { days: number }) | undefined {
+  const [next] = withinComingUpWindow(items, today, windowDays);
+  return next;
 }

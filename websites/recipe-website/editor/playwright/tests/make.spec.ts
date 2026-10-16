@@ -508,6 +508,49 @@ test.describe("What can I make? — your saved inventory", () => {
     );
     await expect(saved(page)).toContainText("Your saved inventory (3)");
   });
+
+  test("the always-have list follows the owner to a new browser (38a)", async ({
+    page,
+    browser,
+  }) => {
+    const staples = (on: Page) => on.getByTestId("staples");
+    await signInToMake(page);
+    await staples(page).locator("summary").click();
+    await staples(page)
+      .getByLabel("Add to what I always have", { exact: true })
+      .fill("soy sauce");
+    await staples(page)
+      .getByRole("button", { name: "Add", exact: true })
+      .click();
+    await expect(staples(page).locator("summary")).toHaveText(
+      "Assume I always have (5)",
+    );
+
+    /* Another browser, signed in: still on the default list, so it starts
+     * from the saved one. A context made by hand has no `baseURL`. */
+    const other = await browser.newPage();
+    await other.goto(new URL("/", page.url()).toString());
+    await signIn(other);
+    await other.goto(new URL("/make", page.url()).toString());
+    await ready(other);
+    await expect(staples(other).locator("summary")).toHaveText(
+      "Assume I always have (5)",
+    );
+    await staples(other).locator("summary").click();
+    await expect(staples(other).getByTestId("staples-chips")).toContainText(
+      "soy sauce",
+    );
+
+    /* A guest's staples are its browser's alone. */
+    const guest = await browser.newPage();
+    await guest.goto(new URL("/make", page.url()).toString());
+    await ready(guest);
+    await expect(staples(guest).locator("summary")).toHaveText(
+      "Assume I always have (4)",
+    );
+    await other.close();
+    await guest.close();
+  });
 });
 
 /*

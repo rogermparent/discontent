@@ -227,7 +227,7 @@ export default function BatchPicker({
                     : ""}
                 </span>
                 {(!reading.trusted || reading.recipe.partial) && (
-                  <span className="text-destructive">
+                  <span className="border-l-2 border-destructive pl-1.5 font-medium">
                     not trusted — check it
                   </span>
                 )}
@@ -298,7 +298,10 @@ export default function BatchPicker({
           </Button>
         </div>
         {error && (
-          <p className="text-sm text-destructive" role="alert">
+          <p
+            className="border-l-2 border-destructive pl-2 text-sm"
+            role="alert"
+          >
             {error}
           </p>
         )}

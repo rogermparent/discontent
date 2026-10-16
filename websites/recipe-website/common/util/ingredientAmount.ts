@@ -39,8 +39,7 @@ import {
   UNIT_OR_RE,
   UNIT_RE,
 } from "./ingredientGrammar";
-import { stripMarkup } from "./ingredientNames";
-import { normalizeIngredientText } from "./parseIngredients";
+import { readableLine } from "./ingredientNames";
 
 /**
  * Which units convert into which. US and metric are separate families on
@@ -574,10 +573,7 @@ function readBracket(text: string): Amount | null {
  * text.
  */
 export function parseAmount(line: string): Amount | null {
-  let text = normalizeIngredientText(stripMarkup(line))
-    .replace(/\*+/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  let text = readableLine(line).replace(/\*+/g, "").replace(/\s+/g, " ").trim();
   if (!text || detectHeading(text)) return null;
   text = text
     .replace(/^(?:optional|garnish(?:es)?|to serve|for serving)\s*:\s*/i, "")

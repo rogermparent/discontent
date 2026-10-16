@@ -49,6 +49,7 @@ import {
   useMakeSettings,
 } from "./useInventory";
 import { KindSwitch } from "./KindSwitch";
+import { useSavedStaples, type SavedStaples } from "./useSavedStaples";
 import {
   kindOfQuery,
   MAKE_KINDS,
@@ -104,15 +105,22 @@ function corpusTagOptions(recipes: MassagedRecipeEntry[]): TagOption[] {
  * - `secondary` — otherwise: `secondaryInventory()`'s answer, the house
  *   snapshot an export was built with when the operator opted in, and
  *   nothing by default.
+ *
+ * `savedStaples` (38a, signed-in editor only) keeps "Assume I always have"
+ * in the editor's settings and seeds a browser still on the default list
+ * from it (`useSavedStaples`). The browser's own list still leads.
  */
 export function MakePage({
   tags,
   secondary,
   saved,
+  savedStaples,
 }: {
   tags?: TagOption[];
   secondary?: SecondaryInventory;
   saved?: SavedInventoryProps;
+  /** The signed-in editor's saved staples (38a); never on the export. */
+  savedStaples?: SavedStaples;
 }) {
   const searchParams = useSearchParams();
   const urlQuery = searchParams.get("q");
@@ -152,7 +160,7 @@ export function MakePage({
   const [dialogOpen, setDialogOpen] = useState(false);
   const queryInputId = useId();
   const closeToggleId = useId();
-  const settings = useMakeSettings();
+  const settings = useSavedStaples(useMakeSettings(), savedStaples);
 
   const { allRecipes, status, error, retry } = useSearch();
   const ingredientsQuery = useQuery({

@@ -2,7 +2,7 @@
 //
 // Usability pass (U1/U3): the one holiday calendar — when each holiday term
 // falls, for the homepage's "Coming up" (its 180-day window) and the Drinks
-// page's seasonal row (the next dated holiday).
+// page's seasonal row (the next dated holiday, within 60 days since 38a).
 
 import { describe, expect, it } from "vitest";
 import {
@@ -13,9 +13,12 @@ import {
   formatDayLong,
   localDay,
   nextOccurrence,
+  nextSeasonal,
   orderByNextOccurrence,
   parseDayKey,
+  SEASONAL_WINDOW_DAYS,
   withinComingUpWindow,
+  withinDays,
 } from "../websites/recipe-website/common/util/holidays";
 
 const day = (key: string) => parseDayKey(key);
@@ -162,16 +165,70 @@ describe("holiday spellings and the reader's day", () => {
     expect(daysBetween(evening, halloween)).toBe(0);
   });
 
-  it("gives the Drinks page its next dated holiday, however far off", () => {
-    /* The seasonal row takes the first dated entry: no 180-day window, so
-     * the day after Christmas still names next Halloween. */
+  it("orders the undated holidays after the dated ones", () => {
     const ordered = orderByNextOccurrence(
       [{ slug: "fall" }, { slug: "halloween" }, { slug: "christmas" }],
       day("2026-12-26"),
     );
-    expect(ordered.find((entry) => entry.days !== undefined)?.slug).toBe(
+    expect(ordered.map((entry) => entry.slug)).toEqual([
       "halloween",
-    );
+      "christmas",
+      "fall",
+    ]);
     expect(ordered.at(-1)).toEqual({ slug: "fall", days: undefined });
+  });
+});
+
+describe("withinDays (38a, D1)", () => {
+  it("counts today and the n days after it, and nothing past", () => {
+    const today = day("2026-10-16");
+    expect(withinDays(today, today, 0)).toBe(true);
+    expect(withinDays(today, day("2026-12-15"), 60)).toBe(true);
+    expect(withinDays(today, day("2026-12-16"), 60)).toBe(false);
+    expect(withinDays(today, day("2026-10-15"), 60)).toBe(false);
+  });
+
+  it("crosses the year end", () => {
+    expect(withinDays(day("2026-12-26"), day("2027-01-01"), 6)).toBe(true);
+    expect(withinDays(day("2026-12-26"), day("2027-01-01"), 5)).toBe(false);
+  });
+});
+
+describe("the Drinks page's seasonal row (38a, D1)", () => {
+  const holidays = [
+    { slug: "fall" },
+    { slug: "halloween" },
+    { slug: "christmas" },
+  ];
+
+  it("shows a holiday 60 days out, and hides one 61 days out", () => {
+    expect(SEASONAL_WINDOW_DAYS).toBe(60);
+    /* Christmas is 25 December: 60 days before is 26 October. */
+    expect(nextSeasonal([{ slug: "christmas" }], day("2026-10-26"))).toEqual({
+      slug: "christmas",
+      days: 60,
+    });
+    expect(
+      nextSeasonal([{ slug: "christmas" }], day("2026-10-25")),
+    ).toBeUndefined();
+  });
+
+  it("names the soonest dated holiday within the window", () => {
+    expect(nextSeasonal(holidays, day("2026-10-15"))?.slug).toBe("halloween");
+    expect(nextSeasonal(holidays, day("2026-11-01"))?.slug).toBe("christmas");
+  });
+
+  it("hides the row after Christmas until a holiday comes within 60 days", () => {
+    /* Halloween is 309 days off, and an undated "fall" is never next. */
+    expect(nextSeasonal(holidays, day("2026-12-26"))).toBeUndefined();
+    /* Across the year end: New Year's Day, six days off. */
+    expect(
+      nextSeasonal([...holidays, { slug: "new-year" }], day("2026-12-26")),
+    ).toEqual({ slug: "new-year", days: 6 });
+    /* Halloween comes back into the window on 1 September. */
+    expect(nextSeasonal(holidays, day("2027-09-01"))).toEqual({
+      slug: "halloween",
+      days: 60,
+    });
   });
 });

@@ -416,6 +416,54 @@ test.describe("Tag pages", () => {
       ).toBeVisible();
     });
 
+    test("/tags counts an alias's carriers and lists the aliases (38a, D2)", async ({
+      page,
+      request,
+      createApiToken,
+    }) => {
+      const token = await createApiToken();
+      const headers = { authorization: `Bearer ${token}` };
+      expect(
+        (
+          await request.patch("/api/taxonomies/tag/cookies", {
+            headers,
+            data: { aliases: ["Biscuits"] },
+          })
+        ).status(),
+      ).toBe(200);
+      expect(
+        (
+          await request.post("/api/recipes", {
+            headers,
+            data: { name: "Digestive Biscuits", tags: ["biscuits"] },
+          })
+        ).status(),
+      ).toBe(201);
+
+      await page.goto("/tags");
+      const dessert = page
+        .getByTestId("tag-board")
+        .locator("[data-testid='tag-block'][data-slug='dessert']");
+      await expect(dessert.getByRole("heading", { level: 3 })).toHaveText(
+        /Dessert\s*9 in all/,
+      );
+      const cookies = dessert.getByTestId("tag-row");
+      await expect(cookies.getByTestId("tag-aliases")).toHaveText(
+        "also: biscuits",
+      );
+      expect((await cookies.innerText()).replace(/\s+/g, " ").trim()).toBe(
+        "Cookies 9 also: biscuits",
+      );
+      /* The alias is Cookies', not a bare tag of its own (38a review). */
+      const chips = page.getByTestId("tag-index");
+      await expect(chips.getByRole("link", { name: /christmas/ })).toHaveCount(
+        1,
+      );
+      await expect(chips.getByRole("link", { name: /biscuits/i })).toHaveCount(
+        0,
+      );
+    });
+
     test("a record with no carriers is a real page, not a 404", async ({
       page,
     }) => {

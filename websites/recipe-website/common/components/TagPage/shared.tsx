@@ -275,6 +275,20 @@ export function TagPage({
 }
 
 /**
+ * A term's other names on `/tags` (38a, D2): "also: Cocktail, Cocktails" —
+ * the record's aliases as stored, which `tag:` and `/tags/<alias>` resolve to
+ * the term and whose carriers its count includes. Nothing without aliases.
+ */
+function AliasLine({ aliases }: { aliases?: string[] }) {
+  if (!aliases?.length) return null;
+  return (
+    <span data-testid="tag-aliases" className="text-xs text-muted-foreground">
+      also: {aliases.join(", ")}
+    </span>
+  );
+}
+
+/**
  * One row of a `/tags` block (U4): the term's label and count, and a thin bar
  * whose width is the count over the block's largest. The bar is decoration
  * (`aria-hidden`); the count is the text. A narrower term is indented by its
@@ -304,6 +318,7 @@ function TermRow({
             {node.total}
           </span>
         </span>
+        <AliasLine aliases={node.aliases} />
         <span
           aria-hidden
           data-testid="tag-bar"
@@ -328,12 +343,15 @@ function TagBlock({
   title,
   total,
   rows,
+  aliases,
 }: {
   /** The root's slug; absent for "More tags", which has no page. */
   slug?: string;
   title: string;
   total: string;
   rows: TermHierarchyNode[];
+  /** The root's own aliases (38a). */
+  aliases?: string[];
 }) {
   const { shown, rest, all } = blockRows(rows, BLOCK_ROW_LIMIT);
   const max = all.reduce((most, { node }) => Math.max(most, node.total), 0);
@@ -372,6 +390,11 @@ function TagBlock({
           <span className={headingClass}>{heading}</span>
         )}
       </h3>
+      {aliases?.length ? (
+        <p className="mb-1">
+          <AliasLine aliases={aliases} />
+        </p>
+      ) : null}
       {list(shown)}
       {rest.length > 0 &&
         (slug ? (
@@ -394,7 +417,12 @@ function TagBlock({
   );
 }
 
-const EMPTY_BOARD: TagBoard = { roots: [], loose: [], recorded: [] };
+const EMPTY_BOARD: TagBoard = {
+  roots: [],
+  loose: [],
+  recorded: [],
+  aliased: [],
+};
 
 /**
  * `/tags` (U4): a board of count bars — one block per facet root, then the
@@ -414,8 +442,10 @@ export function TagIndexPage({
   actions?: ReactNode;
 }) {
   const hasBoard = board.roots.length > 0 || board.loose.length > 0;
-  const recorded = new Set(board.recorded);
-  const bare = tags.filter((tag) => !recorded.has(tag.slug));
+  /* A record's slug, or an alias of one (its carriers count under the
+   * term — 38a review), is no bare tag. */
+  const notBare = new Set([...board.recorded, ...board.aliased]);
+  const bare = tags.filter((tag) => !notBare.has(tag.slug));
   return (
     <PageMain>
       <PageSection grow maxWidth="none" className="max-w-7xl mx-auto">
@@ -446,6 +476,7 @@ export function TagIndexPage({
                   title={root.label}
                   total={`${root.total} in all`}
                   rows={root.children}
+                  aliases={root.aliases}
                 />
               ))}
               {board.loose.length > 0 && (

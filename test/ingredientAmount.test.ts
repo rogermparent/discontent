@@ -460,6 +460,17 @@ describe("parseAmount — as needed", () => {
     expect(isAsNeeded(parseAmount(line)!)).toBe(true);
   });
 
+  it("doesn't read an accented word's `a`/`an` as one (38a review)", () => {
+    /* NFKD splits "añejo" into `an` + U+0303 + `ejo`; the marks go first. */
+    expect(parseAmount("añejo tequila, to rinse")).toEqual(AS_NEEDED);
+    expect(parseAmount("Añejo rum, to float")).toEqual(AS_NEEDED);
+    expect(parts("2 oz añejo tequila")).toEqual([
+      { qty: 2, unit: "oz", family: "us-weight" },
+    ]);
+    /* The real article still reads as one. */
+    expect(parts("an egg")[0].qty).toBe(1);
+  });
+
   it("keeps an amount that comes with a remark", () => {
     expect(parts("1 tablespoon water, plus more as needed")[0].unit).toBe(
       "tbsp",
