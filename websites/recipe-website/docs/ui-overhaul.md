@@ -2195,7 +2195,42 @@ build` may set the variable itself. Documented in the CLI's `--help` and
 
 ### Gate results (U4–U6)
 
-Pending.
+On `agent/tags-staples` after merging main at `114040c5` (37b), every run
+through the heavy slot (2026-10-15):
+
+- Both typechecks clean.
+- vitest 1907/1907 across 88 files. New: U5 cases in `makeable.test.ts`, the
+  `staples` flag in `inventory.test.ts`, `termBoard` in `tagExpansion.test.ts`,
+  the overlay migration in `inventoryText.test.ts`, and
+  `exportHouseInventory.test.ts`. Pre-U5 matching cases pass
+  `pantryStaples: false`. The first full run, before the merge and under
+  memory pressure, had a tenth failure in a file it didn't name; it did not
+  come back.
+- Playwright on a production build, e2e + mobile: `make`, `tag-pages`,
+  `accessibility`, `bar-tools` and `shopping`, 94 tests.
+  - 92/94 on the first run. The two failures were a bar style matched as
+    `width: 100%` when React writes `width:100%`, and a real bug: an editor
+    guest migrated the old overlay on the hydration render, where storage
+    reads as not-yet-known. The fix is in `useLegacyInventoryMigration`.
+  - Rerun of `make` + `tag-pages`: 53/53.
+  - New axe tests for the `/tags` board and the signed-in `/make` with both
+    folds open pass.
+- `visual.spec` `make-page` baseline regenerated in its own commit; the
+  page gained the switch, and pantry staples change the one-away row.
+- **The export guard, both ways, in real builds:** `recipe-website build`
+  against a copy of `make-drinks` whose saved list carries a marker item.
+  - Off (the variable unset): 0 files in `out/` or `.next/` name it.
+  - On (`SITE_HOUSE_INVENTORY` set): 4 files name it, all `/make`'s
+    (`make.html`, `make.txt` and its two RSC payloads), with the "Also
+    makeable from the house inventory" group.
+- **Real-content screenshots:** a scratch clone of the content repo,
+  reindexed, served by the editor's production build as a guest, with a
+  14-item browser list seeded. `/tags` and `/make` at 1280 and 390, light
+  and dark, no sideways scroll at 390. The clone was deleted afterwards.
+  - `/make` with pantry staples: 787 recipes, 25 can make, 78 one away, 118
+    two away. Buy next leads with instant yeast and sourdough starter.
+  - The full static export of the real repo timed out on page generation in
+    this box, so the shots come from the editor.
 
 ## Verification (Playwright-first)
 
