@@ -58,6 +58,10 @@ import {
   importTarget,
 } from "../controller/curation/importRequest";
 import { LLM_MODES } from "../controller/llm/mode";
+import {
+  JOB_LIST_MAX_LIMIT,
+  JOB_STATUS_FILTERS,
+} from "../controller/jobs/listing";
 import type { RecipeRow } from "../controller/curation/recipes";
 import {
   FeaturedInputSchema,
@@ -161,6 +165,9 @@ export const TOOL_NAMES = [
   "git_fetch",
   "git_pull",
   "git_sync",
+  /* The job store (epic 37, 37c): 55 → 57, both reads. */
+  "job_list",
+  "job_get",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -340,13 +347,15 @@ const INSTRUCTIONS = `Manage and search a recipe website's content.
 
 Recipe rows from recipe_search and recipe_list are compact — {slug, name, date, tags, totalTime, image?} — to keep results small; pass \`fields\` to add description, ingredients, prepTime or cookTime, and use recipe_get for a whole recipe. Slugs are the identity of everything: recipe slugs, group slugs, and a featured entry's own slug (which is not its target's).
 
-Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?, terms?, warnings?}} (warnings: what a failed import had found worth saying, such as the local model running on the CPU); the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, unknown_term, group_cycle, term_cycle, term_in_use, import_failed, no_git_identity, not_a_repo, dirty_tree, git_conflict, bad_revision, busy, unauthenticated, forbidden, usage and internal. busy means another write held the content repository's write lock (the message names it) and nothing was written: wait a few seconds and make the same call again. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
+Every result is JSON, in \`structuredContent\` and as text. A failure carries \`isError\` and an object shaped {error: {code, message, slug?, issues?, recipes?, groups?, terms?, warnings?, job?}} (warnings: what a failed import had found worth saying, such as the local model running on the CPU; job: the import's job, whose steps job_get shows); the codes are not_found, slug_conflict, validation, unknown_recipe, unknown_group, unknown_term, group_cycle, term_cycle, term_in_use, import_failed, no_git_identity, not_a_repo, dirty_tree, git_conflict, bad_revision, busy, cancelled, unauthenticated, forbidden, usage and internal. busy means another write held the content repository's write lock (the message names it) and nothing was written: wait a few seconds and make the same call again. cancelled means a person stopped the import (from the editor's Jobs page or the CLI): do not retry it unasked. A write may answer with a \`warnings\` array — a running editor that is now stale, or group items naming recipes that do not exist yet — which is information, not failure.
 
 Tags are one vocabulary shared by recipes and groups. A term is a tag that may also have a record — a label, description, picture, a parent (so tag:<parent> also finds everything under it), pinned recipes that lead its page, and aliases (other names that tag:<alias> and /tags/<alias> send to it; recipes keep their own tags). Use terms for a cluster by kind or a curated collection (term_create, then term_assign), and groups for meal plans: ordered, dated lists with a label per item. term_assign, term_rename, term_merge and term_delete write each recipe or group they touch, and land as one commit per call — a failure part-way commits what was written as "… (partial)" and answers the error.
 
 Writes commit to the content repository, one commit per call. Deletes (recipe_delete, group_delete, term_delete, term_merge, unfeature) are not undoable from here.
 
-The git tools read and rewind that repository. git_log, git_show, git_file_at and git_diff read history; \`type\` is recipe, group, featured or term. git_revert and git_restore make a new commit and rebuild every index — they need a clean working tree (dirty_tree otherwise) and neither is undoable from here. git_push sends the branch to its remote and changes nothing locally. git_fetch refreshes the remote refs and nothing else, so run it (or git_status with fetch: true) before trusting ahead/behind. git_pull merges the upstream in and rebuilds every index; a conflict is aborted and answered with git_conflict, for a person to resolve in the editor's Git page. If git_status says indexStale, run reindex.`;
+The git tools read and rewind that repository. git_log, git_show, git_file_at and git_diff read history; \`type\` is recipe, group, featured or term. git_revert and git_restore make a new commit and rebuild every index — they need a clean working tree (dirty_tree otherwise) and neither is undoable from here. git_push sends the branch to its remote and changes nothing locally. git_fetch refreshes the remote refs and nothing else, so run it (or git_status with fetch: true) before trusting ahead/behind. git_pull merges the upstream in and rebuilds every index; a conflict is aborted and answered with git_conflict, for a person to resolve in the editor's Git page. If git_status says indexStale, run reindex.
+
+Imports, inspects and roundup calls run as jobs: each result carries \`job\`, an id. job_get shows a job's steps — the fetch, yt-dlp, each model call with its tokens, rate and GPU share, queue waits — and job_list the recent ones. A slow import is often waiting in the queue for the GPU behind another import: job_list with status live says so.`;
 
 /* --- the registry -------------------------------------------------------- */
 
@@ -1570,6 +1579,53 @@ export function createRecipeServer(
       annotations: WRITES,
     },
     async (args) => write(backend, () => backend.gitSync(args)),
+  );
+
+  /* --- jobs (epic 37, 37c) ---------------------------------------------- */
+
+  register(
+    "job_list",
+    {
+      title: "List import jobs",
+      description:
+        "Every import, inspect and roundup call runs as a job with a step log; this " +
+        "lists them newest first as {jobs: [{id, kind, label, status, tier, queuedAt, " +
+        "startedAt?, endedAt?, durationMs?, error?, waiting?, retryOf?}], total, more}. " +
+        "`status` filters by queued, running, done, failed, cancelled, interrupted, or " +
+        "`live` (queued and running); `kind` by import-url, import-text, inspect, " +
+        "inspect-list, import-list, form-url, form-text or form-batch. A `waiting` " +
+        "job is in the queue for the GPU, yt-dlp or a site.",
+      inputSchema: z.strictObject({
+        status: z.enum(JOB_STATUS_FILTERS).optional(),
+        kind: z.string().min(1).optional(),
+        limit: z.number().int().min(1).max(JOB_LIST_MAX_LIMIT).optional(),
+      }),
+      annotations: READ_ONLY,
+    },
+    async (args) => read(() => backend.listJobs(args)),
+  );
+
+  register(
+    "job_get",
+    {
+      title: "Get an import job and its steps",
+      description:
+        "One job — the `job` id every import, inspect and roundup result (and a failed " +
+        "one's error) carries, or its last eight characters — as {job, meta, lines, " +
+        "next, live}: `meta` is its record (status, times, the spec summarised, result " +
+        "or error with its warnings); `lines` its step log — fetch, yt-dlp, each model " +
+        "call with its tokens, rate and GPU share, queue waits, writes — as {t, step, " +
+        "phase: start|end|note, n, parent, ms, ok, msg, error, data}. Pass `from` (the " +
+        "`next` of an earlier call) to read only what was written since; `live` is " +
+        "true while it runs.",
+      inputSchema: z.strictObject({
+        id: z.string().min(4),
+        from: z.number().int().min(0).optional(),
+      }),
+      annotations: READ_ONLY,
+    },
+    async ({ id, from }) =>
+      read(() => backend.getJob(id, from === undefined ? {} : { from })),
   );
 
   if (info.readOnly) {

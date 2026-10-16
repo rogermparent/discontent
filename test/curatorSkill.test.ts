@@ -137,7 +137,7 @@ const EXPECTED_ALLOWED = TOOL_NAMES.filter(
 
 /** Anything backticked that is shaped like one of this server's tool names. */
 const TOOL_SHAPED =
-  /^(recipe|group|git|tag|featured|inventory|shopping|page|term)_[a-z_]+$|^(feature|unfeature|reindex)$/;
+  /^(recipe|group|git|tag|featured|inventory|shopping|page|term|job)_[a-z_]+$|^(feature|unfeature|reindex)$/;
 
 /** `## Heading` … up to the next `## `, or the end. */
 function section(markdown: string, heading: string): string {
@@ -253,8 +253,11 @@ describe("the recipe-curator skill's allow-lists", () => {
      * a deliberate edit here — and CLAUDE.md's "pre-approves its N" sentence,
      * which nothing else checks, moves with it.
      */
-    expect(TOOL_NAMES).toHaveLength(55);
-    expect(EXPECTED_ALLOWED).toHaveLength(41);
+    expect(TOOL_NAMES).toHaveLength(57);
+    expect(EXPECTED_ALLOWED).toHaveLength(43);
+    /* 37c: 55 → 57 and 41 → 43 — the job store's two reads. */
+    expect(EXPECTED_ALLOWED).toContain("job_list");
+    expect(EXPECTED_ALLOWED).toContain("job_get");
     expect(EXPECTED_ALLOWED).toContain("term_set_image");
     /* 34f: 47 → 49 and 35 → 37 — the roundup read and the roundup import,
      * whose every recipe is its own revertable commit, as `recipe_import`'s. */

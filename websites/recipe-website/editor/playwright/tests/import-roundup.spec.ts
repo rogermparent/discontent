@@ -192,5 +192,18 @@ test.describe("Import from a roundup", () => {
       reason.getByRole("link", { name: "Import it as one recipe" }),
     ).toHaveAttribute("href", `/new-recipe?import=${encodeURIComponent(url)}`);
     await expect(page.getByTestId("roundup-items")).toHaveCount(0);
+
+    /*
+     * 37c: `?import=` starts a form job and follows it at `?job=` — a reload
+     * follows the same job instead of fetching the page again.
+     */
+    await reason.getByRole("link", { name: "Import it as one recipe" }).click();
+    await expect(page).toHaveURL(/\/new-recipe\?job=[0-9A-Z]{26}$/);
+    await expect(page.locator('#recipe-form [name="name"]')).toHaveValue(
+      "Picker Soup",
+    );
+    await expect(
+      page.getByTestId("import-progress").getByRole("heading", { level: 3 }),
+    ).toHaveText("Import done");
   });
 });

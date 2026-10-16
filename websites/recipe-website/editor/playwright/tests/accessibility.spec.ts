@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "../support/test";
 import { signIn } from "../support/helpers";
+import { fixturePath } from "../support/tasks";
 import { PRESETS, type Theme } from "@discontent/component-library/theming";
 // Promoted to support/ so portfolio's sweep uses the same seeding rather than a
 // third copy of it.
@@ -152,6 +153,64 @@ test.describe("Accessibility (axe)", () => {
       await expect(
         page.getByRole("heading", { name: "Content Sync" }),
       ).toBeVisible();
+      await expectNoViolations(page);
+    });
+  }
+
+  /*
+   * 37c: the import jobs — `/jobs` (the queue, the table, the filters), a
+   * job's page (the timeline, the raw log open) and the form's progress
+   * panel while an import runs (the slow yt-dlp stand-in holds it live) —
+   * in both modes: the status badges and the timeline's bars carry colour.
+   */
+  for (const mode of ["light", "dark"] as const) {
+    test(`jobs pages and the import panel have no WCAG2AA violations in ${mode} mode`, async ({
+      page,
+      resetData,
+      writeSettings,
+      baseURL,
+    }) => {
+      await resetData("importable-uploads");
+      await writeSettings({
+        ytdlpPath: fixturePath("yt-dlp", "ytdlp-mimic.mjs"),
+      });
+      await page.emulateMedia({ colorScheme: mode });
+      await page.goto("/");
+      await signIn(page);
+
+      /* A job to list and to open: an inspect through the API. */
+      const inspected = await page.request.post("/api/inspect", {
+        data: { url: new URL("/uploads/naan.html", baseURL!).href },
+      });
+      expect(inspected.ok()).toBe(true);
+      const { job } = (await inspected.json()) as { job: string };
+
+      await page.goto("/jobs");
+      await expectMode(page, mode);
+      await expect(page.locator(`[data-job="${job}"]`)).toBeVisible();
+      await expectNoViolations(page);
+
+      await page.goto(`/jobs/${job}`);
+      await expect(page.getByTestId("job-timeline")).toBeVisible();
+      await page.getByText(/^Raw log/).click();
+      await expectNoViolations(page);
+
+      await page.goto("/new-recipe");
+      await page
+        .getByLabel("Import from URL", { exact: true })
+        .fill("https://www.youtube.com/watch?v=SLOW_TEST");
+      await page.getByRole("button", { name: "Import", exact: true }).click();
+      const panel = page.getByTestId("import-progress");
+      await expect(panel.locator('[data-step="ytdlp"]')).toHaveAttribute(
+        "data-status",
+        "running",
+      );
+      await expectNoViolations(page);
+      /* Then it ends, folded. */
+      await expect(panel.getByRole("heading", { level: 3 })).toHaveText(
+        "Import done",
+        { timeout: 15_000 },
+      );
       await expectNoViolations(page);
     });
   }
