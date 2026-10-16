@@ -214,6 +214,38 @@ editor is stopped (content only, no heavy work), then 38-close.
 
 ### 38b
 
+- **Tb1 — `SitePacer#request` is not re-entrant.** Its per-process line
+  and its `site:<site>` slot (taken with `acquire`, not `withResource`)
+  both wait for whoever holds them — the caller included. A paced request
+  made inside another paced request to the same site, in one process,
+  waits for itself forever. 38b's `fetchImageFilePaced` is the default
+  image download of `buildRecipeWrite` and the group writes; the import
+  seats never reach that default while they hold a site (they pass their
+  own `fetchImage`, or the file they already fetched), and a new caller
+  must not either.
+- **Tb2 — a job started by a server action outlives the action.** The
+  roundup picker's chunk actions now answer the job's id at once, so the
+  job's writes call `revalidatePath`/`revalidateTag` after the action
+  returned — 37-T26's trap, in an action instead of a route. The same fix
+  holds: the action hands `done` to `after()`. `import-roundup.spec`'s
+  "the imports reach the cached pages" reads `/recipes` before and after.
+- **Tb3 — a paced Save waits out the gap on a real host in e2e.** Three
+  `new-recipe` fixtures (`naan_prep_cook.html` and its siblings) name an
+  image on kingarthurbaking.com, which Submit downloads. Paced (Db5), the
+  second and third saves in a row waited 15 s for that site and missed
+  their 10 s expectation. Playwright's server now runs with
+  `RECIPE_POLITE_GAP_MS=0`, as vitest does; loopback fixtures were never
+  paced.
+- **Tb4 — `document.hidden` in a spec.** Playwright cannot hide a tab;
+  `jobs.spec` redefines `document.hidden` on the document and dispatches
+  `visibilitychange`, which `useSyncExternalStore` reads like the real one.
+- **Tb5 — a job without a record has an id nobody can follow.** When the
+  jobs dir cannot be written (37-T6), `startJob` runs the job anyway and
+  `/api/jobs/<id>` answers 404 — which `useJobPoll` takes as final. A
+  surface that starts a job and then follows it must check `stored` and
+  await `done` instead; the roundup picker does since the review. (The
+  form's import panel is 37c's and was not changed here.)
+
 ### 38c
 
 - **Tc1 — "min." does end sentences.** The backlog row said to mind "min."
@@ -254,6 +286,182 @@ force`/`auto`/`off` on a pasted-text import is a usage error, not a mode
 ### 38a — Reader UX follow-through
 
 ### 38b — Jobs polish
+
+**Reindex needed: no.** Nothing in the content repository changes.
+**Deploy:** the Pi's next `pnpm deploy:pi` mounts the jobs volume (Roger's;
+not run here).
+
+**Built.**
+
+- **Dish names on `/jobs/<id>`** — already done by 37c's review round
+  (`resultRows` reads `name`, else `recipe.name`, else "Recipe n";
+  `jobSurfaces.test`'s `resultRows` case covers both shapes, and
+  `jobs.spec`'s picker test reads the four dish names off the job's page).
+  The 37c Results' "Misbehaved" paragraph predates that fix. Nothing more
+  to do; no new test.
+- **`/jobs` refreshes by itself** (`JobsDashboard.tsx`): every 2 s while
+  anything is live, every 10 s while idle (`JOBS_IDLE_POLL_MS`), nothing
+  while the tab is hidden (`useSyncExternalStore` over `visibilitychange`),
+  and one read at once when it is shown again. Refresh still reads now.
+- **Jobs on every role** (`SettingsNav.tsx`): Jobs is its own Settings item
+  (`/jobs` and `/jobs/<id>` light it), shown on the workstation and the
+  mirror; Tools — the yt-dlp path and the local model — stays
+  workstation-only. The Tools page keeps its "See the jobs and the queue"
+  card. The mirror role is `mirror` (`EDITOR_ROLE`, epic 28).
+- **D3, `?import=` waits** (`new-recipe/page.tsx`, `workspace.tsx`,
+  `form.tsx`): `/new-recipe?import=<url>` fills the URL field, focuses
+  Import and says "Press Import to fetch this link."; no job until Import
+  is pressed, which then follows at `?job=` as a typed URL does. Signing in
+  from that address comes back to it. The roundup picker's "Import it as
+  one recipe" link and any bookmarklet that builds the address are
+  unchanged.
+- **The roundup picker's live steps** (`roundupActions.ts`,
+  `RoundupImport.tsx`, new `src/jobs/JobFollow.tsx`): each call is two
+  actions — start (`inspectRoundupAction`, `importRoundupAction`: the job
+  started, its id answered) and read (`inspectRoundupResult`,
+  `importRoundupResult`: the ended job's record read back through
+  `getJobView`, its error answered for a failed, cancelled or interrupted
+  job). Between them the picker follows the job with `JobFollow` —
+  `useJobPoll` every second, the live `StepList`, the wait in the queue, a
+  "Job details" link, folded to "N steps" at the end — by the URL field
+  while listing, by the progress line while importing. Stop still stops
+  after the chunk in flight; a chunk cancelled from `/jobs` ends the run
+  with its error and leaves Resume.
+- **Queue gaps.**
+  - **The save-time image fetch** goes through `site:<site>`:
+    `fetchImageFilePaced` (`imageImport.ts`; it loads the pacer on first
+    use, so the CLI's startup stays lazy, 35q) for the form's Save
+    (`actions/index.ts`, which passed `retry: {delayMs: 0}` before) and,
+    as the default `fetchImage`, for `recipe_create`/`recipe_update` and
+    the group writes that name an `imageImportUrl`. Outside a job it is
+    `interactive`. A 403's retry now waits the polite gap, as the form's
+    page fetch has since 37b.
+  - **The 403 drop list is the machine's** (`queue.ts` `readSiteDrop` /
+    `writeSiteDrop`): `<queue dir>/site:<site>/dropped.json`
+    (`{until, reason}`), written when a pacer on the real clock drops a
+    site and read by every pacer before a request — and again once the
+    slot is granted, for a drop another process wrote meanwhile. A fake
+    clock keeps its drops in its `SiteState`, as before. `droppedReason`
+    and `drop` are async now (`importList.ts` awaits them).
+  - **`SiteState` honours tiers**: its per-process line is an explicit
+    list — `interactive` waiters go ahead of every waiting `batch` one,
+    first come first served within a tier — and a cancelled waiter leaves
+    the line instead of holding its place until its turn.
+- **Pi jobs volume** (`deploy/pi/run.sh`, `scripts/deploy-pi.sh` `--setup`,
+  `deploy-pi.md`): `~/recipe-editor/jobs` at `/jobs`,
+  `RECIPE_JOBS_DIR=/jobs`, `RECIPE_QUEUE_DIR=/jobs/queue`; `run.sh` makes
+  the directory as the Pi user first (a Docker-made one would be root's,
+  37-T6). `deploy-pi.md` has the setup line and a "What changed with epic
+  38" note.
+- Backlog: the eight 37 rows this phase lands are struck in
+  `agent-epic-37.md` (both lists). `backlog.md` carries no epic-37 rows,
+  so nothing to strike there.
+
+**Decisions.**
+
+- **Db1 — Jobs is a Settings item of its own**, rather than the Tools page
+  shown on a mirror with only its jobs card: "Tools stays
+  workstation-only" stays literally true, and `/jobs` lights its own item
+  instead of Tools'.
+- **Db2 — a roundup call is start + read, not one awaited action.** A
+  server action cannot stream, and the picker needs the job's id while it
+  runs. The answer is read back from the record on the server, so the
+  outcome logic (`settleChunk`, which needs the page parsers) stays off the
+  client, and the picks are re-validated there.
+- **Db3 — the drop is a file of its own, `dropped.json`**, not a field of
+  `state.json` as 37's backlog row suggested: `touchResource` rewrites
+  `state.json` without holding the slot (a redirect's final site), and its
+  read-modify-write could race a drop away. The first unexpired drop
+  stands, as a process keeps its first.
+- **Db4 — the Pi's queue lives in the jobs volume** (`/jobs/queue`), so a
+  site's drop and its polite-gap clock survive a redeploy along with the
+  records. A slot the old container held is freed by the stale rules
+  (another pid namespace: 60 s), its jobs end `interrupted` after the
+  ten-minute heartbeat rule.
+- **Db5 — every save-time image download is paced**, not only the form's:
+  `recipe_create`/`recipe_update`/group writes with an `imageImportUrl`
+  are the same request to the same site. Since the review, so are
+  `recipe_set_image` / `term_set_image` with a URL and a term write's
+  `imageImportUrl` (`setImage`, `termImageFile`): both download before the
+  write and its lock, and inside no held site (Tb1).
+- **Db6 — pacing and drops key by host, not `siteKey`** (review). Once a
+  drop is the machine's and outlives the process, `siteKey`'s last two
+  labels reach too far: every `.co.uk` site is `co.uk`, and a CDN
+  (`i0.wp.com` → `wp.com`, `*.cloudfront.net`) is one site for everyone it
+  serves, so two 403s on one Jetpack image would stop every `wp.com`
+  request for an hour. No public-suffix list is a dependency (`tldts` is in
+  the lockfile only under tough-cookie), so `paceKey` (`roundupPage.ts`) is
+  the host, less a leading `www.`; an IP or single-label host keeps its
+  port, as before. `SitePacer.site()` and `settleChunk`'s dropped-pick
+  match use it; `siteKey` stays for the page parsers (share targets,
+  same-site-first ordering). The cost: `cdn.example.com` and
+  `www.example.com` are paced apart now — two requests 15 s apart each,
+  not one line — which 30-D5's "one host" allows.
+- **Db7 — an image's 403s never drop a site** (review). With images keyed
+  by their own host, a hotlink guard on the page's own host would still
+  drop the page's site; so `SitePacer#request` / `pacedRequest` take
+  `{image: true}` — every picture download and probe (`fetchImageFilePaced`,
+  importList's, importRecipe's four) — which waits its turn and retries a
+  403 once like any request but drops nothing. The recipe is imported
+  without its picture, as before. A host already dropped still refuses an
+  image request.
+
+**Tests.** `queue.test.ts` +6 ("a site's line and its drop (38b)"): a site
+dropped by one pacer is dropped for another with its own state on the same
+queue dir (no request made, `dropped.json` written, another site
+untouched); the first drop kept and a run-out one forgotten; a drop written
+while a request waited for the slot; `SiteState` grants interactive before
+batch; a cancelled waiter leaves the line; an interactive `SitePacer`
+request ahead of a batch job's queued ones. `jobs.test` awaits the async
+`droppedReason`. Playwright: `jobs.spec` +1 (an idle `/jobs` shows a job
+another process recorded — `recordOutsideJob`, written through the store
+as the CLI does — within the idle interval; none read while hidden; one
+read at once when shown); `new-recipe.spec` +1 (D3: the field filled,
+Import focused, no `form-url` job after the visit and a reload, one after
+Import); `import-roundup.spec` +1 and changed (the chunk's job panel, the
+listing's, the imports on a warmed `/recipes`; "Import it as one recipe"
+now fills and waits); `settings-nav.spec` +1 and `mirror-role.spec` (Jobs
+on both roles, lit on `/jobs` and a job's page; Tools still absent on the
+mirror).
+
+**Review fixes.**
+
+- **The picker without a job store** (Tb5): `startJob` / `startSpec` say
+  whether the record was `stored`; when it was not, `inspectRoundupAction`
+  and `importRoundupAction` await the job and answer inline
+  (`{job, answer}`, the pre-38b path) and the picker follows nothing.
+  New `roundupActions.test.ts` (3): with the jobs dir under a regular
+  file, listing and a two-pick import answer inline with the recipes
+  already written, and a failing job's error comes back inline; with a
+  store, only the id, and the result read back.
+- Db5's two unpaced seats, Db6 and Db7 above. `roundupPage.test` +1
+  (`.co.uk`, `i0.wp.com`, `cloudfront.net`, `www.`, `cdn.`); `queue.test`
+  +1 (an image refused twice writes no `dropped.json`, and the page host is
+  still asked); `importList.test`'s pies case now expects nothing dropped
+  and the cake on the same site imported in the same call; three tests that
+  paced `cdn.` with `www.` now use `example.com` and `www.example.com`.
+- `?import=a&import=b` (or a repeated `?job=`) is ignored, not trimmed into
+  a 500 (`new-recipe.spec`'s D3 test visits it first); `/jobs` stops
+  polling on a 401/403, as `useJobPoll` does (Refresh still reads, and a
+  good read starts it again); the picker settles a pending follow when it
+  unmounts; `run.sh` gives a trial instance (`NAME=` set, `JOBS=` not)
+  `~/recipe-editor/jobs-<name>`, noted in `deploy-pi.md`.
+- Not done, by the review's call: a "waiting for <site>" Save button text
+  (Tb3 stays a trap note).
+
+**Gates.** `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit` clean; eslint clean on the changed
+files; `pnpm exec vitest run` **97 files / 1998 tests** passed (303 s).
+Playwright (build mode, heavy slot) `jobs`, `new-recipe`, `import-roundup`,
+`settings-nav`, `mirror-role`, `accessibility`, `visual`: **126 / 129** in
+7.2 min, the three `new-recipe` saves of a kingarthurbaking.com image
+(Tb3); with the e2e gap at 0, `new-recipe` again **43 / 43** (4.6 min). No
+visual baseline moved (the git page's settings sidebar included).
+
+After the review fixes: both `tsc` gates and eslint clean; `pnpm exec
+vitest run` **98 files / 2003 tests** passed (280 s); Playwright (build
+mode, heavy slot) `new-recipe`, `import-roundup`, `jobs`, `settings-nav`,
+`mirror-role`: **73 / 73** in 4.1 min.
 
 ### 38c — Import reading fixes
 

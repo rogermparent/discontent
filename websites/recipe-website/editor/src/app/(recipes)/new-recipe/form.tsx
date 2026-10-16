@@ -77,6 +77,7 @@ export default function NewOrImportRecipeForm({
   slug,
   initialState: initialImportState,
   initialJob,
+  initialImportUrl,
   allTags = [],
   busy = false,
   llmModel,
@@ -88,6 +89,11 @@ export default function NewOrImportRecipeForm({
    * `initialState`, its result is already in the form.
    */
   initialJob?: string;
+  /**
+   * `/new-recipe?import=<url>` (38b, D3): the URL field filled in; the
+   * Import button starts the job, as if it had been typed.
+   */
+  initialImportUrl?: string;
   allTags?: string[];
   /** A roundup import is running (35r): Import and Submit wait for it. */
   busy?: boolean;
@@ -139,7 +145,7 @@ export default function NewOrImportRecipeForm({
   const [pastedText, setPastedText] = useState("");
   const [pastedSource, setPastedSource] = useState("");
   /* The URL too (36c review): it survives a switch to pasting and back. */
-  const [importUrl, setImportUrl] = useState("");
+  const [importUrl, setImportUrl] = useState(initialImportUrl ?? "");
   /* Switching mode dismisses the last import's message (36c review). */
   const [dismissed, setDismissed] = useState<RecipeActionState | null>(null);
   /* After a switch, focus lands on the field that appeared (36d). */
@@ -348,7 +354,13 @@ export default function NewOrImportRecipeForm({
           </>
         )}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <SubmitButton disabled={busy || importPending}>Import</SubmitButton>
+          <SubmitButton
+            disabled={busy || importPending}
+            /* Prefilled from `?import=` (D3): one key or click away. */
+            autoFocus={!!initialImportUrl}
+          >
+            Import
+          </SubmitButton>
           {busy ? (
             <span className="text-sm text-muted-foreground">
               Waiting for the roundup import to finish…
@@ -361,6 +373,16 @@ export default function NewOrImportRecipeForm({
                 videoHost: !!videoHost,
                 llmModel,
               })}
+            </span>
+          ) : !activeJob &&
+            !textMode &&
+            initialImportUrl &&
+            importUrl === initialImportUrl ? (
+            <span
+              className="text-sm text-muted-foreground"
+              data-testid="import-prefilled"
+            >
+              Press Import to fetch this link.
             </span>
           ) : null}
         </div>

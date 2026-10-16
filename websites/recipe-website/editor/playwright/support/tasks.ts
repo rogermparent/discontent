@@ -13,7 +13,9 @@ import { resolve } from "node:path";
 import simpleGit from "simple-git";
 import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
 import { writeIndexedHead } from "@discontent/cms/git/indexStamp";
+import { ulid } from "@discontent/cms/util/ulid";
 import { recipeContentTypes } from "../../controller/contentTypes";
+import { newJobMeta, writeJobMeta } from "../../controller/jobs/store";
 import { addTokenToUser, removeTokensFromUser } from "../../src/users";
 
 const projectRoot = resolve(__dirname, "..", "..");
@@ -22,6 +24,35 @@ const testSettingsDir = resolve(projectRoot, "test-settings");
 const testRemotesDir = resolve(projectRoot, "test-remotes");
 const testClonesDir = resolve(projectRoot, "test-clones");
 const fixturesRoot = resolve(projectRoot, "playwright", "fixtures");
+
+/**
+ * A finished job written straight into the server's job store (38b), as
+ * another process records one — the CLI's local backend, the stdio MCP
+ * server — through the same module (`controller/jobs/store`). The server
+ * never ran it, so only reading the store shows it. Answers its id.
+ */
+export async function recordOutsideJob(label: string): Promise<string> {
+  const dir = resolve(projectRoot, "test-jobs");
+  await ensureDir(dir);
+  const id = ulid();
+  const now = Date.now();
+  await writeJobMeta(dir, {
+    ...newJobMeta(
+      id,
+      {
+        kind: "inspect",
+        label,
+        spec: { kind: "inspect", url: "https://pies.test/outside" },
+        status: "done",
+      },
+      now,
+    ),
+    startedAt: now,
+    endedAt: now + 5,
+    result: {},
+  });
+  return id;
+}
 
 export function fixturePath(...segments: string[]): string {
   return resolve(fixturesRoot, ...segments);

@@ -11,6 +11,7 @@ import {
   FolderSync,
   Download,
   Wrench,
+  ListChecks,
   Database,
 } from "lucide-react";
 import { cn } from "@discontent/component-library/lib/utils";
@@ -22,11 +23,13 @@ interface NavItem {
   icon: ComponentType<{ className?: string }>;
   /**
    * Workstation-only (epic 28, D2): Export builds the static site, and Tools
-   * holds only the yt-dlp path, which the mirror image's `YTDLP_PATH`
-   * overrides. A mirror leaves both out.
+   * holds the yt-dlp path, which the mirror image's `YTDLP_PATH` overrides,
+   * and the local model, which only the workstation runs. A mirror leaves
+   * both out. Jobs is an item of its own on every role (38b): a mirror's
+   * imports run as jobs too.
    */
   workstationOnly?: boolean;
-  /** Other paths this area owns (Tools: `/jobs`, linked from its card, 37c). */
+  /** Other paths this area owns. */
   also?: string[];
 }
 
@@ -65,8 +68,8 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
         href: "/settings/tools",
         icon: Wrench,
         workstationOnly: true,
-        also: ["/jobs"],
       },
+      { name: "Jobs", href: "/jobs", icon: ListChecks },
       { name: "Maintenance", href: "/settings/maintenance", icon: Database },
     ],
   },

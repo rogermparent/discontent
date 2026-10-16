@@ -1476,21 +1476,25 @@ footer snapshots pass on the merged tree.
 
 ## Backlog
 
-- A volume for the Pi container's jobs directory (D8).
+- ~~A volume for the Pi container's jobs directory (D8).~~ **Done in 38b**
+  (`deploy/pi/run.sh`: `~/recipe-editor/jobs` at `/jobs`, the queue inside
+  it; `deploy-pi.md`).
 - Other long operations — reindex, git sync — joining the queue.
 - ~~The form's "Import N selected" (`importBatchPicks`) as a job kind, and
   `job` on a failed import's error object~~ — done in 37c (`form-batch`,
   `error.job`).
 - ~~A `cancelled` error code~~ — done in 37c.
-- `/jobs` on a mirror (the Pi): the page and the API work there, but the
+- ~~`/jobs` on a mirror (the Pi): the page and the API work there, but the
   Settings → Tools item that links to them is workstation-only (epic 28,
-  D2), so a mirror reaches `/jobs` only by its URL (37c).
-- The roundup picker's two actions (`inspectRoundupAction`,
+  D2), so a mirror reaches `/jobs` only by its URL (37c).~~ **Done in 38b**
+  (Jobs is its own Settings item on every role).
+- ~~The roundup picker's two actions (`inspectRoundupAction`,
   `importRoundupAction`) still await their jobs: each chunk is a job with
-  its log and Cancel on `/jobs`, but the picker shows no live steps (37c).
-- `/jobs` stops polling when nothing is live; a job another process starts
+  its log and Cancel on `/jobs`, but the picker shows no live steps (37c).~~
+  **Done in 38b** (start, follow with `JobFollow`, read the answer).
+- ~~`/jobs` stops polling when nothing is live; a job another process starts
   afterwards shows on Refresh or a reload, not by itself (D7's "stops when
-  idle", 37c).
+  idle", 37c).~~ **Done in 38b** (10 s while idle, none while hidden).
 - `text-destructive` as text is under AA on the page background (T25),
   and older surfaces use it (the form's submit error, the 36e picker's
   "not trusted — check it", the roundup picker): a theme fix in
@@ -1499,25 +1503,28 @@ footer snapshots pass on the merged tree.
 - The form's progress panel shows the queue position read at the job's
   `GET` (`getJobView` re-reads the line); a job's meta still records only
   the position at enqueue (37c).
-- The save-time image fetch (`editor/controller/actions/index.ts`, a
+- ~~The save-time image fetch (`editor/controller/actions/index.ts`, a
   recipe's image URL fetched when the form is saved) is unpaced and outside
   the site queue: `retry: { delayMs: 0 }`, one request with at most one
   retry. Moving it onto `pacedRequest` would make a save wait out a site's
-  gap behind a running roundup (37b review).
-- `SiteState`'s per-process queue has no tiers: within one process, an
+  gap behind a running roundup (37b review).~~ **Done in 38b**
+  (`fetchImageFilePaced`, `interactive`, so ahead of a roundup's line).
+- ~~`SiteState`'s per-process queue has no tiers: within one process, an
   interactive request to a site waits behind a batch's queued requests to
   that site before it reaches the shared, tiered `site:<site>` line (37b
-  review). Across processes the tiers hold.
-- `/new-recipe?import=<url>` (35r's roundup picker, "Import it as one
+  review). Across processes the tiers hold.~~ **Done in 38b**.
+- ~~`/new-recipe?import=<url>` (35r's roundup picker, "Import it as one
   recipe") starts work on a GET render: before 37c it imported inline, now
   it starts a `form-url` job and redirects to `?job=`. It needs a signed-in
   session, and a dynamic page is not prefetched, but a reload of the
   `?import=` address, a restored tab or a history replay starts the fetch
   (and the model) again. A POST from the picker, or a confirm step, would
-  make the GET inert (37c review).
-- A site dropped after two 403s is dropped per process only (37b kept
+  make the GET inert (37c review).~~ **Done in 38b** (38-D3: the GET fills
+  the URL field; Import starts the job).
+- ~~A site dropped after two 403s is dropped per process only (37b kept
   `SitePacer`'s drop list in memory); it could live in the site's
-  `state.json` beside `lastRelease`.
+  `state.json` beside `lastRelease`.~~ **Done in 38b** (`dropped.json`
+  beside the site's slot — a file of its own, not `state.json`).
 
 ## Close-out
 
@@ -1601,29 +1608,30 @@ list|show|log --follow|cancel|retry`, and MCP `job_list`/`job_get`.
 
 Consolidated and de-duplicated from the phase-by-phase list above:
 
-- A volume for the Pi container's jobs directory (D8).
+- ~~A volume for the Pi container's jobs directory (D8).~~ **Done in 38b.**
 - Other long operations — reindex, git sync — joining the queue.
-- A dropped site is tracked per process only (`SitePacer`'s drop list is
+- ~~A dropped site is tracked per process only (`SitePacer`'s drop list is
   in memory); it could live in the site's `state.json` beside
-  `lastRelease`, to share a 403 drop across processes.
-- The save-time image fetch (a recipe's image URL, fetched when the form
-  is saved) stays unpaced and outside the site queue.
-- `SiteState`'s per-process queue has no tiers: within one process, an
+  `lastRelease`, to share a 403 drop across processes.~~ **Done in 38b**
+  (`dropped.json` beside the site's slot).
+- ~~The save-time image fetch (a recipe's image URL, fetched when the form
+  is saved) stays unpaced and outside the site queue.~~ **Done in 38b.**
+- ~~`SiteState`'s per-process queue has no tiers: within one process, an
   interactive request to a site can queue behind a batch's requests to
   that same site before it reaches the shared, tiered `site:<site>` line.
-  Across processes the tiers hold.
-- The roundup picker's two actions (`inspectRoundupAction`,
+  Across processes the tiers hold.~~ **Done in 38b.**
+- ~~The roundup picker's two actions (`inspectRoundupAction`,
   `importRoundupAction`) run as jobs with a log and Cancel on `/jobs`, but
-  the picker itself shows no live steps.
-- `/jobs` stops polling when nothing is live; a job another process
-  starts afterwards shows only on Refresh or a reload.
-- `/jobs` on a mirror (the Pi): the page and API work there, but the
+  the picker itself shows no live steps.~~ **Done in 38b.**
+- ~~`/jobs` stops polling when nothing is live; a job another process
+  starts afterwards shows only on Refresh or a reload.~~ **Done in 38b.**
+- ~~`/jobs` on a mirror (the Pi): the page and API work there, but the
   Settings → Tools link to it is workstation-only (epic 28, D2), so a
-  mirror reaches `/jobs` only by its URL.
+  mirror reaches `/jobs` only by its URL.~~ **Done in 38b.**
 - Older screens' red error text (`text-destructive`) is under AA contrast
   on the page background — the form's submit error, the 36e picker's
   "not trusted — check it", the roundup picker.
-- `/new-recipe?import=<url>` starts a job on a GET render; a reload of
+- ~~`/new-recipe?import=<url>` starts a job on a GET render; a reload of
   that address, a restored tab or a history replay starts the fetch (and
   the model) again. A POST from the picker, or a confirm step, would make
-  the GET inert.
+  the GET inert.~~ **Done in 38b** (38-D3).

@@ -35,7 +35,7 @@ import parseRecipeFormData, { ParsedRecipeFormData } from "../parseFormData";
 import { recipeContentTypes } from "../contentTypes";
 import { ImportError } from "../curation/errors";
 import { reindex } from "../curation/reindex";
-import { fetchImageFile } from "../imageImport";
+import { fetchImageFilePaced } from "../imageImport";
 import type { EditorContentConfig } from "@discontent/cms/content/editorContentConfig";
 import { createGenericActions } from "@discontent/cms/content/genericActions";
 import { authenticateUser } from "./shared";
@@ -88,9 +88,10 @@ function importedImage(
   }
   let pending = importedImages.get(parsed);
   if (!pending) {
-    /* The browser form: a person is waiting, so a 403 is retried at once
-     * (epic 31, D3). */
-    pending = fetchImageFile(imageImportUrl, { retry: { delayMs: 0 } });
+    /* On the site's queue (38b), as every request to a site is: a person
+     * is waiting, so it is `interactive` — ahead of a roundup's requests,
+     * though still the polite gap after the last one there. */
+    pending = fetchImageFilePaced(imageImportUrl);
     importedImages.set(parsed, pending);
   }
   return pending;

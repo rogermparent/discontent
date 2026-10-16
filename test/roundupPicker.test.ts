@@ -81,7 +81,7 @@ describe("settleChunk", () => {
   });
 
   it("reports a dropped site's picks instead of handing them back forever", () => {
-    const chunk = [pick(1, "a.example.com"), pick(2, "cdn.b.example.org")];
+    const chunk = [pick(1, "a.example.com"), pick(2, "www.b.example.org")];
     const settled = settleChunk(chunk, {
       results: [
         {
@@ -93,7 +93,7 @@ describe("settleChunk", () => {
         },
       ],
       remaining: [{ n: 2, url: chunk[1].url }],
-      dropped: [{ site: "example.org", reason: "refused twice (HTTP 403)" }],
+      dropped: [{ site: "b.example.org", reason: "refused twice (HTTP 403)" }],
     });
     expect(settled.requeue).toEqual([]);
     expect(settled.outcomes[1]).toMatchObject({
