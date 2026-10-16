@@ -1320,6 +1320,45 @@ with its "Model reads the recipe" step and the nested "Wait for the GPU",
 "Read “Cheddar Chive Scones”", the two bars, 9 raw lines). In the
 orchestrator's scratch: `37c/shots/*.png`.
 
+**Real check** (real yt-dlp, real qwen3:8b, this worktree's build at
+`e7a36663`, `next start` inside `heavy.sh`, a throwaway content clone —
+`origin` stripped — with its own fixture user; the machine queue, not a
+scratch one): signed in as `admin@nextmail.com`, then `/new-recipe` →
+import `youtube.com/watch?v=Z8J2HgaaSgQ` (Holiday Sides). Steps arrived
+live and in order — `ytdlp` 4.0 s/5 chapters, `llm.list` 13 s (4 listed,
+197 tok @ 43 tok/s), `llm.oneDish` 3.5 s ("separate dishes", 8 tok @
+48 tok/s), then `llm.extract i/4` per dish (e.g. 1/4 "Potato Puree" 7.3 s,
+5/5 lines found, 251 tok @ 44 tok/s) — each line tagged `· GPU`; no
+`llm.placement` warning anywhere (the GPU was free, qwen stayed fully in
+VRAM the whole run, `/api/ps`'s `size_vram == size`). The 36e picker came
+up **62 s** after Import, all four dishes named and ticked correctly
+(Potato Puree, Stuffing, Green Bean Casserole, Fried Shallots) with their
+ingredient counts and chapter starts. `/jobs` listed the job; its page
+rendered the step timeline with the same step names and times. A second
+import (pasted text — the same video's description) was cancelled from
+`/jobs/<id>`'s Cancel button while running: the job flipped to `cancelled`
+within about a second, both there and back on the form's `ImportProgress`
+panel ("Import cancelled" / "Import cancelled", no error). Reopening
+`/new-recipe?job=<first id>` re-rendered the same 4-dish picker from the
+job's stored result. Nothing crashed, no retries, yt-dlp fetched once.
+
+Misbehaved: `/jobs/<id>`'s Result section (`ResultSummary` in
+`JobDetail.tsx`) showed "Recipe 1" / "Recipe 2" / "Recipe 3" / "Recipe 4"
+instead of the dish names for the batch result — it reads `row.name`
+directly off each `result.recipes[]` entry, but a `form-url` batch's
+entries carry the name nested at `.recipe.name` (`SplitReading`'s shape),
+matching neither `row.name` nor `result.found`/`result.items`. The 36e
+picker itself (`BatchPicker`, reading `reading.recipe.name`) and the step
+list's own `(name)` detail both showed the right names throughout — only
+this one read-only summary on the job detail page is wrong. Not something
+this real check wrote around; worth a small follow-up fix.
+
+Screenshots: `01-signed-in`, `02-mid-import` (steps running), `03-picker`
+(the 4-dish picker), `04-jobs-list`, `05-job-detail` (its step timeline),
+`06-job-cancelled` (`/jobs/<id>` after Cancel), `07-form-cancelled` (the
+form's panel after Cancel), `08-reopen-picker` (`?job=` reopening the
+picker) — `37c/rc-shots/*.png` in the orchestrator's scratch.
+
 ## Backlog
 
 - A volume for the Pi container's jobs directory (D8).
