@@ -48,6 +48,13 @@ export interface Settings extends ThemedSettings {
    * where exports are built — so it is never sent to a mirror.
    */
   shareInventoryOnExport?: boolean;
+  /**
+   * 38a: `/make`'s "Assume I always have" list as the signed-in owner last
+   * saved it (`make-settings-v1.staples` in the browser), so a new browser
+   * starts from it. Absent: nothing saved, each browser has the default.
+   * Per instance, like `mirrors`, and never read by the export.
+   */
+  makeStaples?: string[];
 }
 
 export type { NamedPreset };

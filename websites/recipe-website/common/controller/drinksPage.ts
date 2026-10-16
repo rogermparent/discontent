@@ -90,6 +90,63 @@ export interface DrinksPageData {
   seasonal: SeasonalDrinks[];
   /** The newest drinks. */
   latest: DrinkCard[];
+  /**
+   * Each drink's drink-name family (38a): recipe slug → the family term, for
+   * the make panel's ready list, which groups several sources of one drink
+   * (Daiquiri ×2) behind one entry. A family is a child of `drink` that is no
+   * style (`DRINK_STYLE_SLUGS`), with its subtree and aliases. A drink in two
+   * families is put in the one with more drinks (then by label), so the
+   * answer is the same on every render; a drink in none is absent.
+   */
+  familyOf: Record<string, Pick<DrinkTerm, "slug" | "label">>;
+}
+
+/** One entry of the make panel's ready list (38a). */
+export type ReadyEntry<T extends { recipe: { slug: string } }> =
+  | { kind: "recipe"; match: T }
+  | {
+      kind: "family";
+      slug: string;
+      label: string;
+      /** Two or more ready drinks of the family, in the incoming order. */
+      matches: T[];
+    };
+
+/**
+ * The ready drinks as the panel lists them (38a): two or more of one family
+ * become one entry, at the place of the first of them; a family of one, and
+ * a drink with no family, stays its own entry. The judge's order is kept.
+ */
+export function groupReady<T extends { recipe: { slug: string } }>(
+  matches: T[],
+  familyOf: DrinksPageData["familyOf"],
+): ReadyEntry<T>[] {
+  const byFamily = new Map<string, T[]>();
+  for (const match of matches) {
+    const family = familyOf[match.recipe.slug];
+    if (!family) continue;
+    const list = byFamily.get(family.slug);
+    if (list) list.push(match);
+    else byFamily.set(family.slug, [match]);
+  }
+  const entries: ReadyEntry<T>[] = [];
+  const placed = new Set<string>();
+  for (const match of matches) {
+    const family = familyOf[match.recipe.slug];
+    const members = family && byFamily.get(family.slug);
+    if (!family || !members || members.length < 2) {
+      entries.push({ kind: "recipe", match });
+    } else if (!placed.has(family.slug)) {
+      placed.add(family.slug);
+      entries.push({
+        kind: "family",
+        slug: family.slug,
+        label: family.label,
+        matches: members,
+      });
+    }
+  }
+  return entries;
 }
 
 /**
@@ -185,6 +242,14 @@ export function drinksPageData({
     })
     .filter((holiday) => holiday.count > 0);
 
+  /* Biggest family first (`families`' own order), so the first claim wins. */
+  const familyOf: DrinksPageData["familyOf"] = {};
+  for (const family of families) {
+    for (const recipe of drinksUnder(family.slug)) {
+      familyOf[recipe.slug] ??= { slug: family.slug, label: family.label };
+    }
+  }
+
   return {
     count: drinks.length,
     spirits,
@@ -193,5 +258,6 @@ export function drinksPageData({
     classicsCount: families.length,
     seasonal,
     latest: drinks.slice(0, DRINK_CARD_LIMIT).map(card),
+    familyOf,
   };
 }

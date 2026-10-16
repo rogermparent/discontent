@@ -383,6 +383,87 @@ export interface TermHierarchyNode extends TagVocabularyEntry {
    * homepage's browse section draws it beside the term.
    */
   image?: string;
+  /**
+   * The record's aliases as stored (32i), absent when it has none — `/tags`
+   * prints them under the term ("also: …", 38a).
+   */
+  aliases?: string[];
+}
+
+/** A whole by-term map, as `byTerm.read()` answers it: slug → its row. */
+export type TermRowMap = Record<
+  string,
+  { label: string; items: Array<{ slug: string }> }
+>;
+
+/**
+ * The flat vocabulary from the two whole by-term maps and the tree — the
+ * same rows `mergeTagVocabulary` builds from the term clouds, since one walk
+ * folds both, without reading the clouds (38a): a reader that already holds
+ * the maps (`readTagBoard`, the homepage) pays nothing more for it.
+ */
+export function vocabularyOfRows({
+  recipeRows,
+  groupRows,
+  tree,
+}: {
+  recipeRows?: TermRowMap | null;
+  groupRows?: TermRowMap | null;
+  tree?: TermTree | null;
+}): TagVocabularyEntry[] {
+  const terms = (rows: TermRowMap | null | undefined) =>
+    Object.entries(rows ?? {}).map(([slug, entry]) => ({
+      slug,
+      label: entry.label,
+      count: entry.items.length,
+    }));
+  return mergeTagVocabulary({
+    recipeTerms: terms(recipeRows),
+    groupTerms: terms(groupRows),
+    tree,
+  });
+}
+
+/**
+ * A term's own carriers as opaque keys (`recipe:<slug>`, `group:<slug>`),
+ * for `termHierarchy` and `termBoard` — over every by-term key of the term:
+ * its slug and each alias (`termKeys`, 38a D2). A recipe still tagged with
+ * an alias of `quick` counts towards Quick everywhere a count is read from
+ * the board — the intent tiles, Coming up, the browse chips and `/tags` —
+ * exactly as `tag:quick` finds it.
+ */
+export function termCarriers(
+  tree: TermTree | null | undefined,
+  recipeRows: TermRowMap | null | undefined,
+  groupRows: TermRowMap | null | undefined,
+): (slug: string) => string[] {
+  return (slug) =>
+    termKeys(tree, slug).flatMap((key) => [
+      ...(recipeRows?.[key]?.items ?? []).map((item) => `recipe:${item.slug}`),
+      ...(groupRows?.[key]?.items ?? []).map((item) => `group:${item.slug}`),
+    ]);
+}
+
+/**
+ * A term's own rows over its slug and its aliases (`termKeys`, 38a D2), for
+ * readers that take one term's rows at a time (`termSummary`, Coming up).
+ * Each carrier once, in the order the keys list them.
+ */
+export function aliasedRows<TItem extends { slug: string }>(
+  tree: TermTree | null | undefined,
+  rows: Record<string, { items: TItem[] }> | null | undefined,
+): (slug: string) => TItem[] {
+  return (slug) => {
+    const keys = termKeys(tree, slug);
+    if (keys.length === 1) return rows?.[slug]?.items ?? [];
+    const seen = new Map<string, TItem>();
+    for (const key of keys) {
+      for (const item of rows?.[key]?.items ?? []) {
+        if (!seen.has(item.slug)) seen.set(item.slug, item);
+      }
+    }
+    return [...seen.values()];
+  };
 }
 
 /**
@@ -421,11 +502,13 @@ export function termHierarchy(
     };
     children.forEach(collect);
     const image = tree[slug]?.image;
+    const aliases = tree[slug]?.aliases;
     return {
       ...entry,
       total: reached.size,
       children,
       ...(image ? { image } : {}),
+      ...(aliases?.length ? { aliases } : {}),
     };
   };
   return Object.entries(tree)
@@ -479,7 +562,13 @@ export function termBoard(
         label: tree[slug]?.label ?? slug,
         count: 0,
       };
-      return { ...entry, total: new Set(carriers(slug)).size, children: [] };
+      const aliases = tree[slug]?.aliases;
+      return {
+        ...entry,
+        total: new Set(carriers(slug)).size,
+        children: [],
+        ...(aliases?.length ? { aliases } : {}),
+      };
     })
     .sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
   return { roots, loose, recorded: Object.keys(tree) };

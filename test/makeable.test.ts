@@ -41,6 +41,54 @@ function meets(item: string, line: string, aliases?: AliasIndex): boolean {
   return satisfies(parseInventoryItem(item), requirement, aliases);
 }
 
+describe("word order (38a, Da1)", () => {
+  it("reads an agave spirit's age before or after it", () => {
+    expect(meets("tequila blanco", "2 oz blanco tequila")).toBe(true);
+    expect(meets("blanco tequila", "2 oz tequila blanco")).toBe(true);
+    expect(meets("Tequila Añejo", "2 oz añejo tequila")).toBe(true);
+    expect(meets("reposado tequila", "1 1/2 oz tequila reposado")).toBe(true);
+    expect(meets("mezcal joven", "1 oz joven mezcal")).toBe(true);
+    expect(meets("tequila extra añejo", "2 oz extra añejo tequila")).toBe(true);
+    /* NFKD's marks no longer feed the article cut: `an` + ̃ + `ejo`. */
+    expect(
+      parseIngredientLine("2 oz añejo tequila")[0].alternatives[0].words,
+    ).toEqual(["anejo", "tequila"]);
+    /* The plain spirit still covers every age, and an age only its own. */
+    expect(meets("tequila", "2 oz tequila blanco")).toBe(true);
+    expect(meets("tequila blanco", "2 oz tequila reposado")).toBe(false);
+  });
+
+  it("leaves every other order alone", () => {
+    /* A swapped pair is a different thing, or nothing at all. */
+    expect(meets("milk chocolate", "1 cup chocolate milk")).toBe(false);
+    expect(meets("cane sugar", "1 oz sugar cane juice")).toBe(false);
+    expect(meets("liqueur orange", "1/2 oz orange liqueur")).toBe(false);
+    expect(meets("liqueur orange", "1/2 oz orange curaçao")).toBe(false);
+    expect(meets("blanco rum", "2 oz tequila blanco")).toBe(false);
+  });
+
+  it("judges a recipe the same from either spelling", () => {
+    const margarita: MakeRecipe = {
+      slug: "margarita",
+      name: "Margarita",
+      ingredients: [
+        "2 oz tequila blanco",
+        "1 oz lime juice",
+        "3/4 oz orange liqueur",
+      ],
+    };
+    const prepared = prepareCorpus([margarita]);
+    const result = strictJudge([margarita], prepared, [
+      "blanco tequila",
+      "lime",
+      "orange liqueur",
+    ]);
+    expect(result.canMake.map((match) => match.recipe.slug)).toEqual([
+      "margarita",
+    ]);
+  });
+});
+
 describe("satisfies", () => {
   it("matches the generic against the specific, both ways", () => {
     expect(meets("vermouth", "1/2 oz extra dry vermouth")).toBe(true);

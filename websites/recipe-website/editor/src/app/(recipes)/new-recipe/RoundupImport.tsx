@@ -206,7 +206,10 @@ export default function RoundupImport({
       </form>
 
       {error && (
-        <p className="mt-2 text-sm text-destructive" role="alert">
+        <p
+          className="mt-2 border-l-2 border-destructive pl-2 text-sm"
+          role="alert"
+        >
           {error}
         </p>
       )}

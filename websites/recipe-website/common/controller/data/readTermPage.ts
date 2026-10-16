@@ -8,7 +8,9 @@ import {
   subtreeKeys,
   tagOptions,
   termBoard,
+  termCarriers,
   termPageData,
+  vocabularyOfRows,
   type TagBoard,
   type TagOption,
   type TermHierarchyNode,
@@ -68,24 +70,15 @@ export async function readTagBoard(): Promise<TagBoard> {
     return { roots: [], loose: [], recorded: [] };
   }
   const counts = new Map(
-    mergeTagVocabulary({
-      recipeTerms: Object.entries(byRecipeTag ?? {}).map(([slug, entry]) => ({
-        slug,
-        label: entry.label,
-        count: entry.items.length,
-      })),
-      groupTerms: Object.entries(byGroupTag ?? {}).map(([slug, entry]) => ({
-        slug,
-        label: entry.label,
-        count: entry.items.length,
-      })),
+    vocabularyOfRows({
+      recipeRows: byRecipeTag,
+      groupRows: byGroupTag,
       tree,
     }).map((entry) => [entry.slug, entry]),
   );
-  return termBoard(tree, counts, (slug) => [
-    ...(byRecipeTag?.[slug]?.items ?? []).map((item) => `recipe:${item.slug}`),
-    ...(byGroupTag?.[slug]?.items ?? []).map((item) => `group:${item.slug}`),
-  ]);
+  /* Each term's carriers over its slug and its aliases (38a, D2): read
+   * time only — the maps already hold every alias slug's rows. */
+  return termBoard(tree, counts, termCarriers(tree, byRecipeTag, byGroupTag));
 }
 
 /**

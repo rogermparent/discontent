@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { type ReactNode, useId } from "react";
-import { orderByNextOccurrence, parseDayKey } from "../../util/holidays";
+import { nextSeasonal, parseDayKey } from "../../util/holidays";
 import { useToday } from "../Homepage/useToday";
 
 export interface SeasonalOption {
@@ -21,18 +21,17 @@ export interface SeasonalOption {
  * candidate is rendered on the server and the browser picks one, because a
  * choice made at build time goes stale on the static export. The dates are
  * `util/holidays`, the homepage's "Coming up" calendar; the policy is this
- * row's own: the soonest dated holiday with drinks, however far off (no
- * 180-day window), and a holiday with no rule is never "next". Today is the
- * browser's (`useToday(null)`): nothing on the server, so the static HTML
- * never names a holiday.
+ * row's own (`nextSeasonal`): the soonest dated holiday with drinks, and
+ * only when it is at most 60 days away (38a, D1) — otherwise no row at all.
+ * A holiday with no rule is never "next". Today is the browser's
+ * (`useToday(null)`): nothing on the server, so the static HTML never names
+ * a holiday.
  */
 export function SeasonalDrinks({ options }: { options: SeasonalOption[] }) {
   const headingId = useId();
   const today = useToday(null);
   if (today === null) return null;
-  const next = orderByNextOccurrence(options, parseDayKey(today)).find(
-    (option) => option.days !== undefined,
-  );
+  const next = nextSeasonal(options, parseDayKey(today));
   if (!next) return null;
 
   return (

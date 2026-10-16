@@ -268,6 +268,17 @@ const SYNONYMS: [RegExp, string][] = [
     "soda water",
   ],
   [/\btonic\b(?! water)/g, "tonic water"],
+  /*
+   * Agave spirits name their age after the spirit as often as before it
+   * (38a, Da1): "tequila blanco" is "blanco tequila", "mezcal joven" is
+   * "joven mezcal". Rows for the known words rather than a word-order rule,
+   * which would also make "milk chocolate" a "chocolate milk" and "cane
+   * sugar" "sugar cane".
+   */
+  [
+    /\b(tequila|mezcal) (blanco|plata|silver|gold|joven|reposado|extra anejo|anejo)\b/g,
+    "$2 $1",
+  ],
 ];
 
 /** Not alcohol-free: "virgin" is left alone on purpose (olive oil). */
@@ -686,6 +697,12 @@ export function parseIngredientLine(
 ): Requirement[] {
   const index = meta.index ?? 0;
   let text = normalizeIngredientText(stripMarkup(line))
+    /*
+     * The marks NFKD split off (38a): left in, "añejo" is `an` + a mark +
+     * `ejo`, and the leading-article cut below took the `an` — "2 oz añejo
+     * tequila" read as `ejo tequila`. The name is folded later anyway.
+     */
+    .replace(/\p{M}+/gu, "")
     .replace(/\*+/g, "")
     .replace(/\s+/g, " ")
     .trim();

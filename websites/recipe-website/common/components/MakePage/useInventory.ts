@@ -234,6 +234,8 @@ export function useLastMakeQuery(): [
  * switch without knowing it exists.
  */
 export interface MakeSettings {
+  /** False until the browser's storage has been read (38a: the sync waits). */
+  ready: boolean;
   countClose: boolean;
   /** Everything assumed on hand: `alwaysHave` ∪ pantry staples when on. */
   staples: string[];
@@ -322,6 +324,7 @@ export function useMakeSettings(): MakeSettings {
     [alwaysHave, pantryStaples],
   );
   return {
+    ready: raw !== null,
     countClose: stored.countClose ?? true,
     staples,
     alwaysHave,

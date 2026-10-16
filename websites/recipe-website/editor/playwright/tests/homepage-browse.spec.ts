@@ -90,6 +90,29 @@ test.describe("Homepage — intro", () => {
     ).toContainText("against the 3 things on hand");
   });
 
+  test("counts alias carriers, and a bare tag's tile beside a hierarchy (38a)", async ({
+    page,
+    resetData,
+  }) => {
+    /* `drinks-bar`: seven drinks, one of them (Classic Daiquiri) tagged only
+     * `daiquiris`, an alias of the Daiquiri family under `drink`; and a bare
+     * `quick` tag on the Gin and Tonic, with no record. */
+    await resetData("drinks-bar");
+    await page.goto("/");
+
+    const drink = waysIn(page).getByRole("link", { name: /^A drink/ });
+    await expect(drink).toContainText("7 drinks");
+    /* The corpus has a hierarchy; the bare tag still gets its tile. */
+    const quick = waysIn(page).getByRole("link", { name: /^Quick/ });
+    await expect(quick).toHaveAttribute("href", "/tags/quick");
+    await expect(quick).toContainText("1 recipe");
+
+    /* The browse chip counts the alias carrier too. */
+    await expect(
+      browse(page).getByRole("link", { name: /^Daiquiri/ }),
+    ).toHaveText("Daiquiri 2");
+  });
+
   test("has no hero: the featured recipe is one card among equals", async ({
     page,
     resetData,

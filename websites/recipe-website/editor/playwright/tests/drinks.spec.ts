@@ -11,7 +11,9 @@ import { snapshotPage } from "../support/visual";
  * Syrup and Hand Pies, plus term records for a `spirit` root (Vodka, Gin),
  * `shaken`, a `gin-and-tonic` family and a `holidays` root — Halloween on
  * the Vodka Sour (and on Hand Pies, which is no drink), Christmas on the
- * Chamomile Collins. The saved inventory is gin and tonic water.
+ * Chamomile Collins — and (38a) a `daiquiri` family with two sources: the
+ * Daiquiri, and a Classic Daiquiri tagged only with the family's alias
+ * `daiquiris`. The saved inventory is gin and tonic water.
  *
  * The make panel judges this browser's list (U6); each test starts from a
  * fresh context with none, and `withBrowserList` seeds one.
@@ -48,7 +50,7 @@ test.describe("Drinks", () => {
     await expect(
       page.getByRole("heading", { name: "Drinks", exact: true }),
     ).toBeVisible();
-    await expect(page.getByTestId("drinks-count")).toHaveText("5 drinks");
+    await expect(page.getByTestId("drinks-count")).toHaveText("7 drinks");
 
     const spirits = page.getByRole("region", { name: "By spirit" });
     await expect(spirits.getByRole("link")).toHaveText([
@@ -66,10 +68,10 @@ test.describe("Drinks", () => {
     /* A child of `drink` that is no style is a classic. */
     await expect(
       page.getByRole("region", { name: "Classics" }).getByRole("link"),
-    ).toHaveText(["Gin and Tonic2"]);
+    ).toHaveText(["Daiquiri2", "Gin and Tonic2"]);
 
     const latest = page.getByRole("region", { name: "New drinks" });
-    await expect(latest.getByRole("listitem")).toHaveCount(5);
+    await expect(latest.getByRole("listitem")).toHaveCount(6);
     await expect(latest.getByRole("listitem").first()).toContainText(
       "Chamomile Collins",
     );
@@ -77,7 +79,7 @@ test.describe("Drinks", () => {
       "Vodka · Collins",
     );
     await expect(
-      latest.getByRole("link", { name: "All 5 drinks" }),
+      latest.getByRole("link", { name: "All 7 drinks" }),
     ).toHaveAttribute("href", "/tags/drink");
   });
 
@@ -132,6 +134,24 @@ test.describe("Drinks", () => {
     await expect(
       panel(page).getByRole("link", { name: "See the 1 drink one item away" }),
     ).toHaveAttribute("href", "/make?q=tag%3Adrink");
+  });
+
+  test("several sources of one drink are one entry, by family (38a)", async ({
+    page,
+  }) => {
+    await withBrowserList(page, ["white rum", "lime", "simple syrup"]);
+    await page.goto("/drinks");
+    await panelReady(page);
+
+    /* Both daiquiris are ready — one of them only by the family's alias. */
+    await expect(page.getByTestId("drinks-can-mix")).toHaveText(
+      "You can mix 2 drinks right now",
+    );
+    const ready = page.getByTestId("drinks-ready");
+    await expect(ready.getByRole("link")).toHaveText(["Daiquiri · 2 recipes"]);
+    await ready.getByRole("link").click();
+    await expect(page).toHaveURL(/\/tags\/daiquiri$/);
+    await expect(page.getByRole("main")).toContainText("Classic Daiquiri");
   });
 
   test("signed in, the saved inventory is its own group, never the count", async ({
@@ -193,6 +213,14 @@ test.describe("Drinks", () => {
     await expect(seasonal.getByRole("listitem")).toContainText(
       "Chamomile Collins",
     );
+
+    /* 38a, D1: the day after Christmas, next Halloween is 309 days off —
+     * past the 60-day window, so there is no seasonal row at all. */
+    await page.clock.setFixedTime(new Date(2026, 11, 26, 12));
+    await page.reload();
+    /* Hydrated (the panel's island has read storage), then no row. */
+    await panelReady(page);
+    await expect(seasonal).toHaveCount(0);
   });
 
   test("the masthead marks Drinks as the current page", async ({ page }) => {

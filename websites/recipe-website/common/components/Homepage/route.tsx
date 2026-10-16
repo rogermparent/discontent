@@ -5,9 +5,11 @@ import { recipePages } from "../../controller/data/readRecipePages";
 import { groupTagReads } from "../../controller/data/readGroupTagIndex";
 import { recipeTagReads } from "../../controller/data/readRecipeTagIndex";
 import {
-  readTagTree,
+  readTagBoard,
   readTagVocabulary,
 } from "../../controller/data/readTermPage";
+import { tagTermReads } from "../../controller/data/readTagTerms";
+import { aliasedRows, vocabularyOfRows } from "../../controller/tagVocabulary";
 import { groupItems } from "../../controller/data/readGroupItem";
 import {
   HOLIDAYS_ROOT,
@@ -52,9 +54,10 @@ export async function homepageRoute() {
     recipeHead,
     featuredHead,
     groupHead,
-    tagTree,
+    board,
     byRecipeTag,
     byGroupTag,
+    termTree,
   ] = await Promise.all([
     recipePages.readHead(),
     featuredRecipePages.readHead(),
@@ -83,31 +86,51 @@ export async function homepageRoute() {
      * no head page. It still expires on nothing else, and the subtree totals
      * on the chips and intent tiles are what that read buys.
      */
-    readTagTree(),
+    readTagBoard(),
     /*
-     * The same two whole maps `readTagTree` just read — `React.cache` hands
-     * back the same values, so this is no second read and no new tag. "Coming
-     * up" needs their rows, not only their counts: recipes and plans per
-     * holiday, and a recipe photo for a holiday with no picture of its own.
+     * The same two whole maps and the tree `readTagBoard` just read —
+     * `React.cache` hands back the same values, so this is no second read
+     * and no new tag. "Coming up" needs their rows, not only their counts:
+     * recipes and plans per holiday, and a recipe photo for a holiday with
+     * no picture of its own; the tree says which slugs alias which term.
      */
     recipeTagReads.byTerm.read(),
     groupTagReads.byTerm.read(),
+    tagTermReads.tree.read(),
   ]);
+  const tagTree = board.roots;
   const allFacets = homepageFacets(tagTree);
   /*
-   * The flat vocabulary, only for a corpus with no facets (no term records
-   * with children — every test fixture but two): the fallback chips' labels,
-   * and the intent tiles' counts for bare tags. Read after the tree rather
-   * than beside it, so a site with a vocabulary never pays for, or expires on,
-   * the term clouds it reads.
+   * The intent tiles, per tile (38a): a term the board draws — a root's
+   * subtree or a loose record — counts its distinct carriers, aliases
+   * included (D2); any other slug, a bare tag, counts from the flat
+   * vocabulary. That vocabulary comes from the maps already read, so a site
+   * with a hierarchy pays for no term cloud.
    */
-  const vocabulary = allFacets.length === 0 ? await readTagVocabulary() : [];
-  const tags = vocabulary
-    .filter((entry) => entry.count > 0)
-    .map((entry) => entry.label);
-  const intents = homepageIntents(termTotals(tagTree), vocabulary);
-  const recipeRows = (slug: string) => byRecipeTag?.[slug]?.items ?? [];
-  const groupRows = (slug: string) => byGroupTag?.[slug]?.items ?? [];
+  const vocabulary = vocabularyOfRows({
+    recipeRows: byRecipeTag,
+    groupRows: byGroupTag,
+    tree: termTree,
+  });
+  const intents = homepageIntents(
+    termTotals([...board.roots, ...board.loose]),
+    vocabulary,
+  );
+  /*
+   * The flat chips, only for a corpus with no facets (no term records with
+   * children — every test fixture but a few): `/tags`' own vocabulary read,
+   * after the board rather than beside it, so a site with a hierarchy never
+   * expires on the term clouds.
+   */
+  const tags =
+    allFacets.length === 0
+      ? (await readTagVocabulary())
+          .filter((entry) => entry.count > 0)
+          .map((entry) => entry.label)
+      : [];
+  /* A term's rows include its aliases' (38a, D2), for Coming up's counts. */
+  const recipeRows = aliasedRows(termTree, byRecipeTag);
+  const groupRows = aliasedRows(termTree, byGroupTag);
   const comingUp = comingUpEntries(tagTree, recipeRows, groupRows);
   /*
    * Browse skips the holidays root while Coming up shows it: the same terms
