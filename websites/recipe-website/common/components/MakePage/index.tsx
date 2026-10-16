@@ -45,7 +45,6 @@ import { buildTagIndex, refinementsInScope, subtreeUsage } from "./tagTree";
 import { buildTagExpansion } from "../../controller/tagExpansion";
 import {
   useInventory,
-  useLegacyInventoryMigration,
   useLastMakeQuery,
   useMakeSettings,
 } from "./useInventory";
@@ -105,21 +104,15 @@ function corpusTagOptions(recipes: MassagedRecipeEntry[]): TagOption[] {
  * - `secondary` — otherwise: `secondaryInventory()`'s answer, the house
  *   snapshot an export was built with when the operator opted in, and
  *   nothing by default.
- *
- * `deferLegacy` is the editor's guest: a pre-U6 overlay in storage waits for
- * the owner's signed-in visit, where the saved list it was made over can be
- * read (`useLegacyInventoryMigration`).
  */
 export function MakePage({
   tags,
   secondary,
   saved,
-  deferLegacy = false,
 }: {
   tags?: TagOption[];
   secondary?: SecondaryInventory;
   saved?: SavedInventoryProps;
-  deferLegacy?: boolean;
 }) {
   const searchParams = useSearchParams();
   const urlQuery = searchParams.get("q");
@@ -141,10 +134,11 @@ export function MakePage({
 
   /* The browser's list alone: no shared list under the overlay, so its
    * `added` is the list (25c/D10's export shape, now both apps'). */
-  const inventory = useInventory(NO_SHARED);
-  /* A pre-U6 overlay becomes the whole list once, before anything judges it. */
-  const migrated = useLegacyInventoryMigration(
-    saved ? { shared: saved.items } : deferLegacy ? "defer" : "browser",
+  /* A pre-U6 overlay becomes the whole list once, before anything judges
+   * it — here from the saved list, the one place the editor can read it. */
+  const inventory = useInventory(
+    NO_SHARED,
+    saved ? { shared: saved.items } : undefined,
   );
   /* After a save, the saved list the server answered with — until the next
    * load brings the same list back as `saved.items`. */
@@ -232,10 +226,7 @@ export function MakePage({
   ]);
 
   const pending =
-    status === "pending" ||
-    ingredientsQuery.isPending ||
-    !inventory.ready ||
-    !migrated;
+    status === "pending" || ingredientsQuery.isPending || !inventory.ready;
   const failed = status === "error" || ingredientsQuery.isError;
 
   const selectedTags = useMemo(

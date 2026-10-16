@@ -2071,6 +2071,11 @@ tokens, and every count on the pages comes from data.
   block's largest. Rows sort most-carried first. A child with narrower
   terms lists them indented beneath on the same scale, so 31b's tree
   survives inside the board.
+- **At most 15 rows a block** (`BLOCK_ROW_LIMIT`, from the review): the real
+  Drinks root has ~70 children and ran one column to 3,000px with the
+  fourth empty. Nested rows count toward the cap; the bars still scale to
+  the block's largest; past it, "All N in Drinks →" links the root's term
+  page. "More tags" has no page, so its rest folds into a `<details>`.
 - **"More tags"** collects the records outside any hierarchy — no parent the
   tree knows and no children — most carried first; a record nothing carries
   still lists at 0 (it is a real page since 24c).
@@ -2130,14 +2135,27 @@ tokens, and every count on the pages comes from data.
   list was (shared − removed) ∪ added — so reading `added` alone would have
   silently shrunk it. The value keeps its key and shape but gains
   `version: 2`, with `added` the whole list and `removed` empty (so a reader
-  that takes `added`, like the homepage tile, needs no change). On `/make`'s
-  first load `useLegacyInventoryMigration` rewrites a version-less value
-  once: in the signed-in editor from the saved list read through the
-  owner's session; on the export, where there never was a shared list, as
-  `added`; an editor guest leaves it for the owner's visit and meanwhile
-  reads `added`, as a guest always did. The page judges nothing until the
-  check is done. Pure halves (`isLegacyOverlay`, `migrateOverlay`,
-  `storedList`) in `inventoryText.ts`, tested there and in `make.spec`.
+  that takes `added` needs no change). The shared reader, `useInventory`
+  — `/make`, the homepage's Make tile and `/drinks`' panel all read through
+  it — rewrites a version-less value once, wherever it is first read, and
+  answers `ready: false` until it has:
+  - **export** (`NEXT_PUBLIC_RECIPE_APP` unset): as `added`, since there
+    never was a shared list;
+  - **signed-in editor `/make`**: from the saved list, which only that page
+    has (it passes it as `legacy`), read through the owner's session;
+  - **anywhere else in the editor** (a guest, or the tile and `/drinks` for a
+    signed-in owner): deferred, showing `added` meanwhile. **The owner
+    limit:** until the owner opens `/make` once, the editor's tile and
+    `/drinks` count only the old additions. The editor's `next.config.mjs`
+    sets `NEXT_PUBLIC_RECIPE_APP=editor` so the shared hook can tell.
+    Pure halves (`isLegacyOverlay`, `migrateOverlay`, `storedList`) in
+    `inventoryText.ts`, tested there and in `make.spec`.
+- **At most 12 cards a group, 24 for "Can make now"** (`GROUP_LIMIT`,
+  `READY_LIMIT`, from the review): a real list made the page ~17,000px —
+  25 ready, 78 one away, 118 two away. "Show all N" is a `<button>` with
+  `aria-expanded`/`aria-controls` that expands in place; headings keep the
+  full counts. The folds (Further away, the secondary group) use the same
+  grid and cap.
 - **The empty list invites**: "Tell it what you have", never a fallback.
 - **Secondary group** (`SecondaryMakeGroup`, `data-testid="make-secondary"`):
   below the results, folded, "N" in mono — the recipes ready with the

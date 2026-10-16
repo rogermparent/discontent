@@ -430,6 +430,35 @@ test.describe("Tag pages", () => {
       ).toBeVisible();
     });
 
+    test("a block shows 15 rows, biggest first, then links to its root (U4)", async ({
+      page,
+      request,
+      createApiToken,
+    }) => {
+      const token = await createApiToken();
+      for (let i = 1; i <= 16; i += 1) {
+        const created = await request.post("/api/taxonomies/tag", {
+          headers: { authorization: `Bearer ${token}` },
+          data: {
+            label: `Treat ${String(i).padStart(2, "0")}`,
+            parent: "dessert",
+          },
+        });
+        expect(created.status()).toBe(201);
+      }
+      await page.goto("/tags");
+      const dessert = page.locator(
+        "[data-testid='tag-block'][data-slug='dessert']",
+      );
+      const rows = dessert.getByTestId("tag-row");
+      await expect(rows).toHaveCount(15);
+      /* Biggest first: Cookies leads the sixteen empty records. */
+      await expect(rows.first()).toHaveText(/Cookies\s*8/);
+      const all = dessert.getByTestId("tag-block-all");
+      await expect(all).toHaveText(/All 8 in Dessert/);
+      await expect(all).toHaveAttribute("href", "/tags/dessert");
+    });
+
     test("the tag index lists a record-only term at zero, under More tags (U4)", async ({
       page,
     }) => {

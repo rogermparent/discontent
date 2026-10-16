@@ -276,14 +276,22 @@ export function TagPage({
 /**
  * One row of a `/tags` block (U4): the term's label and count, and a thin bar
  * whose width is the count over the block's largest. The bar is decoration
- * (`aria-hidden`); the count is the text. A term with narrower terms of its
- * own lists them indented beneath, on the same scale.
+ * (`aria-hidden`); the count is the text. A narrower term is indented by its
+ * depth under the row it belongs to, on the same scale.
  */
-function TermRow({ node, max }: { node: TermHierarchyNode; max: number }) {
+function TermRow({
+  node,
+  depth,
+  max,
+}: {
+  node: TermHierarchyNode;
+  depth: number;
+  max: number;
+}) {
   const width =
     max > 0 && node.total > 0 ? Math.max(2, (node.total / max) * 100) : 0;
   return (
-    <li>
+    <li style={depth > 0 ? { paddingLeft: `${depth}rem` } : undefined}>
       <Link
         href={`/tags/${node.slug}`}
         data-testid="tag-row"
@@ -302,13 +310,6 @@ function TermRow({ node, max }: { node: TermHierarchyNode; max: number }) {
           style={{ width: `${width}%` }}
         />
       </Link>
-      {node.children.length > 0 && (
-        <ul className="pl-4">
-          {sortRows(node.children).map((child) => (
-            <TermRow key={child.slug} node={child} max={max} />
-          ))}
-        </ul>
-      )}
     </li>
   );
 }
@@ -320,32 +321,51 @@ function sortRows(nodes: TermHierarchyNode[]): TermHierarchyNode[] {
   );
 }
 
-/** The largest count anywhere in a block, nested rows included. */
-function blockMax(nodes: TermHierarchyNode[]): number {
-  return nodes.reduce(
-    (max, node) => Math.max(max, node.total, blockMax(node.children)),
-    0,
-  );
+/** A block's rows in reading order: each term, then its narrower ones. */
+function flattenRows(
+  nodes: TermHierarchyNode[],
+  depth = 0,
+): { node: TermHierarchyNode; depth: number }[] {
+  return sortRows(nodes).flatMap((node) => [
+    { node, depth },
+    ...flattenRows(node.children, depth + 1),
+  ]);
 }
 
 /**
+ * Rows a block shows (usability pass review): a facet with seventy
+ * children otherwise runs one column to thousands of pixels and leaves the
+ * others empty. Nested rows count toward it; the rest are a link away.
+ */
+export const BLOCK_ROW_LIMIT = 15;
+
+/**
  * One block of the `/tags` board (U4): a heading — the root's link, or plain
- * "More tags" — with its total, then a row per term. Kept whole within a
- * column (`break-inside: avoid`).
+ * "More tags" — with its total, then up to `BLOCK_ROW_LIMIT` rows, biggest
+ * first; past that, "All N in <root> →" to the root's term page (or, for
+ * "More tags", which has no page, a fold with the rest). The bars scale to
+ * the block's largest row. Kept whole within a column (`break-inside:
+ * avoid`).
  */
 function TagBlock({
   slug,
   title,
   total,
+  allLabel,
   rows,
 }: {
   /** The root's slug; absent for "More tags", which has no page. */
   slug?: string;
   title: string;
   total: string;
+  /** The "All N in …" link's text, for a root block. */
+  allLabel?: string;
   rows: TermHierarchyNode[];
 }) {
-  const max = blockMax(rows);
+  const flat = flattenRows(rows);
+  const max = flat.reduce((most, { node }) => Math.max(most, node.total), 0);
+  const shown = flat.slice(0, BLOCK_ROW_LIMIT);
+  const rest = flat.slice(BLOCK_ROW_LIMIT);
   const heading = (
     <>
       <span>{title}</span>
@@ -356,6 +376,13 @@ function TagBlock({
   );
   const headingClass =
     "mb-1 flex items-baseline justify-between gap-3 border-b-2 border-foreground pb-2 font-display text-lg font-bold";
+  const list = (entries: typeof flat) => (
+    <ul>
+      {entries.map(({ node, depth }) => (
+        <TermRow key={node.slug} node={node} depth={depth} max={max} />
+      ))}
+    </ul>
+  );
   return (
     <section
       className="mb-8 break-inside-avoid"
@@ -374,11 +401,24 @@ function TagBlock({
           <span className={headingClass}>{heading}</span>
         )}
       </h3>
-      <ul>
-        {sortRows(rows).map((node) => (
-          <TermRow key={node.slug} node={node} max={max} />
+      {list(shown)}
+      {rest.length > 0 &&
+        (slug ? (
+          <Link
+            href={`/tags/${slug}`}
+            data-testid="tag-block-all"
+            className="mt-2 inline-block text-sm font-medium text-primary underline-offset-2 hover:underline"
+          >
+            {allLabel ?? `All in ${title}`} <span aria-hidden>→</span>
+          </Link>
+        ) : (
+          <details className="mt-2" data-testid="tag-block-rest">
+            <summary className="cursor-pointer text-sm font-medium text-primary">
+              {rest.length} more
+            </summary>
+            {list(rest)}
+          </details>
         ))}
-      </ul>
     </section>
   );
 }
@@ -434,6 +474,7 @@ export function TagIndexPage({
                   slug={root.slug}
                   title={root.label}
                   total={`${root.total} in all`}
+                  allLabel={`All ${root.total} in ${root.label}`}
                   rows={root.children}
                 />
               ))}

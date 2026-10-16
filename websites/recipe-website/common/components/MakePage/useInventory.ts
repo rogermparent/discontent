@@ -78,12 +78,58 @@ export interface Inventory {
   discard: () => void;
 }
 
-export function useInventory(shared: string[] = []): Inventory {
+/**
+ * Where a pre-U6 overlay's shared list comes from, for its one-time
+ * migration (`migrateOverlay`):
+ *
+ * - `{ shared }` — the signed-in editor's `/make`: the saved inventory the
+ *   overlay was made over, read through the owner's session;
+ * - `"browser"` — the export, which never had a shared list: `added` was
+ *   the whole list already;
+ * - `"defer"` — anywhere else in the editor (a guest, or a page that can't
+ *   read the saved list, like the homepage tile): the value is left for the
+ *   owner's next signed-in `/make`, and meanwhile reads as `added`.
+ */
+export type LegacyInventorySource = { shared: string[] } | "browser" | "defer";
+
+/**
+ * Which app this bundle is: the editor's `next.config.mjs` sets
+ * `NEXT_PUBLIC_RECIPE_APP=editor` at build time; the export leaves it unset.
+ */
+const IN_EDITOR = process.env.NEXT_PUBLIC_RECIPE_APP === "editor";
+
+/**
+ * This browser's list (U6) — the one reader every page shares: `/make`,
+ * the homepage's Make tile, `/drinks`' panel.
+ *
+ * It also migrates a pre-U6 overlay, once, wherever it is first read: on the
+ * export as `added`; in the editor only where `legacy` brings the saved list
+ * (the signed-in `/make`), deferring everywhere else. `ready` stays false
+ * until that is settled, so no page judges a half-read list.
+ */
+export function useInventory(
+  shared: string[] = [],
+  legacy?: { shared: string[] },
+): Inventory {
   const raw = useSyncExternalStore(
     subscribe,
     getOverlaySnapshot,
     getServerSnapshot,
   );
+  const source: LegacyInventorySource =
+    legacy ?? (IN_EDITOR ? "defer" : "browser");
+  const legacyShared = typeof source === "object" ? source.shared : undefined;
+  const defer = source === "defer";
+  const migrating = raw !== null && !defer && isLegacyOverlay(raw);
+  useEffect(() => {
+    if (!migrating) return;
+    const stored = read(STORAGE_KEY);
+    if (!isLegacyOverlay(stored)) return;
+    /* The write fires the store's event: `raw` turns versioned, and done. */
+    const items = migrateOverlay(stored, legacyShared);
+    write(STORAGE_KEY, items.length > 0 ? storedList(items) : null);
+  }, [migrating, legacyShared]);
+
   const overlay = useMemo(
     () => (raw === null ? EMPTY_OVERLAY : parseOverlay(raw)),
     [raw],
@@ -114,50 +160,15 @@ export function useInventory(shared: string[] = []): Inventory {
   );
   const discard = useCallback(() => write(STORAGE_KEY, null), []);
 
-  return { ready: raw !== null, have, overlay, setHave, add, remove, discard };
-}
-
-/**
- * Where a pre-U6 overlay's shared list comes from, for its one-time
- * migration (`migrateOverlay`):
- *
- * - `{ shared }` — a signed-in editor: the saved inventory the overlay was
- *   made over, read through the owner's session;
- * - `"browser"` — the export, which never had a shared list: `added` was
- *   the whole list already;
- * - `"defer"` — a guest in the editor: the shared list can't be read, so
- *   the value is left for the owner's next signed-in visit (meanwhile it
- *   reads as `added`, as a guest's page always did).
- */
-export type LegacyInventorySource = { shared: string[] } | "browser" | "defer";
-
-/**
- * Usability pass, U6: turn a stored pre-U6 overlay into this browser's whole
- * list, once, on `/make`'s first load. False until storage has been checked
- * (and rewritten, if it needed to be), so the page judges nothing early.
- */
-export function useLegacyInventoryMigration(
-  source: LegacyInventorySource,
-): boolean {
-  const raw = useSyncExternalStore(
-    subscribe,
-    getOverlaySnapshot,
-    getServerSnapshot,
-  );
-  const shared = typeof source === "object" ? source.shared : undefined;
-  const defer = source === "defer";
-  const pending = raw === null || (!defer && isLegacyOverlay(raw));
-  useEffect(() => {
-    /* `pending` is also true for the hydration render (no storage read
-     * yet), so a guest's deferral is checked here, not only above. */
-    if (!pending || defer) return;
-    const stored = read(STORAGE_KEY);
-    if (!isLegacyOverlay(stored)) return;
-    /* The write fires the store's event: `raw` turns versioned, and done. */
-    const items = migrateOverlay(stored, shared);
-    write(STORAGE_KEY, items.length > 0 ? storedList(items) : null);
-  }, [pending, defer, shared]);
-  return !pending;
+  return {
+    ready: raw !== null && !migrating,
+    have,
+    overlay,
+    setHave,
+    add,
+    remove,
+    discard,
+  };
 }
 
 /**

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState } from "react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import type { MassagedRecipeEntry } from "../../controller/data/read";
 import { requirementLabel } from "../../util/ingredientNames";
@@ -65,27 +65,60 @@ function MatchNote({ match }: { match: RecipeMatch }) {
   );
 }
 
+/** Cards a group shows before "Show all N" (usability pass review). */
+export const GROUP_LIMIT = 12;
+/** "Can make now" is what people came for: it shows more before folding. */
+export const READY_LIMIT = 24;
+
+/**
+ * A group's cards, at most `limit` of them until "Show all N" — a real
+ * button with `aria-expanded`, expanding in place. A real list runs to
+ * hundreds of one- and two-away recipes; the headings keep the counts.
+ */
 function MatchGrid({
   matches,
   recipes,
+  limit = GROUP_LIMIT,
 }: {
   matches: RecipeMatch[];
   recipes: Map<string, MassagedRecipeEntry>;
+  limit?: number;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const gridId = useId();
   const bySlug = new Map(matches.map((match) => [match.recipe.slug, match]));
+  const shown = expanded ? matches : matches.slice(0, limit);
   return (
-    <SearchList
-      recipeResults={matches
-        .map((match) => recipes.get(match.recipe.slug))
-        .filter((recipe): recipe is MassagedRecipeEntry => !!recipe)}
-      highlightQuery=""
-      renderItemWrapper={(recipe, content) => (
-        <RecipeCardLink href={`/recipe/${recipe.slug}`}>
-          {content}
-          <MatchNote match={bySlug.get(recipe.slug)!} />
-        </RecipeCardLink>
+    <>
+      <div id={gridId}>
+        <SearchList
+          recipeResults={shown
+            .map((match) => recipes.get(match.recipe.slug))
+            .filter((recipe): recipe is MassagedRecipeEntry => !!recipe)}
+          highlightQuery=""
+          renderItemWrapper={(recipe, content) => (
+            <RecipeCardLink href={`/recipe/${recipe.slug}`}>
+              {content}
+              <MatchNote match={bySlug.get(recipe.slug)!} />
+            </RecipeCardLink>
+          )}
+        />
+      </div>
+      {matches.length > limit && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mt-3"
+          aria-expanded={expanded}
+          aria-controls={gridId}
+          data-testid="make-show-all"
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? "Show fewer" : `Show all ${matches.length}`}
+        </Button>
       )}
-    />
+    </>
   );
 }
 
@@ -94,11 +127,13 @@ function Section({
   testId,
   matches,
   recipes,
+  limit,
 }: {
   title: string;
   testId: string;
   matches: RecipeMatch[];
   recipes: Map<string, MassagedRecipeEntry>;
+  limit?: number;
 }) {
   const headingId = useId();
   if (matches.length === 0) return null;
@@ -110,7 +145,7 @@ function Section({
           {matches.length}
         </span>
       </h2>
-      <MatchGrid matches={matches} recipes={recipes} />
+      <MatchGrid matches={matches} recipes={recipes} limit={limit} />
     </section>
   );
 }
@@ -219,6 +254,7 @@ export function MakeResults({
         testId="make-can"
         matches={canMake}
         recipes={recipes}
+        limit={READY_LIMIT}
       />
       <Section
         title="One ingredient away"

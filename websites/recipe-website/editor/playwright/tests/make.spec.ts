@@ -282,6 +282,45 @@ test.describe("What can I make?", () => {
     await expect(page).toHaveURL(/\/make$/);
   });
 
+  test("a group shows 12 cards, then Show all expands in place", async ({
+    page,
+    request,
+    createApiToken,
+  }) => {
+    const token = await createApiToken();
+    for (let i = 1; i <= 13; i += 1) {
+      const created = await request.post("/api/recipes", {
+        headers: { authorization: `Bearer ${token}` },
+        data: {
+          name: `Quince Tart ${String(i).padStart(2, "0")}`,
+          tags: ["quince-test"],
+          ingredients: ["1 quince", "1 cup jam"],
+        },
+      });
+      expect(created.status()).toBe(201);
+    }
+    await page.goto("/make?q=tag:quince-test");
+    await expect(ticker(page)).toHaveText(/^13 recipes/i, { timeout: 20_000 });
+    await addItems(page, "jam");
+    const oneAway = section(page, "make-one-away");
+    /* The heading keeps the whole count. */
+    await expect(oneAway.getByRole("heading", { level: 2 })).toHaveText(
+      /One ingredient away\s*13/,
+    );
+    await expect(
+      oneAway.getByRole("link", { name: /Quince Tart/ }),
+    ).toHaveCount(12);
+    const more = oneAway.getByRole("button", { name: "Show all 13" });
+    await expect(more).toHaveAttribute("aria-expanded", "false");
+    await more.click();
+    await expect(
+      oneAway.getByRole("link", { name: /Quince Tart/ }),
+    ).toHaveCount(13);
+    await expect(
+      oneAway.getByRole("button", { name: "Show fewer" }),
+    ).toHaveAttribute("aria-expanded", "true");
+  });
+
   test("has no WCAG2AA violations, empty or filled", async ({ page }) => {
     await page.goto("/make");
     await ready(page);

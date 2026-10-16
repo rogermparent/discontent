@@ -56,7 +56,6 @@ export default async function Make() {
                   }
                 : undefined
             }
-            deferLegacy={!saved}
           />
         </Suspense>
       </PageSection>
