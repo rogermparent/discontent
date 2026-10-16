@@ -742,9 +742,13 @@ shapes. `jobs.test.ts` (kinds, labels, tier). Playwright: `git.spec` +1
 with five `reindex.<type>` steps); `api-write.spec`'s reindex case reads
 the job's steps over `/api/jobs/<id>`.
 
-**Gates.** Both typechecks clean. vitest **106 files / 2208 tests**.
+**Gates.** Both typechecks clean. vitest **106 files / 2208 tests** on the
+branch, **110 files / 2261 tests** after merging main (39a, 39c, 39e).
 Playwright (build mode, `heavy-pw.sh`): `jobs`, `git`, `api-write`,
-`mirrors-card`, `mirror-role`, `mcp-http` — **84 passed**.
+`mirrors-card`, `mirror-role`, `mcp-http` — **84 passed** on the branch,
+**84 passed** again after it. One fix on the merge: the D4 case's new job check
+waits for the last sync's record (under the full suite's load a final run
+could still be `running` when the sync state had converged).
 
 ### 39c — Cooking UX
 

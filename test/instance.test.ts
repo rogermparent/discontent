@@ -749,8 +749,16 @@ describe("the instance", () => {
      * Epic 39 D2: each sync was a `git-sync` job, and one that moved
      * nothing left no record — the one that pushed the commit did.
      */
-    const syncs = (await listJobSummaries({ kind: "git-sync", limit: 300 }))
-      .jobs;
+    /* A last run may still be finishing (its record lands after the state). */
+    const syncs = (
+      await eventually(
+        () => listJobSummaries({ kind: "git-sync", limit: 300 }),
+        (list) =>
+          list.jobs.every(
+            (job) => job.status !== "running" && job.status !== "queued",
+          ),
+      )
+    ).jobs;
     expect(syncs.length).toBeGreaterThanOrEqual(1);
     for (const job of syncs) {
       expect(job.status).toBe("done");
