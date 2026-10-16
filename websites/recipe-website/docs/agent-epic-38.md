@@ -109,7 +109,7 @@ editor is stopped (content only, no heavy work), then 38-close.
 - `/drinks` seasonal row: D1, in `common/components/DrinksPage/Seasonal.tsx`
   with a `withinDays` helper beside `withinComingUpWindow`.
 - The ready list groups by drink family (Daiquiri ×2): one entry per family
-  ("Daiquiri · 2 recipes", → `/tags/<family>`), singletons as today. A family
+  ("Daiquiri · 2 drinks", → `/tags/<family>`), singletons as today. A family
   is a child of `drink` not in `DRINK_STYLE_SLUGS`; the page data passes a
   slug → family map (`RecipeMatch.recipe` has no tags).
 - Homepage intent tiles: a per-tile fallback in `homepageIntents` (hierarchy
@@ -219,7 +219,11 @@ editor is stopped (content only, no heavy work), then 38-close.
   tequila" read as `ejo tequila`. The marks are now stripped right after
   the normalize (the name is folded later anyway). Any accented word that
   starts with `a`/`an` was affected; `crème`, `jalapeño` and `açaí` read the
-  same before and after.
+  same before and after. The amount reader had the same trap ("añejo
+  tequila, to rinse" read as one of something, `an` = 1): review fix,
+  both readers now go through one normaliser, `readableLine`
+  (`ingredientNames.ts`). `normalizeIngredientText` itself keeps its
+  accents — the form's stored text and the LLM extractor use it.
 - **Ta2 — `toHaveCount(0)` passes before hydration.** The seasonal row is a
   client island that renders nothing until it has the browser's date, so
   "no row" is true of the server HTML too. `drinks.spec` waits for the make
@@ -239,6 +243,17 @@ editor is stopped (content only, no heavy work), then 38-close.
   with `aliases: ["Biscuits"]` stores `biscuits`, so `/tags` prints
   "also: biscuits"; a hand-written `term.json` keeps its casing ("also:
   Daiquiris" in `drinks-bar`).
+- **Ta6 — `settings.json` was truncate-then-write.** `outputJSON` empties the
+  file first, and `readSettings` answers `{}` for a file that doesn't parse,
+  so a read-modify-write that landed in another writer's window (the Pi's
+  `PUT /api/settings/site` after a sync, the theme form, a staples save
+  from a second device) wrote back only its own key and wiped theme,
+  mirrors and the rest. Review fix: `writeSettings` is atomic (temp +
+  rename), and `updateSettings(fn)` (`@discontent/cms/settings`) holds a
+  `fileLock` at `settings/.settings.json.lock` for the read and the write,
+  and throws on an unparseable file rather than writing over it. The
+  staples action, the mirror actions and the site-settings route use it;
+  the settings forms only gained the atomic write.
 
 ### 38b
 
@@ -304,17 +319,22 @@ recipes.
   year end (6 days); Halloween is back on 1 September.
 - **Families on the ready list.** `drinksPageData` answers `familyOf`
   (recipe slug → family term) and `groupReady` (pure, beside it) turns two or
-  more ready drinks of one family into one entry — "Daiquiri · 2 recipes",
+  more ready drinks of one family into one entry — "Daiquiri · 2 drinks",
   to `/tags/daiquiri` — at the place of the first of them; a family of one
   and a drink with no family stay as they were. `+N more` counts recipes,
-  not entries.
+  not entries. The entry's count is the family's _ready_ drinks; the term
+  page it links to lists all of them.
 - **D2, alias counts.** `termCarriers` (tagVocabulary.ts) gives
   `termHierarchy`/`termBoard` a term's carriers over `termKeys` — its slug
   and every alias slug — so `/tags`, the browse chips and the intent tiles
   count an alias-only recipe; `aliasedRows` does the same for Coming up's
   per-term rows. `/tags` prints a term's aliases under it ("also:
   Biscuits"; `TermHierarchyNode.aliases`), on a row and on a root's
-  heading. One component renders `/tags` in both apps, so both have it. The
+  heading — only the ones `termKeys` counts (`ownAliases`: an alias that is
+  another record's own slug is left out). An alias slug is no bare tag:
+  `TagBoard.aliased` keeps it out of `/tags`' chips and the homepage's
+  no-facet chips (review fix; a term carried only through an alias still
+  gets its homepage chip). One component renders `/tags` in both apps, so both have it. The
   export's alias redirect stays the client-side page it was (32i).
 - **Per-tile intent fallback.** `route.tsx` reads `readTagBoard()` and
   counts each tile from the board (roots' subtrees and the loose records,
@@ -354,14 +374,24 @@ recipes.
   merged (a union would resurrect what another browser removed). Every add,
   remove and Reset on the signed-in page then saves too (Reset clears the
   saved list, so it doesn't re-seed). Only "Assume I always have" is saved;
-  the pantry switch and "count close matches" stay per browser.
+  the pantry switch and "count close matches" stay per browser. The saved
+  list is **per editor instance, not per user**: a guest's signed-out edits
+  are this browser's, and upload as the owner's list on the next sign-in
+  when nothing is saved yet. Saves are capped at the action's limits (200
+  items, 200 characters each — `stapleLimits.ts`); a refused or failed save
+  shows one quiet line under the list and leaves the browser's list as it
+  is. The action revalidates `/make`, so a later visit isn't seeded from a
+  stale payload (a Reset undone), and writes nothing for an unchanged list.
 - **Da3 — alias counts are read time.** No derived index or aggregate
   changes; the whole by-term maps already have each alias slug's row.
 - **Da4 — a family is a child of `drink` not in `DRINK_STYLE_SLUGS`**, with
   its subtree and its aliases (`subtreeKeys`) — on the real repo the 56
-  drink-name families of epic 33. A drink carrying two families goes to the
-  one with more drinks, then by label (the order of `families`, so the
-  first claim wins); the other family's chip still counts it.
+  drink-name families of epic 33. `familyOf` lists every family a drink
+  carries, most drinks first, then by label; the ready list puts a drink in
+  two families with the one that has more _ready_ drinks, then more drinks,
+  then by label (review fix — so a Hemingway Daiquiri joins two ready
+  Daiquiris instead of standing alone). The other family's chip still
+  counts it.
 - **Da5 — AA by treatment, not a token.** The newer screens have no AA
   error-text token; they keep the text in the foreground and mark it with a
   `border-destructive` rule (37-T25). The theme's `--destructive` is
@@ -395,6 +425,15 @@ gained a bare `quick` tag for the per-tile fallback. Indexes rebuilt with
   bare `quick` tile beside a hierarchy (homepage-browse), `/tags`' alias
   count and "also:" line, and the saved staples following the owner to a
   new browser (and not to a guest).
+- **Review fixes** (after merging main at #245): editor and export `tsc`
+  clean; vitest 99 files, 2019 tests, one `cliJson` inventory timeout at
+  30.15 s (Ta4) that passed alone (23/23). New: `settingsStore.test.ts`
+  (no truncated reads, concurrent updates keep every key, no write for no
+  change, an unparseable file refused, the staples action), `ownAliases`
+  and `TagBoard.aliased`, the ready-first family pick, `capStaples`,
+  `readableLine` and `parseAmount` on "añejo". Playwright, production
+  build: tag-pages, drinks, make, homepage, accessibility — 108/108
+  (103 e2e, 5 mobile).
 - **Baselines:** `drinks-page` (e2e + mobile) regenerated in their own
   commit — the Classics row gained Daiquiri and New drinks a sixth card.
   They had passed unchanged inside the 2% pixel budget; regenerated so the
