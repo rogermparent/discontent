@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import {
   JOB_KIND_NAMES,
@@ -20,6 +26,20 @@ import { JobStatusBadge, formatWhen } from "./JobStatusBadge";
 
 /** How often the page reads while anything is live (D7: every 2 s). */
 export const JOBS_POLL_MS = 2_000;
+
+/**
+ * How often it reads while all is idle (38b): a job another process starts
+ * — a CLI import, an agent's — shows within this, with no Refresh.
+ */
+export const JOBS_IDLE_POLL_MS = 10_000;
+
+/* The tab's visibility, as React reads an outside store. */
+function subscribeVisibility(onChange: () => void): () => void {
+  document.addEventListener("visibilitychange", onChange);
+  return () => document.removeEventListener("visibilitychange", onChange);
+}
+const tabHidden = () => document.hidden;
+const serverTabHidden = () => false;
 
 const LIVE = new Set(["queued", "running"]);
 
@@ -86,7 +106,9 @@ function EntryText({
  * `/jobs`' live half (37c): the queue per resource — the holder, then the
  * waiters in order with their tiers — and the recent jobs, filtered by
  * status and kind. It reads `GET /api/jobs?queue=1` every 2 s while
- * anything is live, and stops when all is idle (Refresh reads again).
+ * anything is live and every 10 s while all is idle (38b), so a job another
+ * process starts shows by itself; never while the tab is hidden, and once
+ * at once when it is shown again. Refresh reads now.
  */
 export function JobsDashboard({
   initialList,
@@ -149,17 +171,31 @@ export function JobsDashboard({
     return () => controller.abort();
   }, [load]);
 
-  /* While anything is live, read again every 2 s; idle, stop. */
+  /*
+   * Read again every 2 s while anything is live, every 10 s while idle
+   * (38b); nothing while the tab is hidden, and at once when it comes back.
+   */
   const live = anyLive(list, queue);
+  const hidden = useSyncExternalStore(
+    subscribeVisibility,
+    tabHidden,
+    serverTabHidden,
+  );
+  const resumed = useRef(false);
   useEffect(() => {
-    if (!live) return;
+    if (hidden) {
+      resumed.current = true;
+      return;
+    }
+    const delay = resumed.current ? 0 : live ? JOBS_POLL_MS : JOBS_IDLE_POLL_MS;
+    resumed.current = false;
     const controller = new AbortController();
-    const timer = setTimeout(() => void load(controller.signal), JOBS_POLL_MS);
+    const timer = setTimeout(() => void load(controller.signal), delay);
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [live, load, reads]);
+  }, [hidden, live, load, reads]);
 
   return (
     <div className="space-y-8">

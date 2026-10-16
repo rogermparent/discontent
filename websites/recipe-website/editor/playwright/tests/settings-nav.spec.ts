@@ -1,5 +1,6 @@
 import { test, expect } from "../support/test";
 import { signIn } from "../support/helpers";
+import { recordOutsideJob } from "../support/tasks";
 
 const AREAS = [
   "Site details",
@@ -9,6 +10,7 @@ const AREAS = [
   "Content Sync",
   "Export",
   "Tools",
+  "Jobs",
   "Maintenance",
 ];
 
@@ -98,6 +100,40 @@ test.describe("Settings navigation", () => {
     await expect(
       sidebar.getByRole("link", { name: "Site details" }),
     ).not.toHaveAttribute("aria-current", "page");
+  });
+
+  test("Jobs is its own item, lit on /jobs and a job's page; Tools links it too (38b)", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await signIn(page);
+    await page.goto("/settings/tools");
+    const sidebar = page.getByRole("complementary", { name: "Settings" });
+    await expect(
+      page.getByRole("link", { name: "See the jobs and the queue" }),
+    ).toHaveAttribute("href", "/jobs");
+
+    await sidebar.getByRole("link", { name: "Jobs", exact: true }).click();
+    await expect(page).toHaveURL(/\/jobs$/);
+    await expect(
+      page.getByRole("heading", { name: "Jobs", exact: true }),
+    ).toBeVisible();
+    await expect(
+      sidebar.getByRole("link", { name: "Jobs", exact: true }),
+    ).toHaveAttribute("aria-current", "page");
+    await expect(
+      sidebar.getByRole("link", { name: "Tools", exact: true }),
+    ).not.toHaveAttribute("aria-current", "page");
+
+    /* A job's page keeps Jobs lit. */
+    const job = await recordOutsideJob("a settings-nav job");
+    await page.goto(`/jobs/${job}`);
+    await expect(
+      page.getByRole("heading", { name: "a settings-nav job" }),
+    ).toBeVisible();
+    await expect(
+      sidebar.getByRole("link", { name: "Jobs", exact: true }),
+    ).toHaveAttribute("aria-current", "page");
   });
 
   test("navigates to Maintenance with active state", async ({ page }) => {

@@ -35,11 +35,20 @@ import {
 import {
   acquire,
   queueSnapshot,
+  readSiteDrop,
   resourceDirectory,
   sweepQueue,
   withResource,
+  writeSiteDrop,
   type ResourceGrant,
 } from "../websites/recipe-website/editor/controller/jobs/queue";
+import {
+  SiteDroppedError,
+  SitePacer,
+  SiteState,
+  realPacing,
+} from "../websites/recipe-website/editor/controller/curation/sitePacing";
+import type { ForbiddenRetry } from "../websites/recipe-website/common/util/politeFetch";
 import {
   liveKeeper,
   readHookState,
@@ -753,6 +762,188 @@ describe("the queue across processes (D4)", () => {
     ]);
     expect(all[2][2] - all[1][2]).toBeGreaterThanOrEqual(1150);
   }, 60_000);
+});
+
+/* ------------------------------------------------------------------ */
+/* A site's line and its drop (38b)                                    */
+/* ------------------------------------------------------------------ */
+
+describe("a site's line and its drop (38b)", () => {
+  /** A request whose 403 retry answers 403 again: the site refuses twice. */
+  const refusedTwice = async (retry: ForbiddenRetry) => {
+    await retry.beforeRetry!();
+    retry.afterRetry!({ status: 403 } as Response);
+    return { status: 403 };
+  };
+
+  /** One process's pacer on the real clock, with its own state. */
+  const pacerOf = () =>
+    new SitePacer({ ...realPacing(), gapMs: 0, state: new SiteState() });
+
+  it("drops a site for every process: one refused twice, another never asks", async () => {
+    const first = pacerOf();
+    const second = pacerOf();
+    await first.request("https://www.example.com/a", refusedTwice);
+    expect(await first.droppedReason("https://www.example.com/a")).toMatch(
+      /refused twice \(HTTP 403\)/,
+    );
+
+    /* The other "process" — its own state, the same queue dir. */
+    const asked = vi.fn(async () => "page");
+    await expect(
+      second.request("https://cdn.example.com/b", asked),
+    ).rejects.toThrow(SiteDroppedError);
+    expect(asked).not.toHaveBeenCalled();
+    expect(second.dropped.get("example.com")).toMatch(/refused twice/);
+    const file = JSON.parse(
+      await readFile(
+        join(resourceDirectory("site:example.com", queue), "dropped.json"),
+        "utf8",
+      ),
+    );
+    expect(file).toMatchObject({ reason: expect.stringMatching(/403/) });
+    expect(file.until).toBeGreaterThan(Date.now() + 59 * 60_000);
+
+    /* Another site is untouched. */
+    expect(await second.request("https://pies.test/c", async () => "ok")).toBe(
+      "ok",
+    );
+  });
+
+  it("keeps the first drop, and forgets one that has run out", async () => {
+    const resource = "site:example.com";
+    await writeSiteDrop(
+      resource,
+      { until: Date.now() + 1000, reason: "a" },
+      queue,
+    );
+    await writeSiteDrop(
+      resource,
+      { until: Date.now() + 9000, reason: "b" },
+      queue,
+    );
+    expect(await readSiteDrop(resource, queue)).toMatchObject({ reason: "a" });
+    expect(
+      await readSiteDrop(resource, queue, Date.now() + 2000),
+    ).toBeUndefined();
+
+    const expired = join(resourceDirectory(resource, queue), "dropped.json");
+    await writeFile(
+      expired,
+      JSON.stringify({ until: Date.now() - 1, reason: "old" }),
+    );
+    expect(await pacerOf().droppedReason("https://example.com/x")).toBe(
+      undefined,
+    );
+    /* A run-out drop is replaced by a new one. */
+    await writeSiteDrop(
+      resource,
+      { until: Date.now() + 1000, reason: "new" },
+      queue,
+    );
+    expect(await readSiteDrop(resource, queue)).toMatchObject({
+      reason: "new",
+    });
+  });
+
+  it("sees a drop another process wrote while it waited for the slot", async () => {
+    const holder = await acquire("site:example.com", { dir: queue });
+    const pacer = pacerOf();
+    const asked = vi.fn(async () => "page");
+    const pending = pacer.request("https://www.example.com/a", asked);
+    await vi.waitFor(async () =>
+      expect(
+        (await queueSnapshot("site:example.com", queue)).waiters,
+      ).toHaveLength(1),
+    );
+    await writeSiteDrop(
+      "site:example.com",
+      { until: Date.now() + 60_000, reason: "refused elsewhere" },
+      queue,
+    );
+    await holder.release();
+    await expect(pending).rejects.toThrow(/refused elsewhere/);
+    expect(asked).not.toHaveBeenCalled();
+    /* Nothing was asked, so the site's clock did not move. */
+    expect((await queueSnapshot("site:example.com", queue)).holder).toBe(
+      undefined,
+    );
+  });
+
+  it("grants this process's line by tier: interactive ahead of queued batch requests", async () => {
+    const state = new SiteState();
+    const order: string[] = [];
+    const first = await state.acquire("example.com", undefined, "batch");
+    const take = (name: string, tier: "interactive" | "batch") =>
+      state.acquire("example.com", undefined, tier).then((release) => {
+        order.push(name);
+        release();
+      });
+    const all = [
+      take("batch 1", "batch"),
+      take("batch 2", "batch"),
+      take("interactive 1", "interactive"),
+      take("interactive 2", "interactive"),
+    ];
+    expect(state.busy("example.com")).toBe(true);
+    first();
+    await Promise.all(all);
+    expect(order).toEqual([
+      "interactive 1",
+      "interactive 2",
+      "batch 1",
+      "batch 2",
+    ]);
+    expect(state.busy("example.com")).toBe(false);
+  });
+
+  it("lets a cancelled waiter leave the line; the rest keep their order", async () => {
+    const state = new SiteState();
+    const order: string[] = [];
+    const first = await state.acquire("example.com");
+    const controller = new AbortController();
+    const cancelled = state.acquire("example.com", controller.signal, "batch");
+    const next = state
+      .acquire("example.com", undefined, "batch")
+      .then((release) => {
+        order.push("next");
+        release();
+      });
+    controller.abort(new Error("gone"));
+    await expect(cancelled).rejects.toThrow("gone");
+    first();
+    await next;
+    expect(order).toEqual(["next"]);
+    expect(state.busy("example.com")).toBe(false);
+  });
+
+  it("puts an interactive SitePacer request ahead of a batch job's queued ones", async () => {
+    const state = new SiteState();
+    const pacing = { ...realPacing(), gapMs: 0, state };
+    const order: string[] = [];
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const batch = new SitePacer(pacing, { tier: "batch" });
+    const person = new SitePacer(pacing, { tier: "interactive" });
+    const running = batch.request("https://example.com/0", async () => {
+      await gate;
+      order.push("batch 0");
+    });
+    await vi.waitFor(() => expect(state.busy("example.com")).toBe(true));
+    const queued = [1, 2].map((n) =>
+      batch.request(`https://example.com/${n}`, async () => {
+        order.push(`batch ${n}`);
+      }),
+    );
+    const form = person.request("https://example.com/form", async () => {
+      order.push("form");
+    });
+    open();
+    await Promise.all([running, ...queued, form]);
+    expect(order).toEqual(["batch 0", "form", "batch 1", "batch 2"]);
+  });
 });
 
 /* ------------------------------------------------------------------ */

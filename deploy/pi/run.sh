@@ -10,7 +10,8 @@
 #
 # Overridable for a trial instance next to the real one:
 #   NAME=recipe-editor-trial PORT=3001 CONTENT=/tmp/recipes-trial \
-#     SETTINGS=/tmp/settings-trial ~/recipe-editor/run.sh <tag>
+#     SETTINGS=/tmp/settings-trial JOBS=/tmp/jobs-trial \
+#     ~/recipe-editor/run.sh <tag>
 set -eu
 
 tag=${1:?usage: run.sh <tag>}
@@ -19,9 +20,16 @@ name=${NAME:-recipe-editor}
 port=${PORT:-3000}
 content=${CONTENT:-$HOME/recipes}
 settings=${SETTINGS:-$here/settings}
+jobs=${JOBS:-$here/jobs}
 restart=${RESTART:-unless-stopped}
 
 docker image inspect "recipe-editor:$tag" >/dev/null
+
+# The import jobs' records and the queue's state (epic 38, 38b), kept across
+# redeploys. Made here, as the Pi user: a directory Docker creates for a
+# missing `-v` source is root's, and the editor (this uid) could not write
+# it — it would run every import without a record (37-T6).
+mkdir -p "$jobs"
 
 if docker container inspect "$name" >/dev/null 2>&1; then
   docker stop -t 15 "$name" >/dev/null
@@ -35,7 +43,10 @@ fi
 # - --init: tini as PID 1, so `docker stop` is prompt;
 # - ssh's default login name comes from the passwd entry, which in the image
 #   is `editor`; /git's fetch/pull/push should log in as the Pi user, as the
-#   Pi's own git does (a `User` in ~/.ssh/config would be overridden too).
+#   Pi's own git does (a `User` in ~/.ssh/config would be overridden too);
+# - the jobs directory at /jobs, with the queue's state inside it
+#   (`RECIPE_QUEUE_DIR`): the records, a site dropped after two 403s and its
+#   polite gap all outlive the container. `-e` beats a value `.env` sets.
 docker run -d \
   --name "$name" \
   --label "recipe-editor.tag=$tag" \
@@ -47,8 +58,11 @@ docker run -d \
   --env-file "$here/.env" \
   -e PORT="$port" \
   -e GIT_SSH_COMMAND="ssh -o User=$(id -un)" \
+  -e RECIPE_JOBS_DIR=/jobs \
+  -e RECIPE_QUEUE_DIR=/jobs/queue \
   -v "$content:/content" \
   -v "$settings:/settings" \
+  -v "$jobs:/jobs" \
   -v "$HOME/.gitconfig:/home/editor/.gitconfig:ro" \
   -v "$HOME/.ssh:/home/editor/.ssh:ro" \
   "recipe-editor:$tag" >/dev/null

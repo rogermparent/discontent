@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -18,7 +19,13 @@ import {
   type RoundupPick,
 } from "recipe-editor/controller/roundupPicker";
 import { hostnameLabel } from "recipe-website-common/util/hostnameLabel";
-import { importRoundupAction, inspectRoundupAction } from "./roundupActions";
+import { JobFollow } from "@/jobs/JobFollow";
+import {
+  importRoundupAction,
+  importRoundupResult,
+  inspectRoundupAction,
+  inspectRoundupResult,
+} from "./roundupActions";
 import { OutcomeList, PickList, SelectAllNone } from "./PickList";
 
 const STATUS_LABEL: Record<RoundupOutcome["status"], string> = {
@@ -43,6 +50,11 @@ const STATUS_LABEL: Record<RoundupOutcome["status"], string> = {
  * or reloading it ends the run, and re-listing the page marks what was
  * imported as existing, so nothing is imported twice. Links open in a new
  * tab so a run can be watched without leaving it.
+ *
+ * Each call is a job (epic 37): the listing, then each chunk. The picker
+ * follows the running one's steps live (38b: `JobFollow`, over
+ * `useJobPoll`) — the page fetches, the waits for a site's polite gap, each
+ * recipe's parse and write — and reads the answer once it ends.
  */
 export default function RoundupImport({
   terms = [],
@@ -68,6 +80,24 @@ export default function RoundupImport({
   const [running, setRunning] = useState(false);
   const [stopping, setStopping] = useState(false);
   const stopRef = useRef(false);
+  /* The job being followed, and who waits for its end. */
+  const [following, setFollowing] = useState<{
+    job: string;
+    title: string;
+    /** The listing shows by the URL field; a chunk, by the progress line. */
+    phase: "list" | "import";
+  } | null>(null);
+  const endedRef = useRef<((error?: string) => void) | null>(null);
+  const follow = (job: string, title: string, phase: "list" | "import") =>
+    new Promise<string | undefined>((resolve) => {
+      endedRef.current = resolve;
+      setFollowing({ job, title, phase });
+    });
+  const onFollowEnded = useCallback((_meta: unknown, error?: string) => {
+    const resolve = endedRef.current;
+    endedRef.current = null;
+    resolve?.(error);
+  }, []);
 
   /* Leaving the page (a client-side navigation) stops after this call. */
   useEffect(
@@ -86,9 +116,19 @@ export default function RoundupImport({
     event.preventDefault();
     startInspect(async () => {
       setError(null);
-      const answer = await inspectRoundupAction(url);
+      setList(null);
+      const begun = await inspectRoundupAction(url);
+      if ("error" in begun) {
+        setError(begun.error.message);
+        return;
+      }
+      const lost = await follow(begun.job, "Listing the roundup", "list");
+      if (lost) {
+        setError(`Lost touch with the job: ${lost}`);
+        return;
+      }
+      const answer = await inspectRoundupResult(begun.job);
       if ("error" in answer) {
-        setList(null);
         setError(answer.error.message);
         return;
       }
@@ -118,7 +158,7 @@ export default function RoundupImport({
       while (left.length > 0 && !stopRef.current) {
         const { chunk, rest } = nextChunk(left);
         setCurrent(chunk);
-        const answer = await importRoundupAction({
+        const begun = await importRoundupAction({
           url: list!.url,
           picks: chunk,
           ...(withTerm ? { term: term.trim() } : {}),
@@ -126,6 +166,20 @@ export default function RoundupImport({
             ? { termLabel: termLabel.trim() }
             : {}),
         });
+        if ("error" in begun) {
+          setError(begun.error.message);
+          break;
+        }
+        const lost = await follow(
+          begun.job,
+          `Importing ${chunk.map(({ n }) => n).join(", ")}`,
+          "import",
+        );
+        if (lost) {
+          setError(`Lost touch with the job: ${lost}`);
+          break;
+        }
+        const answer = await importRoundupResult(begun.job, chunk);
         if ("error" in answer) {
           setError(answer.error.message);
           break;
@@ -221,10 +275,23 @@ export default function RoundupImport({
         </ul>
       )}
 
+      {following?.phase === "list" && (
+        <div className="mt-2">
+          <JobFollow
+            key={following.job}
+            job={following.job}
+            title={following.title}
+            testId="roundup-job"
+            onEnded={onFollowEnded}
+          />
+        </div>
+      )}
+
       {list && list.items.length === 0 && (
         <div className="mt-2 text-sm" data-testid="roundup-reason">
           <p>{list.reason ?? "The page lists no recipes."}</p>
-          {/* A full load: `?import=` is read by the page, not this form. */}
+          {/* A full load: the page fills its URL field from `?import=`, and
+              its Import button starts the job (38b, D3). */}
           <a
             className="underline"
             href={`/new-recipe?import=${encodeURIComponent(list.url)}`}
@@ -365,6 +432,15 @@ export default function RoundupImport({
                 Stop
               </Button>
             </div>
+          )}
+          {following?.phase === "import" && (
+            <JobFollow
+              key={following.job}
+              job={following.job}
+              title={following.title}
+              testId="roundup-job"
+              onEnded={onFollowEnded}
+            />
           )}
           <OutcomeList
             testId="roundup-results"

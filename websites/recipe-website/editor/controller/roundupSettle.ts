@@ -13,7 +13,8 @@ import type { RoundupOutcome, RoundupPick } from "./roundupPicker";
 /**
  * One call's answer, per pick. A pick the seat handed back in `remaining`
  * goes back on the queue — unless its site was dropped (two 403s: an hour,
- * process-wide), which would hand it back forever, so it is reported instead.
+ * machine-wide since 38b), which would hand it back forever, so it is
+ * reported instead.
  * A call that made no progress at all (everything back, nothing attempted)
  * is `stalled`: the caller stops rather than ask again.
  */

@@ -40,7 +40,7 @@ import type {
   RecipeEntryKey,
   RecipeEntryValue,
 } from "recipe-website-common/controller/types";
-import { fetchImageFile, largeImageWarning } from "../imageImport";
+import { fetchImageFilePaced, largeImageWarning } from "../imageImport";
 import {
   batchOptions,
   collectBatch,
@@ -391,7 +391,7 @@ export async function createGroup(
    * input-only key, and `data` is what gets written.
    */
   const imageFile = input.imageImportUrl
-    ? await fetchImageFile(input.imageImportUrl)
+    ? await fetchImageFilePaced(input.imageImportUrl)
     : undefined;
   const image = imageFile?.name;
   const imageWarning =
@@ -513,7 +513,7 @@ export async function updateGroup(
   }
 
   const imageFile = patch.imageImportUrl
-    ? await fetchImageFile(patch.imageImportUrl)
+    ? await fetchImageFilePaced(patch.imageImportUrl)
     : undefined;
   const imageWarning =
     imageFile &&

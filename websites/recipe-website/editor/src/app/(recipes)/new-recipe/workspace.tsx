@@ -14,6 +14,7 @@ import type { RecipeActionState } from "./common";
 export default function NewRecipeWorkspace({
   initialState,
   initialJob,
+  initialImportUrl,
   allTags,
   terms,
   llmModel,
@@ -21,6 +22,8 @@ export default function NewRecipeWorkspace({
   initialState: RecipeActionState | null;
   /** `/new-recipe?job=<id>` (37c): the form import to reopen or follow. */
   initialJob?: string;
+  /** `/new-recipe?import=<url>` (38b, D3): the URL to fill in, not fetch. */
+  initialImportUrl?: string;
   allTags: string[];
   terms: { slug: string; label: string }[];
   /** The local model's name, or nothing when none is configured (36b). */
@@ -33,6 +36,7 @@ export default function NewRecipeWorkspace({
       <CreateForm
         initialState={initialState}
         initialJob={initialJob}
+        initialImportUrl={initialImportUrl}
         allTags={allTags}
         busy={roundupRunning}
         llmModel={llmModel}
