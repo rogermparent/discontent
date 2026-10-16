@@ -841,6 +841,9 @@ max-parents,max-replies,max-replies-per-thread`: `10,10,0,0` is ten
 qwen3:8b` unloads it, and the next call reloads fresh — onto the GPU
   once VRAM is actually free. Check `ollama ps` before trusting a
   timing, and stop the model rather than retry if it shows mostly CPU.
+  Automated by epic 37 (37b): the GPU acquire hook frees VRAM before a
+  model call; if the model still loads on the CPU, the queue unloads it
+  and retries once. The `llm.placement` warning reports the reading.
 
 ## Results
 

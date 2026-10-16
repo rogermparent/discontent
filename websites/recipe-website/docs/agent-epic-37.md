@@ -15,8 +15,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 37c (the async form, `/jobs`, the job API, CLI and MCP surfaces) in
-progress.
+**Now:** closed (2026-10-15).
 
 ## Context
 
@@ -318,8 +317,8 @@ position}` while the job waits (`JobContext.waiting`), for 37c's display;
 | -------- | ---- | ------------------------ | ------ | ---- | --------------------------------------------------------------------------------- |
 | 37a      | M    | `agent/37a-job-log`      | ✅     | #237 | D1, D2, D3, D6's placement check: the store, the step log, every import in a job. |
 | 37b      | M    | `agent/37b-queue`        | ✅     | #238 | D4, D5's waiters, D6's hooks: the cross-process queue, cancellation.              |
-| 37c      | M    | `agent/37c-job-surfaces` | 🟡     | –    | D7: the async form, `/jobs`, the job API, CLI `jobs …`, MCP `job_list`/`job_get`. |
-| 37-close | S    | `agent/37-close`         | 📝     | –    | Results, 36-T58 marked automated, backlog rows, memory, Roger's steps.            |
+| 37c      | M    | `agent/37c-job-surfaces` | ✅     | #241 | D7: the async form, `/jobs`, the job API, CLI `jobs …`, MCP `job_list`/`job_get`. |
+| 37-close | S    | `agent/37-close`         | ✅     | #242 | Results, 36-T58 marked automated, backlog rows, memory, Roger's steps.            |
 
 Ordering: strictly sequential — 37b builds on 37a's store and `fileLock`,
 37c on 37b's queue and cancellation.
@@ -1519,3 +1518,112 @@ footer snapshots pass on the merged tree.
 - A site dropped after two 403s is dropped per process only (37b kept
   `SitePacer`'s drop list in memory); it could live in the site's
   `state.json` beside `lastRelease`.
+
+## Close-out
+
+### What shipped, phase by phase
+
+**37a — Job store + step log, synchronous (PR #237).** Every import now
+runs as a job: a per-job JSONL step log (named steps, redaction for secrets
+and long text), atomic job metadata written through `writeJsonAtomic`, a
+boot sweep and retention, and the `fileLock` primitive extracted from the
+engine's write lock (34c/34d). Instrumented across every import seat — the
+CLI, the stdio MCP server, MCP over HTTP, the API routes, the form, the
+roundup picker — and D6's placement check (`GET /api/ps`) that warns when
+the local model loads mostly on the CPU. No reindex: the job store is the
+editor's own gitignored directory. Gates: typecheck and `tsc --noEmit`
+clean, `pnpm exec vitest run` 85 files / 1851 tests, Playwright 63/63; a
+re-review round fixed a cancel swallowed on an optional image fetch and a
+cross-bundle process-identity bug (`PROCESS_NONCE` on `globalThis`).
+
+**37b — The global queue (PR #238).** A cross-process, file-based queue
+(`~/.cache/discontent/queue`, D4 amended) with per-resource FIFO and an
+interactive tier that jumps the batch queue, covering the GPU, yt-dlp and
+each site's polite pacing — the same `SitePacer` and `fetchYtdlpMetadata`
+API, reimplemented on the store so the gap holds across processes. GPU
+acquire/release hooks (`RECIPE_GPU_ACQUIRE_CMD` / `RECIPE_GPU_RELEASE_CMD`
+/ `RECIPE_GPU_IDLE_MS`) pause and resume another program holding VRAM
+around a model call, with a debounced release and the stop-and-retry path
+this close-out ties back to 36-T58. A queued job's heartbeat keeps it from
+looking dead to the sweep, and cancellation reaches a job waiting on a
+slot. Gates: typecheck/tsc clean, `pnpm exec vitest run` 86 files / 1880
+tests (+29, including two cross-process `tsx` workers contending for
+`gpu`), Playwright 63/63; a real two-import check on the machine's own
+queue (run by the orchestrator) confirmed one acquire and one release per
+busy spell and the two imports' model calls serialized end to end.
+
+**37c — Async form, `/jobs`, CLI/API/MCP surfaces (PR #241).** Imports run
+asynchronously: the form's `ImportProgress` panel follows a job live
+(each step's title, numbers and queue position, a Cancel button),
+`?job=` reopens a finished or still-running import, and the 36e picker is
+fed from the job's stored result. `/jobs` (a Settings → Tools link) lists
+the queue per resource and the recent jobs; a job's page shows the step
+timeline, its warnings, its result and the raw JSONL, with Cancel and
+Retry (a retry runs with the caller's own context and refuses a spec
+recorded against a different content directory). The same reads reach the
+CLI (`recipes jobs list|show|log --follow|cancel|retry`), the JSON API,
+and MCP (`job_list`/`job_get`, read-scoped); the registry moved to 57
+tools, 43 pre-approved. Gates: typecheck/tsc clean, `pnpm exec vitest run`
+88 files / 1912 tests, Playwright 104/105 then 42/42 once a flaky
+`getByLabel` selector (T22) and red job-error text under AA (T25) were
+fixed; a real check with yt-dlp and qwen3:8b against a throwaway content
+clone exercised live steps, the 36e picker, `/jobs`, Cancel and a `?job=`
+reopen end to end, and surfaced one open cosmetic bug: the job detail
+page's batch result summary reads `row.name` directly and shows "Recipe
+N" instead of each dish's name for a `form-url` batch, where the name sits
+nested at `.recipe.name`.
+
+**37-close (this PR).** The roadmap and **Now** line marked closed; this
+Close-out section; `agent-epic-36.md`'s T58 updated to say the CPU-load
+trap is now automated by 37b's GPU hooks; the epic's backlog consolidated
+below; and the "Durable docs" bullet, the MCP tool counts (57 / 43) and
+the `rm -rf` recovery list in the repo `CLAUDE.md` confirmed current (37a
+had already added and updated them).
+
+### Roger's steps
+
+1. After the 2026-10-15 OOM the user systemd bus is down: restart the
+   session (log out and in), then `systemctl --user start
+recipe-workstation` if it doesn't come back.
+2. `pnpm workstation update`. No reindex is needed.
+3. Optional: set `RECIPE_GPU_ACQUIRE_CMD` / `RECIPE_GPU_RELEASE_CMD` in
+   `editor/.env` to pause and resume the other GPU program around model
+   use — the commands that pause/resume your transcription tool — and
+   optionally `RECIPE_GPU_IDLE_MS` (default 60000). Hooks run with a 30 s
+   timeout, and their output is logged redacted.
+4. Optional: Pi deploy (`pnpm deploy:pi`). The queue works there with no
+   model, and jobs live inside the container, lost on redeploy (see
+   Backlog).
+5. Where to look: `/jobs` (Settings → Tools), `recipes jobs
+list|show|log --follow|cancel|retry`, and MCP `job_list`/`job_get`.
+
+### Backlog
+
+Consolidated and de-duplicated from the phase-by-phase list above:
+
+- A volume for the Pi container's jobs directory (D8).
+- Other long operations — reindex, git sync — joining the queue.
+- A dropped site is tracked per process only (`SitePacer`'s drop list is
+  in memory); it could live in the site's `state.json` beside
+  `lastRelease`, to share a 403 drop across processes.
+- The save-time image fetch (a recipe's image URL, fetched when the form
+  is saved) stays unpaced and outside the site queue.
+- `SiteState`'s per-process queue has no tiers: within one process, an
+  interactive request to a site can queue behind a batch's requests to
+  that same site before it reaches the shared, tiered `site:<site>` line.
+  Across processes the tiers hold.
+- The roundup picker's two actions (`inspectRoundupAction`,
+  `importRoundupAction`) run as jobs with a log and Cancel on `/jobs`, but
+  the picker itself shows no live steps.
+- `/jobs` stops polling when nothing is live; a job another process
+  starts afterwards shows only on Refresh or a reload.
+- `/jobs` on a mirror (the Pi): the page and API work there, but the
+  Settings → Tools link to it is workstation-only (epic 28, D2), so a
+  mirror reaches `/jobs` only by its URL.
+- Older screens' red error text (`text-destructive`) is under AA contrast
+  on the page background — the form's submit error, the 36e picker's
+  "not trusted — check it", the roundup picker.
+- `/new-recipe?import=<url>` starts a job on a GET render; a reload of
+  that address, a restored tab or a history replay starts the fetch (and
+  the model) again. A POST from the picker, or a confirm step, would make
+  the GET inert.
