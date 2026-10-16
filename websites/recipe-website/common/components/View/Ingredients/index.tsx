@@ -18,6 +18,7 @@ import StyledMarkdown from "@discontent/component-library/components/Markdown";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { Checkbox } from "@discontent/component-library/components/ui/checkbox";
 import { MultiplierInput } from "../Multiplier";
+import { INGREDIENTS_ID } from "../JumpLinks";
 
 export function IngredientItem({ ingredient, type }: Ingredient) {
   // If the ingredient is a heading, render it as such
@@ -120,7 +121,13 @@ export function Ingredients({
             what makes print beat the components layer. */}
         <div className="sticky-chrome top-[var(--header-height)] z-10 -mx-4 mb-2 border-b border-border bg-card px-4 pt-2 pb-2 print:static print:mx-0 print:border-0 print:px-0 print:pb-0">
           <div className="flex flex-row flex-wrap items-center justify-between gap-2">
-            <h2 className="text-xl font-bold">Ingredients</h2>
+            {/* 39c: the jump row's target; the margin clears the masthead. */}
+            <h2
+              id={INGREDIENTS_ID}
+              className="scroll-mt-[calc(var(--sticky-chrome-offset)+1rem)] text-xl font-bold"
+            >
+              Ingredients
+            </h2>
             <Button
               type="button"
               size="sm"

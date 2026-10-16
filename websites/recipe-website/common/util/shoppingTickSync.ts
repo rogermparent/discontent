@@ -19,10 +19,12 @@
  *
  * **Held ticks** (38d, the `holdTicks` switch, 38-D4): nothing is sent until
  * `done()` — "Done shopping" — which sends every pending tick as one PATCH.
- * Until then the ticks live in `heldStorage` (the page's `localStorage`,
- * with no age limit, so a reload, a locked phone or a closed tab keeps
- * them), and hiding or leaving the page sends nothing. A failed `done()`
- * keeps them and says so; it does not retry by itself. Turning the switch
+ * Until then the ticks live in `heldStorage` (the page's `localStorage`, so
+ * a reload, a locked phone or a closed tab keeps them), and hiding or leaving
+ * the page sends nothing. A held tick expires `HELD_TICKS_MAX_AGE_MS` (a
+ * week, 39-D3) after it was made: it is dropped when the storage is next
+ * read, and the snapshot's `expired` names it for the page to say so. A
+ * failed `done()` keeps them and says so; it does not retry by itself. Turning the switch
  * off sends what was held, the usual way. Every tab of the browser shares
  * that storage: each change is read-change-write (`mutate`), a tab takes up
  * another's ticks on the `storage` event (`refresh`), "Done shopping" sends
@@ -33,12 +35,15 @@
  */
 import {
   FLUSH_DELAY_MS,
+  parseHeld,
   parsePending,
   queueTicks,
   retryDelay,
+  serializeHeld,
   serializePending,
   settle,
   toPatch,
+  type HeldTicks,
   type PendingTicks,
 } from "./shoppingTickQueue";
 import type { ShoppingItem } from "./shoppingTypes";
@@ -56,6 +61,11 @@ export interface TickSyncSnapshot {
   pending: PendingTicks;
   status: SyncStatus;
   error?: string;
+  /**
+   * 39-D3: the item ids of held ticks dropped for being over a week old
+   * since the page last dismissed the notice; absent when none were.
+   */
+  expired?: string[];
 }
 
 export interface TickSyncStorage {
@@ -68,7 +78,7 @@ export interface TickSyncOptions {
   patchUrl: string;
   fetch: typeof fetch;
   storage?: TickSyncStorage;
-  /** Where held ticks wait for "Done shopping" (38d); kept however old. */
+  /** Where held ticks wait for "Done shopping" (38d); kept for a week (39-D3). */
   heldStorage?: TickSyncStorage;
   /** Start holding ticks (the `holdTicks` switch); `setHold` changes it. */
   hold?: boolean;
@@ -95,13 +105,29 @@ export class TickSync {
   private hold: boolean;
   /** `false` once the held storage failed to keep a write (38d). */
   private heldWorks: boolean | undefined;
+  /** Holding: item id → when its tick was made, for the week's limit (39-D3). */
+  private times = new Map<string, number>();
+  /** Held ticks dropped as expired, not yet dismissed (39-D3). */
+  private expired: string[] = [];
 
   constructor(private readonly options: TickSyncOptions) {
     this.hold = Boolean(options.hold);
   }
 
   snapshot(): TickSyncSnapshot {
-    return { pending: this.pending, status: this.status, error: this.error };
+    return {
+      pending: this.pending,
+      status: this.status,
+      error: this.error,
+      ...(this.expired.length > 0 ? { expired: this.expired } : {}),
+    };
+  }
+
+  /** The page dismissed the "older than a week" notice (39-D3). */
+  dismissExpired(): void {
+    if (this.expired.length === 0) return;
+    this.expired = [];
+    this.emit();
   }
 
   /**
@@ -109,6 +135,12 @@ export class TickSync {
    * "Done shopping" — and send them, unless they are still to be held.
    */
   attach(): void {
+    this.attachStored();
+    /* Expired held ticks were dropped on the way: let the page say so. */
+    if (this.expired.length > 0) this.emit();
+  }
+
+  private attachStored(): void {
     this.attached = true;
     const stored = parsePending(
       this.options.storage?.read() ?? null,
@@ -212,9 +244,11 @@ export class TickSync {
    */
   refresh(): void {
     if (!this.hold || this.heldWorks === false) return;
-    const held = this.readHeld();
-    if (!held) return;
-    this.pending = held;
+    const read = this.readHeldTicks();
+    if (!read) return;
+    this.pending = read.ticks;
+    this.times = read.times;
+    const held = read.ticks;
     if (this.status === "held" || this.status === "idle") {
       this.status = held.size > 0 ? "held" : "idle";
     }
@@ -381,23 +415,49 @@ export class TickSync {
     this.options.storage?.clear();
     const held = this.options.heldStorage;
     const works = held !== undefined && this.heldWorks !== false;
-    this.pending = change(
-      (works ? this.readHeld() : undefined) ?? new Map(this.pending),
+    const before = works ? this.readHeldTicks() : undefined;
+    const base = before?.ticks ?? new Map(this.pending);
+    const baseTimes = before?.times ?? this.times;
+    const now = this.now();
+    this.pending = change(new Map(base));
+    /* A tick keeps its time until it changes (39-D3: aged per tick). */
+    this.times = new Map(
+      [...this.pending].map(([id, checked]) => [
+        id,
+        base.get(id) === checked ? (baseTimes.get(id) ?? now) : now,
+      ]),
     );
     if (!works || !held) return;
     if (this.pending.size === 0) {
       held.clear();
       return;
     }
-    const value = serializePending(this.pending, this.now());
+    const value = serializeHeld(this.pending, this.times, now);
     held.write(value);
     if (held.read() !== value) this.heldWorks = false;
   }
 
-  /** The held ticks as stored, however old; `undefined` with no storage. */
+  /** The held ticks as stored, up to a week old; `undefined` with no storage. */
   private readHeld(): Map<string, boolean> | undefined {
+    return this.readHeldTicks()?.ticks;
+  }
+
+  /**
+   * The held storage read, each tick with when it was made. Ticks over
+   * `HELD_TICKS_MAX_AGE_MS` old are dropped here (39-D3) — counted for the
+   * page's notice, and written out of the storage at once, so another read
+   * (this tab's or another's) neither sends nor counts them again.
+   */
+  private readHeldTicks(): HeldTicks | undefined {
     const held = this.options.heldStorage;
-    return held ? parsePending(held.read(), this.now(), Infinity) : undefined;
+    if (!held) return undefined;
+    const read = parseHeld(held.read(), this.now());
+    if (read.expired.length > 0) {
+      this.expired = [...new Set([...this.expired, ...read.expired])];
+      if (read.ticks.size === 0) held.clear();
+      else held.write(serializeHeld(read.ticks, read.times, this.now()));
+    }
+    return read;
   }
 
   /**

@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  serializeHeld,
   serializePending,
   STORED_TICKS_MAX_AGE_MS,
 } from "recipe-website-common/util/shoppingTickQueue";
@@ -298,7 +299,7 @@ describe("TickSync holding ticks for Done shopping (38d)", () => {
     expect(held.value).toBeNull();
   });
 
-  it("keeps held ticks across a reload, however old", async () => {
+  it("keeps held ticks across a reload, many hours later", async () => {
     const held = memoryStorage(
       serializePending(new Map([["a", true]]), 1_000_000),
     );
@@ -481,5 +482,116 @@ describe("TickSync holding ticks for Done shopping (38d)", () => {
       calls[0].resolve(ok());
       expect(await done).toEqual({ ok: true, sent: 2 });
     });
+  });
+});
+
+describe("held ticks expire after a week (39-D3)", () => {
+  const DAY = 24 * 60 * 60_000;
+  const NOW = 100 * DAY;
+  /** A frozen clock the test moves by hand. */
+  function clock(start = NOW) {
+    let at = start;
+    return {
+      now: () => at,
+      set: (next: number) => {
+        at = next;
+      },
+    };
+  }
+  function setupHeld(
+    held: ReturnType<typeof memoryStorage>,
+    { now = () => NOW, hold = true } = {},
+  ) {
+    const { fetch, calls } = fakeFetch();
+    const snapshots: TickSyncSnapshot[] = [];
+    const sync = new TickSync({
+      patchUrl: "/api/shopping",
+      fetch,
+      storage: memoryStorage(),
+      heldStorage: held,
+      hold,
+      now,
+      onItems: () => {},
+      onChange: (snapshot) => snapshots.push(snapshot),
+    });
+    sync.attach();
+    const last = () => snapshots.at(-1) ?? sync.snapshot();
+    return { sync, calls, last };
+  }
+  const heldAt = (ticks: [string, boolean, number][]) =>
+    memoryStorage(
+      serializeHeld(
+        new Map(ticks.map(([id, checked]) => [id, checked])),
+        new Map(ticks.map(([id, , at]) => [id, at])),
+        Math.max(...ticks.map(([, , at]) => at)),
+      ),
+    );
+
+  it("keeps a tick held six days", () => {
+    const held = heldAt([["a", true, NOW - 6 * DAY]]);
+    const { last } = setupHeld(held);
+    expect([...last().pending]).toEqual([["a", true]]);
+    expect(last().status).toBe("held");
+    expect(last().expired).toBeUndefined();
+  });
+
+  it("drops a tick held eight days, says so, and sends nothing for it", async () => {
+    const held = heldAt([["a", true, NOW - 8 * DAY]]);
+    const { sync, calls, last } = setupHeld(held);
+    expect(last().pending.size).toBe(0);
+    expect(last().expired).toEqual(["a"]);
+    /* Dropped from the storage too: the next read neither sends nor counts it. */
+    expect(held.value).toBeNull();
+    expect(await sync.done()).toEqual({ ok: true, sent: 0 });
+    expect(calls).toHaveLength(0);
+    sync.dismissExpired();
+    expect(last().expired).toBeUndefined();
+  });
+
+  it("a mixed set keeps the recent ticks and drops the old ones", async () => {
+    const held = heldAt([
+      ["old", true, NOW - 8 * DAY],
+      ["recent", true, NOW - 6 * DAY],
+      ["today", false, NOW - 60_000],
+    ]);
+    const { sync, calls, last } = setupHeld(held);
+    expect([...last().pending]).toEqual([
+      ["recent", true],
+      ["today", false],
+    ]);
+    expect(last().expired).toEqual(["old"]);
+    const done = sync.done();
+    await settled();
+    expect(calls[0].body).toEqual({ check: ["recent"], uncheck: ["today"] });
+    calls[0].resolve(ok());
+    expect(await done).toEqual({ ok: true, sent: 2 });
+  });
+
+  it("ages each tick from when it was made: a newer tick does not renew an old one", () => {
+    const time = clock();
+    const held = memoryStorage();
+    const first = setupHeld(held, { now: time.now });
+    first.sync.tick(["a"], true);
+    time.set(NOW + 6 * DAY);
+    first.sync.tick(["b"], true);
+    /* Re-ticking what is already ticked keeps its time. */
+    first.sync.tick(["a"], true);
+    first.sync.detach();
+
+    time.set(NOW + 8 * DAY);
+    const later = setupHeld(held, { now: time.now });
+    expect([...later.last().pending]).toEqual([["b", true]]);
+    expect(later.last().expired).toEqual(["a"]);
+  });
+
+  it("a tab whose switch is off does not send expired held ticks", async () => {
+    const held = heldAt([
+      ["old", true, NOW - 9 * DAY],
+      ["new", true, NOW - DAY],
+    ]);
+    const { calls, last } = setupHeld(held, { hold: false });
+    expect(last().expired).toEqual(["old"]);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(calls[0].body).toEqual({ check: ["new"], uncheck: [] });
   });
 });
