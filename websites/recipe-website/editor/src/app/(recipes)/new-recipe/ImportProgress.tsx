@@ -168,24 +168,32 @@ export default function ImportProgress({
         </span>
       </div>
       {!live && status === "failed" && !formHasIt && meta?.error && (
-        <p className="mt-1 text-sm text-destructive" role="alert">
+        <p
+          className="mt-1 border-l-2 border-destructive pl-2 text-sm"
+          role="alert"
+        >
           {meta.error.message}
         </p>
       )}
       {!live && status === "interrupted" && meta?.error && (
-        <p className="mt-1 text-sm text-destructive">{meta.error.message}</p>
+        <p className="mt-1 border-l-2 border-destructive pl-2 text-sm">
+          {meta.error.message}
+        </p>
       )}
       {warnings.length > 0 && (
         <ul className="mt-1 text-sm" data-testid="import-warnings">
           {warnings.map((warning, index) => (
-            <li key={`${index}-${warning}`} className="text-destructive">
+            <li
+              key={`${index}-${warning}`}
+              className="border-l-2 border-destructive pl-2"
+            >
               {warning}
             </li>
           ))}
         </ul>
       )}
       {(cancelError || error) && (
-        <p className="mt-1 text-sm text-destructive">
+        <p className="mt-1 border-l-2 border-destructive pl-2 text-sm">
           {cancelError ?? `Lost touch with the job: ${error}`}
         </p>
       )}

@@ -55,7 +55,7 @@ export function StepList({
                 className={cn(
                   "inline-block w-3 text-center",
                   node.status === "running" && "animate-pulse text-primary",
-                  node.status === "failed" && "text-destructive",
+                  node.status === "failed" && "text-foreground",
                   node.status === "ok" && "text-muted-foreground",
                 )}
               >
@@ -77,7 +77,7 @@ export function StepList({
               )}
             </span>
             {node.error && (
-              <span className="pl-5 text-xs text-destructive">
+              <span className="ml-5 border-l-2 border-destructive pl-2 text-xs">
                 {node.error}
               </span>
             )}
@@ -86,10 +86,11 @@ export function StepList({
                 <span
                   key={`${node.n}-note-${index}`}
                   className={cn(
-                    "pl-5 text-xs",
+                    "text-xs",
+                    /* Not red text: `--destructive` on the page is 4.49:1 (T25). */
                     note.level === "info"
-                      ? "text-muted-foreground"
-                      : "text-destructive",
+                      ? "pl-5 text-muted-foreground"
+                      : "ml-5 border-l-2 border-destructive pl-2",
                   )}
                 >
                   {noteText(note)}

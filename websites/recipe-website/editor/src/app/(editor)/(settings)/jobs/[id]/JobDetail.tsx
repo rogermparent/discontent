@@ -86,9 +86,7 @@ function ResultSummary({ meta }: { meta: JobRecord }) {
                   </Link>
                 </>
               ) : null}
-              {row.error?.message ? (
-                <span className="text-destructive"> ({row.error.message})</span>
-              ) : null}
+              {row.error?.message ? <span> ({row.error.message})</span> : null}
             </li>
           ))}
         </ul>
@@ -251,12 +249,15 @@ export function JobDetail({
           )}
         </div>
         {actionError && (
-          <p className="mt-2 text-sm text-destructive" role="alert">
+          <p
+            className="mt-2 border-l-2 border-destructive pl-2 text-sm"
+            role="alert"
+          >
             {actionError}
           </p>
         )}
         {error && (
-          <p className="mt-2 text-sm text-destructive">
+          <p className="mt-2 border-l-2 border-destructive pl-2 text-sm">
             Could not read the job: {error}
           </p>
         )}

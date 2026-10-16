@@ -245,7 +245,10 @@ export function JobsDashboard({
           </Button>
         </div>
         {error && (
-          <p className="mb-2 text-sm text-destructive" role="alert">
+          <p
+            className="mb-2 border-l-2 border-destructive pl-2 text-sm"
+            role="alert"
+          >
             Could not read the jobs: {error}
           </p>
         )}
@@ -292,7 +295,7 @@ export function JobsDashboard({
                         {job.label}
                       </Link>
                       {job.error && job.status !== "cancelled" && (
-                        <p className="text-xs text-destructive">
+                        <p className="border-l-2 border-destructive pl-2 text-xs">
                           {job.error.message}
                         </p>
                       )}
