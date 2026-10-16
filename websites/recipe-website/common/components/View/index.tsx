@@ -22,7 +22,7 @@ import { DrinkSpecBar } from "./DrinkSpec";
 import { RecipeSchedule } from "./Schedule";
 import BookmarkButton from "../BookmarkButton";
 import { resolveRecipeVideoSrc } from "../../controller/recipeVideo";
-import { videoStartSeconds } from "../../util/videoUrl";
+import { isYouTubeUrl, videoStartSeconds } from "../../util/videoUrl";
 import { formatDurationLong } from "../../util/formatDuration";
 import { tagSearchHref } from "../SearchForm/queryLanguage";
 import { RecipeCardPlaceholder } from "../List/shared";
@@ -111,14 +111,18 @@ export async function RecipeView({
                     className="object-cover absolute w-full h-full inset-0"
                     /* A recipe from a several-recipe video starts at its
                        chapter (36e): YouTube's `t=` is not read by the
-                       embed, its `start` player parameter is. */
-                    {...(videoStartSeconds(video) !== undefined
-                      ? {
-                          config: {
-                            youtube: { start: videoStartSeconds(video) },
-                          },
-                        }
-                      : {})}
+                       embed, its `start` player parameter is; Vimeo's
+                       `#t=` is not read either, so the player seeks
+                       there (38c). */
+                    {...(videoStartSeconds(video) === undefined
+                      ? {}
+                      : isYouTubeUrl(video)
+                        ? {
+                            config: {
+                              youtube: { start: videoStartSeconds(video) },
+                            },
+                          }
+                        : { start: videoStartSeconds(video) })}
                   />
                 )}
               </div>

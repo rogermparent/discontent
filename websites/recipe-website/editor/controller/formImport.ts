@@ -10,11 +10,13 @@
 import {
   ImportedRecipe,
   isVideoUrl,
+  mapRecipeNodes,
 } from "recipe-website-common/util/importRecipeData";
 import { fetchYtdlpMetadata, ytdlpToRecipe } from "./ytdlp";
 import {
   applyLlm,
   readPastedText,
+  schemaReadings,
   videoFetchOptions,
   videoSource,
   type ApplyLlmResult,
@@ -51,8 +53,18 @@ export interface RecipeActionState {
   leftOut?: { n: number; name: string; reason: string }[];
   /** Read from pasted text (36c): the picker says "This text". */
   pastedText?: boolean;
+  /**
+   * The batch is a page's own Recipe nodes (38c), read by no model: the
+   * picker says "This page", and the commits do not say "local model".
+   */
+  fromPage?: boolean;
   /** The import's job (epic 37): its step log. */
   job?: string;
+}
+
+/** A batch of a page's own Recipe nodes (38c): no reading has `llm`. */
+function fromPageBatch(readings: readonly SplitReading[]): boolean {
+  return readings.length > 0 && readings.every((reading) => !reading.llm);
 }
 
 function withLlm(
@@ -108,18 +120,28 @@ export async function reduceRecipeImport(
           job,
         });
         if (result.status === "success") {
-          const state = withLlm(
+          const applied = await applyLlm({
             url,
-            await applyLlm({
-              url,
-              source: videoSource(result.metadata),
-              mapped: ytdlpToRecipe(result.metadata, url),
-              mode,
-              /* 36e: several recipes come back to a picker. */
-              split: true,
-              job,
-            }),
-          );
+            source: videoSource(result.metadata),
+            mapped: ytdlpToRecipe(result.metadata, url),
+            mode,
+            /* 36e: several recipes come back to a picker. */
+            split: true,
+            job,
+          });
+          /* 38c: no recipe in the description, one recipe link — follow it. */
+          const { followRecipeLink } = await import("./curation/videoFollow");
+          const followed = await followRecipeLink({
+            url,
+            metadata: result.metadata,
+            applied,
+            mode,
+            job,
+          });
+          const state = withLlm(url, followed ?? applied);
+          if (followed?.recipes && fromPageBatch(followed.recipes)) {
+            return { ...state, fromPage: true };
+          }
           return state.recipes && result.metadata.title
             ? { ...state, batchTitle: result.metadata.title }
             : state;
@@ -154,6 +176,14 @@ export async function reduceRecipeImport(
         job,
       );
       const { parsed, mapped } = await parsePage(pageUrl, page, { job });
+      /* 38c: a page with several recipes of its own goes to the picker. */
+      const several = mapRecipeNodes(pageUrl, parsed, { ok: page.ok });
+      if (several) {
+        return {
+          ...withLlm(url, schemaReadings(several, { mode, job })),
+          fromPage: true,
+        };
+      }
       return withLlm(
         url,
         await applyLlm({

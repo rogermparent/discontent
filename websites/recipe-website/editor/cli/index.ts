@@ -332,7 +332,13 @@ all (--out d.json writes d-1.json, d-2.json, …). Each becomes its own
 commit, its source starts at its video chapter, and a line that names
 another recipe of the batch ("see recipe below") links to it. A recipe
 already imported from the same source is skipped (existing), so --all
-again after a partial run imports only what is missing.
+again after a partial run imports only what is missing. A page that
+publishes several recipes of its own is the same kind of batch, read by no
+model (--as-one imports its first). The model's reading is kept for half
+an hour in the job store, so --pick after a refusal, or a create after a
+--dry-run, of the same URL or text is not read again. A video whose
+description holds no recipe but links one recipe page imports that page,
+the video kept as its video.
 
 Every import, inspect and roundup call runs as a job: its result carries
 \`job\`, and its steps — the fetch, yt-dlp, each model call with its tokens,
