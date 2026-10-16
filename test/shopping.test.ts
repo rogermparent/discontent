@@ -317,6 +317,150 @@ describe("addToShopping", () => {
   });
 });
 
+describe("sub-recipes (38d)", () => {
+  async function lemonade() {
+    await createRecipe(ctx, {
+      name: "Simple Syrup",
+      ingredients: ["1/2 cup sugar", "1/2 cup water"],
+    });
+    await createRecipe(ctx, {
+      name: "Lemonade",
+      ingredients: [
+        "1 cup lemon juice",
+        "2 batches [Simple Syrup](/recipe/simple-syrup)",
+        "1/4 cup sugar",
+        "1 batch [Lavender Syrup](/recipe/lavender-syrup)",
+      ],
+    });
+  }
+
+  it("adds a linked sub-recipe's lines, scaled, in the one commit", async () => {
+    await lemonade();
+    const result = await addToShopping(ctx, { recipe: "lemonade" });
+    expect(
+      result.added.map(({ text, line, scale, for: path }) => ({
+        text,
+        line,
+        scale,
+        for: path,
+      })),
+    ).toEqual([
+      { text: "1 cup lemon juice", line: 0, scale: undefined, for: undefined },
+      {
+        text: "1/2 cup sugar",
+        line: 0,
+        scale: "2",
+        for: [{ slug: "simple-syrup", name: "Simple Syrup" }],
+      },
+      {
+        text: "1/2 cup water",
+        line: 1,
+        scale: "2",
+        for: [{ slug: "simple-syrup", name: "Simple Syrup" }],
+      },
+      { text: "1/4 cup sugar", line: 2, scale: undefined, for: undefined },
+      /* The sub-recipe that does not exist: the line as written. */
+      {
+        text: "1 batch Lavender Syrup",
+        line: 3,
+        scale: undefined,
+        for: undefined,
+      },
+    ]);
+    expect(result.added[1].recipe).toBe("lemonade");
+    expect(result.warnings).toEqual([
+      'Kept "1 batch Lavender Syrup" as written: there is no recipe "lavender-syrup".',
+    ]);
+    expect((await messages())[0]).toBe(
+      "Update shopping list: +Lemonade (5 items)",
+    );
+
+    /* The syrup's sugar merges with the lemonade's own, sources kept. */
+    const { view } = await readShoppingView(ctx);
+    const sugar = view.stores[0].sections
+      .flatMap((section) => section.rows)
+      .find((row) => row.nameKey === "sugar");
+    expect(sugar).toMatchObject({
+      label: "1¼ cups sugar",
+      forNote: "partly for Simple Syrup",
+    });
+    expect(sugar?.sources?.map((source) => source.for?.[0]?.slug)).toEqual([
+      "simple-syrup",
+      undefined,
+    ]);
+
+    /* Through a plan, the plan's scale multiplies the batches. */
+    await createGroup(ctx, {
+      name: "Party",
+      slug: "party",
+      items: [{ recipe: "lemonade", scale: "2" }],
+    });
+    const plan = await addToShopping(ctx, { group: "party" });
+    expect(plan.added.map((item) => item.scale)).toEqual([
+      "2",
+      "4",
+      "4",
+      "2",
+      "2",
+    ]);
+  });
+
+  it("adds the lines as written with the switch off", async () => {
+    await lemonade();
+    await updateShoppingSettings(ctx, { features: { subRecipes: false } });
+    const result = await addToShopping(ctx, { recipe: "lemonade" });
+    expect(result.added.map((item) => item.text)).toEqual([
+      "1 cup lemon juice",
+      "2 batches Simple Syrup",
+      "1/4 cup sugar",
+      "1 batch Lavender Syrup",
+    ]);
+    expect(result.warnings).toBeUndefined();
+  });
+});
+
+describe("OR: items go with their line (38d)", () => {
+  async function blossoms() {
+    await createRecipe(ctx, {
+      name: "Blossoms",
+      ingredients: [
+        "1 large egg",
+        "1/2 cup (100g) granulated sugar",
+        "OR: 1/4 cup (50g) green sanding sugar and 1/4 cup (50g) red sanding sugar",
+        "OR: 1/2 cup turbinado sugar",
+      ],
+    });
+    return (await addToShopping(ctx, { recipe: "blossoms" })).added;
+  }
+
+  it("a name tick takes the folded OR: items along, and so does Clear", async () => {
+    const added = await blossoms();
+    const ticked = await patchShopping(ctx, { names: ["granulated sugar"] });
+    expect([...ticked.updated].sort()).toEqual(
+      [added[1].id, added[2].id, added[3].id].sort(),
+    );
+    const untick = await patchShopping(ctx, {
+      uncheckNames: ["granulated sugar"],
+    });
+    expect(untick.updated).toHaveLength(3);
+
+    await patchShopping(ctx, { names: ["granulated sugar"] });
+    const cleared = await clearShopping(ctx);
+    expect(cleared.items.map((item) => item.text)).toEqual(["1 large egg"]);
+  });
+
+  it("Clear drops an OR: item whose line it removes, ticked or not", async () => {
+    const added = await blossoms();
+    /* The line ticked by id alone, as an older editor would. */
+    await patchShopping(ctx, { check: [added[1].id] });
+    const cleared = await clearShopping(ctx);
+    expect([...cleared.removed].sort()).toEqual(
+      [added[1].id, added[2].id, added[3].id].sort(),
+    );
+    expect(cleared.items.map((item) => item.text)).toEqual(["1 large egg"]);
+  });
+});
+
 describe("patchShopping", () => {
   it("ticks by id and by name, one commit each, and no-ops commit nothing", async () => {
     await chocolateChipCookies();
@@ -661,6 +805,14 @@ describe("review round (35c)", () => {
   });
 
   it("refuses an add that would take the list past its cap", async () => {
+    await createRecipe(ctx, {
+      name: "Simple Syrup",
+      ingredients: ["1/2 cup sugar", "1/2 cup water"],
+    });
+    await createRecipe(ctx, {
+      name: "Syrup Soda",
+      ingredients: ["1 batch [Simple Syrup](/recipe/simple-syrup)"],
+    });
     /* Files laid down by hand, uncommitted: only the count matters here. */
     const items = join(contentDirectory, SHOPPING_ITEMS_DIRECTORY);
     for (let i = 0; i < MAX_SHOPPING_ITEMS - 1; i++) {
@@ -672,7 +824,19 @@ describe("review round (35c)", () => {
     }
     await expect(
       addToShopping(ctx, { items: ["eggs", "milk"] }),
-    ).rejects.toMatchObject({ code: "validation" });
+    ).rejects.toMatchObject({
+      code: "validation",
+      message: expect.not.stringContaining("Sub-recipes"),
+    });
+    /* One line, opened into two: the message says why (38d). */
+    await expect(
+      addToShopping(ctx, { recipe: "syrup-soda" }),
+    ).rejects.toMatchObject({
+      code: "validation",
+      message: expect.stringContaining(
+        "Sub-recipes went on as their own lines",
+      ),
+    });
     expect((await addToShopping(ctx, { items: ["eggs"] })).changed).toBe(true);
   }, 60_000);
 

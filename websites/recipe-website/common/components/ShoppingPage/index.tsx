@@ -310,8 +310,71 @@ function ClearChecked({ ids, clear }: { ids: string[]; clear(): void }) {
   );
 }
 
-function syncLabel(list: ShoppingList): string | undefined {
+/**
+ * Held ticks (38d, the `holdTicks` switch): ticks stay on this device until
+ * this button saves them all as one change. A failure keeps them, and the
+ * banner above says so.
+ */
+function DoneShopping({ list, rows }: { list: ShoppingList; rows: number }) {
+  const [saved, setSaved] = useState<number>();
+  const saving = list.status === "saving";
+  const done = async () => {
+    const count = rows;
+    setSaved(undefined);
+    if (await list.done()) setSaved(count);
+  };
+  let text = "Ticks stay on this device until you're done.";
+  if (list.pendingCount > 0) {
+    text = `${lineCount(rows)} ticked on this device, not saved yet.`;
+  } else if (saved !== undefined) {
+    text = `Saved ${lineCount(saved)}.`;
+  }
+  return (
+    <div
+      className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm print:hidden"
+      data-testid="shopping-done"
+    >
+      <span className="flex-1" role="status">
+        {text}
+      </span>
+      <Button
+        type="button"
+        size="sm"
+        className="h-10"
+        disabled={list.pendingCount === 0 || saving}
+        onClick={() => void done()}
+      >
+        {saving ? "Saving…" : "Done shopping"}
+      </Button>
+    </div>
+  );
+}
+
+/** "1 line", "3 lines". */
+function lineCount(count: number): string {
+  return `${count} ${count === 1 ? "line" : "lines"}`;
+}
+
+/** Rows with a tick not yet saved: what a person ticked, not item ids. */
+function pendingRows(
+  view: ShoppingView,
+  pending: ReadonlyMap<string, boolean>,
+) {
+  if (pending.size === 0) return 0;
+  const all = [
+    ...view.stores.flatMap((list) =>
+      list.sections.flatMap((section) => section.rows),
+    ),
+    ...view.onHand,
+    ...view.checked,
+  ];
+  return all.filter((row) => row.ids.some((id) => pending.has(id))).length;
+}
+
+function syncLabel(list: ShoppingList, held: number): string | undefined {
   switch (list.status) {
+    case "held":
+      return `${lineCount(held)} not saved yet`;
     case "pending":
     case "saving":
       return "Saving…";
@@ -354,13 +417,18 @@ export function ShoppingPage({
       ? viewForStore(fullView, store)
       : fullView;
   const text = useMemo(() => formatShoppingText(view), [view]);
+  /* Rows with a tick not yet saved (38d: the "Done shopping" count). */
+  const held = useMemo(
+    () => pendingRows(fullView, list.pending),
+    [fullView, list.pending],
+  );
 
   const handlers: RowHandlers = {
     tick: list.tick,
     update: (patch) => void list.update(patch),
     saveSettings: (patch) => void list.saveSettings(patch),
   };
-  const sync = syncLabel(list);
+  const sync = syncLabel(list, held);
   const showStoreHeadings = storesOn && view.stores.length > 1;
 
   return (
@@ -398,7 +466,7 @@ export function ShoppingPage({
             className="flex flex-wrap items-center gap-2 rounded-md border border-destructive px-3 py-2 text-sm print:hidden"
           >
             <span className="flex-1">{list.error}</span>
-            {list.pendingCount > 0 && (
+            {list.pendingCount > 0 && !list.holding && (
               <Button
                 type="button"
                 size="sm"
@@ -418,6 +486,7 @@ export function ShoppingPage({
             </Button>
           </div>
         )}
+        {list.holding && <DoneShopping list={list} rows={held} />}
       </header>
 
       <AddBox list={list} />

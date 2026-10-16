@@ -1,0 +1,19 @@
+{
+  "name": "Simple Syrup",
+  "description": "Equal parts, stirred until clear.",
+  "ingredients": [
+    {
+      "ingredient": "1/2 cup sugar"
+    },
+    {
+      "ingredient": "1/2 cup water"
+    }
+  ],
+  "date": 1792000400000,
+  "recipeYield": "1 cup",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

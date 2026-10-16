@@ -30,6 +30,14 @@ const FEATURE_TEXT: Record<ShoppingFeature, [string, string]> = {
     "Fold away what your shared “what I have” list (and salt, pepper, water) probably covers.",
   ],
   sources: ["Sources", "Show which recipes each line came from."],
+  subRecipes: [
+    "Sub-recipes",
+    "Add a line that links another recipe (“1 batch simple syrup”) as that recipe’s ingredients.",
+  ],
+  holdTicks: [
+    "Hold ticks",
+    "Keep ticks on this device until you press Done shopping, then save them as one change.",
+  ],
 };
 
 const selectClass =
