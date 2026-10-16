@@ -34,8 +34,8 @@ export const RECIPE_FETCH_HEADERS: Readonly<Record<string, string>> = {
  * waits first: Roger's scraping rule (30-D5) wants requests to one host at
  * least 15 s apart. Since 37b the `/new-recipe` form's page fetch is paced on
  * the site's queue like every other (`pacedRequest`), so its retry waits the
- * gap too; only the save-time image fetch (`editor/controller/actions`)
- * still passes `delayMs: 0`.
+ * gap too, and since 38b so is the save-time image fetch
+ * (`fetchImageFilePaced`).
  */
 export interface ForbiddenRetry {
   /** Wait this long before the retry. */

@@ -84,8 +84,9 @@ export function gpuUsedHere(): boolean {
  *    — tmpfs, gone at reboot — but a process started without it, from cron
  *    or a trimmed environment, would silently use another queue. A lock a
  *    reboot leaves behind is freed by the stale rules: its pid is dead, or
- *    its heartbeat is old.) In the Pi's container this is the container's
- *    own home, as its jobs dir is (D8).
+ *    its heartbeat is old.) The Pi's container sets both (38b, `deploy/pi/
+ *    run.sh`): `RECIPE_JOBS_DIR=/jobs`, a host directory, and
+ *    `RECIPE_QUEUE_DIR=/jobs/queue` inside it, so both outlive a redeploy.
  */
 export function queueDirectory(env: NodeJS.ProcessEnv = process.env): string {
   const set = env.RECIPE_QUEUE_DIR?.trim();

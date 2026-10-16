@@ -304,6 +304,8 @@ export async function startSpec<S extends JobSpec>(
   }: RunSpecOptions & { retryOf?: string } = {},
 ): Promise<{
   job: string;
+  /** The record was written (`StartedJob.stored`): its id can be followed. */
+  stored: boolean;
   done: Promise<JobResults[S["kind"]] & { job: string }>;
 }> {
   const handler = JOB_HANDLERS[spec.kind] as unknown as (
@@ -328,7 +330,7 @@ export async function startSpec<S extends JobSpec>(
   const done = started.done.then(({ job, result }) => ({ ...result, job }));
   /* Handled here, so a caller that never awaits it leaves nothing unhandled. */
   done.catch(() => undefined);
-  return { job: started.job, done };
+  return { job: started.job, stored: started.stored, done };
 }
 
 /** Whether running the spec commits to the corpus (a dry run does not). */

@@ -1272,6 +1272,56 @@ Sprinkle`,
         );
       });
 
+      test("?import= fills the URL and waits for Import: a GET starts no job (38b, D3)", async ({
+        page,
+        baseURL,
+      }) => {
+        const url = new URL("/uploads/katsudon.html", baseURL!).href;
+        const formJobs = async () => {
+          const response = await page.request.get(
+            "/api/jobs?kind=form-url&limit=300",
+          );
+          expect(response.ok()).toBe(true);
+          return ((await response.json()) as { total: number }).total;
+        };
+        const before = await formJobs();
+
+        /* A repeated `?import=` is an array: ignored, not a 500 (review). */
+        const repeated = await page.goto("/new-recipe?import=a&import=b");
+        expect(repeated?.status()).toBe(200);
+        await markdownEditorReady(page, "description");
+        await expect(
+          page.getByLabel("Import from URL", { exact: true }),
+        ).toHaveValue("");
+
+        await page.goto(`/new-recipe?import=${encodeURIComponent(url)}`);
+        await markdownEditorReady(page, "description");
+        await expect(
+          page.getByLabel("Import from URL", { exact: true }),
+        ).toHaveValue(url);
+        await expect(page.getByTestId("import-prefilled")).toHaveText(
+          "Press Import to fetch this link.",
+        );
+        const importButton = page.getByRole("button", {
+          name: "Import",
+          exact: true,
+        });
+        await expect(importButton).toBeFocused();
+        await expect(page.getByTestId("import-progress")).toHaveCount(0);
+        /* A reload (a restored tab, a history replay) starts nothing either. */
+        await page.reload();
+        await markdownEditorReady(page, "description");
+        await expect(page).toHaveURL(/\/new-recipe\?import=/);
+        expect(await formJobs()).toBe(before);
+
+        await importButton.click();
+        await expect(page).toHaveURL(/\/new-recipe\?job=[0-9A-Z]{26}$/);
+        await expect(page.locator('#recipe-form [name="name"]')).toHaveValue(
+          "Katsudon",
+        );
+        expect(await formJobs()).toBe(before + 1);
+      });
+
       test("should trim hash from imported URL", async ({ page, baseURL }) => {
         const fullTestURL = new URL(
           "/uploads/katsudon.html#section1",
