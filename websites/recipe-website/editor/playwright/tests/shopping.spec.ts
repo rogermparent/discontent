@@ -272,6 +272,42 @@ test.describe("Shopping list", () => {
     await expect(sugar.getByTestId("shopping-sources")).toContainText(
       "1/2 cup sugar (for Simple Syrup)",
     );
+
+    /* 39c: undo the expansion — the syrup's two lines go, in one commit. */
+    const subRecipes = page.getByTestId("shopping-subrecipes");
+    await subRecipes.getByText("Sub-recipes (1)").click();
+    const syrup = subRecipes.getByTestId("shopping-subrecipe");
+    await expect(syrup).toContainText(
+      "for Simple Syrup · 2 lines · in Lemonade",
+    );
+    const removeThese = syrup.getByRole("button", {
+      name: "Remove these lines for Simple Syrup",
+    });
+    await removeThese.click();
+    /* The question takes focus, and Cancel gives it back. */
+    const question = syrup.getByRole("group", {
+      name: "Remove what Simple Syrup added to 2 lines?",
+    });
+    await expect(
+      question.getByRole("button", { name: "Cancel" }),
+    ).toBeFocused();
+    await question.getByRole("button", { name: "Cancel" }).click();
+    await expect(removeThese).toBeFocused();
+    await removeThese.click();
+    await question.getByRole("button", { name: "Remove", exact: true }).click();
+    /* The lemonade's own sugar and water stay, no longer noted. */
+    await expect(page.getByLabel("¼ cup sugar", { exact: true })).toBeVisible();
+    await expect(
+      page.getByLabel("4 cups water", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByTestId("shopping-row-note")).toHaveCount(0);
+    await expect(subRecipes).toHaveCount(0);
+    await expect
+      .poll(async () => (await getContentGitLog())[0], { timeout: 15_000 })
+      .toBe("Update shopping list: -for Simple Syrup (2 items)");
+    expect((await getContentGitLog())[1]).toBe(
+      "Update shopping list: +Lemonade (5 items)",
+    );
   });
 
   test("holds ticks on the device until Done shopping, then saves them in one commit (38d)", async ({
@@ -327,6 +363,63 @@ test.describe("Shopping list", () => {
     const log = await getContentGitLog();
     expect(log[0]).toBe("Update shopping list: ✓egg ✓onion");
     expect(log[1]).toBe("Update shopping list settings");
+  });
+
+  test("drops a held tick over a week old, and says so (39-D3)", async ({
+    page,
+    getContentGitLog,
+  }) => {
+    await openList(page);
+    await addPlan(page);
+    await page.getByRole("button", { name: "Settings" }).click();
+    const sheet = page.getByTestId("shopping-settings");
+    await sheet.getByLabel(/^Hold ticks/).check();
+    await sheet.getByRole("button", { name: "Save settings" }).click();
+    await expect(sheet).toHaveCount(0);
+    await page.getByLabel("10 eggs", { exact: true }).check();
+    await page.getByLabel("6 onions", { exact: true }).check();
+    await expect(page.getByTestId("shopping-counts")).toHaveText(
+      /2 lines not saved yet/,
+    );
+
+    /* Eight days on: the eggs' tick (two items) ages by hand, the onions' not. */
+    const eggIds = await page.evaluate(() => {
+      const key = "shopping-held-ticks";
+      const held = JSON.parse(window.localStorage.getItem(key) ?? "{}") as {
+        times: Record<string, number>;
+      };
+      const ids = Object.keys(held.times);
+      const old = Date.now() - 8 * 24 * 60 * 60_000;
+      /* The plan's first two ticks are the eggs' (one per recipe). */
+      for (const id of ids.slice(0, 2)) held.times[id] = old;
+      window.localStorage.setItem(key, JSON.stringify(held));
+      return ids.slice(0, 2);
+    });
+    expect(eggIds).toHaveLength(2);
+    await page.reload();
+    await listReady(page);
+    const notice = page.getByTestId("shopping-expired-ticks");
+    await expect(notice).toContainText(
+      "Dropped a tick this device held for over a week — tick again what you bought.",
+    );
+    await expect(page.getByTestId("shopping-counts")).toHaveText(
+      /^9 to buy · 1 checked · 1 line not saved yet/,
+    );
+    await expect(page.getByLabel("10 eggs", { exact: true })).not.toBeChecked();
+    await notice.getByRole("button", { name: "Dismiss" }).click();
+    /* The live region stays mounted, empty, for the next notice. */
+    await expect(notice).toHaveText("");
+    await expect(notice.getByRole("button")).toHaveCount(0);
+
+    /* Done shopping saves only the tick that was still worth sending. */
+    await page
+      .getByTestId("shopping-done")
+      .getByRole("button", { name: "Done shopping" })
+      .click();
+    await expect(page.getByTestId("shopping-done")).toContainText(
+      "Saved 1 line.",
+    );
+    expect((await getContentGitLog())[0]).toBe("Update shopping list: ✓onion");
   });
 
   test("works at phone width: add, tick, no sideways scroll @mobile", async ({

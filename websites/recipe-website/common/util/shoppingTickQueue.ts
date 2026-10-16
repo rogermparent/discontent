@@ -129,3 +129,101 @@ export function parsePending(
     return new Map();
   }
 }
+
+/**
+ * 39-D3: how long a tick held for "Done shopping" (38d) stays worth sending.
+ * A shop can outlast `STORED_TICKS_MAX_AGE_MS` many times over, but a tick
+ * left on a phone for weeks would replay over everything every other device
+ * has done since. Each tick is aged from when it was made, not from the last
+ * write of the whole set.
+ */
+export const HELD_TICKS_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
+
+/** Held ticks as read: what is still worth sending, and what expired. */
+export interface HeldTicks {
+  ticks: Map<string, boolean>;
+  /** Item id → when its tick was made (ms). */
+  times: Map<string, number>;
+  /** Item ids whose ticks were dropped for being older than the limit. */
+  expired: string[];
+  /** Some tick's time was in the future and now reads as `now`. */
+  clamped: boolean;
+}
+
+/**
+ * For the held storage: `serializePending`'s shape — so an older page still
+ * reads it — plus `times`, when each tick was made (`at` where unknown).
+ */
+export function serializeHeld(
+  pending: PendingTicks,
+  times: ReadonlyMap<string, number>,
+  at: number,
+): string {
+  return JSON.stringify({
+    at,
+    ticks: [...pending],
+    times: Object.fromEntries(
+      [...pending.keys()].map((id) => [id, times.get(id) ?? at]),
+    ),
+  });
+}
+
+/**
+ * Back from the held storage. A tick with no time of its own (written before
+ * 39c) is as old as the set's `at`; a time in the future reads as `now`; a
+ * tick older than `maxAgeMs` at `now` is dropped and counted. Anything malformed reads as nothing held.
+ */
+export function parseHeld(
+  raw: string | null,
+  now: number,
+  maxAgeMs: number = HELD_TICKS_MAX_AGE_MS,
+): HeldTicks {
+  const empty = (): HeldTicks => ({
+    ticks: new Map(),
+    times: new Map(),
+    expired: [],
+    clamped: false,
+  });
+  if (!raw) return empty();
+  try {
+    const parsed = JSON.parse(raw) as {
+      at?: unknown;
+      ticks?: unknown;
+      times?: unknown;
+    };
+    if (typeof parsed?.at !== "number" || !Array.isArray(parsed.ticks)) {
+      return empty();
+    }
+    const stamps =
+      typeof parsed.times === "object" &&
+      parsed.times !== null &&
+      !Array.isArray(parsed.times)
+        ? (parsed.times as Record<string, unknown>)
+        : {};
+    const out = empty();
+    for (const entry of parsed.ticks) {
+      if (
+        !Array.isArray(entry) ||
+        typeof entry[0] !== "string" ||
+        typeof entry[1] !== "boolean"
+      ) {
+        continue;
+      }
+      const [id, checked] = entry as [string, boolean];
+      const stamp = stamps[id];
+      /* A clock that ran ahead when the tick was made cannot extend it. */
+      const stamped = typeof stamp === "number" ? stamp : parsed.at;
+      const at = Math.min(stamped, now);
+      if (stamped > now) out.clamped = true;
+      if (now - at > maxAgeMs) {
+        out.expired.push(id);
+        continue;
+      }
+      out.ticks.set(id, checked);
+      out.times.set(id, at);
+    }
+    return out;
+  } catch {
+    return empty();
+  }
+}
