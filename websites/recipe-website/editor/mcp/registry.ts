@@ -355,7 +355,7 @@ Tags are one vocabulary shared by recipes and groups. A term is a tag that may a
 
 Writes commit to the content repository, one commit per call. Deletes (recipe_delete, group_delete, term_delete, term_merge, unfeature) are not undoable from here.
 
-The git tools read and rewind that repository. git_log, git_show, git_file_at and git_diff read history; \`type\` is recipe, group, featured or term. git_revert and git_restore make a new commit and rebuild every index — they need a clean working tree (dirty_tree otherwise) and neither is undoable from here. git_push sends the branch to its remote and changes nothing locally. git_fetch refreshes the remote refs and nothing else, so run it (or git_status with fetch: true) before trusting ahead/behind. git_pull merges the upstream in and rebuilds every index; a conflict is aborted and answered with git_conflict, for a person to resolve in the editor's Git page. If git_status says indexStale, run reindex.
+The git tools read and rewind that repository. git_log, git_show, git_file_at and git_diff read history; \`type\` is recipe, group, featured or term. git_revert and git_restore make a new commit and rebuild every index — they need a clean working tree (dirty_tree otherwise) and neither is undoable from here. git_push sends the branch to its remote and changes nothing locally. git_fetch refreshes the remote refs and nothing else, so run it (or git_status with fetch: true) before trusting ahead/behind. git_pull merges the upstream in and rebuilds every index; a conflict is aborted and answered with git_conflict, for a person to resolve in the editor's Git page. If git_status says indexStale, run reindex — unless it also says indexVersionStale: then the indexes were built by different code, and when an editor is running against that repository do not reindex from here; the editor rebuilds them itself when it starts.
 
 Imports, inspects and roundup calls run as jobs: each result carries \`job\`, an id. job_get shows a job's steps — the fetch, yt-dlp, each model call with its tokens, rate and GPU share, queue waits — and job_list the recent ones. A slow import is often waiting in the queue for the GPU behind another import: job_list with status live says so.`;
 
@@ -1445,8 +1445,10 @@ export function createRecipeServer(
         "branch, upstream, ahead/behind (`diverged` when both), uncommitted changes, " +
         "remotes, the most recent commits, and `indexStale` — HEAD moved without a " +
         "full rebuild, or the indexes were built by other code " +
-        "(`indexVersionStale`; a running editor rebuilds those at start) — so run " +
-        "reindex. `pendingIndex` lists paths that are " +
+        "(`indexVersionStale`) — so run reindex. With `indexVersionStale`, the " +
+        "indexes were built by different code: when an editor is running against " +
+        "this repository, do not reindex from an agent — the editor rebuilds them " +
+        "itself when it starts. `pendingIndex` lists paths that are " +
         "committed but not yet re-staged in git's index (another process held its " +
         "lock); they are not uncommitted changes and catch up on the next write. " +
         "ahead/behind are as of `fetchedAt`; pass " +

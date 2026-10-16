@@ -6,11 +6,39 @@
 // a cancel before and after the rebuild begins, and the live queue position
 // in a waiting job's meta. Scratch content repositories under the OS temp
 // dir; the jobs and queue dirs are the test file's own (`setupTests.js`).
+//
+// The review round (39b): a released hold no longer passes through (M1), a
+// person's rebuild leaves the line after a bound as `busy` (M2), a rebuild
+// asked only if stale skips fresh indexes (L3), and a rebuild that fails
+// part-way writes no version.
 
 import { mkdtemp, rm, symlink, writeFile } from "fs-extra";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+/*
+ * A rebuild that fails part-way (the review's missing test): `failOn` names
+ * the content type whose rebuild throws; unset, every rebuild is the real one.
+ */
+const { failOn } = vi.hoisted(() => ({
+  failOn: { contentType: undefined as string | undefined },
+}));
+vi.mock("@discontent/cms/content/rebuildIndex", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@discontent/cms/content/rebuildIndex")
+    >();
+  return {
+    ...actual,
+    rebuildIndex: (async (options) => {
+      if (options.config.contentType === failOn.contentType) {
+        throw new Error("the disk filled up (test)");
+      }
+      return actual.rebuildIndex(options);
+    }) as typeof actual.rebuildIndex,
+  };
+});
 import simpleGit from "simple-git";
 
 import type { AnyContentTypeConfig } from "@discontent/cms/content/types";
@@ -19,6 +47,7 @@ import {
   computeIndexVersion,
   readIndexFreshness,
   readIndexVersion,
+  writeIndexVersion,
 } from "@discontent/cms/git/indexStamp";
 import { withWriteLock } from "@discontent/cms/git/writeLock";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
@@ -26,14 +55,19 @@ import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 import { createLocalBackend } from "../websites/recipe-website/editor/cli/backend/local";
 import { recipeContentTypes } from "../websites/recipe-website/editor/controller/contentTypes";
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
+import { reindex } from "../websites/recipe-website/editor/controller/curation/reindex";
+import { createSyncRunner } from "../websites/recipe-website/editor/controller/instance/runner";
 import { currentIndexVersion } from "../websites/recipe-website/editor/controller/indexVersion";
 import { runSpec } from "../websites/recipe-website/editor/controller/jobs/kinds";
 import { jobsDirectory } from "../websites/recipe-website/editor/controller/jobs/location";
 import {
   acquire,
+  holdsHere,
+  outsideQueue,
   queueSnapshot,
   repoResource,
   withResource,
+  type ResourceGrant,
 } from "../websites/recipe-website/editor/controller/jobs/queue";
 import {
   requestJobCancel,
@@ -66,6 +100,7 @@ async function scratchRepo(): Promise<string> {
 }
 
 afterEach(async () => {
+  failOn.contentType = undefined;
   vi.unstubAllEnvs();
   await closeCachedEnvironments();
   for (const dir of scratch.splice(0)) {
@@ -396,5 +431,184 @@ describe("a waiting job's place in line", () => {
     second();
     await first;
     await expect(job).resolves.toMatchObject({ result: "granted" });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* The review round                                                    */
+/* ------------------------------------------------------------------ */
+
+describe("a hold counts only while it is held (39b review, M1)", () => {
+  it("passes through inside the hold, never from a timer that outlives it", async () => {
+    const resource = "repo:leak-timer-00000000";
+    let leaked!: Promise<ResourceGrant>;
+    await withResource(resource, {}, async () => {
+      expect(holdsHere(resource)).toBe(true);
+      const inner = await acquire(resource);
+      expect(inner.passThrough).toBe(true);
+      /* Started inside, run after the release: it keeps this context. */
+      leaked = new Promise((resolve) =>
+        setTimeout(() => resolve(acquire(resource)), 50),
+      );
+    });
+    const grant = await leaked;
+    expect(grant.passThrough).toBe(false);
+    expect((await queueSnapshot(resource)).holder).toBeDefined();
+    await grant.release();
+    /* `outsideQueue` drops a live hold too, for work meant to outlive it. */
+    await withResource(resource, {}, async () => {
+      expect(outsideQueue(() => holdsHere(resource))).toBe(false);
+    });
+  });
+
+  it("never from a sync runner's run requested inside the hold", async () => {
+    const resource = "repo:leak-runner-00000000";
+    const passed: boolean[] = [];
+    const runner = createSyncRunner({
+      run: async () => {
+        const grant = await acquire(resource);
+        passed.push(grant.passThrough);
+        await grant.release();
+      },
+      debounceMs: 20,
+    });
+    await withResource(resource, {}, async () => {
+      runner.request("change");
+    });
+    await runner.idle();
+    expect(passed).toEqual([false]);
+    runner.dispose();
+  });
+});
+
+describe("a person's rebuild behind a held line (39b review, M2)", () => {
+  it("answers busy within the bound, rebuilding nothing", async () => {
+    vi.stubEnv("RECIPE_QUEUE_POLL_MS", "10");
+    vi.stubEnv("RECIPE_REINDEX_QUEUE_WAIT_MS", "300");
+    const dir = await scratchRepo();
+    const holder = await acquire(repoResource(dir));
+    const before = await readIndexFreshness(dir);
+    const started = Date.now();
+    const error = await runSpec({
+      kind: "reindex",
+      contentDirectory: dir,
+      trigger: "local",
+    }).catch((caught: unknown) => caught);
+    const waited = Date.now() - started;
+    await holder.release();
+    expect(error).toMatchObject({ code: "busy" });
+    expect((error as Error).message).toContain("Nothing was rebuilt");
+    expect(waited).toBeGreaterThanOrEqual(300);
+    expect(waited).toBeLessThan(5_000);
+    const job = (error as { job?: string }).job!;
+    expect(await readJobMeta(jobsDirectory(), job)).toMatchObject({
+      status: "failed",
+      error: { code: "busy" },
+    });
+    const view = await getJobView(job);
+    expect(
+      view.lines.find(
+        (line) => line.step === "queue.wait" && line.phase === "end",
+      ),
+    ).toMatchObject({ data: expect.objectContaining({ gaveUp: true }) });
+    /* Its place in line is gone, and nothing was rebuilt. */
+    expect((await queueSnapshot(repoResource(dir))).waiters).toEqual([]);
+    expect(await readIndexFreshness(dir)).toEqual(before);
+  });
+});
+
+describe("a rebuild asked only if stale (39b review, L3)", () => {
+  it("skips indexes already built from HEAD by this code, and says so", async () => {
+    const dir = await scratchRepo();
+    await createLocalBackend({ contentDirectory: dir }).reindex();
+    const instance = await runSpec({
+      kind: "reindex",
+      contentDirectory: dir,
+      trigger: "instance",
+      reason: "no index version recorded yet",
+    });
+    expect(instance).toMatchObject({ rebuilt: [], skipped: "fresh" });
+    const view = await getJobView(instance.job);
+    expect(
+      view.lines.find((line) => line.step === "reindex.skip"),
+    ).toMatchObject({ msg: expect.stringContaining("already fresh") });
+    expect(
+      view.lines.some(
+        (line) =>
+          line.step.startsWith("reindex.") && line.step !== "reindex.skip",
+      ),
+    ).toBe(false);
+
+    /* The deploy's `?ifStale=1` skips too; a plain API rebuild never does. */
+    expect(
+      await runSpec({
+        kind: "reindex",
+        contentDirectory: dir,
+        trigger: "api",
+        ifStale: true,
+      }),
+    ).toMatchObject({ skipped: "fresh" });
+    const plain = await runSpec({
+      kind: "reindex",
+      contentDirectory: dir,
+      trigger: "api",
+    });
+    expect(plain.skipped).toBeUndefined();
+    expect(plain.rebuilt).toHaveLength(recipeContentTypes.length);
+  });
+
+  it("rebuilds when the version or HEAD is stale", async () => {
+    const dir = await scratchRepo();
+    await createLocalBackend({ contentDirectory: dir }).reindex();
+    await writeIndexVersion(dir, "0123456789abcdef");
+    const result = await runSpec({
+      kind: "reindex",
+      contentDirectory: dir,
+      trigger: "instance",
+    });
+    expect(result.skipped).toBeUndefined();
+    expect(result.rebuilt).toHaveLength(recipeContentTypes.length);
+    expect(await readIndexVersion(dir)).toBe(currentIndexVersion());
+
+    await createRecipe({ contentDirectory: dir }, { name: "Roti" });
+    await simpleGit({ baseDir: dir }).commit("Shell commit", ["--allow-empty"]);
+    expect(
+      (
+        await runSpec({
+          kind: "reindex",
+          contentDirectory: dir,
+          trigger: "instance",
+        })
+      ).skipped,
+    ).toBeUndefined();
+  });
+});
+
+describe("a full rebuild that fails part-way", () => {
+  it("writes neither the version nor the HEAD stamp", async () => {
+    const dir = await scratchRepo();
+    await createLocalBackend({ contentDirectory: dir }).reindex();
+    await writeIndexVersion(dir, "0123456789abcdef");
+    await simpleGit({ baseDir: dir }).commit("Moved on", ["--allow-empty"]);
+    const before = await readIndexFreshness(dir, {
+      version: currentIndexVersion(),
+    });
+    expect(before).toMatchObject({ stale: true, versionStale: true });
+
+    failOn.contentType = recipeContentTypes[1].contentType;
+    await expect(reindex({ contentDirectory: dir })).rejects.toThrow(
+      "the disk filled up (test)",
+    );
+    expect(await readIndexVersion(dir)).toBe("0123456789abcdef");
+    expect(
+      await readIndexFreshness(dir, { version: currentIndexVersion() }),
+    ).toEqual(before);
+
+    /* The next full rebuild writes both. */
+    failOn.contentType = undefined;
+    await reindex({ contentDirectory: dir });
+    expect(
+      await readIndexFreshness(dir, { version: currentIndexVersion() }),
+    ).toMatchObject({ stale: false, versionStale: false });
   });
 });

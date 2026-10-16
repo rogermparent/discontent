@@ -33,7 +33,11 @@
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { directoryIsGitRepo } from "@discontent/cms/git/commit";
 import { readHead, readIndexFreshness } from "@discontent/cms/git/indexStamp";
-import type { MirrorSyncState } from "@discontent/cms/git/syncState";
+import {
+  readSyncState,
+  type MirrorSyncState,
+} from "@discontent/cms/git/syncState";
+import simpleGit from "simple-git";
 import { watchRefs, type RefWatcher } from "@discontent/cms/git/watchRefs";
 import {
   getEditorRole,
@@ -118,10 +122,18 @@ function retryAfterBusy(outcome: SyncResult["outcome"]): void {
   }
   if (busyRetryTimer || busyRetries >= BUSY_RETRY_LIMIT) return;
   busyRetries += 1;
-  busyRetryTimer = setTimeout(() => {
-    busyRetryTimer = undefined;
-    getInstance()?.runner?.request("change");
-  }, BUSY_RETRY_MS);
+  /*
+   * Scheduled from inside the sync's job, in the repository's line: the
+   * timer starts outside it, so the retried sync waits in line like any
+   * other (a released hold no longer counts either — M1 — but this one
+   * need not rely on that).
+   */
+  busyRetryTimer = outsideQueue(() =>
+    setTimeout(() => {
+      busyRetryTimer = undefined;
+      getInstance()?.runner?.request("change");
+    }, BUSY_RETRY_MS),
+  );
   (busyRetryTimer as { unref?: () => void }).unref?.();
 }
 
@@ -180,12 +192,20 @@ export async function reindexWhenForeign(
     : "HEAD moved outside the editor";
   console.info(`[instance] ${reason}; reindexing`);
   const { runSpec } = await import("../jobs/kinds");
-  await runSpec({
+  /*
+   * The job re-reads freshness once it has the line (39b review, L3): a
+   * deploy's `POST /api/reindex` or a sync's merge just ahead of it may
+   * have rebuilt already, and then it records "already fresh" and stops.
+   * A failure is the job's (`failed` on `/jobs`) and is not retried here:
+   * the next HEAD move asks again, and the stale-index banner says so.
+   */
+  const result = await runSpec({
     kind: "reindex",
     contentDirectory,
     trigger: "instance",
     reason,
   });
+  if (result.skipped) return false;
   await refreshEditor();
   return true;
 }
@@ -195,8 +215,9 @@ export async function reindexWhenForeign(
  * `git-sync` job (39b, epic 39 D2): in the repository's line, then inside
  * the process mutex and the sync lock, with the ssh preflight read off the
  * remote's URL. Used by the runner, `/api/git/sync` and Sync now. Answers
- * the sync's result with the job's id as `job` (a sync that moved nothing
- * leaves no record; the id is then a job that no longer exists).
+ * the sync's result with the job's id as `job` (a sync that merged nothing
+ * in and needs no look leaves no record — `syncWorthRecording`; the id is
+ * then a job that no longer exists, answered 404 / `not_found`).
  */
 export async function syncMirror(
   contentDirectory: string,
@@ -227,6 +248,45 @@ function exclusiveFor(contentDirectory: string): Instance["exclusive"] {
 
 function sameDirectory(a: string, b: string): boolean {
   return repoResource(a) === repoResource(b);
+}
+
+/**
+ * A sync that lost the sync lock to another process's (39b review, L1):
+ * `busy`, with one skipped `preflight` step naming the holder. Nothing was
+ * fetched or written, and the sync state file is left to the winner, which
+ * records its own attempt; `state` is the remote's record as it stands, with
+ * this attempt's outcome. Not worth a row on `/jobs` (`syncWorthRecording`).
+ */
+async function lockRaceResult(
+  contentDirectory: string,
+  remote: string | undefined,
+  error: LockBusyError,
+): Promise<SyncResult> {
+  const git = simpleGit({ baseDir: contentDirectory });
+  const status = await git.status().catch(() => null);
+  const name = remote ?? status?.tracking?.split("/")[0] ?? "";
+  const previous = name
+    ? (await readSyncState(contentDirectory))[name]
+    : undefined;
+  const message = `${error.message} This sync did nothing; that one records its own.`;
+  return {
+    remote: name,
+    branch: status?.current ?? "",
+    outcome: "busy",
+    message,
+    pulled: 0,
+    pushed: 0,
+    steps: [{ step: "preflight", status: "skipped", detail: error.message }],
+    head: (await readHead(contentDirectory)) ?? "",
+    state: {
+      ...previous,
+      remote: name,
+      lastAttempt: new Date().toISOString(),
+      outcome: "busy",
+      message,
+      consecutiveFailures: previous?.consecutiveFailures ?? 0,
+    },
+  };
 }
 
 /**
@@ -270,7 +330,15 @@ export async function runMirrorSync(
                 job,
               },
             ),
-          );
+          ).catch((error: unknown) => {
+            /* L1: another process's sync holds the lock — `busy`, not a failure. */
+            if (!(error instanceof LockBusyError)) throw error;
+            return lockRaceResult(
+              contentDirectory,
+              remote ?? target?.remote,
+              error,
+            );
+          });
           for (const entry of synced.steps) {
             (entry.status === "failed" ? log.warn : log.info)(
               `sync.${entry.step}`,
@@ -373,7 +441,8 @@ async function start(): Promise<Instance | undefined> {
           `[sync] ${target.remote} (${triggers.join(",")}): ${result.outcome}` +
             (result.message ? ` — ${result.message}` : ""),
         );
-        notifyIfNew(result.state);
+        /* `busy` never needs a person (and a lost lock race left no record). */
+        if (result.outcome !== "busy") notifyIfNew(result.state);
         results.push(result);
       } catch (error) {
         if (error instanceof LockBusyError) {

@@ -591,7 +591,10 @@ user's calls. When the user deletes for themselves, the strip follows:
 `group_delete` unfeatures the group, and `term_delete` moves the term's
 features to its parent term (or unfeatures them when it has none, or the parent
 is already featured). If `git_status` reports `indexStale: true`, say so in the report
-and suggest a reindex; do not run one. Never pass `overwrite` or `force`, and never put `RECIPE_API_TOKEN` on
+and suggest a reindex; do not run one. `indexVersionStale: true` beside it means the
+indexes were built by different code (a newer or older checkout): when an editor is
+running against that repository, the editor rebuilds them itself when it starts, so
+suggest restarting or updating the editor, not a reindex from an agent. Never pass `overwrite` or `force`, and never put `RECIPE_API_TOKEN` on
 a command line.
 
 ## Fallback (CLI)

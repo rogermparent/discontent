@@ -268,11 +268,16 @@ build_indexes() {
 # wait; restarting the container is what then stops the spinning request.
 REINDEX_TIMEOUT=${REINDEX_TIMEOUT:-600}
 
+# <query>: `?ifStale=1` after switching to this code — the new container's
+# own start-time rebuild (epic 39 D1) is usually just ahead in line, and the
+# second then answers `"skipped": "fresh"` instead of rebuilding again. The
+# rollback passes none: an older image ignores the query anyway.
 reindex_remote() {
+  local query=${1:-}
   need_token
   step "Rebuild indexes on the Pi"
   local start=$SECONDS
-  curl -fsS --max-time "$REINDEX_TIMEOUT" -X POST "$PI_URL/api/reindex" \
+  curl -fsS --max-time "$REINDEX_TIMEOUT" -X POST "$PI_URL/api/reindex$query" \
     -H @<(printf 'Authorization: Bearer %s\n' "$PI_TOKEN") \
     -H 'Content-Type: application/json' -d '{}' | sed 's/^/   /' \
     || return 1
@@ -401,7 +406,7 @@ index_and_switch() {
   if [ "$SWAPPED" = 1 ]; then
     note "indexes shipped from $(hostname) and swapped in"
   else
-    reindex_remote || fail_deploy "$to" "$from"
+    reindex_remote '?ifStale=1' || fail_deploy "$to" "$from"
   fi
   wait_healthy || fail_deploy "$to" "$from"
 }

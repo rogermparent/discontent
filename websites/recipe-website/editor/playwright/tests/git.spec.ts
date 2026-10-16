@@ -660,6 +660,13 @@ test.describe("Git content", () => {
           timeline.locator(`[data-step="reindex.${type}"]`),
         ).toHaveAttribute("data-status", "ok");
       }
+      /* 39b review (L6): a rebuild is run anew, never retried. */
+      await expect(page.getByTestId("job-not-retried")).toContainText(
+        "A rebuild is not retried",
+      );
+      await expect(
+        page.getByRole("button", { name: "Retry", exact: true }),
+      ).toHaveCount(0);
     });
 
     test("should flag a push received from elsewhere, and Rebuild indexes clears it (27b)", async ({

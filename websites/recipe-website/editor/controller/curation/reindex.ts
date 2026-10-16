@@ -32,6 +32,7 @@
 import { rebuildIndex } from "@discontent/cms/content/rebuildIndex";
 import {
   readHead,
+  readIndexFreshness,
   writeIndexedHead,
   writeIndexVersion,
 } from "@discontent/cms/git/indexStamp";
@@ -47,6 +48,26 @@ export interface ReindexResult {
   timings?: Record<string, number>;
   /** The job it ran as (epic 39, D2), when it ran as one. */
   job?: string;
+  /**
+   * Nothing was rebuilt: asked only if stale, it found the indexes built
+   * from HEAD by this code (39b review, L3; the `reindex` job's `ifStale`).
+   */
+  skipped?: "fresh";
+}
+
+/**
+ * HEAD and the index version, when the indexes were built from this HEAD by
+ * this code; `null` when anything is stale — or there is no HEAD to say.
+ */
+export async function freshIndexes(
+  contentDirectory: string,
+): Promise<{ head: string; version: string } | null> {
+  const version = currentIndexVersion();
+  const freshness = await readIndexFreshness(contentDirectory, { version });
+  if (!freshness.head || freshness.stale || freshness.versionStale) {
+    return null;
+  }
+  return { head: freshness.head, version };
 }
 
 export interface ReindexOptions {

@@ -25,8 +25,10 @@ import { errorResponse } from "../websites/recipe-website/editor/controller/cura
 import {
   retrySpecFor,
   runSpec,
+  syncWorthRecording,
   type JobSpec,
 } from "../websites/recipe-website/editor/controller/jobs/kinds";
+import type { SyncResult } from "../websites/recipe-website/editor/controller/curation/sync";
 import {
   cancelJob,
   runJob,
@@ -727,6 +729,158 @@ describe("POST /api/jobs/<id>/retry", () => {
     expect(
       (await retryRoute.POST(post(`/api/jobs/${id}/retry`), params(id))).status,
     ).toBe(403);
+  });
+
+  /*
+   * 39b review, L6: a rebuild's replay would carry a stale reason, and a
+   * sync retried from the CLI would run without the editor's instance —
+   * each is run anew instead, and Retry says how.
+   */
+  it.each([
+    [
+      "reindex",
+      { trigger: "instance", reason: "index version changed (a → b)" },
+      "A rebuild is not retried",
+    ],
+    [
+      "git-sync",
+      { remote: "uraninite", triggers: ["ping"] },
+      "A sync is not retried",
+    ],
+  ])("refuses a %s job, saying how to run one", async (kind, rest, text) => {
+    const meta = await plant({
+      kind,
+      spec: { kind, contentDirectory, ...rest },
+    });
+    const response = await retryRoute.POST(
+      post(`/api/jobs/${meta.id}/retry`),
+      params(meta.id),
+    );
+    expect(response.status).toBe(400);
+    const { error } = await response.json();
+    expect(error).toMatchObject({ code: "usage" });
+    expect(error.message).toContain(text);
+    /* The CLI's (and MCP's) local seat refuses it the same way. */
+    await expect(
+      createLocalBackend({ contentDirectory }).retryJob(meta.id),
+    ).rejects.toMatchObject({ code: "usage" });
+    /* Nothing was started. */
+    const listed = await (await listRoute.GET(get("/api/jobs"))).json();
+    expect(listed.jobs).toHaveLength(1);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Which syncs leave a record (39b review, L2)                          */
+/* ------------------------------------------------------------------ */
+
+describe("a git sync's record", () => {
+  function sync(
+    outcome: SyncResult["outcome"],
+    patch: Partial<SyncResult> = {},
+  ): SyncResult {
+    return {
+      remote: "uraninite",
+      branch: "main",
+      outcome,
+      pulled: 0,
+      pushed: 0,
+      steps: [],
+      head: "0".repeat(40),
+      state: {
+        remote: "uraninite",
+        lastAttempt: new Date(0).toISOString(),
+        outcome,
+        consecutiveFailures: 0,
+      },
+      ...patch,
+    };
+  }
+
+  it("is kept for a merge, a failure, a refused push or a merge that gave up on the lock", () => {
+    const kept: [string, SyncResult][] = [
+      ["merged", sync("synced", { pulled: 2 })],
+      ["merged and pushed", sync("synced", { pulled: 1, pushed: 3 })],
+      ["conflict", sync("conflict")],
+      ["mirror dirty", sync("mirror_dirty")],
+      ["unreachable", sync("unreachable")],
+      ["blocked", sync("blocked")],
+      ["error", sync("error")],
+      ["raced", sync("raced", { pushed: 0 })],
+      [
+        "busy at the merge",
+        sync("busy", {
+          steps: [
+            { step: "preflight", status: "ok" },
+            { step: "fetch", status: "ok" },
+            { step: "merge", status: "failed", detail: "busy" },
+          ],
+        }),
+      ],
+    ];
+    for (const [name, result] of kept) {
+      expect(syncWorthRecording(result), name).toBe(true);
+    }
+  });
+
+  it("is dropped for a sync that only pushed, found nothing, or lost the lock race", () => {
+    const dropped: [string, SyncResult][] = [
+      ["nothing", sync("nothing")],
+      ["push only", sync("synced", { pushed: 1 })],
+      ["media only", sync("synced")],
+      [
+        "lost the sync lock",
+        sync("busy", {
+          steps: [{ step: "preflight", status: "skipped", detail: "busy" }],
+        }),
+      ],
+    ];
+    for (const [name, result] of dropped) {
+      expect(syncWorthRecording(result), name).toBe(false);
+    }
+  });
+
+  it("answers its dropped job's id with a clean 404 over the API and not_found over MCP", async () => {
+    const { job } = await runJob(
+      {
+        kind: "git-sync",
+        label: "sync with uraninite (change)",
+        spec: { kind: "git-sync", contentDirectory, triggers: ["change"] },
+      },
+      async () => sync("synced", { pushed: 1 }),
+      {
+        dir,
+        mirror: null,
+        discardIf: (result) => !syncWorthRecording(result),
+      },
+    );
+    expect(await readJobMeta(dir, job)).toBeUndefined();
+    const response = await jobRoute.GET(get(`/api/jobs/${job}`), params(job));
+    expect(response.status).toBe(404);
+    expect((await response.json()).error.code).toBe("not_found");
+
+    const backend = createLocalBackend({ contentDirectory });
+    const server = createRecipeServer(backend, { readOnly: true });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "dropped-sync-test", version: "0" });
+    await Promise.all([
+      server.connect(serverTransport),
+      client.connect(clientTransport),
+    ]);
+    try {
+      const got = await client.callTool({
+        name: "job_get",
+        arguments: { id: job },
+      });
+      expect(got.isError).toBe(true);
+      expect(
+        (got.structuredContent as { error: { code: string } }).error.code,
+      ).toBe("not_found");
+    } finally {
+      await client.close();
+      await server.close();
+    }
   });
 });
 
