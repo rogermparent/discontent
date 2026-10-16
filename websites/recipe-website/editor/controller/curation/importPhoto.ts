@@ -61,13 +61,13 @@ export async function photoText(
   { dir = jobsDirectory(), job: run }: { dir?: string; job?: JobRun } = {},
 ): Promise<string> {
   const job = jobContext(run);
-  const { assertPhotoImport, transcribePhotos, transcribeKey } =
+  const { assertPhotoImport, photoLimits, transcribePhotos, transcribeKey } =
     await import("../llm/vision");
   const { llmConfig } = await import("../llm/client");
   const { loadTranscript, readStoredPhotos, saveTranscript } =
     await import("../jobs/photos");
   const vision = assertPhotoImport();
-  const prompt = transcribeKey();
+  const prompt = transcribeKey(photoLimits(vision));
   const kept = await loadTranscript(dir, photos, {
     model: vision.model,
     prompt,

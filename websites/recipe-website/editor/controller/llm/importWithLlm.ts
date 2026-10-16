@@ -62,7 +62,7 @@ import {
   normalisePastedText,
 } from "../curation/importRequest";
 import {
-  LLM_UNCONFIGURED_MESSAGE,
+  llmUnconfiguredMessage,
   LlmError,
   llmConfig,
   type LlmConfig,
@@ -1084,7 +1084,7 @@ export function assertLlmMode(
   config: LlmConfig | undefined = llmConfig(),
 ): void {
   if (mode === "force" && !config) {
-    throw new ImportError(LLM_UNCONFIGURED_MESSAGE);
+    throw new ImportError(llmUnconfiguredMessage());
   }
 }
 
@@ -1198,7 +1198,7 @@ export async function readPastedText({
     );
   }
   const url = pastedSourceUrl(source);
-  if (!config) throw new ImportError(LLM_UNCONFIGURED_MESSAGE);
+  if (!config) throw new ImportError(llmUnconfiguredMessage());
   /* The extractor caps the text the same way; this only says so. */
   const { capText } = await import("recipe-website-common/util/pageText");
   const { kept } = capText(normalised);

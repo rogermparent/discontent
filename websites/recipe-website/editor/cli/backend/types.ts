@@ -223,7 +223,8 @@ export interface CuratorBackend {
   /**
    * Photos of a recipe — a card, a cookbook page — the pages in order (38e):
    * transcribed by the vision model, then read as pasted text is. `usage`
-   * with no vision model configured (`RECIPE_LLM_VISION_MODEL`).
+   * with no vision model configured (`RECIPE_LLM_VISION_MODEL`, or the
+   * Claude API's own model under `RECIPE_LLM_API=anthropic`, 38g).
    */
   importPhotos(
     photos: File[],

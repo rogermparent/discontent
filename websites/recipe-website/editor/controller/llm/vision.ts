@@ -12,7 +12,14 @@
  * vision model has no silent default — `qwen2.5vl:7b`
  * (`RECOMMENDED_VISION_MODEL`) is what the docs and `--help` name, so a
  * workstation that never pulled one shows no Photo mode that would only
- * fail. The Pi sets neither, so the mode is hidden there.
+ * fail. A machine with neither hides the mode.
+ *
+ * **The Claude API (38g, Dg7)** reads pictures itself: under
+ * `RECIPE_LLM_API=anthropic` the vision model defaults to the text model,
+ * so photo import is on with the key alone (`RECIPE_LLM_VISION_MODEL`
+ * still overrides). Nothing is loaded or unloaded there — a hosted API
+ * holds no `gpu` slot — and a photo is fitted inside 1568 px and ~1.15 MP, not 1024
+ * (`photoLimits`).
  *
  * ## One GPU at a time
  *
@@ -46,10 +53,13 @@ import {
   type LlmConfig,
 } from "./client";
 import {
+  CLAUDE_PHOTO_LIMITS,
+  OLLAMA_PHOTO_LIMITS,
   PHOTO_MAX_PIXELS,
   PHOTO_MAX_SIDE,
   PHOTO_SHARP_OPTIONS,
   photoForVision,
+  type PhotoLimits,
 } from "./photoPrep";
 
 export { PHOTO_MAX_PIXELS, PHOTO_MAX_SIDE };
@@ -67,7 +77,7 @@ export const RECOMMENDED_VISION_MODEL = "qwen2.5vl:7b";
  */
 export const VISION_NUM_CTX = 4_096;
 
-export const PHOTO_UNCONFIGURED_MESSAGE = `photo import needs a vision model: set RECIPE_LLM_URL and ${VISION_MODEL_ENV} (e.g. ${RECOMMENDED_VISION_MODEL}) in editor/.env`;
+export const PHOTO_UNCONFIGURED_MESSAGE = `photo import needs a vision model: set RECIPE_LLM_URL and ${VISION_MODEL_ENV} (e.g. ${RECOMMENDED_VISION_MODEL}) in editor/.env, or use the Claude API (RECIPE_LLM_API=anthropic with RECIPE_LLM_API_KEY)`;
 
 function envValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
   const raw = env[name]?.trim();
@@ -91,7 +101,8 @@ export function setVisionModelOverride(model: string | undefined): void {
 
 /**
  * The vision model, on the text model's server — or `undefined` when photo
- * import is off: no `RECIPE_LLM_URL`, or no `RECIPE_LLM_VISION_MODEL` (De1).
+ * import is off: no text model, or no `RECIPE_LLM_VISION_MODEL` (De1). The
+ * Claude API's defaults to its text model (38g, Dg7): Claude reads images.
  */
 export function visionConfig(
   env: NodeJS.ProcessEnv = process.env,
@@ -101,8 +112,18 @@ export function visionConfig(
   const override = env.TEST_MODE
     ? (globalThis as VisionGlobal).__discontentVisionModelOverride
     : undefined;
-  const model = override ?? envValue(env, VISION_MODEL_ENV);
+  const model =
+    override ??
+    envValue(env, VISION_MODEL_ENV) ??
+    (base.api === "anthropic" ? base.model : undefined);
   return model ? { ...base, model } : undefined;
+}
+
+/** How a photo is fitted for `config`'s server: 1024 px for a local GPU, 1568 px and ~1.15 MP for Claude (Dg7). */
+export function photoLimits(config?: LlmConfig): PhotoLimits {
+  return config?.api === "anthropic"
+    ? CLAUDE_PHOTO_LIMITS
+    : OLLAMA_PHOTO_LIMITS;
 }
 
 /** Photo import's surfaces refuse (`usage`) when it is off. */
@@ -150,10 +171,13 @@ export function checkPhotoFormat(photo: Pick<PhotoBytes, "type" | "name">) {
 
 /**
  * The picture as the model gets it (see the module comment): always
- * upright, fitted inside `PHOTO_MAX_SIDE` / `PHOTO_MAX_PIXELS` and
- * re-encoded as a JPEG (`photoForVision`).
+ * upright, fitted inside `limits` (`PHOTO_MAX_SIDE` / `PHOTO_MAX_PIXELS`
+ * by default; `photoLimits`) and re-encoded as a JPEG (`photoForVision`).
  */
-export async function preparePhoto(photo: PhotoBytes): Promise<ChatImage> {
+export async function preparePhoto(
+  photo: PhotoBytes,
+  limits: PhotoLimits = OLLAMA_PHOTO_LIMITS,
+): Promise<ChatImage> {
   checkPhotoFormat(photo);
   const { default: sharp } = await import("sharp");
   let meta: Metadata;
@@ -171,7 +195,10 @@ export async function preparePhoto(photo: PhotoBytes): Promise<ChatImage> {
     throw new ValidationError(`${photo.name} ${NO_PHOTO_ADVICE}.`);
   }
   try {
-    return { bytes: await photoForVision(photo.bytes), type: "image/jpeg" };
+    return {
+      bytes: await photoForVision(photo.bytes, limits),
+      type: "image/jpeg",
+    };
   } catch (error) {
     throw new ValidationError(
       `${photo.name} could not be converted for the vision model: ${error instanceof Error ? error.message : String(error)}`,
@@ -200,17 +227,20 @@ export function transcribeUserPrompt(page = 1, pages = 1): string {
  * What a kept transcription must have been made with to be reused
  * (`photos.ts`): the prompts and how the photos are sent. The model's name
  * is checked beside it — so a re-pulled model under the same name reuses
- * it (38-Te6).
+ * it (38-Te6). The size caps are the server's (`photoLimits`, 38g); the
+ * default is the key every transcript kept before 38g was made with.
  */
-export function transcribeKey(): string {
+export function transcribeKey(
+  limits: PhotoLimits = OLLAMA_PHOTO_LIMITS,
+): string {
   return textSha(
     JSON.stringify([
       TRANSCRIBE_SYSTEM_PROMPT,
       transcribeUserPrompt(),
       transcribeUserPrompt(1, 2),
       "one call per photo",
-      PHOTO_MAX_SIDE,
-      PHOTO_MAX_PIXELS,
+      limits.maxSide,
+      limits.maxPixels,
       VISION_NUM_CTX,
     ]),
   );
@@ -281,7 +311,10 @@ export async function transcribePhotos({
     throw new ValidationError("No photos to read.");
   }
   const images: ChatImage[] = [];
-  for (const photo of photos) images.push(await preparePhoto(photo));
+  const limits = photoLimits(vision);
+  for (const photo of photos) images.push(await preparePhoto(photo, limits));
+  /* Only a local model is unloaded (38g): a hosted API has nothing to unload. */
+  const unloads = vision.api === "ollama";
   const pages: string[] = [];
   let durationMs = 0;
   for (const [index, photo] of photos.entries()) {
@@ -347,7 +380,7 @@ export async function transcribePhotos({
   }
   log.info(
     "vision",
-    `${vision.model} read ${text.length} characters${photos.length > 1 ? ` from ${photos.length} photos` : ""} and was unloaded${next ? ` — ${next} reads the transcription` : ""}`,
+    `${vision.model} read ${text.length} characters${photos.length > 1 ? ` from ${photos.length} photos` : ""}${unloads ? " and was unloaded" : ""}${next ? ` — ${next} reads the transcription` : ""}`,
     {
       model: vision.model,
       ...(next ? { next } : {}),

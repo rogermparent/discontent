@@ -248,13 +248,20 @@ Environment:
                        it is read)
   RECIPE_LLM_URL       A local model server for imports (Ollama, e.g.
                        http://localhost:11434); unset, --llm auto does
-                       nothing and --llm force fails
-  RECIPE_LLM_MODEL     The model (default qwen3:8b)
+                       nothing and --llm force fails. With
+                       RECIPE_LLM_API=anthropic it is optional (default
+                       https://api.anthropic.com) and must be https://
+  RECIPE_LLM_MODEL     The model (default qwen3:8b; with anthropic,
+                       claude-sonnet-5 — claude-haiku-4-5 is cheaper)
   RECIPE_LLM_VISION_MODEL
                        The vision model that transcribes photos for
                        import --photo, on the same server (e.g.
-                       qwen2.5vl:7b); unset, photo import is off
-  RECIPE_LLM_API       ollama (default) or openai (/v1/chat/completions)
+                       qwen2.5vl:7b); unset, photo import is off — except
+                       with anthropic, where it defaults to the model
+  RECIPE_LLM_API       ollama (default), openai (/v1/chat/completions) or
+                       anthropic (the Claude API, /v1/messages)
+  RECIPE_LLM_API_KEY   The Claude API's key (required with anthropic; never
+                       ANTHROPIC_API_KEY), or an openai server's bearer
   RECIPE_AUTHOR        "Name <email>" for local commits; same as --author
   CONTENT_DIRECTORY    Local content directory; same as --content-dir
   YTDLP_PATH           yt-dlp binary for video imports (else the Settings

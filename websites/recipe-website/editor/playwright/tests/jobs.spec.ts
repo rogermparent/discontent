@@ -285,6 +285,35 @@ test.describe("Import jobs", () => {
     await expect(page.getByTestId("job-raw-log")).toContainText('"step":"job"');
   });
 
+  test("/jobs names the model imports read with, on a mirror too, and nothing when there is none (38g)", async ({
+    page,
+    request,
+  }) => {
+    await page.goto("/jobs");
+    const status = page.getByTestId("local-model-status");
+    await expect(
+      page.getByRole("heading", { name: "The model imports read with" }),
+    ).toBeVisible();
+    await expect(status).toContainText("qwen3:8b");
+    await expect(status).toContainText("reachable");
+    /* The Pi's role: Settings → Tools is not in its nav, /jobs is. */
+    expect(
+      (await request.get("/settings/test-editor-role?role=mirror")).ok(),
+    ).toBe(true);
+    try {
+      await page.reload();
+      await expect(status).toContainText("qwen3:8b");
+    } finally {
+      await request.get("/settings/test-editor-role?role=workstation");
+    }
+    await useModel(request);
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "Jobs", exact: true }),
+    ).toBeVisible();
+    await expect(status).toHaveCount(0);
+  });
+
   test("an idle /jobs shows another process's job by itself, and rests while the tab is hidden (38b)", async ({
     page,
   }) => {

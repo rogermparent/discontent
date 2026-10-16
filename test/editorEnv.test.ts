@@ -74,6 +74,8 @@ describe("loadEditorEnv (35-D11)", () => {
         "RECIPE_LLM_API=ollama",
         /* 38e: photo import's vision model. */
         "RECIPE_LLM_VISION_MODEL=qwen2.5vl:7b",
+        /* 38g: the Claude API's key. */
+        "RECIPE_LLM_API_KEY=sk-ant-test-file",
         "RECIPE_API_URL=http://127.0.0.1:3000",
       ].join("\n"),
     );
@@ -81,12 +83,14 @@ describe("loadEditorEnv (35-D11)", () => {
     expect(loadEditorEnv(env, file)).toEqual([
       "RECIPE_LLM_URL",
       "RECIPE_LLM_API",
+      "RECIPE_LLM_API_KEY",
       "RECIPE_LLM_VISION_MODEL",
     ]);
     expect(env).toEqual({
       RECIPE_LLM_URL: "http://localhost:11434",
       RECIPE_LLM_MODEL: "qwen2.5:7b",
       RECIPE_LLM_API: "ollama",
+      RECIPE_LLM_API_KEY: "sk-ant-test-file",
       RECIPE_LLM_VISION_MODEL: "qwen2.5vl:7b",
     });
   });
