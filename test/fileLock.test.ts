@@ -9,6 +9,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  rename,
   rm,
   stat,
   utimes,
@@ -217,9 +218,13 @@ describe("fileLock", () => {
     });
     await sleep(60);
     expect(lost).toEqual([]);
-    /* Taken over while this holder was suspended: another id holds it now. */
-    await rm(path);
-    await tryCreateLock(path, owner("b"), "b");
+    /*
+     * Taken over while this holder was suspended: another id holds it now.
+     * Swapped in with one rename (37c): `rm` then create left a gap in which
+     * a beat under load read no lock at all, and reported that loss first.
+     */
+    await tryCreateLock(`${path}.b`, owner("b"), "b");
+    await rename(`${path}.b`, path);
     await vi.waitFor(() => expect(lost).toEqual(["b"]), {
       timeout: 10_000,
       interval: 20,
@@ -238,6 +243,37 @@ describe("fileLock", () => {
     await rm(path);
     await sleep(100);
     expect(quiet).toEqual([]);
+  }, 20_000);
+
+  it("reads no lock as 'look again', not a loss: takeOverLock's aside-and-back window", async () => {
+    await tryCreateLock(path, owner("a"), "a");
+    const lost: (string | undefined)[] = [];
+    const stop = startLockHeartbeat(path, "id", "a", 20, {
+      onLost: (state) => lost.push((state?.owner as { id?: string })?.id),
+    });
+    try {
+      /* Moved aside for several beats, then back: still a's. */
+      const aside = `${path}.aside`;
+      await rename(path, aside);
+      await sleep(120);
+      expect(lost).toEqual([]);
+      /* A torn file reads as no owner: not a loss either. */
+      await writeFile(path, "not json");
+      await sleep(80);
+      expect(lost).toEqual([]);
+      await rename(aside, path);
+      await sleep(80);
+      expect(lost).toEqual([]);
+      /* Another owner's record is the loss. */
+      await tryCreateLock(`${path}.b`, owner("b"), "b");
+      await rename(`${path}.b`, path);
+      await vi.waitFor(() => expect(lost).toEqual(["b"]), {
+        timeout: 10_000,
+        interval: 20,
+      });
+    } finally {
+      stop();
+    }
   }, 20_000);
 
   it("refuses a lock without an id", async () => {

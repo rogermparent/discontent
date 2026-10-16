@@ -26,6 +26,8 @@ interface NavItem {
    * overrides. A mirror leaves both out.
    */
   workstationOnly?: boolean;
+  /** Other paths this area owns (Tools: `/jobs`, linked from its card, 37c). */
+  also?: string[];
 }
 
 /**
@@ -63,6 +65,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
         href: "/settings/tools",
         icon: Wrench,
         workstationOnly: true,
+        also: ["/jobs"],
       },
       { name: "Maintenance", href: "/settings/maintenance", icon: Database },
     ],
@@ -74,9 +77,15 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
  * light up on `/settings/theme`); every other area matches its path or any
  * nested route (e.g. `/menus/edit/...` keeps Navigation active).
  */
-function isActive(pathname: string, href: string): boolean {
+function isActive(
+  pathname: string,
+  href: string,
+  also: string[] = [],
+): boolean {
   if (href === "/settings") return pathname === "/settings";
-  return pathname === href || pathname.startsWith(`${href}/`);
+  return [href, ...also].some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`),
+  );
 }
 
 const labelClass =
@@ -121,7 +130,7 @@ export function SettingsNav({
             <p className={labelClass}>{group.label}</p>
             <div className="flex flex-col gap-0.5">
               {group.items.map((item) => {
-                const active = isActive(pathname, item.href);
+                const active = isActive(pathname, item.href, item.also);
                 const Icon = item.icon;
                 return (
                   <Link

@@ -56,6 +56,7 @@ import { tagsCommand } from "./commands/tags";
 import { termCommands } from "./commands/term";
 import type { CommandDef } from "./commands/types";
 import { updateCommand } from "./commands/update";
+import { interruptCli } from "./interrupt";
 import { emit, emitError, warn } from "./output";
 
 const GLOBAL_OPTIONS: ParseArgsOptionsConfig = {
@@ -114,7 +115,7 @@ const SUBCOMMAND_TABLES: Record<string, Record<string, CommandDef<unknown>>> = {
   shopping: shoppingCommands,
   /* The vocabulary's records and carriers (31c). */
   term: termCommands,
-  /* The job store (epic 37): `show` now, the rest in 37c. */
+  /* The job store (epic 37): list, show, log, cancel, retry. */
   jobs: jobsCommands,
 };
 
@@ -149,7 +150,12 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   inspect-list <url> [--verbose]
   import-list <url> (--pick 1,3,5-7|<url>,… | --all) [--term <slug> [--term-label L]]
               [--limit 1-6] [--dry-run] [--llm auto|force|off] [--verbose]
+  jobs list [--status queued|running|done|failed|cancelled|interrupted|live]
+            [--kind <kind>] [--limit 50]
   jobs show <id>
+  jobs log <id> [--follow] [--from <byte>]
+  jobs cancel <id>
+  jobs retry <id>
   create (--file recipe.json | --stdin) [--overwrite] [--dry-run]
   update <slug> (--file patch.json | --stdin) [--dry-run]
   image <slug> (--url <image-url> | --file <path> | --clear)
@@ -333,7 +339,13 @@ Every import, inspect and roundup call runs as a job: its result carries
 rate and GPU share, the writes — go to the job's log, printed on stderr as
 they happen when stderr is a terminal (or with --verbose). \`jobs show <id>\`
 prints a job and its steps afterwards; <id> may be the eight characters the
-step lines show.
+step lines show. \`jobs list\` lists them newest first, \`jobs log <id>
+--follow\` prints a running job's steps until it ends, \`jobs cancel <id>\`
+stops one wherever it runs (the editor, another CLI), and \`jobs retry <id>\`
+runs one again with this process's content directory and author — a job
+recorded against another content directory is refused. With --remote they
+read and act on the editor's jobs, and a retry runs there. A cancelled job
+fails with code \`cancelled\` (Ctrl-C too, exit 130).
 
 Piping --json: run it as \`pnpm --silent recipes …\`. Without --silent, pnpm
 prints its own script banner on stdout ahead of the object, so the stream is
@@ -641,6 +653,8 @@ function exitOnSignals(finished: Promise<void>): void {
     const code = signal === "SIGINT" ? 130 : 143;
     if (stopping) process.exit(code);
     stopping = true;
+    /* A command that only waits (`jobs log --follow`) stops waiting now. */
+    interruptCli(new Error(`interrupted (${signal})`));
     void (async () => {
       try {
         if (jobsRanHere()) {

@@ -366,6 +366,36 @@ export function createLocalBackend({
     },
 
     /*
+     * The job store (37c): this machine's (`jobsDirectory()`), loaded only
+     * when asked (35q). In the editor (`inProcess`, MCP over HTTP) it is the
+     * editor's own store. A retry runs here, with this backend's context,
+     * and is awaited — a CLI's process would end under it otherwise.
+     */
+    async listJobs(options) {
+      const { listJobSummaries } = await import("../../controller/jobs/views");
+      return listJobSummaries(options);
+    },
+    async getJob(id, options = {}) {
+      const { getJobView } = await import("../../controller/jobs/views");
+      return getJobView(id, options);
+    },
+    async cancelJob(id) {
+      const { cancelJobById } = await import("../../controller/jobs/views");
+      return cancelJobById(id);
+    },
+    async retryJob(id) {
+      const { retryJobById, requireJob } =
+        await import("../../controller/jobs/views");
+      const { retrySpecFor, specWrites } =
+        await import("../../controller/jobs/kinds");
+      /* Another content directory's job is refused before anything else. */
+      const spec = await retrySpecFor(await requireJob(id), ctx);
+      /* A retry that writes needs a committer, as the import it replays. */
+      if (specWrites(spec)) await guard();
+      return retryJobById(id, ctx, { wait: !inProcess });
+    },
+
+    /*
      * Spread rather than a property that returns `undefined`: the seam declares
      * `afterWrite?()`, `registry.ts` and the CLI both call it with `?.()`, and
      * an in-process write must produce no `warnings` entry at all (T53).

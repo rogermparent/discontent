@@ -318,9 +318,11 @@ export async function releaseLock(
  * returned function stops it. The timer is `unref`ed: a heartbeat never
  * keeps a process alive.
  *
- * `onLost` is called once, the first time a beat finds the lock no longer
- * holds `id` — taken over while this process was suspended, say — and never
- * after the heartbeat was stopped (a release in flight is not a loss).
+ * `onLost` is called once, the first time a beat finds another owner's
+ * record in the lock — taken over while this process was suspended, say —
+ * and never after the heartbeat was stopped (a release in flight is not a
+ * loss). No lock at all, or one that does not parse, is looked at again on
+ * the next beat (`takeOverLock`'s aside-and-back window reads as nothing).
  */
 export function startLockHeartbeat(
   path: string,
@@ -335,7 +337,14 @@ export function startLockHeartbeat(
     void readLockFile(path, idKey)
       .then((state) => {
         if (stopped) return;
-        if (field(state?.owner, idKey) !== id) {
+        /*
+         * No lock, or one that does not parse: `takeOverLock` moves a
+         * stale lock aside and back (37c review), and a beat in that window
+         * reads nothing. Not a loss yet — look again next beat; only
+         * another owner's record is one.
+         */
+        if (!state || state.owner === null) return;
+        if (field(state.owner, idKey) !== id) {
           if (!lost) {
             lost = true;
             onLost?.(state);

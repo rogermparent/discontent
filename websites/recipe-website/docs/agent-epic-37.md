@@ -15,7 +15,8 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 37b (the global queue, cancellation, GPU hooks) in progress.
+**Now:** 37c (the async form, `/jobs`, the job API, CLI and MCP surfaces) in
+progress.
 
 ## Context
 
@@ -316,8 +317,8 @@ position}` while the job waits (`JobContext.waiting`), for 37c's display;
 | Phase    | Size | Branch                   | Status | PR   | What                                                                              |
 | -------- | ---- | ------------------------ | ------ | ---- | --------------------------------------------------------------------------------- |
 | 37a      | M    | `agent/37a-job-log`      | ✅     | #237 | D1, D2, D3, D6's placement check: the store, the step log, every import in a job. |
-| 37b      | M    | `agent/37b-queue`        | 🟡     | –    | D4, D5's waiters, D6's hooks: the cross-process queue, cancellation.              |
-| 37c      | M    | `agent/37c-job-surfaces` | 📝     | –    | D7: the async form, `/jobs`, the job API, CLI `jobs …`, MCP `job_list`/`job_get`. |
+| 37b      | M    | `agent/37b-queue`        | ✅     | #238 | D4, D5's waiters, D6's hooks: the cross-process queue, cancellation.              |
+| 37c      | M    | `agent/37c-job-surfaces` | 🟡     | –    | D7: the async form, `/jobs`, the job API, CLI `jobs …`, MCP `job_list`/`job_get`. |
 | 37-close | S    | `agent/37-close`         | 📝     | –    | Results, 36-T58 marked automated, backlog rows, memory, Roger's steps.            |
 
 Ordering: strictly sequential — 37b builds on 37a's store and `fileLock`,
@@ -587,6 +588,72 @@ exec tsc --noEmit`, `pnpm exec vitest run`;
   SIGTERM to its child and exits with the child's code, so a test can
   signal the `tsx` process and read 130. Without a handler, the child dies
   of the signal and the spell stays on.
+
+### 37c
+
+- **T20 — A second copy of a message breaks the specs' locators.**
+  Playwright's `getByText` counts an `sr-only` node and the content of a
+  closed `<details>` too, so a panel that repeated the form's message — in
+  its live region ("Import failed: yt-dlp error …") or in a folded step
+  list — would make `getByText("yt-dlp error")` a strict-mode violation.
+  The live region says the phase without the message, a failure's message
+  and warnings are the form's when the job has a result (the panel's only
+  for a thrown one), and a finished job's steps are drawn only once its
+  `<details>` is opened.
+- **T21 — A started job nobody awaits must not reject unhandled.** The
+  form's action answers the id and leaves the work running; a failure in
+  its `done` with no handler is an `unhandledRejection` in the editor.
+  `startSpec` marks `done` handled (`done.catch(() => undefined)` — the
+  promise still rejects for whoever awaits it), and the job records the
+  failure as before.
+- **T22 — A `<select>` inside its `<label>` is named with its option.**
+  Chrome's accessible name for `<label>Kind <select>…</select></label>`
+  includes the selected option ("Kind All"), so `getByLabel("Kind", {exact:
+true})` found nothing. The filters use `htmlFor`.
+- **T23 — The CLI's command table and the MCP registry load at startup.**
+  Importing `views.ts` there (for a limit, a status list) would pull the
+  store, the queue and `fileLock` into every command (35q's lazy startup)
+  and into the stdio server's boot. `listing.ts` holds those constants with
+  no imports; `views.ts` is loaded inside the backend's seats.
+- **T24 — `react-hooks/set-state-in-effect`.** Copying `useActionState`'s
+  answer into state from an effect is refused by the lint; the form's
+  action is a wrapper that calls the server action and sets the job (and
+  the address bar) itself.
+- **T25 — `text-destructive` is 4.49:1 on the page background** (3.92 in
+  dark), just under AA for body text. The first `/jobs` axe run passed only
+  because `test-jobs/` held no failed job yet; once `jobs.spec` left one,
+  its red error line failed. The jobs pages and the panel mark errors and
+  warnings with a `border-destructive` rule and keep the text in the
+  foreground colour; the red stays on the failed badge's background
+  (white on it passes).
+- **T26 — A route's revalidation runs once, when it returns.** Next 16
+  executes a route handler's pending `revalidatePath`/`revalidateTag` as
+  the handler returns (`resolvePendingRevalidations`); a call made later —
+  by a job the route started and answered 202 for — lands in the same
+  request's `pendingRevalidatedTags` and is never executed, so the editor
+  serves stale cached reads after a retried write. The retry route hands
+  the job's outcome to `after()`: Next runs `after` callbacks inside
+  `withExecuteRevalidates`, which executes whatever the callbacks queued,
+  once they settle — the job's writes included, since the job runs in the
+  request's async context. Verified by `jobs.spec`'s "a retried write
+  reaches the cached pages" (a `form-batch` retried after its recipe was
+  deleted; `/recipes` lists it again), which fails with the `after()`
+  hand-off taken out. A tag queued between the return and the
+  response's close would be missed (the `after` snapshot is taken at the
+  close); a job's first write is far later than that.
+- **T27 — The boot sweep is once per process; an orphan can come after
+  it.** A CLI killed mid-import while the editor runs on left its job
+  `running` until the editor restarted, and `/jobs`, the form's panel and
+  `jobs log --follow` followed it forever. The readers (`getJobView`,
+  `listJobSummaries`, `cancelJobById`, the retry checks) apply the sweep's
+  rule to each live meta they read (`settleOrphanedJob`) and write the
+  `interrupted` they find.
+- **T28 — Following is not owning.** Ctrl-C cancels the jobs this process
+  runs (37b's registry), but `jobs log --follow` runs none: it sleeps
+  between reads, so the signal handler waited out its 10 s grace before
+  forcing the exit. The handler now trips `cli/interrupt.ts`'s signal
+  first; the follow's sleep and loop watch it, return at once, and the CLI
+  exits 130 with the job left running.
 
 ## Results
 
@@ -1096,17 +1163,343 @@ Playwright (build mode, heavy slot) `new-recipe`, `ytdlp-import`,
 (3.6 min); its queue state stayed in `test-jobs/queue/` and the machine
 queue was not touched.
 
+### 37c — Async form, `/jobs`, the job API, CLI and MCP
+
+**Reindex needed: no.** Nothing in the content repository changes.
+
+**Built.**
+
+- **`startJob` / `startSpec`** (`run.ts`, `kinds.ts`): a job's record is
+  written and its id answered at once; the work goes on in the process and
+  `done` settles as `runJob` would (marked handled, so a caller may leave
+  it — T21). `runJob` and `runSpec` are `start…` awaited. A thrown failure
+  now carries `job` (`withJob`, beside 37a's `withWarnings`), and a
+  cancelled job throws a **`CancelledError`** — code `cancelled` — instead
+  of its abort reason's plain `Error`, so a Ctrl-C'd CLI says `cancelled`
+  (exit 130 as before) and every transport agrees. The record's own
+  `error` does not name itself (`job` dropped there). Metas gain `retryOf`.
+- **The `cancelled` code**: `CurationErrorCode`, HTTP **409** (`statusFor`:
+  the request was fine, the job's state ended it), exit 1 from the CLI
+  (Ctrl-C keeps 130), the HTTP backend's rehydration (with `job`), the MCP
+  instructions (and `job?` on the error shape, and "do not retry it
+  unasked"), the curator skill.
+- **`form-batch`**, a job kind: the picker's "Import N selected"
+  (`importRecipeBatchAction`) runs `importBatchPicks` through `runSpec`
+  (`corpusOf(ctx)`, the readings in the spec — summarised for readers,
+  kept whole for Retry). Label "1 of 4 recipes from youtube.com/…",
+  resource `site`.
+- **`controller/jobs/views.ts`** — one reading of the store for every
+  surface: `listJobSummaries` (newest first, `status` one of the six or
+  `live`, `kind`, `limit` 1–300, default 50; rows carry no spec and no
+  result), `getJobView(id, {from})` (the record with the spec summarised —
+  pasted text as `textChars`, picks as `{n, name}` — the log from a byte
+  offset and `next`, `live`, and a waiting job's place in line **now**,
+  re-read from the queue), `queueOverview` (`gpu` and `ytdlp` always, each
+  active `site:`; holder then waiters with tier, since, and the job's
+  label when it is in this store), `cancelJobById` (`requestJobCancel`:
+  `cancelled` / `requested` / `ended`), `retryJobById` (below),
+  `parseFrom` / `parseLimit` / `parseStatusFilter` (`validation` for
+  anything else). `listing.ts` holds the filters and limits
+  dependency-free, for the CLI's command table and the MCP registry (T23).
+- **Retry** (`retrySpecFor`, `retryJob` in `kinds.ts`): the recorded spec,
+  replayed with **the caller's own context** — the editor's
+  `requireCurationContext`, the CLI's backend context. A corpus spec
+  recorded against another content directory (compared after `realpath`,
+  so a symlink to the same directory passes) is refused with `usage`,
+  naming both directories; the replay commits as the caller
+  (`corpusOf(ctx)` over the spec's own). A spec this version cannot run
+  is `usage` too. The new job's meta names the old one (`retryOf`).
+- **The API** (curation auth like every route; read scope for the GETs,
+  write for cancel and retry): `GET /api/jobs` (`?status`, `?kind`,
+  `?limit`; `?queue=1` adds `queue`, the `/jobs` page's view), `GET
+/api/jobs/<id>?from=<n>` (the whole id or the mirror's eight characters;
+  `from` a whole number ≥ 0, else 400), `POST /api/jobs/<id>/cancel`, `POST
+/api/jobs/<id>/retry` (**202** at once, `{job, retryOf, status:
+"running"}`; the editor runs it). `/api/import`, `/api/inspect`,
+  `import-list`, `inspect-list` keep their synchronous contract; a failed
+  one's error carries `job`.
+- **The backend seam** gains `listJobs`, `getJob`, `cancelJob`,
+  `retryJob`: locally the machine's store (a retry runs here, its
+  committer preflighted only when the spec writes — `specWrites` — and
+  awaited, since the CLI's process would end under it); over HTTP the
+  editor's routes. `jobs show` moved onto it, so `--remote` now reads a
+  remote editor's jobs.
+- **The CLI**: `recipes jobs list [--status] [--kind] [--limit] [--json]`
+  (a fixed-width table for a person), `jobs log <id> [--follow] [--from]`
+  (asks from `next` every second — `RECIPE_JOBS_FOLLOW_MS` in tests —
+  until the job ends, then once more; a person's follow prints lines as
+  they come, `--json` stays one object; exit 0 for `done`), `jobs cancel
+<id>`, `jobs retry <id>` (exit 0 for `done`, or `running` from a
+  remote). `--help` says all of it.
+- **MCP**: read-only `job_list` and `job_get` (`{id, from?}`), both kept
+  in a read-scoped session: **57 tools, 43 pre-approved** — the registry,
+  `.claude/settings.json`, the curator `SKILL.md` frontmatter (and its
+  text: the `cancelled` code, `job` on every import result, the CLI
+  fallback lines), CLAUDE.md's counts, the server's instructions.
+  `.mcp.json` lists no tools; the HTTP backend serves both through the
+  routes.
+- **The form** (`/new-recipe`): `importRecipeAction` starts a `form-url` /
+  `form-text` job and answers `{job}` at once (signed in, or a message).
+  The form follows it in **`ImportProgress`**: `useJobPoll` reads `GET
+/api/jobs/<id>?from=<next>` every second (`src/jobs/`, shared with
+  `/jobs/<id>`); the step list — each step's title, status, time so far and
+  its numbers (the model's lines found, tokens and rate, GPU share; a
+  page's status and size; a queue wait's place) — nested by `parent`;
+  "Waiting for the GPU — 2nd in line" from the meta's `waiting` (place
+  re-read live); the log's warnings (`gpu.hook`, `llm.placement`) while it
+  runs; a Cancel button; a "Job details" link. On `done` the form gets the
+  result and renders it exactly as before (the fill, or the 36e picker);
+  on `failed` the form shows its message (a thrown failure's message and
+  warnings are the panel's, once — T20); on `cancelled` the panel says so.
+  Then the panel folds to one line, its steps a click away. Import is
+  disabled while a job runs. The address bar becomes `?job=<id>`
+  (`history.replaceState`), and **`/new-recipe?job=<id>`** reopens a form
+  job: its result fills the form (or the picker) on the server render, a
+  live one is followed. `?import=<url>` (the roundup picker's "Import it as
+  one recipe") starts a job and redirects to `?job=`, so a reload follows
+  the same job.
+- **The live region**: one sr-only polite sentence per phase — "Import
+  started.", "Importing…", "Waiting for the GPU — next in line.", "Import
+  done: the form is filled." / "…: 4 recipes found — pick the ones to
+  import.", "Import failed.", "Import cancelled." — never a line per step.
+- **`/jobs`** (owner auth, inside the settings layout; a card on Settings
+  → Tools links it, and the Tools item lights on `/jobs`): the queue per
+  resource (holder, then waiters in order with tier and how long), the
+  recent 100 jobs as a table (status badge, kind, label linking the job,
+  duration, started) with Status and Kind filters and Refresh; it reads
+  `GET /api/jobs?queue=1` every 2 s while anything is live and stops when
+  idle. **`/jobs/<id>`**: status, kind, id, duration, times, process,
+  "Runs again" for a retry, Cancel while live / Retry once ended (a refused
+  retry says why), "Open in the form" for a finished form job, the error,
+  the warnings (the result's, the error's, the log's), a result summary
+  (slugs linked, a batch's rows), the **step timeline** — one bar per step
+  on the job's time axis, nested by `parent`, waits in grey, failures in
+  red, each row's time, and a screen reader's "at +1.2 s for 3.4 s" — and
+  the raw JSONL in a `<details>`.
+
+**Tests.** `test/jobSurfaces.test.ts` (26): the four routes — auth (401,
+and 403 for a read token on cancel and retry), newest-first listing with
+status, kind and limit filters and their 400s, `?queue=1`, a 404, `from`
+paging over a running job (from, `next`, nothing new, the rest after it
+ends; the pieces equal the whole), `from` validation, the short id, the
+spec summarised; cancel of this process's job (ends `cancelled`, the thrown
+error a `CancelledError` with `job`), of another process's (`requested`,
+the cancel file written), of an ended one (`ended`); retry (202, a new job
+with `retryOf`), its refusal for another content directory (400 `usage`,
+both named, nothing started), a symlinked directory accepted and the caller
+as author, an unknown kind refused; `cancelled` as 409 and through the HTTP
+backend; a failed `/api/import`'s `error.job` naming a `failed` record; the
+HTTP backend's four seats against the routes; the CLI in process (`jobs
+list` JSON, human and a usage error, `log --follow` on a running job in
+JSON and for a person, `--from` refused, `cancel` by the short id, a local
+`retry` (failed, exit 1) and its refusal, `show` through the backend); MCP
+`job_list` / `job_get` (with `from`, `not_found`) and both in a read-scoped
+session; `buildStepTree`. Changed: `jobs.test` (the registry's kinds, the
+batch label, `jobs show` through a backend), `queue.test` (the Ctrl-C test
+now asserts `code: "cancelled"` and `job`), `curatorSkill.test` (57 / 43,
+`job_` tool names), `curationHttp.test` (`cancelled: 409`).
+
+Playwright: **`jobs.spec`** (new, 6) — a stand-in model on loopback slowed
+by `delayMs`: the live panel shows the running `llm.extract` step, the
+heading "Importing…", the live region, Import disabled and `?job=` in the
+address bar, then the form fills and the panel folds (its steps on a
+click); `?job=` reopens a finished import; the 36e picker from a job, back
+with `?job=`, and "Import 1 selected" as a `form-batch` job on `/jobs`;
+`/jobs` lists the import (queue free, filters by kind and status) and its
+page shows the timeline, "Open in the form" and the raw log; Cancel from
+the panel and from `/jobs/<id>`, both `cancelled` on `/jobs`; Retry of a
+failed import opens the new job, which names the old one.
+`accessibility.spec` + 2 (light and dark): `/jobs`, a job's page with the
+raw log open, and the form's panel mid-import and folded. `new-recipe`,
+`ytdlp-import`, `multi-recipe` and `import-roundup` assert the panel
+(`?job=`, "Import done", the running `ytdlp` step during the slow mimic,
+`?import=` → `?job=` → the form filled). No visual baseline moved: the
+panel appears only after an import, and the snapshotted pages have none.
+
+A 37b test fixed on the way: `fileLock.test`'s "says once when a beat
+finds the lock taken from it" swapped the lock with `rm` then a create, and
+a beat under a full suite's load read the gap (no lock at all) and reported
+that loss first (`[undefined]`, not `["b"]`). The new holder's lock now
+arrives with one `rename`.
+
+**Gates.** `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit` clean; eslint clean on the changed files;
+`pnpm exec vitest run` **88 files / 1912 tests** passed (+1 file, +26 on
+37b's 87 / 1886), load average 10.0 → 16.8 → 3.5 over its 276 s (one
+earlier full run, at load ~8, caught the `fileLock` race above).
+Playwright (build mode, heavy slot) `jobs`, `new-recipe`, `ytdlp-import`,
+`multi-recipe`, `import-roundup`, `youtube-video`, `accessibility`,
+`settings-nav`: **104 / 105** in 5.3 min, the one a `getByLabel("Kind",
+{exact: true})` that found nothing (T22); `jobs.spec` alone after the fix
+**6 / 6** (1.2 min); `accessibility` + `settings-nav` again: 34 / 36, the
+two new jobs-page sweeps failing on red error text once `test-jobs/` held
+a failed job (T25); after the fix, `accessibility` + `settings-nav` +
+`jobs` **42 / 42** (2.6 min).
+
+**Screenshots** (the gate's real-content check, no GPU): `next start` of
+this build on a scratch clone of the content repo (reindexed, the fixture
+user added), its jobs and queue dirs in scratch, `TEST_MODE` for
+`/settings/test-llm` and a stand-in model answering every chat in 6 s. Two
+pasted-text imports from two tabs, so the second waits for the GPU; at
+1280 × 900, light and dark: the panel "Waiting for the GPU — next in line"
+with its "Model reads the recipe" step and the nested "Wait for the GPU",
+`/jobs` with the GPU held by one import and the other first in line (both
+`running`, two earlier `done`), and the finished job's page (the warning,
+"Read “Cheddar Chive Scones”", the two bars, 9 raw lines). In the
+orchestrator's scratch: `37c/shots/*.png`.
+
+**Real check** (real yt-dlp, real qwen3:8b, this worktree's build at
+`e7a36663`, `next start` inside `heavy.sh`, a throwaway content clone —
+`origin` stripped — with its own fixture user; the machine queue, not a
+scratch one): signed in as `admin@nextmail.com`, then `/new-recipe` →
+import `youtube.com/watch?v=Z8J2HgaaSgQ` (Holiday Sides). Steps arrived
+live and in order — `ytdlp` 4.0 s/5 chapters, `llm.list` 13 s (4 listed,
+197 tok @ 43 tok/s), `llm.oneDish` 3.5 s ("separate dishes", 8 tok @
+48 tok/s), then `llm.extract i/4` per dish (e.g. 1/4 "Potato Puree" 7.3 s,
+5/5 lines found, 251 tok @ 44 tok/s) — each line tagged `· GPU`; no
+`llm.placement` warning anywhere (the GPU was free, qwen stayed fully in
+VRAM the whole run, `/api/ps`'s `size_vram == size`). The 36e picker came
+up **62 s** after Import, all four dishes named and ticked correctly
+(Potato Puree, Stuffing, Green Bean Casserole, Fried Shallots) with their
+ingredient counts and chapter starts. `/jobs` listed the job; its page
+rendered the step timeline with the same step names and times. A second
+import (pasted text — the same video's description) was cancelled from
+`/jobs/<id>`'s Cancel button while running: the job flipped to `cancelled`
+within about a second, both there and back on the form's `ImportProgress`
+panel ("Import cancelled" / "Import cancelled", no error). Reopening
+`/new-recipe?job=<first id>` re-rendered the same 4-dish picker from the
+job's stored result. Nothing crashed, no retries, yt-dlp fetched once.
+
+Misbehaved: `/jobs/<id>`'s Result section (`ResultSummary` in
+`JobDetail.tsx`) showed "Recipe 1" / "Recipe 2" / "Recipe 3" / "Recipe 4"
+instead of the dish names for the batch result — it reads `row.name`
+directly off each `result.recipes[]` entry, but a `form-url` batch's
+entries carry the name nested at `.recipe.name` (`SplitReading`'s shape),
+matching neither `row.name` nor `result.found`/`result.items`. The 36e
+picker itself (`BatchPicker`, reading `reading.recipe.name`) and the step
+list's own `(name)` detail both showed the right names throughout — only
+this one read-only summary on the job detail page is wrong. Not something
+this real check wrote around; worth a small follow-up fix.
+
+Screenshots: `01-signed-in`, `02-mid-import` (steps running), `03-picker`
+(the 4-dish picker), `04-jobs-list`, `05-job-detail` (its step timeline),
+`06-job-cancelled` (`/jobs/<id>` after Cancel), `07-form-cancelled` (the
+form's panel after Cancel), `08-reopen-picker` (`?job=` reopening the
+picker) — `37c/rc-shots/*.png` in the orchestrator's scratch.
+
+#### 37c — Review round
+
+`origin/main` merged first (#239, the homepage redesign: a merge commit, no
+overlapping files). Then, what the review asked:
+
+- **A retry that writes kept its revalidation** (T26). `retryJobById`
+  takes `background`, handed the new job's outcome when it answers at
+  once; the retry route passes `after(() => done)`, so Next executes the
+  tags the job's writes queue when the job ends. Chosen over awaiting a
+  writing retry (the `/jobs` page would hang on Retry for a whole import)
+  and over posting to `/api/revalidate` (a token and a self-request).
+  Verified end to end: `jobs.spec`'s new "a retried write reaches the
+  cached pages, after the 202" imports a dish with "Import 1 selected",
+  deletes it through the API, reads `/recipes` without it, retries the
+  `form-batch` job from its page and finds it on `/recipes` again. With
+  the hand-off taken out (the route passing a no-op `background`), the
+  same test fails at that last step — the job `done`, the list stale — so
+  it is the check. Under vitest `next/server` is mocked and the test
+  asserts the outcome went to `after()`.
+- **Orphaned live jobs end when read** (T27). `settleOrphanedJob`
+  (`store.ts`) is the sweep's rule for one meta — process gone, or silent
+  past `JOB_STALE_MS` when it cannot be judged — written as `interrupted`
+  with its log note; `sweepJobs` runs it per meta, and `getJobView`,
+  `listJobSummaries`, `cancelJobById` and the retry checks run it on each
+  live meta they read. So `/jobs`, the panel and `jobs log --follow` stop.
+- **`jobs log --follow` stops on Ctrl-C at once** (T28):
+  `cli/interrupt.ts` holds a module-level `AbortController`; `index.ts`'s
+  signal handler trips it before waiting for the command, and the follow
+  sleeps with `interruptibleSleep` and checks it after each read. Exit
+  130; the followed job runs on. Before the change the spawned test took
+  10.07 s (the grace period); after, 2.4 s of which the CLI's own startup
+  is most.
+- **Retry storms are refused**: a new code, **`job_live`** (409, exit 1),
+  carrying the live job as `error.job` — for a job still `queued`/`running`
+  (it names itself), and for one a live job already runs again
+  (`retryOf`). Two presses in the same instant start one: a per-id
+  in-flight marker (on `globalThis`, T5) makes the second wait for the
+  first's id and refuse with it. `busy` was not used: it is 503 with
+  `Retry-After` and exit 75, an invitation to loop. No MCP tool retries,
+  so the MCP instructions' code list is unchanged. `/jobs/<id>` answers a
+  `job_live` with "Already running again as" and a link to that job.
+- **`/jobs/<id>` names a several-recipe result's dishes**: `resultRows`
+  (`timeline.ts`) reads `name`, else `recipe.name` (`SplitReading`), else
+  "Recipe n".
+- **Nits.** Cancel answers `status: "cancelled"` for `outcome:
+"cancelled"`, the record's status otherwise (re-read for `ended`).
+  `useJobPoll` stops on 401, 403 and 404 and shows the message at once
+  (`live` false). `summarizeSpec` passes `url` and `source` through the
+  log's redaction (`redactUrlText`: no `user:password@`, no secret-looking
+  env value) and drops `author` and `contentDirectory` for every reader —
+  no surface shows them (the UI never reads the spec, `jobs show` prints
+  none of it), the email and a server path are nothing a read token needs,
+  and the record keeps both for Retry. `startLockHeartbeat` treats a beat
+  that reads no lock, or one that does not parse, as "look again next
+  beat"; only another owner's record is a loss. The `?import=` GET is a
+  Backlog row.
+
+**Tests.** `jobSurfaces.test` 26 → 34: an orphan (a dead pid) read through
+the view, the list and cancel — reported and written `interrupted`, a live
+one left alone; `jobs log --follow` on an orphan ends (exit 1,
+`interrupted`); retry of a live job (409 `job_live`, itself named); two
+retries at once (one 202, one 409 naming it), a third while it runs (409
+from the record), another once it ended (202); the CLI's refusal; the spec
+as read (no credentials, author or directory; the record keeps them);
+`resultRows` for both shapes; a spawned CLI's `jobs log --follow` under
+SIGINT (130 within 3 s, the job still `running`), checked to fail without
+the fix. Cancel's `status` asserted for `cancelled` and `requested`; the
+retry test asserts the hand-off to `after()`. `fileLock.test` + 1 (a lock
+moved aside, then torn, then back: no loss; another owner: the loss).
+`curationHttp.test`: `job_live: 409`. Playwright `jobs.spec` + 2: the
+retried write above, and a second Retry while the first runs (the link to
+it, then Cancel); the picker test now reads the video job's page for the
+four dish names.
+
+**Gates.** `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit` clean; eslint clean on the changed
+files; `pnpm exec vitest run` **90 files / 1945 tests** passed after the
+merge (main's two homepage files included), 261 s. Playwright (build
+mode, heavy slot) `jobs`, `new-recipe`, `ytdlp-import`, `multi-recipe`,
+`import-roundup`, `youtube-video`, `accessibility`, `settings-nav`,
+`command-palette`, `homepage` (and main's `homepage-browse`), `visual`:
+**172 / 173** in 6.8 min, the one the new retried-write test reading
+`recipe-list` on `/` — which the redesigned homepage of an empty corpus
+does not draw; it reads `/recipes` now. `jobs.spec` alone after that
+**8 / 8** (1.4 min); the same test without the `after()` hand-off: failed
+as it should. No baseline moved: main's regenerated palette, homepage and
+footer snapshots pass on the merged tree.
+
 ## Backlog
 
 - A volume for the Pi container's jobs directory (D8).
 - Other long operations — reindex, git sync — joining the queue.
-- The form's "Import N selected" (`importBatchPicks`) as a job kind, and
-  `job` on a failed import's error object (37c).
-- A `cancelled` error code (37c): a Ctrl-C'd CLI's stdout error object
-  says `internal` today ("interrupted (SIGINT)"; the job's record says
-  `cancelled`), as there is no such `CurationError` code. 37c adds it to
-  the CLI's, the API's and MCP's error codes, the MCP server's
-  instructions and the curator skill.
+- ~~The form's "Import N selected" (`importBatchPicks`) as a job kind, and
+  `job` on a failed import's error object~~ — done in 37c (`form-batch`,
+  `error.job`).
+- ~~A `cancelled` error code~~ — done in 37c.
+- `/jobs` on a mirror (the Pi): the page and the API work there, but the
+  Settings → Tools item that links to them is workstation-only (epic 28,
+  D2), so a mirror reaches `/jobs` only by its URL (37c).
+- The roundup picker's two actions (`inspectRoundupAction`,
+  `importRoundupAction`) still await their jobs: each chunk is a job with
+  its log and Cancel on `/jobs`, but the picker shows no live steps (37c).
+- `/jobs` stops polling when nothing is live; a job another process starts
+  afterwards shows on Refresh or a reload, not by itself (D7's "stops when
+  idle", 37c).
+- `text-destructive` as text is under AA on the page background (T25),
+  and older surfaces use it (the form's submit error, the 36e picker's
+  "not trusted — check it", the roundup picker): a theme fix in
+  `--destructive`, or the rule-and-foreground treatment the jobs pages use
+  (37c).
+- The form's progress panel shows the queue position read at the job's
+  `GET` (`getJobView` re-reads the line); a job's meta still records only
+  the position at enqueue (37c).
 - The save-time image fetch (`editor/controller/actions/index.ts`, a
   recipe's image URL fetched when the form is saved) is unpaced and outside
   the site queue: `retry: { delayMs: 0 }`, one request with at most one
@@ -1116,6 +1509,13 @@ queue was not touched.
   interactive request to a site waits behind a batch's queued requests to
   that site before it reaches the shared, tiered `site:<site>` line (37b
   review). Across processes the tiers hold.
+- `/new-recipe?import=<url>` (35r's roundup picker, "Import it as one
+  recipe") starts work on a GET render: before 37c it imported inline, now
+  it starts a `form-url` job and redirects to `?job=`. It needs a signed-in
+  session, and a dynamic page is not prefetched, but a reload of the
+  `?import=` address, a restored tab or a history replay starts the fetch
+  (and the model) again. A POST from the picker, or a confirm step, would
+  make the GET inert (37c review).
 - A site dropped after two 403s is dropped per process only (37b kept
   `SitePacer`'s drop list in memory); it could live in the site's
   `state.json` beside `lastRelease`.

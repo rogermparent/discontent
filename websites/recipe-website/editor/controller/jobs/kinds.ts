@@ -17,9 +17,14 @@
  */
 import type { CurationContext } from "../curation/context";
 import type {
+  BatchPick,
+  ImportBatchItem,
   ImportResult,
   ImportWriteOptions,
 } from "../curation/importRecipe";
+import { realpath } from "node:fs/promises";
+import path from "node:path";
+import { UsageError } from "../curation/errors";
 import type {
   ImportListOptions,
   ImportListResult,
@@ -29,8 +34,9 @@ import type { InspectResult } from "../curation/inspect";
 import type { RecipeActionState } from "../formImport";
 import type { LlmMode } from "../llm/mode";
 import type { JobContext } from "./context";
-import { runJob, type RunJobOptions } from "./run";
-import type { JobError, JobTier } from "./store";
+import type { JOB_KIND_NAMES } from "./listing";
+import { startJob, type RunJobOptions } from "./run";
+import type { JobError, JobMeta, JobTier } from "./store";
 
 /** Where a corpus job reads and writes, and who it commits as. */
 interface CorpusSpec {
@@ -64,9 +70,33 @@ export type JobSpec =
     })
   /** The `/new-recipe` form's import: fills the form, writes nothing. */
   | { kind: "form-url"; url: string; llm?: LlmMode }
-  | { kind: "form-text"; text: string; source?: string };
+  | { kind: "form-text"; text: string; source?: string }
+  /**
+   * The form's "Import N selected" (36e's picker; a job since 37c): the
+   * readings already in hand, written one commit each by
+   * `importBatchPicks` — nothing is read again.
+   */
+  | (CorpusSpec & {
+      kind: "form-batch";
+      /** The video, or a pasted text's source. */
+      url?: string;
+      picks: BatchPick[];
+      total: number;
+      siblings?: { n: number; name?: string }[];
+      commitNote: string;
+    });
 
 export type JobKind = JobSpec["kind"];
+
+/* `listing.ts`'s dependency-free list names every kind, and no other. */
+type SameKinds<A, B> = [A] extends [B]
+  ? [B] extends [A]
+    ? true
+    : never
+  : never;
+const KIND_LIST_MATCHES: SameKinds<JobKind, (typeof JOB_KIND_NAMES)[number]> =
+  true;
+void KIND_LIST_MATCHES;
 
 /** What each kind answers. */
 export interface JobResults {
@@ -77,6 +107,12 @@ export interface JobResults {
   "import-list": ImportListResult;
   "form-url": RecipeActionState;
   "form-text": RecipeActionState;
+  "form-batch": FormBatchResult;
+}
+
+/** What "Import N selected" answers: one row per pick. */
+export interface FormBatchResult {
+  recipes: ImportBatchItem[];
 }
 
 export type SpecOf<K extends JobKind> = Extract<JobSpec, { kind: K }>;
@@ -139,6 +175,21 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
     const { reduceTextImport } = await import("../formImport");
     return reduceTextImport(null, spec.text, spec.source, job);
   },
+  async "form-batch"(spec, { ctx, job }) {
+    const { importBatchPicks } = await import("../curation/importRecipe");
+    const recipes = await importBatchPicks(
+      contextFor(spec, ctx),
+      spec.picks,
+      {
+        total: spec.total,
+        ...(spec.siblings ? { siblings: spec.siblings } : {}),
+        commitNote: spec.commitNote,
+        allowPartial: true,
+      },
+      job,
+    );
+    return { recipes };
+  },
 };
 
 /**
@@ -182,6 +233,10 @@ export function jobLabel(spec: JobSpec): string {
     case "import-text":
     case "form-text":
       return pastedLabel(spec.text, spec.source);
+    case "form-batch": {
+      const picks = `${spec.picks.length} of ${spec.total} recipes`;
+      return spec.url ? `${picks} from ${shortUrl(spec.url)}` : picks;
+    }
     default:
       return shortUrl(spec.url);
   }
@@ -209,6 +264,8 @@ export function jobResources(spec: JobSpec): string[] {
     case "form-text":
       return ["gpu", "site"];
     case "inspect-list":
+    /* The picks' pictures: the readings are in hand. */
+    case "form-batch":
       return ["site"];
     default:
       return ["gpu", "ytdlp", "site"];
@@ -227,8 +284,28 @@ export interface RunSpecOptions extends Omit<RunJobOptions, "failureOf"> {
  */
 export async function runSpec<S extends JobSpec>(
   spec: S,
-  { ctx, tier, ...options }: RunSpecOptions = {},
+  options: RunSpecOptions = {},
 ): Promise<JobResults[S["kind"]] & { job: string }> {
+  return (await startSpec(spec, options)).done;
+}
+
+/**
+ * Start a spec as a job and answer its id at once (37c: the form's import,
+ * Retry). The work goes on in this process; `done` settles as `runSpec`
+ * would, and is marked handled, so a caller may leave it.
+ */
+export async function startSpec<S extends JobSpec>(
+  spec: S,
+  {
+    ctx,
+    tier,
+    retryOf,
+    ...options
+  }: RunSpecOptions & { retryOf?: string } = {},
+): Promise<{
+  job: string;
+  done: Promise<JobResults[S["kind"]] & { job: string }>;
+}> {
   const handler = JOB_HANDLERS[spec.kind] as unknown as (
     spec: S,
     env: JobEnv,
@@ -236,18 +313,102 @@ export async function runSpec<S extends JobSpec>(
   const failureOf = JOB_FAILURES[spec.kind] as
     | ((result: JobResults[S["kind"]]) => JobError | undefined)
     | undefined;
-  const { job, result } = await runJob(
+  const started = await startJob(
     {
       kind: spec.kind,
       label: jobLabel(spec),
       spec,
       tier: tier ?? jobTier(spec),
       resources: jobResources(spec),
+      ...(retryOf ? { retryOf } : {}),
     },
     (context) => handler(spec, { ctx, job: context }),
     { ...options, ...(failureOf ? { failureOf } : {}) },
   );
-  return { ...result, job };
+  const done = started.done.then(({ job, result }) => ({ ...result, job }));
+  /* Handled here, so a caller that never awaits it leaves nothing unhandled. */
+  done.catch(() => undefined);
+  return { job: started.job, done };
+}
+
+/** Whether running the spec commits to the corpus (a dry run does not). */
+export function specWrites(spec: JobSpec): boolean {
+  switch (spec.kind) {
+    case "import-url":
+    case "import-text":
+    case "import-list":
+      return !spec.options.dryRun;
+    case "form-batch":
+      return true;
+    default:
+      return false;
+  }
+}
+
+/** Whether a kind reads or writes the corpus (its spec names the directory). */
+function isCorpusSpec(spec: JobSpec): spec is JobSpec & CorpusSpec {
+  return typeof (spec as Partial<CorpusSpec>).contentDirectory === "string";
+}
+
+/** A directory as the filesystem resolves it (a symlink followed), else as given. */
+async function resolvedDirectory(directory: string): Promise<string> {
+  const absolute = path.resolve(directory);
+  return realpath(absolute).catch(() => absolute);
+}
+
+/**
+ * A recorded job's spec, ready to run again with **this caller's** context
+ * (37c, 37a's review note): a corpus job recorded against another content
+ * directory — a CLI run against a scratch clone, seen from the editor, or
+ * the reverse — is refused (`usage`, saying why), and the replay commits as
+ * the caller, not as whoever ran it first.
+ */
+export async function retrySpecFor(
+  meta: Pick<JobMeta, "id" | "kind" | "spec">,
+  ctx: CurationContext,
+): Promise<JobSpec> {
+  const spec = meta.spec as JobSpec | undefined;
+  if (
+    !spec ||
+    typeof spec !== "object" ||
+    spec.kind !== meta.kind ||
+    !Object.hasOwn(JOB_HANDLERS, spec.kind)
+  ) {
+    throw new UsageError(
+      `Job ${meta.id} (${meta.kind}) cannot be run again: its record holds no spec this version knows.`,
+    );
+  }
+  if (!isCorpusSpec(spec)) return spec;
+  const [recorded, here] = await Promise.all([
+    resolvedDirectory(spec.contentDirectory),
+    resolvedDirectory(ctx.contentDirectory),
+  ]);
+  if (recorded !== here) {
+    throw new UsageError(
+      `Job ${meta.id} ran against ${spec.contentDirectory}, not this content directory (${ctx.contentDirectory}). ` +
+        "Run it again from a process that uses that directory (recipes jobs retry with --content-dir).",
+    );
+  }
+  return { ...spec, ...corpusOf(ctx) };
+}
+
+/**
+ * Run a recorded job again (37c's Retry): its spec through `startSpec`
+ * with the caller's context, as a new job whose meta names the old one
+ * (`retryOf`). Answers once the new record exists; `done` is its outcome.
+ */
+export async function retryJob(
+  meta: Pick<JobMeta, "id" | "kind" | "spec">,
+  ctx: CurationContext,
+  { dir }: { dir?: string } = {},
+): Promise<{ job: string; retryOf: string; done: Promise<unknown> }> {
+  const spec = await retrySpecFor(meta, ctx);
+  const started = await startSpec(spec, {
+    ctx,
+    retryOf: meta.id,
+    ...(dir ? { dir } : {}),
+  });
+  return { job: started.job, retryOf: meta.id, done: started.done };
 }
 
 /** A corpus spec's `contentDirectory` and `author`, from the caller's context. */

@@ -121,6 +121,23 @@ export type CurationErrorCode =
    * token is read-scoped and the route writes.
    */
   | "forbidden"
+  /**
+   * The job was cancelled before it finished (epic 37, 37c): a Cancel on
+   * `/jobs` or the form's panel, `recipes jobs cancel`, `POST
+   * /api/jobs/<id>/cancel`, or a Ctrl-C'd CLI. Nothing after the cancel was
+   * written; a write that landed before it stays (each recipe is its own
+   * commit). 409 over HTTP: the request was fine, and the server's state —
+   * the job's — is what ended it.
+   */
+  | "cancelled"
+  /**
+   * A retry refused because the job is still live, or a live job already
+   * runs it again (37c review): the error's `job` names that live job, to
+   * follow instead. 409 over HTTP, like `cancelled` — the request was
+   * fine, a job's state declines it. Only `POST /api/jobs/<id>/retry` and
+   * `recipes jobs retry` answer it; no MCP tool retries.
+   */
+  | "job_live"
   | "usage"
   | "internal";
 
@@ -394,6 +411,26 @@ export class ForbiddenError extends CurationError {
   }
 }
 
+/**
+ * A job cancelled while it ran (37c): what `runJob` throws in place of the
+ * abort's reason — a plain `Error` ("interrupted (SIGINT)") that every
+ * transport would otherwise call `internal`.
+ */
+export class CancelledError extends CurationError {
+  constructor(message = "the job was cancelled") {
+    super("cancelled", message);
+    this.name = "CancelledError";
+  }
+}
+
+/** A retry of a job that is still live, or already running again (37c review). */
+export class JobLiveError extends CurationError {
+  constructor(message: string) {
+    super("job_live", message);
+    this.name = "JobLiveError";
+  }
+}
+
 export class UsageError extends CurationError {
   constructor(message: string) {
     super("usage", message);
@@ -415,6 +452,11 @@ export interface ErrorObject {
      * 37a review) — D6's "ran 2% on the GPU" behind a model's timeout.
      */
     warnings?: string[];
+    /**
+     * The job the failure ran in (37c), so its step log is one `jobs show`
+     * or `/jobs/<id>` away.
+     */
+    job?: string;
   };
 }
 
@@ -462,6 +504,38 @@ export function withWarnings<E>(error: E, warnings: readonly string[]): E {
   return copy;
 }
 
+/** The job a failure ran in (`withJob`), if any. */
+export function jobOf(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const job = (error as { job?: unknown }).job;
+  return typeof job === "string" && job ? job : undefined;
+}
+
+/**
+ * `error` with the job it ran in as `job` (37c), so every transport's error
+ * object names it: `toErrorObject` reads it back. A copy, as `withWarnings`
+ * makes one; a thrown non-object answers as it is.
+ */
+export function withJob<E>(error: E, job: string | undefined): E {
+  if (!job || !error || typeof error !== "object") return error;
+  if (jobOf(error) === job) return error;
+  const copy = Object.create(Object.getPrototypeOf(error)) as E;
+  for (const key of Reflect.ownKeys(error)) {
+    Object.defineProperty(
+      copy,
+      key,
+      Object.getOwnPropertyDescriptor(error, key)!,
+    );
+  }
+  Object.defineProperty(copy, "job", {
+    value: job,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+  return copy;
+}
+
 /** zod's issue list, flattened to something a terminal and a JSON body agree on. */
 export function issuesOf(
   error: z.ZodError,
@@ -482,7 +556,15 @@ export function issuesOf(
 export function toErrorObject(error: unknown): ErrorObject {
   const object = errorObjectOf(error);
   const warnings = warningsOf(error);
-  return warnings ? { error: { ...object.error, warnings } } : object;
+  const job = jobOf(error);
+  if (!warnings && !job) return object;
+  return {
+    error: {
+      ...object.error,
+      ...(warnings ? { warnings } : {}),
+      ...(job ? { job } : {}),
+    },
+  };
 }
 
 function errorObjectOf(error: unknown): ErrorObject {

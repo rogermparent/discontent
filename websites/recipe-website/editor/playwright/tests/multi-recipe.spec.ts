@@ -83,6 +83,11 @@ test.describe("Several recipes in one video", () => {
     await expect(picker.getByRole("heading")).toHaveText(
       "This video holds 4 recipes",
     );
+    /* 37c: the import ran as a job; the picker is fed from its result. */
+    await expect(page).toHaveURL(/\/new-recipe\?job=[0-9A-Z]{26}$/);
+    await expect(
+      page.getByTestId("import-progress").getByRole("heading", { level: 3 }),
+    ).toHaveText("Import done");
     const rows = picker.getByTestId("batch-recipes").locator("li");
     await expect(rows).toHaveCount(4);
     await expect(rows.nth(0)).toContainText("1. Potato Puree");
