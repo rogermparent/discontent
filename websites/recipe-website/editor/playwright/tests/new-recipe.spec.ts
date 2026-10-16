@@ -1286,6 +1286,14 @@ Sprinkle`,
         };
         const before = await formJobs();
 
+        /* A repeated `?import=` is an array: ignored, not a 500 (review). */
+        const repeated = await page.goto("/new-recipe?import=a&import=b");
+        expect(repeated?.status()).toBe(200);
+        await markdownEditorReady(page, "description");
+        await expect(
+          page.getByLabel("Import from URL", { exact: true }),
+        ).toHaveValue("");
+
         await page.goto(`/new-recipe?import=${encodeURIComponent(url)}`);
         await markdownEditorReady(page, "description");
         await expect(

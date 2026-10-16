@@ -4,8 +4,9 @@
  *
  * - **One queue per site.** A request to a site waits for the one before it
  *   to finish, then for 15 s after it ended, then runs. The queue is per
- *   process and per `siteKey` (`cdn.example.com` paces with
- *   `www.example.com`), so two calls at once — two `page_inspect_list`s, a
+ *   process and per `paceKey` — the host, less `www.` (38b review, Db6:
+ *   `cdn.example.com` has its own; `example.co.uk` and `i0.wp.com` are not
+ *   lumped with every other `.co.uk` or `wp.com` host) — so two calls at once — two `page_inspect_list`s, a
  *   client that retried `/api/import-list` after its own timeout, a
  *   `recipe_import` right after a list call — are spaced against each other,
  *   not just within themselves. A 403 retry holds the queue: it waits the gap
@@ -15,7 +16,10 @@
  *   within a tier.
  * - **A site that refuses twice is dropped** for an hour: the retry also
  *   answered 403, or failed outright. A 403 whose retry succeeded drops
- *   nothing, whatever the caller then thinks of the body. On the real clock
+ *   nothing, whatever the caller then thinks of the body. **An image never
+ *   drops a site** (`{image: true}`, 38b review, Db7): a hotlink guard
+ *   refusing a picture says nothing about the pages — often on the same
+ *   host — so a refused image is only that image, done without. On the real clock
  *   the drop is the machine's (38b): written beside the site's slot in the
  *   global queue (`writeSiteDrop`), so the CLI, the stdio MCP server and the
  *   editor stop asking a site that refused any one of them.
@@ -46,7 +50,7 @@
  * in its `SiteState`.
  */
 import type { ForbiddenRetry } from "recipe-website-common/util/importRecipeData";
-import { siteKey } from "recipe-website-common/util/roundupPage";
+import { paceKey } from "recipe-website-common/util/roundupPage";
 import {
   jobContext,
   type JobContext,
@@ -231,6 +235,12 @@ export function isLoopback(url: string): boolean {
   return IPV4.test(host) && host.startsWith("127.");
 }
 
+/** How one request is made (`SitePacer#request`). */
+export interface RequestOptions {
+  /** A picture's download or probe: paced, but it never drops the site. */
+  image?: boolean;
+}
+
 /** Thrown before a request to a dropped site; nothing was fetched. */
 export class SiteDroppedError extends ImportError {}
 
@@ -258,7 +268,7 @@ export class SitePacer {
   }
 
   site(url: string): string {
-    return siteKey(url) ?? url;
+    return paceKey(url) ?? url;
   }
 
   /**
@@ -334,12 +344,15 @@ export class SitePacer {
   /**
    * Run one request (and its 403 retry) in the site's queue. `run` gets the
    * `ForbiddenRetry` to hand `fetchRetrying403`; `finalUrlOf` names where the
-   * request ended up, so a redirect's site is clocked too.
+   * request ended up, so a redirect's site is clocked too. `image`: a
+   * picture's download or probe, which waits like any request but never
+   * drops the site (Db7).
    */
   async request<T>(
     url: string,
     run: (retry: ForbiddenRetry) => Promise<T>,
     finalUrlOf?: (value: T) => string | undefined,
+    { image = false }: RequestOptions = {},
   ): Promise<T> {
     const site = this.site(url);
     const { log, signal } = this.job;
@@ -394,6 +407,7 @@ export class SitePacer {
          * refused nothing then. */
         if (
           forbidden &&
+          !image &&
           !signal?.aborted &&
           (retryStatus === 403 || retryStatus === undefined)
         ) {
@@ -401,7 +415,7 @@ export class SitePacer {
         }
         throw error;
       }
-      if (forbidden && retryStatus === 403) {
+      if (forbidden && !image && retryStatus === 403) {
         await this.drop(url, `refused twice (HTTP 403) at ${url}`);
       }
       const finalUrl = finalUrlOf?.(value);
@@ -443,6 +457,12 @@ export function pacedRequest<T>(
   run: (retry: ForbiddenRetry) => Promise<T>,
   finalUrlOf?: (value: T) => string | undefined,
   job?: JobRun,
+  options?: RequestOptions,
 ): Promise<T> {
-  return new SitePacer(realPacing(), job).request(url, run, finalUrlOf);
+  return new SitePacer(realPacing(), job).request(
+    url,
+    run,
+    finalUrlOf,
+    options,
+  );
 }

@@ -34,6 +34,13 @@
  * the one the job recorded, whoever looks. A failed, cancelled or
  * interrupted job answers its error. The job's writes outlive the start
  * action's answer, so their revalidation is handed to `after()` (37-T26).
+ *
+ * **Without a job store** (37-T6: the jobs dir cannot be written) the job
+ * runs with no record, and its id would answer 404 to the picker's poll —
+ * read as the end, so a run would stop while its chunk went on importing,
+ * and Resume would import the same picks again. So when the record was not
+ * written, the start action awaits the job and answers inline (`answer`),
+ * as it did before 38b; the picker then has nothing to follow.
  */
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { after } from "next/server";
@@ -82,6 +89,12 @@ export interface RoundupJobStarted {
   job: string;
 }
 
+/** A chunk answered inline: the job had no record to follow (no store). */
+export interface RoundupJobAnswered<T> {
+  job: string;
+  answer: T;
+}
+
 /**
  * The record of a job this picker started, once it has ended: its result,
  * or its error as the answer's (`job` naming it). `kind` guards against an
@@ -114,16 +127,22 @@ async function endedResult<T>(
 /** Start listing the roundup (an `inspect-list` job); nothing written. */
 export async function inspectRoundupAction(
   url: string,
-): Promise<RoundupJobStarted | Failure> {
+): Promise<
+  | RoundupJobStarted
+  | RoundupJobAnswered<{ result: InspectListResult }>
+  | Failure
+> {
   try {
     const ctx = await context();
     if (typeof url !== "string" || !url.trim()) {
       throw new ValidationError("Paste the roundup's URL.");
     }
-    const { job } = await startSpec(
+    const { job, stored, done } = await startSpec(
       { kind: "inspect-list", ...corpusOf(ctx), url: url.trim() },
       { ctx },
     );
+    /* No record to follow: wait for the job here (a failure is thrown). */
+    if (!stored) return { job, answer: { result: await done } };
     return { job };
   } catch (error) {
     return failure(error);
@@ -179,7 +198,9 @@ export interface RoundupImportAnswer {
  */
 export async function importRoundupAction(
   raw: RoundupImportInput,
-): Promise<RoundupJobStarted | Failure> {
+): Promise<
+  RoundupJobStarted | RoundupJobAnswered<RoundupImportAnswer> | Failure
+> {
   try {
     const ctx = await context();
     const input = parseInput(RoundupImportInputSchema, raw);
@@ -187,7 +208,7 @@ export async function importRoundupAction(
       ? resolveTermSlug((await listTerms(ctx)).terms, input.term)
       : undefined;
     const termLabel = (term && input.termLabel) || undefined;
-    const { job, done } = await startSpec(
+    const { job, stored, done } = await startSpec(
       {
         kind: "import-list",
         ...corpusOf(ctx),
@@ -202,6 +223,10 @@ export async function importRoundupAction(
       },
       { ctx },
     );
+    /* No record to follow: wait for the job here, its writes included. */
+    if (!stored) {
+      return { job, answer: chunkAnswer(input.picks, await done) };
+    }
     /* The writes land after this answer: their revalidation runs when the
      * job ends (37-T26). The job records its own failure. */
     after(() =>
@@ -226,19 +251,26 @@ export async function importRoundupResult(
     const chunk = parseInput(RoundupPicksSchema, picks);
     const ended = await endedResult<ImportListResult>(job, "import-list");
     if ("error" in ended) return ended;
-    const { result } = ended;
-    const settled = settleChunk(chunk, result);
-    const warnings = [
-      ...(result.warnings ?? []),
-      ...(result.term?.warnings ?? []),
-      ...(result.term?.error ? [result.term.error.message] : []),
-    ];
-    return {
-      ...settled,
-      ...(result.term ? { term: result.term } : {}),
-      ...(warnings.length ? { warnings } : {}),
-    };
+    return chunkAnswer(chunk, ended.result);
   } catch (error) {
     return failure(error);
   }
+}
+
+/** A chunk's picks against its job's result: the picker's answer. */
+function chunkAnswer(
+  chunk: RoundupPick[],
+  result: ImportListResult,
+): RoundupImportAnswer {
+  const settled = settleChunk(chunk, result);
+  const warnings = [
+    ...(result.warnings ?? []),
+    ...(result.term?.warnings ?? []),
+    ...(result.term?.error ? [result.term.error.message] : []),
+  ];
+  return {
+    ...settled,
+    ...(result.term ? { term: result.term } : {}),
+    ...(warnings.length ? { warnings } : {}),
+  };
 }

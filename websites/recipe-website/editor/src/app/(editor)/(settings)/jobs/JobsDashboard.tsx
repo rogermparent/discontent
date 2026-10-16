@@ -108,7 +108,9 @@ function EntryText({
  * status and kind. It reads `GET /api/jobs?queue=1` every 2 s while
  * anything is live and every 10 s while all is idle (38b), so a job another
  * process starts shows by itself; never while the tab is hidden, and once
- * at once when it is shown again. Refresh reads now.
+ * at once when it is shown again. A read refused for good — signed out
+ * (401), or a token without the scope (403) — stops the polling, as
+ * `useJobPoll` does; Refresh reads now, and a good read starts it again.
  */
 export function JobsDashboard({
   initialList,
@@ -127,6 +129,8 @@ export function JobsDashboard({
   useEffect(() => setNow(Date.now()), []);
   const [error, setError] = useState<string | undefined>();
   const [reads, setReads] = useState(0);
+  /* Signed out or refused (401/403): asking again would only repeat it. */
+  const [refused, setRefused] = useState(false);
   const first = useRef(true);
 
   const load = useCallback(
@@ -139,10 +143,15 @@ export function JobsDashboard({
           cache: "no-store",
           ...(signal ? { signal } : {}),
         });
-        const body = (await response.json()) as
+        const body = (await response.json().catch(() => ({
+          error: { message: `The editor answered ${response.status}` },
+        }))) as
           | (JobListResult & { queue: ResourceView[] })
           | { error: { message: string } };
         if (!response.ok || "error" in body) {
+          if (response.status === 401 || response.status === 403) {
+            setRefused(true);
+          }
           throw new Error(
             "error" in body ? body.error.message : `${response.status}`,
           );
@@ -150,6 +159,7 @@ export function JobsDashboard({
         setList({ jobs: body.jobs, total: body.total, more: body.more });
         setQueue(body.queue);
         setError(undefined);
+        setRefused(false);
       } catch (caught) {
         if (signal?.aborted) return;
         setError(caught instanceof Error ? caught.message : String(caught));
@@ -187,6 +197,7 @@ export function JobsDashboard({
       resumed.current = true;
       return;
     }
+    if (refused) return;
     const delay = resumed.current ? 0 : live ? JOBS_POLL_MS : JOBS_IDLE_POLL_MS;
     resumed.current = false;
     const controller = new AbortController();
@@ -195,7 +206,7 @@ export function JobsDashboard({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [hidden, live, load, reads]);
+  }, [hidden, live, load, reads, refused]);
 
   return (
     <div className="space-y-8">

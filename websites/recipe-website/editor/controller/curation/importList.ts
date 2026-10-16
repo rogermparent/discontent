@@ -651,8 +651,11 @@ async function importItem(
   let file: File | undefined;
   if (imageUrl) {
     try {
-      file = await pacer.request(imageUrl, (retry) =>
-        fetchImageFile(imageUrl, { retry, job }),
+      file = await pacer.request(
+        imageUrl,
+        (retry) => fetchImageFile(imageUrl, { retry, job }),
+        undefined,
+        { image: true },
       );
     } catch (error) {
       /* A cancel is the job's, not a picture to do without (T10). */

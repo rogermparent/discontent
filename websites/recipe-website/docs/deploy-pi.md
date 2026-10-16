@@ -76,7 +76,9 @@ The container, `recipe-editor`:
   site dropped after two 403s, a site's polite-gap clock — outlive a
   redeploy. `run.sh` makes the directory as the Pi user before
   `docker run`: one Docker made for a missing `-v` source would be root's,
-  and the editor would run every import without a record (37-T6).
+  and the editor would run every import without a record (37-T6). A trial
+  instance (`NAME=` set, `JOBS=` not) gets `~/recipe-editor/jobs-<name>`,
+  so it never shares the real container's records or queue.
 
 The image sets `CONTENT_DIRECTORY=/content`, `SETTINGS_DIRECTORY=/settings`,
 `YTDLP_PATH=/usr/local/bin/yt-dlp` and `EDITOR_ROLE=mirror` (epic 28: no

@@ -137,6 +137,33 @@ export function siteKey(raw: string): string | undefined {
   return labels.slice(-2).join(".");
 }
 
+/**
+ * The site a request is paced and dropped under (30-D5; 38b review): the
+ * full host, less a leading `www.` — so `www.example.com` and `example.com`
+ * share a queue, but `cdn.example.com` has its own. An IP address or a
+ * single-label host is its own, port included, as `siteKey` keeps it.
+ *
+ * Not `siteKey`: its last two labels make every `.co.uk` site one, and a
+ * CDN (`i0.wp.com`, `*.cloudfront.net`) one for every site it serves. Since
+ * a drop is the machine's and outlives the process (38b), two 403s on one
+ * Jetpack image would otherwise stop every `wp.com` request for an hour.
+ * No public-suffix list is a dependency here, so the host it is (Db6).
+ */
+export function paceKey(raw: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return;
+  }
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  if (IPV4.test(host) || host.includes(":") || host.startsWith("[")) {
+    return url.host.toLowerCase();
+  }
+  if (!host.includes(".")) return url.host.toLowerCase();
+  return host.replace(/^www\.(?=[^.]+\.)/, "");
+}
+
 /** Path segments that name an archive, an account page or a utility, not a recipe. */
 const SKIP_SEGMENTS = new Set([
   "about",

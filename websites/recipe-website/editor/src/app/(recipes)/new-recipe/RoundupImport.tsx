@@ -99,10 +99,17 @@ export default function RoundupImport({
     resolve?.(error);
   }, []);
 
-  /* Leaving the page (a client-side navigation) stops after this call. */
+  /*
+   * Leaving the page (a client-side navigation) stops after this call, and
+   * settles a follow still pending — so the loop ends rather than waiting
+   * for a `JobFollow` that is gone.
+   */
   useEffect(
     () => () => {
       stopRef.current = true;
+      const resolve = endedRef.current;
+      endedRef.current = null;
+      resolve?.("the page was left");
     },
     [],
   );
@@ -122,12 +129,18 @@ export default function RoundupImport({
         setError(begun.error.message);
         return;
       }
-      const lost = await follow(begun.job, "Listing the roundup", "list");
-      if (lost) {
-        setError(`Lost touch with the job: ${lost}`);
-        return;
+      /* Answered inline when the job had no record to follow (no store). */
+      if (!("answer" in begun)) {
+        const lost = await follow(begun.job, "Listing the roundup", "list");
+        if (lost) {
+          setError(`Lost touch with the job: ${lost}`);
+          return;
+        }
       }
-      const answer = await inspectRoundupResult(begun.job);
+      const answer =
+        "answer" in begun
+          ? begun.answer
+          : await inspectRoundupResult(begun.job);
       if ("error" in answer) {
         setError(answer.error.message);
         return;
@@ -170,16 +183,21 @@ export default function RoundupImport({
           setError(begun.error.message);
           break;
         }
-        const lost = await follow(
-          begun.job,
-          `Importing ${chunk.map(({ n }) => n).join(", ")}`,
-          "import",
-        );
-        if (lost) {
-          setError(`Lost touch with the job: ${lost}`);
-          break;
+        if (!("answer" in begun)) {
+          const lost = await follow(
+            begun.job,
+            `Importing ${chunk.map(({ n }) => n).join(", ")}`,
+            "import",
+          );
+          if (lost) {
+            setError(`Lost touch with the job: ${lost}`);
+            break;
+          }
         }
-        const answer = await importRoundupResult(begun.job, chunk);
+        const answer =
+          "answer" in begun
+            ? begun.answer
+            : await importRoundupResult(begun.job, chunk);
         if ("error" in answer) {
           setError(answer.error.message);
           break;

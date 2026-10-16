@@ -197,6 +197,7 @@ export async function fetchImageFilePaced(
     (retry) => fetchImageFile(url, { retry, job }),
     undefined,
     job,
+    { image: true },
   );
 }
 

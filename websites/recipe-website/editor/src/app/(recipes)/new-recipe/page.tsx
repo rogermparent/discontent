@@ -16,6 +16,14 @@ import type { RecipeActionState } from "./common";
 /** The form kinds whose result fills this page (37c). */
 const FORM_KINDS = new Set(["form-url", "form-text"]);
 
+/**
+ * One search param as a string: a repeated one (`?import=a&import=b`) is an
+ * array, and is ignored rather than trimmed into a 500 (38b review).
+ */
+function single(value: string | string[] | undefined): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
 /** Where sign-in comes back to: the same `?job=` or `?import=`. */
 function returnTo(job?: string, importURL?: string): string {
   if (job) return `/new-recipe?job=${encodeURIComponent(job)}`;
@@ -26,9 +34,14 @@ function returnTo(job?: string, importURL?: string): string {
 export default async function NewRecipe({
   searchParams,
 }: {
-  searchParams: Promise<{ import?: string; job?: string }>;
+  searchParams: Promise<{
+    import?: string | string[];
+    job?: string | string[];
+  }>;
 }) {
-  const { import: importURL, job: jobParam } = await searchParams;
+  const params = await searchParams;
+  const importURL = single(params.import);
+  const jobParam = single(params.job);
   const user = await auth();
   if (!user) {
     return signIn(undefined, { redirectTo: returnTo(jobParam, importURL) });

@@ -12,6 +12,9 @@
 #   NAME=recipe-editor-trial PORT=3001 CONTENT=/tmp/recipes-trial \
 #     SETTINGS=/tmp/settings-trial JOBS=/tmp/jobs-trial \
 #     ~/recipe-editor/run.sh <tag>
+# With NAME set and JOBS not, the jobs (and the queue in them) default to
+# $here/jobs-<name>, so a trial never shares the real container's records or
+# its queue.
 set -eu
 
 tag=${1:?usage: run.sh <tag>}
@@ -20,7 +23,11 @@ name=${NAME:-recipe-editor}
 port=${PORT:-3000}
 content=${CONTENT:-$HOME/recipes}
 settings=${SETTINGS:-$here/settings}
-jobs=${JOBS:-$here/jobs}
+if [ "$name" = recipe-editor ]; then
+  jobs=${JOBS:-$here/jobs}
+else
+  jobs=${JOBS:-$here/jobs-$name}
+fi
 restart=${RESTART:-unless-stopped}
 
 docker image inspect "recipe-editor:$tag" >/dev/null

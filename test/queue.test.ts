@@ -747,7 +747,7 @@ describe("the queue across processes (D4)", () => {
       { timeout: 20_000, interval: 20 },
     );
     const second = worker(
-      { name: "B", log, holdMs: 20, pacer: "https://cdn.example.com/b" },
+      { name: "B", log, holdMs: 20, pacer: "https://example.com/b" },
       env,
     );
     for (const result of await Promise.all([first.done, second.done])) {
@@ -791,7 +791,7 @@ describe("a site's line and its drop (38b)", () => {
     /* The other "process" — its own state, the same queue dir. */
     const asked = vi.fn(async () => "page");
     await expect(
-      second.request("https://cdn.example.com/b", asked),
+      second.request("https://example.com/b", asked),
     ).rejects.toThrow(SiteDroppedError);
     expect(asked).not.toHaveBeenCalled();
     expect(second.dropped.get("example.com")).toMatch(/refused twice/);
@@ -808,6 +808,33 @@ describe("a site's line and its drop (38b)", () => {
     expect(await second.request("https://pies.test/c", async () => "ok")).toBe(
       "ok",
     );
+  });
+
+  it("never drops a site for an image refused twice (38b review)", async () => {
+    const pacer = pacerOf();
+    /* A hotlink guard on the page's own host: the picture is refused… */
+    await pacer.request(
+      "https://www.example.com/img/a.jpg",
+      refusedTwice,
+      undefined,
+      {
+        image: true,
+      },
+    );
+    expect(
+      await pacer.droppedReason("https://www.example.com/a/"),
+    ).toBeUndefined();
+    expect(pacer.dropped.size).toBe(0);
+    await expect(
+      readFile(
+        join(resourceDirectory("site:example.com", queue), "dropped.json"),
+        "utf8",
+      ),
+    ).rejects.toThrow();
+    /* …and the pages are still asked, here and by another process. */
+    expect(
+      await pacerOf().request("https://example.com/a/", async () => "page"),
+    ).toBe("page");
   });
 
   it("keeps the first drop, and forgets one that has run out", async () => {

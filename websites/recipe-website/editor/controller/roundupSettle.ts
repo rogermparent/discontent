@@ -2,11 +2,11 @@
  * What one roundup-picker call's answer means for each pick (35r) — the
  * server half of `roundupPicker.ts`, run by the import action so the client
  * gets outcomes, not the seat's raw report. Separate because it matches
- * dropped sites by `siteKey`, whose module (`roundupPage.ts`) parses HTML
- * and does not belong in a client bundle.
+ * dropped sites by `paceKey` (the pacer's key), whose module
+ * (`roundupPage.ts`) parses HTML and does not belong in a client bundle.
  */
 import { tagSlug } from "recipe-website-common/controller/tagSlug";
-import { siteKey } from "recipe-website-common/util/roundupPage";
+import { paceKey } from "recipe-website-common/util/roundupPage";
 import type { ImportListResult } from "./curation/importList";
 import type { RoundupOutcome, RoundupPick } from "./roundupPicker";
 
@@ -43,7 +43,7 @@ export function settleChunk(
   const requeue: RoundupPick[] = [];
   for (const left of result.remaining) {
     const pick = byUrl.get(left.url) ?? { ...left, name: left.url };
-    const reason = dropped.get(siteKey(left.url) ?? "");
+    const reason = dropped.get(paceKey(left.url) ?? "");
     if (reason) {
       outcomes.push({
         ...pick,

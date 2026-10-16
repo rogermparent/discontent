@@ -538,16 +538,17 @@ describe("importList", () => {
     vi.unstubAllEnvs();
   });
 
-  it("imports a recipe without an image it cannot get, and drops only on a second 403", async () => {
+  it("imports a recipe without an image it cannot get, and an image's 403s drop nothing", async () => {
     const result = await importList(
       ctx,
       `${servers.a.origin}/pies/`,
       { pick: [1, 2, 3] },
       { pacing },
     );
-    /* Flaky: 403, then a 200 that is not a picture — imported without it,
-     * and the site is not dropped. Shy: 403 twice — imported without it, and
-     * site A is dropped, so the cake (also on A) waits for a later call. */
+    /* Flaky: 403, then a 200 that is not a picture — imported without it.
+     * Shy: 403 twice — imported without it, and still nothing is dropped
+     * (38b review, Db7): a refused picture says nothing about the pages, so
+     * the cake, on the same site, is imported in the same call. */
     expect(result.results).toEqual([
       expect.objectContaining({
         n: 1,
@@ -561,18 +562,16 @@ describe("importList", () => {
         slug: "shy-pie",
         warnings: [expect.stringContaining("without its image")],
       }),
+      expect.objectContaining({
+        n: 3,
+        status: "imported",
+        slug: "apple-cake",
+      }),
     ]);
     expect(result.results[0].image).toBeUndefined();
     expect((await getRecipe(ctx, "flaky-pie")).recipe.image).toBeUndefined();
-    expect(result.remaining).toEqual([
-      { n: 3, url: `${servers.a.origin}/r/apple-cake/` },
-    ]);
-    expect(result.dropped).toEqual([
-      {
-        site: new URL(servers.a.origin).host,
-        reason: expect.stringContaining("shy-pie.png"),
-      },
-    ]);
+    expect(result.remaining).toEqual([]);
+    expect(result.dropped).toBeUndefined();
     expect(hits.filter((hit) => hit.path === FLAKY)).toHaveLength(2);
     expect(hits.filter((hit) => hit.path === "/img/shy-pie.png")).toHaveLength(
       2,
@@ -889,14 +888,14 @@ describe("the epic-26 seats share the queue", () => {
       await Promise.all([
         inspectUrl("https://queue.example.com/a/"),
         inspectUrl("https://www.queue.example.com/b/"),
-        importAndCreate(ctx, "https://cdn.queue.example.com/c/", {
+        importAndCreate(ctx, "https://queue.example.com/c/", {
           dryRun: true,
         }),
       ]);
       expect(started).toHaveLength(3);
       started.sort((x, y) => x - y);
-      /* One site (`siteKey`), so one at a time, each ≥ 300 ms after the last
-       * ended — a few ms of timer slack allowed. */
+      /* One site (`paceKey`: the host, less `www.`), so one at a time, each
+       * ≥ 300 ms after the last ended — a few ms of timer slack allowed. */
       expect(started[1] - started[0]).toBeGreaterThanOrEqual(290);
       expect(started[2] - started[1]).toBeGreaterThanOrEqual(290);
     } finally {
