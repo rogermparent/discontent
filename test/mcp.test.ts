@@ -26,7 +26,7 @@ import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 
 import { recipeContentTypes } from "../websites/recipe-website/editor/controller/contentTypes";
 import {
-  photoKey,
+  sentPhotoKey,
   standInChat,
 } from "../websites/recipe-website/editor/playwright/fixtures/llm/standInModel";
 
@@ -1035,9 +1035,9 @@ describe("the MCP registry over an in-memory transport", () => {
       .toBuffer();
     const card = join(contentDirectory, "..", `card-${Date.now()}.jpg`);
     await writeFile(card, bytes);
+    const key = await sentPhotoKey(bytes);
     const transcripts = {
-      [photoKey(bytes)]:
-        "Old Scones\n2 cups flour\n3/4 cup cream\n\nStir and bake.",
+      [key]: "Old Scones\n2 cups flour\n3/4 cup cream\n\nStir and bake.",
     };
     vi.stubGlobal(
       "fetch",
@@ -1055,7 +1055,7 @@ describe("the MCP registry over an in-memory transport", () => {
       expect(dry.data).toMatchObject({
         dryRun: true,
         photos: 1,
-        transcription: transcripts[photoKey(bytes)],
+        transcription: transcripts[key],
         draft: { name: "Old Scones" },
       });
       /* The schema's refusals: photos with text, more than four. */

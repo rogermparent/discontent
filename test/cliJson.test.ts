@@ -905,12 +905,13 @@ describe("import tooling as a process (26b)", () => {
         case "/photo/api/chat": {
           const chunks: Buffer[] = [];
           request.on("data", (chunk: Buffer) => chunks.push(chunk));
-          request.on("end", () => {
+          request.on("end", async () => {
+            const transcripts = await photoTranscripts(PHOTO_FIXTURES);
             response.writeHead(200, { "content-type": "application/json" });
             response.end(
               JSON.stringify(
                 standInChat(JSON.parse(Buffer.concat(chunks).toString()), {
-                  transcripts: photoTranscripts(PHOTO_FIXTURES),
+                  transcripts,
                 }),
               ),
             );

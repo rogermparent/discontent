@@ -101,6 +101,13 @@ export type JobSpec =
       total: number;
       siblings?: { n: number; name?: string }[];
       commitNote: string;
+      /**
+       * A photo import's first photo, when "use the first photo as the
+       * recipe's image" is ticked (38e review): each created recipe gets
+       * it (`setPhotoAsImage`). A list, as every photo spec names its
+       * photos, so the prune keeps it while this job remains.
+       */
+      photos?: StoredPhoto[];
     });
 
 export type JobKind = JobSpec["kind"];
@@ -235,10 +242,11 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
       ...(dir ? { dir } : {}),
     });
   },
-  async "form-batch"(spec, { ctx, job }) {
+  async "form-batch"(spec, { ctx, job, dir }) {
     const { importBatchPicks } = await import("../curation/importRecipe");
+    const corpus = contextFor(spec, ctx);
     const recipes = await importBatchPicks(
-      contextFor(spec, ctx),
+      corpus,
       spec.picks,
       {
         total: spec.total,
@@ -248,7 +256,27 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
       },
       job,
     );
-    return { recipes };
+    const photo = spec.photos?.[0];
+    if (!photo) return { recipes };
+    /* 38e review: the photo as each created recipe's image (De7). */
+    const { setPhotoAsImage } = await import("../curation/importPhoto");
+    const withImages: ImportBatchItem[] = [];
+    for (const item of recipes) {
+      if (item.status !== "imported" || !item.slug) {
+        withImages.push(item);
+        continue;
+      }
+      const warnings = await setPhotoAsImage(corpus, [item.slug], photo, {
+        ...(dir ? { dir } : {}),
+        job,
+      });
+      withImages.push(
+        warnings.length > 0
+          ? { ...item, warnings: [...(item.warnings ?? []), ...warnings] }
+          : item,
+      );
+    }
+    return { recipes: withImages };
   },
 };
 

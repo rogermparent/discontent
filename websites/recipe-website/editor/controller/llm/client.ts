@@ -161,12 +161,20 @@ export type LlmErrorKind =
   | "unreachable"
   | "timeout"
   | "http"
-  | "bad_json";
+  | "bad_json"
+  /** The server answered, and the answer is a failure (38e): an `error`, or no answer. */
+  | "model";
 
 /** Every failure of a model call, by kind; the message is for people. */
 export class LlmError extends Error {
   /** A timeout's placement reading, when one was taken (D6, 37b). */
   gpu?: number;
+  /**
+   * The model's runner failed (38-Te5): an `error` from the server, or an
+   * empty `done: false` answer. Ollama keeps such a runner broken until the
+   * model is unloaded, so `chat()` unloads it before this is reported.
+   */
+  runnerFailed?: boolean;
 
   constructor(
     readonly kind: LlmErrorKind,
@@ -207,6 +215,12 @@ export interface ChatJsonRequest {
    * shares the GPU with this one. Ollama only.
    */
   unload?: boolean;
+  /**
+   * Unload the model when this call fails (38e): a transcription's vision
+   * model is not wanted after a failed page, cancelled or not. A runner
+   * failure (`LlmError.runnerFailed`) unloads whatever this says.
+   */
+  unloadOnError?: boolean;
   /** Defaults to `llmConfig()`. */
   config?: LlmConfig;
   timeoutMs?: number;
@@ -456,6 +470,10 @@ async function chat(
       const step = request.step;
       const reloadable =
         grant.hookRan && config.api === "ollama" && !!step?.log.live;
+      /* Why the model is unloaded at the end, if it is. */
+      let unloadReason: string | undefined = request.unload
+        ? "done"
+        : undefined;
       try {
         let reading: number;
         try {
@@ -478,10 +496,23 @@ async function chat(
         }
         await reloadModel(config, step!, reading, signal);
         return (await callModel(request, config, signal, true)).result;
+      } catch (error) {
+        if (error instanceof LlmError && error.runnerFailed) {
+          unloadReason = "runner failed";
+        } else if (request.unload || request.unloadOnError) {
+          unloadReason = signal?.aborted ? "cancelled" : "failed";
+        }
+        throw error;
       } finally {
-        /* 38e: still holding `gpu`, so no other call's model loads beside it. */
-        if (request.unload && config.api === "ollama" && !signal?.aborted) {
-          await unloadModel(config, step);
+        /*
+         * 38e: still holding `gpu`, so no other call's model loads beside
+         * it — after a cancel too (the unload has its own timeout), and
+         * after a runner failure, which Ollama keeps broken until the model
+         * is unloaded (38-Te5). Ollama only: an OpenAI-style server is never
+         * unloaded (38-Te7).
+         */
+        if (unloadReason && config.api === "ollama") {
+          await unloadModel(config, step, unloadReason);
         }
       }
     },
@@ -500,6 +531,8 @@ export const UNLOAD_TIMEOUT_MS = 30_000;
 export async function unloadModel(
   config: LlmConfig,
   step?: StepHandle,
+  /** Why (the step's `reason`): "done", "failed", "cancelled", "runner failed". */
+  reason?: string,
 ): Promise<void> {
   const run = async (unload?: StepHandle) => {
     try {
@@ -519,7 +552,11 @@ export async function unloadModel(
     }
   };
   if (!step) return run();
-  await step.log.step("llm.unload", { model: config.model }, run);
+  await step.log.step(
+    "llm.unload",
+    { model: config.model, ...(reason ? { reason } : {}) },
+    run,
+  );
 }
 
 /** One request to the model server, and — in a job — where the model sat. */
@@ -550,12 +587,20 @@ async function callModel(
       signal,
     });
     if (!response.ok) {
-      const detail = (await response.text().catch(() => "")).slice(0, 200);
-      throw new LlmError(
+      const raw = await response.text().catch(() => "");
+      const said = serverError(raw);
+      const detail = said ?? raw;
+      const failed = new LlmError(
         "http",
-        `the local model at ${displayUrl(config.url)} answered ${response.status}${detail ? `: ${detail}` : ""}`,
+        `the local model at ${displayUrl(config.url)} answered ${response.status}${detail ? `: ${capped(detail)}` : ""}`,
         response.status,
       );
+      /* Ollama answers 500 `{"error": …}` when the model's runner died
+       * (38-Te5); a proxy's own 5xx page is not that. */
+      if (config.api === "ollama" && response.status >= 500 && said) {
+        failed.runnerFailed = true;
+      }
+      throw failed;
     }
     const parsed: unknown = await response.json();
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -593,6 +638,9 @@ async function callModel(
     );
   }
 
+  /* 38-Te5: a failure answered as a body — never "the model read nothing". */
+  const failure = answeredFailure(body, config);
+  if (failure) throw failure;
   const { content, data: _unparsed, ...stats } = readResponse(body, config.api);
   void _unparsed;
   const durationMs = Date.now() - started;
@@ -616,6 +664,62 @@ async function callModel(
     },
     ...(gpu !== undefined ? { gpu } : {}),
   };
+}
+
+/** A server's text in a message: capped, as 37-D2 caps an excerpt. */
+export const SERVER_ERROR_CHARS = 200;
+
+function capped(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > SERVER_ERROR_CHARS
+    ? `${flat.slice(0, SERVER_ERROR_CHARS)}…`
+    : flat;
+}
+
+/** `{"error": "…"}`'s text (Ollama's and OpenAI's shapes), if the body is one. */
+function serverError(raw: string): string | undefined {
+  try {
+    return errorText((JSON.parse(raw) as { error?: unknown }).error);
+  } catch {
+    return undefined;
+  }
+}
+
+function errorText(error: unknown): string | undefined {
+  if (typeof error === "string" && error.trim()) return error;
+  if (error && typeof error === "object") {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+  return undefined;
+}
+
+/**
+ * A 2xx answer that is a failure (38-Te5): an `error` in the body, or —
+ * Ollama, after its runner crashed — `done: false` with an empty message,
+ * which every later request gets at once until the model is unloaded. Both
+ * are `runnerFailed`, so `chat()` unloads the model before reporting.
+ */
+function answeredFailure(
+  body: Record<string, unknown>,
+  config: LlmConfig,
+): LlmError | undefined {
+  const where = `the local model ${config.model} at ${displayUrl(config.url)}`;
+  const error = errorText(body.error);
+  if (error) {
+    const failed = new LlmError("model", `${where} failed: ${capped(error)}`);
+    failed.runnerFailed = config.api === "ollama";
+    return failed;
+  }
+  if (config.api !== "ollama" || body.done !== false) return undefined;
+  const content = (body.message as { content?: unknown } | undefined)?.content;
+  if (typeof content === "string" && content.trim()) return undefined;
+  const failed = new LlmError(
+    "model",
+    `${where} stopped without an answer (done: false, an empty message) — its runner has likely crashed: ${capped(JSON.stringify(body))}`,
+  );
+  failed.runnerFailed = true;
+  return failed;
 }
 
 /** How long `ollama stop`'s request may take. */

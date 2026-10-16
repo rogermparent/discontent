@@ -359,11 +359,46 @@ force`/`auto`/`off` on a pasted-text import is a usage error, not a mode
   making "different" photos by shifting a solid colour by one step got
   byte-identical JPEGs (quantised the same), so the content-named store
   saw one photo. The tests' cards differ by tens of steps.
-- **Te4 — the stand-in keys a photo by the bytes it is sent.** A JPEG or
-  PNG that is small and upright goes to the model unchanged, so its hash
-  is the fixture file's; anything `preparePhoto` re-encodes would not
-  match a fixture transcript. Keep Playwright and CLI fixtures small,
-  upright JPEG/PNG.
+- **Te4 — the stand-in keys a photo by the bytes it is sent.** Every photo
+  is re-encoded before it is sent (Te5), so a fixture's own hash never
+  arrives: the stand-in's transcripts are keyed by `sentPhotoKey` — the
+  hash of `photoForVision(bytes)`, the seats' own code in the
+  dependency-free `llm/photoPrep.ts` — and `photoTranscripts` is async.
+  One `sharp` (0.34.5) serves the tests, the CLI child and the editor, so
+  the re-encoded bytes agree.
+- **Te5 — a larger photo crashes the vision model's runner; it then stays
+  broken.** The orchestrator's real-GPU run (RX 6600 8 GB, Ollama 0.34.3
+  on Vulkan, `qwen2.5vl:7b` 5.4 GB at 100% GPU, ctx 4 096, a fresh load
+  each): the 1833×1217 rendered card, sent unchanged because it was a
+  small upright JPEG under the old 1600 px cap, and a 1280×850 one
+  (1.09 MP) both ended with `{"error":"model runner has unexpectedly
+stopped … vk::Queue::submit: ErrorDeviceLost"}`; 1024×680 (0.70 MP,
+  1 111 prompt tokens) read verbatim, 99 output tokens, 16.3 s with the
+  load; 896 px likewise, 16.3 s. Two 1024 px pages in one call: 2 116
+  prompt tokens, 26.2 s, verbatim, in order — four would overflow 4 096.
+  After a crash every request answered `{"model":"","message":{"role":"",
+"content":""},"done":false}` at once until `ollama stop`. And the
+  client had read that crash as "the vision model read no text". So:
+  every photo is fitted inside 1024 px and 0.75 MP and re-encoded as a
+  JPEG (`PHOTO_MAX_SIDE`, `PHOTO_MAX_PIXELS`); one call per photo (De4);
+  an `error` body (any status) or an empty `done: false` is an
+  `LlmError` carrying the server's words (capped at 200 characters,
+  37-D2), marked `runnerFailed`; and `chat()` unloads the model
+  (`keep_alive: 0`, an `llm.unload` step with `reason: "runner failed"`)
+  before it reports — for the text model too. A 5xx whose body is not
+  Ollama's `{"error": …}` (a proxy's page) is not taken for one.
+- **Te6 — a kept transcript is keyed by the model's name.** De5 reuses a
+  transcript made by the same model name and prompt hash
+  (`transcribeKey`: the prompts, the size caps, the context); weights
+  re-pulled under the same name reuse it. Delete
+  `<jobs dir>/photos/*.transcript.json` to read the photos again.
+- **Te7 — `RECIPE_LLM_API=openai` against Ollama's `/v1` unloads
+  nothing.** The unload, the D6 reload and the placement check are
+  Ollama-API requests (`/api/generate`, `/api/ps`); through the
+  OpenAI-compatible endpoint none of them runs, so the vision model stays
+  loaded beside the text model until Ollama evicts it, and a crashed
+  runner is not unloaded. Use `RECIPE_LLM_API=ollama` (the default) with
+  Ollama.
 
 ### 38f
 
@@ -1097,14 +1132,24 @@ spec now checks that the linking line ("batch Simple Syrup") is no row.
   sends no schema (De2). `unload: true` unloads the model once it has
   answered and its placement is read (Te1).
 - **The transcription** (`transcribePhotos`): one `vision.transcribe` step
-  — model, photos, bytes sent, then `chars`, `lines`, a hash and a
-  160-character `excerpt` (37-D2) — one call with every photo in page
-  order (De4), the vision model unloaded after it (`llm.unload`), and a
+  per photo — model, bytes, bytes sent, then `chars`, `lines`, a hash and
+  a 160-character `excerpt` (37-D2) — in page order (De4), the vision
+  model unloaded after the last (`llm.unload`), and a
   `vision` note naming the swap: "qwen2.5vl:7b read 412 characters and was
   unloaded — qwen3:8b reads the transcription". The extractor's call that
   follows is its own `gpu` acquire with its own placement reading (D5).
-  Photos are sent as they are when small, upright JPEG/PNG, else turned
-  upright, fitted inside 1600 px and sent as a JPEG (`sharp`).
+  Every photo is turned upright, fitted inside 1024 px and 0.75 MP and
+  sent as a JPEG (`llm/photoPrep.ts`, `sharp` with `limitInputPixels:
+100e6`) — never the original, however small (Te5). _Amended after the
+  real GPU (38e fixes):_ one `vision.transcribe` per photo in page order
+  (`part: "1/2"`, "Vision model reads page 1/2"), the pages joined with a
+  blank line, every photo prepared before the first call, the unload once
+  after the last page; `num_ctx` 4 096 (`VISION_NUM_CTX`, what the check
+  read at). A failed page unloads the vision model too (`unloadOnError`),
+  and so does a cancel (the old `!signal.aborted` guard is gone: the
+  unload has its own 30 s timeout and runs inside the `gpu` hold). A model
+  failure is an `ImportError` "the vision model … failed[ on page 2/3]:
+  <the server's words>" (Te5).
 - **The reading** is the pasted-text path's (`readPastedText` gained a
   `label`, `importFromText` a `photos` origin): the extractor, D4's
   grounding against the transcription, the 36e split, `partial`,
@@ -1140,7 +1185,10 @@ spec now checks that the linking line ("batch Simple Syrup") is no row.
 - **`/api/import` multipart**: `photo` parts in page order and a `request`
   part with the rest of the body as JSON, checked by `ImportRequestSchema`
   (the photos counted as `photos`). A JSON body naming `photos` paths is
-  refused — a request must not name the server's files. The HTTP backend's
+  refused: this route's photos are the upload's parts (paths are the MCP
+  tool's, De6). Before a byte of a multipart body is read (38e review):
+  `assertPhotoImport()`, then no `Content-Length` is a `validation` 400
+  and one over 4 × 15 MB + 1 MB a 413. The HTTP backend's
   `importPhotos` posts that; an editor from before 38e is named.
 - **MCP** `recipe_import` takes `photos: [path]` (1–4) and `photoAsImage`
   (tool count unchanged); the paths are read by the server's process, as
@@ -1182,8 +1230,17 @@ spec now checks that the linking line ("batch Simple Syrup") is no row.
   inside the same `gpu` hold, so no other job's model can load between
   the vision call and its unload. A failed unload is the step's, never the
   import's (the next load evicts it anyway).
-- **De4 — several photos in one call.** _(measured in the real check —
-  below)_
+- **De4 — one call per photo** (decided by the real GPU, Te5). Two
+  1024 px pages in one call read well (2 116 prompt tokens, 26.2 s) but
+  four would overflow the 4 096 context that was measured, and a
+  per-photo call keeps each request at the size that read. Each photo is
+  its own `vision.transcribe` step and `gpu` acquire; the pages are joined
+  with a blank line, which the pasted-text path reads as a paragraph
+  break, and D4's grounding finds each line in the joined text whichever
+  page it came from (`photoImport.test`). The `gpu` slot is let go between
+  pages (each call acquires its own, so its D6 reload still works); a job
+  that takes it in between finds the vision model loaded, and Ollama
+  evicts it for a model that does not fit.
 - **De5 — a kept transcription is reused.** Keyed by the photo set (the
   content-named paths in order), checked against the vision model and the
   prompts' hash. A `--pick` after a several-recipe refusal, or a Retry
@@ -1193,10 +1250,26 @@ spec now checks that the linking line ("batch Simple Syrup") is no row.
   either way, and the HTTP backend already uploads files (`recipe_set_image`'s
   `path` does exactly this), so a remote backend uploads them multipart to
   `/api/import`. Over MCP-over-HTTP the editor reads its own host's paths,
-  as `recipe_set_image` does.
+  as `recipe_set_image` does — an exposure the tool already had: a holder
+  of a `write`-scoped token (27-D6) can have the editor read any image
+  file (by extension, ≤ 15 MB) its process can open into the job store,
+  and see the transcription. `/api/import` itself takes no paths.
 - **De7 — "use the photo" after the create, one commit more.** As the
   brief said: `setRecipeImage` per created recipe, which covers a batch
-  the same way; the form fills its image field instead (Te2).
+  the same way; the form fills its image field instead (Te2). _Amended
+  (38e review):_ the image committed is the photo upright and fitted
+  inside 2000 px as a JPEG (`photoForImage`, `storedPhotoImage`) — not a
+  phone's 10 MB original, and not the 1024 px copy the model reads (too
+  small for the site's larger sizes). The form's picker carries it too:
+  a several-recipe photo with the box ticked sends the stored photo
+  (`RecipeActionState.photo`, checked against `PHOTO_PATH`) to
+  `importRecipeBatchAction`, and `form-batch` (spec `photos: [photo]`, so
+  the prune keeps it) sets it on each recipe it creates — a row's
+  warnings say so. The single-recipe form still uploads the browser's own
+  file through the image field, as a picked file would be. The field
+  follows the box: `RecipeFields` keys `ImageInput` on the photo's
+  identity (`fileKey`), so unticking after the import empties it and
+  ticking fills it with its preview.
 
 **Tests.** New `test/photoImport.test.ts` (16): the configuration (De1);
 `chatText` with Ollama `images` and no `format`, the unload after it, and
@@ -1217,6 +1290,21 @@ Playwright: new `photo-import.spec` (3): hidden without a vision model
 (and with a text model alone); the live steps (the transcription held
 until released), the form filled, the notice, the transcription fold, the
 photo as the image through Submit; four photos at most and Remove.
+
+_The fixes (real GPU + review)_ brought `photoImport.test` to 25: every
+photo re-encoded (and `sentPhotoKey` agreeing), the 1024 px / 0.75 MP
+fit, SVG / ICO / BMP refused; one call per photo (two chats, one unload,
+`reason: "done"`, the page prompts, `part`); Ollama's 500 `{"error"}`
+surfaced as an `ImportError` with the unload before it (`reason: "runner
+failed"`), an empty `done: false` on the text model, a 200 carrying an
+`error`, a cancelled call unloaded, a plain 404 left loaded; the prune
+keeping photos when a meta is unreadable; `form-batch` with `photos`
+setting the photo on each recipe; `photoAsImage` committing a sideways
+2400×1200 photo as an upright 1000×2000 JPEG. `importRoute.test` +1 (a
+413, a missing `Content-Length`, and `usage` first — the body never
+read); the multipart tests send a `Content-Length` as a browser does.
+`photo-import.spec`: unticking the box after the import empties the
+image field and its preview, ticking it fills both again.
 
 **Gates.** _(after "heavy go")_
 

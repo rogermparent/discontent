@@ -517,13 +517,36 @@ export async function pruneJobs(
   }
   /* 38c: the kept model readings past their reuse (`readingCache.ts`). */
   await pruneReadings(dir, { now });
-  /* 38e: the photos and transcripts no remaining job names (`photos.ts`). */
-  const remaining = await listJobs(dir).catch(() => [] as JobMeta[]);
-  const { prunePhotos } = await import("./photos");
-  await prunePhotos(
-    dir,
-    remaining.map((meta) => meta.spec),
-    { now },
-  ).catch(() => 0);
+  /*
+   * 38e: the photos and transcripts no remaining job names (`photos.ts`) —
+   * only when every remaining job's meta was read: a listing that failed,
+   * or one meta that could not be read, would look like a job naming no
+   * photo, and its photos would go (38e review).
+   */
+  const remaining = await readEveryJob(dir);
+  if (remaining) {
+    const { prunePhotos } = await import("./photos");
+    await prunePhotos(
+      dir,
+      remaining.map((meta) => meta.spec),
+      { now },
+    ).catch(() => 0);
+  }
   return removed;
+}
+
+/**
+ * Every job's meta, or `undefined` when the directory could not be listed
+ * or any meta could not be read (unlike `listJobs`, which skips those). A
+ * meta gone since the listing (ENOENT) is a job pruned meanwhile: skipped.
+ */
+async function readEveryJob(dir: string): Promise<JobMeta[] | undefined> {
+  try {
+    const metas = await Promise.all(
+      (await listJobIds(dir)).map((id) => readJobMeta(dir, id)),
+    );
+    return metas.filter((meta): meta is JobMeta => !!meta);
+  } catch {
+    return undefined;
+  }
 }

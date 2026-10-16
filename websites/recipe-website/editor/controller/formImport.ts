@@ -63,6 +63,12 @@ export interface RecipeActionState {
   /** What the vision model read in the photos (38e): the form shows it. */
   transcription?: string;
   /**
+   * The first photo as the job store holds it (38e review): the picker's
+   * "Import selected" names it when "use the first photo as the recipe's
+   * image" is ticked, so each recipe it creates gets the photo.
+   */
+  photo?: StoredPhoto;
+  /**
    * The batch is a page's own Recipe nodes (38c), read by no model: the
    * picker says "This page", and the commits do not say "local model".
    */
@@ -285,6 +291,7 @@ export async function reducePhotoImport(
       key: `photo-${crypto.randomUUID()}`,
       fromPhotos: photos.length,
       transcription: text,
+      photo: photos[0],
     };
   } catch (e: unknown) {
     if (job.signal?.aborted) throw e;

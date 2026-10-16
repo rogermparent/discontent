@@ -56,7 +56,11 @@ function extension(name: string, type: string): string {
   const fromName = /\.([a-z0-9]{2,5})$/i.exec(name)?.[1]?.toLowerCase();
   if (fromName) return fromName === "jpeg" ? "jpg" : fromName;
   const fromType = /^image\/([a-z0-9]+)/i.exec(type)?.[1]?.toLowerCase();
-  return fromType === "jpeg" ? "jpg" : (fromType ?? "img");
+  if (fromType === "jpeg") return "jpg";
+  /* `PHOTO_PATH`'s 2–5 characters: `image/x-…` gives "x", which is none. */
+  return fromType && fromType.length >= 2 && fromType.length <= 5
+    ? fromType
+    : "img";
 }
 
 /**
@@ -143,15 +147,30 @@ export async function readStoredPhotos(
   );
 }
 
-/** A stored photo as a `File` again (the "use the photo as the image" write). */
-export async function storedPhotoFile(
+/**
+ * A stored photo as a recipe's image (`photoAsImage`): turned upright,
+ * fitted inside `PHOTO_IMAGE_MAX_SIDE` (2000 px) and re-encoded as a JPEG
+ * (`photoForImage`) — not the phone's original, which may be 10 MB and
+ * sideways — named as the photo was, `.jpg`.
+ */
+export async function storedPhotoImage(
   dir: string,
   photo: StoredPhoto,
 ): Promise<File> {
   const [read] = await readStoredPhotos(dir, [photo]);
+  const { photoForImage } = await import("../llm/photoPrep");
+  let bytes: Buffer;
+  try {
+    bytes = await photoForImage(read.bytes);
+  } catch (error) {
+    throw new ValidationError(
+      `${photo.name} could not be converted for the recipe's image: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const base = path.basename(photo.name).replace(/\.[^.]*$/, "") || "photo";
   const { checkImageFile } = await import("../imageImport");
   return checkImageFile(
-    new File([new Uint8Array(read.bytes)], photo.name, { type: photo.type }),
+    new File([new Uint8Array(bytes)], `${base}.jpg`, { type: "image/jpeg" }),
   );
 }
 

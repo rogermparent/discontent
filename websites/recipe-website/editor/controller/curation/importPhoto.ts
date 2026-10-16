@@ -157,7 +157,6 @@ async function withPhotoImage(
   photo: StoredPhoto,
   { dir, job: run }: { dir: string; job?: JobRun },
 ): Promise<ImportResult> {
-  const job = jobContext(run);
   const warnings = [...(result.warnings ?? [])];
   if ("dryRun" in result && result.dryRun) {
     warnings.push(
@@ -167,9 +166,42 @@ async function withPhotoImage(
   }
   const slugs = createdSlugs(result);
   if (slugs.length === 0) return result;
-  const { storedPhotoFile } = await import("../jobs/photos");
+  warnings.push(
+    ...(await setPhotoAsImage(ctx, slugs, photo, { dir, job: run })),
+  );
+  if ("batch" in result) {
+    const batch: ImportBatchResult = { ...result, warnings };
+    return batch;
+  }
+  return { ...result, warnings };
+}
+
+/**
+ * The photo as the image of each of `slugs` (De7): the photo upright and
+ * fitted inside 2000 px as a JPEG (`storedPhotoImage`), one `image` step
+ * and one commit per recipe. Shared by the seats' `photoAsImage` and the
+ * form's picker (`form-batch`, 38e review). Never throws but for a cancel:
+ * answers the warnings — a recipe whose image failed is still written.
+ */
+export async function setPhotoAsImage(
+  ctx: CurationContext,
+  slugs: readonly string[],
+  photo: StoredPhoto,
+  { dir = jobsDirectory(), job: run }: { dir?: string; job?: JobRun } = {},
+): Promise<string[]> {
+  const job = jobContext(run);
+  const warnings: string[] = [];
+  if (slugs.length === 0) return warnings;
+  const { storedPhotoImage } = await import("../jobs/photos");
   const { setRecipeImage } = await import("./recipeImage");
-  const file = await storedPhotoFile(dir, photo);
+  let file: File;
+  try {
+    file = await storedPhotoImage(dir, photo);
+  } catch (error) {
+    return [
+      `the photo ${photo.name} was not set as an image (${error instanceof Error ? error.message : String(error)}) — set one with recipe_set_image`,
+    ];
+  }
   const set: string[] = [];
   for (const slug of slugs) {
     try {
@@ -192,9 +224,5 @@ async function withPhotoImage(
       `the photo ${photo.name} is the image of ${set.join(", ")} (photoAsImage)`,
     );
   }
-  if ("batch" in result) {
-    const batch: ImportBatchResult = { ...result, warnings };
-    return batch;
-  }
-  return { ...result, warnings };
+  return warnings;
 }

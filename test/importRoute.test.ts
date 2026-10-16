@@ -18,7 +18,7 @@ import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 import { createHttpBackend } from "../websites/recipe-website/editor/cli/backend/http";
 import type { CurationContext } from "../websites/recipe-website/editor/controller/curation/context";
 import {
-  photoKey,
+  sentPhotoKey,
   standInChat,
 } from "../websites/recipe-website/editor/playwright/fixtures/llm/standInModel";
 
@@ -383,9 +383,9 @@ describe("/api/import with photos (38e)", () => {
       .toBuffer();
   }
 
-  function stubVision(bytes: Buffer) {
+  async function stubVision(bytes: Buffer) {
     vi.stubEnv("RECIPE_LLM_VISION_MODEL", "qwen2.5vl:7b");
-    const transcripts = { [photoKey(bytes)]: CARD };
+    const transcripts = { [await sentPhotoKey(bytes)]: CARD };
     const modelStub = vi.fn(async (input: string | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
       if (path === "/api/chat") {
@@ -399,7 +399,7 @@ describe("/api/import with photos (38e)", () => {
     return modelStub;
   }
 
-  function multipart(
+  async function multipart(
     photos: { bytes: Buffer; name: string }[],
     request?: unknown,
   ): Promise<Response> {
@@ -414,17 +414,73 @@ describe("/api/import with photos (38e)", () => {
       );
     }
     if (request !== undefined) form.set("request", JSON.stringify(request));
+    /* As a browser or `fetch` sends it: encoded, with its Content-Length
+     * (a constructed Request carries none). */
+    const encoded = new Response(form);
+    const body = Buffer.from(await encoded.arrayBuffer());
     return POST(
       new Request("http://editor.test/api/import", {
         method: "POST",
-        body: form,
+        headers: {
+          "content-type": encoded.headers.get("content-type")!,
+          "content-length": String(body.length),
+        },
+        body,
       }),
     );
   }
 
+  it("refuses an upload too large, or of no stated size, before reading it (38e review)", async () => {
+    const bytes = await card();
+    await stubVision(bytes);
+    let read = false;
+    const unread = () =>
+      new ReadableStream<Uint8Array>(
+        {
+          pull() {
+            read = true;
+            throw new Error("the body was read");
+          },
+        },
+        /* No pull until someone reads. */
+        { highWaterMark: 0 },
+      );
+    const upload = (headers: Record<string, string>) =>
+      POST(
+        new Request("http://editor.test/api/import", {
+          method: "POST",
+          headers: {
+            "content-type": "multipart/form-data; boundary=x",
+            ...headers,
+          },
+          body: unread(),
+          duplex: "half",
+        } as RequestInit),
+      );
+    const huge = await upload({
+      "content-length": String(4 * 15 * 1024 * 1024 + 1024 * 1024 + 1),
+    });
+    expect(huge.status).toBe(413);
+    expect((await huge.json()).error).toMatchObject({
+      code: "validation",
+      message: expect.stringMatching(/^The upload is \d+ bytes, over the /),
+    });
+    const unsized = await upload({});
+    expect(unsized.status).toBe(400);
+    expect((await unsized.json()).error.message).toMatch(
+      /needs a Content-Length header/,
+    );
+    /* No vision model: `usage`, before the size is even looked at. */
+    vi.stubEnv("RECIPE_LLM_VISION_MODEL", "");
+    const off = await upload({ "content-length": "999999999" });
+    expect(off.status).toBe(400);
+    expect((await off.json()).error.code).toBe("usage");
+    expect(read).toBe(false);
+  });
+
   it("dry-runs an upload: transcribed, then read and grounded", async () => {
     const bytes = await card();
-    const modelStub = stubVision(bytes);
+    const modelStub = await stubVision(bytes);
     const response = await multipart([{ bytes, name: "card.jpg" }], {
       dryRun: true,
       tags: ["cookies"],
@@ -450,7 +506,7 @@ describe("/api/import with photos (38e)", () => {
 
   it("refuses photo paths in a JSON body, too many photos, and no vision model", async () => {
     const bytes = await card();
-    stubVision(bytes);
+    await stubVision(bytes);
     const paths = await post({ photos: ["/etc/passwd.jpg"], dryRun: true });
     expect(paths.status).toBe(400);
     expect((await paths.json()).error.message).toMatch(
@@ -489,7 +545,10 @@ describe("/api/import with photos (38e)", () => {
         const answer = await POST(
           new Request("http://editor.test/api/import", {
             method: "POST",
-            headers: { "content-type": request.headers["content-type"]! },
+            headers: {
+              "content-type": request.headers["content-type"]!,
+              "content-length": request.headers["content-length"]!,
+            },
             body: Buffer.concat(chunks),
           }),
         );
@@ -503,7 +562,7 @@ describe("/api/import with photos (38e)", () => {
       server!.listen(0, "127.0.0.1", resolve),
     );
     const origin = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`;
-    const modelStub = stubVision(bytes);
+    const modelStub = await stubVision(bytes);
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL, init?: RequestInit) =>

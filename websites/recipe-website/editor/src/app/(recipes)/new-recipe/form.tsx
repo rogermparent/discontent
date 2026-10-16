@@ -328,6 +328,13 @@ export default function NewOrImportRecipeForm({
             url={url}
             pastedText={importState.pastedText === true}
             fromPhotos={!!importState.fromPhotos}
+            /* 38e review: "use the first photo" covers a batch too — each
+             * recipe the picker creates gets the stored photo. */
+            photo={
+              photoAsImage && importState.fromPhotos
+                ? importState.photo
+                : undefined
+            }
             fromPage={importState.fromPage === true}
             busy={busy}
             editing={edited?.n}

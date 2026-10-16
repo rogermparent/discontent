@@ -9,7 +9,8 @@ import { photoTranscripts, standInChat } from "../fixtures/llm/standInModel";
 /*
  * 38e: the form's Photo mode. A stand-in model on loopback (never a real
  * one) answers both calls: the vision model's transcription — the fixture
- * card's transcript, found by the photo's hash (`fixtures/photos/`) — and
+ * card's transcript, found by the hash of the photo as sent
+ * (`fixtures/photos/`, `sentPhotoKey`) — and
  * the text model's reading of it. The suite pins both models off (T18);
  * this spec turns them on for this server process only, through the
  * TEST_MODE-only `/settings/test-llm?url=…&vision=…`, and off again after
@@ -18,11 +19,13 @@ import { photoTranscripts, standInChat } from "../fixtures/llm/standInModel";
  */
 let model: Server;
 let modelUrl: string;
-const transcripts = photoTranscripts(fixturePath("photos"));
+/* Keyed by the bytes the photos are sent as (38-Te4): filled in beforeAll. */
+let transcripts: Record<string, string> = {};
 let holdVision = false;
 let releaseVision: () => void = () => {};
 
 test.beforeAll(async () => {
+  transcripts = await photoTranscripts(fixturePath("photos"));
   model = createServer((request, response) => {
     const chunks: Buffer[] = [];
     request.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -187,6 +190,23 @@ test.describe("Photo import (38e)", () => {
 
     /* The photo is the image to upload; Submit stores it. */
     await expect(page.getByAltText("Image to upload")).toBeVisible();
+    /* The box follows its state after the import (38e review): unticked,
+     * the field lets go of the photo and its preview; ticked again, it
+     * holds both once more. */
+    const imageField = form.locator('input[name="image"]');
+    const filesHeld = () =>
+      imageField.evaluate((input: HTMLInputElement) => input.files?.length);
+    await expect.poll(filesHeld).toBe(1);
+    const useFirst = page.getByLabel(
+      "Use the first photo as the recipe's image",
+      { exact: true },
+    );
+    await useFirst.uncheck();
+    await expect(page.getByAltText("Image to upload")).toHaveCount(0);
+    await expect.poll(filesHeld).toBe(0);
+    await useFirst.check();
+    await expect(page.getByAltText("Image to upload")).toBeVisible();
+    await expect.poll(filesHeld).toBe(1);
     await page.getByRole("button", { name: "Submit", exact: true }).click();
     await expect(page.getByLabel("Multiply")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("img").first()).toHaveAttribute(

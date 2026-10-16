@@ -38,6 +38,25 @@ function httpUrl(text: string): string | undefined {
   }
 }
 
+/* A number per `File` seen, for `fileKey`: a File has no identity of its own to print. */
+const fileIds = new WeakMap<File, number>();
+let lastFileId = 0;
+
+/**
+ * A key that changes with the identity of `file` (38e review): the parent
+ * keys `ImageInput` on its `initialFile`, so a photo arriving or going
+ * remounts the field holding it, or empty. `"none"` without one.
+ */
+export function fileKey(file: File | undefined): string {
+  if (!file) return "none";
+  let id = fileIds.get(file);
+  if (id === undefined) {
+    id = lastFileId += 1;
+    fileIds.set(file, id);
+  }
+  return `file-${id}`;
+}
+
 /**
  * The file input, its preview and the "Remove Image" checkbox — and, since
  * 26c, two more ways in: a choice among the images an import found, and an
@@ -61,6 +80,8 @@ function httpUrl(text: string): string | undefined {
  * photo import was read from, when "use the photo as the recipe's image"
  * was ticked — through a `DataTransfer`, the one way a script may fill a
  * file input. It uploads like a picked file, and Cancel upload drops it.
+ * It is read when the field mounts: a parent whose `initialFile` changes
+ * keys the field on it (`fileKey`), so the field starts over.
  *
  * The file input is opt-out (`allowFile`, 31e): a form whose seat takes a
  * picture only as `imageImportUrl` shows the URL field alone rather than a

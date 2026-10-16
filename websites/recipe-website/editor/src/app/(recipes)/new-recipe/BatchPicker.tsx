@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import createDefaultSlug from "recipe-website-common/controller/createSlug";
 import type { ImportBatchItem } from "recipe-editor/controller/curation/importRecipe";
+import type { StoredPhoto } from "recipe-editor/controller/jobs/photos";
 import { formatStart } from "recipe-editor/controller/llm/chapterTime";
 import type { SplitReading } from "recipe-editor/controller/llm/importWithLlm";
 import { importRecipeBatchAction } from "./batchActions";
@@ -73,6 +74,7 @@ export default function BatchPicker({
   url,
   pastedText = false,
   fromPhotos = false,
+  photo,
   fromPage = false,
   busy = false,
   editing,
@@ -86,6 +88,11 @@ export default function BatchPicker({
   pastedText?: boolean;
   /** Read from photos' transcription (38e): "This photo holds …". */
   fromPhotos?: boolean;
+  /**
+   * The photo to set as each created recipe's image (38e review): "use the
+   * first photo as the recipe's image" ticked.
+   */
+  photo?: StoredPhoto;
   /** A page's own recipes (38c): "This page", and no model in the commits. */
   fromPage?: boolean;
   /** A roundup run is in flight (35r): wait for it. */
@@ -125,6 +132,7 @@ export default function BatchPicker({
         ...(url ? { url } : {}),
         ...(pastedText ? { pastedText: true } : {}),
         ...(fromPhotos ? { fromPhotos: true } : {}),
+        ...(photo ? { photo } : {}),
         ...(fromPage ? { fromPage: true } : {}),
         total: Math.max(total, 2),
         siblings: readings.map((reading) => ({

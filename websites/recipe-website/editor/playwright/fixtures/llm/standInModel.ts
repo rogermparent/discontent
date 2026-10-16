@@ -15,11 +15,13 @@
  *   paragraph after them is the method, a step a sentence. `invent` names
  *   recipes whose lines are made up instead (a reading the guard must catch).
  * - **A photo** (38e, the vision model's `TRANSCRIBE_SYSTEM_PROMPT`): the
- *   transcript filed for each picture's bytes (`transcripts`), as text.
+ *   transcript filed for each picture's bytes as **sent** (`transcripts`,
+ *   keyed by `sentPhotoKey`), as text.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { photoForVision } from "../../../controller/llm/photoPrep";
 
 export interface StandInOptions {
   /** Recipe names (as the text's first line) whose lines are invented. */
@@ -28,7 +30,8 @@ export interface StandInOptions {
   oneDish?: boolean;
   /**
    * The vision model's answers (38e): a transcript per photo, keyed by the
-   * photo's `photoKey` (`photoTranscripts` reads a directory of them).
+   * bytes it is sent as (`sentPhotoKey`; `photoTranscripts` reads a
+   * directory of them).
    */
   transcripts?: Record<string, string>;
 }
@@ -97,34 +100,45 @@ export function recipeAnswer(text: string, options: StandInOptions = {}) {
   };
 }
 
-/** A photo's bytes as the transcripts are keyed: sha256, hex. */
+/** Bytes as the transcripts are keyed: sha256, hex. */
 export function photoKey(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
 /**
- * The transcripts of the photos in `dir` (38e): each `<name>.txt` beside
- * a `<name>.jpg` / `.png`, keyed by that picture's `photoKey`.
+ * A photo's key as the stand-in sees it (38-Te4): the hash of the bytes
+ * the vision model is **sent** — every photo is re-encoded first
+ * (`photoForVision`, 38-Te5), so the file's own hash never arrives. The
+ * same code as the seats' (`photoPrep.ts` loads `sharp` only when called,
+ * so a spec that sends no photo never loads it).
  */
-export function photoTranscripts(dir: string): Record<string, string> {
+export async function sentPhotoKey(bytes: Uint8Array): Promise<string> {
+  return photoKey(await photoForVision(Buffer.from(bytes)));
+}
+
+/**
+ * The transcripts of the photos in `dir` (38e): each `<name>.txt` beside
+ * a `<name>.jpg` / `.png`, keyed by that picture's `sentPhotoKey`.
+ */
+export async function photoTranscripts(
+  dir: string,
+): Promise<Record<string, string>> {
   const transcripts: Record<string, string> = {};
   for (const name of readdirSync(dir)) {
     const match = /^(.*)\.(jpe?g|png)$/i.exec(name);
     if (!match) continue;
     const text = path.join(dir, `${match[1]}.txt`);
     if (!existsSync(text)) continue;
-    transcripts[photoKey(readFileSync(path.join(dir, name)))] = readFileSync(
-      text,
-      "utf8",
-    );
+    transcripts[await sentPhotoKey(readFileSync(path.join(dir, name)))] =
+      readFileSync(text, "utf8");
   }
   return transcripts;
 }
 
 /**
- * The vision model's transcription (38e): each photo's transcript by its
- * bytes' hash, in order, a blank line between — never a real model. A
- * photo with none reads as nothing (the import says so).
+ * The vision model's transcription (38e): each photo's transcript by the
+ * hash of the bytes sent, in order, a blank line between — never a real
+ * model. A photo with none reads as nothing (the import says so).
  */
 export function transcribeAnswer(
   images: readonly string[],

@@ -192,8 +192,10 @@ export function stepTitle(node: Pick<StepNode, "step" | "data">): string {
     case "llm.unload":
       return "Unload the model";
     case "vision.transcribe": {
+      /* One call per photo (38-De4): "page 2/3" when there are several. */
+      if (part) return `Vision model reads page${part}`;
       const photos = typeof data.photos === "number" ? data.photos : 1;
-      return `Vision model reads the photo${photos === 1 ? "" : "s"}${part}`;
+      return `Vision model reads the photo${photos === 1 ? "" : "s"}`;
     }
     case "gpu.hook":
       return `GPU hook (${String(data.hook ?? "")})`;

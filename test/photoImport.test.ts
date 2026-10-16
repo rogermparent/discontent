@@ -6,7 +6,7 @@
 // stubbed with the Playwright stand-in (`standInModel.ts`), which answers a
 // transcription from a transcript filed by the photo's hash.
 
-import { mkdtemp, readFile, readdir, rm, stat, utimes } from "fs-extra";
+import { mkdtemp, readFile, readdir, rm, utimes } from "fs-extra";
 import { tmpdir } from "os";
 import { join } from "path";
 import sharp from "sharp";
@@ -16,15 +16,18 @@ import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 
 import { createLocalBackend } from "../websites/recipe-website/editor/cli/backend/local";
 import {
+  chatJson,
   chatText,
   type LlmConfig,
 } from "../websites/recipe-website/editor/controller/llm/client";
 import {
+  PHOTO_MAX_PIXELS,
   PHOTO_MAX_SIDE,
   preparePhoto,
   transcribePhotos,
   visionConfig,
 } from "../websites/recipe-website/editor/controller/llm/vision";
+import { fittedSize } from "../websites/recipe-website/editor/controller/llm/photoPrep";
 import {
   PHOTOS_DIR,
   loadTranscript,
@@ -32,10 +35,15 @@ import {
   readStoredPhotos,
   storePhotos,
 } from "../websites/recipe-website/editor/controller/jobs/photos";
+import { runSpec } from "../websites/recipe-website/editor/controller/jobs/kinds";
 import { runJob } from "../websites/recipe-website/editor/controller/jobs/run";
-import { readJobLog } from "../websites/recipe-website/editor/controller/jobs/store";
+import {
+  pruneJobs,
+  readJobLog,
+} from "../websites/recipe-website/editor/controller/jobs/store";
 import {
   photoKey,
+  sentPhotoKey,
   standInChat,
 } from "../websites/recipe-website/editor/playwright/fixtures/llm/standInModel";
 
@@ -200,15 +208,35 @@ describe("chatText with images (De2)", () => {
 });
 
 describe("preparePhoto", () => {
-  it("sends a small upright JPEG as it is", async () => {
+  it("re-encodes even a small upright JPEG (38-Te5): never the original", async () => {
     const bytes = await cardJpeg();
     const prepared = await preparePhoto({
       bytes,
       type: "image/jpeg",
       name: "card.jpg",
     });
-    expect(prepared.bytes).toBe(bytes);
+    expect(prepared.bytes).not.toBe(bytes);
     expect(prepared.type).toBe("image/jpeg");
+    const meta = await sharp(prepared.bytes).metadata();
+    expect([meta.format, meta.width, meta.height]).toEqual(["jpeg", 120, 80]);
+    /* What the stand-in keys a photo by: the bytes sent. */
+    expect(await sentPhotoKey(bytes)).toBe(photoKey(prepared.bytes));
+  });
+
+  it("fits inside 1024 px and 0.75 MP", () => {
+    expect(PHOTO_MAX_SIDE).toBe(1024);
+    expect(fittedSize(1833, 1217, PHOTO_MAX_SIDE, PHOTO_MAX_PIXELS)).toEqual({
+      width: 1024,
+      height: 679,
+    });
+    const square = fittedSize(2000, 2000, PHOTO_MAX_SIDE, PHOTO_MAX_PIXELS);
+    expect(square.width).toBe(square.height);
+    expect(square.width * square.height).toBeLessThanOrEqual(PHOTO_MAX_PIXELS);
+    expect(square.width).toBeLessThan(1024);
+    expect(fittedSize(300, 200, PHOTO_MAX_SIDE, PHOTO_MAX_PIXELS)).toEqual({
+      width: 300,
+      height: 200,
+    });
   });
 
   it("fits a large or rotated photo, and turns WebP into a JPEG", async () => {
@@ -253,6 +281,28 @@ describe("preparePhoto", () => {
       (await preparePhoto({ bytes: webp, type: "image/webp", name: "w.webp" }))
         .type,
     ).toBe("image/jpeg");
+  });
+
+  it("refuses SVG, ICO and BMP as no photo", async () => {
+    const svg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>',
+    );
+    for (const [type, name] of [
+      ["image/svg+xml", "card.svg"],
+      ["image/x-icon", "favicon.ico"],
+      ["image/bmp", "scan.bmp"],
+    ]) {
+      await expect(preparePhoto({ bytes: svg, type, name })).rejects.toThrow(
+        `${name} is not a photo this import reads`,
+      );
+      await expect(
+        storePhotos(jobsDir, [file(svg, name, type)]),
+      ).rejects.toThrow(`${name} is not a photo this import reads`);
+    }
+    /* An SVG under a photo's name is still found out. */
+    await expect(
+      preparePhoto({ bytes: svg, type: "image/jpeg", name: "card.jpg" }),
+    ).rejects.toThrow("card.jpg is not a photo this import reads");
   });
 
   it("refuses HEIC with advice, and bytes that are no image", async () => {
@@ -346,12 +396,12 @@ describe("the photo store (D5)", () => {
 });
 
 describe("transcribePhotos in a job", () => {
-  it("is one vision.transcribe step, the model unloaded, the swap said", async () => {
+  it("is one vision.transcribe step per photo, the model unloaded once, the swap said", async () => {
     const one = await cardJpeg(1);
     const two = await cardJpeg(2);
     const calls = stubModel({
-      [photoKey(one)]: "Page one\n1 cup flour",
-      [photoKey(two)]: "Page two\nBake it.",
+      [await sentPhotoKey(one)]: "Page one\n1 cup flour",
+      [await sentPhotoKey(two)]: "Page two\nBake it.",
     });
     const { job, result } = await runJob(
       { kind: "test", label: "transcribe", spec: {} },
@@ -367,35 +417,54 @@ describe("transcribePhotos in a job", () => {
       { dir: jobsDir, mirror: null },
     );
     expect(result.text).toBe("Page one\n1 cup flour\n\nPage two\nBake it.");
-    /* One call with both photos, its placement read, then the unload. */
+    /* One call per photo (De4), in page order, each placement read; the
+     * unload once, after the last page. */
     expect(calls.map((call) => call.path)).toEqual([
+      "/api/chat",
+      "/api/ps",
       "/api/chat",
       "/api/ps",
       "/api/generate",
     ]);
-    expect(
-      (calls[0].body!.messages as { images?: string[] }[])[1].images,
-    ).toHaveLength(2);
+    for (const [at, page] of [
+      [0, 1],
+      [2, 2],
+    ]) {
+      const user = (
+        calls[at].body!.messages as { content: string; images?: string[] }[]
+      )[1];
+      expect(user.images).toHaveLength(1);
+      expect(user.content).toBe(
+        `Transcribe this photo — page ${page} of 2 of one recipe card or page.`,
+      );
+    }
+    expect(calls[1].body).toBeUndefined();
     const { lines } = await readJobLog(jobsDir, job);
-    const end = lines.find(
+    const ends = lines.filter(
       (line) => line.step === "vision.transcribe" && line.phase === "end",
     );
-    expect(end?.data).toMatchObject({
-      model: "qwen2.5vl:7b",
-      photos: 2,
-      chars: result.text.length,
-      lines: 5,
-      excerpt: result.text,
-      gpu: 100,
-    });
-    expect(
-      lines.some((line) => line.step === "llm.unload" && line.phase === "end"),
-    ).toBe(true);
+    expect(ends.map((line) => line.data)).toEqual([
+      expect.objectContaining({
+        model: "qwen2.5vl:7b",
+        photos: 1,
+        part: "1/2",
+        chars: 20,
+        lines: 2,
+        excerpt: "Page one\n1 cup flour",
+        gpu: 100,
+      }),
+      expect.objectContaining({ part: "2/2", excerpt: "Page two\nBake it." }),
+    ]);
+    const unloads = lines.filter(
+      (line) => line.step === "llm.unload" && line.phase === "end",
+    );
+    expect(unloads).toHaveLength(1);
+    expect(unloads[0].data).toMatchObject({ reason: "done" });
     expect(
       lines.find((line) => line.step === "vision" && line.phase === "note")
         ?.msg,
     ).toBe(
-      `qwen2.5vl:7b read ${result.text.length} characters and was unloaded — qwen3:8b reads the transcription`,
+      `qwen2.5vl:7b read ${result.text.length} characters from 2 photos and was unloaded — qwen3:8b reads the transcription`,
     );
   });
 
@@ -416,7 +485,7 @@ describe("transcribePhotos in a job", () => {
 describe("recipes import --photo, through the local backend", () => {
   it("dry-runs: transcribes, reads the transcription, grounds against it", async () => {
     const card = await cardJpeg();
-    const calls = stubModel({ [photoKey(card)]: CARD_TEXT });
+    const calls = stubModel({ [await sentPhotoKey(card)]: CARD_TEXT });
     const backend = createLocalBackend({ contentDirectory });
     try {
       const result = await backend.importPhotos([file(card, "card.jpg")], {
@@ -480,8 +549,14 @@ describe("recipes import --photo, through the local backend", () => {
   });
 
   it("creates, and photoAsImage makes the photo the recipe's image", async () => {
-    const card = await cardJpeg();
-    stubModel({ [photoKey(card)]: CARD_TEXT });
+    /* A sideways 2400×1200 phone photo: kept upright, fitted inside 2000 px. */
+    const card = await sharp({
+      create: { width: 2400, height: 1200, channels: 3, background: "#fbf6e9" },
+    })
+      .jpeg()
+      .withMetadata({ orientation: 6 })
+      .toBuffer();
+    stubModel({ [await sentPhotoKey(card)]: CARD_TEXT });
     const backend = createLocalBackend({ contentDirectory });
     try {
       const result = await backend.importPhotos([file(card, "card.jpg")], {
@@ -499,13 +574,19 @@ describe("recipes import --photo, through the local backend", () => {
         await readFile((result as { path: string }).path, "utf8"),
       );
       expect(recipe.image).toBe("card.jpg");
-      const upload = await stat(
+      const upload = await readFile(
         join(
           contentDirectory,
           "uploads/recipe/grandmas-oat-cookies/uploads/card.jpg",
         ),
-      ).catch(() => undefined);
-      expect(upload?.size).toBe(card.length);
+      );
+      const kept = await sharp(upload).metadata();
+      expect([kept.format, kept.width, kept.height]).toEqual([
+        "jpeg",
+        1000,
+        2000,
+      ]);
+      expect(kept.orientation ?? 1).toBe(1);
     } finally {
       await backend.close();
     }
@@ -538,7 +619,7 @@ describe("recipes import --photo, through the local backend", () => {
 
   it("keeps the transcript under the set's key with its model", async () => {
     const card = await cardJpeg();
-    stubModel({ [photoKey(card)]: CARD_TEXT });
+    stubModel({ [await sentPhotoKey(card)]: CARD_TEXT });
     const backend = createLocalBackend({ contentDirectory });
     try {
       await backend.importPhotos([file(card, "card.jpg")], { dryRun: true });
@@ -567,7 +648,7 @@ describe("recipes import --photo, through the local backend", () => {
 describe("the form's Photo mode (reducePhotoImport)", () => {
   it("fills the form's state, with the transcription", async () => {
     const card = await cardJpeg();
-    stubModel({ [photoKey(card)]: CARD_TEXT });
+    stubModel({ [await sentPhotoKey(card)]: CARD_TEXT });
     const { reducePhotoImport } =
       await import("../websites/recipe-website/editor/controller/formImport");
     const photos = await storePhotos(jobsDir, [file(card, "card.jpg")]);
@@ -589,7 +670,9 @@ describe("the form's Photo mode (reducePhotoImport)", () => {
 
   it("answers a failed reading as the form's message, keeping what was read", async () => {
     const card = await cardJpeg();
-    stubModel({ [photoKey(card)]: "Just a shopping list, no recipe" });
+    stubModel({
+      [await sentPhotoKey(card)]: "Just a shopping list, no recipe",
+    });
     const { reducePhotoImport } =
       await import("../websites/recipe-website/editor/controller/formImport");
     const photos = await storePhotos(jobsDir, [file(card, "card.jpg")]);
@@ -601,5 +684,231 @@ describe("the form's Photo mode (reducePhotoImport)", () => {
       /^No recipe read from the photo's transcription/,
     );
     expect(state.transcription).toBe("Just a shopping list, no recipe");
+  });
+});
+
+/* 38e real GPU: what a crashed runner looks like, and what is done about it. */
+describe("a failed model call (38-Te5)", () => {
+  const RUNNER =
+    "model runner has unexpectedly stopped, this may be due to resource limitations or an internal error, check ollama server logs for details: vk::Queue::submit: ErrorDeviceLost";
+
+  function stubFailing(answer: () => Response): Call[] {
+    const calls: Call[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        calls.push({ path: url.pathname, ...(body ? { body } : {}) });
+        return url.pathname === "/api/chat" ? answer() : Response.json({});
+      }),
+    );
+    return calls;
+  }
+
+  it("surfaces Ollama's error, and unloads the model before reporting", async () => {
+    const calls = stubFailing(() =>
+      Response.json({ error: RUNNER }, { status: 500 }),
+    );
+    const card = await cardJpeg();
+    let failure: unknown;
+    const { job } = await runJob(
+      { kind: "test", label: "transcribe", spec: {} },
+      async (context) => {
+        try {
+          return await transcribePhotos({
+            photos: [{ bytes: card, type: "image/jpeg", name: "card.jpg" }],
+            job: context,
+          });
+        } catch (error) {
+          failure = error;
+          return undefined;
+        }
+      },
+      { dir: jobsDir, mirror: null },
+    );
+    expect(failure).toMatchObject({
+      code: "import_failed",
+      message: expect.stringMatching(
+        /^the vision model qwen2\.5vl:7b failed: the local model at .* answered 500: model runner has unexpectedly stopped.*ErrorDeviceLost$/,
+      ),
+    });
+    expect(calls.map((call) => call.path)).toEqual([
+      "/api/chat",
+      "/api/generate",
+    ]);
+    expect(calls[1].body).toEqual({ model: "qwen2.5vl:7b", keep_alive: 0 });
+    const { lines } = await readJobLog(jobsDir, job);
+    expect(
+      lines.find((line) => line.step === "llm.unload" && line.phase === "end")
+        ?.data,
+    ).toMatchObject({ reason: "runner failed" });
+  });
+
+  it("reads an empty done:false answer as a crashed runner, for the text model too", async () => {
+    const calls = stubFailing(() =>
+      Response.json({
+        model: "",
+        message: { role: "", content: "" },
+        done: false,
+      }),
+    );
+    await expect(
+      chatJson({
+        system: "s",
+        user: "u",
+        schema: { type: "object" },
+        config: { url: MODEL_URL, model: "qwen3:8b", api: "ollama" },
+      }),
+    ).rejects.toMatchObject({
+      kind: "model",
+      runnerFailed: true,
+      message: expect.stringContaining(
+        "qwen3:8b at http://model.test:11434 stopped without an answer (done: false, an empty message) — its runner has likely crashed",
+      ),
+    });
+    expect(calls.map((call) => [call.path, call.body?.keep_alive])).toEqual([
+      ["/api/chat", "10m"],
+      ["/api/generate", 0],
+    ]);
+  });
+
+  it("reads a 200 carrying an error as a failure, not as no text", async () => {
+    const calls = stubFailing(() => Response.json({ error: RUNNER }));
+    await expect(
+      transcribePhotos({
+        photos: [
+          { bytes: await cardJpeg(), type: "image/jpeg", name: "card.jpg" },
+        ],
+      }),
+    ).rejects.toThrow(
+      /failed: the local model qwen2\.5vl:7b at .* failed: model runner has unexpectedly stopped/,
+    );
+    expect(calls.map((call) => call.path)).toEqual([
+      "/api/chat",
+      "/api/generate",
+    ]);
+  });
+
+  it("unloads a vision model whose call was cancelled (38e review)", async () => {
+    const calls: Call[] = [];
+    const controller = new AbortController();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        calls.push({ path: url.pathname });
+        if (url.pathname !== "/api/chat") return Response.json({});
+        controller.abort();
+        throw init?.signal?.reason ?? new DOMException("aborted", "AbortError");
+      }),
+    );
+    await expect(
+      chatText({
+        system: "s",
+        user: "u",
+        config: { url: MODEL_URL, model: "qwen2.5vl:7b", api: "ollama" },
+        unload: true,
+        signal: controller.signal,
+      }),
+    ).rejects.toBeDefined();
+    expect(calls.map((call) => call.path)).toEqual([
+      "/api/chat",
+      "/api/generate",
+    ]);
+  });
+
+  it("leaves a call that failed on its own (no unloadOnError) loaded", async () => {
+    const calls = stubFailing(
+      () => new Response("model 'nope' not found", { status: 404 }),
+    );
+    await expect(
+      chatText({
+        system: "s",
+        user: "u",
+        config: { url: MODEL_URL, model: "nope", api: "ollama" },
+      }),
+    ).rejects.toMatchObject({ kind: "http", status: 404 });
+    expect(calls.map((call) => call.path)).toEqual(["/api/chat"]);
+  });
+});
+
+describe("the prune and the photos (38e review)", () => {
+  it("prunes no photo when a job's meta cannot be read", async () => {
+    const [photo] = await storePhotos(jobsDir, [
+      file(await cardJpeg(1), "a.jpg"),
+    ]);
+    const past = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    await utimes(join(jobsDir, photo.path), past, past);
+    const { ulid } = await import("@discontent/cms/util/ulid");
+    const { writeFile } = await import("fs-extra");
+    /* A job naming the photo, whose meta is half-written garbage. */
+    await writeFile(join(jobsDir, `${ulid()}.meta.json`), '{"spec": {"phot');
+    await pruneJobs(jobsDir, { force: true });
+    expect(await readdir(join(jobsDir, PHOTOS_DIR))).toEqual([
+      photo.path.split("/")[1],
+    ]);
+  });
+});
+
+describe("the picker's photo (form-batch, 38e review)", () => {
+  it("sets the stored photo as each created recipe's image", async () => {
+    const [photo] = await storePhotos(jobsDir, [
+      file(await cardJpeg(1), "card.jpg"),
+    ]);
+    const result = await runSpec(
+      {
+        kind: "form-batch",
+        contentDirectory,
+        picks: [
+          {
+            n: 1,
+            recipe: {
+              name: "Cake",
+              ingredients: ["200g flour"],
+              instructions: ["Mix and bake."],
+            },
+          },
+          {
+            n: 2,
+            recipe: {
+              name: "Glaze",
+              ingredients: ["100g icing sugar"],
+              instructions: ["Whisk."],
+            },
+          },
+        ],
+        total: 2,
+        commitNote: "local model, photo, {n} of {total}",
+        photos: [photo],
+      },
+      { dir: jobsDir, mirror: null },
+    );
+    expect(result.recipes).toEqual([
+      expect.objectContaining({
+        n: 1,
+        status: "imported",
+        slug: "cake",
+        warnings: expect.arrayContaining([
+          "the photo card.jpg is the image of cake (photoAsImage)",
+        ]),
+      }),
+      expect.objectContaining({
+        n: 2,
+        slug: "glaze",
+        warnings: expect.arrayContaining([
+          "the photo card.jpg is the image of glaze (photoAsImage)",
+        ]),
+      }),
+    ]);
+    for (const slug of ["cake", "glaze"]) {
+      const recipe = JSON.parse(
+        await readFile(
+          join(contentDirectory, "recipes/data", slug, "recipe.json"),
+          "utf8",
+        ),
+      );
+      expect(recipe.image).toBe("card.jpg");
+    }
   });
 });
