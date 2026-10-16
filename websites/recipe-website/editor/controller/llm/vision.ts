@@ -18,7 +18,7 @@
  * `RECIPE_LLM_API=anthropic` the vision model defaults to the text model,
  * so photo import is on with the key alone (`RECIPE_LLM_VISION_MODEL`
  * still overrides). Nothing is loaded or unloaded there — a hosted API
- * holds no `gpu` slot — and a photo is fitted inside 1568 px, not 1024
+ * holds no `gpu` slot — and a photo is fitted inside 1568 px and ~1.15 MP, not 1024
  * (`photoLimits`).
  *
  * ## One GPU at a time
@@ -119,7 +119,7 @@ export function visionConfig(
   return model ? { ...base, model } : undefined;
 }
 
-/** How a photo is fitted for `config`'s server: 1024 px for a local GPU, 1568 for Claude (Dg7). */
+/** How a photo is fitted for `config`'s server: 1024 px for a local GPU, 1568 px and ~1.15 MP for Claude (Dg7). */
 export function photoLimits(config?: LlmConfig): PhotoLimits {
   return config?.api === "anthropic"
     ? CLAUDE_PHOTO_LIMITS

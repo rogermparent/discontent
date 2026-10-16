@@ -1459,8 +1459,9 @@ data}}` blocks before the text block; **`max_tokens` 16 000**
   (seconds or an HTTP date), capped at 30 s, else 5 s; an `llm.retry` note
   in the step ("…answered 429 — asking once more in 5 s"); the wait ends on
   a cancel. A second failure is the call's. A timeout, an unreachable host
-  or a 4xx is not retried. A 401/403 is "…refused the API key
-  (RECIPE_LLM_API_KEY): 401 — <the API's words>"; an `{type: "error",
+  or a 4xx is not retried. A 401 is "…refused the API key
+  (RECIPE_LLM_API_KEY): 401 — <the API's words>" and a 403 its own
+  wording (Dg13); an `{type: "error",
 error: {message}}` body is surfaced by its message, capped at 200
   characters as before.
 - **Dg6 — The key never leaks.** It is only ever a request header. Server
@@ -1476,10 +1477,17 @@ error: {message}}` body is surfaced by its message, capped at 200
 - **Dg7 — Photos under Claude.** The vision model defaults to the text
   model (Claude reads images), so photo mode is on with the key alone;
   `RECIPE_LLM_VISION_MODEL` still overrides. The 1024 px / 0.75 MP cap is
-  the workstation GPU's (38-Te5): under `anthropic` a photo is fitted to
-  **1568 px** on its long edge (`CLAUDE_PHOTO_LIMITS`; Claude's own
-  downscale point for `claude-haiku-4-5` — `claude-sonnet-5` would read up
-  to 2576 px at up to ~3× the image tokens). Ollama keeps 1024. The 15 MB
+  the workstation GPU's (38-Te5): under `anthropic` a photo is fitted
+  inside **1568 px on its long edge and ~1.15 MP** (`CLAUDE_PHOTO_LIMITS`)
+  — Claude's _standard_ resolution tier, which `claude-haiku-4-5` and the
+  models before 4.7 downscale past (1568 px or 1 568 visual tokens of
+  28 × 28 px; platform.claude.com vision docs, 2026-10-16). `claude-sonnet-5`
+  is in the high-resolution tier (2576 px, 4 784 tokens); holding it to the
+  standard size is a cost choice — a card's print reads at this size, and
+  a full-size photo costs up to ~3× the image tokens. _Amended in review:_
+  the first cut capped the side only (1568 × 1568 px), which the standard
+  tier would have downscaled anyway. A 3000 × 2000 photo is sent at
+  1313 × 875; a 4000 × 1000 strip at 1568 × 392. Ollama keeps 1024. The 15 MB
   file cap stays. `transcribeKey(limits)` folds the limits in, so a
   transcript kept for one size is not reused for the other; the Ollama key
   is unchanged, so transcripts kept before 38g still count.
@@ -1488,12 +1496,17 @@ error: {message}}` body is surfaced by its message, capped at 200
   workstation's; the mirror image sets `YTDLP_PATH`). `/jobs` — a Settings
   item on every role since 38b — gains "The model imports read with" and
   the same `LocalModelStatus` (in a `Suspense`, as it probes the API), only
-  when `llmConfig()` is set, so the workstation suite (no model) and its
-  baselines are unchanged. For Claude it says "The Claude API at
+  when `llmConfig()` is set **or `RECIPE_LLM_API=anthropic` is asked for
+  and off** (`claudeRequested()`, review fix) — then it says why: "The
+  Claude API is off: RECIPE_LLM_API=anthropic needs RECIPE_LLM_API_KEY", or
+  Dg12's http:// reason. The workstation suite (no model) and its baselines
+  are unchanged. For Claude it says "The Claude API at
   https://api.anthropic.com (anthropic)", the model, "API key: set", and
-  `reachable` / "the API knows no model …" / "the API key was refused (401)
-  — check RECIPE_LLM_API_KEY", from `GET {url}/v1/models/{model}` with the
-  key (200 / 404 / 401).
+  `reachable` / "no model X at <url> — check RECIPE_LLM_MODEL /
+  RECIPE_LLM_URL" / "the API key was refused (401) — check
+  RECIPE_LLM_API_KEY" / Dg13's 403, from `GET {url}/v1/models/{model}` with
+  the key (200 / 404 / 401 / 403). A 404 names both settings: a wrong model
+  and a wrong base URL look alike from here.
 - **Dg9 — Wording: the client's messages and the Settings line, not the
   provenance strings.** `modelLabel(config)` says "the Claude API
   (claude-sonnet-5)" (with "at <displayUrl>" only off the default URL)
@@ -1511,12 +1524,50 @@ error: {message}}` body is surfaced by its message, capped at 200
   stops — only the ones the config sets: their lines replaced, every other
   line left (umask 077, `grep -v … > .env.new`, `chmod 600`, as
   `WORKSTATION_URL` in `--setup`). The lines travel on ssh's stdin; the
-  terminal shows ".env: model settings (RECIPE_LLM_API=anthropic, key set,
+  terminal shows ".env: model settings (RECIPE*LLM_API=anthropic, key set,
   RECIPE_LLM_MODEL=…)" — never the key, and a URL without `user:pw@`. The
   five names are `unset` before the config is sourced, so the
   workstation's own shell can never send its `RECIPE_LLM_URL` to the Pi.
   Before `--setup` has made `.env`, nothing is written (a `.env` holding
-  only these lines would make `--setup` skip `AUTH_SECRET`).
+  only these lines would make `--setup` skip `AUTH_SECRET`). \_Review fix:*
+  `RECIPE_LLM_API=off` in the config removes **every** `RECIPE_LLM_*` line
+  from the Pi's `.env` ("model settings removed"), the one way to take a
+  setting away with a deploy; `deploy-pi.md` says so, and how to do it by
+  hand.
+
+_Review round (2026-10-16), Dg11–Dg13:_
+
+- **Dg11 — A longer timeout, and `effort: "low"` where it is taken.**
+  `claude-sonnet-5` runs adaptive thinking at effort `high` by default,
+  which can carry a long page past the local model's 180 s and spend the
+  16 000 `max_tokens` on thinking. A Claude call waits
+  `ANTHROPIC_TIMEOUT_MS` (**300 s**; a caller's `timeoutMs` still wins) and
+  sends `output_config.effort: "low"` (`ANTHROPIC_EFFORT`): copying a recipe
+  or a card's words is not a reasoning task, and `low` still thinks when a
+  problem is hard. Effort goes **only** to the exact ids in
+  `EFFORT_MODELS` — the list on
+  `platform.claude.com/docs/en/build-with-claude/effort` on 2026-10-16
+  (Fable 5/5.1, Mythos 5/5.1/preview, Opus 5.5/5/4.8/4.7/4.6,
+  `claude-opus-4-5-20251101`, Sonnet 5.5/5/4.6, Haiku 5.5). Any other id —
+  `claude-haiku-4-5` and `claude-sonnet-4-5`, which answer a 400, or one
+  not listed yet — gets no effort and its own default (`takesEffort`).
+- **Dg12 — The key only over TLS.** Under `anthropic`, a `RECIPE_LLM_URL`
+  that is not `https://` turns the style off (`llmConfig()` undefined), so
+  a leftover `http://localhost:11434` can never receive `x-api-key` in
+  clear; `llmUnconfiguredMessage` and the status line say "the Claude API
+  is off: RECIPE_LLM_URL (http://…) is not an https:// address, and the
+  API key is never sent in clear — unset it for https://api.anthropic.com".
+  Loopback `http://` (127.0.0.1, localhost, [::1]) is accepted under
+  `TEST_MODE` only, for the test route's stand-in. A hand-built config is
+  refused the same way in `chat()` and `llmStatus`, before any request. A
+  trailing `/v1` is stripped (`claudeBaseUrl`), so `/v1/v1/messages`
+  cannot happen.
+- **Dg13 — A 403 is not a refused key.** Anthropic's 403 is a
+  `permission_error`: the key is accepted and lacks the permission for that
+  model or resource. A call says "…: the API key lacks permission for this
+  model or resource (RECIPE_LLM_API_KEY): 403 — <the API's words>", and
+  `llmStatus` reports `forbidden` with "the API key lacks permission for
+  this model or resource (403)"; 401 alone is `keyRefused`.
 
 #### Results
 
@@ -1545,16 +1596,15 @@ error: {message}}` body is surfaced by its message, capped at 200
 
 **Not done, on purpose.** Prompt caching (each import is one call with a
 different text after a short system prompt: little to save), streaming (a
-recipe's answer is far below `max_tokens`; a call past the 180 s
-`LLM_TIMEOUT_MS` times out as any model's does), the server-side refusal
-fallback (a beta header for a risk a recipe does not carry), and a
-per-call `effort` (Haiku 4.5 rejects the parameter). The 36-D4 grounding guard is unchanged and applies as it does
-to qwen3.
+recipe's answer is far below `max_tokens`; a call past the 300 s
+`ANTHROPIC_TIMEOUT_MS` times out as any model's does), and the server-side
+refusal fallback (a beta header for a risk a recipe does not carry). The
+36-D4 grounding guard is unchanged and applies as it does to qwen3.
 
 **Rough cost** (list prices, an estimate, not measured): a recipe page is
 ≤ ~7 k input tokens (36-D6's 24 k-character cap) and ~1–3 k output, so a
 Sonnet 5 import is a few cents and a Haiku 4.5 one about half that; a photo
-page adds ~2 k image tokens at 1568 px.
+page adds up to ~1.5 k image tokens at ~1.15 MP.
 
 **Gates.**
 
@@ -1581,6 +1631,18 @@ page adds ~2 k image tokens at 1568 px.
   `mirror-role.spec` — **26 passed** (2.2 min), including the new "/jobs
   names the model imports read with, on a mirror too, and nothing when
   there is none (38g)".
+- **After the review round (Dg11–Dg13, Dg7/Dg8/Dg10 amended):** both
+  typechecks ✓; `pnpm exec vitest run` **105 files, 2193 tests, all pass**
+  (`claudeApi.test.ts` now 32: effort sent to `claude-sonnet-5` and not to
+  `claude-haiku-4-5`, `claude-sonnet-4-5` or an unknown id — with and
+  without a schema; the 300 s default and a caller's `timeoutMs`; `/v1`
+  never doubled; an `http://` URL off with its reason, loopback only under
+  TEST*MODE, a hand-built `http://` config refused before any request; a
+  403's own wording in a call and in `llmStatus`; the 1.15 MP area cap and
+  the side cap); the `.env` dry run again, plus `RECIPE_LLM_API=off`
+  removing every `RECIPE_LLM*\*`line and keeping`AUTH_SECRET`, mode 600;
+Playwright `jobs.spec` (its page's markup changed) **10 passed** (1.8
+  min).
 - **No real API call** was made, here or in CI; no key exists on this
   machine. The real check is Roger's, after deploying (Close-out, step 6).
 
@@ -1593,9 +1655,12 @@ page adds ~2 k image tokens at 1568 px.
 - **Tg2 — A Pi `.env` line the config does not set is left alone.** The
   deploy replaces only the variables the config sets (Dg10), so a stale
   `RECIPE_LLM_URL` (say, an Ollama address) on the Pi would become the
-  Claude API's URL under `anthropic`. The Pi has no LLM lines today; if one
-  appears, set `RECIPE_LLM_URL=https://api.anthropic.com` in the config or
-  delete the line on the Pi.
+  Claude API's URL under `anthropic` — since Dg12 an `http://` one turns
+  the style off and the status line names it, rather than sending the key.
+  The Pi has no LLM lines today; if one appears, set
+  `RECIPE_LLM_URL=https://api.anthropic.com` in the config, delete the
+  line on the Pi, or deploy once with `RECIPE_LLM_API=off` and again with
+  the settings.
 - **Tg3 — `anthropic` needs no URL, so `RECIPE_LLM_URL: ""` no longer
   pins the suite off.** An `editor/.env` with `RECIPE_LLM_API=anthropic`
   and a key would have turned the model on in every Playwright run (36-T18)
@@ -1605,7 +1670,12 @@ page adds ~2 k image tokens at 1568 px.
   thinking: `thinking` blocks come before the `text` block (read only the
   text), and their tokens count against `max_tokens` and are billed.
   `claude-haiku-4-5` does not think unless asked — the cheaper choice for a
-  plain transcription or extraction.
+  plain transcription or extraction. Dg11's `effort: "low"` trims Sonnet's
+  thinking; Haiku 4.5 takes no effort at all (a 400).
+- **Tg5 — Effort is per model, and new ids are unknown.** `EFFORT_MODELS`
+  is an exact list from the docs; a model released later sends no effort
+  until it is added there (the safe direction: its own default, never a
+  400).
 
 ## Close-out
 
@@ -1716,8 +1786,9 @@ slug)` line expands into its sub-recipe's ingredients when the link
    3. On the Pi editor, `/jobs` (Settings → Jobs) shows "The model imports
       read with": "The Claude API at https://api.anthropic.com
       (anthropic)", `claude-sonnet-5`, "API key: set", Status `reachable`.
-      "the API key was refused" means a wrong key; "the API knows no
-      model" a wrong `RECIPE_LLM_MODEL`.
+      "the API key was refused" means a wrong key; "lacks permission" a
+      key without access to that model; "no model … at …" a wrong
+      `RECIPE_LLM_MODEL` or `RECIPE_LLM_URL`.
    4. A URL import with `--llm force`, from the workstation against the
       Pi: `RECIPE_API_TOKEN=<the Pi's token> pnpm --silent recipes
 --remote http://uraninite:3000 import <a recipe URL> --llm force

@@ -1,8 +1,9 @@
 import {
-  CLAUDE_NO_KEY_MESSAGE,
+  claudeRequested,
   displayUrl,
   llmConfig,
   llmStatus,
+  llmUnconfiguredMessage,
 } from "recipe-editor/controller/llm/client";
 import {
   RECOMMENDED_VISION_MODEL,
@@ -23,11 +24,12 @@ import {
 export async function LocalModelStatus() {
   const config = llmConfig();
   if (!config) {
-    if (process.env.RECIPE_LLM_API?.trim().toLowerCase() === "anthropic") {
+    if (claudeRequested()) {
+      /* No key, or an http:// URL (Dg12): say which. */
       return (
         <p className="text-sm" data-testid="local-model-status">
-          {capitalised(CLAUDE_NO_KEY_MESSAGE)} (in <code>editor/.env</code>, or
-          the Pi&apos;s <code>.env</code>).
+          {capitalised(llmUnconfiguredMessage())} (in <code>editor/.env</code>,
+          or the Pi&apos;s <code>.env</code>).
         </p>
       );
     }
@@ -44,15 +46,17 @@ export async function LocalModelStatus() {
   const claude = config.api === "anthropic";
   const status = await llmStatus(config);
   const vision = visionConfig();
-  const state = status.keyRefused
-    ? `${status.error ?? "the API key was refused"} — check RECIPE_LLM_API_KEY`
-    : !status.reachable
-      ? `unreachable (${status.error ?? "no answer"})`
-      : status.modelAvailable === false
-        ? claude
-          ? `reachable, but the API knows no model ${config.model}`
-          : `reachable, but ${config.model} is not pulled`
-        : "reachable";
+  const state =
+    status.keyRefused || status.forbidden
+      ? `${status.error ?? "the API key was refused"} — check RECIPE_LLM_API_KEY`
+      : !status.reachable
+        ? `unreachable (${status.error ?? "no answer"})`
+        : status.modelAvailable === false
+          ? claude
+            ? /* A 404: a wrong model, or a wrong base URL (Dg13). */
+              `no model ${config.model} at ${displayUrl(config.url)} — check RECIPE_LLM_MODEL / RECIPE_LLM_URL`
+            : `reachable, but ${config.model} is not pulled`
+          : "reachable";
   return (
     <dl
       className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm"

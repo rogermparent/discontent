@@ -27,6 +27,7 @@
 #   RECIPE_LLM_MODEL=claude-sonnet-5   (default; claude-haiku-4-5 is cheaper)
 #   RECIPE_LLM_URL=…                   (default https://api.anthropic.com)
 #   RECIPE_LLM_VISION_MODEL=…          (default: the model)
+# RECIPE_LLM_API=off removes every RECIPE_LLM_* line from the Pi's .env.
 set -euo pipefail
 
 usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; }
@@ -185,14 +186,20 @@ llm_env_summary() {
 # --setup skip AUTH_SECRET.
 push_llm_env() {
   local key lines="" names=""
-  for key in $LLM_ENV_KEYS; do
-    [ -n "${!key:-}" ] || continue
-    case "${!key}" in
-      *$'\n'* | *$'\r'*) die "$key in $config spans more than one line" ;;
-    esac
-    lines+="$key=${!key}"$'\n'
-    names+="${names:+|}$key"
-  done
+  # RECIPE_LLM_API=off in the config: every RECIPE_LLM_* line comes out of
+  # the Pi's .env, and the Pi is back to no model.
+  if [ "${RECIPE_LLM_API:-}" = off ]; then
+    names=$(printf '%s' "$LLM_ENV_KEYS" | tr ' ' '|')
+  else
+    for key in $LLM_ENV_KEYS; do
+      [ -n "${!key:-}" ] || continue
+      case "${!key}" in
+        *$'\n'* | *$'\r'*) die "$key in $config spans more than one line" ;;
+      esac
+      lines+="$key=${!key}"$'\n'
+      names+="${names:+|}$key"
+    done
+  fi
   [ -n "$names" ] || return 0
   local said
   said=$(printf '%s' "$lines" \
@@ -202,7 +209,9 @@ push_llm_env() {
         && cat >> .env.new && mv .env.new .env && chmod 600 .env \
         && echo written") \
     || die "could not write the model settings into the Pi's .env"
-  if [ "$said" = written ]; then
+  if [ "$said" = written ] && [ -z "$lines" ]; then
+    note ".env: model settings removed (RECIPE_LLM_API=off in the config)"
+  elif [ "$said" = written ]; then
     note ".env: model settings ($(llm_env_summary))"
   else
     note ".env: not there yet — run pnpm deploy:pi --setup, then deploy again for the model settings"

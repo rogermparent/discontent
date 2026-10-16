@@ -250,7 +250,7 @@ Environment:
                        http://localhost:11434); unset, --llm auto does
                        nothing and --llm force fails. With
                        RECIPE_LLM_API=anthropic it is optional (default
-                       https://api.anthropic.com)
+                       https://api.anthropic.com) and must be https://
   RECIPE_LLM_MODEL     The model (default qwen3:8b; with anthropic,
                        claude-sonnet-5 — claude-haiku-4-5 is cheaper)
   RECIPE_LLM_VISION_MODEL

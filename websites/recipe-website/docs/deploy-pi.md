@@ -258,12 +258,17 @@ left — on ssh's stdin, umask 077 and `chmod 600`, and says
 read from the config file only (the script unsets them before sourcing it),
 so the workstation's own environment never reaches the Pi.
 
-- **To turn it off:** remove the lines from the Pi's `.env` by hand
-  (`ssh uraninite 'sed -i "/^RECIPE_LLM_/d" ~/recipe-editor/.env'`) and from
-  the config, then redeploy (or `docker restart recipe-editor`). Removing them
-  from the config alone leaves the Pi's lines as they are.
+- **To turn it off:** set `RECIPE_LLM_API=off` in the config (the other
+  `RECIPE_LLM_*` lines there are then ignored) and run `pnpm deploy:pi`: every
+  `RECIPE_LLM_*` line comes out of the Pi's `.env` ("model settings
+  removed"). Or by hand, without a deploy:
+  `ssh uraninite 'sed -i "/^RECIPE_LLM_/d" ~/recipe-editor/.env && docker
+restart recipe-editor'`. Deleting the lines from the config alone leaves
+  the Pi's as they are — a deploy only writes what the config sets.
 - **A stale line stays** (38-Tg2): a `RECIPE_LLM_URL` on the Pi that the
-  config does not set is kept, and under `anthropic` it is the API's URL.
+  config does not set is kept, and under `anthropic` it is the API's URL; an
+  `http://` one turns the Claude API off (the key is only sent over
+  `https://`, 38-Dg12) and `/jobs` says so.
 - **Before `--setup`** nothing is written: `.env` must exist first.
 - Check it on the Pi's `/jobs` — "The model imports read with" names the
   Claude API, the model, "API key: set" and whether the key and model were

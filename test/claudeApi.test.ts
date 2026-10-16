@@ -19,11 +19,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ANTHROPIC_DEFAULT_URL,
   ANTHROPIC_MAX_TOKENS,
+  ANTHROPIC_TIMEOUT_MS,
   CLAUDE_NO_KEY_MESSAGE,
   CLAUDE_RETRY_DEFAULT_MS,
   CLAUDE_RETRY_MAX_MS,
   chatJson,
   chatText,
+  claudeBaseUrl,
+  claudeRequested,
   claudeSchema,
   LLM_UNCONFIGURED_MESSAGE,
   LlmError,
@@ -33,6 +36,7 @@ import {
   modelLabel,
   publicLlmConfig,
   retryDelayMs,
+  takesEffort,
   type LlmConfig,
 } from "../websites/recipe-website/editor/controller/llm/client";
 import {
@@ -43,6 +47,7 @@ import {
   visionConfig,
 } from "../websites/recipe-website/editor/controller/llm/vision";
 import {
+  CLAUDE_PHOTO_MAX_PIXELS,
   CLAUDE_PHOTO_MAX_SIDE,
   PHOTO_MAX_SIDE,
 } from "../websites/recipe-website/editor/controller/llm/photoPrep";
@@ -294,6 +299,7 @@ describe("the Messages API request (38g)", () => {
       system: "sys",
       messages: [{ role: "user", content: [{ type: "text", text: "usr" }] }],
       output_config: {
+        effort: "low",
         format: {
           type: "json_schema",
           schema: {
@@ -333,7 +339,8 @@ describe("the Messages API request (38g)", () => {
     });
     expect(answer.text).toBe("Oat Cookies\n1 cup butter");
     expect(calls).toHaveLength(1);
-    expect(calls[0].body?.output_config).toBeUndefined();
+    /* No format for free text; the effort only. */
+    expect(calls[0].body?.output_config).toEqual({ effort: "low" });
     expect(
       (calls[0].body?.messages as { content: unknown[] }[])[0].content,
     ).toEqual([
@@ -358,6 +365,121 @@ describe("the Messages API request (38g)", () => {
       config: { ...CLAUDE, url: "https://proxy.example/" },
     });
     expect(calls[0].url).toBe("https://proxy.example/v1/messages");
+  });
+
+  it("never doubles /v1 (a URL configured with it)", async () => {
+    const calls = stubApi([json(message([{ type: "text", text: "{}" }]))]);
+    await chatJson({
+      system: "s",
+      user: "u",
+      schema: { type: "object" },
+      config: { ...CLAUDE, url: "https://api.anthropic.com/v1/" },
+    });
+    expect(calls[0].url).toBe("https://api.anthropic.com/v1/messages");
+    expect(claudeBaseUrl("https://proxy.example/v1")).toBe(
+      "https://proxy.example",
+    );
+  });
+
+  it("sends effort only to a model the docs list (Dg11)", async () => {
+    expect(takesEffort("claude-sonnet-5")).toBe(true);
+    expect(takesEffort("claude-opus-5-5")).toBe(true);
+    for (const model of [
+      "claude-haiku-4-5",
+      "claude-sonnet-4-5",
+      "claude-something-new",
+    ]) {
+      expect(takesEffort(model)).toBe(false);
+      const calls = stubApi([
+        json(message([{ type: "text", text: '{"oneDish":false}' }])),
+      ]);
+      await chatJson({
+        system: "s",
+        user: "u",
+        schema: LLM_ONE_DISH_SCHEMA as unknown as Record<string, unknown>,
+        config: { ...CLAUDE, model },
+      });
+      const sent = calls[0].body?.output_config as Record<string, unknown>;
+      expect(sent).not.toHaveProperty("effort");
+      expect(sent).toHaveProperty("format");
+      const text = stubApi([json(message([{ type: "text", text: "x" }]))]);
+      await chatText({ system: "s", user: "u", config: { ...CLAUDE, model } });
+      expect(text[0].body).not.toHaveProperty("output_config");
+    }
+  });
+
+  it("waits ANTHROPIC_TIMEOUT_MS (300 s) by default, a caller's timeoutMs when given (Dg11)", async () => {
+    expect(ANTHROPIC_TIMEOUT_MS).toBe(300_000);
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    try {
+      stubApi([json(message([{ type: "text", text: "{}" }]))]);
+      await chatJson({
+        system: "s",
+        user: "u",
+        schema: { type: "object" },
+        config: CLAUDE,
+      });
+      expect(timeout).toHaveBeenLastCalledWith(ANTHROPIC_TIMEOUT_MS);
+      await chatJson({
+        system: "s",
+        user: "u",
+        schema: { type: "object" },
+        config: CLAUDE,
+        timeoutMs: 1234,
+      });
+      expect(timeout).toHaveBeenLastCalledWith(1234);
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+});
+
+describe("the key only over TLS (Dg12)", () => {
+  it("is off with an http:// URL, and says why", () => {
+    const env = {
+      RECIPE_LLM_API: "anthropic",
+      RECIPE_LLM_API_KEY: KEY,
+      RECIPE_LLM_URL: "http://localhost:11434",
+    };
+    expect(llmConfig(env)).toBeUndefined();
+    expect(llmUnconfiguredMessage(env)).toBe(
+      "the Claude API is off: RECIPE_LLM_URL (http://localhost:11434) is not an https:// address, and the API key is never sent in clear — unset it for https://api.anthropic.com",
+    );
+    expect(llmUnconfiguredMessage(env)).not.toContain(KEY);
+    expect(claudeRequested(env)).toBe(true);
+    expect(claudeRequested({ RECIPE_LLM_API: "ollama" })).toBe(false);
+  });
+
+  it("takes loopback http:// only under TEST_MODE (the stand-in)", () => {
+    const env = {
+      RECIPE_LLM_API: "anthropic",
+      RECIPE_LLM_API_KEY: KEY,
+      RECIPE_LLM_URL: "http://127.0.0.1:4567/v1",
+    };
+    expect(llmConfig(env)).toBeUndefined();
+    expect(llmConfig({ ...env, TEST_MODE: "1" })?.url).toBe(
+      "http://127.0.0.1:4567",
+    );
+    expect(
+      llmConfig({ ...env, TEST_MODE: "1", RECIPE_LLM_URL: "http://gpu.lan" }),
+    ).toBeUndefined();
+  });
+
+  it("refuses a hand-built http:// config before any request", async () => {
+    const fetchStub = vi.fn();
+    vi.stubGlobal("fetch", fetchStub);
+    const error = await chatJson({
+      system: "s",
+      user: "u",
+      schema: { type: "object" },
+      config: { ...CLAUDE, url: "http://gpu.lan:11434" },
+    }).catch((caught) => caught);
+    expect(error).toBeInstanceOf(LlmError);
+    expect(error.kind).toBe("unconfigured");
+    expect(
+      await llmStatus({ ...CLAUDE, url: "http://gpu.lan:11434" }),
+    ).toMatchObject({ reachable: false });
+    expect(fetchStub).not.toHaveBeenCalled();
   });
 });
 
@@ -410,6 +532,25 @@ describe("failures (38g)", () => {
       "the Claude API (claude-sonnet-5) refused the API key (RECIPE_LLM_API_KEY): 401 — invalid x-api-key",
     );
     expect(error.message).not.toContain(KEY);
+  });
+
+  it("says a 403 is a key without the permission, not a refused key (Dg13)", async () => {
+    const calls = stubApi([
+      json(
+        {
+          type: "error",
+          error: { type: "permission_error", message: "not allowed" },
+        },
+        403,
+      ),
+    ]);
+    const error = await chatJson(request).catch((caught) => caught);
+    expect(calls).toHaveLength(1);
+    expect(error.status).toBe(403);
+    expect(error.message).toBe(
+      "the Claude API (claude-sonnet-5): the API key lacks permission for this model or resource (RECIPE_LLM_API_KEY): 403 — not allowed",
+    );
+    expect(error.message).not.toContain("refused");
   });
 
   it("surfaces an error body's message, capped", async () => {
@@ -614,6 +755,14 @@ describe("llmStatus (38g)", () => {
       keyRefused: true,
       error: "the API key was refused (401)",
     });
+    stubApi([
+      json({ type: "error", error: { type: "permission_error" } }, 403),
+    ]);
+    expect(await llmStatus(CLAUDE)).toEqual({
+      reachable: false,
+      forbidden: true,
+      error: "the API key lacks permission for this model or resource (403)",
+    });
   });
 
   it("sends an openai server the key as a bearer", async () => {
@@ -652,7 +801,26 @@ describe("photos under the Claude API (38g, Dg7)", () => {
     const claude = await sharp(
       (await preparePhoto(photo, photoLimits(CLAUDE))).bytes,
     ).metadata();
-    expect([claude.width, claude.height]).toEqual([1568, 1045]);
+    /* 3000×2000 is area-bound: inside ~1.15 MP, the standard tier's tokens. */
+    expect([claude.width, claude.height]).toEqual([1313, 875]);
+    expect(claude.width! * claude.height!).toBeLessThanOrEqual(
+      CLAUDE_PHOTO_MAX_PIXELS,
+    );
+    /* A long, thin page is side-bound: 1568 px on its long edge. */
+    const strip = await sharp({
+      create: { width: 4000, height: 1000, channels: 3, background: "#fff" },
+    })
+      .jpeg()
+      .toBuffer();
+    const thin = await sharp(
+      (
+        await preparePhoto(
+          { bytes: strip, type: "image/jpeg", name: "s.jpg" },
+          photoLimits(CLAUDE),
+        )
+      ).bytes,
+    ).metadata();
+    expect([thin.width, thin.height]).toEqual([1568, 392]);
     const ollama = await sharp((await preparePhoto(photo)).bytes).metadata();
     expect(Math.max(ollama.width!, ollama.height!)).toBeLessThanOrEqual(1024);
     /* A transcript kept for one size is not reused for the other. */
@@ -686,7 +854,7 @@ describe("photos under the Claude API (38g, Dg7)", () => {
       }[]
     )[0].content[0].source!.data;
     const meta = await sharp(Buffer.from(sent, "base64")).metadata();
-    expect(meta.width).toBe(1568);
+    expect(meta.width).toBe(1313);
     const { lines } = await readJobLog(jobsDir, job);
     expect(lines.some((line) => line.step === "vision.transcribe")).toBe(true);
     expect(lines.some((line) => line.step === "llm.unload")).toBe(false);

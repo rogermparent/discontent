@@ -60,6 +60,51 @@ export const ANTHROPIC_VERSION = "2023-06-01";
  */
 export const ANTHROPIC_MAX_TOKENS = 16_000;
 
+/**
+ * How long a Claude API call may take (38g, Dg11): longer than a local
+ * model's 180 s, since a long page at Sonnet's adaptive thinking can run
+ * past it, and there is no model load to wait out. A caller's `timeoutMs`
+ * still wins.
+ */
+export const ANTHROPIC_TIMEOUT_MS = 300_000;
+
+/**
+ * The effort an import's call asks for (Dg11): copying a recipe out of a
+ * page, or a card's words out of a photo, is not a reasoning task — `low`
+ * thinks less, answers sooner, and costs less. Sent only to
+ * `EFFORT_MODELS`.
+ */
+export const ANTHROPIC_EFFORT = "low";
+
+/**
+ * The models that take `output_config.effort` (Dg11), as
+ * platform.claude.com/docs/en/build-with-claude/effort listed them on
+ * 2026-10-16. Any other model — `claude-haiku-4-5`, which answers a 400,
+ * or one not yet listed — gets no effort at all: its own default.
+ */
+export const EFFORT_MODELS: ReadonlySet<string> = new Set([
+  "claude-fable-5-1",
+  "claude-mythos-5-1",
+  "claude-fable-5",
+  "claude-mythos-5",
+  "claude-mythos-preview",
+  "claude-opus-5-5",
+  "claude-opus-5",
+  "claude-opus-4-8",
+  "claude-opus-4-7",
+  "claude-opus-4-6",
+  "claude-opus-4-5-20251101",
+  "claude-sonnet-5-5",
+  "claude-sonnet-5",
+  "claude-sonnet-4-6",
+  "claude-haiku-5-5",
+]);
+
+/** Whether `model` takes `output_config.effort` (an exact id; unknown is no). */
+export function takesEffort(model: string): boolean {
+  return EFFORT_MODELS.has(model);
+}
+
 /** The key's variable: explicit, so a shell's `ANTHROPIC_API_KEY` is never used by accident. */
 export const LLM_API_KEY_ENV = "RECIPE_LLM_API_KEY";
 
@@ -108,30 +153,84 @@ function llmApi(env: NodeJS.ProcessEnv): LlmApi {
 export function llmConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): LlmConfig | undefined {
+  return resolveLlm(env).config;
+}
+
+/** The config, or why there is none (`reason` only for a Claude API set up wrong). */
+function resolveLlm(env: NodeJS.ProcessEnv): {
+  config?: LlmConfig;
+  reason?: string;
+} {
   const override = env.TEST_MODE
     ? (globalThis as LlmGlobal).__discontentLlmUrlOverride
     : undefined;
   const api = llmApi(env);
   const apiKey = envValue(env, LLM_API_KEY_ENV);
   if (api === "anthropic") {
-    if (!apiKey) return undefined;
-    const url =
-      override ?? envValue(env, "RECIPE_LLM_URL") ?? ANTHROPIC_DEFAULT_URL;
+    if (!apiKey) return { reason: CLAUDE_NO_KEY_MESSAGE };
+    const url = claudeBaseUrl(
+      override ?? envValue(env, "RECIPE_LLM_URL") ?? ANTHROPIC_DEFAULT_URL,
+    );
+    /* Dg12: the key goes only over TLS — never in clear to a leftover
+     * Ollama address. Loopback HTTP only for TEST_MODE's stand-in. */
+    if (!secureClaudeUrl(url, !!env.TEST_MODE)) {
+      return { reason: claudeInsecureMessage(url) };
+    }
     return {
-      url: url.replace(/\/+$/, ""),
-      model: envValue(env, "RECIPE_LLM_MODEL") ?? DEFAULT_CLAUDE_MODEL,
-      api,
-      apiKey,
+      config: {
+        url,
+        model: envValue(env, "RECIPE_LLM_MODEL") ?? DEFAULT_CLAUDE_MODEL,
+        api,
+        apiKey,
+      },
     };
   }
   const url = override ?? envValue(env, "RECIPE_LLM_URL");
-  if (!url) return undefined;
+  if (!url) return {};
   return {
-    url: url.replace(/\/+$/, ""),
-    model: envValue(env, "RECIPE_LLM_MODEL") ?? DEFAULT_LLM_MODEL,
-    api,
-    ...(api === "openai" && apiKey ? { apiKey } : {}),
+    config: {
+      url: url.replace(/\/+$/, ""),
+      model: envValue(env, "RECIPE_LLM_MODEL") ?? DEFAULT_LLM_MODEL,
+      api,
+      ...(api === "openai" && apiKey ? { apiKey } : {}),
+    },
   };
+}
+
+/**
+ * The Claude API's base URL: no trailing slash, and no trailing `/v1` —
+ * the client adds `/v1/messages` itself, so `…/v1` would ask `/v1/v1/…`.
+ */
+export function claudeBaseUrl(url: string): string {
+  return url.replace(/\/+$/, "").replace(/\/v1$/, "");
+}
+
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+/** `https:`, or loopback `http:` under TEST_MODE (the stand-in model). */
+function secureClaudeUrl(url: string, testMode: boolean): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "https:") return true;
+    return (
+      testMode && parsed.protocol === "http:" && LOOPBACK.has(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function claudeInsecureMessage(url: string): string {
+  return `the Claude API is off: RECIPE_LLM_URL (${displayUrl(url)}) is not an https:// address, and the API key is never sent in clear — unset it for https://api.anthropic.com`;
+}
+
+/**
+ * Whether the environment asks for the Claude API (`RECIPE_LLM_API=
+ * anthropic`), set up right or not: the status line shows even then, with
+ * `llmUnconfiguredMessage`'s reason (Dg8).
+ */
+export function claudeRequested(env: NodeJS.ProcessEnv = process.env): boolean {
+  return llmApi(env) === "anthropic";
 }
 
 /** The config as it may be shown (a test route, a log): never the key, only that one is set. */
@@ -149,9 +248,7 @@ export const CLAUDE_NO_KEY_MESSAGE = `the Claude API is off: RECIPE_LLM_API=anth
 export function llmUnconfiguredMessage(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  return llmApi(env) === "anthropic" && !envValue(env, LLM_API_KEY_ENV)
-    ? CLAUDE_NO_KEY_MESSAGE
-    : LLM_UNCONFIGURED_MESSAGE;
+  return resolveLlm(env).reason ?? LLM_UNCONFIGURED_MESSAGE;
 }
 
 /**
@@ -161,7 +258,7 @@ export function llmUnconfiguredMessage(
  */
 export function modelLabel(config: LlmConfig): string {
   if (config.api === "anthropic") {
-    const url = config.url.replace(/\/+$/, "");
+    const url = claudeBaseUrl(config.url);
     return `the Claude API (${config.model})${url === ANTHROPIC_DEFAULT_URL ? "" : ` at ${displayUrl(url)}`}`;
   }
   return `the local model at ${displayUrl(config.url)}`;
@@ -219,22 +316,39 @@ export interface LlmStatus {
   modelAvailable?: boolean;
   /** Why it is not reachable. */
   error?: string;
-  /** The server refused the API key (38g): a 401 or 403. */
+  /** The server refused the API key (38g): a 401. */
   keyRefused?: boolean;
+  /** The key was accepted but may not use this (38g): a 403, `permission_error`. */
+  forbidden?: boolean;
 }
+
+/** A 403's words (Dg13): the key is good, its permissions are not enough. */
+export const KEY_FORBIDDEN_TEXT =
+  "the API key lacks permission for this model or resource";
 
 /**
  * Is the model server up, and does it have the model? One `GET` of its model
  * list — Ollama's `/api/tags`, OpenAI's `/v1/models` — with a short timeout:
  * the Settings page's "Local model" line (36b). The Claude API (38g) is asked
  * for the one model, `/v1/models/{model}`, with the key: 200 is the model
- * there, 404 a model it does not know, 401/403 a refused key. Never throws.
+ * there, 404 no such model *at that URL* (a wrong model or a wrong
+ * `RECIPE_LLM_URL` — Dg13 says both), 401 a refused key, 403 a key without
+ * the permission. Never throws.
  */
 export async function llmStatus(
   config: LlmConfig,
   timeoutMs = LLM_STATUS_TIMEOUT_MS,
 ): Promise<LlmStatus> {
-  const url = config.url.replace(/\/+$/, "");
+  const url =
+    config.api === "anthropic"
+      ? claudeBaseUrl(config.url)
+      : config.url.replace(/\/+$/, "");
+  if (
+    config.api === "anthropic" &&
+    !secureClaudeUrl(url, !!process.env.TEST_MODE)
+  ) {
+    return { reachable: false, error: claudeInsecureMessage(url) };
+  }
   const listUrl =
     config.api === "anthropic"
       ? `${url}/v1/models/${encodeURIComponent(config.model)}`
@@ -248,11 +362,18 @@ export async function llmStatus(
       headers: requestHeaders(config, { json: false }),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401) {
       return {
         reachable: false,
         keyRefused: true,
-        error: `the API key was refused (${response.status})`,
+        error: "the API key was refused (401)",
+      };
+    }
+    if (response.status === 403) {
+      return {
+        reachable: false,
+        forbidden: true,
+        error: `${KEY_FORBIDDEN_TEXT} (403)`,
       };
     }
     if (config.api === "anthropic") {
@@ -612,7 +733,13 @@ async function chat(
   const signal = request.signal ?? job.signal;
   /* 38g (Dg3): a hosted API holds no `gpu` slot, and has no placement to
    * read nor a model to unload or reload. */
-  if (config.api === "anthropic") return callClaude(request, config, signal);
+  if (config.api === "anthropic") {
+    /* Dg12, for a config not built by `llmConfig`: never the key in clear. */
+    if (!secureClaudeUrl(claudeBaseUrl(config.url), !!process.env.TEST_MODE)) {
+      throw new LlmError("unconfigured", claudeInsecureMessage(config.url));
+    }
+    return callClaude(request, config, signal);
+  }
   return withResource(
     "gpu",
     { ...job, ...(signal ? { signal } : {}) },
@@ -880,10 +1007,22 @@ export function claudeSchema(
  * `image` blocks before the text, `max_tokens`, and — for `chatJson` —
  * structured outputs (`output_config.format`, Dg2). No `temperature`
  * (`claude-sonnet-5` refuses sampling parameters with a 400, Tg1) and no
- * `thinking` (each model's own default).
+ * `thinking` (each model's own default). `output_config.effort` only for a
+ * model that takes it (`takesEffort`, Dg11).
  */
 export function claudeRequestBody(request: ChatRequest, config: LlmConfig) {
   const images = request.images ?? [];
+  const outputConfig = {
+    ...(takesEffort(config.model) ? { effort: ANTHROPIC_EFFORT } : {}),
+    ...(request.schema
+      ? {
+          format: {
+            type: "json_schema",
+            schema: claudeSchema(request.schema),
+          },
+        }
+      : {}),
+  };
   return {
     model: config.model,
     max_tokens: ANTHROPIC_MAX_TOKENS,
@@ -904,15 +1043,8 @@ export function claudeRequestBody(request: ChatRequest, config: LlmConfig) {
         ],
       },
     ],
-    ...(request.schema
-      ? {
-          output_config: {
-            format: {
-              type: "json_schema",
-              schema: claudeSchema(request.schema),
-            },
-          },
-        }
+    ...(Object.keys(outputConfig).length > 0
+      ? { output_config: outputConfig }
       : {}),
   };
 }
@@ -958,8 +1090,9 @@ function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
 /**
  * One Claude API call (38g): `POST {url}/v1/messages`, no `gpu` slot (Dg3).
  * A 429/529/5xx is asked once more after its `retry-after` (≤ 30 s, else
- * 5 s), an `llm.retry` note in the step (Dg5). A 401/403 is the key refused
- * — never the key; `stop_reason: "max_tokens"` is an answer cut off and
+ * 5 s), an `llm.retry` note in the step (Dg5). A 401 is the key refused, a
+ * 403 a key without the permission (Dg13) — never the key; it may take
+ * `ANTHROPIC_TIMEOUT_MS` (Dg11); `stop_reason: "max_tokens"` is an answer cut off and
  * `"refusal"` one declined, both `model` failures; an `{type: "error"}`
  * body is surfaced by its message, capped. The text is the concatenated
  * `text` blocks; `usage` goes to the step as the other styles' counts do.
@@ -970,9 +1103,9 @@ async function callClaude(
   callerSignal: AbortSignal | undefined,
 ): Promise<Omit<ChatJsonResult, "data"> & { content: string }> {
   const who = modelLabel(config);
-  const url = `${config.url.replace(/\/+$/, "")}/v1/messages`;
+  const url = `${claudeBaseUrl(config.url)}/v1/messages`;
   const payload = JSON.stringify(claudeRequestBody(request, config));
-  const timeoutMs = request.timeoutMs ?? LLM_TIMEOUT_MS;
+  const timeoutMs = request.timeoutMs ?? ANTHROPIC_TIMEOUT_MS;
   const started = Date.now();
   let body: Record<string, unknown> | undefined;
   for (let attempt = 1; !body; attempt++) {
@@ -1001,11 +1134,19 @@ async function callClaude(
           await pause(waitMs, callerSignal);
           continue;
         }
-        if (response.status === 401 || response.status === 403) {
+        const words = said ? ` — ${capped(withoutKey(said, config))}` : "";
+        if (response.status === 401) {
           throw new LlmError(
             "http",
-            `${who} refused the API key (${LLM_API_KEY_ENV}): ${response.status}${said ? ` — ${capped(withoutKey(said, config))}` : ""}`,
-            response.status,
+            `${who} refused the API key (${LLM_API_KEY_ENV}): 401${words}`,
+            401,
+          );
+        }
+        if (response.status === 403) {
+          throw new LlmError(
+            "http",
+            `${who}: ${KEY_FORBIDDEN_TEXT} (${LLM_API_KEY_ENV}): 403${words}`,
+            403,
           );
         }
         const detail = said ?? raw;

@@ -29,13 +29,19 @@ export const PHOTO_MAX_PIXELS = 750_000;
 
 /**
  * The longest side a photo is sent to the Claude API at (38g, Dg7): the
- * 1024 px cap is the workstation GPU's limit (38-Te5), not Claude's. 1568 px
- * is Claude's own downscale point for its smaller models (`claude-haiku-4-5`
- * resizes anything larger; `claude-sonnet-5` reads up to 2576 px, at up to
- * ~3× the image tokens), so a card's small print keeps its detail without
- * paying for pixels the cheaper model throws away.
+ * 1024 px cap is the workstation GPU's limit (38-Te5), not Claude's.
+ * Claude's *standard* resolution tier (`claude-haiku-4-5` and the models
+ * before 4.7) downscales anything past 1568 px on the long edge or ~1 568
+ * visual tokens (28 × 28 px each, ~1.15 MP), so this is what that tier
+ * reads at full detail. The high-resolution tier (`claude-sonnet-5`, the
+ * 4.7+ models) reads up to 2576 px and 4 784 tokens; holding it to the
+ * standard tier's size is a cost choice — a recipe card's print reads at
+ * this size, and a full-size photo would cost ~3× the image tokens.
  */
 export const CLAUDE_PHOTO_MAX_SIDE = 1568;
+
+/** The standard tier's area: ~1 568 visual tokens of 28 × 28 px (Dg7). */
+export const CLAUDE_PHOTO_MAX_PIXELS = 1_150_000;
 
 /** How a photo is fitted before it is sent: the longest side, and the area. */
 export interface PhotoLimits {
@@ -49,10 +55,10 @@ export const OLLAMA_PHOTO_LIMITS: PhotoLimits = {
   maxPixels: PHOTO_MAX_PIXELS,
 };
 
-/** The Claude API (38g): the side only — the API takes any shape. */
+/** The Claude API (38g): the standard tier's 1568 px and ~1.15 MP. */
 export const CLAUDE_PHOTO_LIMITS: PhotoLimits = {
   maxSide: CLAUDE_PHOTO_MAX_SIDE,
-  maxPixels: CLAUDE_PHOTO_MAX_SIDE * CLAUDE_PHOTO_MAX_SIDE,
+  maxPixels: CLAUDE_PHOTO_MAX_PIXELS,
 };
 
 /**

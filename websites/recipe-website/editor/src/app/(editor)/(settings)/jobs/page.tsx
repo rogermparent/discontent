@@ -1,6 +1,9 @@
 import { Suspense } from "react";
 import { auth, signIn } from "@/auth";
-import { llmConfig } from "recipe-editor/controller/llm/client";
+import {
+  claudeRequested,
+  llmConfig,
+} from "recipe-editor/controller/llm/client";
 import { LocalModelStatus } from "../settings/tools/LocalModelStatus";
 import {
   PageMain,
@@ -45,9 +48,10 @@ export default async function JobsPage() {
         {/*
          * 38g (Dg8): the model that reads imports, on every role — Settings
          * → Tools, its other home, is the workstation's only, and the Pi
-         * may now read with the Claude API. Only when one is configured.
+         * may now read with the Claude API. Only when one is configured —
+         * or the Claude API is asked for and is off, which it says why.
          */}
-        {llmConfig() ? (
+        {llmConfig() || claudeRequested() ? (
           <section className="mt-8" aria-labelledby="jobs-model-heading">
             <h2 id="jobs-model-heading" className="mb-2 text-sm font-semibold">
               The model imports read with
