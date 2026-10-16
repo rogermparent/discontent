@@ -1,6 +1,6 @@
 "use client";
 
-import { formatDayLong, parseDayKey } from "../../util/holidayDates";
+import { formatDayLong, parseDayKey } from "../../util/holidays";
 import { useToday } from "./useToday";
 
 /**

@@ -4,6 +4,9 @@ import { signIn } from "../support/helpers";
 const PUBLIC_ROUTES = [
   "/",
   "/recipes",
+  "/drinks",
+  "/make",
+  "/groups",
   "/search",
   "/bookmarks",
   "/featured-recipes",
@@ -19,10 +22,8 @@ test.describe("Navigation", () => {
       await page.goto(route);
       const banner = page.getByRole("banner");
       await expect(banner).toBeVisible();
-      // Scope to the banner: "Bookmarks" also lives in the footer now.
-      await expect(
-        banner.getByRole("link", { name: "Bookmarks" }),
-      ).toBeVisible();
+      // Scope to the banner: "Saved" also lives in the footer now.
+      await expect(banner.getByRole("link", { name: "Saved" })).toBeVisible();
     }
   });
 

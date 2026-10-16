@@ -78,9 +78,12 @@ test.describe("Command palette", () => {
     page,
   }) => {
     await page.goto("/");
-    // The ⌘K hint chip is decorative (aria-hidden) — the trigger's name is "Search".
+    // The ⌘K hint chip is decorative (aria-hidden) — the trigger is a search
+    // field (U2) named for what it searches.
     await expect(
-      page.getByRole("banner").getByRole("button", { name: "Search" }),
+      page
+        .getByRole("banner")
+        .getByRole("button", { name: "Search 3 recipes", exact: true }),
     ).toBeVisible();
 
     await openPalette(page);
@@ -195,7 +198,7 @@ test.describe("Command palette", () => {
       page.getByRole("option", { name: "Content Sync" }),
     ).toHaveCount(0);
     // Reader destinations are present.
-    await expect(page.getByRole("option", { name: "Bookmarks" })).toBeVisible();
+    await expect(page.getByRole("option", { name: "Saved" })).toBeVisible();
   });
 
   test("navigates via a 'Go to' destination", async ({ page }) => {
@@ -210,7 +213,7 @@ test.describe("Command palette", () => {
   test("closes on route change", async ({ page }) => {
     await page.goto("/");
     await openPalette(page);
-    await page.getByRole("option", { name: "Bookmarks" }).click();
+    await page.getByRole("option", { name: "Saved" }).click();
     await expect(page).toHaveURL(/\/bookmarks$/);
     await expect(palette(page)).toHaveCount(0);
   });
@@ -535,7 +538,7 @@ test.describe("Command palette — search depth", () => {
     await page.getByRole("option", { name: "Clear recent searches" }).click();
     await expect(recentGroup(page)).toHaveCount(0);
     // With the group gone the launcher takes over again.
-    await expect(page.getByRole("option", { name: "Bookmarks" })).toBeVisible();
+    await expect(page.getByRole("option", { name: "Saved" })).toBeVisible();
   });
 
   test("opening a result from the palette records it as a recent search", async ({
@@ -670,14 +673,16 @@ test.describe("Command palette @mobile", () => {
     await resetData("three-recipes");
   });
 
-  test("opens from the mobile nav sheet with no keyboard", async ({ page }) => {
+  test("opens from the phone masthead's search icon with no keyboard", async ({
+    page,
+  }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Open menu" }).click();
 
-    // Tapping Search closes the sheet and opens the palette (no ⌘K hint here).
+    // U2: the phone masthead keeps a search icon beside the menu button, so
+    // search is one tap rather than two (no ⌘K hint here).
     await page
-      .getByRole("dialog")
-      .getByRole("button", { name: "Search" })
+      .getByRole("banner")
+      .getByRole("button", { name: "Search 3 recipes" })
       .click();
 
     await expect(paletteInput(page)).toBeVisible();

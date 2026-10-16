@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { dayKey, localDay } from "../../util/holidayDates";
+import { dayKey, localDay } from "../../util/holidays";
 
 /**
  * Today on the reader's calendar, as `YYYY-MM-DD`.

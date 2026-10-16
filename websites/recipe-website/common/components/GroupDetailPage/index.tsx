@@ -153,7 +153,7 @@ export default function GroupDetailPage({
           href="/groups"
           className={buttonVariants({ variant: "default", size: "sm" })}
         >
-          Back to Groups
+          Back to plans
         </Link>
       </PageActions>
     </PageMain>

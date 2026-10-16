@@ -1,6 +1,11 @@
 /**
- * When each holiday falls, for the homepage's "Coming up" (usability pass,
- * 2026-10-15).
+ * When each holiday falls (usability pass, 2026-10-15): the one calendar the
+ * site keeps, shared by the homepage's "Coming up" (U1, through
+ * `withinComingUpWindow`) and the Drinks page's seasonal row (U3, the first
+ * dated entry of `orderByNextOccurrence`). Each caller keeps its own policy;
+ * the date rules are these. Pure and safe in the browser — both callers run
+ * it there, because the export is static and a date chosen at build time
+ * goes stale.
  *
  * A built-in table keyed by **term slug**, because the vocabulary has no date
  * field and a holiday's date is a rule rather than a value: Easter moves,
@@ -17,6 +22,9 @@
  * question about the reader's local calendar, so the caller converts the
  * browser's `Date` once with `localDay` and everything here is time-zone free.
  */
+
+/** The tag root whose children are the holidays (epic 34e); dated here by slug. */
+export const HOLIDAYS_ROOT = "holidays";
 
 /** A date on the calendar, month 1–12. */
 export interface CalendarDay {

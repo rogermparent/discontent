@@ -16,6 +16,9 @@ import { RecipePagination } from "../Pagination";
  * One surface of the paginated group index — the landing, or one numbered page.
  * Both render identically apart from their navigation, so they share a
  * component and differ only in the page they are handed.
+ *
+ * Headed "Plans" since the usability pass (U2): groups are meal plans now.
+ * The URL, the `group:` search field and the content type keep the old name.
  */
 export function GroupIndexPageWrapper({
   page,
@@ -27,7 +30,7 @@ export function GroupIndexPageWrapper({
   return (
     <PageMain>
       <PageSection grow>
-        <PageHeading>Groups</PageHeading>
+        <PageHeading>Plans</PageHeading>
         {page.items.length > 0 ? (
           <div>
             {/*
@@ -57,7 +60,7 @@ export function GroupIndexPageWrapper({
           </div>
         ) : (
           <EmptyState
-            title="No groups yet"
+            title="No plans yet"
             message="Group recipes into a meal plan or a collection to see them here."
             action={
               <Button asChild>

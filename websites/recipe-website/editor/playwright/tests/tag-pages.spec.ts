@@ -105,7 +105,7 @@ test.describe("Tag pages", () => {
       await expect(cards(page).first()).toContainText("Third Recipe");
 
       await expect(
-        page.getByRole("heading", { name: "Groups", exact: true }),
+        page.getByRole("heading", { name: "Plans", exact: true }),
       ).toBeVisible();
       const groups = page.getByTestId("group-list").getByRole("listitem");
       await expect(groups).toHaveCount(1);

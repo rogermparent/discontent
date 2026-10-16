@@ -81,6 +81,9 @@ next-env.d.ts
 /playwright/fixtures/test-content/*/taxonomies/
 !/playwright/fixtures/test-content/christmas-cookies/taxonomies/
 !/playwright/fixtures/test-content/make-drinks/taxonomies/
+# `drinks-bar` (usability pass, U3): `make-drinks` plus `spirit`, `holidays`,
+# `shaken` and a drink-name family, for `/drinks`.
+!/playwright/fixtures/test-content/drinks-bar/taxonomies/
 # `three-recipes-groups` gains a `pages` artifact, because 22b's export-build
 # check points `CONTENT_DIRECTORY` straight at this fixture — so the export
 # opens every environment it reads, right here, rather than in a copy. Named per

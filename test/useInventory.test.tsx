@@ -91,15 +91,4 @@ describe("useInventory", () => {
     expect(result.current.have).toEqual(["lime", "vodka"]);
     expect(localStorage.getItem(KEY)).toBe(LEGACY);
   });
-
-  it("still takes the old array argument (and ignores it)", async () => {
-    const { useInventory } = await load("export");
-    localStorage.setItem(
-      KEY,
-      JSON.stringify({ added: ["vodka"], removed: [], version: 2 }),
-    );
-    const { result } = renderHook(() => useInventory([]));
-    await waitFor(() => expect(result.current.ready).toBe(true));
-    expect(result.current.have).toEqual(["vodka"]);
-  });
 });

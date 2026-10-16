@@ -5,7 +5,8 @@ import {
   Bookmark,
   UtensilsCrossed,
   Star,
-  Layers,
+  CalendarDays,
+  Martini,
   Store,
   Palette,
   ListTree,
@@ -15,7 +16,7 @@ import {
   Wrench,
   Database,
   FilePlus,
-  GlassWater,
+  CookingPot,
   ShoppingCart,
 } from "lucide-react";
 
@@ -51,12 +52,14 @@ export const NAV_DESTINATIONS: NavDestination[] = [
     group: "Browse",
     keywords: ["find", "recipes"],
   },
+  /* Labels follow the masthead (U2): "Saved" and "Plans", with the old
+   * names kept as keywords so a reader who types them still lands. */
   {
-    name: "Bookmarks",
+    name: "Saved",
     href: "/bookmarks",
     icon: Bookmark,
     group: "Browse",
-    keywords: ["saved", "favorites"],
+    keywords: ["bookmarks", "favorites"],
   },
   {
     name: "All recipes",
@@ -73,18 +76,31 @@ export const NAV_DESTINATIONS: NavDestination[] = [
     keywords: ["highlights"],
   },
   {
-    name: "Groups",
+    name: "Plans",
     href: "/groups",
-    icon: Layers,
+    icon: CalendarDays,
     group: "Browse",
-    keywords: ["meal plan", "meal plans", "collection", "collections"],
+    keywords: [
+      "groups",
+      "meal plan",
+      "meal plans",
+      "collection",
+      "collections",
+    ],
+  },
+  {
+    name: "Drinks",
+    href: "/drinks",
+    icon: Martini,
+    group: "Browse",
+    keywords: ["bar", "cocktails", "mix", "spirits"],
   },
   {
     name: "What can I make?",
     href: "/make",
-    icon: GlassWater,
+    icon: CookingPot,
     group: "Browse",
-    keywords: ["make", "inventory", "bar", "drinks", "on hand", "pantry"],
+    keywords: ["make", "inventory", "on hand", "pantry"],
   },
   /* The editor's shared shopping list (35d): signed-in only, like its page. */
   {

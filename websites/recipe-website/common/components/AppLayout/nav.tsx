@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ComponentType, ReactNode, useState } from "react";
-import { BookmarkIcon, LayersIcon, MenuIcon, SearchIcon } from "lucide-react";
+import { ReactNode, useState } from "react";
+import { MenuIcon } from "lucide-react";
 import { cn } from "@discontent/component-library/lib/utils";
 import { Button } from "@discontent/component-library/components/ui/button";
 import {
@@ -20,17 +20,13 @@ import {
 } from "./Appearance";
 import { PaletteTrigger } from "../CommandPalette/PaletteTrigger";
 import { StickyChromeToggle } from "./useStickyChrome";
-
-/**
- * Leading glyphs for well-known destinations, keyed by href. Lets the masthead
- * give Bookmarks / Search the conventional recipe-site icon+label treatment
- * without threading icon data through the menus collection.
- */
-const NAV_ICONS: Record<string, ComponentType<{ className?: string }>> = {
-  "/bookmarks": BookmarkIcon,
-  "/groups": LayersIcon,
-  "/search": SearchIcon,
-};
+import {
+  isCurrentPath,
+  NAV_ICONS,
+  SITE_NAV,
+  siteNavFor,
+  type SiteNavItem,
+} from "./siteNav";
 
 /**
  * A navigation link that marks itself current when the path matches, so screen
@@ -43,18 +39,20 @@ function NavLink({
   item,
   className,
   onNavigate,
+  icon = true,
 }: {
   item: MenuItem;
   className?: string;
   onNavigate?: () => void;
+  /** Lead with the destination's glyph when it has one. */
+  icon?: boolean;
 }) {
   const pathname = usePathname();
-  const isActive = pathname === item.href;
-  const Icon = NAV_ICONS[item.href];
+  const Icon = icon ? NAV_ICONS[item.href] : undefined;
   return (
     <Link
       href={item.href}
-      aria-current={isActive ? "page" : undefined}
+      aria-current={isCurrentPath(pathname, item.href) ? "page" : undefined}
       onClick={onNavigate}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-md hover:text-primary aria-[current=page]:font-semibold aria-[current=page]:text-primary",
@@ -68,37 +66,75 @@ function NavLink({
 }
 
 /**
- * The masthead's destination links: menu-configured items plus the defaults,
- * minus `/search` — the Search affordance is now the ⌘K `PaletteTrigger` (which
- * also reaches `/search` via a "Go to" palette item), so a plain Search link here
- * would double it up.
+ * One masthead destination (U2): text only, as the design draws it; the
+ * promoted one ("What can I make?") in the accent; the current page on an
+ * accent pill. Below `lg` a long label gives way to its short one, so the
+ * row fits a small tablet — and the hidden span leaves the accessible name
+ * to whichever label shows.
  */
-function navLinks(items: MenuItem[]): MenuItem[] {
-  return items.filter((item) => item.href !== "/search");
+function MastheadLink({ item }: { item: SiteNavItem }) {
+  const pathname = usePathname();
+  return (
+    <Link
+      href={item.href}
+      aria-current={isCurrentPath(pathname, item.href) ? "page" : undefined}
+      className={cn(
+        "inline-flex items-center whitespace-nowrap rounded-md px-2 py-1.5 font-medium transition-colors hover:text-primary aria-[current=page]:bg-accent aria-[current=page]:text-accent-foreground",
+        item.promoted && "font-semibold text-primary",
+      )}
+    >
+      {item.shortName ? (
+        <>
+          <span className="lg:hidden">{item.shortName}</span>
+          <span className="hidden lg:inline">{item.name}</span>
+        </>
+      ) : (
+        item.name
+      )}
+    </Link>
+  );
 }
 
 /**
- * Header navigation: a single inline row on desktop (wordmark lives in the
- * server SiteHeader beside this), a Sheet drawer on small screens.
- * `extraNavItems` is server-rendered content (e.g. auth buttons) passed through.
+ * Header navigation (U2): the site's destinations inline from `md` up, then
+ * the search field, `extraNavItems` and Appearance; below `md` the masthead
+ * keeps a search icon and the sheet. On a phone the four thumb-reach
+ * destinations move to `PhoneTabBar` and the sheet holds the rest — Plans,
+ * Shopping, the owner's menu items. Between `sm` and `md` (a small tablet,
+ * where the signed-in row of six collided with the search field at 640 px)
+ * there is no tab bar, so the sheet holds every destination.
+ *
+ * `menuItems` is the owner-editable `header` menu, appended after the
+ * defaults (a link the defaults already have is not repeated, and `/search`
+ * is the palette's). `extraNavItems` is server-rendered content passed
+ * through. `recipeCount` labels the search field.
  */
 export function HeaderNav({
-  items,
+  menuItems = [],
   extraNavItems,
+  isOwner = false,
+  recipeCount,
 }: {
-  items: MenuItem[];
+  menuItems?: MenuItem[];
   extraNavItems?: ReactNode;
+  isOwner?: boolean;
+  recipeCount?: number;
 }) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
-  const links = navLinks(items);
+  const items = siteNavFor(isOwner);
+  const known = new Set(SITE_NAV.map((item) => item.href));
+  const extras = menuItems.filter(
+    (item) => item.href !== "/search" && !known.has(item.href),
+  );
+  const sheetItems: (MenuItem & { tab?: boolean })[] = [...items, ...extras];
 
   /*
    * Built once and handed to *both* surfaces. The desktop popover and the
    * mobile sheet are separate call sites — `AppearanceMenu`'s prop does not
    * reach the sheet's `AppearanceControls` — and the sheet is the easy miss.
-   * Sharing one element is safe: the desktop nav is `hidden sm:flex`, the sheet
-   * is `sm:hidden`, and both Radix surfaces unmount when closed.
+   * Sharing one element is safe: the desktop controls are `hidden md:flex`,
+   * the sheet is `md:hidden`, and both Radix surfaces unmount when closed.
    */
   const stickyChromeField = (
     <AppearanceField label="Sticky headers">
@@ -108,40 +144,53 @@ export function HeaderNav({
 
   return (
     <>
-      <nav className="hidden items-center gap-1 text-sm sm:flex">
-        {links.map((item) => (
+      <nav
+        aria-label="Site"
+        className="hidden min-w-0 flex-1 items-center gap-0.5 text-sm md:flex"
+      >
+        {items.map((item) => (
+          <MastheadLink key={item.href} item={item} />
+        ))}
+        {extras.map((item) => (
           <NavLink
             key={item.href}
             item={item}
-            className="px-2 py-1.5 font-medium"
+            icon={false}
+            className="whitespace-nowrap px-2 py-1.5 font-medium"
           />
         ))}
-        <PaletteTrigger />
+      </nav>
+      <div className="hidden shrink-0 items-center gap-1 text-sm md:flex">
+        <PaletteTrigger count={recipeCount} />
         {extraNavItems}
         <AppearanceMenu className="ml-1" extraControls={stickyChromeField} />
-      </nav>
+      </div>
 
-      <div className="sm:hidden">
+      <div className="flex items-center md:hidden">
+        <PaletteTrigger variant="icon" count={recipeCount} />
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Open menu">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Open menu"
+              className="size-11"
+            >
               <MenuIcon />
             </Button>
           </SheetTrigger>
           <SheetContent side="right" className="p-4">
             <SheetTitle className="mb-2">Menu</SheetTitle>
-            <nav className="flex flex-col gap-1 text-lg">
-              {links.map((item) => (
+            <nav aria-label="Menu" className="flex flex-col gap-1 text-lg">
+              {sheetItems.map((item) => (
                 <NavLink
                   key={item.href}
                   item={item}
-                  className="p-2"
+                  /* The tab bar's four are its own below `sm`. */
+                  className={cn("p-2", item.tab && "hidden sm:inline-flex")}
                   onNavigate={close}
                 />
               ))}
-              {/* Close the sheet before opening the palette so two Radix dialogs
-                  don't stack. */}
-              <PaletteTrigger variant="mobile" onNavigate={close} />
               {extraNavItems}
               <div className="mt-3 border-t border-border pt-3">
                 <AppearanceControls extraControls={stickyChromeField} />
@@ -151,6 +200,52 @@ export function HeaderNav({
         </Sheet>
       </div>
     </>
+  );
+}
+
+/**
+ * The phone's tab bar (U2): Recipes · Drinks · Make · Saved within thumb
+ * reach, `sm:hidden`; between `sm` and `md` the sheet carries them instead.
+ *
+ * Rendered after the footer as the body's last child and **sticky** to the
+ * bottom rather than fixed, through `.sticky-chrome` — the reader's
+ * sticky-header setting. Pinned, it rides the viewport's bottom edge; at the
+ * end of the page it sits in its own place in the flow, below the footer, so
+ * it never covers the last of the content and needs no padding to make room.
+ * With sticky headers off (or a short viewport under "auto") it releases
+ * like the masthead and simply ends the page. Never also give it `sticky`:
+ * see theme.css.
+ */
+export function PhoneTabBar() {
+  const pathname = usePathname();
+  return (
+    <nav
+      aria-label="Sections"
+      data-testid="phone-tab-bar"
+      className="sticky-chrome bottom-0 z-40 w-full border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur supports-[backdrop-filter]:bg-card/85 sm:hidden print:hidden"
+    >
+      {/* A `<div>`, not a list: this is on every page, and listitems here
+          would pollute the unscoped `getByRole('listitem')` recipe counts
+          the mobile specs rely on (the footer's reason, below). */}
+      <div className="grid grid-cols-4">
+        {SITE_NAV.filter((item) => item.tab).map((item) => {
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={
+                isCurrentPath(pathname, item.href) ? "page" : undefined
+              }
+              className="flex min-h-14 flex-col items-center justify-center gap-1 px-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground aria-[current=page]:text-primary"
+            >
+              <Icon className="size-5" />
+              {item.shortName ?? item.name}
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 

@@ -14,11 +14,24 @@ test.describe("Site footer", () => {
     const footer = page.getByRole("contentinfo");
     await expect(footer).toBeVisible();
 
-    // The flat default footer menu collects under a "Browse" heading.
+    // The flat default footer menu collects under a "Browse" heading: the
+    // masthead's destinations under the masthead's labels (U2), plus Search.
     await expect(footer.getByRole("heading", { name: "Browse" })).toBeVisible();
-    for (const name of ["Home", "Search", "Bookmarks"]) {
-      await expect(footer.getByRole("link", { name })).toBeVisible();
+    for (const name of [
+      "Recipes",
+      "Drinks",
+      "What can I make?",
+      "Plans",
+      "Saved",
+      "Search",
+    ]) {
+      await expect(
+        footer.getByRole("link", { name, exact: true }),
+      ).toBeVisible();
     }
+    // No "Home" (the wordmark links home) and no owner-only Shopping.
+    await expect(footer.getByRole("link", { name: "Home" })).toHaveCount(0);
+    await expect(footer.getByRole("link", { name: "Shopping" })).toHaveCount(0);
   });
 
   test("Search footer link keeps its icon inline (no broken wrap)", async ({

@@ -1,3 +1,4 @@
+import { HOLIDAYS_ROOT } from "../util/holidays";
 import type { TermHierarchyNode } from "./tagVocabulary";
 
 /**
@@ -8,11 +9,11 @@ import type { TermHierarchyNode } from "./tagVocabulary";
  * Which ones show and in what order is a question about *today*, which the
  * static export cannot answer at build time — so this hands over every
  * holiday that leads somewhere, and the browser orders and cuts them
- * (`ComingUp`, by `holidayDates.ts`).
+ * (`ComingUp`, by `util/holidays.ts`).
  */
 
 /** The root whose children are the holidays. */
-export const HOLIDAYS_ROOT = "holidays";
+export { HOLIDAYS_ROOT };
 
 /** The fields of a by-term row this needs. */
 export interface ComingUpRow {

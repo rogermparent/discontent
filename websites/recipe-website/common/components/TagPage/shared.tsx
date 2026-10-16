@@ -215,7 +215,7 @@ export function TermPageBody({ term }: { term: TermPageData }) {
       )}
       {groups.length > 0 && (
         <>
-          <h2 className="mt-6 mb-2 text-xl font-bold">Groups</h2>
+          <h2 className="mt-6 mb-2 text-xl font-bold">Plans</h2>
           {/*
             The same card `/groups` renders, from the same projection: the
             taxonomy's `project` *is* `groupsByDate`'s, so a by-term row is a
