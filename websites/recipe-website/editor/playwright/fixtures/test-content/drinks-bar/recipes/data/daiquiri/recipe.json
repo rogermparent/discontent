@@ -1,0 +1,31 @@
+{
+  "name": "Daiquiri",
+  "description": "Rum, lime and sugar, shaken cold.",
+  "tags": [
+    "drink",
+    "daiquiri"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"2\" /> oz white rum"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1\" /> oz lime juice"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"3/4\" /> oz simple syrup"
+    }
+  ],
+  "drink": {
+    "method": "shake",
+    "glass": "coupe",
+    "ice": "up"
+  },
+  "date": 1790000020000,
+  "recipeYield": "1 drink",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

@@ -274,6 +274,17 @@ const SYNONYMS: [RegExp, string][] = [
     "soda water",
   ],
   [/\btonic\b(?! water)/g, "tonic water"],
+  /*
+   * Agave spirits name their age after the spirit as often as before it
+   * (38a, Da1): "tequila blanco" is "blanco tequila", "mezcal joven" is
+   * "joven mezcal". Rows for the known words rather than a word-order rule,
+   * which would also make "milk chocolate" a "chocolate milk" and "cane
+   * sugar" "sugar cane".
+   */
+  [
+    /\b(tequila|mezcal) (blanco|plata|silver|gold|joven|reposado|extra anejo|anejo)\b/g,
+    "$2 $1",
+  ],
 ];
 
 /** Not alcohol-free: "virgin" is left alone on purpose (olive oil). */
@@ -454,6 +465,19 @@ export function stripMarkup(text: string): string {
     .replace(/<[^>]*>/g, " ")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/&amp;/g, "&");
+}
+
+/**
+ * A stored line as the line readers (`parseIngredientLine`, `parseAmount`)
+ * see it: markup undone, `normalizeIngredientText`, then the combining marks
+ * NFKD split off dropped (38a). Left in, "añejo" is `an` + a mark + `ejo`,
+ * and JS `\b` sees a word end after `an` — the leading-article cut read
+ * "2 oz añejo tequila" as `ejo tequila`, and the amount reader read
+ * "añejo tequila, to rinse" as one of something. Names are folded later
+ * anyway; an amount has no accents to lose.
+ */
+export function readableLine(line: string): string {
+  return normalizeIngredientText(stripMarkup(line)).replace(/\p{M}+/gu, "");
 }
 
 /** Split `text` at depth-0 parentheses: the outside, and each group's inside. */
@@ -710,10 +734,8 @@ export function parseIngredientLine(
   meta: LineMeta = {},
 ): Requirement[] {
   const index = meta.index ?? 0;
-  let text = normalizeIngredientText(stripMarkup(line))
-    .replace(/\*+/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  /* Marks stripped (`readableLine`): the article cut below needs it. */
+  let text = readableLine(line).replace(/\*+/g, "").replace(/\s+/g, " ").trim();
   if (!text || meta.heading || detectHeading(text)) return [];
 
   // 1. An `OR:` line (38d) is another way to meet the line before it.
@@ -932,7 +954,7 @@ export function parseIngredientList(
   /* The last requirement read since the last heading: what `OR:` extends. */
   let previous: number | undefined;
   lines.forEach((line, index) => {
-    const clean = normalizeIngredientText(stripMarkup(line)).trim();
+    const clean = readableLine(line).trim();
     if (!clean) return;
     if (headingSet.has(index) || detectHeading(clean)) {
       optionalSection = OPTIONAL_HEADING.test(clean);

@@ -57,6 +57,7 @@ function StaplesEditor({ settings }: { settings: MakeSettings }) {
     setStaples,
     resetStaples,
     defaultStaples,
+    staplesNotice,
   } = settings;
   const [draft, setDraft] = useState("");
   const inputId = useId();
@@ -131,6 +132,13 @@ function StaplesEditor({ settings }: { settings: MakeSettings }) {
             Reset to salt, pepper, water, ice
           </Button>
         )}
+        <p
+          role="status"
+          className="text-xs text-muted-foreground empty:hidden"
+          data-testid="staples-notice"
+        >
+          {staplesNotice}
+        </p>
       </div>
     </details>
   );

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useId, useMemo } from "react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { Skeleton } from "@discontent/component-library/components/ui/skeleton";
+import { groupReady, type DrinksPageData } from "../../controller/drinksPage";
 import type { SecondaryInventory } from "../../controller/secondaryInventory";
 import type { BuyNext, RecipeMatch } from "../../util/makeable";
 import { useMakeable } from "../MakePage/useMakeable";
@@ -17,21 +18,51 @@ const READY_LIMIT = 12;
 
 const drinks = (count: number) => (count === 1 ? "drink" : "drinks");
 
-function ReadyLinks({ matches }: { matches: RecipeMatch[] }) {
-  const shown = matches.slice(0, READY_LIMIT);
-  const more = matches.length - shown.length;
+const readyClassName =
+  "inline-flex min-h-11 items-center rounded-lg bg-primary px-4 font-semibold text-primary-foreground shadow-xs transition-colors hover:bg-primary/90";
+
+/**
+ * The ready drinks as buttons (U3), several sources of one drink behind one
+ * entry (38a): "Daiquiri · 2 drinks" opens the family's term page.
+ */
+function ReadyLinks({
+  matches,
+  familyOf,
+}: {
+  matches: RecipeMatch[];
+  familyOf: DrinksPageData["familyOf"];
+}) {
+  const entries = groupReady(matches, familyOf);
+  const shown = entries.slice(0, READY_LIMIT);
+  const more =
+    matches.length -
+    shown.reduce(
+      (sum, entry) =>
+        sum + (entry.kind === "family" ? entry.matches.length : 1),
+      0,
+    );
   return (
     <ul className="flex flex-wrap gap-2" data-testid="drinks-ready">
-      {shown.map(({ recipe }) => (
-        <li key={recipe.slug}>
-          <Link
-            href={`/recipe/${recipe.slug}`}
-            className="inline-flex min-h-11 items-center rounded-lg bg-primary px-4 font-semibold text-primary-foreground shadow-xs transition-colors hover:bg-primary/90"
-          >
-            {recipe.name}
-          </Link>
-        </li>
-      ))}
+      {shown.map((entry) =>
+        entry.kind === "family" ? (
+          <li key={`family:${entry.slug}`}>
+            <Link href={`/tags/${entry.slug}`} className={readyClassName}>
+              {entry.label}&nbsp;·&nbsp;
+              <span className="font-mono">{entry.matches.length}</span>
+              &nbsp;drinks
+            </Link>
+          </li>
+        ) : (
+          <li key={entry.match.recipe.slug}>
+            <Link
+              href={`/recipe/${entry.match.recipe.slug}`}
+              className={readyClassName}
+            >
+              {entry.match.recipe.name}
+            </Link>
+          </li>
+        ),
+      )}
       {more > 0 && (
         <li>
           <Link
@@ -138,12 +169,15 @@ function SecondaryGroup({
  *
  * `secondary` comes from `secondaryInventory()`: the operator's saved list
  * in a signed-in editor; elsewhere the house snapshot when the export option
- * is on, and nothing by default.
+ * is on, and nothing by default. `familyOf` is the page data's drink →
+ * families map, which groups the ready list (38a).
  */
 export function DrinksMakePanel({
   secondary,
+  familyOf,
 }: {
   secondary?: SecondaryInventory;
+  familyOf?: DrinksPageData["familyOf"];
 }) {
   const headingId = useId();
   const { status, have, analysis, withSecondary, retry } = useMakeable(
@@ -238,7 +272,9 @@ export function DrinksMakePanel({
               )}
             </h2>
           </div>
-          {ready.length > 0 && <ReadyLinks matches={ready} />}
+          {ready.length > 0 && (
+            <ReadyLinks matches={ready} familyOf={familyOf ?? {}} />
+          )}
           {oneAway > 0 && (
             <Link
               href={DRINKS_MAKE_HREF}

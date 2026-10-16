@@ -10,7 +10,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { isMirror } from "recipe-website-common/config/role";
-import { readSettings, writeSettings } from "@/settings";
+import { updateSettings } from "@/settings";
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
 import { ForbiddenError } from "recipe-editor/controller/curation/errors";
 import {
@@ -34,7 +34,7 @@ export async function PUT(request: Request) {
       );
     }
     const site = parseSiteSettings(await readJsonBody(request));
-    await writeSettings(applySiteSettings(await readSettings(), site));
+    await updateSettings((settings) => applySiteSettings(settings, site));
     revalidatePath("/", "layout");
     return Response.json({ ok: true, hash: siteSettingsHash(site) });
   } catch (error) {

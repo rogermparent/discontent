@@ -14,6 +14,8 @@ import {
 } from "recipe-website-common/components/PageLayout";
 import { SearchSkeleton } from "recipe-website-common/components/SearchForm/SearchSkeleton";
 import { saveInventoryChanges } from "recipe-editor/controller/actions/inventory";
+import { saveMakeStaples } from "recipe-editor/controller/actions/makeStaples";
+import { readSettings } from "@/settings";
 import { readInventory } from "recipe-editor/controller/curation/inventory";
 
 /**
@@ -24,11 +26,15 @@ import { readInventory } from "recipe-editor/controller/curation/inventory";
  * page, with no saved list read and nothing about it in the payload: the
  * list is private to the content repo's remote, and this is a page that
  * would otherwise leak it.
+ *
+ * A signed-in session also gets its saved "Assume I always have" list
+ * (38a, `settings.makeStaples`), which seeds a browser still on the default
+ * list and is saved on every change; a guest's staples are its browser's.
  */
 export default async function Make() {
   const session = await auth();
   const signedIn = !!session?.user?.email;
-  const [saved, secondary, tags] = await Promise.all([
+  const [saved, secondary, tags, settings] = await Promise.all([
     signedIn
       ? readInventory({ contentDirectory: getContentDirectory() }).then(
           async ({ items, path }) => ({
@@ -46,6 +52,8 @@ export default async function Make() {
      * this process was built with one, which by default it is not. */
     signedIn ? undefined : secondaryInventory(),
     readTagOptions(),
+    /* 38a: the saved "Assume I always have" list — signed in only. */
+    signedIn ? readSettings() : undefined,
   ]);
   return (
     <PageMain>
@@ -63,6 +71,11 @@ export default async function Make() {
                     label: SAVED_INVENTORY_LABEL,
                     save: saveInventoryChanges,
                   }
+                : undefined
+            }
+            savedStaples={
+              settings
+                ? { items: settings.makeStaples, save: saveMakeStaples }
                 : undefined
             }
           />
