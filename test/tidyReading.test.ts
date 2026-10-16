@@ -167,6 +167,40 @@ describe("36-T24: an unnumbered method as one step", () => {
     expect(splitMethod(several)).toEqual([]);
   });
 
+  it("never splits a hard-wrapped line mid-sentence (38c review)", () => {
+    const data = {
+      instructions: [
+        "Preheat the oven to 350°F and grease a 9x13\npan with butter. In a large bowl, whisk together\nthe flour, sugar, and baking powder until well\ncombined, about 2 minutes. Pour the batter into\nthe prepared pan and bake for 35 minutes.",
+      ],
+    };
+    const changes = splitMethod(data);
+    expect(data.instructions).toEqual([
+      "Preheat the oven to 350°F and grease a 9x13 pan with butter.",
+      "In a large bowl, whisk together the flour, sugar, and baking powder until well combined, about 2 minutes.",
+      "Pour the batter into the prepared pan and bake for 35 minutes.",
+    ]);
+    expect(changes[0]).toMatchObject({ rule: "split-method", trap: "T24" });
+  });
+
+  it("never ends a sentence on 'in.'/'cm.'/'mm.' when a number precedes it", () => {
+    expect(
+      sentences("Pour into a 9-in. pan. Bake at 350°F for 45 min."),
+    ).toEqual(["Pour into a 9-in. pan.", "Bake at 350°F for 45 min."]);
+    expect(sentences("Cut a round 9 in. across. Dust with flour.")).toEqual([
+      "Cut a round 9 in. across.",
+      "Dust with flour.",
+    ]);
+    expect(sentences("Roll it out 25 cm. wide. Chill it.")).toEqual([
+      "Roll it out 25 cm. wide.",
+      "Chill it.",
+    ]);
+    /* No number before "in.": a normal sentence end. */
+    expect(sentences("Place the dish in. Serve warm.")).toEqual([
+      "Place the dish in.",
+      "Serve warm.",
+    ]);
+  });
+
   it("keeps a section heading where it is", () => {
     const data = {
       instructions: [
@@ -197,6 +231,16 @@ describe("36-T25: a name in capitals", () => {
       "Fried Shallots (For the Casserole)",
     );
     expect(capsName("BBQ STIR-FRY WITH RICE")).toBe("BBQ Stir-Fry with Rice");
+  });
+
+  it("keeps short acronyms with a vowel, and 'y'-only words like NYC (38c review)", () => {
+    expect(capsName("NYC BLACK AND WHITE COOKIES")).toBe(
+      "NYC Black and White Cookies",
+    );
+    expect(capsName("IPA BEER BREAD")).toBe("IPA Beer Bread");
+    expect(capsName("XO SAUCE NOODLES")).toBe("XO Sauce Noodles");
+    expect(capsName("DIY PIZZA DOUGH")).toBe("DIY Pizza Dough");
+    expect(capsName("USA STYLE PANCAKES")).toBe("USA Style Pancakes");
   });
 
   it("leaves any name that is not wholly in capitals", () => {
@@ -243,6 +287,16 @@ describe("36-T26: 'all in' is the total time", () => {
     expect(prep).toEqual({ prepTime: "15 minutes" });
     expect(wholeTime("Start to finish: 2 hours")).toMatchObject({
       minutes: 120,
+    });
+  });
+
+  it("never reads 'all-in-one' as a whole time, or splits a decimal clause (38c review)", () => {
+    expect(wholeTime("An all-in-one breakfast burrito. Serves 4.")).toBe(
+      undefined,
+    );
+    expect(wholeTime("Takes 1.5 hours all in.")).toEqual({
+      minutes: 90,
+      clause: "Takes 1.5 hours all in",
     });
   });
 });
@@ -320,6 +374,40 @@ describe("36-T30: a colon-less sub-heading", () => {
     /* A line the source does not hold on its own is the model's, not a heading. */
     const invented = { ingredients: ["Icing", "1 cup sugar"] };
     expect(colonlessHeadings(invented, "1 cup sugar\n")).toEqual([]);
+  });
+
+  it("leaves a bought-as-is ingredient whose last word is a part word (38c review)", () => {
+    const phrases = [
+      "Store-bought pizza dough",
+      "Pie crust",
+      "Graham cracker crust",
+      "Whipped topping",
+      "Fresh herbs, for garnish",
+    ];
+    for (const phrase of phrases) {
+      const source = `1 cup flour\n${phrase}\n2 cups sugar\n1 egg\n`;
+      const data = {
+        ingredients: ["1 cup flour", phrase, "2 cups sugar", "1 egg"],
+      };
+      expect(colonlessHeadings(data, source)).toEqual([]);
+      expect(data.ingredients[1]).toBe(phrase);
+    }
+  });
+
+  it("still reads a bare part name, or 'the <part word>', as a heading", () => {
+    const source = "2 cups flour\n\nThe Filling\n\n1 cup jam\n1 egg\n";
+    const data = {
+      ingredients: ["2 cups flour", "The Filling", "1 cup jam", "1 egg"],
+    };
+    const changes = colonlessHeadings(data, source);
+    expect(data.ingredients[1]).toBe("The Filling:");
+    expect(changes).toHaveLength(1);
+  });
+
+  it("needs at least two amount-led lines after it", () => {
+    const source = "Icing\n\n1 cup sugar\n";
+    const data = { ingredients: ["Icing", "1 cup sugar"] };
+    expect(colonlessHeadings(data, source)).toEqual([]);
   });
 });
 

@@ -17,8 +17,11 @@
  *   minded.
  * - `colonlessHeadings` (36-T30): a short, amount-free ingredient line that
  *   stands alone in the source as a heading ("Icing" on a copied Sally's
- *   card) and leads amount-led lines gets the colon `createIngredient`
- *   reads a heading by.
+ *   card) and leads at least two amount-led lines gets the colon
+ *   `createIngredient` reads a heading by. Named a part only when the whole
+ *   line is the part word (or "the <part word>") or "For the …" — never a
+ *   bought-as-is ingredient that happens to end in one ("Store-bought pizza
+ *   dough", "Fresh herbs, for garnish"; 38c review).
  * - `capsName` (36-T25): a name in capitals ("DRUNKEN NOODLES RECIPE:") in
  *   title case, minus a trailing "RECIPE" and colon — only when the whole
  *   name is upper case, so real capitals ("BLT", "McDonald's") stay.
@@ -184,6 +187,13 @@ const NEVER_ENDS = new Set([
  */
 const MAY_END = new Set(["min", "mins", "hr", "hrs", "sec", "secs", "etc"]);
 
+/**
+ * Units a number gives in inches, centimetres or millimetres ("a 9-in.
+ * pan", "25 cm. long"): never a sentence end when a number — attached
+ * ("9-in") or the word before ("9 in") — precedes it (38c review).
+ */
+const MEASURE_WORDS = new Set(["in", "cm", "mm"]);
+
 /** Words that carry a sentence on past "min.". */
 const CARRIES_ON = new Set([
   "or",
@@ -233,6 +243,10 @@ export function sentences(text: string): string[] {
       .toLowerCase();
     if (match[1] === ".") {
       if (NEVER_ENDS.has(word) || /^\p{L}$/u.test(token)) continue;
+      if (MEASURE_WORDS.has(word)) {
+        const prior = /(\S+)\s+\S+$/.exec(before)?.[1];
+        if (/\d/.test(token) || (prior && /\d/.test(prior))) continue;
+      }
       if (
         MAY_END.has(word) &&
         (!next || CARRIES_ON.has(next) || /^[\d(]/.test(next))
@@ -254,6 +268,29 @@ export const SPLIT_MIN_SENTENCES = 3;
 /** …or from two, when the step is this long. */
 export const SPLIT_MIN_CHARS = 200;
 
+/** A line that ends a sentence of its own: `.`, `!` or `?`, trailing quotes aside. */
+const ENDS_SENTENCE = /[.!?]["'”’)\]]*$/;
+
+/**
+ * `lines` joined back wherever one does not end a sentence — a hard wrap
+ * (an emailed or PDF-copied method) never counts as a step break on its
+ * own (38c review): "Preheat the oven to 350F and prepare a\n9x13 pan with
+ * butter." is one line, one sentence, not two.
+ */
+function joinWrappedLines(lines: readonly string[]): string[] {
+  const parts: string[] = [];
+  let buffer: string[] = [];
+  for (const line of lines) {
+    buffer.push(line);
+    if (ENDS_SENTENCE.test(line)) {
+      parts.push(buffer.join(" "));
+      buffer = [];
+    }
+  }
+  if (buffer.length > 0) parts.push(buffer.join(" "));
+  return parts;
+}
+
 /** 36-T24: one long step cut at its line, else sentence, breaks. */
 export function splitMethod(data: Raw): TidyChange[] {
   const steps = strings(data.instructions);
@@ -267,13 +304,14 @@ export function splitMethod(data: Raw): TidyChange[] {
     .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean);
+  const joined = lines.length >= 2 ? joinWrappedLines(lines) : undefined;
   let parts: string[];
   let how: string;
-  if (lines.length >= 2) {
-    parts = lines;
+  if (joined && joined.length >= 2) {
+    parts = joined;
     how = "line";
   } else {
-    parts = sentences(only.replace(/\s+/g, " ").trim());
+    parts = sentences((joined?.[0] ?? only).replace(/\s+/g, " ").trim());
     how = "sentence";
     if (
       parts.length < 2 ||
@@ -373,6 +411,17 @@ function sameLine(line: string, source: string): boolean {
   );
 }
 
+/**
+ * `text` is a part's name and nothing else: the part word alone, or "the
+ * <part word>" — never a bought-as-is ingredient that happens to end in one
+ * ("Store-bought pizza dough", "Fresh herbs, for garnish"; 38c review).
+ */
+function isBarePartName(text: string): boolean {
+  const words = lineKey(text).split(" ").filter(Boolean);
+  const bare = words[0] === "the" ? words.slice(1) : words;
+  return bare.length === 1 && PART_WORDS.has(bare[0]);
+}
+
 /** 36-T30: a sub-heading the model copied without its colon gets one. */
 export function colonlessHeadings(data: Raw, source: string): TidyChange[] {
   const ingredients = strings(data.ingredients);
@@ -381,12 +430,22 @@ export function colonlessHeadings(data: Raw, source: string): TidyChange[] {
   const changes: TidyChange[] = [];
   const fixed = ingredients.map((line, index) => {
     const next = ingredients[index + 1];
-    if (!next || !headingShaped(line) || !AMOUNT_LED.test(next)) return line;
+    const second = ingredients[index + 2];
+    /* At least two amount-led lines follow — one is an ingredient on its
+     * own, not a part with a list under it. */
+    if (
+      !next ||
+      !second ||
+      !headingShaped(line) ||
+      !AMOUNT_LED.test(next) ||
+      !AMOUNT_LED.test(second)
+    ) {
+      return line;
+    }
     const at = standingLine(line, next, sourceLines);
     if (at < 0) return line;
     const text = line.trim();
-    const last = lineKey(text).split(" ").at(-1) ?? "";
-    const named = /^for\s/i.test(text) || PART_WORDS.has(last);
+    const named = /^for\s/i.test(text) || isBarePartName(text);
     /*
      * Or set apart in the source — a blank line before it — inside a list
      * whose lines run together (the next ingredient's line is followed by
@@ -445,15 +504,23 @@ function capitalise(word: string): string {
   return word.replace(/\p{L}/u, (char) => char.toUpperCase());
 }
 
+/**
+ * Short acronyms a vowel keeps out of the no-vowel rule below (38c review):
+ * "IPA", "XO", "DIY", "USA" have a real vowel; "NYC" and "BBQ" are here too,
+ * though the rule (treating "y" as never a vowel) already keeps them.
+ */
+const ACRONYMS = new Set(["nyc", "ipa", "xo", "diy", "usa", "bbq"]);
+
 /** One word of a capitals name in title case: "CAROL'S" → "Carol's", "STIR-FRY" → "Stir-Fry". */
 function titleWord(word: string, first: boolean): string {
   const letters = word.replace(/[^\p{L}]/gu, "");
-  /* "BBQ", "BLT", "PB&J": no vowel, a few letters — an initialism. */
-  if (
-    letters.length >= 2 &&
-    letters.length <= 4 &&
-    !/[aeiouy]/i.test(letters)
-  ) {
+  if (ACRONYMS.has(letters.toLowerCase())) return word;
+  /*
+   * "BBQ", "BLT", "NYC", "PB&J": no vowel — "y" is never one here, so an
+   * acronym that uses it ("NYC") is not mistaken for a word that spells
+   * one ("Toy") — and a few letters: an initialism.
+   */
+  if (letters.length >= 2 && letters.length <= 4 && !/[aeiou]/i.test(letters)) {
     return word;
   }
   const lower = word.toLowerCase();
@@ -499,9 +566,12 @@ export function capsNameRule(data: Raw): TidyChange[] {
 /* T26 — "all in" is the total time                                    */
 /* ------------------------------------------------------------------ */
 
-/** A clause that states a whole time: "about an hour all in", "start to finish: 2 hours". */
+/**
+ * A clause that states a whole time: "about an hour all in", "start to
+ * finish: 2 hours" — never "all-in-one" (38c review nit).
+ */
 const WHOLE_TIME =
-  /\ball[\s-]+in\s*$|\ball-in\b|\b(from\s+)?start\s+to\s+finish\b/i;
+  /\ball[\s-]+in\s*$|\ball-in\b(?!-one)|\b(from\s+)?start\s+to\s+finish\b/i;
 
 /** A clause this short is a time said in passing, not a method sentence. */
 const WHOLE_TIME_MAX_WORDS = 12;
@@ -515,7 +585,8 @@ export function wholeTime(
 ): { minutes: number; clause: string } | undefined {
   const found = new Map<number, string>();
   for (const line of source.split("\n")) {
-    for (const raw of line.split(/[.;!?()]|,(?!\d)/)) {
+    /* Never split on a decimal point ("1.5 hours all in"; 38c review nit). */
+    for (const raw of line.split(/[;!?()]|,(?!\d)|\.(?!\d)/)) {
       const clause = raw.trim();
       if (!clause || !WHOLE_TIME.test(clause)) continue;
       if (clause.split(/\s+/).length > WHOLE_TIME_MAX_WORDS) continue;

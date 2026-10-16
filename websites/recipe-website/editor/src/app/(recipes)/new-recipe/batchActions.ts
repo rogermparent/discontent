@@ -26,6 +26,7 @@ import {
   type ErrorObject,
 } from "recipe-editor/controller/curation/errors";
 import {
+  MAX_BATCH_RECIPES,
   shortSource,
   type BatchPick,
   type ImportBatchItem,
@@ -34,8 +35,12 @@ import { corpusOf, runSpec } from "recipe-editor/controller/jobs/kinds";
 import { parseInput } from "recipe-editor/controller/curation/schema";
 import { authenticateUser } from "recipe-editor/controller/actions/shared";
 
-/** More than a video or a paste holds: a bad request, not a batch. */
-const BATCH_MAX = 30;
+/**
+ * More than a video, a paste or a page's own recipes holds: a bad request,
+ * not a batch — the same bound `schemaReadings` caps a page's Recipe nodes
+ * to (38-Dc7), so the two never disagree.
+ */
+const BATCH_MAX = MAX_BATCH_RECIPES;
 
 const RecipeBatchInputSchema = z.strictObject({
   /** The video, or a pasted text's source. */

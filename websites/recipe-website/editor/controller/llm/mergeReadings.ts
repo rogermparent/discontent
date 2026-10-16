@@ -15,6 +15,7 @@ import type {
   Instruction,
 } from "recipe-website-common/controller/types";
 import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
+import { withVideoStart } from "recipe-website-common/util/videoUrl";
 
 /** `[line](/recipe/slug)`: the line verbatim as the link's text (36e). */
 export function linkLine(ingredient: string, slug: string): string {
@@ -47,17 +48,13 @@ export function linkReading(
   return { ...recipe, ingredients };
 }
 
-/** A video URL without the chapter start a part was given. */
+/**
+ * A video URL without the chapter start a part was given — YouTube's `t=`
+ * or Vimeo's `#t=` fragment alike (38c review nit: this used to strip only
+ * the query parameter, leaving a Vimeo fragment on the merged recipe).
+ */
 function withoutStart(url: string | undefined): string | undefined {
-  if (!url) return url;
-  try {
-    const parsed = new URL(url);
-    if (!parsed.searchParams.has("t")) return url;
-    parsed.searchParams.delete("t");
-    return parsed.href;
-  } catch {
-    return url;
-  }
+  return url === undefined ? url : withVideoStart(url, 0);
 }
 
 function steps(entries: readonly InstructionEntry[]): Instruction[] {

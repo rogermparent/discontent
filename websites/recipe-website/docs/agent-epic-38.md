@@ -237,6 +237,11 @@ editor is stopped (content only, no heavy work), then 38-close.
   capitals** ("LEMON CAKE"). The T25 rule now title-cases a single reading
   of it; in a batch the list's name ("Lemon Cake") wins, as before, so no
   existing expectation moved.
+- **Tc5 — `--llm` is refused with `--text`.** Text always goes through the
+  local model (there is nothing else to read it with), so `--llm
+force`/`auto`/`off` on a pasted-text import is a usage error, not a mode
+  switch — the real-model check's first command line was wrong for saying
+  otherwise.
 
 ### 38d
 
@@ -362,9 +367,91 @@ sentence breaks`, data `{rule, trap}`), and the `llm.extract` step's end
   since `vimeo-video-element` builds its own embed URL and drops the
   fragment). Not run in a browser: no spec can reach Vimeo.
 
-**Gates** — pending the heavy go (see the report).
+**Review fixes** (a second pass, as new commits on the same branch):
 
-**Real-model check** — pending the GPU.
+- **Blocker, SSRF — `recipeLinks` never follows a private-network link.**
+  `videoFollow.ts` now calls the roundup's `isPrivateHost` (RFC 1918,
+  loopback, CGNAT, link-local, IPv6 ULA/link-local, `localhost`) on every
+  candidate, before the deny list: a description link to `192.168.x.x` or
+  `127.0.0.1` is dropped, even unpaced (`sitePacing.ts`'s own loopback
+  check is narrower and does not cover it).
+- **Dc7 — A page over `MAX_BATCH_RECIPES` (30, the same bound the batch
+  picker already enforces) is capped, not refused.** `schemaReadings`
+  keeps the first 30 of a page's Recipe nodes and adds a warning saying
+  so, rather than a second picker path for a roundup-style index that
+  marks up every card as its own Recipe — simpler, and the first nodes are
+  usually the page's own rather than a related-posts carousel's.
+  `batchActions.ts`'s `BATCH_MAX` now imports this constant instead of its
+  own `30`, so the two can never disagree.
+- **`pageRecipeNodes` dedupes by ingredients, not name.** A node repeated
+  under a slightly different name ("Best Lemon Cake" vs "Best Lemon Cake
+  Recipe" — a plugin's graph and the theme's own markup) is now one
+  recipe: normalised ingredient lines, ≥ 80% the same between the shorter
+  list and the longer one.
+  (This _is_ "the same name and ingredients" bullet under Dc4 above — read
+  it as revised, not superseded.)
+- **`colonlessHeadings` (T30) no longer eats a bought-as-is ingredient
+  that ends in a part word** ("Store-bought pizza dough", "Fresh herbs,
+  for garnish"). Named a part only when the whole line _is_ the part word
+  (optionally "the <part word>") or "For the …" — never by its last word
+  alone — and requires at least two amount-led lines after it, not one.
+- **`splitMethod` (T24) fixes two real misreads.** `sentences` never ends
+  on "in."/"cm."/"mm." when a number precedes it, attached ("9-in.") or as
+  the word before ("9 in.") — it was cutting a pan size in two. And the
+  line-break branch only treats a line as a step break when it _ends_ a
+  sentence (`.`/`!`/`?`); a hard-wrapped paragraph (an emailed or
+  PDF-copied method with no punctuation at the wrap) is joined back into
+  one line first, then split at sentences if it is long enough — never cut
+  mid-sentence at the wrap.
+- **The reading cache keeps the right half of a follow.** A follow that
+  fails (a transient 403, a timeout) is never cached (`followFailed`),
+  so a retry refetches rather than replaying the failure; a follow that
+  succeeds keeps the video's own `llm` even when the followed page has
+  none of its own (`mapRecipeNodes`/`schemaReadings`, which no model
+  reads) — the video _was_ read by the model, and the reading is worth
+  keeping so a `--pick` retry does not ask it again.
+- **Nits:** `capsName` keeps a short acronym with a real vowel (`IPA`,
+  `XO`, `DIY`, `USA`) via a small list, and the no-vowel rule now treats
+  "y" as never a vowel, so "NYC" stays capitals without needing the list.
+  `WHOLE_TIME`'s `all-in` no longer matches inside "all-in-one". The
+  clause split for "all in" no longer breaks on a decimal point ("1.5
+  hours all in"). `mergeReadings`' `withoutStart` now calls
+  `withVideoStart(url, 0)` instead of stripping only the `?t=` query
+  parameter, so a merged recipe's Vimeo fragment (`#t=`) is cleared too.
+
+**Gates** — `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit`: both clean. `pnpm exec vitest run`:
+99 files, 2040 tests, all green (the three files this phase touches —
+`tidyReading.test.ts`, `importReading.test.ts`, `multiRecipe.test.ts` —
+88 tests on their own). Playwright: after review fixes — not yet run this
+pass (see the report for why).
+
+**Real-model check**
+
+Command: `RECIPE_JOBS_DIR=<scratch>/jobs pnpm --silent recipes import
+--text tmp/36/36c/email-chili.txt --dry-run --verbose --json --content-dir
+<scratch empty git dir>` (head d6bf1070). Note: `--llm` is refused with
+`--text` (usage) — the brief's `--llm force` was wrong; text always uses
+the model (Tc5).
+
+GPU freed first (Archilyzer paused; VRAM 91 MiB). `ollama ps`: `qwen3:8b`
+6.8 GB, 100% GPU.
+
+```
+[job RHMAFCT1] job import-text "pasted text (1243 chars)" …
+[job RHMAFCT1] text: pasted text chars 1243
+[job RHMAFCT1] split: the gate: one recipe — read as one gate false blocks 1
+[job RHMAFCT1] llm.extract …
+[job RHMAFCT1] tidy: T24: split the one-step method into 5 steps at its sentence breaks rule split-method trap T24
+[job RHMAFCT1] tidy: T25: name "CAROL'S WHITE CHICKEN CHILI" → "Carol's White Chicken Chili" rule caps-name trap T25
+[job RHMAFCT1] tidy: T26: prepTime 60 min is the total: the text says "Takes about an hour all in" rule all-in-time trap T26
+[job RHMAFCT1] llm.extract 12/12 grounded · 15.5 s · 255 tok @ 40 tok/s · load 7.4 s · GPU
+[job RHMAFCT1] ground: trusted — 12/12 lines in the source outcome trusted grounded 12 total 12 verbatim 12
+[job RHMAFCT1] job import-text "pasted text (1243 chars)" 16.1 s
+```
+
+Draft: name "Carol's White Chicken Chili", totalTime 60, prep/cook unset,
+5 steps.
 
 ### 38d — Shopping list v2
 

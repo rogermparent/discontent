@@ -29,9 +29,14 @@ import {
   importAndCreate,
   type ImportBatchResult,
   type ImportDryRunResult,
+  type UrlImport,
 } from "../websites/recipe-website/editor/controller/curation/importRecipe";
 import { inspectUrl } from "../websites/recipe-website/editor/controller/curation/inspect";
-import { recipeLinks } from "../websites/recipe-website/editor/controller/curation/videoFollow";
+import {
+  followRecipeLink,
+  recipeLinks,
+} from "../websites/recipe-website/editor/controller/curation/videoFollow";
+import type { YtdlpMetadata } from "../websites/recipe-website/editor/controller/ytdlp";
 import { reduceRecipeImport } from "../websites/recipe-website/editor/controller/formImport";
 import {
   corpusOf,
@@ -218,6 +223,21 @@ describe("a page with several recipes of its own (38c)", () => {
     expect(mapRecipeNodes(PAGE_URL, parsed)).toBeUndefined();
   });
 
+  it("dedupes a repeated node by its ingredients, even under a slightly different name (38c review)", () => {
+    const sameIngredients = {
+      recipeIngredient: ["2 cups cake flour", "1 cup sugar", "2 eggs"],
+    };
+    const html = page(
+      /* The theme's own markup. */
+      recipeNode("Best Lemon Cake", sameIngredients),
+      /* A plugin's graph, the same ingredients, the name padded with "Recipe". */
+      recipeNode("Best Lemon Cake Recipe", sameIngredients),
+    );
+    const parsed = parseRecipePage(html, PAGE_URL);
+    expect(pageRecipeNodes(PAGE_URL, parsed)).toHaveLength(1);
+    expect(mapRecipeNodes(PAGE_URL, parsed)).toBeUndefined();
+  });
+
   it("refuses a create with no pick, naming them; a dry run lists both; --pick imports one", async () => {
     const refused = await importAndCreate(ctx, PAGE_URL).catch((e) => e);
     expect(refused.code).toBe("usage");
@@ -265,6 +285,27 @@ describe("a page with several recipes of its own (38c)", () => {
     expect(dry.recipe.name).toBe("Lemon Cake");
   });
 
+  it("caps a page with more than 30 Recipe nodes, with a warning (38-Dc7)", async () => {
+    const many = page(
+      ...Array.from({ length: 35 }, (_, index) =>
+        recipeNode(`Dish ${index + 1}`),
+      ),
+    );
+    const parsed = parseRecipePage(many, PAGE_URL);
+    expect(pageRecipeNodes(PAGE_URL, parsed)).toHaveLength(35);
+    const mapped = mapRecipeNodes(PAGE_URL, parsed)!;
+    expect(mapped).toHaveLength(35);
+    pages.set(PAGE_URL, many);
+    const dryMany = asBatch(
+      await importAndCreate(ctx, PAGE_URL, { dryRun: true }),
+    );
+    expect(dryMany.found).toHaveLength(30);
+    expect(dryMany.recipes).toHaveLength(30);
+    expect(dryMany.warnings).toContainEqual(
+      "the page holds 35 recipes; only the first 30 are offered",
+    );
+  });
+
   it("inspect lists both, and the form sends them to the picker", async () => {
     const inspected = await inspectUrl(PAGE_URL);
     expect(inspected.recipes?.map((recipe) => recipe.name)).toEqual([
@@ -309,6 +350,28 @@ describe("a video whose description links its recipe (38c)", () => {
     ).toEqual(["https://cook.example.org/recipes/pancakes/"]);
     /* A link nothing calls a recipe is not one. */
     expect(recipeLinks("My blog: https://cook.example.org/about")).toEqual([]);
+  });
+
+  it("never follows a loopback or private-network link, even if it says 'recipe' (SSRF, 38c review)", () => {
+    const hosts = [
+      "http://127.0.0.1/recipe",
+      "http://192.168.1.5/recipe",
+      "http://localhost/recipe",
+      "http://[::1]/recipe",
+      "http://10.0.0.5/recipe",
+      "http://169.254.1.1/recipe",
+    ];
+    for (const url of hosts) {
+      expect(recipeLinks(`Full recipe: ${url}`)).toEqual([]);
+    }
+  });
+
+  it("follows no link when the description has two or more candidates", () => {
+    const description = [
+      "Recipe one: https://a.example.test/recipe/one",
+      "Recipe two: https://b.example.test/recipe/two",
+    ].join("\n");
+    expect(recipeLinks(description)).toHaveLength(2);
   });
 
   it("reads the linked page when the description holds no recipe, the video kept", async () => {
@@ -367,12 +430,92 @@ describe("a video whose description links its recipe (38c)", () => {
     );
   });
 
+  it("follows nothing when the description holds two distinct recipe links (38c review)", async () => {
+    const metadata: YtdlpMetadata = {
+      title: "Two Recipes",
+      description: [
+        "Recipe one: https://a.example.test/recipe/one",
+        "Recipe two: https://b.example.test/recipe/two",
+      ].join("\n"),
+      thumbnail: THUMB,
+      thumbnails: [],
+      webpage_url: FOLLOW_VIDEO,
+      duration: 60,
+      channel: "Example Channel",
+      chapters: [],
+      tags: [],
+    };
+    const result = await followRecipeLink({
+      url: FOLLOW_VIDEO,
+      metadata,
+      applied: {
+        recipe: { name: "Two Recipes" },
+        llm: { model: "qwen3:8b", mode: "auto", found: false },
+        warnings: [],
+      },
+    });
+    expect(result).toBeUndefined();
+  });
+
   it("inspect says which page it followed", async () => {
     pages.set(FOLLOWED_PAGE, page(recipeNode("Danhonggao")));
     const inspected = await inspectUrl(FOLLOW_VIDEO);
     expect(inspected.followed).toBe(FOLLOWED_PAGE);
     expect(inspected.draft?.name).toBe("Danhonggao");
     expect(inspected.video?.title).toBe("Sichuan-style Pancakes");
+  });
+
+  it("38c review: a failed follow is not cached; a successful one is, reused with no more model calls", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "follow-cache-"));
+    try {
+      const cache = readingCache<UrlImport>(dir, "follow-test-key", {
+        job: "01JOB",
+      });
+      /* The followed page errors out — a transient failure. */
+      const inner = globalThis.fetch;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL, init?: RequestInit) => {
+          if (String(input) === FOLLOWED_PAGE) {
+            throw new Error("ECONNRESET");
+          }
+          return inner(input, init);
+        }),
+      );
+      await importAndCreate(ctx, FOLLOW_VIDEO, { dryRun: true }, {}, { cache });
+      expect(await cache.load()).toBeUndefined();
+      expect(modelCalls).toHaveLength(1);
+
+      /* The page is reachable now: the follow succeeds and is cached, even
+       * though the page's own schema means its reading has no `llm` of its
+       * own — the video's `llm` is kept. */
+      stub();
+      pages.set(FOLLOWED_PAGE, page(recipeNode("Danhonggao")));
+      const dry = (await importAndCreate(
+        ctx,
+        FOLLOW_VIDEO,
+        { dryRun: true },
+        {},
+        { cache },
+      )) as ImportDryRunResult;
+      expect(dry.recipe.name).toBe("Danhonggao");
+      expect(modelCalls).toHaveLength(1);
+      const kept = await cache.load();
+      expect(kept?.value.llm).toBeDefined();
+
+      /* Reused: a create reads the description from the cache, no model call. */
+      const created = await importAndCreate(
+        ctx,
+        FOLLOW_VIDEO,
+        {},
+        {},
+        { cache },
+      );
+      expect("slug" in created && created.slug).toBe("danhonggao");
+      expect(modelCalls).toHaveLength(1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

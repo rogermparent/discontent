@@ -301,6 +301,12 @@ export interface ApplyLlmResult {
    * video (38c, `followRecipeLink`).
    */
   followed?: string;
+  /**
+   * A follow was attempted and could not be read — a transient failure
+   * (403, a timeout) that must be retried, not kept in the reading cache
+   * (38c review, `keptReading`).
+   */
+  followFailed?: boolean;
 }
 
 /** The mapper found a recipe body: ingredients or steps to keep. */
@@ -995,6 +1001,15 @@ export function pickedWarnings(
 /* ------------------------------------------------------------------ */
 
 /**
+ * The most recipes a batch offers, whichever way it arrives (36e's picker,
+ * `--pick`/`--all`, and the form's `RecipeBatchInputSchema`, which bounds
+ * `n` and the picks by the same number): past this, a roundup-style list
+ * page is capped, with a warning, rather than breaking the picker (38-Dc7,
+ * 38c review).
+ */
+export const MAX_BATCH_RECIPES = 30;
+
+/**
  * A page that publishes several recipes of its own (`mapRecipeNodes`) as a
  * batch, with the contract of a several-recipe video or paste (36e): the
  * picker on the form, `--pick` / `--all` on the CLI and MCP. No model read
@@ -1003,12 +1018,19 @@ export function pickedWarnings(
  * The model is not asked, whatever the mode (38-Dc4): a page is never split
  * by the model, and `asOne` (the caller's) is the way to read the page as
  * before — its first node, then the model as the mode says.
+ *
+ * A page over `MAX_BATCH_RECIPES` (38-Dc7: a roundup-style index marking up
+ * every card as its own Recipe node) is capped to the first that many, with
+ * a warning — simpler than a second picker path, and the first recipes are
+ * usually the page's own rather than a related-posts carousel's.
  */
 export function schemaReadings(
   recipes: readonly Partial<ImportedRecipe>[],
   { mode = DEFAULT_LLM_MODE, job }: { mode?: LlmMode; job?: JobRun } = {},
 ): ApplyLlmResult & { recipes: SplitReading[] } {
-  const readings = recipes.map(
+  const capped = recipes.length > MAX_BATCH_RECIPES;
+  const kept = capped ? recipes.slice(0, MAX_BATCH_RECIPES) : recipes;
+  const readings = kept.map(
     (recipe, index): SplitReading => ({
       n: index + 1,
       trusted: true,
@@ -1023,10 +1045,19 @@ export function schemaReadings(
   jobContext(job).log.info(
     "split",
     `the page has ${readings.length} recipes of its own — a batch`,
-    { schema: true, names: readings.map((reading) => reading.recipe.name) },
+    {
+      schema: true,
+      names: readings.map((reading) => reading.recipe.name),
+      ...(capped ? { cappedFrom: recipes.length } : {}),
+    },
   );
   const warnings = [
     `the page has ${readings.length} recipes: ${names.join(", ")}${PICK_PROMPT}`,
+    ...(capped
+      ? [
+          `the page holds ${recipes.length} recipes; only the first ${MAX_BATCH_RECIPES} are offered`,
+        ]
+      : []),
     ...(mode === "force"
       ? [
           "the local model was not asked: the page's own recipe data holds each recipe (--as-one reads its first, with the model)",

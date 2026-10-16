@@ -22,6 +22,7 @@
  * and the log says so.
  */
 import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
+import { isPrivateHost } from "recipe-website-common/util/roundupPage";
 import { jobContext, type JobRun } from "../jobs/context";
 import {
   recipeComments,
@@ -134,6 +135,9 @@ export function recipeLinks(text: string): string[] {
         continue;
       }
       if (notRecipeHost(parsed.hostname)) continue;
+      /* SSRF (38c review): never a loopback or private-network address,
+       * even though its host is not on the deny list above. */
+      if (isPrivateHost(parsed.href)) continue;
       const before: string[] = [];
       for (let back = index - 1; back >= 0 && before.length < 2; back -= 1) {
         const previous = lines[back].trim();
@@ -256,6 +260,9 @@ export async function followRecipeLink({
         ...applied.warnings,
         `the video's description links a recipe page, ${link}, which could not be read: ${page.failed}`,
       ],
+      /* 38c review: a transient failure (403, timeout) must refetch on
+       * retry — never kept in the reading cache. */
+      followFailed: true,
     };
   }
   if (!page.recipes && !hasBody(page.recipe)) {
@@ -277,6 +284,13 @@ export async function followRecipeLink({
     recipe: recipes
       ? recipes[0].recipe
       : page.recipe && withVideo(page.recipe, applied.recipe, url),
+    /*
+     * 38c review: the followed page may hold its own schema and no `llm`
+     * (`mapRecipeNodes`/`schemaReadings`), but the video's description was
+     * still read by the model — keep that so the reading is cached and a
+     * `--pick` retry does not ask the model again.
+     */
+    llm: page.llm ?? applied.llm,
     warnings: [note, ...page.warnings, ...applied.warnings],
     ...(recipes ? { recipes } : {}),
     followed: link,

@@ -49,6 +49,7 @@ import type { ImageProbe } from "../imageImport";
 import { fetchImageFile, probeImageFile } from "../imageImport";
 import {
   applyLlm,
+  MAX_BATCH_RECIPES,
   pickedWarnings,
   readPastedText,
   schemaReadings,
@@ -60,6 +61,8 @@ import {
   type LlmMode,
   type SplitReading,
 } from "../llm/importWithLlm";
+
+export { MAX_BATCH_RECIPES };
 import type { ChapterRef } from "../llm/chapterTime";
 import type { ReadingCache } from "../jobs/readingCache";
 import type { ComponentRef } from "../llm/splitRecipes";
@@ -537,8 +540,14 @@ async function keptReading(
     };
   }
   const reading = await read();
-  /* Only what the model answered is worth keeping (a failed call is not). */
-  if (cache && reading.llm && !reading.llm.error) await cache.save(reading);
+  /*
+   * Only what the model answered is worth keeping (a failed call is not),
+   * and never a reading whose follow failed (38c review): a transient
+   * 403 or timeout must be retried, not served stale from the cache.
+   */
+  if (cache && reading.llm && !reading.llm.error && !reading.followFailed) {
+    await cache.save(reading);
+  }
   return reading;
 }
 
