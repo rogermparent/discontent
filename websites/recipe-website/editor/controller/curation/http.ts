@@ -61,6 +61,11 @@ export function statusFor(code: CurationErrorCode): number {
      * it.
      */
     case "cancelled":
+    /*
+     * A retry of a job that is still live, or already running again (37c
+     * review): the job's state, not the request, declines it.
+     */
+    case "job_live":
       return 409;
     case "unknown_recipe":
     /* Same reasoning, other content type: well-formed body, absent target. */

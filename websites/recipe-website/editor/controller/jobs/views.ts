@@ -15,11 +15,13 @@
  */
 import {
   CurationError,
+  JobLiveError,
   NotFoundError,
   ValidationError,
+  withJob,
 } from "../curation/errors";
 import type { CurationContext } from "../curation/context";
-import type { JobLine } from "./log";
+import { redactUrlText, type JobLine } from "./log";
 import {
   JOB_LIST_DEFAULT_LIMIT,
   JOB_LIST_MAX_LIMIT,
@@ -35,6 +37,7 @@ import {
   listJobs,
   readJobLog,
   readJobMeta,
+  settleOrphanedJob,
   type JobError,
   type JobMeta,
   type JobStatus,
@@ -145,16 +148,33 @@ export function summarizeJob(meta: JobMeta, now = Date.now()): JobSummary {
 
 /**
  * The spec as a reader sees it: pasted text as its length, the picker's
- * readings as their names. The record keeps both for Retry.
+ * readings as their names, a URL without its `user:password@` (the log's
+ * redaction), and no `author` or `contentDirectory` — the committer's email
+ * and a server path, which no surface shows and a read token need not
+ * learn. The record keeps all of it for Retry.
  */
 export function summarizeSpec(spec: unknown): unknown {
   if (!spec || typeof spec !== "object" || Array.isArray(spec)) return spec;
-  const { text, picks, ...rest } = spec as {
+  const {
+    text,
+    picks,
+    url,
+    source,
+    author: _author,
+    contentDirectory: _contentDirectory,
+    ...rest
+  } = spec as {
     text?: unknown;
     picks?: unknown;
+    url?: unknown;
+    source?: unknown;
+    author?: unknown;
+    contentDirectory?: unknown;
   } & Record<string, unknown>;
   return {
     ...rest,
+    ...(typeof url === "string" ? { url: redactUrlText(url) } : {}),
+    ...(typeof source === "string" ? { source: redactUrlText(source) } : {}),
     ...(typeof text === "string" ? { textChars: text.length } : {}),
     ...(Array.isArray(picks)
       ? {
@@ -217,13 +237,34 @@ export function parseFrom(value: string | number | undefined | null): number {
   return Number(text);
 }
 
-/** Newest first, filtered. */
+/**
+ * A meta as a reader should report it: a live one whose process is gone
+ * (or silent past `JOB_STALE_MS`) is closed as `interrupted` first — and
+ * written so, for every other reader (37c review). A failure to write it
+ * leaves the meta as read.
+ */
+async function settledMeta(
+  dir: string,
+  meta: JobMeta,
+  now = Date.now(),
+): Promise<JobMeta> {
+  if (!LIVE_STATUSES.includes(meta.status)) return meta;
+  return settleOrphanedJob(dir, meta, now).then(
+    (settled) => settled.meta,
+    () => meta,
+  );
+}
+
+/** Newest first, filtered (an orphaned live job is closed first). */
 export async function listJobSummaries(
   { status, kind, limit = JOB_LIST_DEFAULT_LIMIT }: JobListOptions = {},
   dir: string = jobsDirectory(),
 ): Promise<JobListResult> {
   const now = Date.now();
-  const matching = (await listJobs(dir)).filter(
+  const metas = await Promise.all(
+    (await listJobs(dir)).map((meta) => settledMeta(dir, meta, now)),
+  );
+  const matching = metas.filter(
     (meta) =>
       (status === undefined ||
         (status === "live"
@@ -359,7 +400,7 @@ export async function getJobView(
     queueDir = queueDirectory(),
   }: { from?: number; dir?: string; queueDir?: string } = {},
 ): Promise<JobView> {
-  const meta = await requireJob(id, dir);
+  const meta = await settledMeta(dir, await requireJob(id, dir));
   const [{ lines, next }, position] = await Promise.all([
     readJobLog(dir, meta.id, from),
     livePosition(meta, queueDir),
@@ -389,7 +430,8 @@ export async function cancelJobById(
   id: string,
   { dir = jobsDirectory(), reason }: { dir?: string; reason?: string } = {},
 ): Promise<JobCancelResult> {
-  const meta = await requireJob(id, dir);
+  /* An orphan is `interrupted` first, so the cancel answers `ended`. */
+  const meta = await settledMeta(dir, await requireJob(id, dir));
   const outcome = await requestJobCancel(meta.id, {
     dir,
     reason: reason ?? "cancelled",
@@ -397,18 +439,69 @@ export async function cancelJobById(
   if (outcome === "not_found") {
     throw new NotFoundError(`No job "${id}".`);
   }
-  return {
-    job: meta.id,
-    outcome,
-    status: outcome === "ended" ? meta.status : "running",
-  };
+  /*
+   * `cancelled`: it ran here and is stopped (its meta is written a moment
+   * later). Otherwise the record's own: `queued`/`running` for a request
+   * another process will see, the end it had for `ended` — read again,
+   * since it may have ended while this was asked.
+   */
+  const status =
+    outcome === "cancelled"
+      ? "cancelled"
+      : outcome === "ended"
+        ? ((await readJobMeta(dir, meta.id).catch(() => undefined))?.status ??
+          meta.status)
+        : meta.status;
+  return { job: meta.id, outcome, status };
+}
+
+interface RetryGuardGlobal {
+  /**
+   * Per job id, a retry being started in this process now: what it started
+   * (its job), so a second press in the same instant is refused naming it.
+   * On `globalThis`, as the running-jobs registry is (T5).
+   */
+  __discontentRetriesStarting?: Map<string, Promise<string | undefined>>;
+}
+
+function retriesStarting(): Map<string, Promise<string | undefined>> {
+  const global = globalThis as RetryGuardGlobal;
+  return (global.__discontentRetriesStarting ??= new Map());
+}
+
+/** A live job that runs `id` again, if one does (an orphan is closed first). */
+async function liveRetryOf(
+  id: string,
+  dir: string,
+): Promise<JobMeta | undefined> {
+  for (const meta of await listJobs(dir)) {
+    if (meta.retryOf !== id || !LIVE_STATUSES.includes(meta.status)) continue;
+    const settled = await settledMeta(dir, meta);
+    if (LIVE_STATUSES.includes(settled.status)) return settled;
+  }
+  return undefined;
+}
+
+function liveRetryError(id: string, live: string): JobLiveError {
+  return withJob(
+    new JobLiveError(
+      `Job ${id} is already running again as ${live}: follow that one, or cancel it first.`,
+    ),
+    live,
+  );
 }
 
 /**
  * Run a job again with `ctx` (`retryJob`: the caller's own context, and a
  * spec recorded against another content directory refused). `wait` awaits
  * the new job (the CLI's local run, whose process would end otherwise);
- * without it the new job's id comes back at once (the API, `/jobs`).
+ * without it the new job's id comes back at once (the API, `/jobs`), and
+ * `background` is handed the new job's outcome to keep the work — and
+ * what it revalidates — alive past the answer (the route's `after()`).
+ *
+ * Refused with `job_live` (409), naming the live job as `job`, while the
+ * job itself is still live, or while a live job already runs it again —
+ * a second press, or a script's loop, starts nothing (37c review).
  */
 export async function retryJobById(
   id: string,
@@ -416,12 +509,53 @@ export async function retryJobById(
   {
     dir = jobsDirectory(),
     wait = false,
-  }: { dir?: string; wait?: boolean } = {},
+    background,
+  }: {
+    dir?: string;
+    wait?: boolean;
+    background?: (done: Promise<unknown>) => void;
+  } = {},
 ): Promise<JobRetryResult> {
-  const meta = await requireJob(id, dir);
-  const started = await retryJob(meta, ctx, { dir });
+  const meta = await settledMeta(dir, await requireJob(id, dir));
+  const starting = retriesStarting();
+  const inFlight = starting.get(meta.id);
+  if (inFlight) {
+    const other = await inFlight;
+    if (other) throw liveRetryError(meta.id, other);
+    /* That one did not start: this one may. */
+    return retryJobById(id, ctx, {
+      dir,
+      wait,
+      ...(background ? { background } : {}),
+    });
+  }
+  let settle!: (job: string | undefined) => void;
+  const marker = new Promise<string | undefined>((resolve) => {
+    settle = resolve;
+  });
+  starting.set(meta.id, marker);
+  let started: Awaited<ReturnType<typeof retryJob>> | undefined;
+  try {
+    if (LIVE_STATUSES.includes(meta.status)) {
+      throw withJob(
+        new JobLiveError(
+          `Job ${meta.id} is still ${meta.status}: it can run again once it has ended (or been cancelled).`,
+        ),
+        meta.id,
+      );
+    }
+    const live = await liveRetryOf(meta.id, dir);
+    if (live) throw liveRetryError(meta.id, live.id);
+    started = await retryJob(meta, ctx, { dir });
+  } finally {
+    settle(started?.job);
+    if (starting.get(meta.id) === marker) starting.delete(meta.id);
+  }
   const base = { job: started.job, retryOf: meta.id };
-  if (!wait) return { ...base, status: "running" };
+  if (!wait) {
+    background?.(started.done);
+    return { ...base, status: "running" };
+  }
   try {
     const result = await started.done;
     const ended = await findJob(dir, started.job);

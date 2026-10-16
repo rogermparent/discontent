@@ -168,6 +168,18 @@ function scrub(text: string, secrets: readonly string[]): string {
   return out;
 }
 
+/**
+ * A URL (or any text) without a `user:password@` or a secret-looking
+ * environment value, uncut: what a reader of a job's spec sees of its
+ * `url` and `source` (37c review), as the log would write them.
+ */
+export function redactUrlText(
+  text: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return scrub(text, secretValues(env));
+}
+
 function cut(text: string): string {
   return text.length > LOG_TEXT_MAX_CHARS
     ? `${text.slice(0, LOG_TEXT_MAX_CHARS - 1)}…`

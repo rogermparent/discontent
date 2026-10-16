@@ -6,9 +6,10 @@
 // the `cancelled` error code end to end. Every job dir is a temp dir; the
 // curation context is mocked (no Next, no token); no network, no model.
 
-import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { spawn, spawnSync } from "node:child_process";
+import { appendFile, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
@@ -38,7 +39,10 @@ import {
   writeJobMeta,
   type JobMeta,
 } from "../websites/recipe-website/editor/controller/jobs/store";
-import { buildStepTree } from "../websites/recipe-website/editor/controller/jobs/timeline";
+import {
+  buildStepTree,
+  resultRows,
+} from "../websites/recipe-website/editor/controller/jobs/timeline";
 import {
   parseFrom,
   summarizeSpec,
@@ -59,6 +63,24 @@ vi.mock("recipe-editor/controller/apiContext", () => ({
     if (!authed) throw new UnauthenticatedError();
     if (need === "write" && readOnly) throw new ForbiddenError();
     return ctx;
+  },
+}));
+
+/*
+ * `after()` outside Next (37c review): the retry route hands it the new
+ * job's outcome; here each task is kept, so a test can see it was handed
+ * over and await it.
+ */
+const { afterTasks } = vi.hoisted(() => ({
+  afterTasks: [] as Promise<unknown>[],
+}));
+vi.mock("next/server", () => ({
+  after: (task: unknown) => {
+    afterTasks.push(
+      typeof task === "function"
+        ? Promise.resolve().then(task as () => unknown)
+        : (task as Promise<unknown>),
+    );
   },
 }));
 
@@ -88,6 +110,7 @@ beforeEach(async () => {
   };
   authed = true;
   readOnly = false;
+  afterTasks.length = 0;
 });
 
 afterEach(async () => {
@@ -418,6 +441,8 @@ describe("POST /api/jobs/<id>/cancel", () => {
     expect(await response.json()).toMatchObject({
       job: running.job,
       outcome: "cancelled",
+      /* The response says so at once; the meta follows a moment later. */
+      status: "cancelled",
     });
     const thrown = await running.done;
     expect(thrown).toBeInstanceOf(CancelledError);
@@ -444,7 +469,11 @@ describe("POST /api/jobs/<id>/cancel", () => {
         params(other.id),
       )
     ).json();
-    expect(asked).toMatchObject({ job: other.id, outcome: "requested" });
+    expect(asked).toMatchObject({
+      job: other.id,
+      outcome: "requested",
+      status: "running",
+    });
     const { readCancelRequest } =
       await import("../websites/recipe-website/editor/controller/jobs/store");
     expect(await readCancelRequest(dir, other.id)).toMatch(/cancelled by/);
@@ -500,6 +529,9 @@ describe("POST /api/jobs/<id>/retry", () => {
     const body = await response.json();
     expect(body).toMatchObject({ retryOf: first.job, status: "running" });
     expect(body.job).not.toBe(first.job);
+    /* The job's outcome went to `after()`, so its revalidation outlives the 202. */
+    expect(afterTasks).toHaveLength(1);
+    await afterTasks[0];
     const again = await settled(body.job);
     expect(again).toMatchObject({
       kind: "form-text",
@@ -819,6 +851,370 @@ describe("recipes jobs …", () => {
       meta: { id, status: "done" },
     });
   });
+});
+
+/* ------------------------------------------------------------------ */
+/* 37c review: orphans, retry storms, the spec as read, result rows     */
+/* ------------------------------------------------------------------ */
+
+/** A pid that is certainly dead: a child already exited and reaped. */
+function deadPid(): number {
+  return Number(String(spawnSync("sh", ["-c", "echo $$"]).stdout).trim());
+}
+
+describe("an orphaned live job, read", () => {
+  it("is reported — and written — interrupted by the view, the list and cancel", async () => {
+    const orphan = () =>
+      plant({
+        spec: { kind: "inspect", url: "https://example.com/orphan" },
+        status: "running",
+        endedAt: undefined,
+        pid: deadPid(),
+      });
+
+    const viewed = await orphan();
+    const body = await (
+      await jobRoute.GET(get(`/api/jobs/${viewed.id}`), params(viewed.id))
+    ).json();
+    expect(body.live).toBe(false);
+    expect(body.meta).toMatchObject({
+      status: "interrupted",
+      error: { code: "interrupted" },
+    });
+    expect(body.meta.error.message).toMatch(/ended before it finished/);
+    expect(body.lines.at(-1)).toMatchObject({ step: "job", level: "warn" });
+    /* Persisted: the next reader finds it closed. */
+    expect((await readJobMeta(dir, viewed.id))?.status).toBe("interrupted");
+
+    const listed = await orphan();
+    const live = await (
+      await listRoute.GET(get("/api/jobs?status=live"))
+    ).json();
+    expect(live.jobs).toEqual([]);
+    expect((await readJobMeta(dir, listed.id))?.status).toBe("interrupted");
+
+    const cancelled = await orphan();
+    expect(
+      await (
+        await cancelRoute.POST(
+          post(`/api/jobs/${cancelled.id}/cancel`),
+          params(cancelled.id),
+        )
+      ).json(),
+    ).toMatchObject({ outcome: "ended", status: "interrupted" });
+
+    /* A live job whose process is alive (this one) is left alone. */
+    const alive = await plant({
+      spec: { kind: "inspect", url: "https://example.com/alive" },
+      status: "running",
+      endedAt: undefined,
+    });
+    const still = await (
+      await jobRoute.GET(get(`/api/jobs/${alive.id}`), params(alive.id))
+    ).json();
+    expect(still).toMatchObject({ live: true, meta: { status: "running" } });
+  });
+
+  it("ends `jobs log --follow`", async () => {
+    vi.stubEnv("RECIPE_JOBS_FOLLOW_MS", "30");
+    const orphan = await plant({
+      spec: { kind: "inspect", url: "https://example.com/orphan" },
+      status: "running",
+      endedAt: undefined,
+      pid: deadPid(),
+    });
+    let stdout = "";
+    const write = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        stdout += String(chunk);
+        return true;
+      });
+    try {
+      const code = await main([
+        "jobs",
+        "log",
+        orphan.id,
+        "--follow",
+        "--json",
+        "--content-dir",
+        contentDirectory,
+      ]);
+      expect(code).toBe(1);
+    } finally {
+      write.mockRestore();
+    }
+    expect(JSON.parse(stdout).status).toBe("interrupted");
+  });
+});
+
+describe("a retry storm", () => {
+  /** A model that takes the request and never answers (until aborted). */
+  function hangingModel() {
+    vi.stubEnv("RECIPE_LLM_URL", "http://model.test");
+    vi.stubGlobal(
+      "fetch",
+      (_url: unknown, init?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(init.signal!.reason),
+            { once: true },
+          );
+        }),
+    );
+  }
+
+  it("refuses a job that is still live: 409 job_live, naming it", async () => {
+    const running = await runningJob();
+    try {
+      const response = await retryRoute.POST(
+        post(`/api/jobs/${running.job}/retry`),
+        params(running.job),
+      );
+      expect(response.status).toBe(409);
+      const { error } = await response.json();
+      expect(error).toMatchObject({ code: "job_live", job: running.job });
+      expect(afterTasks).toHaveLength(0);
+    } finally {
+      running.release();
+      await running.done;
+    }
+  });
+
+  it("starts one retry for two presses at once, and refuses more while it runs", async () => {
+    const first = await runSpec({ kind: "form-text", text: "2 cups flour" });
+    expect((await readJobMeta(dir, first.job))?.status).toBe("failed");
+    hangingModel();
+
+    const responses = await Promise.all([
+      retryRoute.POST(post(`/api/jobs/${first.job}/retry`), params(first.job)),
+      retryRoute.POST(post(`/api/jobs/${first.job}/retry`), params(first.job)),
+    ]);
+    const statuses = responses.map((response) => response.status).sort();
+    expect(statuses).toEqual([202, 409]);
+    const bodies = await Promise.all(
+      responses.map((response) => response.json()),
+    );
+    const started = bodies.find((body) => !body.error);
+    const refused = bodies.find((body) => body.error);
+    expect(refused.error).toMatchObject({
+      code: "job_live",
+      job: started.job,
+    });
+    expect(refused.error.message).toContain(started.job);
+
+    /* Later, while it still runs: refused the same way, from its record. */
+    const later = await retryRoute.POST(
+      post(`/api/jobs/${first.job}/retry`),
+      params(first.job),
+    );
+    expect(later.status).toBe(409);
+    expect((await later.json()).error.job).toBe(started.job);
+    const listed = await (await listRoute.GET(get("/api/jobs"))).json();
+    expect(listed.jobs).toHaveLength(2);
+
+    /* Once it has ended, Retry starts another. */
+    cancelJob(started.job, new Error("enough"));
+    expect((await settled(started.job)).status).toBe("cancelled");
+    const fresh = await retryRoute.POST(
+      post(`/api/jobs/${first.job}/retry`),
+      params(first.job),
+    );
+    expect(fresh.status).toBe(202);
+    const third = (await fresh.json()).job;
+    cancelJob(third, new Error("enough"));
+    await settled(third);
+  });
+
+  it("is refused through the CLI too (exit 1, the live job named)", async () => {
+    const running = await runningJob();
+    let stdout = "";
+    const write = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        stdout += String(chunk);
+        return true;
+      });
+    try {
+      const code = await main([
+        "jobs",
+        "retry",
+        running.job,
+        "--json",
+        "--content-dir",
+        contentDirectory,
+      ]);
+      expect(code).toBe(1);
+    } finally {
+      write.mockRestore();
+      running.release();
+      await running.done;
+    }
+    expect(JSON.parse(stdout).error).toMatchObject({
+      code: "job_live",
+      job: running.job,
+    });
+  });
+});
+
+describe("the spec as a reader gets it", () => {
+  it("has no URL credentials, no author and no content directory", async () => {
+    expect(
+      summarizeSpec({
+        kind: "import-text",
+        text: "abc",
+        source: "https://cook:hunter2@example.com/video",
+        contentDirectory: "/srv/content",
+        author: { name: "cook", email: "cook@test.local" },
+        options: {},
+      }),
+    ).toEqual({
+      kind: "import-text",
+      source: "https://example.com/video",
+      textChars: 3,
+      options: {},
+    });
+    const meta = await plant({
+      spec: {
+        kind: "import-url",
+        url: "https://cook:hunter2@example.com/pie",
+        contentDirectory,
+        author: { name: "cook", email: "cook@test.local" },
+        options: {},
+      },
+      kind: "import-url",
+    });
+    const body = await (
+      await jobRoute.GET(get(`/api/jobs/${meta.id}`), params(meta.id))
+    ).json();
+    expect(body.meta.spec).toEqual({
+      kind: "import-url",
+      url: "https://example.com/pie",
+      options: {},
+    });
+    expect(JSON.stringify(body)).not.toContain("hunter2");
+    /* The record keeps it all, for Retry. */
+    expect((await readJobMeta(dir, meta.id))?.spec).toMatchObject({
+      url: "https://cook:hunter2@example.com/pie",
+      contentDirectory,
+    });
+  });
+});
+
+describe("resultRows", () => {
+  it("names a several-recipe import's readings by recipe.name, and the picker's rows by name", () => {
+    /* A `form-url` batch: `SplitReading`s, the name nested. */
+    expect(
+      resultRows({
+        recipes: [
+          { n: 1, trusted: true, recipe: { name: "Potato Puree" } },
+          { n: 2, trusted: false, recipe: { name: "Stuffing" } },
+          { n: 4, trusted: true, recipe: {} },
+        ],
+      }),
+    ).toEqual([
+      { n: 1, name: "Potato Puree" },
+      { n: 2, name: "Stuffing" },
+      { n: 4, name: "Recipe 4" },
+    ]);
+    /* "Import N selected": `ImportBatchItem`s, the name their own. */
+    expect(
+      resultRows({
+        recipes: [
+          {
+            n: 4,
+            name: "Fried Shallots",
+            status: "imported",
+            slug: "fried-shallots",
+          },
+          { n: 1, status: "failed", error: { message: "no" } },
+        ],
+      }),
+    ).toEqual([
+      {
+        n: 4,
+        name: "Fried Shallots",
+        status: "imported",
+        slug: "fried-shallots",
+      },
+      { n: 1, name: "Recipe 1", status: "failed", error: { message: "no" } },
+    ]);
+    expect(resultRows({ slug: "pie" })).toBeUndefined();
+    expect(resultRows({ found: [{ name: "Pie" }] })).toEqual([{ name: "Pie" }]);
+  });
+});
+
+describe("recipes jobs log --follow, interrupted", () => {
+  const EDITOR_DIR = resolve(__dirname, "../websites/recipe-website/editor");
+  const TSX = resolve(EDITOR_DIR, "node_modules/.bin/tsx");
+
+  it("exits 130 at once on Ctrl-C, leaving the followed job running", async () => {
+    /* A job this test process "runs": alive, so the follow goes on. */
+    const followed = await plant({
+      spec: { kind: "inspect", url: "https://example.com/followed" },
+      status: "running",
+      endedAt: undefined,
+    });
+    await appendFile(
+      join(dir, `${followed.id}.log.jsonl`),
+      `${JSON.stringify({
+        t: new Date().toISOString(),
+        step: "fetch",
+        phase: "start",
+        level: "info",
+        n: 1,
+        data: { host: "example.com" },
+      })}\n`,
+    );
+    const cli = spawn(
+      TSX,
+      [
+        "cli/index.ts",
+        "jobs",
+        "log",
+        followed.id,
+        "--follow",
+        "--content-dir",
+        contentDirectory,
+      ],
+      {
+        cwd: EDITOR_DIR,
+        env: {
+          ...process.env,
+          RECIPE_ENV_FILE: "/dev/null",
+          RECIPE_JOBS_DIR: dir,
+          /* Longer than the grace period: before the fix, Ctrl-C waited it out. */
+          RECIPE_JOBS_FOLLOW_MS: "20000",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    try {
+      let stdout = "";
+      let stderr = "";
+      cli.stdout?.on("data", (chunk) => (stdout += String(chunk)));
+      cli.stderr?.on("data", (chunk) => (stderr += String(chunk)));
+      const closed = new Promise<number | null>((done) =>
+        cli.on("close", (code) => done(code)),
+      );
+      await vi.waitFor(() => expect(stdout, stderr).toMatch(/fetch/), {
+        timeout: 30_000,
+        interval: 50,
+      });
+      const asked = Date.now();
+      cli.kill("SIGINT");
+      expect(await closed, stderr).toBe(130);
+      expect(Date.now() - asked).toBeLessThan(3_000);
+      expect(stdout.trim().split("\n").at(-1)).toBe(`${followed.id} running`);
+      /* Following is not owning: the job was not cancelled. */
+      expect((await readJobMeta(dir, followed.id))?.status).toBe("running");
+    } finally {
+      if (cli.exitCode === null && cli.signalCode === null) {
+        cli.kill("SIGKILL");
+      }
+    }
+  }, 60_000);
 });
 
 /* ------------------------------------------------------------------ */

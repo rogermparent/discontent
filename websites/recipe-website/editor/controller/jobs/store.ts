@@ -21,7 +21,9 @@
  * another host or another pid namespace (the Pi's container) cannot be
  * judged by its pid; it becomes `interrupted` only once its heartbeat is
  * older than `JOB_STALE_MS`. Nothing is replayed: Retry is a person's
- * choice.
+ * choice. The readers apply the same rule to each live job they read
+ * (`settleOrphanedJob`, 37c review), so a job orphaned after the sweep
+ * ends too.
  *
  * **Retention** (`pruneJobs`): the newest `JOB_RETENTION_COUNT` jobs, none
  * older than `JOB_RETENTION_MS`. A live job is kept while its process is
@@ -371,6 +373,51 @@ function endedWhy(
 }
 
 /**
+ * Close one live job whose process is gone (or, when this process cannot
+ * judge it, has gone quiet for `staleMs`): `interrupted`, its reason in
+ * `error` and a note in its log. Answers the meta as it now stands — the
+ * same one when the job may still be running, or had ended meanwhile.
+ *
+ * The boot sweep runs it over the store once per process; the readers
+ * (37c review: `getJobView`, `listJobSummaries`, `cancelJobById`) run it
+ * on each live meta they read, so a job orphaned after the sweep — its
+ * process killed while this one ran on — stops being reported `running`,
+ * and `/jobs`, the form's panel and `jobs log --follow` stop following it.
+ */
+export async function settleOrphanedJob(
+  dir: string,
+  meta: JobMeta,
+  now = Date.now(),
+  { staleMs = JOB_STALE_MS }: { staleMs?: number } = {},
+): Promise<{ meta: JobMeta; closed: boolean }> {
+  if (!LIVE_STATUSES.includes(meta.status)) return { meta, closed: false };
+  const message = endedWhy(meta, now, staleMs);
+  if (!message) return { meta, closed: false };
+  let closedIt = false;
+  const written = await updateJobMeta(dir, meta.id, (current) => {
+    /* Finished while we looked: leave it. */
+    if (!LIVE_STATUSES.includes(current.status)) return undefined;
+    closedIt = true;
+    return {
+      status: "interrupted",
+      endedAt: now,
+      error: { code: "interrupted", message },
+    };
+  });
+  if (!written) return { meta, closed: false };
+  if (closedIt) {
+    await appendNote(dir, meta.id, {
+      t: new Date(now).toISOString(),
+      step: "job",
+      phase: "note",
+      level: "warn",
+      msg: `interrupted — ${message}`,
+    });
+  }
+  return { meta: written, closed: closedIt };
+}
+
+/**
  * The boot sweep (D5): every `queued`/`running` job whose process is gone,
  * or that this process cannot judge and has gone quiet (`staleMs`), becomes
  * `interrupted`. Answers the ids it closed.
@@ -383,37 +430,16 @@ export async function sweepJobs(
   const closed: string[] = [];
   for (const meta of await listJobs(dir)) {
     if (!LIVE_STATUSES.includes(meta.status)) continue;
-    const message = endedWhy(meta, now, staleMs);
-    if (!message) continue;
-    let closedIt = false;
     /* One meta that cannot be written does not stop the sweep. */
-    const written = await updateJobMeta(dir, meta.id, (current) => {
-      /* Finished while we looked: leave it. */
-      if (!LIVE_STATUSES.includes(current.status)) return undefined;
-      closedIt = true;
-      return {
-        status: "interrupted",
-        endedAt: now,
-        error: { code: "interrupted", message },
-      };
-    }).then(
-      () => true,
-      (error) => {
-        console.warn(
-          `[jobs] could not close ${meta.id}: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        return false;
-      },
-    );
-    if (!written || !closedIt) continue;
-    await appendNote(dir, meta.id, {
-      t: new Date(now).toISOString(),
-      step: "job",
-      phase: "note",
-      level: "warn",
-      msg: `interrupted — ${message}`,
+    const settled = await settleOrphanedJob(dir, meta, now, {
+      staleMs,
+    }).catch((error: unknown) => {
+      console.warn(
+        `[jobs] could not close ${meta.id}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return undefined;
     });
-    closed.push(meta.id);
+    if (settled?.closed) closed.push(meta.id);
   }
   return closed;
 }

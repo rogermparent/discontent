@@ -18,6 +18,7 @@
  *   --follow` watches it).
  */
 import { UsageError } from "../../controller/curation/errors";
+import { cliSignal, interruptibleSleep } from "../interrupt";
 import { formatJobLine, type JobLine } from "../../controller/jobs/log";
 import type { JobMeta, JobStatus } from "../../controller/jobs/store";
 import type {
@@ -187,6 +188,8 @@ export const jobsLogCommand: CommandDef<JobLogResult> = {
    * `--follow` asks from `next` until the job ends, then once more for the
    * last lines. Without `--json` each batch is printed as it arrives (the
    * format then adds only the status); with it, stdout stays one object.
+   * A Ctrl-C ends the follow at once (`cliSignal`, 37c review): the job
+   * itself runs on — following is not owning — and the CLI exits 130.
    */
   async run({ backend, positionals, options, json }) {
     const id = needId(positionals, "log");
@@ -208,8 +211,9 @@ export const jobsLogCommand: CommandDef<JobLogResult> = {
     print(view.lines, view.job);
     from = view.next;
     while (follow && view.live) {
-      await new Promise((resolve) => setTimeout(resolve, followMs()));
+      if (!(await interruptibleSleep(followMs()))) break;
       view = await backend.getJob(view.job, { from });
+      if (cliSignal().aborted) break;
       lines.push(...view.lines);
       print(view.lines, view.job);
       from = view.next;

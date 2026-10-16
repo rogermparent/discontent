@@ -223,6 +223,19 @@ test.describe("Import jobs", () => {
         })
         .first(),
     ).toBeVisible();
+
+    /* The video's own job page names its dishes (`recipe.name`, 37c review). */
+    await page.goto(`/jobs/${job}`);
+    const result = page.getByTestId("job-result");
+    for (const dish of [
+      "Potato Puree",
+      "Stuffing",
+      "Green Bean Casserole",
+      "Fried Shallots",
+    ]) {
+      await expect(result.getByText(dish, { exact: true })).toBeVisible();
+    }
+    await expect(result.getByText(/^Recipe \d/)).toHaveCount(0);
   });
 
   test("/jobs lists the import, and its page shows the step timeline", async ({
@@ -314,6 +327,101 @@ test.describe("Import jobs", () => {
         page.locator(`[data-job="${id}"]`).getByTestId("job-status"),
       ).toHaveText("cancelled");
     }
+  });
+
+  test("a retried write reaches the cached pages, after the 202", async ({
+    page,
+  }) => {
+    /*
+     * 37c review: the retry route answers 202 and the job writes later, so
+     * its revalidations happen after the route returned. A `form-batch`
+     * job writes a recipe; delete it, read `/` without it (warming the
+     * cached reads), retry the job, and `/` must show the recipe again.
+     */
+    await page.getByLabel("Import from URL", { exact: true }).fill(VIDEO);
+    await page.getByRole("button", { name: "Import", exact: true }).click();
+    await expect(
+      page.getByTestId("batch-picker").getByRole("heading"),
+    ).toHaveText("This video holds 4 recipes");
+    for (const name of [
+      "1. Potato Puree",
+      "2. Stuffing",
+      "3. Green Bean Casserole",
+    ]) {
+      await page.getByLabel(name, { exact: true }).uncheck();
+    }
+    await page
+      .getByRole("button", { name: "Import 1 selected", exact: true })
+      .click();
+    await expect(
+      page.getByTestId("batch-results").getByRole("link", {
+        name: "fried-shallots",
+      }),
+    ).toBeVisible();
+
+    await page.goto("/jobs");
+    await page
+      .getByTestId("job-list")
+      .getByRole("link", {
+        name: "1 of 4 recipes from youtube.com/watch?v=SIDES_TEST",
+      })
+      .first()
+      .click();
+    await expect(page).toHaveURL(/\/jobs\/[0-9A-Z]{26}$/);
+    const batch = new URL(page.url()).pathname.split("/").pop()!;
+
+    const deleted = await page.request.delete("/api/recipe/fried-shallots");
+    expect(deleted.ok()).toBe(true);
+    await page.goto("/");
+    const list = page.getByTestId("recipe-list");
+    await expect(list.first()).toBeVisible();
+    await expect(page.getByText("Fried Shallots")).toHaveCount(0);
+
+    await page.goto(`/jobs/${batch}`);
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(page).not.toHaveURL(new RegExp(`/jobs/${batch}$`));
+    await expect(page.getByTestId("job-status").first()).toHaveText("done", {
+      timeout: 15_000,
+    });
+
+    await page.goto("/");
+    await expect(
+      page.getByTestId("recipe-list").getByText("Fried Shallots").first(),
+    ).toBeVisible();
+  });
+
+  test("a second Retry while the first still runs links to it", async ({
+    page,
+  }) => {
+    await importText(page, "Just a story about scones, no recipe at all.");
+    await expect(
+      page.getByTestId("import-progress").getByRole("heading", { level: 3 }),
+    ).toHaveText("Import failed");
+    const job = await jobInUrl(page);
+
+    /* The retry's model call hangs: it stays running. */
+    delayMs = 30_000;
+    await page.goto(`/jobs/${job}`);
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(page).not.toHaveURL(new RegExp(`/jobs/${job}$`));
+    await expect(page).toHaveURL(/\/jobs\/[0-9A-Z]{26}$/);
+    const retry = new URL(page.url()).pathname.split("/").pop()!;
+    await expect(page.getByTestId("job-status").first()).toHaveText("running");
+
+    /* Retry again from the old job: refused (409), linking to the live one. */
+    await page.goto(`/jobs/${job}`);
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(
+      page.getByTestId("job-live-retry").getByRole("link", { name: retry }),
+    ).toHaveAttribute("href", `/jobs/${retry}`);
+    await expect(page).toHaveURL(new RegExp(`/jobs/${job}$`));
+
+    await page.goto(`/jobs/${retry}`);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.getByTestId("job-status").first()).toHaveText(
+      "cancelled",
+      { timeout: 10_000 },
+    );
   });
 
   test("Retry runs a job again as a new one", async ({ page }) => {

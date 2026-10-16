@@ -130,6 +130,14 @@ export type CurationErrorCode =
    * the job's — is what ended it.
    */
   | "cancelled"
+  /**
+   * A retry refused because the job is still live, or a live job already
+   * runs it again (37c review): the error's `job` names that live job, to
+   * follow instead. 409 over HTTP, like `cancelled` — the request was
+   * fine, a job's state declines it. Only `POST /api/jobs/<id>/retry` and
+   * `recipes jobs retry` answer it; no MCP tool retries.
+   */
+  | "job_live"
   | "usage"
   | "internal";
 
@@ -412,6 +420,14 @@ export class CancelledError extends CurationError {
   constructor(message = "the job was cancelled") {
     super("cancelled", message);
     this.name = "CancelledError";
+  }
+}
+
+/** A retry of a job that is still live, or already running again (37c review). */
+export class JobLiveError extends CurationError {
+  constructor(message: string) {
+    super("job_live", message);
+    this.name = "JobLiveError";
   }
 }
 

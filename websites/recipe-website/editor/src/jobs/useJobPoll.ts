@@ -9,9 +9,12 @@ export interface JobPoll {
   meta?: JobRecord;
   /** Every log line read so far. */
   lines: JobLine[];
-  /** Still queued or running (true until the first answer says otherwise). */
+  /**
+   * Still queued or running (true until the first answer says otherwise,
+   * or a read is refused for good — 401, 403, 404).
+   */
   live: boolean;
-  /** Why the last read failed, after a few tries in a row. */
+  /** Why the last read failed: after a few tries in a row, or at once for good. */
   error?: string;
   /** Read again now (after a Cancel, say), then carry on. */
   refresh: () => void;
@@ -19,6 +22,23 @@ export interface JobPoll {
 
 /** Reads in a row that may fail before the panel says so. */
 const QUIET_FAILURES = 3;
+
+/**
+ * Answers no later read will change (37c review): signed out, a read-only
+ * token's limits, or a job that is not there (pruned, a wrong id). Polling
+ * on would only repeat them every second.
+ */
+const FINAL_STATUSES = new Set([401, 403, 404]);
+
+/** A refused read: its message, and whether to stop asking. */
+class ReadRefused extends Error {
+  constructor(
+    message: string,
+    readonly final: boolean,
+  ) {
+    super(message);
+  }
+}
 
 /**
  * Follow a job (37c): `GET /api/jobs/<id>?from=<next>` every `intervalMs`
@@ -60,12 +80,13 @@ export function useJobPoll(
           `/api/jobs/${encodeURIComponent(id)}?from=${next}`,
           { cache: "no-store", signal: controller.signal },
         );
-        const body = (await response.json()) as
-          | JobView
-          | { error: { message: string } };
+        const body = (await response.json().catch(() => ({
+          error: { message: `The editor answered ${response.status}` },
+        }))) as JobView | { error: { message: string } };
         if (!response.ok || "error" in body) {
-          throw new Error(
+          throw new ReadRefused(
             "error" in body ? body.error.message : `${response.status}`,
+            FINAL_STATUSES.has(response.status),
           );
         }
         if (stopped) return;
@@ -93,8 +114,13 @@ export function useJobPoll(
       } catch (caught) {
         if (stopped || controller.signal.aborted) return;
         failures += 1;
-        if (failures >= QUIET_FAILURES) {
+        const final = caught instanceof ReadRefused && caught.final;
+        if (final || failures >= QUIET_FAILURES) {
           setError(caught instanceof Error ? caught.message : String(caught));
+        }
+        if (final) {
+          again = false;
+          setLive(false);
         }
       }
       if (again && !stopped) timer = setTimeout(read, intervalMs);

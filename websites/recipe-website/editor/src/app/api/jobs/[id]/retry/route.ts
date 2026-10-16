@@ -9,10 +9,20 @@
  * into this one.
  *
  * Answers 202 at once with `{job, retryOf, status: "running"}`: the new job
- * runs on in the editor, and `GET /api/jobs/<job>` follows it.
+ * runs on in the editor, and `GET /api/jobs/<job>` follows it. A job still
+ * live, or one a live job already runs again, is refused with `job_live`
+ * (409) and that live job's id as `error.job`.
+ *
+ * **The job's revalidation outlives the answer** (37c review, T26): Next
+ * runs a route's pending `revalidatePath`/`revalidateTag` once, when the
+ * handler returns, and a write the job makes later would be dropped. The
+ * job's outcome is handed to `after()`, whose callbacks Next runs inside
+ * `withExecuteRevalidates` — the tags the job's writes queued meanwhile
+ * are executed when it ends.
  *
  * Curation auth, write scope.
  */
+import { after } from "next/server";
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
 import { errorResponse } from "recipe-editor/controller/curation/http";
 import { retryJobById } from "recipe-editor/controller/jobs/views";
@@ -24,7 +34,19 @@ export async function POST(
   try {
     const ctx = await requireCurationContext(request);
     const { id } = await params;
-    return Response.json(await retryJobById(id, ctx), { status: 202 });
+    return Response.json(
+      await retryJobById(id, ctx, {
+        /* The job records its own failure: nothing to rethrow here. */
+        background: (done) =>
+          after(() =>
+            done.then(
+              () => undefined,
+              () => undefined,
+            ),
+          ),
+      }),
+      { status: 202 },
+    );
   } catch (error) {
     return errorResponse(error);
   }

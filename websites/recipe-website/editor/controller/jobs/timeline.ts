@@ -283,3 +283,59 @@ export function durationText(ms: number | undefined): string {
   const rest = Math.round((ms % 60_000) / 1000);
   return `${minutes} min${rest ? ` ${rest} s` : ""}`;
 }
+
+/** One row of a job's result as `/jobs/<id>` lists it. */
+export interface ResultRow {
+  n?: number;
+  /** The recipe's name, or "Recipe <n>" when the row has none. */
+  name: string;
+  status?: string;
+  slug?: string;
+  error?: { message?: string };
+}
+
+/**
+ * The rows of a result that holds several recipes, whatever its kind:
+ * `recipes` (a several-recipe import — the form's `SplitReading`s, whose
+ * name is `recipe.name` — or the picker's `ImportBatchItem`s, whose name is
+ * their own), a roundup's `found`, a list import's `items`. Undefined when
+ * the result has none of them.
+ */
+export function resultRows(result: unknown): ResultRow[] | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  const { recipes, found, items } = result as Record<string, unknown>;
+  const list = Array.isArray(recipes)
+    ? recipes
+    : Array.isArray(found)
+      ? found
+      : Array.isArray(items)
+        ? items
+        : undefined;
+  if (!list) return undefined;
+  return list.map((entry, index) => {
+    const row = (entry && typeof entry === "object" ? entry : {}) as {
+      n?: unknown;
+      name?: unknown;
+      recipe?: { name?: unknown };
+      status?: unknown;
+      slug?: unknown;
+      error?: { message?: unknown };
+    };
+    const n = typeof row.n === "number" ? row.n : undefined;
+    const name =
+      typeof row.name === "string" && row.name
+        ? row.name
+        : typeof row.recipe?.name === "string" && row.recipe.name
+          ? row.recipe.name
+          : `Recipe ${n ?? index + 1}`;
+    return {
+      ...(n !== undefined ? { n } : {}),
+      name,
+      ...(typeof row.status === "string" ? { status: row.status } : {}),
+      ...(typeof row.slug === "string" ? { slug: row.slug } : {}),
+      ...(typeof row.error?.message === "string"
+        ? { error: { message: row.error.message } }
+        : {}),
+    };
+  });
+}

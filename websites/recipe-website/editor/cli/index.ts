@@ -56,6 +56,7 @@ import { tagsCommand } from "./commands/tags";
 import { termCommands } from "./commands/term";
 import type { CommandDef } from "./commands/types";
 import { updateCommand } from "./commands/update";
+import { interruptCli } from "./interrupt";
 import { emit, emitError, warn } from "./output";
 
 const GLOBAL_OPTIONS: ParseArgsOptionsConfig = {
@@ -642,6 +643,8 @@ function exitOnSignals(finished: Promise<void>): void {
     const code = signal === "SIGINT" ? 130 : 143;
     if (stopping) process.exit(code);
     stopping = true;
+    /* A command that only waits (`jobs log --follow`) stops waiting now. */
+    interruptCli(new Error(`interrupted (${signal})`));
     void (async () => {
       try {
         if (jobsRanHere()) {

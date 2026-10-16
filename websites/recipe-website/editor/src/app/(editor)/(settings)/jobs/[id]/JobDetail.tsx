@@ -10,6 +10,7 @@ import {
   describeWaiting,
   durationText,
   noteText,
+  resultRows,
 } from "recipe-editor/controller/jobs/timeline";
 import type { JobRecord } from "recipe-editor/controller/jobs/views";
 import { StepTimeline } from "@/jobs/StepTimeline";
@@ -22,14 +23,6 @@ const JOB_POLL_MS = 2_000;
 /** The form kinds `/new-recipe?job=` reopens. */
 const FORM_KINDS = new Set(["form-url", "form-text"]);
 
-interface ResultRow {
-  n?: number;
-  name?: string;
-  status?: string;
-  slug?: string;
-  error?: { message?: string };
-}
-
 /** What a result says, whatever its kind: names, slugs, counts. */
 function ResultSummary({ meta }: { meta: JobRecord }) {
   const result = meta.result as
@@ -39,13 +32,7 @@ function ResultSummary({ meta }: { meta: JobRecord }) {
       })
     | undefined;
   if (!result || typeof result !== "object") return null;
-  const rows = Array.isArray(result.recipes)
-    ? (result.recipes as ResultRow[])
-    : Array.isArray(result.found)
-      ? (result.found as ResultRow[])
-      : Array.isArray(result.items)
-        ? (result.items as ResultRow[])
-        : undefined;
+  const rows = resultRows(result);
   const name =
     (result.recipe as { name?: string } | undefined)?.name ??
     (result.draft as { name?: string } | undefined)?.name;
@@ -72,7 +59,7 @@ function ResultSummary({ meta }: { meta: JobRecord }) {
         <ul className="list-disc pl-5">
           {rows.map((row, index) => (
             <li key={`${row.n ?? index}`}>
-              {row.name ?? `Recipe ${row.n ?? index + 1}`}
+              {row.name}
               {row.status ? ` — ${row.status}` : ""}
               {row.slug &&
               (row.status === "imported" || row.status === "existing") ? (
@@ -116,6 +103,8 @@ export function JobDetail({
   const [now, setNow] = useState(() => Date.now());
   const [acting, setActing] = useState<"cancel" | "retry" | undefined>();
   const [actionError, setActionError] = useState<string | undefined>();
+  /* A refused retry's live job (`job_live`): the one to follow instead. */
+  const [liveRetry, setLiveRetry] = useState<string | undefined>();
 
   useEffect(() => {
     if (!live) return;
@@ -144,6 +133,7 @@ export function JobDetail({
   const retry = async () => {
     setActing("retry");
     setActionError(undefined);
+    setLiveRetry(undefined);
     try {
       const response = await fetch(
         `/api/jobs/${encodeURIComponent(id)}/retry`,
@@ -153,11 +143,19 @@ export function JobDetail({
       );
       const body = (await response.json()) as
         | { job: string }
-        | { error: { message: string } };
+        | { error: { code?: string; message: string; job?: string } };
       if (!response.ok || "error" in body) {
-        setActionError(
-          "error" in body ? body.error.message : `${response.status}`,
-        );
+        if (
+          "error" in body &&
+          body.error.code === "job_live" &&
+          body.error.job
+        ) {
+          setLiveRetry(body.error.job);
+        } else {
+          setActionError(
+            "error" in body ? body.error.message : `${response.status}`,
+          );
+        }
         setActing(undefined);
         return;
       }
@@ -248,6 +246,28 @@ export function JobDetail({
             </Link>
           )}
         </div>
+        {liveRetry && (
+          <p
+            className="mt-2 text-sm"
+            role="status"
+            data-testid="job-live-retry"
+          >
+            {liveRetry === id ? (
+              "This job is still running: it can run again once it has ended."
+            ) : (
+              <>
+                Already running again as{" "}
+                <Link
+                  href={`/jobs/${liveRetry}`}
+                  className="underline underline-offset-2"
+                >
+                  {liveRetry}
+                </Link>
+                .
+              </>
+            )}
+          </p>
+        )}
         {actionError && (
           <p
             className="mt-2 border-l-2 border-destructive pl-2 text-sm"
