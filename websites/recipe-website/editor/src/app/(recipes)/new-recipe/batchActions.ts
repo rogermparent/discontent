@@ -32,6 +32,8 @@ import {
   type ImportBatchItem,
 } from "recipe-editor/controller/curation/importRecipe";
 import { corpusOf, runSpec } from "recipe-editor/controller/jobs/kinds";
+import { llmConfig } from "recipe-editor/controller/llm/client";
+import { readerNote } from "recipe-editor/controller/llm/readerLabel";
 import { PHOTO_PATH } from "recipe-editor/controller/jobs/photos";
 import { parseInput } from "recipe-editor/controller/curation/schema";
 import { authenticateUser } from "recipe-editor/controller/actions/shared";
@@ -51,6 +53,16 @@ const RecipeBatchInputSchema = z.strictObject({
   fromPhotos: z.boolean().optional(),
   /** A page's own Recipe nodes (38c): no model read them. */
   fromPage: z.boolean().optional(),
+  /**
+   * The model that read them (39a review), from the readings' own
+   * `llm` — the commit note names it; without it, this editor's model.
+   */
+  reader: z
+    .strictObject({
+      model: z.string().trim().min(1).max(200),
+      api: z.enum(["ollama", "openai", "anthropic"]).optional(),
+    })
+    .optional(),
   /**
    * The photo import's first photo, in the job store (38e review): each
    * created recipe gets it as its image. Only a stored photo's path —
@@ -114,13 +126,17 @@ export async function importRecipeBatchAction(
     const ctx = curationContextFor(email, getContentDirectory());
     const input = parseInput(RecipeBatchInputSchema, raw);
     const from = input.url ? ` from ${shortSource(input.url)}` : "";
+    /* 39a (38-Dg9): the model that read them — "Claude API
+     * claude-sonnet-5" under the Claude API, else "local model"; the
+     * readings' own when the picker sends it, else this editor's. */
+    const reader = readerNote(input.reader ?? llmConfig());
     const commitNote = input.fromPhotos
-      ? "local model, photo, {n} of {total}"
+      ? `${reader}, photo, {n} of {total}`
       : input.pastedText
-        ? "local model, pasted text, {n} of {total}"
+        ? `${reader}, pasted text, {n} of {total}`
         : input.fromPage
           ? `{n} of {total}${from}`
-          : `local model, {n} of {total}${from}`;
+          : `${reader}, {n} of {total}${from}`;
     /* A job since 37c (`form-batch`): a step log, `/jobs`, Cancel, Retry. */
     const { recipes, job } = await runSpec(
       {

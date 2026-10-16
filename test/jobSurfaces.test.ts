@@ -601,6 +601,126 @@ describe("POST /api/jobs/<id>/retry", () => {
     ).rejects.toMatchObject({ code: "usage" });
   });
 
+  it("Retry decides fresh (39a): set when asked, dropped when not, other kinds untouched", async () => {
+    const meta = {
+      id: "01AAAAAAAAAAAAAAAAAAAAAAAA",
+      kind: "import-url",
+      spec: {
+        kind: "import-url",
+        contentDirectory,
+        url: "https://example.com/pie",
+        options: { llm: "force", fresh: true },
+      } satisfies JobSpec,
+    };
+    expect(await retrySpecFor(meta, ctx, { fresh: true })).toMatchObject({
+      options: { llm: "force", fresh: true },
+    });
+    const plain = await retrySpecFor(meta, ctx);
+    expect(plain).toMatchObject({ options: { llm: "force" } });
+    expect((plain as { options: object }).options).not.toHaveProperty("fresh");
+    const inspect = await retrySpecFor(
+      {
+        id: "01B",
+        kind: "inspect",
+        spec: { kind: "inspect", url: "https://example.com/pie" },
+      },
+      ctx,
+      { fresh: true },
+    );
+    expect(inspect).toEqual({
+      kind: "inspect",
+      url: "https://example.com/pie",
+    });
+    /* The route refuses a body it does not know. */
+    const id = await finishedJob();
+    const refused = await retryRoute.POST(
+      new Request(`http://editor.test/api/jobs/${id}/retry`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ fresh: "yes" }),
+      }),
+      params(id),
+    );
+    expect(refused.status).toBe(400);
+  });
+
+  it("forwards {fresh: true} into the new job's spec and echoes it; no body is a plain retry (39a)", async () => {
+    const meta = await plant({
+      spec: {
+        kind: "import-text",
+        contentDirectory,
+        text: "2 cups flour",
+        options: { dryRun: true },
+      },
+      kind: "import-text",
+      status: "failed",
+    });
+    const fresh = await retryRoute.POST(
+      new Request(`http://editor.test/api/jobs/${meta.id}/retry`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ fresh: true }),
+      }),
+      params(meta.id),
+    );
+    expect(fresh.status).toBe(202);
+    const freshBody = await fresh.json();
+    expect(freshBody).toMatchObject({ retryOf: meta.id, fresh: true });
+    await Promise.all(afterTasks);
+    expect((await settled(freshBody.job)).spec).toMatchObject({
+      kind: "import-text",
+      options: { dryRun: true, fresh: true },
+    });
+
+    const plain = await retryRoute.POST(
+      post(`/api/jobs/${meta.id}/retry`),
+      params(meta.id),
+    );
+    expect(plain.status).toBe(202);
+    const plainBody = await plain.json();
+    expect(plainBody).not.toHaveProperty("fresh");
+    await Promise.all(afterTasks);
+    const again = await settled(plainBody.job);
+    expect(again.spec).toMatchObject({ options: { dryRun: true } });
+    expect((again.spec as { options: object }).options).not.toHaveProperty(
+      "fresh",
+    );
+  });
+
+  it("jobs retry --fresh warns when the editor does not echo it (a pre-39a editor)", async () => {
+    const { jobsRetryCommand, RETRY_NOT_FRESH } =
+      await import("../websites/recipe-website/editor/cli/commands/jobs");
+    const answer = {
+      job: "01NEW",
+      retryOf: "01OLD",
+      status: "running" as const,
+    };
+    const backend = {
+      retryJob: vi.fn(async () => answer),
+    } as unknown as Parameters<typeof jobsRetryCommand.run>[0]["backend"];
+    const run = (options: Record<string, unknown>) =>
+      jobsRetryCommand.run({
+        backend,
+        positionals: ["01OLD"],
+        options,
+        json: false,
+      } as Parameters<typeof jobsRetryCommand.run>[0]);
+
+    const old = await run({ fresh: true });
+    expect(old.warnings).toEqual([RETRY_NOT_FRESH]);
+    expect(RETRY_NOT_FRESH).toBe(
+      "this editor predates --fresh on retry (39a); ran a plain retry",
+    );
+    expect(jobsRetryCommand.format(old)).toContain(`! ${RETRY_NOT_FRESH}`);
+    /* Not asked: nothing to warn about. */
+    expect((await run({})).warnings).toBeUndefined();
+    /* Echoed: honoured. */
+    vi.mocked(
+      (backend as unknown as { retryJob: () => Promise<unknown> }).retryJob,
+    ).mockResolvedValueOnce({ ...answer, fresh: true });
+    expect((await run({ fresh: true })).warnings).toBeUndefined();
+  });
+
   it("needs a write-scoped caller", async () => {
     const id = await finishedJob();
     readOnly = true;

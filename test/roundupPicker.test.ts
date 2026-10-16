@@ -81,7 +81,11 @@ describe("settleChunk", () => {
   });
 
   it("reports a dropped site's picks instead of handing them back forever", () => {
-    const chunk = [pick(1, "a.example.com"), pick(2, "www.b.example.org")];
+    const chunk = [
+      pick(1, "a.example.com"),
+      pick(2, "www.b.example.co.uk"),
+      pick(3, "other.co.uk"),
+    ];
     const settled = settleChunk(chunk, {
       results: [
         {
@@ -92,10 +96,15 @@ describe("settleChunk", () => {
           slug: "one",
         },
       ],
-      remaining: [{ n: 2, url: chunk[1].url }],
-      dropped: [{ site: "b.example.org", reason: "refused twice (HTTP 403)" }],
+      remaining: [
+        { n: 2, url: chunk[1].url },
+        { n: 3, url: chunk[2].url },
+      ],
+      /* The pacer's key (`paceKey`): the registrable domain (39e De1). */
+      dropped: [{ site: "example.co.uk", reason: "refused twice (HTTP 403)" }],
     });
-    expect(settled.requeue).toEqual([]);
+    /* Another site under the same public suffix goes back on the queue. */
+    expect(settled.requeue).toEqual([chunk[2]]);
     expect(settled.outcomes[1]).toMatchObject({
       n: 2,
       status: "dropped",

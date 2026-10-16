@@ -9,7 +9,7 @@
  */
 import { UsageError } from "../../controller/curation/errors";
 import type { ImportListResult, InspectListResult } from "../backend/types";
-import { formatWarnings } from "../output";
+import { formatLlm, formatWarnings } from "../output";
 import {
   LLM_OPTION,
   VERBOSE_OPTION,
@@ -144,7 +144,7 @@ export const importListCommand: CommandDef<ImportListResult> = {
     return [
       `${result.dryRun ? "dry run: " : ""}${result.title ?? result.url} — ${attempted} attempted, ${result.remaining.length} remaining (${result.total} on the list)`,
       result.reason ? `no list: ${result.reason}` : undefined,
-      ...result.results.map((entry) =>
+      ...result.results.flatMap((entry) => [
         [
           `  ${entry.n}.`,
           entry.status.padEnd(statusWidth),
@@ -155,7 +155,9 @@ export const importListCommand: CommandDef<ImportListResult> = {
         ]
           .filter(Boolean)
           .join("  "),
-      ),
+        /* 39a: which model read this item, when one was asked. */
+        formatLlm(entry.llm, "      "),
+      ]),
       ...result.results.flatMap((entry) => formatWarnings(entry.warnings)),
       result.remaining.length > 0
         ? `remaining: ${result.remaining.map((pick) => pick.n).join(",")} — run again with --pick ${result.remaining.map((pick) => pick.url).join(",")}`

@@ -10,7 +10,12 @@ import { outputFile } from "fs-extra";
 import { UsageError } from "../../controller/curation/errors";
 import type { InspectResult } from "../backend/types";
 import { resolveUserPath } from "../input";
-import { formatJsonBlock, formatLlm, formatWarnings } from "../output";
+import {
+  formatJsonBlock,
+  formatLlm,
+  formatWarnings,
+  partialReadingLine,
+} from "../output";
 import {
   LLM_OPTION,
   VERBOSE_OPTION,
@@ -58,7 +63,7 @@ export const inspectCommand: CommandDef<InspectResult> = {
       result.status !== undefined ? `status: ${result.status}` : undefined,
       result.partial
         ? result.llm?.found && !result.llm.discarded
-          ? "partial: the local model's reading is not trusted — check it"
+          ? partialReadingLine(result.llm)
           : "partial: no Recipe node — title, description and image only"
         : undefined,
       formatLlm(result.llm),

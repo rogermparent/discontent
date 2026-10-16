@@ -894,7 +894,7 @@ describe("the epic-26 seats share the queue", () => {
       ]);
       expect(started).toHaveLength(3);
       started.sort((x, y) => x - y);
-      /* One site (`paceKey`: the host, less `www.`), so one at a time, each
+      /* One site (`paceKey`: the registrable domain), so one at a time, each
        * ≥ 300 ms after the last ended — a few ms of timer slack allowed. */
       expect(started[1] - started[0]).toBeGreaterThanOrEqual(290);
       expect(started[2] - started[1]).toBeGreaterThanOrEqual(290);

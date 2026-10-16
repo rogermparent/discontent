@@ -70,6 +70,7 @@ import {
 import type { YtdlpComment, YtdlpMetadata } from "../ytdlp";
 import type { ExtractMeta, LlmExtraction, LlmStats } from "./extractRecipe";
 import { DEFAULT_LLM_MODE, type LlmMode } from "./mode";
+import { readerLabel, readerNoun } from "./readerLabel";
 import type { ChapterRef } from "./chapterTime";
 import type { ComponentRef } from "./splitRecipes";
 import { jobContext, type JobRun } from "../jobs/context";
@@ -463,8 +464,14 @@ export async function applyLlm({
     if (mode === "auto") return unchanged;
     return {
       recipe: mapped,
-      llm: { model: config.model, mode, found: false, error: NO_TEXT },
-      warnings: [`local model not used — ${NO_TEXT}`],
+      llm: {
+        model: config.model,
+        api: config.api,
+        mode,
+        found: false,
+        error: NO_TEXT,
+      },
+      warnings: [`${readerNoun(config.api)} not used — ${NO_TEXT}`],
     };
   }
 
@@ -522,13 +529,21 @@ export async function applyLlm({
   } catch (error) {
     if (!(error instanceof LlmError)) throw error;
     if (mode === "force") {
-      throw new ImportError(`local model failed: ${error.message}`);
+      throw new ImportError(
+        `${readerNoun(config.api)} failed: ${error.message}`,
+      );
     }
     log.warn("llm", `the model failed under auto — imported without it`);
     return {
       recipe: mapped,
-      llm: { model: config.model, mode, found: false, error: error.message },
-      warnings: [`local model not used — ${describe(error)}`],
+      llm: {
+        model: config.model,
+        api: config.api,
+        mode,
+        found: false,
+        error: error.message,
+      },
+      warnings: [`${readerNoun(config.api)} not used — ${describe(error)}`],
     };
   }
 
@@ -635,13 +650,12 @@ function settle({
       recipe: mapped,
       llm: {
         model: extraction.llm.model,
+        ...(extraction.llm.api ? { api: extraction.llm.api } : {}),
         mode,
         found: false,
         durationMs: extraction.llm.durationMs,
       },
-      warnings: [
-        `local model ${extraction.llm.model} found no recipe ${where}`,
-      ],
+      warnings: [`${readerLabel(extraction.llm)} found no recipe ${where}`],
     };
   }
 
@@ -652,7 +666,7 @@ function settle({
       recipe: mapped,
       llm: { ...info, discarded: true },
       warnings: [
-        `local model output discarded — only ${stats.grounded}/${stats.total} ingredient lines found ${where}`,
+        `${readerNoun(stats.api)} output discarded — only ${stats.grounded}/${stats.total} ingredient lines found ${where}`,
       ],
     };
   }
@@ -691,7 +705,7 @@ function settle({
           ? "it found no instructions"
           : `only ${stats.grounded}/${stats.total} ingredient lines found ${where}`;
     warnings.push(
-      `local model ${stats.model}'s reading is incomplete — ${why}; kept, since the import had nothing in its place; check it against the source`,
+      `${readerLabel(stats)}'s reading is incomplete — ${why}; kept, since the import had nothing in its place; check it against the source`,
     );
   } else {
     warnings.push(
@@ -701,7 +715,7 @@ function settle({
   }
   for (const list of kept) {
     warnings.push(
-      `the local model returned no ${list}: the page's own ${list} are kept`,
+      `the ${readerNoun(stats.api)} returned no ${list}: the page's own ${list} are kept`,
     );
   }
   return { recipe, llm: info, warnings, trusted };
@@ -798,13 +812,13 @@ async function readSeveral({
     })
   ) {
     return {
-      note: `local model ${listed.model} read ${names.join(", ")} as parts of one dish — read as one`,
+      note: `${readerLabel(listed)} read ${names.join(", ")} as parts of one dish — read as one`,
     };
   }
   const starts = split.locateRecipes(capped, listed.recipes);
   if (!starts) {
     return {
-      note: `local model ${listed.model} listed ${listed.recipes.length} recipes (${names.join(", ")}), but not where each starts — read as one`,
+      note: `${readerLabel(listed)} listed ${listed.recipes.length} recipes (${names.join(", ")}), but not where each starts — read as one`,
     };
   }
 
@@ -853,7 +867,7 @@ async function readSeveral({
       /* One slice's failed call is that slice's (36e review); an abort —
        * the caller's or the deadline's — is the whole attempt's. */
       if (!(error instanceof LlmError) || signal?.aborted) throw error;
-      leave(`local model failed — ${describe(error)}`);
+      leave(`${readerNoun(config.api)} failed — ${describe(error)}`);
       continue;
     }
     const settled = settleExtraction({
@@ -897,7 +911,7 @@ async function readSeveral({
   if (kept.length < 2) {
     return {
       note: [
-        `local model ${listed.model} listed ${listed.recipes.length} recipes (${names.join(", ")}), but read fewer than two — read as one`,
+        `${readerLabel(listed)} listed ${listed.recipes.length} recipes (${names.join(", ")}), but read fewer than two — read as one`,
         ...notes,
       ].join("; "),
     };
@@ -950,7 +964,7 @@ async function readSeveral({
     };
   });
   const where = extract.sourceWhere("text", label);
-  const found = `local model ${listed.model} found ${recipes.length} recipes ${where}: ${recipes
+  const found = `${readerLabel(listed)} found ${recipes.length} recipes ${where}: ${recipes
     .map((reading) => `${reading.n}. ${reading.recipe.name}`)
     .join(", ")}${PICK_PROMPT}`;
   const [first] = recipes;
@@ -1060,7 +1074,7 @@ export function schemaReadings(
       : []),
     ...(mode === "force"
       ? [
-          "the local model was not asked: the page's own recipe data holds each recipe (--as-one reads its first, with the model)",
+          "the model was not asked: the page's own recipe data holds each recipe (--as-one reads its first, with the model)",
         ]
       : []),
   ];

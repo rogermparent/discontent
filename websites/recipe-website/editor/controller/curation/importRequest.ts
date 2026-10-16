@@ -80,6 +80,12 @@ export const ImportRequestFields = z.strictObject({
   all: z.boolean().optional(),
   /* 36e review: read a video or paste as one recipe, never split. */
   asOne: z.boolean().optional(),
+  /*
+   * 39a: read it again — skip the reading an earlier import of the same
+   * source kept (38c) and a photo set's kept transcription; the new
+   * reading is kept.
+   */
+  fresh: z.boolean().optional(),
 });
 
 type ImportRequestInput = z.infer<typeof ImportRequestFields>;

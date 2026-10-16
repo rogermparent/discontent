@@ -419,6 +419,142 @@ describe("sub-recipes (38d)", () => {
   });
 });
 
+describe("undo a sub-recipe expansion (39c)", () => {
+  async function recipes() {
+    await createRecipe(ctx, {
+      name: "Simple Syrup",
+      ingredients: ["1/2 cup sugar", "1/2 cup water"],
+    });
+    await createRecipe(ctx, {
+      name: "Lavender Syrup",
+      ingredients: [
+        "1 batch [Simple Syrup](/recipe/simple-syrup)",
+        "2 Tbsp dried lavender",
+      ],
+    });
+    await createRecipe(ctx, {
+      name: "Lemonade",
+      ingredients: [
+        "1 cup lemon juice",
+        "1 batch [Simple Syrup](/recipe/simple-syrup)",
+        "1/4 cup sugar",
+      ],
+    });
+    await createRecipe(ctx, {
+      name: "Lavender Lemonade",
+      ingredients: [
+        "1 cup lemon juice",
+        "1 batch [Lavender Syrup](/recipe/lavender-syrup)",
+      ],
+    });
+  }
+  const texts = (items: { text: string }[]) => items.map((item) => item.text);
+
+  it("removes the sub-recipe's lines in one commit; a merged row keeps the recipe's own line", async () => {
+    await recipes();
+    await addToShopping(ctx, { recipe: "lemonade" });
+    const before = (await messages()).length;
+    const result = await patchShopping(ctx, {
+      removeSource: { for: "simple-syrup" },
+    });
+    expect(result.removed).toHaveLength(2);
+    expect(texts(result.items)).toEqual(["1 cup lemon juice", "1/4 cup sugar"]);
+    expect((await messages()).length).toBe(before + 1);
+    expect((await messages())[0]).toBe(
+      "Update shopping list: -for Simple Syrup (2 items)",
+    );
+    /* The sugar row was shared with the syrup: now only the lemonade's. */
+    const { view } = await readShoppingView(ctx);
+    const sugar = view.stores[0].sections
+      .flatMap((section) => section.rows)
+      .find((row) => row.nameKey === "sugar");
+    expect(sugar?.label).toBe("¼ cup sugar");
+    expect(sugar?.forNote).toBeUndefined();
+  });
+
+  it("takes an item whole, at any depth of its path: nested lines go with either sub-recipe", async () => {
+    await recipes();
+    await addToShopping(ctx, { recipe: "lavender-lemonade" });
+    /* Lavender Syrup's own lavender, and its Simple Syrup's two lines. */
+    expect(
+      (await readShopping(ctx)).items.map((item) =>
+        item.for?.map((sub) => sub.slug),
+      ),
+    ).toEqual([
+      undefined,
+      ["lavender-syrup", "simple-syrup"],
+      ["lavender-syrup", "simple-syrup"],
+      ["lavender-syrup"],
+    ]);
+
+    /* The inner one: its lines go whole — never left as "for Lavender Syrup". */
+    const inner = await patchShopping(ctx, {
+      removeSource: { for: "simple-syrup" },
+    });
+    expect(texts(inner.items)).toEqual([
+      "1 cup lemon juice",
+      "2 Tbsp dried lavender",
+    ]);
+    expect(inner.items[1].for).toEqual([
+      { slug: "lavender-syrup", name: "Lavender Syrup" },
+    ]);
+
+    await addToShopping(ctx, { recipe: "lavender-lemonade" });
+    const outer = await patchShopping(ctx, {
+      removeSource: { for: "lavender-syrup" },
+    });
+    /* The outer one takes what is under it too. */
+    expect(texts(outer.items)).toEqual([
+      "1 cup lemon juice",
+      "1 cup lemon juice",
+    ]);
+    expect((await messages())[0]).toBe(
+      "Update shopping list: -for Lavender Syrup (4 items)",
+    );
+  });
+
+  it("takes the sub-recipe's lines from every recipe that expanded it, and nothing else", async () => {
+    await recipes();
+    await addToShopping(ctx, { recipe: "lemonade" });
+    await addToShopping(ctx, { recipe: "lavender-lemonade" });
+    await addToShopping(ctx, { items: ["simple syrup"] });
+    const result = await patchShopping(ctx, {
+      removeSource: { for: "simple-syrup" },
+    });
+    expect(result.removed).toHaveLength(4);
+    expect(texts(result.items)).toEqual([
+      "1 cup lemon juice",
+      "1/4 cup sugar",
+      "1 cup lemon juice",
+      "2 Tbsp dried lavender",
+      "simple syrup",
+    ]);
+  });
+
+  it("reports a sub-recipe with no lines on the list, and commits nothing", async () => {
+    await recipes();
+    await addToShopping(ctx, { recipe: "lemonade" });
+    const before = (await messages()).length;
+    const result = await patchShopping(ctx, {
+      removeSource: { for: "lavender-syrup" },
+    });
+    expect(result).toMatchObject({
+      changed: false,
+      removed: [],
+      unmatched: ["lavender-syrup"],
+    });
+    expect((await messages()).length).toBe(before);
+  });
+
+  it("refuses a source naming two of recipe, group and for", async () => {
+    await expect(
+      patchShopping(ctx, {
+        removeSource: { recipe: "lemonade", for: "simple-syrup" },
+      }),
+    ).rejects.toMatchObject({ code: "validation" });
+  });
+});
+
 describe("OR: items go with their line (38d)", () => {
   async function blossoms() {
     await createRecipe(ctx, {

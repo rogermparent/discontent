@@ -185,6 +185,12 @@ export interface ImportOptions {
   all?: boolean;
   /** Read a video or paste as one recipe, never split (36e). */
   asOne?: boolean;
+  /**
+   * Read it again (39a): skip the reading an earlier import of the same
+   * source kept for half an hour (38c) — and a photo set's kept
+   * transcription — and keep the new one.
+   */
+  fresh?: boolean;
 }
 
 /**
@@ -447,9 +453,9 @@ export interface CuratorBackend {
    * Run a job again with this backend's own context: locally it runs here
    * and the answer is its end; remotely the editor starts it and answers
    * at once (`status: "running"`). A spec recorded against another content
-   * directory is `usage`.
+   * directory is `usage`. `fresh` (39a): an import skips its kept reading.
    */
-  retryJob(id: string): Promise<JobRetryResult>;
+  retryJob(id: string, options?: { fresh?: boolean }): Promise<JobRetryResult>;
 
   /**
    * Run after a command whose `write` flag is set; the string it resolves to is

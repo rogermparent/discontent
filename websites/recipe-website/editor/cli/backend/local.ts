@@ -426,7 +426,7 @@ export function createLocalBackend({
       const { cancelJobById } = await import("../../controller/jobs/views");
       return cancelJobById(id);
     },
-    async retryJob(id) {
+    async retryJob(id, { fresh = false } = {}) {
       const { retryJobById, requireJob } =
         await import("../../controller/jobs/views");
       const { retrySpecFor, specWrites } =
@@ -435,7 +435,7 @@ export function createLocalBackend({
       const spec = await retrySpecFor(await requireJob(id), ctx);
       /* A retry that writes needs a committer, as the import it replays. */
       if (specWrites(spec)) await guard();
-      return retryJobById(id, ctx, { wait: !inProcess });
+      return retryJobById(id, ctx, { wait: !inProcess, fresh });
     },
 
     /*

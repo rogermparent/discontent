@@ -28,7 +28,8 @@ import {
   isVideoUrl,
   type ImportedRecipe,
 } from "recipe-website-common/util/importRecipeData";
-import { chatJson, type LlmConfig } from "./client";
+import { chatJson, type LlmApi, type LlmConfig } from "./client";
+import { readerLabel } from "./readerLabel";
 import { parseTimeText } from "./timeText";
 import { tidyReading } from "./tidyReading";
 import { jobContext, type JobRun } from "../jobs/context";
@@ -619,6 +620,8 @@ export function firstLine(source: string): string | undefined {
 
 export interface LlmStats {
   model: string;
+  /** The API that answered (39a): the warnings name the Claude API by it. */
+  api?: LlmApi;
   /**
    * The model's own ingredient lines (headings included) found in the
    * source (`grounding`), out of `total` — lines `added` back are not in
@@ -645,7 +648,7 @@ export type LlmExtraction =
     }
   | {
       found: false;
-      llm: Pick<LlmStats, "model" | "durationMs">;
+      llm: Pick<LlmStats, "model" | "api" | "durationMs">;
     };
 
 export interface ExtractRecipeInput {
@@ -799,7 +802,11 @@ async function readRecipe(
   if (!answer.found || (items === 0 && steps === 0)) {
     return {
       found: false,
-      llm: { model: result.model, durationMs: result.durationMs },
+      llm: {
+        model: result.model,
+        ...(result.api ? { api: result.api } : {}),
+        durationMs: result.durationMs,
+      },
     };
   }
 
@@ -808,6 +815,7 @@ async function readRecipe(
 
   const llm: LlmStats = {
     model: result.model,
+    ...(result.api ? { api: result.api } : {}),
     grounded,
     total,
     verbatim,
@@ -875,12 +883,16 @@ export function sourceWhere(
 
 /** The one warning an extraction carries: what to check, or why it is partial. */
 export function llmWarning(
-  llm: Pick<LlmStats, "model" | "grounded" | "total" | "verbatim" | "added">,
+  llm: Pick<
+    LlmStats,
+    "model" | "api" | "grounded" | "total" | "verbatim" | "added"
+  >,
   { items, steps, trusted }: { items: number; steps: number; trusted: boolean },
   sourceKind: "page" | "text" = "page",
   label?: string,
 ): string {
   const where = sourceWhere(sourceKind, label);
+  const who = readerLabel(llm);
   const how =
     llm.verbatim === llm.total && llm.total > 0 ? "found verbatim" : "found";
   const found = `${llm.grounded}/${llm.total} ingredient lines ${how} ${where}`;
@@ -889,10 +901,10 @@ export function llmWarning(
     : "";
   if (trusted && label) {
     /* A video (36d): say what was read — the import never showed it. */
-    return `read from ${label} by local model ${llm.model} — ${llm.grounded}/${llm.total} ingredient lines ${how}${added}; check it`;
+    return `read from ${label} by ${who} — ${llm.grounded}/${llm.total} ingredient lines ${how}${added}; check it`;
   }
   if (trusted) {
-    return `extracted by local model ${llm.model} — ${found}${added}; check it`;
+    return `extracted by ${who} — ${found}${added}; check it`;
   }
   const why =
     items === 0
@@ -900,5 +912,5 @@ export function llmWarning(
       : steps === 0
         ? "it found no instructions"
         : `only ${found}`;
-  return `local model ${llm.model}'s extraction is partial — ${why}; check it against the source`;
+  return `${who}'s extraction is partial — ${why}; check it against the source`;
 }

@@ -59,26 +59,69 @@ describe("URL helpers", () => {
     expect(siteKey("http://localhost:3019/a")).toBe("localhost:3019");
   });
 
-  it("paces and drops by host (38b review): a .co.uk site and a CDN are their own", () => {
-    /* `siteKey` lumps both; `paceKey` keeps them apart. */
-    expect(siteKey("https://www.bbcgoodfood.co.uk/r/")).toBe("co.uk");
+  it("reads a .co.uk site's registrable domain, not `co.uk` (39e De1)", () => {
+    expect(siteKey("https://www.bbcgoodfood.co.uk/r/")).toBe(
+      "bbcgoodfood.co.uk",
+    );
+    expect(siteKey("https://a.example.co.uk/r/")).toBe("example.co.uk");
+    expect(siteKey("https://other.co.uk/r/")).toBe("other.co.uk");
+    /* The parsers' site is the ICANN one: a CDN is still one site there. */
+    expect(siteKey("https://d1abc.cloudfront.net/x.jpg")).toBe(
+      "cloudfront.net",
+    );
+    expect(siteKey("not a url")).toBeUndefined();
+  });
+
+  it("paces and drops by registrable domain (39e De1, after 38-Db6)", () => {
+    const same = (a: string, b: string) =>
+      expect(paceKey(a), `${a} ≡ ${b}`).toBe(paceKey(b));
+    const apart = (a: string, b: string) =>
+      expect(paceKey(a), `${a} ≢ ${b}`).not.toBe(paceKey(b));
+
+    /* One site's hosts are one line. */
+    same("https://a.example.co.uk/r/", "https://b.example.co.uk/s/");
+    same("https://a.example.co.uk/r/", "https://example.co.uk/");
+    same("https://www.x.com/r/", "https://x.com/");
+    same("https://cdn.x.com/a.jpg", "https://www.x.com/r/");
+    expect(paceKey("https://WWW.Example.com/a/")).toBe("example.com");
+    expect(paceKey("https://cdn.example.com/a.jpg")).toBe("example.com");
+    expect(paceKey("https://img.food.example.com./a.jpg")).toBe("example.com");
     expect(paceKey("https://www.bbcgoodfood.co.uk/r/")).toBe(
       "bbcgoodfood.co.uk",
     );
-    expect(paceKey("https://www.deliciousmagazine.co.uk/r/")).toBe(
-      "deliciousmagazine.co.uk",
+
+    /* Two sites under one public suffix are two lines. */
+    apart("https://example.co.uk/", "https://other.co.uk/");
+    apart(
+      "https://www.bbcgoodfood.co.uk/r/",
+      "https://www.deliciousmagazine.co.uk/r/",
     );
-    expect(paceKey("https://i0.wp.com/example.com/a.jpg")).toBe("i0.wp.com");
-    expect(paceKey("https://i1.wp.com/other.org/b.jpg")).toBe("i1.wp.com");
+    apart("https://example.com/", "https://example.org/");
+
+    /* A shared host's tenants are their own: the list's private section… */
     expect(paceKey("https://d1abc.cloudfront.net/x.jpg")).toBe(
       "d1abc.cloudfront.net",
     );
-    /* `www.` is the same server; any other label is a host of its own. */
-    expect(paceKey("https://WWW.Example.com/a/")).toBe("example.com");
-    expect(paceKey("https://example.com/a/")).toBe("example.com");
-    expect(paceKey("https://cdn.example.com/a.jpg")).toBe("cdn.example.com");
+    apart(
+      "https://d1abc.cloudfront.net/x.jpg",
+      "https://d2def.cloudfront.net/y.jpg",
+    );
+    apart("https://me.github.io/r/", "https://you.github.io/r/");
+    apart("https://me.blogspot.com/r/", "https://you.blogspot.com/r/");
+    /* …and the shared hosts it doesn't know (`SHARED_HOSTS`). */
+    expect(paceKey("https://i0.wp.com/example.com/a.jpg")).toBe("i0.wp.com");
+    expect(paceKey("https://i1.wp.com/other.org/b.jpg")).toBe("i1.wp.com");
+    apart("https://me.wordpress.com/r/", "https://you.wordpress.com/r/");
+    expect(paceKey("https://www.me.wordpress.com/r/")).toBe("me.wordpress.com");
+
+    /* A host that is itself a public suffix, or `www.` plus one. */
+    expect(paceKey("https://co.uk/")).toBe("co.uk");
     expect(paceKey("https://www.com/")).toBe("www.com");
+
+    /* IP literals and single labels keep their port: two fixtures, two lines. */
     expect(paceKey("http://127.0.0.1:4001/a")).toBe("127.0.0.1:4001");
+    apart("http://127.0.0.1:4001/a", "http://127.0.0.1:4002/a");
+    expect(paceKey("http://[::1]:4001/a")).toBe("[::1]:4001");
     expect(paceKey("http://localhost:3019/a")).toBe("localhost:3019");
     expect(paceKey("not a url")).toBeUndefined();
   });

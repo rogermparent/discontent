@@ -599,4 +599,155 @@ describe("the reading kept by spec (38c)", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("fresh skips the read and still keeps the new reading (39a)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "readings-"));
+    try {
+      const key = readingKey({ text: "x", mode: "force" });
+      await readingCache<{ warnings: string[] }>(dir, key, {
+        job: "01OLD",
+      }).save({ warnings: ["kept"] });
+      const fresh = readingCache<{ warnings: string[] }>(dir, key, {
+        job: "01NEW",
+        fresh: true,
+      });
+      expect(fresh.fresh).toBe(true);
+      expect(await fresh.load()).toBeUndefined();
+      await fresh.save({ warnings: ["read again"] });
+      expect(await readingCache(dir, key).load()).toMatchObject({
+        value: { warnings: ["read again"] },
+        job: "01NEW",
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("--fresh asks the model again past a kept reading, and the next import reuses it (39a)", async () => {
+    const spec = {
+      kind: "import-text" as const,
+      ...corpusOf(ctx),
+      text: TWO_RECIPES,
+      /* Its own key: the test before kept a reading of the same text. */
+      source: "https://www.example.com/fresh-test",
+    };
+    await runSpec({ ...spec, options: { dryRun: true } });
+    expect(modelCalls).toHaveLength(4);
+    const fresh = await runSpec({
+      ...spec,
+      options: { dryRun: true, fresh: true },
+    });
+    expect(modelCalls).toHaveLength(8);
+    expect(asBatch(fresh).warnings?.join(" ") ?? "").not.toContain(
+      "was reused",
+    );
+    const log = await readJobLog(jobsDirectory(), fresh.job);
+    expect(
+      log.lines.find((line) => line.step === "reading")?.data,
+    ).toMatchObject({ fresh: true });
+    /* `fresh` is not in the key: the next import reuses the fresh reading. */
+    const again = await runSpec({ ...spec, options: { dryRun: true } });
+    expect(modelCalls).toHaveLength(8);
+    expect(asBatch(again).warnings?.join(" ")).toContain(
+      "was reused, not read again",
+    );
+  });
+});
+
+describe("the model that answered, in warnings and commits (39a, 38-Dg9)", () => {
+  const CLAUDE_URL = "https://claude.test";
+  const ONE_CAKE = [
+    "Lemon Cake",
+    "200g flour",
+    "100g sugar",
+    "2 eggs",
+    "",
+    "Mix everything and bake for 30 minutes.",
+  ].join("\n");
+
+  /** The Messages API, answered by the stand-in model's rules. */
+  function stubClaude(): string[] {
+    const asked: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url !== `${CLAUDE_URL}/v1/messages`) {
+          return new Response("not here", { status: 404 });
+        }
+        const body = JSON.parse(String(init?.body)) as {
+          model: string;
+          system?: string;
+          messages: { content: { type: string; text?: string }[] }[];
+        };
+        asked.push(body.model);
+        const user = body.messages[0].content
+          .map((block) => block.text ?? "")
+          .join("");
+        const answer = standInChat({
+          model: body.model,
+          messages: [
+            { role: "system", content: body.system ?? "" },
+            { role: "user", content: user },
+          ],
+        }) as { message: { content: string } };
+        return Response.json({
+          id: "msg_test",
+          type: "message",
+          role: "assistant",
+          model: body.model,
+          content: [{ type: "text", text: answer.message.content }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 100, output_tokens: 50 },
+        });
+      }),
+    );
+    return asked;
+  }
+
+  beforeEach(() => {
+    vi.stubEnv("RECIPE_LLM_API", "anthropic");
+    vi.stubEnv("RECIPE_LLM_API_KEY", "sk-ant-test-not-a-real-key-39a");
+    vi.stubEnv("RECIPE_LLM_URL", CLAUDE_URL);
+    vi.stubEnv("RECIPE_LLM_MODEL", "claude-sonnet-5");
+  });
+
+  it("a Claude-answered import says so in its warnings and its commit note", async () => {
+    const asked = stubClaude();
+    const result = await runSpec({
+      kind: "import-text",
+      ...corpusOf(ctx),
+      text: ONE_CAKE,
+      options: {},
+    });
+    expect(asked).toContain("claude-sonnet-5");
+    expect("slug" in result && result.slug).toBe("lemon-cake");
+    expect(result.warnings?.join(" ")).toContain(
+      "by the Claude API (claude-sonnet-5)",
+    );
+    expect(result.warnings?.join(" ")).not.toContain("local model");
+    const [latest] = (await git.log({ maxCount: 1 })).all;
+    expect(latest.message).toBe(
+      "Create recipe: lemon-cake (Claude API claude-sonnet-5, pasted text)",
+    );
+  });
+
+  it("the local model keeps its words (no API named)", async () => {
+    vi.stubEnv("RECIPE_LLM_API", "");
+    vi.stubEnv("RECIPE_LLM_API_KEY", "");
+    vi.stubEnv("RECIPE_LLM_URL", MODEL_URL);
+    vi.stubEnv("RECIPE_LLM_MODEL", "");
+    stub();
+    const result = await runSpec({
+      kind: "import-text",
+      ...corpusOf(ctx),
+      text: ONE_CAKE,
+      options: {},
+    });
+    expect(result.warnings?.join(" ")).toContain("by local model qwen3:8b");
+    const [latest] = (await git.log({ maxCount: 1 })).all;
+    expect(latest.message).toBe(
+      "Create recipe: lemon-cake (local model, pasted text)",
+    );
+  });
 });

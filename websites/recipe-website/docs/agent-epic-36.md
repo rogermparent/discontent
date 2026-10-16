@@ -13,7 +13,8 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 36e in review (PR open).
+**Now:** closed — 36a–36e all merged (#230–#235, main a7a989f0,
+2026-10-15).
 
 ## Context
 
@@ -314,15 +315,15 @@ youtube.com/watch?v=…)`, or `(local model, pasted text, 3 of 4)`.
 
 ## Roadmap
 
-| Phase    | Branch                   | Size | Status    | What                                                                                                                               |
-| -------- | ------------------------ | ---- | --------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| 36-plan  | `agent/36-plan`          | S    | ✅ #230   | This doc.                                                                                                                          |
-| 36a      | `agent/36a-llm-core`     | M    | ✅ #231   | D1, D2, D4, D6, D7: `pageText`, the client, the extractor, gate.                                                                   |
-| 36b      | `agent/36b-llm-wire`     | M    | ✅ #232   | D3, D5: `applyLlm` in seats, form, CLI, API, MCP; Settings line.                                                                   |
-| 36c      | `agent/36c-llm-text`     | M    | ✅ #233   | D8: text import mode in the form, CLI, API, MCP.                                                                                   |
-| 36-close | `agent/36c-llm-text`     | S    | ✅ #233   | Results, D12/SKILL.md updates, backlog, memory, Roger's steps.                                                                     |
-| 36d      | `agent/36d-video-url`    | M    | 🟡 review | D9: the video path reads the pinned comment and tags; the form says "give it the URL".                                             |
-| 36e      | `agent/36e-multi-recipe` | M–L  | 🟡        | D10: several recipes in one video or paste — split, trusted and linked per recipe, chapter starts, the picker, `--all` / `--pick`. |
+| Phase    | Branch                   | Size | Status  | What                                                                                                                               |
+| -------- | ------------------------ | ---- | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| 36-plan  | `agent/36-plan`          | S    | ✅ #230 | This doc.                                                                                                                          |
+| 36a      | `agent/36a-llm-core`     | M    | ✅ #231 | D1, D2, D4, D6, D7: `pageText`, the client, the extractor, gate.                                                                   |
+| 36b      | `agent/36b-llm-wire`     | M    | ✅ #232 | D3, D5: `applyLlm` in seats, form, CLI, API, MCP; Settings line.                                                                   |
+| 36c      | `agent/36c-llm-text`     | M    | ✅ #233 | D8: text import mode in the form, CLI, API, MCP.                                                                                   |
+| 36-close | `agent/36c-llm-text`     | S    | ✅ #233 | Results, D12/SKILL.md updates, backlog, memory, Roger's steps.                                                                     |
+| 36d      | `agent/36d-video-url`    | M    | ✅ #234 | D9: the video path reads the pinned comment and tags; the form says "give it the URL".                                             |
+| 36e      | `agent/36e-multi-recipe` | M–L  | ✅ #235 | D10: several recipes in one video or paste — split, trusted and linked per recipe, chapter starts, the picker, `--all` / `--pick`. |
 
 Ordering: strictly sequential — 36b needs 36a's extractor, 36c needs 36b's
 plumbing (`ImportOptions`, the zod bodies, the form). 36-close after 36c.
@@ -1788,6 +1789,8 @@ T49) are both done.
 | #231 | 36a            | `1dffe095` | qwen3:8b passes the gate (100% recall, 100% grounded, median 20.2 s); one review round (line-by-line grounding, T11–T14).    |
 | #232 | 36b            | `647381b4` | `--llm auto\|force\|off` on every import surface, the form toggle, the Tools card; one review round (T21, T22, the env pin). |
 | #233 | 36c + 36-close | –          | Pasted-text import; one review round (9 findings, incl. the pre-existing JSON-LD XSS); this close-out.                       |
+| #234 | 36d            | `672d225f` | A video URL's pinned comment and tags; the form says "give it the URL" (added by 39e).                                       |
+| #235 | 36e            | `a7a989f0` | Several recipes in one video or paste: the picker, `--all` / `--pick`, linked components (added by 39e).                     |
 
 Every M PR had a review agent before its first push. **No index, schema or
 spec version changed: no reindex is needed.** Nothing new is stored in a

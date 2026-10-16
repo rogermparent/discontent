@@ -27,6 +27,7 @@
  */
 import { fromHtml } from "hast-util-from-html";
 import type { Element, Root } from "hast";
+import { getDomain } from "tldts";
 import { parseJsonLd } from "./pageMetadata";
 import {
   articleRoot,
@@ -113,43 +114,21 @@ export function sourceUrlKey(raw: string): string | undefined {
 const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
 
 /**
- * The site a host belongs to, for "requests to one site" (30-D5): its last
- * two labels, so `cdn.example.com` and `www.example.com` are one site. An IP
- * address or a single-label host (`localhost`) is its own site, port included
- * — which keeps two local fixture servers apart.
- *
- * Two labels is wrong for `example.co.uk` (it reads as `co.uk`), and that is
- * the safe direction to be wrong in: more hosts share one pace, never fewer.
+ * Registrable domains that are shared hosting: each subdomain is someone
+ * else's site (a Jetpack image CDN host, a wordpress.com blog), and the
+ * public-suffix list does not say so. `paceKey` keys such a host by itself.
  */
-export function siteKey(raw: string): string | undefined {
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    return;
-  }
-  const host = url.hostname.toLowerCase();
-  if (IPV4.test(host) || host.includes(":") || host.startsWith("[")) {
-    return url.host.toLowerCase();
-  }
-  const labels = host.split(".").filter(Boolean);
-  if (labels.length < 2) return url.host.toLowerCase();
-  return labels.slice(-2).join(".");
-}
+const SHARED_HOSTS = new Set(["wp.com", "wordpress.com"]);
 
 /**
- * The site a request is paced and dropped under (30-D5; 38b review): the
- * full host, less a leading `www.` — so `www.example.com` and `example.com`
- * share a queue, but `cdn.example.com` has its own. An IP address or a
- * single-label host is its own, port included, as `siteKey` keeps it.
- *
- * Not `siteKey`: its last two labels make every `.co.uk` site one, and a
- * CDN (`i0.wp.com`, `*.cloudfront.net`) one for every site it serves. Since
- * a drop is the machine's and outlives the process (38b), two 403s on one
- * Jetpack image would otherwise stop every `wp.com` request for an hour.
- * No public-suffix list is a dependency here, so the host it is (Db6).
+ * `url`'s host, lowercased and without a trailing dot — or, when it is not
+ * a name a public-suffix list can read (an IP address, a single label like
+ * `localhost`), the host *with its port*, which keeps two local fixture
+ * servers apart. `undefined` for something that is not a URL.
  */
-export function paceKey(raw: string): string | undefined {
+function hostOf(
+  raw: string,
+): { name: string } | { literal: string } | undefined {
   let url: URL;
   try {
     url = new URL(raw);
@@ -157,11 +136,61 @@ export function paceKey(raw: string): string | undefined {
     return;
   }
   const host = url.hostname.toLowerCase().replace(/\.$/, "");
-  if (IPV4.test(host) || host.includes(":") || host.startsWith("[")) {
-    return url.host.toLowerCase();
+  if (
+    IPV4.test(host) ||
+    host.includes(":") ||
+    host.startsWith("[") ||
+    !host.includes(".")
+  ) {
+    return { literal: url.host.toLowerCase() };
   }
-  if (!host.includes(".")) return url.host.toLowerCase();
-  return host.replace(/^www\.(?=[^.]+\.)/, "");
+  return { name: host };
+}
+
+/**
+ * The site a host belongs to, for the page parsers (share targets, a
+ * roundup's same-site-first order): its registrable domain by the
+ * public-suffix list's ICANN section (`tldts`, 39e De1), so
+ * `cdn.example.com` and `www.example.com` are one site and
+ * `bbcgoodfood.co.uk` is not `co.uk`. A CDN on a shared suffix
+ * (`*.cloudfront.net`) is still one site here — which only the pacer must
+ * not do (`paceKey`). An IP address or a single-label host (`localhost`) is
+ * its own site, port included.
+ */
+export function siteKey(raw: string): string | undefined {
+  const host = hostOf(raw);
+  if (!host) return;
+  if ("literal" in host) return host.literal;
+  return getDomain(host.name, { extractHostname: false }) ?? host.name;
+}
+
+/**
+ * The site a request is paced and dropped under (30-D5; 38-Db6; 39e De1):
+ * its **registrable domain**, by the whole public-suffix list (`tldts`,
+ * private section included) — so `a.example.co.uk` ≡ `b.example.co.uk` ≡
+ * `example.co.uk`, and `www.x.com` ≡ `cdn.x.com` ≡ `x.com`, but
+ * `example.co.uk` ≢ `other.co.uk`, and `d1.cloudfront.net`,
+ * `me.github.io` or `me.blogspot.com` are each their own. A host on a
+ * shared host the list doesn't know (`SHARED_HOSTS`: `i0.wp.com`, a
+ * wordpress.com blog) is keyed by the host itself, less a leading `www.`,
+ * as is a host that is itself a public suffix. An IP address or a
+ * single-label host keeps its port.
+ *
+ * Why it matters (38b): a drop is the machine's and outlives the process,
+ * so a key that reaches too far (every `.co.uk` site, every Jetpack image)
+ * stops sites that never refused anything; one that reaches too little
+ * paces one site's hosts apart.
+ */
+export function paceKey(raw: string): string | undefined {
+  const host = hostOf(raw);
+  if (!host) return;
+  if ("literal" in host) return host.literal;
+  const domain = getDomain(host.name, {
+    allowPrivateDomains: true,
+    extractHostname: false,
+  });
+  if (domain && !SHARED_HOSTS.has(domain)) return domain;
+  return host.name.replace(/^www\.(?=[^.]+\.)/, "");
 }
 
 /** Path segments that name an archive, an account page or a utility, not a recipe. */

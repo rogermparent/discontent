@@ -496,6 +496,8 @@ describe("/api/import with photos (38e)", () => {
     expect(
       modelStub.mock.calls.map(([input]) => new URL(String(input)).pathname),
     ).toEqual([
+      /* The vision model's digest, once per import (39a). */
+      "/api/tags",
       "/api/chat",
       "/api/ps",
       "/api/generate",

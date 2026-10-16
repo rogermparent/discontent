@@ -18,6 +18,7 @@ import { RecipeJsonLD } from "./JsonLD";
 import { Ingredients } from "./Ingredients";
 import { AppearsIn } from "./AppearsIn";
 import { SourceLine } from "./SourceLine";
+import { JumpLinks } from "./JumpLinks";
 import { DrinkSpecBar } from "./DrinkSpec";
 import { RecipeSchedule } from "./Schedule";
 import BookmarkButton from "../BookmarkButton";
@@ -190,6 +191,10 @@ export async function RecipeView({
                   ]}
                 />
                 <DrinkSpecBar drink={recipe.drink} />
+                <JumpLinks
+                  ingredients={ingredients}
+                  instructions={instructions}
+                />
               </div>
             </div>
             {timelines && timelines.length > 0 && (

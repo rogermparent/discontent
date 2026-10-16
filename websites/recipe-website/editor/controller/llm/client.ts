@@ -320,6 +320,12 @@ export interface LlmStatus {
   keyRefused?: boolean;
   /** The key was accepted but may not use this (38g): a 403, `permission_error`. */
   forbidden?: boolean;
+  /**
+   * Ollama only (39a, 38-Te6): the configured model's digest in that list —
+   * what a re-pull under the same name changes. A kept transcription is
+   * keyed by it.
+   */
+  digest?: string;
 }
 
 /** A 403's words (Dg13): the key is good, its permissions are not enough. */
@@ -389,7 +395,7 @@ export async function llmStatus(
     }
     const body = (await response.json().catch(() => undefined)) as
       | {
-          models?: { name?: string; model?: string }[];
+          models?: { name?: string; model?: string; digest?: unknown }[];
           data?: { id?: string }[];
         }
       | undefined;
@@ -398,9 +404,12 @@ export async function llmStatus(
         ? body?.models?.flatMap((entry) => [entry.name, entry.model])
         : body?.data?.map((entry) => entry.id);
     const listed = names?.filter((name): name is string => !!name);
+    const digest =
+      config.api === "ollama" ? ollamaDigest(body?.models, config.model) : "";
     return {
       reachable: true,
       ...(listed ? { modelAvailable: listed.includes(config.model) } : {}),
+      ...(digest ? { digest } : {}),
     };
   } catch (error) {
     return {
@@ -411,6 +420,27 @@ export async function llmStatus(
           : withoutKey((error as Error)?.message ?? String(error), config),
     };
   }
+}
+
+/**
+ * A model's digest in Ollama's `/api/tags` list (39a): the entry named
+ * `model` (or `model:latest`, as Ollama lists an untagged pull).
+ */
+export function ollamaDigest(
+  models: { name?: string; model?: string; digest?: unknown }[] | undefined,
+  model: string,
+): string | undefined {
+  const names = new Set([
+    model,
+    model.includes(":") ? model : `${model}:latest`,
+  ]);
+  const entry = models?.find(
+    (candidate) =>
+      names.has(candidate.name ?? "") || names.has(candidate.model ?? ""),
+  );
+  return typeof entry?.digest === "string" && entry.digest
+    ? entry.digest
+    : undefined;
 }
 
 export type LlmErrorKind =
@@ -513,6 +543,8 @@ export interface ChatJsonResult {
   /** The parsed answer: still unchecked against the schema. */
   data: unknown;
   model: string;
+  /** The API that answered (39a): a warning names the Claude API by it. */
+  api?: LlmApi;
   /** Wall time of the call. */
   durationMs: number;
   /** Token counts, when the server reports them. */
@@ -693,6 +725,7 @@ export async function chatJson(
   const config = request.config ?? llmConfig();
   return {
     ...result,
+    ...(config ? { api: config.api } : {}),
     data: parseJsonAnswer(
       content,
       config?.api === "anthropic" ? modelLabel(config) : undefined,
@@ -717,8 +750,10 @@ export async function chatText(
   request: ChatTextRequest,
 ): Promise<ChatTextResult> {
   const { content, ...result } = await chat(request);
+  const config = request.config ?? llmConfig();
   return {
     ...result,
+    ...(config ? { api: config.api } : {}),
     text: content.replace(/^\s*<think>[\s\S]*?<\/think>/, "").trim(),
   };
 }

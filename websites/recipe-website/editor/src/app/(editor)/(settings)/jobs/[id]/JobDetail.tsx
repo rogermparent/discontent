@@ -12,6 +12,7 @@ import {
   noteText,
   resultRows,
 } from "recipe-editor/controller/jobs/timeline";
+import { KEPT_READING_KINDS } from "recipe-editor/controller/jobs/listing";
 import type { JobRecord } from "recipe-editor/controller/jobs/views";
 import { StepTimeline } from "@/jobs/StepTimeline";
 import { requestCancel, useJobPoll } from "@/jobs/useJobPoll";
@@ -105,6 +106,9 @@ export function JobDetail({
   const [actionError, setActionError] = useState<string | undefined>();
   /* A refused retry's live job (`job_live`): the one to follow instead. */
   const [liveRetry, setLiveRetry] = useState<string | undefined>();
+  /* 39a: Retry reads the source again, past the kept reading. */
+  const [fresh, setFresh] = useState(false);
+  const offersFresh = KEPT_READING_KINDS.includes(kind);
 
   useEffect(() => {
     if (!live) return;
@@ -137,9 +141,13 @@ export function JobDetail({
     try {
       const response = await fetch(
         `/api/jobs/${encodeURIComponent(id)}/retry`,
-        {
-          method: "POST",
-        },
+        offersFresh && fresh
+          ? {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ fresh: true }),
+            }
+          : { method: "POST" },
       );
       const body = (await response.json()) as
         | { job: string }
@@ -232,14 +240,32 @@ export function JobDetail({
               {acting === "cancel" ? "Cancelling…" : "Cancel"}
             </Button>
           ) : meta ? (
-            <Button
-              type="button"
-              size="sm"
-              disabled={acting !== undefined}
-              onClick={retry}
-            >
-              {acting === "retry" ? "Starting…" : "Retry"}
-            </Button>
+            <>
+              <Button
+                type="button"
+                size="sm"
+                disabled={acting !== undefined}
+                onClick={retry}
+              >
+                {acting === "retry" ? "Starting…" : "Retry"}
+              </Button>
+              {offersFresh && (
+                /* 39a: past the half-hour kept reading (38c). */
+                <label className="flex items-center gap-1 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={fresh}
+                    onChange={(event) => setFresh(event.target.checked)}
+                  />
+                  {kind === "import-photo"
+                    ? "Read the photos again"
+                    : "Read it again"}
+                  <span className="text-muted-foreground">
+                    — not the kept reading
+                  </span>
+                </label>
+              )}
+            </>
           ) : null}
           {!live && meta?.result !== undefined && FORM_KINDS.has(kind) && (
             <Link

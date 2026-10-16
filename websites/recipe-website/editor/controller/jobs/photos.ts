@@ -192,6 +192,8 @@ export interface KeptTranscript {
   text: string;
   /** The vision model that read it. */
   model: string;
+  /** Its Ollama digest then (39a; also folded into `prompt`). */
+  digest?: string;
   /** `transcribeKey()` when it was read: another prompt reads again. */
   prompt: string;
   /** The job that read it. */

@@ -759,3 +759,63 @@ export function formatShoppingText(
   if (blocks.length > 0) return blocks.join("\n\n");
   return view.counts.items > 0 ? "Nothing left to buy." : "The list is empty.";
 }
+
+// --- sub-recipe groups (39c) -------------------------------------------------
+
+/**
+ * The items a sub-recipe's expansion put on the list (38-Dd1): every item
+ * whose `for` path names `slug`, at any depth. `for` is a path, not a set —
+ * a line under Lavender Syrup under Simple Syrup is the lavender syrup's,
+ * and it goes with either — so an item is taken whole, never trimmed.
+ */
+export function itemsForSubRecipe(
+  items: readonly ShoppingItem[],
+  slug: string,
+): ShoppingItem[] {
+  return items.filter((item) => item.for?.some((sub) => sub.slug === slug));
+}
+
+/** One sub-recipe expanded onto the list: what "Remove these" takes (39c). */
+export interface ShoppingSubRecipeGroup {
+  slug: string;
+  /** Its name, as the first of its lines recorded it. */
+  name: string;
+  /** Every item `itemsForSubRecipe` finds for it, ticked ones too. */
+  ids: string[];
+  /**
+   * What it was expanded for, in order: the recipe's name for a sub-recipe
+   * the recipe links itself, the outer sub-recipe's for one inside another.
+   */
+  usedBy: string[];
+}
+
+/**
+ * Every sub-recipe on the list, in the order its first line was added, with
+ * the items it put there — the `/shopping` page's "Remove these" rows. Read
+ * from the items alone, whatever the `subRecipes` switch says now: the
+ * switch governs adds (38-Dd1), and these lines are already on the list.
+ */
+export function subRecipeGroups(
+  items: readonly ShoppingItem[],
+): ShoppingSubRecipeGroup[] {
+  const sorted = [...items].sort((a, b) =>
+    a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+  );
+  const groups = new Map<string, ShoppingSubRecipeGroup>();
+  for (const item of sorted) {
+    (item.for ?? []).forEach((sub, depth) => {
+      let group = groups.get(sub.slug);
+      if (!group) {
+        group = { slug: sub.slug, name: sub.name, ids: [], usedBy: [] };
+        groups.set(sub.slug, group);
+      }
+      if (!group.ids.includes(item.id)) group.ids.push(item.id);
+      const parent =
+        depth > 0
+          ? item.for![depth - 1].name
+          : (item.recipeName ?? item.recipe);
+      if (parent && !group.usedBy.includes(parent)) group.usedBy.push(parent);
+    });
+  }
+  return [...groups.values()];
+}

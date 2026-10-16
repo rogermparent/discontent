@@ -52,6 +52,7 @@ export interface ShoppingPageActions {
     ShoppingActionResult<{
       items: ShoppingItem[];
       changed: boolean;
+      removed?: string[];
       unmatched?: string[];
       unknown?: string[];
     }>
@@ -97,6 +98,8 @@ function browserTicks(area: () => Storage, key: string): TickSyncStorage {
 
 const sessionTicks = browserTicks(() => window.sessionStorage, STORAGE_KEY);
 const heldTicks = browserTicks(() => window.localStorage, HELD_STORAGE_KEY);
+
+const NONE: string[] = [];
 
 export const UNREACHABLE =
   "Couldn't reach the editor — check the connection and try again.";
@@ -246,6 +249,9 @@ export function useShoppingList({
     pending: sync.pending,
     /** Ticks wait for "Done shopping" (the `holdTicks` switch, 38d). */
     holding: hold,
+    /** 39-D3: ids whose held ticks were dropped as over a week old. */
+    expiredTicks: sync.expired ?? NONE,
+    dismissExpired: () => ticks.dismissExpired(),
     tick: (ids: readonly string[], checked: boolean) =>
       ticks.tick(ids, checked),
     flush: () => ticks.flush(),
@@ -269,6 +275,18 @@ export function useShoppingList({
     clearChecked: async (ids: string[]) => {
       const result = await run(() => actions.update({ remove: ids }), setItems);
       if (result) ticks.forget(ids);
+      return result;
+    },
+    /**
+     * 39c: undo a sub-recipe's expansion — every line whose `for` names it,
+     * one change. Ticks waiting for those lines go with them.
+     */
+    removeSubRecipe: async (slug: string, ids: string[]) => {
+      const result = await run(
+        () => actions.update({ removeSource: { for: slug } }),
+        setItems,
+      );
+      if (result) ticks.forget([...ids, ...(result.removed ?? [])]);
       return result;
     },
     saveSettings: (patch: unknown) =>
