@@ -49,6 +49,9 @@ function Sources({ row }: { row: ShoppingRow }) {
               ` · ${source.via.join(" › ")}`}
             {" — "}
             {source.text}
+            {source.for &&
+              source.for.length > 0 &&
+              ` (for ${source.for.map((sub) => sub.name).join(" › ")})`}
           </li>
         ))}
       </ul>
@@ -234,9 +237,13 @@ export function ShoppingRowView({
         >
           {row.label}
         </label>
-        {(row.optional || row.need || row.partial) && (
-          <p className="text-xs text-muted-foreground">
+        {(row.optional || row.need || row.partial || row.forNote) && (
+          <p
+            className="text-xs text-muted-foreground"
+            data-testid="shopping-row-note"
+          >
             {[
+              row.forNote,
               row.partial && `${row.checkedCount} of ${row.total} ticked`,
               row.optional && "optional",
               row.need && "buy anyway",
@@ -249,6 +256,16 @@ export function ShoppingRowView({
           <ul className="text-sm text-muted-foreground">
             {row.raw.map((line, index) => (
               <li key={index}>· {line}</li>
+            ))}
+          </ul>
+        )}
+        {row.alternatives && row.alternatives.length > 0 && (
+          <ul
+            className="text-sm text-muted-foreground"
+            data-testid="shopping-alternatives"
+          >
+            {row.alternatives.map((line, index) => (
+              <li key={index}>or {line}</li>
             ))}
           </ul>
         )}

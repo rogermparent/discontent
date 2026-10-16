@@ -642,6 +642,8 @@ export const ShoppingSettingsPatchSchema = z
         stores: z.boolean().optional(),
         onHand: z.boolean().optional(),
         sources: z.boolean().optional(),
+        subRecipes: z.boolean().optional(),
+        holdTicks: z.boolean().optional(),
       })
       .optional(),
     aisleOrder: z.array(AisleSchema).max(AISLES.length).optional(),

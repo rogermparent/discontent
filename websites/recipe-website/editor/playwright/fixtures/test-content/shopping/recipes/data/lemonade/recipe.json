@@ -1,0 +1,25 @@
+{
+  "name": "Lemonade",
+  "description": "Sweetened with a batch of simple syrup.",
+  "ingredients": [
+    {
+      "ingredient": "1 cup lemon juice"
+    },
+    {
+      "ingredient": "1 batch [Simple Syrup](/recipe/simple-syrup)"
+    },
+    {
+      "ingredient": "1/4 cup sugar"
+    },
+    {
+      "ingredient": "4 cups water"
+    }
+  ],
+  "date": 1792000500000,
+  "recipeYield": "4 servings",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

@@ -45,6 +45,8 @@ const ALL_OFF: ShoppingFeatures = {
   stores: false,
   onHand: false,
   sources: false,
+  subRecipes: false,
+  holdTicks: false,
 };
 
 function rows(view: ShoppingView): ShoppingRow[] {
@@ -450,6 +452,211 @@ describe("buildShoppingView", () => {
       checked: 1,
       onHand: 0,
     });
+  });
+});
+
+/*
+ * 38d. The shape of `classic-peanut-butter-blossoms`' ingredient list
+ * (Sally's), flattened as the seat stores it: line 11 is an `OR:` line —
+ * the other way to make line 10's coating.
+ */
+const BLOSSOMS = [
+  "1 1/4 cups (156g) all-purpose flour (spooned & leveled)",
+  "1/2 teaspoon baking soda",
+  "1/4 teaspoon salt",
+  "1/2 cup (8 Tbsp; 113g) unsalted butter, softened to room temperature",
+  "1/2 cup (100g) packed light or dark brown sugar",
+  "1/4 cup (50g) granulated sugar",
+  "1 large egg, at room temperature",
+  "3/4 cup (about 185g) creamy peanut butter",
+  "1 teaspoon pure vanilla extract",
+  "24 chocolate kiss candies, unwrapped",
+  "1/2 cup (100g) granulated sugar",
+  "OR: 1/4 cup (50g) green sanding sugar and 1/4 cup (50g) red sanding sugar",
+];
+const SANDING =
+  "1/4 cup (50g) green sanding sugar and 1/4 cup (50g) red sanding sugar";
+const blossoms = {
+  recipe: "classic-peanut-butter-blossoms",
+  recipeName: "Peanut Butter Blossoms",
+};
+
+function blossomItems(extra: Partial<ShoppingItem> = {}): ShoppingItem[] {
+  return BLOSSOMS.map((text, line) =>
+    item(text, { ...blossoms, line, ...extra }),
+  );
+}
+
+describe("38d: OR: lines", () => {
+  it("shows an OR: line on the row above it, not as a row of its own", () => {
+    const items = blossomItems();
+    const view = buildShoppingView(items, settings({ aisles: false }));
+    /* Twelve lines, the two granulated sugars merged, the OR: folded in. */
+    expect(view.counts.rows).toBe(10);
+    expect(rows(view).some((each) => /sanding/.test(each.label))).toBe(false);
+    const sugar = row(view, "granulated sugar");
+    expect(sugar).toMatchObject({
+      label: "¾ cup granulated sugar",
+      alternatives: [SANDING],
+      total: 2,
+    });
+    /* Its item ticks with the row, but adds nothing to the amount. */
+    expect(sugar.ids).toEqual([items[5].id, items[10].id, items[11].id]);
+    expect(sugar.sources?.at(-1)).toMatchObject({
+      id: items[11].id,
+      alternative: true,
+    });
+    expect(formatShoppingText(view)).toContain(
+      `¾ cup granulated sugar\n  · or ${SANDING}`,
+    );
+  });
+
+  it("folds with merge off too, and with every switch off", () => {
+    for (const features of [{ merge: false }, ALL_OFF]) {
+      const items = blossomItems();
+      const view = buildShoppingView(items, settings(features));
+      expect(rows(view)).toHaveLength(11);
+      const coating = rows(view).find((each) => each.key === items[10].id);
+      expect(coating?.ids).toEqual([items[10].id, items[11].id]);
+      expect(coating?.alternatives).toEqual([SANDING]);
+    }
+  });
+
+  it("finds its own lot when a recipe is on the list twice", () => {
+    const first = blossomItems();
+    const second = blossomItems({ scale: "2" });
+    const view = buildShoppingView(
+      [...first, ...second],
+      settings({ merge: false }),
+    );
+    const coating = rows(view).find((each) => each.key === second[10].id);
+    expect(coating?.ids).toEqual([second[10].id, second[11].id]);
+    expect(coating?.alternatives).toEqual([`${SANDING} (2×)`]);
+    expect(rows(view)).toHaveLength(22);
+  });
+
+  it("keeps its own row when the line above is gone, or it was typed in", () => {
+    const items = blossomItems().filter((_, line) => line !== 10);
+    const typed = item("OR: oat milk", { manual: true });
+    const view = buildShoppingView(
+      [...items, typed],
+      settings({ merge: false }),
+    );
+    expect(rows(view).map((each) => each.label)).toContain(BLOSSOMS[11]);
+    expect(rows(view).map((each) => each.label)).toContain("OR: oat milk");
+  });
+
+  it("says whose the other way is on a row merged from several recipes", () => {
+    const items = [
+      ...blossomItems(),
+      item("1 cup granulated sugar", {
+        recipe: "sugar-cookies",
+        recipeName: "Sugar Cookies",
+        line: 0,
+      }),
+    ];
+    const view = buildShoppingView(items, settings({ aisles: false }));
+    expect(row(view, "granulated sugar").alternatives).toEqual([
+      `${SANDING} — in Peanut Butter Blossoms`,
+    ]);
+  });
+
+  it("ticks the row by its own lines, whatever the OR: line says", () => {
+    const items = blossomItems();
+    items[10] = { ...items[10], checked: true };
+    const view = buildShoppingView(items, settings({ merge: false }));
+    expect(view.checked.map((each) => each.key)).toEqual([items[10].id]);
+  });
+});
+
+describe("38d: amount-less lines beside measured ones", () => {
+  const merged = (texts: string[], extra: Partial<ShoppingItem>[] = []) =>
+    buildShoppingView(
+      texts.map((text, index) => item(text, extra[index] ?? cookies)),
+      settings({ aisles: false }),
+    );
+
+  it("merges a pinch into the measured row as a suffix", () => {
+    const view = merged(["pinch salt", "2 tsp salt"]);
+    expect(labels(view)).toEqual(["2 tsp salt + a pinch"]);
+    expect(row(view, "salt").quantity).toBe("2 tsp + a pinch");
+    expect(row(view, "salt").ids).toHaveLength(2);
+  });
+
+  it("says a dash, and as needed for to taste, for garnish and a bare name", () => {
+    expect(labels(merged(["1 tsp hot sauce", "a dash of hot sauce"]))).toEqual([
+      "1 tsp hot sauce + a dash",
+    ]);
+    expect(labels(merged(["salt to taste", "1/2 tsp salt"]))).toEqual([
+      "½ tsp salt + as needed",
+    ]);
+    expect(labels(merged(["parsley, for garnish", "2 tbsp parsley"]))).toEqual([
+      "2 tbsp parsley + as needed",
+    ]);
+    expect(labels(merged(["2 eggs", "eggs"]))).toEqual(["2 eggs + as needed"]);
+  });
+
+  it("names each kind once, in order", () => {
+    const view = merged([
+      "salt to taste",
+      "a pinch of salt",
+      "2 tsp salt",
+      "pinch salt",
+      "1 tsp salt",
+    ]);
+    expect(labels(view)).toEqual(["1 tbsp salt + a pinch + as needed"]);
+  });
+
+  it("leaves an all-as-needed row as its name, and what's left without ticked pinches", () => {
+    expect(labels(merged(["salt to taste", "pinch salt"]))).toEqual(["salt"]);
+    const view = merged(
+      ["pinch salt", "2 tsp salt", "1 tsp salt"],
+      [{ ...cookies, checked: true }, cookies, { ...cookies, checked: true }],
+    );
+    expect(row(view, "salt")).toMatchObject({
+      quantity: "1 tbsp + a pinch",
+      remaining: "2 tsp",
+      label: "2 tsp salt",
+    });
+  });
+});
+
+describe("38d: lines from sub-recipes", () => {
+  const syrup = { slug: "simple-syrup", name: "Simple Syrup" };
+  const daiquiri = { recipe: "daiquiri", recipeName: "Daiquiri" };
+
+  it("notes which sub-recipe a row is for, partly or wholly", () => {
+    const view = buildShoppingView(
+      [
+        item("1/2 cup sugar", { ...daiquiri, for: [syrup] }),
+        item("1/2 cup water", { ...daiquiri, for: [syrup] }),
+        item("1/4 cup sugar", daiquiri),
+      ],
+      settings({ aisles: false }),
+    );
+    expect(row(view, "water").forNote).toBe("for Simple Syrup");
+    /* The sub-recipe's sugar merges with the drink's own. */
+    const sugar = row(view, "sugar");
+    expect(sugar.label).toBe("¾ cup sugar");
+    expect(sugar.forNote).toBe("partly for Simple Syrup");
+    expect(sugar.sources?.[0].for).toEqual([syrup]);
+    expect(sugar.sources?.[1].for).toBeUndefined();
+  });
+
+  it("says what a line called for, and names the innermost sub-recipe", () => {
+    const crust = { slug: "pie-crust", name: "Pie Crust" };
+    const lard = { slug: "lard", name: "Rendered Lard", called: "½ cup" };
+    const view = buildShoppingView(
+      [
+        item("1 lb pork fat", { recipe: "pie", for: [crust, lard] }),
+        item("2 cups flour", { recipe: "pie", for: [crust] }),
+      ],
+      settings({ aisles: false }),
+    );
+    expect(row(view, "pork fat").forNote).toBe(
+      "for Rendered Lard (½ cup called for)",
+    );
+    expect(row(view, "flour").forNote).toBe("for Pie Crust");
   });
 });
 

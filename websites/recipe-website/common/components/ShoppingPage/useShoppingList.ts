@@ -62,31 +62,41 @@ export interface ShoppingPageActions {
 }
 
 const STORAGE_KEY = "shopping-pending-ticks";
+/** 38d: ticks held for "Done shopping", which must outlive the tab. */
+const HELD_STORAGE_KEY = "shopping-held-ticks";
 
-/** `sessionStorage`, where it works; nothing where it throws. */
-const sessionTicks: TickSyncStorage = {
-  read: () => {
-    try {
-      return window.sessionStorage.getItem(STORAGE_KEY);
-    } catch {
-      return null;
-    }
-  },
-  write: (value) => {
-    try {
-      window.sessionStorage.setItem(STORAGE_KEY, value);
-    } catch {
-      /* A private window or blocked storage: the ticks live in memory. */
-    }
-  },
-  clear: () => {
-    try {
-      window.sessionStorage.removeItem(STORAGE_KEY);
-    } catch {
-      /* As above. */
-    }
-  },
-};
+/**
+ * A browser storage, where it works; nothing where it throws (a private
+ * window, blocked storage: the ticks then live in memory).
+ */
+function browserTicks(area: () => Storage, key: string): TickSyncStorage {
+  return {
+    read: () => {
+      try {
+        return area().getItem(key);
+      } catch {
+        return null;
+      }
+    },
+    write: (value) => {
+      try {
+        area().setItem(key, value);
+      } catch {
+        /* In memory only. */
+      }
+    },
+    clear: () => {
+      try {
+        area().removeItem(key);
+      } catch {
+        /* As above. */
+      }
+    },
+  };
+}
+
+const sessionTicks = browserTicks(() => window.sessionStorage, STORAGE_KEY);
+const heldTicks = browserTicks(() => window.localStorage, HELD_STORAGE_KEY);
 
 export const UNREACHABLE =
   "Couldn't reach the editor — check the connection and try again.";
@@ -125,6 +135,8 @@ export function useShoppingList({
         patchUrl,
         fetch: (input, init) => fetch(input, init),
         storage: sessionTicks,
+        heldStorage: heldTicks,
+        hold: initial.settings.features.holdTicks,
         onItems: (items) => {
           writes.current += 1;
           setState((current) => ({ ...current, items }));
@@ -133,6 +145,11 @@ export function useShoppingList({
       }),
   );
 
+  /* The `holdTicks` switch, as the settings now say (38d). */
+  const hold = state.settings.features.holdTicks;
+  useEffect(() => {
+    ticks.setHold(hold);
+  }, [ticks, hold]);
   const reload = useCallback(async () => {
     const started = writes.current;
     try {
@@ -160,11 +177,19 @@ export function useShoppingList({
       else void reloadRef.current();
     };
     const onPageHide = () => ticks.flushNow();
+    /* Another tab changed the held ticks (38d): show them here too. */
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === HELD_STORAGE_KEY || event.key === null) {
+        ticks.refresh();
+      }
+    };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("storage", onStorage);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("storage", onStorage);
       ticks.detach();
     };
   }, [ticks]);
@@ -217,9 +242,18 @@ export function useShoppingList({
     error:
       actionError ?? (sync.error !== dismissedSync ? sync.error : undefined),
     working,
+    /** Item id → the tick not yet saved (held, or waiting to be sent). */
+    pending: sync.pending,
+    /** Ticks wait for "Done shopping" (the `holdTicks` switch, 38d). */
+    holding: hold,
     tick: (ids: readonly string[], checked: boolean) =>
       ticks.tick(ids, checked),
     flush: () => ticks.flush(),
+    /** "Done shopping": every held tick, saved as one change. */
+    done: async () => {
+      setDismissedSync(undefined);
+      return (await ticks.done()).ok;
+    },
     reload,
     dismissError: () => {
       setActionError(undefined);

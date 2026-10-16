@@ -27,7 +27,10 @@ export interface ShoppingItem {
   recipe?: string;
   /** Its name when the line was added, so a list reads without a lookup. */
   recipeName?: string;
-  /** The line's index in the recipe's ingredient list. */
+  /**
+   * The line's index in the ingredient list it was written in: the recipe's,
+   * or — for a line from a sub-recipe (`for`) — that sub-recipe's.
+   */
   line?: number;
   /** How much of the recipe: `"2"`, `"1/2"` — what `parseScale` reads. */
   scale?: string;
@@ -42,6 +45,26 @@ export interface ShoppingItem {
   need?: boolean;
   /** A store id this one item is bought at, over every other rule. */
   store?: string;
+  /**
+   * 38d: the line came from a sub-recipe that `recipe` links in an
+   * ingredient line ("1 batch [Simple Syrup](/recipe/simple-syrup)"),
+   * outermost first — a sub-recipe's own sub-recipe makes two. Shown as
+   * "for Simple Syrup".
+   */
+  for?: ShoppingSubRecipe[];
+}
+
+/** One sub-recipe a line was expanded through (38d). */
+export interface ShoppingSubRecipe {
+  slug: string;
+  /** Its name when the line was added. */
+  name: string;
+  /**
+   * When the linking line's amount is not a number of batches ("½ oz
+   * [simple syrup]"): what it calls for, at the scale added. One batch per
+   * batch of the recipe above is listed.
+   */
+  called?: string;
 }
 
 /** The keys an item file is written with, in this order (stable diffs). */
@@ -58,6 +81,7 @@ export const SHOPPING_ITEM_KEYS = [
   "checked",
   "need",
   "store",
+  "for",
 ] as const satisfies readonly (keyof ShoppingItem)[];
 
 /** Every switch (D2). Everything off is a plain checklist of the raw lines. */
@@ -74,6 +98,17 @@ export interface ShoppingFeatures {
   onHand: boolean;
   /** Keep which recipe (and plan) each row came from. */
   sources: boolean;
+  /**
+   * 38d: a line that links another recipe ("1 batch [Simple Syrup](…)")
+   * goes on the list as that recipe's lines. Read when a recipe or a plan is
+   * added: lines already on the list stay as they are.
+   */
+  subRecipes: boolean;
+  /**
+   * 38d: ticks stay in this browser until "Done shopping", which saves them
+   * as one change, instead of being saved every few seconds.
+   */
+  holdTicks: boolean;
 }
 
 export const SHOPPING_FEATURES = [
@@ -83,6 +118,8 @@ export const SHOPPING_FEATURES = [
   "stores",
   "onHand",
   "sources",
+  "subRecipes",
+  "holdTicks",
 ] as const satisfies readonly (keyof ShoppingFeatures)[];
 
 export type ShoppingFeature = (typeof SHOPPING_FEATURES)[number];
@@ -108,7 +145,10 @@ export interface ShoppingSettings {
   storeOverrides: Record<string, string>;
 }
 
-/** Roger's defaults (D2): merge, quantities, aisles and sources on. */
+/**
+ * Roger's defaults (D2): merge, quantities, aisles and sources on; and
+ * 38-D4's sub-recipes on, held ticks off.
+ */
 export const DEFAULT_SHOPPING_SETTINGS: ShoppingSettings = {
   features: {
     merge: true,
@@ -117,6 +157,8 @@ export const DEFAULT_SHOPPING_SETTINGS: ShoppingSettings = {
     stores: false,
     onHand: false,
     sources: true,
+    subRecipes: true,
+    holdTicks: false,
   },
   aisleOrder: [...AISLES],
   stores: [
@@ -280,5 +322,24 @@ export function parseShoppingItem(
     if (raw[flag] === true) item[flag] = true;
   }
   if (typeof raw.store === "string" && raw.store) item.store = raw.store;
+  if (Array.isArray(raw.for)) {
+    const path = raw.for.flatMap((entry): ShoppingSubRecipe[] =>
+      isRecord(entry) &&
+      typeof entry.slug === "string" &&
+      entry.slug &&
+      typeof entry.name === "string"
+        ? [
+            {
+              slug: entry.slug,
+              name: entry.name,
+              ...(typeof entry.called === "string" && entry.called
+                ? { called: entry.called }
+                : {}),
+            },
+          ]
+        : [],
+    );
+    if (path.length > 0) item.for = path;
+  }
   return canonicalShoppingItem(item);
 }

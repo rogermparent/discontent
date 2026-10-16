@@ -31,7 +31,6 @@ import {
 } from "@discontent/cms/git/commit";
 import { withWriteLock } from "@discontent/cms/git/writeLock";
 import { ulid } from "@discontent/cms/util/ulid";
-import { flattenMarkdown } from "recipe-website-common/controller/buildIndexValue";
 import { groupContentConfig } from "recipe-website-common/controller/groupContentConfig";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
 import type {
@@ -43,10 +42,9 @@ import type {
   RecipeEntryValue,
 } from "recipe-website-common/controller/types";
 import { AISLES } from "recipe-website-common/util/aisles";
-import { detectHeading } from "recipe-website-common/util/detectHeading";
 import { walkGroupRecipes } from "recipe-website-common/util/groupShoppingWalk";
-import { parseIngredientList } from "recipe-website-common/util/ingredientNames";
 import { DEFAULT_STAPLES } from "recipe-website-common/util/makeable";
+import { expandRecipeLines } from "recipe-website-common/util/shoppingLines";
 import { parseScale } from "recipe-website-common/util/scale";
 import {
   canonicalShoppingItem,
@@ -58,6 +56,7 @@ import {
 import {
   buildShoppingView,
   formatShoppingText,
+  orParents,
   shoppingNameOf,
   viewForStore,
   type ShoppingView,
@@ -410,39 +409,6 @@ function scaleText(scale: Scale | null): string | undefined {
   return scale && !scale.equals(1) ? scale.toFraction() : undefined;
 }
 
-interface Line {
-  text: string;
-  line: number;
-  optional: boolean;
-}
-
-/**
- * A recipe's ingredient lines as list items: markup flattened (as the index
- * flattens it), headings — stored or detected — skipped, a line marked
- * optional when the recipe makes it so (a garnish section, "to taste").
- */
-function linesOf(recipe: Recipe): Line[] {
-  const ingredients = recipe.ingredients ?? [];
-  const texts = ingredients.map(({ ingredient }) =>
-    flattenMarkdown(ingredient),
-  );
-  const headings = new Set(
-    ingredients.flatMap(({ type }, line) => (type === "heading" ? [line] : [])),
-  );
-  const optional = new Map<number, boolean>();
-  for (const requirement of parseIngredientList(texts, [...headings])) {
-    optional.set(
-      requirement.line,
-      (optional.get(requirement.line) ?? true) && requirement.optional,
-    );
-  }
-  return texts.flatMap((text, line) =>
-    !text.trim() || headings.has(line) || detectHeading(text)
-      ? []
-      : [{ text: text.trim(), line, optional: optional.get(line) === true }],
-  );
-}
-
 function readRecipe(ctx: CurationContext, slug: string) {
   return readContentFileOrNull<Recipe, RecipeEntryValue, RecipeEntryKey>({
     config: recipeContentConfig,
@@ -463,22 +429,49 @@ function newId(): string {
   return ulid().toLowerCase();
 }
 
-function itemsFor(
+/** One add's sub-recipe expansion: the switch, and reads shared across it. */
+interface Expansion {
+  expand: boolean;
+  readRecipe(slug: string): Promise<Recipe | null>;
+  cache: Map<string, Promise<Recipe | null>>;
+  warnings: string[];
+}
+
+/**
+ * A recipe's lines as items, at `scale` (`null`: 1). With sub-recipes on
+ * (38-D4), a line that is another recipe goes on as that recipe's lines,
+ * each scaled by the batches it asks for and carrying the path in `for`;
+ * what had to stay as written is a warning on the add.
+ */
+async function itemsFor(
   slug: string,
   recipe: Recipe,
-  scale: string | undefined,
+  scale: Scale | null,
+  expansion: Expansion,
   via?: string[],
-): ShoppingItem[] {
-  return linesOf(recipe).map(({ text, line, optional }) =>
+): Promise<ShoppingItem[]> {
+  const { lines, warnings } = await expandRecipeLines(slug, recipe, {
+    readRecipe: expansion.readRecipe,
+    expand: expansion.expand,
+    scale: scale ?? undefined,
+    cache: expansion.cache,
+  });
+  for (const warning of warnings) {
+    if (!expansion.warnings.includes(warning)) {
+      expansion.warnings.push(warning);
+    }
+  }
+  return lines.map(({ text, line, optional, factor, for: path }) =>
     canonicalShoppingItem({
       id: newId(),
       text,
       recipe: slug,
       recipeName: recipe.name,
       line,
-      scale,
+      scale: scaleText(scale ? scale.mul(factor) : factor),
       via,
       optional,
+      for: path,
     }),
   );
 }
@@ -511,13 +504,21 @@ async function addLocked(
   let message: string;
   const result: Partial<ShoppingAddResult> = {};
   const warnings: string[] = [];
+  const expansion: Expansion = {
+    expand:
+      input.items === undefined &&
+      (await readShoppingSettings(ctx)).features.subRecipes,
+    readRecipe: (slug) => readRecipe(ctx, slug),
+    cache: new Map(),
+    warnings: [],
+  };
 
   if (input.recipe !== undefined) {
     const recipe = await readRecipe(ctx, input.recipe);
     if (!recipe) {
       throw new UnknownRecipeError([input.recipe], { forceHint: false });
     }
-    added = itemsFor(input.recipe, recipe, scaleText(scale));
+    added = await itemsFor(input.recipe, recipe, scale, expansion);
     if (added.length === 0) {
       warnings.push(`${recipe.name} has no ingredient lines.`);
     }
@@ -553,7 +554,13 @@ async function addLocked(
       }
       const effective = scale ? walked.scale.mul(scale) : walked.scale;
       added.push(
-        ...itemsFor(walked.slug, recipe, scaleText(effective), walked.via),
+        ...(await itemsFor(
+          walked.slug,
+          recipe,
+          effective,
+          expansion,
+          walked.via,
+        )),
       );
     }
     if (missingRecipes.length > 0 || walk.missing.length > 0) {
@@ -587,11 +594,16 @@ async function addLocked(
     /* As typed: `+eggs`, not the singular name key. */
     message = describe(added.map((item) => `+${clip(item.text.trim())}`));
   }
+  warnings.push(...expansion.warnings);
 
   const existing = (await readShoppingItems(ctx)).length;
   if (existing + added.length > MAX_SHOPPING_ITEMS) {
     throw new ValidationError(
-      `The list would hold ${existing + added.length} items; it holds at most ${MAX_SHOPPING_ITEMS}. Clear what was bought first. Nothing was added.`,
+      `The list would hold ${existing + added.length} items; it holds at most ${MAX_SHOPPING_ITEMS}.${
+        added.some((item) => item.for?.length)
+          ? " Sub-recipes went on as their own lines — turn off features.subRecipes to add them as written."
+          : ""
+      } Clear what was bought first. Nothing was added.`,
     );
   }
 
@@ -607,6 +619,25 @@ async function addLocked(
     ...result,
     ...(warnings.length > 0 ? { warnings } : {}),
   };
+}
+
+/**
+ * Each item → the `OR:` items folded into its row (38d), through a chain of
+ * `OR:` lines too.
+ */
+function orAlternatives(
+  items: readonly ShoppingItem[],
+): Map<string, ShoppingItem[]> {
+  const parents = orParents(items);
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const out = new Map<string, ShoppingItem[]>();
+  for (const [child, parent] of parents) {
+    const item = byId.get(child)!;
+    for (let at: string | undefined = parent; at; at = parents.get(at)) {
+      out.set(at, [...(out.get(at) ?? []), item]);
+    }
+  }
+  return out;
 }
 
 /**
@@ -662,6 +693,8 @@ async function patchLocked(
     next.set(item.id, updated);
     parts.push({ id: item.id, text: part });
   };
+  /* 38d: an `OR:` item ticks with the line it folds into, as on the page. */
+  const alternatives = orAlternatives(items);
   const named = (names: string[] | undefined) =>
     (names ?? []).map((name) => {
       const key = shoppingNameOf(name).key;
@@ -669,7 +702,14 @@ async function patchLocked(
         (item) => shoppingNameOf(item.text).key === key,
       );
       if (matches.length === 0) unmatched.push(name);
-      return { name: name.trim(), matches: matches.map(current) };
+      const ids = new Set(matches.map((item) => item.id));
+      const folded = matches.flatMap((item) =>
+        (alternatives.get(item.id) ?? []).filter((alt) => !ids.has(alt.id)),
+      );
+      return {
+        name: name.trim(),
+        matches: [...matches, ...new Set(folded)].map(current),
+      };
     });
 
   for (const item of lookup(input.check)) {
@@ -774,6 +814,16 @@ export async function clearShopping(
     await assertNoMergeInProgress(ctx.contentDirectory);
     const items = await readShoppingItems(ctx);
     const gone = items.filter((item) => scope === "all" || item.checked);
+    /* 38d: an `OR:` item goes with the line it folds into — never left as
+     * a row of its own. */
+    const goneIds = new Set(gone.map((item) => item.id));
+    const byId = new Map(items.map((item) => [item.id, item]));
+    for (const [child, parent] of orParents(items)) {
+      if (goneIds.has(parent) && !goneIds.has(child)) {
+        goneIds.add(child);
+        gone.push(byId.get(child)!);
+      }
+    }
     const message =
       scope === "all"
         ? `Clear shopping list: all ${count(gone.length)}`
