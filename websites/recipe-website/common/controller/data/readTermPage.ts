@@ -11,6 +11,7 @@ import {
   termPageData,
   type TagBoard,
   type TagOption,
+  type TermHierarchyNode,
   type TagVocabularyEntry,
   type TermPageData,
 } from "../tagVocabulary";
@@ -52,6 +53,11 @@ export async function readTagVocabulary(): Promise<TagVocabularyEntry[]> {
  * total needs every term's carriers, so this pays for every term and expires
  * when any term's rows move. It is one page. Term pages read one term each.
  */
+export async function readTagTree(): Promise<TermHierarchyNode[]> {
+  return (await readTagBoard()).roots;
+}
+
+/** `/tags`' whole board (U4): `readTagTree`'s roots plus the loose records. */
 export async function readTagBoard(): Promise<TagBoard> {
   const [byRecipeTag, byGroupTag, tree] = await Promise.all([
     recipeTagReads.byTerm.read(),
