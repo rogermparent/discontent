@@ -87,7 +87,7 @@ test.describe("Index Page", () => {
       await checkNamesInOrder(page, allNames);
 
       await expect(
-        page.getByRole("link", { name: "More Latest Recipes", exact: true }),
+        page.getByRole("link", { name: "All 3 recipes", exact: true }),
       ).toHaveCount(0);
     });
   });
@@ -104,7 +104,7 @@ test.describe("Index Page", () => {
       await checkNamesInOrder(page, allNames.slice(0, 6));
 
       await page
-        .getByRole("link", { name: "More Latest Recipes", exact: true })
+        .getByRole("link", { name: "All 7 recipes", exact: true })
         .click();
       await checkNamesInOrder(page, allNames.slice(0, 7));
     });

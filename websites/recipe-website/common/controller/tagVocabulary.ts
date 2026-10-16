@@ -377,6 +377,12 @@ export interface TermHierarchyNode extends TagVocabularyEntry {
   /** Distinct carriers of this term or anything under it. */
   total: number;
   children: TermHierarchyNode[];
+  /**
+   * The record's picture, off the tree (which carries it for exactly this
+   * kind of row). Absent when the record has none. `/tags` ignores it; the
+   * homepage's browse section draws it beside the term.
+   */
+  image?: string;
 }
 
 /**
@@ -414,7 +420,13 @@ export function termHierarchy(
       node.children.forEach(collect);
     };
     children.forEach(collect);
-    return { ...entry, total: reached.size, children };
+    const image = tree[slug]?.image;
+    return {
+      ...entry,
+      total: reached.size,
+      children,
+      ...(image ? { image } : {}),
+    };
   };
   return Object.entries(tree)
     .filter(

@@ -9,6 +9,7 @@ import {
   RecipeCardImageContainer,
   RecipeCardName,
   RecipeCardDate,
+  RecipeCardMeta,
   RecipeCardPlaceholder,
   RecipeCardTagHint,
   RecipeGrid,
@@ -37,12 +38,15 @@ export function RecipeListItem({
   image,
   tags,
   href = `/recipe/${slug}`,
+  meta,
 }: MassagedRecipeEntry & {
   /**
    * Where the card goes, when it is not the bare recipe page: a meal-plan row
    * with a scale links to `/recipe/<slug>?scale=2` (epic 32, D4).
    */
   href?: string;
+  /** A line in place of the date (the homepage's featured strip). */
+  meta?: ReactNode;
 }) {
   return (
     <RecipeCard className="relative group">
@@ -65,7 +69,11 @@ export function RecipeListItem({
           )}
         </RecipeCardImageContainer>
         <RecipeCardName>{name}</RecipeCardName>
-        <RecipeCardDate date={date} />
+        {meta !== undefined ? (
+          <RecipeCardMeta>{meta}</RecipeCardMeta>
+        ) : (
+          <RecipeCardDate date={date} />
+        )}
       </RecipeCardLink>
       <RecipeCardTagHint tags={tags} />
     </RecipeCard>

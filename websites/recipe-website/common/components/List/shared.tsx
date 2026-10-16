@@ -130,6 +130,23 @@ export function RecipeCardName({
   );
 }
 
+/**
+ * A card's one line of description in place of its date — the homepage's
+ * featured strip ("Tag · 12 recipes", "Plan · 6 recipes", "Mains"), where a
+ * raw timestamp says nothing a reader wants (usability pass, 2026-10-15).
+ * The same mono line as the date, so a card with either reads the same.
+ */
+export function RecipeCardMeta({ children }: { children: ReactNode }) {
+  return (
+    <span
+      className="block px-2 mb-1 font-mono text-xs tabular-nums text-muted-foreground"
+      data-testid="card-meta"
+    >
+      {children}
+    </span>
+  );
+}
+
 // Recipe date display with formatting — mono/tabular, matching the house
 // instrument treatment used for every other quantity/date in the app.
 export function RecipeCardDate({

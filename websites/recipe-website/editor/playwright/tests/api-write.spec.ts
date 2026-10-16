@@ -436,9 +436,10 @@ test.describe("JSON write API", () => {
       name: "API week",
     });
 
-    const featuredSection = page
-      .locator("h2", { hasText: "Featured Recipes" })
-      .locator("xpath=ancestor::*[1]");
+    const featuredSection = page.getByRole("region", {
+      name: "Featured",
+      exact: true,
+    });
     await page.goto("/");
     await expect(featuredSection.getByText("API week")).toBeVisible();
 
@@ -459,7 +460,7 @@ test.describe("JSON write API", () => {
      * unfeaturing is not deleting.
      */
     await expect(
-      page.getByText("Featured Recipes", { exact: true }),
+      page.getByRole("heading", { name: "Featured", exact: true }),
     ).toHaveCount(0);
     /* Which is the other half of the same claim. */
     await page.goto("/group/api-week");
@@ -1206,8 +1207,7 @@ test.describe("JSON write API", () => {
       await page.goto("/");
       await expect(
         page
-          .locator("h2", { hasText: "Featured Recipes" })
-          .locator("xpath=ancestor::*[1]")
+          .getByRole("region", { name: "Featured", exact: true })
           .getByText("Remote fortnight"),
       ).toBeVisible();
     });

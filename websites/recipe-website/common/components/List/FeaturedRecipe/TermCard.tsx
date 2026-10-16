@@ -6,6 +6,7 @@ import {
   RecipeCardDate,
   RecipeCardImageContainer,
   RecipeCardLink,
+  RecipeCardMeta,
   RecipeCardName,
 } from "../shared";
 
@@ -39,6 +40,8 @@ export function TermCard({
   label,
   date,
   image,
+  picture,
+  meta,
   footer,
   testId = "featured-term-card",
 }: {
@@ -46,6 +49,14 @@ export function TermCard({
   label?: string;
   date: number;
   image?: string;
+  /**
+   * A rendered picture in place of the image-or-placeholder rule — the
+   * homepage passes its term picture (image › newest recipe photo ›
+   * monogram); `/featured-recipes` passes none and keeps the old rule.
+   */
+  picture?: ReactNode;
+  /** A line in place of the date (the homepage's "Tag · N recipes"). */
+  meta?: ReactNode;
   footer?: ReactNode;
   testId?: string;
 }) {
@@ -53,7 +64,9 @@ export function TermCard({
     <RecipeCard testId={testId}>
       <RecipeCardLink href={`/tags/${slug}`}>
         <RecipeCardImageContainer>
-          {image ? (
+          {picture ? (
+            picture
+          ) : image ? (
             <TermImage
               slug={slug}
               image={image}
@@ -74,7 +87,11 @@ export function TermCard({
         >
           {label ?? "Term not found"}
         </RecipeCardName>
-        <RecipeCardDate date={date} showTime />
+        {meta !== undefined ? (
+          <RecipeCardMeta>{meta}</RecipeCardMeta>
+        ) : (
+          <RecipeCardDate date={date} showTime />
+        )}
       </RecipeCardLink>
       {footer}
     </RecipeCard>

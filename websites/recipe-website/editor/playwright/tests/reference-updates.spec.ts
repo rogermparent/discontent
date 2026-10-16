@@ -34,8 +34,7 @@ test.describe("Reference Updates", () => {
 
       await expect(
         page
-          .locator("h2", { hasText: "Featured Recipes" })
-          .locator("xpath=ancestor::*[1]")
+          .getByRole("region", { name: "Featured", exact: true })
           .getByText(testRecipe),
       ).toBeVisible();
 
@@ -54,14 +53,12 @@ test.describe("Reference Updates", () => {
       await page.goto("/");
       await expect(
         page
-          .locator("h2", { hasText: "Featured Recipes" })
-          .locator("xpath=ancestor::*[1]")
+          .getByRole("region", { name: "Featured", exact: true })
           .getByText(testRecipe),
       ).toBeVisible();
 
       await page
-        .getByText("Featured Recipes", { exact: true })
-        .locator("xpath=ancestor::*[1]")
+        .getByRole("region", { name: "Featured", exact: true })
         .getByText(testRecipe)
         .click();
       await expect(page).toHaveURL(baseURL + "/recipe/renamed-recipe-slug");
