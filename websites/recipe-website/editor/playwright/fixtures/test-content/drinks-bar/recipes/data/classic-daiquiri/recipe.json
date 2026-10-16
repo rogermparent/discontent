@@ -1,0 +1,30 @@
+{
+  "name": "Classic Daiquiri",
+  "description": "A second source for the same drink, a little less sweet. Tagged only with the family's alias.",
+  "tags": [
+    "daiquiris"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "<Multiplyable baseNumber=\"2\" /> oz white rum"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"3/4\" /> oz lime juice"
+    },
+    {
+      "ingredient": "<Multiplyable baseNumber=\"1/2\" /> oz simple syrup"
+    }
+  ],
+  "drink": {
+    "method": "shake",
+    "glass": "coupe",
+    "ice": "up"
+  },
+  "date": 1790000010000,
+  "recipeYield": "1 drink",
+  "instructions": [
+    {
+      "text": "Make it."
+    }
+  ]
+}

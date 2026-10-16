@@ -42,7 +42,9 @@ import {
   mergeTagVocabulary,
   mergeTermRows,
   subtreeKeys,
+  ownAliases,
   subtreeSlugs,
+  termBoard,
   termKeys,
   termPageData,
 } from "../websites/recipe-website/common/controller/tagVocabulary";
@@ -463,6 +465,18 @@ describe("termKeys / subtreeKeys (34a)", () => {
       "cookies",
       "biscuits",
     ]);
+  });
+  it("prints only the aliases termKeys counts, each slug once (38a review)", () => {
+    expect(ownAliases(tree, "cookies")).toEqual(["Biscuits"]);
+    expect(ownAliases(tree, "dessert")).toEqual(["Sweets"]);
+    expect(ownAliases(tree, "nope")).toEqual([]);
+  });
+
+  it("the board lists alias slugs apart, so /tags shows no bare chip for them", () => {
+    const board = termBoard(tree, new Map(), () => []);
+    expect(board.aliased).toEqual(["biscuits", "sweets"]);
+    expect(board.roots[0].aliases).toEqual(["Sweets"]);
+    expect(board.roots[0].children[0].aliases).toEqual(["Biscuits"]);
   });
 });
 

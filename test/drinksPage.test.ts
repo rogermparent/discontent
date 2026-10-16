@@ -5,7 +5,10 @@
 // classic, and each holiday with drinks is a seasonal candidate.
 
 import { describe, expect, it } from "vitest";
-import { drinksPageData } from "../websites/recipe-website/common/controller/drinksPage";
+import {
+  drinksPageData,
+  groupReady,
+} from "../websites/recipe-website/common/controller/drinksPage";
 import type { RecipeListEntry } from "../websites/recipe-website/common/controller/paginationConfigs";
 
 const tree = {
@@ -119,6 +122,113 @@ describe("drinksPageData", () => {
       classics: [],
       seasonal: [],
       latest: [],
+      familyOf: {},
     });
+  });
+});
+
+describe("drink families (38a)", () => {
+  const familyTree = {
+    drink: {
+      label: "Drinks",
+      children: ["sour", "daiquiri", "margarita", "hemingway"],
+    },
+    sour: { label: "Sour", parent: "drink", children: [] },
+    daiquiri: {
+      label: "Daiquiri",
+      parent: "drink",
+      children: [],
+      aliases: ["Daiquiris"],
+    },
+    margarita: { label: "Margarita", parent: "drink", children: [] },
+    hemingway: { label: "Hemingway", parent: "drink", children: [] },
+  };
+  const drinks = [
+    recipe("daiquiri", 5, ["drink", "daiquiri", "sour"]),
+    /* Only the family's alias: still a Daiquiri, and still a drink. */
+    recipe("daiquiri-no-2", 4, ["daiquiris"]),
+    /* Two families: the list picks between them by what is ready. */
+    recipe("hemingway-daiquiri", 3, ["drink", "daiquiri", "hemingway"]),
+    recipe("margarita", 2, ["drink", "margarita", "sour"]),
+    recipe("gimlet", 1, ["drink", "sour"]),
+  ];
+  const familyRows = new Map<string, RecipeListEntry[]>();
+  for (const entry of drinks) {
+    for (const tag of entry.tags ?? []) {
+      familyRows.set(tag, [...(familyRows.get(tag) ?? []), entry]);
+    }
+  }
+  const page = drinksPageData({
+    tree: familyTree,
+    recipeRows: (key) => {
+      const items = familyRows.get(key);
+      return items ? { label: key, items } : undefined;
+    },
+  });
+
+  it("maps each drink to its family, styles aside, aliases included", () => {
+    expect(page.count).toBe(5);
+    const daiquiri = { slug: "daiquiri", label: "Daiquiri" };
+    expect(page.familyOf).toEqual({
+      daiquiri: [daiquiri],
+      "daiquiri-no-2": [daiquiri],
+      /* Most drinks first: Daiquiri (three), then Hemingway (one). */
+      "hemingway-daiquiri": [
+        daiquiri,
+        { slug: "hemingway", label: "Hemingway" },
+      ],
+      margarita: [{ slug: "margarita", label: "Margarita" }],
+    });
+  });
+
+  it("groups two or more ready drinks of one family, in the judge's order", () => {
+    const match = (slug: string) => ({ recipe: { slug, name: slug } });
+    const entries = groupReady(
+      [
+        match("daiquiri"),
+        match("gimlet"),
+        match("daiquiri-no-2"),
+        match("margarita"),
+      ],
+      page.familyOf,
+    );
+    expect(
+      entries.map((entry) =>
+        entry.kind === "family"
+          ? `${entry.label} ×${entry.matches.length}`
+          : entry.match.recipe.slug,
+      ),
+    ).toEqual(["Daiquiri ×2", "gimlet", "margarita"]);
+    /* A family of one is the drink itself. */
+    expect(groupReady([match("margarita")], page.familyOf)).toEqual([
+      { kind: "recipe", match: match("margarita") },
+    ]);
+  });
+
+  it("puts a drink in two families with the one that has more ready drinks", () => {
+    const match = (slug: string) => ({ recipe: { slug, name: slug } });
+    const families = {
+      a: [{ slug: "hemingway", label: "Hemingway" }],
+      b: [{ slug: "hemingway", label: "Hemingway" }],
+      /* Daiquiri has more drinks in all, Hemingway more ready ones. */
+      both: [
+        { slug: "daiquiri", label: "Daiquiri" },
+        { slug: "hemingway", label: "Hemingway" },
+      ],
+      c: [{ slug: "daiquiri", label: "Daiquiri" }],
+    };
+    const label = (entries: ReturnType<typeof groupReady>) =>
+      entries.map((entry) =>
+        entry.kind === "family"
+          ? `${entry.label} ×${entry.matches.length}`
+          : entry.match.recipe.slug,
+      );
+    expect(
+      label(groupReady([match("both"), match("a"), match("b")], families)),
+    ).toEqual(["Hemingway ×3"]);
+    /* A tie on ready drinks: the family with more drinks (listed first). */
+    expect(
+      label(groupReady([match("both"), match("a"), match("c")], families)),
+    ).toEqual(["Daiquiri ×2", "a"]);
   });
 });

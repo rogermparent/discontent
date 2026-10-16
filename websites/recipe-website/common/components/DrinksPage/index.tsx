@@ -186,7 +186,7 @@ export function DrinksPage({
           />
         ) : (
           <>
-            <DrinksMakePanel secondary={secondary} />
+            <DrinksMakePanel secondary={secondary} familyOf={data.familyOf} />
 
             {data.spirits.length > 0 && (
               <section

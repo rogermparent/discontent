@@ -216,6 +216,7 @@ describe("termBoard (U4)", () => {
       roots: [],
       loose: [],
       recorded: [],
+      aliased: [],
     });
   });
 });
