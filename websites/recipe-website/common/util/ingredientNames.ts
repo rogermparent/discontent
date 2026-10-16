@@ -64,6 +64,12 @@ export interface Requirement {
    * chamomile does.
    */
   loose: boolean;
+  /**
+   * The line opened with an `OR:` label (38d): it is another way to meet the
+   * line before it, not a thing of its own. `parseIngredientList` folds it
+   * into that line's alternatives.
+   */
+  orPrevious?: boolean;
 }
 
 export interface LineMeta {
@@ -428,6 +434,19 @@ export function requirementLabel(requirement: Requirement): string {
 
 // --- lines -----------------------------------------------------------------
 
+/**
+ * A line that opens with `OR:` (38d): Sally's "OR: ¼ cup green sanding sugar
+ * and ¼ cup red sanding sugar" under "½ cup granulated sugar" — the other way
+ * to make the line before it.
+ */
+export const OR_LABEL_RE = /^\s*or\s*:\s*/i;
+
+/** The line without its `OR:` label; `null` when it has none. */
+export function stripOrLabel(text: string): string | null {
+  const label = OR_LABEL_RE.exec(text);
+  return label ? text.slice(label[0].length) : null;
+}
+
 /** Undo the two kinds of markup a stored line can carry. */
 export function stripMarkup(text: string): string {
   return text
@@ -577,7 +596,13 @@ function stripAmount(text: string): string {
     }
   } else {
     const unitOf = UNIT_OF_RE.exec(rest);
-    if (unitOf) rest = rest.slice(unitOf[0].length);
+    if (unitOf) {
+      rest = rest.slice(unitOf[0].length);
+    } else {
+      /* "pinch salt", "dash bitters" (38d): a pinch with no "a" and no "of"
+       * still names salt, so it merges with "2 tsp salt" on a list. */
+      rest = rest.replace(/^(?:pinch(?:es)?|dash(?:es)?)\s+(?=\p{L})/iu, "");
+    }
   }
 
   /* `juice of 2 limes` → `limes juice`, `zest of 1 lemon` → `lemon zest`. */
@@ -691,6 +716,10 @@ export function parseIngredientLine(
     .trim();
   if (!text || meta.heading || detectHeading(text)) return [];
 
+  // 1. An `OR:` line (38d) is another way to meet the line before it.
+  const orBody = stripOrLabel(text);
+  if (orBody !== null) return parseOrLine(line, orBody, meta);
+
   // 2. Optional.
   let optional = !!meta.optionalSection;
   const prefix =
@@ -794,10 +823,57 @@ export function parseIngredientLine(
 }
 
 /**
+ * An `OR:` line's body, as one requirement marked `orPrevious`. Its parts
+ * joined by "and" before a new amount ("¼ cup green sanding sugar and ¼ cup
+ * red sanding sugar") are each read as a line, so no name keeps the second
+ * part's "cup"; every name they give is one more way to meet the line above.
+ */
+function parseOrLine(
+  line: string,
+  body: string,
+  meta: LineMeta,
+): Requirement[] {
+  const parts = body
+    .split(/\s+(?:and|&|plus)\s+(?=\d|[½¼¾⅓⅔⅛])/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const read = parts.flatMap((part) =>
+    parseIngredientLine(part, { ...meta, heading: false }),
+  );
+  if (read.length === 0) return [];
+  const result = requirement(
+    meta.index ?? 0,
+    line,
+    read.flatMap((each) => each.alternatives),
+    read.flatMap((each) => each.aliases),
+    read.every((each) => each.optional),
+  );
+  return result.alternatives.length > 0
+    ? [{ ...result, orPrevious: true }]
+    : [];
+}
+
+/** `previous` with an `OR:` line's names added as more ways to meet it. */
+function withAlternatives(previous: Requirement, or: Requirement): Requirement {
+  return requirement(
+    previous.line,
+    previous.text,
+    [...previous.alternatives, ...or.alternatives],
+    [...previous.aliases, ...or.aliases],
+    previous.optional,
+    previous.loose,
+  );
+}
+
+/**
  * A whole ingredient list. `headings` is the index's `ingredientHeadings`
  * when it has one; `detectHeading` catches the rest (and is all an index
  * built before 25c offers). A heading that reads as garnish, optional or
  * to-serve makes the lines under it optional.
+ *
+ * An `OR:` line (38d) adds its names to the line before it — Make counts the
+ * pair as one requirement, met by either — unless a heading came between,
+ * when it stands alone.
  */
 export function parseIngredientList(
   lines: string[],
@@ -806,14 +882,25 @@ export function parseIngredientList(
   const headingSet = new Set(headings ?? []);
   const out: Requirement[] = [];
   let optionalSection = false;
+  /* The last requirement read since the last heading: what `OR:` extends. */
+  let previous: number | undefined;
   lines.forEach((line, index) => {
     const clean = normalizeIngredientText(stripMarkup(line)).trim();
     if (!clean) return;
     if (headingSet.has(index) || detectHeading(clean)) {
       optionalSection = OPTIONAL_HEADING.test(clean);
+      previous = undefined;
       return;
     }
-    out.push(...parseIngredientLine(line, { index, optionalSection }));
+    const read = parseIngredientLine(line, { index, optionalSection });
+    for (const each of read) {
+      if (each.orPrevious && previous !== undefined) {
+        out[previous] = withAlternatives(out[previous], each);
+      } else {
+        out.push(each);
+        previous = out.length - 1;
+      }
+    }
   });
   return out;
 }

@@ -241,6 +241,93 @@ test.describe("Shopping list", () => {
     await expect(page.getByLabel("8 onions", { exact: true })).toBeVisible();
   });
 
+  test("a recipe's sub-recipe goes on the list as its lines (38d)", async ({
+    page,
+    getContentGitLog,
+  }) => {
+    await openList(page);
+    /* Lemonade: "1 batch [Simple Syrup](/recipe/simple-syrup)". */
+    await page.goto("/recipe/lemonade");
+    await page.getByRole("button", { name: "Add to list" }).click();
+    await expect(page.getByTestId("shopping-add-result")).toContainText(
+      "5 items added",
+    );
+    expect((await getContentGitLog())[0]).toBe(
+      "Update shopping list: +Lemonade (5 items)",
+    );
+    await page.goto("/shopping");
+    await listReady(page);
+    /* The syrup's sugar and water merge with the lemonade's own. */
+    await expect(page.getByLabel("¾ cup sugar", { exact: true })).toBeVisible();
+    await expect(
+      page.getByLabel("4½ cups water", { exact: true }),
+    ).toBeVisible();
+    await expect(list(page)).not.toContainText("Simple Syrup");
+    const sugar = rows(page).filter({ hasText: "¾ cup sugar" });
+    await expect(sugar.getByTestId("shopping-row-note")).toHaveText(
+      "partly for Simple Syrup",
+    );
+    await sugar.getByText("from Lemonade").click();
+    await expect(sugar.getByTestId("shopping-sources")).toContainText(
+      "1/2 cup sugar (for Simple Syrup)",
+    );
+  });
+
+  test("holds ticks on the device until Done shopping, then saves them in one commit (38d)", async ({
+    page,
+    getContentGitLog,
+  }) => {
+    await openList(page);
+    await addPlan(page);
+    await page.getByRole("button", { name: "Settings" }).click();
+    const sheet = page.getByTestId("shopping-settings");
+    await sheet.getByLabel(/^Hold ticks/).check();
+    await sheet.getByRole("button", { name: "Save settings" }).click();
+    await expect(sheet).toHaveCount(0);
+    const done = page.getByTestId("shopping-done");
+    await expect(
+      done.getByRole("button", { name: "Done shopping" }),
+    ).toBeDisabled();
+
+    await page.getByLabel("10 eggs", { exact: true }).check();
+    await page.getByLabel("6 onions", { exact: true }).check();
+    await expect(page.getByTestId("shopping-counts")).toHaveText(
+      /^8 to buy · 2 checked · 2 lines not saved yet/,
+    );
+    /* Past the 1.5 s quiet spell, nothing is committed. */
+    await page.waitForTimeout(3000);
+    expect((await getContentGitLog())[0]).toBe("Update shopping list settings");
+
+    /* A reload keeps them: they live in this browser. */
+    await page.reload();
+    await listReady(page);
+    await expect(done).toContainText("2 lines ticked on this device");
+    await expect(page.getByTestId("shopping-checked")).toContainText(
+      "Checked (2)",
+    );
+
+    /* A failed save keeps them and says so. */
+    await page.route("**/api/shopping", (route) =>
+      route.request().method() === "PATCH"
+        ? route.fulfill({ status: 503, body: "{}" })
+        : route.continue(),
+    );
+    await done.getByRole("button", { name: "Done shopping" }).click();
+    await expect(
+      page
+        .getByRole("alert")
+        .filter({ hasText: "kept on this device — press Done shopping" }),
+    ).toBeVisible();
+    await expect(done).toContainText("2 lines ticked on this device");
+    await page.unroute("**/api/shopping");
+
+    await done.getByRole("button", { name: "Done shopping" }).click();
+    await expect(done).toContainText("Saved 2 lines.");
+    const log = await getContentGitLog();
+    expect(log[0]).toBe("Update shopping list: ✓egg ✓onion");
+    expect(log[1]).toBe("Update shopping list settings");
+  });
+
   test("works at phone width: add, tick, no sideways scroll @mobile", async ({
     page,
     getContentGitLog,

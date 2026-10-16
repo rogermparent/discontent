@@ -1382,7 +1382,10 @@ export function createRecipeServer(
       title: "Change the shopping list's settings",
       description:
         "Merge a change into the list's settings, one commit: `features` " +
-        "(merge, quantities, aisles, stores, onHand, sources — each on or off), " +
+        "(merge, quantities, aisles, stores, onHand, sources, subRecipes, " +
+        "holdTicks — each on or off; subRecipes adds a line that links a " +
+        "recipe as that recipe's lines, holdTicks keeps the page's ticks " +
+        "until Done shopping), " +
         "`aisleOrder`, `stores` ([{id, name}], whole), `defaultStore`, " +
         "`storeByAisle` ({aisle: store id}), `aisleOverrides` and " +
         "`storeOverrides` ({ingredient name: aisle or store id}); `null` removes " +

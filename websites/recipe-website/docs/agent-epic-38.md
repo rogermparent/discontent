@@ -218,6 +218,25 @@ editor is stopped (content only, no heavy work), then 38-close.
 
 ### 38d
 
+- **A link text the grammar reads as no name is no sub-recipe.** The check
+  reads the link's text as an ingredient name; text that is a modifier or a
+  unit ("Level 1", "Large Batch", a lone "B") reads as nothing, and the line
+  stays as written — silently, with no warning. Real sub-recipe names are
+  dish names; the unit tests had to rename their placeholders.
+- **An editor without 38d drops `for` when it rewrites an item.**
+  `parseShoppingItem` keeps known keys only, so a tick saved by the Pi before
+  its deploy rewrites an expanded line without its "for Simple Syrup" note.
+  The line itself stays. Likewise `shopping settings set features.subRecipes`
+  (or `holdTicks`) with `--remote` against such an editor is `validation`
+  (the strict schema), as 35p's `--force` was.
+- **Next's route announcer is a `role="alert"` too**: a Playwright
+  `getByRole("alert")` on `/shopping` needs a text filter.
+- **The fixture reindex touches every LMDB file**: rebuild the one fixture's
+  recipes index only (`rebuildIndex` per type, not
+  `build-fixture-indexes.ts`, which rewrites every fixture), restore the
+  `lock.mdb` files and untouched types from git, and delete the
+  `.pagination-changes.json` it leaves (35d's trap).
+
 ### 38e
 
 ### 38f
@@ -231,6 +250,115 @@ editor is stopped (content only, no heavy work), then 38-close.
 ### 38c — Import reading fixes
 
 ### 38d — Shopping list v2
+
+**Reindex needed: no.** No index, index value or spec version changed:
+`parseIngredientLine` feeds Make in the browser (over the index's flattened
+lines) and the shopping view, never an index. The shopping store gained one
+optional item key (`for`) and two settings switches, both read leniently
+(a file without them reads as before; an older editor ignores them).
+
+New: `common/util/shoppingLines.ts` (`recipeLines`, moved out of the seat;
+`subRecipeLink`; `expandRecipeLines`; `MAX_SUBRECIPE_DEPTH` = 3) and
+`test/shoppingLines.test.ts`. Changed: `ingredientNames.ts` (the `OR:`
+label, `orPrevious`, `parseIngredientList`'s fold; a bare "pinch salt" /
+"dash bitters"), `shoppingTypes.ts` (`for`, `ShoppingSubRecipe`,
+`features.subRecipes` on and `features.holdTicks` off), `shoppingView.ts`
+(the `OR:` fold, `alternatives`, `forNote`, the as-needed suffix),
+`shoppingTickSync.ts` (holding, `done()`, `setHold`), the seat's add, the
+settings schema and the `shopping_settings_set` description, the page (a
+"Done shopping" bar, row notes), the curator skill's shopping section, and
+the `shopping` fixture (Simple Syrup and Lemonade, recipes index rebuilt).
+The CLI needed nothing: `shopping settings set features.<name>` lists
+`SHOPPING_FEATURES`, so `subRecipes` and `holdTicks` are there.
+
+Decisions:
+
+- **Dd1 — Sub-recipes expand when added, not on every render.** The view
+  runs in the browser over stored items alone and cannot read recipes. So
+  the seat stores the sub-recipe's own lines, each with `for` (the path of
+  sub-recipes, outermost first: `{slug, name, called?}`) and `line` = its
+  index in the sub-recipe; `recipe` stays the recipe that was added, so
+  "remove Lemonade" takes its syrup lines too, and ticks and Clear need
+  nothing new. The `subRecipes` switch therefore governs adds; lines already
+  on the list stay as they are (said in the switch's help).
+- **Dd2 — A line is a sub-recipe only when the link is its own name** with
+  nothing but an amount before it (the text before the link, with a
+  placeholder for the link, must read as that placeholder). "1 tsp maple
+  syrup or [simple syrup](…)" buys maple syrup; "3 Tbsp tonkatsu sauce (or
+  make [Homemade Tonkatsu Sauce](…))" buys the sauce; "½ oz rich [simple
+  syrup](…)" is rich syrup, not the linked recipe. The multiplier:
+  `N batches` / `N recipe` / a bare count → ×N (`half batch` → ×½); no amount
+  → ×1; a pinch or a splash → ×1. A **measure** ("¾ oz [simple syrup](…)")
+  lists **one batch per batch of the recipe above** and notes what was
+  called for, scaled ("for Simple Syrup (1½ oz called for)" at ×2) — the
+  brief's "unreadable → ×1 with a note", and the shopper can judge. An amount
+  the parser cannot read at all is ×1 with the words as the note. Factors
+  multiply down the path, and by the recipe's or plan's scale.
+- **Dd3 — A sub-recipe's line merges with the recipe's own of that name**
+  (the `nameKey` merge, unchanged): Lemonade's ¼ cup sugar and its syrup's ½
+  cup are one row, "¾ cup sugar", noted "partly for Simple Syrup"
+  ("for Simple Syrup" when every line of the row is), each source reading
+  "… — 1/2 cup sugar (for Simple Syrup)". No separate "for" section: with
+  aisles on, a sub-recipe's lines are in several aisles anyway.
+- **Dd4 — Guards, as warnings, never errors**: an ancestor-path set (a cycle
+  A → B → A keeps B's line to A as written), depth 3, a missing sub-recipe
+  or one with no lines keeps the linking line as written. Each is one
+  `warnings` entry on the add ("Kept "1 recipe lavender syrup" as written:
+  there is no recipe "lavender-syrup".") — the add page, the CLI and MCP
+  already print `warnings`. Reads are cached for the whole add (a plan names
+  the syrup many times); the 35c item cap still bounds the result.
+- **Dd5 — `OR:` lines fold on render, with no new stored field.** An item
+  whose text opens with `OR:` joins the row of the line just above it in the
+  same lot (recipe, plan path, scale, sub-recipe path; the nearest earlier
+  id, so a recipe on the list twice finds its own), shown as "or ¼ cup (50g)
+  green sanding sugar and ¼ cup (50g) red sanding sugar" under the row (and
+  `· or …` in the copy text). Its id rides in the row's `ids` — a tick or a
+  Clear takes it along — but not in the amounts, counts or checked state.
+  Folding on render means the Christmas Baking list already on the real
+  repo reads right with no rewrite. A typed `OR:` line, or one whose line
+  above is gone, keeps its own row. Every switch off still folds it: it is
+  grammar, not a feature.
+- **Dd6 — Make: an `OR:` line is no requirement of its own.**
+  `parseIngredientLine` strips the label and marks `orPrevious`; its body's
+  parts joined by "and" before a new amount are each read as a line (no
+  stray "cup" in a name); `parseIngredientList` adds the names to the
+  previous requirement's alternatives, so either meets it and Make counts
+  one line (Blossoms with green sanding sugar on hand and no granulated is
+  makeable). After a heading, an `OR:` line stands alone.
+- **Dd7 — Amount-less lines: a suffix, each kind once.** "pinch salt" + "2
+  tsp salt" → "2 tsp salt + a pinch"; a dash → "+ a dash"; "to taste",
+  "for garnish", a bare name and the other as-needed words → "+ as
+  needed"; in that order (`AS_NEEDED_EXTRAS`), on the label, `quantity` and
+  what is left of a partly ticked row. A row of only amount-less lines stays
+  its name, as before. The other half was the name: "pinch salt" (no "a", no
+  "of") read as the name `pinch salt`; `stripAmount` now drops a leading
+  pinch or dash before a word, so it names salt — the one name-side change
+  (Make reads "Dash Angostura bitters" as `angostura bitters` too).
+- **Dd8 — Held ticks.** `TickSync` takes `hold` and a second storage,
+  `heldStorage` (the page passes `localStorage`, key `shopping-held-ticks`,
+  **no age limit** — a shop can outlast 35d's 10 minutes, and a locked
+  phone may lose the tab). Holding, nothing is sent after the quiet spell,
+  on hide, on `pagehide` or on leaving; "Done shopping" (`done()`) sends
+  every held tick as one PATCH (a second only for ticks made during that
+  flight). A failure — refused, 5xx or offline — keeps them, does not retry
+  by itself, and the banner says "… Your ticks are kept on this device —
+  press Done shopping to try again." Switching off sends what was held the
+  usual way; switching on holds what is pending. The page counts **lines**
+  (rows with an unsaved tick), not item ids: "2 lines not saved yet",
+  "Saved 2 lines." With the switch off, the per-tick sync is unchanged (the
+  existing `shoppingTickSync` tests pass as they were). The switch is shared
+  (in `settings.json`, the 35 pattern); the ticks are per device.
+
+Deferred:
+
+- A line that names a recipe without linking it ("easy cookie icing", 35x)
+  is not expanded: Make's name match over the whole corpus (25c) could
+  feed it, but a guess on a shopping list buys the wrong things — link the
+  line in the recipe instead.
+- No undo of an expansion on the list (remove the rows, or switch off and
+  add again).
+
+Gates: see the PR (heavy slot held for the run).
 
 ### 38e — Photo / recipe-card import
 

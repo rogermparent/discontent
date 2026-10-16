@@ -520,7 +520,11 @@ shopping_remove {"recipe": "chili"}
   plans included, each at its row's scale. `scale` doubles or halves the whole plan. Adding the same recipe
   twice adds it twice (two lots of cooking), so check `shopping_get` first
   when the ask might repeat what is already there. The result names a plan's
-  missing recipes in `missing` and `warnings` — say so.
+  missing recipes in `missing` and `warnings` — say so. A line that links
+  another recipe ("1 batch [Simple Syrup](/recipe/simple-syrup)") goes on as
+  that recipe's lines (the `subRecipes` setting, on by default); a line kept
+  as written instead — the linked recipe is missing, a cycle — is a
+  `warnings` entry too.
 - **"Add the chili ×2"** → `shopping_add {"recipe": "chili", "scale": "2"}`;
   things that are not recipe lines → `{"items": [...]}`.
 - **"I bought eggs"** → `shopping_check {"names": ["eggs"]}` ticks every egg

@@ -28,6 +28,7 @@ import {
   nameKey,
   nameLabel,
   parseIngredientLine,
+  stripOrLabel,
   type Requirement,
 } from "./ingredientNames";
 import {
@@ -41,6 +42,7 @@ import type {
   ShoppingItem,
   ShoppingSettings,
   ShoppingStore,
+  ShoppingSubRecipe,
 } from "./shoppingTypes";
 
 // --- names -----------------------------------------------------------------
@@ -117,22 +119,46 @@ function displayName(label: string, amount: Amount, texts: string[]): string {
  * noun it counts (35d): `2 onions + 1 cup`, `1 carrot + 2 lb` — where
  * `formatAmount` alone would read `2 + 1 cup onion`.
  */
-function lineFor(label: string, amount: Amount, texts: string[]): string {
+function lineFor(
+  label: string,
+  amount: Amount,
+  texts: string[],
+  extras: string[] = [],
+): string {
   const counts = amount.parts.filter((part) => part.family === "count");
   const measures = amount.parts.filter((part) => part.family !== "count");
+  const suffix = extras.map((extra) => ` + ${extra}`).join("");
   if (counts.length === 0 || measures.length === 0) {
-    return `${formatAmount(amount)} ${displayName(label, amount, texts)}`;
+    return `${formatAmount(amount)} ${displayName(label, amount, texts)}${suffix}`;
   }
   const counted: Amount = { parts: counts };
-  return `${formatAmount(counted)} ${displayName(label, counted, texts)} + ${formatAmount({ parts: measures })}`;
+  return `${formatAmount(counted)} ${displayName(label, counted, texts)} + ${formatAmount({ parts: measures })}${suffix}`;
 }
 
 /** A row's `quantity`, joined the way its line is: the count first. */
-function quantityFor(amount: Amount): string {
+function quantityFor(amount: Amount, extras: string[] = []): string {
   const counts = amount.parts.filter((part) => part.family === "count");
   const measures = amount.parts.filter((part) => part.family !== "count");
-  if (counts.length === 0 || measures.length === 0) return formatAmount(amount);
-  return `${formatAmount({ parts: counts })} + ${formatAmount({ parts: measures })}`;
+  const suffix = extras.map((extra) => ` + ${extra}`).join("");
+  if (counts.length === 0 || measures.length === 0) {
+    return `${formatAmount(amount)}${suffix}`;
+  }
+  return `${formatAmount({ parts: counts })} + ${formatAmount({ parts: measures })}${suffix}`;
+}
+
+/**
+ * What a line with no amount adds beside a measured one of the same name
+ * (38d): "pinch salt" and "2 tsp salt" are "2 tsp salt + a pinch". A pinch
+ * and a dash say so; "to taste", "for garnish" and a bare name are "as
+ * needed". In this order, each once.
+ */
+const AS_NEEDED_EXTRAS = ["a pinch", "a dash", "as needed"] as const;
+
+function asNeededExtra(text: string): (typeof AS_NEEDED_EXTRAS)[number] {
+  const plain = stripOrLabel(text) ?? text;
+  if (/\bpinch(?:es)?\b/i.test(plain)) return "a pinch";
+  if (/\bdash(?:es)?\b/i.test(plain)) return "a dash";
+  return "as needed";
 }
 
 // --- the view model ----------------------------------------------------------
@@ -150,6 +176,10 @@ export interface ShoppingRowSource {
   scale?: string;
   manual?: boolean;
   checked?: boolean;
+  /** 38d: the sub-recipes the line came through, outermost first. */
+  for?: ShoppingSubRecipe[];
+  /** 38d: an `OR:` line folded into the row (its `text` keeps the label). */
+  alternative?: boolean;
 }
 
 /** One line on the list: one item, or (merge on) every item of one name. */
@@ -179,6 +209,19 @@ export interface ShoppingRow {
   raw?: string[];
   /** Merge off: the item's scale when not 1, as a badge (`2×`, `½×`). */
   scale?: string;
+  /**
+   * 38d: `OR:` lines under one of the row's lines — another way to buy it —
+   * without the label and with their scale: "¼ cup (50g) green sanding
+   * sugar and ¼ cup (50g) red sanding sugar". Their items are in `ids` (a
+   * tick ticks them too) but not in the amounts or the counts.
+   */
+  alternatives?: string[];
+  /**
+   * 38d: which sub-recipes the row's lines are for — "for Simple Syrup",
+   * "partly for Pie Crust" when the row also holds the recipe's own lines,
+   * with what a line called for when it was not a number of batches.
+   */
+  forNote?: string;
   /** Aisles on: the row's aisle. */
   aisle?: Aisle;
   /** Stores on: the store id the row is bought at. */
@@ -242,6 +285,8 @@ interface Entry {
   factor: number;
   /** `null`: numbers the amount parser could not read. */
   amount: Amount | null;
+  /** 38d: an `OR:` line folded into the line before it. */
+  alternative?: boolean;
 }
 
 function factorOf(item: ShoppingItem): number {
@@ -265,7 +310,38 @@ function sourceOf(item: ShoppingItem): ShoppingRowSource {
     ...(scale && !scale.equals(1) ? { scale: item.scale } : {}),
     ...(item.manual ? { manual: true } : {}),
     ...(item.checked ? { checked: true } : {}),
+    ...(item.for?.length ? { for: item.for.map((sub) => ({ ...sub })) } : {}),
   };
+}
+
+/** "for Simple Syrup", "partly for Pie Crust (½ oz called for)". */
+function forNoteOf(entries: Entry[]): string | undefined {
+  const subs = new Set<string>();
+  for (const { item } of entries) {
+    const inner = item.for?.[item.for.length - 1];
+    if (!inner) continue;
+    subs.add(
+      inner.called ? `${inner.name} (${inner.called} called for)` : inner.name,
+    );
+  }
+  if (subs.size === 0) return undefined;
+  const names = [...subs];
+  const joined =
+    names.length === 1
+      ? names[0]
+      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  const every = entries.every((entry) => entry.item.for?.length);
+  return `${every ? "for" : "partly for"} ${joined}`;
+}
+
+/** The unique as-needed extras of the entries read as needed, in order. */
+function extrasOf(entries: Entry[]): string[] {
+  const found = new Set(
+    entries
+      .filter((entry) => entry.amount && entry.amount.parts.length === 0)
+      .map((entry) => asNeededExtra(entry.item.text)),
+  );
+  return AS_NEEDED_EXTRAS.filter((extra) => found.has(extra));
 }
 
 function sumOf(entries: Entry[]): Amount {
@@ -284,15 +360,20 @@ function rawLine(entry: Entry): string {
 
 function buildRow(
   key: string,
-  entries: Entry[],
+  group: Entry[],
   features: ShoppingFeatures,
 ): ShoppingRow {
+  /* `OR:` lines ride along (their ids tick with the row) but count for nothing. */
+  const entries = group.filter((entry) => !entry.alternative);
+  const alternatives = group.filter((entry) => entry.alternative);
   const items = entries.map((entry) => entry.item);
   const checkedCount = items.filter((item) => item.checked).length;
   const first = entries[0];
   const row: ShoppingRow = {
     key,
-    ids: items.map((item) => item.id),
+    ids: [...items, ...alternatives.map((entry) => entry.item)].map(
+      (item) => item.id,
+    ),
     label: first.item.text,
     name: first.item.text,
     nameKey: first.name.key,
@@ -329,24 +410,80 @@ function buildRow(
     row.name = displayName(first.name.label, total, texts);
     row.label = row.name;
     if (features.quantities) {
+      /* "pinch salt" beside "2 tsp salt": "2 tsp salt + a pinch" (38d). */
+      const extras = extrasOf(entries);
       if (total.parts.length > 0) {
-        row.quantity = quantityFor(total);
-        row.label = lineFor(first.name.label, total, texts);
+        row.quantity = quantityFor(total, extras);
+        row.label = lineFor(first.name.label, total, texts, extras);
       }
       const raw = entries.filter((entry) => entry.amount === null).map(rawLine);
       if (raw.length > 0) row.raw = raw;
       if (row.partial) {
-        const left = sumOf(entries.filter((entry) => !entry.item.checked));
+        const unticked = entries.filter((entry) => !entry.item.checked);
+        const left = sumOf(unticked);
         if (left.parts.length > 0) {
-          row.remaining = quantityFor(left);
-          row.label = lineFor(first.name.label, left, texts);
+          const leftExtras = extrasOf(unticked);
+          row.remaining = quantityFor(left, leftExtras);
+          row.label = lineFor(first.name.label, left, texts, leftExtras);
         }
       }
     }
   }
 
-  if (features.sources) row.sources = items.map(sourceOf);
+  if (alternatives.length > 0) {
+    row.alternatives = alternatives.map((entry) => {
+      const text = (stripOrLabel(entry.item.text) ?? entry.item.text).trim();
+      const badge = scaleBadge(entry.item);
+      return features.quantities && badge ? `${text} (${badge})` : text;
+    });
+  }
+  const forNote = forNoteOf(entries);
+  if (forNote) row.forNote = forNote;
+  if (features.sources) {
+    row.sources = [
+      ...items.map(sourceOf),
+      ...alternatives.map((entry) => ({
+        ...sourceOf(entry.item),
+        alternative: true,
+      })),
+    ];
+  }
   return row;
+}
+
+/**
+ * 38d: each `OR:` line's item → the item of the line just above it in the
+ * same lot — one recipe, added once, through one plan path and sub-recipe
+ * path at one scale — so "OR: ¼ cup green sanding sugar …" shows on the
+ * granulated sugar's row as "or …" instead of a row of its own. The nearest
+ * earlier such item, since ids sort by when they were added: a second lot
+ * of the same recipe finds its own. A line typed by hand, or one whose line
+ * above is gone, keeps its own row.
+ */
+function foldAlternatives(sorted: ShoppingItem[]): Map<string, string> {
+  const parents = new Map<string, string>();
+  /* Lot → line index → the latest item of that line. */
+  const lots = new Map<string, Map<number, string>>();
+  for (const item of sorted) {
+    if (item.recipe === undefined || item.line === undefined) continue;
+    const lot = JSON.stringify([
+      item.recipe,
+      item.via ?? [],
+      item.scale ?? "",
+      (item.for ?? []).map((sub) => sub.slug),
+    ]);
+    let lines = lots.get(lot);
+    if (!lines) {
+      lines = new Map();
+      lots.set(lot, lines);
+    }
+    if (stripOrLabel(item.text)?.trim()) {
+      const parent = lines.get(item.line - 1);
+      if (parent !== undefined) parents.set(item.id, parent);
+    }
+    lines.set(item.line, item.id);
+  }
+  return parents;
 }
 
 /** D2's store order: item → name override → aisle → default. */
@@ -397,8 +534,24 @@ export function buildShoppingView(
     return name;
   };
 
+  const alternativeOf = foldAlternatives(sorted);
   const groups = new Map<string, Entry[]>();
+  /* Item id → the group its row is keyed by, for the `OR:` lines that follow. */
+  const groupOf = new Map<string, string>();
   for (const item of sorted) {
+    const parent = alternativeOf.get(item.id);
+    const parentKey = parent === undefined ? undefined : groupOf.get(parent);
+    if (parentKey !== undefined) {
+      groupOf.set(item.id, parentKey);
+      groups.get(parentKey)!.push({
+        item,
+        name: nameOf(item.text),
+        factor: factorOf(item),
+        amount: null,
+        alternative: true,
+      });
+      continue;
+    }
     const name = nameOf(item.text);
     const entry: Entry = {
       item,
@@ -407,6 +560,7 @@ export function buildShoppingView(
       amount: features.quantities ? parseAmount(item.text) : null,
     };
     const key = features.merge ? `name:${name.key}` : item.id;
+    groupOf.set(item.id, key);
     const group = groups.get(key);
     if (group) group.push(entry);
     else groups.set(key, [entry]);
@@ -550,14 +704,19 @@ export interface ShoppingTextOptions {
 }
 
 function rowLines(row: ShoppingRow): string[] {
-  return [row.label, ...(row.raw ?? []).map((line) => `  · ${line}`)];
+  return [
+    row.label,
+    ...(row.raw ?? []).map((line) => `  · ${line}`),
+    ...(row.alternatives ?? []).map((line) => `  · or ${line}`),
+  ];
 }
 
 /**
  * The list as plain text for copying: a heading per store (stores on) and
  * per aisle (aisles on), then one simple line per row — `2 cups flour` —
- * with unread lines indented under their name. Ticked rows are left out
- * unless `checked`; the "probably on hand" fold comes last, under its own heading.
+ * with unread lines and `OR:` alternatives (`· or …`) indented under their
+ * name. Ticked rows are left out unless `checked`; the "probably on hand"
+ * fold comes last, under its own heading.
  */
 export function formatShoppingText(
   view: ShoppingView,

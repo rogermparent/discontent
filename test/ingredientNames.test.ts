@@ -384,3 +384,46 @@ describe("parseIngredientLine — food lines (32j)", () => {
     expect(requirementLabel(pepper)).toBe("pepper");
   });
 });
+
+describe("38d: OR: lines and a bare pinch", () => {
+  /* The tail of `classic-peanut-butter-blossoms`' list, copied (Sally's). */
+  const BLOSSOMS_TAIL = [
+    '<Multiplyable baseNumber="24" /> chocolate kiss candies, unwrapped',
+    '<Multiplyable baseNumber="1/2" /> cup (<Multiplyable baseNumber="100" />g) granulated sugar',
+    'OR: <Multiplyable baseNumber="1/4" /> cup (<Multiplyable baseNumber="50" />g) green sanding sugar and <Multiplyable baseNumber="1/4" /> cup (<Multiplyable baseNumber="50" />g) red sanding sugar',
+  ];
+
+  it("reads an OR: line's parts as names, with no stray units, marked orPrevious", () => {
+    const or = only(BLOSSOMS_TAIL[2]);
+    expect(or.orPrevious).toBe(true);
+    expect(requirementLabel(or)).toBe(
+      "green sanding sugar or red sanding sugar",
+    );
+    expect(only("or: 2 cups oat milk").orPrevious).toBe(true);
+    expect(only("1 cup sugar").orPrevious).toBeUndefined();
+  });
+
+  it("folds an OR: line into the line above it in a list", () => {
+    const list = parseIngredientList(BLOSSOMS_TAIL);
+    expect(list.map(requirementLabel)).toEqual([
+      "chocolate kiss candy",
+      "granulated sugar or green sanding sugar or red sanding sugar",
+    ]);
+    expect(list[1].line).toBe(1);
+    expect(list[1].orPrevious).toBeUndefined();
+  });
+
+  it("leaves an OR: line after a heading on its own", () => {
+    const list = parseIngredientList(
+      ["1 cup sugar", "Topping", "OR: 1 cup honey"],
+      [1],
+    );
+    expect(list.map(requirementLabel)).toEqual(["sugar", "honey"]);
+  });
+
+  it("reads a pinch or a dash with no 'a' and no 'of' as an amount", () => {
+    expect(label("pinch salt")).toBe("salt");
+    expect(label("Dash Angostura bitters")).toBe("angostura bitters");
+    expect(label("2 pinches salt")).toBe("salt");
+  });
+});

@@ -246,3 +246,138 @@ describe("TickSync", () => {
     expect(last().pending.size).toBe(0);
   });
 });
+
+describe("TickSync holding ticks for Done shopping (38d)", () => {
+  function setupHeld({
+    held = memoryStorage(),
+    session = memoryStorage(),
+    hold = true,
+    now = () => 1_000_000,
+  } = {}) {
+    const { fetch, calls } = fakeFetch();
+    const snapshots: TickSyncSnapshot[] = [];
+    const items: unknown[][] = [];
+    const sync = new TickSync({
+      patchUrl: "/api/shopping",
+      fetch,
+      storage: session,
+      heldStorage: held,
+      hold,
+      now,
+      onItems: (next) => items.push(next),
+      onChange: (snapshot) => snapshots.push(snapshot),
+    });
+    sync.attach();
+    const last = () => snapshots.at(-1) ?? sync.snapshot();
+    return { sync, calls, held, session, items, last };
+  }
+
+  it("sends nothing until Done shopping, then every tick as one PATCH", async () => {
+    const { sync, calls, held, session, last } = setupHeld();
+    sync.tick(["a"], true);
+    sync.tick(["b", "c"], true);
+    sync.tick(["c"], false);
+    expect(last().status).toBe("held");
+    /* No quiet-spell flush, no flush on hide, none on leaving. */
+    await vi.advanceTimersByTimeAsync(60_000);
+    sync.flushNow();
+    expect(calls).toHaveLength(0);
+    expect(session.value).toBeNull();
+    expect(held.value).not.toBeNull();
+
+    const done = sync.done();
+    await settled();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      keepalive: false,
+      body: { check: ["a", "b"], uncheck: ["c"] },
+    });
+    calls[0].resolve(ok());
+    expect(await done).toEqual({ ok: true, sent: 3 });
+    expect(last()).toMatchObject({ status: "idle" });
+    expect(held.value).toBeNull();
+  });
+
+  it("keeps held ticks across a reload, however old", async () => {
+    const held = memoryStorage(
+      serializePending(new Map([["a", true]]), 1_000_000),
+    );
+    const later = () => 1_000_000 + STORED_TICKS_MAX_AGE_MS * 100;
+    const { sync, calls, last } = setupHeld({ held, now: later });
+    expect([...last().pending]).toEqual([["a", true]]);
+    expect(last().status).toBe("held");
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(calls).toHaveLength(0);
+    /* The page going away leaves them stored for the next visit. */
+    sync.detach();
+    expect(calls).toHaveLength(0);
+    expect(held.value).not.toBeNull();
+  });
+
+  it("keeps the ticks when Done shopping fails, and says so", async () => {
+    const { sync, calls, held, last } = setupHeld();
+    sync.tick(["a"], true);
+    const offline = sync.done();
+    await settled();
+    calls[0].reject(new TypeError("offline"));
+    expect(await offline).toEqual({ ok: false, sent: 0 });
+    expect(last().status).toBe("error");
+    expect(last().error).toMatch(
+      /Your ticks are kept on this device — press Done shopping/,
+    );
+    expect([...last().pending]).toEqual([["a", true]]);
+    expect(held.value).not.toBeNull();
+    /* No retry by itself. */
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(calls).toHaveLength(1);
+
+    const refused = sync.done();
+    await settled();
+    calls[1].resolve(
+      new Response(JSON.stringify({ error: { message: "Signed out." } }), {
+        status: 401,
+      }),
+    );
+    expect((await refused).ok).toBe(false);
+    expect(last().error).toBe(
+      "Signed out. Your ticks are kept on this device — press Done shopping to try again.",
+    );
+
+    const again = sync.done();
+    await settled();
+    calls[2].resolve(ok());
+    expect(await again).toEqual({ ok: true, sent: 1 });
+    expect(last()).toMatchObject({ status: "idle", error: undefined });
+  });
+
+  it("sends what was held when the switch goes off, and holds from then when it goes on", async () => {
+    const { sync, calls, held, session, last } = setupHeld();
+    sync.tick(["a"], true);
+    sync.setHold(false);
+    expect(held.value).toBeNull();
+    expect(session.value).not.toBeNull();
+    expect(last().status).toBe("pending");
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(calls).toHaveLength(1);
+    calls[0].resolve(ok());
+    await settled();
+
+    sync.setHold(true);
+    sync.tick(["b"], true);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(calls).toHaveLength(1);
+    expect(last().status).toBe("held");
+    expect(held.value).not.toBeNull();
+  });
+
+  it("with the switch off, picks up ticks held earlier and sends them", async () => {
+    const held = memoryStorage(
+      serializePending(new Map([["a", true]]), 1_000_000),
+    );
+    const { calls, last } = setupHeld({ held, hold: false });
+    expect(last().status).toBe("pending");
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(calls[0].body).toEqual({ check: ["a"], uncheck: [] });
+    expect(held.value).toBeNull();
+  });
+});

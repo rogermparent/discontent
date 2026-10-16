@@ -844,3 +844,33 @@ describe("pantry staples (U5)", () => {
     ]);
   });
 });
+
+describe("38d: an OR: line is no requirement of its own", () => {
+  /* The coating lines of `classic-peanut-butter-blossoms`, copied. */
+  const corpus: MakeRecipe[] = [
+    {
+      slug: "blossoms",
+      name: "Blossoms",
+      ingredients: [
+        "1 large egg",
+        "1/2 cup (100g) granulated sugar",
+        "OR: 1/4 cup (50g) green sanding sugar and 1/4 cup (50g) red sanding sugar",
+      ],
+    },
+  ];
+  const prepared = prepareCorpus(corpus);
+
+  it("counts the pair as one line, met by either", () => {
+    expect(prepared.recipes.get("blossoms")?.requirements).toHaveLength(2);
+    for (const coating of ["granulated sugar", "green sanding sugar"]) {
+      const result = strictJudge(corpus, prepared, ["eggs", coating]);
+      expect(result.canMake.map((match) => match.recipe.slug)).toEqual([
+        "blossoms",
+      ]);
+    }
+    const missing = strictJudge(corpus, prepared, ["eggs"]).oneAway[0].missing;
+    expect(missing.map(requirementLabel)).toEqual([
+      "granulated sugar or green sanding sugar or red sanding sugar",
+    ]);
+  });
+});

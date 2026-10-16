@@ -31,7 +31,6 @@ import {
 } from "@discontent/cms/git/commit";
 import { withWriteLock } from "@discontent/cms/git/writeLock";
 import { ulid } from "@discontent/cms/util/ulid";
-import { flattenMarkdown } from "recipe-website-common/controller/buildIndexValue";
 import { groupContentConfig } from "recipe-website-common/controller/groupContentConfig";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
 import type {
@@ -43,10 +42,9 @@ import type {
   RecipeEntryValue,
 } from "recipe-website-common/controller/types";
 import { AISLES } from "recipe-website-common/util/aisles";
-import { detectHeading } from "recipe-website-common/util/detectHeading";
 import { walkGroupRecipes } from "recipe-website-common/util/groupShoppingWalk";
-import { parseIngredientList } from "recipe-website-common/util/ingredientNames";
 import { DEFAULT_STAPLES } from "recipe-website-common/util/makeable";
+import { expandRecipeLines } from "recipe-website-common/util/shoppingLines";
 import { parseScale } from "recipe-website-common/util/scale";
 import {
   canonicalShoppingItem,
@@ -410,39 +408,6 @@ function scaleText(scale: Scale | null): string | undefined {
   return scale && !scale.equals(1) ? scale.toFraction() : undefined;
 }
 
-interface Line {
-  text: string;
-  line: number;
-  optional: boolean;
-}
-
-/**
- * A recipe's ingredient lines as list items: markup flattened (as the index
- * flattens it), headings — stored or detected — skipped, a line marked
- * optional when the recipe makes it so (a garnish section, "to taste").
- */
-function linesOf(recipe: Recipe): Line[] {
-  const ingredients = recipe.ingredients ?? [];
-  const texts = ingredients.map(({ ingredient }) =>
-    flattenMarkdown(ingredient),
-  );
-  const headings = new Set(
-    ingredients.flatMap(({ type }, line) => (type === "heading" ? [line] : [])),
-  );
-  const optional = new Map<number, boolean>();
-  for (const requirement of parseIngredientList(texts, [...headings])) {
-    optional.set(
-      requirement.line,
-      (optional.get(requirement.line) ?? true) && requirement.optional,
-    );
-  }
-  return texts.flatMap((text, line) =>
-    !text.trim() || headings.has(line) || detectHeading(text)
-      ? []
-      : [{ text: text.trim(), line, optional: optional.get(line) === true }],
-  );
-}
-
 function readRecipe(ctx: CurationContext, slug: string) {
   return readContentFileOrNull<Recipe, RecipeEntryValue, RecipeEntryKey>({
     config: recipeContentConfig,
@@ -463,22 +428,49 @@ function newId(): string {
   return ulid().toLowerCase();
 }
 
-function itemsFor(
+/** One add's sub-recipe expansion: the switch, and reads shared across it. */
+interface Expansion {
+  expand: boolean;
+  readRecipe(slug: string): Promise<Recipe | null>;
+  cache: Map<string, Promise<Recipe | null>>;
+  warnings: string[];
+}
+
+/**
+ * A recipe's lines as items, at `scale` (`null`: 1). With sub-recipes on
+ * (38-D4), a line that is another recipe goes on as that recipe's lines,
+ * each scaled by the batches it asks for and carrying the path in `for`;
+ * what had to stay as written is a warning on the add.
+ */
+async function itemsFor(
   slug: string,
   recipe: Recipe,
-  scale: string | undefined,
+  scale: Scale | null,
+  expansion: Expansion,
   via?: string[],
-): ShoppingItem[] {
-  return linesOf(recipe).map(({ text, line, optional }) =>
+): Promise<ShoppingItem[]> {
+  const { lines, warnings } = await expandRecipeLines(slug, recipe, {
+    readRecipe: expansion.readRecipe,
+    expand: expansion.expand,
+    scale: scale ?? undefined,
+    cache: expansion.cache,
+  });
+  for (const warning of warnings) {
+    if (!expansion.warnings.includes(warning)) {
+      expansion.warnings.push(warning);
+    }
+  }
+  return lines.map(({ text, line, optional, factor, for: path }) =>
     canonicalShoppingItem({
       id: newId(),
       text,
       recipe: slug,
       recipeName: recipe.name,
       line,
-      scale,
+      scale: scaleText(scale ? scale.mul(factor) : factor),
       via,
       optional,
+      for: path,
     }),
   );
 }
@@ -511,13 +503,21 @@ async function addLocked(
   let message: string;
   const result: Partial<ShoppingAddResult> = {};
   const warnings: string[] = [];
+  const expansion: Expansion = {
+    expand:
+      input.items === undefined &&
+      (await readShoppingSettings(ctx)).features.subRecipes,
+    readRecipe: (slug) => readRecipe(ctx, slug),
+    cache: new Map(),
+    warnings: [],
+  };
 
   if (input.recipe !== undefined) {
     const recipe = await readRecipe(ctx, input.recipe);
     if (!recipe) {
       throw new UnknownRecipeError([input.recipe], { forceHint: false });
     }
-    added = itemsFor(input.recipe, recipe, scaleText(scale));
+    added = await itemsFor(input.recipe, recipe, scale, expansion);
     if (added.length === 0) {
       warnings.push(`${recipe.name} has no ingredient lines.`);
     }
@@ -553,7 +553,13 @@ async function addLocked(
       }
       const effective = scale ? walked.scale.mul(scale) : walked.scale;
       added.push(
-        ...itemsFor(walked.slug, recipe, scaleText(effective), walked.via),
+        ...(await itemsFor(
+          walked.slug,
+          recipe,
+          effective,
+          expansion,
+          walked.via,
+        )),
       );
     }
     if (missingRecipes.length > 0 || walk.missing.length > 0) {
@@ -587,6 +593,7 @@ async function addLocked(
     /* As typed: `+eggs`, not the singular name key. */
     message = describe(added.map((item) => `+${clip(item.text.trim())}`));
   }
+  warnings.push(...expansion.warnings);
 
   const existing = (await readShoppingItems(ctx)).length;
   if (existing + added.length > MAX_SHOPPING_ITEMS) {
