@@ -1485,6 +1485,17 @@ between recipes and a genuinely precise write.
 > has **no `deleteSuccessConfig`**, so deleting a feature runs through `successConfig` and
 > redirects to `/`. With the flag on, the featured head tag alone has to carry the homepage there.
 > `featured-recipes.spec.ts:237` already asserted exactly that, and still passes.
+>
+> **Grew with the homepage redesign (usability pass, 2026-10-15), still all tagged.** The
+> featured strip now renders groups and terms as cards, not just recipes, so the four reads above
+> are the floor, not the whole list: a featured **group** entry reads its own record once
+> (`groupItems.read(slug)`, `item:groups:<slug>`, fired by every group write) for its picture and
+> items, and `GroupThumbnail` — when a card has no image of its own to show, borrowed or read —
+> reads each candidate member's own recipe (`recipeItems.read(member)`, `item:recipes:<member>`).
+> Both are the same item-scoped tags the write path already fires for those records, so the
+> homepage still has no untagged reader; a page with featured groups just carries as many
+> `item:groups:<slug>` and `item:recipes:<member>` tags as it has group cards and thumbnail
+> fallbacks.
 
 **What F8 built — and what it deliberately did not.** `/tags/<slug>` and `/tags` as pre-baked
 static pages, served from a second aggregate (`recipesByTag`) that maps each slugified tag to the

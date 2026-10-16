@@ -2108,7 +2108,10 @@ section; `route.tsx` does every read, `index.tsx` only arranges):
      apps (`MakeTile`): "N ready now", "Tell it what you have" with nothing
      entered, blank until storage has been read so the server HTML never
      claims a number. The ingredient lines are fetched only once there is a
-     list.
+     list. A failed fetch or no recipes at all shows the plain tile text,
+     not a count stuck forever on "Checking…". The editor's own Make tile
+     reaches parity with `/make` once `agent/tags-staples` lands (U5's
+     pantry-staples default), which merges right after this branch.
    - **Quick, Vegetarian, A weekend project, A drink** — one constant,
      `HOMEPAGE_INTENTS` (`controller/homepageIntents.ts`), slugs `quick`,
      `vegetarian`, `project`, `drink` from epic 33's vocabulary. Each links
@@ -2118,6 +2121,12 @@ section; `route.tsx` does every read, `index.tsx` only arranges):
    recipe and plan counts, at most four, "All holidays" to the root's page;
    no section without a `holidays` root (every fixture). Picture: the term's
    image, else the newest recipe photo under it, else a monogram.
+   - **Within 180 days, dated only** (review round, `withinComingUpWindow`
+     in `holidayDates.ts`). A holiday further off than that doesn't show,
+     and an undated one never does — the section is hidden outright, not
+     filled in with undated entries, when nothing qualifies (e.g. the day
+     after Christmas, with only Halloween, Thanksgiving and Christmas
+     tagged: all three just rolled a year out).
    - **Dates are a rules table keyed by slug** (`util/holidayDates.ts`):
      fixed days (new year, Valentine's, St Patrick's, July 4th, Halloween,
      Christmas Eve/Day, several spellings each), Easter by the Gregorian
@@ -2225,6 +2234,21 @@ shots of the empty homepage). The visual, mobile and empty-state specs then
 passed 30/30 against them. Real-content screenshots (1280 / 390, light /
 dark) against a clone of the content repo: no sideways scroll at either
 width.
+
+**Backlog.**
+
+- A bare-term intent tile on a corpus that otherwise has roots: `route.tsx`
+  only reads the flat vocabulary (`homepageIntents`'s fallback) when
+  `allFacets.length === 0`, corpus-wide — so a `quick` tag with real
+  recipes but no term record or parent root is hidden outright once
+  anything else in the corpus has a hierarchy, where on a corpus with no
+  hierarchy at all the same bare tag gets its tile. The fallback needs to
+  be per-tile, not all-or-nothing.
+- Alias carriers (epic 32's search-only term aliases) aren't folded into any
+  homepage count — the intent tiles, Coming up and the browse chips all
+  count a term's own slug and its children, never a slug that merely
+  aliases it in. A recipe tagged only with an alias doesn't count anywhere
+  it should.
 
 ## Verification (Playwright-first)
 
