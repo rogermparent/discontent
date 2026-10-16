@@ -125,6 +125,11 @@ export default function BatchPicker({
       return next;
     });
 
+  /* The model that read them (39a review): the commit note names it. */
+  const read = readings.find((reading) => reading.llm?.model)?.llm;
+  const reader = read
+    ? { model: read.model, ...(read.api ? { api: read.api } : {}) }
+    : undefined;
   const importSelected = () =>
     startImport(async () => {
       setError(null);
@@ -134,6 +139,7 @@ export default function BatchPicker({
         ...(fromPhotos ? { fromPhotos: true } : {}),
         ...(photo ? { photo } : {}),
         ...(fromPage ? { fromPage: true } : {}),
+        ...(reader ? { reader } : {}),
         total: Math.max(total, 2),
         siblings: readings.map((reading) => ({
           n: reading.n,

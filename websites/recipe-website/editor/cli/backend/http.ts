@@ -172,6 +172,12 @@ function predatesBatch(error: unknown, root: string): unknown {
     return error;
   }
   const issues = (error.details.issues ?? []).map((issue) => issue.message);
+  if (issues.some((message) => /unrecognized key.*"fresh"/i.test(message))) {
+    return new CurationError(
+      "validation",
+      `The editor at ${new URL(root).origin} predates --fresh (39a) — update it, or leave --fresh out.`,
+    );
+  }
   if (
     issues.some((message) =>
       /unrecognized key.*"(pick|all|asOne)"/i.test(message),
@@ -703,10 +709,12 @@ export function createHttpBackend({
       );
     },
     /* The editor starts it and answers at once: `status: "running"`. */
-    retryJob(id) {
+    retryJob(id, { fresh = false } = {}) {
       return call<JobRetryResult>(
         "POST",
         `/api/jobs/${encodeURIComponent(id)}/retry`,
+        /* 39a: no body is a plain retry, as before. */
+        fresh ? { body: { fresh: true } } : {},
       );
     },
 

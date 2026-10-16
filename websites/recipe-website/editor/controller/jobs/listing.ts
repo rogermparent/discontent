@@ -31,6 +31,16 @@ export const JOB_KIND_NAMES = [
   "form-batch",
 ] as const;
 
+/**
+ * The kinds that reuse a kept reading (38c) — and, for photos, a kept
+ * transcription — so Retry offers "Read it again" (`fresh`, 39a).
+ */
+export const KEPT_READING_KINDS: readonly string[] = [
+  "import-url",
+  "import-text",
+  "import-photo",
+];
+
 /** `GET /api/jobs`, `recipes jobs list`, MCP `job_list`: at most this many rows. */
 export const JOB_LIST_MAX_LIMIT = 300;
 export const JOB_LIST_DEFAULT_LIMIT = 50;

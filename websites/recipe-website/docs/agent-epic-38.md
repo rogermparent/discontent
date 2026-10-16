@@ -388,6 +388,9 @@ stopped … vk::Queue::submit: ErrorDeviceLost"}`; 1024×680 (0.70 MP,
   (`keep_alive: 0`, an `llm.unload` step with `reason: "runner failed"`)
   before it reports — for the text model too. A 5xx whose body is not
   Ollama's `{"error": …}` (a proxy's page) is not taken for one.
+  _2026-10-16: re-measured under Ollama 0.40.5 (39a) — 1568 px still
+  crashes the runner (`ErrorDeviceLost`), so the 1024 px cap stands; see
+  `agent-epic-39.md` 39a Results._
 - **Te6 — a kept transcript is keyed by the model's name.** De5 reuses a
   transcript made by the same model name and prompt hash
   (`transcribeKey`: the prompts, the size caps, the context); weights

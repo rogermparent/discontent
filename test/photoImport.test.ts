@@ -18,14 +18,18 @@ import { createLocalBackend } from "../websites/recipe-website/editor/cli/backen
 import {
   chatJson,
   chatText,
+  ollamaDigest,
   type LlmConfig,
 } from "../websites/recipe-website/editor/controller/llm/client";
 import {
+  NO_DIGEST,
   PHOTO_MAX_PIXELS,
   PHOTO_MAX_SIDE,
   preparePhoto,
+  transcribeKey,
   transcribePhotos,
   visionConfig,
+  visionDigest,
 } from "../websites/recipe-website/editor/controller/llm/vision";
 import { fittedSize } from "../websites/recipe-website/editor/controller/llm/photoPrep";
 import {
@@ -83,8 +87,15 @@ interface Call {
   body?: Record<string, unknown>;
 }
 
-/** The stand-in model behind `fetch`: chat, `/api/ps` and the unload. */
-function stubModel(transcripts: Record<string, string>): Call[] {
+/**
+ * The stand-in model behind `fetch`: chat, `/api/ps`, the unload, and the
+ * model list (`/api/tags`), where the vision model's digest is
+ * `tags.digest` as it is when asked (39a, Te6).
+ */
+function stubModel(
+  transcripts: Record<string, string>,
+  tags: { digest?: string } = {},
+): Call[] {
   const calls: Call[] = [];
   vi.stubGlobal(
     "fetch",
@@ -102,6 +113,18 @@ function stubModel(transcripts: Record<string, string>): Call[] {
         return Response.json({
           models: [
             { name: body?.model ?? "qwen2.5vl:7b", size: 100, size_vram: 100 },
+          ],
+        });
+      }
+      if (url.pathname === "/api/tags") {
+        return Response.json({
+          models: [
+            {
+              name: "qwen2.5vl:7b",
+              model: "qwen2.5vl:7b",
+              ...(tags.digest ? { digest: tags.digest } : {}),
+            },
+            { name: "qwen3:8b", model: "qwen3:8b", digest: "text-model" },
           ],
         });
       }
@@ -143,6 +166,60 @@ describe("the vision model's configuration (De1)", () => {
     vi.stubEnv("RECIPE_LLM_VISION_MODEL", "qwen2.5vl:7b");
     vi.stubEnv("RECIPE_LLM_URL", "");
     expect(visionConfig()).toBeUndefined();
+  });
+});
+
+describe("the vision model's digest (39a, Te6)", () => {
+  const VISION: LlmConfig = {
+    url: MODEL_URL,
+    model: "qwen2.5vl:7b",
+    api: "ollama",
+  };
+
+  it("finds the model by its name, or by name:latest for an untagged pull", () => {
+    const models = [
+      { name: "llava:latest", model: "llava:latest", digest: "sha256:llava" },
+      { name: "qwen2.5vl:7b", model: "qwen2.5vl:7b", digest: "sha256:qwen" },
+      { name: "other", digest: 42 },
+    ];
+    expect(ollamaDigest(models, "qwen2.5vl:7b")).toBe("sha256:qwen");
+    expect(ollamaDigest(models, "llava")).toBe("sha256:llava");
+    expect(ollamaDigest(models, "llava:latest")).toBe("sha256:llava");
+    /* A tagged name never matches another tag. */
+    expect(ollamaDigest(models, "qwen2.5vl:3b")).toBeUndefined();
+    /* A digest that is no string is none. */
+    expect(ollamaDigest(models, "other")).toBeUndefined();
+    expect(ollamaDigest(undefined, "llava")).toBeUndefined();
+  });
+
+  it("answers the sentinel when /api/tags fails, so the key misses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("connect ECONNREFUSED");
+      }),
+    );
+    const digest = await visionDigest(VISION);
+    expect(digest).toBe(NO_DIGEST);
+    /* Neither a pre-39a key nor a real digest's. */
+    expect(transcribeKey(undefined, digest)).not.toBe(transcribeKey());
+    expect(transcribeKey(undefined, digest)).not.toBe(
+      transcribeKey(undefined, "sha256:qwen"),
+    );
+    /* A list without the model is the same. */
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ models: [{ name: "llava:7b" }] })),
+    );
+    expect(await visionDigest(VISION)).toBe(NO_DIGEST);
+    /* Under the Claude API there is no digest to ask for. */
+    expect(
+      await visionDigest({
+        ...VISION,
+        api: "anthropic",
+        model: "claude-sonnet-5",
+      }),
+    ).toBeUndefined();
   });
 });
 
@@ -511,8 +588,10 @@ describe("recipes import --photo, through the local backend", () => {
       expect((result as { warnings?: string[] }).warnings?.[0]).toMatch(
         /^read from the photo's transcription by local model qwen3:8b — 4\/4/,
       );
-      /* Two acquires: the vision call (unloaded after), then the text call. */
+      /* The vision model's digest, once (39a), then two acquires: the
+       * vision call (unloaded after), then the text call. */
       expect(calls.map((call) => [call.path, call.body?.model])).toEqual([
+        ["/api/tags", undefined],
         ["/api/chat", "qwen2.5vl:7b"],
         ["/api/ps", undefined],
         ["/api/generate", "qwen2.5vl:7b"],
@@ -531,13 +610,15 @@ describe("recipes import --photo, through the local backend", () => {
       const again = await backend.importPhotos([file(card, "card.jpg")], {
         dryRun: true,
       });
-      expect(calls).toEqual([]);
+      /* Only the model list is read (the digest, 39a): no model call. */
+      expect(calls.map((call) => call.path)).toEqual(["/api/tags"]);
       expect(again).toMatchObject({ photos: 1, transcription: CARD_TEXT });
       expect((again as { warnings?: string[] }).warnings).toContainEqual(
         expect.stringMatching(/reading from .* was reused, not read again$/),
       );
       /* A pasted text of the same words is another reading (its warnings
        * name the text, not the photo). */
+      calls.length = 0;
       await backend.importText(CARD_TEXT, { dryRun: true });
       expect(calls.map((call) => call.body?.model ?? call.path)).toEqual([
         "qwen3:8b",
@@ -624,21 +705,98 @@ describe("recipes import --photo, through the local backend", () => {
     try {
       await backend.importPhotos([file(card, "card.jpg")], { dryRun: true });
       const [photo] = await storePhotos(jobsDir, [file(card, "card.jpg")]);
-      const { transcribeKey } =
-        await import("../websites/recipe-website/editor/controller/llm/vision");
+      /* The list names no digest for it: kept under the sentinel's key. */
+      expect(
+        await loadTranscript(jobsDir, [photo], {
+          model: "qwen2.5vl:7b",
+          prompt: transcribeKey(undefined, NO_DIGEST),
+        }),
+      ).toMatchObject({ text: CARD_TEXT, model: "qwen2.5vl:7b" });
+      /* …and no transcript kept before 39a is trusted for it. */
       expect(
         await loadTranscript(jobsDir, [photo], {
           model: "qwen2.5vl:7b",
           prompt: transcribeKey(),
         }),
-      ).toMatchObject({ text: CARD_TEXT, model: "qwen2.5vl:7b" });
+      ).toBeUndefined();
       /* Another vision model reads again. */
       expect(
         await loadTranscript(jobsDir, [photo], {
           model: "llava:7b",
-          prompt: transcribeKey(),
+          prompt: transcribeKey(undefined, NO_DIGEST),
         }),
       ).toBeUndefined();
+    } finally {
+      await backend.close();
+    }
+  });
+
+  it("reads the photos again when the vision model's digest changes (39a, Te6)", async () => {
+    const card = await cardJpeg();
+    const tags = { digest: "sha256:aaaa" };
+    const calls = stubModel({ [await sentPhotoKey(card)]: CARD_TEXT }, tags);
+    const backend = createLocalBackend({ contentDirectory });
+    const chats = () =>
+      calls
+        .filter((call) => call.path === "/api/chat")
+        .map((call) => call.body?.model);
+    try {
+      await backend.importPhotos([file(card, "card.jpg")], { dryRun: true });
+      expect(chats()).toEqual(["qwen2.5vl:7b", "qwen3:8b"]);
+      /* The same weights: the kept transcript (and reading) reused. */
+      calls.length = 0;
+      await backend.importPhotos([file(card, "card.jpg")], { dryRun: true });
+      expect(chats()).toEqual([]);
+      /* A re-pull under the same name: the photo is transcribed again; the
+       * same words keep 38c's kept reading of them. */
+      tags.digest = "sha256:bbbb";
+      calls.length = 0;
+      await backend.importPhotos([file(card, "card.jpg")], { dryRun: true });
+      expect(chats()).toEqual(["qwen2.5vl:7b"]);
+      expect(calls.filter((call) => call.path === "/api/tags")).toHaveLength(1);
+      const [photo] = await storePhotos(jobsDir, [file(card, "card.jpg")]);
+      expect(transcribeKey(undefined, "sha256:aaaa")).not.toBe(
+        transcribeKey(undefined, "sha256:bbbb"),
+      );
+      expect(
+        await loadTranscript(jobsDir, [photo], {
+          model: "qwen2.5vl:7b",
+          prompt: transcribeKey(undefined, "sha256:bbbb"),
+        }),
+      ).toMatchObject({ text: CARD_TEXT, digest: "sha256:bbbb" });
+    } finally {
+      await backend.close();
+    }
+  });
+
+  it("fresh reads the photos and the text again, and keeps what it read (39a)", async () => {
+    const card = await cardJpeg();
+    const calls = stubModel(
+      { [await sentPhotoKey(card)]: CARD_TEXT },
+      { digest: "sha256:aaaa" },
+    );
+    const backend = createLocalBackend({ contentDirectory });
+    const chats = () =>
+      calls
+        .filter((call) => call.path === "/api/chat")
+        .map((call) => call.body?.model);
+    try {
+      await backend.importPhotos([file(card, "card.jpg")], { dryRun: true });
+      calls.length = 0;
+      const fresh = await backend.importPhotos([file(card, "card.jpg")], {
+        dryRun: true,
+        fresh: true,
+      });
+      expect(chats()).toEqual(["qwen2.5vl:7b", "qwen3:8b"]);
+      expect(
+        (fresh as { warnings?: string[] }).warnings ?? [],
+      ).not.toContainEqual(
+        expect.stringMatching(/was reused, not read again$/),
+      );
+      /* The fresh run's reading is the kept one now. */
+      calls.length = 0;
+      await backend.importPhotos([file(card, "card.jpg")], { dryRun: true });
+      expect(chats()).toEqual([]);
     } finally {
       await backend.close();
     }

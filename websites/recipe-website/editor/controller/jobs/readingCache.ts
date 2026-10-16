@@ -21,8 +21,13 @@
  * once older than that. Only a reading the model answered is kept: no model,
  * `off`, a failed call or a page's own schema leave nothing.
  *
- * Only the CLI, API and MCP import kinds (`import-url`, `import-text`) use
- * it; the form never re-reads (its picker sends the readings back).
+ * Only the CLI, API and MCP import kinds (`import-url`, `import-text`, and
+ * `import-photo` by its transcription) use it; the form never re-reads (its
+ * picker sends the readings back).
+ *
+ * **`fresh`** (39a: `--fresh`, `fresh: true`, "Read it again" on Retry)
+ * skips the read — no kept reading is looked at — and still saves the new
+ * reading, so the `--pick` after a fresh run reuses that one.
  */
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
@@ -38,7 +43,7 @@ export const READING_MAX_AGE_MS = 30 * 60 * 1000;
  * kept reading made by the old code is not reused. Prompt and schema edits
  * change the key by themselves (`readingVersion`).
  */
-export const READING_CODE_VERSION = "38c-1";
+export const READING_CODE_VERSION = "39a-1";
 
 /** The directory the readings live in, inside the job store. */
 export const READINGS_DIR = "readings";
@@ -99,7 +104,9 @@ export interface KeptReading<T> {
 /** One reading key's slot in the store. */
 export interface ReadingCache<T> {
   readonly key: string;
-  /** The kept reading, if one is younger than the limit. */
+  /** `fresh` (39a): `load` answers nothing; `save` still keeps the reading. */
+  readonly fresh: boolean;
+  /** The kept reading, if one is younger than the limit (never when `fresh`). */
   load(): Promise<KeptReading<T> | undefined>;
   /** Keep `value` as this key's reading (best effort: a failure is ignored). */
   save(value: T): Promise<void>;
@@ -116,12 +123,21 @@ export function readingCache<T>(
     job,
     maxAgeMs = READING_MAX_AGE_MS,
     now = Date.now,
-  }: { job?: string; maxAgeMs?: number; now?: () => number } = {},
+    fresh = false,
+  }: {
+    job?: string;
+    maxAgeMs?: number;
+    now?: () => number;
+    /** Skip the read, keep the save (39a). */
+    fresh?: boolean;
+  } = {},
 ): ReadingCache<T> {
   const file = readingPath(dir, key);
   return {
     key,
+    fresh,
     async load() {
+      if (fresh) return undefined;
       let kept: Partial<KeptReading<T>> & { key?: string };
       try {
         kept = JSON.parse(await readFile(file, "utf8"));

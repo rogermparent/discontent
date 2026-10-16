@@ -214,6 +214,52 @@ pre-epic branches) are Roger's to keep or delete.
 
 ### 39a
 
+- **Ta1 — a fresh worktree's `pnpm install` fails on sharp after the
+  reboot.** `sharp`'s install check exits 1 when it finds a global libvips
+  (`useGlobalLibvips()`), then tries to build from source and stops at
+  "Please add node-gyp to your dependencies" — `ELIFECYCLE`, though the
+  prebuilt `@img/sharp-linux-x64` loads fine. `SHARP_IGNORE_GLOBAL_LIBVIPS=1
+pnpm install --frozen-lockfile` installs cleanly.
+- **Ta2 — "the form's Retry" is `/jobs/<id>`'s.** The `/new-recipe` form has
+  no Retry, and its kinds (`form-url`, `form-text`, `form-photo`) never read
+  the kept reading (38-Dc6: "the form never re-reads"). So the "Read it
+  again" box sits beside Retry on a job's page, shown only for the kinds in
+  `KEPT_READING_KINDS` (`import-url`, `import-text`, `import-photo`).
+- **Ta3 — every photo import now asks `/api/tags` once.** The digest (Te6)
+  is one `GET` before the first vision call, so tests that pin the stand-in
+  model's call order (`photoImport.test`, `importRoute.test`) start with
+  `/api/tags`, and a reused transcript is "no model call", not "no request".
+  A list that does not answer in 2 s (`LLM_STATUS_TIMEOUT_MS`) puts the
+  sentinel `NO_DIGEST` in the key: the photos are read again rather than a
+  transcript trusted. A test that stubs `/api/tags` without a digest for
+  the vision model keys its transcript under the sentinel too.
+- **Ta4 — an editor from before 39a.** `recipes import --fresh --remote …`
+  against one is a strict-schema `validation`, now worded "predates --fresh
+  (39a) — update it, or leave --fresh out" (`predatesBatch`). `jobs retry
+--fresh --remote …` is not refused: the old retry route never read a body,
+  so it runs a plain retry. The 39a route echoes `fresh: true`, and the
+  CLI warns ("this editor predates --fresh on retry (39a); ran a plain
+  retry") when it asked and the echo is missing.
+- **Ta5 — one vitest file shares one jobs store.** `importReading.test`'s
+  tests all run in the same jobs directory, so a second test reading the
+  same text finds the first one's kept reading; the `--fresh` test gives
+  its spec its own `source` (part of the key).
+- **Ta6 — qwen3:8b spills to the CPU with nothing else running.** After a
+  reboot the desktop (Sway) holds ~0.8 GB of VRAM at idle, and `ollama ps`
+  lists qwen3:8b at 7.2 GB with its 12 288-token context, so the text
+  model lands 10%/90% CPU/GPU on an otherwise idle RX 6600 (the
+  orchestrator's 2026-10-16 measurement: extraction 20.4 s at 89% GPU).
+  The placement warning then says another program holds VRAM and suggests
+  `ollama stop qwen3:8b`, which is misleading here — the "other program"
+  is the compositor, and stopping does not help. A slowdown, not a
+  failure; a backlog row asks for a smaller `num_ctx` for short extraction
+  inputs or wording that names the idle desktop baseline.
+- **Ta7 — a server action that awaits a job blocks the tab.** Next's App
+  Router serialises a client's server actions, so an action awaiting a
+  whole import holds every later one (Create, Save) until it ends — the
+  first cut of `importResultAction` did. Bound any such wait (Da6), and
+  send anything that must not queue (Cancel) through a route `fetch`.
+
 ### 39b
 
 ### 39c
@@ -242,6 +288,217 @@ pre-epic branches) are Roger's to keep or delete.
 ## Results
 
 ### 39a — Import reliability
+
+**Reindex needed: no.** Nothing in the content repository changes.
+**Deploy:** none needed beyond the usual `pnpm workstation update` (and the
+Pi's next deploy) to get the code.
+
+**Built.**
+
+- **Tb5, the form's panel without a record** (`new-recipe/actions.tsx`,
+  new `controller/jobs/unstored.ts`, `ImportProgress.tsx`, `form.tsx`).
+  `importRecipeAction` starts every form kind through `startFormImport`:
+  a stored job answers `{job}` as before; one with no record answers
+  `{job, stored: false}` and its `done` is kept in a process-local map
+  (`keepUnstored`, on `globalThis` as T5's registry is, 30 min,
+  `UNSTORED_KEEP_MS`). The form then asks `importResultAction(job)` as a
+  **bounded long-poll** (Da6): each ask waits at most `UNSTORED_WAIT_MS`
+  (15 s, `waitUnstored`) and answers `{pending: true}` or the outcome; the
+  form's effect asks again until the outcome, gives up after
+  `UNSTORED_KEEP_MS` ("Stopped waiting for this import after half an
+  hour"), retries a dropped request (three in a row fail it), and stops
+  when the form unmounts or another import starts. An outcome is dropped
+  only once an ask has answered it settled; a `pending` answer leaves it,
+  so a lost request is simply asked again. Meanwhile `ImportProgress` gets
+  `unfollowed`: it polls nothing (`useJobPoll(undefined)`), shows
+  "Importing…" with "This import can't be followed step by step: the
+  editor could not write its job record (check the jobs directory). The
+  form fills when it ends.", no "Job details" (it would 404), and no
+  `?job=` goes into the address (a reload could not reopen it). **Cancel
+  works:** `cancelJobById` (the cancel route's seat) falls back, when no
+  record matches, to aborting a job this process runs by its full id
+  (`cancelJob`, the running registry) and answers `cancelled`; the
+  long-poll then answers `{cancelled: true}` and the panel says "Import
+  cancelled". When the answer lands the form is filled exactly as for a
+  followed job, and the panel says "Import done" / "Import failed" and
+  "Its steps were not recorded". A job this process does not hold answers
+  "Import <id> is not running in this editor any more — import it again."
+  **Photos are covered only in theory:** the form's photo path stores the
+  photos in the jobs directory first (`storePhotos`), which throws when
+  that directory cannot be written, so a `form-photo` start answers that
+  error before a job — stored or not — exists.
+- **38-Dg9, which model answered** (new `controller/llm/readerLabel.ts`).
+  `chatJson` / `chatText` answer `api`; `LlmStats` (so `LlmImportInfo`),
+  the found-nothing extraction and `listRecipes` carry it. Every
+  user-visible "local model" in a reading names the reader:
+  - warnings (`extractRecipe.ts` `llmWarning`, `importWithLlm.ts`: not used,
+    failed, found no recipe, output discarded, incomplete, returned no
+    ingredients, the several-recipe notes and the found list) —
+    `readerLabel`: "local model qwen3:8b", or "the Claude API
+    (claude-sonnet-5)"; `readerNoun` where no model was named: "local
+    model" / "Claude API";
+  - refusals (`importRecipe.ts`: partial readings, several recipes found,
+    `pick` out of range, the reused-reading warning; `importList.ts`'s
+    partial item; the page-schema batch's "the model was not asked");
+  - commit notes — `readerNote`: "(local model)", or "(Claude API
+    claude-sonnet-5)", "(Claude API claude-sonnet-5, photo, 2 of 3)" — in
+    `importAndCreate`, `importFromText` (text and photo), `importList` and
+    the picker's `batchActions.ts` (the readings' own model: the picker
+    sends `reader: {model, api}` from the first reading's `llm`, and the
+    action falls back to the editor's current model without it);
+  - the CLI: `formatLlm`'s line ("Claude API (auto): claude-sonnet-5 6/6
+    ingredient lines grounded"), `partialReadingLine` for `import` and
+    `inspect`.
+    The local wording is unchanged word for word, so no test that pinned it
+    moved; three exact-shape assertions gained `api: "ollama"`.
+- **The reading-cache bypass, `fresh`.** `readingCache(…, {fresh})` skips
+  `load` and keeps `save`; `ReadingCache.fresh` makes `keptReading` log a
+  `reading` note ("fresh: any kept reading skipped — read again",
+  `{fresh: true}`). The import specs take `options.fresh` (`ReadOptions` in
+  `kinds.ts`; the handlers take it off before the seats, and it is not in
+  the reading key, so the next import reuses the fresh reading). For a
+  photo it also skips the kept transcription (`photoText`'s `fresh`, a
+  `vision` note). Surfaces: `recipes import … --fresh` (URL, `--text`,
+  `--photo`; usage line and `--help`), `recipes jobs retry <id> --fresh`,
+  `/api/import` and MCP `recipe_import` `fresh: true`
+  (`ImportRequestFields`, so the tool's input schema and its description),
+  `POST /api/jobs/<id>/retry` with an optional `{"fresh": true}` body
+  (strict; no body is a plain retry; the answer echoes `fresh: true` when
+  it honoured it, and `jobs retry --fresh` warns "this editor predates
+  --fresh on retry (39a); ran a plain retry" when the echo is missing —
+  Ta4), and on `/jobs/<id>` a "Read it
+  again" / "Read the photos again" box beside Retry for the
+  `KEPT_READING_KINDS`. `READING_CODE_VERSION` is "39a-1": a reading kept
+  before this carries "local model" warnings and no `api`.
+  **MCP:** no new tool — still 57, 43 pre-approved; `fresh` is a field of
+  `recipe_import`, which was already pre-approved. No `.mcp.json`,
+  settings or skill-frontmatter change.
+- **38-Te6, the vision model's digest** (`client.ts`, `vision.ts`,
+  `importPhoto.ts`, `photos.ts`). `llmStatus` — the Settings line's
+  `/api/tags` model check — now also answers the configured model's
+  `digest` (Ollama only; the entry named `model` or `model:latest`).
+  `visionDigest(config)` asks it once per photo import (never per photo),
+  `transcribeKey(limits, digest)` folds it in, and the kept transcript
+  records it. Under `anthropic` there is no digest: the model name (already
+  checked) is enough. When the list cannot be read, or does not name the
+  model, the key takes the sentinel `NO_DIGEST` ("no-digest"), so it
+  misses every transcript kept with a real digest or before 39a (Da5); the
+  sentinel is not recorded as the transcript's `digest`. A transcript kept
+  before 39a has no digest in its key, so the first photo import after the
+  update reads its photos again, once.
+- **import-list human output:** each item is followed by its model line
+  (`formatLlm`, indented), when a model was asked for it.
+
+**Decisions.**
+
+- **Da1 — `readerLabel`, not `modelLabel`, in warnings and notes.**
+  `modelLabel` says "the local model at <url>": it drops the model's name
+  and adds the server, which is right for the client's own failures and
+  wrong for a reading's provenance ("extracted by local model qwen3:8b"
+  is pinned by many tests and lives in git history). `readerLabel` keeps
+  the local wording and uses `modelLabel`'s words for Claude ("the Claude
+  API (claude-sonnet-5)"), without the URL. Dependency-free, so the seats
+  and the CLI load it without the client (35q).
+- **Da2 — commit notes say "Claude API <model>".** Git history should say
+  which model read a recipe; "(the Claude API (claude-sonnet-5), photo)"
+  would nest parentheses. The local note stays "local model" (36-D5). The
+  picker's batch note uses the model the readings name (sent back with
+  the picks, which come from the browser anyway — a note is provenance,
+  not authority), else the editor's current model.
+- **Da3 — Retry decides `fresh`.** A recorded `fresh` is dropped unless the
+  Retry asks for it again, so "Retry" on a fresh job reuses the reading
+  that job just kept — the cheap, expected thing — and the box is the one
+  way to read again.
+- **Da4 — `fresh` reads photos again too.** "Read it again" on a photo job
+  that reused a bad transcription would otherwise re-read the same text;
+  the transcription is the reading's source.
+- **Da5 — the digest is one model-list read per import, and a missing one
+  is a miss.** No `/api/show` per photo; `llmStatus`'s 2 s list read. When
+  the list cannot be read or lacks the model, the key carries the sentinel
+  `NO_DIGEST` and matches no transcript kept with a digest, nor one kept
+  before 39a (Ta3). (The first cut left the digest out there, which is the
+  pre-39a key — it trusted old transcripts; fixed in review.)
+- **Da6 — an unstored job's outcome is a bounded long-poll, not one long
+  action.** Next's App Router runs one tab's server actions one at a time,
+  so an `importResultAction` that awaited a GPU-queued import held every
+  later action — a hand-typed Create — behind it, with no timeout. Each ask
+  now waits at most 15 s (`UNSTORED_WAIT_MS`; a Create waits at most that
+  long) and the client repeats, capped at 30 min (`UNSTORED_KEEP_MS`, the
+  map's own expiry). Cancel goes through the existing cancel route, a
+  `fetch` (not a server action, so it does not queue behind the poll),
+  whose seat now aborts an unrecorded job by id.
+
+**Tests.** New `importStart.test.ts` (2): with the jobs dir under a regular
+file the start answers `stored: false`, `importResultAction` answers the
+filled state once, then "not running in this editor"; with a store, the id
+is followed and nothing is kept. New `importPanel.test.tsx` (2, jsdom): an
+`unfollowed` panel makes no request in 1.2 s, says "Importing…" and
+"can't be followed step by step", offers no Cancel and no Job details, and
+turns "Import done" only when told; a followed job still polls
+`/api/jobs/<id>?from=0` and a 404 is not "done". `importReading.test.ts`
++4: `fresh` skips the read and keeps the save (unit); `--fresh` asks the
+model again past a kept reading, logs `{fresh: true}`, and the next import
+reuses the fresh reading; a Claude-answered text import (Messages API
+stubbed with the stand-in's rules) says "by the Claude API
+(claude-sonnet-5)", no "local model", and commits "Create recipe:
+lemon-cake (Claude API claude-sonnet-5, pasted text)"; the local model's
+words unchanged. `photoImport.test.ts` +2: a digest change misses the kept
+transcript (one `/api/tags` per import; the same words keep 38c's
+reading), `fresh` reads photo and text again and keeps them.
+`jobSurfaces.test.ts` +1: `retrySpecFor` sets `fresh` when asked, drops a
+recorded one otherwise, leaves other kinds alone, and the retry route
+refuses `{"fresh": "yes"}`. New `importListFormat.test.ts` (2): the
+per-item model lines (local and Claude) and the Claude partial line.
+Updated: `importWithLlm`, `llmExtract` (`api: "ollama"`), `photoImport`
+and `importRoute` (`/api/tags` first in the call order).
+
+Review round (Da6, the sentinel, the retry echo): `importStart.test.ts`
++6 — `importResultAction` signed out (says so, keeps the outcome), an
+unknown id (a message, no wait), pending after `UNSTORED_WAIT_MS` (fake
+timers) then the outcome once then "not running" (a second take after
+delivery), forgotten after its keep, a cancelled job answers
+`{cancelled: true}`, and `cancelJobById` aborting a job that runs with no
+record. `importPanel.test.tsx` +1 (and the first test now expects Cancel
+on an unfollowed panel): Cancel POSTs `/api/jobs/<id>/cancel` and a
+`cancelled` end reads "Import cancelled.". `jobSurfaces.test.ts` +2: the
+retry route forwards `{"fresh": true}` into the new job's spec and echoes
+it, no body is a plain retry with no echo; `jobs retry --fresh` with no
+echo carries the warning (and prints it), not asked or echoed carries
+none. `photoImport.test.ts` +2: `ollamaDigest` by `name`, by
+`name:latest` for an untagged pull, never another tag, no non-string
+digest; `visionDigest` answers `NO_DIGEST` when `/api/tags` throws or
+omits the model (a key unlike both the pre-39a one and a real digest's),
+`undefined` under `anthropic`; the "keeps the transcript" test keys under
+the sentinel and checks the pre-39a key misses. The picker's `reader` has
+no unit test (the batch action needs a content repo and a signed-in
+context; `multi-recipe.spec` covers the action itself).
+
+**Gates.** `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit` clean; eslint clean on the changed
+files; `pnpm exec vitest run` **108 files / 2206 tests** passed. Playwright (build mode, heavy
+slot) `new-recipe`, `jobs`, `photo-import`, `multi-recipe`, `mcp-http`,
+`import-roundup`, `ytdlp-import`: **76 / 76** passed (5.4 min). Review
+round: both typechecks clean, eslint clean; the affected vitest files
+(`importStart`, `importPanel`, `jobSurfaces`, `photoImport`, `claudeApi`,
+`cliJson`, `importWithLlm`, `jobs`, `llmExtract`, `queue`, `siteWrites`,
+`tidyReading`, `importRoute`, `importReading`, `importListFormat`) **15
+files / 380 tests** passed; Playwright `new-recipe.spec` + `jobs.spec`
+**53 / 53** (3.8 min). CI runs the rest.
+
+**Vision re-measure (Ollama 0.40.5, RX 6600 on Vulkan, 2026-10-16).** The
+orchestrator's run, Archilyzer's transcription lane held: `real_check.sh`
+(a dry run into an empty scratch repo, `--fresh`) on 38e's rendered
+`banana-bread-card.jpg`, this branch at 693799ca.
+
+| Run                                | Sent           | `vision.transcribe`                                                   | Runner                                             | `llm.extract` (qwen3:8b)     | Grounded    | Wall   |
+| ---------------------------------- | -------------- | --------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------- | ----------- | ------ |
+| 1024 px (the committed cap)        | 1024 long edge | 23.7 s (load 7.7 s, 99 tok @ 15 tok/s), 100% GPU, 321 chars, verbatim | fine                                               | 20.4 s (load 9.5 s), 89% GPU | 8/8 trusted | 44.3 s |
+| 1568 px (local override, uncapped) | 1568×1041      | failed after 13.0 s: "stopped without an answer (done: false)"        | **crashed** — `vk::Queue::submit: ErrorDeviceLost` | —                            | —           | 15.2 s |
+
+**Verdict:** the 38e crash is unchanged under 0.40.5; the Ollama cap stays
+at 1024 px (38-Te5 stands; a dated note there points here). No code
+change. **New finding:** qwen3:8b now lands 10%/90% CPU/GPU at idle
+(Ta6, a backlog row).
 
 ### 39b — Reindex follow-through
 

@@ -196,7 +196,8 @@ first one's), and `recipe_import` refuses (`usage`) until told which —
 `"all": true`, or **by name**, `"pick": ["Green Bean Casserole"]` (positions
 work too, but a re-read can number them differently — the server keeps a
 reading for half an hour, so a `pick` right after the refusal or a `dryRun`
-is not read again, and later ones are); a `dryRun` shows them all. A page
+is not read again, and later ones are; `"fresh": true` reads it again when
+the page or text changed meanwhile); a `dryRun` shows them all. A page
 that publishes several recipes of its own (several Recipe nodes) answers
 the same way, with no `llm` — its recipe cards, not a model's reading;
 `"asOne": true` imports its first. Each is read and trusted on

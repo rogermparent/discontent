@@ -9,6 +9,7 @@
  */
 import { toErrorObject } from "../controller/curation/errors";
 import type { LlmImportInfo } from "../controller/llm/importWithLlm";
+import { readerNoun } from "../controller/llm/readerLabel";
 import type { CommandDef } from "./commands/types";
 
 export function emit<TResult>(
@@ -44,8 +45,9 @@ export function warn(message: string): void {
 }
 
 /**
- * The local model's line (epic 36): its grounded count, or why it gave
- * nothing. `undefined` when it was not asked.
+ * The model's line (epic 36): its grounded count, or why it gave nothing —
+ * "local model (auto): qwen3:8b …", or "Claude API (auto): claude-sonnet-5
+ * …" (39a). `undefined` when it was not asked.
  */
 export function formatLlm(
   llm: LlmImportInfo | undefined,
@@ -61,10 +63,15 @@ export function formatLlm(
     : !llm.found
       ? "found no recipe"
       : `${llm.grounded ?? 0}/${llm.total ?? 0} ingredient lines grounded${llm.discarded ? " — discarded" : ""}`;
-  return `${indent}local model (${llm.mode}): ${llm.model} ${what}${time}`;
+  return `${indent}${readerNoun(llm.api)} (${llm.mode}): ${llm.model} ${what}${time}`;
 }
 
 /** A result's `warnings`, as the indented `! …` lines a human format ends with. */
+/** "partial: the local model's reading is not trusted — check it" (39a: or the Claude API's). */
+export function partialReadingLine(llm: LlmImportInfo): string {
+  return `partial: the ${readerNoun(llm.api)}'s reading is not trusted — check it`;
+}
+
 export function formatWarnings(warnings: string[] | undefined): string[] {
   return (warnings ?? []).map((warning) => `  ! ${warning}`);
 }
