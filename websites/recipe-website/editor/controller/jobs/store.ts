@@ -7,6 +7,8 @@
  *   Only the process that runs a job writes its meta — and the boot sweep,
  *   for a job whose process is gone.
  * - `<id>.log.jsonl`: the step log (`log.ts`), appended a line at a time.
+ * - `readings/<key>.json`: an import's last model reading (38c,
+ *   `readingCache.ts`), pruned with the jobs once past its reuse.
  *
  * Ids are the engine's ULIDs (34-D5), so a directory listing sorts by start.
  *
@@ -51,6 +53,7 @@ import {
 import path from "node:path";
 import type { JobTier, JobWaiting } from "./context";
 import type { JobLine } from "./log";
+import { pruneReadings } from "./readingCache";
 
 export type { JobTier } from "./context";
 
@@ -510,5 +513,7 @@ export async function pruneJobs(
       await rm(path.join(dir, name), { force: true });
     }
   }
+  /* 38c: the kept model readings past their reuse (`readingCache.ts`). */
+  await pruneReadings(dir, { now });
   return removed;
 }

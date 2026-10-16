@@ -261,14 +261,37 @@ describe("splitting a text (36e)", () => {
     expect(withVideoStart("https://youtu.be/abc", 30)).toBe(
       "https://youtu.be/abc?t=30s",
     );
-    expect(withVideoStart("https://vimeo.com/1", 30)).toBe(
-      "https://vimeo.com/1",
-    );
     expect(videoStartSeconds(`${VIDEO_URL}&t=652s`)).toBe(652);
     expect(videoStartSeconds(`${VIDEO_URL}&t=10m52s`)).toBe(652);
     expect(videoStartSeconds(`${VIDEO_URL}&start=90`)).toBe(90);
     expect(videoStartSeconds(VIDEO_URL)).toBeUndefined();
-    expect(videoStartSeconds("https://vimeo.com/1#t=30")).toBeUndefined();
+  });
+
+  /* 38c: Vimeo's start is the fragment, `#t=1m30s`. */
+  it("writes and reads a Vimeo start", () => {
+    expect(withVideoStart("https://vimeo.com/1", 90)).toBe(
+      "https://vimeo.com/1#t=90s",
+    );
+    expect(withVideoStart("https://vimeo.com/1#t=30s", 0)).toBe(
+      "https://vimeo.com/1",
+    );
+    expect(withVideoStart("https://vimeo.com/1", 0)).toBe(
+      "https://vimeo.com/1",
+    );
+    expect(videoStartSeconds("https://vimeo.com/1#t=30")).toBe(30);
+    expect(videoStartSeconds("https://vimeo.com/1#t=1m30s")).toBe(90);
+    expect(videoStartSeconds("https://player.vimeo.com/video/1#t=45s")).toBe(
+      45,
+    );
+    expect(videoStartSeconds("https://vimeo.com/1?t=20")).toBe(20);
+    expect(videoStartSeconds("https://vimeo.com/1")).toBeUndefined();
+    /* Another host spells it its own way, or not at all. */
+    expect(withVideoStart("https://www.twitch.tv/videos/1", 30)).toBe(
+      "https://www.twitch.tv/videos/1",
+    );
+    expect(videoStartSeconds("https://www.twitch.tv/videos/1?t=30")).toBe(
+      undefined,
+    );
   });
 
   it("renders a linked ingredient line as a link, amounts and all", () => {
@@ -676,6 +699,45 @@ describe("pasted text with several recipes (36e)", () => {
     );
   });
 
+  it("T23: none of the list, one-dish or per-slice prompts name the paste's source URL (38c review)", async () => {
+    const text = await description();
+    const bodies: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.startsWith(MODEL_URL)) {
+          const body = JSON.parse(String(init?.body));
+          bodies.push(body);
+          return new Response(JSON.stringify(standInChat(body)), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url === THUMB) {
+          return new Response("img", {
+            status: 200,
+            headers: { "content-type": "image/webp" },
+          });
+        }
+        return new Response("not here", { status: 404 });
+      }),
+    );
+    await importFromText(ctx, {
+      text,
+      source: "https://www.youtube.com/watch?v=lo2pf0pYB9U",
+      dryRun: true,
+    });
+    /* The list, the one-dish question, four readings — none of them. */
+    expect(bodies.length).toBe(6);
+    for (const body of bodies) {
+      const user = (body.messages as { role: string; content: string }[]).find(
+        (message) => message.role === "user",
+      )?.content;
+      expect(user).not.toContain("Source URL");
+    }
+  });
+
   it("partial on its own under the text's own gate (force over nothing)", async () => {
     stub();
     /* Two of the pasted recipes, one with an invented line among four. */
@@ -835,6 +897,24 @@ describe("applyLlm and the picker's helpers (36e)", () => {
       "Green Bean Casserole",
       "Fried Shallots",
     ]);
+  });
+
+  it("strips a Vimeo chapter start too, not just YouTube's (38c review)", () => {
+    const merged = mergeReadings(
+      [
+        {
+          recipe: {
+            name: "One Part",
+            source: { url: "https://vimeo.com/1#t=90s" },
+            videoImportUrl: "https://vimeo.com/1#t=90s",
+            ingredients: [{ ingredient: "1 egg" }],
+          },
+        },
+      ],
+      "Whole Dish",
+    );
+    expect(merged.source?.url).toBe("https://vimeo.com/1");
+    expect(merged.videoImportUrl).toBe("https://vimeo.com/1");
   });
 });
 

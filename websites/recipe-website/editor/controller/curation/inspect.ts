@@ -23,6 +23,7 @@
  */
 import {
   isVideoUrl,
+  mapRecipeNodes,
   type ImageCandidate,
   type ImportedRecipe,
   type JsonLdNode,
@@ -32,6 +33,7 @@ import { fetchPageStep, parsePage } from "../jobs/steps";
 import type { PageMeta } from "recipe-website-common/util/pageMetadata";
 import {
   applyLlm,
+  schemaReadings,
   videoFetchOptions,
   videoSource,
   type LlmImportInfo,
@@ -92,6 +94,12 @@ export interface InspectResult {
   video?: InspectVideo;
   /** Why yt-dlp was not used for a video host, when it was tried and failed. */
   ytdlp?: string;
+  /**
+   * The video's description held no recipe but linked one page that does
+   * (38c): that page was read, and `recipe` / `draft` are its, with the
+   * video as their `video`.
+   */
+  followed?: string;
   /** The local model's part (epic 36), whenever it was asked. */
   llm?: LlmImportInfo;
   /** What the local model did, or why it was not used (epic 36). */
@@ -120,7 +128,8 @@ export interface InspectRecipe {
    * one's `slug` ("[Crispy fried shallots …](/recipe/fried-shallots)").
    */
   draft: RecipeDraft;
-  llm: LlmImportInfo;
+  /** The model's part; none for a page's own Recipe nodes (38c). */
+  llm?: LlmImportInfo;
   warnings?: string[];
 }
 
@@ -238,7 +247,7 @@ export async function inspectUrl(
       job,
     });
     if (result.status === "success") {
-      const applied = await applyLlm({
+      const read = await applyLlm({
         url,
         source: videoSource(result.metadata),
         mapped: ytdlpToRecipe(result.metadata, url),
@@ -247,9 +256,46 @@ export async function inspectUrl(
         split: true,
         job,
       });
+      /* 38c: no recipe in the description, one recipe link — follow it. */
+      const { followRecipeLink } = await import("./videoFollow");
+      const applied =
+        (await followRecipeLink({
+          url,
+          metadata: result.metadata,
+          applied: read,
+          mode,
+          job,
+        })) ?? read;
       /* `ytdlpToRecipe` always names the video, so a recipe comes back. The
-       * video's tags (36d) are top-level here, as a page's keywords are. */
-      const { suggestedTags, ...recipe } = applied.recipe!;
+       * video's tags (36d) are top-level here, as a page's keywords are; a
+       * followed page's pictures lead the video's (38c). */
+      const {
+        suggestedTags,
+        images: pageImages = [],
+        ...recipe
+      } = applied.recipe!;
+      if (applied.followed) {
+        const thumbs = [...result.metadata.thumbnails]
+          .filter((thumb) => thumb.width && thumb.height)
+          .sort((a, b) => b.width! * b.height! - a.width! * a.height!)
+          .map((thumb) => ({ ...thumb, from: "ytdlp" as const }));
+        const { partial: followedPartial, ...followedRecipe } = recipe;
+        return {
+          url,
+          finalUrl: result.metadata.webpage_url || url,
+          partial: followedPartial === true,
+          recipe: followedRecipe,
+          draft: toDraft(followedRecipe),
+          images: [...pageImages, ...thumbs].slice(0, 10),
+          ...(suggestedTags?.length ? { suggestedTags } : {}),
+          video: toVideo(result.metadata),
+          followed: applied.followed,
+          ...llmFields(applied),
+          ...(applied.recipes
+            ? { recipes: await inspectRecipes(applied.recipes) }
+            : {}),
+        };
+      }
       const thumbnails = [...result.metadata.thumbnails]
         .filter((thumb) => thumb.width && thumb.height)
         .sort((a, b) => b.width! * b.height! - a.width! * a.height!)
@@ -302,13 +348,17 @@ export async function inspectUrl(
     base: page.finalUrl,
     job,
   });
-  const applied = await applyLlm({
-    url,
-    source: { html: page.html, ok: page.ok, meta: parsed.meta },
-    mapped: mappedPage,
-    mode,
-    job,
-  });
+  /* 38c: a page with several recipes of its own lists each, as a video does. */
+  const several = mapRecipeNodes(url, parsed, { ok: page.ok });
+  const applied = several
+    ? schemaReadings(several, { mode, job })
+    : await applyLlm({
+        url,
+        source: { html: page.html, ok: page.ok, meta: parsed.meta },
+        mapped: mappedPage,
+        mode,
+        job,
+      });
   const recipe = applied.recipe;
   /* `images` and `suggestedTags` ride on the mapped recipe for the form; here
    * they are top-level. */
@@ -329,6 +379,9 @@ export async function inspectUrl(
     images: parsed.images.slice(0, 10),
     ...(ytdlpNote ? { ytdlp: ytdlpNote } : {}),
     ...llmFields(applied),
+    ...(applied.recipes
+      ? { recipes: await inspectRecipes(applied.recipes) }
+      : {}),
   };
 }
 
@@ -383,7 +436,7 @@ async function inspectRecipes(
       slug: slugs.get(reading.n)!,
       recipe,
       draft,
-      llm: reading.llm,
+      ...(reading.llm ? { llm: reading.llm } : {}),
       ...(reading.warnings.length ? { warnings: reading.warnings } : {}),
     };
   });

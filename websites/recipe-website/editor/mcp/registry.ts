@@ -529,7 +529,12 @@ export function createRecipeServer(
         "already imported from the same source is `existing` and skipped, so `all` again " +
         "after a partial run imports only what is missing. `asOne: true` reads the text " +
         "as one recipe instead (a dish the model splits into its parts). One recipe " +
-        "needs neither.",
+        "needs neither. A page that publishes several recipes of its own (several " +
+        "schema.org Recipe nodes) is the same kind of batch, read by no model; `asOne` " +
+        "imports its first. The reading is kept for half an hour, so a `pick` after a " +
+        "refusal (or a create after a dryRun) of the same url or text is not read again. " +
+        "A video whose description holds no recipe but links one recipe page imports " +
+        "that page, the video kept as its video.",
       inputSchema: ImportRequestSchema,
       annotations: WRITES,
     },
