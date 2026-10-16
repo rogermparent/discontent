@@ -27,6 +27,7 @@ import {
   parseIngredientLine,
   parseIngredientList,
   stripMarkup,
+  stripOrLabel,
 } from "./ingredientNames";
 import type { ShoppingSubRecipe } from "./shoppingTypes";
 
@@ -118,19 +119,52 @@ function onlyAmount(prefix: string): boolean {
 }
 
 /**
+ * What may follow the link on a sub-recipe line: nothing, or a remark — a
+ * part that opens with "," or "(" ("[Simple syrup](…), optional", "(see
+ * note)"). A part that offers something else or adds to it — "… or honey
+ * syrup", "(or 1 refrigerated crust)", ", plus flour for rolling", "and
+ * …", "+ …" — means the line is more than the sub-recipe.
+ */
+function onlyRemark(suffix: string): boolean {
+  if (!suffix) return true;
+  if (!/^[,(]/.test(suffix)) return false;
+  return suffix
+    .split(/[,()]/)
+    .map((part) => part.trim())
+    .every(
+      (part) =>
+        !/^(?:or|and|plus|&|\+)(?:\s|$)/i.test(part) &&
+        !/(?:^|\s)(?:or|plus|&|\+)(?:\s|$)/i.test(part),
+    );
+}
+
+/**
+ * `1-2 batches`, `2 to 3`: a range, which is no number of batches. Not
+ * `1-1/2`, one and a half.
+ */
+const RANGE_RE = /\d\s*(?:–|—|to\b|-(?!\s*\d+\s*\/\s*\d))\s*\d/i;
+
+/**
  * The sub-recipe a line *is*, or `null`. Only when the link is the line's
- * own name, with nothing but an amount before it:
+ * own name, with nothing but an amount before it and nothing but a remark
+ * after it:
  *
- * - `1 batch [Simple Syrup](…)`, `2 batches [pie crust](…)` (× the number),
- *   `[Pickled slaw](…)` (×1), `2 [pie crusts](…)` (a bare count: ×2);
- * - `½ oz [simple syrup](…)` — a measure, not batches: ×1, and `called`
- *   says what the line asked for.
+ * - `1 batch [Simple Syrup](…)`, `2 batches [pie crust](…)`, `1 recipe
+ *   […]` (× the number), `[Pickled slaw](…)` (×1);
+ * - `½ oz [simple syrup](…)`, `8 [corn tortillas](…)`, `2 [pie crusts](…)` —
+ *   a measure or a count, not batches (a recipe's yield is not known here):
+ *   ×1, and `called` says what the line asked for;
+ * - `1-2 batches [crust](…)` — a range: ×1, the range as the note.
  *
  * A link that is an alternative or a remark is no sub-recipe: "1 tsp maple
- * syrup or [simple syrup](…)" buys maple syrup, and "3 Tbsp tonkatsu sauce
- * (or make [Homemade Tonkatsu Sauce](…))" buys the sauce.
+ * syrup or [simple syrup](…)" buys maple syrup, "3 Tbsp tonkatsu sauce (or
+ * make [Homemade Tonkatsu Sauce](…))" buys the sauce, and "[Simple
+ * Syrup](…) or honey syrup" stays as written. Nor is an `OR:` line: it is
+ * the other way to make the line above it, which the list shows on that
+ * line's row.
  */
 export function subRecipeLink(markdown: string): SubRecipeLink | null {
+  if (stripOrLabel(stripMarkup(markdown)) !== null) return null;
   const match = RECIPE_LINK_RE.exec(markdown);
   if (!match) return null;
   let slug: string;
@@ -139,25 +173,36 @@ export function subRecipeLink(markdown: string): SubRecipeLink | null {
   } catch {
     slug = match[2];
   }
-  const prefix = stripMarkup(markdown.slice(0, match.index))
-    .replace(/\s+/g, " ")
-    .trim();
-  const linkText = stripMarkup(match[1]).replace(/\s+/g, " ").trim();
-  if (!firstNameKey(linkText) || !onlyAmount(prefix)) return null;
+  const tidy = (text: string) => stripMarkup(text).replace(/\s+/g, " ").trim();
+  const prefix = tidy(markdown.slice(0, match.index));
+  const suffix = tidy(markdown.slice(match.index + match[0].length));
+  const linkText = tidy(match[1]);
+  if (!firstNameKey(linkText) || !onlyAmount(prefix) || !onlyRemark(suffix)) {
+    return null;
+  }
   if (!prefix) return { slug, factor: new Fraction(1) };
+  if (RANGE_RE.test(prefix)) {
+    return {
+      slug,
+      factor: new Fraction(1),
+      calledText: prefix.replace(/\s*(?:-|—)\s*/g, "–"),
+    };
+  }
   const amount = parseAmount(`${prefix} ${linkText}`);
-  if (!amount) return { slug, factor: new Fraction(1), calledText: prefix };
+  /* `1/0` reads as no number at all: one batch, the line as the note. */
+  if (
+    !amount ||
+    amount.parts.some((part) => !Number.isFinite(part.qty) || part.qty <= 0)
+  ) {
+    return { slug, factor: new Fraction(1), calledText: prefix };
+  }
   if (amount.parts.length === 1) {
     const [part] = amount.parts;
     if (
-      part.family === "count" ||
-      (part.family === "container" &&
-        (part.unit === "batch" || part.unit === "recipe"))
+      part.family === "container" &&
+      (part.unit === "batch" || part.unit === "recipe")
     ) {
-      /* `1/0` reads as no number at all: one batch, the line as the note. */
-      return Number.isFinite(part.qty) && part.qty > 0
-        ? { slug, factor: new Fraction(part.qty) }
-        : { slug, factor: new Fraction(1), calledText: prefix };
+      return { slug, factor: new Fraction(part.qty) };
     }
   }
   /* A pinch, a dash, "some": one batch, nothing to say. */
@@ -229,14 +274,23 @@ export async function expandRecipeLines(
     optionalAbove: boolean,
   ): Promise<ExpandedLine[]> => {
     const out: ExpandedLine[] = [];
-    for (const line of recipeLines(current)) {
+    const lines = recipeLines(current);
+    for (const [index, line] of lines.entries()) {
       const kept: ExpandedLine = {
         ...line,
         optional: line.optional || optionalAbove,
         factor,
         for: path,
       };
-      const link = expand ? subRecipeLink(line.markdown) : null;
+      /*
+       * An `OR:` line right below offers another way to make it: the line
+       * stays as written, so the list shows the two on one row, as Make
+       * counts them as one line.
+       */
+      const next = lines[index + 1];
+      const orFollows =
+        next?.line === line.line + 1 && stripOrLabel(next.text) !== null;
+      const link = expand && !orFollows ? subRecipeLink(line.markdown) : null;
       if (!link) {
         out.push(kept);
         continue;
@@ -263,7 +317,7 @@ export async function expandRecipeLines(
       const called = link.called
         ? formatAmount(scaleAmount(link.called, scale.mul(factor)))
         : link.calledText;
-      const lines = await walk(
+      const subLines = await walk(
         sub,
         [...ancestors, link.slug],
         factor.mul(link.factor),
@@ -273,12 +327,12 @@ export async function expandRecipeLines(
         ],
         kept.optional,
       );
-      if (lines.length === 0) {
+      if (subLines.length === 0) {
         warn(`${as}: ${sub.name} has no ingredient lines.`);
         out.push(kept);
         continue;
       }
-      out.push(...lines);
+      out.push(...subLines);
     }
     return out;
   };

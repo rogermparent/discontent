@@ -66,7 +66,7 @@ const summary = (lines: ExpandedLine[]) =>
   }));
 
 describe("subRecipeLink", () => {
-  it("reads batches, a recipe, a bare count and no amount as multipliers", () => {
+  it("reads batches, a recipe and no amount as multipliers", () => {
     const read = (markdown: string) => {
       const link = subRecipeLink(markdown);
       return link && { slug: link.slug, factor: link.factor.toFraction() };
@@ -82,10 +82,6 @@ describe("subRecipeLink", () => {
     expect(read("half batch [simple syrup](/recipe/simple-syrup)")).toEqual({
       slug: "simple-syrup",
       factor: "1/2",
-    });
-    expect(read("2 [pie crusts](/recipe/pie-crust)")).toEqual({
-      slug: "pie-crust",
-      factor: "2",
     });
     expect(
       read("[Pickled carrots & daikon slaw](/recipe/pickled-slaw)"),
@@ -122,6 +118,74 @@ describe("subRecipeLink", () => {
     ]) {
       expect(subRecipeLink(markdown), markdown).toBeNull();
     }
+  });
+
+  it("reads a bare count as one batch, noting the count (Dd9)", () => {
+    for (const [markdown, qty] of [
+      ["8 [corn tortillas](/recipe/corn-tortillas)", 8],
+      ["2 [pie crusts](/recipe/pie-crust)", 2],
+    ] as const) {
+      const link = subRecipeLink(markdown);
+      expect(link?.factor.toFraction(), markdown).toBe("1");
+      expect(link?.called, markdown).toEqual({
+        parts: [{ qty, unit: "", family: "count" }],
+      });
+    }
+    /* "batches of" in the link text is batches. */
+    expect(
+      subRecipeLink(
+        "2 [batches of pie dough](/recipe/pie-crust)",
+      )?.factor.toFraction(),
+    ).toBe("2");
+  });
+
+  it("reads a range of batches as one batch, with the range as the note", () => {
+    const link = subRecipeLink("1-2 batches [pie crust](/recipe/pie-crust)");
+    expect(link?.factor.toFraction()).toBe("1");
+    expect(link?.calledText).toBe("1–2 batches");
+    expect(
+      subRecipeLink("1 to 2 recipes [pie crust](/recipe/pie-crust)")
+        ?.calledText,
+    ).toBe("1 to 2 recipes");
+    /* A mixed number is no range. */
+    expect(
+      subRecipeLink(
+        "1-1/2 batches [pie crust](/recipe/pie-crust)",
+      )?.factor.toFraction(),
+    ).toBe("3/2");
+  });
+
+  it("is no sub-recipe when something other than a remark follows the link", () => {
+    for (const markdown of [
+      "[Simple Syrup](/recipe/simple-syrup) or honey syrup",
+      "1 batch [pie crust](/recipe/pie-crust) or 1 refrigerated crust",
+      "1 batch [pie crust](/recipe/pie-crust), or store-bought",
+      "1 batch [pie crust](/recipe/pie-crust) (or 1 refrigerated crust)",
+      "2 batches [pie crust](/recipe/pie-crust), plus flour for rolling",
+      "1 batch [pie crust](/recipe/pie-crust) plus flour for rolling",
+      "1 batch [Simple Syrup](/recipe/simple-syrup) + 1 oz honey",
+      "1 batch [Simple Syrup](/recipe/simple-syrup) and 1 oz honey",
+    ]) {
+      expect(subRecipeLink(markdown), markdown).toBeNull();
+    }
+    for (const markdown of [
+      "[Simple syrup](/recipe/simple-syrup), optional",
+      "1 batch [pie crust](/recipe/pie-crust) (see note), chilled",
+      "1 batch [pie crust](/recipe/pie-crust), rolled and chilled",
+    ]) {
+      expect(subRecipeLink(markdown), markdown).not.toBeNull();
+    }
+  });
+
+  it("is no sub-recipe on an OR: line", () => {
+    expect(
+      subRecipeLink("OR: 1 batch [Vanilla Sugar](/recipe/vanilla-sugar)"),
+    ).toBeNull();
+    expect(
+      subRecipeLink(
+        'or: <Multiplyable baseNumber="1" /> batch [Vanilla Sugar](/recipe/vanilla-sugar)',
+      ),
+    ).toBeNull();
   });
 
   it("takes an amount it cannot read as one batch, with the words as the note", () => {
@@ -240,6 +304,29 @@ describe("expandRecipeLines", () => {
     };
     const { lines } = await expand("sour", {}, corpus);
     expect(lines.map((line) => line.optional)).toEqual([false, true, true]);
+  });
+
+  it("keeps a sub-recipe line as written when an OR: line follows it", async () => {
+    const corpus = {
+      ...CORPUS,
+      sugar: recipe("Vanilla Sugar", ["1 cup sugar", "1 vanilla bean"]),
+      cookies: recipe("Sugar Cookies", [
+        "2 cups flour",
+        "1 batch [Simple Syrup](/recipe/simple-syrup)",
+        "OR: 1/2 cup honey",
+        "1/2 cup [Vanilla Sugar](/recipe/sugar)",
+        "OR: 1 batch [Vanilla Sugar](/recipe/sugar)",
+      ]),
+    };
+    const { lines, warnings } = await expand("cookies", {}, corpus);
+    expect(summary(lines)).toEqual([
+      { text: "2 cups flour", factor: "1", for: [] },
+      { text: "1 batch Simple Syrup", factor: "1", for: [] },
+      { text: "OR: 1/2 cup honey", factor: "1", for: [] },
+      { text: "1/2 cup Vanilla Sugar", factor: "1", for: [] },
+      { text: "OR: 1 batch Vanilla Sugar", factor: "1", for: [] },
+    ]);
+    expect(warnings).toEqual([]);
   });
 
   it("reads each sub-recipe once per shared cache", async () => {

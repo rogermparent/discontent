@@ -546,6 +546,21 @@ describe("38d: OR: lines", () => {
     expect(rows(view).map((each) => each.label)).toContain("OR: oat milk");
   });
 
+  it("says whose the other way is on a row merged from several recipes", () => {
+    const items = [
+      ...blossomItems(),
+      item("1 cup granulated sugar", {
+        recipe: "sugar-cookies",
+        recipeName: "Sugar Cookies",
+        line: 0,
+      }),
+    ];
+    const view = buildShoppingView(items, settings({ aisles: false }));
+    expect(row(view, "granulated sugar").alternatives).toEqual([
+      `${SANDING} — in Peanut Butter Blossoms`,
+    ]);
+  });
+
   it("ticks the row by its own lines, whatever the OR: line says", () => {
     const items = blossomItems();
     items[10] = { ...items[10], checked: true };

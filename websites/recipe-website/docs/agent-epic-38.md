@@ -349,6 +349,62 @@ Decisions:
   existing `shoppingTickSync` tests pass as they were). The switch is shared
   (in `settings.json`, the 35 pattern); the ticks are per device.
 
+Review fixes (amendments):
+
+- **Dd9 — Only batches multiply** (amends Dd2). `N batch(es)` / `N
+recipe(s)` (and link text that reads so, "2 [batches of pie dough](…)")
+  → ×N. A bare count is pieces, not batches — the recipe's yield is not
+  known at add time: "8 [corn tortillas](…)" and "2 [pie crusts](…)" (the
+  old ×2 case; Sally's crust makes two) → ×1 with "for Corn Tortillas (8
+  called for)", like a measure. A range, "1-2 batches [crust](…)" → ×1 with
+  "1–2 batches called for" (`1-1/2` is still one and a half). The line is a
+  sub-recipe only when nothing but a remark follows the link: empty, or
+  parts opening with "," or "(" none of which is an alternative or an
+  extra — "[Simple Syrup](…) or honey syrup", "(or 1 refrigerated crust)",
+  ", plus flour for rolling", "+ …", "and …" keep the line as written (no
+  warning: it is a choice, not a failure). An `OR:` line is never a
+  sub-recipe (its body's link is the other way to make the line above).
+- **Dd10 — An `OR:` combination offers only what its parts share** (amends
+  Dd6). Parts joined by "plus", or "and"/"&" before an amount, are all
+  needed; Make judges a line one item at a time, so a part cannot stand for
+  the whole — "OR: 1 cup milk plus 1 Tbsp vinegar" must not let vinegar
+  meet buttermilk. The combination offers the name its parts end in when
+  that is two words or more: the Blossoms coating offers `sanding sugar`
+  (green, red or plain sanding sugar meets it; label "granulated sugar or
+  sanding sugar"); milk plus vinegar offers nothing, so buttermilk must be
+  met itself. A one-part `OR:` line ("OR: 1 cup honey or maple syrup")
+  offers each of its names, as before.
+- **Dd11 — A sub-recipe line with an `OR:` line under it stays as written**
+  (the simpler of the two fixes): the view then folds the `OR:` line onto
+  that row, as Make counts the two as one line. Expanding it would put the
+  sub-recipe's lines in another lot and leave the `OR:` line alone.
+- **Dd12 — The seat folds as the view does.** `orParents` (exported from
+  `shoppingView`) drives `patchShopping`'s name ticks — `shopping check
+"granulated sugar"` also ticks the `OR:` items folded into that row,
+  through a chain of `OR:` lines — and `clearShopping`, which takes an `OR:`
+  item along with the line it folds into, ticked or not, so none is left
+  as an "OR: …" row of its own.
+- **Dd13 — Held ticks are shared by the browser's tabs** (amends Dd8). The
+  held key is one per browser, so each change is read-change-write
+  (`TickSync.mutate`): a tick keeps another tab's ticks, a Done settles
+  only what it sent (a newer tick in another tab during the flight stays,
+  and the same Done sends it next). A tab takes up another's ticks on the
+  `storage` event (`refresh`), and Done first reads them, so Done in either
+  tab sends every tick held in the browser. A tab that is not holding
+  touches the key only to take its ticks and send them (on mount, or when
+  the switch goes off) — never on a tick. A held storage that does not
+  keep a write leaves the ticks in memory.
+- Nits: an `OR:` alternative on a row merged from several recipes says
+  whose it is ("… — in Peanut Butter Blossoms"); an add refused by the item
+  cap says when sub-recipes went on as their own lines. Dd7's "each kind
+  once" stands: two "pinch salt" lines beside "2 tsp salt" read "2 tsp
+  salt + a pinch", not "+ 2 pinches" — a pinch is not worth counting.
+
+For Roger's close-out: until the Pi is deployed, its old build refuses
+`features.subRecipes` / `holdTicks` in a settings patch, drops them on any
+settings save it makes, and drops `for` on any tick it rewrites —
+transient, gone with the deploy.
+
 Deferred:
 
 - A line that names a recipe without linking it ("easy cookie icing", 35x)

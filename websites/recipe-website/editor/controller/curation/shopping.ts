@@ -56,6 +56,7 @@ import {
 import {
   buildShoppingView,
   formatShoppingText,
+  orParents,
   shoppingNameOf,
   viewForStore,
   type ShoppingView,
@@ -598,7 +599,11 @@ async function addLocked(
   const existing = (await readShoppingItems(ctx)).length;
   if (existing + added.length > MAX_SHOPPING_ITEMS) {
     throw new ValidationError(
-      `The list would hold ${existing + added.length} items; it holds at most ${MAX_SHOPPING_ITEMS}. Clear what was bought first. Nothing was added.`,
+      `The list would hold ${existing + added.length} items; it holds at most ${MAX_SHOPPING_ITEMS}.${
+        added.some((item) => item.for?.length)
+          ? " Sub-recipes went on as their own lines — turn off features.subRecipes to add them as written."
+          : ""
+      } Clear what was bought first. Nothing was added.`,
     );
   }
 
@@ -614,6 +619,25 @@ async function addLocked(
     ...result,
     ...(warnings.length > 0 ? { warnings } : {}),
   };
+}
+
+/**
+ * Each item → the `OR:` items folded into its row (38d), through a chain of
+ * `OR:` lines too.
+ */
+function orAlternatives(
+  items: readonly ShoppingItem[],
+): Map<string, ShoppingItem[]> {
+  const parents = orParents(items);
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const out = new Map<string, ShoppingItem[]>();
+  for (const [child, parent] of parents) {
+    const item = byId.get(child)!;
+    for (let at: string | undefined = parent; at; at = parents.get(at)) {
+      out.set(at, [...(out.get(at) ?? []), item]);
+    }
+  }
+  return out;
 }
 
 /**
@@ -669,6 +693,8 @@ async function patchLocked(
     next.set(item.id, updated);
     parts.push({ id: item.id, text: part });
   };
+  /* 38d: an `OR:` item ticks with the line it folds into, as on the page. */
+  const alternatives = orAlternatives(items);
   const named = (names: string[] | undefined) =>
     (names ?? []).map((name) => {
       const key = shoppingNameOf(name).key;
@@ -676,7 +702,14 @@ async function patchLocked(
         (item) => shoppingNameOf(item.text).key === key,
       );
       if (matches.length === 0) unmatched.push(name);
-      return { name: name.trim(), matches: matches.map(current) };
+      const ids = new Set(matches.map((item) => item.id));
+      const folded = matches.flatMap((item) =>
+        (alternatives.get(item.id) ?? []).filter((alt) => !ids.has(alt.id)),
+      );
+      return {
+        name: name.trim(),
+        matches: [...matches, ...new Set(folded)].map(current),
+      };
     });
 
   for (const item of lookup(input.check)) {
@@ -781,6 +814,16 @@ export async function clearShopping(
     await assertNoMergeInProgress(ctx.contentDirectory);
     const items = await readShoppingItems(ctx);
     const gone = items.filter((item) => scope === "all" || item.checked);
+    /* 38d: an `OR:` item goes with the line it folds into — never left as
+     * a row of its own. */
+    const goneIds = new Set(gone.map((item) => item.id));
+    const byId = new Map(items.map((item) => [item.id, item]));
+    for (const [child, parent] of orParents(items)) {
+      if (goneIds.has(parent) && !goneIds.has(child)) {
+        goneIds.add(child);
+        gone.push(byId.get(child)!);
+      }
+    }
     const message =
       scope === "all"
         ? `Clear shopping list: all ${count(gone.length)}`

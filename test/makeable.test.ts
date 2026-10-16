@@ -862,7 +862,12 @@ describe("38d: an OR: line is no requirement of its own", () => {
 
   it("counts the pair as one line, met by either", () => {
     expect(prepared.recipes.get("blossoms")?.requirements).toHaveLength(2);
-    for (const coating of ["granulated sugar", "green sanding sugar"]) {
+    for (const coating of [
+      "granulated sugar",
+      "green sanding sugar",
+      "red sanding sugar",
+      "sanding sugar",
+    ]) {
       const result = strictJudge(corpus, prepared, ["eggs", coating]);
       expect(result.canMake.map((match) => match.recipe.slug)).toEqual([
         "blossoms",
@@ -870,7 +875,35 @@ describe("38d: an OR: line is no requirement of its own", () => {
     }
     const missing = strictJudge(corpus, prepared, ["eggs"]).oneAway[0].missing;
     expect(missing.map(requirementLabel)).toEqual([
-      "granulated sugar or green sanding sugar or red sanding sugar",
+      "granulated sugar or sanding sugar",
     ]);
+  });
+
+  it("a combination is no alternative made of one of its parts (Dd10)", () => {
+    const buttermilk: MakeRecipe[] = [
+      {
+        slug: "biscuits",
+        name: "Biscuits",
+        ingredients: [
+          "2 cups flour",
+          "1 cup buttermilk",
+          "OR: 1 cup milk plus 1 Tbsp vinegar",
+        ],
+      },
+    ];
+    const ready = prepareCorpus(buttermilk);
+    expect(ready.recipes.get("biscuits")?.requirements).toHaveLength(2);
+    for (const have of [
+      ["flour", "vinegar"],
+      ["flour", "milk"],
+    ]) {
+      expect(
+        strictJudge(buttermilk, ready, have).canMake,
+        have.join(", "),
+      ).toEqual([]);
+    }
+    expect(
+      strictJudge(buttermilk, ready, ["flour", "buttermilk"]).canMake,
+    ).toHaveLength(1);
   });
 });

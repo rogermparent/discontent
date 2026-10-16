@@ -823,10 +823,19 @@ export function parseIngredientLine(
 }
 
 /**
- * An `OR:` line's body, as one requirement marked `orPrevious`. Its parts
- * joined by "and" before a new amount ("¼ cup green sanding sugar and ¼ cup
- * red sanding sugar") are each read as a line, so no name keeps the second
- * part's "cup"; every name they give is one more way to meet the line above.
+ * An `OR:` line's body, as one requirement marked `orPrevious`: one more
+ * way to meet the line above.
+ *
+ * A body of several parts — joined by "plus", or by "and" / "&" before a
+ * new amount — is a **combination**: every part is needed ("OR: 1 cup milk
+ * plus 1 Tbsp vinegar" for buttermilk). Make judges a line one item at a
+ * time, so a combination's parts cannot each be an alternative — vinegar
+ * alone would meet buttermilk. It offers only what its parts share, the
+ * name they end in when that is two words or more: "¼ cup green sanding
+ * sugar and ¼ cup red sanding sugar" offers `sanding sugar` (either colour
+ * meets it); milk plus vinegar offers nothing, and the buttermilk line
+ * must be met itself (Dd10). Each part is read as a line of its own, so no
+ * name keeps the next part's "cup".
  */
 function parseOrLine(
   line: string,
@@ -834,23 +843,61 @@ function parseOrLine(
   meta: LineMeta,
 ): Requirement[] {
   const parts = body
-    .split(/\s+(?:and|&|plus)\s+(?=\d|[½¼¾⅓⅔⅛])/)
+    .split(/\s+(?:plus\s+|(?:and|&)\s+(?=\d|[½¼¾⅓⅔⅛]))/i)
     .map((part) => part.trim())
     .filter(Boolean);
-  const read = parts.flatMap((part) =>
+  const read = parts.map((part) =>
     parseIngredientLine(part, { ...meta, heading: false }),
   );
-  if (read.length === 0) return [];
+  const found = read.flat();
+  if (found.length === 0) return [];
+  let alternatives = found.flatMap((each) => each.alternatives);
+  let aliases = found.flatMap((each) => each.aliases);
+  if (parts.length > 1) {
+    const shared = sharedTail(
+      read.map((each) => each[0]?.alternatives[0]?.words ?? []),
+    );
+    alternatives =
+      shared.join(" ").split(" ").length >= 2
+        ? [
+            {
+              words: shared,
+              na: found.every((each) => each.alternatives[0]?.na),
+            },
+          ]
+        : [];
+    aliases = [];
+  }
   const result = requirement(
     meta.index ?? 0,
     line,
-    read.flatMap((each) => each.alternatives),
-    read.flatMap((each) => each.aliases),
-    read.every((each) => each.optional),
+    alternatives,
+    aliases,
+    found.every((each) => each.optional),
   );
   return result.alternatives.length > 0
     ? [{ ...result, orPrevious: true }]
     : [];
+}
+
+/** The words every name ends in; empty when one has none. */
+function sharedTail(names: string[][]): string[] {
+  if (names.length === 0 || names.some((words) => words.length === 0)) {
+    return [];
+  }
+  const shortest = Math.min(...names.map((words) => words.length));
+  let length = 0;
+  while (
+    length < shortest &&
+    names.every(
+      (words) =>
+        words[words.length - 1 - length] ===
+        names[0][names[0].length - 1 - length],
+    )
+  ) {
+    length += 1;
+  }
+  return names[0].slice(names[0].length - length);
 }
 
 /** `previous` with an `OR:` line's names added as more ways to meet it. */

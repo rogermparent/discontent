@@ -431,10 +431,15 @@ function buildRow(
   }
 
   if (alternatives.length > 0) {
+    /* A row merged from several recipes: say whose the other way is. */
+    const several =
+      new Set(entries.map((entry) => entry.item.recipe ?? "")).size > 1;
     row.alternatives = alternatives.map((entry) => {
       const text = (stripOrLabel(entry.item.text) ?? entry.item.text).trim();
       const badge = scaleBadge(entry.item);
-      return features.quantities && badge ? `${text} (${badge})` : text;
+      const line = features.quantities && badge ? `${text} (${badge})` : text;
+      const whose = entry.item.recipeName ?? entry.item.recipe;
+      return several && whose ? `${line} — in ${whose}` : line;
     });
   }
   const forNote = forNoteOf(entries);
@@ -458,13 +463,20 @@ function buildRow(
  * granulated sugar's row as "or …" instead of a row of its own. The nearest
  * earlier such item, since ids sort by when they were added: a second lot
  * of the same recipe finds its own. A line typed by hand, or one whose line
- * above is gone, keeps its own row.
+ * above is gone, keeps its own row. Exported for the seat, whose name
+ * ticks and Clear take a row's alternatives along as a tap on the row does.
  */
-function foldAlternatives(sorted: ShoppingItem[]): Map<string, string> {
+export function orParents(
+  items: readonly ShoppingItem[],
+  sorted = false,
+): Map<string, string> {
+  if (!sorted) {
+    items = [...items].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
   const parents = new Map<string, string>();
   /* Lot → line index → the latest item of that line. */
   const lots = new Map<string, Map<number, string>>();
-  for (const item of sorted) {
+  for (const item of items) {
     if (item.recipe === undefined || item.line === undefined) continue;
     const lot = JSON.stringify([
       item.recipe,
@@ -534,7 +546,7 @@ export function buildShoppingView(
     return name;
   };
 
-  const alternativeOf = foldAlternatives(sorted);
+  const alternativeOf = orParents(sorted, true);
   const groups = new Map<string, Entry[]>();
   /* Item id → the group its row is keyed by, for the `OR:` lines that follow. */
   const groupOf = new Map<string, string>();
