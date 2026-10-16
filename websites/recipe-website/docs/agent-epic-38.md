@@ -809,11 +809,29 @@ sentence breaks`, data `{rule, trap}`), and the `llm.extract` step's end
   parameter, so a merged recipe's Vimeo fragment (`#t=`) is cleared too.
 
 **Gates** — `pnpm --filter recipe-editor typecheck` and `pnpm --filter
-recipe-website exec tsc --noEmit`: both clean. `pnpm exec vitest run`:
-99 files, 2040 tests, all green (the three files this phase touches —
-`tidyReading.test.ts`, `importReading.test.ts`, `multiRecipe.test.ts` —
-88 tests on their own). Playwright: after review fixes — not yet run this
-pass (see the report for why).
+recipe-website exec tsc --noEmit`: both clean, rerun after each of the two
+merges below and clean each time. `pnpm exec vitest run` (full, before
+either merge): 99 files, 2040 tests, all green (the three files this phase
+touches — `tidyReading.test.ts`, `importReading.test.ts`,
+`multiRecipe.test.ts` — 88 tests on their own). Playwright, through
+`heavy-pw.sh` (`multi-recipe.spec`, `youtube-video.spec`, `new-recipe.spec`,
+`ytdlp-import.spec`), before either merge: 59/59.
+
+Then merged `origin/main` twice more, each a clean auto-merge with no
+conflicts (`agent-epic-38.md` keeps every phase's Results/Traps section,
+`backlog.md`'s strikes from both sides): 38b (#245, 7d11e86a — touches
+`sitePacing.ts`, `importRecipe.ts`, `importList.ts`, the roundup files,
+`playwright.config.ts`'s `RECIPE_POLITE_GAP_MS=0`), then 38a (#246,
+16e9fdff). After the 38b merge, since it touched the import path and
+`new-recipe.spec.ts` itself: `new-recipe.spec` + `multi-recipe.spec`
+rerun, 46/46 (no image-save/polite-gap timeout — the 38b e2e fix was
+already in by then, so there was nothing to note as unrelated). After
+each merge, the vitest files both phases touch — `test/importReading.test.ts`,
+`test/multiRecipe.test.ts`, `test/tidyReading.test.ts`, `test/queue.test.ts`,
+`test/importList.test.ts`, `test/roundupPage.test.ts` (after 38b: 6 files,
+158 tests), then `test/importReading.test.ts`, `test/multiRecipe.test.ts`,
+`test/tidyReading.test.ts`, `test/ingredientNames.test.ts` (after 38a:
+4 files, 205 tests) — all green.
 
 **Real-model check**
 
