@@ -60,6 +60,16 @@ test.describe("Import from a roundup", () => {
     await expect(page.getByTestId("roundup-progress")).toHaveText(
       "Imported 2 of 2 · done",
     );
+    /* 38b: the chunk ran as a job, followed live; its steps fold at the end. */
+    const job = page.getByTestId("roundup-job");
+    await expect(job).toHaveAttribute("data-status", "done");
+    await expect(
+      job.getByRole("link", { name: "Job details", exact: true }),
+    ).toHaveAttribute("href", /^\/jobs\/[0-9A-Z]{26}$/);
+    await job.getByText(/^\d+ steps$/).click();
+    await expect(
+      job.getByTestId("roundup-job-steps").locator("li").first(),
+    ).toBeVisible();
     const results = page.getByTestId("roundup-results");
     await expect(
       results.getByRole("link", { name: "picker-stew" }),
@@ -100,6 +110,50 @@ test.describe("Import from a roundup", () => {
     await expect(
       page.getByLabel("2. Picker Stew", { exact: true }),
     ).toBeEnabled();
+  });
+
+  test("shows the listing's live steps, and the imports reach the cached pages", async ({
+    page,
+    baseURL,
+  }) => {
+    /*
+     * 38b: each chunk is a job the action starts and answers at once, so
+     * its writes land after the action returned — their revalidation is
+     * handed to `after()` (37-T26). Read `/recipes` first (its cached reads
+     * warm), import, and it must list the new recipe.
+     */
+    const listed = page.getByRole("main").getByText("Picker Soup");
+    await page.goto("/recipes");
+    await expect(page.getByRole("main")).toBeVisible();
+    await expect(listed).toHaveCount(0);
+    await page.goto("/new-recipe");
+    await markdownEditorReady(page, "description");
+    await page.getByText("Import from a roundup", { exact: true }).click();
+
+    await list(page, new URL("/uploads/roundup-five.html", baseURL!).href);
+    const listing = page.getByTestId("roundup-job");
+    await expect(listing).toHaveAttribute("aria-label", "Listing the roundup");
+    await expect(listing).toHaveAttribute("data-status", "done");
+    await expect(page.getByTestId("roundup-items").locator("li")).toHaveCount(
+      5,
+    );
+    await page
+      .getByRole("button", { name: "Select none", exact: true })
+      .click();
+    await page.getByLabel("1. Picker Soup", { exact: true }).check();
+    await page
+      .getByRole("button", { name: "Import 1 selected", exact: true })
+      .click();
+    await expect(page.getByTestId("roundup-job")).toHaveAttribute(
+      "aria-label",
+      "Importing 1",
+    );
+    await expect(page.getByTestId("roundup-progress")).toHaveText(
+      "Imported 1 of 1 · done",
+    );
+
+    await page.goto("/recipes");
+    await expect(listed.first()).toBeVisible();
   });
 
   test("stops after the current call and resumes from the rest", async ({
@@ -194,10 +248,18 @@ test.describe("Import from a roundup", () => {
     await expect(page.getByTestId("roundup-items")).toHaveCount(0);
 
     /*
-     * 37c: `?import=` starts a form job and follows it at `?job=` — a reload
+     * 38b (D3): `?import=` fills the URL field and waits — the GET starts
+     * no job; Import does, and the form follows it at `?job=`, so a reload
      * follows the same job instead of fetching the page again.
      */
     await reason.getByRole("link", { name: "Import it as one recipe" }).click();
+    await expect(page).toHaveURL(/\/new-recipe\?import=/);
+    await expect(
+      page.getByLabel("Import from URL", { exact: true }),
+    ).toHaveValue(url);
+    await expect(page.getByTestId("import-progress")).toHaveCount(0);
+    await markdownEditorReady(page, "description");
+    await page.getByRole("button", { name: "Import", exact: true }).click();
     await expect(page).toHaveURL(/\/new-recipe\?job=[0-9A-Z]{26}$/);
     await expect(page.locator('#recipe-form [name="name"]')).toHaveValue(
       "Picker Soup",

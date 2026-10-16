@@ -1,11 +1,9 @@
 import NewRecipeWorkspace from "./workspace";
-import { redirect } from "next/navigation";
 import { auth, signIn } from "@/auth";
 import {
   readTagLabels,
   readTagVocabulary,
 } from "recipe-website-common/controller/data/readTermPage";
-import { startSpec } from "recipe-editor/controller/jobs/kinds";
 import { jobsDirectory } from "recipe-editor/controller/jobs/location";
 import { findJob } from "recipe-editor/controller/jobs/store";
 import { llmConfig } from "recipe-editor/controller/llm/client";
@@ -18,30 +16,45 @@ import type { RecipeActionState } from "./common";
 /** The form kinds whose result fills this page (37c). */
 const FORM_KINDS = new Set(["form-url", "form-text"]);
 
+/**
+ * One search param as a string: a repeated one (`?import=a&import=b`) is an
+ * array, and is ignored rather than trimmed into a 500 (38b review).
+ */
+function single(value: string | string[] | undefined): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+/** Where sign-in comes back to: the same `?job=` or `?import=`. */
+function returnTo(job?: string, importURL?: string): string {
+  if (job) return `/new-recipe?job=${encodeURIComponent(job)}`;
+  if (importURL) return `/new-recipe?import=${encodeURIComponent(importURL)}`;
+  return "/new-recipe";
+}
+
 export default async function NewRecipe({
   searchParams,
 }: {
-  searchParams: Promise<{ import?: string; job?: string }>;
+  searchParams: Promise<{
+    import?: string | string[];
+    job?: string | string[];
+  }>;
 }) {
-  const { import: importURL, job: jobParam } = await searchParams;
+  const params = await searchParams;
+  const importURL = single(params.import);
+  const jobParam = single(params.job);
   const user = await auth();
   if (!user) {
-    return signIn(undefined, {
-      redirectTo: jobParam
-        ? `/new-recipe?job=${encodeURIComponent(jobParam)}`
-        : `/new-recipe`,
-    });
+    return signIn(undefined, { redirectTo: returnTo(jobParam, importURL) });
   }
 
   /*
-   * `?import=<url>` (the roundup picker's "Import it as one recipe"): a job,
-   * as the form's own import is — started here, then followed at `?job=`,
-   * so a reload follows the same job rather than starting another.
+   * `?import=<url>` (the roundup picker's "Import it as one recipe", a
+   * bookmarklet, a link): the URL field filled in, and nothing more — the
+   * Import button starts the job (38b, D3). A GET never starts work, so a
+   * reload, a restored tab, a history replay or a prefetch fetches nothing.
    */
-  if (importURL && !jobParam) {
-    const { job } = await startSpec({ kind: "form-url", url: importURL });
-    redirect(`/new-recipe?job=${encodeURIComponent(job)}`);
-  }
+  const initialImportUrl =
+    importURL && !jobParam ? importURL.trim() || undefined : undefined;
 
   /*
    * `?job=<id>` (37c, D7): reopen a form import — its result fills the form
@@ -81,6 +94,7 @@ export default async function NewRecipe({
         <NewRecipeWorkspace
           initialState={initialState}
           initialJob={initialJob}
+          initialImportUrl={initialImportUrl}
           allTags={allTags}
           terms={vocabulary.map(({ slug, label }) => ({ slug, label }))}
           llmModel={llmConfig()?.model}

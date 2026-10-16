@@ -545,6 +545,7 @@ async function finishImport(
           (retry) => probeImageFile(imageUrl, retry, job),
           undefined,
           job,
+          { image: true },
         ),
     });
     return {
@@ -591,6 +592,7 @@ async function finishImport(
             (retry) => fetchImageFile(imageUrl, { retry, job }),
             undefined,
             job,
+            { image: true },
           ),
         ...(commitNote ? { commitNote } : {}),
       }),
@@ -959,6 +961,7 @@ export async function importBatchPicks(
           (retry) => probeImageFile(imageUrl, retry, job),
           undefined,
           job,
+          { image: true },
         ),
       );
     }
@@ -974,6 +977,7 @@ export async function importBatchPicks(
           (retry) => fetchImageFile(imageUrl, { retry, job }),
           undefined,
           job,
+          { image: true },
         ),
       );
     }

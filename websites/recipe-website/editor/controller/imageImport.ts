@@ -173,6 +173,34 @@ export function fetchImageFile(
   );
 }
 
+/**
+ * `fetchImageFile` on the image's site queue (38b): the save-time fetch of
+ * an `imageImportUrl` — the recipe form's Save, a `recipe_create` /
+ * `recipe_update` / group write that names one — is a request to a site like
+ * any other (30-D5), so it waits its turn in `site:<site>` and the polite gap
+ * since the last request there, from any process, and a 403's retry waits
+ * the gap too. It is `interactive` outside a job, so it goes ahead of a
+ * roundup's queued requests. Loopback is not paced, and a URL that does not
+ * parse goes straight to `fetchImageFile`'s own refusal.
+ *
+ * The pacer is loaded on first use: it pulls in the page parsers, which the
+ * CLI's commands must not load at startup (35q).
+ */
+export async function fetchImageFilePaced(
+  url: string,
+  { job }: { job?: JobRun } = {},
+): Promise<File> {
+  if (!URL.canParse(url)) return fetchImageFile(url, { job });
+  const { pacedRequest } = await import("./curation/sitePacing");
+  return pacedRequest(
+    url,
+    (retry) => fetchImageFile(url, { retry, job }),
+    undefined,
+    job,
+    { image: true },
+  );
+}
+
 async function downloadImageFile(
   url: string,
   retry: ForbiddenRetry | undefined,

@@ -25,6 +25,10 @@
  * - `slot.lock` — the holder, through `fileLock` (created whole with
  *   `link()`, heartbeat every `SLOT_HEARTBEAT_MS`).
  * - `state.json` — `lastRelease`, the clock the gap is measured from.
+ * - `dropped.json` — a site's only (38b): refused twice, so dropped until
+ *   `until` (`SitePacer`'s drop, shared by every process). A file of its
+ *   own, not a field of `state.json`: `touchResource` rewrites that one
+ *   without holding the slot, and would race a drop away.
  *
  * **The grant rule** (D4): a waiter takes the slot when it is the first
  * live waiter by `(tier, since)` — `interactive` before `batch` — and it
@@ -86,6 +90,7 @@ export const WAITER_STALE_MS = 30_000;
 
 const SLOT = "slot.lock";
 const STATE = "state.json";
+const DROPPED = "dropped.json";
 const WAITERS = "waiters";
 /** The slot lock record's id field. */
 export const SLOT_ID_KEY = "holderId";
@@ -359,6 +364,59 @@ export async function touchResource(
   if ((state.lastRelease ?? 0) >= at) return;
   await mkdir(resourceDir, { recursive: true });
   await writeResourceState(resourceDir, { ...state, lastRelease: at });
+}
+
+/** A site refused twice (`SitePacer`, 30-D5): not asked again until `until`. */
+export interface SiteDrop {
+  /** Epoch ms. */
+  until: number;
+  reason: string;
+}
+
+/** A resource's drop, if it has one that has not run out (38b). */
+export async function readSiteDrop(
+  resource: QueueResource,
+  dir: string = queueDirectory(),
+  now = Date.now(),
+): Promise<SiteDrop | undefined> {
+  try {
+    const parsed = JSON.parse(
+      await readFile(
+        path.join(resourceDirectory(resource, dir), DROPPED),
+        "utf8",
+      ),
+    ) as Partial<SiteDrop> | null;
+    if (
+      parsed &&
+      typeof parsed.until === "number" &&
+      typeof parsed.reason === "string" &&
+      parsed.until > now
+    ) {
+      return { until: parsed.until, reason: parsed.reason };
+    }
+  } catch {
+    /* None, or not one of ours. */
+  }
+  return undefined;
+}
+
+/**
+ * Drop a resource (a site) for every process until `drop.until` (38b). A
+ * drop still running is kept, as a process keeps its first: the first
+ * refusal's reason and clock stand.
+ */
+export async function writeSiteDrop(
+  resource: QueueResource,
+  drop: SiteDrop,
+  dir: string = queueDirectory(),
+): Promise<void> {
+  if (await readSiteDrop(resource, dir)) return;
+  const resourceDir = resourceDirectory(resource, dir);
+  await mkdir(resourceDir, { recursive: true });
+  await writeJsonAtomic(path.join(resourceDir, DROPPED), {
+    until: drop.until,
+    reason: drop.reason,
+  });
 }
 
 export interface QueueSnapshot {

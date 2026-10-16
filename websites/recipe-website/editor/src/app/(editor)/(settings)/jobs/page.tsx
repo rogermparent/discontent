@@ -17,7 +17,8 @@ const RECENT = 100;
  * `/jobs` (epic 37, 37c): every import, inspect and roundup this editor's
  * store holds — the editor's own, and a CLI's or the stdio MCP server's on
  * this machine — with the queue per resource. Owner only, like every
- * settings page; linked from Settings → Tools.
+ * settings page; its own Settings item on every role (38b: a mirror's
+ * imports are jobs too), and linked from Settings → Tools' card.
  */
 export default async function JobsPage() {
   const user = await auth();

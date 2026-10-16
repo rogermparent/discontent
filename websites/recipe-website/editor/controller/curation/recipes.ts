@@ -41,7 +41,7 @@ import type {
   RecipeEntryValue,
 } from "recipe-website-common/controller/types";
 import {
-  fetchImageFile,
+  fetchImageFilePaced,
   largeImageWarning,
   probeImageFile,
   type ImageProbe,
@@ -65,7 +65,11 @@ import {
   type RecipePatch,
 } from "./schema";
 
-/** Download an image for a write: `fetchImageFile`, or a paced stand-in (34f). */
+/**
+ * Download an image for a write: `fetchImageFilePaced` (the site's queue,
+ * 38b), or an import seat's stand-in (34f) — one paced on its own call's
+ * pacer, or the file it already holds.
+ */
 export type ImageFetcher = (url: string) => Promise<File>;
 
 /**
@@ -240,9 +244,10 @@ export async function listRecipes(
  * it would get rather than downloaded, and `image` reports what was found.
  * `warnings` names an image over `LARGE_IMAGE_BYTES`, probed or downloaded.
  *
- * `fetchImage` and `probeImage` replace `fetchImageFile` and `probeImageFile`
- * (34f): the import seats run them on the per-site queue (`sitePacing.ts`),
- * since an image is a request too.
+ * `fetchImage` and `probeImage` replace `fetchImageFilePaced` and
+ * `probeImageFile` (34f): the import seats run them on their own call's
+ * pacer (`sitePacing.ts`), since an image is a request too. The default
+ * download is on the site's queue as well (38b).
  */
 export async function buildRecipeWrite(
   input: RecipeInput | RecipePatch,
@@ -250,7 +255,7 @@ export async function buildRecipeWrite(
     date,
     current,
     probe = false,
-    fetchImage = fetchImageFile,
+    fetchImage = fetchImageFilePaced,
     probeImage = probeImageFile,
   }: {
     date: number;

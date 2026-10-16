@@ -9,7 +9,8 @@
  * picture is one `git revert` away, which is why the agent's seats for it are
  * pre-approved.
  *
- * A URL goes through `fetchImageFile` (status, type, size, filename — 26a/D5).
+ * A URL goes through `fetchImageFilePaced` (status, type, size, filename —
+ * 26a/D5 — on the site's queue, 38b).
  * A `File` arrives from three places — the CLI's `--file`, the MCP tool's
  * `path` (both read with `readImageFile`), and the API's multipart upload — and
  * is checked here the same way whichever it was.
@@ -36,7 +37,7 @@ import type {
 } from "recipe-website-common/controller/types";
 import {
   checkImageFile,
-  fetchImageFile,
+  fetchImageFilePaced,
   largeImageWarning,
 } from "../imageImport";
 import {
@@ -138,7 +139,8 @@ async function setImage<TData extends { date: number; image?: string }, TIndex>(
   let upload: UploadSpec;
   const data: TData = { ...current };
   if (input.url !== undefined) {
-    const file = await fetchImageFile(input.url);
+    /* Before the write and its lock, on the site's queue (38b, Tb1). */
+    const file = await fetchImageFilePaced(input.url);
     upload = { file, existingFile: current.image };
     data.image = file.name;
   } else if (input.file !== undefined) {

@@ -995,7 +995,7 @@ describe("the job context (37a review)", () => {
         throw controller.signal.reason;
       });
       await expect(pending).rejects.toThrow(/cancelled in the/);
-      expect(pacer.droppedReason(url)).toBeUndefined();
+      expect(await pacer.droppedReason(url)).toBeUndefined();
       expect(state.droppedUntil.size).toBe(0);
     }
   });
