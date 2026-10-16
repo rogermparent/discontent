@@ -59,6 +59,15 @@ function recipeItems(items: GroupItem[] = []): number {
 }
 
 /**
+ * A card's kind line, with its count only when there is one to show — "Tag ·
+ * 12 recipes", or plain "Tag" for a term carried only by plans, a failed
+ * group read, or any other zero. "Tag · 0 recipes" is not information.
+ */
+function kindMeta(label: string, count: number, noun: string): string {
+  return count > 0 ? `${label} · ${countLabel(count, noun)}` : label;
+}
+
+/**
  * The homepage's "Featured" strip — recipes, groups and terms in one grid of
  * equal cards, newest first.
  *
@@ -133,7 +142,7 @@ export function FeaturedStrip({
                     sizes={standardRecipeImageProps.sizes}
                   />
                 }
-                meta={`Tag · ${countLabel(entry.summary?.recipes ?? 0, "recipe")}`}
+                meta={kindMeta("Tag", entry.summary?.recipes ?? 0, "recipe")}
               />
             ) : (
               <GroupCard
@@ -143,7 +152,7 @@ export function FeaturedStrip({
                 date={entry.date}
                 image={entry.image}
                 items={entry.items}
-                meta={`Plan · ${countLabel(recipeItems(entry.items), "recipe")}`}
+                meta={kindMeta("Plan", recipeItems(entry.items), "recipe")}
               />
             )}
           </li>

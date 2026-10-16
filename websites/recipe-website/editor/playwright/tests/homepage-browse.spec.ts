@@ -30,6 +30,9 @@ test.describe("Homepage — intro", () => {
     resetData,
   }) => {
     await resetData("three-recipes");
+    /* A fixed clock: the date line is the browser's day, not whatever day
+     * the suite happens to run on. */
+    await page.clock.setFixedTime(new Date(2026, 9, 15, 12));
     await page.goto("/");
 
     await expect(
@@ -39,11 +42,9 @@ test.describe("Homepage — intro", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
 
     /* The date line is the browser's own day, in a `<time>`. */
-    const today = await page.evaluate(() => {
-      const d = new Date();
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    });
-    await expect(page.locator(`time[datetime="${today}"]`)).toBeVisible();
+    await expect(page.locator('time[datetime="2026-10-15"]')).toHaveText(
+      "Thursday 15 October",
+    );
 
     /* No intent vocabulary in this fixture: the Make tile alone. */
     const tiles = waysIn(page).getByRole("link");

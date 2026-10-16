@@ -4,8 +4,8 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import {
   countdownLabel,
-  orderByNextOccurrence,
   parseDayKey,
+  withinComingUpWindow,
 } from "../../util/holidayDates";
 import { useToday } from "./useToday";
 
@@ -25,10 +25,13 @@ export interface ComingUpCard {
  * The "Coming up" cards, ordered by the reader's calendar.
  *
  * The server hands over every holiday that leads somewhere, with its picture
- * already rendered; this picks the next `COMING_UP_LIMIT` by today's date and
- * prints each countdown. `serverDay` is the server's own day, used for the
- * HTML and for hydration — on the editor that is today; on the static export
- * it is the build's day, and the browser's replaces it as soon as it runs.
+ * already rendered; this picks the next `COMING_UP_LIMIT` within the
+ * 180-day window (`withinComingUpWindow`) by today's date and prints each
+ * countdown. `serverDay` is the server's own day, used to pick the first
+ * order and selection — on the editor that is today; on the static export
+ * it is the build's day. The countdown **text** waits for the browser's own
+ * day (`useToday(null)`, as `TodayLine` does) rather than ever printing a
+ * number computed from the build's day, which could read wrong by morning.
  */
 export function ComingUpCards({
   cards,
@@ -37,8 +40,9 @@ export function ComingUpCards({
   cards: ComingUpCard[];
   serverDay: string;
 }) {
-  const today = useToday(serverDay) ?? serverDay;
-  const shown = orderByNextOccurrence(cards, parseDayKey(today)).slice(
+  const browserToday = useToday(null);
+  const today = browserToday ?? serverDay;
+  const shown = withinComingUpWindow(cards, parseDayKey(today)).slice(
     0,
     COMING_UP_LIMIT,
   );
@@ -57,7 +61,7 @@ export function ComingUpCards({
               <span className="font-display text-base font-semibold leading-tight sm:text-lg">
                 {card.label}
               </span>
-              {card.days !== undefined && (
+              {browserToday !== null && (
                 <span className="whitespace-nowrap font-mono text-xs tabular-nums text-primary">
                   {countdownLabel(card.days)}
                 </span>

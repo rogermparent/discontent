@@ -199,3 +199,28 @@ export function orderByNextOccurrence<T extends { slug: string }>(
     })
     .map(({ item }) => item);
 }
+
+/**
+ * How far ahead "Coming up" looks (review round, 2026-10-15). A holiday
+ * further off than this doesn't show — the section counts down, it doesn't
+ * list every holiday there is — and an undated one never qualifies, since it
+ * has no `days` to compare.
+ */
+export const COMING_UP_WINDOW_DAYS = 180;
+
+/**
+ * `items` ordered by `orderByNextOccurrence` and cut to the ones due within
+ * `windowDays`. An empty result is the cue to hide the section rather than
+ * fall back to the undated entries `orderByNextOccurrence` would otherwise
+ * put after them.
+ */
+export function withinComingUpWindow<T extends { slug: string }>(
+  items: T[],
+  today: CalendarDay,
+  windowDays: number = COMING_UP_WINDOW_DAYS,
+): Array<T & { days: number }> {
+  return orderByNextOccurrence(items, today).filter(
+    (item): item is T & { days: number } =>
+      item.days !== undefined && item.days <= windowDays,
+  );
+}

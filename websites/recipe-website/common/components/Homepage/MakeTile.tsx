@@ -27,7 +27,9 @@ const NO_SHARED: string[] = [];
  * list to judge.
  *
  * Until the browser's storage has been read the line is blank, so the server
- * HTML never claims a count it cannot know. With no list it asks for one.
+ * HTML never claims a count it cannot know. With no list it asks for one. A
+ * failed ingredients fetch, or a corpus with no recipes, leaves the line
+ * blank too rather than stuck on "Checking…" forever.
  */
 export function MakeTile() {
   const inventory = useInventory(NO_SHARED);
@@ -68,9 +70,20 @@ export function MakeTile() {
     ).canMake.length;
   }, [deferredCorpus, have, countClose, staples]);
 
+  /*
+   * A failed ingredients fetch, or a corpus with no recipes at all, never
+   * resolves `corpus` — `wanted` stays true forever with nothing to judge,
+   * which used to leave `ready === undefined` and the tile stuck on
+   * "Checking…" permanently. Settled-but-unjudgeable shows the plain tile
+   * text instead, with no count.
+   */
+  const cannotJudge =
+    wanted && (ingredientsQuery.isError || allRecipes.length === 0);
+
   let status = " ";
   if (inventory.ready) {
     if (have.length === 0) status = "Tell it what you have";
+    else if (cannotJudge) status = " ";
     else if (ready === undefined) status = "Checking…";
     else status = `${ready} ready now`;
   }

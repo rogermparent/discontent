@@ -8,6 +8,7 @@ import {
   nextOccurrence,
   orderByNextOccurrence,
   parseDayKey,
+  withinComingUpWindow,
 } from "../websites/recipe-website/common/util/holidayDates";
 import {
   HOMEPAGE_INTENTS,
@@ -56,6 +57,23 @@ describe("holiday dates", () => {
     expect(nextOccurrence("thanksgiving", day("2027-01-01"))).toEqual(
       day("2027-11-25"),
     );
+    /* November 2029 starts on a Thursday: Thanksgiving falls as early as it
+     * can, the 22nd. */
+    expect(nextOccurrence("thanksgiving", day("2029-01-01"))).toEqual(
+      day("2029-11-22"),
+    );
+    /* November 2024 starts on a Friday: Thanksgiving falls on the 28th. */
+    expect(nextOccurrence("thanksgiving", day("2024-01-01"))).toEqual(
+      day("2024-11-28"),
+    );
+  });
+
+  it("rolls Easter to next year once this year's has passed", () => {
+    /* Easter 2026 is 5 April (the computus test above); the day after, it
+     * rolls to 2027's, 28 March. */
+    expect(nextOccurrence("easter", day("2026-04-06"))).toEqual(
+      day("2027-03-28"),
+    );
   });
 
   it("counts today as the day, and rolls a passed date to next year", () => {
@@ -102,11 +120,41 @@ describe("holiday dates", () => {
         day("2026-11-01"),
       ).map((item) => item.slug),
     ).toEqual(["christmas", "halloween"]);
+    /* The day after Christmas, new-year is six days off and soonest, ahead
+     * of the holidays that rolled a whole year out. */
+    expect(
+      orderByNextOccurrence(
+        [{ slug: "christmas" }, { slug: "new-year" }, { slug: "halloween" }],
+        day("2026-12-26"),
+      ).map((item) => item.slug),
+    ).toEqual(["new-year", "halloween", "christmas"]);
   });
 
   it("writes the day the same way everywhere", () => {
     expect(formatDayLong(day("2026-10-15"))).toBe("Thursday 15 October");
     expect(dayKey({ year: 2026, month: 3, day: 7 })).toBe("2026-03-07");
+  });
+
+  it("keeps only what is due within the 180-day window", () => {
+    /* The day after Christmas, Halloween, Thanksgiving and Christmas have
+     * all just rolled a year out — none is within 180 days, so nothing
+     * qualifies and the section has nothing to show. */
+    expect(
+      withinComingUpWindow(
+        [
+          { slug: "halloween" },
+          { slug: "thanksgiving" },
+          { slug: "christmas" },
+        ],
+        day("2026-12-26"),
+      ),
+    ).toEqual([]);
+    /* Five days before Christmas, it is well within the window. */
+    expect(
+      withinComingUpWindow([{ slug: "christmas" }], day("2026-12-20")).map(
+        (item) => [item.slug, item.days],
+      ),
+    ).toEqual([["christmas", 5]]);
   });
 });
 
