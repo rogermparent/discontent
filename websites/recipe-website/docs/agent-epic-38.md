@@ -216,6 +216,28 @@ editor is stopped (content only, no heavy work), then 38-close.
 
 ### 38c
 
+- **Tc1 — "min." does end sentences.** The backlog row said to mind "min."
+  and "approx." in a sentence split, but Aunt Carol's own paragraph (36-T24)
+  breaks twice right after one: "cook the onion … maybe 5 min. put
+  everything back in … simmer 45 min. shred the chicken". So the time
+  abbreviations (min, hr, sec, etc) end a sentence unless the next word
+  carries it on ("or", "until", "then", a digit, "("); only the never-final
+  ones (approx, tsp, tbsp, oz, lb, e.g., a single letter) never do.
+- **Tc2 — The model's copy of the line after a heading is not verbatim.**
+  On Sally's card the line after "Icing" is "1 and 1/2 cups (180g) sifted
+  confectioners’ sugar\*"; qwen3:8b copied it as "1 1/2 cups …". Finding the
+  heading in the source by the line that follows it has to compare words
+  (60% of the copy's words on the source line), not substrings.
+- **Tc3 — A reading key needs the model server, not just the model name.**
+  The unit tests point one model name (`qwen3:8b`) at different stand-in
+  servers (one that reads, one that invents) over the same text; keyed by
+  name alone, the second test reused the first one's reading. The key
+  carries `RECIPE_LLM_URL` too — in real use it never changes.
+- **Tc4 — The stand-in model names a slice by its first line, in
+  capitals** ("LEMON CAKE"). The T25 rule now title-cases a single reading
+  of it; in a batch the list's name ("Lemon Cake") wins, as before, so no
+  existing expectation moved.
+
 ### 38d
 
 ### 38e
@@ -229,6 +251,120 @@ editor is stopped (content only, no heavy work), then 38-close.
 ### 38b — Jobs polish
 
 ### 38c — Import reading fixes
+
+Branch `agent/38c-reading`. Five pieces, each with its unit tests
+(`test/tidyReading.test.ts`, `test/importReading.test.ts`, Vimeo in
+`test/multiRecipe.test.ts`).
+
+**Decisions**
+
+- **Dc1 — The fixes are a `tidy` pass over the model's raw answer, logged
+  per change.** `controller/llm/tidyReading.ts` holds one function per trap;
+  `tidyReading` runs them in order (credit lines, the method split, the
+  headings, the name, the times) on a copy of the answer **before**
+  `readLlmAnswer` — a step's line breaks are still there, and the times are
+  still the text's words. Every change is a `tidy` note in the job's log
+  (`[job …] tidy: T24: split the one-step method into 5 steps at its
+sentence breaks`, data `{rule, trap}`), and the `llm.extract` step's end
+  carries `tidied: [rules]`. Not a new named step: no time passes, and a
+  note sits under the reading it fixed. A batch's names from the list get
+  the T25 rule too (a `tidy` note with the slice's `part`). `parseTimeText`
+  moved to `llm/timeText.ts` (re-exported from `extractRecipe.ts`) so the
+  rules need not import the extractor.
+- **Dc2 — 36-T23 is fixed before the model: a paste's prompt names no
+  URL.** The trap: the same pasta-salad paste read 27/27 with both headings
+  alone and 25/26 without "Pasta Salad:" once `--source` added one
+  "Source URL:" line to the prompt (T1). The URL told the model nothing the
+  text did not, so a pasted text's prompts — the reading, the list, the
+  one-dish question — leave it out (`LlmSource.pasted`, `urlInPrompt`);
+  `source` (and `video`) are still cited from it. Pages and videos keep
+  the line: their readings were measured with it (36a, 36d).
+- **Dc3 — Each rule acts only on its trap's own shape.**
+  - T36 `creditSteps`: a step that opens like a credit ("Thanks to …",
+    "Recipe adapted from …", "… for the recipe inspiration") **and** has
+    no verb of cooking is dropped. The muffins then read "it found no
+    instructions" — untrusted, and under auto for a video kept with that
+    warning (36-T21) instead of trusted on a credit line.
+  - T24 `splitMethod`: only when the whole method is **one** step: cut at
+    its line breaks, else at its sentences when there are at least three
+    (or two and 200+ characters) — words unchanged, Tc1's abbreviations
+    minded. A short "Shake with ice. Strain." stays one step.
+  - T30 `colonlessHeadings`: an amount-free, colon-less line of at most
+    five words, capitalised, standing alone on its own line in the source
+    with the next ingredient's line after it, followed by an amount-led
+    line — and either named like a part (`PART_WORDS`: icing, frosting,
+    glaze, filling, dough, crust, preferment… — not sauce, syrup or
+    dressing, which are bought as is), or "For the …", or set apart by a
+    blank line inside a list whose lines otherwise run together, in title
+    case or capitals. "Hot sauce" and "Salt" inside a list stay
+    ingredients.
+  - T25 `capsName`: only a name whose every cased letter is upper case;
+    title case with small words lower ("Fried Shallots (For the
+    Casserole)"), hyphenated parts each capitalised, a short vowel-less word
+    kept ("BBQ", "BLT"), a trailing colon and "RECIPE" dropped. "SOURDOUGH
+    ENGLISH MUFFIN RECIPE | Super Fluffy!" is left alone.
+  - T26 `allInTime`: the source must hold exactly one short clause (≤ 12
+    words) that ends in "all in", or says "all-in" or "start to finish",
+    with a time in it; the model must have read no total, and its prep or
+    cook time must equal that clause's time — which then moves to the
+    total. It never adds a time the model did not read.
+- **Dc4 — A page's own recipes are a batch; the model is not asked.**
+  `mapRecipeNodes` (common `importRecipeData.ts`) keeps the page's own
+  Recipe nodes: ones with a body (ingredients and steps), not a card for
+  another page (a `url` whose page is not this one — a related-recipes
+  carousel), a repeated node once (same name and ingredients). Two or more
+  go through `schemaReadings` to the 36e contract: the form's picker ("This
+  page holds 2 recipes"), `--pick` / `--all` on the CLI and MCP, the
+  refusal "The page … has 2 recipes: …", `inspect`'s `recipes`. Each
+  reading is trusted and has no `llm` (`SplitReading.llm` is optional now);
+  each recipe's own `image` leads its pictures; commits say "(2 of 2 from
+  example.com/…)" without "local model". The model is not asked whatever
+  the mode (a page is never split by the model; under `force` a warning
+  says so), and `asOne` maps the first node, then the model as the mode
+  says — today's behaviour. Roundup items (`import-list`) still take the
+  first node.
+- **Dc5 — Following a video's recipe link.** `curation/videoFollow.ts`:
+  only when the model read the video and answered (no failed call) with no
+  recipe body and no batch; the links are the description's and the
+  creator's comments'; a link counts when its path, its line, or one of
+  the two lines above it (up to another link) says "recipe"; **any host**
+  — a creator's recipes live on their own site — except a deny list
+  (video and social sites, tip jars, shops and affiliate links, link
+  shorteners, music credits). Exactly one such link is followed (two or
+  more: a `follow` note, none followed), once, through `importPage` — the
+  URL path: the site's queue and polite gap (30-D5), its schema or its own
+  model reading and D4 grounding. A `follow` step logs the URL. The page's
+  recipe keeps its `source` (where the recipe is written, 36-D5); the
+  video is its `video`, and its thumbnail the picture when the page has
+  none. A page that fails or holds no recipe keeps the bare video, with a
+  warning saying what was tried. `inspect` answers `followed: <url>`. With
+  no model, or `off`, nothing is followed (the description was not read).
+- **Dc6 — The reading is kept by spec, in the job store, for half an
+  hour.** `jobs/readingCache.ts`: `<jobs dir>/readings/<key>.json`, one
+  per key, overwritten; the key hashes the spec's reading half (the URL,
+  or the text and its source; the mode; `asOne`), the model's name, API
+  and server (Tc3), and a reading version — a hash of every prompt and
+  schema plus `READING_CODE_VERSION` ("38c-1", bumped when the tidy rules,
+  grounding or split change what a reading is). `pick`, `all`, `dryRun`,
+  tags, slug and name are not in it, so a refusal, a dry run and the
+  `--pick` after them share one reading. Reused for 30 minutes
+  (`READING_MAX_AGE_MS`; the backlog asked for "a few minutes" — the retry
+  is minutes away, and a description edited since is read again), removed
+  by `pruneJobs` past that. Kept only when the model answered (no model,
+  `off`, a failed call or a page's own schema keep nothing). Only the
+  `import-url` / `import-text` job kinds use it (CLI, API, MCP); the form
+  never re-reads. A reuse is a `reading` note and a warning ("the local
+  model's reading from 2 min ago (job 01J…) was reused, not read again").
+- **Vimeo start times.** `withVideoStart` writes Vimeo's fragment,
+  `#t=<s>s` (clears it for no chapter), `videoStartSeconds` reads `#t=`
+  and `?t=` on Vimeo (YouTube's rules unchanged), and the recipe page's
+  player seeks there once the metadata is in (`VideoPlayer`'s new `start`,
+  since `vimeo-video-element` builds its own embed URL and drops the
+  fragment). Not run in a browser: no spec can reach Vimeo.
+
+**Gates** — pending the heavy go (see the report).
+
+**Real-model check** — pending the GPU.
 
 ### 38d — Shopping list v2
 

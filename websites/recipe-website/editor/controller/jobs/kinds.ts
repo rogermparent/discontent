@@ -21,6 +21,7 @@ import type {
   ImportBatchItem,
   ImportResult,
   ImportWriteOptions,
+  UrlImport,
 } from "../curation/importRecipe";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
@@ -35,6 +36,8 @@ import type { RecipeActionState } from "../formImport";
 import type { LlmMode } from "../llm/mode";
 import type { JobContext } from "./context";
 import type { JOB_KIND_NAMES } from "./listing";
+import { jobsDirectory } from "./location";
+import type { ReadingCache } from "./readingCache";
 import { startJob, type RunJobOptions } from "./run";
 import type { JobError, JobMeta, JobTier } from "./store";
 
@@ -122,6 +125,8 @@ export interface JobEnv {
   ctx?: CurationContext;
   /** The job's log, signal, tier and id: what every seat takes as `job`. */
   job: JobContext;
+  /** The job store it runs in: where its kept reading lives (38c). */
+  dir?: string;
 }
 
 type Handler<K extends JobKind> = (
@@ -139,11 +144,13 @@ function contextFor(spec: CorpusSpec, ctx?: CurationContext): CurationContext {
 }
 
 export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
-  async "import-url"(spec, { ctx, job }) {
+  async "import-url"(spec, { ctx, job, dir }) {
     const { importAndCreate } = await import("../curation/importRecipe");
-    return importAndCreate(contextFor(spec, ctx), spec.url, spec.options, job);
+    return importAndCreate(contextFor(spec, ctx), spec.url, spec.options, job, {
+      cache: await importReadingCache(spec, dir, job),
+    });
   },
-  async "import-text"(spec, { ctx, job }) {
+  async "import-text"(spec, { ctx, job, dir }) {
     const { importFromText } = await import("../curation/importRecipe");
     return importFromText(
       contextFor(spec, ctx),
@@ -153,6 +160,7 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
         ...spec.options,
       },
       job,
+      { cache: await importReadingCache(spec, dir, job) },
     );
   },
   async inspect(spec, { job }) {
@@ -191,6 +199,38 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
     return { recipes };
   },
 };
+
+/**
+ * The kept reading of an import job (38c, `readingCache.ts`): keyed by the
+ * spec's reading half, the model and the reading version — `undefined`
+ * when no model will read (none configured, or `off`), or with no store.
+ */
+async function importReadingCache(
+  spec: SpecOf<"import-url"> | SpecOf<"import-text">,
+  dir: string | undefined,
+  job: JobContext,
+): Promise<ReadingCache<UrlImport> | undefined> {
+  const mode =
+    spec.kind === "import-url" ? (spec.options.llm ?? "auto") : "force";
+  if (!dir || mode === "off") return undefined;
+  const { llmConfig } = await import("../llm/client");
+  const config = llmConfig();
+  if (!config) return undefined;
+  const { readingCache, readingKey, readingVersion } =
+    await import("./readingCache");
+  const key = readingKey({
+    version: await readingVersion(),
+    model: config.model,
+    api: config.api,
+    server: config.url,
+    ...(spec.kind === "import-url"
+      ? { url: spec.url }
+      : { text: spec.text, source: spec.source }),
+    mode,
+    asOne: spec.options.asOne === true,
+  });
+  return readingCache<UrlImport>(dir, key, { job: job.jobId });
+}
 
 /**
  * The form's import answers its failures as a state — a `message` and no
@@ -313,6 +353,7 @@ export async function startSpec<S extends JobSpec>(
   const failureOf = JOB_FAILURES[spec.kind] as
     | ((result: JobResults[S["kind"]]) => JobError | undefined)
     | undefined;
+  const dir = options.dir ?? jobsDirectory();
   const started = await startJob(
     {
       kind: spec.kind,
@@ -322,8 +363,8 @@ export async function startSpec<S extends JobSpec>(
       resources: jobResources(spec),
       ...(retryOf ? { retryOf } : {}),
     },
-    (context) => handler(spec, { ctx, job: context }),
-    { ...options, ...(failureOf ? { failureOf } : {}) },
+    (context) => handler(spec, { ctx, job: context, dir }),
+    { ...options, dir, ...(failureOf ? { failureOf } : {}) },
   );
   const done = started.done.then(({ job, result }) => ({ ...result, job }));
   /* Handled here, so a caller that never awaits it leaves nothing unhandled. */

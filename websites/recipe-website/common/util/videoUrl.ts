@@ -49,37 +49,64 @@ export function isYouTubeUrl(url: string): boolean {
   return !!host && /(^|\.)(youtube\.com|youtu\.be)$/.test(host);
 }
 
+/** Vimeo itself (`vimeo.com`, `player.vimeo.com`). */
+export function isVimeoUrl(url: string): boolean {
+  const host = hostname(url);
+  return !!host && /(^|\.)vimeo\.com$/.test(host);
+}
+
+/** A start in Vimeo's fragment, `#t=1m30s`: the `t` value, or none. */
+function vimeoFragmentStart(parsed: URL): string | undefined {
+  return (
+    new URLSearchParams(parsed.hash.replace(/^#/, "")).get("t") ?? undefined
+  );
+}
+
 /**
- * A YouTube URL that starts playing at `seconds` (36e: each recipe of a
- * several-recipe video cites its chapter): `t=<seconds>s`, as YouTube's own
- * "copy video URL at current time" writes it. Any other URL is returned as
- * it is — other hosts spell a start differently, or not at all.
+ * A video URL that starts playing at `seconds` (36e: each recipe of a
+ * several-recipe video cites its chapter): on YouTube `t=<seconds>s`, as its
+ * own "copy video URL at current time" writes it; on Vimeo the fragment,
+ * `#t=<seconds>s`, as its share link writes it (38c). Any other URL is
+ * returned as it is — other hosts spell a start differently, or not at all.
  */
 export function withVideoStart(url: string, seconds: number): string {
-  if (!isYouTubeUrl(url)) return url;
+  const youTube = isYouTubeUrl(url);
+  if (!youTube && !isVimeoUrl(url)) return url;
   const parsed = new URL(url);
+  const start = Math.floor(seconds);
   /* No start (0, or no chapter): none — not the `&t=32s` the person
    * happened to paste, which belongs to one recipe at most (36e review). */
-  if (seconds > 0) parsed.searchParams.set("t", `${Math.floor(seconds)}s`);
-  else if (parsed.searchParams.has("t")) parsed.searchParams.delete("t");
+  if (youTube) {
+    if (start > 0) parsed.searchParams.set("t", `${start}s`);
+    else if (parsed.searchParams.has("t")) parsed.searchParams.delete("t");
+    else return url;
+    return parsed.href;
+  }
+  if (start > 0) parsed.hash = `t=${start}s`;
+  else if (vimeoFragmentStart(parsed) !== undefined) parsed.hash = "";
   else return url;
   return parsed.href;
 }
 
 /**
- * Where a YouTube URL starts, in seconds: `t=652s`, `t=652`, `t=10m52s`,
- * `start=652`. `undefined` for none, or for another host (36e: the recipe
- * page's player starts there).
+ * Where a video URL starts, in seconds: on YouTube `t=652s`, `t=652`,
+ * `t=10m52s`, `start=652`; on Vimeo the fragment's `#t=` (or a `?t=`) in
+ * the same spellings (38c). `undefined` for none, or for another host (36e:
+ * the recipe page's player starts there).
  */
 export function videoStartSeconds(url: string | undefined): number | undefined {
-  if (!url || !isYouTubeUrl(url)) return undefined;
+  if (!url) return undefined;
+  const youTube = isYouTubeUrl(url);
+  if (!youTube && !isVimeoUrl(url)) return undefined;
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
     return undefined;
   }
-  const raw = parsed.searchParams.get("t") ?? parsed.searchParams.get("start");
+  const raw = youTube
+    ? (parsed.searchParams.get("t") ?? parsed.searchParams.get("start"))
+    : (vimeoFragmentStart(parsed) ?? parsed.searchParams.get("t"));
   if (!raw) return undefined;
   const match = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?$/.exec(raw.trim());
   if (!match || (!match[1] && !match[2] && !match[3])) return undefined;

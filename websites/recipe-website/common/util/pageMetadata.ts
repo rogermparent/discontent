@@ -265,6 +265,16 @@ function jsonLdImages(
   });
 }
 
+/**
+ * A Recipe node's own pictures, as written in it (38c: each recipe of a page
+ * with several gets its own) — references by `@id` are not followed.
+ */
+export function nodeImageUrls(node: JsonLdNode, base: string): string[] {
+  const out: ImageCandidate[] = [];
+  jsonLdImages(node.image, base, new Map(), out);
+  return out.map((candidate) => candidate.url);
+}
+
 /** The largest `w` descriptor in a `srcset`, with its URL. */
 function largestFromSrcset(
   srcset: string,

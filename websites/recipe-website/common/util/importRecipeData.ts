@@ -11,6 +11,7 @@ import { dropsBareYield, siteLabel } from "./siteNames";
 import { parseDurationToMinutes } from "./isoDuration";
 import { normalizeTags } from "../controller/normalizeTags";
 import {
+  nodeImageUrls,
   parseRecipePage,
   TOP_IMAGES,
   type ImageCandidate,
@@ -466,6 +467,98 @@ export function mapRecipePage(
     instructions: mapInstructions(recipeInstructions),
     ...(suggestedTags.length > 0 ? { suggestedTags } : {}),
   };
+}
+
+/** A page's address as two pages are compared: no query, fragment or trailing slash. */
+function pageKey(url: string, base?: string): string | undefined {
+  try {
+    const parsed = new URL(url, base);
+    return `${parsed.host.replace(/^www\./, "")}${parsed.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A recipe body: ingredient lines and steps. */
+function hasBody(node: RecipeLD): boolean {
+  const ingredients = Array.isArray(node.recipeIngredient)
+    ? node.recipeIngredient.filter((entry) => !!ingredientText(entry))
+    : [];
+  const steps = node.recipeInstructions;
+  return (
+    ingredients.length > 0 &&
+    (typeof steps === "string"
+      ? !!steps.trim()
+      : Array.isArray(steps)
+        ? steps.length > 0
+        : !!steps && typeof steps === "object")
+  );
+}
+
+/**
+ * The page's own recipes, when it publishes several Recipe nodes (38c): a
+ * node counts when it has a body (ingredients and steps) and is not a card
+ * for another page (a `url` whose page is not this one — a "related
+ * recipes" carousel), and a node repeated (the same name and ingredients,
+ * e.g. once in a plugin's graph and once in the theme's) counts once.
+ */
+export function pageRecipeNodes(
+  url: string,
+  page: ParsedRecipePage,
+): JsonLdNode[] {
+  const here = pageKey(url);
+  const seen = new Set<string>();
+  return page.recipeNodes.filter((node) => {
+    const recipe = node as RecipeLD & { url?: unknown };
+    if (!hasBody(recipe)) return false;
+    if (typeof recipe.url === "string" && recipe.url.trim()) {
+      const there = pageKey(recipe.url, url);
+      if (there && here && there !== here) return false;
+    }
+    const key = [
+      typeof recipe.name === "string" ? recipe.name.trim().toLowerCase() : "",
+      ...(recipe.recipeIngredient ?? []).map((entry) =>
+        (ingredientText(entry) ?? "").trim().toLowerCase(),
+      ),
+    ].join("\n");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Each of a page's own recipes mapped on its own (38c) — the page's citation
+ * and pictures, each recipe's picture first when its node names one — or
+ * `undefined` unless there are at least two (`pageRecipeNodes`): one Recipe
+ * node maps as `mapRecipePage` always has.
+ */
+export function mapRecipeNodes(
+  url: string,
+  page: ParsedRecipePage,
+  { ok = true }: { ok?: boolean } = {},
+): Partial<ImportedRecipe>[] | undefined {
+  if (!ok) return undefined;
+  const nodes = pageRecipeNodes(url, page);
+  if (nodes.length < 2) return undefined;
+  return nodes.flatMap((node) => {
+    const own = nodeImageUrls(node, url)[0];
+    const images = own
+      ? [
+          page.images.find((candidate) => candidate.url === own) ?? {
+            url: own,
+            from: "jsonld" as const,
+          },
+          ...page.images.filter((candidate) => candidate.url !== own),
+        ]
+      : page.images;
+    const recipe = mapRecipePage(
+      url,
+      { ...page, recipeNodes: [node], images },
+      { ok },
+    );
+    return recipe ? [recipe] : [];
+  });
 }
 
 /** Re-exported so a caller holding parsed nodes needs no second import. */

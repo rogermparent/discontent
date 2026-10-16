@@ -261,14 +261,37 @@ describe("splitting a text (36e)", () => {
     expect(withVideoStart("https://youtu.be/abc", 30)).toBe(
       "https://youtu.be/abc?t=30s",
     );
-    expect(withVideoStart("https://vimeo.com/1", 30)).toBe(
-      "https://vimeo.com/1",
-    );
     expect(videoStartSeconds(`${VIDEO_URL}&t=652s`)).toBe(652);
     expect(videoStartSeconds(`${VIDEO_URL}&t=10m52s`)).toBe(652);
     expect(videoStartSeconds(`${VIDEO_URL}&start=90`)).toBe(90);
     expect(videoStartSeconds(VIDEO_URL)).toBeUndefined();
-    expect(videoStartSeconds("https://vimeo.com/1#t=30")).toBeUndefined();
+  });
+
+  /* 38c: Vimeo's start is the fragment, `#t=1m30s`. */
+  it("writes and reads a Vimeo start", () => {
+    expect(withVideoStart("https://vimeo.com/1", 90)).toBe(
+      "https://vimeo.com/1#t=90s",
+    );
+    expect(withVideoStart("https://vimeo.com/1#t=30s", 0)).toBe(
+      "https://vimeo.com/1",
+    );
+    expect(withVideoStart("https://vimeo.com/1", 0)).toBe(
+      "https://vimeo.com/1",
+    );
+    expect(videoStartSeconds("https://vimeo.com/1#t=30")).toBe(30);
+    expect(videoStartSeconds("https://vimeo.com/1#t=1m30s")).toBe(90);
+    expect(videoStartSeconds("https://player.vimeo.com/video/1#t=45s")).toBe(
+      45,
+    );
+    expect(videoStartSeconds("https://vimeo.com/1?t=20")).toBe(20);
+    expect(videoStartSeconds("https://vimeo.com/1")).toBeUndefined();
+    /* Another host spells it its own way, or not at all. */
+    expect(withVideoStart("https://www.twitch.tv/videos/1", 30)).toBe(
+      "https://www.twitch.tv/videos/1",
+    );
+    expect(videoStartSeconds("https://www.twitch.tv/videos/1?t=30")).toBe(
+      undefined,
+    );
   });
 
   it("renders a linked ingredient line as a link, amounts and all", () => {

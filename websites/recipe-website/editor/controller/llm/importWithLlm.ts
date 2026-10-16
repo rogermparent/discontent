@@ -118,6 +118,12 @@ export type LlmSource =
        * cites the chapter it is made in. Never sent to the model (36d).
        */
       chapters?: ChapterRef[];
+      /**
+       * Pasted text (D8): its URL is cited but never named to the model
+       * (38c, 36-T23) — a "Source URL:" line changed the reading of the
+       * same paste.
+       */
+      pasted?: boolean;
     };
 
 /**
@@ -262,7 +268,11 @@ export interface SplitReading {
    */
   trusted: boolean;
   recipe: Partial<ImportedRecipe>;
-  llm: LlmImportInfo;
+  /**
+   * The model's part; none for a page's own Recipe nodes (38c), which no
+   * model read.
+   */
+  llm?: LlmImportInfo;
   warnings: string[];
   /** The line it starts at, as the text has it. */
   heading?: string;
@@ -286,6 +296,11 @@ export interface ApplyLlmResult {
   recipes?: SplitReading[];
   /** Listed, but left out: no recipe in its part, under the floor, a failed call. */
   leftOut?: { n: number; name: string; reason: string }[];
+  /**
+   * The recipe page a video's description linked, read instead of the
+   * video (38c, `followRecipeLink`).
+   */
+  followed?: string;
 }
 
 /** The mapper found a recipe body: ingredients or steps to keep. */
@@ -412,6 +427,8 @@ export async function applyLlm({
   let meta: ExtractMeta | undefined;
   let sourceKind: "page" | "text";
   let label: string | undefined;
+  /* 36-T23: a paste's URL is cited, never put in the prompt. */
+  const urlInPrompt = !("text" in source && source.pasted);
   if ("html" in source) {
     const { pageText } = await import("recipe-website-common/util/pageText");
     text = pageText(source.html);
@@ -461,6 +478,7 @@ export async function applyLlm({
         meta,
         label,
         chapters: "html" in source ? undefined : source.chapters,
+        urlInPrompt,
         mapped,
         mode,
         config,
@@ -490,6 +508,7 @@ export async function applyLlm({
       meta: { ...meta, title: mapped?.name ?? meta?.title },
       sourceKind,
       sourceLabel: label,
+      urlInPrompt,
       config,
       signal,
       job,
@@ -710,6 +729,7 @@ async function readSeveral({
   meta,
   label,
   chapters = [],
+  urlInPrompt = true,
   mapped,
   mode,
   config,
@@ -721,6 +741,8 @@ async function readSeveral({
   meta?: ExtractMeta;
   label?: string;
   chapters?: ChapterRef[];
+  /** Name `url` to the model (36-T23: not for a paste). */
+  urlInPrompt?: boolean;
   mapped: Partial<ImportedRecipe> | undefined;
   mode: Exclude<LlmMode, "off">;
   config: LlmConfig;
@@ -744,9 +766,10 @@ async function readSeveral({
     gate: true,
     blocks,
   });
+  const promptUrl = urlInPrompt ? url : undefined;
   const listed = await split.listRecipes({
     text: capped,
-    url,
+    url: promptUrl,
     meta,
     config,
     signal,
@@ -758,7 +781,16 @@ async function readSeveral({
   }
   const names = listed.recipes.map((recipe) => recipe.name || recipe.heading);
   /* Parts of one dish (a chicken, its sauce, its rice) are one recipe. */
-  if (await split.isOneDish({ text: capped, url, meta, config, signal, job })) {
+  if (
+    await split.isOneDish({
+      text: capped,
+      url: promptUrl,
+      meta,
+      config,
+      signal,
+      job,
+    })
+  ) {
     return {
       note: `local model ${listed.model} read ${names.join(", ")} as parts of one dish — read as one`,
     };
@@ -771,6 +803,7 @@ async function readSeveral({
   }
 
   const extract = await import("./extractRecipe");
+  const { capsName } = await import("./tidyReading");
   const { description: _description, ...base } = mapped ?? {};
   void _description;
   const slices = split.sliceText(capped, starts);
@@ -804,6 +837,7 @@ async function readSeveral({
         meta: { ...meta, title: listedRecipe.name || meta?.title },
         sourceKind: "text",
         sourceLabel: label,
+        urlInPrompt,
         config,
         signal,
         job,
@@ -830,8 +864,19 @@ async function readSeveral({
       leave(settled.warnings.join("; "));
       continue;
     }
-    /* The list's name: it saw the whole text ("Stuffing", not "STUFFING"). */
-    if (listedRecipe.name) settled.recipe.name = listedRecipe.name;
+    /* The list's name: it saw the whole text ("Stuffing", not "STUFFING"),
+     * in title case when it is in capitals too (38c, 36-T25). */
+    if (listedRecipe.name) {
+      const tidy = capsName(listedRecipe.name);
+      if (tidy) {
+        log.info("tidy", `T25: name "${listedRecipe.name}" → "${tidy}"`, {
+          ...part,
+          rule: "caps-name",
+          trap: "T25",
+        });
+      }
+      settled.recipe.name = tidy ?? listedRecipe.name;
+    }
     kept.push({
       n: index + 1,
       settled: { ...settled, recipe: settled.recipe },
@@ -943,6 +988,56 @@ export function pickedWarnings(
       ? `${warning.slice(0, -PICK_PROMPT.length)}${said}`
       : warning,
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* Several Recipe nodes on one page (38c)                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A page that publishes several recipes of its own (`mapRecipeNodes`) as a
+ * batch, with the contract of a several-recipe video or paste (36e): the
+ * picker on the form, `--pick` / `--all` on the CLI and MCP. No model read
+ * them — each is its Recipe node, mapped — so each is trusted and has no
+ * `llm`; `recipe` and `warnings` lead with the first, as `readSeveral`'s do.
+ * The model is not asked, whatever the mode (38-Dc4): a page is never split
+ * by the model, and `asOne` (the caller's) is the way to read the page as
+ * before — its first node, then the model as the mode says.
+ */
+export function schemaReadings(
+  recipes: readonly Partial<ImportedRecipe>[],
+  { mode = DEFAULT_LLM_MODE, job }: { mode?: LlmMode; job?: JobRun } = {},
+): ApplyLlmResult & { recipes: SplitReading[] } {
+  const readings = recipes.map(
+    (recipe, index): SplitReading => ({
+      n: index + 1,
+      trusted: true,
+      recipe,
+      warnings: [],
+    }),
+  );
+  const names = readings.map(
+    (reading) =>
+      `${reading.n}. ${reading.recipe.name ?? `Recipe ${reading.n}`}`,
+  );
+  jobContext(job).log.info(
+    "split",
+    `the page has ${readings.length} recipes of its own — a batch`,
+    { schema: true, names: readings.map((reading) => reading.recipe.name) },
+  );
+  const warnings = [
+    `the page has ${readings.length} recipes: ${names.join(", ")}${PICK_PROMPT}`,
+    ...(mode === "force"
+      ? [
+          "the local model was not asked: the page's own recipe data holds each recipe (--as-one reads its first, with the model)",
+        ]
+      : []),
+  ];
+  return {
+    recipe: readings[0].recipe,
+    warnings,
+    recipes: readings,
+  };
 }
 
 /** Why `force` read nothing. */
@@ -1072,7 +1167,7 @@ export async function readPastedText({
   const cutNote = kept ? pastedTextCutNote(normalised.length, kept) : undefined;
   const applied = await applyLlm({
     url,
-    source: { text: normalised },
+    source: { text: normalised, pasted: true },
     mapped: undefined,
     mode: "force",
     config,

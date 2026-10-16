@@ -72,6 +72,7 @@ export default function BatchPicker({
   total = readings.length,
   url,
   pastedText = false,
+  fromPage = false,
   busy = false,
   editing,
   onEdit,
@@ -82,6 +83,8 @@ export default function BatchPicker({
   total?: number;
   url?: string;
   pastedText?: boolean;
+  /** A page's own recipes (38c): "This page", and no model in the commits. */
+  fromPage?: boolean;
   /** A roundup run is in flight (35r): wait for it. */
   busy?: boolean;
   /** The recipe the form holds, if one was sent there. */
@@ -118,6 +121,7 @@ export default function BatchPicker({
       const answer = await importRecipeBatchAction({
         ...(url ? { url } : {}),
         ...(pastedText ? { pastedText: true } : {}),
+        ...(fromPage ? { fromPage: true } : {}),
         total: Math.max(total, 2),
         siblings: readings.map((reading) => ({
           n: reading.n,
@@ -173,7 +177,11 @@ export default function BatchPicker({
       );
     });
 
-  const source = pastedText ? "This text" : "This video";
+  const source = pastedText
+    ? "This text"
+    : fromPage
+      ? "This page"
+      : "This video";
   return (
     <section
       className="my-2 rounded-md border p-3"
@@ -185,7 +193,10 @@ export default function BatchPicker({
       </h3>
       <p className="my-1 text-sm text-muted-foreground">
         Tick the ones to import — each becomes its own recipe, and a line that
-        names another one links to it. Each was read and checked on its own.
+        names another one links to it.{" "}
+        {fromPage
+          ? "Each is one of the page's own recipe cards."
+          : "Each was read and checked on its own."}
       </p>
       <div className="flex flex-col gap-2">
         <SelectAllNone
@@ -208,7 +219,7 @@ export default function BatchPicker({
               <>
                 <span className="text-muted-foreground">
                   {ingredientCount(reading)} ingredients
-                  {reading.llm.total !== undefined
+                  {reading.llm?.total !== undefined
                     ? ` · ${reading.llm.grounded ?? 0}/${reading.llm.total} found in the text`
                     : ""}
                   {reading.chapter

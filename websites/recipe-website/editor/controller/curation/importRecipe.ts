@@ -31,6 +31,7 @@
  */
 import {
   isVideoUrl,
+  mapRecipeNodes,
   type ImportedRecipe,
 } from "recipe-website-common/util/importRecipeData";
 import { jobContext, type JobRun } from "../jobs/context";
@@ -50,6 +51,7 @@ import {
   applyLlm,
   pickedWarnings,
   readPastedText,
+  schemaReadings,
   usedModel,
   videoFetchOptions,
   videoSource,
@@ -59,6 +61,7 @@ import {
   type SplitReading,
 } from "../llm/importWithLlm";
 import type { ChapterRef } from "../llm/chapterTime";
+import type { ReadingCache } from "../jobs/readingCache";
 import type { ComponentRef } from "../llm/splitRecipes";
 import { fetchYtdlpMetadata, ytdlpToRecipe } from "../ytdlp";
 import type { CurationContext } from "./context";
@@ -234,35 +237,21 @@ export async function importFromUrl(
             mode,
             job,
           });
-  } else {
-    /* The importer's own rule: no fragment in the fetch or the citation. */
-    const pageUrl = url.split("#")[0];
-    let page, parsed, mapped;
-    try {
-      /* On the per-site queue (34f), like every page and image fetch. */
-      page = await pacedRequest(
-        pageUrl,
-        (retry) => fetchPageStep(pageUrl, retry, job),
-        undefined,
-        job,
-      );
-      /* Inside the try, as `importRecipeData` was: malformed JSON-LD is
-       * `import_failed`, not `internal`. */
-      ({ parsed, mapped } = await parsePage(pageUrl, page, { job }));
-    } catch (error) {
-      /* A cancel is the job's to report, not a fetch failure. */
-      if (job.signal?.aborted) throw error;
-      throw new ImportError(
-        `Could not fetch ${url}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+    /* 38c: no recipe in the description, one recipe link in it — follow it. */
+    if (result.status === "success") {
+      const { followRecipeLink } = await import("./videoFollow");
+      applied =
+        (await followRecipeLink({
+          url,
+          metadata: result.metadata,
+          applied,
+          mode,
+          asOne,
+          job,
+        })) ?? applied;
     }
-    applied = await applyLlm({
-      url: pageUrl,
-      source: { html: page.html, ok: page.ok, meta: parsed.meta },
-      mapped,
-      mode,
-      job,
-    });
+  } else {
+    applied = await importPage(url, { llm: mode, asOne }, job);
   }
   if (!applied.recipe) {
     throw new ImportError(
@@ -270,6 +259,54 @@ export async function importFromUrl(
     );
   }
   return { ...applied, recipe: applied.recipe };
+}
+
+/**
+ * A recipe page (not a video), fetched on its site's queue (34f), parsed,
+ * and read as the mode says: the URL path of `importFromUrl`, and the page
+ * a video's description links (38c, `followRecipeLink`). A page with
+ * several recipes of its own (`mapRecipeNodes`) is a batch, as a
+ * several-recipe video is (38c) — unless `asOne`, which maps its first
+ * Recipe node as before.
+ */
+export async function importPage(
+  url: string,
+  { llm: mode, asOne = false }: { llm?: LlmMode; asOne?: boolean } = {},
+  run?: JobRun,
+): Promise<ApplyLlmResult> {
+  const job = jobContext(run);
+  /* The importer's own rule: no fragment in the fetch or the citation. */
+  const pageUrl = url.split("#")[0];
+  let page, parsed, mapped;
+  try {
+    /* On the per-site queue (34f), like every page and image fetch. */
+    page = await pacedRequest(
+      pageUrl,
+      (retry) => fetchPageStep(pageUrl, retry, job),
+      undefined,
+      job,
+    );
+    /* Inside the try, as `importRecipeData` was: malformed JSON-LD is
+     * `import_failed`, not `internal`. */
+    ({ parsed, mapped } = await parsePage(pageUrl, page, { job }));
+  } catch (error) {
+    /* A cancel is the job's to report, not a fetch failure. */
+    if (job.signal?.aborted) throw error;
+    throw new ImportError(
+      `Could not fetch ${url}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const several = asOne
+    ? undefined
+    : mapRecipeNodes(pageUrl, parsed, { ok: page.ok });
+  if (several) return schemaReadings(several, { mode, job });
+  return applyLlm({
+    url: pageUrl,
+    source: { html: page.html, ok: page.ok, meta: parsed.meta },
+    mapped,
+    mode,
+    job,
+  });
 }
 
 /**
@@ -355,15 +392,18 @@ export async function importAndCreate(
     llm?: LlmMode;
   } = {},
   run: JobRun = {},
+  { cache }: { cache?: ReadingCache<UrlImport> } = {},
 ): Promise<ImportResult> {
   checkPickOptions(options);
-  const imported = await importFromUrl(
-    url,
-    {
-      llm: mode,
-      asOne: options.asOne,
-    },
-    run,
+  const imported = await keptReading(cache, run, () =>
+    importFromUrl(
+      url,
+      {
+        llm: mode,
+        asOne: options.asOne,
+      },
+      run,
+    ),
   );
   if (imported.recipes) {
     return finishBatch(
@@ -377,7 +417,8 @@ export async function importAndCreate(
         batchWarnings: imported.warnings.filter(
           (warning) => !imported.recipes![0].warnings.includes(warning),
         ),
-        commitNote: `local model, {n} of {total} from ${shortSource(url)}`,
+        /* A page's own Recipe nodes (38c) were read by no model. */
+        commitNote: `${fromPage(imported.recipes) ? "" : "local model, "}{n} of {total} from ${shortSource(url)}`,
       },
       run,
     );
@@ -420,14 +461,17 @@ export async function importFromText(
     ...options
   }: ImportWriteOptions & { text: string; source?: string },
   run?: JobRun,
+  { cache }: { cache?: ReadingCache<UrlImport> } = {},
 ): Promise<ImportResult> {
   checkPickOptions(options);
-  const reading = await readPastedText({
-    text,
-    source,
-    split: !options.asOne,
-    job: run,
-  });
+  const reading = await keptReading(cache, run, () =>
+    readPastedText({
+      text,
+      source,
+      split: !options.asOne,
+      job: run,
+    }),
+  );
   if (reading.recipes) {
     const url = source ? reading.recipe.source?.url : undefined;
     return finishBatch(
@@ -460,6 +504,42 @@ export async function importFromText(
     },
     run,
   );
+}
+
+/**
+ * The import's reading (38c, `readingCache.ts`): the one an earlier job
+ * with the same reading key kept — a refusal's, or a dry run's — or `read`'s,
+ * kept for the next when the model answered it. A reused reading says so,
+ * in the log (`reading`) and in its warnings.
+ */
+async function keptReading(
+  cache: ReadingCache<UrlImport> | undefined,
+  run: JobRun | undefined,
+  read: () => Promise<UrlImport>,
+): Promise<UrlImport> {
+  const { log } = jobContext(run);
+  const kept = await cache?.load();
+  if (kept) {
+    const ageMs = Math.max(0, Date.now() - kept.savedAt);
+    const minutes = Math.max(1, Math.round(ageMs / 60_000));
+    const from = kept.job ? `job ${kept.job}` : "an earlier job";
+    log.info(
+      "reading",
+      `the model's reading from ${from}, ${minutes} min ago, reused — not read again`,
+      { cached: true, ageMs, ...(kept.job ? { from: kept.job } : {}) },
+    );
+    return {
+      ...kept.value,
+      warnings: [
+        ...kept.value.warnings,
+        `the local model's reading from ${minutes} min ago (${from}) was reused, not read again`,
+      ],
+    };
+  }
+  const reading = await read();
+  /* Only what the model answered is worth keeping (a failed call is not). */
+  if (cache && reading.llm && !reading.llm.error) await cache.save(reading);
+  return reading;
 }
 
 /**
@@ -684,8 +764,8 @@ export function foundRecipe(reading: SplitReading): FoundRecipe {
       (entry) => entry.type !== "heading",
     ).length,
     steps: stepCount(recipe),
-    ...(llm.grounded !== undefined ? { grounded: llm.grounded } : {}),
-    ...(llm.total !== undefined ? { total: llm.total } : {}),
+    ...(llm?.grounded !== undefined ? { grounded: llm.grounded } : {}),
+    ...(llm?.total !== undefined ? { total: llm.total } : {}),
     ...(recipe.partial ? { partial: true as const } : {}),
     trusted: reading.trusted,
     ...(chapter ? { chapter } : {}),
@@ -696,6 +776,11 @@ function foundList(found: readonly FoundRecipe[]): string {
   return found.map((recipe) => `${recipe.n}. ${recipe.name}`).join(", ");
 }
 
+/** A batch of a page's own Recipe nodes (38c): no reading has `llm`. */
+export function fromPage(readings: readonly SplitReading[]): boolean {
+  return readings.length > 0 && readings.every((reading) => !reading.llm);
+}
+
 /**
  * The refusal of a several-recipe import with no pick (36e). Names first: a
  * position is the model's list's, and a re-read can list differently.
@@ -703,13 +788,19 @@ function foundList(found: readonly FoundRecipe[]): string {
 export function severalRecipesMessage(
   found: readonly FoundRecipe[],
   where: string,
+  /** A page's own Recipe nodes (38c), not the model's reading. */
+  page = false,
 ): string {
   const example = found.find((recipe) => recipe.n > 1) ?? found[0];
   return (
-    `The local model found ${found.length} recipes in ${where}: ${foundList(found)}. ` +
+    (page
+      ? `The page ${where} has ${found.length} recipes: ${foundList(found)}. `
+      : `The local model found ${found.length} recipes in ${where}: ${foundList(found)}. `) +
     `Import them all with --all, or some by name: --pick "${example?.name ?? "Name"}" ` +
     "(`all` / `pick` over MCP and the API; positions like --pick 1,3 work too, but a re-read can number them differently); " +
-    "--dry-run shows them all; --as-one reads the text as one recipe."
+    (page
+      ? "--dry-run shows them all; --as-one imports the page's first recipe, as before."
+      : "--dry-run shows them all; --as-one reads the text as one recipe.")
   );
 }
 
@@ -1167,6 +1258,7 @@ async function finishBatch(
       severalRecipesMessage(
         found,
         pastedText ? "the pasted text" : (url ?? "the text"),
+        fromPage(readings),
       ),
     );
   }

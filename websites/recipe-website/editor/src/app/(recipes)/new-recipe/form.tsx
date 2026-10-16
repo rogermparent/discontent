@@ -245,6 +245,7 @@ export default function NewOrImportRecipeForm({
             total={batch.length + (importState.leftOut?.length ?? 0)}
             url={url}
             pastedText={importState.pastedText === true}
+            fromPage={importState.fromPage === true}
             busy={busy}
             editing={edited?.n}
             onEdit={(n) => {
