@@ -123,6 +123,18 @@ survives a cleared context.
   with GPU hooks and a placement check, the `fileLock` primitive, the
   form's live import panel, and the `/jobs` page, API, CLI and MCP
   surfaces (37a–37c, 37-close).
+- `websites/recipe-website/docs/agent-epic-38.md` — epic 38, follow-through:
+  reader UX (the /drinks 60-day seasonal window and drink families,
+  alias-aware counts, /tags aliases, agave ages in Make, staples saved in
+  the editor), jobs polish (dish names, idle /jobs refresh, Jobs on every
+  role, `?import=` on click, roundup live steps, host-keyed pacing), import
+  reading fixes (deterministic tidy rules for 36-T23–T36, several JSON-LD
+  recipes, a video's recipe link, the kept reading, Vimeo starts), shopping
+  v2 (`OR:` lines, sub-recipes, pinch merge, Done shopping), photo /
+  recipe-card import (qwen2.5vl transcription then the text path; 1024 px
+  cap) and a content round (38a–38f). Roger's steps (workstation update,
+  `RECIPE_LLM_VISION_MODEL`, optional Pi deploy, no reindex) are in the
+  doc's Close-out.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
