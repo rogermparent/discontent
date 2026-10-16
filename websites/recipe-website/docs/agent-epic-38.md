@@ -1306,7 +1306,11 @@ read); the multipart tests send a `Content-Length` as a browser does.
 `photo-import.spec`: unticking the box after the import empties the
 image field and its preview, ticking it fills both again.
 
-**Gates.** _(after "heavy go")_
+**Gates** (after the fixes, on `origin/main` c2c58808 merged):
+`pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit` clean; `pnpm exec vitest run` 104 files, 2161 tests
+passed; Playwright, build mode through the heavy slot (`photo-import`,
+`new-recipe`, `multi-recipe`, `jobs`, `settings-nav`): 67 passed (4.1 min).
 
 **Real check.** _(after "GPU go")_
 
