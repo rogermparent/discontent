@@ -45,9 +45,16 @@ function GitPageWithoutGit() {
  * rebuilt. The banner above speaks only when either is stale.
  */
 function IndexStampLine({ status }: { status: SyncStatus }) {
-  const built = status.indexedHead
-    ? `built from ${status.indexedHead.slice(0, 7)}`
-    : "no full rebuild recorded";
+  // The commit is a monospace `commit-hash` (masked by the visual specs, and
+  // a fixed width so the text after it never moves).
+  const built = status.indexedHead ? (
+    <>
+      built from{" "}
+      <code data-testid="commit-hash">{status.indexedHead.slice(0, 7)}</code>
+    </>
+  ) : (
+    "no full rebuild recorded"
+  );
   const version = status.indexedVersion
     ? `index version ${status.indexedVersion}`
     : "no index version recorded";
