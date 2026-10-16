@@ -17,6 +17,7 @@ import { GroupThumbnail } from "../GroupThumbnail";
 import RecipeList from "../List";
 import GroupList from "../List/Group";
 import { TermImage } from "../TermImage";
+import { BLOCK_ROW_LIMIT, blockRows, type BlockRow } from "./blockRows";
 import {
   PageMain,
   PageSection,
@@ -314,58 +315,28 @@ function TermRow({
   );
 }
 
-/** Most carried first, then by label — the order a bar chart reads in. */
-function sortRows(nodes: TermHierarchyNode[]): TermHierarchyNode[] {
-  return [...nodes].sort(
-    (a, b) => b.total - a.total || a.label.localeCompare(b.label),
-  );
-}
-
-/** A block's rows in reading order: each term, then its narrower ones. */
-function flattenRows(
-  nodes: TermHierarchyNode[],
-  depth = 0,
-): { node: TermHierarchyNode; depth: number }[] {
-  return sortRows(nodes).flatMap((node) => [
-    { node, depth },
-    ...flattenRows(node.children, depth + 1),
-  ]);
-}
-
-/**
- * Rows a block shows (usability pass review): a facet with seventy
- * children otherwise runs one column to thousands of pixels and leaves the
- * others empty. Nested rows count toward it; the rest are a link away.
- */
-export const BLOCK_ROW_LIMIT = 15;
-
 /**
  * One block of the `/tags` board (U4): a heading — the root's link, or plain
  * "More tags" — with its total, then up to `BLOCK_ROW_LIMIT` rows, biggest
- * first; past that, "All N in <root> →" to the root's term page (or, for
- * "More tags", which has no page, a fold with the rest). The bars scale to
- * the block's largest row. Kept whole within a column (`break-inside:
- * avoid`).
+ * first, top-level rows before nested ones (`blockRows`); past that, "See
+ * all of <root> →" to the root's term page (or, for "More tags", which has
+ * no page, a fold with the rest). The bars scale to the block's largest
+ * row. Kept whole within a column (`break-inside: avoid`).
  */
 function TagBlock({
   slug,
   title,
   total,
-  allLabel,
   rows,
 }: {
   /** The root's slug; absent for "More tags", which has no page. */
   slug?: string;
   title: string;
   total: string;
-  /** The "All N in …" link's text, for a root block. */
-  allLabel?: string;
   rows: TermHierarchyNode[];
 }) {
-  const flat = flattenRows(rows);
-  const max = flat.reduce((most, { node }) => Math.max(most, node.total), 0);
-  const shown = flat.slice(0, BLOCK_ROW_LIMIT);
-  const rest = flat.slice(BLOCK_ROW_LIMIT);
+  const { shown, rest, all } = blockRows(rows, BLOCK_ROW_LIMIT);
+  const max = all.reduce((most, { node }) => Math.max(most, node.total), 0);
   const heading = (
     <>
       <span>{title}</span>
@@ -376,7 +347,7 @@ function TagBlock({
   );
   const headingClass =
     "mb-1 flex items-baseline justify-between gap-3 border-b-2 border-foreground pb-2 font-display text-lg font-bold";
-  const list = (entries: typeof flat) => (
+  const list = (entries: BlockRow[]) => (
     <ul>
       {entries.map(({ node, depth }) => (
         <TermRow key={node.slug} node={node} depth={depth} max={max} />
@@ -409,7 +380,7 @@ function TagBlock({
             data-testid="tag-block-all"
             className="mt-2 inline-block text-sm font-medium text-primary underline-offset-2 hover:underline"
           >
-            {allLabel ?? `All in ${title}`} <span aria-hidden>→</span>
+            See all of {title} <span aria-hidden>→</span>
           </Link>
         ) : (
           <details className="mt-2" data-testid="tag-block-rest">
@@ -474,7 +445,6 @@ export function TagIndexPage({
                   slug={root.slug}
                   title={root.label}
                   total={`${root.total} in all`}
-                  allLabel={`All ${root.total} in ${root.label}`}
                   rows={root.children}
                 />
               ))}

@@ -19,6 +19,13 @@ export interface InventoryDiff {
  */
 export interface SavedInventoryProps {
   items: string[];
+  /**
+   * The saved file doesn't exist yet. A pre-U6 overlay then waits (defers)
+   * rather than migrating over a list it can't see: pre-U6 the overlay was
+   * laid over whatever the saved list is now, so merging it once one exists
+   * is what that browser would have shown, and nothing is dropped meanwhile.
+   */
+  missing?: boolean;
   label: string;
   save: (
     diff: InventoryDiff,

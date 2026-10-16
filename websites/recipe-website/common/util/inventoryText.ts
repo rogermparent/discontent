@@ -1,6 +1,6 @@
 /**
  * An inventory as text (25c/D10): what Export prints, what Import reads, and
- * how a shared list and one browser's changes combine.
+ * the browser's stored list — with the pre-U6 overlay form it migrates from.
  *
  * Text, because it is the one format that crosses every boundary the
  * inventory has to — the editor and the static export, two browsers, a note
@@ -116,8 +116,9 @@ export function applyImport(
 }
 
 /**
- * One browser's changes on top of a shared list. Both hold items as written;
- * they are compared by `inventoryKey`.
+ * The stored shape: before U6, one browser's changes on top of the editor's
+ * shared list; since, `added` is the whole list (`storedList`). Both hold
+ * items as written; they are compared by `inventoryKey`.
  */
 export interface InventoryOverlay {
   added: string[];
@@ -136,23 +137,6 @@ export function applyOverlay(
     ...shared.filter((item) => !removed.has(inventoryKey(item))),
     ...overlay.added,
   ]);
-}
-
-/**
- * The smallest overlay that turns `shared` into `have` — so every change goes
- * through one function, and an item removed and re-added cancels out.
- */
-export function overlayFor(shared: string[], have: string[]): InventoryOverlay {
-  const sharedKeys = new Set(shared.map(inventoryKey));
-  const haveKeys = new Set(have.map(inventoryKey));
-  return {
-    added: dedupeItems(
-      have.filter((item) => !sharedKeys.has(inventoryKey(item))),
-    ),
-    removed: dedupeItems(
-      shared.filter((item) => !haveKeys.has(inventoryKey(item))),
-    ),
-  };
 }
 
 /**

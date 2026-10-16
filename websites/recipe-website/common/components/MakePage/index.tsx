@@ -132,13 +132,11 @@ export function MakePage({
     [rememberQuery],
   );
 
-  /* The browser's list alone: no shared list under the overlay, so its
-   * `added` is the list (25c/D10's export shape, now both apps'). */
-  /* A pre-U6 overlay becomes the whole list once, before anything judges
-   * it — here from the saved list, the one place the editor can read it. */
+  /* The browser's list alone (U6). A pre-U6 overlay becomes the whole list
+   * once, before anything judges it — here from the saved list, the one
+   * place the editor can read it; with no saved file yet it waits. */
   const inventory = useInventory(
-    NO_SHARED,
-    saved ? { shared: saved.items } : undefined,
+    saved && !saved.missing ? { shared: saved.items } : undefined,
   );
   /* After a save, the saved list the server answered with — until the next
    * load brings the same list back as `saved.items`. */
@@ -474,8 +472,5 @@ export function MakePage({
     </>
   );
 }
-
-/** `useInventory`'s shared list, always empty (U6). One array, so its memo holds. */
-const NO_SHARED: string[] = [];
 
 export default MakePage;

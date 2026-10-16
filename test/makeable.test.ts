@@ -783,4 +783,64 @@ describe("pantry staples (U5)", () => {
     });
     expect(slugs(both.canMake)).toEqual(["jam-bars"]);
   });
+
+  /* Review fix: the modifier rule keeps built-ins off other ingredients, not
+   * a person's own "Assume I always have" items off the lines they name. */
+  it("lets a custom staple meet the line it names", () => {
+    const pantry: MakeRecipe[] = [
+      {
+        slug: "pancakes",
+        name: "Pancakes",
+        ingredients: ["1 cup flour", "1/4 cup maple syrup"],
+      },
+      {
+        slug: "stir-fry",
+        name: "Stir-Fry",
+        ingredients: ["2 cups cooked rice", "2 tbsp soy sauce"],
+      },
+      {
+        slug: "crackers",
+        name: "Crackers",
+        ingredients: ["1 cup almond flour", "1 cup rye flour", "1 cup jam"],
+      },
+    ];
+    const staples = [...DEFAULT_STAPLES, "soy sauce", "maple syrup"];
+    const result = analyzeMakeable(pantry, pantry, ["rice", "jam"], {
+      staples,
+      pantryStaples: true,
+    });
+    expect(slugs(result.canMake)).toEqual(["pancakes", "stir-fry"]);
+    /* Built-in flour still meets neither almond nor rye flour. */
+    expect(find(result, "crackers")?.missing.map(requirementLabel)).toEqual([
+      "almond flour",
+      "rye flour",
+    ]);
+    /* Off the pantry, the same custom list still answers on its own. */
+    const custom = analyzeMakeable(pantry, pantry, ["rice"], { staples });
+    expect(slugs(custom.canMake)).toEqual(["stir-fry"]);
+  });
+
+  it("keeps the newer sugar and flour modifiers off the built-ins", () => {
+    const sugars: MakeRecipe[] = [
+      {
+        slug: "crumble",
+        name: "Crumble",
+        ingredients: [
+          "1 cup turbinado sugar",
+          "1 cup demerara sugar",
+          "1 cup muscovado sugar",
+          "1 cup palm sugar",
+          "1 cup spelt flour",
+        ],
+      },
+    ];
+    const result = analyzeMakeable(sugars, sugars, []);
+    expect(find(result, "crumble")?.missing.map(requirementLabel)).toEqual([
+      "turbinado sugar",
+      "demerara sugar",
+      "muscovado sugar",
+      "palm sugar",
+      "spelt flour",
+    ]);
+  });
 });

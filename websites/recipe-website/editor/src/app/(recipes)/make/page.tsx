@@ -1,3 +1,4 @@
+import { access } from "node:fs/promises";
 import { Suspense } from "react";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { auth } from "@/auth";
@@ -30,7 +31,15 @@ export default async function Make() {
   const [saved, secondary, tags] = await Promise.all([
     signedIn
       ? readInventory({ contentDirectory: getContentDirectory() }).then(
-          (inventory) => inventory.items,
+          async ({ items, path }) => ({
+            items,
+            /* No file yet: a pre-U6 overlay waits rather than migrating
+             * over a list it can't see (`SavedInventoryProps.missing`). */
+            missing: await access(path).then(
+              () => false,
+              () => true,
+            ),
+          }),
         )
       : undefined,
     /* A guest's secondary group is the export's: the house snapshot when
@@ -50,7 +59,7 @@ export default async function Make() {
             saved={
               saved
                 ? {
-                    items: saved,
+                    ...saved,
                     label: SAVED_INVENTORY_LABEL,
                     save: saveInventoryChanges,
                   }

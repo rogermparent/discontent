@@ -7,7 +7,6 @@ import {
   isLegacyOverlay,
   MAX_ITEMS,
   migrateOverlay,
-  overlayFor,
   parseInventoryText,
   parseOverlay,
   storedList,
@@ -122,17 +121,6 @@ describe("overlay", () => {
         removed: ["GIN"],
       }),
     ).toEqual(["vodka", "lime", "Gnista"]);
-  });
-
-  it("is the smallest overlay that reaches a list", () => {
-    expect(overlayFor(["vodka", "gin"], ["vodka", "tonic"])).toEqual({
-      added: ["tonic"],
-      removed: ["gin"],
-    });
-    expect(overlayFor(["vodka"], ["Vodka"])).toEqual({
-      added: [],
-      removed: [],
-    });
   });
 
   it("forgives malformed storage", () => {

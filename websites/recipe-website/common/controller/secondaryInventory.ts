@@ -13,9 +13,11 @@
  *   the operator opted in: "Share my saved inventory on the export" (Export
  *   settings, off by default) makes the editor's export build bake the list
  *   into `SITE_HOUSE_INVENTORY`, which `houseInventory()` reads at build time,
- *   as `getSiteTheme()` reads `SITE_THEME`. With the option off the variable
- *   is never set, so no route, page or payload of the static site carries the
- *   personal inventory (`test/exportHouseInventory.test.ts`).
+ *   as `getSiteTheme()` reads `SITE_THEME`. With the option off the build
+ *   sets the variable to `""` (so one inherited from the editor's own
+ *   environment can't leak through), which reads as no snapshot: no route,
+ *   page or payload of the static site carries the personal inventory
+ *   (`test/exportHouseInventory.test.ts`).
  */
 import { dedupeItems, MAX_ITEMS } from "../util/inventoryText";
 

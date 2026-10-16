@@ -1,5 +1,6 @@
 "use server";
 
+import { auth, signIn } from "@/auth";
 import { commandAction } from "@/app/(recipes)/scriptAction";
 import { readSettings } from "@/settings";
 import { rebuildAllIndexes } from "recipe-editor/controller/actions";
@@ -12,6 +13,15 @@ import { resolve } from "path";
 import { exportUnavailableReason, getExportDirectory } from "./availability";
 
 export async function buildExport() {
+  /*
+   * Signed in before anything else: a server action is a public POST, and
+   * everything below — a full reindex, the settings, the saved inventory —
+   * is the owner's to start. (`commandAction` checks again; by then the
+   * reindex would already have run.)
+   */
+  if (!(await auth())) {
+    return signIn();
+  }
   /* Before the rebuild below, which would otherwise run for nothing. */
   const unavailable = await exportUnavailableReason();
   if (unavailable) {

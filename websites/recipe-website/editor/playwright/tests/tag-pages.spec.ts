@@ -455,7 +455,7 @@ test.describe("Tag pages", () => {
       /* Biggest first: Cookies leads the sixteen empty records. */
       await expect(rows.first()).toHaveText(/Cookies\s*8/);
       const all = dessert.getByTestId("tag-block-all");
-      await expect(all).toHaveText(/All 8 in Dessert/);
+      await expect(all).toHaveText(/See all of Dessert/);
       await expect(all).toHaveAttribute("href", "/tags/dessert");
     });
 
