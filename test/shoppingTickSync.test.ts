@@ -594,4 +594,60 @@ describe("held ticks expire after a week (39-D3)", () => {
     await vi.advanceTimersByTimeAsync(1500);
     expect(calls[0].body).toEqual({ check: ["new"], uncheck: [] });
   });
+
+  it("a tab open past a week sends none of its old ticks when the switch goes off", async () => {
+    const time = clock();
+    const held = memoryStorage();
+    const { sync, calls, last } = setupHeld(held, { now: time.now });
+    sync.tick(["a"], true);
+    time.set(NOW + 8 * DAY);
+    sync.tick(["b"], true);
+    sync.setHold(false);
+    expect(last().expired).toEqual(["a"]);
+    expect([...last().pending]).toEqual([["b", true]]);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].body).toEqual({ check: ["b"], uncheck: [] });
+  });
+
+  it("…and with only that old tick, sends nothing at all", async () => {
+    const time = clock();
+    const { sync, calls, last } = setupHeld(memoryStorage(), {
+      now: time.now,
+    });
+    sync.tick(["a"], true);
+    time.set(NOW + 8 * DAY);
+    sync.setHold(false);
+    expect(last().expired).toEqual(["a"]);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("stores a future time as now, so a fast clock cannot extend a tick", () => {
+    const held = heldAt([["a", true, NOW + 30 * DAY]]);
+    /* Another tab's storage event: a read that writes nothing else. */
+    const tab = setupHeld(held);
+    tab.sync.refresh();
+    const later = setupHeld(held, { now: () => NOW + 8 * DAY });
+    expect(later.last().pending.size).toBe(0);
+    expect(later.last().expired).toEqual(["a"]);
+  });
+
+  it("Done shopping sends no tick over a week old, even one held only in memory", async () => {
+    const time = clock();
+    const broken = { read: () => null, write: () => {}, clear: () => {} };
+    const { sync, calls, last } = setupHeld(
+      { ...broken, value: null } as ReturnType<typeof memoryStorage>,
+      { now: time.now },
+    );
+    sync.tick(["a"], true);
+    time.set(NOW + 8 * DAY);
+    sync.tick(["b"], true);
+    const done = sync.done();
+    await settled();
+    expect(last().expired).toEqual(["a"]);
+    expect(calls[0].body).toEqual({ check: ["b"], uncheck: [] });
+    calls[0].resolve(ok());
+    expect(await done).toEqual({ ok: true, sent: 1 });
+  });
 });

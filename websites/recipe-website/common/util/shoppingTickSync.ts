@@ -35,6 +35,7 @@
  */
 import {
   FLUSH_DELAY_MS,
+  HELD_TICKS_MAX_AGE_MS,
   parseHeld,
   parsePending,
   queueTicks,
@@ -195,7 +196,12 @@ export class TickSync {
       });
     } else {
       const held = this.takeHeld();
-      this.mutate(() => new Map([...held, ...mine]));
+      /*
+       * 39-D3: what this tab held in memory ages as the storage does — a tab
+       * open past a week must not send what the read above just dropped.
+       */
+      const kept = this.unexpired(mine);
+      this.mutate(() => new Map([...held, ...kept]));
     }
     if (this.pending.size === 0) {
       if (this.status === "held") this.setStatus("idle");
@@ -232,6 +238,8 @@ export class TickSync {
   async done(): Promise<{ ok: boolean; sent: number }> {
     /* Every tick held in this browser, another tab's too. */
     this.refresh();
+    /* None over a week old (39-D3), held storage or only memory. */
+    if (this.hold) this.dropExpired();
     const count = this.pending.size;
     await this.flush();
     const ok = this.pending.size === 0;
@@ -437,6 +445,41 @@ export class TickSync {
     if (held.read() !== value) this.heldWorks = false;
   }
 
+  /**
+   * `pending` without the ticks this tab knows are over a week old by its own
+   * times (39-D3) — for ticks a read of the storage has not seen, such as
+   * those that live only in memory. The dropped ids join `expired`.
+   */
+  private unexpired(pending: PendingTicks): Map<string, boolean> {
+    const now = this.now();
+    const kept = new Map<string, boolean>();
+    const dropped: string[] = [];
+    for (const [id, checked] of pending) {
+      const at = this.times.get(id);
+      if (at !== undefined && now - Math.min(at, now) > HELD_TICKS_MAX_AGE_MS) {
+        dropped.push(id);
+      } else {
+        kept.set(id, checked);
+      }
+    }
+    if (dropped.length > 0) {
+      this.expired = [...new Set([...this.expired, ...dropped])];
+    }
+    return kept;
+  }
+
+  /** Holding: drop what is over a week old now, and tell the page (39-D3). */
+  private dropExpired(): void {
+    const before = this.expired.length;
+    this.mutate((pending) => this.unexpired(pending));
+    if (this.expired.length !== before) {
+      if (this.pending.size === 0 && this.status === "held") {
+        this.status = "idle";
+      }
+      this.emit();
+    }
+  }
+
   /** The held ticks as stored, up to a week old; `undefined` with no storage. */
   private readHeld(): Map<string, boolean> | undefined {
     return this.readHeldTicks()?.ticks;
@@ -454,6 +497,9 @@ export class TickSync {
     const read = parseHeld(held.read(), this.now());
     if (read.expired.length > 0) {
       this.expired = [...new Set([...this.expired, ...read.expired])];
+    }
+    /* A future time is stored as now, or every read would read it anew. */
+    if (read.expired.length > 0 || read.clamped) {
       if (read.ticks.size === 0) held.clear();
       else held.write(serializeHeld(read.ticks, read.times, this.now()));
     }

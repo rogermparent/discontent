@@ -158,6 +158,25 @@ describe("held ticks expire after a week (39-D3)", () => {
     );
   });
 
+  it("reads a tick stamped in the future as made now: a fast clock cannot extend it", () => {
+    const stored = serializeHeld(
+      new Map([["a", true]]),
+      new Map([["a", NOW + 30 * DAY]]),
+      NOW + 30 * DAY,
+    );
+    const read = parseHeld(stored, NOW);
+    expect(read.times.get("a")).toBe(NOW);
+    expect(read.clamped).toBe(true);
+    /* Stored back as read, it expires eight days on by the right clock. */
+    expect(
+      parseHeld(serializeHeld(read.ticks, read.times, NOW), NOW + 8 * DAY)
+        .expired,
+    ).toEqual(["a"]);
+    expect(
+      parseHeld(serializeHeld(read.ticks, read.times, NOW), NOW).clamped,
+    ).toBe(false);
+  });
+
   it("reads junk as nothing held", () => {
     expect(parseHeld(null, NOW)).toMatchObject({ expired: [] });
     expect(parseHeld("{nope", NOW).ticks.size).toBe(0);

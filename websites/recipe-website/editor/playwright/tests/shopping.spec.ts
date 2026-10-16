@@ -280,11 +280,21 @@ test.describe("Shopping list", () => {
     await expect(syrup).toContainText(
       "for Simple Syrup · 2 lines · in Lemonade",
     );
-    await syrup
-      .getByRole("button", { name: "Remove these lines for Simple Syrup" })
-      .click();
-    await expect(syrup).toContainText("Remove 2 lines for Simple Syrup?");
-    await syrup.getByRole("button", { name: "Remove 2" }).click();
+    const removeThese = syrup.getByRole("button", {
+      name: "Remove these lines for Simple Syrup",
+    });
+    await removeThese.click();
+    /* The question takes focus, and Cancel gives it back. */
+    const question = syrup.getByRole("group", {
+      name: "Remove what Simple Syrup added to 2 lines?",
+    });
+    await expect(
+      question.getByRole("button", { name: "Cancel" }),
+    ).toBeFocused();
+    await question.getByRole("button", { name: "Cancel" }).click();
+    await expect(removeThese).toBeFocused();
+    await removeThese.click();
+    await question.getByRole("button", { name: "Remove", exact: true }).click();
     /* The lemonade's own sugar and water stay, no longer noted. */
     await expect(page.getByLabel("¼ cup sugar", { exact: true })).toBeVisible();
     await expect(
@@ -397,7 +407,9 @@ test.describe("Shopping list", () => {
     );
     await expect(page.getByLabel("10 eggs", { exact: true })).not.toBeChecked();
     await notice.getByRole("button", { name: "Dismiss" }).click();
-    await expect(notice).toHaveCount(0);
+    /* The live region stays mounted, empty, for the next notice. */
+    await expect(notice).toHaveText("");
+    await expect(notice.getByRole("button")).toHaveCount(0);
 
     /* Done shopping saves only the tick that was still worth sending. */
     await page

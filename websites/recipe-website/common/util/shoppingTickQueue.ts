@@ -146,6 +146,8 @@ export interface HeldTicks {
   times: Map<string, number>;
   /** Item ids whose ticks were dropped for being older than the limit. */
   expired: string[];
+  /** Some tick's time was in the future and now reads as `now`. */
+  clamped: boolean;
 }
 
 /**
@@ -168,8 +170,8 @@ export function serializeHeld(
 
 /**
  * Back from the held storage. A tick with no time of its own (written before
- * 39c) is as old as the set's `at`; a tick older than `maxAgeMs` at `now` is
- * dropped and counted. Anything malformed reads as nothing held.
+ * 39c) is as old as the set's `at`; a time in the future reads as `now`; a
+ * tick older than `maxAgeMs` at `now` is dropped and counted. Anything malformed reads as nothing held.
  */
 export function parseHeld(
   raw: string | null,
@@ -180,6 +182,7 @@ export function parseHeld(
     ticks: new Map(),
     times: new Map(),
     expired: [],
+    clamped: false,
   });
   if (!raw) return empty();
   try {
@@ -208,7 +211,10 @@ export function parseHeld(
       }
       const [id, checked] = entry as [string, boolean];
       const stamp = stamps[id];
-      const at = typeof stamp === "number" ? stamp : parsed.at;
+      /* A clock that ran ahead when the tick was made cannot extend it. */
+      const stamped = typeof stamp === "number" ? stamp : parsed.at;
+      const at = Math.min(stamped, now);
+      if (stamped > now) out.clamped = true;
       if (now - at > maxAgeMs) {
         out.expired.push(id);
         continue;

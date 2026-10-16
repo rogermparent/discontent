@@ -269,8 +269,9 @@ What changed:
   `Update shopping list: -for Simple Syrup (2 items)`. `/shopping` gets a
   "Sub-recipes (N)" fold, one row per sub-recipe on the list ("for Simple
   Syrup · 2 lines · in Lemonade"). Each row has "Remove these", confirmed
-  inline ("Remove 2 lines for Simple Syrup?" → "Remove 2"), like Clear
-  checked. The pure helpers `itemsForSubRecipe` and `subRecipeGroups` are
+  inline ("Remove what Simple Syrup added to 2 lines?" → "Remove"), like
+  Clear checked. Opening the question moves focus to its Cancel, Cancel
+  gives focus back to "Remove these", and the question labels its group. The pure helpers `itemsForSubRecipe` and `subRecipeGroups` are
   in `shoppingView.ts`. The seat and the page both use them.
 - **Jump anchors.** The Ingredients and Instructions `h2`s get
   `id="ingredients"` / `id="instructions"`. Each has a scroll margin of
@@ -293,9 +294,18 @@ Decisions:
   is rewritten at once, so no read in this tab or another sends or counts
   those ticks again. The notice counts lines, the rows holding a dropped
   id (as 38-Dd8 counts "lines not saved yet"). When those items have left
-  the list, it shows nothing, since nothing was lost. Ticks kept only in
-  memory (a held storage that keeps no write) never expire: they end
-  with the tab.
+  the list, it shows nothing, since nothing was lost. The notice's live
+  region is always mounted, empty and `sr-only` until there is something
+  to say, so a screen reader announces it.
+- **Dc1a — No tick over a week old is ever sent** (review fix). A tab can
+  outlive a week holding ticks in memory that a read of the storage has
+  since dropped. Switching `holdTicks` off then put them back and sent
+  them under the "Dropped a tick" notice. Now the two moments that send
+  held ticks, the switch going off and "Done shopping", first drop
+  whatever the tab's own times say is over a week old. That covers ticks
+  held only in memory (a held storage that keeps no write) too. A tick
+  time in the future (a clock that ran ahead) reads as now and is stored
+  back as now, so it can't stretch the week.
 - **Dc2 — "Remove these" does not put the linking line back.** That line
   ("1 batch [Simple Syrup](…)") can't be rebuilt from what is stored. An
   expanded item keeps the sub-recipe's slug and name, what a measure
@@ -326,6 +336,13 @@ Decisions:
   The switch governs adds (38-Dd1), and these lines are already on the
   list. Someone who switches it off after a bad expansion is exactly who
   needs the undo. The fold shows whenever an item has a `for` path.
+- **Dc7 — A sub-recipe's "N lines" counts rows, as the page shows them**
+  (review fix). It is the rows holding any of its items, the way Dc1 and
+  38-Dd8 count lines. With merge on, Simple Syrup expanded for two
+  recipes is 4 items on 2 rows (sugar, water), and it reads "2 lines".
+  A merged row can keep another recipe's line, so the question says what
+  happens instead of a count of removals: "Remove what Simple Syrup added
+  to 2 lines?" → "Remove".
 - **Dc5 — The jump row shows from 15 lines.** The count is ingredient
   lines (headings not counted) plus instruction steps (each step of a
   group counted), and both sections must be non-empty. Below 15, both
@@ -355,6 +372,12 @@ Gates (all through the heavy slot):
   sub-recipe groups 2 and JumpLinks 4. One 38d test was renamed ("many
   hours later", not "however old"). The first run had 5 load timeouts
   (Traps).
+- Review round (Dc1a, Dc7, a11y): 5 more tests. A tab open past a week
+  that switches holding off sends nothing old, with and without a recent
+  tick. Done shopping drops an old memory-only tick. A future tick time
+  is clamped, in the parser and in `TickSync`. Affected files: 115/115
+  across the shopping, tick and JumpLinks files. Both typechecks are
+  clean. `shopping.spec` (build mode): 11/11.
 - Playwright build mode (`heavy-pw.sh … shopping.spec recipe.spec`):
   72/72 passed (3.4 min), the `recipe-6-multiplied` screenshot among
   them. `shopping.spec` covers the undo (extending the 38d expansion
