@@ -2243,12 +2243,12 @@ width.
   recipes but no term record or parent root is hidden outright once
   anything else in the corpus has a hierarchy, where on a corpus with no
   hierarchy at all the same bare tag gets its tile. The fallback needs to
-  be per-tile, not all-or-nothing.
+  be per-tile, not all-or-nothing. **Done in 38a** (`agent-epic-38.md`).
 - Alias carriers (epic 32's search-only term aliases) aren't folded into any
   homepage count — the intent tiles, Coming up and the browse chips all
   count a term's own slug and its children, never a slug that merely
   aliases it in. A recipe tagged only with an alias doesn't count anywhere
-  it should.
+  it should. **Done in 38a** (`agent-epic-38.md` D2).
 
 ### U2 — Navigation `agent/nav-drinks`
 
@@ -2399,7 +2399,8 @@ width.
 - The ready list shows several sources of one drink as separate buttons
   (Daiquiri ×2 on the real repo): each recipe is its own drink to the judge.
   Group them by drink-name family (the `drink` children) later, one button
-  per family with its sources behind it.
+  per family with its sources behind it. **Done in 38a** (`agent-epic-38.md`
+  Da4).
 
 ### U2/U3 — traps and gates
 

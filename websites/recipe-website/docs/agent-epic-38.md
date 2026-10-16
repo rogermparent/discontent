@@ -212,6 +212,34 @@ editor is stopped (content only, no heavy work), then 38-close.
 
 ### 38a
 
+- **Ta1 — NFKD splits accents off before the article cut.**
+  `parseIngredientLine` runs `normalizeIngredientText` (NFKD, for the
+  vulgar fractions), so "añejo" is `an` + U+0303 + `ejo`; JS `\b` sees a
+  boundary after `an`, the leading-article cut takes it, and "2 oz añejo
+  tequila" read as `ejo tequila`. The marks are now stripped right after
+  the normalize (the name is folded later anyway). Any accented word that
+  starts with `a`/`an` was affected; `crème`, `jalapeño` and `açaí` read the
+  same before and after.
+- **Ta2 — `toHaveCount(0)` passes before hydration.** The seasonal row is a
+  client island that renders nothing until it has the browser's date, so
+  "no row" is true of the server HTML too. `drinks.spec` waits for the make
+  panel's island first (`panelReady`), then asserts the row is absent.
+- **Ta3 — a word-order rule has real false positives.** "milk chocolate" /
+  "chocolate milk" and "cane sugar" / "sugar cane" are different things in
+  both orders, so "tequila blanco" ≡ "blanco tequila" is rows for the known
+  age words, not a swap (Da1). "juice lemon" already meets "lemon juice"
+  through the derived-form rule (`lemon` → `lemon juice`), before and after
+  38a — not a word-order case.
+- **Ta4 — CLI-subprocess tests time out under a loaded machine.**
+  `cliJson`'s inventory case spawns five CLI processes inside a 30 s
+  budget; with two other workers' heavy jobs queued it failed twice in full
+  runs and passed alone and on a quieter full run. Rerun before
+  suspecting the change.
+- **Ta5 — the seat lowercases aliases.** `PATCH /api/taxonomies/tag/<slug>`
+  with `aliases: ["Biscuits"]` stores `biscuits`, so `/tags` prints
+  "also: biscuits"; a hand-written `term.json` keeps its casing ("also:
+  Daiquiris" in `drinks-bar`).
+
 ### 38b
 
 ### 38c
@@ -225,6 +253,120 @@ editor is stopped (content only, no heavy work), then 38-close.
 ## Results
 
 ### 38a — Reader UX follow-through
+
+**No reindex needed.** Everything here is read time: no index layout,
+projection or spec version changed (`test/specVersions.test.ts` untouched).
+The alias counts read rows the whole by-term maps already hold, and the
+fixture indexes that moved (`drinks-bar`) moved because the fixture gained
+recipes.
+
+**What changed.**
+
+- **D1, the seasonal row's window.** `withinDays(today, date, n)` in
+  `util/holidays.ts` is the one window rule; `withinComingUpWindow` (the
+  homepage, 180 days) now filters through it with no change in behaviour,
+  and `nextSeasonal(items, today, 60)` is `/drinks`' pick
+  (`SEASONAL_WINDOW_DAYS`). Frozen-date tests: Christmas shows on 26 October
+  (60 days) and not on 25 October (61); the day after Christmas shows
+  nothing (Halloween is 309 days off), and a `new-year` term crosses the
+  year end (6 days); Halloween is back on 1 September.
+- **Families on the ready list.** `drinksPageData` answers `familyOf`
+  (recipe slug → family term) and `groupReady` (pure, beside it) turns two or
+  more ready drinks of one family into one entry — "Daiquiri · 2 recipes",
+  to `/tags/daiquiri` — at the place of the first of them; a family of one
+  and a drink with no family stay as they were. `+N more` counts recipes,
+  not entries.
+- **D2, alias counts.** `termCarriers` (tagVocabulary.ts) gives
+  `termHierarchy`/`termBoard` a term's carriers over `termKeys` — its slug
+  and every alias slug — so `/tags`, the browse chips and the intent tiles
+  count an alias-only recipe; `aliasedRows` does the same for Coming up's
+  per-term rows. `/tags` prints a term's aliases under it ("also:
+  Biscuits"; `TermHierarchyNode.aliases`), on a row and on a root's
+  heading. One component renders `/tags` in both apps, so both have it. The
+  export's alias redirect stays the client-side page it was (32i).
+- **Per-tile intent fallback.** `route.tsx` reads `readTagBoard()` and
+  counts each tile from the board (roots' subtrees and the loose records,
+  `termTotals([...roots, ...loose])`), else from a flat vocabulary built
+  from the by-term maps it already holds (`vocabularyOfRows`) — so a bare
+  `quick` tag gets its tile beside a hierarchy, and a site with one reads no
+  term cloud for it (`readTagVocabulary` stays only for the no-facet chips).
+- **Make matching** (Da1) and **staples in the editor** (Da2), below.
+- **AA contrast** (Da5): the form's submit error, the 36e picker's "not
+  trusted — check it" and its error line, and the roundup picker's error
+  line swap `text-destructive` for the jobs pages' rule-and-foreground
+  treatment (`border-l-2 border-destructive pl-2`, foreground text; 37-T25).
+  Class swaps only.
+
+**Decisions.**
+
+- **Da1 — agave ages are `SYNONYMS` rows, not a word-order rule.** One row
+  in `ingredientNames.ts`: `tequila|mezcal` followed by `blanco`, `plata`,
+  `silver`, `gold`, `joven`, `reposado`, `extra anejo` or `anejo` is read
+  with the age first. A general "two words in either order" match in
+  `namesMatch` was tried on paper and rejected (Ta3): tested false
+  positives — "milk chocolate" vs "1 cup chocolate milk", "cane sugar" vs
+  "sugar cane juice", "liqueur orange" vs "orange liqueur" and "orange
+  curaçao", "blanco rum" vs "tequila blanco" — all stay unmet. `toName` and
+  `parseIngredientLine` are the one pipeline under `analyzeMakeable`, so
+  `/make`, `/drinks`, the homepage tile, MCP `inventory_makeable`,
+  `/api/inventory/make` and `recipes inventory make` all agree. Side effect:
+  the shopping list's row key for such a line is now `blanco tequila`, so
+  "tequila blanco" and "blanco tequila" lines merge (a stored tick on an
+  old `tequila blanco` row would not follow; the real store has none known).
+- **Da2 — staples: this browser first; the editor seeds and saves.** A
+  signed-in editor `/make` passes `settings.makeStaples` (per instance,
+  never a mirror key, never read by the export) to `MakePage`. On the first
+  load after storage is read (`staplesSync`, pure): a browser still on the
+  default list takes the saved one; a browser with its own list keeps it
+  and saves it when nothing is saved yet; two different lists are never
+  merged (a union would resurrect what another browser removed). Every add,
+  remove and Reset on the signed-in page then saves too (Reset clears the
+  saved list, so it doesn't re-seed). Only "Assume I always have" is saved;
+  the pantry switch and "count close matches" stay per browser.
+- **Da3 — alias counts are read time.** No derived index or aggregate
+  changes; the whole by-term maps already have each alias slug's row.
+- **Da4 — a family is a child of `drink` not in `DRINK_STYLE_SLUGS`**, with
+  its subtree and its aliases (`subtreeKeys`) — on the real repo the 56
+  drink-name families of epic 33. A drink carrying two families goes to the
+  one with more drinks, then by label (the order of `families`, so the
+  first claim wins); the other family's chip still counts it.
+- **Da5 — AA by treatment, not a token.** The newer screens have no AA
+  error-text token; they keep the text in the foreground and mark it with a
+  `border-destructive` rule (37-T25). The theme's `--destructive` is
+  unchanged, so no baseline moved for it.
+
+**Fixture.** The `/drinks` spec's fixture is `drinks-bar` (`make-drinks`
+plus terms), so the two daiquiris went there rather than into
+`make-drinks`, which `make.spec`, `bar-tools`, the homepage and the
+`make-page` baseline count: a `daiquiri` family record (parent `drink`,
+alias "Daiquiris"), a Daiquiri tagged `drink` + `daiquiri`, and a Classic
+Daiquiri tagged only `daiquiris` — the alias-only recipe. The Gin and Tonic
+gained a bare `quick` tag for the per-tile fallback. Indexes rebuilt with
+`recipes reindex --content-dir` on a scratch copy.
+
+**Gates** (2026-10-16, all through the heavy slot):
+
+- Editor and export `tsc` clean.
+- vitest 98 files, 2006 tests. New: `withinDays`, `nextSeasonal` and the
+  frozen dates in `holidays.test.ts`; families and `groupReady` in
+  `drinksPage.test.ts`; word order, the false positives and the NFKD fix
+  in `makeable.test.ts`; `savedStaples.test.ts` (the merge rule). Two
+  earlier full runs each failed one CLI-subprocess test under the machine's
+  load (`cliJson` inventory, once `shopping` cap) that passed alone and on
+  the final run (Ta4).
+- Playwright, production build, e2e + mobile: drinks, homepage-browse,
+  homepage, tag-pages, make, accessibility, visual and mobile — 145/146;
+  the one was the new `/tags` test expecting "Biscuits" where the seat
+  stores aliases lowercased ("also: biscuits"). Rerun of tag-pages and
+  drinks with the fix: 36/36. New specs: the ready list's Daiquiri entry,
+  the seasonal row gone on 26 December, the drink tile's alias count and a
+  bare `quick` tile beside a hierarchy (homepage-browse), `/tags`' alias
+  count and "also:" line, and the saved staples following the owner to a
+  new browser (and not to a guest).
+- **Baselines:** `drinks-page` (e2e + mobile) regenerated in their own
+  commit — the Classics row gained Daiquiri and New drinks a sixth card.
+  They had passed unchanged inside the 2% pixel budget; regenerated so the
+  budget isn't spent on known content.
 
 ### 38b — Jobs polish
 
