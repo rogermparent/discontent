@@ -18,7 +18,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** wave 0 done (worktree cleanup); wave 1 — 39a ∥ 39c.
+**Now:** code closed (2026-10-17); 39f awaits Roger's content calls.
 
 ## Context
 
@@ -87,15 +87,15 @@ explicit `--content-dir`, revalidate after). Nothing is pushed.
 
 ## Roadmap
 
-| Phase    | Size | Branch              | Status | PR  | What                                                                                     |
-| -------- | ---- | ------------------- | ------ | --- | ---------------------------------------------------------------------------------------- |
-| 39a      | M    | `agent/39a-import`  | 🟡     |     | Panel `stored`, model labels (38-Dg9), `--fresh`, vision digest in the transcript key.   |
-| 39b      | M–L  | `agent/39b-reindex` |        |     | D1, D2: measure, the index-version stamp, reindex and git sync as jobs.                  |
-| 39c      | S–M  | `agent/39c-cooking` | 🟡     |     | D3: held ticks expire, undo a sub-recipe expansion, Ingredients/Method jump anchors.     |
-| 39d      | M    | `agent/39d-pi-sync` |        |     | D4–D6: conflict on the Pi, `RECIPE_NOTIFY_URL`, daily reminder, export staleness hint.   |
-| 39e      | S    | `agent/39e-hygiene` |        |     | resume-builder `@source`, `paceKey` by registrable domain (38-Db6), doc/backlog hygiene. |
-| 39f      | S    | (content repo)      |        |     | D7: Roger's content calls, the facet-review list.                                        |
-| 39-close | S    | `agent/39-close`    |        |     | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                        |
+| Phase    | Size | Branch              | Status | PR      | What                                                                                     |
+| -------- | ---- | ------------------- | ------ | ------- | ---------------------------------------------------------------------------------------- |
+| 39a      | M    | `agent/39a-import`  | ✅     | #254    | Panel `stored`, model labels (38-Dg9), `--fresh`, vision digest in the transcript key.   |
+| 39b      | M–L  | `agent/39b-reindex` | ✅     | #256    | D1, D2: measure, the index-version stamp, reindex and git sync as jobs.                  |
+| 39c      | S–M  | `agent/39c-cooking` | ✅     | #253    | D3: held ticks expire, undo a sub-recipe expansion, Ingredients/Method jump anchors.     |
+| 39d      | M    | `agent/39d-pi-sync` | ✅     | #257    | D4–D6: conflict on the Pi, `RECIPE_NOTIFY_URL`, daily reminder, export staleness hint.   |
+| 39e      | S    | `agent/39e-hygiene` | ✅     | #255    | resume-builder `@source`, `paceKey` by registrable domain (38-Db6), doc/backlog hygiene. |
+| 39f      | S    | (content repo)      | 🟡     |         | D7: Roger's content calls (awaiting his answers), the facet-review list.                 |
+| 39-close | S    | `agent/39-close`    | ✅     | this PR | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                        |
 
 Ordering, in waves: wave 0 (worktree cleanup, the content-call list), then
 39a ∥ 39c (editor llm/jobs vs common shopping/View), then 39b ∥ 39e, then
@@ -1498,4 +1498,192 @@ unchanged.
 
 ### 39f — Content calls
 
+**Wave 0 only so far.** The real repo (at `746e4336`, clean) is untouched;
+nothing below is applied until Roger answers (D7). The call list is a
+scratch file, `content-calls.md`; its content is here so it survives.
+"Go with your recommendations" means: apply C1–C4 as recommended, close
+C5–C7 with no write.
+
+**Findings.**
+
+- Epic 33's 51 uncertain facet calls were **recoverable** from its scratch
+  (`tmp/33/assign/batch-*.json`, the `uncertain` maps), so no regeneration
+  pass was needed. Checked against the repo now: 564 food recipes, **every
+  one with a course facet**; no one-off cuisine (Korean, Thai, German,
+  Colombian, Turkish ×2, Swedish ×2, Hawaiian) has reached the 3-recipe bar
+  for its own child. 4 of the 51 were already settled (kefir and the
+  non-alcoholic piña colada under 33-D4's exemptions, marble rye merged in
+  epic 35, white chili checked in 38f). 41 are recommended "keep as filed".
+- `Sake-Cosmo-9.jpg` (9.6 MB, 3695×4873) is a web download, not a phone
+  original (28-D11). Resizing it now would not shrink the repo: the
+  original stays in git history, and the site serves 2–60 KB webp variants
+  already. 15 other uploads are over 3 MB (phone photos and a 12.8 MB kefir
+  video): git-annex territory (28-D9), not a one-off resize.
+- The Wayback Machine has the red-wine-spritzer original (snapshot
+  2023-12-07).
+
+**The calls (Roger's, in chat).**
+
+| Call | What                                                                                                                                                                                                                                                                                         | Recommendation                                                                                          |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| C1   | Kid-party drinks `mermaid-lemonade-foodnetwork` (blue punch, a zero-proof kid drink) and `cotton-candy-fizz-foodnetwork` (champagne over cotton candy, 2 lines).                                                                                                                             | Keep both (the alternative: delete).                                                                    |
+| C2   | Red Wine Spritzer's citation: `acouplecooks.com/red-wine-spritzer/` now redirects to the white-wine spritzer, which has no red variation.                                                                                                                                                    | Set `source.url` to the Wayback snapshot (`web.archive.org/web/20231207101946/…`); one `recipe_update`. |
+| C3   | Spicy Cascara Highball: no real recipe page was found in epic 31; the alcohol-free Cascara Dark & Stormy covers cascara.                                                                                                                                                                     | Close, no recipe (unless Roger has a source).                                                           |
+| C4   | Zero-Proof Spritz.                                                                                                                                                                                                                                                                           | Close as covered by `zero-proof-aperol-spritz-acouplecooks`.                                            |
+| C5   | `Sake-Cosmo-9.jpg`, 9.6 MB.                                                                                                                                                                                                                                                                  | Close, no resize (above).                                                                               |
+| C6   | `apple-walnut-blue-cheese-salad-with-honey-dijon-dressing`, `butter-lettuce-with-blue-cheese-apples-and-candied-pecans`, `fall-apple-and-walnut-salad-with-apple-cider-vinaigrette` carry `american` from before epic 33; by its rule (no cuisine on generic dishes) they would not get one. | Remove `american`: one `term assign american --remove …`, one commit.                                   |
+| C7   | `shumai-chinese-steamed-dumplings` is `snack` only; every other filled dumpling or bun (gyoza, char siu bao, ground-beef bao, nikuman, khinkali) is a `main`.                                                                                                                                | Add `main`: one `term assign main --add …`.                                                             |
+
+The other 41 uncertain calls are recommended "keep as filed" with no write
+(each with its one-line reason in the call list: for example the
+black-bean brownies stay chocolate, not beans; Swedish meatballs, Korean
+wings and Thai peanut chicken get no cuisine; risotto, spanakopita and
+gyoza are mains; Reuben is American; tomato soup and crispy rice are not
+vegetarian).
+
+**Method once answered** (epic 33, D7): `pnpm workstation stop`, a
+scratch-clone dry run of the same commands, the diff reviewed, the real
+apply through the CLI with `--content-dir /home/roger/Projects/recipe-content`,
+`pnpm workstation restart`, then `POST /api/revalidate`. At most 4 commits.
+Never pushed: the workstation's own sync carries them to the Pi.
+
 ## Close-out
+
+Closed 2026-10-17: 39a–39e and 39-close merged; 39f waits on Roger's answers.
+No phase changes an index layout or content shape, so nothing here needs a
+manual reindex.
+
+### What shipped, phase by phase
+
+- **39a, import reliability (#254).** A form import whose job record could
+  not be written no longer ends in a false "finished": the panel says it
+  cannot be followed step by step, waits for the outcome by a bounded
+  long-poll, and Cancel still works. Warnings and commit notes name the
+  reader that answered ("local model qwen3:8b", "Claude API
+  claude-sonnet-5") instead of always "local model". `--fresh` (CLI),
+  `fresh: true` (API and MCP `recipe_import`), `jobs retry --fresh` and a
+  "Read it again" box on `/jobs/<id>` skip the 30-minute reading cache. The
+  vision model's Ollama digest joined the transcript key, so a re-pull
+  invalidates saved transcripts (the first photo import after the update
+  reads its photos again, once). `import-list` prints a model line per
+  item.
+- **39b, reindex follow-through (#256).** An index-version stamp
+  (`.git/discontent-index-version`, a hash of every aggregate and
+  pagination spec) makes either role rebuild stale indexes once at start,
+  so a deploy that bumps a spec needs no manual reindex. `git_status`,
+  `/git` and the stale-index banner show the version. Reindex and git sync
+  are jobs (`reindex`, `git-sync`) on a per-repository queue line, visible
+  on `/jobs` with per-type steps, cancellable only before the swap; a
+  person's rebuild waits at most 30 s behind a sync, then answers `busy`;
+  a fetch or push is cut off on silence. A sync leaves a job only when it
+  merged, conflicted or failed. Retry is refused for both kinds.
+- **39c, cooking UX (#253).** Browser-held shopping ticks expire after
+  7 days with a dismissible notice. `/shopping` gets a "Sub-recipes" fold
+  with "Remove these" to undo a sub-recipe expansion (an item goes whole
+  when the slug is anywhere in its path; the linking line is not put
+  back). Recipes with 15 or more lines get a "Jump to Ingredients ·
+  Instructions" row (the headings carry ids), in the editor and the export.
+- **39d, unattended Pi sync (#257).** The workstation tells the Pi when its
+  sync conflicts (in every `/api/git/sync` answer and by a pushed
+  `PUT /api/git/standing`), so the Pi's `/git` and Maintenance show a
+  banner while its edits stay safe. `RECIPE_NOTIFY_URL` (https, or http
+  for loopback; redacted in logs) receives the desktop's attention events
+  from the workstation only, once per new state, with a daily reminder for
+  a conflict or a dirty mirror. The Export page says how many commits have
+  landed since the last export; export stays manual (28-D8).
+- **39e, hygiene (#255).** `paceKey` keys on the registrable domain
+  (`tldts`, private section on; `wp.com` and `wordpress.com` stay keyed by
+  host), so a site's CDN subdomain now waits its turn behind the page.
+  resume-builder's Tailwind `@source` points at the real component-library
+  path (its form inputs and buttons now render), with a global `svg` rule
+  moved into `@layer base` to keep pagination chevrons sized. Doc and
+  backlog hygiene for epics 36–38.
+- **39f, content calls.** Wave 0 only: the call list C1–C7 and the facet
+  findings are in 39f's Results; nothing is applied.
+
+### Measurements
+
+**39a: the vision re-measure** (Ollama 0.40.5, RX 6600 on Vulkan,
+2026-10-16, a banana-bread card photo, dry run, `--fresh`):
+
+| Run                | `vision.transcribe`                               | Runner                                        | `llm.extract` (qwen3:8b)     | Grounded    | Wall   |
+| ------------------ | ------------------------------------------------- | --------------------------------------------- | ---------------------------- | ----------- | ------ |
+| 1024 px (the cap)  | 23.7 s (load 7.7 s, 99 tok @ 15 tok/s), 100% GPU  | fine                                          | 20.4 s (load 9.5 s), 89% GPU | 8/8 trusted | 44.3 s |
+| 1568 px (uncapped) | failed after 13.0 s ("stopped without an answer") | crashed, `vk::Queue::submit: ErrorDeviceLost` | not reached                  | not reached | 15.2 s |
+
+1568 px still crashes the vision runner under 0.40.5, so the 1024 px cap
+stays (38-Te5). New: qwen3:8b now lands 10%/90% CPU/GPU at idle because the
+desktop holds about 0.8 GB of VRAM after a reboot (backlog row, Ta6); a
+slowdown, not a failure.
+
+**39b: reindex** (a scratch clone at `746e4336`: 787 recipes, 24 featured,
+135 term records; `scripts/measure-reindex.ts`, 7 runs):
+
+| Run                                  | recipes min / med | total min / med |
+| ------------------------------------ | ----------------- | --------------- |
+| dev React, load 16–20                | 1157 / 1249 ms    | 1391 / 1496 ms  |
+| dev React, load ~9–10                | 900 / 1148 ms     | 1107 / 1312 ms  |
+| `NODE_ENV=production`, load ~13      | 575 / 673 ms      | 699 / 867 ms    |
+| epic 29 (644 recipes, dev, load ~10) | 401 / 552 ms      | 455 / 644 ms    |
+
+The production row is what the editor pays: about 0.7 s, inside 29-D4's
+one-second bound. The Pi's 4.9 s at the last deploy is its cold rebuild
+(29a's 4.1 s at 644 recipes scales to 5.0 s at 787); the warm number is
+pending Roger's next deploy. **Go/no-go: no-go** on incremental reindex
+(29b–29d); the trigger is restated as the Pi's warm median passing about
+5 s (or a cold deploy rebuild of about 8 s). Full numbers are in
+`agent-epic-29.md`.
+
+### Roger's steps
+
+1. `pnpm workstation update` (main checkout). **No manual reindex:** 39b's
+   index-version stamp makes the workstation rebuild its indexes once at its
+   first start after the update (Tb1), and on any later deploy that bumps a
+   spec.
+2. The 38g lines in `~/.config/recipe-deploy/uraninite.env`
+   (`RECIPE_LLM_API=anthropic`, `RECIPE_LLM_API_KEY=…`), if not yet done.
+3. `pnpm deploy:pi`. It brings 39d's `PUT /api/git/standing` route (until
+   then the workstation's conflict pushes get a 404, which is harmless,
+   Td2) and the stamp. The Pi rebuilds once at start and the deploy's
+   `POST /api/reindex?ifStale=1` then skips ("already fresh"). Note the
+   reindex time it prints: the 29 doc's warm-Pi trigger (about 5 s) is
+   checked against it.
+4. Optional: `RECIPE_NOTIFY_URL` (an ntfy-style topic URL, https) in
+   `~/.config/recipe-deploy/workstation.env`, for conflict and dirty-mirror
+   notifications beyond the desktop, with a daily reminder while one
+   stands (workstation only, Dd7). `WORKSTATION_REMOTE` only if a second
+   mirror is ever added.
+5. Behaviour notes: the first photo import after the update re-transcribes
+   (the vision digest joined the key, 39a); `--fresh` / "Read it again"
+   bypass the reading cache; held shopping ticks expire after 7 days;
+   `/jobs` now shows reindex and git-sync jobs (syncs only when they
+   merged, conflicted or failed); a reindex waits up to 30 s behind a sync,
+   then answers `busy`.
+6. 39f content calls C1–C7: answer in chat ("go with your
+   recommendations" or per call); the orchestrator applies them by the
+   epic-33 method.
+7. Local branch cleanup (Roger's call): merged `agent/28*`–`agent/30*`,
+   `verify-main`, `main-local`, `portfolio/rebuild`, and about 75 unmerged
+   pre-epic branches. Wave 0 removed only worktrees and merged harness
+   branches.
+
+### Backlog
+
+Open items the phases named; each has a row in `backlog.md`.
+
+- qwen3:8b spills 10% to the CPU at idle (Ta6, 39a): a smaller `num_ctx` for
+  short extractions, or wording that names the desktop's VRAM baseline.
+- resume-builder's own Playwright suite is 7 red on `main` (Te2, 39e).
+- `recipes shopping remove --for <slug>` and the MCP equivalent (Dc3, 39c);
+  the page and the HTTP `PATCH` have it.
+- A failed start-time rebuild has no retry of its own (39b, L5): the next
+  HEAD move asks again, and the stale-index banner offers Rebuild.
+- Several mirrors are opt-in and lightly tested (Dd14, 39d):
+  `WORKSTATION_REMOTE` names the remote, and only one mirror has run.
+- Incremental reindex (29b–29d) stays deferred, with the restated trigger
+  (39b).
+- Uploads over 3 MB (15 files, a 12.8 MB kefir video) wait on git-annex
+  activation (28-D9); `Sake-Cosmo-9.jpg` closed as no-resize (39f, C5).
+- 39f's content calls C1–C7 (Roger's answers).
+- A smooth scroll for the jump links (39c): not wanted; the instant jump
+  also suits reduced motion.
