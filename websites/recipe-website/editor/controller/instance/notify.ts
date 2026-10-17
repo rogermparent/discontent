@@ -20,11 +20,18 @@
 import { execFile } from "node:child_process";
 import type { MirrorSyncState } from "@discontent/cms/git/syncState";
 
-/** The states worth a notification, as a stable key (or `null`: all fine). */
+/**
+ * The states worth a notification, as a stable key (or `null`: all fine).
+ * A conflict's key names which conflict (its `conflictSince`, 39d review):
+ * one that cleared and came back is a new one, even when the clearing was a
+ * sync this instance never looked at.
+ */
 export function attentionKey(state: MirrorSyncState): string | null {
   /* 39d, D4: a conflict stands until a sync succeeds, whatever came between. */
   if (state.outcome === "conflict" || state.conflictSince) {
-    return `${state.remote}:conflict`;
+    return state.conflictSince
+      ? `${state.remote}:conflict:${state.conflictSince}`
+      : `${state.remote}:conflict`;
   }
   if (state.outcome === "mirror_dirty") {
     return `${state.remote}:mirror_dirty`;
@@ -59,7 +66,11 @@ export function attentionText(state: MirrorSyncState): {
   }
 }
 
-/** 39d, D5: the daily reminder's words, for a state that still stands. */
+/**
+ * 39d, D5: the daily reminder's words, for a state that still stands.
+ * `since` is when it began — a conflict's `conflictSince` — not when it was
+ * first notified.
+ */
 export function reminderText(
   state: MirrorSyncState,
   since: string,

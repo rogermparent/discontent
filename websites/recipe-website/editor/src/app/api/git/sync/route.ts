@@ -18,6 +18,11 @@
  * whatever this run's outcome, so a ping that answers `busy` or `blocked`
  * still tells the mirror a conflict stands, and one that answers `nothing`
  * tells it the conflict is gone.
+ *
+ * Several mirrors (39d review): a ping names its remote when the mirror has
+ * `WORKSTATION_REMOTE` set (`{remote}`), and the sync and its `standing` are
+ * that mirror's; a ping without one (`{}`, every mirror before 39d) syncs —
+ * and answers for — the first mirror in the workstation's settings.
  */
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
 import {

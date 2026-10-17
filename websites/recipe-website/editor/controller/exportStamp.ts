@@ -9,7 +9,8 @@
  * as "N commits since the last export", "Up to date" or "No export recorded
  * yet". Deploy publishes the last build and records nothing.
  */
-import { readFile, rename, writeFile } from "fs/promises";
+import { randomUUID } from "node:crypto";
+import { readFile, rename, rm, writeFile } from "fs/promises";
 import { isAbsolute, join } from "path";
 import simpleGit from "simple-git";
 import { directoryIsGitRepo } from "@discontent/cms/git/commit";
@@ -27,7 +28,10 @@ export type ExportStaleness =
   | { state: "never" }
   | { state: "current"; at: string }
   | { state: "behind"; commits: number; at: string }
-  /** The recorded commit is not in this history any more (a rewrite, a re-clone). */
+  /**
+   * The recorded commit is not in this history: gone (a rewrite, a re-clone),
+   * or not an ancestor of HEAD (HEAD moved back past it, a reset).
+   */
   | { state: "unknown"; at: string };
 
 async function stampPath(contentDirectory: string): Promise<string> {
@@ -70,9 +74,14 @@ export async function writeExportStamp(
 ): Promise<void> {
   try {
     const path = await stampPath(contentDirectory);
-    const temporary = `${path}.${process.pid}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(stamp, null, 2)}\n`);
-    await rename(temporary, path);
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, `${JSON.stringify(stamp, null, 2)}\n`);
+      await rename(temporary, path);
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => undefined);
+      throw error;
+    }
   } catch (error) {
     console.warn("[export] could not record the exported commit:", error);
   }
@@ -88,6 +97,19 @@ export async function exportStaleness(
   const git = simpleGit({ baseDir: contentDirectory });
   try {
     await git.raw(["cat-file", "-e", `${stamp.head}^{commit}`]);
+    /*
+     * 39d review: HEAD moved back (a reset) leaves `<stamp>..HEAD` empty —
+     * which is not "up to date". The stamp must be an ancestor of HEAD: their
+     * merge base is the stamp itself. (`merge-base --is-ancestor` answers by
+     * exit code alone, which simple-git does not turn into a rejection.)
+     */
+    const full = String(
+      await git.raw(["rev-parse", "--verify", `${stamp.head}^{commit}`]),
+    ).trim();
+    const base = String(
+      await git.raw(["merge-base", full, "HEAD"]).catch(() => ""),
+    ).trim();
+    if (base !== full) return { state: "unknown", at: stamp.at };
   } catch {
     return { state: "unknown", at: stamp.at };
   }

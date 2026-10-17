@@ -135,6 +135,29 @@ test.describe("Mirror role", () => {
       data: { asOf: "yesterday", conflict: { since: "soon" } },
     });
     expect(bad.status()).toBe(400);
+    /* 39d review: not a time Date.parse merely accepts, nor one far ahead
+     * (the newest wins, so it would freeze the banner). */
+    for (const asOf of [
+      "2026-10-16 10:00:00",
+      new Date(Date.now() + 3 * 86_400_000).toISOString(),
+    ]) {
+      const refused = await request.put("/api/git/standing", {
+        headers,
+        data: { asOf, conflict: null },
+      });
+      expect(refused.status()).toBe(400);
+    }
+    /* A read-scoped token is authenticated, and refused: it writes. */
+    const readToken = await createApiToken(
+      "admin@nextmail.com",
+      "playwright-read",
+      "read",
+    );
+    const readOnly = await request.put("/api/git/standing", {
+      headers: { authorization: `Bearer ${readToken}` },
+      data: { asOf: "2026-10-16T10:00:00.000Z", conflict: null },
+    });
+    expect(readOnly.status()).toBe(403);
 
     const told = await request.put("/api/git/standing", {
       headers,

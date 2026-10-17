@@ -9,10 +9,30 @@
  *
  * One JSON file keyed by remote name. A write that fails is swallowed: the
  * sync itself already happened, and losing a status line is the right trade.
+ *
+ * Epic 39 (39d review): every change is a read-modify-write under a short
+ * cross-process lock beside the file (`discontent-sync.json.lock`, the write
+ * lock's primitive, `fileLock.ts`) — a sync's record (in-process, or the CLI's
+ * or MCP's `git sync`), the attention check's timer and the standing and
+ * settings sends all change one file, and an unlocked writer would drop the
+ * others' fields (a lost `conflictSince` tells the Pi "clear"). The lock is
+ * a leaf: held for one read and one write, never while taking another lock,
+ * so it sits under 39b's order (the repository's line → the sync lock → the
+ * write lock) without a cycle. The temp file of the atomic write has a
+ * random name, so two writers never share one.
  */
-import { readFile, rename, writeFile } from "fs/promises";
+import { randomUUID } from "node:crypto";
+import { readFile, rename, rm, writeFile } from "fs/promises";
 import { isAbsolute, join } from "path";
 import simpleGit from "simple-git";
+import { ulid } from "../util/ulid";
+import {
+  acquireLock,
+  LockTimeoutError,
+  processIdentity,
+  releaseLock,
+  type LockRecord,
+} from "./fileLock";
 
 const STATE_NAME = "discontent-sync.json";
 
@@ -87,7 +107,7 @@ export interface MirrorSyncState {
 
 /** 39d, D5: what was last notified about one mirror, and when. */
 export interface AttentionRecord {
-  /** `attentionKey`'s key, e.g. `uraninite:conflict`. */
+  /** `attentionKey`'s key, e.g. `uraninite:conflict:<conflictSince>`. */
   key: string;
   /** ISO time it was first notified. */
   since: string;
@@ -134,16 +154,87 @@ async function statePath(contentDirectory: string): Promise<string> {
   return isAbsolute(raw) ? raw : join(contentDirectory, raw);
 }
 
+async function readStateFile(path: string): Promise<SyncStateFile> {
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 export async function readSyncState(
   contentDirectory: string,
 ): Promise<SyncStateFile> {
   try {
-    const parsed = JSON.parse(
-      await readFile(await statePath(contentDirectory), "utf8"),
-    );
-    return parsed && typeof parsed === "object" ? parsed : {};
+    return await readStateFile(await statePath(contentDirectory));
   } catch {
     return {};
+  }
+}
+
+/** One read and one write: seconds, not minutes. */
+const LOCK_STALE_MS = 30_000;
+const LOCK_TIMEOUT_MS = 10_000;
+const LOCK_ID_KEY = "syncStateWriteId" as const;
+
+let warnedLock = false;
+
+/**
+ * Read, change and write the file under its lock (see the module comment).
+ * `change` mutates the file it is handed and answers a value; `undefined`
+ * means nothing changed, and nothing is written. Answers `change`'s value.
+ * A lock that cannot be had within ten seconds (its holder wedged, the git
+ * directory unwritable) is warned about once and the change made anyway: a
+ * status line kept unlocked beats one lost. Outside a repository there is no
+ * file: `change` sees `{}` and nothing is written.
+ */
+async function updateSyncState<T>(
+  contentDirectory: string,
+  change: (file: SyncStateFile) => T | undefined,
+): Promise<T | undefined> {
+  let path: string;
+  try {
+    path = await statePath(contentDirectory);
+  } catch {
+    return change({});
+  }
+  const lockPath = `${path}.lock`;
+  const id = ulid();
+  const record: LockRecord & { [LOCK_ID_KEY]: string } = {
+    ...processIdentity(),
+    [LOCK_ID_KEY]: id,
+  };
+  let locked = false;
+  try {
+    await acquireLock(lockPath, record, {
+      idKey: LOCK_ID_KEY,
+      deadline: Date.now() + LOCK_TIMEOUT_MS,
+      staleMs: LOCK_STALE_MS,
+    });
+    locked = true;
+  } catch (error) {
+    if (!warnedLock) {
+      warnedLock = true;
+      console.warn(
+        `[sync] ${STATE_NAME}: ${
+          error instanceof LockTimeoutError
+            ? "its lock stayed held"
+            : "its lock could not be taken"
+        }; writing without it.`,
+        error instanceof LockTimeoutError ? "" : error,
+      );
+    }
+  }
+  try {
+    const file = await readStateFile(path);
+    const result = change(file);
+    if (result !== undefined) await writeStateFile(path, file);
+    return result;
+  } finally {
+    if (locked) {
+      await releaseLock(lockPath, LOCK_ID_KEY, id).catch(() => undefined);
+    }
   }
 }
 
@@ -164,33 +255,37 @@ export async function recordSyncAttempt(
   attempt: SyncAttempt,
 ): Promise<MirrorSyncState> {
   const at = (attempt.at ?? new Date()).toISOString();
-  const file = await readSyncState(contentDirectory);
-  const previous = file[attempt.remote];
-  const success = attempt.outcome === "nothing" || attempt.outcome === "synced";
-  const failed = FAILED_OUTCOMES.includes(attempt.outcome);
-  const next: MirrorSyncState = {
-    remote: attempt.remote,
-    lastAttempt: at,
-    outcome: attempt.outcome,
-    ...(attempt.message ? { message: attempt.message } : {}),
-    ...(success
-      ? { lastSuccess: at }
-      : previous?.lastSuccess
-        ? { lastSuccess: previous.lastSuccess }
+  const next = await updateSyncState(contentDirectory, (file) => {
+    const previous = file[attempt.remote];
+    const success =
+      attempt.outcome === "nothing" || attempt.outcome === "synced";
+    const failed = FAILED_OUTCOMES.includes(attempt.outcome);
+    const state: MirrorSyncState = {
+      remote: attempt.remote,
+      lastAttempt: at,
+      outcome: attempt.outcome,
+      ...(attempt.message ? { message: attempt.message } : {}),
+      ...(success
+        ? { lastSuccess: at }
+        : previous?.lastSuccess
+          ? { lastSuccess: previous.lastSuccess }
+          : {}),
+      consecutiveFailures: success
+        ? 0
+        : (previous?.consecutiveFailures ?? 0) + (failed ? 1 : 0),
+      ...(attempt.pulled !== undefined ? { pulled: attempt.pulled } : {}),
+      ...(attempt.pushed !== undefined ? { pushed: attempt.pushed } : {}),
+      ...(previous?.settings ? { settings: previous.settings } : {}),
+      ...conflictFields(attempt, previous, at, success),
+      ...(previous?.attention ? { attention: previous.attention } : {}),
+      ...(previous?.standingSent
+        ? { standingSent: previous.standingSent }
         : {}),
-    consecutiveFailures: success
-      ? 0
-      : (previous?.consecutiveFailures ?? 0) + (failed ? 1 : 0),
-    ...(attempt.pulled !== undefined ? { pulled: attempt.pulled } : {}),
-    ...(attempt.pushed !== undefined ? { pushed: attempt.pushed } : {}),
-    ...(previous?.settings ? { settings: previous.settings } : {}),
-    ...conflictFields(attempt, previous, at, success),
-    ...(previous?.attention ? { attention: previous.attention } : {}),
-    ...(previous?.standingSent ? { standingSent: previous.standingSent } : {}),
-  };
-  file[attempt.remote] = next;
-  await writeStateFile(contentDirectory, file);
-  return next;
+    };
+    file[attempt.remote] = state;
+    return state;
+  });
+  return next as MirrorSyncState;
 }
 
 /** 39d, D4: a conflict stands from the first `conflict` until a success. */
@@ -218,33 +313,52 @@ function conflictFields(
   };
 }
 
+/** The fields of a record that follow a sync rather than describe it. */
+export type MirrorStateFields = Partial<
+  Pick<MirrorSyncState, "attention" | "standingSent" | "settings">
+>;
+
+/**
+ * Decide and set fields of one mirror's record in one step under the lock:
+ * `decide` sees the record as it stands and answers the fields to set (an
+ * `undefined` value removes one), or `undefined` to change nothing. A remote
+ * with no record gets none: these follow a sync, never stand alone. Answers
+ * the new record, or `undefined` when nothing was written.
+ */
+export async function updateMirrorState(
+  contentDirectory: string,
+  remote: string,
+  decide: (record: MirrorSyncState) => MirrorStateFields | undefined,
+): Promise<MirrorSyncState | undefined> {
+  return updateSyncState(contentDirectory, (file) => {
+    const previous = file[remote];
+    if (!previous) return undefined;
+    const fields = decide(previous);
+    if (!fields) return undefined;
+    const next: MirrorSyncState = { ...previous };
+    for (const [key, value] of Object.entries(fields) as [
+      keyof MirrorStateFields,
+      unknown,
+    ][]) {
+      if (value === undefined) delete next[key];
+      else (next as unknown as Record<string, unknown>)[key] = value;
+    }
+    file[remote] = next;
+    return next;
+  });
+}
+
 /**
  * Set (or, with `undefined`, remove) fields of one mirror's record, keeping
  * the rest (39d: the attention record, the standing send). A remote with no
- * record gets none: these follow a sync, never stand alone. Answers the new
- * record.
+ * record gets none. Answers the new record.
  */
 export async function patchMirrorState(
   contentDirectory: string,
   remote: string,
-  fields: Partial<
-    Pick<MirrorSyncState, "attention" | "standingSent" | "settings">
-  >,
+  fields: MirrorStateFields,
 ): Promise<MirrorSyncState | undefined> {
-  const file = await readSyncState(contentDirectory);
-  const previous = file[remote];
-  if (!previous) return undefined;
-  const next: MirrorSyncState = { ...previous };
-  for (const [key, value] of Object.entries(fields) as [
-    keyof typeof fields,
-    unknown,
-  ][]) {
-    if (value === undefined) delete next[key];
-    else (next as unknown as Record<string, unknown>)[key] = value;
-  }
-  file[remote] = next;
-  await writeStateFile(contentDirectory, file);
-  return next;
+  return updateMirrorState(contentDirectory, remote, () => fields);
 }
 
 /**
@@ -256,35 +370,36 @@ export async function recordSettingsPush(
   remote: string,
   push: { hash?: string; error?: string; at?: Date },
 ): Promise<SettingsPushState | undefined> {
-  const file = await readSyncState(contentDirectory);
-  const previous = file[remote];
-  if (!previous) return undefined;
-  const settings: SettingsPushState = {
-    at: (push.at ?? new Date()).toISOString(),
-    ...(push.error
-      ? {
-          ...(previous.settings?.hash ? { hash: previous.settings.hash } : {}),
-          error: push.error,
-        }
-      : push.hash
-        ? { hash: push.hash }
-        : {}),
-  };
-  file[remote] = { ...previous, settings };
-  await writeStateFile(contentDirectory, file);
-  return settings;
+  const next = await updateMirrorState(contentDirectory, remote, (previous) => {
+    const settings: SettingsPushState = {
+      at: (push.at ?? new Date()).toISOString(),
+      ...(push.error
+        ? {
+            ...(previous.settings?.hash
+              ? { hash: previous.settings.hash }
+              : {}),
+            error: push.error,
+          }
+        : push.hash
+          ? { hash: push.hash }
+          : {}),
+    };
+    return { settings };
+  });
+  return next?.settings;
 }
 
 async function writeStateFile(
-  contentDirectory: string,
+  path: string,
   file: SyncStateFile,
 ): Promise<void> {
+  /* A random name (39d review): two writers never share a temp file. */
+  const temporary = `${path}.${randomUUID()}.tmp`;
   try {
-    const path = await statePath(contentDirectory);
-    const temporary = `${path}.${process.pid}.tmp`;
     await writeFile(temporary, `${JSON.stringify(file, null, 2)}\n`);
     await rename(temporary, path);
   } catch {
     /* See the module comment. */
+    await rm(temporary, { force: true }).catch(() => undefined);
   }
 }

@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
   rebuildAllIndexes: vi.fn(async () => {}),
   readSettings: vi.fn(async () => ({})),
   readInventory: vi.fn(async () => ({ items: ["Gnista"], path: "" })),
-  commandAction: vi.fn(async () => "started"),
+  runCommand: vi.fn(async () => "started"),
   ensureSymlink: vi.fn(async () => {}),
   exportUnavailableReason: vi.fn(async () => null),
   exportBuildEnv: vi.fn(),
@@ -48,9 +48,9 @@ vi.mock(
   }),
 );
 vi.mock(
-  "../websites/recipe-website/editor/src/app/(recipes)/scriptAction",
+  "../websites/recipe-website/editor/src/app/(recipes)/runCommand",
   () => ({
-    commandAction: mocks.commandAction,
+    runCommand: mocks.runCommand,
   }),
 );
 vi.mock(
@@ -96,7 +96,7 @@ describe("buildExport", () => {
     expect(mocks.readSettings).not.toHaveBeenCalled();
     expect(mocks.readInventory).not.toHaveBeenCalled();
     expect(mocks.ensureSymlink).not.toHaveBeenCalled();
-    expect(mocks.commandAction).not.toHaveBeenCalled();
+    expect(mocks.runCommand).not.toHaveBeenCalled();
   });
 
   it("builds its environment through exportBuildEnv", async () => {
@@ -106,7 +106,7 @@ describe("buildExport", () => {
     expect(mocks.exportBuildEnv).toHaveBeenCalledOnce();
     /* Sharing off (the default): the override is there, and empty. */
     const env = await mocks.exportBuildEnv.mock.results[0].value;
-    expect(mocks.commandAction).toHaveBeenCalledWith(
+    expect(mocks.runCommand).toHaveBeenCalledWith(
       "build",
       env,
       expect.any(Function),
@@ -121,7 +121,7 @@ describe("buildExport", () => {
     await buildExport();
     expect(mocks.writeExportStamp).not.toHaveBeenCalled();
     const onSuccess = (
-      mocks.commandAction.mock.calls[0] as unknown as [
+      mocks.runCommand.mock.calls[0] as unknown as [
         string,
         unknown,
         () => Promise<void>,

@@ -1,7 +1,7 @@
 "use server";
 
 import { auth, signIn } from "@/auth";
-import { commandAction } from "@/app/(recipes)/scriptAction";
+import { runCommand } from "@/app/(recipes)/runCommand";
 import { readSettings } from "@/settings";
 import { rebuildAllIndexes } from "recipe-editor/controller/actions";
 import { readInventory } from "recipe-editor/controller/curation/inventory";
@@ -18,7 +18,7 @@ export async function buildExport() {
   /*
    * Signed in before anything else: a server action is a public POST, and
    * everything below — a full reindex, the settings, the saved inventory —
-   * is the owner's to start. (`commandAction` checks again; by then the
+   * is the owner's to start. (`runCommand` checks again; by then the
    * reindex would already have run.)
    */
   if (!(await auth())) {
@@ -80,7 +80,7 @@ export async function buildExport() {
    * rebuild, as the build's indexes describe it.
    */
   const head = await readHead(contentDirectory);
-  return commandAction(
+  return runCommand(
     "build",
     extraEnv,
     head

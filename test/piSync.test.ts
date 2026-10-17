@@ -5,7 +5,10 @@
 // and clears (D4); RECIPE_NOTIFY_URL is told once per new state with the URL
 // redacted from every log line (D5); the daily reminder fires once a day,
 // across a restart (D5); the export's staleness hint counts commits (D6).
-// No real network: every `fetch` is stubbed.
+// The review round: the sync state's writers under one lock, a conflict's
+// key naming which conflict, strict standing times, a refused push, no push
+// after `unreachable`, a ping naming its remote, HEAD moved back past the
+// export. No real network: every `fetch` is stubbed.
 
 import { mkdtemp, outputFile, readFile, rm, writeFile } from "fs-extra";
 import { tmpdir } from "os";
@@ -16,18 +19,27 @@ import simpleGit, { type SimpleGit } from "simple-git";
 import {
   patchMirrorState,
   readSyncState,
+  recordSettingsPush,
   recordSyncAttempt,
 } from "@discontent/cms/git/syncState";
+import {
+  acquireLock,
+  processIdentity,
+  releaseLock,
+} from "@discontent/cms/git/fileLock";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 
 import { gitSync } from "../websites/recipe-website/editor/controller/curation/sync";
 import type { CurationContext } from "../websites/recipe-website/editor/controller/curation/context";
 import {
+  MAX_AHEAD_MS,
   parseStanding,
   pushStanding,
   readStanding,
   recordStanding,
+  STANDING_TIMEOUT_MS,
   standingOf,
+  standingTooFarAhead,
 } from "../websites/recipe-website/editor/controller/instance/standing";
 import {
   pingWorkstation,
@@ -63,6 +75,7 @@ const ENV_KEYS = [
   "WORKSTATION_SYNC_TOKEN",
   "MIRROR_SYNC_TOKEN",
   "RECIPE_NOTIFY_URL",
+  "WORKSTATION_REMOTE",
 ];
 const savedEnv: Record<string, string | undefined> = {};
 
@@ -105,6 +118,7 @@ beforeEach(() => {
   for (const key of ENV_KEYS) savedEnv[key] = process.env[key];
   delete process.env.RECIPE_NOTIFY_URL;
   delete process.env.EDITOR_ROLE;
+  delete process.env.WORKSTATION_REMOTE;
 });
 
 afterEach(async () => {
@@ -199,7 +213,10 @@ describe("a standing conflict (39d, D4)", () => {
       expect(state.conflictJob).toBe("J1");
       /* The attention record rides along every attempt. */
       expect(state.attention?.key).toBe("uraninite:conflict");
-      expect(attentionKey(state)).toBe("uraninite:conflict");
+      /* 39d review: the key names which conflict. */
+      expect(attentionKey(state)).toBe(
+        "uraninite:conflict:2026-10-16T10:00:00.000Z",
+      );
     }
     const again = await recordSyncAttempt(dir, {
       remote,
@@ -574,9 +591,10 @@ describe("the daily reminder (39d, D5)", () => {
       "Still unresolved: Recipe sync with uraninite: conflict",
       "Still unresolved: Recipe sync with uraninite: conflict",
     ]);
-    const record = (await readSyncState(dir)).uraninite?.attention;
+    const state = (await readSyncState(dir)).uraninite;
+    const record = state?.attention;
     expect(record).toEqual({
-      key: "uraninite:conflict",
+      key: `uraninite:conflict:${state?.conflictSince}`,
       since: hours(0).toISOString(),
       at: hours(48).toISOString(),
     });
@@ -652,5 +670,321 @@ describe("the export staleness hint (39d, D6)", () => {
     });
 
     expect(await exportStaleness(await scratchDir("not-a-repo-"))).toBeNull();
+  });
+
+  /* 39d review: `<stamp>..HEAD` is empty when HEAD moved back past it. */
+  it("is not up to date when HEAD moved back past the export's commit", async () => {
+    const dir = await scratchDir("export-back-");
+    const repo = await initRepo(dir);
+    await commitFile(repo, dir, "recipes/data/a/recipe.json", "a\n");
+    const head = (await repo.revparse(["HEAD"])).trim();
+    await writeExportStamp(dir, { head, at: "2026-10-16T12:00:00.000Z" });
+    expect((await exportStaleness(dir))?.state).toBe("current");
+    await repo.raw(["reset", "--hard", "HEAD~1"]);
+    expect(await exportStaleness(dir)).toEqual({
+      state: "unknown",
+      at: "2026-10-16T12:00:00.000Z",
+    });
+    /* Diverged: a new commit on the moved-back line is not "1 since". */
+    await commitFile(repo, dir, "recipes/data/b/recipe.json", "b\n");
+    expect((await exportStaleness(dir))?.state).toBe("unknown");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* The review round                                                    */
+/* ------------------------------------------------------------------ */
+
+async function syncStatePath(dir: string): Promise<string> {
+  const raw = String(
+    await simpleGit({ baseDir: dir }).raw([
+      "rev-parse",
+      "--git-path",
+      "discontent-sync.json",
+    ]),
+  ).trim();
+  return join(dir, raw);
+}
+
+describe("the sync state's writers (39d review)", () => {
+  it("wait for a sync's record held under the lock, and keep its conflict", async () => {
+    const dir = await scratchDir("state-lock-");
+    await initRepo(dir);
+    await recordSyncAttempt(dir, {
+      remote: "uraninite",
+      outcome: "synced",
+      at: at("2026-10-16T09:00:00Z"),
+    });
+    const path = await syncStatePath(dir);
+    /* Another process — a CLI `git sync` — holds the lock while it records. */
+    const lockPath = `${path}.lock`;
+    await acquireLock(
+      lockPath,
+      { ...processIdentity(), syncStateWriteId: "OTHER-PROCESS" },
+      {
+        idKey: "syncStateWriteId",
+        deadline: Date.now() + 1_000,
+        staleMs: 30_000,
+      },
+    );
+    const told: string[] = [];
+    /* The hourly timer's look meanwhile. */
+    const timer = noteAttention(dir, "uraninite", {
+      notify: (title) => told.push(title),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(told).toEqual([]);
+    const file = JSON.parse(await readFile(path, "utf8"));
+    file.uraninite = {
+      ...file.uraninite,
+      outcome: "conflict",
+      conflictSince: "2026-10-16T10:00:00.000Z",
+      lastAttempt: "2026-10-16T10:00:00.000Z",
+    };
+    await writeFile(path, JSON.stringify(file));
+    await releaseLock(lockPath, "syncStateWriteId", "OTHER-PROCESS");
+
+    expect(await timer).toBe("notified");
+    expect(told).toEqual(["Recipe sync with uraninite: conflict"]);
+    const state = (await readSyncState(dir)).uraninite;
+    expect(state?.conflictSince).toBe("2026-10-16T10:00:00.000Z");
+    expect(state?.attention?.key).toBe(
+      "uraninite:conflict:2026-10-16T10:00:00.000Z",
+    );
+    expect(standingOf(state).conflict).toEqual({
+      since: "2026-10-16T10:00:00.000Z",
+    });
+  });
+
+  it("never tear the file or drop each other's fields", async () => {
+    const dir = await scratchDir("state-race-");
+    await initRepo(dir);
+    await recordSyncAttempt(dir, { remote: "uraninite", outcome: "synced" });
+    for (let round = 0; round < 5; round += 1) {
+      const stamp = `2026-10-16T1${round}:00:00.000Z`;
+      await Promise.all([
+        recordSyncAttempt(dir, { remote: "uraninite", outcome: "conflict" }),
+        patchMirrorState(dir, "uraninite", {
+          attention: { key: `k${round}`, since: stamp, at: stamp },
+        }),
+        patchMirrorState(dir, "uraninite", {
+          standingSent: { at: stamp, key: `s${round}` },
+        }),
+        recordSettingsPush(dir, "uraninite", { hash: `h${round}` }),
+      ]);
+      const state = JSON.parse(
+        await readFile(await syncStatePath(dir), "utf8"),
+      ).uraninite;
+      expect(state.conflictSince).toEqual(expect.any(String));
+      expect(state.standingSent).toEqual({ at: stamp, key: `s${round}` });
+      expect(state.settings).toMatchObject({ hash: `h${round}` });
+      expect(state.attention).toEqual({
+        key: `k${round}`,
+        since: stamp,
+        at: stamp,
+      });
+    }
+    /* No temp file left behind. */
+    const { readdir } = await import("fs/promises");
+    const gitDir = join(dir, ".git");
+    expect(
+      (await readdir(gitDir)).filter((name) =>
+        name.startsWith("discontent-sync.json."),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("a conflict's notification names which conflict (39d review)", () => {
+  it("tells a new conflict after one cleared by a sync it never looked at", async () => {
+    const dir = await scratchDir("notify-which-");
+    await initRepo(dir);
+    const told: { title: string; body: string }[] = [];
+    const notify = (title: string, body: string) => told.push({ title, body });
+    await recordSyncAttempt(dir, {
+      remote: "uraninite",
+      outcome: "conflict",
+      at: at("2026-10-16T08:00:00Z"),
+    });
+    expect(await noteAttention(dir, "uraninite", { notify })).toBe("notified");
+    /* Cleared and back, by syncs no attention check followed (the CLI's). */
+    await recordSyncAttempt(dir, { remote: "uraninite", outcome: "synced" });
+    await recordSyncAttempt(dir, {
+      remote: "uraninite",
+      outcome: "conflict",
+      at: at("2026-10-16T09:00:00Z"),
+    });
+    expect(await noteAttention(dir, "uraninite", { notify })).toBe("notified");
+    expect(told.map((entry) => entry.title)).toEqual([
+      "Recipe sync with uraninite: conflict",
+      "Recipe sync with uraninite: conflict",
+    ]);
+    /* The reminder dates the conflict, not the first notification. */
+    const now = new Date(Date.now() + REMINDER_INTERVAL_MS + 60_000);
+    expect(await noteAttention(dir, "uraninite", { notify, now })).toBe(
+      "reminded",
+    );
+    expect(told.at(-1)?.body).toContain(
+      `Since ${new Date("2026-10-16T09:00:00Z").toLocaleString()}.`,
+    );
+  });
+});
+
+describe("a standing state's time (39d review)", () => {
+  it("is strict ISO-8601 UTC, and not far ahead of the receiver's clock", async () => {
+    const ok = { asOf: "2026-10-16T10:00:00Z", conflict: null };
+    expect(parseStanding(ok)).toEqual(ok);
+    expect(
+      parseStanding({ asOf: "2026-10-16T10:00:00.123Z", conflict: null }),
+    ).toBeDefined();
+    for (const asOf of [
+      "2026-10-16 10:00:00",
+      "2026-10-16T10:00:00+02:00",
+      "Oct 16 2026",
+      "2026-10-16",
+      "+275760-09-13T00:00:00.000Z",
+      "2026-13-45T99:99:99Z",
+    ]) {
+      expect(parseStanding({ asOf, conflict: null })).toBeUndefined();
+    }
+    expect(
+      parseStanding({
+        asOf: "2026-10-16T10:00:00Z",
+        conflict: { since: "tomorrow" },
+      }),
+    ).toBeUndefined();
+
+    const now = new Date("2026-10-16T10:00:00Z");
+    const ahead = (ms: number) => ({
+      asOf: new Date(now.getTime() + ms).toISOString(),
+      conflict: null,
+    });
+    expect(standingTooFarAhead(ahead(MAX_AHEAD_MS - 1000), now)).toBe(false);
+    expect(standingTooFarAhead(ahead(MAX_AHEAD_MS + 1000), now)).toBe(true);
+  });
+
+  it("from the far future is ignored by the pinger and loses to an honest one", async () => {
+    const dir = await scratchDir("standing-future-");
+    await initRepo(dir);
+    process.env.WORKSTATION_URL = "http://tourmaline:3000";
+    process.env.WORKSTATION_SYNC_TOKEN = "rcp_ping";
+    const future = {
+      asOf: new Date(Date.now() + 10 * MAX_AHEAD_MS).toISOString(),
+      conflict: { since: "2026-10-16T10:00:00.000Z" },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json({ outcome: "nothing", standing: future })),
+    );
+    await pingWorkstation(dir);
+    expect(await readStanding(dir)).toBeNull();
+
+    /* One kept before receivers refused it does not win forever. */
+    expect(await recordStanding(dir, future, "push")).toBe(true);
+    expect(
+      await recordStanding(
+        dir,
+        { asOf: new Date().toISOString(), conflict: null },
+        "ping",
+      ),
+    ).toBe(true);
+    expect((await readStanding(dir))?.conflict).toBeNull();
+  });
+});
+
+describe("the standing push (39d review)", () => {
+  async function workstationWithMirror(prefix: string) {
+    const dir = await scratchDir(prefix);
+    const repo = await initRepo(dir);
+    const settingsDir = await scratchDir("settings-");
+    process.env.SETTINGS_DIRECTORY = settingsDir;
+    await writeFile(
+      join(settingsDir, "settings.json"),
+      JSON.stringify({
+        mirrors: ["uraninite"],
+        mirrorUrls: { uraninite: "http://uraninite.test:3000" },
+      }),
+    );
+    process.env.MIRROR_SYNC_TOKEN = "rcp_mirror";
+    return { dir, repo };
+  }
+
+  it("counts a 200 that was not kept as not told, and logs it once", async () => {
+    const { dir } = await workstationWithMirror("push-kept-");
+    const inits: RequestInit[] = [];
+    let kept = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        inits.push(init);
+        return json({ ok: true, kept });
+      }),
+    );
+    const conflict = await recordSyncAttempt(dir, {
+      remote: "uraninite",
+      outcome: "conflict",
+    });
+    const target = { remote: "uraninite" };
+    expect(await pushStanding(dir, target)).toEqual({
+      status: "failed",
+      error: "it holds a newer state than this one",
+      repeated: false,
+    });
+    expect(
+      (await readSyncState(dir)).uraninite?.standingSent?.key,
+    ).toBeUndefined();
+    /* The next sync sends again; the same refusal is not news. */
+    await recordSyncAttempt(dir, { remote: "uraninite", outcome: "busy" });
+    expect(await pushStanding(dir, target)).toMatchObject({
+      status: "failed",
+      repeated: true,
+    });
+    kept = true;
+    expect(await pushStanding(dir, target)).toEqual({
+      status: "sent",
+      key: `conflict:${conflict.conflictSince}`,
+    });
+    for (const init of inits) {
+      expect(init.redirect).toBe("error");
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    }
+    expect(STANDING_TIMEOUT_MS).toBe(5_000);
+  });
+
+  it("is not sent after an unreachable sync", async () => {
+    const { dir, repo } = await workstationWithMirror("push-unreachable-");
+    /* A path that is not there: the fetch "could not read from remote". */
+    await repo.addRemote("uraninite", join(dir, "..", "no-such-mirror-39d"));
+    await recordSyncAttempt(dir, { remote: "uraninite", outcome: "conflict" });
+    const fetchStub = vi.fn(async () => json({ ok: true, kept: true }));
+    vi.stubGlobal("fetch", fetchStub);
+    const result = await syncMirror(dir, "uraninite", ["change"]);
+    expect(result.outcome).toBe("unreachable");
+    expect(fetchStub).not.toHaveBeenCalled();
+    /* Still owed: the next reachable sync sends it. */
+    expect((await readSyncState(dir)).uraninite?.standingSent).toBeUndefined();
+  }, 30_000);
+});
+
+describe("several mirrors (39d review)", () => {
+  it("a mirror's ping names its remote when WORKSTATION_REMOTE is set", async () => {
+    const dir = await scratchDir("ping-remote-");
+    await initRepo(dir);
+    process.env.WORKSTATION_URL = "http://tourmaline:3000";
+    process.env.WORKSTATION_SYNC_TOKEN = "rcp_ping";
+    const bodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        bodies.push(String(init.body));
+        return json({ outcome: "nothing" });
+      }),
+    );
+    await pingWorkstation(dir);
+    process.env.WORKSTATION_REMOTE = "uraninite";
+    await pingWorkstation(dir);
+    process.env.WORKSTATION_REMOTE = "not a remote; rm -rf";
+    await pingWorkstation(dir);
+    expect(bodies).toEqual(["{}", '{"remote":"uraninite"}', "{}"]);
   });
 });

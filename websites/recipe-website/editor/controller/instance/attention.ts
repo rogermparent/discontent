@@ -1,11 +1,13 @@
 /**
  * When to tell a person about a mirror's sync (epic 28 D5, epic 39 D5).
  *
- * - **Once per new state.** `attentionKey` names the state (a conflict, a
- *   dirty mirror, three failures in a row); a key that differs from the one
- *   last told is notified on every channel (`notifyPerson`: the desktop, and
- *   `RECIPE_NOTIFY_URL` when set). A state that clears is forgotten, so the
- *   next one is new again.
+ * - **Once per new state.** `attentionKey` names the state (a conflict since
+ *   `<time>`, a dirty mirror, three failures in a row); a key that differs
+ *   from the one last told is notified on every channel (`notifyPerson`: the
+ *   desktop, and `RECIPE_NOTIFY_URL` when set). A state that clears is
+ *   forgotten, so the next one is new again — and a conflict's key carries
+ *   its `conflictSince`, so a new conflict is new even when the clearing
+ *   between was never seen here (a sync another process ran).
  * - **A daily reminder while a conflict or a dirty mirror stands** — the
  *   two states only a person can end. Three failures in a row are not
  *   repeated: that is usually the Pi switched off, and a daily nag about it
@@ -16,14 +18,16 @@
  *   nor resets the reminder's clock.
  *
  * Checked after every sync the running instance makes (`runMirrorSync`) and
- * by the instance's hourly timer (`REMINDER_CHECK_MS`, unref'd), so a
- * reminder comes even when nothing syncs, and a state another process
- * recorded (`recipes git sync`) is told too. One check at a time in this
- * process, so the two never both tell the same new state.
+ * by the instance's hourly timer (`REMINDER_CHECK_MS`, unref'd, inside the
+ * instance's mutex), so a reminder comes even when nothing syncs, and a
+ * state another process recorded (`recipes git sync`) is told too. The look
+ * and the write are one step under the sync state's lock
+ * (`updateMirrorState`), so a sync recording its attempt meanwhile — in this
+ * process or another — is never overwritten, and two checks never both tell
+ * the same new state.
  */
 import {
-  patchMirrorState,
-  readSyncState,
+  updateMirrorState,
   type MirrorSyncState,
 } from "@discontent/cms/git/syncState";
 import {
@@ -36,8 +40,8 @@ import {
 export const REMINDER_INTERVAL_MS = 24 * 60 * 60_000;
 export const REMINDER_CHECK_MS = 60 * 60_000;
 
-/** The states a daily reminder repeats. */
-const REMINDED = [":conflict", ":mirror_dirty"];
+/** The states a daily reminder repeats: a conflict, a dirty mirror. */
+const REMINDED = /:(?:conflict(?::|$)|mirror_dirty$)/;
 
 export type Notify = (title: string, body: string) => void;
 
@@ -48,14 +52,12 @@ export interface AttentionOptions {
 
 export type AttentionOutcome = "notified" | "reminded" | "cleared" | null;
 
-let checks: Promise<unknown> = Promise.resolve();
-
 function reminderDue(
   key: string,
   record: NonNullable<MirrorSyncState["attention"]>,
   now: Date,
 ): boolean {
-  if (!REMINDED.some((suffix) => key.endsWith(suffix))) return false;
+  if (!REMINDED.test(key)) return false;
   return now.getTime() - Date.parse(record.at) >= REMINDER_INTERVAL_MS;
 }
 
@@ -63,45 +65,45 @@ function reminderDue(
  * Look at one mirror's record and tell a person if it is due: a new state,
  * or a reminder. Answers what it did. Never throws.
  */
-export function noteAttention(
+export async function noteAttention(
   contentDirectory: string,
   remote: string,
   { notify = notifyPerson, now = new Date() }: AttentionOptions = {},
 ): Promise<AttentionOutcome> {
-  const result = checks.then(async (): Promise<AttentionOutcome> => {
-    const state = (await readSyncState(contentDirectory))[remote];
-    if (!state) return null;
-    const key = attentionKey(state);
-    const previous = state.attention;
-    if (!key) {
-      if (!previous) return null;
-      await patchMirrorState(contentDirectory, remote, {
-        attention: undefined,
-      });
-      return "cleared";
-    }
-    if (previous?.key !== key) {
-      const { title, body } = attentionText(state);
-      notify(title, body);
-      const at = now.toISOString();
-      await patchMirrorState(contentDirectory, remote, {
-        attention: { key, since: at, at },
-      });
-      return "notified";
-    }
-    if (reminderDue(key, previous, now)) {
-      const { title, body } = reminderText(state, previous.since);
-      notify(title, body);
-      await patchMirrorState(contentDirectory, remote, {
-        attention: { ...previous, at: now.toISOString() },
-      });
-      return "reminded";
-    }
-    return null;
-  });
-  checks = result.catch(() => undefined);
-  return result.catch((error) => {
+  try {
+    let outcome: AttentionOutcome = null;
+    let message: { title: string; body: string } | undefined;
+    const written = await updateMirrorState(
+      contentDirectory,
+      remote,
+      (state) => {
+        const key = attentionKey(state);
+        const previous = state.attention;
+        if (!key) {
+          if (!previous) return undefined;
+          outcome = "cleared";
+          return { attention: undefined };
+        }
+        const at = now.toISOString();
+        if (previous?.key !== key) {
+          outcome = "notified";
+          message = attentionText(state);
+          return { attention: { key, since: at, at } };
+        }
+        if (reminderDue(key, previous, now)) {
+          outcome = "reminded";
+          /* The review's nit: "Since" is the conflict's own time. */
+          message = reminderText(state, state.conflictSince ?? previous.since);
+          return { attention: { ...previous, at } };
+        }
+        return undefined;
+      },
+    );
+    if (!written) return null;
+    if (message) notify(message.title, message.body);
+    return outcome;
+  } catch (error) {
     console.error("[sync] attention check failed:", error);
     return null;
-  });
+  }
 }

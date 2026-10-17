@@ -382,7 +382,12 @@ export async function runMirrorSync(
        * workstation's own syncs answer no one. Logged like the settings.
        */
       const record = result.remote || target?.remote;
-      if (record) {
+      /*
+       * Not after `unreachable` (39d review): the mirror's editor is down
+       * too, most likely, and each sync would wait out the send. The
+       * mirror's startup ping asks anyway, and the next reachable sync sends.
+       */
+      if (record && result.outcome !== "unreachable") {
         const told = await pushStanding(
           contentDirectory,
           target?.remote === record ? target : { remote: record },
@@ -517,11 +522,18 @@ async function start(): Promise<Instance | undefined> {
      * restart neither repeats nor resets it.
      */
     instance.reminderTimer = setInterval(() => {
-      void (async () => {
+      /*
+       * Inside the instance's mutex (39d review), so it never runs beside
+       * this process's sync; its write is one locked step on the sync state
+       * (`updateMirrorState`), so another process's sync recording meanwhile
+       * keeps its fields. Neither takes the repository's line or the sync
+       * lock: nothing here waits on them, so no order to keep.
+       */
+      void exclusive(async () => {
         for (const remote of (await readSettings()).mirrors ?? []) {
           await noteAttention(contentDirectory, remote);
         }
-      })().catch(() => undefined);
+      }).catch(() => undefined);
     }, REMINDER_CHECK_MS);
     instance.reminderTimer.unref?.();
   }

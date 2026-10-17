@@ -24,7 +24,8 @@
  * it: its edits keep committing locally and are merged by the workstation's
  * next sync after the conflict is resolved there (the existing behaviour).
  */
-import { readFile, rename, writeFile } from "fs/promises";
+import { randomUUID } from "node:crypto";
+import { readFile, rename, rm, writeFile } from "fs/promises";
 import { isAbsolute, join } from "path";
 import simpleGit from "simple-git";
 import {
@@ -82,12 +83,34 @@ export function standingKey(standing: WorkstationStanding): string {
 
 const JOB_ID = /^[A-Za-z0-9_-]{1,80}$/;
 
+/**
+ * ISO-8601 in UTC, as `toISOString` writes it (milliseconds optional) — not
+ * whatever `Date.parse` takes (39d review: "tomorrow"-ish spellings, local
+ * times, years past 9999).
+ */
+const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+
 function isTime(value: unknown): value is string {
   return (
     typeof value === "string" &&
-    value.length <= 40 &&
+    ISO_UTC.test(value) &&
     Number.isFinite(Date.parse(value))
   );
+}
+
+/**
+ * How far ahead of the mirror's clock an `asOf` may be. Newest wins, so one
+ * from the far future would freeze the banner until that time; a day covers
+ * any honest drift between two machines on NTP.
+ */
+export const MAX_AHEAD_MS = 24 * 60 * 60_000;
+
+/** Whether `standing` claims a time too far past this machine's clock. */
+export function standingTooFarAhead(
+  standing: WorkstationStanding,
+  now: Date = new Date(),
+): boolean {
+  return Date.parse(standing.asOf) - now.getTime() > MAX_AHEAD_MS;
 }
 
 /**
@@ -158,7 +181,13 @@ export function recordStanding(
 ): Promise<boolean> {
   const result = writes.then(async () => {
     const previous = await readStanding(contentDirectory);
-    if (previous && Date.parse(previous.asOf) > Date.parse(standing.asOf)) {
+    /* A stored time too far ahead (from before the receivers refused one)
+     * would win forever: it is not counted as newer. */
+    if (
+      previous &&
+      !standingTooFarAhead(previous, now) &&
+      Date.parse(previous.asOf) > Date.parse(standing.asOf)
+    ) {
       return false;
     }
     const stored: StoredStanding = {
@@ -169,9 +198,14 @@ export function recordStanding(
     };
     try {
       const path = await standingPath(contentDirectory);
-      const temporary = `${path}.${process.pid}.tmp`;
-      await writeFile(temporary, `${JSON.stringify(stored, null, 2)}\n`);
-      await rename(temporary, path);
+      const temporary = `${path}.${randomUUID()}.tmp`;
+      try {
+        await writeFile(temporary, `${JSON.stringify(stored, null, 2)}\n`);
+        await rename(temporary, path);
+      } catch (error) {
+        await rm(temporary, { force: true }).catch(() => undefined);
+        throw error;
+      }
       return true;
     } catch {
       return false;
@@ -182,6 +216,12 @@ export function recordStanding(
 }
 
 /* --- the workstation's push ----------------------------------------- */
+
+/**
+ * Short (39d review): the send waits inside the sync's turn, and a mirror's
+ * editor on the LAN answers in milliseconds or not at all.
+ */
+export const STANDING_TIMEOUT_MS = 5_000;
 
 export type StandingPushOutcome =
   | { status: "sent"; key: string }
@@ -195,11 +235,17 @@ export type StandingPushOutcome =
  * nothing until told), so a workstation that never hits a conflict never
  * sends. Never throws; a failure is recorded on the mirror's sync record
  * (`standingSent`) and retried after the next sync.
+ *
+ * A `200 {kept: false}` is a failure too (39d review): the mirror holds a
+ * newer state than this one, so it was not told this — the Mirrors card must
+ * not say it was. The next sync's state is newer and is sent again; if the
+ * mirror keeps refusing (its copy claims a later time than this clock), the
+ * same error is logged once, like any repeated failure.
  */
 export async function pushStanding(
   contentDirectory: string,
   target: MirrorTarget,
-  { timeoutMs = 15_000 }: { timeoutMs?: number } = {},
+  { timeoutMs = STANDING_TIMEOUT_MS }: { timeoutMs?: number } = {},
 ): Promise<StandingPushOutcome> {
   const record = (await readSyncState(contentDirectory))[target.remote];
   if (!record) return { status: "skipped", reason: "no sync recorded yet" };
@@ -236,12 +282,18 @@ export async function pushStanding(
       },
       body: JSON.stringify(standing),
       signal: AbortSignal.timeout(timeoutMs),
+      redirect: "error",
     });
+    const body = (await response.json().catch(() => ({}))) as {
+      kept?: unknown;
+      error?: { message?: string };
+    };
     if (!response.ok) {
-      const body = (await response.json().catch(() => ({}))) as {
-        error?: { message?: string };
-      };
       error = `${response.status}: ${body.error?.message ?? response.statusText}`;
+    } else if (body.kept === false) {
+      /* Without this send's time, so a refusal that persists reads as
+       * repeated and is logged once. */
+      error = "it holds a newer state than this one";
     }
   } catch (caught) {
     error = `${new URL(url).host} not reached: ${

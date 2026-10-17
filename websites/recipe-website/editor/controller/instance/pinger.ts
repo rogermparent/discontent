@@ -17,12 +17,19 @@
  * for this mirror (a conflict since `<time>`, or clear), whatever the run's
  * outcome; it is kept with `recordStanding` (`standing.ts`), the newest
  * wins, for the mirror's conflict banner. An answer without it (a
- * workstation from before 39d, an error) leaves what the mirror knew.
+ * workstation from before 39d, an error), or with an `asOf` more than a day
+ * ahead of this clock, leaves what the mirror knew.
+ *
+ * Several mirrors (39d review): the workstation syncs the remote a ping
+ * names, and its first mirror when it names none. A mirror says which remote
+ * it is with `WORKSTATION_REMOTE` — the name in the workstation's `mirrors`
+ * list — sent as `{remote}`; unset, the ping is `{}` as before, which is
+ * right for the one mirror there is today.
  */
 import { readFile, writeFile } from "fs/promises";
 import { isAbsolute, join } from "path";
 import simpleGit from "simple-git";
-import { parseStanding, recordStanding } from "./standing";
+import { parseStanding, recordStanding, standingTooFarAhead } from "./standing";
 
 const PING_STATE = "discontent-ping.json";
 
@@ -70,10 +77,23 @@ async function writePingState(contentDirectory: string, state: PingState) {
   }
 }
 
-export function workstationConfig(): { url: string; token: string } | null {
+/** A remote name as git and `/api/git/sync` accept one. */
+const REMOTE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+
+export function workstationConfig(): {
+  url: string;
+  token: string;
+  remote?: string;
+} | null {
   const url = process.env.WORKSTATION_URL?.replace(/\/+$/, "");
   const token = process.env.WORKSTATION_SYNC_TOKEN;
-  return url && token ? { url, token } : null;
+  const remote = process.env.WORKSTATION_REMOTE?.trim();
+  if (!url || !token) return null;
+  return {
+    url,
+    token,
+    ...(remote && REMOTE_NAME.test(remote) ? { remote } : {}),
+  };
 }
 
 export async function pingWorkstation(
@@ -99,7 +119,7 @@ export async function pingWorkstation(
         authorization: `Bearer ${config.token}`,
         "content-type": "application/json",
       },
-      body: "{}",
+      body: JSON.stringify(config.remote ? { remote: config.remote } : {}),
       signal: AbortSignal.timeout(timeoutMs),
     });
     const body = (await response.json().catch(() => ({}))) as {
@@ -109,7 +129,9 @@ export async function pingWorkstation(
       standing?: unknown;
     };
     const standing = response.ok ? parseStanding(body.standing) : undefined;
-    if (standing) await recordStanding(contentDirectory, standing, "ping");
+    if (standing && !standingTooFarAhead(standing)) {
+      await recordStanding(contentDirectory, standing, "ping");
+    }
     state = {
       at,
       ok: response.ok,

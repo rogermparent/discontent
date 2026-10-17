@@ -7,7 +7,10 @@
  * the same token as the site settings (28-D7). The mirror keeps the newest
  * (`asOf`) for its `/git` and Maintenance banner. It changes nothing else:
  * no merge, no push (28-D1). Write token required; a workstation answers
- * 403, since the state is its own.
+ * 403, since the state is its own. Times are ISO-8601 UTC; an `asOf` more
+ * than a day ahead of this editor's clock is refused (400), since the newest
+ * wins and it would freeze the banner (39d review). `kept: false` means a
+ * newer state was already here: the sender counts it as not told.
  */
 import { isMirror } from "recipe-website-common/config/role";
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
@@ -22,6 +25,7 @@ import {
 import {
   parseStanding,
   recordStanding,
+  standingTooFarAhead,
 } from "recipe-editor/controller/instance/standing";
 
 export const runtime = "nodejs";
@@ -37,7 +41,12 @@ export async function PUT(request: Request) {
     const standing = parseStanding(await readJsonBody(request));
     if (!standing) {
       throw new ValidationError(
-        "The body must be {asOf, conflict: {since, job?} | null}, with ISO times.",
+        "The body must be {asOf, conflict: {since, job?} | null}, with ISO-8601 UTC times.",
+      );
+    }
+    if (standingTooFarAhead(standing)) {
+      throw new ValidationError(
+        "asOf is more than a day ahead of this editor's clock; check both machines' time.",
       );
     }
     const kept = await recordStanding(ctx.contentDirectory, standing, "push");
