@@ -3,7 +3,6 @@ import type { AddressInfo } from "net";
 import type { APIRequestContext, Page } from "@playwright/test";
 import { test, expect } from "../support/test";
 import { fillSignInForm, markdownEditorReady } from "../support/helpers";
-import { expectHydrated } from "../support/hydration";
 import { fixturePath, recordOutsideJob } from "../support/tasks";
 import { standInChat } from "../fixtures/llm/standInModel";
 
@@ -275,14 +274,13 @@ test.describe("Import jobs", () => {
     const row = page.locator(`[data-job="${job}"]`);
     await expect(row).toContainText("form-text");
     await expect(row.getByTestId("job-status")).toHaveText("done");
-    await dashboardReady(page);
-
     /*
      * Filters: by kind, by status. The filters are controlled `<select>`s: a
      * choice made before the dashboard hydrates is reset when React adopts
-     * them, and the row stays (40f: 20 retries in 60 CI runs).
+     * them, and the row stays (40f: 20 retries in 60 CI runs) — hence
+     * `dashboardReady` first.
      */
-    await expectHydrated(page.getByLabel("Kind", { exact: true }));
+    await dashboardReady(page);
     await page.getByLabel("Kind", { exact: true }).selectOption("inspect");
     await expect(row).toHaveCount(0);
     await page.getByLabel("Kind", { exact: true }).selectOption("form-text");
