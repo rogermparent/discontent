@@ -89,7 +89,8 @@ test.describe("Resume Update Operations", () => {
 
       await page.getByRole("link", { name: "Cancel" }).click();
 
-      await expect(page).toHaveURL(/\/resume\/acme-corp-engineer/);
+      await expect(page).toHaveURL(/\/resume\/acme-corp-engineer$/);
+      await expect(page.getByText("Acme Corp")).toBeVisible();
       await expect(page.getByText("Should Not Be Saved")).toHaveCount(0);
     });
 

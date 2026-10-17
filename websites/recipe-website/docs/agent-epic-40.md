@@ -210,6 +210,24 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
 
 ### 40b
 
+- **Tb1 — resume-builder's `e2e-start` never built.** Its
+  `playwright.config.ts` ran `pnpm start:test` alone in `PLAYWRIGHT_BUILD`
+  mode, the defect the recipe, portfolio and demo configs fixed together
+  long ago ("leaving two of three is how it comes back" — the fourth was
+  missed). It served whatever `.next` was on disk, or failed on a clean
+  checkout. Now `pnpm build && pnpm start:test`, no server reuse in build
+  mode.
+- **Tb2 — a git-log assertion straight after a Submit click races the
+  server action.** git.spec's "accumulate" test read the log ~0.7 s in and
+  found no update commit at all. Wait for the redirect URL (the commit lands
+  before `redirect()`), then read the log.
+- **Tb3 — pinning the workspace root silences Next's lockfile warning, and
+  nothing else.** From a worktree Next infers the main checkout as the root;
+  `outputFileTracingRoot` / `turbopack.root` fix that, but portfolio's
+  webpack build still ran out of heap at the same ~4 GB. The heap is
+  webpack's own (its module graph lives in V8); Turbopack's Rust compiler
+  keeps it out of V8, as 0424026c found for the recipe editor.
+
 ### 40c
 
 ### 40d
@@ -227,6 +245,97 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
 ### 40a — Import / LLM polish
 
 ### 40b — Test / CI hygiene
+
+**Reindex needed: no. Deploy: none** (resume-builder and portfolio aren't
+deployed from here; the recipe apps are untouched).
+
+**resume-builder's 7 red specs.** History first: the specs came in with
+#114 (a750c96b, Cypress, alongside a rewrite of the app) and were ported to
+Playwright in 835cb81a. `git log -S` finds no version of the view page that
+rendered the resume's own `company` (only each experience entry's), no
+Cancel link ever in `src/`, and the update action has written
+`Update resume: <finalSlug>` since #114, with the form pre-filling the
+current slug. So none of the 7 is a regression in the strict sense — they
+asserted things the app never did. Verdict per spec:
+
+| Spec (test)                                        | Fails on                                         | Verdict                                                                                          | Fix                                                                                             |
+| -------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| view — "should display job title and company"      | `Acme Corp` not on the view page                 | App gap: the list and the edit page name the company, the view page didn't (Db1)                 | View page: a screen-only "Resume for **Acme Corp**" line                                        |
+| create — "required fields only"                    | `Acme Corp` after create                         | Same as above                                                                                    | Same                                                                                            |
+| create — "create then immediate edit"              | `Quick Edit Co` after the edit                   | Same as above                                                                                    | Same                                                                                            |
+| update — "should update company field"             | `New Company` after the edit                     | Same as above                                                                                    | Same                                                                                            |
+| update — "cancel edit and return to view page"     | no Cancel link on the edit page                  | App gap (Db2)                                                                                    | Edit form: a Cancel link back to `/resume/<slug>`; the spec's URL check anchored (`…engineer$`) |
+| git — "commit when updating a resume"              | `Updated Corp` (as above), then `updated-corp-…` | Visible text: app gap above. Commit slug: **stale spec** — an edit keeps its slug (Db3)          | Expect `Update resume: update-corp-engineer`                                                    |
+| git — "accumulate commits for multiple operations" | no update commit in the log                      | **Stale spec**: it read the log before the server action finished (Tb2), and expected a new slug | Wait for each redirect; expect `Update resume: first-corp-developer`                            |
+
+Also: the edit route's `form.tsx`, an unused duplicate of
+`EditResumeForm.tsx` since 4d249359, deleted.
+
+**The CI job.** `Resume builder` in `playwright.yml`: a `resume` output on
+the `Changes` filter (`*shared` — `packages/**`, the lockfile, the
+workspace files and CI plumbing — plus `websites/resume-builder/**`; docs and
+READMEs excluded as for the others), the same Playwright container and
+image check as portfolio's job, the git identity git.spec needs, production
+mode (`PLAYWRIGHT_BUILD=1`, Db4), a 20-minute timeout, and the HTML report
+plus `test-results` (traces on the first retry) uploaded on failure. No
+`AUTH_SECRET` of its own: the app has no sign-in. README's stale Cypress
+section rewritten for Playwright.
+
+**Portfolio's production build.** Measured inside the heavy slot with
+`/usr/bin/time -v` (largest process's peak RSS) and a 2 s sampler of the
+summed `next` processes, from a worktree, `.next` cleared each time:
+
+| Build                                   | Result                                  | Wall | Peak RSS (largest / summed) |
+| --------------------------------------- | --------------------------------------- | ---- | --------------------------- |
+| `next build --webpack` (main as it was) | FATAL heap OOM at ~4,030 MB, in compile | 4:23 | 5,110 MB / 5,051 MB         |
+| `--webpack`, workspace root pinned      | FATAL heap OOM, same place              | 2:17 | 5,141 MB / 5,229 MB         |
+| `next build` (Turbopack), root pinned   | ✅ compiled in 6.8 s, 17 routes         | 0:17 | 1,191 MB / 1,452 MB         |
+| for scale: resume-builder `--webpack`   | ✅ compiled in 37.8 s                   | 1:00 | 1,845 MB                    |
+
+The fix is the cause's fix, not a `NODE_OPTIONS` raise (Db5): portfolio's
+`build` is now `next build` (Turbopack, Next 16's default, what `next dev` —
+and so portfolio's CI job — already runs), the same move 0424026c made for
+the recipe editor and export. `getContentDirectory`'s Turbopack guard from
+that commit already covers portfolio. Both sites' `next.config.mjs` also pin
+`outputFileTracingRoot` / `turbopack.root` to the workspace root, which
+silences the worktree warning (Tb3) but isn't what fixed the heap. Which
+module makes webpack's graph that large wasn't isolated: four-minute,
+5 GB experiments on a shared machine for a bundler the site no longer uses.
+
+**Decisions.**
+
+- **Db1** — The view page names the company on screen only
+  (`print:hidden`): the printed resume goes _to_ that company and stays as
+  it was. **Roger to confirm** (the alternative is dropping the company
+  assertions from the four specs).
+- **Db2** — The edit form gets a Cancel link (a plain link to the view
+  page; nothing is saved). Recipe and portfolio forms have none; this is
+  the resume app's own. **Roger to confirm.**
+- **Db3** — An edit keeps the resume's slug unless the Slug field is
+  changed (the form pre-fills it; update.spec's "slug pre-populated" and
+  "update slug and redirect" assert exactly that), so the git specs were
+  wrong, not the app.
+- **Db4** — The CI job runs production mode only, one cell: the suite is
+  35 tests, runner concurrency is the budget, and production mode is the
+  build that would ship (and has no per-route compile waits). Dev mode
+  stays a local `e2e-dev`.
+- **Db5** — Portfolio builds with Turbopack rather than a bigger V8 heap.
+  `websites/portfolio/export` still says `--webpack`; it wasn't measured
+  (out of the backlog row's scope) and is left alone.
+
+**Gates.**
+
+- resume-builder Playwright, production mode (`next build` + `next start`
+  on 3010), heavy slot: **28 passed / 7 failed** before (the same 7 as
+  39e; the `e2e` project has 35 tests), **35/35** after.
+- Portfolio: production build ✅ (above); Playwright `e2e` + `mobile`
+  against that Turbopack production build, heavy slot: **90/90** (visual
+  baselines unchanged).
+- `pnpm --filter recipe-editor typecheck` ✅;
+  `pnpm --filter recipe-website exec tsc --noEmit` ✅;
+  `pnpm exec vitest run`: **2295/2295** (111 files), all in the heavy slot.
+- CI: the new `Resume builder` job runs on this PR (it touches
+  `websites/resume-builder/**`).
 
 ### 40c — Quick wins
 

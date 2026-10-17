@@ -38,6 +38,7 @@ jobs:
     outputs:
       recipe: ${{ steps.filter.outputs.recipe }}
       portfolio: ${{ steps.filter.outputs.portfolio }}
+      resume: ${{ steps.filter.outputs.resume }}
       demo: ${{ steps.filter.outputs.demo }}
     steps:
       - uses: actions/checkout@v7
@@ -67,6 +68,9 @@ jobs:
             portfolio:
               - *shared
               - 'websites/portfolio/**'
+            resume:
+              - *shared
+              - 'websites/resume-builder/**'
             demo:
               - *shared
 
@@ -198,6 +202,67 @@ jobs:
         with:
           name: blob-report-portfolio
           path: websites/portfolio/editor/blob-report
+          retention-days: 14
+
+  # resume-builder's own suite (5 specs, 35 tests). Nothing ran it before
+  # 40b, and it sat 7 red on main for at least an epic without anyone noticing
+  # (agent-epic-39.md Te2). Production mode only: PLAYWRIGHT_BUILD=1 makes
+  # playwright.config.ts run `next build --webpack` and then `next start` on
+  # 3010 — one cell, not demo's dev/prod pair, because the suite is small and
+  # runner concurrency is the budget. No AUTH_SECRET needed (the app has no
+  # sign-in), but the workflow-level one is harmless.
+  resume:
+    name: Resume builder
+    needs: changes
+    if: ${{ needs.changes.outputs.resume == 'true' }}
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure git
+        # git.spec asserts on the commits each create, update and delete
+        # makes, so the container needs an identity first.
+        run: |
+          git config --global user.name "Playwright Tester"
+          git config --global user.email "playwright@example.com"
+          git config --global init.defaultBranch main
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check the image matches @playwright/test
+        working-directory: websites/resume-builder
+        run: ../../scripts/check-playwright-image.sh
+
+      - name: Run Playwright tests
+        working-directory: websites/resume-builder
+        env:
+          PLAYWRIGHT_BUILD: "1"
+        run: pnpm exec playwright test --project=e2e --reporter=list,html
+
+      - name: Upload report
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-resume
+          path: |
+            websites/resume-builder/playwright-report
+            websites/resume-builder/test-results
           retention-days: 14
 
   # `packages/cms/demo` is the CMS's own suite — the only place the core is

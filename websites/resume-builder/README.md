@@ -49,15 +49,10 @@ The copy function duplicates an existing resume as a starting point for a new va
 
 ## Test Suite
 
-Cypress e2e tests can run against the dev server (`e2e-dev`) or an optimized production build (`e2e-start`), both with `:headless` variants. `e2e-dev` is useful for rapid iteration, while `e2e-start` is faster and closer to production.
+Playwright e2e tests (`playwright/tests`, port 3010) run against the dev server (`e2e-dev`) or a production build (`e2e-start`, which runs `next build` and then `next start` itself). `:headed` variants open the Playwright UI. CI runs the production mode in the `Resume builder` job of `.github/workflows/playwright.yml`, whenever this site, `packages/**` or the lockfile change.
 
 ```bash
-# Against the dev server
-pnpm e2e-dev            # Interactive (Cypress UI)
-pnpm e2e-dev:headless   # Headless (for CI)
-
-# Against a production build (run build first)
-pnpm build
-pnpm e2e-start          # Interactive (Cypress UI)
-pnpm e2e-start:headless # Headless (for CI)
+pnpm e2e-dev            # against next dev
+pnpm e2e-start          # build, then against next start
+pnpm e2e-start:headed   # the same, in the Playwright UI
 ```
