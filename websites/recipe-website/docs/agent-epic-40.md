@@ -311,13 +311,18 @@ Decisions:
   a check that found nothing to do), on a newer HEAD move, and on
   shutdown. A HEAD move drops the pending retry and resets the count,
   because that move asks by itself and a failure of its ask starts again
-  at 1 minute. `busy` (the line or the write lock held past the rebuild's
+  at 1 minute. Each attempt takes a HEAD-move generation when it starts,
+  and a failure of an attempt that began before the last move isn't
+  counted (review round): the move's ask, coalesced behind a rebuild
+  already running, is the one that counts. `busy` (the line or the write lock held past the rebuild's
   wait) is a failure like any other: it waits for the next scheduled
   attempt, never a tight loop. Every attempt goes through the coalesced
   task, so it never runs beside another rebuild and waits out a sync like
   a HEAD move's ask would. The timer is `unref`'d and started outside any
   queue hold (as `retryAfterBusy`'s is). The fourth failure logs "no more
-  retries" with what to do. _Scope:_ any failed instance rebuild, not only
+  retries" with what to do. Each failure is logged once, by the retry
+  (`busy` on `info` with its message, anything else on `error` with the
+  error). _Scope:_ any failed instance rebuild, not only
   the start-time one. The foreign-HEAD rebuild had the same gap and runs
   the same task.
 - **Dc3 — `SelectInput` submits from a hidden input of its own,** not
@@ -331,14 +336,22 @@ Decisions:
   resets an action's form before effects see the new default. The trigger
   carries `id`, so labels and `getByLabel` find it, and the server render
   shows the chosen label (`SelectValue` children). A term's Parent tree is
-  indented by padding (`depth`), not by NBSPs in the label.
+  indented by padding (`depth`), not by NBSPs in the label, and a nested
+  option is named by its path for screen readers (`aria-label`
+  "Dessert › Cookies", which is also its accessible name in specs). With
+  no `defaultValue`, options that arrive or change after mount and no
+  longer hold the value move it to the first option, as natively (MirrorsCard's
+  Add list after a mirror is added).
 - **Dc4 — `FormCheckbox` keeps native submit and reset semantics** (Tc1).
   A ticked, enabled box sends `name=value` (`"on"` by default) from a
   hidden input it renders only while ticked. On a form `reset`, an
   uncontrolled box goes back to the current `defaultChecked`
   (`data-default-checked`, as Dc3), and a controlled box is left alone:
   Radix's reset-driven `onCheckedChange` is ignored, flagged by a
-  capture-phase listener on the document. FormData values are unchanged
+  capture-phase listener on the document and settled by the bubbling one,
+  or by a microtask the capture listener queues if something stops the
+  event first. Enter on a focused box no longer submits the form (Radix
+  prevents Enter on its `button`; Space toggles). Accepted. FormData values are unchanged
   from the native controls: `clearImage=on`, `again=on`,
   `timelines[n].events[m].activeTime=on`, `featured=on`,
   `shareInventoryOnExport=on`, `unassign=on`, `llm=force`.
@@ -421,6 +434,23 @@ controls (no image to remove, no timeline event, no drink block open), or
 any difference stays inside the threshold. The converted controls were
 checked by eye on throwaway screenshots (the term form's Parent list,
 "Active Time?", the Export card).
+
+**Review round** (no blockers; all as new commits):
+
+- `rebuildRetry.ts`: the HEAD-move generation (Dc2), so a move during a
+  running rebuild fails into the 1-minute step, not the 5-minute one; one
+  log line per failure instead of two. `rebuildRetry.test.ts` +1 (that
+  scenario on a frozen clock), and the give-up case counts the lines.
+- `FormCheckbox`: the microtask settle (Dc4). `formControls.test.tsx` +1 (a
+  reset stopped on the form: the box goes back to its default and still
+  toggles after).
+- `SelectInput`: tree options named by their path, and the first-option
+  move (Dc3). `formControls.test.tsx` +1. `term-edit.spec` picks
+  "Dessert › Cookies".
+- `shopping remove --recipe/--group/--for ""` is a `usage` error naming the
+  flag. `cliJson.test.ts`'s `--for` case checks it.
+- `MirrorsCard`: no change of its own; the Select move covers a stale
+  remote name.
 
 **Roger to confirm:**
 
