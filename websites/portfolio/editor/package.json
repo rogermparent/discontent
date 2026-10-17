@@ -6,7 +6,7 @@
     "dev": "next dev",
     "dev:test": "TEST_MODE=true next dev --port ${PLAYWRIGHT_PORT:-3029}",
     "start:test": "TEST_MODE=true next start --port ${PLAYWRIGHT_PORT:-3029}",
-    "build": "next build --webpack",
+    "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",

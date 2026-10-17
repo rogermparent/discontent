@@ -19,8 +19,8 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** started 2026-10-17 (overnight, unattended); 39f applied; 40e
-applied (`tag:thanksgiving` 30 → 47); wave 1 — 40a ∥ 40b.
+**Now:** 39f, 40a (#262), 40b (#261), 40d (no-go) and 40e (`tag:thanksgiving`
+30 → 47) done; 40c and 40h in progress; 40f and 40g queued.
 
 ## Context
 
@@ -73,17 +73,17 @@ recorded. Picking the change up on the workstation stays Roger's
 
 ## Roadmap
 
-| Phase    | Size | Branch             | Status | PR  | What                                                                                       |
-| -------- | ---- | ------------------ | ------ | --- | ------------------------------------------------------------------------------------------ |
-| 40a      | S–M  | `agent/40a-llm`    | 🟡     |     | Context sized to the input, honest placement wording, `/v1` against Ollama, batch names.   |
-| 40b      | S–M  | `agent/40b-ci`     | 🟡     |     | resume-builder's 7 red specs, its path-filtered CI job, portfolio's prod-build heap.       |
-| 40c      | S–M  | `agent/40c-quick`  | 📝     |     | `shopping remove --for`, a bounded start-rebuild retry, Select/Checkbox on Radix `ui/*`.   |
-| 40d      | S/M  | `agent/40d-clouds` | 📝     |     | D3: measure the term clouds, then go (key per term) or a recorded no-go.                   |
-| 40e      | S–M  | (content repo)     | ✅     | —   | D2: Thanksgiving gaps — gravy, greens, mac and cheese, cornbread, leftovers, drinks.       |
-| 40f      | S–M  | `agent/40f-flakes` | 📝     |     | Extra queue: flaky specs from the last ~50 CI runs, fixed at the root; README's test part. |
-| 40g      | S–M  | `agent/40g-a11y`   | 📝     |     | Extra queue: axe specs for `/shopping`, `/jobs`, `/git`, `/make`, Export, the term form.   |
-| 40h      | M    | `agent/40h-deps`   | 📝     |     | Extra queue: D4, patch and minor dependency updates.                                       |
-| 40-close | S    | `agent/40-close`   | 📝     |     | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                          |
+| Phase    | Size | Branch             | Status | PR   | What                                                                                       |
+| -------- | ---- | ------------------ | ------ | ---- | ------------------------------------------------------------------------------------------ |
+| 40a      | S–M  | `agent/40a-llm`    | ✅     | #262 | Context sized to the input, honest placement wording, `/v1` against Ollama, batch names.   |
+| 40b      | S–M  | `agent/40b-ci`     | ✅     | #261 | resume-builder's 7 red specs, its path-filtered CI job, portfolio's prod-build heap.       |
+| 40c      | S–M  | `agent/40c-quick`  | 🟡     |      | `shopping remove --for`, a bounded start-rebuild retry, Select/Checkbox on Radix `ui/*`.   |
+| 40d      | S/M  | `agent/40d-clouds` | ✅     | #263 | D3: measure the term clouds, then go (key per term) or a recorded no-go.                   |
+| 40e      | S–M  | (content repo)     | ✅     | —    | D2: Thanksgiving gaps — gravy, greens, mac and cheese, cornbread, leftovers, drinks.       |
+| 40f      | S–M  | `agent/40f-flakes` | 📝     |      | Extra queue: flaky specs from the last ~50 CI runs, fixed at the root; README's test part. |
+| 40g      | S–M  | `agent/40g-a11y`   | 📝     |      | Extra queue: axe specs for `/shopping`, `/jobs`, `/git`, `/make`, Export, the term form.   |
+| 40h      | M    | `agent/40h-deps`   | 🟡     |      | Extra queue: D4, patch and minor dependency updates.                                       |
+| 40-close | S    | `agent/40-close`   | 📝     |      | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                          |
 
 Ordering, in waves: 40a ∥ 40b (editor llm vs resume-builder/portfolio/CI,
 disjoint), with 40e's research and dry run in the orchestrator alongside;
@@ -232,9 +232,43 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
 
 ### 40b
 
+- **Tb1 — resume-builder's `e2e-start` never built.** Its
+  `playwright.config.ts` ran `pnpm start:test` alone in `PLAYWRIGHT_BUILD`
+  mode, the defect the recipe, portfolio and demo configs fixed together
+  long ago ("leaving two of three is how it comes back" — the fourth was
+  missed). It served whatever `.next` was on disk, or failed on a clean
+  checkout. Now `pnpm build && pnpm start:test`, no server reuse in build
+  mode.
+- **Tb2 — a git-log assertion straight after a Submit click races the
+  server action.** git.spec's "accumulate" test read the log ~0.7 s in and
+  found no update commit at all. Wait for the redirect URL (the commit lands
+  before `redirect()`), then read the log.
+- **Tb3 — pinning the workspace root silences Next's lockfile warning, and
+  nothing else.** From a worktree Next infers the main checkout as the root;
+  `outputFileTracingRoot` / `turbopack.root` fix that, but portfolio's
+  webpack build still ran out of heap at the same ~4 GB. The heap is
+  webpack's own (its module graph lives in V8); Turbopack's Rust compiler
+  keeps it out of V8, as 0424026c found for the recipe editor.
+
 ### 40c
 
 ### 40d
+
+- **Td1 — An editor build pointed at a fresh clone times out on the term
+  pages.** `CONTENT_DIRECTORY=<clone> pnpm build` prerenders every
+  `/tags/[tag]` that `generateTagStaticParams` lists (287). On a fresh clone
+  every page passed Next's 60 s limit three times and the build exited
+  ("Export encountered an error on /(recipes)/tags/[tag]/page"), small terms
+  like `bellini` included. The likely cause is that a clone has no
+  `transformed-images/`, so every card's image is resized during the build,
+  but that is not confirmed. To measure, build against an empty content
+  directory instead: every route then builds as `ƒ` and term pages render on
+  demand. Serve the clone with `CONTENT_DIRECTORY`, and request each page
+  once before timing it, so the image resizes are done first.
+- **Td2 — `NEXT_PRIVATE_DEBUG_CACHE=1` on `next start` logs every
+  `revalidateTag`.** `revalidatePath` shows up in the same log as
+  `_N_T_<path>`. This lets you count a write's fan-out without editing code.
+  The log entry spans several lines, so use `grep -A`.
 
 ### 40e
 
@@ -430,9 +464,286 @@ desktop baseline (Da2).
 
 ### 40b — Test / CI hygiene
 
+**Reindex needed: no. Deploy: none** (resume-builder and portfolio aren't
+deployed from here; the recipe apps are untouched).
+
+**resume-builder's 7 red specs.** History first: the specs came in with
+#114 (a750c96b, Cypress, alongside a rewrite of the app) and were ported to
+Playwright in 835cb81a. `git log -S` finds no version of the view page that
+rendered the resume's own `company` (only each experience entry's), no
+Cancel link ever in `src/`, and the update action has written
+`Update resume: <finalSlug>` since #114, with the form pre-filling the
+current slug. So none of the 7 is a regression in the strict sense — they
+asserted things the app never did. Verdict per spec:
+
+| Spec (test)                                        | Fails on                                         | Verdict                                                                                          | Fix                                                                                             |
+| -------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| view — "should display job title and company"      | `Acme Corp` not on the view page                 | App gap: the list and the edit page name the company, the view page didn't (Db1)                 | View page: a screen-only "Resume for **Acme Corp**" line                                        |
+| create — "required fields only"                    | `Acme Corp` after create                         | Same as above                                                                                    | Same                                                                                            |
+| create — "create then immediate edit"              | `Quick Edit Co` after the edit                   | Same as above                                                                                    | Same                                                                                            |
+| update — "should update company field"             | `New Company` after the edit                     | Same as above                                                                                    | Same                                                                                            |
+| update — "cancel edit and return to view page"     | no Cancel link on the edit page                  | App gap (Db2)                                                                                    | Edit form: a Cancel link back to `/resume/<slug>`; the spec's URL check anchored (`…engineer$`) |
+| git — "commit when updating a resume"              | `Updated Corp` (as above), then `updated-corp-…` | Visible text: app gap above. Commit slug: **stale spec** — an edit keeps its slug (Db3)          | Expect `Update resume: update-corp-engineer`                                                    |
+| git — "accumulate commits for multiple operations" | no update commit in the log                      | **Stale spec**: it read the log before the server action finished (Tb2), and expected a new slug | Wait for each redirect; expect `Update resume: first-corp-developer`                            |
+
+Also: the edit route's `form.tsx`, an unused duplicate of
+`EditResumeForm.tsx` since 4d249359, deleted.
+
+**The CI job.** `Resume builder` in `playwright.yml`: a `resume` output on
+the `Changes` filter (`*shared` — `packages/**`, the lockfile, the
+workspace files and CI plumbing — plus `websites/resume-builder/**`; docs and
+READMEs excluded as for the others), the same Playwright container and
+image check as portfolio's job, the git identity git.spec needs, production
+mode (`PLAYWRIGHT_BUILD=1`, Db4), a 20-minute timeout, and the HTML report
+plus `test-results` (traces on the first retry) uploaded on failure. No
+`AUTH_SECRET` of its own: the app has no sign-in. README's stale Cypress
+section rewritten for Playwright.
+
+**Portfolio's production build.** Measured inside the heavy slot with
+`/usr/bin/time -v` (largest process's peak RSS) and a 2 s sampler of the
+summed `next` processes, from a worktree, `.next` cleared each time:
+
+| Build                                   | Result                                  | Wall | Peak RSS (largest / summed) |
+| --------------------------------------- | --------------------------------------- | ---- | --------------------------- |
+| `next build --webpack` (main as it was) | FATAL heap OOM at ~4,030 MB, in compile | 4:23 | 5,110 MB / 5,051 MB         |
+| `--webpack`, workspace root pinned      | FATAL heap OOM, same place              | 2:17 | 5,141 MB / 5,229 MB         |
+| `next build` (Turbopack), root pinned   | ✅ compiled in 6.8 s, 17 routes         | 0:17 | 1,191 MB / 1,452 MB         |
+| for scale: resume-builder `--webpack`   | ✅ compiled in 37.8 s                   | 1:00 | 1,845 MB                    |
+
+The fix is the cause's fix, not a `NODE_OPTIONS` raise (Db5): portfolio's
+`build` is now `next build` (Turbopack, Next 16's default, what `next dev` —
+and so portfolio's CI job — already runs), the same move 0424026c made for
+the recipe editor and export. `getContentDirectory`'s Turbopack guard from
+that commit already covers portfolio. Both sites' `next.config.mjs` also pin
+`outputFileTracingRoot` / `turbopack.root` to the workspace root, which
+silences the worktree warning (Tb3) but isn't what fixed the heap. Which
+module makes webpack's graph that large wasn't isolated: four-minute,
+5 GB experiments on a shared machine for a bundler the site no longer uses.
+
+**Decisions.**
+
+- **Db1** — The view page names the company on screen only
+  (`print:hidden`): the printed resume goes _to_ that company and stays as
+  it was. **Roger to confirm** (the alternative is dropping the company
+  assertions from the four specs).
+- **Db2** — The edit form gets a Cancel link (a plain link to the view
+  page; nothing is saved). Recipe and portfolio forms have none; this is
+  the resume app's own. **Roger to confirm.**
+- **Db3** — An edit keeps the resume's slug unless the Slug field is
+  changed (the form pre-fills it; update.spec's "slug pre-populated" and
+  "update slug and redirect" assert exactly that), so the git specs were
+  wrong, not the app.
+- **Db4** — The CI job runs production mode only, one cell: the suite is
+  35 tests, runner concurrency is the budget, and production mode is the
+  build that would ship (and has no per-route compile waits). Dev mode
+  stays a local `e2e-dev`.
+- **Db5** — Portfolio builds with Turbopack rather than a bigger V8 heap.
+  `websites/portfolio/export` still says `--webpack`; it wasn't measured
+  (out of the backlog row's scope) and is left alone.
+
+**Gates.**
+
+- resume-builder Playwright, production mode (`next build` + `next start`
+  on 3010), heavy slot: **28 passed / 7 failed** before (the same 7 as
+  39e; the `e2e` project has 35 tests), **35/35** after.
+- Portfolio: production build ✅ (above); Playwright `e2e` + `mobile`
+  against that Turbopack production build, heavy slot: **90/90** (visual
+  baselines unchanged).
+- `pnpm --filter recipe-editor typecheck` ✅;
+  `pnpm --filter recipe-website exec tsc --noEmit` ✅;
+  `pnpm exec vitest run`: **2295/2295** (111 files), all in the heavy slot.
+- CI: the new `Resume builder` job runs on this PR (it touches
+  `websites/resume-builder/**`).
+
 ### 40c — Quick wins
 
 ### 40d — Term clouds
+
+**Decision: no-go** (D3). No cloud read comes near 100 ms on the workstation.
+The worst is 36 ms, and only on the first request after a start. One tag
+write does expire more than 10 pages that render a cloud, but keying the
+clouds per term would not reduce that number (Dd1). The PR is docs plus the
+measuring script. Nothing in the engine changed, no spec was bumped, and no
+reindex is needed.
+
+**Method.** Measured 2026-10-17 on a scratch clone of `recipe-content` at
+`5ff24c2b`: 795 recipes, 1 group, 135 term records, 219 terms in the
+vocabulary. The clone was reindexed with this branch's CLI (1.2 s) and
+deleted afterwards. The real repo was never written.
+
+- **Read cost.** `editor/scripts/measure-term-clouds.ts` (new) runs with
+  `NODE_ENV=production` and `RUNS=9`, twice, at load averages 3–10. For each
+  cloud it runs the same aggregate reads and the same pure join that
+  `readTermPage.ts` does, without `unstable_cache`, so it measures a cache
+  miss:
+  - **cold**: a fresh process per run, so the time includes opening the
+    LMDB environments (the first request after a start);
+  - **warm**: environments already open (a running server's miss after a
+    write).
+- **Render cost.** A production `next build` (built against an empty
+  content directory, Td1), then `next start` on :3029 serving the clone with
+  `INSTANCE_EVENTS=off` and a scratch settings and jobs directory. Each
+  page was requested once to do the image resizes, then the server was
+  restarted with `.next/cache/fetch-cache` emptied. Each route was then
+  timed with `curl -w %{time_total}`: one first request and 7 warm, both
+  before and after the write.
+- **Fan-out.** The write went through that server's API
+  (`RECIPE_API_URL=http://localhost:3029 recipes term assign american --add
+turkey-gravy`), so its revalidation ran inside the server. Every
+  `revalidateTag` it fired was logged (Td2). So the tags were **counted from
+  an instrumented run**. Which pages read those tags was **taken from the
+  code**.
+
+**The clouds.** All of them are read through `createCachedAggregateRead`,
+which is `unstable_cache` plus `React.cache`. Nothing uses `"use cache"`.
+Every editor route built as `ƒ` (100 of 100 in this build's route table),
+because the root layout calls `auth()`, so a page has no Full Route Cache
+entry. What expires is the shared
+data entries.
+
+| Cloud (function)                       | Reads (cache tags)                                                                                               | Rendered on                                                                                                                                   | Bytes (JSON) |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | -----------: |
+| `readTagVocabulary`                    | `aggregate:recipes:tags`, `aggregate:groups:tags`, `aggregate:tag-terms:tree`                                    | `/tags` (list), `/new-recipe`; also the homepage's chips, but only on a site with no facets (not the real one)                                |       12,256 |
+| `readTagBoard`                         | `aggregate:recipes:by-tag:whole`, `aggregate:groups:by-tag:whole`, the tree (all also tagged with the catch-all) | `/tags` (board), `/` (facets, intent tiles, Coming up: the same maps through `React.cache`)                                                   |       11,929 |
+| `readTagOptions`                       | the two `tags` clouds and the tree                                                                               | `/make` (editor and export)                                                                                                                   |       14,219 |
+| `readSearchTerms`                      | the two `tags` clouds and the tree                                                                               | `/search/terms`. The browser builds autocomplete, ⌘K, the tag rail, `BrowseChips` and the `tag:` expansion from it, on every page with search |       16,536 |
+| `readTagLabels`                        | the two `tags` clouds and the tree (through `readTagVocabulary`)                                                 | `/new-recipe`, `/group/new`, `/recipe/<slug>/edit` and `/copy` (795 each), `/group/<slug>/edit` (1)                                           |        3,050 |
+| `readTermPageSlugs`                    | the two `tags` clouds and the tree                                                                               | `generateStaticParams` for `/tags/[tag]` only: build time, not a render                                                                       |            — |
+| _not clouds_ (checked, for the record) | the tree alone, or `by-tag:key:<k>`                                                                              | term pages (34a), the term edit and new forms (parent picker = the tree), `/drinks`                                                           |            — |
+
+The parts behind them: `recipes:tags` is 11,815 B, `groups:tags` 52 B, the
+tree 10,344 B, and the whole `recipes:by-tag` map **603 KB** (219 records,
+assembled; `drink` alone is 40,761 B).
+
+**Read cost** (ms, min / median of 9; two runs, the range shown when they
+differ):
+
+| Read                     |            cold min / med |        warm min / med |
+| ------------------------ | ------------------------: | --------------------: |
+| `recipes:tags`           |         3.9–4.1 / 4.2–4.5 | 0.15–0.20 / 0.24–0.30 |
+| `tag-terms:tree`         |         4.1–4.2 / 4.3–4.6 | 0.22–0.26 / 0.23–0.33 |
+| `recipes:by-tag` (whole) |     13.4–14.0 / 14.1–15.2 |     3.3–3.6 / 5.6–5.8 |
+| `recipes:by-tag[drink]`  |         4.3–4.6 / 4.6–4.9 | 0.17–0.18 / 0.20–0.27 |
+| `readTagVocabulary`      |        6.4–6.8 / 7.6–11.3 |     1.2–1.6 / 1.2–2.0 |
+| **`readTagBoard`**       | **32.9–36.0 / 36.6–42.0** | **5.2–5.6 / 7.7–8.2** |
+| `readTagLabels`          |             6.5–6.7 / 7.0 |     0.4–0.6 / 0.5–0.7 |
+| `readTagOptions`         |        6.9–7.0 / 7.3–14.3 |     1.0–1.2 / 1.3–1.4 |
+| `readSearchTerms`        |       7.0–13.0 / 7.4–15.1 |     0.5–1.2 / 0.6–3.1 |
+
+**Render cost** (ms, production `next start`, `curl` total, warm = median
+of 7 (min)):
+
+| Route                   | Cloud read               | first after start | warm before write | first after write |  warm after |   Bytes |
+| ----------------------- | ------------------------ | ----------------: | ----------------: | ----------------: | ----------: | ------: |
+| `/`                     | board                    |      414 (note a) |       52.6 (40.7) |              60.2 | 42.0 (39.1) | 199,778 |
+| `/tags`                 | vocabulary + board       |              62.0 |       37.1 (36.0) |              39.3 | 39.5 (36.6) | 271,713 |
+| `/make`                 | options                  |             100.3 |       19.6 (16.8) |              17.8 | 17.9 (16.0) |  80,272 |
+| `/search/terms`         | search terms             |              13.4 |         4.1 (3.6) |               4.8 |   3.4 (3.2) |  16,536 |
+| `/tags/drink` (control) | none (34a: per-key rows) |             146.3 |       91.1 (78.7) |              76.8 | 76.5 (70.8) | 613,657 |
+| `/recipes` (control)    | none                     |              37.5 |       29.8 (27.2) |              39.3 | 29.0 (27.4) | 193,478 |
+
+(a) `/` was the first request after the restart, so its number includes the
+server's first-request costs (the layout, auth, modules). Every first
+request includes loading its own route module.
+
+On a warm server the cloud is a small share of every render. `/tags` reads
+two clouds and renders in about the time `/recipes` takes with none. The
+first request after the write paid about 18 ms on `/` for the expired
+entries. Those entries are re-read once and then shared, so `/tags` right
+after it paid nothing visible.
+
+**Fan-out of one tag write.** `term assign american --add turkey-gravy` (a
+recipe that already had `sauce`, `easy` and `thanksgiving`) fired **10
+tags**:
+
+- `_N_T_/recipe/turkey-gravy` and `item:recipes:turkey-gravy`;
+- `pagination:recipes:by-date:head` and `…:meta`, because the recipe is
+  recent and its list entry carries its tags;
+- **`aggregate:recipes:tags`**, the cloud, because a count moved;
+- **`aggregate:recipes:by-tag:whole`**;
+- `aggregate:recipes:by-tag:key:` `american`, `easy`, `sauce` and
+  `thanksgiving`. The recipe's row moved in **every** term it carries, not
+  only in the term it gained, because the row holds its tags.
+
+That expires two cloud entries: `recipes:tags` and `recipes:by-tag:whole`.
+The groups' cloud and the tree did not move. The pages that render a cloud
+and read one of the two:
+
+- **6 vocabulary-wide routes**: `/`, `/tags`, `/make`, `/search/terms`,
+  `/new-recipe`, `/group/new`;
+- **1,591 form pages** that read `readTagLabels`: 795 recipe edit pages,
+  795 recipe copy pages and 1 group edit page.
+
+That is **1,597 pages**, over D3's ~10. The four by-tag keys expire the
+pages of those four terms and of their ancestors: at most 8, since 34a
+caps a chain at 2. Since 34a, term pages read no cloud.
+
+**Pi scaling.** The ratio is **5×**. It comes from epic 29, the one time
+the same code ran on both hosts in the same window: Pi warm reindex 2.5 s
+against the workstation's 0.46–0.64 s, which is 3.9–5.4×. 39b's estimate
+(~3.1 s on the Pi against 0.87 s here, about 3.6×) and D3's own 4× are
+lower, so 5× is the conservative choice. A cold read on the Pi may be worse
+than 5×, because the first read after a start comes off the SD card.
+
+| On the Pi (×5)                                               | Cold (first request after a start) | Warm miss (after a write) |
+| ------------------------------------------------------------ | ---------------------------------: | ------------------------: |
+| `readTagBoard` (`/`, `/tags`)                                |                       ~0.16–0.21 s |                 ~26–41 ms |
+| the `tags`-cloud reads (`/make`, `/search/terms`, the forms) |                          ≤ ~0.07 s |                  ≤ ~15 ms |
+| D3's bar                                                     |                             ~0.4 s |                    ~0.4 s |
+
+**Decisions.**
+
+- **Dd1 — The fan-out clause is met on paper, but its remedy cannot
+  shrink it.** All 1,597 pages read the **whole** vocabulary: a count for
+  every term (`/tags`, `/make`, autocomplete, ⌘K), every label (the forms),
+  or every term's carriers (`/tags`' board, the homepage). If `terms` were
+  keyed the way 32e keyed by-term, those readers would still use the whole
+  read, which carries `:whole`. A write fires `:whole` whenever any key
+  moves, and a tag added or removed always moves a count. So the same pages
+  would expire, and the write path would do more work. Since 34a, the only
+  per-term reader of counts, the term page, reads no cloud. Also, an expiry
+  is not paid per page. Every editor route is `ƒ`, and the 1,597 pages share
+  2 cache entries, which are re-read once per write: about 6 ms on the
+  workstation (5.6 ms for the whole by-tag map plus 0.2 ms for the cloud),
+  about 30 ms on the Pi. The first `/` after the write took 60 ms against
+  42 ms warm.
+- **Dd2 — The Pi ratio is 5×** (above). It is conservative against 39b's
+  3.6× and D3's 4×.
+- **Dd3 — The heaviest "cloud" is the board, not `terms`.** `readTagBoard`
+  reads the whole 603 KB by-term map so it can count distinct carriers per
+  subtree. It is the only read that grows with carriers × tags rather than
+  with the vocabulary, and the homepage and `/tags` expire on **any** carrier
+  change, a name edit included (the homepage's own comment accepts this). If
+  the trigger below trips, the fix to design is a folded **board aggregate**
+  (subtree totals and distinct counts computed at write time, so `/` and
+  `/tags` read a few KB), not a keyed `terms` cloud.
+- **Dd4 — The script stays** (`editor/scripts/measure-term-clouds.ts`,
+  about 200 lines, read-only, refuses `editor/content`). Re-running it is
+  the trigger check below.
+
+**Reopen trigger.** Reopen when **`readTagBoard`'s cold minimum passes
+~100 ms on the workstation** (≈ 0.5 s on the Pi), or its **warm minimum
+passes ~20 ms** (≈ 0.1 s per write on the Pi). The read grows with the
+by-tag bytes: 603 KB now, about 760 B per recipe. A linear extrapolation
+puts the cold bar near **~1.7 MB, about 2,200 recipes**, and the warm bar
+near ~2,800 recipes. The `tags`-cloud reads grow with the vocabulary
+(219 terms) and are about 15× under either bar. **Re-run the script when
+the corpus passes ~1,500 recipes**, or when a phase adds a reader of the
+whole by-term map.
+
+**Gates.** Docs and a script only, so: `pnpm --filter recipe-editor
+typecheck` and `pnpm --filter recipe-website exec tsc --noEmit` both clean
+(through the heavy slot; the editor's covers the new script), and the
+script's own run (twice, above). No vitest or Playwright: no module under
+test changed.
+
+**Roger to confirm:** that D3's fan-out clause counts cache entries rather
+than URLs on an all-`ƒ` editor (Dd1). Counted as URLs, the clause was met
+(1,597 pages), but the go remedy would not reduce that number, so this
+phase did not build it. If you want the 1,591 form pages off the cloud
+anyway, the cheap change is to fetch the suggestions in the browser from
+`/search/terms`. That moves the read, not the expiry, so it is not
+proposed.
 
 ### 40e — Thanksgiving
 
