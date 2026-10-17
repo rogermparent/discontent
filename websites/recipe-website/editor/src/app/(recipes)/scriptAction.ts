@@ -2,7 +2,12 @@
 
 import { runCommand, type StreamActionResult } from "./runCommand";
 
-export type { StreamActionResult };
+/*
+ * No `export type { StreamActionResult }` here (40c): Next's "use server"
+ * transform registered the re-export as an action, and every server action
+ * on /export failed with "StreamActionResult is not defined". Import the
+ * type from `./runCommand`.
+ */
 
 /**
  * Run `pnpm run <command>` in the export package and stream its output (the
