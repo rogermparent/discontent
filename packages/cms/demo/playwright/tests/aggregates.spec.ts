@@ -44,8 +44,14 @@ async function createNote(
   await page.getByLabel("Content").fill(`Body of ${options.title}.`);
   await page.getByLabel(/Tags/).fill(options.tags);
   await page.getByRole("button", { name: "Create Note" }).click();
+  /*
+   * The note's own page, by URL and exact title (40f). A substring match on a
+   * title like "A" also matched the 404 page's "This page could not be
+   * found.", so a create that landed on a 404 passed here and failed later.
+   */
+  await expect(page).toHaveURL(`/notes/${options.slug}`);
   await expect(
-    page.getByRole("heading", { name: options.title }),
+    page.getByRole("heading", { name: options.title, exact: true }),
   ).toBeVisible();
 }
 

@@ -1,4 +1,5 @@
 import { copy, ensureDir, pathExists, readJson, remove } from "fs-extra";
+import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import simpleGit from "simple-git";
 
@@ -10,8 +11,50 @@ export function fixturePath(...segments: string[]): string {
   return resolve(fixturesRoot, ...segments);
 }
 
-/** Must match `PORT` in playwright.config.ts. */
-const serverURL = "http://localhost:3011";
+/**
+ * Remove a directory the test server may still be writing into (40f).
+ *
+ * The suite runs one test after another against one server, and work the
+ * previous test started can still be landing derived files — an aggregate,
+ * an index — under `test-content` when the next test resets it. A plain
+ * recursive remove then fails `ENOTEMPTY` when a directory gains an entry
+ * between being emptied and its `rmdir` (CI: `test-content`,
+ * `test-content/notes`). `fs.rm`'s `maxRetries` exists
+ * for exactly this: it retries `ENOTEMPTY` and `EBUSY` with a linear backoff.
+ */
+async function removeDir(dir: string): Promise<void> {
+  await rm(dir, {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 50,
+  });
+}
+
+/**
+ * `copy` a fixture into a directory just removed, removing it again when the
+ * server recreated it first — `EEXIST` on the copy's `mkdir` (40f, the
+ * other half of `removeDir`'s race).
+ */
+async function copyFresh(source: string, destination: string): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await copy(source, destination);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || attempt >= 5) {
+        throw error;
+      }
+      await removeDir(destination);
+    }
+  }
+}
+
+/**
+ * Must match `PORT` in playwright.config.ts: `PLAYWRIGHT_PORT` there and in
+ * the `:test` scripts, 3011 by default (40f — another app can hold 3011).
+ */
+const serverURL = `http://localhost:${Number(process.env.PLAYWRIGHT_PORT) || 3011}`;
 
 /**
  * Whether any reset has been attempted yet in this worker.
@@ -21,9 +64,9 @@ const serverURL = "http://localhost:3011";
 let firstReset = true;
 
 export async function resetData(fixture?: string): Promise<void> {
-  await remove(testContentDir);
+  await removeDir(testContentDir);
   if (fixture) {
-    await copy(fixturePath("test-content", fixture), testContentDir);
+    await copyFresh(fixturePath("test-content", fixture), testContentDir);
   } else {
     await ensureDir(testContentDir);
   }
