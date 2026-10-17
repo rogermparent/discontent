@@ -19,8 +19,8 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** started 2026-10-17 (overnight, unattended); 39f applied; wave 1 —
-40a ∥ 40b, 40e research alongside.
+**Now:** started 2026-10-17 (overnight, unattended); 39f applied; 40e
+applied (`tag:thanksgiving` 30 → 47); wave 1 — 40a ∥ 40b.
 
 ## Context
 
@@ -79,7 +79,7 @@ recorded. Picking the change up on the workstation stays Roger's
 | 40b      | S–M  | `agent/40b-ci`     | 🟡     |     | resume-builder's 7 red specs, its path-filtered CI job, portfolio's prod-build heap.       |
 | 40c      | S–M  | `agent/40c-quick`  | 📝     |     | `shopping remove --for`, a bounded start-rebuild retry, Select/Checkbox on Radix `ui/*`.   |
 | 40d      | S/M  | `agent/40d-clouds` | 📝     |     | D3: measure the term clouds, then go (key per term) or a recorded no-go.                   |
-| 40e      | S–M  | (content repo)     | 🟡     | —   | D2: Thanksgiving gaps — gravy, greens, mac and cheese, cornbread, leftovers, drinks.       |
+| 40e      | S–M  | (content repo)     | ✅     | —   | D2: Thanksgiving gaps — gravy, greens, mac and cheese, cornbread, leftovers, drinks.       |
 | 40f      | S–M  | `agent/40f-flakes` | 📝     |     | Extra queue: flaky specs from the last ~50 CI runs, fixed at the root; README's test part. |
 | 40g      | S–M  | `agent/40g-a11y`   | 📝     |     | Extra queue: axe specs for `/shopping`, `/jobs`, `/git`, `/make`, Export, the term form.   |
 | 40h      | M    | `agent/40h-deps`   | 📝     |     | Extra queue: D4, patch and minor dependency updates.                                       |
@@ -411,6 +411,73 @@ desktop baseline (Da2).
 ### 40d — Term clouds
 
 ### 40e — Thanksgiving
+
+**Applied 2026-10-17** (real repo `245b208d` → `5ff24c2b`, nine commits; the
+session pushed nothing — the workstation's sync carries them to the Pi).
+`tag:thanksgiving` **30 → 47**; `tag:drink` 220 and `tag:side` 42 after (three drinks and four sides new).
+By D2's rules and the epic-33 method: each page fetched **once** into a
+draft (`import --dry-run --llm off --out`, sequential, ≥ 15 s between
+requests; every page had JSON-LD, so no model read), drafts edited (v4
+facets + `thanksgiving`; drinks by the skill's drink rules), `create
+--file` into a scratch clone (its `git log -p` reviewed: 8 creates + 1
+assign, only those files, images 800–2560 px), then the same files into the
+real repo with the workstation stopped, restart, `POST /api/revalidate`.
+
+**Imported (review list for Roger):**
+
+| Gap                | Recipe (slug)                                                               | Source                                        | Commit     |
+| ------------------ | --------------------------------------------------------------------------- | --------------------------------------------- | ---------- |
+| Gravy              | Turkey Gravy (`turkey-gravy`) — make-ahead base, drippings at the end       | Once Upon a Chef                              | `47bc83e8` |
+| Drinks             | Apple Cider Sangria (A Couple Cooks) (`apple-cider-sangria-acouplecooks`)   | A Couple Cooks — wine, batch, sangria         | `99348cb1` |
+| Cornbread dressing | Cornbread Stuffing (`cornbread-stuffing`) — make-ahead, sausage             | Sally's Baking (Sally's first; 34f roundup)   | `11c3083e` |
+| Green sides        | Roasted Green Beans and Carrots (`roasted-green-beans-and-carrots`)         | Crowded Kitchen                               | `c93436cf` |
+| Drinks             | Apple Cider Cocktail (A Couple Cooks) (`apple-cider-cocktail-acouplecooks`) | A Couple Cooks — bourbon, vermouth, stirred   | `7e96302c` |
+| Green sides        | Roasted Brussels Sprouts (`roasted-brussels-sprouts`)                       | Food Network (Ina Garten)                     | `c0ba6af2` |
+| Make-ahead mash    | Creamy Make-Ahead Mashed Potatoes (`creamy-make-ahead-mashed-potatoes`)     | Once Upon a Chef                              | `b0153cf9` |
+| Drinks             | Apple Cider Mimosa (A Couple Cooks) (`apple-cider-mimosa-acouplecooks`)     | A Couple Cooks — wine, built, low-abv, mimosa | `65449137` |
+
+**Tagged `thanksgiving` (already in the repo, one commit `5ff24c2b`):**
+`baked-mac-and-cheese` (the mac-and-cheese gap), `sourdough-cornbread`,
+`warm-brussels-sprouts-salad-with-bacon-and-apple`, the leftover-turkey
+dishes `leftover-turkey-soup-with-black-beans-and-corn`,
+`turkey-dinner-pie`, `turkey-pot-pie`, `turkey-sweet-potato-chili`, and the
+ciders `homemade-apple-cider`, `mulled-cider-acouplecooks`. The search
+showed the plan's "missing" mac and cheese, cornbread and leftover-turkey
+gaps were already filled by these, only untagged — so they got the tag
+instead of near-duplicate imports.
+
+**For Roger (not imported):**
+
+- Cranberry Mule (Food Network Kitchen) — its image answers 404 and the page
+  has no ingredient list (one sentence of method): fails D2. A cranberry
+  drink is still a gap; A Couple Cooks has no cranberry roundup (404).
+- Sally's Creamy Green Bean Casserole (from scratch) — near-duplicate of
+  `green-bean-casserole`.
+- Sally's Company-Worthy and Easy Baked mac and cheese — near-duplicates of
+  `baked-mac-and-cheese` (tagged instead).
+- Sally's My Favorite Cornbread / Honey Skillet Cornbread / Cornbread
+  Muffins — cornbread is covered (`sourdough-cornbread`,
+  `masa-harina-cornbread`, and the stuffing bakes its own).
+- Sally's Candied Sweet Potatoes, Brown Butter Sage or Sweet Potato Dinner
+  Rolls, Cranberry Brie tarts — not a named gap; 31 more in the roundup
+  (`inspect-list https://sallysbakingaddiction.com/thanksgiving-side-dishes/`).
+- Turkey tetrazzini — leftovers already carry four recipes; no import.
+
+**Roger to confirm:**
+
+- The nine existing recipes tagged `thanksgiving` (above), incl. the four
+  leftover-turkey dishes. Undo: `recipes term assign thanksgiving --remove …`
+  or `git revert 5ff24c2b`.
+- No cuisine on the generic gravy, mash, sprouts and green beans (epic 33's
+  rule, as C6 applied); `american` on the cornbread stuffing.
+- Roasted Brussels Sprouts' description replaced: the page's was SEO
+  boilerplate ("…Get the full recipe now."); the new one describes the
+  recipe in one sentence.
+- Homepage features unchanged (Halloween is current). **After Oct 31:**
+  `pnpm --silent recipes feature --term thanksgiving --slug thanksgiving-2026 --note "Thanksgiving: turkey, sides, pies and drinks"`
+  (then `unfeature` the Halloween entry if wanted — Roger's; deletes are
+  held back from the session).
+- Trap: `term assign` takes one carrier per flag (`--add a --add b`).
 
 ### 40f — Flake hunt
 
