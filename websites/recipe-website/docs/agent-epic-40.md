@@ -276,6 +276,16 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
 
 ### 40g
 
+- **Tg1 — The WCAG tags don't see landmarks.** `WCAG_TAGS`
+  (`wcag2a`, `wcag2aa`) leaves out axe's best-practice rules, so two nested
+  `<main>`s on every settings page passed every sweep. Landmark rules are
+  named explicitly (`expectOneMain` in `accessibility.spec.ts`), not by
+  adding `best-practice` to the shared tags — that would sweep portfolio's
+  pages too, and flag the minor rules below.
+- **Tg2 — `page.locator("form")` is never one element when signed in:**
+  the masthead's Sign Out is a `<form>`. Name the form by its id
+  (`#featured-recipe-form`, `#page-form`, `#menu-form`).
+
 ### 40h
 
 ## Results
@@ -793,6 +803,66 @@ instead of near-duplicate imports.
 ### 40f — Flake hunt
 
 ### 40g — Accessibility coverage
+
+**Reindex needed: no. Deploy: optional** (one markup change in the settings
+area; nothing a reader sees moves).
+
+**Coverage.** `accessibility.spec.ts` gains 27 tests (WCAG 2 A/AA, the
+spec's existing tags, signed in):
+
+- a table-driven sweep of 22 pages the spec never reached — `/recipes`,
+  `/about` (a site page), `/settings/theme`, `/settings/tools`,
+  `/settings/maintenance`, `/export`, `/pages`, `/menus`, the edit forms
+  (`/recipe/<slug>/edit` and `/copy`, `/group/new`, `/group/<slug>/edit`,
+  `/featured-recipe/<slug>` and its `/edit`, `/featured-recipe/new`,
+  `/pages/new`, `/pages/edit/<slug>`, `/menus/edit/header`) and the term
+  pages (`/tags/cookies` with a breadcrumb and pinned recipes,
+  `/tags/dessert` with narrower terms, `/tags/new`, `/tags/cookies/edit`);
+  each also runs the landmark rules (Tg1);
+- `/shopping` with a plan and a sub-recipe expansion on it, in both modes:
+  the list, the settings sheet open, then stores and "Probably on hand"
+  switched on with the Sub-recipes fold and a row's sources open;
+- `/git` with a remote and a mirror (before and after Sync now), both
+  modes, and a mirror's `/git` (the "Synced by" card).
+
+Already covered and left as they were: `/jobs` and a job page (37c, both
+modes), `/git` without a remote, `/make` (here and in `make.spec`),
+`/settings`, `/new-recipe`, the reader pages and the theme matrix. The
+route tree has no page left without an axe check except the paged
+listings (`/recipes/<n>`, `/groups/<n>`, `/featured-recipes/<n>`), which
+render the same components as their first pages.
+
+**What axe found.** Under the WCAG 2 A/AA tags: **nothing** on any of the
+new pages — every new test passed on its first run once its locators were
+right. A one-off exploratory sweep of 34 routes with the WCAG 2.1/2.2 and
+best-practice tags (a temporary spec, not committed) found:
+
+| Rule (tags)                                                                        | Where                                                                                   | Element                                                                    | Fix                                                                                                                                                        |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `landmark-main-is-top-level`, `landmark-no-duplicate-main`, `landmark-unique` (bp) | every settings-area page (`/settings*`, `/export`, `/git`, `/jobs`, `/pages`, `/menus`) | `SidebarLayout`'s `<main>` around the page's own `<main>`                  | **Fixed:** the layout's content column is a `<div>`; each page keeps its own `<main>` (recipe's `PageMain`, portfolio's pages). Locked by `expectOneMain`. |
+| `target-size` (WCAG 2.2 AA, 2.5.8)                                                 | `/tags/<term>` cards, `/featured-recipe/<slug>`                                         | the card's tag chips (`RecipeCardTagHint` badges, ~20 px tall, 4 px apart) | **Not fixed** — Roger to confirm (below).                                                                                                                  |
+| `heading-order` (bp)                                                               | `/search`                                                                               | a result card's `<h3>` with no `<h2>` before it                            | Not fixed: best-practice, moderate; the search page is 40f's ground tonight.                                                                               |
+| `image-redundant-alt` (bp)                                                         | `/groups`                                                                               | a group card's thumbnail alt repeating its name                            | Not fixed: minor.                                                                                                                                          |
+
+**Baselines:** none moved (`<main>` → `<div>` carries the same classes;
+`visual.spec` green without `-u`).
+
+**Gates.** `pnpm --filter recipe-editor typecheck` ✓; `pnpm --filter
+recipe-website exec tsc --noEmit` ✓; `pnpm exec vitest run` 112 files,
+2321 tests ✓; Playwright build mode through the heavy slot:
+`accessibility.spec` 61/61 (e2e + mobile) before the `SidebarLayout` fix;
+the run after it (`accessibility.spec`, `settings-nav.spec`,
+`sticky-chrome.spec`, `visual.spec`) is pending — the overnight OOM pause
+stopped it in the queue.
+
+**Roger to confirm.**
+
+- **WCAG 2.2 target size for tag chips.** The project's bar is WCAG 2 AA
+  (`wcag2a`, `wcag2aa`); 2.5.8 is 2.2. Meeting it means taller chips (or
+  more space between them) on every recipe card that shows tags — a
+  visible change with many baselines. Left as is; say if the bar should
+  move to 2.2 AA, and a later phase grows the chips and adds `wcag21aa`
+  and `wcag22aa` to `WCAG_TAGS`.
 
 ### 40h — Dependency updates
 
