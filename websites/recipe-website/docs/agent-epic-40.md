@@ -329,6 +329,13 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
 - **Tf4 — port 3011 is another local app's.** Run the CMS demo's
   Playwright with `PLAYWRIGHT_PORT` set to something else (3021 here);
   `reuseExistingServer` would otherwise adopt the other app in dev mode.
+- **Tf5 — `resetData`'s retries absorb the `test-content` race, they don't
+  remove it.** A server still writing derived files from the previous test
+  can land after the fresh copy, leaking stale aggregates into the next
+  test undetected. The root fix (the invalidate endpoint awaiting in-flight
+  writes, or taking the content write lock, before a reset) is a follow-up.
+- **Review round (orchestrator):** `aria-activedescendant` is gated on the
+  mounted list too (it named a removed option after a blur).
 
 ### 40g
 
@@ -1149,7 +1156,9 @@ sentence is replaced.
   alternative is an upstream fix or a pinned patch).
 - **Df2** — The hydration signal is React's own per-node props key, read
   only by tests, not an app-wide `data-hydrated` attribute added to the
-  pages.
+  pages. React sets it in the render phase (`hydrateInstance`), so under
+  concurrent hydration it can appear a few ms before the handlers are live;
+  React's blocked-event replay covers clicks, so the residue is small.
 - **Df3** — The demo's dev-only flake is left open, not hidden: no pre-warm
   or dev-project timeout, because the failure is a 404, not a compile wait.
   One failure in 35 dev runs, then 0 in 70, is too rare to trace in this
