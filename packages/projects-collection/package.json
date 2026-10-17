@@ -15,22 +15,22 @@
     "directory": "packages/projects-collection"
   },
   "dependencies": {
-    "clsx": "^2.1.1",
-    "@discontent/component-library": "^1.0.0",
     "@discontent/cms": "^1.0.0",
-    "format-quantity": "^3.0.0",
-    "fraction.js": "^5.3.4",
-    "fs-extra": "^11.3.3",
-    "lodash": "^4.17.23",
-    "next": "16.1.6",
+    "@discontent/component-library": "^1.0.0",
     "@discontent/next-static-image": "^0.0.1",
+    "clsx": "^2.1.1",
+    "format-quantity": "^3.2.0",
+    "fraction.js": "^5.3.4",
+    "fs-extra": "^11.4.1",
+    "lodash": "^4.18.1",
+    "next": "16.4.2",
     "plaiceholder": "^3.0.0",
-    "react": "19.2.4",
+    "react": "19.2.9",
     "sharp": "0.34.5",
-    "zod": "^4.3.6"
+    "zod": "~4.3.6"
   },
   "devDependencies": {
     "@types/fs-extra": "^11.0.4",
-    "@types/node": "^25.2.0"
+    "@types/node": "^25.9.9"
   }
 }

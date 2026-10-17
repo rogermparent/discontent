@@ -15,6 +15,12 @@ export const metadata: Metadata = {
  * `fontVariables` goes on the <html> so every registered pairing's
  * --ff-{role}-{key} variables exist; the theme picks among them by remapping the
  * roles (see AppLayout/fonts.ts).
+ *
+ * `suppressHydrationWarning`, as recipe's AppLayout has: next-themes' script
+ * puts the mode class and `color-scheme` on the <html> before React hydrates,
+ * so its attributes never match the server's. Next 16.4's dev overlay reports
+ * that mismatch, and its "Expand client/server diff" button also matched the
+ * project form's `getByLabel("Client")` (40h).
  */
 export default async function RootLayout({
   children,
@@ -22,7 +28,11 @@ export default async function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${fontVariables} scroll-smooth`}>
+    <html
+      lang="en"
+      className={`${fontVariables} scroll-smooth`}
+      suppressHydrationWarning
+    >
       <body className="flex min-h-screen flex-col bg-background text-foreground">
         {children}
       </body>

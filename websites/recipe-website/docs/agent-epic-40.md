@@ -82,7 +82,7 @@ recorded. Picking the change up on the workstation stays Roger's
 | 40e      | S–M  | (content repo)     | ✅     | —    | D2: Thanksgiving gaps — gravy, greens, mac and cheese, cornbread, leftovers, drinks.       |
 | 40f      | S–M  | `agent/40f-flakes` | 📝     |      | Extra queue: flaky specs from the last ~50 CI runs, fixed at the root; README's test part. |
 | 40g      | S–M  | `agent/40g-a11y`   | 📝     |      | Extra queue: axe specs for `/shopping`, `/jobs`, `/git`, `/make`, Export, the term form.   |
-| 40h      | M    | `agent/40h-deps`   | 🟡     |      | Extra queue: D4, patch and minor dependency updates.                                       |
+| 40h      | M    | `agent/40h-deps`   | ✅     | #264 | Extra queue: D4, patch and minor dependency updates.                                       |
 | 40-close | S    | `agent/40-close`   | 📝     |      | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                          |
 
 Ordering, in waves: 40a ∥ 40b (editor llm vs resume-builder/portfolio/CI,
@@ -252,6 +252,41 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
 
 ### 40c
 
+- **Tc1 — Radix Checkbox's form reset is not the native one.** Inside a
+  form it listens for `reset` and restores the value the box _mounted_
+  with, and for a controlled box it calls `onCheckedChange` with that value.
+  React 19 resets every `action` form after the action, so a plain
+  `ui/checkbox` would untick a saved "Share my saved inventory" box, and
+  untick a refused recipe save's "Active Time?" boxes through TanStack's
+  `handleChange`. Its hidden checkbox is reset by the browser behind the box,
+  so the next submission could disagree with what the box shows. Use
+  `FormCheckbox` (Dc4), never `ui/checkbox` with a `name`, in a form.
+- **Tc2 — Radix Select items cannot have `value=""`.** `""` means "nothing
+  selected" to the Root. `SelectInput` maps it to an internal sentinel and
+  submits `""` from its own hidden input (Dc3).
+- **Tc3 — `FieldWrapper` widens its direct children** (`[&>*]:w-full`,
+  later in the stylesheet than `size-4`): a Radix box placed straight in it
+  stretches into a 1rem-tall bar. `CheckboxInput` wraps the box in a `div`.
+- **Tc4 — No `export type { … }` re-export in a `"use server"` file.**
+  Next's transform registered `scriptAction.ts`'s
+  `export type { StreamActionResult }` as an action. The action bundle then
+  evaluated `registerServerReference(StreamActionResult, …)`, and every
+  server action posted from `/export` failed with "StreamActionResult is
+  not defined". Fixed in 40c (Dc7). Declaring types (`export type X = …`)
+  is fine. Re-exporting isn't.
+- **Tc5 — Playwright drives a Radix select by clicks, not `selectOption`.**
+  `getByLabel` finds the trigger (a `button role="combobox"`). The helpers
+  `chooseOption`, `expectOptions` and `selectValue` (the hidden input's
+  value) are in both editors' `playwright/support/helpers.ts`. A Radix
+  checkbox's `name` sits on a hidden input, so find the box by role or
+  label, never `[name=…]`.
+- **Tc6 — `heavy-pw.sh` (`pw.sh`) does not clear `test-jobs`.** A second
+  build-mode run in the same worktree reuses the photo's kept reading (38c's
+  30-minute reading cache, keyed by the photo), so `photo-import`'s import
+  finishes in 0.1 s with one step and "the live steps" fails at
+  `vision.transcribe` "running". `rm -rf test-jobs` in the editor before
+  rerunning it.
+
 ### 40d
 
 - **Td1 — An editor build pointed at a fresh clone times out on the term
@@ -287,6 +322,42 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
   (`#featured-recipe-form`, `#page-form`, `#menu-form`).
 
 ### 40h
+
+- **`pnpm outdated`'s "wanted" column is useless here**: it showed
+  wanted = current for every package (vitest 4.0.18 "wanted" while 4.1.12
+  was in range). Compute same-major / same-minor targets from the
+  registry instead (`tmp/40/40h/latest.js`).
+- **`pnpm update -r` sorts each `package.json`'s dependency keys** and
+  does not touch `peerDependencies`: the `next` peer pins in
+  `component-library` and `next-static-image` had to move by hand.
+- **Locked auto-installed peers survive an update.** dashjs 5.1.1 → 5.2.1
+  (via react-player) wants `@svta/cml-utils@1.5.0`, but the lockfile's
+  1.0.1 peer stayed — unmet-peer warnings that neither `pnpm update
+react-player` nor `--depth Infinity '@svta/*'` cleared. Fix: delete the
+  DASH subtree's lockfile entries and the importer's `react-player` entry,
+  then `pnpm install` (`tmp/40/40h/drop-svta.cjs`).
+- **simple-git ≥ 3.34 refuses our git calls**: 3.34 blocks
+  `core.sshCommand` without `allowUnsafeSshCommand` (39b's keepalives),
+  3.36 blocks the `EDITOR` env without `allowUnsafeEditor` (revert, pull,
+  sync — 31 tests). 3.33.0 is the newest that passes.
+- **zod ≥ 4.4.2 changes `z.preprocess` optionality** ("defer optionality
+  to the inner schema", zod#5929): the term, group-scale and drink form
+  parsers fail with "expected nonoptional, received undefined".
+- **markdown-to-jsx 9.10** drops the text after a `<Multiplyable />` in a
+  list item ("1/2 cup sugar" → "1/2"): `flattenMarkdown`, so the search
+  index text, would lose words.
+- **Under Next 16.4's `next dev`, hydration lands well after `load`.** A
+  heading rendered on the server is visible while React does not yet own
+  the page, so a key, a `selectOption` or a `visibilitychange` sent then
+  is lost or read late. Wait for a hydration marker (`data-ready`, the
+  palette hint chip) before you interact. A "skip the first run" ref in an
+  effect is not StrictMode-safe either: the second mount pass runs the
+  effect for real.
+- **Next 16.4's dev overlay is in the DOM**, and its "Expand client/server
+  diff" button matches a loose `getByLabel("Client")`. A hydration
+  mismatch shows up as a strict-mode violation in an unrelated spec.
+- **`next dev` writes `AGENTS.md`** into the app when it detects a coding
+  agent, and restores it if deleted, unless the config sets `agentRules: false`.
 
 ## Results
 
@@ -542,6 +613,208 @@ module makes webpack's graph that large wasn't isolated: four-minute,
   `websites/resume-builder/**`).
 
 ### 40c — Quick wins
+
+**Reindex needed: no.** No index, spec version or stored shape changed. Tool
+counts stay **57 / 43**. `.claude/settings.json` and the skill's frontmatter
+are untouched.
+
+What changed:
+
+- **`shopping remove --for <slug>`** (39-Dc3). The CLI's
+  `shopping remove` takes `--for <slug>` beside `--recipe` and `--group`
+  (exactly one of them, or item ids). The existing MCP `shopping_remove`
+  takes a `for` field (exactly one of `ids`, `recipe`, `group`, `for`).
+  Both send `patchShopping`'s `removeSource: {for}`, which is what
+  `/shopping`'s "Remove these" does. The tool description, the CLI usage
+  and `--help`, and the curator skill's §8b (an "I have simple syrup
+  already" line, and the CLI fallback) say so.
+- **A bounded retry for a failed instance rebuild** (39b-L5).
+  `controller/instance/rebuildRetry.ts` (`createRetryingRebuild`) wraps
+  the instance's coalesced reindex task. `start.ts` uses it for D12's
+  `reindexIfForeign`, `close()` disposes it, and the ref watcher calls
+  `headMoved()` before it asks.
+- **Select and Checkbox on the Radix `ui/*` primitives** (ui-overhaul
+  follow-up). `SelectInput` is now `ui/select` and takes `options`
+  (`{value, label, depth?}`) instead of `<option>` children, and
+  `onValueChange(value)`. `CheckboxInput` is now `ui/checkbox` through a new
+  `FormCheckbox`, with `onCheckedChange(checked)` (a boolean). Callers
+  moved: the drink method, a term's Parent, a group's Kind, a project's
+  Status and Featured, Timeline's "Active Time?". The page-local form
+  controls moved to them too (inventory below).
+- **Found on the way: every server action posted from `/export` failed**
+  (Tc4, Dc7). That covers Save on "Share my saved inventory" in a
+  production build. Build and Deploy load the same action entry, so they
+  should have failed too, but nothing here ran them. The new spec case
+  found it.
+
+Decisions:
+
+- **Dc1 — `for` is a field of the existing tool, not a new tool.** A new
+  tool would change the counts, the pre-approved list and the frontmatter
+  for one more key of a patch the server already took. The CLI flag has
+  the same name as the HTTP key.
+- **Dc2 — The retry schedule: 1, 5 and 15 minutes after each failure in a
+  row, then stop.** The n-th retry waits the n-th delay after the failure
+  before it, so the last attempt comes about 21 minutes after the first
+  failure plus the rebuilds' own time. It stops on success (a rebuild, or
+  a check that found nothing to do), on a newer HEAD move, and on
+  shutdown. A HEAD move drops the pending retry and resets the count,
+  because that move asks by itself and a failure of its ask starts again
+  at 1 minute. Each attempt takes a HEAD-move generation when it starts,
+  and a failure of an attempt that began before the last move isn't
+  counted (review round): the move's ask, coalesced behind a rebuild
+  already running, is the one that counts. `busy` (the line or the write lock held past the rebuild's
+  wait) is a failure like any other: it waits for the next scheduled
+  attempt, never a tight loop. Every attempt goes through the coalesced
+  task, so it never runs beside another rebuild and waits out a sync like
+  a HEAD move's ask would. The timer is `unref`'d and started outside any
+  queue hold (as `retryAfterBusy`'s is). The fourth failure logs "no more
+  retries" with what to do. Each failure is logged once, by the retry
+  (`busy` on `info` with its message, anything else on `error` with the
+  error). _Scope:_ any failed instance rebuild, not only
+  the start-time one. The foreign-HEAD rebuild had the same gap and runs
+  the same task.
+- **Dc3 — `SelectInput` submits from a hidden input of its own,** not
+  Radix's hidden native select. Radix items can't carry `""` (Tc2), and
+  four of the converted selects submit `""` for "none". The "—" / "None"
+  option is an internal sentinel in the control and `""` in FormData. A
+  value no option names still submits instead of being dropped.
+  Uncontrolled, it starts on the first option without a `defaultValue`,
+  as a native select does. On a form `reset` it goes back to the current
+  `defaultValue`, read from the DOM (`data-default-value`) because React
+  resets an action's form before effects see the new default. The trigger
+  carries `id`, so labels and `getByLabel` find it, and the server render
+  shows the chosen label (`SelectValue` children). A term's Parent tree is
+  indented by padding (`depth`), not by NBSPs in the label, and a nested
+  option is named by its path for screen readers (`aria-label`
+  "Dessert › Cookies", which is also its accessible name in specs). With
+  no `defaultValue`, options that arrive or change after mount and no
+  longer hold the value move it to the first option, as natively (MirrorsCard's
+  Add list after a mirror is added).
+- **Dc4 — `FormCheckbox` keeps native submit and reset semantics** (Tc1).
+  A ticked, enabled box sends `name=value` (`"on"` by default) from a
+  hidden input it renders only while ticked. On a form `reset`, an
+  uncontrolled box goes back to the current `defaultChecked`
+  (`data-default-checked`, as Dc3), and a controlled box is left alone:
+  Radix's reset-driven `onCheckedChange` is ignored, flagged by a
+  capture-phase listener on the document and settled by the bubbling one,
+  or by a microtask the capture listener queues if something stops the
+  event first. Enter on a focused box no longer submits the form (Radix
+  prevents Enter on its `button`; Space toggles). Accepted. FormData values are unchanged
+  from the native controls: `clearImage=on`, `again=on`,
+  `timelines[n].events[m].activeTime=on`, `featured=on`,
+  `shareInventoryOnExport=on`, `unassign=on`, `llm=force`.
+- **Dc5 — The line between converted and left native.** Every editor
+  control that **submits by `name` in a form** is converted (the
+  backlog's subject: "the native `name`-submitting controls"), plus the
+  import form's "Use the first photo" box, which sits beside one.
+  `GroupSelectInput` stays native: it relies on the native `required`
+  check, which a hidden input does not give, and on async options with a
+  dangling-slug option. State-only controls outside forms stay native as
+  a follow-up: list rows with their own semantics, the phone-first
+  `/shopping`, `/make`'s per-browser switches (one is `role="switch"`, and
+  `ui/` has no Switch), and the `/jobs` filters and Retry box. See the
+  inventory below.
+- **Dc6 — Specs drive the Radix select by clicks.** `chooseOption` opens
+  the trigger and clicks the option. `expectOptions` reads the open list.
+  `selectValue` reads what the field submits (Tc5). Assertions that read
+  `<option>` elements became the same assertions on the open list.
+- **Dc7 — `scriptAction.ts` no longer re-exports `StreamActionResult`.**
+  `exporter.tsx` imports the type from `runCommand.ts` (Tc4).
+
+**Inventory** (native `<select>` / `type="checkbox"` before 40c):
+
+| Where                                                                                                             | Control                                            | Now       | Why                                                                                       |
+| ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------- |
+| `component-library` `Form/inputs/Select` (`SelectInput`)                                                          | select                                             | **Radix** | The duplicate the backlog names; callers below                                            |
+| ↳ recipe form `drink.method`, term `parent`, group `kind`, project `status`                                       | select (`name`)                                    | **Radix** | Submit by name; `""` options via Dc3                                                      |
+| `component-library` `Form/inputs/Checkbox` (`CheckboxInput`)                                                      | checkbox                                           | **Radix** | The duplicate the backlog names; callers below                                            |
+| ↳ Image / Video "Remove Image/Video", recipe Image, Timeline "Active Time?", featured "again", project "Featured" | checkbox (`name`)                                  | **Radix** | Submit by name (Dc4)                                                                      |
+| `new-recipe/form.tsx` "Re-read with AI" (`llm=force`)                                                             | checkbox (`name`, `value`, disabled)               | **Radix** | Submits by name                                                                           |
+| `new-recipe/form.tsx` "Use the first photo as the recipe's image"                                                 | checkbox (state)                                   | **Radix** | Beside the one above, in the same form                                                    |
+| `tags/[tag]/edit/tools.tsx` "Also remove the tag" (`unassign`)                                                    | checkbox (`name`, echoed default)                  | **Radix** | Submits by name                                                                           |
+| `export/ShareInventoryForm.tsx` (`shareInventoryOnExport`)                                                        | checkbox (`name`, default from settings)           | **Radix** | Submits by name; new spec case                                                            |
+| `git/MirrorsCard.tsx` "Add a remote as a mirror" (`remote`)                                                       | select (`name`)                                    | **Radix** | Submits by name (`SelectInput`)                                                           |
+| `Form/inputs/GroupSelect` (featured form, group items)                                                            | select (`name`, `required`)                        | native    | Native `required` blocks an empty submit; async options + dangling-slug option (Dc5)      |
+| `new-recipe/PickList.tsx`                                                                                         | checkbox per row (state, locked rows)              | native    | List rows with their own semantics (the brief's example)                                  |
+| `ShoppingPage/ShoppingRowView.tsx`                                                                                | row tick, store and aisle pickers (state)          | native    | Phone-first in-store page; the tick has 38d/39c held-tick semantics; OS pickers on phones |
+| `ShoppingPage/SettingsSheet.tsx`                                                                                  | feature boxes, default/aisle store selects (state) | native    | Same phone-first page as the rows; one follow-up for `/shopping` as a whole               |
+| `MakePage/index.tsx` "Count close matches"                                                                        | checkbox (state)                                   | native    | Per-browser setting, not a form; also on the export                                       |
+| `MakePage/InventoryPanel.tsx` "Assume pantry staples"                                                             | `role="switch"` checkbox (state)                   | native    | Per-browser switch; `ui/` has no Switch primitive                                         |
+| `jobs/JobsDashboard.tsx` Status / Kind                                                                            | filter selects (state)                             | native    | Not a form; follow-up                                                                     |
+| `jobs/[id]/JobDetail.tsx` "Read it again"                                                                         | checkbox (state)                                   | native    | Not a form; beside Retry; follow-up                                                       |
+| portfolio / resume-builder                                                                                        | (only through `SelectInput` / `CheckboxInput`)     | **Radix** | Portfolio's project form; resume-builder uses neither directly                            |
+
+Tests: `cliJson.test.ts` +1 (create Simple Syrup and Lemonade, add
+Lemonade, `--for` with `--recipe` → `usage`, `remove --for simple-syrup`
+→ "Removed 2 items", the lemon juice left, then cleaned up). `mcp.test.ts`
++1 (`for` removes the syrup's two items and keeps the recipe's own line, a
+second call is `changed: false`, `for` with `recipe` is refused by the
+schema, the input schema lists `for`, still 57 tools). `rebuildRetry.test.ts`
+(new, 7, frozen clock): the 1/5/15 schedule and give-up, stop on success
+and restart at 1 minute, a HEAD move drops the pending retry, `busy` waits
+for the scheduled minute, shutdown clears and schedules nothing, a retry
+while a sync blocks runs on `kick`, the timer is unref'd.
+`instance.test.ts` +1: a start-time rebuild that is `busy` (the
+repository's line held) schedules a retry, and `close()` clears it.
+`formControls.test.tsx` (new, 8, jsdom): FormData and reset for both
+inputs (`on` / nothing, a custom value, disabled sends nothing, reset to
+the current default, a controlled box reports no change on reset, the
+empty option submits `""`, the first option by default). The curator-skill
+test passes unchanged (57 / 43). Playwright: `term-edit`, `groups`,
+`recipe`, `timeline` and portfolio `projects` drive the Radix select
+(Dc6). `export-page` +1 (tick, Save, still ticked, reload, untick).
+
+**Gates.** Both typechecks clean (and portfolio's editor, which uses the
+shared inputs). vitest **113 files / 2313 tests**: 2312 passed on the full
+run, and one timeout under load in a file 40c didn't touch (`shopping.test.ts`
+"refuses an add that would take the list past its cap", 60 s). It passes
+alone in 2.7 s (35/35), so it's a candidate for 40f. Playwright (build mode,
+`heavy-pw.sh`, e2e + mobile): `term-edit`, `groups`, `recipe`,
+`new-recipe`, `timeline`, `export-page`, `photo-import`, `edit`,
+`featured-recipes`, `reference-updates`, `mirrors-card`, `git`, `visual`,
+`accessibility`. The final run had **274 passed** and one `photo-import`
+failure, which was stale `test-jobs` from an earlier run (Tc6). With
+`test-jobs` cleared, `photo-import` passed **3/3**. Portfolio `projects.spec`
+**7/7** (e2e, `next dev`; the portfolio production build is 40b's).
+**Baselines: none moved.** `visual.spec` and the a11y specs pass on the
+old baselines. The forms they capture show none of the converted
+controls (no image to remove, no timeline event, no drink block open), or
+any difference stays inside the threshold. The converted controls were
+checked by eye on throwaway screenshots (the term form's Parent list,
+"Active Time?", the Export card).
+
+**Review round** (no blockers; all as new commits):
+
+- `rebuildRetry.ts`: the HEAD-move generation (Dc2), so a move during a
+  running rebuild fails into the 1-minute step, not the 5-minute one; one
+  log line per failure instead of two. `rebuildRetry.test.ts` +1 (that
+  scenario on a frozen clock), and the give-up case counts the lines.
+- `FormCheckbox`: the microtask settle (Dc4). `formControls.test.tsx` +1 (a
+  reset stopped on the form: the box goes back to its default and still
+  toggles after).
+- `SelectInput`: tree options named by their path, and the first-option
+  move (Dc3). `formControls.test.tsx` +1. `term-edit.spec` picks
+  "Dessert › Cookies".
+- `shopping remove --recipe/--group/--for ""` is a `usage` error naming the
+  flag. `cliJson.test.ts`'s `--for` case checks it.
+- `MirrorsCard`: no change of its own; the Select move covers a stale
+  remote name.
+
+Review-round gates: both typechecks clean; vitest on the touched files
+(`rebuildRetry`, `formControls`, `instance`, `cliJson`, `mcp`) **5 files /
+108 tests** passed (CI runs the full suite); Playwright build mode
+`term-edit.spec` + `mirrors-card.spec` **11/11**. Baselines: none moved.
+
+**Roger to confirm:**
+
+- The schedule (Dc2) and that it covers foreign-HEAD rebuilds, not only
+  the start-time one.
+- The native/Radix line (Dc5): `/shopping`, `/make` and `/jobs` keep native
+  controls for now. The phone-first shopping page keeps the OS pickers.
+- `/export`'s server actions failed on `main` (Tc4), seen for Save in a
+  production build. Build and Deploy are inferred to fail too (same action
+  entry; not run here). A workstation update brings the fix.
 
 ### 40d — Term clouds
 
@@ -865,5 +1138,184 @@ stopped it in the queue.
   and `wcag22aa` to `WCAG_TAGS`.
 
 ### 40h — Dependency updates
+
+Branch `agent/40h-deps`. Only `package.json` files, `pnpm-lock.yaml` and
+this doc change, with no source or config edits, until the CI round below
+(a `/jobs` fix, two portfolio layouts, `agentRules: false` in the Next
+configs, test waits). **Reindex needed: no.**
+**Deploy:** Roger's `pnpm workstation update` picks it up on the
+workstation, and the next `pnpm deploy:pi` on the Pi.
+
+**Method.** `pnpm update -r` within the existing ranges, with the held
+packages excluded (`'!react' '!@radix-ui/*' …`). The exact pins then
+moved explicitly: `next`, `eslint-config-next`, `tldts`, `react` /
+`react-dom` and the two `next` peer pins. Each failing package was
+reverted alone, and the full gates re-run.
+
+**Updated** (old → new; the workspaces are every package that lists it):
+
+| Package                                                                  | Old → new                                                                                                            |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `next`, `eslint-config-next`, `@next/eslint-plugin-next`                 | 16.1.6 → 16.4.2 (16.4.1 carries two critical advisories' fixes: `use cache` typed arrays, image optimisation of SVG) |
+| `react`, `react-dom`                                                     | 19.2.4 → 19.2.9 (patch; see Dh1)                                                                                     |
+| `@types/react` / `@types/react-dom`                                      | 19.2.10 → 19.2.18 / 19.2.3 → 19.2.7                                                                                  |
+| `lmdb`                                                                   | 3.5.1 → 3.5.7 (bug fixes in `mdb.c` page-boundary checks and read-snapshot release; no format change)                |
+| `simple-git`                                                             | 3.30.0 → 3.33.0, range `~3.33.0` (Dh2)                                                                               |
+| `tldts`                                                                  | 7.0.21 → 7.4.18                                                                                                      |
+| `prettier`                                                               | 3.8.1 → 3.8.5 (patch; Dh1)                                                                                           |
+| `vitest`, `@vitest/browser`                                              | 4.0.18 → 4.1.12                                                                                                      |
+| `vite` / `@vitejs/plugin-react` / `vite-tsconfig-paths`                  | 7.3.1 → 7.3.7 / 5.1.2 → 5.2.0 / 6.0.5 → 6.1.1                                                                        |
+| `eslint` / `typescript-eslint`                                           | 9.39.2 → 9.39.5 / 8.54.0 → 8.71.2                                                                                    |
+| `eslint-plugin-react-hooks` / `-playwright` / `-mocha`, `@eslint/compat` | 7.0.1 → 7.1.1 / 2.10.2 → 2.12.1 / 11.2.0 → 11.3.0, 2.0.2 → 2.1.1                                                     |
+| `@modelcontextprotocol/server`, `/client`                                | 2.0.0 → 2.3.1                                                                                                        |
+| `@tanstack/react-query` / `react-form` (+ `-nextjs`)                     | 5.90.20 → 5.104.3 / 1.32.0 → 1.33.5                                                                                  |
+| `fs-extra` / `lodash` / `format-quantity`                                | 11.3.3 → 11.4.1 / 4.17.23 → 4.18.1 / 3.0.0 → 3.2.0                                                                   |
+| `tailwind-merge` / `github-markdown-css` / `date-fns`                    | 3.4.0 → 3.7.0 / 5.8.1 → 5.9.0 / 4.1.0 → 4.4.0                                                                        |
+| `mdast-util-to-markdown` / `parse5` / `cbor-x` / `@sindresorhus/slugify` | 2.1.2 → 2.2.0 / 8.0.0 → 8.0.1 / 1.6.0 → 1.6.6 / 3.0.0 → 3.0.1                                                        |
+| `netlify-cli` / `serve`                                                  | 23.14.0 → 23.15.1 / 14.2.5 → 14.2.6                                                                                  |
+| `postcss` / `autoprefixer` / `tsx`                                       | 8.5.6 → 8.5.30 / 10.4.24 → 10.6.1 / 4.21.0 → 4.23.15                                                                 |
+| `@axe-core/playwright`                                                   | 4.11.3 → 4.14.0                                                                                                      |
+| `jest`, `jest-environment-jsdom` / `ts-jest`                             | 30.2.0 → 30.5.2 / 29.4.6 → 29.4.15                                                                                   |
+| `@testing-library/dom` / `react` / `user-event`                          | 10.4.1 → 10.4.2 / 16.3.2 → 16.3.3 / 14.6.1 → 14.6.8                                                                  |
+| `lint-staged` / `@types/node` / `@types/lodash`                          | 16.2.7 → 16.4.0 / 25.2.0 → 25.9.9 / 4.17.23 → 4.17.26                                                                |
+
+**Skipped or held** (still on the old version):
+
+- `zod` 4.3.6 (4.6.7 tried): vitest failed, 15 tests in `termForm`, 4 in
+  `groups` (scale) and 2 in `parseRecipeForm` (drink), "expected
+  nonoptional, received undefined". The cause is zod 4.4.2's
+  `z.preprocess` change, see Traps. Range `~4.3.6`.
+- `markdown-to-jsx` 9.6.1 (9.10.3 tried): `flattenMarkdown` "keeps
+  quantities inside prose" failed. Range `~9.6.1`. Rendering may change
+  too; that was not checked.
+- `simple-git` 3.34–3.36: refused by its unsafe-operations plugin (see
+  Traps). 3.36.0 failed 31 vitest tests across `curationGit`,
+  `siteWrites`, `instance`, `piSync`, `annex`, `mcp` and `mcpHttp`; 3.35.2
+  failed one (`instance`, ssh keepalives).
+- `@playwright/test` 1.59.1, kept on purpose (latest 1.64.1). A bump also
+  moves the CI image pin (`playwright.yml`, `Dockerfile.playwright`) and
+  the bundled Chromium under every `visual.spec` screenshot baseline. It
+  belongs in its own PR with regenerated baselines.
+- `@radix-ui/*` kept on purpose: 40c is converting Select and Checkbox to
+  Radix in `component-library` tonight. Take these bumps after 40c merges.
+- React 19.3, Tailwind 4.3 and Prettier 3.9 held to patches (Dh1).
+- `next-auth` 5.0.0-beta.30 kept (a beta pin). `sharp` 0.34.5 is the
+  newest 0.34. TypeScript 5.9.3, `jsdom` 27.4.0, `lexical` 0.44.0 and
+  `lucide-react` 0.563.0 are the newest in their line.
+- `@testing-library/jest-dom` stays 6.9.1: 6.10.0 is deprecated ("an
+  incorrect minor release with breaking changes"), and pnpm skipped it.
+- Majors not considered (D4): execa 10, vite 8, vitest 5, eslint 10,
+  TypeScript 7, `@types/node` 26, `@tanstack/react-table` 9, netlify-cli
+  27, sharp 0.35, lexical 0.52, lucide-react 1.x, among others.
+
+**Notable transitive changes** (the lockfile changed 648 package names;
+`tmp/40/40h/lockdiff.cjs` lists the new major lines):
+
+- **Next 16.4.2 brings its own `sharp` ^0.35.5** (an optional
+  dependency), next to our direct 0.34.5 pin, so two sharp/libvips builds
+  ship in the editor image. Next's copy loads only for `/_next/image`, and
+  every `<Image>` here is `unoptimized` or uses a custom loader. The cost
+  is image size, not behaviour.
+- `@types/node` 26.6.5 shows up as an auto-installed peer of `vite`,
+  `vitest` and Next's `sharp`, beside our 25.9.9. Both typechecks pass.
+- netlify-cli 23.15 moves its own internals across majors (fastify
+  4 → 5, express 4 → 5, OpenTelemetry 1 → 2, pino 9 → 10). That is
+  upstream's tree, and only `deploy` uses it.
+- dashjs 5.1.1 → 5.2.1 under react-player, with its `@svta/*` peers
+  re-resolved (see Traps).
+
+**Decisions.**
+
+- **Dh1 — "No React or Tailwind line change" read as the minor line.**
+  The brief says "line" for React and Tailwind but "major" for Next and
+  TypeScript. React 19.3.1 and Tailwind 4.3.3 were held to their newest
+  patch (19.2.9; Tailwind 4.1.18 has none newer). Prettier 3.9 was also
+  held at 3.8.5, because a Prettier minor reformats code and
+  `lint-staged` checks every file a later PR touches.
+- **Dh2 — Tilde ranges for the three versions held because of a
+  failure** (`simple-git ~3.33.0`, `zod ~4.3.6`, `markdown-to-jsx
+~9.6.1`). A later in-range `pnpm update` would otherwise pull the
+  breaking minor back in.
+
+**Gates** (local, all through the heavy slot):
+
+- `pnpm --filter recipe-editor typecheck`: clean.
+- `pnpm --filter recipe-website exec tsc --noEmit`: clean.
+- `pnpm exec vitest run`: 112 files, 2321 tests passed. The first run,
+  before the reverts, had 53 failures.
+- Export build: `next build` of `recipe-website` on Next 16.4.2
+  (Turbopack), against a scratch copy of the `christmas-cookies` and
+  `many-recipes` fixtures (reindexed with the CLI). 87 static pages,
+  no warnings.
+- Playwright, build mode (`heavy-pw.sh`): `accessibility`, `new-recipe`,
+  `edit`, `search`, `git`, `shopping`, `visual` and `lexical-smoke`
+  specs. 173 passed in 6.5 min, with every screenshot baseline unchanged
+  on Next 16.4.2. The full suite is left to CI's 14 checks.
+
+**Roger to confirm.**
+
+- Dh1: take React 19.3 / Tailwind 4.3 / Prettier 3.9 in a follow-up, or
+  keep them pinned to patches.
+- Code follow-ups that would lift the holds: simple-git ≥ 3.34 (pass
+  `unsafe: { allowUnsafeSshCommand, allowUnsafeEditor }` where the sync
+  sets `core.sshCommand` and the revert/merge path runs with `EDITOR`, or
+  stop setting them), zod ≥ 4.4 (form parsers that `preprocess` blanks
+  to `undefined`), markdown-to-jsx ≥ 9.7 (`<Multiplyable />` in list
+  items).
+- `@playwright/test` 1.64 with the CI image and screenshot baselines,
+  and the Radix bumps after 40c, each as its own small PR.
+- Whether to move the direct `sharp` pin to 0.35 so it shares Next's copy
+  (a 0.x minor, so outside D4).
+
+**CI round** (#264's first run: Recipe shard 2/4 and Portfolio red, both
+under `next dev`). Nothing was reverted for it.
+
+- **`/jobs` read while the tab was hidden** (`jobs.spec` 38b, 3/3). The
+  dashboard skipped its filter effect's first run with a `first` ref.
+  StrictMode (on under `next dev`) runs a mount's effects twice and keeps
+  refs, so the flag was spent on the first pass and the second pass read
+  `/api/jobs` at mount, without checking `hidden`. That was a latent dev-only
+  bug. Next 16.4's dev server hydrates later after `load`, so the read now
+  landed after the spec had hidden the tab (the CI trace: the request came
+  ~75 ms after the `visibilitychange`, with React still hydrating). Fix: the
+  effect compares the filters against those the list was read with
+  (`filtersShown` ref), so a remount reads nothing. A read aborted after
+  its body arrived is dropped too, before it can overwrite a newer
+  filter's list. The dashboard carries `data-ready` once mounted; the two
+  `/jobs` specs that filter or hide the tab wait for it (`dashboardReady`).
+  The "step timeline" flake (a Kind filter picked before hydration was
+  lost) is the same timing.
+- **Portfolio `getByLabel("Client")` matched two elements** (3/3). The
+  second was Next's dev overlay button "Expand client/server diff". The
+  overlay reported a hydration mismatch on `<html>`: next-themes sets the
+  mode class and `color-scheme` before React hydrates, and portfolio's root
+  layouts (editor and export) lacked the `suppressHydrationWarning` that
+  next-themes documents and that recipe's AppLayout already has. Added to
+  both. Next 16.4's overlay now puts that diff in the DOM.
+- **Portfolio ⌘K flakes** (6 command-palette specs, a11y "when open",
+  visual "the command palette"). The shortcut was pressed before hydration,
+  with no listener, so it was lost. `paletteShortcutReady` waits for the
+  hint chip's post-hydration re-read ("⌘K" → "Ctrl+K" on a non-Apple
+  runner) before pressing. No baseline moved.
+- **`AGENTS.md` appeared in `websites/portfolio/editor`.** Since 16.4,
+  `next dev` writes one into the app when it detects a coding agent, and
+  restores it if deleted. **Dh3:** `agentRules: false` in all six Next
+  configs (recipe editor/export, portfolio editor/export, resume-builder,
+  the CMS demo). This repo's agent notes are the root `CLAUDE.md`. The
+  generated file was not committed.
+- **eslint-plugin-react-hooks 7.1** (via eslint-config-next 16.4.2) now
+  flags a concise-arrow `useEffect(() => setNow(…), [])` as
+  `set-state-in-effect`. Lint-staged refused the dashboard's commit. The
+  mount clock is now set from a `setTimeout` callback.
+
+CI-round gates (after merging `origin/main` with 40c, local, all through
+the heavy slot): `recipe-editor` typecheck clean; `recipe-website tsc
+--noEmit` clean; `portfolio-website-editor` typecheck clean; vitest
+`formControls`, `rebuildRetry`, `cliJson`, `instance`, `mcp`,
+`jobSurfaces` and `specVersions`, 7 files and 162 tests passed;
+`jobs.spec`, build mode (`heavy-pw.sh`): 10 passed; portfolio
+`projects.spec command-palette.spec accessibility.spec` in `next dev`
+(`heavy-bg.sh`, `--project=e2e`): 36 passed, with no `AGENTS.md`
+written. The dev-mode recipe run is left to CI.
 
 ## Close-out

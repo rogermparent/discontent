@@ -11,6 +11,9 @@ const workspaceRoot = resolve(
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // No AGENTS.md: since Next 16.4 `next dev` writes one into the app when it
+  // detects a coding agent; this repo's agent notes live in the root CLAUDE.md.
+  agentRules: false,
   outputFileTracingRoot: workspaceRoot,
   turbopack: { root: workspaceRoot },
   // lmdb is a native module; bundling it breaks the binding resolution at

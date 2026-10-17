@@ -2,9 +2,11 @@ import { test, expect } from "../support/test";
 import type { Page } from "@playwright/test";
 import {
   checkNamesInOrder,
+  chooseOption,
   fillSignInForm,
   markdownEditorReady,
   deleteWithConfirm,
+  selectValue,
 } from "../support/helpers";
 import { snapshotPage } from "../support/visual";
 
@@ -263,7 +265,11 @@ test.describe("Single Recipe View", () => {
       const form = page.locator("#recipe-form");
       await page.getByLabel("Name").first().fill("Daiquiri");
       await form.locator("summary", { hasText: "Drink" }).click();
-      await form.locator('[name="drink.method"]').selectOption("shake");
+      await chooseOption(
+        page,
+        form.getByLabel("Method", { exact: true }),
+        "Shaken",
+      );
       await form.locator('[name="drink.glass"]').fill("coupe");
       await form.locator('[name="drink.ice"]').fill("up");
       await form.locator('[name="drink.garnish"]').fill("lime wheel");
@@ -292,14 +298,17 @@ test.describe("Single Recipe View", () => {
         timeout: 10_000,
       });
       await markdownEditorReady(page, "description");
-      const method = page.locator('#recipe-form [name="drink.method"]');
+      const form2 = page.locator("#recipe-form");
+      const method = form2.getByLabel("Method", { exact: true });
       await expect(method).toBeVisible();
-      await expect(method).toHaveValue("shake");
+      await expect(method).toHaveText("Shaken");
+      await expect(selectValue(form2, "drink.method")).toHaveValue("shake");
       await expect(
         page.locator('#recipe-form [name="drink.garnish"]'),
       ).toHaveValue("lime wheel");
 
-      await method.selectOption("");
+      await chooseOption(page, method, "—");
+      await expect(selectValue(form2, "drink.method")).toHaveValue("");
       for (const key of ["glass", "ice", "garnish"]) {
         await page.locator(`#recipe-form [name="drink.${key}"]`).fill("");
       }

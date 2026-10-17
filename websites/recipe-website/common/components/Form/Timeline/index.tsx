@@ -101,7 +101,7 @@ function TimelineEventInput({
               name={`${prefix}.activeTime`}
               id={`${id}-activeTime`}
               checked={Boolean(field.state.value)}
-              onChange={(e) => field.handleChange(e.target.checked)}
+              onCheckedChange={(checked) => field.handleChange(checked)}
             />
           )}
         </form.Field>

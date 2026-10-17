@@ -480,6 +480,88 @@ describe("the CLI as a process", () => {
   );
 
   /*
+   * 40c. `shopping remove --for <slug>` (39-Dc3): what a sub-recipe's
+   * expansion added goes, the linking recipe's own line stays. The two
+   * recipes and the list go again before the case ends, so the cases below
+   * count what they counted.
+   */
+  it(
+    "removes what a sub-recipe added with shopping remove --for",
+    async () => {
+      for (const recipe of [
+        {
+          name: "Simple Syrup",
+          ingredients: ["1/2 cup sugar", "1/2 cup water"],
+        },
+        {
+          name: "Lemonade",
+          ingredients: [
+            "1 cup lemon juice",
+            "1 batch [Simple Syrup](/recipe/simple-syrup)",
+          ],
+        },
+      ]) {
+        const created = await run(
+          ["create", "--stdin", "--json"],
+          {},
+          JSON.stringify(recipe),
+        );
+        expect(created.exitCode, created.stdout).toBe(0);
+      }
+      const added = await run([
+        "shopping",
+        "add",
+        "--recipe",
+        "lemonade",
+        "--json",
+      ]);
+      expect(JSON.parse(added.stdout).items).toHaveLength(3);
+
+      const both = await run([
+        "shopping",
+        "remove",
+        "--for",
+        "simple-syrup",
+        "--recipe",
+        "lemonade",
+        "--json",
+      ]);
+      expect(both.exitCode).not.toBe(0);
+      expect(JSON.parse(both.stdout).error.code).toBe("usage");
+      /* An empty slug is a usage slip too (40c review). */
+      const empty = await run(["shopping", "remove", "--for", "", "--json"]);
+      expect(empty.exitCode).not.toBe(0);
+      expect(JSON.parse(empty.stdout).error).toMatchObject({
+        code: "usage",
+        message: expect.stringContaining("--for needs a slug"),
+      });
+
+      const removed = await run([
+        "shopping",
+        "remove",
+        "--for",
+        "simple-syrup",
+      ]);
+      expect(removed.exitCode).toBe(0);
+      expect(removed.stdout.trim()).toBe("Removed 2 items");
+      const read = await run(["shopping", "--json"]);
+      expect(
+        JSON.parse(read.stdout).items.map(
+          (item: { text: string }) => item.text,
+        ),
+      ).toEqual(["1 cup lemon juice"]);
+
+      await run(["shopping", "clear", "--all", "--yes"]);
+      for (const slug of ["lemonade", "simple-syrup"]) {
+        const deleted = await run(["delete", slug, "--yes", "--json"]);
+        expect(deleted.exitCode, deleted.stdout).toBe(0);
+      }
+    },
+    /* Ten CLI processes. */
+    TIMEOUT * 3,
+  );
+
+  /*
    * 31c. The `term` table end to end, one object per call, and the two
    * destructive subcommands refuse a pipe without `--yes`. The tag is taken
    * back off before the case ends, so the cases above stay as they were.

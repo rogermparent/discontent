@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // No AGENTS.md: since Next 16.4 `next dev` writes one into the app when it
+  // detects a coding agent; this repo's agent notes live in the root CLAUDE.md.
+  agentRules: false,
   env: {
     // The editor is branded as the editor; deployments can override via env.
     // The public export app uses the neutral default from getSiteConfig().

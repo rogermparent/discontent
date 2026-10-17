@@ -10,17 +10,17 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "clsx": "^2.1.1",
-    "@discontent/component-library": "^1.0.0",
     "@discontent/cms": "^1.0.0",
-    "github-markdown-css": "^5.8.1",
-    "markdown-to-jsx": "^9.6.1",
+    "@discontent/component-library": "^1.0.0",
     "@discontent/menus-collection": "^1.0.0",
-    "next": "16.1.6",
     "@discontent/next-static-image": "^0.0.1",
-    "zod": "^4.3.6"
+    "clsx": "^2.1.1",
+    "github-markdown-css": "^5.9.0",
+    "markdown-to-jsx": "~9.6.1",
+    "next": "16.4.2",
+    "zod": "~4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^25.2.0"
+    "@types/node": "^25.9.9"
   }
 }
