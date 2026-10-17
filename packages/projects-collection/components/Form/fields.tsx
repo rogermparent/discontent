@@ -193,22 +193,21 @@ export default function ProjectFields({
             name="status"
             id="project-form-status"
             value={field.state.value}
-            onChange={(e) =>
-              field.handleChange(
-                e.target.value as "" | "shipped" | "wip" | "archived",
-              )
+            onValueChange={(value) =>
+              field.handleChange(value as "" | "shipped" | "wip" | "archived")
             }
             errors={mergeFieldErrors(
               state?.errors?.status,
               field.state.meta.errors,
             )}
-          >
-            {/* Empty option submits "", which the schema treats as absent. */}
-            <option value="">—</option>
-            <option value="shipped">Shipped</option>
-            <option value="wip">Work in progress</option>
-            <option value="archived">Archived</option>
-          </SelectInput>
+            options={[
+              /* Submits "", which the schema treats as absent. */
+              { value: "", label: "—" },
+              { value: "shipped", label: "Shipped" },
+              { value: "wip", label: "Work in progress" },
+              { value: "archived", label: "Archived" },
+            ]}
+          />
         )}
       </form.Field>
 
@@ -219,7 +218,7 @@ export default function ProjectFields({
             name="featured"
             id="project-form-featured"
             checked={field.state.value}
-            onChange={(e) => field.handleChange(e.target.checked)}
+            onCheckedChange={(checked) => field.handleChange(checked)}
           />
         )}
       </form.Field>

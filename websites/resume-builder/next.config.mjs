@@ -8,6 +8,9 @@ const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // No AGENTS.md: since Next 16.4 `next dev` writes one into the app when it
+  // detects a coding agent; this repo's agent notes live in the root CLAUDE.md.
+  agentRules: false,
   outputFileTracingRoot: workspaceRoot,
   turbopack: { root: workspaceRoot },
 };

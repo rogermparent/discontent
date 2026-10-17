@@ -93,6 +93,20 @@ async function jobInUrl(page: Page): Promise<string> {
   return new URL(page.url()).searchParams.get("job")!;
 }
 
+/**
+ * `/jobs`' dashboard has hydrated. Under `next dev` (CI) the server-rendered
+ * page shows well before React owns it (later still since Next 16.4, 40h): a
+ * filter picked before then is lost, and a visibility change dispatched
+ * before then is read only once hydration catches up.
+ */
+async function dashboardReady(page: Page) {
+  await expect(page.getByTestId("jobs-dashboard")).toHaveAttribute(
+    "data-ready",
+    "true",
+    { timeout: 30_000 },
+  );
+}
+
 test.describe("Import jobs", () => {
   test.beforeEach(async ({ page, request, resetData, writeSettings }) => {
     delayMs = 0;
@@ -261,6 +275,7 @@ test.describe("Import jobs", () => {
     const row = page.locator(`[data-job="${job}"]`);
     await expect(row).toContainText("form-text");
     await expect(row.getByTestId("job-status")).toHaveText("done");
+    await dashboardReady(page);
 
     /*
      * Filters: by kind, by status. The filters are controlled `<select>`s: a
@@ -327,6 +342,7 @@ test.describe("Import jobs", () => {
     await expect(
       page.getByRole("heading", { name: "Jobs", exact: true }),
     ).toBeVisible();
+    await dashboardReady(page);
     let reads = 0;
     page.on("request", (request) => {
       if (new URL(request.url()).pathname === "/api/jobs") reads += 1;

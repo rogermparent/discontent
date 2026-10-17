@@ -39,4 +39,38 @@ test.describe("Export page (39-D6)", () => {
     await page.reload();
     await expect(hint).toContainText("2 commits since the last export (");
   });
+
+  /*
+   * 40c: the "Share my saved inventory" box is the Radix checkbox now. It
+   * still submits by name, stays ticked after Save (the form's reset goes to
+   * the saved value, not the one it mounted with), and survives a reload.
+   */
+  test("saves the share-inventory box, ticked and unticked", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData();
+    await page.goto("/export");
+    await fillSignInForm(page);
+    const card = page.getByTestId("share-inventory");
+    const box = card.getByRole("checkbox", {
+      name: "Share my saved inventory on the export",
+      exact: true,
+    });
+    await expect(box).not.toBeChecked();
+
+    await box.check();
+    await card.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(card.getByRole("status")).toHaveText("Settings saved.");
+    await expect(box).toBeChecked();
+    await page.reload();
+    await expect(box).toBeChecked();
+
+    await box.uncheck();
+    await card.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(card.getByRole("status")).toHaveText("Settings saved.");
+    await expect(box).not.toBeChecked();
+    await page.reload();
+    await expect(box).not.toBeChecked();
+  });
 });

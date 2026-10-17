@@ -3,9 +3,11 @@ import type { Page } from "@playwright/test";
 import { test, expect } from "../support/test";
 import { projectPath } from "../support/tasks";
 import {
+  chooseOption,
   fillSignInForm,
   fillMarkdownField,
   markdownEditorReady,
+  selectValue,
 } from "../support/helpers";
 
 /*
@@ -50,7 +52,7 @@ test.describe("Project Editor", () => {
     await fillMarkdownField(page, "content", "## Overview\n\nThe case study.");
     await page.getByLabel("Role").fill("Design & build");
     await page.getByLabel("Client").fill("Self");
-    await page.getByLabel("Status").selectOption("shipped");
+    await chooseOption(page, page.getByLabel("Status"), "Shipped");
     await page.getByLabel("Featured").check();
 
     const tagInput = page.getByLabel("Add a tag");
@@ -203,7 +205,7 @@ test.describe("Project Editor", () => {
     await page.getByLabel("Name").fill("Round Trip");
     await page.getByLabel("Summary").fill("Summary text");
     await page.getByLabel("Role").fill("Lead engineer");
-    await page.getByLabel("Status").selectOption("wip");
+    await chooseOption(page, page.getByLabel("Status"), "Work in progress");
     const tagInput = page.getByLabel("Add a tag");
     await tagInput.fill("systems");
     await tagInput.press("Enter");
@@ -223,7 +225,8 @@ test.describe("Project Editor", () => {
     await expect(page.getByLabel("Name")).toHaveValue("Round Trip");
     await expect(page.getByLabel("Summary")).toHaveValue("Summary text");
     await expect(page.getByLabel("Role")).toHaveValue("Lead engineer");
-    await expect(page.getByLabel("Status")).toHaveValue("wip");
+    await expect(page.getByLabel("Status")).toHaveText("Work in progress");
+    await expect(selectValue(page, "status")).toHaveValue("wip");
     await expect(page.getByLabel("Label")).toHaveValue("Demo");
     await expect(page.getByLabel("URL")).toHaveValue(
       "https://example.com/demo",

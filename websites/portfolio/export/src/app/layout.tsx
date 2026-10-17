@@ -14,7 +14,11 @@ export default async function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${fontVariables} scroll-smooth`}>
+    <html
+      lang="en"
+      className={`${fontVariables} scroll-smooth`}
+      suppressHydrationWarning
+    >
       <body className="flex min-h-screen flex-col bg-background text-foreground">
         {children}
       </body>

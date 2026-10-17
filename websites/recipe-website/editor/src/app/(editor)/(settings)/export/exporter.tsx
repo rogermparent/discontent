@@ -1,9 +1,7 @@
 "use client";
 
-import {
-  commandAction,
-  StreamActionResult,
-} from "@/app/(recipes)/scriptAction";
+import { commandAction } from "@/app/(recipes)/scriptAction";
+import type { StreamActionResult } from "@/app/(recipes)/runCommand";
 import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
 import { ReactNode, useCallback, useState } from "react";
 import { buildExport } from "./exportAction";
