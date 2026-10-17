@@ -760,7 +760,11 @@ test.describe("Git content", () => {
       });
 
       const again = await request.post("/api/git/sync", { headers, data: {} });
-      expect(await again.json()).toMatchObject({ outcome: "nothing" });
+      /* 39-D4: every answer carries the standing state for that mirror. */
+      expect(await again.json()).toMatchObject({
+        outcome: "nothing",
+        standing: { asOf: expect.any(String), conflict: null },
+      });
     });
 
     test("should pull over the API, rebuilding every index (27b)", async ({

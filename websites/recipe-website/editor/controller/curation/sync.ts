@@ -58,7 +58,7 @@ import {
   type SyncOutcome,
 } from "@discontent/cms/git/syncState";
 import { isMirror, mirrorRefusal } from "recipe-website-common/config/role";
-import type { JobRun } from "../jobs/context";
+import { jobContext, type JobRun } from "../jobs/context";
 import type { CurationContext } from "./context";
 import {
   CurationError,
@@ -285,6 +285,8 @@ export async function gitSync(
   const steps: SyncStep[] = [];
   let pulled = 0;
   let pushed = 0;
+  /* 39d: a conflict's record links the job that hit it. */
+  const jobId = jobContext(job).jobId;
 
   async function finish(
     outcome: SyncOutcome,
@@ -297,6 +299,7 @@ export async function gitSync(
       message,
       pulled,
       pushed,
+      ...(jobId ? { job: jobId } : {}),
     });
     return {
       remote: target as string,

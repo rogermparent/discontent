@@ -352,6 +352,42 @@ pnpm install --frozen-lockfile` installs cleanly.
 
 ### 39d
 
+- **Td1 — The sandbox reads `git` in a path as a git command.** `pnpm exec
+eslint … src/app/api/git …` was refused ("runs pnpm with a git command
+  among its operands"); so is any pnpm/prettier line naming
+  `packages/cms/git/…` or `(settings)/git/…`. Lint the parent directory,
+  or list the files in a script in the phase's scratch directory and run
+  that (39d's `fmt.sh`).
+- **Td2 — A Pi on an image from before 39d answers the new route 404.**
+  The workstation sends only while a conflict stands or clears, so in the
+  normal case an old Pi costs nothing; during a conflict the Mirrors card
+  says "uraninite's editor not told: 404: …", the log says it once, and
+  every sync retries until the Pi is deployed. The ping answer's
+  `standing` is ignored by an old Pi's pinger, harmlessly.
+- **Td3 — `commandAction` left a failed build's rejection unhandled.**
+  `newBuild.finally(…)` made a derived promise that rejected with execa's
+  error and had no handler. The `onSuccess` chain (D6) handles both sides
+  now; a failed Build still shows its output and records nothing.
+- **Td4 — Before 39d a conflict found by a ping or by Sync now notified
+  nobody.** 28c's `notifyIfNew` sat in the runner's `runAll` only; the
+  ping's `/api/git/sync` and the Mirrors card's Sync now went through
+  `syncMirror` around it. An aborted merge moves no HEAD, so the runner
+  did not run again on its own: the conflict was told only at the
+  workstation's next local change or restart. `noteAttention` now runs in
+  `runMirrorSync`, under every trigger.
+- **Td5 — simple-git does not reject a silent non-zero exit.**
+  `git.raw(["merge-base", "--is-ancestor", a, b])` resolved `""` when git
+  exited 1 (not an ancestor) with nothing on stderr, so the check passed
+  every time. Ask a question whose answer is output: `merge-base a HEAD`
+  equals `a`'s full sha exactly when `a` is an ancestor (Dd16).
+- **Td6 — A state file written by several writers needs one lock, not
+  per-caller mutexes.** 39d first serialised each writer in its own
+  promise chain (the attention checks, the standing writes) while a sync's
+  record, another process's `git sync` and the hourly timer each
+  read-modify-wrote `.git/discontent-sync.json` on their own, with a
+  `<path>.<pid>.tmp` temp name two in-process writers shared. The lock now
+  lives with the file (`updateSyncState`, Dd11), so no caller can forget it.
+
 ### 39e
 
 - **Te1 — an unlayered global rule beats every kit utility.**
@@ -1035,6 +1071,327 @@ Deferred:
   also suits reduced motion.
 
 ### 39d — Unattended Pi sync
+
+**Reindex needed: no.** No index, spec or content shape changed; the new
+state lives in three files under the content repository's git directory.
+**Deploy:** `pnpm workstation update` and the Pi's next `pnpm deploy:pi`
+(the Pi gets the new `PUT /api/git/standing` route and the banner). Both
+optional settings are the workstation's: `RECIPE_NOTIFY_URL` in
+`~/.config/recipe-deploy/workstation.env`, then `pnpm workstation restart`.
+
+**Built.**
+
+- **D4, a standing conflict** (`packages/cms/git/syncState.ts`). A
+  mirror's sync record gains `conflictSince` (the first `conflict`) and
+  `conflictJob` (the `git-sync` job that last hit it; `gitSync` passes
+  its job id to `recordSyncAttempt`). Every outcome that cannot tell
+  whether the conflict is resolved — `blocked` while a person merges on
+  `/git`, `busy`, `raced`, `unreachable`, `mirror_dirty`, `error` — keeps
+  them; only `nothing` or `synced` clears them (Dd1). `attentionKey` and
+  `attentionText` read `conflictSince`, so the workstation's banner, its
+  notifications, its reminder and what the mirror is told all agree.
+- **D4, the mirror is told, two ways** (new `controller/instance/standing.ts`).
+  The workstation's standing state for a mirror is
+  `{asOf, conflict: {since, job?} | null}` (`standingOf`).
+  - **Every `/api/git/sync` answer** carries it as `standing`, whatever
+    the run's outcome — a ping answered `busy` or `blocked` still says the
+    conflict stands, one answered `nothing` says it is gone. The pinger
+    keeps it (`recordStanding`); an answer without it (a workstation from
+    before 39d, an error) leaves what the mirror knew.
+  - **Pushed after the workstation's own syncs** — the startup sync, its
+    ref watcher, Sync now answer no mirror, which is how a conflict found
+    there never reached the Pi before. `runMirrorSync` calls
+    `pushStanding` after every sync: when the standing key
+    (`conflict:<since>` or `clear`) differs from the one the mirror last
+    accepted (`standingSent` on the record), it sends
+    `PUT /api/git/standing` to the mirror's editor — the same URL and
+    token as the site settings (28-D7: `mirrorUrls[<remote>]` or the ssh
+    host on :3000, `MIRROR_SYNC_TOKEN`). A failure keeps the old key,
+    records `error`, and is retried after the next sync; it is logged once
+    per new error. Nothing sent counts as `clear`, so a workstation that
+    never conflicts never sends (Dd2).
+  - **On the mirror** the new route (`src/app/api/git/standing`, write
+    token, 403 on a workstation, 400 for a malformed body) and the pinger
+    both write `.git/discontent-workstation.json` through
+    `recordStanding`: the newest `asOf` wins (the workstation's own clock
+    on both paths), so a late ping answer cannot undo a newer push.
+  - **What the mirror shows:** `SyncAttentionBanner`, on `/git` and
+    Maintenance, renders on a mirror from that file: "**<Workstation> hit
+    a conflict at <time>.** Your edits here are safe; resolve it on
+    <workstation>. This editor keeps saving and committing, and
+    <workstation> merges its commits on the next sync after the conflict
+    is resolved." — with "The sync's steps on <workstation>" linking
+    `${WORKSTATION_URL}/jobs/<job>` when both are known. Gone once a
+    newer "clear" arrives.
+  - **On the workstation** the banner says "Since <time>." and links "The
+    sync that hit it" (`/jobs/<id>`, D2's `git-sync` job — kept, since a
+    conflict is a failed job, Db7); the Mirrors card adds "Conflict
+    standing since <time> · the sync that hit it · <mirror>'s editor was
+    told / not told: <why> / hears of it on its next ping".
+- **D5, `RECIPE_NOTIFY_URL`** (`controller/instance/notify.ts`).
+  `webhookNotify` POSTs the body as `text/plain; charset=utf-8` with the
+  title in a `Title` header (Dd5), a 10 s timeout, `redirect: "error"`,
+  and the response body cancelled unread. `notifyPerson` = the desktop
+  plus a `void webhookNotify(…)`, so a sync never waits for it.
+  `notifyUrlConfig`: off unless set; `https:` only, or `http:` for
+  `localhost`, `127.0.0.1` and `[::1]` (Dd6). An unusable value is logged
+  once ("RECIPE_NOTIFY_URL ignored: it must be https (http only for
+  localhost).") and the Mirrors card says "set, but ignored: …". Every
+  log line names the URL as `scheme://host/…` (`describeNotifyUrl`), and
+  `redactNotifyUrl` scrubs the whole URL, its path and every segment, its
+  query and each value, and any user or password from an error's text; a
+  refusal is logged by status (`HTTP 404`), never by body. The Mirrors
+  card (shown only when a mirror is configured, so the `git-page` baseline
+  is unchanged) says "RECIPE_NOTIFY_URL set" or "not set".
+- **D5, once per new state, persisted, and a daily reminder** (new
+  `controller/instance/attention.ts`). `noteAttention(dir, remote)` reads
+  the record: a key that differs from the one last told is notified
+  (`attention: {key, since, at}` written on the record); a cleared one is
+  forgotten; the same key is reminded once `REMINDER_INTERVAL_MS` (24 h)
+  has passed since the last word — "Still unresolved: Recipe sync with
+  uraninite: conflict" / "Since <date>. …" — for a conflict or a dirty
+  mirror only (Dd8). Checked after every sync the running instance makes
+  (`runMirrorSync`, so a ping's sync and Sync now notify too — 28c told
+  only the runner's) and by an hourly, unref'd timer on the workstation
+  (`REMINDER_CHECK_MS`, cleared on `close`). One check at a time in the
+  process. Never from a sync outside a running instance (a Playwright
+  server, a script): no notification pops on the desk from a test.
+- **D6, the export staleness hint** (new `controller/exportStamp.ts`,
+  `export/ExportStaleness.tsx`). `buildExport` reads HEAD after its
+  pre-build rebuild and hands `commandAction` an `onSuccess` that writes
+  `.git/discontent-export.json` (`{head, at}`) once the build exits 0.
+  The Export page, above the switch and the buttons: "No export recorded
+  yet: the next Build that finishes is.", "Up to date: the last export
+  (<time>) was built from the current commit.", "N commits since the
+  last export (<time>)." (`rev-list --count <head>..HEAD`), or "The last
+  export (<time>) was built from a commit this history no longer has."
+  Deploy records nothing (it publishes the last build). Export stays
+  manual (28-D8).
+- **Docs:** `deploy-pi.md` has a new section (the Pi's banner, where
+  `RECIPE_NOTIFY_URL` goes, why `deploy:pi` does not copy it) and its old
+  "open questions" answered; `agent-epic-28.md`'s Deferred "Phone
+  notifications" is struck; `scripts/workstation-editor.sh`'s header
+  names the optional variable.
+
+**Decisions.**
+
+- **Dd1 — A conflict stands until a sync succeeds.** Before, the record
+  said only the last outcome, so a `blocked` (the person mid-merge on
+  `/git`) or a `busy` replaced the conflict, and the banner and the
+  notification key went with it — then came back on the next conflict as
+  "new". The conflict is a fact about the two histories, ended only by a
+  sync that merged (or found nothing to merge); everything else leaves it
+  standing.
+- **Dd2 — Answer and push, both.** The answer alone misses every conflict
+  the workstation finds by itself (its startup, its watcher, Sync now)
+  until the Pi next pings; the push alone misses a Pi that was down when
+  it was sent. The workstation already knows the Pi's editor URL and
+  token (28-D7), so the push is one HTTP call on a change of key, never a
+  ref or a note in the content history. The newest-wins guard (`asOf`,
+  always the workstation's clock) makes the two paths safe to cross.
+- **Dd3 — How the Pi learns the conflict cleared.** Resolving it on the
+  workstation ends in a sync that pushes the merge to the Pi: that sync's
+  `pushStanding` sends `clear`, and the push moves the Pi's HEAD, whose
+  ping gets an answer saying `clear` too. If the Pi's editor was down
+  then, the failed send is retried after the next sync, and the Pi's
+  startup ping asks anyway — so the banner can be stale only while the
+  Pi's editor is not running, when nobody sees it. If the workstation is
+  down, a conflict cannot be resolved either, so there is nothing to
+  learn. Enough; no timer on the Pi (28-D4's "no polling" stands).
+- **Dd4 — The Pi keeps working, and nothing on it merges or pushes.** Its
+  edits commit locally as before; the workstation's next sync after the
+  resolution merges them (the existing behaviour, now said on the banner).
+  The new route writes one status file and nothing else (28-D1).
+- **Dd5 — The title in a `Title` header.** ntfy reads `Title` (also
+  `X-Title`); a generic webhook ignores a header it does not know and still
+  gets the full text as the body. A title as the body's first line would
+  show twice on ntfy. Header values are bytes, so the title is kept to
+  printable ASCII (dashes mapped, anything else `?`; today's titles are
+  ASCII anyway). No ntfy-only headers (`Tags`, `Priority`): the code stays
+  service-neutral.
+- **Dd6 — https only, except loopback.** The URL carries a secret, so
+  plain http could leak it anywhere but the machine itself;
+  `http://localhost`, `127.0.0.1` and `[::1]` stay allowed for a local
+  relay or a test listener. Nothing is sent to an unusable value, and the
+  pages show only "set" / "not set" / "set, but ignored: <reason>".
+- **Dd7 — Only the workstation notifies.** It is the only place a sync runs
+  (28-D1), so it sees every attention state first-hand; the Pi learns them
+  second-hand, and two senders would say everything twice. The one thing
+  only the Pi could see — "the workstation is not answering my pings" — is
+  normal whenever tourmaline sleeps, so it would be a nightly false alarm.
+  Hence `deploy:pi` does not copy `RECIPE_NOTIFY_URL`, and `deploy-pi.md`
+  says where it goes.
+- **Dd8 — The reminder repeats a conflict or a dirty mirror, not "keeps
+  failing".** Those two end only by a person's hand; three failures in a
+  row are most often the Pi switched off, which needs no daily nag (it is
+  still notified once). The clock and the last key live on the record, so
+  the 28c behaviour of notifying again at every restart is gone too: a
+  standing state is told once, then daily.
+- **Dd9 — The export stamp is the build's, read after its rebuild,
+  written on exit 0.** The rebuild just before the build is what the
+  export reads; a failed or refused build ("A build is already currently
+  running!") records nothing, and Deploy publishes `out/` without
+  touching it. In the git directory, like the index and sync stamps, so
+  it never enters the content history.
+- **Dd10 — The banner links the last conflict's job.** `conflictJob` is
+  updated on every `conflict`, so the link shows the newest steps (the
+  message names today's conflicting files); `conflictSince` keeps the
+  first time. A job the store could not write is a 404 link — accepted.
+
+**Tests.** New `test/piSync.test.ts` (10, node, every `fetch` stubbed):
+the conflict stands through `blocked`, `busy`, `raced`, `unreachable`,
+`mirror_dirty` and `error`, keeps its first time, takes the newest job,
+carries the attention record, and a success clears it; a real conflict
+on scratch repos (`gitSync`) → `standingOf` → a ping answered `busy`
+with it → the mirror's file says conflict; an answer without `standing`,
+and a 500 with a malformed one, keep it; an older `clear` is refused; a
+newer one clears it; `syncMirror` (the runner's, Sync now's and a ping's
+path) on a conflict PUTs `/api/git/standing` with the job's id and
+records `standingSent`, sends no site settings, and — with no running
+instance — tells nobody; `pushStanding` sends nothing for a workstation
+that never conflicted, once per key, not again through a `busy`, and a
+503 is recorded, marked repeated, then retried to `sent`;
+`notifyUrlConfig` / `notifyUrlStatus` (https, the three loopback hosts,
+refusals that never repeat the URL); a conflict notified once (not again
+after a `busy`), POSTed with the `Title` header and the text body; a
+relay refusing the connection with an error that names the whole URL,
+and a 404 whose body names the topic, both logged with the secret path,
+the token and `auth=` absent from every captured log line and result,
+`https://ntfy.example/…` present; unset sends nothing; the reminder at
++1 h none, after a module reset (a restart) +23 h none, +24 h one, +30 h
+none, +48 h one, `since` kept; three failures notified once and never
+reminded; the export hint never → current → behind 2 → unknown, the
+stamp in the git directory with the tree clean, none outside a repo.
+Playwright: `mirror-role.spec` +1 (the route's 401 and 400, a conflict
+told → the banner on `/git` and Maintenance with its `<time>`, an older
+`clear` not kept, a newer one clears both pages) and the workstation's
+403 for the route; `git.spec`'s 28b sync answers `standing` with
+`conflict: null`; new `export-page.spec` (never → up to date → 1 → 2
+commits). `exportAction.test.ts` +1 (the build's `onSuccess` writes the
+stamp with the HEAD read after the rebuild, and nothing is written before
+it runs); its existing case now expects that third argument.
+
+**Gates.** Both typechecks clean; eslint clean on the changed files; full
+vitest **111 files / 2286 tests** passed. Playwright (build mode,
+`heavy-pw.sh`): `git`, `mirror-role`, `mirrors-card`, `export-page`,
+`settings-nav`, `visual` (e2e + mobile) — **72 / 72** passed (5.1 min); the
+`git-page` baseline did not move (the Mirrors card's new line shows only
+with a mirror, and every new time is a masked `<time>`).
+
+**Review round.** Eight findings, fixed as new commits; what above they
+amend is named.
+
+- **The sync state's writers share one lock (medium; Dd11).** The hourly
+  reminder timer called `noteAttention` → `patchMirrorState` outside the
+  instance's mutex and every lock, so a sync recording its attempt meanwhile
+  — in this process, or the CLI's or MCP's `git sync` under the sync lock in
+  another — could be overwritten, losing `conflictSince`, and the next
+  `pushStanding` told the Pi "clear". The temp name `<path>.<pid>.tmp` was
+  also shared by two writers in one process, which could tear the file
+  (`readSyncState` then answers `{}`). Now every change to
+  `.git/discontent-sync.json` — `recordSyncAttempt`, `patchMirrorState`,
+  `recordSettingsPush`, and the new `updateMirrorState` — is one
+  read-modify-write under `discontent-sync.json.lock` (the write lock's
+  primitive, `fileLock.ts`: created whole, stale on a dead pid or after
+  30 s, a 10 s wait), with a random temp name (`randomUUID`). The timer
+  runs inside `instance.exclusive`; `noteAttention` looks and writes in one
+  `updateMirrorState` step and notifies after it, so two checks never both
+  tell one state (the in-process chain it had is gone). The standing and
+  export stamps' temp names are random too.
+- **Strict standing times (low; Dd12; amends "On the mirror").**
+  `parseStanding` takes ISO-8601 UTC only (`YYYY-MM-DDTHH:MM:SS[.mmm]Z`),
+  not whatever `Date.parse` takes. `PUT /api/git/standing` answers 400 for
+  an `asOf` more than a day ahead of the Pi's clock (`MAX_AHEAD_MS`,
+  `standingTooFarAhead`); the pinger ignores such an answer; a stored one
+  (none exist — 39d is undeployed) no longer counts as newer. A
+  `200 {kept: false}` is a failure on the workstation ("it holds a newer
+  state than this one"): the key is not recorded, the Mirrors card says
+  "not told", the next sync sends a newer state, and a refusal that
+  persists is logged once (the message carries no time, so it repeats).
+- **A conflict's key names which conflict (low; Dd13; amends D5's "once
+  per new state").** `attentionKey` is `<remote>:conflict:<conflictSince>`
+  (plain `<remote>:conflict` only for a record without one). A conflict
+  that cleared by a sync no attention check followed (the CLI's) and came
+  back is told again. The reminder's "Since" is the conflict's own
+  `conflictSince`, not the time it was first notified.
+- **Several mirrors (low; Dd14).** The pinger sends `{remote}` when the
+  mirror has `WORKSTATION_REMOTE` (a valid remote name; anything else is
+  ignored), `{}` otherwise; `/api/git/sync` already syncs and answers for
+  the named remote, and for the first configured mirror without one.
+- **No standing push after `unreachable` (low; Dd15).** `runMirrorSync`
+  skips `pushStanding` when the sync answered `unreachable`; the send's
+  timeout is 5 s (`STANDING_TIMEOUT_MS`, was 15 s) and it refuses
+  redirects (`redirect: "error"`).
+- **The export hint checks ancestry (low; Dd16; amends D6).** A stamp that
+  is not an ancestor of HEAD (HEAD reset past it, or a diverged line) reads
+  "built from a commit this history no longer has", not "Up to date" or a
+  count (Td5).
+- **`commandAction` takes no callback (nit; Dd17; amends D6 and Td3).** The
+  build runner moved to `src/app/(recipes)/runCommand.ts`, a plain server
+  module; `commandAction` (the `"use server"` export, Deploy) calls it with
+  none, `buildExport` with the stamp's `onSuccess`. The running stream lives
+  on `globalThis`, so Build and Deploy still see each other's run.
+- **Test gaps.** `test/instance.test.ts` clears `RECIPE_NOTIFY_URL` (and
+  `WORKSTATION_REMOTE`) before each test, as `piSync.test.ts` does.
+
+**Decisions (review round).**
+
+- **Dd11 — The lock lives with the file, and is a leaf.** One lock beside
+  the file, taken by every function that changes it, rather than asking
+  each caller to hold the sync lock: the sync lock is non-blocking (a
+  second holder is `busy`), it is not held by the post-sync sends, and
+  the CLI's `git sync` records under it in another process. The state lock
+  is held for one read and one write and never while taking another lock,
+  so it sits below 39b's order (Db5: the repository's line → the sync lock
+  → the write lock) without a cycle; the timer takes only the instance's
+  mutex, then it. A lock that cannot be had in 10 s is warned about once
+  and the change made anyway: a status line kept unlocked beats one lost.
+- **Dd12 — The receiver bounds the future; the sender treats "not kept"
+  as not told.** The newest `asOf` wins, so a bad clock or a hand-made
+  request could freeze the Pi's banner; a day covers any honest drift on
+  NTP. On the workstation `kept: false` means the Pi already holds a newer
+  state, so saying "was told" would be false; retrying on the next sync is
+  free (a newer `asOf`), and a persistent refusal is one log line.
+- **Dd13 — The conflict's own time is part of its key.** The key changes
+  exactly when the conflict does, whoever saw it clear.
+- **Dd14 — Name the mirror only when there are several.** Tokens are users'
+  API tokens, shared by every client, so they cannot tell mirrors apart
+  cheaply; a name the mirror sends is opt-in, backward compatible (an old
+  workstation already accepted `{remote}`; an old mirror's `{}` means the
+  first mirror, as before), and needs nothing for the one mirror there is.
+- **Dd15 — An unreachable mirror is not sent to.** Its editor is down too,
+  most likely; the Pi's startup ping asks for the state anyway, and the
+  next reachable sync sends what is owed.
+- **Dd16 — "Up to date" needs the stamp to be an ancestor of HEAD.**
+- **Dd17 — A server action takes only data from a client.** A
+  `"use server"` export with a function parameter invites a client to pass
+  one; the callback is a server-side concern, so it moved behind a plain
+  module.
+
+**Tests (review round).** `test/piSync.test.ts` +9: a patch waits while
+another process holds the state lock and keeps the conflict that process
+wrote (the timer's look notifies it, `standingOf` still says conflict);
+five rounds of a sync's record, two patches and a settings send at once
+leave valid JSON with every change and no temp file; conflict → cleared
+by a sync nobody looked at → a new conflict is notified again, and its
+reminder says "Since" the conflict's time; strict times (six spellings
+refused) and the one-day bound; a far-future answer ignored by the pinger,
+and a stored one losing to an honest one; `kept: false` recorded as not
+told, repeated once, then sent — every send with `redirect: "error"` and a
+signal; no PUT after an `unreachable` sync; the ping's body `{}` /
+`{"remote":"uraninite"}` / `{}` for an invalid name; HEAD reset past the
+export's commit, and a diverged line, read "unknown". The existing key
+expectations now carry `conflictSince`. `exportAction.test.ts` mocks
+`runCommand`. Playwright `mirror-role.spec`: the route answers 400 for a
+non-ISO `asOf` and for one three days ahead, and 403 to a read-scoped
+token.
+
+**Gates (review round).** Both typechecks clean; eslint clean on the changed
+files; the affected files (`piSync`, `instance`, `exportAction`,
+`specVersions`) green, `piSync` four runs in a row; full vitest **111
+files / 2295 tests** passed. Playwright (build mode, `heavy-pw.sh`): `git`,
+`mirror-role`, `mirrors-card`, `export-page` — **41 / 41** passed
+(1.7 min). No baseline moved; no reindex needed.
 
 ### 39e — Hygiene
 

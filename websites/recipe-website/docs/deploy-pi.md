@@ -296,6 +296,37 @@ restart recipe-editor'`. Deleting the lines from the config alone leaves
   Claude API, the model, "API key: set" and whether the key and model were
   accepted. Settings → Tools stays workstation-only.
 
+## A workstation conflict on the Pi, and notifications (epic 39, 39d)
+
+- **The Pi shows a workstation conflict** (`agent-epic-39.md` D4, Dd1–Dd4).
+  The workstation tells the Pi's editor when a conflict starts or clears, in
+  every `/api/git/sync` answer to a ping (`standing`) and with
+  `PUT /api/git/standing` after its own syncs — the same URL
+  (`http://uraninite:3000`, or `mirrorUrls`) and token (`MIRROR_SYNC_TOKEN`)
+  as the site settings (28-D7). The Pi's `/git` and Maintenance then say
+  "<workstation> hit a conflict at <time>. Your edits here are safe; resolve
+  it on <workstation>." The Pi keeps accepting edits; they merge on the
+  workstation's next sync after the conflict is resolved there. The route is
+  new in 39d, so a Pi on an older image answers it 404: the workstation
+  records that once (the Mirrors card says "editor not told", only while a
+  conflict stands) and the ping answers still carry the state after the
+  Pi's next deploy.
+- **A second mirror** (Dd14): a ping without a name syncs, and answers for,
+  the workstation's first mirror — right for uraninite alone. Each mirror
+  beyond the first sets `WORKSTATION_REMOTE=<its name in the workstation's
+mirrors list>` in its `.env`, and its pings say which remote they are.
+- **`RECIPE_NOTIFY_URL` is the workstation's, not the Pi's** (Dd7). The
+  workstation is the only place a sync runs (28-D1), so it is the one that
+  sees a conflict, a dirty mirror or repeated failures, and it sends them —
+  to the desktop and, when set, to that URL (an ntfy-style plain-text POST,
+  title in a `Title` header; https only). Put it in
+  `~/.config/recipe-deploy/workstation.env` (or the main checkout's
+  `editor/.env`) and `pnpm workstation restart`. The Pi sends nothing, so
+  **`pnpm deploy:pi` does not copy it** into the Pi's `.env` (it copies only
+  `RECIPE_LLM_*`); a line put there by hand is unused. `/git`'s Mirrors card
+  on the workstation says "RECIPE_NOTIFY_URL set" or "not set", never the
+  URL.
+
 ## Rollback
 
 - **To the previous image:** `pnpm deploy:pi --rollback` runs the newest tag
@@ -475,8 +506,10 @@ below is the proposal as written, kept for its reasoning:
   (`agent-epic-29.md`: one transaction per content index; the Pi's reindex
   went from 13.5 s to 2.5 s).
 - **Open questions:**
-  - the conflict UX when nobody is at the workstation;
+  - ~~the conflict UX when nobody is at the workstation;~~ **39d**: the Pi
+    shows the workstation's conflict and keeps working;
   - whether the Pi should ever push (today it never does);
-  - notifications;
+  - ~~notifications;~~ **39d**: `RECIPE_NOTIFY_URL` on the workstation, with
+    a daily reminder while a conflict stands;
   - whether a workstation build could also refresh the static export in the
-    same timer.
+    same timer (no — 28-D8; 39d only says how many commits it is behind).

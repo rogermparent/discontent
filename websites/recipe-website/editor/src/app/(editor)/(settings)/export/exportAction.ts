@@ -1,13 +1,15 @@
 "use server";
 
 import { auth, signIn } from "@/auth";
-import { commandAction } from "@/app/(recipes)/scriptAction";
+import { runCommand } from "@/app/(recipes)/runCommand";
 import { readSettings } from "@/settings";
 import { rebuildAllIndexes } from "recipe-editor/controller/actions";
 import { readInventory } from "recipe-editor/controller/curation/inventory";
 import { exportBuildEnv } from "recipe-editor/controller/exportEnv";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { RepositoryBusyError } from "@discontent/cms/git/writeLock";
+import { readHead } from "@discontent/cms/git/indexStamp";
+import { writeExportStamp } from "recipe-editor/controller/exportStamp";
 import { ensureSymlink } from "fs-extra";
 import { resolve } from "path";
 import { exportUnavailableReason, getExportDirectory } from "./availability";
@@ -16,7 +18,7 @@ export async function buildExport() {
   /*
    * Signed in before anything else: a server action is a public POST, and
    * everything below — a full reindex, the settings, the saved inventory —
-   * is the owner's to start. (`commandAction` checks again; by then the
+   * is the owner's to start. (`runCommand` checks again; by then the
    * reindex would already have run.)
    */
   if (!(await auth())) {
@@ -72,5 +74,21 @@ export async function buildExport() {
     async () => (await readInventory({ contentDirectory })).items,
   );
 
-  return commandAction("build", extraEnv);
+  /*
+   * Epic 39, D6: the commit this build reads, recorded once it succeeds, so
+   * the page can say how many commits the export is behind. Read after the
+   * rebuild, as the build's indexes describe it.
+   */
+  const head = await readHead(contentDirectory);
+  return runCommand(
+    "build",
+    extraEnv,
+    head
+      ? () =>
+          writeExportStamp(contentDirectory, {
+            head,
+            at: new Date().toISOString(),
+          })
+      : undefined,
+  );
 }

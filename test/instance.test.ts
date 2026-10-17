@@ -79,6 +79,8 @@ const ENV_KEYS = [
   "WORKSTATION_SYNC_TOKEN",
   "EDITOR_INTERNAL_URL",
   "MIRROR_SYNC_TOKEN",
+  "RECIPE_NOTIFY_URL",
+  "WORKSTATION_REMOTE",
 ];
 
 async function scratchDir(prefix: string): Promise<string> {
@@ -125,6 +127,10 @@ async function eventually<T>(
 
 beforeEach(() => {
   for (const key of ENV_KEYS) savedEnv[key] = process.env[key];
+  /* A started instance notifies (39d): a shell's RECIPE_NOTIFY_URL must
+   * never receive a test's conflict. */
+  delete process.env.RECIPE_NOTIFY_URL;
+  delete process.env.WORKSTATION_REMOTE;
 });
 
 afterEach(async () => {

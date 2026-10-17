@@ -3,6 +3,7 @@ import { readSettings } from "@/settings";
 import { Exporters } from "./exporter";
 import { ShareInventoryForm } from "./ShareInventoryForm";
 import { exportUnavailableReason } from "./availability";
+import { ExportStaleness } from "./ExportStaleness";
 import {
   PageMain,
   PageSection,
@@ -26,6 +27,7 @@ export default async function SettingsPage() {
         <PageHeading>Export</PageHeading>
         {!unavailable ? (
           <>
+            <ExportStaleness />
             <ShareInventoryForm
               enabled={settings.shareInventoryOnExport === true}
             />
