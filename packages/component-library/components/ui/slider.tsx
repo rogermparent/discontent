@@ -11,6 +11,8 @@ function Slider({
   value,
   min = 0,
   max = 100,
+  "aria-label": ariaLabel,
+  "aria-labelledby": ariaLabelledby,
   ...props
 }: React.ComponentProps<typeof SliderPrimitive.Root>) {
   const _values = React.useMemo(
@@ -24,9 +26,9 @@ function Slider({
   );
 
   // Radix puts role="slider" on the Thumb, so the accessible name belongs there
-  // (a single-thumb slider is what a screen reader announces). Forward it.
-  const ariaLabel = props["aria-label"];
-  const ariaLabelledby = props["aria-labelledby"];
+  // (a single-thumb slider is what a screen reader announces). Move it, don't
+  // copy it: on the Root it lands on a role-less <span>, which axe flags
+  // as aria-prohibited-attr (40g).
 
   return (
     <SliderPrimitive.Root

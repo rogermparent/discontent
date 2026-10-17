@@ -339,6 +339,27 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
 
 ### 40g
 
+- **Tg1 — The WCAG tags don't see landmarks.** `WCAG_TAGS`
+  (`wcag2a`, `wcag2aa`) leaves out axe's best-practice rules, so two nested
+  `<main>`s on every settings page passed every sweep. Landmark rules are
+  named explicitly (`expectOneMain` in `accessibility.spec.ts`), not by
+  adding `best-practice` to the shared tags — that would sweep portfolio's
+  pages too, and flag the minor rules below.
+- **Tg2 — `page.locator("form")` is never one element when signed in:**
+  the masthead's Sign Out is a `<form>`. Name the form by its id
+  (`#featured-recipe-form`, `#page-form`, `#menu-form`).
+- **Tg3 — The mirror sync runner outlives `resetData`.** A run queued by
+  the test before (its HEAD moves, its `origin` mirror) can land in the
+  next test's fresh repository and record an outcome there (CI: "The
+  branch changed from main to HEAD during the sync"). Don't assert a
+  mirror's first state; assert what Sync now leaves. And
+  `toContainText("synced")` passes on "Not synced yet." — match
+  `/^Last sync .*: (nothing|synced)/`.
+- **Tg4 — A green build-mode run is not CI's run.** `aria-prohibited-attr`
+  on the theme page's sliders failed 3/3 under `next dev` in CI and passed
+  locally in build mode on the same axe 4.14; the cause wasn't pinned.
+  Run a new axe sweep once in dev mode too.
+
 ### 40h
 
 - **`pnpm outdated`'s "wanted" column is useless here**: it showed
@@ -1185,6 +1206,102 @@ sentence is replaced.
   slugs).
 
 ### 40g — Accessibility coverage
+
+**Reindex needed: no. Deploy: optional** (one markup change in the settings
+area, and a darker unchecked-checkbox border on recipe pages and forms).
+
+**Coverage.** `accessibility.spec.ts` gains 27 tests (WCAG 2 A/AA, the
+spec's existing tags, signed in):
+
+- a table-driven sweep of 22 pages the spec never reached — `/recipes`,
+  `/about` (a site page), `/settings/theme`, `/settings/tools`,
+  `/settings/maintenance`, `/export`, `/pages`, `/menus`, the edit forms
+  (`/recipe/<slug>/edit` and `/copy`, `/group/new`, `/group/<slug>/edit`,
+  `/featured-recipe/<slug>` and its `/edit`, `/featured-recipe/new`,
+  `/pages/new`, `/pages/edit/<slug>`, `/menus/edit/header`) and the term
+  pages (`/tags/cookies` with a breadcrumb and pinned recipes,
+  `/tags/dessert` with narrower terms, `/tags/new`, `/tags/cookies/edit`);
+  each also runs the landmark rules (Tg1);
+- `/shopping` with a plan and a sub-recipe expansion on it, in both modes:
+  the list, the settings sheet open, then stores and "Probably on hand"
+  switched on with the Sub-recipes fold and a row's sources open;
+- `/git` with a remote and a mirror (before and after Sync now), both
+  modes, and a mirror's `/git` (the "Synced by" card).
+
+Already covered and left as they were: `/jobs` and a job page (37c, both
+modes), `/git` without a remote, `/make` (here and in `make.spec`),
+`/settings`, `/new-recipe`, the reader pages and the theme matrix. The
+route tree has no page left without an axe check except the paged
+listings (`/recipes/<n>`, `/groups/<n>`, `/featured-recipes/<n>`), which
+render the same components as their first pages.
+
+**What axe found.** Under the WCAG 2 A/AA tags: **nothing** on any of the
+new pages — every new test passed on its first run once its locators were
+right. A one-off exploratory sweep of 34 routes with the WCAG 2.1/2.2 and
+best-practice tags (a temporary spec, not committed) found:
+
+| Rule (tags)                                                                        | Where                                                                                                 | Element                                                                           | Fix                                                                                                                                                            |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `landmark-main-is-top-level`, `landmark-no-duplicate-main`, `landmark-unique` (bp) | every settings-area page (`/settings*`, `/export`, `/git`, `/jobs`, `/pages`, `/menus`)               | `SidebarLayout`'s `<main>` around the page's own `<main>`                         | **Fixed:** the layout's content column is a `<div>`; each page keeps its own `<main>` (recipe's `PageMain`, portfolio's pages). Locked by `expectOneMain`.     |
+| `non-text-contrast` (WCAG 1.4.11, measured — axe doesn't test it)                  | every Radix checkbox: recipe ingredient/step ticks, the import form, Export, portfolio's project form | the unchecked box's `border-input` border: 1.27:1 light (on the page), 1.8:1 dark | **Fixed:** `ui/checkbox.tsx` borders with `border-muted-foreground` — 5.6:1 light, 7.0:1 dark, in every neutral family (`derive.ts` keeps its L at 0.5 / 0.7). |
+| `target-size` (WCAG 2.2 AA, 2.5.8)                                                 | `/tags/<term>` cards, `/featured-recipe/<slug>`                                                       | the card's tag chips (`RecipeCardTagHint` badges, ~20 px tall, 4 px apart)        | **Not fixed** — Roger to confirm (below).                                                                                                                      |
+| `heading-order` (bp)                                                               | `/search`                                                                                             | a result card's `<h3>` with no `<h2>` before it                                   | Not fixed: best-practice, moderate; the search page is 40f's ground tonight.                                                                                   |
+| `image-redundant-alt` (bp)                                                         | `/groups`                                                                                             | a group card's thumbnail alt repeating its name                                   | Not fixed: minor.                                                                                                                                              |
+
+**Baselines:** none moved. `<main>` → `<div>` carries the same classes,
+and the checkbox's darker border stays under the 2 % `maxDiffPixelRatio`:
+every checkbox-bearing screenshot spec passed unchanged inside the
+Playwright Docker image (CI's fonts) — recipe `visual`, `mobile`,
+`recipe`, `yield`, `ingredient-preview`, `paste-replace` (105/105, build
+mode) and portfolio `visual` (11/11, with the project form).
+
+**Gates.** Before the `SidebarLayout` fix: both typechecks ✓, `pnpm exec
+vitest run` 112 files, 2321 tests ✓, `accessibility.spec` 61/61. After
+it, with origin/main merged in (40c's Radix Select/Checkbox, 40h's
+`@axe-core/playwright` 4.14, React 19.2.9, Next 16.4.2) and the checkbox
+border: `pnpm --filter recipe-editor typecheck` ✓; `pnpm --filter
+recipe-website exec tsc --noEmit` ✓; `test/formControls.test.tsx` 10/10
+(the full suite is CI's); Playwright build mode through the heavy slot,
+`accessibility.spec`, `settings-nav.spec`, `sticky-chrome.spec`,
+`visual.spec` (e2e + mobile) **104/104** — axe 4.14 found nothing new on
+40c's Radix controls; portfolio (`next dev`, like CI) `accessibility.spec`
+and `visual.spec` **33/33**; the Docker screenshot runs above.
+
+**CI round (after the 40f merge).** Recipe shard 1/4 (`next dev`):
+
+- **`/settings/theme`, 3/3: `aria-prohibited-attr`** (serious, WCAG
+  4.1.2). The "Accent hue" and "Corner radius" sliders put their
+  `aria-label` on Radix's role-less root `<span>` as well as the thumb
+  (`role="slider"`): `ui/slider.tsx` copied the label to the thumb and
+  still spread it onto the root. **Fixed:** the label and `aria-labelledby`
+  are taken out of the root's props and moved to the thumb only (Tg4).
+- **`/git` with a mirror, dark mode, flaky:** the first state was
+  another test's sync (Tg3). The test now checks the card in whatever
+  first state it shows, waits for hydration, and requires Sync now to
+  leave `nothing` or `synced`.
+- **`export-page.spec` share box, flaky:** the Radix checkbox was
+  clicked before hydration; now `expectHydrated` (40f) runs before
+  `check()` and `uncheck()`.
+
+Gates: `pnpm --filter recipe-editor typecheck` ✓; `accessibility.spec` +
+`export-page.spec` in build mode (e2e + mobile) **63/63** and in dev mode
+(`--project=e2e`, CI's mode) **59/59**.
+
+**Roger to confirm.**
+
+- **WCAG 2.2 target size for tag chips.** The project's bar is WCAG 2 AA
+  (`wcag2a`, `wcag2aa`); 2.5.8 is 2.2. Meeting it means taller chips (or
+  more space between them) on every recipe card that shows tags — a
+  visible change with many baselines. Left as is; say if the bar should
+  move to 2.2 AA, and a later phase grows the chips and adds `wcag21aa`
+  and `wcag22aa` to `WCAG_TAGS`.
+- **Text-field borders (WCAG 1.4.11).** `--input` (L 0.9 on the 0.98
+  page) is the border of every `Input`, `Textarea`, `Select` trigger and
+  outline button: 1.27:1 light, ~1.8:1 dark. A labelled field with a
+  placeholder or value is identifiable without it, which is why only the
+  checkbox (an empty box when unchecked) was fixed here. Raising
+  `--input` itself (to about L 0.65 light, 3.05:1, and 30 % white dark)
+  would redraw every form and move most baselines; say if you want it.
 
 ### 40h — Dependency updates
 

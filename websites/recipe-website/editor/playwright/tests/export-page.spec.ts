@@ -1,5 +1,6 @@
 import { test, expect } from "../support/test";
 import { fillSignInForm } from "../support/helpers";
+import { expectHydrated } from "../support/hydration";
 import { commitInContent, writeContentExportStamp } from "../support/tasks";
 
 /*
@@ -59,6 +60,8 @@ test.describe("Export page (39-D6)", () => {
     });
     await expect(box).not.toBeChecked();
 
+    /* A click before hydration is lost (40f's `expectHydrated`). */
+    await expectHydrated(box);
     await box.check();
     await card.getByRole("button", { name: "Save", exact: true }).click();
     await expect(card.getByRole("status")).toHaveText("Settings saved.");
@@ -66,6 +69,7 @@ test.describe("Export page (39-D6)", () => {
     await page.reload();
     await expect(box).toBeChecked();
 
+    await expectHydrated(box);
     await box.uncheck();
     await card.getByRole("button", { name: "Save", exact: true }).click();
     await expect(card.getByRole("status")).toHaveText("Settings saved.");
