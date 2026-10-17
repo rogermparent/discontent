@@ -428,8 +428,13 @@ export async function applyLlm({
     return unchanged;
   }
 
-  const { extractRecipeWithLlm, llmWarning, sourceWhere, GROUNDED_MIN } =
-    await import("./extractRecipe");
+  const {
+    extractRecipeWithLlm,
+    extractionContext,
+    llmWarning,
+    sourceWhere,
+    GROUNDED_MIN,
+  } = await import("./extractRecipe");
   let text: string;
   let meta: ExtractMeta | undefined;
   let sourceKind: "page" | "text";
@@ -475,6 +480,18 @@ export async function applyLlm({
     };
   }
 
+  /* The mapper's name first: a schema's clean name beats "X | Site". */
+  const extractMeta = { ...meta, title: mapped?.name ?? meta?.title };
+  /*
+   * 40a (Da1): one context for every call this reading makes — the list,
+   * the one-dish question, each slice and the single reading — chosen from
+   * the whole text, so Ollama loads the model once for it.
+   */
+  const numCtx = extractionContext(text, {
+    url: urlInPrompt ? url : undefined,
+    meta: extractMeta,
+  });
+
   let several: SeveralReading | undefined;
   if (split) {
     /*
@@ -495,6 +512,7 @@ export async function applyLlm({
         mapped,
         mode,
         config,
+        numCtx,
         signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
         job,
       });
@@ -517,12 +535,12 @@ export async function applyLlm({
     extraction = await extractRecipeWithLlm({
       text,
       url,
-      /* The mapper's name first: a schema's clean name beats "X | Site". */
-      meta: { ...meta, title: mapped?.name ?? meta?.title },
+      meta: extractMeta,
       sourceKind,
       sourceLabel: label,
       urlInPrompt,
       config,
+      numCtx,
       signal,
       job,
     });
@@ -753,6 +771,7 @@ async function readSeveral({
   mapped,
   mode,
   config,
+  numCtx,
   signal,
   job,
 }: {
@@ -766,6 +785,8 @@ async function readSeveral({
   mapped: Partial<ImportedRecipe> | undefined;
   mode: Exclude<LlmMode, "off">;
   config: LlmConfig;
+  /** The reading's `num_ctx` (40a): every call here asks for it. */
+  numCtx?: number;
   signal?: AbortSignal;
   job: JobRun;
 }): Promise<SeveralReading | undefined> {
@@ -792,6 +813,7 @@ async function readSeveral({
     url: promptUrl,
     meta,
     config,
+    numCtx,
     signal,
     job,
   });
@@ -807,6 +829,7 @@ async function readSeveral({
       url: promptUrl,
       meta,
       config,
+      numCtx,
       signal,
       job,
     })
@@ -859,6 +882,7 @@ async function readSeveral({
         sourceLabel: label,
         urlInPrompt,
         config,
+        numCtx,
         signal,
         job,
         stepData: part,

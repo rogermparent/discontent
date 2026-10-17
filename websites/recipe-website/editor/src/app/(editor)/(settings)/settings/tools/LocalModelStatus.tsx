@@ -4,6 +4,8 @@ import {
   llmConfig,
   llmStatus,
   llmUnconfiguredMessage,
+  ollamaBehindOpenAi,
+  ollamaV1Warning,
 } from "recipe-editor/controller/llm/client";
 import {
   RECOMMENDED_VISION_MODEL,
@@ -20,6 +22,10 @@ import {
  * the key itself, only that one is set. Shown on Settings → Tools (the
  * workstation's) and on `/jobs` (every role) when a model is configured, so
  * the Pi shows it too (Dg8).
+ *
+ * 40a (38-Te7): `RECIPE_LLM_API=openai` pointed at Ollama gets a warning
+ * row — its `/v1` sends no context size and runs no unload, reload or
+ * placement check (`ollamaBehindOpenAi`, one probe per server).
  */
 export async function LocalModelStatus() {
   const config = llmConfig();
@@ -45,6 +51,10 @@ export async function LocalModelStatus() {
   }
   const claude = config.api === "anthropic";
   const status = await llmStatus(config);
+  const ollama =
+    config.api === "openai" && status.reachable
+      ? await ollamaBehindOpenAi(config)
+      : undefined;
   const vision = visionConfig();
   const state =
     status.keyRefused || status.forbidden
@@ -81,6 +91,14 @@ export async function LocalModelStatus() {
       ) : null}
       <dt className="text-muted-foreground">Status</dt>
       <dd>{state}</dd>
+      {ollama ? (
+        <>
+          <dt className="text-muted-foreground">Warning</dt>
+          <dd data-testid="local-model-ollama-v1">
+            {capitalised(ollamaV1Warning(ollama, config.url))}.
+          </dd>
+        </>
+      ) : null}
       {/* 38e: photo import's model, on the same server. */}
       <dt className="text-muted-foreground">Vision model</dt>
       <dd>

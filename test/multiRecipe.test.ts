@@ -52,6 +52,7 @@ import {
   readJobLog,
   readJobMeta,
 } from "../websites/recipe-website/editor/controller/jobs/store";
+import { extractionContext } from "../websites/recipe-website/editor/controller/llm/extractRecipe";
 import {
   applyLlm,
   videoSource,
@@ -736,6 +737,13 @@ describe("pasted text with several recipes (36e)", () => {
       )?.content;
       expect(user).not.toContain("Source URL");
     }
+    /* 40a (Da1): one context for all six calls — the whole text's, never a
+     * slice's smaller one, so Ollama never reloads the model mid-import. */
+    expect(
+      new Set(
+        bodies.map((body) => (body.options as { num_ctx: number }).num_ctx),
+      ),
+    ).toEqual(new Set([extractionContext(text)]));
   });
 
   it("partial on its own under the text's own gate (force over nothing)", async () => {
