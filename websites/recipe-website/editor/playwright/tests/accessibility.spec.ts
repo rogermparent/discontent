@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "../support/test";
 import type { Page } from "@playwright/test";
 import { markdownEditorReady, signIn } from "../support/helpers";
+import { expectHydrated } from "../support/hydration";
 import { fixturePath } from "../support/tasks";
 import { PRESETS, type Theme } from "@discontent/component-library/theming";
 // Promoted to support/ so portfolio's sweep uses the same seeding rather than a
@@ -507,15 +508,25 @@ test.describe("Accessibility of the editor's other pages (axe, 40g)", () => {
       const card = page.getByTestId("mirrors-card");
       await card.getByRole("button", { name: "Add mirror" }).click();
       const mirror = card.getByTestId("mirror-origin");
-      await expect(mirror.getByTestId("mirror-outcome")).toHaveText(
-        "Not synced yet.",
-      );
+      const outcome = mirror.getByTestId("mirror-outcome");
+      /*
+       * Any first state, not "Not synced yet.": the workstation's sync
+       * runner outlives `resetData`, so a run the test before queued (with
+       * that test's `origin` mirror) can land in this test's fresh
+       * repository and record an error under `origin` — CI, dark after
+       * light: "The branch changed from main to HEAD during the sync". The
+       * card is checked in whichever state it shows; Sync now must then
+       * succeed — `nothing` (the push left the mirror in step) or `synced`.
+       * (Not `toContainText("synced")`: "Not synced yet." matches it.) (40g)
+       */
+      await expect(outcome).toBeVisible();
       await expectNoViolations(page);
-      await mirror.getByRole("button", { name: "Sync now" }).click();
-      await expect(mirror.getByTestId("mirror-outcome")).toContainText(
-        "synced",
-        { timeout: 30_000 },
-      );
+      const syncNow = mirror.getByRole("button", { name: "Sync now" });
+      await expectHydrated(syncNow);
+      await syncNow.click();
+      await expect(outcome).toHaveText(/^Last sync .*: (nothing|synced)/, {
+        timeout: 30_000,
+      });
       await expectNoViolations(page);
     });
   }

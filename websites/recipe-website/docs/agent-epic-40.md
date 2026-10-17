@@ -348,6 +348,17 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
 - **Tg2 — `page.locator("form")` is never one element when signed in:**
   the masthead's Sign Out is a `<form>`. Name the form by its id
   (`#featured-recipe-form`, `#page-form`, `#menu-form`).
+- **Tg3 — The mirror sync runner outlives `resetData`.** A run queued by
+  the test before (its HEAD moves, its `origin` mirror) can land in the
+  next test's fresh repository and record an outcome there (CI: "The
+  branch changed from main to HEAD during the sync"). Don't assert a
+  mirror's first state; assert what Sync now leaves. And
+  `toContainText("synced")` passes on "Not synced yet." — match
+  `/^Last sync .*: (nothing|synced)/`.
+- **Tg4 — A green build-mode run is not CI's run.** `aria-prohibited-attr`
+  on the theme page's sliders failed 3/3 under `next dev` in CI and passed
+  locally in build mode on the same axe 4.14; the cause wasn't pinned.
+  Run a new axe sweep once in dev mode too.
 
 ### 40h
 
@@ -1255,6 +1266,26 @@ recipe-website exec tsc --noEmit` ✓; `test/formControls.test.tsx` 10/10
 `visual.spec` (e2e + mobile) **104/104** — axe 4.14 found nothing new on
 40c's Radix controls; portfolio (`next dev`, like CI) `accessibility.spec`
 and `visual.spec` **33/33**; the Docker screenshot runs above.
+
+**CI round (after the 40f merge).** Recipe shard 1/4 (`next dev`):
+
+- **`/settings/theme`, 3/3: `aria-prohibited-attr`** (serious, WCAG
+  4.1.2). The "Accent hue" and "Corner radius" sliders put their
+  `aria-label` on Radix's role-less root `<span>` as well as the thumb
+  (`role="slider"`): `ui/slider.tsx` copied the label to the thumb and
+  still spread it onto the root. **Fixed:** the label and `aria-labelledby`
+  are taken out of the root's props and moved to the thumb only (Tg4).
+- **`/git` with a mirror, dark mode, flaky:** the first state was
+  another test's sync (Tg3). The test now checks the card in whatever
+  first state it shows, waits for hydration, and requires Sync now to
+  leave `nothing` or `synced`.
+- **`export-page.spec` share box, flaky:** the Radix checkbox was
+  clicked before hydration; now `expectHydrated` (40f) runs before
+  `check()` and `uncheck()`.
+
+Gates: `pnpm --filter recipe-editor typecheck` ✓; `accessibility.spec` +
+`export-page.spec` in build mode (e2e + mobile) **63/63** and in dev mode
+(`--project=e2e`, CI's mode) **59/59**.
 
 **Roger to confirm.**
 
