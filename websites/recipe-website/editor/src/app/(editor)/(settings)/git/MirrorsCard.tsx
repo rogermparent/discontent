@@ -1,4 +1,5 @@
 import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
+import { SelectInput } from "@discontent/component-library/components/Form/inputs/Select";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { readSyncState } from "@discontent/cms/git/syncState";
 import clsx from "clsx";
@@ -170,20 +171,20 @@ export async function MirrorsCard({ remotes }: { remotes: RemoteSummary[] }) {
         })}
       </ul>
       {addable.length > 0 && (
-        <form action={addMirrorAction} className="flex flex-row gap-2 mt-3">
-          <label className="text-sm flex flex-row items-center gap-2">
-            Add a remote as a mirror
-            <select
-              name="remote"
-              className="border border-border rounded px-2 py-1 bg-background"
-            >
-              {addable.map((remote) => (
-                <option key={remote.name} value={remote.name}>
-                  {remote.name}
-                </option>
-              ))}
-            </select>
-          </label>
+        <form
+          action={addMirrorAction}
+          className="flex flex-row flex-wrap items-end gap-2 mt-3"
+        >
+          <SelectInput
+            label="Add a remote as a mirror"
+            name="remote"
+            id="mirrors-add-remote"
+            className="mb-0 w-auto text-sm"
+            options={addable.map((remote) => ({
+              value: remote.name,
+              label: remote.name,
+            }))}
+          />
           <SubmitButton size="sm" variant="secondary">
             Add mirror
           </SubmitButton>

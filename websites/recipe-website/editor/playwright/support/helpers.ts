@@ -203,3 +203,38 @@ export async function deleteWithConfirm(
 
   await confirm.click();
 }
+
+/**
+ * Pick an option on a `SelectInput` (40c: the Radix `ui/select`, not a native
+ * `<select>`): open it from its trigger — what `getByLabel` finds — and click
+ * the option by its label. Waits for the list to close.
+ */
+export async function chooseOption(
+  page: Page,
+  trigger: Locator,
+  option: string,
+): Promise<void> {
+  await trigger.click();
+  await page.getByRole("option", { name: option, exact: true }).click();
+  await expect(page.getByRole("listbox")).toHaveCount(0);
+}
+
+/**
+ * The options a `SelectInput` offers, by label, in order. Opens the list and
+ * closes it again with Escape.
+ */
+export async function expectOptions(
+  page: Page,
+  trigger: Locator,
+  labels: (string | RegExp)[],
+): Promise<void> {
+  await trigger.click();
+  await expect(page.getByRole("option")).toHaveText(labels);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("listbox")).toHaveCount(0);
+}
+
+/** What a `SelectInput` named `name` submits: its hidden input. */
+export function selectValue(scope: Page | Locator, name: string): Locator {
+  return scope.locator(`input[type="hidden"][name="${name}"]`);
+}

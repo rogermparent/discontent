@@ -41,6 +41,10 @@ import {
 } from "../websites/recipe-website/editor/controller/jobs/views";
 import { createSyncRunner } from "../websites/recipe-website/editor/controller/instance/runner";
 import { createCoalescedTask } from "../websites/recipe-website/editor/controller/instance/coalesce";
+import {
+  acquire,
+  repoResource,
+} from "../websites/recipe-website/editor/controller/jobs/queue";
 import { sshTargetOf } from "../websites/recipe-website/editor/controller/instance/mirrors";
 import {
   applySiteSettings,
@@ -706,6 +710,55 @@ describe("the instance", () => {
     },
     45_000,
   );
+
+  /*
+   * 40c (39b review, L5): a start-time rebuild that fails — here `busy`, the
+   * repository's line held past the rebuild's wait — schedules a retry
+   * (`rebuildRetry.ts` has the schedule on a frozen clock); closing the
+   * instance clears it.
+   */
+  it("schedules a retry when the start-time rebuild fails, and clears it on close (40c)", async () => {
+    const dir = await scratchDir("retry-");
+    await initRepo(dir);
+    process.env.CONTENT_DIRECTORY = dir;
+    process.env.SETTINGS_DIRECTORY = await scratchDir("settings-");
+    process.env.TEST_MODE = "true";
+    process.env.INSTANCE_EVENTS = "on";
+    process.env.EDITOR_ROLE = "mirror";
+    process.env.EDITOR_INTERNAL_URL = "http://127.0.0.1:9";
+    await reindex({ contentDirectory: dir });
+    await writeIndexVersion(dir, "0123456789abcdef");
+    vi.stubEnv("RECIPE_QUEUE_POLL_MS", "10");
+    vi.stubEnv("RECIPE_REINDEX_QUEUE_WAIT_MS", "200");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const holder = await acquire(repoResource(dir));
+    try {
+      const instance = await startInstance();
+      const retry = instance?.rebuildRetry;
+      expect(retry).toBeDefined();
+      await eventually(
+        async () => retry!.pending,
+        (pending) => pending,
+      );
+      expect(retry).toMatchObject({ pending: true, failures: 1 });
+      expect(info).toHaveBeenCalledWith(
+        expect.stringContaining("was busy; retrying in 1 minute"),
+      );
+      instance!.close();
+      expect(retry!.pending).toBe(false);
+      /* Still stale: nothing was rebuilt while the line was held. */
+      expect(
+        (await readIndexFreshness(dir, { version: currentIndexVersion() }))
+          .versionStale,
+      ).toBe(true);
+    } finally {
+      await holder.release();
+      vi.unstubAllEnvs();
+      info.mockRestore();
+      error.mockRestore();
+    }
+  }, 45_000);
 
   it("syncs a workstation commit to its mirror with no one asking (D4)", async () => {
     const dir = await scratchDir("workstation-");

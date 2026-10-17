@@ -561,6 +561,9 @@ shopping_remove {"recipe": "chili"}
   `ids` to tick or remove.
 - **"Take the chili off"** → `shopping_remove {"recipe": "chili"}` (or
   `{"group": …}` for a plan, `{"ids": […]}` for rows).
+- **"I have simple syrup already"** → `shopping_remove {"for": "simple-syrup"}`
+  takes off what a linked sub-recipe's expansion added, wherever it was
+  linked from; the recipe that linked it keeps its own lines.
 
 Never empty the list or change its settings: clearing what was bought and
 switching features are Roger's, on the `/shopping` page. Ticking is not
@@ -631,7 +634,8 @@ wait and run the same command once more, as with the tool.
   `shopping_add` → `pnpm --silent recipes shopping add (--group <slug> | --recipe <slug>) [--scale 2] --json`
   (or `shopping add "paper towels" --json`, one line per argument);
   `shopping_check {names}` → `pnpm --silent recipes shopping check eggs --json`
-  (`uncheck` reverses); `shopping_remove` → `pnpm --silent recipes shopping remove --recipe <slug> --json`.
+  (`uncheck` reverses); `shopping_remove` → `pnpm --silent recipes shopping remove --recipe <slug> --json`
+  (or `--group <slug>`, `--for <sub-recipe slug>`, or item ids).
 
 The draft file is the loop: inspect or dry-run into `d.json`, edit it, check
 it with `create --dry-run`, then create. Never pass `--author`,

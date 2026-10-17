@@ -164,14 +164,15 @@ export default function TermFields({
         id="term-form-parent"
         defaultValue={currentParent ?? ""}
         errors={state?.errors?.parent}
-      >
-        <option value="">None (a top-level term)</option>
-        {options.map((option) => (
-          <option key={option.slug} value={option.slug}>
-            {`${"  ".repeat(option.depth)}${option.label}`}
-          </option>
-        ))}
-      </SelectInput>
+        options={[
+          { value: "", label: "None (a top-level term)" },
+          ...options.map((option) => ({
+            value: option.slug,
+            label: option.label,
+            depth: option.depth,
+          })),
+        ]}
+      />
       <FieldWrapper label="Pinned recipes" id="term-form-pinned">
         <p className="text-sm text-muted-foreground">
           Recipe slugs shown first on the term&apos;s page, in this order. Each

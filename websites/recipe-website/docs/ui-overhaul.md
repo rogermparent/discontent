@@ -897,9 +897,14 @@ pattern). Base of the stack: `ui/09-header` off `test/editor-server-isolation`
 
 **Follow-up backlog (surfaced by the tour — not built here):**
 
-- **Select/Checkbox → Radix consolidation** — punted across PRs 1/3/5/6; the
+- ~~**Select/Checkbox → Radix consolidation** — punted across PRs 1/3/5/6; the
   native `name`-submitting controls still bypass the Radix `ui/*` primitives. A
-  real cleanup PR (don't let the PR-1 note overstate it).
+  real cleanup PR (don't let the PR-1 note overstate it).~~ **Done in 40c**
+  (`agent-epic-40.md` Dc3–Dc6): `SelectInput` and `CheckboxInput` (and the
+  editor's other `name`-submitting form controls) are on `ui/select` /
+  `ui/checkbox`, submitting through hidden inputs of their own; the
+  state-only controls (`/shopping`, `/make`, `/jobs` filters, list rows) and
+  `GroupSelectInput` stay native, each with its reason in the inventory.
 - ~~**Light-mode teal-band contrast gap**~~ (**closed by epic 30b**) — the accent curve dips ~4.31:1 at hue
   ~165–215 (from PR 7's deferred note); an accent-curve redesign that would shift
   light baselines.

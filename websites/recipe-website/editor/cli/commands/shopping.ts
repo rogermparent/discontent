@@ -7,7 +7,8 @@
  *   shopping add <line…>                lines typed by hand, one per argument
  *   shopping check <id|name…>           tick by item id, or every item of a name
  *   shopping uncheck <id|name…>
- *   shopping remove <id…> | --recipe <slug> | --group <slug>
+ *   shopping remove <id…> | --recipe <slug> | --group <slug> | --for <slug>
+ *                                       --for: what a sub-recipe's expansion added (39c)
  *   shopping clear [--all] [--yes]      the ticked items (or everything)
  *   shopping settings [set <key> <value…>]
  *
@@ -157,29 +158,53 @@ function checkCommand(
 
 const removeCommand: CommandDef<ShoppingPatchResult> = {
   name: "shopping remove",
-  usage: "recipes shopping remove <id…> | --recipe <slug> | --group <slug>",
+  usage:
+    "recipes shopping remove <id…> | --recipe <slug> | --group <slug> | --for <slug>   --for: every item a sub-recipe's expansion added",
   options: {
     recipe: { type: "string" },
     group: { type: "string" },
+    for: { type: "string" },
   },
   run({ backend, positionals, options }) {
     const recipe = stringOption(options, "recipe");
     const group = stringOption(options, "group");
+    /*
+     * 40c: `--for <slug>` is `/shopping`'s "Remove these" — every item whose
+     * `for` path names that sub-recipe, at any depth (39-Dc3).
+     */
+    const forSlug = stringOption(options, "for");
     const { ids, names } = split(positionals);
     if (names.length > 0) {
       throw new UsageError(
         `shopping remove takes item ids (from \`shopping --json\`), not names: ${names.join(", ")}.`,
       );
     }
-    const sources = [recipe, group].filter((value) => value !== undefined);
+    /* An empty slug is a usage slip, not a controller validation error. */
+    for (const [flag, slug] of [
+      ["recipe", recipe],
+      ["group", group],
+      ["for", forSlug],
+    ] as const) {
+      if (slug !== undefined && slug.trim() === "") {
+        throw new UsageError(`shopping remove --${flag} needs a slug.`);
+      }
+    }
+    const sources = [recipe, group, forSlug].filter(
+      (value) => value !== undefined,
+    );
     if (sources.length + (ids.length > 0 ? 1 : 0) !== 1) {
       throw new UsageError(
-        "shopping remove needs item ids, or exactly one of --recipe or --group.",
+        "shopping remove needs item ids, or exactly one of --recipe, --group or --for.",
       );
     }
     if (ids.length > 0) return backend.patchShopping({ remove: ids });
     return backend.patchShopping({
-      removeSource: recipe !== undefined ? { recipe } : { group },
+      removeSource:
+        recipe !== undefined
+          ? { recipe }
+          : group !== undefined
+            ? { group }
+            : { for: forSlug },
     });
   },
   format: formatPatch,

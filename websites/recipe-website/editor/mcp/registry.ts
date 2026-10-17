@@ -1362,27 +1362,31 @@ export function createRecipeServer(
       title: "Remove items from the shopping list",
       description:
         "Take items off the shared shopping list, one commit: item `ids` (a row's `ids` from " +
-        "shopping_get), or every item a `recipe` (slug) or a meal plan (`group` " +
-        "slug) put there — exactly one of the three.",
+        "shopping_get), every item a `recipe` (slug) or a meal plan (`group` " +
+        "slug) put there, or every item a sub-recipe's expansion added (`for`: " +
+        "the linked recipe's slug, such as `simple-syrup` — what /shopping's " +
+        '"Remove these" does; the recipe that linked it keeps its own lines) — ' +
+        "exactly one of the four.",
       inputSchema: z
         .strictObject({
           ids: z.array(z.string().min(1)).min(1).max(2000).optional(),
           recipe: z.string().min(1).optional(),
           group: z.string().min(1).optional(),
+          for: z.string().min(1).optional(),
         })
         .refine(
           (data) =>
-            [data.ids, data.recipe, data.group].filter(
+            [data.ids, data.recipe, data.group, data.for].filter(
               (value) => value !== undefined,
             ).length === 1,
           {
-            message: "Name exactly one of `ids`, `recipe` or `group`",
+            message: "Name exactly one of `ids`, `recipe`, `group` or `for`",
             path: ["ids"],
           },
         ),
       annotations: WRITES,
     },
-    async ({ ids, recipe, group }) =>
+    async ({ ids, recipe, group, for: forSlug }) =>
       write(
         backend,
         () =>
@@ -1390,7 +1394,12 @@ export function createRecipeServer(
             ids
               ? { remove: ids }
               : {
-                  removeSource: recipe !== undefined ? { recipe } : { group },
+                  removeSource:
+                    recipe !== undefined
+                      ? { recipe }
+                      : group !== undefined
+                        ? { group }
+                        : { for: forSlug },
                 },
           ),
         { notify: false },

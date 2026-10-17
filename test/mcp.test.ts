@@ -816,6 +816,56 @@ describe("the MCP registry over an in-memory transport", () => {
     });
   });
 
+  /*
+   * 40c: `for` on the existing `shopping_remove` (39-Dc3) — what a sub-recipe's
+   * expansion added goes, the linking recipe's own lines stay. No new tool.
+   */
+  it("removes what a sub-recipe added with `for`, keeping the recipe's own lines", async () => {
+    await call("recipe_create", {
+      recipe: {
+        name: "Simple Syrup",
+        ingredients: ["1/2 cup sugar", "1/2 cup water"],
+      },
+    });
+    await call("recipe_create", {
+      recipe: {
+        name: "Lemonade",
+        ingredients: [
+          "1 cup lemon juice",
+          "1 batch [Simple Syrup](/recipe/simple-syrup)",
+        ],
+      },
+    });
+    const added = await call("shopping_add", { recipe: "lemonade" });
+    expect(added.data).toMatchObject({ changed: true });
+    expect((added.data.items as unknown[]).length).toBe(3);
+
+    const removed = await call("shopping_remove", { for: "simple-syrup" });
+    expect(removed.isError).toBe(false);
+    expect(removed.data).toMatchObject({ changed: true });
+    expect(removed.data.removed as unknown[]).toHaveLength(2);
+    expect(
+      (removed.data.items as { text: string }[]).map((item) => item.text),
+    ).toEqual(["1 cup lemon juice"]);
+
+    /* Nothing left that the syrup added: a no-op, not an error. */
+    const again = await call("shopping_remove", { for: "simple-syrup" });
+    expect(again.data).toMatchObject({ changed: false });
+
+    /* `for` with another source: the tool's own schema refuses it. */
+    const both = await client.callTool({
+      name: "shopping_remove",
+      arguments: { recipe: "lemonade", for: "simple-syrup" },
+    });
+    expect(both.isError).toBe(true);
+    expect(
+      (await client.listTools()).tools.find(
+        (tool) => tool.name === "shopping_remove",
+      )?.inputSchema.properties,
+    ).toHaveProperty("for");
+    expect(TOOL_NAMES).toHaveLength(57);
+  });
+
   /* ---------------------------------------------------------------- */
   /* 26b: page_inspect, dry runs, recipe_set_image                     */
   /* ---------------------------------------------------------------- */

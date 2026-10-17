@@ -2,6 +2,7 @@
 
 import { useActionState, useId } from "react";
 import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
+import { FormCheckbox } from "@discontent/component-library/components/Form/inputs/Checkbox";
 import { updateSettings } from "../settings/actions";
 import { SettingsCard } from "../SettingsCard";
 
@@ -25,12 +26,11 @@ export function ShareInventoryForm({ enabled }: { enabled: boolean }) {
       >
         <input type="hidden" name="shareInventoryOnExport.present" value="1" />
         <div className="flex items-start gap-3">
-          <input
+          <FormCheckbox
             id={id}
-            type="checkbox"
             name="shareInventoryOnExport"
             aria-describedby={hintId}
-            className="mt-1 size-4 shrink-0 accent-primary"
+            className="mt-1"
             defaultChecked={enabled}
           />
           <span className="flex flex-col gap-1">
