@@ -9,6 +9,7 @@ import {
 import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
 import { TextInput } from "@discontent/component-library/components/Form/inputs/Text";
 import { Button } from "@discontent/component-library/components/ui/button";
+import { FormCheckbox } from "@discontent/component-library/components/Form/inputs/Checkbox";
 import { tagSlug } from "recipe-website-common/controller/tagSlug";
 import {
   deleteTermFromForm,
@@ -244,8 +245,7 @@ export default function TermTools({
         fields={
           carried ? (
             <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
+              <FormCheckbox
                 name="unassign"
                 defaultChecked={deleteState.values?.unassign}
               />

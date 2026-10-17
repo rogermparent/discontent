@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "../support/test";
 import {
+  chooseOption,
   fillSignInForm,
   signIn,
   deleteWithConfirm,
@@ -560,7 +561,7 @@ test.describe("Groups", () => {
       await markdownEditorReady(page, "description");
 
       await page.getByLabel("Name").fill("My Week");
-      await page.getByLabel("Kind").selectOption("meal-plan");
+      await chooseOption(page, page.getByLabel("Kind"), "Meal plan");
       await page
         .getByTestId("group-item-row")
         .first()

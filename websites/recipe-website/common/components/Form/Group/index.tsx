@@ -162,13 +162,8 @@ export default function GroupFields({
         id="group-form-kind"
         defaultValue={kind ?? "meal-plan"}
         errors={state?.errors?.kind}
-      >
-        {kindOptions(kind).map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </SelectInput>
+        options={kindOptions(kind)}
+      />
       <LexicalMarkdownInput
         dialect={RECIPE_MARKDOWN}
         label="Description"

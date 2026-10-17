@@ -11,7 +11,10 @@
  *   HEAD moves);
  * - **reindexes once at start when the index version moved** (epic 39 D1):
  *   the indexes were built by code whose declared specs differ from this
- *   process's, or by code from before the version stamp.
+ *   process's, or by code from before the version stamp;
+ * - **retries a failed rebuild** of its own a bounded number of times (40c,
+ *   `rebuildRetry.ts`): 1, 5 and 15 minutes after each failure in a row,
+ *   until one succeeds, a newer HEAD move asks anyway, or it shuts down.
  *
  * Every rebuild and every sync here runs as a job (epic 39 D2: `reindex`,
  * `git-sync`) in the repository's line (`jobs/repo.ts`), so `/jobs` shows
@@ -58,7 +61,8 @@ import { pingWorkstation, workstationConfig, type PingState } from "./pinger";
 import { refreshEditor } from "./refresh";
 import { pushSiteSettings } from "./siteSettings";
 import { pushStanding } from "./standing";
-import { createCoalescedTask, type CoalescedTask } from "./coalesce";
+import { type CoalescedTask } from "./coalesce";
+import { createRetryingRebuild, type RetryingRebuild } from "./rebuildRetry";
 import { createSyncRunner, type SyncRunner, type SyncTrigger } from "./runner";
 
 export interface Instance {
@@ -69,6 +73,8 @@ export interface Instance {
   watcher?: RefWatcher;
   /** D12's reindex; kicked after every sync in case one was deferred. */
   reindexIfForeign?: CoalescedTask;
+  /** 40c: its bounded retry after a failure. */
+  rebuildRetry?: RetryingRebuild;
   /** Run `fn` exclusively with every other sync in this process. */
   exclusive<T>(fn: () => Promise<T>): Promise<T>;
   /** 39d, D5: the hourly look for a reminder that is due (workstation). */
@@ -201,7 +207,9 @@ export async function reindexWhenForeign(
    * deploy's `POST /api/reindex` or a sync's merge just ahead of it may
    * have rebuilt already, and then it records "already fresh" and stops.
    * A failure is the job's (`failed` on `/jobs`) and is not retried here:
-   * the next HEAD move asks again, and the stale-index banner says so.
+   * the instance's task retries it a bounded number of times (40c,
+   * `rebuildRetry.ts`), the next HEAD move asks again, and until then the
+   * stale-index banner says so.
    */
   const result = await runSpec({
     kind: "reindex",
@@ -448,14 +456,14 @@ async function start(): Promise<Instance | undefined> {
   /* --- D12: reindex when HEAD moved without the editor ------------------ */
   /*
    * Coalesced, never dropped: a HEAD move that lands mid-rebuild (or mid-sync,
-   * whose merge rebuilds anyway) is re-checked once the rebuild is done.
+   * whose merge rebuilds anyway) is re-checked once the rebuild is done. A
+   * failure is retried after 1, 5 and 15 minutes (40c, `rebuildRetry.ts`).
    */
-  const reindexIfForeign = createCoalescedTask(
-    async () => {
-      await reindexWhenForeign(contentDirectory);
-    },
-    { blocked: () => activeSyncs > 0 },
-  );
+  const rebuildRetry = createRetryingRebuild({
+    rebuild: () => reindexWhenForeign(contentDirectory),
+    blocked: () => activeSyncs > 0,
+  });
+  const reindexIfForeign = rebuildRetry.task;
 
   /*
    * --- D4/D5: the workstation's runner ----------------------------------
@@ -494,7 +502,9 @@ async function start(): Promise<Instance | undefined> {
     contentDirectory,
     exclusive,
     reindexIfForeign,
+    rebuildRetry,
     close() {
+      rebuildRetry.dispose();
       if (busyRetryTimer) clearTimeout(busyRetryTimer);
       busyRetryTimer = undefined;
       if (instance.reminderTimer) clearInterval(instance.reminderTimer);
@@ -549,6 +559,8 @@ async function start(): Promise<Instance | undefined> {
       /* Annexed content that arrived with a push (28e) becomes real files
        * before the reindex reads them. */
       await updateAnnexedWorktree(contentDirectory);
+      /* This move asks by itself: a pending retry would only repeat it. */
+      rebuildRetry.headMoved();
       await reindexIfForeign();
       instance.runner?.headMoved(head);
       instance.pinger?.request("change");

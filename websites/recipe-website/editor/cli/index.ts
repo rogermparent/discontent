@@ -204,7 +204,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   shopping add (--recipe <slug> | --group <slug>) [--scale 2] | <line…>
   shopping check <id|name…>
   shopping uncheck <id|name…>
-  shopping remove <id…> | --recipe <slug> | --group <slug>
+  shopping remove <id…> | --recipe <slug> | --group <slug> | --for <slug>
   shopping clear [--all] [--yes]
   shopping settings [set <key> <value…>]
   git status [--fetch]

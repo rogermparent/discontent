@@ -134,9 +134,14 @@ test.describe("Timeline Feature", () => {
     await page
       .locator('[name="timelines[0].events[1].defaultLength.minutes"]')
       .fill("20");
-    await page.locator('[name="timelines[0].events[1].activeTime"]').click();
+    /* 40c: a Radix checkbox; its `name` is on a hidden input, not the box. */
+    const activeTime = page.getByRole("checkbox", {
+      name: "Active Time?",
+      exact: true,
+    });
+    await activeTime.nth(1).click();
 
-    await page.locator('[name="timelines[0].events[0].activeTime"]').check();
+    await activeTime.nth(0).check();
 
     await page.getByRole("button", { name: "Submit", exact: true }).click();
 
