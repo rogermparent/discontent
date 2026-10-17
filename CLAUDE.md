@@ -147,6 +147,16 @@ survives a cleared context.
   `@source`) and content calls (39a–39f). Roger's steps (workstation
   update, 38g key lines, Pi deploy, optional notify URL; no manual reindex)
   are in the doc's Close-out.
+- `websites/recipe-website/docs/agent-epic-40.md` — epic 40: the local
+  model's context sized to the input and honest placement wording (40a),
+  resume-builder green with its own CI job and portfolio on Turbopack (40b),
+  `shopping remove --for`, a bounded rebuild retry, Select/Checkbox on Radix
+  and the `/export` actions fix (40c), term clouds measured — a no-go with a
+  reopen trigger (40d), a Thanksgiving round (40e), CI flakes fixed at the
+  root with `expectHydrated` (40f), axe coverage for the remaining pages
+  (40g), patch/minor dependency updates (40h); and the overnight OOM that
+  put every heavy job in a memory-capped scope and baselines in Docker.
+  Roger's steps and the "Roger to confirm" list are in the doc's Close-out.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
