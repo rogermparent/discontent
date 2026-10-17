@@ -18,7 +18,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** code closed (2026-10-17); 39f awaits Roger's content calls.
+**Now:** closed (2026-10-17); 39f applied the same day (three content commits).
 
 ## Context
 
@@ -94,7 +94,7 @@ explicit `--content-dir`, revalidate after). Nothing is pushed.
 | 39c      | S–M  | `agent/39c-cooking` | ✅     | #253    | D3: held ticks expire, undo a sub-recipe expansion, Ingredients/Method jump anchors.     |
 | 39d      | M    | `agent/39d-pi-sync` | ✅     | #257    | D4–D6: conflict on the Pi, `RECIPE_NOTIFY_URL`, daily reminder, export staleness hint.   |
 | 39e      | S    | `agent/39e-hygiene` | ✅     | #255    | resume-builder `@source`, `paceKey` by registrable domain (38-Db6), doc/backlog hygiene. |
-| 39f      | S    | (content repo)      | 🟡     |         | D7: Roger's content calls (awaiting his answers), the facet-review list.                 |
+| 39f      | S    | (content repo)      | ✅     | —       | D7: Roger's content calls (C2, C6, C7 applied; the rest closed), the facet-review list.  |
 | 39-close | S    | `agent/39-close`    | ✅     | this PR | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                        |
 
 Ordering, in waves: wave 0 (worktree cleanup, the content-call list), then
@@ -1498,11 +1498,38 @@ unchanged.
 
 ### 39f — Content calls
 
-**Wave 0 only so far.** The real repo (at `746e4336`, clean) is untouched;
-nothing below is applied until Roger answers (D7). The call list is a
-scratch file, `content-calls.md`; its content is here so it survives.
-"Go with your recommendations" means: apply C1–C4 as recommended, close
-C5–C7 with no write.
+**Applied 2026-10-17.** Roger: "All your recommendations sound good." So
+the three writes went in (C2, C6, C7) and the other calls closed with no
+write (C1 keeps both kid-party drinks; C3, C4, C5 close; the other 41
+facet calls stay as filed). By the epic-33 method (D7): a scratch-clone
+dry run of the same three CLI commands (exactly three commits, only those
+fields in `git log -p`), `pnpm workstation stop`, the real apply with
+`--content-dir /home/roger/Projects/recipe-content`, `pnpm workstation
+restart`, `POST /api/revalidate`. The real repo's counts matched the dry
+run line for line. The session pushed nothing; the workstation's own sync
+carries the commits to the Pi.
+
+| Call | Content commit | Command                                                                                                    |
+| ---- | -------------- | ---------------------------------------------------------------------------------------------------------- |
+| C2   | `ba5017ab`     | `recipes update red-wine-spritzer-acouplecooks --file patch.json` (the whole `source`, only `url` changed) |
+| C6   | `d0161649`     | `recipes term assign american --remove <salad> --remove <salad> --remove <salad>` (one commit, F34)        |
+| C7   | `245b208d`     | `recipes term assign main --add shumai-chinese-steamed-dumplings`                                          |
+
+| Count (real repo)                    | Before (`746e4336`)                               | After (`245b208d`)                                                                          |
+| ------------------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `tag:american`                       | 179                                               | 176                                                                                         |
+| `tag:main`                           | 132                                               | 133                                                                                         |
+| `tag:snack`                          | 39                                                | 39 (shumai keeps `snack`)                                                                   |
+| `red-wine-spritzer-acouplecooks` url | `https://www.acouplecooks.com/red-wine-spritzer/` | `http://web.archive.org/web/20231207101946/https://www.acouplecooks.com/red-wine-spritzer/` |
+
+Spot checks on the workstation after the revalidate: the spritzer page
+links the snapshot, `/tags/american` no longer lists the salads,
+`/tags/main` lists shumai. Trap for the next run: `term assign` takes one
+carrier per flag (`--remove a --remove b`); a space-separated list is a
+`usage` error and writes nothing.
+
+**Before the answers (wave 0).** The call list was a scratch file,
+`content-calls.md`; its content is below so it survives.
 
 **Findings.**
 
@@ -1549,7 +1576,8 @@ Never pushed: the workstation's own sync carries them to the Pi.
 
 ## Close-out
 
-Closed 2026-10-17: 39a–39e and 39-close merged; 39f waits on Roger's answers.
+Closed 2026-10-17: 39a–39e and 39-close merged; 39f applied the same day
+(content `ba5017ab`..`245b208d`, three commits).
 No phase changes an index layout or content shape, so nothing here needs a
 manual reindex.
 
@@ -1598,8 +1626,10 @@ manual reindex.
   path (its form inputs and buttons now render), with a global `svg` rule
   moved into `@layer base` to keep pagination chevrons sized. Doc and
   backlog hygiene for epics 36–38.
-- **39f, content calls.** Wave 0 only: the call list C1–C7 and the facet
-  findings are in 39f's Results; nothing is applied.
+- **39f, content calls.** Roger took every recommendation: the red-wine
+  spritzer cites the Wayback snapshot, three generic salads lost
+  `american`, shumai gained `main`; the other calls closed with no write
+  (39f's Results).
 
 ### Measurements
 
@@ -1659,9 +1689,8 @@ pending Roger's next deploy. **Go/no-go: no-go** on incremental reindex
    `/jobs` now shows reindex and git-sync jobs (syncs only when they
    merged, conflicted or failed); a reindex waits up to 30 s behind a sync,
    then answers `busy`.
-6. 39f content calls C1–C7: answer in chat ("go with your
-   recommendations" or per call); the orchestrator applies them by the
-   epic-33 method.
+6. ~~39f content calls C1–C7~~ — answered and applied 2026-10-17 (three
+   content commits, synced to the Pi by the workstation).
 7. Local branch cleanup (Roger's call): merged `agent/28*`–`agent/30*`,
    `verify-main`, `main-local`, `portfolio/rebuild`, and about 75 unmerged
    pre-epic branches. Wave 0 removed only worktrees and merged harness
@@ -1684,6 +1713,6 @@ Open items the phases named; each has a row in `backlog.md`.
   (39b).
 - Uploads over 3 MB (15 files, a 12.8 MB kefir video) wait on git-annex
   activation (28-D9); `Sake-Cosmo-9.jpg` closed as no-resize (39f, C5).
-- 39f's content calls C1–C7 (Roger's answers).
+- ~~39f's content calls C1–C7 (Roger's answers).~~ Applied 2026-10-17.
 - A smooth scroll for the jump links (39c): not wanted; the instant jump
   also suits reduced motion.

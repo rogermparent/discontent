@@ -22,6 +22,8 @@ it gets a phase in the epic's own doc and is struck here.
 > `agent-epic-36.md`.**
 > **Epic 39 (import reliability, reindex follow-through, cooking UX,
 > unattended Pi sync, hygiene, content calls) is in `agent-epic-39.md`.**
+> **Epic 40 (import polish, test and CI hygiene, quick wins, term clouds
+> measured, Thanksgiving) is in `agent-epic-40.md`.**
 > Rows are struck here as an epic's phases pick them up; the struck rows
 > below name the phase.
 
