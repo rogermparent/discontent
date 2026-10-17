@@ -1,5 +1,18 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// The workspace root, pinned. Next otherwise infers it from the outermost
+// lockfile it finds, and from a git worktree under `.claude/worktrees/` that
+// is the main checkout's.
+const workspaceRoot = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../..",
+);
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  outputFileTracingRoot: workspaceRoot,
+  turbopack: { root: workspaceRoot },
   // lmdb is a native module; bundling it breaks the binding resolution at
   // runtime. The content index lives in LMDB, so every page that lists projects
   // depends on this.

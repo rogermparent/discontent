@@ -26,9 +26,17 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: BUILD ? "pnpm start:test" : "pnpm dev:test",
+    /*
+     * `pnpm build` first in BUILD mode, as portfolio's and the cms demo's
+     * configs do: `next start` alone serves whatever `.next` is on disk, so
+     * `e2e-start` failed on a clean checkout (CI) or quietly tested a stale
+     * build.
+     */
+    command: BUILD ? "pnpm build && pnpm start:test" : "pnpm dev:test",
     url: `http://localhost:${PORT}`,
-    timeout: BUILD ? 180_000 : 120_000,
-    reuseExistingServer: !process.env.CI,
+    /* BUILD covers a build as well as a boot. */
+    timeout: BUILD ? 300_000 : 120_000,
+    /* Never adopt a leftover server when a production build was asked for. */
+    reuseExistingServer: !process.env.CI && !BUILD,
   },
 });
