@@ -1,6 +1,10 @@
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "../support/test";
-import { fillSignInForm, markdownEditorReady } from "../support/helpers";
+import {
+  fillSignInForm,
+  markdownEditorReady,
+  paletteShortcutReady,
+} from "../support/helpers";
 import { PORTFOLIO_PRESETS } from "portfolio-website-common/theme/presets";
 import type { Posture } from "portfolio-website-common/config/site";
 import {
@@ -72,6 +76,7 @@ test.describe("Accessibility (axe)", () => {
   }) => {
     await resetData("projects");
     await page.goto("/");
+    await paletteShortcutReady(page);
     await page.keyboard.press("ControlOrMeta+k");
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();

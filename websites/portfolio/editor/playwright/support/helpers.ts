@@ -120,3 +120,26 @@ export async function deleteWithConfirm(
 
   await confirm.click();
 }
+
+/**
+ * Resolves once the masthead has hydrated, so ⌘K / Ctrl+K reaches the
+ * palette's keydown listener. A shortcut pressed before hydration has no
+ * listener and is dropped for good (the palette never opens), and retrying it
+ * would risk toggling a slow-opening palette shut again. Under `next dev`
+ * hydration can land after `page.goto` returns (40h: Next 16.4's dev server
+ * made it routine). The hint chip is the marker: the server renders "⌘K" and
+ * the client re-reads the platform right after the hydration commit, so on a
+ * non-Apple runner "Ctrl+K" means the commit, the provider's listener
+ * included, is done. On an Apple machine it reads "⌘K" either way and this
+ * proves nothing, which is harmless there.
+ */
+export async function paletteShortcutReady(page: Page): Promise<void> {
+  const apple = await page.evaluate(() =>
+    /mac|iphone|ipad|ipod/i.test(
+      `${navigator.platform ?? ""} ${navigator.userAgent}`,
+    ),
+  );
+  await expect(page.getByTestId("palette-shortcut-hint").first()).toHaveText(
+    apple ? "⌘K" : "Ctrl+K",
+  );
+}

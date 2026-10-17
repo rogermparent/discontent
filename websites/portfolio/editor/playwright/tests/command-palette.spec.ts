@@ -1,5 +1,6 @@
 import type { Locator } from "@playwright/test";
 import { test, expect } from "../support/test";
+import { paletteShortcutReady } from "../support/helpers";
 
 /*
  * ⌘K.
@@ -23,6 +24,7 @@ test.describe("Command palette", () => {
   test.beforeEach(async ({ page, resetData }) => {
     await resetData("projects");
     await page.goto("/");
+    await paletteShortcutReady(page);
   });
 
   test("opens with the keyboard shortcut and lists works", async ({ page }) => {
