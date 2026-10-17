@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { test, expect } from "../support/test";
-import { fillSignInForm, markdownEditorReady } from "../support/helpers";
+import {
+  chooseOption,
+  expectOptions,
+  fillSignInForm,
+  markdownEditorReady,
+  selectValue,
+} from "../support/helpers";
 import { fixturePath } from "../support/tasks";
 
 /*
@@ -27,7 +33,11 @@ test.describe("Term edit form", () => {
     await markdownEditorReady(page, "description");
 
     await page.getByLabel("Label", { exact: true }).fill("Bar Cookies");
-    await page.getByLabel("Parent", { exact: true }).selectOption("cookies");
+    await chooseOption(
+      page,
+      page.getByLabel("Parent", { exact: true }),
+      "Cookies",
+    );
     await page.getByRole("button", { name: "Submit", exact: true }).click();
 
     await expect(page).toHaveURL(baseURL + "/tags/bar-cookies");
@@ -43,11 +53,17 @@ test.describe("Term edit form", () => {
     await expect(page).toHaveURL(baseURL + "/tags/bar-cookies/edit");
     await markdownEditorReady(page, "description");
     const parent = page.getByLabel("Parent", { exact: true });
-    await expect(parent).toHaveValue("cookies");
+    await expect(selectValue(page, "parent")).toHaveValue("cookies");
+    await expect(parent).toHaveText("Cookies");
     /* A term is never offered as its own parent (24-T8). */
-    await expect(parent.locator('option[value="bar-cookies"]')).toHaveCount(0);
-
-    await parent.selectOption("dessert");
+    await parent.click();
+    const dessert = page.getByRole("option", { name: "Dessert", exact: true });
+    await expect(dessert).toBeVisible();
+    await expect(
+      page.getByRole("option", { name: "Bar Cookies", exact: true }),
+    ).toHaveCount(0);
+    await dessert.click();
+    await expect(selectValue(page, "parent")).toHaveValue("dessert");
     await page.getByRole("button", { name: "Submit", exact: true }).click();
 
     await expect(page).toHaveURL(baseURL + "/tags/bar-cookies");
@@ -76,10 +92,7 @@ test.describe("Term edit form", () => {
     await fillSignInForm(page);
     await markdownEditorReady(page, "description");
     const parent = page.getByLabel("Parent", { exact: true });
-    await expect(parent.locator("option")).toHaveText([
-      "None (a top-level term)",
-      "Holiday",
-    ]);
+    await expectOptions(page, parent, ["None (a top-level term)", "Holiday"]);
 
     /*
      * So the refusal is driven the way it really happens: a stale page. The
@@ -90,7 +103,11 @@ test.describe("Term edit form", () => {
      */
     await page.goto("/tags/holiday/edit");
     await markdownEditorReady(page, "description");
-    await expect(parent.locator('option[value="cookies"]')).toHaveCount(1);
+    await parent.click();
+    await expect(
+      page.getByRole("option", { name: "Cookies", exact: true }),
+    ).toHaveCount(1);
+    await page.keyboard.press("Escape");
 
     const token = await createApiToken();
     const moved = await request.patch("/api/taxonomies/tag/dessert", {
@@ -99,7 +116,7 @@ test.describe("Term edit form", () => {
     });
     expect(moved.status()).toBe(200);
 
-    await parent.selectOption("cookies");
+    await chooseOption(page, parent, "Cookies");
     await page.getByRole("button", { name: "Submit", exact: true }).click();
 
     await expect(page.getByText(/underneath itself/)).toContainText(
@@ -108,7 +125,7 @@ test.describe("Term edit form", () => {
     await expect(page.getByText("The term was not saved.")).toBeVisible();
     await expect(page).toHaveURL(/\/tags\/holiday\/edit$/);
     /* The choice is echoed back, not reset away. */
-    await expect(parent).toHaveValue("cookies");
+    await expect(selectValue(page, "parent")).toHaveValue("cookies");
 
     const holiday = await request.get("/api/taxonomies/tag/holiday");
     expect(holiday.status()).toBe(200);
@@ -277,9 +294,7 @@ test.describe("Term tools", () => {
     await fillSignInForm(page);
     await expect(page).toHaveURL(baseURL + "/tags/new?parent=cookies");
     await markdownEditorReady(page, "description");
-    await expect(page.getByLabel("Parent", { exact: true })).toHaveValue(
-      "cookies",
-    );
+    await expect(selectValue(page, "parent")).toHaveValue("cookies");
 
     await page.getByLabel("Label", { exact: true }).fill("Drop Cookies");
     await page.getByRole("button", { name: "Submit", exact: true }).click();
@@ -291,7 +306,10 @@ test.describe("Term tools", () => {
     /* A `?parent=` that names no record is ignored, not offered. */
     await page.goto("/tags/new?parent=christmas");
     await markdownEditorReady(page, "description");
-    await expect(page.getByLabel("Parent", { exact: true })).toHaveValue("");
+    await expect(selectValue(page, "parent")).toHaveValue("");
+    await expect(page.getByLabel("Parent", { exact: true })).toHaveText(
+      "None (a top-level term)",
+    );
   });
 
   test("renames after a confirmation, and the old slug still resolves", async ({

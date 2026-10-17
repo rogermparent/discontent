@@ -13,6 +13,7 @@ import {
 } from "react";
 import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
 import { Button } from "@discontent/component-library/components/ui/button";
+import { FormCheckbox } from "@discontent/component-library/components/Form/inputs/Checkbox";
 import { RecipeFormState } from "recipe-website-common/controller/formState";
 import {
   createRecipe,
@@ -552,10 +553,9 @@ export default function NewOrImportRecipeForm({
               </ol>
             ) : null}
             <label className="my-1 flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
+              <FormCheckbox
                 checked={photoAsImage}
-                onChange={(event) => setPhotoAsImage(event.target.checked)}
+                onCheckedChange={setPhotoAsImage}
               />
               Use the first photo as the recipe&apos;s image
             </label>
@@ -618,13 +618,12 @@ export default function NewOrImportRecipeForm({
                 className="my-1 flex items-center gap-2 text-sm"
                 title={llmModel ? undefined : "No local model configured"}
               >
-                <input
-                  type="checkbox"
+                <FormCheckbox
                   name="llm"
                   value="force"
                   disabled={!llmModel}
                   checked={forceLlm && !!llmModel}
-                  onChange={(event) => setForceLlm(event.target.checked)}
+                  onCheckedChange={setForceLlm}
                 />
                 Re-read with AI even if the page has recipe data
                 <span className="text-muted-foreground">

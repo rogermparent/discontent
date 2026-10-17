@@ -221,16 +221,16 @@ export default function RecipeFields({
                 name="drink.method"
                 id="recipe-form-drink-method"
                 value={field.state.value}
-                onChange={(e) => field.handleChange(e.target.value)}
+                onValueChange={(value) => field.handleChange(value)}
                 errors={state?.errors?.drink}
-              >
-                <option value="">—</option>
-                {DRINK_METHODS.map((method) => (
-                  <option key={method} value={method}>
-                    {DRINK_METHOD_LABELS[method]}
-                  </option>
-                ))}
-              </SelectInput>
+                options={[
+                  { value: "", label: "—" },
+                  ...DRINK_METHODS.map((method) => ({
+                    value: method,
+                    label: DRINK_METHOD_LABELS[method],
+                  })),
+                ]}
+              />
             )}
           </form.Field>
           {DRINK_TEXT_FIELDS.map(({ key, label, suggestions }) => (
