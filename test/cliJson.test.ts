@@ -528,6 +528,13 @@ describe("the CLI as a process", () => {
       ]);
       expect(both.exitCode).not.toBe(0);
       expect(JSON.parse(both.stdout).error.code).toBe("usage");
+      /* An empty slug is a usage slip too (40c review). */
+      const empty = await run(["shopping", "remove", "--for", "", "--json"]);
+      expect(empty.exitCode).not.toBe(0);
+      expect(JSON.parse(empty.stdout).error).toMatchObject({
+        code: "usage",
+        message: expect.stringContaining("--for needs a slug"),
+      });
 
       const removed = await run([
         "shopping",
@@ -550,7 +557,7 @@ describe("the CLI as a process", () => {
         expect(deleted.exitCode, deleted.stdout).toBe(0);
       }
     },
-    /* Nine CLI processes. */
+    /* Ten CLI processes. */
     TIMEOUT * 3,
   );
 

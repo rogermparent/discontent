@@ -179,6 +179,16 @@ const removeCommand: CommandDef<ShoppingPatchResult> = {
         `shopping remove takes item ids (from \`shopping --json\`), not names: ${names.join(", ")}.`,
       );
     }
+    /* An empty slug is a usage slip, not a controller validation error. */
+    for (const [flag, slug] of [
+      ["recipe", recipe],
+      ["group", group],
+      ["for", forSlug],
+    ] as const) {
+      if (slug !== undefined && slug.trim() === "") {
+        throw new UsageError(`shopping remove --${flag} needs a slug.`);
+      }
+    }
     const sources = [recipe, group, forSlug].filter(
       (value) => value !== undefined,
     );
