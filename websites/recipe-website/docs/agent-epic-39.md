@@ -375,6 +375,18 @@ eslint … src/app/api/git …` was refused ("runs pnpm with a git command
   did not run again on its own: the conflict was told only at the
   workstation's next local change or restart. `noteAttention` now runs in
   `runMirrorSync`, under every trigger.
+- **Td5 — simple-git does not reject a silent non-zero exit.**
+  `git.raw(["merge-base", "--is-ancestor", a, b])` resolved `""` when git
+  exited 1 (not an ancestor) with nothing on stderr, so the check passed
+  every time. Ask a question whose answer is output: `merge-base a HEAD`
+  equals `a`'s full sha exactly when `a` is an ancestor (Dd16).
+- **Td6 — A state file written by several writers needs one lock, not
+  per-caller mutexes.** 39d first serialised each writer in its own
+  promise chain (the attention checks, the standing writes) while a sync's
+  record, another process's `git sync` and the hourly timer each
+  read-modify-wrote `.git/discontent-sync.json` on their own, with a
+  `<path>.<pid>.tmp` temp name two in-process writers shared. The lock now
+  lives with the file (`updateSyncState`, Dd11), so no caller can forget it.
 
 ### 39e
 
@@ -1265,6 +1277,121 @@ vitest **111 files / 2286 tests** passed. Playwright (build mode,
 `settings-nav`, `visual` (e2e + mobile) — **72 / 72** passed (5.1 min); the
 `git-page` baseline did not move (the Mirrors card's new line shows only
 with a mirror, and every new time is a masked `<time>`).
+
+**Review round.** Eight findings, fixed as new commits; what above they
+amend is named.
+
+- **The sync state's writers share one lock (medium; Dd11).** The hourly
+  reminder timer called `noteAttention` → `patchMirrorState` outside the
+  instance's mutex and every lock, so a sync recording its attempt meanwhile
+  — in this process, or the CLI's or MCP's `git sync` under the sync lock in
+  another — could be overwritten, losing `conflictSince`, and the next
+  `pushStanding` told the Pi "clear". The temp name `<path>.<pid>.tmp` was
+  also shared by two writers in one process, which could tear the file
+  (`readSyncState` then answers `{}`). Now every change to
+  `.git/discontent-sync.json` — `recordSyncAttempt`, `patchMirrorState`,
+  `recordSettingsPush`, and the new `updateMirrorState` — is one
+  read-modify-write under `discontent-sync.json.lock` (the write lock's
+  primitive, `fileLock.ts`: created whole, stale on a dead pid or after
+  30 s, a 10 s wait), with a random temp name (`randomUUID`). The timer
+  runs inside `instance.exclusive`; `noteAttention` looks and writes in one
+  `updateMirrorState` step and notifies after it, so two checks never both
+  tell one state (the in-process chain it had is gone). The standing and
+  export stamps' temp names are random too.
+- **Strict standing times (low; Dd12; amends "On the mirror").**
+  `parseStanding` takes ISO-8601 UTC only (`YYYY-MM-DDTHH:MM:SS[.mmm]Z`),
+  not whatever `Date.parse` takes. `PUT /api/git/standing` answers 400 for
+  an `asOf` more than a day ahead of the Pi's clock (`MAX_AHEAD_MS`,
+  `standingTooFarAhead`); the pinger ignores such an answer; a stored one
+  (none exist — 39d is undeployed) no longer counts as newer. A
+  `200 {kept: false}` is a failure on the workstation ("it holds a newer
+  state than this one"): the key is not recorded, the Mirrors card says
+  "not told", the next sync sends a newer state, and a refusal that
+  persists is logged once (the message carries no time, so it repeats).
+- **A conflict's key names which conflict (low; Dd13; amends D5's "once
+  per new state").** `attentionKey` is `<remote>:conflict:<conflictSince>`
+  (plain `<remote>:conflict` only for a record without one). A conflict
+  that cleared by a sync no attention check followed (the CLI's) and came
+  back is told again. The reminder's "Since" is the conflict's own
+  `conflictSince`, not the time it was first notified.
+- **Several mirrors (low; Dd14).** The pinger sends `{remote}` when the
+  mirror has `WORKSTATION_REMOTE` (a valid remote name; anything else is
+  ignored), `{}` otherwise; `/api/git/sync` already syncs and answers for
+  the named remote, and for the first configured mirror without one.
+- **No standing push after `unreachable` (low; Dd15).** `runMirrorSync`
+  skips `pushStanding` when the sync answered `unreachable`; the send's
+  timeout is 5 s (`STANDING_TIMEOUT_MS`, was 15 s) and it refuses
+  redirects (`redirect: "error"`).
+- **The export hint checks ancestry (low; Dd16; amends D6).** A stamp that
+  is not an ancestor of HEAD (HEAD reset past it, or a diverged line) reads
+  "built from a commit this history no longer has", not "Up to date" or a
+  count (Td5).
+- **`commandAction` takes no callback (nit; Dd17; amends D6 and Td3).** The
+  build runner moved to `src/app/(recipes)/runCommand.ts`, a plain server
+  module; `commandAction` (the `"use server"` export, Deploy) calls it with
+  none, `buildExport` with the stamp's `onSuccess`. The running stream lives
+  on `globalThis`, so Build and Deploy still see each other's run.
+- **Test gaps.** `test/instance.test.ts` clears `RECIPE_NOTIFY_URL` (and
+  `WORKSTATION_REMOTE`) before each test, as `piSync.test.ts` does.
+
+**Decisions (review round).**
+
+- **Dd11 — The lock lives with the file, and is a leaf.** One lock beside
+  the file, taken by every function that changes it, rather than asking
+  each caller to hold the sync lock: the sync lock is non-blocking (a
+  second holder is `busy`), it is not held by the post-sync sends, and
+  the CLI's `git sync` records under it in another process. The state lock
+  is held for one read and one write and never while taking another lock,
+  so it sits below 39b's order (Db5: the repository's line → the sync lock
+  → the write lock) without a cycle; the timer takes only the instance's
+  mutex, then it. A lock that cannot be had in 10 s is warned about once
+  and the change made anyway: a status line kept unlocked beats one lost.
+- **Dd12 — The receiver bounds the future; the sender treats "not kept"
+  as not told.** The newest `asOf` wins, so a bad clock or a hand-made
+  request could freeze the Pi's banner; a day covers any honest drift on
+  NTP. On the workstation `kept: false` means the Pi already holds a newer
+  state, so saying "was told" would be false; retrying on the next sync is
+  free (a newer `asOf`), and a persistent refusal is one log line.
+- **Dd13 — The conflict's own time is part of its key.** The key changes
+  exactly when the conflict does, whoever saw it clear.
+- **Dd14 — Name the mirror only when there are several.** Tokens are users'
+  API tokens, shared by every client, so they cannot tell mirrors apart
+  cheaply; a name the mirror sends is opt-in, backward compatible (an old
+  workstation already accepted `{remote}`; an old mirror's `{}` means the
+  first mirror, as before), and needs nothing for the one mirror there is.
+- **Dd15 — An unreachable mirror is not sent to.** Its editor is down too,
+  most likely; the Pi's startup ping asks for the state anyway, and the
+  next reachable sync sends what is owed.
+- **Dd16 — "Up to date" needs the stamp to be an ancestor of HEAD.**
+- **Dd17 — A server action takes only data from a client.** A
+  `"use server"` export with a function parameter invites a client to pass
+  one; the callback is a server-side concern, so it moved behind a plain
+  module.
+
+**Tests (review round).** `test/piSync.test.ts` +9: a patch waits while
+another process holds the state lock and keeps the conflict that process
+wrote (the timer's look notifies it, `standingOf` still says conflict);
+five rounds of a sync's record, two patches and a settings send at once
+leave valid JSON with every change and no temp file; conflict → cleared
+by a sync nobody looked at → a new conflict is notified again, and its
+reminder says "Since" the conflict's time; strict times (six spellings
+refused) and the one-day bound; a far-future answer ignored by the pinger,
+and a stored one losing to an honest one; `kept: false` recorded as not
+told, repeated once, then sent — every send with `redirect: "error"` and a
+signal; no PUT after an `unreachable` sync; the ping's body `{}` /
+`{"remote":"uraninite"}` / `{}` for an invalid name; HEAD reset past the
+export's commit, and a diverged line, read "unknown". The existing key
+expectations now carry `conflictSince`. `exportAction.test.ts` mocks
+`runCommand`. Playwright `mirror-role.spec`: the route answers 400 for a
+non-ISO `asOf` and for one three days ahead, and 403 to a read-scoped
+token.
+
+**Gates (review round).** Both typechecks clean; eslint clean on the changed
+files; the affected files (`piSync`, `instance`, `exportAction`,
+`specVersions`) green, `piSync` four runs in a row; full vitest **111
+files / 2295 tests** passed. Playwright (build mode, `heavy-pw.sh`): `git`,
+`mirror-role`, `mirrors-card`, `export-page` — **41 / 41** passed
+(1.7 min). No baseline moved; no reindex needed.
 
 ### 39e — Hygiene
 

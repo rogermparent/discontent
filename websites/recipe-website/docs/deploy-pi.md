@@ -311,6 +311,10 @@ restart recipe-editor'`. Deleting the lines from the config alone leaves
   records that once (the Mirrors card says "editor not told", only while a
   conflict stands) and the ping answers still carry the state after the
   Pi's next deploy.
+- **A second mirror** (Dd14): a ping without a name syncs, and answers for,
+  the workstation's first mirror — right for uraninite alone. Each mirror
+  beyond the first sets `WORKSTATION_REMOTE=<its name in the workstation's
+mirrors list>` in its `.env`, and its pings say which remote they are.
 - **`RECIPE_NOTIFY_URL` is the workstation's, not the Pi's** (Dd7). The
   workstation is the only place a sync runs (28-D1), so it is the one that
   sees a conflict, a dirty mirror or repeated failures, and it sends them —
