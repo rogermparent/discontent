@@ -28,7 +28,13 @@ import {
   isVideoUrl,
   type ImportedRecipe,
 } from "recipe-website-common/util/importRecipeData";
-import { chatJson, type LlmApi, type LlmConfig } from "./client";
+import {
+  chatJson,
+  contextStep,
+  estimateTokens,
+  type LlmApi,
+  type LlmConfig,
+} from "./client";
 import { readerLabel } from "./readerLabel";
 import { parseTimeText } from "./timeText";
 import { tidyReading } from "./tidyReading";
@@ -133,6 +139,50 @@ export function buildRecipeUserPrompt({
     text,
     "--- END OF TEXT ---",
   ].join("\n");
+}
+
+/* ------------------------------------------------------------------ */
+/* The context (40a)                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The answer's room, at least (40a, Da1): `found`, a name, a yield and
+ * times, and a short recipe's lines as JSON.
+ */
+export const EXTRACT_OUTPUT_MIN_TOKENS = 512;
+
+/**
+ * The answer's room, at most (40a, Da1): the longest reading measured is
+ * Sally's sticky buns, ~1 700 output tokens (36a); copying never writes
+ * much more than the text it copies.
+ */
+export const EXTRACT_OUTPUT_MAX_TOKENS = 3_072;
+
+/**
+ * The `num_ctx` an import's calls ask for (40a, Da1): the extractor's
+ * system prompt and the user prompt around the capped text, counted
+ * conservatively (`estimateTokens`), plus room for the answer — the text's
+ * tokens half again (a line copied into JSON gains quotes and a comma) on
+ * top of `EXTRACT_OUTPUT_MIN_TOKENS`, at most `EXTRACT_OUTPUT_MAX_TOKENS`
+ * — rounded up to a step of `LLM_CONTEXT_STEPS`. The extractor's prompt is
+ * the longest of the reading's three (the list's and the one-dish
+ * question's are shorter, their answers tiny), so one context serves an
+ * import's every call and Ollama never reloads the model between them.
+ * Ollama only: the other APIs take no `num_ctx`.
+ */
+export function extractionContext(
+  text: string,
+  { url, meta }: { url?: string; meta?: ExtractMeta } = {},
+): number {
+  const { text: source } = capText(text);
+  const prompt =
+    LLM_RECIPE_SYSTEM_PROMPT.length +
+    buildRecipeUserPrompt({ text: source, url, meta }).length;
+  const answer = Math.min(
+    EXTRACT_OUTPUT_MAX_TOKENS,
+    EXTRACT_OUTPUT_MIN_TOKENS + Math.ceil(estimateTokens(source.length) * 1.5),
+  );
+  return contextStep(estimateTokens(prompt) + answer);
 }
 
 /* ------------------------------------------------------------------ */
@@ -667,6 +717,10 @@ export interface ExtractRecipeInput {
   /** Defaults to `llmConfig()`; unset throws `LlmError("unconfigured")`. */
   config?: LlmConfig;
   timeoutMs?: number;
+  /**
+   * Ollama's `num_ctx`: the import's (`applyLlm` picks one for all its
+   * calls, 40a); `extractionContext` of this text when unset.
+   */
   numCtx?: number;
   /** The caller's abort; default the job's. */
   signal?: AbortSignal;
@@ -737,19 +791,22 @@ async function readRecipe(
   step: StepHandle,
 ): Promise<LlmExtraction> {
   const { text: source } = capText(input.text);
+  const promptUrl = input.urlInPrompt === false ? undefined : input.url;
   const result = await chatJson({
     step,
     system: LLM_RECIPE_SYSTEM_PROMPT,
     user: buildRecipeUserPrompt({
       text: source,
-      url: input.urlInPrompt === false ? undefined : input.url,
+      url: promptUrl,
       meta: input.meta,
     }),
     schema: LLM_RECIPE_SCHEMA,
     schemaName: LLM_RECIPE_SCHEMA_NAME,
     config: input.config,
     timeoutMs: input.timeoutMs,
-    numCtx: input.numCtx,
+    numCtx:
+      input.numCtx ??
+      extractionContext(source, { url: promptUrl, meta: input.meta }),
     signal: input.signal,
     job: input.job,
   });

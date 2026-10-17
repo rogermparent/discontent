@@ -208,6 +208,26 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
 
 ### 40a
 
+- **Ta1 — Ollama reloads the model whenever `num_ctx` changes.** Two
+  imports in a row at different steps (a short paste at 4 096, then a
+  long page at 8 192) pay a load (5–9 s) for the second. Da1 keeps the
+  steps few, and one import's calls (list, one-dish question, slices, the
+  single reading) all ask the same context; `scripts/measure-llm-import.ts`
+  still warms up at `LLM_NUM_CTX`, so its first page's time includes a
+  reload when that page lands on a smaller step.
+- **Ta2 — a job log line is capped (37-D2), the result's warning is not.**
+  The `/v1` warning is too long for a log line: the log gets a short form
+  ("Ollama 0.40.5 behind /v1: no num_ctx, …"), the result the whole
+  sentence. A test that matches the log's `msg` against the surfaced text
+  fails on the "…".
+- **Ta3 — the placement check reads the real GPU for a loopback URL.**
+  Tests use `http://localhost:11434` and `127.0.0.1` stand-ins, so
+  `test/setupTests.js` points `RECIPE_DRM_DIR` at a directory that does not
+  exist ("no counters", the old wording); a test that wants a reading
+  writes its own `card0/device/mem_info_vram_*` files. The Playwright
+  stand-in model answers no `/api/ps`, so the editor under test never gets
+  that far.
+
 ### 40b
 
 ### 40c
@@ -225,6 +245,109 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
 ## Results
 
 ### 40a — Import / LLM polish
+
+Branch `agent/40a-llm`. **Reindex needed: no** (nothing in the content
+repository changes). **Deploy:** the workstation's next `pnpm workstation
+update` picks it up; the Pi (Claude API) gets nothing new but the code.
+
+**Built.**
+
+- **A context sized to the input** (`llm/client.ts`, `extractRecipe.ts`,
+  `importWithLlm.ts`, `splitRecipes.ts`). `extractionContext(text)` counts
+  the extractor's system prompt and the user prompt around the capped text
+  at 3 characters a token, adds room for the answer, and rounds up to a
+  step of `LLM_CONTEXT_STEPS` = 4 096 / 8 192 / 12 288 (Da1). `applyLlm`
+  picks it once from the whole text and hands it to every call of that
+  reading — the several-recipe list, the one-dish question, each slice
+  and the single reading — so one import never reloads the model; a
+  direct `extractRecipeWithLlm` call without one picks its own. The
+  extraction step records `numCtx` beside its token counts (Ollama only).
+  The 36a corpus (34 saved pages, `pageText` as an import reads them)
+  lands 21 at 4 096 and 13 at 8 192, none at 12 288: the longest page
+  text is 8.6 k characters, since `pageText` keeps the recipe card. Only
+  a long paste or a page past ~12.7 k characters asks for 12 288.
+- **Honest placement wording** (`checkPlacement`). For a model on this
+  machine (a loopback `RECIPE_LLM_URL`) that is not wholly on the GPU, the
+  amdgpu counters (`/sys/class/drm/card*/device/mem_info_vram_used` /
+  `_total`, the card with the most VRAM; `readVram`) give the VRAM others
+  hold — used less the model's `size_vram`. Up to 1.2 GB is the desktop:
+  "local model qwen3:8b ran 89% on the GPU — it does not fit beside the
+  desktop's ~0.8 GB of VRAM at num_ctx 12288, so the rest runs on the CPU,
+  slower; nothing else holds VRAM, so there is nothing to stop". More is
+  "another program holds ~3.0 GB of VRAM … run "ollama stop qwen3:8b" once
+  it frees". No counters (another vendor, a container) or a model on
+  another host: the old wording, word for word. The step's warning carries
+  `numCtx`, `vramUsed`, `vramTotal`, `others` and `cause` (Da2).
+- **`RECIPE_LLM_API=openai` against Ollama's `/v1`** stays a trap, now
+  said (Da5): `ollamaBehindOpenAi` asks `GET <server>/api/version` (the
+  URL less a trailing `/v1`) once per server per process — a server that
+  answers is remembered, one that is down is asked again. When Ollama
+  answers, Settings → Tools and `/jobs` show a **Warning** row, and every
+  import's job logs one `llm.api` warning and surfaces it in its result:
+  through `/v1` no `num_ctx` is sent (Ollama's own default context applies,
+  and may cut a long page), and the unload, reload and placement check do
+  not run; "set RECIPE_LLM_API=ollama". Nothing else changes for an
+  OpenAI-style server.
+- **`form-url` batch rows on `/jobs/<id>` — verified, no change.**
+  `resultRows` (`jobs/timeline.ts`) reads `name`, else `recipe.name`, else
+  "Recipe n", so a `form-url` batch's `SplitReading` rows show their dish
+  names; `jobSurfaces.test`'s `resultRows` case covers both shapes and
+  `jobs.spec`'s picker test reads the four names off the page (as 38b
+  found).
+
+**Decisions.**
+
+- **Da1 — the ladder and the estimate.** Steps 4 096 / 8 192 / 12 288
+  (`LLM_NUM_CTX`, unchanged): qwen3:8b's KV cache is ~144 KiB a token, so
+  ~6.0 / 6.6 / 7.2 GB loaded — the two smaller steps fit the RX 6600
+  beside the idle desktop, the largest does not (39-Ta6). Tokens are
+  characters / 3 (conservative: qwen counts English at ~4); the answer's
+  room is 512 + 1.5 × the text's tokens, at most 3 072 (the longest
+  reading measured is ~1 700 output tokens, 36a's sticky buns). So up to
+  ~3.2 k characters of text asks 4 096, up to ~12.7 k asks 8 192, and the
+  24 k cap's worst case (~8 000 + ~900 prompt + 3 072) still fits 12 288.
+  Few steps rather than an exact size, because Ollama reloads on every
+  `num_ctx` change (Ta1). The Claude API and an OpenAI-style server take
+  no `num_ctx`; `claudeApi.test` is unchanged and green.
+- **Da2 — the desktop baseline.** VRAM held by others ≤ 1.2 GB
+  (`DESKTOP_VRAM_BYTES`; Sway idles at ~0.8 GB) is "the desktop"; read
+  only for a loopback model URL, since a remote model's GPU is not this
+  machine's; `RECIPE_DRM_DIR` overrides the sysfs root (the tests).
+- **Da3 — D6's reload is unchanged.** Skipping a reload "that cannot
+  help" (free VRAM smaller than the part on the CPU) looked cheap, but
+  Ollama's size estimate and the driver's counters disagree: in 39-Ta6's
+  numbers the driver shows ~1.3 GB free while 0.7 GB would not fit, so
+  the test would allow the reload in exactly the desktop case, and any
+  margin large enough to stop it would also stop D6's real case (the
+  hook paused Archilyzer: the model at 2%, ~7 GB to move, ~7.6 GB free).
+  The retry's reading is still the one surfaced.
+- **Da4 — the reading cache and the context.** `numCtx` is not in the
+  reading key: it is a function of the text, which is (with the prompts,
+  the model and the mode), and a reading made at a larger context is no
+  worse. No `READING_CODE_VERSION` bump — nothing that turns answers into
+  a reading changed. The vision transcript key already holds
+  `VISION_NUM_CTX` (a fixed 4 096, unchanged), so it is unchanged too.
+- **Da5 — `/v1`: warn, don't take over.** Running the native unload,
+  reload and placement through `/api/*` when Ollama answers behind `/v1`
+  would act on a server configured as OpenAI-style (possibly behind a
+  proxy that forwards only `/v1`); naming the setting to change is the
+  reversible half. _Roger to confirm_ (or ask for the native path).
+
+**Gates** (all through the heavy slot). `pnpm --filter recipe-editor
+typecheck` and `pnpm --filter recipe-website exec tsc --noEmit` clean;
+`pnpm exec vitest run` **112 files, 2313 tests passed** (new
+`test/llmContext.test.ts`, 18 tests: the ladder, short → 4 096 / long →
+12 288 / steady across nearby sizes, the num_ctx sent and recorded, none
+to an OpenAI-style server; `readVram`, the cause and the three wordings,
+in an import with fake counters; the `/v1` probe, its cache and the
+job warning. `multiRecipe.test`'s T23 case now checks all six calls ask
+one context; `importWithLlm.test`'s OpenAI case expects the probe).
+Playwright, build mode, `jobs.spec` + `settings-nav.spec`: **19 passed**.
+
+**GPU real check:** pending (see below).
+
+**Roger to confirm.** Da5 (warn only, not the native path); the 1.2 GB
+desktop baseline (Da2).
 
 ### 40b — Test / CI hygiene
 

@@ -11,6 +11,7 @@ import {
   displayUrl,
   llmStatus,
   placementWarning,
+  resetOllamaProbes,
   type LlmConfig,
 } from "../websites/recipe-website/editor/controller/llm/client";
 import { memoryJobLog } from "../websites/recipe-website/editor/controller/jobs/log";
@@ -730,13 +731,18 @@ describe("applyLlm's steps (37a)", () => {
       ),
     );
     const openai = memoryJobLog();
+    resetOllamaProbes();
     await applyLlm({
       source: { text: TEXT },
       mapped: MAPPED,
       config: { ...CONFIG, api: "openai" },
       job: { log: openai.log },
     });
-    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    /* 40a: one probe for Ollama behind /v1 (this server is not), then the call. */
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url))).toEqual([
+      "http://model.test:11434/api/version",
+      "http://model.test:11434/v1/chat/completions",
+    ]);
     expect(
       openai.lines.find((line) => line.phase === "end")?.data,
     ).toMatchObject({ promptTokens: 100, outputTokens: 50 });
