@@ -29,12 +29,22 @@ export default async function Resume({
     }
     throw e;
   }
-  const { date } = resume;
+  const { date, company } = resume;
 
   const deleteResumeWithId = deleteResume.bind(null, date, slug);
 
   return (
     <main className="flex flex-col items-center w-full h-full grow">
+      {/*
+        Which company this resume is aimed at — the list and the edit page
+        name it, the resume itself doesn't. Screen only: the printed resume
+        goes to that company and stays as it was.
+      */}
+      {company && (
+        <p className="w-full px-2 py-1 text-sm print:hidden">
+          Resume for <span className="font-semibold">{company}</span>
+        </p>
+      )}
       <ResumeView resume={resume} />
       <hr className="w-full border-slate-700 print:hidden" />
       <div className="flex flex-row justify-center m-1 print:hidden">
