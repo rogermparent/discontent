@@ -755,6 +755,11 @@ checked by eye on throwaway screenshots (the term form's Parent list,
 - `MirrorsCard`: no change of its own; the Select move covers a stale
   remote name.
 
+Review-round gates: both typechecks clean; vitest on the touched files
+(`rebuildRetry`, `formControls`, `instance`, `cliJson`, `mcp`) **5 files /
+108 tests** passed (CI runs the full suite); Playwright build mode
+`term-edit.spec` + `mirrors-card.spec` **11/11**. Baselines: none moved.
+
 **Roger to confirm:**
 
 - The schedule (Dc2) and that it covers foreign-HEAD rebuilds, not only
