@@ -214,7 +214,9 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
   steps few, and one import's calls (list, one-dish question, slices, the
   single reading) all ask the same context; `scripts/measure-llm-import.ts`
   still warms up at `LLM_NUM_CTX`, so its first page's time includes a
-  reload when that page lands on a smaller step.
+  reload when that page lands on a smaller step. A batch can reload
+  between its items too: each item's `applyLlm` (a roundup's items, a
+  form's picks read again) picks its own step from its own text.
 - **Ta2 — a job log line is capped (37-D2), the result's warning is not.**
   The `/v1` warning is too long for a log line: the log gets a short form
   ("Ollama 0.40.5 behind /v1: no num_ctx, …"), the result the whole
@@ -270,18 +272,33 @@ update` picks it up; the Pi (Claude API) gets nothing new but the code.
   machine (a loopback `RECIPE_LLM_URL`) that is not wholly on the GPU, the
   amdgpu counters (`/sys/class/drm/card*/device/mem_info_vram_used` /
   `_total`, the card with the most VRAM; `readVram`) give the VRAM others
-  hold — used less the model's `size_vram`. Up to 1.2 GB is the desktop:
-  "local model qwen3:8b ran 89% on the GPU — it does not fit beside the
-  desktop's ~0.8 GB of VRAM at num_ctx 12288, so the rest runs on the CPU,
-  slower; nothing else holds VRAM, so there is nothing to stop". More is
+  hold — used less the model's `size_vram`. More than 1.2 GB is
   "another program holds ~3.0 GB of VRAM … run "ollama stop qwen3:8b" once
-  it frees". No counters (another vendor, a container) or a model on
-  another host: the old wording, word for word. The step's warning carries
-  `numCtx`, `vramUsed`, `vramTotal`, `others` and `cause` (Da2).
+  it frees". Up to that, the card decides whether a reload would help:
+  if it holds the whole model beside the others with 1 GB to spare
+  (`RELOAD_HEADROOM_BYTES`), the model was loaded while VRAM was held —
+  "it was loaded while VRAM was held, and ~8.1 GB is free now; "ollama
+  stop qwen3:8b" reloads it on the GPU"; if not, "it likely does not fit
+  beside the desktop's ~0.8 GB of VRAM at num_ctx 12288 … "ollama stop" is
+  unlikely to help". The old wording, word for word, for no counters
+  (another vendor, a container), a card that cannot be the model's (less
+  VRAM used, or in all, than the model's `size_vram` — an AMD iGPU beside
+  an NVIDIA card), or a model on another host: the counters are read only
+  for a loopback `RECIPE_LLM_URL`, so a LAN address or hostname, even this
+  machine's, gets the old wording. The step's warning carries `numCtx`,
+  `vramUsed`, `vramTotal`, `others` and `cause` (Da2).
+- **A context nearly full is a warning** (review). A call whose
+  `prompt_eval_count + eval_count` reaches 95% of its `num_ctx` logs an
+  `llm.context` warning and surfaces "local model qwen3:8b used 4000 of
+  its 4096-token context — the start of the text or the end of the answer
+  may have been cut; check the reading" (Ollama only).
 - **`RECIPE_LLM_API=openai` against Ollama's `/v1`** stays a trap, now
   said (Da5): `ollamaBehindOpenAi` asks `GET <server>/api/version` (the
   URL less a trailing `/v1`) once per server per process — a server that
-  answers is remembered, one that is down is asked again. When Ollama
+  answers (2xx, or a 4xx: not Ollama) is remembered; no answer (a
+  timeout, a refused connection, a 5xx) is remembered for 5 min
+  (`OLLAMA_PROBE_RETRY_MS`), so a hung server costs one 2 s wait per five
+  minutes; a probe the job's own abort cut short is not remembered. When Ollama
   answers, Settings → Tools and `/jobs` show a **Warning** row, and every
   import's job logs one `llm.api` warning and surfaces it in its result:
   through `/v1` no `num_ctx` is sent (Ollama's own default context applies,
@@ -301,7 +318,12 @@ update` picks it up; the Pi (Claude API) gets nothing new but the code.
   (`LLM_NUM_CTX`, unchanged): `ollama ps` lists qwen3:8b at 5.6 / 6.2 /
   7.2 GB — the two smaller steps run 100% on the RX 6600 beside the idle
   desktop (the GPU check below), the largest spilled 10% (39-Ta6). Tokens are
-  characters / 3 (conservative: qwen counts English at ~4); the answer's
+  ASCII characters / 3 (conservative: qwen counts English at ~4), and,
+  since the review, every other code point as a token of its own (Chinese
+  runs ~1–1.5 characters a token: a 2 500-character Chinese paste asks
+  8 192, not 4 096; past ~6 k such characters the 24 k character cap no
+  longer keeps it inside 12 288, which the full-context warning names);
+  the answer's
   room is 512 + 1.5 × the text's tokens, at most 3 072 (the longest
   reading measured is ~1 700 output tokens, 36a's sticky buns). So up to
   ~3.2 k characters of text asks 4 096, up to ~12.7 k asks 8 192, and the
@@ -313,6 +335,13 @@ update` picks it up; the Pi (Claude API) gets nothing new but the code.
   (`DESKTOP_VRAM_BYTES`; Sway idles at ~0.8 GB) is "the desktop"; read
   only for a loopback model URL, since a remote model's GPU is not this
   machine's; `RECIPE_DRM_DIR` overrides the sysfs root (the tests).
+  _Amended in review:_ whether a reload would help is `total − others −
+size ≥ 1 GB`. The review suggested free VRAM ≥ 2 × the part on the
+  CPU; that fails D6's own case (a model loaded at 2% while a
+  transcription held the card: ~7 GB on the CPU, ~8 GB free). Free VRAM
+  less the CPU part equals `total − others − size` whatever the share,
+  so the question is only whether the model fits beside the others now,
+  and 1 GB is above 39-Ta6's 0.57 GB that did not fit.
 - **Da3 — D6's reload is unchanged.** Skipping a reload "that cannot
   help" (free VRAM smaller than the part on the CPU) looked cheap, but
   Ollama's size estimate and the driver's counters disagree: in 39-Ta6's
@@ -320,7 +349,9 @@ update` picks it up; the Pi (Claude API) gets nothing new but the code.
   the test would allow the reload in exactly the desktop case, and any
   margin large enough to stop it would also stop D6's real case (the
   hook paused Archilyzer: the model at 2%, ~7 GB to move, ~7.6 GB free).
-  The retry's reading is still the one surfaced.
+  The retry's reading is still the one surfaced. (The wording's `stale`
+  test, Da2, is a different question with its own margin; it does not
+  gate the reload.)
 - **Da4 — the reading cache and the context.** `numCtx` is not in the
   reading key: it is a function of the text, which is (with the prompts,
   the model and the mode), and a reading made at a larger context is no
@@ -336,13 +367,17 @@ update` picks it up; the Pi (Claude API) gets nothing new but the code.
 **Gates** (all through the heavy slot). `pnpm --filter recipe-editor
 typecheck` and `pnpm --filter recipe-website exec tsc --noEmit` clean;
 `pnpm exec vitest run` **112 files, 2313 tests passed** (new
-`test/llmContext.test.ts`, 18 tests: the ladder, short → 4 096 / long →
+`test/llmContext.test.ts`, 18 tests then, 26 after the review: the ladder, short → 4 096 / long →
 12 288 / steady across nearby sizes, the num_ctx sent and recorded, none
 to an OpenAI-style server; `readVram`, the cause and the three wordings,
 in an import with fake counters; the `/v1` probe, its cache and the
 job warning. `multiRecipe.test`'s T23 case now checks all six calls ask
 one context; `importWithLlm.test`'s OpenAI case expects the probe).
 Playwright, build mode, `jobs.spec` + `settings-nav.spec`: **19 passed**.
+Review round (as new commits): recipe-editor typecheck clean; the
+affected files (`llmContext`, `importWithLlm`, `multiRecipe`,
+`llmExtract`, `claudeApi`, `queue`, `jobs`, `photoImport`,
+`importRoute`) **9 files, 312 tests passed**; CI runs the full suite.
 
 **GPU real check** (2026-10-17 ~05:19 UTC, orchestrator-cleared: parakeet
 paused, Ollama idle, 0.4 GB VRAM in use before). `real_check.sh`: two

@@ -14,10 +14,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   CHARS_PER_TOKEN,
+  CONTEXT_FULL_SHARE,
   DESKTOP_VRAM_BYTES,
   LLM_CONTEXT_STEPS,
   LLM_NUM_CTX,
+  OLLAMA_PROBE_RETRY_MS,
   OLLAMA_V1_WARNING_KIND,
+  RELOAD_HEADROOM_BYTES,
   contextStep,
   estimateTokens,
   ollamaBehindOpenAi,
@@ -30,11 +33,16 @@ import {
 } from "../websites/recipe-website/editor/controller/llm/client";
 import {
   EXTRACT_OUTPUT_MAX_TOKENS,
+  LLM_RECIPE_SYSTEM_PROMPT,
+  buildRecipeUserPrompt,
   extractionContext,
 } from "../websites/recipe-website/editor/controller/llm/extractRecipe";
 import { applyLlm } from "../websites/recipe-website/editor/controller/llm/importWithLlm";
 import { memoryJobLog } from "../websites/recipe-website/editor/controller/jobs/log";
-import { PAGE_TEXT_MAX_CHARS } from "../websites/recipe-website/common/util/pageText";
+import {
+  PAGE_TEXT_MAX_CHARS,
+  capText,
+} from "../websites/recipe-website/common/util/pageText";
 
 const LOCAL: LlmConfig = {
   url: "http://127.0.0.1:11434",
@@ -62,6 +70,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   await rm(dir, { recursive: true, force: true });
@@ -138,8 +147,11 @@ describe("the context an import asks for (40a, Da1)", () => {
     expect(LLM_CONTEXT_STEPS).toEqual([4_096, 8_192, LLM_NUM_CTX]);
     expect(LLM_NUM_CTX).toBe(12_288);
     expect(CHARS_PER_TOKEN).toBe(3);
-    expect(estimateTokens(0)).toBe(0);
-    expect(estimateTokens(10)).toBe(4);
+    expect(estimateTokens("")).toBe(0);
+    expect(estimateTokens("a".repeat(10))).toBe(4);
+    /* Every code point past ASCII is a token of its own (40a review). */
+    expect(estimateTokens("红烧肉")).toBe(3);
+    expect(estimateTokens("½ cup — sifted")).toBe(2 + 4);
     expect(contextStep(1)).toBe(4_096);
     expect(contextStep(4_096)).toBe(4_096);
     expect(contextStep(4_097)).toBe(8_192);
@@ -176,10 +188,79 @@ describe("the context an import asks for (40a, Da1)", () => {
     );
   });
 
-  it("leaves room for the longest page's answer within the top step", () => {
-    /* The cap's text, the prompt, and the most answer it allows still fit. */
-    const prompt = estimateTokens(PAGE_TEXT_MAX_CHARS + 3_000);
-    expect(prompt + EXTRACT_OUTPUT_MAX_TOKENS).toBeLessThanOrEqual(LLM_NUM_CTX);
+  it("leaves room for the longest page's answer within the top step, a long URL and title too", () => {
+    const text = textOf(PAGE_TEXT_MAX_CHARS + 5_000);
+    const url = `https://example.com/${"recipe-".repeat(40)}`;
+    const meta = {
+      title: "Grandma's ".repeat(20),
+      siteName: "Blog ".repeat(20),
+    };
+    const step = extractionContext(text, { url, meta });
+    const prompt = estimateTokens(
+      LLM_RECIPE_SYSTEM_PROMPT +
+        buildRecipeUserPrompt({ text: capText(text).text, url, meta }),
+    );
+    expect(step).toBe(LLM_NUM_CTX);
+    expect(prompt + EXTRACT_OUTPUT_MAX_TOKENS).toBeLessThanOrEqual(step);
+  });
+
+  it("counts a paste in another script a token a character: never 4096 when it needs more", () => {
+    const line = "五花肉五百克，切成小块。\n";
+    const cjk = (chars: number) =>
+      `红烧肉\n${line.repeat(Math.ceil(chars / line.length))}`.slice(0, chars);
+    /* 2 500 characters: ~2 500 tokens, the prompt and the answer — 8 192. */
+    expect(extractionContext(cjk(2_500))).toBe(8_192);
+    /* Counted at 3 a token, the same length would have asked 4 096. */
+    expect(extractionContext(textOf(2_500))).toBe(4_096);
+    expect(extractionContext(cjk(6_000))).toBe(12_288);
+    for (const chars of [500, 1_000, 2_500, 4_000, 6_000]) {
+      const text = cjk(chars);
+      expect(
+        estimateTokens(LLM_RECIPE_SYSTEM_PROMPT + text) + 512,
+      ).toBeLessThanOrEqual(extractionContext(text));
+    }
+  });
+
+  it("warns, once in the result, when a call fills its context", async () => {
+    const { log, lines } = memoryJobLog();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input).endsWith("/api/ps")
+          ? Response.json({ models: [] })
+          : Response.json({
+              model: "qwen3:8b",
+              done: true,
+              prompt_eval_count: 3_700,
+              eval_count: 300,
+              message: {
+                role: "assistant",
+                content: JSON.stringify({
+                  found: true,
+                  name: "Pancakes",
+                  ingredients: LINES,
+                  instructions: ["Whisk everything and fry."],
+                }),
+              },
+            }),
+      ),
+    );
+    await applyLlm({
+      source: { text: TEXT },
+      mapped: undefined,
+      mode: "force",
+      config: { ...LOCAL, url: "http://model.test:11434" },
+      job: { log },
+    });
+    expect(CONTEXT_FULL_SHARE).toBe(0.95);
+    expect(lines.find((line) => line.step === "llm.context")).toMatchObject({
+      level: "warn",
+      msg: "4000 of num_ctx 4096 tokens used — the text may have been cut",
+      data: { used: 4_000, numCtx: 4_096 },
+    });
+    expect(log.surfaced).toEqual([
+      "local model qwen3:8b used 4000 of its 4096-token context — the start of the text or the end of the answer may have been cut; check the reading",
+    ]);
   });
 
   it("sends the chosen num_ctx to Ollama and records it on the step", async () => {
@@ -269,39 +350,98 @@ describe("the card's VRAM (40a, Da2)", () => {
 
   it("calls VRAM beyond the model the desktop up to the baseline, another program past it", () => {
     expect(DESKTOP_VRAM_BYTES).toBe(1_200_000_000);
+    expect(RELOAD_HEADROOM_BYTES).toBe(1_000_000_000);
+    const entry = { size: 7_200_000_000, sizeVram: 6_480_000_000 };
     const vram = (others: number) => ({
-      usedBytes: 6_500_000_000 + others,
+      usedBytes: 6_480_000_000 + others,
       totalBytes: 8_573_157_376,
     });
-    expect(placementCause(6_500_000_000, vram(800_000_000), 12_288)).toEqual({
+    /* 39-Ta6: 8.57 − 0.8 − 7.2 = 0.57 GB to spare — under the headroom. */
+    expect(placementCause(entry, vram(800_000_000), 12_288)).toEqual({
       kind: "desktop",
       othersBytes: 800_000_000,
+      freeBytes: 1_293_157_376,
       numCtx: 12_288,
     });
-    expect(placementCause(6_500_000_000, vram(1_200_000_000))?.kind).toBe(
-      "desktop",
-    );
-    expect(placementCause(6_500_000_000, vram(2_400_000_000))).toEqual({
+    expect(placementCause(entry, vram(1_200_000_000))?.kind).toBe("desktop");
+    expect(placementCause(entry, vram(2_400_000_000))).toMatchObject({
       kind: "other",
       othersBytes: 2_400_000_000,
     });
-    expect(placementCause(6_500_000_000, undefined)).toBeUndefined();
+    expect(placementCause(entry, undefined)).toBeUndefined();
   });
 
-  it("words each cause: the desktop names the context and nothing to stop", () => {
+  it("calls a model loaded while VRAM was held stale when the card now holds it with room to spare", () => {
+    /* Loaded at 2% while a transcription held the card; it has let go. */
+    const entry = { size: 7_200_000_000, sizeVram: 144_000_000 };
+    const cause = placementCause(entry, {
+      usedBytes: 144_000_000 + 300_000_000,
+      totalBytes: 8_573_157_376,
+    });
+    expect(cause).toEqual({
+      kind: "stale",
+      othersBytes: 300_000_000,
+      freeBytes: 8_129_157_376,
+    });
+    /* The same share beside the 0.8 GB desktop: 0.57 GB to spare — no. */
+    expect(
+      placementCause(entry, {
+        usedBytes: 144_000_000 + 800_000_000,
+        totalBytes: 8_573_157_376,
+      })?.kind,
+    ).toBe("desktop");
+    /* A smaller context (6.2 GB) beside it: it would fit — stale. */
+    expect(
+      placementCause(
+        { size: 6_200_000_000, sizeVram: 124_000_000 },
+        { usedBytes: 124_000_000 + 800_000_000, totalBytes: 8_573_157_376 },
+      )?.kind,
+    ).toBe("stale");
+  });
+
+  it("is unknown for a card that cannot be the model's", () => {
+    const entry = { size: 7_200_000_000, sizeVram: 6_480_000_000 };
+    /* An AMD iGPU beside the NVIDIA card Ollama runs on: 0.3 GB used. */
+    expect(
+      placementCause(entry, {
+        usedBytes: 300_000_000,
+        totalBytes: 8_573_157_376,
+      }),
+    ).toBeUndefined();
+    /* Smaller in all than what the model holds on its card. */
+    expect(
+      placementCause(entry, {
+        usedBytes: 6_480_000_000,
+        totalBytes: 2_147_483_648,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("words each cause: stale says stop it, the desktop names the context and hedges", () => {
     expect(
       placementWarning("qwen3:8b", 89, {
         kind: "desktop",
         othersBytes: 820_000_000,
+        freeBytes: 1_270_000_000,
         numCtx: 12_288,
       }),
     ).toBe(
-      "local model qwen3:8b ran 89% on the GPU — it does not fit beside the desktop's ~0.8 GB of VRAM at num_ctx 12288, so the rest runs on the CPU, slower; nothing else holds VRAM, so there is nothing to stop",
+      'local model qwen3:8b ran 89% on the GPU — it likely does not fit beside the desktop\'s ~0.8 GB of VRAM at num_ctx 12288, so the rest runs on the CPU, slower; nothing else holds much VRAM, so "ollama stop" is unlikely to help',
+    );
+    expect(
+      placementWarning("qwen3:8b", 2, {
+        kind: "stale",
+        othersBytes: 300_000_000,
+        freeBytes: 8_129_157_376,
+      }),
+    ).toBe(
+      'local model qwen3:8b ran 2% on the GPU — it was loaded while VRAM was held, and ~8.1 GB is free now; "ollama stop qwen3:8b" reloads it on the GPU (until then the rest runs on the CPU, many times slower)',
     );
     expect(
       placementWarning("qwen3:8b", 40, {
         kind: "other",
         othersBytes: 2_960_000_000,
+        freeBytes: 0,
       }),
     ).toBe(
       'local model qwen3:8b ran 40% on the GPU — another program holds ~3.0 GB of VRAM, and the rest runs on the CPU, many times slower; run "ollama stop qwen3:8b" once it frees',
@@ -339,13 +479,14 @@ describe("the placement warning in an import (40a, Da2)", () => {
       placementWarning("qwen3:8b", 90, {
         kind: "desktop",
         othersBytes: 820_000_000,
+        freeBytes: 1_273_157_376,
         numCtx: 12_288,
       }),
     ]);
-    expect(surfaced[0]).not.toMatch(/ollama stop|another program/);
+    expect(surfaced[0]).not.toMatch(/another program|reloads it/);
     expect(note).toMatchObject({
       level: "warn",
-      msg: "90% GPU — qwen3:8b does not fit beside the desktop's ~0.8 GB of VRAM at num_ctx 12288; nothing else holds VRAM, nothing to stop",
+      msg: '90% GPU — qwen3:8b likely does not fit beside the desktop\'s ~0.8 GB of VRAM at num_ctx 12288; "ollama stop" is unlikely to help',
       data: {
         gpu: 90,
         numCtx: 12_288,
@@ -355,6 +496,30 @@ describe("the placement warning in an import (40a, Da2)", () => {
         cause: "desktop",
       },
     });
+  });
+
+  it("says stop it when it was loaded while VRAM was held and the card has room now", async () => {
+    await fakeDrm({
+      card0: { used: 144_000_000 + 300_000_000, total: 8_573_157_376 },
+    });
+    stubOllama({ size: 7_200_000_000, sizeVram: 144_000_000 });
+    const { surfaced, note } = await read(LOCAL);
+    expect(surfaced).toEqual([
+      'local model qwen3:8b ran 2% on the GPU — it was loaded while VRAM was held, and ~8.1 GB is free now; "ollama stop qwen3:8b" reloads it on the GPU (until then the rest runs on the CPU, many times slower)',
+    ]);
+    expect(note).toMatchObject({
+      msg: '2% GPU — loaded while VRAM was held; ~8.1 GB free now: "ollama stop qwen3:8b" reloads it on the GPU',
+      data: { cause: "stale", others: 300_000_000 },
+    });
+  });
+
+  it("keeps the old wording for a card that cannot be the model's (an iGPU beside another vendor's)", async () => {
+    await fakeDrm({ card0: { used: 300_000_000, total: 536_870_912 } });
+    stubOllama({ size: 7_200_000_000, sizeVram: 6_480_000_000 });
+    const { surfaced, note } = await read(LOCAL);
+    expect(surfaced).toEqual([placementWarning("qwen3:8b", 90)]);
+    expect(note?.data).toMatchObject({ vramUsed: 300_000_000 });
+    expect(note?.data).not.toHaveProperty("cause");
   });
 
   it("names another program, and how much it holds", async () => {
@@ -404,7 +569,7 @@ describe("RECIPE_LLM_API=openai against Ollama's /v1 (40a, Da5)", () => {
   };
 
   /** An OpenAI-style server; `/api/version` answers `version` (or 404). */
-  function stubServer(version: string | undefined | "down") {
+  function stubServer(version: string | undefined | "down" | 503) {
     const urls: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -413,6 +578,7 @@ describe("RECIPE_LLM_API=openai against Ollama's /v1 (40a, Da5)", () => {
         urls.push(url);
         if (url.endsWith("/api/version")) {
           if (version === "down") throw new TypeError("fetch failed");
+          if (version === 503) return new Response("busy", { status: 503 });
           return version
             ? Response.json({ version })
             : new Response("404 page not found", { status: 404 });
@@ -451,16 +617,54 @@ describe("RECIPE_LLM_API=openai against Ollama's /v1 (40a, Da5)", () => {
     expect(urls).toHaveLength(1);
   });
 
-  it("remembers a server that is not Ollama, and asks a down one again", async () => {
+  it("remembers a server that is not Ollama (a 4xx) for good", async () => {
     const urls = stubServer(undefined);
     expect(await ollamaBehindOpenAi(OPENAI)).toBeUndefined();
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now + OLLAMA_PROBE_RETRY_MS * 10);
     expect(await ollamaBehindOpenAi(OPENAI)).toBeUndefined();
     expect(urls).toHaveLength(1);
-    resetOllamaProbes();
-    const again = stubServer("down");
-    expect(await ollamaBehindOpenAi(OPENAI)).toBeUndefined();
-    expect(await ollamaBehindOpenAi(OPENAI)).toBeUndefined();
-    expect(again).toHaveLength(2);
+  });
+
+  it("asks a down, hung or failing server again only after OLLAMA_PROBE_RETRY_MS", async () => {
+    expect(OLLAMA_PROBE_RETRY_MS).toBe(5 * 60 * 1000);
+    for (const outage of ["down", 503] as const) {
+      resetOllamaProbes();
+      const urls = stubServer(outage);
+      const now = Date.now();
+      const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+      expect(await ollamaBehindOpenAi(OPENAI)).toBeUndefined();
+      clock.mockReturnValue(now + OLLAMA_PROBE_RETRY_MS - 1);
+      expect(await ollamaBehindOpenAi(OPENAI)).toBeUndefined();
+      expect(urls).toHaveLength(1);
+      clock.mockReturnValue(now + OLLAMA_PROBE_RETRY_MS);
+      stubServer("0.40.5");
+      expect(await ollamaBehindOpenAi(OPENAI)).toBe("0.40.5");
+      clock.mockRestore();
+    }
+  });
+
+  it("forgets a probe the caller's abort cut short", async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_input: string | URL, init?: RequestInit) =>
+          new Promise<Response>((resolve, reject) => {
+            calls += 1;
+            if (calls > 1) return resolve(Response.json({ version: "0.40.5" }));
+            init?.signal?.addEventListener("abort", () =>
+              reject(init.signal!.reason),
+            );
+          }),
+      ),
+    );
+    const caller = new AbortController();
+    const probe = ollamaBehindOpenAi(OPENAI, { signal: caller.signal });
+    caller.abort();
+    expect(await probe).toBeUndefined();
+    expect(await ollamaBehindOpenAi(OPENAI)).toBe("0.40.5");
+    expect(calls).toBe(2);
   });
 
   it("warns in the import's job — once in the log, once in the result", async () => {

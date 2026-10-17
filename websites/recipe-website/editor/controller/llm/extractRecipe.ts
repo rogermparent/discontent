@@ -176,11 +176,11 @@ export function extractionContext(
 ): number {
   const { text: source } = capText(text);
   const prompt =
-    LLM_RECIPE_SYSTEM_PROMPT.length +
-    buildRecipeUserPrompt({ text: source, url, meta }).length;
+    LLM_RECIPE_SYSTEM_PROMPT +
+    buildRecipeUserPrompt({ text: source, url, meta });
   const answer = Math.min(
     EXTRACT_OUTPUT_MAX_TOKENS,
-    EXTRACT_OUTPUT_MIN_TOKENS + Math.ceil(estimateTokens(source.length) * 1.5),
+    EXTRACT_OUTPUT_MIN_TOKENS + Math.ceil(estimateTokens(source) * 1.5),
   );
   return contextStep(estimateTokens(prompt) + answer);
 }

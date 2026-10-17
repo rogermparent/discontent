@@ -123,22 +123,35 @@ export const LLM_NUM_CTX = 12_288;
  * reloads the model whenever `num_ctx` changes — a context per page size
  * would cost a load (4–9 s) per import. `ollama ps` lists qwen3:8b at
  * 5.6 GB with 4 096, 6.2 GB with 8 192 and 7.2 GB with 12 288 (40a's GPU
- * check): the two smaller steps run 100% on an 8 GB card beside the
- * desktop, the largest spilled 10% to the CPU beside its ~0.8 GB (39-Ta6).
+ * check): the two smaller steps run 100% on the 8.57 GB (8 GiB) RX 6600
+ * beside the desktop. The largest spilled 10% to the CPU beside its
+ * ~0.8 GB (39-Ta6) though 7.2 + 0.8 < 8.57: an empirical limit — Ollama
+ * keeps headroom for its compute buffers beyond the size it lists.
  */
 export const LLM_CONTEXT_STEPS: readonly number[] = [4_096, 8_192, LLM_NUM_CTX];
 
 /**
- * Characters per token for the context estimate (40a, Da1): conservative —
- * English prose runs ~4 to qwen's tokenizer, a recipe's numbers, fractions
- * and units fewer — so a text is counted as more tokens than it is, and a
- * context chosen from it is never too small.
+ * ASCII characters per token for the context estimate (40a, Da1):
+ * conservative — English prose runs ~4 to qwen's tokenizer, a recipe's
+ * numbers, fractions and units fewer — so a text is counted as more tokens
+ * than it is, and a context chosen from it is never too small.
  */
 export const CHARS_PER_TOKEN = 3;
 
-/** A text's tokens, over-counted (`CHARS_PER_TOKEN`). */
-export function estimateTokens(chars: number): number {
-  return Math.ceil(Math.max(0, chars) / CHARS_PER_TOKEN);
+/**
+ * A text's tokens, over-counted: its ASCII characters at `CHARS_PER_TOKEN`
+ * and every other code point as a token of its own — Chinese or Japanese
+ * runs ~1–1.5 characters a token in qwen, and a "½" or an "—" in English
+ * costs little counted so (40a review).
+ */
+export function estimateTokens(text: string): number {
+  let ascii = 0;
+  let other = 0;
+  for (const char of text) {
+    if (char.charCodeAt(0) < 0x80) ascii += 1;
+    else other += 1;
+  }
+  return Math.ceil(ascii / CHARS_PER_TOKEN) + other;
 }
 
 /**
@@ -820,7 +833,7 @@ async function chat(
   }
   /* 40a (Da5): Ollama behind its `/v1` runs none of the native machinery. */
   if (config.api === "openai" && request.step?.log.live) {
-    await warnOllamaBehindV1(config, request.step.log);
+    await warnOllamaBehindV1(config, request.step.log, signal);
   }
   return withResource(
     "gpu",
@@ -1013,6 +1026,9 @@ async function callModel(
       /* 40a: the context this call asked for, beside its numbers. */
       ...(config.api === "ollama" ? { numCtx: sentNumCtx(request) } : {}),
     });
+    if (config.api === "ollama") {
+      warnFullContext(request.step.log, config, stats, sentNumCtx(request));
+    }
     if (placed) {
       gpu = await checkPlacement(config, request.step, {
         surface,
@@ -1035,6 +1051,37 @@ async function callModel(
     },
     ...(gpu !== undefined ? { gpu } : {}),
   };
+}
+
+/** The share of `num_ctx` a call may fill before it is a warning (40a). */
+export const CONTEXT_FULL_SHARE = 0.95;
+
+/** The kind the full-context warning is surfaced under: one per job. */
+export const CONTEXT_FULL_WARNING_KIND = "llm.context";
+
+/**
+ * A call whose prompt and answer filled `CONTEXT_FULL_SHARE` of its
+ * context (40a review): Ollama may have dropped the start of the prompt,
+ * or cut the answer — the estimate (`extractionContext`) undercounted.
+ */
+function warnFullContext(
+  log: JobLog,
+  config: LlmConfig,
+  stats: { promptTokens?: number; outputTokens?: number },
+  numCtx: number,
+): void {
+  if (stats.promptTokens === undefined) return;
+  const used = stats.promptTokens + (stats.outputTokens ?? 0);
+  if (used < CONTEXT_FULL_SHARE * numCtx) return;
+  log.warn(
+    "llm.context",
+    `${used} of num_ctx ${numCtx} tokens used — the text may have been cut`,
+    { used, numCtx },
+  );
+  log.surface(
+    `local model ${config.model} used ${used} of its ${numCtx}-token context — the start of the text or the end of the answer may have been cut; check the reading`,
+    CONTEXT_FULL_WARNING_KIND,
+  );
 }
 
 /** The `num_ctx` an Ollama request carries. */
@@ -1543,32 +1590,58 @@ export async function readVram(
 }
 
 /**
+ * Room a model needs beyond its own `size` to load wholly on the GPU
+ * (40a, Da2): Ollama's estimate and the driver's counters disagree — in
+ * 39-Ta6's numbers 0.57 GB was left over and qwen3:8b still spilled 10%.
+ */
+export const RELOAD_HEADROOM_BYTES = 1_000_000_000;
+
+/**
  * Why a model is not wholly on the GPU (40a, Da2), from the VRAM the others
  * hold — the card's used VRAM less the model's own `size_vram`:
- * - `desktop`: no more than `DESKTOP_VRAM_BYTES` — the model does not fit
- *   beside the idle desktop at this context, and there is nothing to stop;
- * - `other`: more — another program holds VRAM.
- * Unknown (no reading) is `undefined`: the old wording.
+ * - `other`: more than `DESKTOP_VRAM_BYTES` — another program holds VRAM;
+ * - `stale`: no more than that, and the card would hold the whole model
+ *   beside it now with `RELOAD_HEADROOM_BYTES` to spare — it was loaded
+ *   while more VRAM was held, and `ollama stop` reloads it on the GPU;
+ * - `desktop`: no more than that, and it would not — it likely does not
+ *   fit beside the idle desktop at this context.
+ * Whether it would fit is `total − others − size`, the same whatever the
+ * share it loaded at, so a reload is judged by the card, not the share.
+ * Unknown is `undefined` — no reading, or a card that cannot be the
+ * model's (less VRAM used, or in all, than the model's own `size_vram`:
+ * an integrated GPU beside another vendor's) — and gets the old wording.
  */
 export type PlacementCause = {
-  kind: "desktop" | "other";
+  kind: "desktop" | "stale" | "other";
   /** VRAM held by everything but the model. */
   othersBytes: number;
+  /** VRAM free on the card now (`stale` names it). */
+  freeBytes: number;
   /** The context the call asked for (the `desktop` wording names it). */
   numCtx?: number;
 };
 
 /** The cause, from `/api/ps`'s entry and a VRAM reading. */
 export function placementCause(
-  sizeVram: number,
+  { size, sizeVram }: { size: number; sizeVram: number },
   vram: VramReading | undefined,
   numCtx?: number,
 ): PlacementCause | undefined {
-  if (!vram) return undefined;
-  const othersBytes = Math.max(0, vram.usedBytes - sizeVram);
+  if (!vram || vram.usedBytes < sizeVram || vram.totalBytes < sizeVram) {
+    return undefined;
+  }
+  const othersBytes = vram.usedBytes - sizeVram;
+  const freeBytes = vram.totalBytes - vram.usedBytes;
+  const kind =
+    othersBytes > DESKTOP_VRAM_BYTES
+      ? "other"
+      : vram.totalBytes - othersBytes - size >= RELOAD_HEADROOM_BYTES
+        ? "stale"
+        : "desktop";
   return {
-    kind: othersBytes <= DESKTOP_VRAM_BYTES ? "desktop" : "other",
+    kind,
     othersBytes,
+    freeBytes,
     ...(numCtx !== undefined ? { numCtx } : {}),
   };
 }
@@ -1578,23 +1651,27 @@ function gigabytes(bytes: number): string {
   return `${(bytes / 1e9).toFixed(1)} GB`;
 }
 
-/** "does not fit beside the desktop's ~0.8 GB of VRAM at num_ctx 12288". */
+/** "likely does not fit beside the desktop's ~0.8 GB of VRAM at num_ctx 12288". */
 function desktopFit(cause: PlacementCause): string {
-  return `does not fit beside the desktop's ~${gigabytes(cause.othersBytes)} of VRAM at ${cause.numCtx !== undefined ? `num_ctx ${cause.numCtx}` : "this context"}`;
+  return `likely does not fit beside the desktop's ~${gigabytes(cause.othersBytes)} of VRAM at ${cause.numCtx !== undefined ? `num_ctx ${cause.numCtx}` : "this context"}`;
 }
 
 /**
  * D6's warning for a model that is not wholly on the GPU, as the job's
- * result shows it. 40a: with a VRAM reading it says why — the desktop
- * alone (nothing to stop) or another program and how much it holds.
+ * result shows it. 40a: with a VRAM reading it says why — loaded while
+ * VRAM was held (stop it to reload), the desktop alone (stopping is
+ * unlikely to help), or another program and how much it holds.
  */
 export function placementWarning(
   model: string,
   gpuPercent: number,
   cause?: PlacementCause,
 ): string {
+  if (cause?.kind === "stale") {
+    return `local model ${model} ran ${gpuPercent}% on the GPU — it was loaded while VRAM was held, and ~${gigabytes(cause.freeBytes)} is free now; "ollama stop ${model}" reloads it on the GPU (until then the rest runs on the CPU, many times slower)`;
+  }
   if (cause?.kind === "desktop") {
-    return `local model ${model} ran ${gpuPercent}% on the GPU — it ${desktopFit(cause)}, so the rest runs on the CPU, slower; nothing else holds VRAM, so there is nothing to stop`;
+    return `local model ${model} ran ${gpuPercent}% on the GPU — it ${desktopFit(cause)}, so the rest runs on the CPU, slower; nothing else holds much VRAM, so "ollama stop" is unlikely to help`;
   }
   return `local model ${model} ran ${gpuPercent}% on the GPU — ${otherHolder(cause)}, and the rest runs on the CPU, many times slower; run "ollama stop ${model}" once it frees`;
 }
@@ -1612,8 +1689,11 @@ function placementNote(
   gpu: number,
   cause: PlacementCause | undefined,
 ): string {
+  if (cause?.kind === "stale") {
+    return `${gpu}% GPU — loaded while VRAM was held; ~${gigabytes(cause.freeBytes)} free now: "ollama stop ${model}" reloads it on the GPU`;
+  }
   if (cause?.kind === "desktop") {
-    return `${gpu}% GPU — ${model} ${desktopFit(cause)}; nothing else holds VRAM, nothing to stop`;
+    return `${gpu}% GPU — ${model} ${desktopFit(cause)}; "ollama stop" is unlikely to help`;
   }
   return `${gpu}% GPU — ${otherHolder(cause)}; run "ollama stop ${model}" once it frees`;
 }
@@ -1636,9 +1716,10 @@ function loopbackUrl(url: string): boolean {
  * call: an unreachable `/api/ps`, or a model it does not list, is a note.
  *
  * 40a (Da2): for a model on this machine (a loopback URL), the card's VRAM
- * (`readVram`) says why (`placementCause`) — the idle desktop at this
- * context (`numCtx`, the call's), or another program. No reading, or a
- * model on another host: the wording before 40a.
+ * (`readVram`) says why (`placementCause`) — loaded while VRAM was held,
+ * the idle desktop at this context (`numCtx`, the call's), or another
+ * program. No reading, a card that cannot be the model's, or a model on
+ * another host (a LAN address included): the wording before 40a.
  *
  * Answers the reading (undefined when there is none). `surface: false`
  * (37b): only the step's `gpu` — `chatJson` is about to reload the model
@@ -1685,7 +1766,11 @@ export async function checkPlacement(
     step.set({ gpu });
     if (gpu < 100 && surface) {
       const reading = loopbackUrl(config.url) ? await readVram() : undefined;
-      const cause = placementCause(entry.size_vram, reading, numCtx);
+      const cause = placementCause(
+        { size: entry.size, sizeVram: entry.size_vram },
+        reading,
+        numCtx,
+      );
       log.warn("llm.placement", placementNote(config.model, gpu, cause), {
         model: config.model,
         gpu,
@@ -1693,13 +1778,9 @@ export async function checkPlacement(
         sizeVram: entry.size_vram,
         ...(numCtx !== undefined ? { numCtx } : {}),
         ...(reading
-          ? {
-              vramUsed: reading.usedBytes,
-              vramTotal: reading.totalBytes,
-              others: cause!.othersBytes,
-              cause: cause!.kind,
-            }
+          ? { vramUsed: reading.usedBytes, vramTotal: reading.totalBytes }
           : {}),
+        ...(cause ? { others: cause.othersBytes, cause: cause.kind } : {}),
       });
       /* One result warning however many calls ran: the latest reading. */
       log.surface(
@@ -1724,8 +1805,18 @@ export async function checkPlacement(
 /** The kind the `/v1` warning is surfaced under: one per job. */
 export const OLLAMA_V1_WARNING_KIND = "llm.api";
 
-/** One probe per server for the process's life (`resetOllamaProbes` in tests). */
-const ollamaProbes = new Map<string, Promise<string | undefined>>();
+/**
+ * How long a probe that got no answer — a timeout, a refused connection,
+ * a 5xx — is remembered (40a review): a hung server costs one 2 s wait
+ * per this long, not one per render or call.
+ */
+export const OLLAMA_PROBE_RETRY_MS = 5 * 60 * 1000;
+
+/** The probes: an answer for the process's life, no answer until `retryAt`. */
+const ollamaProbes = new Map<
+  string,
+  { answer: Promise<string | undefined>; retryAt?: number }
+>();
 
 /** Test-only: forget every probe's answer. */
 export function resetOllamaProbes(): void {
@@ -1734,26 +1825,34 @@ export function resetOllamaProbes(): void {
 
 /**
  * Whether `RECIPE_LLM_API=openai` is pointed at Ollama (40a, Da5, 38-Te7):
- * one `GET <server>/api/version` (the URL less a trailing `/v1`), answered
- * once per server — Ollama's version, or `undefined` for anything else.
- * A server that answers is remembered either way; one that does not (down,
- * a timeout) is asked again next time. `undefined` for any other API.
- * Never throws.
+ * one `GET <server>/api/version` (the URL less a trailing `/v1`) — Ollama's
+ * version, or `undefined` for anything else. A server that answers (2xx,
+ * or a 4xx: not Ollama) is remembered for the process's life; no answer (a
+ * timeout, a refused connection, a 5xx) for `OLLAMA_PROBE_RETRY_MS`; a
+ * probe the caller's `signal` cut short not at all. `undefined` for any
+ * other API. Never throws.
  */
 export function ollamaBehindOpenAi(
   config: LlmConfig,
-  timeoutMs = LLM_STATUS_TIMEOUT_MS,
+  {
+    timeoutMs = LLM_STATUS_TIMEOUT_MS,
+    signal,
+  }: { timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<string | undefined> {
   if (config.api !== "openai") return Promise.resolve(undefined);
   const base = ollamaBase(config.url);
   const known = ollamaProbes.get(base);
-  if (known) return known;
+  if (known && (known.retryAt === undefined || Date.now() < known.retryAt)) {
+    return known.answer;
+  }
+  const timeout = AbortSignal.timeout(timeoutMs);
   const probe = (async (): Promise<{ version?: string; answered: boolean }> => {
     try {
       const response = await fetch(`${base}/api/version`, {
         headers: requestHeaders(config, { json: false }),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       });
+      if (response.status >= 500) return { answered: false };
       if (!response.ok) return { answered: true };
       const body = (await response.json().catch(() => undefined)) as
         | { version?: unknown }
@@ -1767,12 +1866,21 @@ export function ollamaBehindOpenAi(
       return { answered: false };
     }
   })();
-  const answer = probe.then(({ version, answered }) => {
-    if (!answered) ollamaProbes.delete(base);
-    return version;
-  });
-  ollamaProbes.set(base, answer);
-  return answer;
+  const entry: { answer: Promise<string | undefined>; retryAt?: number } = {
+    answer: probe.then(({ version, answered }) => {
+      if (!answered) {
+        if (signal?.aborted && !timeout.aborted) {
+          /* The caller's abort says nothing about the server. */
+          if (ollamaProbes.get(base) === entry) ollamaProbes.delete(base);
+        } else {
+          entry.retryAt = Date.now() + OLLAMA_PROBE_RETRY_MS;
+        }
+      }
+      return version;
+    }),
+  };
+  ollamaProbes.set(base, entry);
+  return entry.answer;
 }
 
 /** The server's root: no trailing slash, no trailing `/v1`. */
@@ -1795,8 +1903,9 @@ const toldOllamaV1 = new WeakSet<JobLog>();
 async function warnOllamaBehindV1(
   config: LlmConfig,
   log: JobLog,
+  signal: AbortSignal | undefined,
 ): Promise<void> {
-  const version = await ollamaBehindOpenAi(config);
+  const version = await ollamaBehindOpenAi(config, { signal });
   if (!version) return;
   if (!toldOllamaV1.has(log)) {
     toldOllamaV1.add(log);
