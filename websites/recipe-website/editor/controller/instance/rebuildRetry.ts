@@ -14,8 +14,15 @@
  * - **on success** — a rebuild that ran, or a check that found nothing to do;
  * - **on a newer HEAD move** (`headMoved`) — that path asks again by itself,
  *   so the pending attempt is dropped and a failure of that ask starts the
- *   count again from the first delay;
+ *   count again from the first delay. Each attempt takes the HEAD-move
+ *   generation when it starts; a failure of an attempt that started before
+ *   the last move is not counted (40c review): the move's own ask, coalesced
+ *   behind it, is the one that counts, so it fails into the 1-minute step,
+ *   not the 5-minute one;
  * - **on shutdown** (`dispose`).
+ *
+ * Each failure is logged once, here (the error is caught, so the coalesced
+ * task's own "task failed" line never repeats it).
  *
  * A `busy` answer (the repository's line or write lock held past the
  * rebuild's wait) is a failure like any other: it waits for the next
@@ -37,7 +44,11 @@ export const REBUILD_RETRY_DELAYS_MS: readonly number[] = [
 export interface RetryingRebuild {
   /** Ask for a rebuild check now (coalesced, never dropped). */
   task: CoalescedTask;
-  /** A HEAD move is about to ask: drop the pending retry, reset the count. */
+  /**
+   * A HEAD move is about to ask: drop the pending retry, reset the count, and
+   * stop counting a failure of any attempt already running. The caller asks
+   * (`task()`) right after.
+   */
   headMoved(): void;
   /** Shutdown: clear the pending retry; nothing is scheduled after this. */
   dispose(): void;
@@ -62,6 +73,8 @@ export function createRetryingRebuild({
   delaysMs?: readonly number[];
 }): RetryingRebuild {
   let failures = 0;
+  /* Bumped by every `headMoved`; an attempt remembers the one it began in. */
+  let generation = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
 
@@ -70,22 +83,43 @@ export function createRetryingRebuild({
     timer = undefined;
   }
 
-  function failed(error: unknown): void {
-    if (disposed) return;
-    clear();
+  function failed(error: unknown, startedIn: number): void {
     const busy = isBusyError(error);
     const what = busy ? "was busy" : "failed";
+    /*
+     * One line per failure. A busy answer is expected now and then: its
+     * message says enough, on `info`. Anything else goes to `error` with the
+     * error itself, stack and all.
+     */
+    const say = (message: string, givingUp = false) => {
+      if (!busy) return console.error(message, error);
+      const reason = error instanceof Error ? error.message : String(error);
+      (givingUp ? console.error : console.info)(`${message} (${reason})`);
+    };
+    if (disposed) {
+      say(`[instance] the index rebuild ${what} at shutdown`);
+      return;
+    }
+    if (startedIn !== generation) {
+      say(
+        `[instance] the index rebuild ${what}; a newer HEAD move asks ` +
+          "again, so this one is not counted",
+      );
+      return;
+    }
+    clear();
     if (failures >= delaysMs.length) {
-      console.error(
+      say(
         `[instance] the index rebuild ${what} again; no more retries ` +
           `(${delaysMs.length} made). The next HEAD move asks again, or ` +
           "Rebuild indexes on the editor's Git page.",
+        true,
       );
       return;
     }
     const delay = delaysMs[failures];
     failures += 1;
-    console.info(
+    say(
       `[instance] the index rebuild ${what}; retrying in ${minutes(delay)} ` +
         `(retry ${failures} of ${delaysMs.length})`,
     );
@@ -105,12 +139,15 @@ export function createRetryingRebuild({
 
   const task = createCoalescedTask(
     async () => {
+      const startedIn = generation;
       try {
         await rebuild();
       } catch (error) {
-        failed(error);
-        throw error;
+        /* Logged here, once; not rethrown into the coalesced task's log. */
+        failed(error, startedIn);
+        return;
       }
+      /* A success settles it, whichever move it started in. */
       failures = 0;
       clear();
     },
@@ -122,6 +159,7 @@ export function createRetryingRebuild({
     headMoved() {
       clear();
       failures = 0;
+      generation += 1;
     },
     dispose() {
       disposed = true;

@@ -65,6 +65,13 @@ describe("createRetryingRebuild (40c)", () => {
     expect(calls).toHaveLength(4);
     expect(console.error).toHaveBeenCalledWith(
       expect.stringContaining("no more retries (3 made)"),
+      expect.any(Error),
+    );
+    /* One line per failure (40c review): never the coalesced task's too. */
+    expect(console.error).toHaveBeenCalledTimes(4);
+    expect(console.error).not.toHaveBeenCalledWith(
+      "[instance] task failed:",
+      expect.anything(),
     );
     retrying.dispose();
   });
@@ -113,6 +120,60 @@ describe("createRetryingRebuild (40c)", () => {
     /* Nothing at the old schedule's 6 minutes; the new one's 1 minute. */
     await vi.advanceTimersByTimeAsync(MINUTE);
     expect(calls).toEqual([0, MINUTE, 3 * MINUTE, 4 * MINUTE]);
+    retrying.dispose();
+  });
+
+  /*
+   * 40c review: the watcher calls `headMoved()` and then asks, while an
+   * older attempt is still running. The ask coalesces behind it; the older
+   * attempt's failure must not count, so the move's own failure is the first
+   * in a row and waits 1 minute, not 5.
+   */
+  it("does not count a failure of an attempt that began before the HEAD move", async () => {
+    let failFirst!: (error: Error) => void;
+    const calls: number[] = [];
+    let n = 0;
+    const rebuild = vi.fn(async () => {
+      calls.push(Date.now());
+      n += 1;
+      if (n === 1) {
+        await new Promise<void>((_, reject) => {
+          failFirst = reject;
+        });
+      }
+      if (n === 2) throw new Error("the move's own attempt");
+      return true;
+    });
+    const retrying = createRetryingRebuild({ rebuild });
+
+    const first = retrying.task();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(retrying.task.running).toBe(true);
+    /* The watcher, mid-rebuild. */
+    retrying.headMoved();
+    await retrying.task();
+    expect(calls).toEqual([0]);
+
+    failFirst(new Error("the older attempt"));
+    await first;
+    /* The coalesced re-run (the move's) ran at once and failed. */
+    expect(calls).toEqual([0, 10_000]);
+    expect(retrying).toMatchObject({ pending: true, failures: 1 });
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("a newer HEAD move asks again"),
+      expect.any(Error),
+    );
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("retrying in 1 minute (retry 1 of 3)"),
+      expect.any(Error),
+    );
+    expect(console.error).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(MINUTE - 1);
+    expect(calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls).toEqual([0, 10_000, 10_000 + MINUTE]);
+    expect(retrying).toMatchObject({ pending: false, failures: 0 });
     retrying.dispose();
   });
 
