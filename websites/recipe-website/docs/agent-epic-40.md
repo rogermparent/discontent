@@ -336,6 +336,18 @@ react-player` nor `--depth Infinity '@svta/*'` cleared. Fix: delete the
 - **markdown-to-jsx 9.10** drops the text after a `<Multiplyable />` in a
   list item ("1/2 cup sugar" → "1/2"): `flattenMarkdown`, so the search
   index text, would lose words.
+- **Under Next 16.4's `next dev`, hydration lands well after `load`.** A
+  heading rendered on the server is visible while React does not yet own
+  the page, so a key, a `selectOption` or a `visibilitychange` sent then
+  is lost or read late. Wait for a hydration marker (`data-ready`, the
+  palette hint chip) before you interact. A "skip the first run" ref in an
+  effect is not StrictMode-safe either: the second mount pass runs the
+  effect for real.
+- **Next 16.4's dev overlay is in the DOM**, and its "Expand client/server
+  diff" button matches a loose `getByLabel("Client")`. A hydration
+  mismatch shows up as a strict-mode violation in an unrelated spec.
+- **`next dev` writes `AGENTS.md`** into the app when it detects a coding
+  agent, and restores it if deleted, unless the config sets `agentRules: false`.
 
 ## Results
 
@@ -1058,7 +1070,9 @@ instead of near-duplicate imports.
 ### 40h — Dependency updates
 
 Branch `agent/40h-deps`. Only `package.json` files, `pnpm-lock.yaml` and
-this doc change, with no source or config edits. **Reindex needed: no.**
+this doc change, with no source or config edits, until the CI round below
+(a `/jobs` fix, two portfolio layouts, `agentRules: false` in the Next
+configs, test waits). **Reindex needed: no.**
 **Deploy:** Roger's `pnpm workstation update` picks it up on the
 workstation, and the next `pnpm deploy:pi` on the Pi.
 
@@ -1182,5 +1196,56 @@ reverted alone, and the full gates re-run.
   and the Radix bumps after 40c, each as its own small PR.
 - Whether to move the direct `sharp` pin to 0.35 so it shares Next's copy
   (a 0.x minor, so outside D4).
+
+**CI round** (#264's first run: Recipe shard 2/4 and Portfolio red, both
+under `next dev`). Nothing was reverted for it.
+
+- **`/jobs` read while the tab was hidden** (`jobs.spec` 38b, 3/3). The
+  dashboard skipped its filter effect's first run with a `first` ref.
+  StrictMode (on under `next dev`) runs a mount's effects twice and keeps
+  refs, so the flag was spent on the first pass and the second pass read
+  `/api/jobs` at mount, without checking `hidden`. That was a latent dev-only
+  bug. Next 16.4's dev server hydrates later after `load`, so the read now
+  landed after the spec had hidden the tab (the CI trace: the request came
+  ~75 ms after the `visibilitychange`, with React still hydrating). Fix: the
+  effect compares the filters against those the list was read with
+  (`filtersShown` ref), so a remount reads nothing. A read aborted after
+  its body arrived is dropped too, before it can overwrite a newer
+  filter's list. The dashboard carries `data-ready` once mounted; the two
+  `/jobs` specs that filter or hide the tab wait for it (`dashboardReady`).
+  The "step timeline" flake (a Kind filter picked before hydration was
+  lost) is the same timing.
+- **Portfolio `getByLabel("Client")` matched two elements** (3/3). The
+  second was Next's dev overlay button "Expand client/server diff". The
+  overlay reported a hydration mismatch on `<html>`: next-themes sets the
+  mode class and `color-scheme` before React hydrates, and portfolio's root
+  layouts (editor and export) lacked the `suppressHydrationWarning` that
+  next-themes documents and that recipe's AppLayout already has. Added to
+  both. Next 16.4's overlay now puts that diff in the DOM.
+- **Portfolio ⌘K flakes** (6 command-palette specs, a11y "when open",
+  visual "the command palette"). The shortcut was pressed before hydration,
+  with no listener, so it was lost. `paletteShortcutReady` waits for the
+  hint chip's post-hydration re-read ("⌘K" → "Ctrl+K" on a non-Apple
+  runner) before pressing. No baseline moved.
+- **`AGENTS.md` appeared in `websites/portfolio/editor`.** Since 16.4,
+  `next dev` writes one into the app when it detects a coding agent, and
+  restores it if deleted. **Dh3:** `agentRules: false` in all six Next
+  configs (recipe editor/export, portfolio editor/export, resume-builder,
+  the CMS demo). This repo's agent notes are the root `CLAUDE.md`. The
+  generated file was not committed.
+- **eslint-plugin-react-hooks 7.1** (via eslint-config-next 16.4.2) now
+  flags a concise-arrow `useEffect(() => setNow(…), [])` as
+  `set-state-in-effect`. Lint-staged refused the dashboard's commit. The
+  mount clock is now set from a `setTimeout` callback.
+
+CI-round gates (after merging `origin/main` with 40c, local, all through
+the heavy slot): `recipe-editor` typecheck clean; `recipe-website tsc
+--noEmit` clean; `portfolio-website-editor` typecheck clean; vitest
+`formControls`, `rebuildRetry`, `cliJson`, `instance`, `mcp`,
+`jobSurfaces` and `specVersions`, 7 files and 162 tests passed;
+`jobs.spec`, build mode (`heavy-pw.sh`): 10 passed; portfolio
+`projects.spec command-palette.spec accessibility.spec` in `next dev`
+(`heavy-bg.sh`, `--project=e2e`): 36 passed, with no `AGENTS.md`
+written. The dev-mode recipe run is left to CI.
 
 ## Close-out
