@@ -17,14 +17,24 @@ import { resolve } from "path";
 // reference is emitted and the path stays what it should be: resolved at
 // runtime. Setting CONTENT_DIRECTORY does NOT avoid this — the analyzer still
 // sees the literal branch regardless of the runtime environment.
+//
+// Since Next 16.4 the env-var trick is not enough on its own: `resolve(x)`
+// with a non-constant `x` is `process.cwd()` + anything, a pattern Turbopack
+// reads as "trace the whole project", walks the workspace and hard-errors on
+// the first symlink that leaves it (`export/public/image` → `editor/content/…`
+// → the content repo). Hence `/*turbopackIgnore: true*/` on both calls: these
+// are runtime content paths, never build inputs. See agent-epic-40.md, 40h's
+// post-close note.
 const DEFAULT_CONTENT_DIR = process.env.CONTENT_DIR_NAME || "content";
 const DEFAULT_TEST_CONTENT_DIR =
   process.env.TEST_CONTENT_DIR_NAME || "test-content";
 
 export function getContentDirectory() {
   if (process.env.CONTENT_DIRECTORY) return process.env.CONTENT_DIRECTORY;
-  if (process.env.TEST_MODE) return resolve(DEFAULT_TEST_CONTENT_DIR);
-  return resolve(DEFAULT_CONTENT_DIR);
+  if (process.env.TEST_MODE) {
+    return resolve(/*turbopackIgnore: true*/ DEFAULT_TEST_CONTENT_DIR);
+  }
+  return resolve(/*turbopackIgnore: true*/ DEFAULT_CONTENT_DIR);
 }
 
 export const contentDirectory = getContentDirectory();

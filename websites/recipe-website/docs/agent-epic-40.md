@@ -397,6 +397,20 @@ react-player` nor `--depth Infinity '@svta/*'` cleared. Fix: delete the
   mismatch shows up as a strict-mode violation in an unrelated spec.
 - **`next dev` writes `AGENTS.md`** into the app when it detects a coding
   agent, and restores it if deleted, unless the config sets `agentRules: false`.
+- **Th1 — Since Next 16.4, a "whole project" trace fails the build on a
+  symlink that leaves the workspace.** An fs/path call whose argument
+  Turbopack cannot scope makes it walk the workspace. The build warns
+  "Dynamic filesystem access causes tracing of the whole project". Under
+  16.4 that walk hard-errors (a `TurbopackInternalError`, "the symlink
+  target leaves the filesystem root") on a link whose target passes
+  through another link out of the root. The main checkout's
+  `export/public/image` goes through `editor/content` and hits this; CI
+  and worktrees have no such link. Treat that warning as a build failure:
+  scope the path, or put `/*turbopackIgnore: true*/` on the call's
+  argument for a runtime path. To reproduce, link a worktree's
+  `editor/content` to a scratch dir and point `export/public/image` at
+  `…/editor/content/<dir>`. A link straight to an outside dir does not
+  trigger it.
 
 ## Results
 
@@ -1483,6 +1497,64 @@ the heavy slot): `recipe-editor` typecheck clean; `recipe-website tsc
 `projects.spec command-palette.spec accessibility.spec` in `next dev`
 (`heavy-bg.sh`, `--project=e2e`): 36 passed, with no `AGENTS.md`
 written. The dev-mode recipe run is left to CI.
+
+#### Post-close: the 16.4 symlink build failure
+
+Branch `agent/40-symlink-build`. Roger's `pnpm workstation update` (the
+editor's `next build` in the main checkout) failed on 16.4.2 with a
+`TurbopackInternalError` on `packages/cms/git/writeLock.ts`: "Symlink
+websites/recipe-website/export/public/image could not be resolved: the
+symlink target leaves the filesystem root or its parent directory could
+not be resolved". CI and worktrees have no such links, so nothing caught
+it.
+
+**Cause.** Five fs/path calls with non-constant arguments read to
+Turbopack as "trace the whole project". The build already printed them as
+"Dynamic filesystem access causes tracing of the whole project" warnings:
+
+- `writeLock.ts` `sweepGitDir`: `stat(full)`, where
+  `full = join(join(path, ".."), name)`. This is the one the panic names.
+- `getContentDirectory.ts`: `resolve(DEFAULT_TEST_CONTENT_DIR)` and
+  `resolve(DEFAULT_CONTENT_DIR)`. The env-var names are not constant, so
+  each call is `process.cwd()` plus anything.
+- `commit.ts` `operationInProgress`: `join(gitDir, marker)`.
+- `controller/llm/client.ts` `readVram`: `readdir(dir)`, where `dir` may
+  come from `RECIPE_DRM_DIR`.
+
+Each pattern makes Turbopack walk the workspace. In the main checkout the
+walk reaches `export/public/image`. That is an absolute, gitignored link
+to `…/editor/content/transformed-images`, and `editor/content` is itself a
+link out of the workspace (the content repo). 16.1 tolerated that link;
+16.4 errors on it. Which module fails first is a matter of order, and any
+of the five would fail the build.
+
+**Fix.** Each call gets `/*turbopackIgnore: true*/` on its argument. This
+is the opt-out the warning names, and Next's own templates use it
+(`path.join(/* turbopackIgnore: true */ process.cwd(), …)`). These are
+runtime content-repo, git-dir and sysfs paths, never build inputs. Each
+call carries a comment, and `getContentDirectory.ts` holds the full
+explanation beside its older `DirAssetReference` note. No config or
+dependency changed. Both builds now print no Turbopack warnings at all.
+
+**Symlink shape (measured, before the fix).** A relative link
+(`../../editor/content/transformed-images`) fails the same way, because
+the link's target still passes through `editor/content`. A link straight
+to an outside directory (`/home/roger/Projects/recipe-content/…`, not via
+`editor/content`) built cleanly. So re-pointing the links would also have
+avoided it, but making them relative would not. After the fix every shape
+builds.
+
+**Verification.** Repro in the worktree with scratch links only: a
+worktree `editor/content` linked to a scratch dir outside the workspace,
+and `export/public/{image,uploads}` as absolute links through it. The real
+content repo was not touched. The editor's `next build` failed with the
+exact error before the fix and passed after it. The export's `next build`
+passed with the links in place and copied `public/image` into `out/`.
+After the links were removed, the editor build still passed (CI's shape).
+`recipe-editor` typecheck clean; `recipe-website tsc --noEmit` clean;
+`vitest run` 114 files, 2342 tests passed; `git.spec shopping.spec` in
+build mode (`heavy-pw.sh`): 41 passed. **Reindex: no.** Roger runs
+`pnpm workstation update` after the merge.
 
 ## Close-out
 

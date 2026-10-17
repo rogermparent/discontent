@@ -184,7 +184,9 @@ async function operationInProgress(
   gitDir: string,
 ): Promise<MergeInProgressError | null> {
   for (const [marker, operation] of IN_PROGRESS) {
-    if (await pathExists(join(gitDir, marker))) {
+    /* A runtime path: without the ignore comment Turbopack (Next 16.4)
+       traces the whole project from it — getContentDirectory.ts says why. */
+    if (await pathExists(join(/*turbopackIgnore: true*/ gitDir, marker))) {
       return new MergeInProgressError(operation, marker);
     }
   }

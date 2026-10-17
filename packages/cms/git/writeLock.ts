@@ -266,7 +266,10 @@ async function sweepGitDir(path: string, staleMs: number): Promise<void> {
     for (const name of await readdir(directory)) {
       if (!GIT_DIR_LEFTOVER.test(name)) continue;
       const full = join(directory, name);
-      const info = await stat(full).catch(() => null);
+      /* `<path>/../<name>` reads to Turbopack (Next 16.4) as the whole
+         project; the ignore comment keeps this runtime path out of the
+         build's file tracing — getContentDirectory.ts says why. */
+      const info = await stat(/*turbopackIgnore: true*/ full).catch(() => null);
       if (info && Date.now() - info.mtimeMs > staleMs) {
         await rm(full, { force: true });
       }

@@ -1558,7 +1558,12 @@ export async function readVram(
 ): Promise<VramReading | undefined> {
   let names: string[];
   try {
-    names = (await readdir(dir)).filter((name) => /^card\d+$/.test(name));
+    /* `dir` may come from the environment: without the ignore comment
+       Turbopack (Next 16.4) traces the whole project from it
+       (packages/cms/fs/getContentDirectory.ts says why). */
+    names = (await readdir(/*turbopackIgnore: true*/ dir)).filter((name) =>
+      /^card\d+$/.test(name),
+    );
   } catch {
     return undefined;
   }
