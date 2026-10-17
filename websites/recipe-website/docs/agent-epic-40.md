@@ -212,6 +212,41 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
 
 ### 40c
 
+- **Tc1 — Radix Checkbox's form reset is not the native one.** Inside a
+  form it listens for `reset` and restores the value the box _mounted_
+  with, and for a controlled box it calls `onCheckedChange` with that value.
+  React 19 resets every `action` form after the action, so a plain
+  `ui/checkbox` would untick a saved "Share my saved inventory" box, and
+  untick a refused recipe save's "Active Time?" boxes through TanStack's
+  `handleChange`. Its hidden checkbox is reset by the browser behind the box,
+  so the next submission could disagree with what the box shows. Use
+  `FormCheckbox` (Dc4), never `ui/checkbox` with a `name`, in a form.
+- **Tc2 — Radix Select items cannot have `value=""`.** `""` means "nothing
+  selected" to the Root. `SelectInput` maps it to an internal sentinel and
+  submits `""` from its own hidden input (Dc3).
+- **Tc3 — `FieldWrapper` widens its direct children** (`[&>*]:w-full`,
+  later in the stylesheet than `size-4`): a Radix box placed straight in it
+  stretches into a 1rem-tall bar. `CheckboxInput` wraps the box in a `div`.
+- **Tc4 — No `export type { … }` re-export in a `"use server"` file.**
+  Next's transform registered `scriptAction.ts`'s
+  `export type { StreamActionResult }` as an action. The action bundle then
+  evaluated `registerServerReference(StreamActionResult, …)`, and every
+  server action posted from `/export` failed with "StreamActionResult is
+  not defined". Fixed in 40c (Dc7). Declaring types (`export type X = …`)
+  is fine. Re-exporting isn't.
+- **Tc5 — Playwright drives a Radix select by clicks, not `selectOption`.**
+  `getByLabel` finds the trigger (a `button role="combobox"`). The helpers
+  `chooseOption`, `expectOptions` and `selectValue` (the hidden input's
+  value) are in both editors' `playwright/support/helpers.ts`. A Radix
+  checkbox's `name` sits on a hidden input, so find the box by role or
+  label, never `[name=…]`.
+- **Tc6 — `heavy-pw.sh` (`pw.sh`) does not clear `test-jobs`.** A second
+  build-mode run in the same worktree reuses the photo's kept reading (38c's
+  30-minute reading cache, keyed by the photo), so `photo-import`'s import
+  finishes in 0.1 s with one step and "the live steps" fails at
+  `vision.transcribe` "running". `rm -rf test-jobs` in the editor before
+  rerunning it.
+
 ### 40d
 
 ### 40e
@@ -229,6 +264,173 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
 ### 40b — Test / CI hygiene
 
 ### 40c — Quick wins
+
+**Reindex needed: no.** No index, spec version or stored shape changed. Tool
+counts stay **57 / 43**. `.claude/settings.json` and the skill's frontmatter
+are untouched.
+
+What changed:
+
+- **`shopping remove --for <slug>`** (39-Dc3). The CLI's
+  `shopping remove` takes `--for <slug>` beside `--recipe` and `--group`
+  (exactly one of them, or item ids). The existing MCP `shopping_remove`
+  takes a `for` field (exactly one of `ids`, `recipe`, `group`, `for`).
+  Both send `patchShopping`'s `removeSource: {for}`, which is what
+  `/shopping`'s "Remove these" does. The tool description, the CLI usage
+  and `--help`, and the curator skill's §8b (an "I have simple syrup
+  already" line, and the CLI fallback) say so.
+- **A bounded retry for a failed instance rebuild** (39b-L5).
+  `controller/instance/rebuildRetry.ts` (`createRetryingRebuild`) wraps
+  the instance's coalesced reindex task. `start.ts` uses it for D12's
+  `reindexIfForeign`, `close()` disposes it, and the ref watcher calls
+  `headMoved()` before it asks.
+- **Select and Checkbox on the Radix `ui/*` primitives** (ui-overhaul
+  follow-up). `SelectInput` is now `ui/select` and takes `options`
+  (`{value, label, depth?}`) instead of `<option>` children, and
+  `onValueChange(value)`. `CheckboxInput` is now `ui/checkbox` through a new
+  `FormCheckbox`, with `onCheckedChange(checked)` (a boolean). Callers
+  moved: the drink method, a term's Parent, a group's Kind, a project's
+  Status and Featured, Timeline's "Active Time?". The page-local form
+  controls moved to them too (inventory below).
+- **Found on the way: every server action posted from `/export` failed**
+  (Tc4, Dc7). That covers Save on "Share my saved inventory" in a
+  production build. Build and Deploy load the same action entry, so they
+  should have failed too, but nothing here ran them. The new spec case
+  found it.
+
+Decisions:
+
+- **Dc1 — `for` is a field of the existing tool, not a new tool.** A new
+  tool would change the counts, the pre-approved list and the frontmatter
+  for one more key of a patch the server already took. The CLI flag has
+  the same name as the HTTP key.
+- **Dc2 — The retry schedule: 1, 5 and 15 minutes after each failure in a
+  row, then stop.** The n-th retry waits the n-th delay after the failure
+  before it, so the last attempt comes about 21 minutes after the first
+  failure plus the rebuilds' own time. It stops on success (a rebuild, or
+  a check that found nothing to do), on a newer HEAD move, and on
+  shutdown. A HEAD move drops the pending retry and resets the count,
+  because that move asks by itself and a failure of its ask starts again
+  at 1 minute. `busy` (the line or the write lock held past the rebuild's
+  wait) is a failure like any other: it waits for the next scheduled
+  attempt, never a tight loop. Every attempt goes through the coalesced
+  task, so it never runs beside another rebuild and waits out a sync like
+  a HEAD move's ask would. The timer is `unref`'d and started outside any
+  queue hold (as `retryAfterBusy`'s is). The fourth failure logs "no more
+  retries" with what to do. _Scope:_ any failed instance rebuild, not only
+  the start-time one. The foreign-HEAD rebuild had the same gap and runs
+  the same task.
+- **Dc3 — `SelectInput` submits from a hidden input of its own,** not
+  Radix's hidden native select. Radix items can't carry `""` (Tc2), and
+  four of the converted selects submit `""` for "none". The "—" / "None"
+  option is an internal sentinel in the control and `""` in FormData. A
+  value no option names still submits instead of being dropped.
+  Uncontrolled, it starts on the first option without a `defaultValue`,
+  as a native select does. On a form `reset` it goes back to the current
+  `defaultValue`, read from the DOM (`data-default-value`) because React
+  resets an action's form before effects see the new default. The trigger
+  carries `id`, so labels and `getByLabel` find it, and the server render
+  shows the chosen label (`SelectValue` children). A term's Parent tree is
+  indented by padding (`depth`), not by NBSPs in the label.
+- **Dc4 — `FormCheckbox` keeps native submit and reset semantics** (Tc1).
+  A ticked, enabled box sends `name=value` (`"on"` by default) from a
+  hidden input it renders only while ticked. On a form `reset`, an
+  uncontrolled box goes back to the current `defaultChecked`
+  (`data-default-checked`, as Dc3), and a controlled box is left alone:
+  Radix's reset-driven `onCheckedChange` is ignored, flagged by a
+  capture-phase listener on the document. FormData values are unchanged
+  from the native controls: `clearImage=on`, `again=on`,
+  `timelines[n].events[m].activeTime=on`, `featured=on`,
+  `shareInventoryOnExport=on`, `unassign=on`, `llm=force`.
+- **Dc5 — The line between converted and left native.** Every editor
+  control that **submits by `name` in a form** is converted (the
+  backlog's subject: "the native `name`-submitting controls"), plus the
+  import form's "Use the first photo" box, which sits beside one.
+  `GroupSelectInput` stays native: it relies on the native `required`
+  check, which a hidden input does not give, and on async options with a
+  dangling-slug option. State-only controls outside forms stay native as
+  a follow-up: list rows with their own semantics, the phone-first
+  `/shopping`, `/make`'s per-browser switches (one is `role="switch"`, and
+  `ui/` has no Switch), and the `/jobs` filters and Retry box. See the
+  inventory below.
+- **Dc6 — Specs drive the Radix select by clicks.** `chooseOption` opens
+  the trigger and clicks the option. `expectOptions` reads the open list.
+  `selectValue` reads what the field submits (Tc5). Assertions that read
+  `<option>` elements became the same assertions on the open list.
+- **Dc7 — `scriptAction.ts` no longer re-exports `StreamActionResult`.**
+  `exporter.tsx` imports the type from `runCommand.ts` (Tc4).
+
+**Inventory** (native `<select>` / `type="checkbox"` before 40c):
+
+| Where                                                                                                             | Control                                            | Now       | Why                                                                                       |
+| ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------- |
+| `component-library` `Form/inputs/Select` (`SelectInput`)                                                          | select                                             | **Radix** | The duplicate the backlog names; callers below                                            |
+| ↳ recipe form `drink.method`, term `parent`, group `kind`, project `status`                                       | select (`name`)                                    | **Radix** | Submit by name; `""` options via Dc3                                                      |
+| `component-library` `Form/inputs/Checkbox` (`CheckboxInput`)                                                      | checkbox                                           | **Radix** | The duplicate the backlog names; callers below                                            |
+| ↳ Image / Video "Remove Image/Video", recipe Image, Timeline "Active Time?", featured "again", project "Featured" | checkbox (`name`)                                  | **Radix** | Submit by name (Dc4)                                                                      |
+| `new-recipe/form.tsx` "Re-read with AI" (`llm=force`)                                                             | checkbox (`name`, `value`, disabled)               | **Radix** | Submits by name                                                                           |
+| `new-recipe/form.tsx` "Use the first photo as the recipe's image"                                                 | checkbox (state)                                   | **Radix** | Beside the one above, in the same form                                                    |
+| `tags/[tag]/edit/tools.tsx` "Also remove the tag" (`unassign`)                                                    | checkbox (`name`, echoed default)                  | **Radix** | Submits by name                                                                           |
+| `export/ShareInventoryForm.tsx` (`shareInventoryOnExport`)                                                        | checkbox (`name`, default from settings)           | **Radix** | Submits by name; new spec case                                                            |
+| `git/MirrorsCard.tsx` "Add a remote as a mirror" (`remote`)                                                       | select (`name`)                                    | **Radix** | Submits by name (`SelectInput`)                                                           |
+| `Form/inputs/GroupSelect` (featured form, group items)                                                            | select (`name`, `required`)                        | native    | Native `required` blocks an empty submit; async options + dangling-slug option (Dc5)      |
+| `new-recipe/PickList.tsx`                                                                                         | checkbox per row (state, locked rows)              | native    | List rows with their own semantics (the brief's example)                                  |
+| `ShoppingPage/ShoppingRowView.tsx`                                                                                | row tick, store and aisle pickers (state)          | native    | Phone-first in-store page; the tick has 38d/39c held-tick semantics; OS pickers on phones |
+| `ShoppingPage/SettingsSheet.tsx`                                                                                  | feature boxes, default/aisle store selects (state) | native    | Same phone-first page as the rows; one follow-up for `/shopping` as a whole               |
+| `MakePage/index.tsx` "Count close matches"                                                                        | checkbox (state)                                   | native    | Per-browser setting, not a form; also on the export                                       |
+| `MakePage/InventoryPanel.tsx` "Assume pantry staples"                                                             | `role="switch"` checkbox (state)                   | native    | Per-browser switch; `ui/` has no Switch primitive                                         |
+| `jobs/JobsDashboard.tsx` Status / Kind                                                                            | filter selects (state)                             | native    | Not a form; follow-up                                                                     |
+| `jobs/[id]/JobDetail.tsx` "Read it again"                                                                         | checkbox (state)                                   | native    | Not a form; beside Retry; follow-up                                                       |
+| portfolio / resume-builder                                                                                        | (only through `SelectInput` / `CheckboxInput`)     | **Radix** | Portfolio's project form; resume-builder uses neither directly                            |
+
+Tests: `cliJson.test.ts` +1 (create Simple Syrup and Lemonade, add
+Lemonade, `--for` with `--recipe` → `usage`, `remove --for simple-syrup`
+→ "Removed 2 items", the lemon juice left, then cleaned up). `mcp.test.ts`
++1 (`for` removes the syrup's two items and keeps the recipe's own line, a
+second call is `changed: false`, `for` with `recipe` is refused by the
+schema, the input schema lists `for`, still 57 tools). `rebuildRetry.test.ts`
+(new, 7, frozen clock): the 1/5/15 schedule and give-up, stop on success
+and restart at 1 minute, a HEAD move drops the pending retry, `busy` waits
+for the scheduled minute, shutdown clears and schedules nothing, a retry
+while a sync blocks runs on `kick`, the timer is unref'd.
+`instance.test.ts` +1: a start-time rebuild that is `busy` (the
+repository's line held) schedules a retry, and `close()` clears it.
+`formControls.test.tsx` (new, 8, jsdom): FormData and reset for both
+inputs (`on` / nothing, a custom value, disabled sends nothing, reset to
+the current default, a controlled box reports no change on reset, the
+empty option submits `""`, the first option by default). The curator-skill
+test passes unchanged (57 / 43). Playwright: `term-edit`, `groups`,
+`recipe`, `timeline` and portfolio `projects` drive the Radix select
+(Dc6). `export-page` +1 (tick, Save, still ticked, reload, untick).
+
+**Gates.** Both typechecks clean (and portfolio's editor, which uses the
+shared inputs). vitest **113 files / 2313 tests**: 2312 passed on the full
+run, and one timeout under load in a file 40c didn't touch (`shopping.test.ts`
+"refuses an add that would take the list past its cap", 60 s). It passes
+alone in 2.7 s (35/35), so it's a candidate for 40f. Playwright (build mode,
+`heavy-pw.sh`, e2e + mobile): `term-edit`, `groups`, `recipe`,
+`new-recipe`, `timeline`, `export-page`, `photo-import`, `edit`,
+`featured-recipes`, `reference-updates`, `mirrors-card`, `git`, `visual`,
+`accessibility`. The final run had **274 passed** and one `photo-import`
+failure, which was stale `test-jobs` from an earlier run (Tc6). With
+`test-jobs` cleared, `photo-import` passed **3/3**. Portfolio `projects.spec`
+**7/7** (e2e, `next dev`; the portfolio production build is 40b's).
+**Baselines: none moved.** `visual.spec` and the a11y specs pass on the
+old baselines. The forms they capture show none of the converted
+controls (no image to remove, no timeline event, no drink block open), or
+any difference stays inside the threshold. The converted controls were
+checked by eye on throwaway screenshots (the term form's Parent list,
+"Active Time?", the Export card).
+
+**Roger to confirm:**
+
+- The schedule (Dc2) and that it covers foreign-HEAD rebuilds, not only
+  the start-time one.
+- The native/Radix line (Dc5): `/shopping`, `/make` and `/jobs` keep native
+  controls for now. The phone-first shopping page keeps the OS pickers.
+- `/export`'s server actions failed on `main` (Tc4), seen for Save in a
+  production build. Build and Deploy are inferred to fail too (same action
+  entry; not run here). A workstation update brings the fix.
 
 ### 40d — Term clouds
 
