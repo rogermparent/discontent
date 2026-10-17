@@ -82,7 +82,7 @@ recorded. Picking the change up on the workstation stays Roger's
 | 40e      | S–M  | (content repo)     | ✅     | —    | D2: Thanksgiving gaps — gravy, greens, mac and cheese, cornbread, leftovers, drinks.       |
 | 40f      | S–M  | `agent/40f-flakes` | 📝     |      | Extra queue: flaky specs from the last ~50 CI runs, fixed at the root; README's test part. |
 | 40g      | S–M  | `agent/40g-a11y`   | 📝     |      | Extra queue: axe specs for `/shopping`, `/jobs`, `/git`, `/make`, Export, the term form.   |
-| 40h      | M    | `agent/40h-deps`   | 🟡     |      | Extra queue: D4, patch and minor dependency updates.                                       |
+| 40h      | M    | `agent/40h-deps`   | ✅     | #264 | Extra queue: D4, patch and minor dependency updates.                                       |
 | 40-close | S    | `agent/40-close`   | 📝     |      | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                          |
 
 Ordering, in waves: 40a ∥ 40b (editor llm vs resume-builder/portfolio/CI,
