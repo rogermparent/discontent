@@ -19,8 +19,8 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** started 2026-10-17 (overnight, unattended); 39f applied; 40e
-applied (`tag:thanksgiving` 30 → 47); wave 1 — 40a ∥ 40b.
+**Now:** 39f, 40a (#262), 40b (#261), 40d (no-go) and 40e (`tag:thanksgiving`
+30 → 47) done; 40c and 40h in progress; 40f and 40g queued.
 
 ## Context
 
@@ -73,17 +73,17 @@ recorded. Picking the change up on the workstation stays Roger's
 
 ## Roadmap
 
-| Phase    | Size | Branch             | Status | PR  | What                                                                                       |
-| -------- | ---- | ------------------ | ------ | --- | ------------------------------------------------------------------------------------------ |
-| 40a      | S–M  | `agent/40a-llm`    | 🟡     |     | Context sized to the input, honest placement wording, `/v1` against Ollama, batch names.   |
-| 40b      | S–M  | `agent/40b-ci`     | 🟡     |     | resume-builder's 7 red specs, its path-filtered CI job, portfolio's prod-build heap.       |
-| 40c      | S–M  | `agent/40c-quick`  | 📝     |     | `shopping remove --for`, a bounded start-rebuild retry, Select/Checkbox on Radix `ui/*`.   |
-| 40d      | S/M  | `agent/40d-clouds` | 📝     |     | D3: measure the term clouds, then go (key per term) or a recorded no-go.                   |
-| 40e      | S–M  | (content repo)     | ✅     | —   | D2: Thanksgiving gaps — gravy, greens, mac and cheese, cornbread, leftovers, drinks.       |
-| 40f      | S–M  | `agent/40f-flakes` | 📝     |     | Extra queue: flaky specs from the last ~50 CI runs, fixed at the root; README's test part. |
-| 40g      | S–M  | `agent/40g-a11y`   | 📝     |     | Extra queue: axe specs for `/shopping`, `/jobs`, `/git`, `/make`, Export, the term form.   |
-| 40h      | M    | `agent/40h-deps`   | 📝     |     | Extra queue: D4, patch and minor dependency updates.                                       |
-| 40-close | S    | `agent/40-close`   | 📝     |     | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                          |
+| Phase    | Size | Branch             | Status | PR   | What                                                                                       |
+| -------- | ---- | ------------------ | ------ | ---- | ------------------------------------------------------------------------------------------ |
+| 40a      | S–M  | `agent/40a-llm`    | ✅     | #262 | Context sized to the input, honest placement wording, `/v1` against Ollama, batch names.   |
+| 40b      | S–M  | `agent/40b-ci`     | ✅     | #261 | resume-builder's 7 red specs, its path-filtered CI job, portfolio's prod-build heap.       |
+| 40c      | S–M  | `agent/40c-quick`  | 🟡     |      | `shopping remove --for`, a bounded start-rebuild retry, Select/Checkbox on Radix `ui/*`.   |
+| 40d      | S/M  | `agent/40d-clouds` | ✅     | #263 | D3: measure the term clouds, then go (key per term) or a recorded no-go.                   |
+| 40e      | S–M  | (content repo)     | ✅     | —    | D2: Thanksgiving gaps — gravy, greens, mac and cheese, cornbread, leftovers, drinks.       |
+| 40f      | S–M  | `agent/40f-flakes` | 📝     |      | Extra queue: flaky specs from the last ~50 CI runs, fixed at the root; README's test part. |
+| 40g      | S–M  | `agent/40g-a11y`   | 📝     |      | Extra queue: axe specs for `/shopping`, `/jobs`, `/git`, `/make`, Export, the term form.   |
+| 40h      | M    | `agent/40h-deps`   | 🟡     |      | Extra queue: D4, patch and minor dependency updates.                                       |
+| 40-close | S    | `agent/40-close`   | 📝     |      | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                          |
 
 Ordering, in waves: 40a ∥ 40b (editor llm vs resume-builder/portfolio/CI,
 disjoint), with 40e's research and dry run in the orchestrator alongside;
