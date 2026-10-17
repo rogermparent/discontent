@@ -37,8 +37,10 @@ test.describe("Git Integration", () => {
 
     await expect(page.getByText("Updated Corp")).toBeVisible();
 
+    // An edit keeps the resume's slug (the form pre-fills it), so the commit
+    // names the slug it was created with, not one made from the new company.
     const log = await getContentGitLog();
-    expect(log).toContain("Update resume: updated-corp-engineer");
+    expect(log).toContain("Update resume: update-corp-engineer");
   });
 
   test("should create git commit when deleting a resume", async ({
@@ -67,20 +69,29 @@ test.describe("Git Integration", () => {
     await page.getByLabel("Company").fill("First Corp");
     await page.getByLabel("Job").fill("Developer");
     await page.getByRole("button", { name: "Submit" }).click();
+    await expect(page).toHaveURL(/\/resume\/first-corp-developer$/);
 
     await page.goto("/new-resume");
     await page.getByLabel("Company").fill("Second Corp");
     await page.getByLabel("Job").fill("Designer");
     await page.getByRole("button", { name: "Submit" }).click();
 
+    await expect(page).toHaveURL(/\/resume\/second-corp-designer$/);
+
     await page.goto("/resume/first-corp-developer/edit");
     await page.getByLabel("Job").clear();
     await page.getByLabel("Job").fill("Senior Developer");
     await page.getByRole("button", { name: "Submit" }).click();
 
+    // Wait for the redirect: the commit lands before it. Reading the log
+    // straight after the click raced the server action, and the edit keeps
+    // its slug, so the commit names first-corp-developer.
+    await expect(page).toHaveURL(/\/resume\/first-corp-developer$/);
+    await expect(page.getByText("Senior Developer")).toBeVisible();
+
     const log = await getContentGitLog();
     expect(log).toContain("Add new resume: first-corp-developer");
     expect(log).toContain("Add new resume: second-corp-designer");
-    expect(log).toContain("Update resume: first-corp-senior-developer");
+    expect(log).toContain("Update resume: first-corp-developer");
   });
 });

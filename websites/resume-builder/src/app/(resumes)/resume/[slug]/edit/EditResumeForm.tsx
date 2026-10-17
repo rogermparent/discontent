@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { Button } from "@/components/Button";
 import UpdateResumeFields from "@/components/Resume/Form/Update";
 import updateResume from "@/controller/actions/update";
@@ -20,8 +21,15 @@ export default function EditResumeForm({
   return (
     <form className="w-full h-full flex flex-col grow" action={dispatch}>
       <UpdateResumeFields resume={resume} slug={slug} state={state} />
-      <div className="flex flex-row flex-nowrap my-1">
+      <div className="flex flex-row flex-nowrap items-center gap-2 my-1">
         <Button type="submit">Submit</Button>
+        {/* Back to the resume, discarding the edits: nothing is saved. */}
+        <Link
+          href={`/resume/${slug}`}
+          className="rounded-md px-2 py-1 underline hover:bg-slate-700"
+        >
+          Cancel
+        </Link>
       </div>
     </form>
   );
