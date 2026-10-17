@@ -126,12 +126,26 @@ export function JobsDashboard({
   const [status, setStatus] = useState("");
   const [kind, setKind] = useState("");
   const [now, setNow] = useState<number | undefined>();
-  useEffect(() => setNow(Date.now()), []);
+  /*
+   * The browser's clock once mounted, set from a timer's callback:
+   * eslint-plugin-react-hooks 7.1 refuses a setState in an effect's body,
+   * concise arrow included (40h).
+   */
+  useEffect(() => {
+    const timer = setTimeout(() => setNow(Date.now()), 0);
+    return () => clearTimeout(timer);
+  }, []);
   const [error, setError] = useState<string | undefined>();
   const [reads, setReads] = useState(0);
   /* Signed out or refused (401/403): asking again would only repeat it. */
   const [refused, setRefused] = useState(false);
-  const first = useRef(true);
+  /*
+   * The filters the list on screen was read with. A ref, not a "first run"
+   * flag: under React's StrictMode (`next dev`) the mount runs its effects
+   * twice, and a flag spent on the first pass let the second read at once —
+   * even with the tab hidden (40h).
+   */
+  const filtersShown = useRef(`${status}\n${kind}`);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -148,6 +162,8 @@ export function JobsDashboard({
         }))) as
           | (JobListResult & { queue: ResourceView[] })
           | { error: { message: string } };
+        /* Superseded by a newer read (a filter change): drop this one. */
+        if (signal?.aborted) return;
         if (!response.ok || "error" in body) {
           if (response.status === 401 || response.status === 403) {
             setRefused(true);
@@ -172,14 +188,13 @@ export function JobsDashboard({
 
   /* A filter change reads at once. */
   useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
+    const filters = `${status}\n${kind}`;
+    if (filtersShown.current === filters) return;
+    filtersShown.current = filters;
     const controller = new AbortController();
     void load(controller.signal);
     return () => controller.abort();
-  }, [load]);
+  }, [load, status, kind]);
 
   /*
    * Read again every 2 s while anything is live, every 10 s while idle
@@ -209,7 +224,12 @@ export function JobsDashboard({
   }, [hidden, live, load, reads, refused]);
 
   return (
-    <div className="space-y-8">
+    <div
+      className="space-y-8"
+      data-testid="jobs-dashboard"
+      /* Hydrated: `now` is set by the first effect (tests wait on this). */
+      data-ready={now !== undefined ? "true" : undefined}
+    >
       <section aria-labelledby="queue-heading">
         <h2 id="queue-heading" className="mb-2 text-lg font-semibold">
           Queue
