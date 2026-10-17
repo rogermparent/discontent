@@ -214,7 +214,20 @@ export function VideoInput({
       {/* Video preview */}
       {showPreview && previewSrc && (
         <>
-          <StickyVideoPlayer src={previewSrc} className="w-full" poster="" />
+          {/*
+           * Keyed by the source: a new URL gets a new player element rather
+           * than a `src` change on the old one (40f). youtube-video-element
+           * resolves its fresh `loadComplete` from the *old* player's
+           * `onReady` when the URL changes before that player is ready, then
+           * calls `unMute()` on a new player that has no methods yet — a
+           * client exception, and the edit form never submitted.
+           */}
+          <StickyVideoPlayer
+            key={previewSrc}
+            src={previewSrc}
+            className="w-full"
+            poster=""
+          />
           {inputMode === "file" && videoPreviewURL && (
             <button
               type="button"

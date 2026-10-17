@@ -309,6 +309,34 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
 
 ### 40f
 
+- **Tf1 — a server-rendered control is clickable before it is live.**
+  Playwright's actionability checks pass on a hydrating page. Then a click
+  on a client-only button does nothing, a `selectOption` on a controlled
+  `<select>` is reset, and a submit on a server-action form posts natively
+  and reloads the page (closing every `<details>`). Right after a full page
+  load, wait for the page's own ready marker if it has one, otherwise
+  `expectHydrated(locator)`, and then interact.
+- **Tf2 — `test-jobs` outlives the run.** The job store keeps readings
+  (`readings/`) and photo transcriptions (`photos/`) for reuse, so a rerun,
+  retry or `--repeat-each` of an import spec gets the cached reading and
+  skips the steps it watches. `resetData` clears both. A new kept-state
+  directory in the job store needs adding there too.
+- **Tf3 — a non-exact `getByRole` name is a case-insensitive substring
+  match.** `getByRole("heading", { name: "A" })` matches any heading
+  containing an "a", Next's 404 page included ("This page could not be
+  found."). Use `exact: true` for short names, and check the URL after a
+  create that redirects.
+- **Tf4 — port 3011 is another local app's.** Run the CMS demo's
+  Playwright with `PLAYWRIGHT_PORT` set to something else (3021 here);
+  `reuseExistingServer` would otherwise adopt the other app in dev mode.
+- **Tf5 — `resetData`'s retries absorb the `test-content` race, they don't
+  remove it.** A server still writing derived files from the previous test
+  can land after the fresh copy, leaking stale aggregates into the next
+  test undetected. The root fix (the invalidate endpoint awaiting in-flight
+  writes, or taking the content write lock, before a reset) is a follow-up.
+- **Review round (orchestrator):** `aria-activedescendant` is gated on the
+  mounted list too (it named a removed option after a blur).
+
 ### 40g
 
 - **Tg1 — The WCAG tags don't see landmarks.** `WCAG_TAGS`
@@ -1074,6 +1102,97 @@ instead of near-duplicate imports.
 - Trap: `term assign` takes one carrier per flag (`--add a --add b`).
 
 ### 40f — Flake hunt
+
+**Reindex needed: no. Deploy: none needed** (one component change ships
+with the next deploy: the search field's ARIA; the rest is tests).
+
+**Mining.** 60 runs of `playwright.yml` (239 suite jobs, 44 runs that ran
+suites): every flake is Playwright's own retry-then-pass (CI retries 2), no
+test failed consistently on main. Counts below are job instances (a PR run
+and its merge run count twice). The table source is the session scratch
+`tmp/40/40f/flakes.md`.
+
+**Offenders, root causes and fixes.**
+
+| #   | Spec (CI retries in 60 runs)                                                                                                       | Root cause                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Fix                                                                                                                                                                                                                                                                                                                              | `--repeat-each 5`, build mode                                                           |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| 1   | `menus.spec` — portfolio :57 (21), recipe :38 (10), :85 (7)                                                                        | Pre-hydration click. The /menus heading link is followed natively before hydration; the edit page arrives server-rendered, and an Append click before it hydrates does nothing, so `getByLabel("Name")` times out (Tf1).                                                                                                                                                                                                                                       | `openMenu()` in both suites: follow the heading, then `expectHydrated()` on the top-level Append (the last one) before clicking it.                                                                                                                                                                                              | recipe: in run A ✅; portfolio: **15/15**                                               |
+| 2   | `jobs.spec:241` /jobs filters (20)                                                                                                 | Pre-hydration `selectOption` on a controlled `<select>`: React resets the choice when it adopts the element, and the filtered-out row stays.                                                                                                                                                                                                                                                                                                                   | Wait for hydration before the Kind filter. After the merge with 40h this is 40h's `dashboardReady` (the dashboard's `data-ready`), which covers the same wait; the 40f `expectHydrated` call there was dropped.                                                                                                                  | run A ✅ (with `expectHydrated`); after the merge, 1× ✅                                |
+| 3   | `aggregates.spec:265` CMS demo, dev only (13)                                                                                      | **Not found; open.** The previous worker blamed a cached "not found" left by an earlier test that used the same slug. That's refuted: a dev run with a separate slug per test still failed once, on a slug no test had used before (404 on `/notes/retagged`, no Edit link). `createNote`'s check also matched the 404 page: `getByRole("heading", { name: "A" })` is a case-insensitive substring match, and "This page could not be found." contains an "a". | `createNote` checks the URL and the exact title, so a create that lands on a 404 fails at the create, where a trace can see it. The per-slug change was reverted. The demo's config, `:test` scripts and `support/tasks.ts` now honour `PLAYWRIGHT_PORT` (3011 is another local app's). No timeout raised and no pre-warm (Df3). | build 35/35 (×2); dev: 34/35 with per-test slugs, then 35/35 (×2) with the strict check |
+| 4   | `search-autocomplete.spec:308` (7)                                                                                                 | **A real a11y bug.** The combobox's `aria-expanded`/`aria-controls` followed `open`, but the popover's portaled listbox isn't in the DOM in every commit where `open` is true, so axe (`aria-valid-attr-value`) sometimes caught `aria-controls` naming a missing id.                                                                                                                                                                                          | `QueryAutocomplete` puts a callback ref on the listbox (`listMounted`); `SearchInput` sets `aria-expanded = open && listMounted` and `aria-controls` only while the list is mounted.                                                                                                                                             | run A ✅                                                                                |
+| 5   | `git.spec` empty-name family :174, :190, :216, :242 (8)                                                                            | Pre-hydration submit. The `<details>` opens natively, but a submit before hydration posts the server action as a plain form and reloads the page with every section closed. The validation message is then in the DOM but hidden.                                                                                                                                                                                                                              | `openBranchesSection` / `openRemotesSection` wait for `expectHydrated()` on the section's Create / Add button (`includeHidden`), then open it.                                                                                                                                                                                   | run B ✅                                                                                |
+| 6   | `youtube-video.spec:157` (3; failed all 3 attempts once, #256)                                                                     | youtube-video-element: when the URL changes before the old player is ready, the new `loadComplete` resolves from the old player's `onReady` and calls `unMute()` on a player with no methods yet. That throws a client exception and the edit form never submits.                                                                                                                                                                                              | `StickyVideoPlayer` keyed by `previewSrc` in the component library's `VideoInput`, so a new URL gets a new element. **A workaround around a third-party race** (Df1).                                                                                                                                                            | run A ✅                                                                                |
+| 7   | `ENOTEMPTY` / `EEXIST` on `test-content` (empty-state, featured-recipes, tag-pages, sticky-chrome, groups; demo update.spec) (≈10) | The server can still be writing derived files (aggregates, indexes) under `test-content` from the previous test when `resetData` removes it, or recreate it before the fixture copy.                                                                                                                                                                                                                                                                           | `resetData` (recipe and demo) removes with `fs.rm`'s `maxRetries` (it retries `ENOTEMPTY`/`EBUSY`) and retries the fixture copy on `EEXIST` after removing again.                                                                                                                                                                | covered by every run above                                                              |
+| 8   | `read ECONNRESET` / `socket hang up` in API-context tests (4)                                                                      | Keep-alive reuse: every API request context in a worker shares one keep-alive agent, and a request can go out on a socket just as the server's 5 s keep-alive timeout closes it.                                                                                                                                                                                                                                                                               | The recipe suite's `request` fixture is a fresh context with `Connection: close`.                                                                                                                                                                                                                                                | covered by runs A and B                                                                 |
+
+Two more found on the way:
+
+- **`photo-import.spec` failed 4 of 5 under `--repeat-each`** (run A):
+  `test-jobs` outlives a test and a run, and the server's kept readings
+  (`readings/`, 38c) and photo transcriptions (`photos/`, 38-De5) made every
+  read after the first one reuse the first transcription, so the vision step
+  the spec watches never appeared (Tf2). `resetData` now removes both
+  directories. Run B: ✅ 5/5.
+- **The shopping cap vitest** wrote 4 999 item files and read them back on
+  each add, which took 60 s under load. A `shoppingTestHooks.maxItems` seam
+  (cap 20 in the test) runs the same check in about 0.5 s.
+
+**Open.** The demo's `aggregates.spec:265` under `next dev` (above, Df3).
+`search-query-language.spec:310` ("the idle browse rail lists the
+groups", 3 retries, `toHaveURL` after clicking a group chip) wasn't
+diagnosed and stays open for a later round. Other one-off retries (git.spec
+:607 `data-*` attribute, demo aggregates :154, empty-state :17 visual) had
+one or two instances each and no fix here.
+
+**`expectHydrated()`** (`playwright/support/hydration.ts`, recipe and
+portfolio): waits for the element to be attached, then polls for React's
+`__reactProps$…` key on that DOM node. React sets that key in the same
+hydration pass that makes the node's handlers live, so it's a fact about
+this element. A page-wide marker would say nothing about a Suspense boundary
+that hydrates later. It relies on a React internal that every React DOM
+since 17 has kept, and it's test-only (Df2). CLAUDE.md's Verification
+section names it. Where a page already has its own ready signal (40h's
+`data-ready` on `/jobs`), prefer that.
+
+**README.** No README in the repo mentions Cypress any more (26d and 40b
+fixed them), so CLAUDE.md's stale "README's test section is stale"
+sentence is replaced.
+
+**Decisions.**
+
+- **Df1** — The YouTube fix keys the preview player by its URL rather than
+  patching youtube-video-element. A source change remounts the player,
+  which is what a new URL means anyway. **Roger to confirm** (the
+  alternative is an upstream fix or a pinned patch).
+- **Df2** — The hydration signal is React's own per-node props key, read
+  only by tests, not an app-wide `data-hydrated` attribute added to the
+  pages. React sets it in the render phase (`hydrateInstance`), so under
+  concurrent hydration it can appear a few ms before the handlers are live;
+  React's blocked-event replay covers clicks, so the residue is small.
+- **Df3** — The demo's dev-only flake is left open, not hidden: no pre-warm
+  or dev-project timeout, because the failure is a 404, not a compile wait.
+  One failure in 35 dev runs, then 0 in 70, is too rare to trace in this
+  round. The stricter `createNote` check makes the next CI occurrence fail
+  where it starts (CI keeps a trace on the first retry).
+
+**Gates.**
+
+- `pnpm --filter recipe-editor typecheck` ✅;
+  `pnpm --filter recipe-website exec tsc --noEmit` ✅;
+  `pnpm exec vitest run`: **2321/2321** (112 files) before the merge with
+  main, **2342/2342** (114 files) after it. Both typechecks were run again
+  after the merge. Everything ran in the heavy slot.
+- After the merge, recipe Playwright (build mode) `jobs.spec`, `git.spec`,
+  `menus.spec`: **44/44**.
+- Recipe Playwright, build mode, `--repeat-each 5`: run A (menus, jobs,
+  search-autocomplete, youtube-video, photo-import) **211 passed, 4 failed**
+  (photo-import, Tf2, fixed after); run B (photo-import, git) **165/165**.
+- Portfolio `menus.spec`, build mode, port 3029, `--repeat-each 5`:
+  **15/15**.
+- CMS demo `aggregates.spec`, `PLAYWRIGHT_PORT=3021`, `--repeat-each 5`:
+  build **35/35** twice; dev **34/35** (per-test slugs, since reverted),
+  then **35/35** twice (the strict `createNote`, with and without the
+  slugs).
 
 ### 40g — Accessibility coverage
 

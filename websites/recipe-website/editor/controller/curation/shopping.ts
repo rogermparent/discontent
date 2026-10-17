@@ -103,11 +103,15 @@ export const MAX_SHOPPING_ITEMS = 5000;
 export const MAX_SHOPPING_OVERRIDES = 1000;
 
 /**
- * A test seam: runs before each item file is written or deleted, so a test
- * can fail a write part-way. Unset in production.
+ * Test seams, unset in production. `beforeFile` runs before each item file is
+ * written or deleted, so a test can fail a write part-way. `maxItems` stands
+ * in for `MAX_SHOPPING_ITEMS`, so a test reaches the cap with a handful of
+ * files instead of laying down 5 000 and reading them back on every add —
+ * which took 60 s under a loaded machine (40f).
  */
 export const shoppingTestHooks: {
   beforeFile?: (relativePath: string, index: number) => Promise<void> | void;
+  maxItems?: number;
 } = {};
 
 /** An item file's stem: a ULID, as this module writes it, or close enough. */
@@ -598,9 +602,10 @@ async function addLocked(
   warnings.push(...expansion.warnings);
 
   const existing = (await readShoppingItems(ctx)).length;
-  if (existing + added.length > MAX_SHOPPING_ITEMS) {
+  const cap = shoppingTestHooks.maxItems ?? MAX_SHOPPING_ITEMS;
+  if (existing + added.length > cap) {
     throw new ValidationError(
-      `The list would hold ${existing + added.length} items; it holds at most ${MAX_SHOPPING_ITEMS}.${
+      `The list would hold ${existing + added.length} items; it holds at most ${cap}.${
         added.some((item) => item.for?.length)
           ? " Sub-recipes went on as their own lines — turn off features.subRecipes to add them as written."
           : ""

@@ -1,5 +1,22 @@
+import type { Page } from "@playwright/test";
 import { test, expect } from "../support/test";
 import { fillSignInForm, deleteWithConfirm } from "../support/helpers";
+import { expectHydrated } from "../support/hydration";
+
+/**
+ * Open a menu's edit page from /menus and wait for its form to hydrate (40f).
+ * The heading's link can be followed natively before /menus hydrates, and the
+ * edit page then arrives server-rendered: an Append click that lands before it
+ * hydrates does nothing, and the next `getByLabel("Name")` timed out — this
+ * spec's retry-then-pass in CI, 38 times in 60 runs. The top-level Append is
+ * the last one (each item carries its own, for children).
+ */
+async function openMenu(page: Page, name: string): Promise<void> {
+  await page.getByRole("heading", { name, exact: true }).click();
+  await expectHydrated(
+    page.getByRole("button", { name: "Append", exact: true }).last(),
+  );
+}
 
 /*
  * Ported from recipe's menus.spec, but *not* copied: portfolio's structure
@@ -59,9 +76,7 @@ test.describe("Menu Editor", () => {
       }) => {
         const masthead = page.getByRole("banner");
 
-        await page
-          .getByRole("heading", { name: "Header", exact: true })
-          .click();
+        await openMenu(page, "Header");
         await page.getByRole("button", { name: "Append", exact: true }).click();
         await page.getByLabel("Name").fill("Colophon");
         await page.getByLabel("Href").fill("/colophon");
@@ -75,9 +90,7 @@ test.describe("Menu Editor", () => {
         ).toHaveAttribute("href", "/colophon");
 
         await page.goto("/menus");
-        await page
-          .getByRole("heading", { name: "Header", exact: true })
-          .click();
+        await openMenu(page, "Header");
         await page.getByLabel("Name").clear();
         await page.getByLabel("Name").fill("Colophon & Notes");
         await page.getByLabel("Href").clear();
@@ -92,9 +105,7 @@ test.describe("Menu Editor", () => {
         ).toHaveAttribute("href", "/colophon-and-notes");
 
         await page.goto("/menus");
-        await page
-          .getByRole("heading", { name: "Header", exact: true })
-          .click();
+        await openMenu(page, "Header");
         await deleteWithConfirm(page, "menu");
 
         await expect(page.getByText("Menu Editor")).toBeVisible();

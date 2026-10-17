@@ -274,9 +274,13 @@ test.describe("Import jobs", () => {
     const row = page.locator(`[data-job="${job}"]`);
     await expect(row).toContainText("form-text");
     await expect(row.getByTestId("job-status")).toHaveText("done");
+    /*
+     * Filters: by kind, by status. The filters are controlled `<select>`s: a
+     * choice made before the dashboard hydrates is reset when React adopts
+     * them, and the row stays (40f: 20 retries in 60 CI runs) — hence
+     * `dashboardReady` first.
+     */
     await dashboardReady(page);
-
-    /* Filters: by kind, by status. */
     await page.getByLabel("Kind", { exact: true }).selectOption("inspect");
     await expect(row).toHaveCount(0);
     await page.getByLabel("Kind", { exact: true }).selectOption("form-text");

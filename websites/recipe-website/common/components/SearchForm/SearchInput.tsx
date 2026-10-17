@@ -98,14 +98,21 @@ export function SearchInput({
    * The combobox attributes are added only when the list exists. The picker
    * modal renders the same markup it rendered before this PR — no ARIA naming a
    * listbox that is never mounted, and no handlers on a field that has no
-   * suggestions to navigate.
+   * suggestions to navigate. Expanded and controls follow the listbox's own
+   * presence, not `open` (40f), and so does the active descendant (after a
+   * blur the list unmounts while the active index stays): never an id the DOM
+   * does not hold.
    */
   const comboboxProps = autocomplete
     ? {
         role: "combobox" as const,
-        "aria-expanded": suggestions.open,
-        "aria-controls": suggestions.listId,
-        "aria-activedescendant": suggestions.activeOptionId,
+        "aria-expanded": suggestions.open && suggestions.listMounted,
+        "aria-controls": suggestions.listMounted
+          ? suggestions.listId
+          : undefined,
+        "aria-activedescendant": suggestions.listMounted
+          ? suggestions.activeOptionId
+          : undefined,
         "aria-autocomplete": "list" as const,
         onKeyDown: suggestions.onKeyDown,
         onSelect: suggestions.onCaretChange,

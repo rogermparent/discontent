@@ -31,7 +31,6 @@ import { createGroup } from "../websites/recipe-website/editor/controller/curati
 import { patchInventory } from "../websites/recipe-website/editor/controller/curation/inventory";
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
 import {
-  MAX_SHOPPING_ITEMS,
   SHOPPING_ITEMS_DIRECTORY,
   SHOPPING_SETTINGS_FILE,
   shoppingTestHooks,
@@ -97,6 +96,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   shoppingTestHooks.beforeFile = undefined;
+  shoppingTestHooks.maxItems = undefined;
   commitTestHooks.beforeUpdateRef = undefined;
   await closeCachedEnvironments();
   if (previousContentDirectory === undefined) {
@@ -949,9 +949,15 @@ describe("review round (35c)", () => {
       name: "Syrup Soda",
       ingredients: ["1 batch [Simple Syrup](/recipe/simple-syrup)"],
     });
-    /* Files laid down by hand, uncommitted: only the count matters here. */
+    /*
+     * Files laid down by hand, uncommitted: only the count matters here. A
+     * cap of 20 in place of `MAX_SHOPPING_ITEMS` (40f): the same check, but
+     * 5 000 files written and read back on every add timed out at 60 s
+     * under load.
+     */
+    shoppingTestHooks.maxItems = 20;
     const items = join(contentDirectory, SHOPPING_ITEMS_DIRECTORY);
-    for (let i = 0; i < MAX_SHOPPING_ITEMS - 1; i++) {
+    for (let i = 0; i < shoppingTestHooks.maxItems - 1; i++) {
       const id = `01j${String(i).padStart(23, "0")}`;
       await outputFile(
         join(items, `${id}.json`),
@@ -974,7 +980,7 @@ describe("review round (35c)", () => {
       ),
     });
     expect((await addToShopping(ctx, { items: ["eggs"] })).changed).toBe(true);
-  }, 60_000);
+  });
 
   it("commits what a failed patch wrote as (partial), leaving the tree clean", async () => {
     const { added } = await addToShopping(ctx, {

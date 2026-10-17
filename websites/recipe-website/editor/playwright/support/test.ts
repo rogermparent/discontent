@@ -39,6 +39,24 @@ type Fixtures = {
 };
 
 export const test = base.extend<Fixtures>({
+  /*
+   * Playwright's own `request`, minus connection reuse (40f). Every API
+   * request context in a worker shares one keep-alive agent
+   * (`playwright-core`'s `httpHappyEyeballsAgent`), so a request can go out
+   * on a socket a test before left idle — just as the server's keep-alive
+   * timeout (Node's 5 s, `next dev` and `next start` alike) closes it. That
+   * is `read ECONNRESET` / `socket hang up` on the first request of a test,
+   * `resetData`'s cache invalidation as often as not (4 CI retries in 60
+   * runs). `Connection: close` keeps no socket to reuse; a loopback
+   * handshake per request costs nothing.
+   */
+  request: async ({ playwright }, use) => {
+    const request = await playwright.request.newContext({
+      extraHTTPHeaders: { connection: "close" },
+    });
+    await use(request);
+    await request.dispose();
+  },
   resetData: async ({ request }, use) => {
     await use(async (fixture) => {
       await tasks.resetData(fixture);

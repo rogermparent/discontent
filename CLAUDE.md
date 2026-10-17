@@ -164,10 +164,13 @@ pnpm exec vitest run
 pnpm --filter recipe-editor e2e-dev -- <spec>
 ```
 
-The suite is **Playwright**, not Cypress — `README.md`'s test section is
-stale. `e2e-dev` runs against `next dev`; `pnpm --filter recipe-editor
-e2e-start` builds and runs production. Prettier runs on commit via
-lint-staged.
+The suite is **Playwright**; the root and recipe-website READMEs' test
+sections say how to run it. `e2e-dev` runs against `next dev`; `pnpm
+--filter recipe-editor e2e-start` builds and runs production. Prettier runs
+on commit via lint-staged. A spec that interacts with a server-rendered
+control right after a full page load waits for it to hydrate first —
+`expectHydrated` in `playwright/support/hydration.ts` (40f) — or the click
+is lost, a controlled `<select>` resets, or a form posts natively.
 
 ## Worktrees
 

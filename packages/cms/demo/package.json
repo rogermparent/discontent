@@ -4,10 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev --port 3001",
-    "dev:test": "CONTENT_DIRECTORY=test-content next dev --port 3011",
+    "dev:test": "CONTENT_DIRECTORY=test-content next dev --port ${PLAYWRIGHT_PORT:-3011}",
     "build": "next build --webpack",
     "start": "next start --port 3001",
-    "start:test": "CONTENT_DIRECTORY=test-content next start --port 3011",
+    "start:test": "CONTENT_DIRECTORY=test-content next start --port ${PLAYWRIGHT_PORT:-3011}",
     "lint": "next lint",
     "e2e-dev": "playwright test --project=e2e",
     "e2e-dev:headed": "playwright test --project=e2e --ui",
