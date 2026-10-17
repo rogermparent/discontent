@@ -180,6 +180,7 @@ export function listRecipes({
   url,
   meta,
   config,
+  numCtx,
   signal,
   job,
 }: {
@@ -187,6 +188,8 @@ export function listRecipes({
   url?: string;
   meta?: ExtractMeta;
   config?: LlmConfig;
+  /** Ollama's `num_ctx`: the import's, so the model is not reloaded (40a). */
+  numCtx?: number;
   signal?: AbortSignal;
   /** The job (epic 37): an `llm.list` step. */
   job?: JobRun;
@@ -208,6 +211,7 @@ export function listRecipes({
       schema: LLM_LIST_SCHEMA,
       schemaName: LLM_LIST_SCHEMA_NAME,
       config,
+      numCtx,
       signal,
       job,
       step,
@@ -254,6 +258,7 @@ export function isOneDish({
   url,
   meta,
   config,
+  numCtx,
   signal,
   job,
 }: {
@@ -261,6 +266,8 @@ export function isOneDish({
   url?: string;
   meta?: ExtractMeta;
   config?: LlmConfig;
+  /** Ollama's `num_ctx`: the import's, so the model is not reloaded (40a). */
+  numCtx?: number;
   signal?: AbortSignal;
   /** The job (epic 37): an `llm.oneDish` step. */
   job?: JobRun;
@@ -276,6 +283,7 @@ export function isOneDish({
       schema: LLM_ONE_DISH_SCHEMA,
       schemaName: "dishes",
       config,
+      numCtx,
       signal,
       job,
       step,

@@ -33,6 +33,13 @@ process.env.RECIPE_JOBS_DIR = jobsDir;
 process.env.RECIPE_QUEUE_DIR = join(jobsDir, "queue");
 delete process.env.RECIPE_GPU_ACQUIRE_CMD;
 delete process.env.RECIPE_GPU_RELEASE_CMD;
+/*
+ * 40a: the placement check reads the GPU's VRAM counters for a model on a
+ * loopback URL — never this machine's real card from a test. A directory
+ * that does not exist reads as "no counters"; a test that wants a reading
+ * makes its own `card0/device/mem_info_vram_*` files.
+ */
+process.env.RECIPE_DRM_DIR = join(jobsDir, "no-drm");
 afterAll(() => {
   rmSync(jobsDir, { recursive: true, force: true });
 });
