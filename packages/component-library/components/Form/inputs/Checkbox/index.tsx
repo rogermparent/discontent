@@ -59,15 +59,9 @@ export function FormCheckbox({
     if (!doc) return;
     const ours = (event: Event) =>
       box.current?.form != null && event.target === box.current.form;
-    /*
-     * `reset` bubbles: the capture listener runs before Radix's own listener
-     * on the form, the bubbling one after it.
-     */
-    const before = (event: Event) => {
-      if (ours(event)) resetting.current = true;
-    };
-    const after = (event: Event) => {
-      if (!ours(event)) return;
+    /* The reset is over: take the default, and answer the box again. */
+    const settle = () => {
+      if (!resetting.current) return;
       resetting.current = false;
       /*
        * The default as the DOM has it now, not as this effect saw it: React
@@ -76,6 +70,24 @@ export function FormCheckbox({
        * value just saved) would still be the old one here.
        */
       if (!controlled) setInner(box.current?.dataset.defaultChecked === "true");
+    };
+    /*
+     * `reset` bubbles: the capture listener runs before Radix's own listener
+     * on the form, the bubbling one after it.
+     */
+    const before = (event: Event) => {
+      if (!ours(event)) return;
+      resetting.current = true;
+      /*
+       * Dispatch is synchronous, so a microtask runs after every listener:
+       * the reset settles even if something stops the event before it
+       * bubbles back up to `after`, and the box never ignores its changes
+       * for good (40c review).
+       */
+      queueMicrotask(settle);
+    };
+    const after = (event: Event) => {
+      if (ours(event)) settle();
     };
     doc.addEventListener("reset", before, true);
     doc.addEventListener("reset", after);

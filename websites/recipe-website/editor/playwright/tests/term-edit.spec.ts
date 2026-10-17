@@ -36,7 +36,8 @@ test.describe("Term edit form", () => {
     await chooseOption(
       page,
       page.getByLabel("Parent", { exact: true }),
-      "Cookies",
+      /* A nested option is named by its path (40c review). */
+      "Dessert › Cookies",
     );
     await page.getByRole("button", { name: "Submit", exact: true }).click();
 
@@ -59,9 +60,9 @@ test.describe("Term edit form", () => {
     await parent.click();
     const dessert = page.getByRole("option", { name: "Dessert", exact: true });
     await expect(dessert).toBeVisible();
-    await expect(
-      page.getByRole("option", { name: "Bar Cookies", exact: true }),
-    ).toHaveCount(0);
+    await expect(page.getByRole("option", { name: /Bar Cookies/ })).toHaveCount(
+      0,
+    );
     await dessert.click();
     await expect(selectValue(page, "parent")).toHaveValue("dessert");
     await page.getByRole("button", { name: "Submit", exact: true }).click();
@@ -105,7 +106,7 @@ test.describe("Term edit form", () => {
     await markdownEditorReady(page, "description");
     await parent.click();
     await expect(
-      page.getByRole("option", { name: "Cookies", exact: true }),
+      page.getByRole("option", { name: "Dessert › Cookies", exact: true }),
     ).toHaveCount(1);
     await page.keyboard.press("Escape");
 
@@ -116,7 +117,7 @@ test.describe("Term edit form", () => {
     });
     expect(moved.status()).toBe(200);
 
-    await chooseOption(page, parent, "Cookies");
+    await chooseOption(page, parent, "Dessert › Cookies");
     await page.getByRole("button", { name: "Submit", exact: true }).click();
 
     await expect(page.getByText(/underneath itself/)).toContainText(

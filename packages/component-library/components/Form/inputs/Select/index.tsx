@@ -13,8 +13,23 @@ import {
 export interface SelectOption {
   value: string;
   label: string;
-  /** Indents the option in the open list (a tree, such as a term's parent). */
+  /**
+   * Indents the option in the open list (a tree, such as a term's parent).
+   * A tree's options come in order, each after its parent: an option with a
+   * depth is named by its path ("Dessert › Cookies") for screen readers,
+   * which see no indent.
+   */
   depth?: number;
+}
+
+/** Each option's path through the tree, for those with a depth (see above). */
+function treeNames(options: readonly SelectOption[]): (string | undefined)[] {
+  const trail: string[] = [];
+  return options.map(({ label, depth = 0 }) => {
+    trail.length = depth;
+    trail.push(label);
+    return depth > 0 ? trail.join(" › ") : undefined;
+  });
 }
 
 /**
@@ -65,9 +80,18 @@ export function SelectInput({
   /* What a native select starts on, and goes back to on a reset. */
   const resetTo = defaultValue ?? options[0]?.value ?? "";
   const [inner, setInner] = useState(resetTo);
-  const current = value ?? inner;
   const hidden = useRef<HTMLInputElement>(null);
   const controlled = value !== undefined;
+  /*
+   * With no `defaultValue`, the value is always an option, as natively: one
+   * that options arriving (or changing) after mount no longer offer reads as
+   * the first (40c review; a mirror just added leaves the Add list).
+   */
+  const offered =
+    defaultValue !== undefined ||
+    options.length === 0 ||
+    options.some((option) => option.value === inner);
+  const current = value ?? (offered ? inner : options[0].value);
 
   useEffect(() => {
     const form = hidden.current?.form;
@@ -84,6 +108,7 @@ export function SelectInput({
   }, [controlled, resetTo]);
 
   const selected = options.find((option) => option.value === current);
+  const names = treeNames(options);
   return (
     <FieldWrapper label={label} id={id} className={className}>
       <Errors errors={errors} />
@@ -100,10 +125,17 @@ export function SelectInput({
           <SelectValue>{selected?.label ?? current}</SelectValue>
         </SelectTrigger>
         <SelectContent>
-          {options.map((option) => (
+          {options.map((option, index) => (
             <SelectItem
               key={option.value}
               value={toItem(option.value)}
+              /* Radix names an item by its text; a tree's by its path. */
+              {...(names[index] === undefined
+                ? {}
+                : {
+                    "aria-labelledby": undefined,
+                    "aria-label": names[index],
+                  })}
               style={
                 option.depth
                   ? { paddingLeft: `${0.5 + option.depth}rem` }

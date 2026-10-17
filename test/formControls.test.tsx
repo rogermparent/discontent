@@ -129,6 +129,44 @@ describe("CheckboxInput / FormCheckbox (40c)", () => {
     expect(formData().getAll("activeTime")).toEqual(["on"]);
   });
 
+  /*
+   * 40c review: the box ignores Radix's change while its form resets, and
+   * that flag was cleared only by the document's bubbling listener. A reset
+   * stopped on the form never got there, and the box ignored every click
+   * after it. A microtask from the capture listener settles it now.
+   */
+  it("still toggles after a reset that something stopped on the form", async () => {
+    const changes: boolean[] = [];
+    render(
+      <form>
+        <FormCheckbox
+          name="share"
+          defaultChecked
+          aria-label="Share"
+          onCheckedChange={(next) => changes.push(next)}
+        />
+      </form>,
+    );
+    const form = document.querySelector("form") as HTMLFormElement;
+    form.addEventListener("reset", (event) => event.stopPropagation());
+    const box = screen.getByRole("checkbox", { name: "Share" });
+    fireEvent.click(box);
+    expect(box).toHaveAttribute("aria-checked", "false");
+    await act(async () => {
+      form.reset();
+    });
+    /* Back to the default, though the bubbling listener never ran. */
+    expect(box).toHaveAttribute("aria-checked", "true");
+    expect(changes).toEqual([false]);
+    fireEvent.click(box);
+    expect(box).toHaveAttribute("aria-checked", "false");
+    expect(changes).toEqual([false, false]);
+    expect(formData().has("share")).toBe(false);
+    fireEvent.click(box);
+    expect(changes).toEqual([false, false, true]);
+    expect(formData().getAll("share")).toEqual(["on"]);
+  });
+
   it("reports a boolean, not an event", () => {
     const onCheckedChange = vi.fn();
     render(
@@ -195,6 +233,57 @@ describe("SelectInput (40c)", () => {
     );
     expect(formData().getAll("kind")).toEqual(["meal-plan"]);
     expect(screen.getByLabelText("Kind")).toHaveTextContent("Meal plan");
+  });
+
+  /*
+   * 40c review: with no default, the value is always an option — options
+   * that arrive after mount, or drop the chosen one (a mirror just added
+   * leaves the Add list), move it to the first.
+   */
+  it("moves to the first option when the options no longer hold its value", () => {
+    const { rerender, unmount } = render(
+      <form>
+        <SelectInput name="remote" label="Remote" options={[]} />
+      </form>,
+    );
+    expect(formData().getAll("remote")).toEqual([""]);
+    rerender(
+      <form>
+        <SelectInput
+          name="remote"
+          label="Remote"
+          options={[
+            { value: "origin", label: "origin" },
+            { value: "pi", label: "pi" },
+          ]}
+        />
+      </form>,
+    );
+    expect(formData().getAll("remote")).toEqual(["origin"]);
+    rerender(
+      <form>
+        <SelectInput
+          name="remote"
+          label="Remote"
+          options={[{ value: "pi", label: "pi" }]}
+        />
+      </form>,
+    );
+    expect(formData().getAll("remote")).toEqual(["pi"]);
+    expect(screen.getByLabelText("Remote")).toHaveTextContent("pi");
+    unmount();
+    /* An explicit default is kept even when no option names it. */
+    render(
+      <form>
+        <SelectInput
+          name="remote"
+          label="Remote"
+          defaultValue="gone"
+          options={[{ value: "pi", label: "pi" }]}
+        />
+      </form>,
+    );
+    expect(formData().getAll("remote")).toEqual(["gone"]);
   });
 
   it("goes back to the current defaultValue on reset when uncontrolled", () => {
