@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "../support/test";
-import { signIn } from "../support/helpers";
+import type { Page } from "@playwright/test";
+import { markdownEditorReady, signIn } from "../support/helpers";
 import { fixturePath } from "../support/tasks";
 import { PRESETS, type Theme } from "@discontent/component-library/theming";
 // Promoted to support/ so portfolio's sweep uses the same seeding rather than a
@@ -244,6 +245,307 @@ test.describe("Accessibility (axe)", () => {
       await expectNoViolations(page);
     });
   }
+});
+
+/*
+ * 40g: the pages added since the sweep above was written. Each is swept once,
+ * signed in, in the default theme; the surfaces whose status colours carry
+ * meaning (the shopping list, a remote's cards on /git) are swept in both
+ * modes below. `ready` waits for what the page is about to be on screen, so
+ * axe never reads a half-rendered page.
+ */
+const EDITOR_PAGES: Array<{
+  path: string;
+  fixture?: string;
+  ready: (page: Page) => Promise<void>;
+}> = [
+  /* The listing and a reader page of the site's own pages and menus. */
+  {
+    path: "/recipes",
+    fixture: "three-recipes",
+    ready: mainVisible,
+  },
+  {
+    path: "/about",
+    fixture: "about-page",
+    ready: mainVisible,
+  },
+  /* The settings area. */
+  {
+    path: "/settings/theme",
+    fixture: "three-recipes",
+    ready: (page) => expect(page.getByTestId("theme-preview")).toBeVisible(),
+  },
+  {
+    path: "/settings/tools",
+    fixture: "three-recipes",
+    ready: (page) => headingVisible(page, "Tools"),
+  },
+  {
+    path: "/settings/maintenance",
+    fixture: "three-recipes",
+    ready: (page) => headingVisible(page, "Maintenance"),
+  },
+  {
+    path: "/export",
+    fixture: "three-recipes",
+    ready: (page) =>
+      expect(page.getByRole("button", { name: "Build" })).toBeVisible(),
+  },
+  {
+    path: "/pages",
+    fixture: "about-page",
+    ready: mainVisible,
+  },
+  {
+    path: "/menus",
+    fixture: "three-recipes",
+    ready: mainVisible,
+  },
+  /* The edit forms the new-recipe sweep doesn't reach. */
+  {
+    path: "/recipe/first-recipe/edit",
+    fixture: "three-recipes",
+    ready: (page) => markdownEditorReady(page, "description").then(() => {}),
+  },
+  {
+    path: "/recipe/first-recipe/copy",
+    fixture: "three-recipes",
+    ready: (page) => markdownEditorReady(page, "description").then(() => {}),
+  },
+  {
+    path: "/group/new",
+    fixture: "three-recipes-groups",
+    ready: (page) => markdownEditorReady(page, "description").then(() => {}),
+  },
+  {
+    path: "/group/week-of-may-4/edit",
+    fixture: "three-recipes-groups",
+    ready: (page) => markdownEditorReady(page, "description").then(() => {}),
+  },
+  {
+    path: "/featured-recipe/featured-weeknight",
+    fixture: "three-recipes-groups",
+    ready: (page) => expect(page.locator("main")).toBeVisible(),
+  },
+  {
+    path: "/featured-recipe/featured-weeknight/edit",
+    fixture: "three-recipes-groups",
+    ready: (page) =>
+      expect(page.locator("#featured-recipe-form")).toBeVisible(),
+  },
+  {
+    path: "/featured-recipe/new?recipe=first-recipe",
+    fixture: "three-recipes-groups",
+    ready: (page) =>
+      expect(page.locator("#featured-recipe-form")).toBeVisible(),
+  },
+  {
+    path: "/pages/new",
+    fixture: "about-page",
+    ready: (page) => expect(page.locator("#page-form")).toBeVisible(),
+  },
+  {
+    path: "/pages/edit/about",
+    fixture: "about-page",
+    ready: (page) => expect(page.locator("#page-form")).toBeVisible(),
+  },
+  {
+    path: "/menus/edit/header",
+    fixture: "three-recipes",
+    ready: (page) => expect(page.locator("#menu-form")).toBeVisible(),
+  },
+  /*
+   * The term pages (31b/31e) on `christmas-cookies`: Cookies has a
+   * breadcrumb and pinned recipes, Dessert lists its narrower terms, and
+   * the term form opens new and on a record.
+   */
+  {
+    path: "/tags/cookies",
+    fixture: "christmas-cookies",
+    ready: (page) => expect(page.getByTestId("term-breadcrumb")).toBeVisible(),
+  },
+  {
+    path: "/tags/dessert",
+    fixture: "christmas-cookies",
+    ready: (page) => expect(page.getByTestId("term-children")).toBeVisible(),
+  },
+  {
+    path: "/tags/new",
+    fixture: "christmas-cookies",
+    ready: (page) => markdownEditorReady(page, "description").then(() => {}),
+  },
+  {
+    path: "/tags/cookies/edit",
+    fixture: "christmas-cookies",
+    ready: (page) => markdownEditorReady(page, "description").then(() => {}),
+  },
+];
+
+async function headingVisible(page: Page, name: string): Promise<void> {
+  await expect(
+    page.getByRole("heading", { name, exact: true }).first(),
+  ).toBeVisible();
+}
+
+async function mainVisible(page: Page): Promise<void> {
+  await expect(page.locator("main").first()).toBeVisible();
+  await page.waitForLoadState("networkidle");
+}
+
+/*
+ * One top-level `<main>`. These are axe best-practice rules, outside the
+ * WCAG tags, so they're named here: the settings area once wrapped every
+ * page's own `<main>` in a second one (40g).
+ */
+const LANDMARK_RULES = [
+  "landmark-main-is-top-level",
+  "landmark-no-duplicate-main",
+  "landmark-one-main",
+  "landmark-unique",
+];
+
+async function expectOneMain(page: Page): Promise<void> {
+  const results = await new AxeBuilder({ page })
+    .withRules(LANDMARK_RULES)
+    .analyze();
+  expect(results.violations).toEqual([]);
+}
+
+test.describe("Accessibility of the editor's other pages (axe, 40g)", () => {
+  for (const { path, fixture, ready } of EDITOR_PAGES) {
+    test(`${path} has no WCAG2AA violations signed in`, async ({
+      page,
+      resetData,
+    }) => {
+      await resetData(fixture);
+      await page.goto("/");
+      await signIn(page);
+      await page.goto(path);
+      await ready(page);
+      await expectNoViolations(page);
+      await expectOneMain(page);
+    });
+  }
+
+  /*
+   * `/shopping` with a plan and a recipe whose sub-recipe expanded on it:
+   * the settings sheet open, then the list with stores and "Probably on
+   * hand" switched on and the Sub-recipes fold open. Both modes: the store
+   * buttons, the counts and the muted notes carry colour.
+   */
+  for (const mode of ["light", "dark"] as const) {
+    test(`shopping list with items has no WCAG2AA violations in ${mode} mode`, async ({
+      page,
+      resetData,
+      initializeContentGit,
+    }) => {
+      await resetData("shopping");
+      await initializeContentGit();
+      await page.emulateMedia({ colorScheme: mode });
+      await page.goto("/");
+      await signIn(page);
+      for (const data of [
+        { group: "week-of-oct-19" },
+        { recipe: "lemonade" },
+      ]) {
+        const added = await page.request.post("/api/shopping", { data });
+        expect(added.ok()).toBe(true);
+      }
+      await page.goto("/shopping");
+      await expectMode(page, mode);
+      await expect(page.getByTestId("shopping-page")).toHaveAttribute(
+        "data-ready",
+        "true",
+        { timeout: 30_000 },
+      );
+      await expect(page.getByTestId("shopping-list")).toContainText("eggs");
+      await expectNoViolations(page);
+
+      await page.getByRole("button", { name: "Settings" }).click();
+      const sheet = page.getByTestId("shopping-settings");
+      await expect(sheet).toBeVisible();
+      await expectNoViolations(page);
+      await sheet.getByLabel(/^Stores/).check();
+      await sheet.getByLabel(/^On hand/).check();
+      await sheet.getByRole("button", { name: "Save settings" }).click();
+      await expect(sheet).toHaveCount(0);
+
+      await expect(page.getByTestId("shopping-probably-have")).toBeVisible();
+      const subRecipes = page.getByTestId("shopping-subrecipes");
+      await subRecipes.getByText(/^Sub-recipes/).click();
+      await expect(subRecipes.getByTestId("shopping-subrecipe")).toBeVisible();
+      const eggs = page.getByTestId("shopping-row").filter({ hasText: "eggs" });
+      await eggs.getByText(/^from \d+ recipes?/).click();
+      await expect(eggs.getByTestId("shopping-sources")).toBeVisible();
+      await expectNoViolations(page);
+    });
+  }
+
+  /*
+   * `/git` with a remote: the remote's ahead/behind status and the Mirrors
+   * card holding one mirror after a sync — both modes, as the plain /git
+   * sweep above.
+   */
+  for (const mode of ["light", "dark"] as const) {
+    test(`content sync page with a remote and a mirror has no WCAG2AA violations in ${mode} mode`, async ({
+      page,
+      resetData,
+      initializeContentGit,
+      createBareRemote,
+      addRemoteAndPush,
+    }) => {
+      await resetData("three-recipes");
+      await initializeContentGit();
+      const remote = await createBareRemote();
+      await addRemoteAndPush(remote);
+      await page.emulateMedia({ colorScheme: mode });
+      await page.goto("/");
+      await signIn(page);
+      await page.goto("/git");
+      await expectMode(page, mode);
+      const card = page.getByTestId("mirrors-card");
+      await card.getByRole("button", { name: "Add mirror" }).click();
+      const mirror = card.getByTestId("mirror-origin");
+      await expect(mirror.getByTestId("mirror-outcome")).toHaveText(
+        "Not synced yet.",
+      );
+      await expectNoViolations(page);
+      await mirror.getByRole("button", { name: "Sync now" }).click();
+      await expect(mirror.getByTestId("mirror-outcome")).toContainText(
+        "synced",
+        { timeout: 30_000 },
+      );
+      await expectNoViolations(page);
+    });
+  }
+});
+
+/* A mirror's /git: the "Synced by" card in place of Mirrors (28c). */
+test.describe("Accessibility of a mirror's content sync page (axe, 40g)", () => {
+  test.afterEach(async ({ request }) => {
+    await request.get("/settings/test-editor-role?role=workstation");
+  });
+
+  test("a mirror's /git has no WCAG2AA violations", async ({
+    page,
+    request,
+    resetData,
+    initializeContentGit,
+  }) => {
+    await request.get("/settings/test-editor-role?role=mirror");
+    await resetData("three-recipes");
+    await initializeContentGit();
+    await page.goto("/");
+    await signIn(page);
+    await page.goto("/git");
+    await expect(
+      page
+        .getByTestId("workstation-card")
+        .getByRole("heading", { name: "Synced by the workstation" }),
+    ).toBeVisible();
+    await expectNoViolations(page);
+  });
 });
 
 // The derivation curve fixes accent lightness/chroma (and neutral lightnesses),

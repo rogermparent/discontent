@@ -98,7 +98,11 @@ export function SidebarLayout({
             {sidebar}
           </div>
         </aside>
-        <main className="min-w-0 flex-1">{children}</main>
+        {/* A plain column, not `<main>`: every page in a sidebar section
+            renders its own `<main>` (recipe's `PageMain`, portfolio's pages),
+            and a second one around it nested two main landmarks (40g: axe's
+            landmark-main-is-top-level / landmark-no-duplicate-main). */}
+        <div className="min-w-0 flex-1">{children}</div>
       </div>
     </div>
   );
