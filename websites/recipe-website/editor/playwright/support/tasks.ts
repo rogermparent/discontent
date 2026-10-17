@@ -10,6 +10,7 @@ import {
   writeFile,
 } from "fs-extra";
 import { createHash } from "node:crypto";
+import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import simpleGit from "simple-git";
 import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
@@ -30,6 +31,57 @@ const testSettingsDir = resolve(projectRoot, "test-settings");
 const testRemotesDir = resolve(projectRoot, "test-remotes");
 const testClonesDir = resolve(projectRoot, "test-clones");
 const fixturesRoot = resolve(projectRoot, "playwright", "fixtures");
+/*
+ * What the server keeps of earlier imports in its job store, `test-jobs`:
+ * the model's readings (38c, `controller/jobs/readingCache.ts`) and each
+ * photo set's transcription beside its photos (38-De5,
+ * `controller/jobs/photos.ts`). `test-jobs` outlives a test and a run, so
+ * without this any second reading of the same photo — a rerun, a retry,
+ * `--repeat-each` — reused the first one's transcription and never showed
+ * the vision step `photo-import.spec` watches (40f).
+ */
+const testKeptReadingDirs = ["readings", "photos"].map((name) =>
+  resolve(projectRoot, "test-jobs", name),
+);
+
+/**
+ * Remove a directory the test server may still be writing into (40f).
+ *
+ * The suite runs one test after another against one server, and work the
+ * previous test started can still be landing derived files — an aggregate,
+ * an index — under `test-content` when the next test resets it. A plain
+ * recursive remove then fails `ENOTEMPTY` when a directory gains an entry
+ * between being emptied and its `rmdir` (CI: `test-content`,
+ * `test-content/recipes/aggregates/tags`). `fs.rm`'s `maxRetries` exists
+ * for exactly this: it retries `ENOTEMPTY` and `EBUSY` with a linear backoff.
+ */
+async function removeDir(dir: string): Promise<void> {
+  await rm(dir, {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 50,
+  });
+}
+
+/**
+ * `copy` a fixture into a directory just removed, removing it again when the
+ * server recreated it first — `EEXIST` on the copy's `mkdir` (40f, the
+ * other half of `removeDir`'s race).
+ */
+async function copyFresh(source: string, destination: string): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await copy(source, destination);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || attempt >= 5) {
+        throw error;
+      }
+      await removeDir(destination);
+    }
+  }
+}
 
 /**
  * A finished job written straight into the server's job store (38b), as
@@ -69,12 +121,13 @@ export function projectPath(relative: string): string {
 }
 
 export async function resetData(fixture?: string): Promise<void> {
-  await remove(testSettingsDir);
-  await remove(testContentDir);
-  await remove(testRemotesDir);
-  await remove(testClonesDir);
+  await removeDir(testSettingsDir);
+  await removeDir(testContentDir);
+  await removeDir(testRemotesDir);
+  await removeDir(testClonesDir);
+  for (const dir of testKeptReadingDirs) await removeDir(dir);
   if (fixture) {
-    await copy(fixturePath("test-content", fixture), testContentDir);
+    await copyFresh(fixturePath("test-content", fixture), testContentDir);
   }
   await copy(fixturePath("users"), resolve(testContentDir, "users"));
 }
@@ -238,7 +291,7 @@ export async function readSettings(): Promise<Record<string, unknown>> {
 }
 
 export async function loadGitFixture(fixture: string): Promise<void> {
-  await remove(testContentDir);
+  await removeDir(testContentDir);
   const fixtureBundlePath = fixturePath("git-test-content", fixture);
   await simpleGit().clone(fixtureBundlePath, testContentDir);
 }

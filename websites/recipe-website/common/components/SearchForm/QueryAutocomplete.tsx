@@ -289,6 +289,14 @@ export interface QueryAutocomplete {
   /** The caret is in an `ingredient:` value and the lines are still on their way. */
   loading: boolean;
   listId: string;
+  /**
+   * The listbox is in the DOM. The field's `aria-controls` and
+   * `aria-expanded` follow this rather than `open`, so they can never name a
+   * list that is not there (40f). See `listRef`.
+   */
+  listMounted: boolean;
+  /** The callback ref `QueryAutocompleteList` puts on the listbox. */
+  listRef: (node: HTMLUListElement | null) => void;
   options: CompletionOption[];
   /** -1 when nothing is active, which is the resting state. See `onKeyDown`. */
   activeIndex: number;
@@ -336,6 +344,20 @@ export function useQueryAutocomplete({
   } = useSearch();
   const tagAliases = useMemo(() => tagAliasesOf(allTerms), [allTerms]);
   const listId = useId();
+  /*
+   * Whether the listbox element exists, learned from the element itself
+   * (40f). The combobox's ARIA used to follow `open`, and axe caught the
+   * field saying `aria-expanded="true"` with an `aria-controls` naming an id
+   * the DOM did not hold — the popover's portaled content is not in the DOM
+   * in every commit `open` is true in (7 retries of the "loading" spec in 60
+   * CI runs). A callback ref runs in the commit that attaches or detaches
+   * the list, and its state update re-renders the field before the browser
+   * paints, so the field and the list agree whenever anything can read them.
+   */
+  const [listMounted, setListMounted] = useState(false);
+  const listRef = useCallback((node: HTMLUListElement | null) => {
+    setListMounted(node !== null);
+  }, []);
   const [caret, setCaret] = useState(0);
   const [focused, setFocused] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -533,6 +555,8 @@ export function useQueryAutocomplete({
     open,
     loading,
     listId,
+    listMounted,
+    listRef,
     options,
     activeIndex: active,
     activeOptionId: active >= 0 ? optionId(active) : undefined,
@@ -593,6 +617,7 @@ export function QueryAutocompleteList({
     options,
     activeIndex,
     listId,
+    listRef,
     optionId,
     accept,
     onOpenChange,
@@ -619,6 +644,7 @@ export function QueryAutocompleteList({
           </p>
         ) : null}
         <ul
+          ref={listRef}
           id={listId}
           role="listbox"
           aria-label="Query suggestions"

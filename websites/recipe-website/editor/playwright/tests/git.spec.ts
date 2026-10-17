@@ -5,13 +5,35 @@ import {
   markdownEditorReady,
   deleteWithConfirm,
 } from "../support/helpers";
+import { expectHydrated } from "../support/hydration";
 import type { Page } from "@playwright/test";
 
+/*
+ * Both sections wait for their forms to hydrate first (40f). A `<details>`
+ * opens natively, so the summary click works before hydration — but a submit
+ * in that window posts the server action as a plain form and reloads the page
+ * with every section closed, the error message inside, hidden ("Branch Name
+ * is required" resolved to a hidden element, 8 CI retries in 60 runs).
+ */
 async function openBranchesSection(page: Page) {
+  await expectHydrated(
+    branchesSection(page).getByRole("button", {
+      name: "Create",
+      exact: true,
+      includeHidden: true,
+    }),
+  );
   await page.getByText("Advanced: branches", { exact: true }).click();
 }
 
 async function openRemotesSection(page: Page) {
+  await expectHydrated(
+    remotesSection(page).getByRole("button", {
+      name: "Add",
+      exact: true,
+      includeHidden: true,
+    }),
+  );
   await page.getByText("Advanced: remotes", { exact: true }).click();
 }
 

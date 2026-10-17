@@ -126,6 +126,18 @@ async function tagCloudHtmlOnceShowing(
   return page.getByTestId("tag-page").innerHTML();
 }
 
+/*
+ * The tests that open a note's page each use a slug no other test in this
+ * file uses (40f). `resetData` empties the content directory, but the item
+ * cache (`item:notes:<slug>`) is keyed by slug and outlives it, and under
+ * `next dev` a read just after a write is served stale while a background
+ * refresh runs (F20 above). When "removing the last note" deleted `a` while
+ * such a refresh was still in flight, the refresh could store "no such note"
+ * as fresh, and the next test's `/notes/a` rendered the 404: no Edit link, a
+ * 30 s timeout on the first attempt in a cold CI server (13 retries in 60
+ * runs), a pass on the retry. A slug of its own has no earlier entry to
+ * inherit.
+ */
 test.describe("Aggregates", () => {
   test.beforeEach(async ({ resetData, clearPaginationChanges }) => {
     await resetData();
@@ -215,11 +227,11 @@ test.describe("Aggregates", () => {
     readAggregateChanges,
     readPaginationChanges,
   }) => {
-    await createNote(page, { slug: "a", title: "A", tags: "alpha" });
+    await createNote(page, { slug: "titled", title: "A", tags: "alpha" });
     const before = await tagCloudHtmlOnceShowing(page, "alpha");
     await clearPaginationChanges();
 
-    await page.goto("/notes/a");
+    await page.goto("/notes/titled");
     await page.getByRole("link", { name: "Edit" }).click();
     await page.getByLabel("Title *").fill("A edited");
     await page.getByRole("button", { name: "Update Note" }).click();
@@ -237,12 +249,16 @@ test.describe("Aggregates", () => {
     clearPaginationChanges,
     readAggregateChanges,
   }) => {
-    await createNote(page, { slug: "a", title: "A", tags: "keep, lonely" });
-    await createNote(page, { slug: "b", title: "B", tags: "keep" });
+    await createNote(page, {
+      slug: "lonely",
+      title: "A",
+      tags: "keep, lonely",
+    });
+    await createNote(page, { slug: "keeper", title: "B", tags: "keep" });
     expect(await tagCloud(page)).toEqual(["keep", "lonely"]);
     await clearPaginationChanges();
 
-    await page.goto("/notes/a");
+    await page.goto("/notes/lonely");
     await page.getByRole("link", { name: "Delete" }).click();
     await page.getByRole("button", { name: "Yes, Delete Note" }).click();
     /*
@@ -267,10 +283,10 @@ test.describe("Aggregates", () => {
     clearPaginationChanges,
     readAggregateChanges,
   }) => {
-    await createNote(page, { slug: "a", title: "A", tags: "solo" });
+    await createNote(page, { slug: "retagged", title: "A", tags: "solo" });
     await clearPaginationChanges();
 
-    await page.goto("/notes/a");
+    await page.goto("/notes/retagged");
     await page.getByRole("link", { name: "Edit" }).click();
     await page.getByLabel(/Tags/).fill("replacement");
     await page.getByRole("button", { name: "Update Note" }).click();

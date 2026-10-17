@@ -1,6 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const PORT = 3011;
+/*
+ * `PLAYWRIGHT_PORT` as the recipe editor's config reads it (40f): 3011 can be
+ * another app's, and `reuseExistingServer` would adopt it. The `:test`
+ * scripts and `support/tasks.ts` read the same variable.
+ */
+const PORT = Number(process.env.PLAYWRIGHT_PORT) || 3011;
 const BUILD = !!process.env.PLAYWRIGHT_BUILD;
 
 export default defineConfig({
