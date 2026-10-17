@@ -2,7 +2,9 @@ import { SubmitButton } from "@discontent/component-library/components/SubmitBut
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { readSyncState } from "@discontent/cms/git/syncState";
 import clsx from "clsx";
+import Link from "next/link";
 import { readSettings } from "@/settings";
+import { notifyUrlStatus } from "../../../../../controller/instance/notify";
 import type { RemoteSummary } from "./types";
 import {
   addMirrorAction,
@@ -48,6 +50,16 @@ export async function MirrorsCard({ remotes }: { remotes: RemoteSummary[] }) {
         or on the mirror.
       </p>
       {mirrors.length === 0 && <p className="text-sm my-2">No mirrors yet.</p>}
+      {mirrors.length > 0 && (
+        <p
+          className="text-xs text-muted-foreground mb-2"
+          data-testid="mirrors-notify"
+        >
+          When a mirror needs you: a desktop notification here, repeated daily
+          while a conflict or a dirty mirror stands · RECIPE_NOTIFY_URL{" "}
+          {notifyUrlStatus()}
+        </p>
+      )}
       <ul className="flex flex-col gap-3">
         {mirrors.map((name) => {
           const entry = state[name];
@@ -92,11 +104,36 @@ export async function MirrorsCard({ remotes }: { remotes: RemoteSummary[] }) {
                       ` · ${entry.consecutiveFailures} failure${entry.consecutiveFailures === 1 ? "" : "s"} in a row`}
                   </p>
                 )}
-              {entry?.outcome === "conflict" && (
+              {(entry?.outcome === "conflict" || entry?.conflictSince) && (
                 <p className="text-sm my-1">
                   Both sides changed the same file. Use <b>Pull</b> above: the
                   merge stops for you to resolve, then commit — the next sync
                   sends it to {name}.
+                </p>
+              )}
+              {entry?.conflictSince && (
+                <p className="text-xs" data-testid="mirror-conflict">
+                  Conflict standing since{" "}
+                  <time dateTime={entry.conflictSince}>
+                    {when(entry.conflictSince)}
+                  </time>
+                  {entry.conflictJob && (
+                    <>
+                      {" · "}
+                      <Link
+                        href={`/jobs/${entry.conflictJob}`}
+                        className="underline"
+                      >
+                        the sync that hit it
+                      </Link>
+                    </>
+                  )}
+                  {" · "}
+                  {entry.standingSent?.error
+                    ? `${name}'s editor not told: ${entry.standingSent.error}`
+                    : entry.standingSent?.key?.startsWith("conflict:")
+                      ? `${name}'s editor was told`
+                      : `${name}'s editor hears of it on its next ping`}
                 </p>
               )}
               {entry?.settings && (

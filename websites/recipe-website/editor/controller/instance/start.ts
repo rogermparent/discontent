@@ -21,7 +21,11 @@
  * runner** (D4): at startup, after every HEAD move that was not its own, on
  * a mirror's ping (through `/api/git/sync`) and on "Sync now" — one
  * `gitSync` per mirror, serialised in-process and locked across processes,
- * with a desktop notification when a mirror needs a person (D5).
+ * with a desktop notification when a mirror needs a person (D5) — and,
+ * since epic 39 (D5), a POST to `RECIPE_NOTIFY_URL` when set, and a daily
+ * reminder while a conflict or a dirty mirror stands (`attention.ts`). After
+ * each sync it also tells the mirror's editor when a conflict starts or
+ * clears (39 D4, `standing.ts`).
  *
  * A **mirror** with `WORKSTATION_URL`/`WORKSTATION_SYNC_TOKEN` **pings** the
  * workstation after every HEAD move and at startup.
@@ -33,10 +37,7 @@
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { directoryIsGitRepo } from "@discontent/cms/git/commit";
 import { readHead, readIndexFreshness } from "@discontent/cms/git/indexStamp";
-import {
-  readSyncState,
-  type MirrorSyncState,
-} from "@discontent/cms/git/syncState";
+import { readSyncState } from "@discontent/cms/git/syncState";
 import simpleGit from "simple-git";
 import { watchRefs, type RefWatcher } from "@discontent/cms/git/watchRefs";
 import {
@@ -52,10 +53,11 @@ import { outsideQueue, repoResource } from "../jobs/queue";
 import { gitSync, type SyncResult } from "../curation/sync";
 import { LockBusyError, withRepoLock } from "./lock";
 import { mirrorTargets } from "./mirrors";
-import { attentionKey, attentionText, desktopNotify } from "./notify";
+import { noteAttention, REMINDER_CHECK_MS } from "./attention";
 import { pingWorkstation, workstationConfig, type PingState } from "./pinger";
 import { refreshEditor } from "./refresh";
 import { pushSiteSettings } from "./siteSettings";
+import { pushStanding } from "./standing";
 import { createCoalescedTask, type CoalescedTask } from "./coalesce";
 import { createSyncRunner, type SyncRunner, type SyncTrigger } from "./runner";
 
@@ -69,6 +71,8 @@ export interface Instance {
   reindexIfForeign?: CoalescedTask;
   /** Run `fn` exclusively with every other sync in this process. */
   exclusive<T>(fn: () => Promise<T>): Promise<T>;
+  /** 39d, D5: the hourly look for a reminder that is due (workstation). */
+  reminderTimer?: ReturnType<typeof setInterval>;
   close(): void;
 }
 
@@ -372,6 +376,40 @@ export async function runMirrorSync(
           );
         }
       }
+      /*
+       * 39d, D4: the mirror's editor hears when a conflict starts or clears,
+       * whichever trigger found it — a ping's answer says it too, but the
+       * workstation's own syncs answer no one. Logged like the settings.
+       */
+      const record = result.remote || target?.remote;
+      if (record) {
+        const told = await pushStanding(
+          contentDirectory,
+          target?.remote === record ? target : { remote: record },
+        );
+        if (
+          told.status === "sent" ||
+          (told.status === "failed" && !told.repeated)
+        ) {
+          console.info(
+            `[sync] ${record} told of the standing state: ${told.status}` +
+              (told.status === "failed" ? ` — ${told.error}` : ""),
+          );
+        }
+      }
+      /*
+       * 39d, D5: a person hears of a new state (or a reminder that is due)
+       * only from a running instance — never from a test server's or a
+       * script's sync, which would pop notifications on the desk.
+       */
+      const instance = getInstance();
+      if (
+        record &&
+        instance &&
+        sameDirectory(instance.contentDirectory, contentDirectory)
+      ) {
+        await noteAttention(contentDirectory, record);
+      }
       retryAfterBusy(result.outcome);
       return result;
     } finally {
@@ -414,18 +452,11 @@ async function start(): Promise<Instance | undefined> {
     { blocked: () => activeSyncs > 0 },
   );
 
-  /* --- D4/D5: the workstation's runner ---------------------------------- */
-  const attention = new Map<string, string | null>();
-  function notifyIfNew(state: MirrorSyncState) {
-    const key = attentionKey(state);
-    const previous = attention.get(state.remote) ?? null;
-    attention.set(state.remote, key);
-    if (key && key !== previous) {
-      const { title, body } = attentionText(state);
-      desktopNotify(title, body);
-    }
-  }
-
+  /*
+   * --- D4/D5: the workstation's runner ----------------------------------
+   * A person is told by `runMirrorSync` itself (39d: `noteAttention`, once
+   * per new state, persisted), so a ping's sync and Sync now tell too.
+   */
   async function runAll(triggers: SyncTrigger[]): Promise<SyncResult[]> {
     const settings = await readSettings();
     const targets = await mirrorTargets(contentDirectory, settings.mirrors);
@@ -441,8 +472,6 @@ async function start(): Promise<Instance | undefined> {
           `[sync] ${target.remote} (${triggers.join(",")}): ${result.outcome}` +
             (result.message ? ` — ${result.message}` : ""),
         );
-        /* `busy` never needs a person (and a lost lock race left no record). */
-        if (result.outcome !== "busy") notifyIfNew(result.state);
         results.push(result);
       } catch (error) {
         if (error instanceof LockBusyError) {
@@ -463,6 +492,7 @@ async function start(): Promise<Instance | undefined> {
     close() {
       if (busyRetryTimer) clearTimeout(busyRetryTimer);
       busyRetryTimer = undefined;
+      if (instance.reminderTimer) clearInterval(instance.reminderTimer);
       instance.watcher?.close();
       instance.runner?.dispose();
       instance.pinger?.dispose();
@@ -481,6 +511,19 @@ async function start(): Promise<Instance | undefined> {
       run: runAll,
       headAfterRun: () => readHead(contentDirectory),
     });
+    /*
+     * 39d, D5: a reminder is due a day after the last word about a conflict
+     * or a dirty mirror, sync or no sync; the clock is on disk, so a
+     * restart neither repeats nor resets it.
+     */
+    instance.reminderTimer = setInterval(() => {
+      void (async () => {
+        for (const remote of (await readSettings()).mirrors ?? []) {
+          await noteAttention(contentDirectory, remote);
+        }
+      })().catch(() => undefined);
+    }, REMINDER_CHECK_MS);
+    instance.reminderTimer.unref?.();
   }
   if (role === "mirror" && workstationConfig()) {
     instance.pinger = createSyncRunner({

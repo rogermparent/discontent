@@ -8,6 +8,8 @@ import { readInventory } from "recipe-editor/controller/curation/inventory";
 import { exportBuildEnv } from "recipe-editor/controller/exportEnv";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { RepositoryBusyError } from "@discontent/cms/git/writeLock";
+import { readHead } from "@discontent/cms/git/indexStamp";
+import { writeExportStamp } from "recipe-editor/controller/exportStamp";
 import { ensureSymlink } from "fs-extra";
 import { resolve } from "path";
 import { exportUnavailableReason, getExportDirectory } from "./availability";
@@ -72,5 +74,21 @@ export async function buildExport() {
     async () => (await readInventory({ contentDirectory })).items,
   );
 
-  return commandAction("build", extraEnv);
+  /*
+   * Epic 39, D6: the commit this build reads, recorded once it succeeds, so
+   * the page can say how many commits the export is behind. Read after the
+   * rebuild, as the build's indexes describe it.
+   */
+  const head = await readHead(contentDirectory);
+  return commandAction(
+    "build",
+    extraEnv,
+    head
+      ? () =>
+          writeExportStamp(contentDirectory, {
+            head,
+            at: new Date().toISOString(),
+          })
+      : undefined,
+  );
 }

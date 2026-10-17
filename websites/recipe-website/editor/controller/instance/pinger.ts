@@ -12,10 +12,17 @@
  * and reindex). The last result is kept in `.git/discontent-ping.json` for the
  * mirror's `/git`. If the workstation is down, nothing is retried here: its
  * own startup sync catches up.
+ *
+ * Epic 39, D4: the answer also carries the workstation's **standing** state
+ * for this mirror (a conflict since `<time>`, or clear), whatever the run's
+ * outcome; it is kept with `recordStanding` (`standing.ts`), the newest
+ * wins, for the mirror's conflict banner. An answer without it (a
+ * workstation from before 39d, an error) leaves what the mirror knew.
  */
 import { readFile, writeFile } from "fs/promises";
 import { isAbsolute, join } from "path";
 import simpleGit from "simple-git";
+import { parseStanding, recordStanding } from "./standing";
 
 const PING_STATE = "discontent-ping.json";
 
@@ -99,7 +106,10 @@ export async function pingWorkstation(
       outcome?: string;
       message?: string;
       error?: { message?: string };
+      standing?: unknown;
     };
+    const standing = response.ok ? parseStanding(body.standing) : undefined;
+    if (standing) await recordStanding(contentDirectory, standing, "ping");
     state = {
       at,
       ok: response.ok,

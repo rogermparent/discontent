@@ -14,9 +14,15 @@ let currentStream: ReadableStream | undefined;
 
 export type StreamActionResult = string | ReadableStream<Uint8Array>;
 
+/**
+ * Run `pnpm run <command>` in the export package and stream its output.
+ * `onSuccess` (server callers only — the Export page's Build, epic 39 D6)
+ * runs once the command exits 0, after the stream has ended.
+ */
 export async function commandAction(
   command: string,
   extraEnv?: Record<string, string>,
+  onSuccess?: () => Promise<void>,
 ): Promise<StreamActionResult> {
   unstable_noStore();
   const user = await auth();
@@ -46,9 +52,17 @@ export async function commandAction(
   }
   const webStream = Readable.toWeb(newBuild.all);
   currentStream = webStream as ReadableStream;
-  newBuild.finally(() => {
-    currentStream = undefined;
-  });
+  newBuild
+    .then(
+      async () => {
+        await onSuccess?.();
+      },
+      () => undefined,
+    )
+    .catch(() => undefined)
+    .finally(() => {
+      currentStream = undefined;
+    });
 
   return currentStream;
 }

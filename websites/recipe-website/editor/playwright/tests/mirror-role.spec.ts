@@ -107,6 +107,81 @@ test.describe("Mirror role", () => {
     await expect(page.getByText("Commit history")).toBeVisible();
   });
 
+  /*
+   * Epic 39, D4: the workstation tells a mirror when a conflict starts or
+   * clears (`PUT /api/git/standing`, as its sync does after a conflict); the
+   * mirror's /git and Maintenance say so until it is clear.
+   */
+  test("shows the workstation's conflict until it is told it is clear (39-D4)", async ({
+    page,
+    request,
+    resetData,
+    initializeContentGit,
+  }) => {
+    await resetData();
+    const token = await createApiToken();
+    const headers = { authorization: `Bearer ${token}` };
+    await initializeContentGit();
+
+    expect(
+      (
+        await request.put("/api/git/standing", {
+          data: { asOf: "2026-10-16T10:00:00.000Z", conflict: null },
+        })
+      ).status(),
+    ).toBe(401);
+    const bad = await request.put("/api/git/standing", {
+      headers,
+      data: { asOf: "yesterday", conflict: { since: "soon" } },
+    });
+    expect(bad.status()).toBe(400);
+
+    const told = await request.put("/api/git/standing", {
+      headers,
+      data: {
+        asOf: "2026-10-16T10:00:05.000Z",
+        conflict: { since: "2026-10-16T10:00:00.000Z", job: "01JTESTJOB" },
+      },
+    });
+    expect(told.status()).toBe(200);
+    expect(await told.json()).toEqual({ ok: true, kept: true });
+
+    await page.goto("/git");
+    await fillSignInForm(page);
+    const banner = page.getByTestId("workstation-conflict-banner");
+    await expect(banner).toContainText("The workstation hit a conflict at");
+    await expect(banner).toContainText(
+      "Your edits here are safe; resolve it on the workstation.",
+    );
+    await expect(banner.locator("time")).toHaveAttribute(
+      "datetime",
+      "2026-10-16T10:00:00.000Z",
+    );
+    await page.goto("/settings/maintenance");
+    await expect(page.getByTestId("workstation-conflict-banner")).toBeVisible();
+
+    /* An older answer cannot undo it; a newer "clear" does. */
+    const stale = await request.put("/api/git/standing", {
+      headers,
+      data: { asOf: "2026-10-16T09:00:00.000Z", conflict: null },
+    });
+    expect(await stale.json()).toEqual({ ok: true, kept: false });
+    await page.reload();
+    await expect(page.getByTestId("workstation-conflict-banner")).toBeVisible();
+    await request.put("/api/git/standing", {
+      headers,
+      data: { asOf: "2026-10-16T11:00:00.000Z", conflict: null },
+    });
+    await page.reload();
+    await expect(page.getByTestId("workstation-conflict-banner")).toHaveCount(
+      0,
+    );
+    await page.goto("/git");
+    await expect(page.getByTestId("workstation-conflict-banner")).toHaveCount(
+      0,
+    );
+  });
+
   test.describe("site settings follow the workstation (D7)", () => {
     test.afterEach(async ({ writeSettings }) => {
       await writeSettings({});
@@ -213,5 +288,11 @@ test.describe("Workstation role (the default)", () => {
       data: { footerNote: "Not here." },
     });
     expect(response.status()).toBe(403);
+    /* 39-D4: nor a standing sync state — that is its own. */
+    const standing = await request.put("/api/git/standing", {
+      headers: { authorization: `Bearer ${token}` },
+      data: { asOf: "2026-10-16T10:00:00.000Z", conflict: null },
+    });
+    expect(standing.status()).toBe(403);
   });
 });

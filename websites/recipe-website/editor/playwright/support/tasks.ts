@@ -1,6 +1,7 @@
 import {
   copy,
   ensureDir,
+  outputFile,
   outputJSON,
   pathExists,
   readFile,
@@ -18,6 +19,7 @@ import {
 } from "@discontent/cms/git/indexStamp";
 import { ulid } from "@discontent/cms/util/ulid";
 import { recipeContentTypes } from "../../controller/contentTypes";
+import { writeExportStamp } from "../../controller/exportStamp";
 import { currentIndexVersion } from "../../controller/indexVersion";
 import { newJobMeta, writeJobMeta } from "../../controller/jobs/store";
 import { addTokenToUser, removeTokensFromUser } from "../../src/users";
@@ -195,6 +197,22 @@ export async function initializeContentGit(): Promise<void> {
    */
   await writeIndexedHead(testContentDir);
   await writeIndexVersion(testContentDir, currentIndexVersion());
+}
+
+/**
+ * Epic 39, D6: record an export of the test content's current HEAD, as a
+ * finished Build does (`controller/exportStamp.ts`).
+ */
+export async function writeContentExportStamp(at: string): Promise<void> {
+  const head = (await simpleGit(testContentDir).revparse(["HEAD"])).trim();
+  await writeExportStamp(testContentDir, { head, at });
+}
+
+/** A plain commit in the test content (a file outside every content type). */
+export async function commitInContent(relative: string): Promise<void> {
+  const git = simpleGit(testContentDir);
+  await outputFile(resolve(testContentDir, relative), `${ulid()}\n`);
+  await git.add(relative).commit(`Add ${relative}`);
 }
 
 /** The test content's recorded index version (epic 39, D1), set by hand. */

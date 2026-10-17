@@ -65,6 +65,46 @@ export interface MirrorSyncState {
   pushed?: number;
   /** The last time site settings were sent to this mirror (D7). */
   settings?: SettingsPushState;
+  /**
+   * When the conflict that still stands with this mirror was first hit
+   * (epic 39, D4). Set by a `conflict`, kept through every outcome that
+   * cannot tell whether it is resolved (`blocked` while a person merges,
+   * `busy`, `raced`, `unreachable`, `mirror_dirty`, `error`), and cleared
+   * only by a `nothing` or `synced`.
+   */
+  conflictSince?: string;
+  /** The `git-sync` job that last hit that conflict, for a link (39d). */
+  conflictJob?: string;
+  /**
+   * The attention state a person was last told about (39d, D5): kept here,
+   * not in memory, so a restart neither notifies again nor loses the daily
+   * reminder's clock.
+   */
+  attention?: AttentionRecord;
+  /** The standing state last sent to the mirror's editor (39d, D4). */
+  standingSent?: StandingPushState;
+}
+
+/** 39d, D5: what was last notified about one mirror, and when. */
+export interface AttentionRecord {
+  /** `attentionKey`'s key, e.g. `uraninite:conflict`. */
+  key: string;
+  /** ISO time it was first notified. */
+  since: string;
+  /** ISO time of the last notification or reminder. */
+  at: string;
+}
+
+/**
+ * 39d, D4: the workstation tells the mirror's editor when a conflict starts
+ * or clears. `key` is what the mirror last accepted (`conflict:<since>` or
+ * `clear`); a failed send keeps the previous key and records `error`, so the
+ * next sync tries again.
+ */
+export interface StandingPushState {
+  at: string;
+  key?: string;
+  error?: string;
 }
 
 /**
@@ -114,6 +154,8 @@ export interface SyncAttempt {
   pulled?: number;
   pushed?: number;
   at?: Date;
+  /** The `git-sync` job this attempt ran in (39d: a conflict links it). */
+  job?: string;
 }
 
 /** Fold one attempt into the file and return the remote's new state. */
@@ -142,8 +184,65 @@ export async function recordSyncAttempt(
     ...(attempt.pulled !== undefined ? { pulled: attempt.pulled } : {}),
     ...(attempt.pushed !== undefined ? { pushed: attempt.pushed } : {}),
     ...(previous?.settings ? { settings: previous.settings } : {}),
+    ...conflictFields(attempt, previous, at, success),
+    ...(previous?.attention ? { attention: previous.attention } : {}),
+    ...(previous?.standingSent ? { standingSent: previous.standingSent } : {}),
   };
   file[attempt.remote] = next;
+  await writeStateFile(contentDirectory, file);
+  return next;
+}
+
+/** 39d, D4: a conflict stands from the first `conflict` until a success. */
+function conflictFields(
+  attempt: SyncAttempt,
+  previous: MirrorSyncState | undefined,
+  at: string,
+  success: boolean,
+): Pick<MirrorSyncState, "conflictSince" | "conflictJob"> {
+  if (success) return {};
+  if (attempt.outcome === "conflict") {
+    const job = attempt.job ?? previous?.conflictJob;
+    return {
+      conflictSince: previous?.conflictSince ?? at,
+      ...(job ? { conflictJob: job } : {}),
+    };
+  }
+  return {
+    ...(previous?.conflictSince
+      ? { conflictSince: previous.conflictSince }
+      : {}),
+    ...(previous?.conflictSince && previous.conflictJob
+      ? { conflictJob: previous.conflictJob }
+      : {}),
+  };
+}
+
+/**
+ * Set (or, with `undefined`, remove) fields of one mirror's record, keeping
+ * the rest (39d: the attention record, the standing send). A remote with no
+ * record gets none: these follow a sync, never stand alone. Answers the new
+ * record.
+ */
+export async function patchMirrorState(
+  contentDirectory: string,
+  remote: string,
+  fields: Partial<
+    Pick<MirrorSyncState, "attention" | "standingSent" | "settings">
+  >,
+): Promise<MirrorSyncState | undefined> {
+  const file = await readSyncState(contentDirectory);
+  const previous = file[remote];
+  if (!previous) return undefined;
+  const next: MirrorSyncState = { ...previous };
+  for (const [key, value] of Object.entries(fields) as [
+    keyof typeof fields,
+    unknown,
+  ][]) {
+    if (value === undefined) delete next[key];
+    else (next as unknown as Record<string, unknown>)[key] = value;
+  }
+  file[remote] = next;
   await writeStateFile(contentDirectory, file);
   return next;
 }

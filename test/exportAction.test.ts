@@ -24,6 +24,15 @@ const mocks = vi.hoisted(() => ({
   ensureSymlink: vi.fn(async () => {}),
   exportUnavailableReason: vi.fn(async () => null),
   exportBuildEnv: vi.fn(),
+  readHead: vi.fn(async () => "0123456789abcdef0123456789abcdef01234567"),
+  writeExportStamp: vi.fn(async () => {}),
+}));
+
+vi.mock("@discontent/cms/git/indexStamp", () => ({
+  readHead: mocks.readHead,
+}));
+vi.mock("../websites/recipe-website/editor/controller/exportStamp", () => ({
+  writeExportStamp: mocks.writeExportStamp,
 }));
 
 vi.mock("../websites/recipe-website/editor/controller/actions", () => ({
@@ -97,8 +106,31 @@ describe("buildExport", () => {
     expect(mocks.exportBuildEnv).toHaveBeenCalledOnce();
     /* Sharing off (the default): the override is there, and empty. */
     const env = await mocks.exportBuildEnv.mock.results[0].value;
-    expect(mocks.commandAction).toHaveBeenCalledWith("build", env);
+    expect(mocks.commandAction).toHaveBeenCalledWith(
+      "build",
+      env,
+      expect.any(Function),
+    );
     expect(env).toEqual({ SITE_HOUSE_INVENTORY: "" });
     expect(mocks.readInventory).not.toHaveBeenCalled();
+  });
+
+  /* Epic 39, D6: a build that finishes records the commit it read. */
+  it("records the exported commit only once the build succeeds", async () => {
+    auth.mockResolvedValue({ user: { email: "owner@example.com" } });
+    await buildExport();
+    expect(mocks.writeExportStamp).not.toHaveBeenCalled();
+    const onSuccess = (
+      mocks.commandAction.mock.calls[0] as unknown as [
+        string,
+        unknown,
+        () => Promise<void>,
+      ]
+    )[2];
+    await onSuccess();
+    expect(mocks.writeExportStamp).toHaveBeenCalledWith(expect.any(String), {
+      head: "0123456789abcdef0123456789abcdef01234567",
+      at: expect.any(String),
+    });
   });
 });

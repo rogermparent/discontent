@@ -1118,7 +1118,9 @@ Roger deployed `98d7e939` (`! pnpm deploy:pi`: base re-sent in 189 s, app
   (`agent-epic-29.md` 29b–29d), planned and ⏸️ deferred after 29a.
 - ~~Batching `rebuildIndex`'s per-item LMDB commits.~~ **Done by 29a**
   (`agent-epic-29.md` D2: one transaction per content index).
-- Phone notifications.
+- ~~Phone notifications.~~ **Done in 39d** (`agent-epic-39.md` D5:
+  `RECIPE_NOTIFY_URL`, an ntfy-style POST from the workstation, opt-in, with
+  a daily reminder while a conflict stands).
 - A second mirror (the loop is per-remote already).
 - ~~Running the workstation editor as a systemd user service, so sync runs
   whenever tourmaline is up (Roger's call).~~ **Done in 28i**

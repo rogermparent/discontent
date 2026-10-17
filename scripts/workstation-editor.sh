@@ -20,13 +20,15 @@
 #   SETTINGS_DIRECTORY  the editor's settings (this checkout's editor/settings)
 #   MIRROR_SYNC_TOKEN   D7's token for the Pi — the deploy config's PI_TOKEN
 #   PORT                3000
+# Optional, added by hand (then `restart`): RECIPE_NOTIFY_URL, an https
+# ntfy-style URL told when a mirror needs you (epic 39, D5).
 #
 # The unit starts with your user session (default.target). To have it run at
 # boot without a login: `loginctl enable-linger "$USER"` (a choice, not done
 # here).
 set -euo pipefail
 
-usage() { sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; }
 
 UNIT=recipe-workstation.service
 repo=$(cd "$(dirname "$0")/.." && pwd)
