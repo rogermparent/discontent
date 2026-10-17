@@ -135,6 +135,18 @@ survives a cleared context.
   cap) and a content round (38a–38f). Roger's steps (workstation update,
   `RECIPE_LLM_VISION_MODEL`, optional Pi deploy, no reindex) are in the
   doc's Close-out.
+- `websites/recipe-website/docs/agent-epic-39.md` — epic 39: import
+  reliability (an unstored job's panel, the model named in notes and
+  warnings, `--fresh`, the vision digest in the transcript key; 1568 px
+  still crashes the vision runner), reindex follow-through (an index-version
+  stamp that rebuilds stale indexes at start, reindex and git sync as jobs
+  on a per-repo queue line, the 29b–29d no-go), cooking UX (held ticks
+  expire, undo a sub-recipe expansion, jump anchors), unattended Pi sync
+  (the Pi sees a workstation conflict, `RECIPE_NOTIFY_URL`, export
+  staleness), hygiene (`paceKey` by registrable domain, resume-builder
+  `@source`) and content calls (39a–39f). Roger's steps (workstation
+  update, 38g key lines, Pi deploy, optional notify URL; no manual reindex)
+  are in the doc's Close-out.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
