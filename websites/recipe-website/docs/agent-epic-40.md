@@ -19,8 +19,8 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 39f, 40a (#262), 40b (#261), 40d (no-go) and 40e (`tag:thanksgiving`
-30 → 47) done; 40c and 40h in progress; 40f and 40g queued.
+**Now:** closed (2026-10-17). Every phase landed (39f, 40a–40h); see the
+Close-out for Roger's steps and the "Roger to confirm" list.
 
 ## Context
 
@@ -73,17 +73,17 @@ recorded. Picking the change up on the workstation stays Roger's
 
 ## Roadmap
 
-| Phase    | Size | Branch             | Status | PR   | What                                                                                       |
-| -------- | ---- | ------------------ | ------ | ---- | ------------------------------------------------------------------------------------------ |
-| 40a      | S–M  | `agent/40a-llm`    | ✅     | #262 | Context sized to the input, honest placement wording, `/v1` against Ollama, batch names.   |
-| 40b      | S–M  | `agent/40b-ci`     | ✅     | #261 | resume-builder's 7 red specs, its path-filtered CI job, portfolio's prod-build heap.       |
-| 40c      | S–M  | `agent/40c-quick`  | 🟡     |      | `shopping remove --for`, a bounded start-rebuild retry, Select/Checkbox on Radix `ui/*`.   |
-| 40d      | S/M  | `agent/40d-clouds` | ✅     | #263 | D3: measure the term clouds, then go (key per term) or a recorded no-go.                   |
-| 40e      | S–M  | (content repo)     | ✅     | —    | D2: Thanksgiving gaps — gravy, greens, mac and cheese, cornbread, leftovers, drinks.       |
-| 40f      | S–M  | `agent/40f-flakes` | 📝     |      | Extra queue: flaky specs from the last ~50 CI runs, fixed at the root; README's test part. |
-| 40g      | S–M  | `agent/40g-a11y`   | 📝     |      | Extra queue: axe specs for `/shopping`, `/jobs`, `/git`, `/make`, Export, the term form.   |
-| 40h      | M    | `agent/40h-deps`   | ✅     | #264 | Extra queue: D4, patch and minor dependency updates.                                       |
-| 40-close | S    | `agent/40-close`   | 📝     |      | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                          |
+| Phase    | Size | Branch             | Status | PR      | What                                                                                       |
+| -------- | ---- | ------------------ | ------ | ------- | ------------------------------------------------------------------------------------------ |
+| 40a      | S–M  | `agent/40a-llm`    | ✅     | #262    | Context sized to the input, honest placement wording, `/v1` against Ollama, batch names.   |
+| 40b      | S–M  | `agent/40b-ci`     | ✅     | #261    | resume-builder's 7 red specs, its path-filtered CI job, portfolio's prod-build heap.       |
+| 40c      | S–M  | `agent/40c-quick`  | ✅     | #265    | `shopping remove --for`, a bounded start-rebuild retry, Select/Checkbox on Radix `ui/*`.   |
+| 40d      | S/M  | `agent/40d-clouds` | ✅     | #263    | D3: measure the term clouds, then go (key per term) or a recorded no-go.                   |
+| 40e      | S–M  | (content repo)     | ✅     | —       | D2: Thanksgiving gaps — gravy, greens, mac and cheese, cornbread, leftovers, drinks.       |
+| 40f      | S–M  | `agent/40f-flakes` | ✅     | #266    | Extra queue: flaky specs from the last ~50 CI runs, fixed at the root; README's test part. |
+| 40g      | S–M  | `agent/40g-a11y`   | ✅     | #267    | Extra queue: axe specs for `/shopping`, `/jobs`, `/git`, `/make`, Export, the term form.   |
+| 40h      | M    | `agent/40h-deps`   | ✅     | #264    | Extra queue: D4, patch and minor dependency updates.                                       |
+| 40-close | S    | `agent/40-close`   | ✅     | this PR | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                          |
 
 Ordering, in waves: 40a ∥ 40b (editor llm vs resume-builder/portfolio/CI,
 disjoint), with 40e's research and dry run in the orchestrator alongside;
@@ -1485,3 +1485,140 @@ the heavy slot): `recipe-editor` typecheck clean; `recipe-website tsc
 written. The dev-mode recipe run is left to CI.
 
 ## Close-out
+
+Closed 2026-10-17. Every phase landed: 39f (content, docs #259), 40e (content,
+docs #260), 40a #262, 40b #261, 40d #263, 40c #265, 40h #264, 40f #266, 40g
+#267, and this close. Nothing is deployed. No phase changes an index layout
+or a spec version (40d is a no-go), so **no reindex is needed**.
+
+### For Roger's morning — 40e's review list
+
+Eight Thanksgiving imports and nine existing recipes tagged `thanksgiving`
+(`tag:thanksgiving` 30 → 47; content `47bc83e8`..`5ff24c2b`, synced to the Pi
+by the workstation): Turkey Gravy and Creamy Make-Ahead Mashed Potatoes (Once
+Upon a Chef), Cornbread Stuffing (Sally's), Roasted Green Beans and Carrots
+(Crowded Kitchen), Roasted Brussels Sprouts (Ina Garten, Food Network), and
+Apple Cider Sangria, Apple Cider Cocktail and Apple Cider Mimosa (A Couple
+Cooks). The tagged nine are baked mac and cheese, sourdough cornbread, the
+warm Brussels sprouts salad, four leftover-turkey dishes and two ciders.
+40e's Results has the commit per recipe, the "for Roger" list (not imported:
+a cranberry mule with a dead image, near-duplicates) and the undo commands.
+
+### What shipped, phase by phase
+
+- **39f, content calls (#259).** C2, C6, C7 applied (red-wine spritzer cites
+  the Wayback snapshot; three generic salads lost `american`; shumai gained
+  `main`); the rest closed.
+- **40a, import polish (#262).** The local model's `num_ctx` follows the
+  input (4096 / 8192 / 12288, one step per import); the GPU check ran 100%
+  on the GPU at 8192 (6.2 GB) and 4096 (5.6 GB), against 89% at 12288 in
+  39a. Placement warnings say why: "loaded while VRAM was held" (`ollama
+stop` helps), the desktop's baseline (it doesn't), or another program.
+  `RECIPE_LLM_API=openai` against Ollama's `/v1` warns in Settings, `/jobs`
+  and each import. Non-ASCII text counts a token per character; a full
+  context is flagged.
+- **40b, test and CI hygiene (#261).** resume-builder's suite 35/35 (was
+  28/35: a company line on the view page, a Cancel link, two stale git
+  specs) and a path-filtered "Resume builder" CI job. Portfolio's
+  production build moved to Turbopack (1.19 GB peak, was out of heap at
+  ~4 GB with webpack).
+- **40c, quick wins (#265).** `shopping remove --for <slug>` on the CLI and
+  MCP (57/43 unchanged); a failed instance rebuild retries at 1, 5 and 15
+  minutes; the shared Select and Checkbox inputs on Radix (FormData
+  unchanged); **`/export`'s server actions, broken on `main` in production
+  builds, fixed** (a type re-export from a "use server" file).
+- **40d, term clouds (#263).** Measured: the worst cloud read is 36 ms cold
+  on the workstation (~0.2 s on the Pi). **No-go**; reopen when
+  `readTagBoard` passes ~100 ms cold (~2,200 recipes);
+  `scripts/measure-term-clouds.ts` kept.
+- **40e, Thanksgiving.** Above.
+- **40f, flakes (#266).** The top CI flakes fixed at the root: hydration
+  waits (`expectHydrated`) for menus, git and jobs; a real `aria-controls` /
+  `aria-activedescendant` bug in search autocomplete; YouTube preview keyed
+  by URL (a third-party race); `test-content`/`test-jobs` isolation; a
+  keep-alive socket race; the 60 s shopping cap test now 0.5 s. Open: the
+  CMS demo's dev-only `aggregates.spec:265` (1 in 35), and
+  `search-query-language.spec:310`.
+- **40g, accessibility (#267).** 27 new axe checks (22 signed-in pages,
+  `/shopping`, `/git` with a mirror); one `<main>` per page (the sidebar
+  layout's own `<main>` wrapped every settings page's); the checkbox border
+  from 1.27:1 to 5.6:1 (WCAG 1.4.11); the theme sliders' `aria-label` no
+  longer duplicated onto a role-less element (found by CI's dev-mode run).
+- **40h, dependencies (#264).** Patch and minor updates (Next 16.4.2 with
+  its security fixes, React 19.2.9, lmdb, vitest, MCP SDK, …). Held: zod,
+  markdown-to-jsx, simple-git ≥ 3.34 (each breaks a gate). The CI round
+  fixed a StrictMode double-mount read on `/jobs` and a missing
+  `suppressHydrationWarning` on portfolio's `<html>`; `agentRules: false`
+  stops `next dev` writing `AGENTS.md`.
+
+### The overnight OOM (2026-10-17, 03:59)
+
+One heavy job (the orchestrator's own host-side portfolio Playwright run, to
+regenerate a baseline) grew ~20 GB in 7 minutes across many processes. The
+heavy slot admits by free memory but never bounded a job, and every job ran
+in Roger's graphical session's cgroup; earlyoom (per process) killed
+parakeet twice, then systemd-oomd killed the whole `session-2.scope` — the
+desktop, every Claude session and the other overnight session. Since then
+(orchestrator helpers, not the repo):
+
+- `orchestrator/capped.sh` runs every heavy job in its own `systemd-run
+--user --scope` (MemoryMax 8G, MemorySwapMax 2G), outside the session;
+  `heavy.sh`, `pw.sh`/`heavy-pw.sh` and the new `heavy-bg.sh` use it. A
+  runaway exits 137 alone. No MemoryHigh (it throttles a runaway into a
+  crawl that holds the shared slot).
+- Workers never call the queue-lock directly (40f's own wrapper had skipped
+  the old one); `exit 137` is reported, not retried.
+- Visual baselines are regenerated only in Docker: `orchestrator/docker-pw.sh`
+  builds the repo's `Dockerfile.playwright` (CI's image and fonts) and runs
+  it with `--memory 8g --memory-swap 10g` — `docker-compose.test.yml`
+  already said baselines must never be made on the host. 40c's portfolio
+  baseline was the first, and CI passed it.
+- The other overnight session adopted the same per-job cap.
+
+### Roger to confirm
+
+- **40a:** warn-only for `/v1` (Da5); the 1.2 GB desktop baseline (Da2).
+- **40b:** the resume view's on-screen company line (Db1) and the edit form's
+  Cancel link (Db2); portfolio's export still builds with webpack (Db5).
+- **40c:** the retry schedule and that it covers foreign-HEAD rebuilds (Dc2);
+  `/shopping`, `/make` and `/jobs` keep native controls (Dc5); Enter on a
+  Radix checkbox no longer submits a form (Dc4).
+- **40d:** D3's fan-out clause counted as cache entries, not URLs (Dd1).
+- **40e:** the nine recipes tagged `thanksgiving`; no cuisine on the generic
+  sides; the Brussels sprouts description rewritten.
+- **40f:** the YouTube preview keyed by URL works around a library race
+  (Df1).
+- **40g:** whether the bar moves to WCAG 2.2 AA (tag-chip target size); the
+  `--input` border (1.27:1) on every text field — raising it redraws every
+  form.
+- **40h:** React 19.3 / Tailwind 4.3 / Prettier 3.9 in a follow-up (Dh1); the
+  code changes that would lift the zod, markdown-to-jsx and simple-git
+  holds; Playwright 1.64 with new baselines; sharp 0.35.
+
+### Roger's steps
+
+1. `pnpm workstation update` (main checkout). It brings 40a's context sizing
+   and wording, 40c's `/export` fix and retry, 40g's checkbox, and 40h's
+   dependencies (including Next 16.4.2's security fixes). **No reindex.**
+2. The 38g lines in `~/.config/recipe-deploy/uraninite.env`, if not yet done.
+3. `pnpm deploy:pi` (carries 39's and 40's code; note the reindex time it
+   prints against the warm ~5 s trigger).
+4. **After Oct 31:** `pnpm --silent recipes feature --term thanksgiving --slug thanksgiving-2026 --note "Thanksgiving: turkey, sides, pies and drinks"`
+   (and unfeature Halloween if wanted).
+5. Docker disk: 240 GB of images (180 GB reclaimable) and 186 GB of build
+   cache, 85 GB free on `/`. Pruning is Roger's call — some images may be
+   the other session's.
+
+### Backlog
+
+Open items each phase named; rows in `backlog.md`.
+
+- 40f: the CMS demo's dev-only `aggregates.spec:265` flake; the
+  `search-query-language.spec:310` rail-link click; `resetData`'s retries
+  absorb rather than remove the `test-content` race (Tf5).
+- 40g: WCAG 2.2 target size for tag chips; the `--input` border contrast;
+  `heading-order` on `/search`, `image-redundant-alt` on `/groups`.
+- 40h: the three held packages (code changes named above); Playwright 1.64;
+  React/Tailwind/Prettier minors; sharp 0.35.
+- 40d: term clouds stay a no-go with the reopen trigger above.
+- 40e: a cranberry Thanksgiving drink (the Food Network mule had no image).
