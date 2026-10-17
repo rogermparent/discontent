@@ -121,10 +121,10 @@ export const LLM_NUM_CTX = 12_288;
  * The contexts an import asks for (40a, Da1): the smallest step that holds
  * its prompt and answer (`contextStep`). Few, fixed steps, because Ollama
  * reloads the model whenever `num_ctx` changes — a context per page size
- * would cost a load (5–9 s) per import. qwen3:8b's KV cache is ~144 KiB a
- * token, so 4 096 is ~6.0 GB loaded, 8 192 ~6.6 GB and 12 288 ~7.2 GB:
- * the two smaller steps fit an 8 GB card beside the desktop's ~0.8 GB
- * (39-Ta6), the largest does not.
+ * would cost a load (4–9 s) per import. `ollama ps` lists qwen3:8b at
+ * 5.6 GB with 4 096, 6.2 GB with 8 192 and 7.2 GB with 12 288 (40a's GPU
+ * check): the two smaller steps run 100% on an 8 GB card beside the
+ * desktop, the largest spilled 10% to the CPU beside its ~0.8 GB (39-Ta6).
  */
 export const LLM_CONTEXT_STEPS: readonly number[] = [4_096, 8_192, LLM_NUM_CTX];
 

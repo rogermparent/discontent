@@ -298,9 +298,9 @@ update` picks it up; the Pi (Claude API) gets nothing new but the code.
 **Decisions.**
 
 - **Da1 — the ladder and the estimate.** Steps 4 096 / 8 192 / 12 288
-  (`LLM_NUM_CTX`, unchanged): qwen3:8b's KV cache is ~144 KiB a token, so
-  ~6.0 / 6.6 / 7.2 GB loaded — the two smaller steps fit the RX 6600
-  beside the idle desktop, the largest does not (39-Ta6). Tokens are
+  (`LLM_NUM_CTX`, unchanged): `ollama ps` lists qwen3:8b at 5.6 / 6.2 /
+  7.2 GB — the two smaller steps run 100% on the RX 6600 beside the idle
+  desktop (the GPU check below), the largest spilled 10% (39-Ta6). Tokens are
   characters / 3 (conservative: qwen counts English at ~4); the answer's
   room is 512 + 1.5 × the text's tokens, at most 3 072 (the longest
   reading measured is ~1 700 output tokens, 36a's sticky buns). So up to
@@ -344,7 +344,27 @@ job warning. `multiRecipe.test`'s T23 case now checks all six calls ask
 one context; `importWithLlm.test`'s OpenAI case expects the probe).
 Playwright, build mode, `jobs.spec` + `settings-nav.spec`: **19 passed**.
 
-**GPU real check:** pending (see below).
+**GPU real check** (2026-10-17 ~05:19 UTC, orchestrator-cleared: parakeet
+paused, Ollama idle, 0.4 GB VRAM in use before). `real_check.sh`: two
+JSON-LD-less Wikibooks pages saved in 36a, served from scratch on
+127.0.0.1, `recipes import <url> --dry-run --llm force --fresh` into an
+empty scratch repo, one after the other; `ollama stop qwen3:8b` after.
+
+| Page                           | text chars | `numCtx` | `ollama ps`          | VRAM used (card) | llm.extract                                                         | grounded        | wall   |
+| ------------------------------ | ---------- | -------- | -------------------- | ---------------- | ------------------------------------------------------------------- | --------------- | ------ |
+| Chocolate_Chip_Cookies_I       | 5 117      | 8 192    | 6.2 GB, **100% GPU** | 6.49 GB / 8.57   | 24.1 s (load 4.0 s), 1 956 prompt tok @ 263/s, 483 out @ 38.3 tok/s | 11/11, verbatim | 25.9 s |
+| Hummus_I                       | 2 115      | 4 096    | 5.6 GB, **100% GPU** | 6.01 GB / 8.57   | 15.9 s (load 5.7 s), 1 272 prompt tok @ 709/s, 333 out @ 40.5 tok/s | 9/9, verbatim   | 19.6 s |
+| _39a, for comparison (12 288)_ | –          | 12 288   | 7.2 GB, 89% GPU      | –                | 20.4 s (load 9.5 s)                                                 | 8/8             | –      |
+
+- Both steps land wholly on the GPU; no placement warning. The prompt
+  counts confirm the estimate is conservative: 5 117 characters of text
+  plus the prompt measured 1 956 tokens against the estimate's ~2 600.
+- The second run reloaded the model (load 5.7 s with the model already
+  warm at 8 192): Ta1, measured.
+- Tonight the desktop held ~0.4 GB, not 39-Ta6's ~0.8 GB, so 12 288 was
+  not re-measured; the desktop wording is covered by the unit tests only.
+- The cookies page's dry run fetched its one picture from
+  thumb.wikimedia.org (one request); nothing else left the machine.
 
 **Roger to confirm.** Da5 (warn only, not the native path); the 1.2 GB
 desktop baseline (Da2).
