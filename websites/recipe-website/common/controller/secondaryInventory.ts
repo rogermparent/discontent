@@ -1,7 +1,9 @@
 /**
- * The make pages' secondary group (usability pass, U6): what a list other
- * than this browser's adds, shown apart from — and never counted into — what
- * the visitor's own list can make.
+ * The make pages' second list (usability pass, U6): a list other than this
+ * browser's. `/drinks` shows what it adds as a group apart from — and never
+ * counted into — what the visitor's own list can make; `/make` (41h) offers
+ * it under "Count from", where the visitor may choose to count from it, or
+ * from both, instead of their own list (the default).
  *
  * The primary list is always the browser's (`localStorage`, in both apps).
  * This helper is the one place a page asks for anything else:

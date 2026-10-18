@@ -1,0 +1,103 @@
+/*
+ * `/make`'s tape labels and its two small motions (epic 41h). Imported by
+ * both apps' globals.css. Components layer, so a utility at a call site still
+ * wins.
+ *
+ * A label is masking tape with the ingredient written on it, and its state is
+ * the tape: on hand (tape), featured (the accent), from the second list
+ * (outlined), missing (dashed). The torn ends are a `clip-path` on the
+ * `::before` that paints the tape, never on the label itself, so a focused
+ * button's outline is not clipped with it. Colours are theme tokens only —
+ * `--tape` and `--tape-foreground` are derived per neutral family
+ * (`theming/derive.ts`) — and the mono face is the theme's.
+ */
+@layer components {
+  .make-tape {
+    position: relative;
+    isolation: isolate;
+    display: inline-flex;
+    align-items: stretch;
+    color: var(--tape-foreground);
+  }
+  .make-tape::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: var(--tape);
+    clip-path: polygon(
+      0 0,
+      100% 0,
+      calc(100% - 3px) 22%,
+      100% 44%,
+      calc(100% - 3px) 66%,
+      100% 88%,
+      100% 100%,
+      0 100%,
+      3px 78%,
+      0 56%,
+      3px 34%,
+      0 12%
+    );
+  }
+  .make-tape[data-kind="saved"] {
+    color: var(--foreground);
+  }
+  .make-tape[data-kind="saved"]::before {
+    background: none;
+    clip-path: none;
+    border: 1px solid var(--input);
+    border-radius: 2px;
+  }
+  .make-tape[data-kind="missing"] {
+    color: var(--foreground);
+  }
+  .make-tape[data-kind="missing"]::before {
+    background: none;
+    clip-path: none;
+    border: 1.5px dashed var(--input);
+    border-radius: 2px;
+  }
+  .make-tape[data-featured="true"] {
+    color: var(--primary-foreground);
+  }
+  .make-tape[data-featured="true"]::before {
+    background: var(--primary);
+    border-color: var(--primary);
+    border-style: solid;
+  }
+
+  /* A label that just went on the shelf lands. */
+  .make-tape[data-landed="true"] {
+    animation: make-tape-land 0.5s ease-out;
+  }
+
+  /* A card that just became makeable: a brief accent ring. */
+  .make-fresh {
+    animation: make-fresh 2.4s ease-out;
+  }
+}
+
+@keyframes make-tape-land {
+  from {
+    transform: translateY(-6px) rotate(-2deg);
+    opacity: 0;
+  }
+}
+
+@keyframes make-fresh {
+  0%,
+  40% {
+    box-shadow: 0 0 0 2px var(--primary);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .make-tape[data-landed="true"],
+  .make-fresh {
+    animation: none;
+  }
+}

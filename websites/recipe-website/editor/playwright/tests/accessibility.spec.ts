@@ -55,7 +55,11 @@ test.describe("Accessibility (axe)", () => {
     expect(results.violations).toEqual([]);
   });
 
-  /* U5/U6: the staples switch and the saved-inventory group, signed in. */
+  /*
+   * U5/U6/41h: the staples switch, Count from on Both with the saved
+   * labels, a featured ingredient, Save to editor's confirm, the kind menu
+   * open, and both card views — signed in.
+   */
   test("make page with the saved inventory has no WCAG2AA violations", async ({
     page,
     resetData,
@@ -63,14 +67,33 @@ test.describe("Accessibility (axe)", () => {
     await resetData("make-drinks");
     await page.goto("/");
     await signIn(page);
-    await page.goto("/make?q=tag:drink");
+    await page.goto("/make?q=tag:drink ingredient:lime");
     await expect(page.getByTestId("make-ticker")).toHaveText(/can make/i, {
       timeout: 20_000,
     });
-    await page.getByTestId("saved-inventory").locator("summary").click();
-    await page.getByTestId("make-secondary").locator("summary").click();
-    const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
-    expect(results.violations).toEqual([]);
+    const input = page.getByTestId("inventory-input");
+    await input.fill("vodka, simple syrup");
+    await input.press("Enter");
+    await page
+      .getByRole("group", { name: "Count from" })
+      .getByRole("radio", { name: /^Both/ })
+      .check();
+    await expect(page.getByTestId("make-second-labels")).toBeVisible();
+    await page.getByRole("button", { name: "Save to editor" }).click();
+    await expect(page.getByTestId("make-save-confirm")).toBeVisible();
+    await expect(page.getByTestId("make-can")).toBeVisible();
+    const photos = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    expect(photos.violations).toEqual([]);
+
+    await page
+      .getByRole("group", { name: "Cards" })
+      .getByRole("radio", { name: "Specs" })
+      .check();
+    await expect(page.getByTestId("make-spec-cards").first()).toBeVisible();
+    await page.getByTestId("make-kind").click();
+    await expect(page.getByRole("menu")).toBeVisible();
+    const specs = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    expect(specs.violations).toEqual([]);
   });
 
   test("bookmarks empty state has no WCAG2AA violations", async ({

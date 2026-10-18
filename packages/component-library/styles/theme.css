@@ -53,6 +53,10 @@
      the old hairline as --input-fill. */
   --input: oklch(0.61 0.008 80);
   --input-fill: oklch(0.9 0.008 80);
+  /* Masking tape: `/make`'s ingredient labels (epic 41h; derive.ts fits it,
+     its text ≥ 4.5:1 in every family). */
+  --tape: oklch(0.915 0.028 80);
+  --tape-foreground: oklch(0.3 0.03 80);
   --ring: oklch(0.58 0.13 50);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
@@ -176,6 +180,8 @@
   --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 35%);
   --input-fill: oklch(1 0 0 / 15%);
+  --tape: oklch(0.33 0.022 70);
+  --tape-foreground: oklch(0.93 0.02 70);
   --ring: oklch(0.7 0.14 55);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
@@ -218,6 +224,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-input-fill: var(--input-fill);
+  --color-tape: var(--tape);
+  --color-tape-foreground: var(--tape-foreground);
   --color-ring: var(--ring);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);

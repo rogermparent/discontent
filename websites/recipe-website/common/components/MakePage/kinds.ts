@@ -1,14 +1,17 @@
 import {
+  fieldMatches,
   filterTerms,
   fold,
   parseQuery,
+  quoteQueryValue,
   removeTermAt,
   type FilterNode,
   type FilterTerm,
 } from "../SearchForm/queryLanguage";
 
 /**
- * `/make`'s kind switch (32j): Anything / Food / Drinks above the tag chips.
+ * `/make`'s kind switch (32j): anything / food / drinks — since 41h the word
+ * in the page's question ("What **drinks** can I make?"), a menu.
  *
  * Site config, not engine: each kind is a scope in the search language,
  * composed with the tag picks in the page's own `?q=`, so a kind is never
@@ -19,14 +22,32 @@ import {
 export interface MakeKind {
   id: string;
   label: string;
+  /**
+   * The word the page's question uses (41h): "What **drinks** can I make?" —
+   * plural, and `one` for a count of one ("1 drink").
+   */
+  word: string;
+  one: string;
   /** Top-level terms only (ANDed): `tag:drink`, `-tag:drink`, or nothing. */
   query: string;
 }
 
 export const MAKE_KINDS: MakeKind[] = [
-  { id: "any", label: "Anything", query: "" },
-  { id: "food", label: "Food", query: "-tag:drink" },
-  { id: "drinks", label: "Drinks", query: "tag:drink" },
+  { id: "any", label: "Anything", word: "recipes", one: "recipe", query: "" },
+  {
+    id: "food",
+    label: "Food",
+    word: "dishes",
+    one: "dish",
+    query: "-tag:drink",
+  },
+  {
+    id: "drinks",
+    label: "Drinks",
+    word: "drinks",
+    one: "drink",
+    query: "tag:drink",
+  },
 ];
 
 /** The leaves ANDed at the top of a filter — what a kind may add or read. */
@@ -151,4 +172,79 @@ export function withoutTagPicks(
       term.node.field === "tag" &&
       !kindTerms.some((kindTerm) => sameTerm(term, kindTerm)),
   );
+}
+
+// --- featured ingredients (41h) ---------------------------------------------
+
+/** The key two spellings of a featured ingredient share. */
+export function featureKey(name: string): string {
+  return fold(name).replace(/\s+/g, " ").trim();
+}
+
+/** A positive `ingredient:` term ANDed at the top: a featured ingredient. */
+function featureValue(term: FilterTerm): string | undefined {
+  if (term.negated || term.node.type !== "text") return undefined;
+  if (term.node.field !== "ingredient") return undefined;
+  return term.node.value.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * The featured ingredients a query carries (41h): its top-level positive
+ * `ingredient:` terms, as typed, once each, in order. Typing
+ * `ingredient:lime` in the field features lime, and featuring writes the
+ * same term — the query stays the one source of truth, and a URL shares it.
+ * Like a kind, a term inside an OR is the person's choice, not a feature.
+ */
+export function featuredOfQuery(query: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const term of topLevelTerms(query)) {
+    const value = featureValue(term);
+    const key = value && featureKey(value);
+    if (!value || !key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+  return out;
+}
+
+/** `query` with `name` featured: an `ingredient:` term at the end. */
+export function withFeature(query: string, name: string): string {
+  const value = name.replace(/\s+/g, " ").trim();
+  const key = featureKey(value);
+  if (!key) return query;
+  if (featuredOfQuery(query).some((had) => featureKey(had) === key)) {
+    return query;
+  }
+  let base = query.trim();
+  /* `tag:a OR tag:b ingredient:lime` would bind lime to `tag:b` alone. */
+  if (base && parseQuery(base).filter?.type === "or") base = `(${base})`;
+  const term = `ingredient:${quoteQueryValue(value)}`;
+  return base ? `${base} ${term}` : term;
+}
+
+/** `query` with every top-level feature spelled like `name` taken out. */
+export function withoutFeature(query: string, name: string): string {
+  const key = featureKey(name);
+  return removeTopLevel(query, (term) => {
+    const value = featureValue(term);
+    return value !== undefined && featureKey(value) === key;
+  });
+}
+
+/**
+ * The features that light up `item`, an ingredient label on the page: the
+ * search language's own rule, so under `ingredient:lime` — which matches a
+ * line with a word starting "lime" — the label "lime juice" reads as
+ * featured too.
+ */
+export function featuredBy(item: string, featured: string[]): string[] {
+  return featured.filter((name) => fieldMatches(item, featureKey(name)));
+}
+
+/** A label's tap (41h): un-feature whatever lights it up, or feature it. */
+export function toggleFeature(query: string, item: string): string {
+  const by = featuredBy(item, featuredOfQuery(query));
+  if (by.length === 0) return withFeature(query, item);
+  return by.reduce((current, name) => withoutFeature(current, name), query);
 }

@@ -10,8 +10,9 @@ import { SettingsCard } from "../SettingsCard";
  * "Share my saved inventory on the export" (usability pass, U6) — off by
  * default. On, the next Build bakes a snapshot of the saved inventory into
  * the static site (`SITE_HOUSE_INVENTORY`, see `controller/exportEnv.ts`),
- * where visitors see what it adds as "Also makeable from the house
- * inventory" on What can I make? and Drinks. Off, nothing about the list
+ * where What can I make? offers it under "Count from" (41h) and Drinks
+ * shows what it adds ("Also makeable from the house inventory"). Off,
+ * nothing about the list
  * reaches the export. Saved through the shared `updateSettings`.
  */
 export function ShareInventoryForm({ enabled }: { enabled: boolean }) {
@@ -22,7 +23,7 @@ export function ShareInventoryForm({ enabled }: { enabled: boolean }) {
     <form action={formAction} className="p-2" data-testid="share-inventory">
       <SettingsCard
         title="Your saved inventory"
-        description="What can I make? and Drinks always judge each visitor's own list, kept in their browser."
+        description="What can I make? and Drinks judge each visitor's own list, kept in their browser, unless they choose otherwise."
       >
         <input type="hidden" name="shareInventoryOnExport.present" value="1" />
         <div className="flex items-start gap-3">
@@ -39,9 +40,9 @@ export function ShareInventoryForm({ enabled }: { enabled: boolean }) {
             </label>
             <span id={hintId} className="text-sm text-muted-foreground">
               Off by default. When on, the next build includes a snapshot of
-              your saved inventory, and visitors see what it adds as “Also
-              makeable from the house inventory”. When off, nothing about it
-              reaches the export.
+              your saved inventory: on What can I make? visitors can count from
+              it (“House list”), and Drinks shows what it adds. When off,
+              nothing about it reaches the export.
             </span>
           </span>
         </div>

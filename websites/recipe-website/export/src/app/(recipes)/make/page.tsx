@@ -14,8 +14,9 @@ import { SearchSkeleton } from "recipe-website-common/components/SearchForm/Sear
  * export never reads the editor's inventory file. The one exception is
  * opt-in: with "Share my saved inventory on the export" on, the editor's
  * build bakes a snapshot into `SITE_HOUSE_INVENTORY`, and `secondaryInventory()`
- * turns it into a separate "Also makeable from the house inventory" group.
- * Off — the default — it answers nothing. The tag vocabulary (28g) is read
+ * turns it into the page's second list: "Count from" offers the house list
+ * alone or with this browser's (41h). Off — the default — it answers
+ * nothing, and the page has no Count from. The tag vocabulary (28g) is read
  * at build time, like `/tags`.
  */
 export default async function Make() {

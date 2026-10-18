@@ -364,3 +364,54 @@ describe("form-control border contrast", () => {
     expect(contrastOver("oklch(1 0 0 / 0%)", page)).toBe(1);
   });
 });
+
+/*
+ * Epic 41h: `/make`'s tape labels. The tape is a surface the ingredient is
+ * written on, so its text needs AA (4.5:1) in every neutral family, light and
+ * dark. Outlined and dashed labels write `--foreground` on the page or a
+ * card, featured ones `--primary-foreground` on `--primary` (the accent
+ * sweep above covers those).
+ */
+describe("tape label contrast", () => {
+  const NEUTRALS = ["warm", "cool", "gray"] as const;
+
+  it("keeps --tape-foreground on --tape at AA in every family and mode", () => {
+    const failures: string[] = [];
+    for (const neutral of NEUTRALS) {
+      const derived = deriveTheme({ ...WORKING_BENCH, neutral });
+      for (const mode of ["light", "dark"] as const) {
+        const tokens = derived[mode];
+        const ratio = contrastRatio(
+          tokens["--tape-foreground"],
+          tokens["--tape"],
+        );
+        if (ratio < 4.5) {
+          failures.push(`${neutral}/${mode}: ${ratio.toFixed(2)}`);
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("reads as tape: apart from the page and a card", () => {
+    for (const neutral of NEUTRALS) {
+      const derived = deriveTheme({ ...WORKING_BENCH, neutral });
+      for (const mode of ["light", "dark"] as const) {
+        const tokens = derived[mode];
+        expect(tokens["--tape"]).not.toBe(tokens["--background"]);
+        expect(tokens["--tape"]).not.toBe(tokens["--card"]);
+      }
+    }
+  });
+
+  it("does not vary with the accent hue", () => {
+    const at = (accentHue: number) =>
+      deriveTheme({ ...WORKING_BENCH, accentHue });
+    for (const hue of [0, 50, 191, 300]) {
+      expect(at(hue).light["--tape"]).toBe(at(50).light["--tape"]);
+      expect(at(hue).dark["--tape-foreground"]).toBe(
+        at(50).dark["--tape-foreground"],
+      );
+    }
+  });
+});

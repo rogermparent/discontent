@@ -2,6 +2,8 @@
 @import "tw-animate-css";
 /* Central content-engine palette + type tokens (Working Bench default). */
 @import "../../../../../packages/component-library/styles/theme.css";
+/* `/make`'s tape labels (41h); the editor imports the same file. */
+@import "../../node_modules/recipe-website-common/components/MakePage/make.css";
 @source "../../node_modules/recipe-website-common/components";
 @source "../../node_modules/@discontent/component-library/components";
 

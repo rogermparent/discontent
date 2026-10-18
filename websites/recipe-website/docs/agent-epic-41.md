@@ -109,6 +109,7 @@ Thanksgiving roundup. Each page is fetched once, ≥ 15 s apart per host.
 | 41d1     | M    | `agent/41d1-react-tw` | 📝     | —   | React 19.3 + Tailwind 4.3; moved baselines regenerated in Docker.                           |
 | 41d2     | M    | `agent/41d2-pw`       | 📝     | —   | Playwright 1.64: package, CI images, `Dockerfile.playwright`; every baseline regenerated.   |
 | 41d3     | S    | `agent/41d3-prettier` | 📝     | —   | Prettier 3.9 and a repo-wide reformat in its own commit, in `.git-blame-ignore-revs`.       |
+| 41h      | L    | `agent/41h-make`      | 🟡     | —   | The Make page redesigned: the question as h1, tape labels, featuring, Count from, specs.    |
 | 41-close | S    | `agent/41-close`      | 📝     | —   | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                           |
 
 Ordering, in waves: **wave 1** 41a (light, the orchestrator) ∥ 41b ∥ 41c,
@@ -213,6 +214,43 @@ update`, never commit `editor/content`.
   workstation stopped and restarted, then `POST /api/revalidate`. Counts
   before and after; a review list for the close-out; the `feature --term
 thanksgiving` command for after Oct 31.
+
+### 41h — The Make page, redesigned (L)
+
+Roger, 2026-10-18 (live): "Improve the 'What can I make?' menu with more
+granular and easy control of ingredients: toggle whether global
+editor-saved ingredients are considered over browser ingredients, easier
+reset/clear of the browser ingredients list, the ability to save the
+current browser list as persistent editor list, and better control like
+search over 'buy next', e.g. I'm looking at drinks and have a list of
+things, I want to add/set a 'high priority' ingredient for lime so I can
+recontextualize the list for drinks I can make that include lime." Then:
+"Really consider the design … it really is one of the most joyful ways to
+use the site and I want to focus on making the experience even better."
+
+The reference is a working prototype Roger reviewed live (published as an
+artifact; the source is in the orchestrator's scratch, `41h/make-src.html`):
+its behaviour, copy and look, on the site's real components, tokens and
+matcher (`common/util/makeable.ts` — the prototype's matcher was a
+stand-in). Roger's decisions:
+
+- **Featuring filters.** A featured ingredient narrows every count, bucket
+  and Buy next to recipes that use it, as `ingredient:<name>` in `?q=`;
+  several featured → all must appear.
+- **Count from defaults to "This browser"** for a browser that never chose
+  (U6's rule, unchanged for everyone who doesn't touch it).
+- **Scope: the whole prototype, plus a spec-card view** (a per-browser
+  toggle between photo cards and compact spec cards).
+
+What it builds: the question as the page's `<h1>` with the kind word as a
+menu and each featured ingredient as a button; featuring written to the
+query; tape labels for every ingredient (on hand, featured, the second
+list, missing) with their pull; Count from (This browser / Saved list /
+Both) replacing U6's "Also makeable with…" group on `/make`; Clear and
+Copy with Undo; Save to editor with an inline diff; the add field as Buy
+next search (a combobox with "+N now · M closer"); Buy next inside the
+featured scope with the recipes it unlocks; spec cards; restrained motion
+(off under reduced motion); the phone shelf stacked and summarised.
 
 ### 41-close (S)
 

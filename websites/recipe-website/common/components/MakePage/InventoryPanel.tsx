@@ -1,20 +1,18 @@
 "use client";
 
-import {
-  useId,
-  useMemo,
-  useState,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { useId, useState, type RefObject } from "react";
 import { ChevronDown, X } from "lucide-react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { Input } from "@discontent/component-library/components/ui/input";
 import { cn } from "@discontent/component-library/lib/utils";
 import { PANTRY_STAPLES } from "../../util/makeable";
 import { inventoryKey, parseInventoryText } from "../../util/inventoryText";
-import type { Inventory, MakeSettings } from "./useInventory";
+import type { CountFrom, Inventory, MakeSettings } from "./useInventory";
 import { ImportExportDialog } from "./ImportExportDialog";
+import { AddField, type AddCandidate } from "./AddField";
+import { SaveConfirm, type InventoryDiff } from "./SavedInventory";
+import { featuredBy } from "./kinds";
+import { TapeLabel } from "./Tape";
 
 /**
  * "Assume pantry staples" (U5): on by default, per browser, and it says what
@@ -38,7 +36,7 @@ function PantrySwitch({ settings }: { settings: MakeSettings }) {
         <label htmlFor={id} className="text-sm font-medium">
           Assume pantry staples
         </label>
-        <span id={hintId} className="text-xs text-muted-foreground">
+        <span id={hintId} className="font-mono text-xs text-muted-foreground">
           {PANTRY_STAPLES.join(", ")}
         </span>
       </span>
@@ -144,66 +142,204 @@ function StaplesEditor({ settings }: { settings: MakeSettings }) {
   );
 }
 
-/** Most suggestions put in the datalist; the browser filters as you type. */
-const MAX_SUGGESTIONS = 300;
+/** "Count close matches (≈) as had" (32j), per browser. */
+function CloseSwitch({ settings }: { settings: MakeSettings }) {
+  const id = useId();
+  return (
+    <div className="flex items-start gap-2.5">
+      <input
+        id={id}
+        type="checkbox"
+        data-testid="make-count-close"
+        className="mt-0.5 size-4 shrink-0 accent-primary"
+        checked={settings.countClose}
+        onChange={(event) => settings.setCountClose(event.target.checked)}
+      />
+      <label htmlFor={id} className="text-sm">
+        Count close matches (≈) as had{" "}
+        <span className="text-muted-foreground">
+          — onion for a shallot, olive oil for vegetable oil
+        </span>
+      </label>
+    </div>
+  );
+}
+
+/** The page's second list (41h): whose it is, for its labels and copy. */
+export interface SecondList {
+  /** `saved`: the signed-in editor's saved list. `house`: the export's snapshot. */
+  kind: "saved" | "house";
+  items: string[];
+}
+
+const SECOND_COPY = {
+  saved: { segment: "Saved list", where: "in the editor" },
+  house: { segment: "House list", where: "shared with this site" },
+} as const;
 
 /**
- * What I have: this browser's list as chips, an input to add to it, the
- * staples settings and the import/export dialog. A sidebar on wide screens;
- * on narrow ones the same panel behind a disclosure button, open to begin
- * with. `saved` is the signed-in editor's saved-inventory editor (U6), below
- * the list it never mixes into.
+ * "Count from" (41h): a three-way control of native radios — the arrow
+ * keys move between them — with each list's size. Shown only when the page
+ * has a second list.
+ */
+function CountFromControl({
+  value,
+  onChange,
+  browser,
+  second,
+  union,
+}: {
+  value: CountFrom;
+  onChange: (value: CountFrom) => void;
+  browser: number;
+  second: SecondList;
+  union: number;
+}) {
+  const name = useId();
+  const options: [CountFrom, string, number][] = [
+    ["browser", "This browser", browser],
+    ["saved", SECOND_COPY[second.kind].segment, second.items.length],
+    ["both", "Both", union],
+  ];
+  return (
+    <fieldset className="m-0 grid gap-2 border-0 p-0" data-testid="make-source">
+      <legend className="mb-2 p-0 font-mono text-[0.72rem] tracking-[0.08em] text-muted-foreground uppercase">
+        Count from
+      </legend>
+      <div className="grid grid-cols-3 overflow-hidden rounded-md border border-input">
+        {options.map(([option, label, count], i) => {
+          const checked = value === option;
+          return (
+            <label
+              key={option}
+              className={cn(
+                "relative cursor-pointer px-1 py-1.5 text-center text-[0.82rem] leading-tight",
+                "has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-[3px] has-[:focus-visible]:outline-ring",
+                i > 0 && "border-l border-border",
+                checked
+                  ? "bg-foreground text-background"
+                  : "hover:bg-accent hover:text-accent-foreground",
+              )}
+            >
+              <input
+                type="radio"
+                name={name}
+                value={option}
+                checked={checked}
+                onChange={() => onChange(option)}
+                className="absolute inset-0 cursor-pointer opacity-0"
+              />
+              {label}{" "}
+              <small className="block font-mono text-[0.7rem] opacity-80">
+                {count} {count === 1 ? "item" : "items"}
+              </small>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
+/** Save to editor's state, owned by the page (it holds the saved list). */
+export interface SaveToEditor {
+  saved: string[];
+  pending: boolean;
+  error?: string;
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  save: (diff: InventoryDiff) => void;
+}
+
+/**
+ * The shelf (41h): what's on hand, as tape labels. A sticky column beside
+ * the results on wide screens; above them on a phone, behind a disclosure
+ * button that says what it holds ("16 on hand · lime featured"), open to
+ * begin with.
  *
- * Each chip's remove control is a **sibling** button rather than part of the
- * chip, so the name reads as text and the button has a name of its own
- * ("Remove vodka") — one tab stop per item, nothing nested in a control.
+ * - **Labels**: tap the body to feature the ingredient (it narrows the whole
+ *   page — `toggleFeature`), × to take it off (Undo in the toast). Each says
+ *   its pull: how many of the recipes you can make now use it.
+ * - **Clear** empties this browser's list at once (Undo); **Save to editor**
+ *   (signed-in editor only) shows the diff before it commits.
+ * - **Count from** (only with a second list): which list every count judges;
+ *   in Saved or Both the second list's labels show as their own outlined
+ *   group, featurable, with "Copy it to this browser" (Undo).
+ * - The judge's settings — pantry staples, "Assume I always have", close
+ *   matches — and Import / export.
+ *
+ * Each label's × is a **sibling** of its body, so each has a name of its own
+ * ("Remove vodka") and nothing interactive nests.
  */
 export function InventoryPanel({
   inventory,
-  saved,
-  suggestions,
+  settings,
+  second,
+  union,
+  featured,
+  pulls,
+  landed,
+  suggest,
+  onAdd,
+  onRemove,
+  onClear,
+  onCopySecond,
+  onToggleFeature,
+  saveToEditor,
   inputRef,
   dialogOpen,
   onDialogOpenChange,
-  settings,
 }: {
   inventory: Inventory;
-  /** The staples to edit (32j, U5); none, no editor. */
-  settings?: MakeSettings;
-  /** The saved-inventory editor (U6), signed-in editor only. */
-  saved?: ReactNode;
-  suggestions: string[];
+  settings: MakeSettings;
+  second?: SecondList;
+  /** Items in this browser's list and the second together. */
+  union: number;
+  featured: string[];
+  pulls: Map<string, number>;
+  /** The item just added, by `inventoryKey`: it lands. */
+  landed?: string;
+  suggest: (typed: string) => AddCandidate[];
+  onAdd: (items: string[]) => void;
+  onRemove: (item: string) => void;
+  onClear: () => void;
+  onCopySecond: () => void;
+  onToggleFeature: (item: string) => void;
+  saveToEditor?: SaveToEditor;
   inputRef: RefObject<HTMLInputElement | null>;
   dialogOpen: boolean;
   onDialogOpenChange: (open: boolean) => void;
 }) {
-  const { have, add, remove, setHave } = inventory;
+  const { have, setHave } = inventory;
   const [open, setOpen] = useState(true);
-  const [draft, setDraft] = useState("");
   const panelId = useId();
-  const inputId = useId();
-  const listId = useId();
-
-  const options = useMemo(() => {
-    const had = new Set(have.map(inventoryKey));
-    return suggestions
-      .filter((name) => !had.has(inventoryKey(name)))
-      .slice(0, MAX_SUGGESTIONS);
-  }, [suggestions, have]);
+  const headingId = useId();
+  const source = second ? settings.source : "browser";
 
   return (
     <aside
-      aria-label="What I have"
-      className="lg:w-72 lg:shrink-0 lg:sticky lg:top-4 lg:self-start"
+      aria-labelledby={headingId}
+      data-testid="make-shelf"
+      className="min-w-0 lg:sticky lg:top-[calc(var(--sticky-chrome-offset)+1rem)] lg:max-h-[calc(100vh-var(--sticky-chrome-offset)-2rem)] lg:overflow-y-auto lg:pr-1 lg:pb-2"
     >
       <button
         type="button"
-        className="lg:hidden flex w-full items-center justify-between rounded-md border px-3 py-2 text-sm font-semibold"
+        className="flex min-h-10 w-full items-center justify-between gap-2 rounded-md border border-input px-3 py-2 text-left lg:hidden"
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen((value) => !value)}
       >
-        What I have ({have.length})
+        <span>
+          <span className="font-display text-base font-bold">
+            {have.length} on hand
+          </span>
+          {featured.length > 0 && (
+            <span className="font-mono text-xs text-muted-foreground">
+              {" "}
+              · {featured.join(" and ")} featured
+            </span>
+          )}
+        </span>
         <ChevronDown
           aria-hidden
           className={cn("size-4 transition-transform", open && "rotate-180")}
@@ -212,70 +348,139 @@ export function InventoryPanel({
       <div
         id={panelId}
         className={cn(
-          "mt-2 flex flex-col gap-3 lg:mt-0",
-          !open && "hidden lg:flex",
+          "mt-3 grid gap-4 p-0.5 lg:mt-0",
+          !open && "hidden lg:grid",
         )}
       >
-        <h2 className="hidden lg:block text-sm font-semibold">
-          What I have ({have.length})
-        </h2>
-        <form
-          className="flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const { items } = parseInventoryText(draft);
-            if (items.length > 0) add(items);
-            setDraft("");
-          }}
-        >
-          <label htmlFor={inputId} className="sr-only">
-            Add to what I have
-          </label>
-          <Input
-            id={inputId}
-            ref={inputRef}
-            data-testid="inventory-input"
-            list={listId}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="Add to what I have"
-            autoComplete="off"
+        <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-2">
+          <h2
+            id={headingId}
+            className="m-0 hidden font-display text-xl leading-none font-bold lg:block"
+          >
+            On hand
+          </h2>
+          <span
+            aria-hidden
+            className="hidden font-mono text-xs text-muted-foreground lg:inline"
+          >
+            {have.length}
+          </span>
+          <div className="ml-auto flex gap-1.5">
+            {saveToEditor && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                aria-expanded={saveToEditor.open}
+                onClick={() => saveToEditor.setOpen(!saveToEditor.open)}
+              >
+                Save to editor
+              </Button>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={have.length === 0}
+              onClick={onClear}
+            >
+              Clear
+            </Button>
+          </div>
+        </div>
+        {saveToEditor?.open && (
+          <SaveConfirm
+            browser={have}
+            saved={saveToEditor.saved}
+            pending={saveToEditor.pending}
+            error={saveToEditor.error}
+            onSave={saveToEditor.save}
+            onCancel={() => saveToEditor.setOpen(false)}
           />
-          <datalist id={listId}>
-            {options.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
-          <Button type="submit" size="sm" className="h-9">
-            Add
-          </Button>
-        </form>
-        {have.length > 0 && (
+        )}
+        <AddField suggest={suggest} onAdd={onAdd} inputRef={inputRef} />
+        {have.length > 0 ? (
           <ul
-            className="flex flex-wrap gap-1.5"
+            className="m-0 flex list-none flex-wrap gap-x-1.5 gap-y-2 p-0"
             data-testid="inventory-chips"
-            aria-label="Items I have"
+            aria-label="This browser's list"
           >
             {have.map((item) => (
-              <li
+              <TapeLabel
                 key={inventoryKey(item)}
-                className="inline-flex items-center rounded-full bg-secondary text-secondary-foreground text-xs"
-              >
-                <span className="pl-2.5 pr-1 py-1">{item}</span>
-                <button
-                  type="button"
-                  aria-label={`Remove ${item}`}
-                  className="mr-1 rounded-full p-0.5 hover:bg-foreground/10 focus-visible:outline-2 focus-visible:outline-ring"
-                  onClick={() => remove(item)}
-                >
-                  <X aria-hidden className="size-3" />
-                </button>
-              </li>
+                item={item}
+                featured={featuredBy(item, featured).length > 0}
+                pull={pulls.get(item)}
+                landed={landed === inventoryKey(item)}
+                onFeature={() => onToggleFeature(item)}
+                onRemove={() => onRemove(item)}
+              />
             ))}
           </ul>
+        ) : (
+          <p className="m-0 rounded border-[1.5px] border-dashed border-input p-3 text-sm text-muted-foreground">
+            The list is empty. Add what&apos;s in the bar or the fridge
+            {second
+              ? `, or count from the ${SECOND_COPY[second.kind].segment.toLowerCase()} below.`
+              : "."}
+          </p>
         )}
-        {settings && <PantrySwitch settings={settings} />}
-        {settings && <StaplesEditor settings={settings} />}
+        {second && (
+          <CountFromControl
+            value={source}
+            onChange={settings.setSource}
+            browser={have.length}
+            second={second}
+            union={union}
+          />
+        )}
+        {second && source !== "browser" && (
+          <div className="grid gap-2" data-testid="make-second-list">
+            <h3 className="m-0 flex flex-wrap items-baseline gap-2 text-sm font-semibold">
+              {SECOND_COPY[second.kind].segment}
+              <span className="font-mono text-xs font-normal text-muted-foreground">
+                {SECOND_COPY[second.kind].where} · {second.items.length}
+              </span>
+            </h3>
+            {second.items.length > 0 ? (
+              <ul
+                className="m-0 flex list-none flex-wrap gap-x-1.5 gap-y-2 p-0"
+                aria-label={`The ${SECOND_COPY[second.kind].segment.toLowerCase()}`}
+                data-testid="make-second-labels"
+              >
+                {second.items.map((item) => (
+                  <TapeLabel
+                    key={inventoryKey(item)}
+                    item={item}
+                    kind="saved"
+                    featured={featuredBy(item, featured).length > 0}
+                    pull={pulls.get(item)}
+                    onFeature={() => onToggleFeature(item)}
+                  />
+                ))}
+              </ul>
+            ) : (
+              <p className="m-0 text-sm text-muted-foreground">It is empty.</p>
+            )}
+            <div>
+              <Button
+                type="button"
+                size="sm"
+                variant="link"
+                className="h-auto min-h-6 px-0"
+                disabled={second.items.length === 0}
+                onClick={onCopySecond}
+              >
+                Copy it to this browser
+              </Button>
+            </div>
+          </div>
+        )}
+        <div className="grid gap-3">
+          <PantrySwitch settings={settings} />
+          <StaplesEditor settings={settings} />
+          <CloseSwitch settings={settings} />
+        </div>
         <div className="flex flex-wrap gap-2">
           <ImportExportDialog
             have={have}
@@ -284,7 +489,6 @@ export function InventoryPanel({
             onOpenChange={onDialogOpenChange}
           />
         </div>
-        {saved}
       </div>
     </aside>
   );
