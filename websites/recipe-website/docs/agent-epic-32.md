@@ -484,7 +484,7 @@ recipe, dinner or drink."
    - A small segmented control above the chips: Anything / Food / Drinks.
    - It maps to a site-level list, e.g. `MAKE_KINDS` in `common/` (Drinks =
      `tag:drink`, Food = `-tag:drink`, Anything = ``). It is composed with
-the tag picks in `?q=` through the existing query language.
+     the tag picks in `?q=` through the existing query language.
    - Check the query language supports a negated tag in scope; it should,
      since `positiveTagValues` implies negatives exist. If not, add it there,
      with tests in `test/queryLanguage.test.ts`.

@@ -354,11 +354,7 @@ export const ImportListOptionsSchema = z
 export type ImportListOptions = z.infer<typeof ImportListOptionsSchema>;
 
 export type ImportListItemStatus =
-  | "imported"
-  | "existing"
-  | "would-import"
-  | "failed"
-  | "skipped";
+  "imported" | "existing" | "would-import" | "failed" | "skipped";
 
 export interface ImportListItemResult {
   /** The item's position on the list as fetched now; 0 when it is gone. */
@@ -696,8 +692,7 @@ async function importItem(
 /* --- picks ---------------------------------------------------------------- */
 
 type Resolved =
-  | { item: RoundupItem; warning?: string }
-  | { gone: ImportListItemResult };
+  { item: RoundupItem; warning?: string } | { gone: ImportListItemResult };
 
 /** Each pick as an item of the list as fetched now, or why it is not one. */
 function resolvePicks(

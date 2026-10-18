@@ -308,8 +308,7 @@ export type GroupKind = "meal-plan" | "collection";
  * states the same rule for input that arrives as JSON (D15).
  */
 export type GroupItemRef =
-  | { recipe: string; group?: never }
-  | { group: string; recipe?: never };
+  { recipe: string; group?: never } | { group: string; recipe?: never };
 
 /**
  * One line of a group: what it points at, and the two free-text fields around

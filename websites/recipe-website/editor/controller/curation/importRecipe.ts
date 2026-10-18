@@ -205,9 +205,7 @@ export interface ImportBatchResult {
 }
 
 export type ImportResult =
-  | ImportDryRunResult
-  | ImportCreateResult
-  | ImportBatchResult;
+  ImportDryRunResult | ImportCreateResult | ImportBatchResult;
 
 /** The importer's recipe, plus what the local model did with it. */
 export interface UrlImport extends ApplyLlmResult {

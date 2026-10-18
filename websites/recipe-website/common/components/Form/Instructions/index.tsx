@@ -23,8 +23,7 @@ import { ArrayItemControls } from "@discontent/component-library/components/Form
  */
 type TopLevelPrefix = `instructions[${number}]`;
 type InstructionPrefix =
-  | TopLevelPrefix
-  | `instructions[${number}].instructions[${number}]`;
+  TopLevelPrefix | `instructions[${number}].instructions[${number}]`;
 
 /**
  * Reorder / insert / delete controls for an array item, driven by TanStack

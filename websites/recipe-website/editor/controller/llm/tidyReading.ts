@@ -44,11 +44,7 @@ import { parseTimeText } from "./timeText";
 
 /** Which trap a change fixed. */
 export type TidyRule =
-  | "credit-step"
-  | "split-method"
-  | "sub-heading"
-  | "caps-name"
-  | "all-in-time";
+  "credit-step" | "split-method" | "sub-heading" | "caps-name" | "all-in-time";
 
 export interface TidyChange {
   rule: TidyRule;

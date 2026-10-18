@@ -142,12 +142,10 @@ export function comingUpEntries(
   const holidays = tree.find((node) => node.slug === root);
   if (!holidays) return null;
   return holidays.children
-    .map(
-      (node): ComingUpEntry => ({
-        slug: node.slug,
-        label: node.label,
-        ...termSummary(node, recipeRows, groupRows),
-      }),
-    )
+    .map((node): ComingUpEntry => ({
+      slug: node.slug,
+      label: node.label,
+      ...termSummary(node, recipeRows, groupRows),
+    }))
     .filter((entry) => entry.recipes + entry.groups > 0);
 }

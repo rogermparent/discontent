@@ -201,10 +201,7 @@ function headerSafe(text: string): string {
 let warnedInvalid = false;
 
 export type WebhookOutcome =
-  | "off"
-  | "invalid"
-  | "sent"
-  | { failed: string /* already redacted */ };
+  "off" | "invalid" | "sent" | { failed: string /* already redacted */ };
 
 /**
  * POST one notification to `RECIPE_NOTIFY_URL`. Never throws; answers what

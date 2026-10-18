@@ -22,12 +22,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const fsHooks = vi.hoisted(() => ({
   /** Runs once, before `rm` of a path it matches. */
   beforeRm: undefined as
-    | { match: RegExp; run: (target: string) => Promise<void> }
-    | undefined,
+    { match: RegExp; run: (target: string) => Promise<void> } | undefined,
   /** Runs once, after `rename` to a path it matches. */
   afterRename: undefined as
-    | { match: RegExp; run: (target: string) => Promise<void> }
-    | undefined,
+    { match: RegExp; run: (target: string) => Promise<void> } | undefined,
 }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {

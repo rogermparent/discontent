@@ -288,7 +288,7 @@ D9, so it is D10.)
   the stored URL — the embed ignores `t=`, T47).
 - **Surfaces:** `recipes import` (URL or `--text`) refuses (`usage`, naming
   the recipes) unless `--all` or `--pick` — by **name** (`--pick "Green
-  Bean Casserole"`, case and dashes aside; a name not found this time is
+Bean Casserole"`, case and dashes aside; a name not found this time is
   refused with what was) or by position (`--pick 1,3`, which a re-read can
   shift); `--as-one` (`asOne`) reads the text as one recipe, never split.
   A pick whose slug holds the same source's recipe is `existing` and

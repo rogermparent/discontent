@@ -32,8 +32,7 @@ export interface TermToolState {
 }
 
 export type TermToolOutcome =
-  | { ok: true; href: string }
-  | { ok: false; state: TermToolState };
+  { ok: true; href: string } | { ok: false; state: TermToolState };
 
 /** The notice a finished rename, merge or delete leaves in the URL. */
 export type TermToolNotice =

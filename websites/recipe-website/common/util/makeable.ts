@@ -901,8 +901,7 @@ export function analyzeMakeable(
    * only for the alternatives open to it.
    */
   let stapleGroups:
-    | { own: string[]; items: InventoryItem[]; index?: CloseIndex }[]
-    | undefined;
+    { own: string[]; items: InventoryItem[]; index?: CloseIndex }[] | undefined;
   /* The list's own items first; a staple stands in only where no item does
    * and the line is one that staple may meet at all (U5). */
   const nearest = (requirement: Requirement): InventoryItem | undefined => {
@@ -1030,15 +1029,13 @@ function rankBuyNext(
   twoAway: RecipeMatch[],
 ): BuyNext[] {
   return missingLines({ oneAway, twoAway })
-    .map(
-      ({ requirement, unlocks, helps }): BuyNext => ({
-        item: nameLabel(requirement.alternatives[0]),
-        label: requirementLabel(requirement),
-        unlocks: unlocks.length,
-        helps,
-        recipes: unlocks,
-      }),
-    )
+    .map(({ requirement, unlocks, helps }): BuyNext => ({
+      item: nameLabel(requirement.alternatives[0]),
+      label: requirementLabel(requirement),
+      unlocks: unlocks.length,
+      helps,
+      recipes: unlocks,
+    }))
     .sort(
       (a, b) =>
         b.unlocks - a.unlocks ||

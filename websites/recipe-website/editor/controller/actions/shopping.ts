@@ -26,8 +26,7 @@ import type {
  * throwing, so the page can tell `busy` (retry shortly, D9) from the rest.
  */
 export type ShoppingActionResult<T> =
-  | T
-  | { error: string; code: CurationErrorCode };
+  T | { error: string; code: CurationErrorCode };
 
 async function signedIn<T>(
   run: (email: string) => Promise<T>,
