@@ -140,6 +140,11 @@ body {
 }
 
 @theme inline {
+  /* Tailwind 4.1's default sans stack, pinned: 4.3.3 changed the default to
+     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, … (41d1). */
+  --font-sans:
+    ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+    "Segoe UI Symbol", "Noto Color Emoji";
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);

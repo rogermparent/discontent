@@ -61,6 +61,17 @@ const NEUTRALS: Record<NeutralKey, NeutralSpec> = {
 const INPUT_LIGHT_L = 0.61;
 const INPUT_DARK = "oklch(1 0 0 / 35%)";
 
+/*
+ * Masking tape (epic 41h): the label `/make` writes each ingredient on — the
+ * family's own hue at a paper lightness, a little more chroma than a card so
+ * it reads as tape, and its text near the family's foreground. Gray stays
+ * gray. `test/theming.test.ts` holds the text at ≥ 4.5:1 in every family,
+ * light and dark (≈ 10:1 as fitted). Featured labels paint with --primary
+ * instead, which the accent sweep covers.
+ */
+const TAPE_LIGHT = { l: 0.915, c: 0.028, fgL: 0.3, fgC: 0.03 };
+const TAPE_DARK = { l: 0.33, c: 0.022, fgL: 0.93, fgC: 0.02 };
+
 /** Neutral (bench) tokens for one mode, from a neutral family. */
 function deriveNeutral(spec: NeutralSpec, mode: "light" | "dark"): TokenMap {
   const { mainHue: h, secondaryHue: sh, chroma: s } = spec;
@@ -82,6 +93,8 @@ function deriveNeutral(spec: NeutralSpec, mode: "light" | "dark"): TokenMap {
       // hairline as --input-fill.
       "--input": ok(INPUT_LIGHT_L, 0.008 * s, h),
       "--input-fill": ok(0.9, 0.008 * s, h),
+      "--tape": ok(TAPE_LIGHT.l, TAPE_LIGHT.c * s, h),
+      "--tape-foreground": ok(TAPE_LIGHT.fgL, TAPE_LIGHT.fgC * s, h),
       "--sidebar": ok(0.985, 0.005 * s, h),
       "--sidebar-foreground": ok(0.22, 0.02 * s, h),
       "--sidebar-border": ok(0.9, 0.008 * s, h),
@@ -104,6 +117,8 @@ function deriveNeutral(spec: NeutralSpec, mode: "light" | "dark"): TokenMap {
     "--border": "oklch(1 0 0 / 12%)",
     "--input": INPUT_DARK,
     "--input-fill": "oklch(1 0 0 / 15%)",
+    "--tape": ok(TAPE_DARK.l, TAPE_DARK.c * s, h),
+    "--tape-foreground": ok(TAPE_DARK.fgL, TAPE_DARK.fgC * s, h),
     "--sidebar": ok(0.225, 0.009 * s, h),
     "--sidebar-foreground": ok(0.96, 0.006 * s, h),
     "--sidebar-border": "oklch(1 0 0 / 12%)",

@@ -245,29 +245,53 @@ export interface MakeSettings {
   defaultStaples: boolean;
   /** "Assume pantry staples" (U5): on unless this browser turned it off. */
   pantryStaples: boolean;
+  /**
+   * "Count from" (41h): which list every count judges — this browser's
+   * (the default, and U6's rule for a browser that never chose), the second
+   * list the page has (the signed-in editor's saved list, or the house
+   * snapshot an export shares), or both.
+   */
+  source: CountFrom;
+  /** The cards (41h): photo cards (the default) or compact spec cards. */
+  view: CardView;
   setCountClose: (value: boolean) => void;
   setPantryStaples: (value: boolean) => void;
   setStaples: (items: string[]) => void;
   resetStaples: () => void;
+  setSource: (value: CountFrom) => void;
+  setView: (value: CardView) => void;
   /** 38a: why the signed-in editor couldn't save the list, when it couldn't. */
   staplesNotice?: string;
 }
 
-interface StoredSettings {
+export type CountFrom = "browser" | "saved" | "both";
+export type CardView = "photos" | "specs";
+
+const COUNT_FROM: CountFrom[] = ["browser", "saved", "both"];
+const CARD_VIEWS: CardView[] = ["photos", "specs"];
+
+export interface StoredSettings {
   countClose?: boolean;
   /** Stored only as `false`: on is the default. */
   pantryStaples?: boolean;
   staples?: string[];
+  /** Stored only when not `"browser"` (41h). */
+  source?: CountFrom;
+  /** Stored only when not `"photos"` (41h). */
+  view?: CardView;
 }
 
-function parseSettings(raw: string): StoredSettings {
+/**
+ * `make-settings-v1` as stored: anything unknown or mistyped is dropped, so a
+ * value written before a field existed — every one before 41h has no
+ * `source` — reads as that field's default.
+ */
+export function parseSettings(raw: string): StoredSettings {
   try {
     const parsed = raw ? (JSON.parse(raw) as unknown) : {};
     if (!parsed || typeof parsed !== "object") return {};
-    const { countClose, pantryStaples, staples } = parsed as Record<
-      string,
-      unknown
-    >;
+    const { countClose, pantryStaples, staples, source, view } =
+      parsed as Record<string, unknown>;
     const out: StoredSettings = {};
     if (typeof countClose === "boolean") out.countClose = countClose;
     if (typeof pantryStaples === "boolean") out.pantryStaples = pantryStaples;
@@ -276,6 +300,10 @@ function parseSettings(raw: string): StoredSettings {
         (item): item is string => typeof item === "string",
       );
     }
+    if (COUNT_FROM.includes(source as CountFrom)) {
+      out.source = source as CountFrom;
+    }
+    if (CARD_VIEWS.includes(view as CardView)) out.view = view as CardView;
     return out;
   } catch {
     return {};
@@ -289,22 +317,26 @@ export function useMakeSettings(): MakeSettings {
     getServerSnapshot,
   );
   const stored = useMemo(() => parseSettings(raw ?? ""), [raw]);
-  const save = useCallback(
-    (next: StoredSettings) => {
-      const merged: StoredSettings = { ...stored, ...next };
-      const kept: StoredSettings = {};
-      if (merged.countClose !== undefined) kept.countClose = merged.countClose;
-      if (merged.pantryStaples !== undefined) {
-        kept.pantryStaples = merged.pantryStaples;
-      }
-      if (merged.staples !== undefined) kept.staples = merged.staples;
-      write(
-        SETTINGS_KEY,
-        Object.keys(kept).length > 0 ? JSON.stringify(kept) : null,
-      );
-    },
-    [stored],
-  );
+  /* Over what storage holds now, not this render's `stored`: a setter
+   * kept in a closure (an Undo) must not undo what changed since. */
+  const save = useCallback((next: StoredSettings) => {
+    const merged: StoredSettings = {
+      ...parseSettings(read(SETTINGS_KEY) ?? ""),
+      ...next,
+    };
+    const kept: StoredSettings = {};
+    if (merged.countClose !== undefined) kept.countClose = merged.countClose;
+    if (merged.pantryStaples !== undefined) {
+      kept.pantryStaples = merged.pantryStaples;
+    }
+    if (merged.staples !== undefined) kept.staples = merged.staples;
+    if (merged.source !== undefined) kept.source = merged.source;
+    if (merged.view !== undefined) kept.view = merged.view;
+    write(
+      SETTINGS_KEY,
+      Object.keys(kept).length > 0 ? JSON.stringify(kept) : null,
+    );
+  }, []);
   const setCountClose = useCallback(
     (value: boolean) => save({ countClose: value ? undefined : false }),
     [save],
@@ -318,6 +350,15 @@ export function useMakeSettings(): MakeSettings {
     [save],
   );
   const resetStaples = useCallback(() => save({ staples: undefined }), [save]);
+  const setSource = useCallback(
+    (value: CountFrom) =>
+      save({ source: value === "browser" ? undefined : value }),
+    [save],
+  );
+  const setView = useCallback(
+    (value: CardView) => save({ view: value === "photos" ? undefined : value }),
+    [save],
+  );
   const alwaysHave = stored.staples ?? DEFAULT_STAPLES;
   const pantryStaples = stored.pantryStaples ?? true;
   /* One array per stored value, so a memo keyed on `staples` holds. */
@@ -332,9 +373,13 @@ export function useMakeSettings(): MakeSettings {
     alwaysHave,
     defaultStaples: stored.staples === undefined,
     pantryStaples,
+    source: stored.source ?? "browser",
+    view: stored.view ?? "photos",
     setCountClose,
     setPantryStaples,
     setStaples,
     resetStaples,
+    setSource,
+    setView,
   };
 }
