@@ -1,4 +1,6 @@
 import { revalidateDerivedState } from "@discontent/cms/content/next/revalidateDerived";
+import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
+import { releaseContentWrites } from "@discontent/cms/fs/writeGate";
 import { demoContentTypes } from "@/lib/contentTypes";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +24,16 @@ export const dynamic = "force-dynamic";
  * bookmarkConfig]`, so this is a pure simplification with no tag added or lost.
  * What it buys is that the third demo content type cannot be forgotten here.
  */
-export async function POST() {
+export async function POST(request: Request) {
+  /*
+   * The end of a reset (41b): `?hold=<id>` releases the hold `hold-writes`
+   * answered `id` for. `released` is false when that hold had already ended
+   * (by itself after 30 s, or replaced); without `hold` nothing is released.
+   */
+  const hold = new URL(request.url).searchParams.get("hold");
+  const released = hold
+    ? releaseContentWrites(getContentDirectory(), hold)
+    : undefined;
   revalidateDerivedState(demoContentTypes);
-  return Response.json({ ok: true });
+  return Response.json({ ok: true, released });
 }

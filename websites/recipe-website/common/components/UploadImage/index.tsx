@@ -2,6 +2,7 @@
 import { basename, join } from "path";
 import type { ImageProps } from "next/image";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
+import { trackContentWrite } from "@discontent/cms/fs/writeGate";
 import {
   StaticImageProps,
   getStaticImageProps,
@@ -13,7 +14,8 @@ import {
  * constant of its own (T16), so evaluating this once per process is not a
  * caching decision so much as the same decision stated twice.
  */
-const localOutputDirectory = join(getContentDirectory(), "transformed-images");
+const contentDirectory = getContentDirectory();
+const localOutputDirectory = join(contentDirectory, "transformed-images");
 
 export interface TransformedUploadImageProps {
   /** The original file on disk — what `sharp` opens. */
@@ -61,17 +63,33 @@ export async function getTransformedUploadImageProps({
   sizes,
 }: TransformedUploadImageProps): Promise<StaticImageProps | undefined> {
   try {
-    return await getStaticImageProps(
-      { srcPath, localOutputDirectory },
-      {
-        src,
-        alt,
-        width,
-        height,
-        className,
-        loading,
-        sizes,
-      },
+    /*
+     * The variants land in the content directory, so the transform goes
+     * through the write gate (41b, `fs/writeGate.ts`) like any write: a test
+     * harness replacing `test-content` waits for a render still writing
+     * them, which otherwise recreated the directory under the reset. A
+     * render that starts *during* the reset — the previous test's page,
+     * which nobody is looking at any more — is refused
+     * (`ContentWritesHeldError`) and lands in the catch below like a missing
+     * file: a warning and the placeholder, never a 500, and no variant
+     * written into the next test's fixture.
+     */
+    return await trackContentWrite(
+      contentDirectory,
+      `transform image ${src}`,
+      () =>
+        getStaticImageProps(
+          { srcPath, localOutputDirectory },
+          {
+            src,
+            alt,
+            width,
+            height,
+            className,
+            loading,
+            sizes,
+          },
+        ),
     );
   } catch (e) {
     const { code, message } = e as { code?: string; message?: string };

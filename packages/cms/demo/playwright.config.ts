@@ -16,7 +16,13 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL: `http://localhost:${PORT}`,
-    trace: "on-first-retry",
+    /*
+     * CI keeps the trace of every failed attempt (41b). `on-first-retry`
+     * recorded only the retry, and a flake's retry passes: the dev-only
+     * `aggregates.spec` retagging failure left 16 CI instances and not one
+     * trace of the attempt that failed. The job uploads `test-results`.
+     */
+    trace: process.env.CI ? "retain-on-failure" : "on-first-retry",
   },
   projects: [
     {

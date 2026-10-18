@@ -45,42 +45,35 @@ const testKeptReadingDirs = ["readings", "photos"].map((name) =>
 );
 
 /**
- * Remove a directory the test server may still be writing into (40f).
+ * Remove a directory, recursively.
  *
- * The suite runs one test after another against one server, and work the
- * previous test started can still be landing derived files — an aggregate,
- * an index — under `test-content` when the next test resets it. A plain
- * recursive remove then fails `ENOTEMPTY` when a directory gains an entry
- * between being emptied and its `rmdir` (CI: `test-content`,
- * `test-content/recipes/aggregates/tags`). `fs.rm`'s `maxRetries` exists
- * for exactly this: it retries `ENOTEMPTY` and `EBUSY` with a linear backoff.
+ * `test-content` needs no retries: the `resetData` and `loadGitFixture`
+ * fixtures (`support/test.ts`) hold the server's writes around the reset
+ * (41b, `test-hold-writes`). The writes in flight finish before the removal
+ * starts, and one that arrives before the release is refused, not deferred
+ * to land in the new fixture. 40f's `maxRetries` and `EEXIST` loop absorbed
+ * that race instead (40-Tf5) — and let a late file into the next test. A new
+ * `ENOTEMPTY` or `EEXIST` here names a writer that bypasses the write gate
+ * (`packages/cms/fs/writeGate.ts`): route it through the gate, don't retry.
  */
 async function removeDir(dir: string): Promise<void> {
+  await rm(dir, { recursive: true, force: true });
+}
+
+/**
+ * The job store's kept readings and photos (Tf2), which `fs.rm` still
+ * retries (`ENOTEMPTY`, `EBUSY`). An import job outlives the test that
+ * started it and writes there without passing the content write gate — it
+ * isn't content — so a job the previous test queued can still be filing its
+ * reading as this test resets.
+ */
+async function removeJobStoreDir(dir: string): Promise<void> {
   await rm(dir, {
     recursive: true,
     force: true,
     maxRetries: 10,
     retryDelay: 50,
   });
-}
-
-/**
- * `copy` a fixture into a directory just removed, removing it again when the
- * server recreated it first — `EEXIST` on the copy's `mkdir` (40f, the
- * other half of `removeDir`'s race).
- */
-async function copyFresh(source: string, destination: string): Promise<void> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      await copy(source, destination);
-      return;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || attempt >= 5) {
-        throw error;
-      }
-      await removeDir(destination);
-    }
-  }
 }
 
 /**
@@ -125,9 +118,9 @@ export async function resetData(fixture?: string): Promise<void> {
   await removeDir(testContentDir);
   await removeDir(testRemotesDir);
   await removeDir(testClonesDir);
-  for (const dir of testKeptReadingDirs) await removeDir(dir);
+  for (const dir of testKeptReadingDirs) await removeJobStoreDir(dir);
   if (fixture) {
-    await copyFresh(fixturePath("test-content", fixture), testContentDir);
+    await copy(fixturePath("test-content", fixture), testContentDir);
   }
   await copy(fixturePath("users"), resolve(testContentDir, "users"));
 }

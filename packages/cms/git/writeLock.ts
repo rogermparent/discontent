@@ -42,6 +42,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { realpathSync } from "node:fs";
 import { readdir, rm, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { outsideContentWrite, trackContentWrite } from "../fs/writeGate";
 import { ulid } from "../util/ulid";
 import {
   LockTimeoutError,
@@ -156,9 +157,13 @@ export function serialInHold<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-/** Run `fn` outside any hold — for work scheduled to outlive the scope. */
+/**
+ * Run `fn` outside any hold — for work scheduled to outlive the scope. Outside
+ * the write gate's scope too (`fs/writeGate.ts`), so that work meets a paused
+ * gate like any other write rather than passing as a nested one.
+ */
 export function outsideWriteLock<T>(fn: () => T): T {
-  return held.exit(fn);
+  return held.exit(() => outsideContentWrite(fn));
 }
 
 export async function writeLockPath(contentDirectory: string): Promise<string> {
@@ -416,6 +421,24 @@ export async function withWriteLock<T>(
   op: string,
   fn: () => Promise<T>,
   options: WriteLockOptions = {},
+): Promise<T> {
+  /*
+   * Through the process's write gate first (41b, `fs/writeGate.ts`), repository
+   * or not: a test harness pausing writes to replace the directory waits for
+   * this one, and this one, arriving while the directory is replaced, is
+   * refused (`ContentWritesHeldError`) rather than run against the new
+   * fixture. The lock's deadline starts once the gate lets it through.
+   */
+  return trackContentWrite(contentDirectory, op, () =>
+    lockedWrite(contentDirectory, op, fn, options),
+  );
+}
+
+async function lockedWrite<T>(
+  contentDirectory: string,
+  op: string,
+  fn: () => Promise<T>,
+  options: WriteLockOptions,
 ): Promise<T> {
   const store = held.getStore();
   const started = Date.now();
