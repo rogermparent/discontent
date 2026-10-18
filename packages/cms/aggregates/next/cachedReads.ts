@@ -84,17 +84,16 @@ export function createCachedAggregateRead<
    * entries live in the incremental cache — so this gets the per-key tag and
    * the per-render dedupe and retains nothing past the request.
    */
-  const keyReader = cache(
-    (key: string): Promise<KeyedEntryOf<TValue> | null> =>
-      unstable_cache(
-        () =>
-          readAggregateKey<TIndexValue, TKey, TAccumulator, TValue>({
-            ...readOptions,
-            key,
-          }),
-        [...keyBase, "key", key],
-        { tags: [tags.value, tags.key(key)] },
-      )(),
+  const keyReader = cache((key: string): Promise<KeyedEntryOf<TValue> | null> =>
+    unstable_cache(
+      () =>
+        readAggregateKey<TIndexValue, TKey, TAccumulator, TValue>({
+          ...readOptions,
+          key,
+        }),
+      [...keyBase, "key", key],
+      { tags: [tags.value, tags.key(key)] },
+    )(),
   );
 
   return {

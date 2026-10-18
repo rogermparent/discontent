@@ -652,11 +652,9 @@ export async function startSpec<S extends JobSpec>(
     env: JobEnv,
   ) => Promise<JobResults[S["kind"]]>;
   const failureOf = JOB_FAILURES[spec.kind] as
-    | ((result: JobResults[S["kind"]]) => JobError | undefined)
-    | undefined;
+    ((result: JobResults[S["kind"]]) => JobError | undefined) | undefined;
   const discardIf = JOB_DISCARDS[spec.kind] as
-    | ((result: JobResults[S["kind"]]) => boolean)
-    | undefined;
+    ((result: JobResults[S["kind"]]) => boolean) | undefined;
   const dir = options.dir ?? jobsDirectory();
   const started = await startJob(
     {

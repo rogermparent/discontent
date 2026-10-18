@@ -162,7 +162,7 @@ unchanged on 2026-10-13.
   syncs `uraninite` on every new commit (fetch, merge, push), and that holds
   `.git/index.lock`. The ninth command of the real run (`term create
 sandwich`) wrote its file, then failed to commit with `index.lock: File
-  exists`; the scripts stopped there (`set -e`). Recovery: a same-value `term
+exists`; the scripts stopped there (`set -e`). Recovery: a same-value `term
 update sandwich` committed the orphaned record ("Update term: sandwich"),
   then `pnpm workstation stop` for the rest of the run and `pnpm workstation
 restart` after it, whose startup sync pushed everything to the Pi. **For any

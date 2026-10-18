@@ -60,12 +60,7 @@ import { pruneReadings } from "./readingCache";
 export type { JobTier } from "./context";
 
 export type JobStatus =
-  | "queued"
-  | "running"
-  | "done"
-  | "failed"
-  | "cancelled"
-  | "interrupted";
+  "queued" | "running" | "done" | "failed" | "cancelled" | "interrupted";
 
 export const LIVE_STATUSES: readonly JobStatus[] = ["queued", "running"];
 

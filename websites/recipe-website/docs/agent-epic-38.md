@@ -1644,7 +1644,7 @@ page adds up to ~1.5 k image tokens at ~1.15 MP.
   403's own wording in a call and in `llmStatus`; the 1.15 MP area cap and
   the side cap); the `.env` dry run again, plus `RECIPE_LLM_API=off`
   removing every `RECIPE_LLM*\*`line and keeping`AUTH_SECRET`, mode 600;
-Playwright `jobs.spec` (its page's markup changed) **10 passed** (1.8
+  Playwright `jobs.spec` (its page's markup changed) **10 passed** (1.8
   min).
 - **No real API call** was made, here or in CI; no key exists on this
   machine. The real check is Roger's, after deploying (Close-out, step 6).

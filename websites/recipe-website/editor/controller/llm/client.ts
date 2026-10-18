@@ -732,11 +732,9 @@ function readResponse(
     };
   }
   const choices = body.choices as
-    | { message?: { content?: unknown } }[]
-    | undefined;
+    { message?: { content?: unknown } }[] | undefined;
   const usage = body.usage as
-    | { prompt_tokens?: unknown; completion_tokens?: unknown }
-    | undefined;
+    { prompt_tokens?: unknown; completion_tokens?: unknown } | undefined;
   return {
     content: choices?.[0]?.message?.content,
     promptTokens: count(usage?.prompt_tokens),
@@ -1340,8 +1338,7 @@ async function callClaude(
     );
   }
   const usage = body.usage as
-    | { input_tokens?: unknown; output_tokens?: unknown }
-    | undefined;
+    { input_tokens?: unknown; output_tokens?: unknown } | undefined;
   const stats = {
     promptTokens: count(usage?.input_tokens),
     outputTokens: count(usage?.output_tokens),
@@ -1860,8 +1857,7 @@ export function ollamaBehindOpenAi(
       if (response.status >= 500) return { answered: false };
       if (!response.ok) return { answered: true };
       const body = (await response.json().catch(() => undefined)) as
-        | { version?: unknown }
-        | undefined;
+        { version?: unknown } | undefined;
       const version =
         body && typeof body.version === "string" && body.version.trim()
           ? body.version.trim()

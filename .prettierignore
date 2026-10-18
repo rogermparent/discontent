@@ -6,3 +6,5 @@ pnpm-lock.yaml
 **/*/editor/content
 **/*/editor/test-content
 **/*/export/out
+# Scraped page fixtures: byte-exact captures, never reformatted
+test/fixtures/roundups

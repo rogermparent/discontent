@@ -51,12 +51,7 @@ import type { ShoppingItem } from "./shoppingTypes";
 
 /** `held`: ticks waiting for "Done shopping" (38d). */
 export type SyncStatus =
-  | "idle"
-  | "pending"
-  | "held"
-  | "saving"
-  | "retrying"
-  | "error";
+  "idle" | "pending" | "held" | "saving" | "retrying" | "error";
 
 export interface TickSyncSnapshot {
   pending: PendingTicks;

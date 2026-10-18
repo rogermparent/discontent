@@ -1068,14 +1068,12 @@ export function schemaReadings(
 ): ApplyLlmResult & { recipes: SplitReading[] } {
   const capped = recipes.length > MAX_BATCH_RECIPES;
   const kept = capped ? recipes.slice(0, MAX_BATCH_RECIPES) : recipes;
-  const readings = kept.map(
-    (recipe, index): SplitReading => ({
-      n: index + 1,
-      trusted: true,
-      recipe,
-      warnings: [],
-    }),
-  );
+  const readings = kept.map((recipe, index): SplitReading => ({
+    n: index + 1,
+    trusted: true,
+    recipe,
+    warnings: [],
+  }));
   const names = readings.map(
     (reading) =>
       `${reading.n}. ${reading.recipe.name ?? `Recipe ${reading.n}`}`,

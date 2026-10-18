@@ -2771,17 +2771,17 @@ true}).afterWrite === undefined` and that its `close()` resolves without
 baseURL), {requestInit: {headers: {authorization: \`Bearer ${token}\`}}})`+
  `Client`; `afterEach`closes it. Cases: (1) anonymous`request.post`of a
  `tools/list`body → 401`error.code === "unauthenticated"`; wrong token
-  `Bearer rcp_deadbeef_nope`→ 401; (2)`request.get("/api/mcp")`→ 405 empty
-  body;`OPTIONS`→ 204`Allow: OPTIONS, POST`; (3) client without a token:
-  `connect()`rejects with`name === "SdkHttpError"`, `status === 401`; (4)
-  with token: `listTools()`names equal`[...TOOL_NAMES]`; (5) `group_create
+`Bearer rcp_deadbeef_nope`→ 401; (2)`request.get("/api/mcp")`→ 405 empty
+body;`OPTIONS`→ 204`Allow: OPTIONS, POST`; (3) client without a token:
+`connect()`rejects with`name === "SdkHttpError"`, `status === 401`; (4)
+with token: `listTools()`names equal`[...TOOL_NAMES]`; (5) `group_create
   {group: {name: "MCP Week", kind: "meal-plan"}}`→ no`warnings`, then
-  `page.goto("/group/mcp-week")`renders and`/groups` lists it without a
-  reload (`api-write.spec.ts:195-216`precedent); (6)`git_status`→
+`page.goto("/group/mcp-week")`renders and`/groups` lists it without a
+reload (`api-write.spec.ts:195-216`precedent); (6)`git_status`→
  `isRepo: false`; (7) `recipe_get {slug: "nope"}`→`isError`, `not_found`;
-  (8) malformed body over real HTTP (`content-type: application/json`,
-  `accept: application/json, text/event-stream`, body `{`) → 400 `-32700`.
-  `@modelcontextprotocol/client` is already a devDependency of the editor,
+(8) malformed body over real HTTP (`content-type: application/json`,
+`accept: application/json, text/event-stream`, body `{`) → 400 `-32700`.
+`@modelcontextprotocol/client` is already a devDependency of the editor,
   so the spec resolves it.
 - `test/mcp.test.ts`, `test/mcpStdio.test.ts`, `api-write.spec.ts`,
   `git.spec.ts` unchanged.
