@@ -80,6 +80,24 @@ export function ThemeVarsProvider({ children }: { children: ReactNode }) {
     }
   }, [maps, resolvedTheme]);
 
+  /*
+   * Keep the pre-paint copy current. The stored var maps were derived by the
+   * code that saved them; when derivation changes (41f's `--input`), the
+   * pre-paint script would keep painting the old values until the next
+   * previewTheme(). Rewrite them once the fresh derivation differs.
+   */
+  useEffect(() => {
+    if (!maps) return;
+    try {
+      const fresh = JSON.stringify(maps);
+      if (window.localStorage.getItem(THEME_VARS_STORAGE_KEY) !== fresh) {
+        window.localStorage.setItem(THEME_VARS_STORAGE_KEY, fresh);
+      }
+    } catch {
+      // localStorage unavailable — the provider's inline vars still apply.
+    }
+  }, [maps]);
+
   const previewTheme = useCallback((theme: Theme | null) => {
     setUserTheme(theme);
     try {

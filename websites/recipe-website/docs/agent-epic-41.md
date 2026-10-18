@@ -599,69 +599,6 @@ The image build (115 s) happens once per worktree or lockfile change; a
 source change re-runs only `COPY . .`. Under the ~1.5× bar for every run
 but a worktree's first, so Docker became the contract's default (Db6).
 
-### 41g — Thanksgiving extras
-
-**Applied 2026-10-17** to the real repo, `5ff24c2b` → `34e72323`, four
-commits. The session pushed nothing: the workstation's sync carried each
-commit to the Pi. `tag:thanksgiving` went **47 → 51**, `tag:drink` 220 →
-222, `tag:snack` 39 → 41. D5 and 40-D2 applied as in 40e:
-
-- Each page was fetched **once** into a draft (`import --dry-run --llm off
---out`), sequentially, ≥ 20 s apart. Every page had JSON-LD, so there was
-  no model read.
-- Drafts were edited: skill-v4 facets plus `thanksgiving`, drinks by the
-  skill's drink rules, generic-first ingredient names.
-- The drafts were created into a scratch clone, and its `git log` was
-  reviewed: four creates, each touching only its `recipe.json` and one
-  image of 700–1500 px.
-- The same files were then applied to the real repo, followed by `POST
-/api/revalidate`. Each page answers 200 on the workstation and appears
-  on `/tags/thanksgiving`.
-
-**Imported (review list for Roger):**
-
-| Gap               | Recipe (slug)                                                                         | Source                                                     | Commit     |
-| ----------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------- |
-| A cranberry drink | Cranberry Moscow Mule (Spend With Pennies) (`cranberry-moscow-mule-spendwithpennies`) | Spend With Pennies — vodka, highball, `moscow-mule` family | `eb08a382` |
-| Appetizers        | Cranberry Brie Puff Pastry Tarts (`cranberry-brie-puff-pastry-tarts`)                 | Sally's Baking (the 40-item sides roundup)                 | `103954b6` |
-| Appetizers        | Cranberry Pecan Cheese Ball (`cranberry-pecan-cheese-ball`)                           | Sally's Baking (the same roundup)                          | `50193b51` |
-| A cranberry drink | Cranberry Thyme Spritzer (Rachel Cooks) (`cranberry-thyme-spritzer-rachelcooks`)      | Rachel Cooks — zero-proof, highball                        | `34e72323` |
-
-**Dg1 — applied with the workstation running, commits 4 minutes apart.**
-Epic 34's write lock and private-index commits (34c/34d) are in the
-workstation's build (`c1fe69ff`). So the stop-the-workstation rule for
-scripted real-repo runs is retired, as the orchestrator's notes said it
-would be once 34d was running. The spacing gave 41a one Pi sample per
-commit. No `busy` and no lock errors.
-
-**Dg2 — two drinks, no new family.** The mule joins the existing
-`moscow-mule` family (3 → 4). The spritzer is zero-proof with no family:
-no other cranberry or thyme spritzer exists, and a one-drink family adds
-nothing. A `cranberry` family was not made because the two drinks are
-different styles.
-
-**For Roger (not imported):**
-
-- Sally's **Mushroom Puff Pastry Tarts** — close to the existing
-  `butternut-squash-and-mushroom-puff-pastry-tart` (the same pastry, the
-  same mushrooms). It is a separate appetizer, but borderline under D2.
-- Sally's Candied Sweet Potatoes — next to `sweet-potato-casserole-recipe-with-pecan-topping`.
-- The roundup's breads (biscuits, rolls, pull-apart and skillet breads) —
-  rolls are covered (`soft-dinner-rolls-recipe`) and none fills a named
-  gap.
-
-**Roger to confirm:**
-
-- The spritzer's `video` (a JW Player `.mp4` from the page's JSON-LD) was
-  left out. The two Sally's recipes keep their YouTube videos.
-- No `easy` on the brie tarts (40 minutes with a homemade sauce).
-  `american` is on both appetizers, as on the existing Sally's snacks.
-- Descriptions rewritten for the mule (the page's read "they give any
-  gathering a festive touch!"), the cheese ball (SEO copy) and the
-  spritzer. The tarts keep Sally's.
-- **After Oct 31:** `pnpm --silent recipes feature --term thanksgiving --slug thanksgiving-2026 --note "Thanksgiving: turkey, sides, pies and drinks"`.
-  Undo any import with `git revert <commit>`.
-
 ### 41f — Accessibility follow-through
 
 Branch `agent/41f-a11y`. **Reindex needed: no. Deploy: yes, for the look**
@@ -671,21 +608,40 @@ two reader controls change names (below). No content or index change.
 **Df1 — `--input` at ≥ 3.1:1 (WCAG 1.4.11), the smallest change.**
 `--input` is the border of every `Input`, `Textarea`, `Select` trigger,
 outline button, toggle and the shared `Form` field class. Fitted with
-`contrastRatio` (now `contrastOver`, below) against the page and a card,
-in all three neutral families; the old values first:
+`contrastRatio` (now `contrastOver`, below) against every surface a field
+sits on — the page, a card or popover, and the `--muted` and `--secondary`
+panels (the editor's timeline event fields sit on a `bg-muted` panel,
+`Form/Timeline`) — in all three neutral families. Ratios as page / card
+(= popover) / muted / secondary:
 
-| Mode  | Old → new                                 | warm page / card | cool page / card | gray page / card |
-| ----- | ----------------------------------------- | ---------------- | ---------------- | ---------------- |
-| light | L 0.9 (1.27 / 1.35) → **L 0.64**          | 3.18 / 3.36      | 3.17 / 3.36      | 3.18 / 3.36      |
-| dark  | 15 % white (1.54 / 1.59) → **35 % white** | 3.21 / 3.22      | 3.21 / 3.22      | 3.21 / 3.22      |
+| Mode  | Family | Old                                   | New                                       |
+| ----- | ------ | ------------------------------------- | ----------------------------------------- |
+| light | warm   | L 0.9: 1.27 / 1.35 / 1.18 / 1.13      | **L 0.61**: 3.58 / 3.79 / 3.33 / 3.18     |
+| light | cool   | 1.27 / 1.35 / 1.18 / 1.13             | 3.58 / 3.78 / 3.32 / 3.18                 |
+| light | gray   | 1.27 / 1.35 / 1.18 / 1.13             | 3.58 / 3.79 / 3.33 / 3.18                 |
+| dark  | warm   | 15 % white: 1.54 / 1.59 / 1.62 / 1.62 | **35 % white**: 3.21 / 3.22 / 3.14 / 3.14 |
+| dark  | cool   | 1.54 / 1.59 / 1.62 / 1.62             | 3.21 / 3.22 / 3.14 / 3.14                 |
+| dark  | gray   | 1.54 / 1.59 / 1.62 / 1.62             | 3.21 / 3.22 / 3.14 / 3.14                 |
 
-L 0.65 (40g's suggestion) gives 3.05:1, too close to 3:1 for renderer
-rounding; 0.64 is the first step past 3.1. Dark at 34 % gives exactly
-3.10, so 35 %. The chroma and hue stay the family's, and the accent never
-reaches `--input`, so no hue changes it (tested). `styles/theme.css`
-mirrors the default (`oklch(0.64 0.008 80)`, `oklch(1 0 0 / 35%)`).
-40g's numbers were 1.27:1 light and "~1.8:1" dark; measured composited
-over the page the old dark border was 1.54:1.
+The light `--secondary` panel (L 0.94) is the tightest surface: L 0.64
+(the first cut, fitted to the page and card only) gave 2.95:1 on muted and
+2.82:1 on secondary, and L 0.62 still only 3.05:1 on secondary, so 0.61 is
+the first step past 3.1 on all five. (L 0.65, 40g's suggestion, gave
+3.05:1 on the page alone.) Dark at 34 % gives exactly 3.10 on the page,
+so 35 %, which also clears 3.1 on the muted panels. The chroma and hue
+stay the family's, and the accent never reaches `--input`, so no hue
+changes it (tested). `styles/theme.css` mirrors the default
+(`oklch(0.61 0.008 80)`, `oklch(1 0 0 / 35%)`). 40g's numbers were 1.27:1
+light and "~1.8:1" dark; measured composited over the page the old dark
+border was 1.54:1.
+
+What these measure is the border against the surface **outside** the
+field, the adjacent colour WCAG 1.4.11 asks about for a control's
+boundary. In dark mode the field's own fill (`--input-fill` at 30 %, i.e.
+4.5 % white) is slightly lighter than the surface, so the border against
+the inside of the field is 2.85–2.9:1 on the page and a card (2.75:1 on a
+muted panel); that is not the ratio 1.4.11 measures, and the field's
+boundary is identifiable from outside.
 
 **Df2 — fills got their own token, `--input-fill`.** shadcn paints the
 dark-mode fill of `Input`, `Textarea`, `Select`, `Checkbox`, `InputGroup`
@@ -698,16 +654,20 @@ white), so every fill paints exactly what it did. Two uses stay on
 better brighter) and `ButtonGroupSeparator`'s 1 px `bg-input` divider
 (used nowhere today; it separates buttons whose borders are `--input`).
 resume-builder has its own `--input` in its own `globals.css` and does not
-import `theme.css`: untouched.
+import `theme.css`, so its border is unchanged; but it renders the shared
+`ui/input`, which now emits `dark:bg-input-fill/30`, so its `globals.css`
+gained `--input-fill` (the same values as its `--input`, light and dark)
+and the `--color-input-fill` mapping, and its fields paint as before.
 
 **Df3 — `contrastOver`.** `contrast.ts` gains `oklchAlpha` and
 `contrastOver(fg, bg)`: a translucent colour composited over an opaque
 surface in gamma-encoded sRGB (as browsers paint `oklch(… / A)`), then the
 WCAG ratio. `test/theming.test.ts` adds a "form-control border contrast"
 block beside 30b's accent sweep: `--input` against `--background`,
-`--card` and `--popover`, three families × two modes, at ≥ 3:1 and at the
-≥ 3.1:1 margin; the accent hue can't move it; the fills keep the old
-values; and the compositing maths (the old dark border at 1.54:1, both
+`--card`, `--popover`, `--muted` and `--secondary`, three families × two
+modes, at ≥ 3:1 and at the ≥ 3.1:1 margin; the accent hue can't move it;
+the fills keep the old values (pinned as literals); and the compositing
+maths (the old dark border at 1.54:1, both
 alpha spellings, 0 % paints nothing).
 
 **Df4 — the bar is WCAG 2.2 AA.** `WCAG_TAGS` (recipe and portfolio
@@ -715,6 +675,17 @@ alpha spellings, 0 % paints nothing).
 `wcag21aa`, `wcag22aa`. The four specs that spelled the tags out
 (`command-palette`, `search-live`, `search-query-language`,
 `search-tags`) import it, so one bar covers every axe check.
+
+**Df5 — a saved theme's pre-paint copy follows the derivation.** A
+visitor's saved theme is stored twice: the knobs (`ce-theme`) and the
+derived `{light, dark}` var maps (`ce-theme-vars`) that the blocking
+pre-paint script applies. Only `previewTheme()` wrote the maps, so after
+this change a saved theme would have painted the old `--input` until
+`ThemeVarsProvider` re-derived it after hydration — a border flash, on
+every load. The provider now rewrites `ce-theme-vars` on mount whenever
+the fresh derivation differs (guarded like the existing storage code), so
+the first load after a deploy flashes once and every later one paints the
+new values.
 
 **What the new tags found, and the fixes.** 40g's exploratory sweep (34
 routes, once) listed only the first row; the full specs reach more
@@ -813,15 +784,77 @@ heavy-pw.sh`), e2e + mobile: `accessibility`, every `search*`,
 
 **Roger to confirm.**
 
-- The values: light `--input` L 0.64 and dark 35 % white (Df1) — the
-  quietest pair at ≥ 3.1:1. Outline buttons and toggles follow, since they
-  share the token; the alternative is moving them to `border-border` to
-  keep their hairline (their text names them, so 1.4.11 doesn't require
-  it).
-- On the light `--muted` (0.955) and `--secondary` (0.94) surfaces the new
-  border is 2.95:1 and 2.82:1. The sweep covers the page, card and
-  popover, where forms sit; a field on a muted panel would need L 0.62.
+- The values: light `--input` L 0.61 (covers muted/secondary panels) and
+  dark 35 % white (Df1) — the quietest pair at ≥ 3.1:1 on all five
+  surfaces. L 0.64 would do for the page, card and popover alone, but the
+  editor's timeline fields sit on `bg-muted` (2.95:1 there). Outline
+  buttons and toggles follow, since they share the token; the alternative
+  is moving them to `border-border` to keep their hairline (their text
+  names them, so 1.4.11 doesn't require it).
 - The card chips at 24 px (the table above): cards with tags are ~2 px
   taller, `/make`'s page 4 px.
 - Names that changed for screen readers: "½× (Half batch)", "I have this:
   lime juice".
+
+### 41g — Thanksgiving extras
+
+**Applied 2026-10-17** to the real repo, `5ff24c2b` → `34e72323`, four
+commits. The session pushed nothing: the workstation's sync carried each
+commit to the Pi. `tag:thanksgiving` went **47 → 51**, `tag:drink` 220 →
+222, `tag:snack` 39 → 41. D5 and 40-D2 applied as in 40e:
+
+- Each page was fetched **once** into a draft (`import --dry-run --llm off
+--out`), sequentially, ≥ 20 s apart. Every page had JSON-LD, so there was
+  no model read.
+- Drafts were edited: skill-v4 facets plus `thanksgiving`, drinks by the
+  skill's drink rules, generic-first ingredient names.
+- The drafts were created into a scratch clone, and its `git log` was
+  reviewed: four creates, each touching only its `recipe.json` and one
+  image of 700–1500 px.
+- The same files were then applied to the real repo, followed by `POST
+/api/revalidate`. Each page answers 200 on the workstation and appears
+  on `/tags/thanksgiving`.
+
+**Imported (review list for Roger):**
+
+| Gap               | Recipe (slug)                                                                         | Source                                                     | Commit     |
+| ----------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------- |
+| A cranberry drink | Cranberry Moscow Mule (Spend With Pennies) (`cranberry-moscow-mule-spendwithpennies`) | Spend With Pennies — vodka, highball, `moscow-mule` family | `eb08a382` |
+| Appetizers        | Cranberry Brie Puff Pastry Tarts (`cranberry-brie-puff-pastry-tarts`)                 | Sally's Baking (the 40-item sides roundup)                 | `103954b6` |
+| Appetizers        | Cranberry Pecan Cheese Ball (`cranberry-pecan-cheese-ball`)                           | Sally's Baking (the same roundup)                          | `50193b51` |
+| A cranberry drink | Cranberry Thyme Spritzer (Rachel Cooks) (`cranberry-thyme-spritzer-rachelcooks`)      | Rachel Cooks — zero-proof, highball                        | `34e72323` |
+
+**Dg1 — applied with the workstation running, commits 4 minutes apart.**
+Epic 34's write lock and private-index commits (34c/34d) are in the
+workstation's build (`c1fe69ff`). So the stop-the-workstation rule for
+scripted real-repo runs is retired, as the orchestrator's notes said it
+would be once 34d was running. The spacing gave 41a one Pi sample per
+commit. No `busy` and no lock errors.
+
+**Dg2 — two drinks, no new family.** The mule joins the existing
+`moscow-mule` family (3 → 4). The spritzer is zero-proof with no family:
+no other cranberry or thyme spritzer exists, and a one-drink family adds
+nothing. A `cranberry` family was not made because the two drinks are
+different styles.
+
+**For Roger (not imported):**
+
+- Sally's **Mushroom Puff Pastry Tarts** — close to the existing
+  `butternut-squash-and-mushroom-puff-pastry-tart` (the same pastry, the
+  same mushrooms). It is a separate appetizer, but borderline under D2.
+- Sally's Candied Sweet Potatoes — next to `sweet-potato-casserole-recipe-with-pecan-topping`.
+- The roundup's breads (biscuits, rolls, pull-apart and skillet breads) —
+  rolls are covered (`soft-dinner-rolls-recipe`) and none fills a named
+  gap.
+
+**Roger to confirm:**
+
+- The spritzer's `video` (a JW Player `.mp4` from the page's JSON-LD) was
+  left out. The two Sally's recipes keep their YouTube videos.
+- No `easy` on the brie tarts (40 minutes with a homemade sauce).
+  `american` is on both appetizers, as on the existing Sally's snacks.
+- Descriptions rewritten for the mule (the page's read "they give any
+  gathering a festive touch!"), the cheese ball (SEO copy) and the
+  spritzer. The tarts keep Sally's.
+- **After Oct 31:** `pnpm --silent recipes feature --term thanksgiving --slug thanksgiving-2026 --note "Thanksgiving: turkey, sides, pies and drinks"`.
+  Undo any import with `git revert <commit>`.

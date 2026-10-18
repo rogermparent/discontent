@@ -280,13 +280,20 @@ describe("accent contrast", () => {
  * button and toggle — the only thing that shows where an empty field is. Until
  * 41f it was the same hairline as `--border`: 1.27:1 on the light page and
  * 1.54:1 on the dark one. These hold it at 3:1 against every surface a form
- * sits on (the page, and a card or popover), in every neutral family and both
- * modes. Dark `--input` is translucent white, so it is measured as painted
+ * sits on (the page, a card or popover, and a muted or secondary panel — the
+ * editor's timeline fields sit on `bg-muted`), in every neutral family and
+ * both modes. Dark `--input` is translucent white, so it is measured as painted
  * over each surface (`contrastOver`), not as an opaque colour.
  */
 describe("form-control border contrast", () => {
   const NEUTRALS = ["warm", "cool", "gray"] as const;
-  const SURFACES = ["--background", "--card", "--popover"] as const;
+  const SURFACES = [
+    "--background",
+    "--card",
+    "--popover",
+    "--muted",
+    "--secondary",
+  ] as const;
 
   /** `neutral/mode/surface: ratio` wherever `--input` falls under `min`. */
   function failing(min: number): string[] {
@@ -305,7 +312,7 @@ describe("form-control border contrast", () => {
     return failures;
   }
 
-  it("keeps --input at 3:1 against the page and a card", () => {
+  it("keeps --input at 3:1 against the page, a card and a muted panel", () => {
     expect(failing(3)).toEqual([]);
   });
 
@@ -328,9 +335,15 @@ describe("form-control border contrast", () => {
    * them: `dark:bg-input-fill/30` paints exactly what `dark:bg-input/30` did.
    */
   it("keeps the fills at the old hairline value", () => {
+    // The pre-41f light --input, per family (L 0.9, the family's hue).
+    const OLD_LIGHT = {
+      warm: "oklch(0.9 0.008 78)",
+      cool: "oklch(0.9 0.008 255)",
+      gray: "oklch(0.9 0 0)",
+    } as const;
     for (const neutral of NEUTRALS) {
       const { light, dark } = deriveTheme({ ...WORKING_BENCH, neutral });
-      expect(light["--input-fill"]).toBe(light["--border"]);
+      expect(light["--input-fill"]).toBe(OLD_LIGHT[neutral]);
       expect(dark["--input-fill"]).toBe("oklch(1 0 0 / 15%)");
     }
   });
@@ -339,9 +352,9 @@ describe("form-control border contrast", () => {
     const page = "oklch(0.185 0.008 78)";
     // Opaque: the same number as the plain ratio.
     expect(
-      contrastOver("oklch(0.64 0.008 78)", "oklch(0.98 0.006 78)"),
+      contrastOver("oklch(0.61 0.008 78)", "oklch(0.98 0.006 78)"),
     ).toBeCloseTo(
-      contrastRatio("oklch(0.64 0.008 78)", "oklch(0.98 0.006 78)"),
+      contrastRatio("oklch(0.61 0.008 78)", "oklch(0.98 0.006 78)"),
       9,
     );
     // The pre-41f dark border, and the alpha forms parse alike.

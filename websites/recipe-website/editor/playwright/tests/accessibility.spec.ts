@@ -681,8 +681,10 @@ test.describe("Accessibility on a phone @mobile", () => {
          * covers whatever straddles the fold — /drinks' family chips, 9 px of
          * them showing — which scrolling uncovers. So the full sweep runs with
          * the bar pinned and without `target-size`, then `target-size` alone
-         * runs with the chrome released (the reader's own "off" setting), the
-         * bar's links still in it, at the page's end.
+         * runs with the chrome released (the reader's own "off" setting). The
+         * bar's links are still checked: released, the bar sits in the
+         * document flow after the content instead of over it, so no scroll
+         * step is needed.
          */
         const pinned = await new AxeBuilder({ page })
           .withTags(TAGS)
