@@ -370,6 +370,30 @@ sugar` compiles to `<li><Multiplyable>cup sugar</Multiplyable></li>`, with
   Hence the `~9.10.3` pin (Dc4) and the backlog row "markdown-to-jsx ≥ 9.7
   line capture" with its reopen trigger.
 
+### 41d2
+
+- **Tp1 — A passing visual spec doesn't mean a current baseline.** The
+  recipe config's `maxDiffPixelRatio: 0.02`, with pixelmatch's default
+  0.2 colour threshold, let 41 of 46 recipe baselines and all 11 portfolio
+  ones pass against pages that had moved on since they were written.
+  `bookmarks-empty` still showed July's "My Bookmarks" page, the old
+  masthead and Next's dev badge. A sparse page can be redesigned inside 2 %.
+  Plain `--update-snapshots` (`changed`) never rewrites such a baseline,
+  because the comparison passes. Only `--update-snapshots=all` does.
+- **Tp2 — Read a regenerated diff against a control, not against the old
+  baseline.** Diffing the 1.64.1 output against the committed PNGs blamed
+  the Chromium jump for 52 moved files. Running the same command on
+  `origin/main` in the 1.59.1 image (a `git archive` tree passed to
+  `docker-pw.sh`) and diffing the two outputs pixel by pixel showed that
+  Chromium moved 6 of them. Do the same at the next image bump. A
+  twenty-line PIL/numpy script that counts differing pixels per file is
+  enough.
+- **Tp3 — Portfolio's palette baseline highlights whichever row cmdk
+  selected first.** In the regenerated (and the 1.59.1 control) image it is
+  "Work" under Go to; July's had "Content Engine". The spec waits for the
+  corpus rows, but not for the selection that settles when they arrive
+  after the dialog opens. Both states pass under the tolerance.
+
 ### 41h
 
 - **Th1 — `ingredient:` means two things now.** On `/make` a featured
