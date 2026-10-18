@@ -1675,8 +1675,8 @@ desktop, every Claude session and the other overnight session. Since then
 2. The 38g lines in `~/.config/recipe-deploy/uraninite.env`, if not yet done.
 3. `pnpm deploy:pi` (carries 39's and 40's code; note the reindex time it
    prints against the warm ~5 s trigger).
-4. **After Oct 31:** `pnpm --silent recipes feature --term thanksgiving --slug thanksgiving-2026 --note "Thanksgiving: turkey, sides, pies and drinks"`
-   (and unfeature Halloween if wanted).
+4. ~~After Oct 31, feature `thanksgiving`~~ — dropped at 41's close: the
+   term has been featured since 2026-10-13 (34e); nothing to do.
 5. Docker disk: 240 GB of images (180 GB reclaimable) and 186 GB of build
    cache, 85 GB free on `/`. Pruning is Roger's call — some images may be
    the other session's.

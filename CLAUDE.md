@@ -157,6 +157,16 @@ survives a cleared context.
   (40g), patch/minor dependency updates (40h); and the overnight OOM that
   put every heavy job in a memory-capped scope and baselines in Docker.
   Roger's steps and the "Roger to confirm" list are in the doc's Close-out.
+- `websites/recipe-website/docs/agent-epic-41.md` — epic 41: incremental
+  reindex measured and re-deferred (Pi warm 3.72 s, reopen ~1,050 recipes),
+  a write gate for test resets and a CI job building the main checkout's
+  symlink shape, zod / markdown-to-jsx / simple-git / sharp holds lifted,
+  `--input` at 3:1 and WCAG 2.2 AA, React 19.3 / Tailwind 4.3 / Playwright
+  1.64 / Prettier 3.9 (`.git-blame-ignore-revs`), Thanksgiving extras, and
+  the Make page redesigned (41h: the question as the title, tape labels,
+  Count from, featuring by the matcher) with its MCP/CLI parity (41i).
+  Overnight design-variant canvases for four pages are linked in the
+  Close-out.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
