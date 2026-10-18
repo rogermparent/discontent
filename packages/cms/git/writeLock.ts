@@ -274,7 +274,7 @@ async function sweepGitDir(path: string, staleMs: number): Promise<void> {
       /* `<path>/../<name>` reads to Turbopack (Next 16.4) as the whole
          project; the ignore comment keeps this runtime path out of the
          build's file tracing — getContentDirectory.ts says why. */
-      const info = await stat(/*turbopackIgnore: true*/ full).catch(() => null);
+      const info = await stat(full).catch(() => null);
       if (info && Date.now() - info.mtimeMs > staleMs) {
         await rm(full, { force: true });
       }
