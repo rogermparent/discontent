@@ -479,9 +479,11 @@ export function protectDashedPositionals(
       index += 1;
       const value = tail[index];
       /* `--query -tag:drink` (41i): `parseArgs` refuses a dashed value
-       * after a space as ambiguous, and takes it inline. */
+       * after a space as ambiguous, and takes it inline. Only a negation
+       * (one dash, then a character): `--feature --json` still errors
+       * rather than featuring "--json". */
       flags.push(
-        ...(value.startsWith("-") ? [`${token}=${value}`] : [token, value]),
+        ...(/^-[^-]/.test(value) ? [`${token}=${value}`] : [token, value]),
       );
     } else {
       flags.push(token);

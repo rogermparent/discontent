@@ -1571,7 +1571,33 @@ non-string entry) reads as nothing saved. The tools count from the shared
 list only — there is no browser list on the server, so no Count from.
 
 **Di4 — `feature` is an array.** `"feature": "lime"` is a validation error
-(the tool schema says `string[]`); one shape keeps the MCP schema plain.
+(the tool schema says `string[]`); one shape keeps the MCP schema plain. A
+feature must name an ingredient: one whose `featureKey` has no letter or
+digit (`()`, `"`) is refused ("A feature must name an ingredient, e.g.
+lime") rather than dropped, which would have answered the whole scope
+(review).
+
+**Di5 — `link` is absolute where the caller knows the editor (review).**
+The server answers a path (`/make?q=…`); the HTTP backend (`--remote`,
+`RECIPE_API_URL`) makes it absolute on the origin that answered, and the
+local backend on `--notify`'s URL, else `RECIPE_EDITOR_URL`
+(`cli/backend/link.ts`, http(s) bases only). Without either — the editor's
+own MCP over HTTP, a CLI with no editor URL — it stays a path, and the
+skill presents it as a path on Roger's editor.
+
+**Di6 — an editor older than 41i is named, not trusted (review).** The Pi
+is deployed after the workstation, so `--remote` can reach a route that
+ignores `feature` and answers the whole scope. The HTTP backend refuses
+that answer when a feature was sent and the answer has no `features`:
+"The editor at <origin> predates featuring (41i) — update it, or run with
+--content-dir" (the 36c/36e/38e pattern); without a feature the old answer
+passes, and the text output reads its missing fields as absent.
+
+**CLI flag values (review).** `protectDashedPositionals` takes a string
+option's next token inline only when it is a negation (`/^-[^-]/`,
+`--query -tag:drink`); a `--`-prefixed token is still left for `parseArgs`
+to refuse, so `--feature --json` is an error, never a feature named
+"--json".
 
 **Tests:** `inventory.test.ts` (+7: lime featured with the garnish-only G&T
 out and Buy next inside the scope, gin vs ginger beer and two features,
@@ -1594,6 +1620,11 @@ exec tsc --noEmit` ✓.
 - Playwright, Docker, build mode: `api-write.spec` — **27 passed** ✓ (the
   phase changed `/api/inventory/make`; its new `feature` parameter is
   tested in-process in `inventory.test.ts`, which calls the route's `GET`).
+- After the review (Di4–Di6, the flag fix; `inventory.test.ts` +4: an old
+  editor's answer with and without a feature and its text output, the
+  absolute link, the flag values, `absoluteLink`): both typechecks ✓;
+  `inventory`, `mcp`, `mcpHttp`, `cliJson`, `curatorSkill`, `curation` —
+  **6 files, 213 tests** ✓.
 
 **Deferred:** the page's add-field what-if ("+N now · M closer",
 `addCandidates`) has no seat; Buy next with its `recipes` answers "what
@@ -1605,6 +1636,11 @@ for an item Buy next doesn't rank.
 - **Di1:** `recipes inventory make chicken pasta` (and the tool with a
   multi-word query) now needs both words, as `/make` does; before, either
   word was enough.
+- **Di1/Di2:** a tool query that already carried `ingredient:x` used to
+  narrow by Search's word-prefix match; it is now a feature, judged by the
+  matcher — garnish-only uses and look-alikes drop out (`ingredient:gin`
+  no longer keeps a Moscow Mule for its ginger beer, nor a G&T that has
+  lime only as a garnish under `ingredient:lime`).
 - **Di3:** the CLI and MCP now assume your saved "Assume I always have"
   list, not only salt, pepper, water and ice — the answer's `alwaysHave`
   shows which.

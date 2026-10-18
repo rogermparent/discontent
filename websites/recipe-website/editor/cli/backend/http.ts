@@ -35,6 +35,7 @@ import {
   withJob,
   withWarnings,
 } from "../../controller/curation/errors";
+import { absoluteLink } from "./link";
 import type {
   CuratorBackend,
   DeleteResult,
@@ -547,10 +548,23 @@ export function createHttpBackend({
     setInventory(raw) {
       return call<InventoryWriteResult>("PUT", "/api/inventory", { body: raw });
     },
-    inventoryMakeable({ staples, ...options } = {}) {
-      return call<MakeableResult>("GET", "/api/inventory/make", {
+    async inventoryMakeable({ staples, ...options } = {}) {
+      const result = await call<MakeableResult>("GET", "/api/inventory/make", {
         query: { ...options, staples: staples === false ? 0 : undefined },
       });
+      /* An editor from before 41i ignores `feature` and answers the whole
+       * scope: refuse that rather than pass it off as "lime drinks". */
+      if (!Array.isArray(result.features)) {
+        if ((options.feature?.length ?? 0) > 0) {
+          throw new CurationError(
+            "validation",
+            `The editor at ${new URL(root).origin} predates featuring (41i) — update it, or run with --content-dir.`,
+          );
+        }
+        return result;
+      }
+      /* The page on the editor that answered (41i, Di5). */
+      return { ...result, link: absoluteLink(result.link, root) };
     },
 
     getShopping(options = {}) {

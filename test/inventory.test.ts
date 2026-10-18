@@ -24,6 +24,10 @@ import {
   setInventory,
 } from "../websites/recipe-website/editor/controller/curation/inventory";
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
+import { createHttpBackend } from "../websites/recipe-website/editor/cli/backend/http";
+import { absoluteLink } from "../websites/recipe-website/editor/cli/backend/link";
+import { inventoryCommands } from "../websites/recipe-website/editor/cli/commands/inventory";
+import { protectDashedPositionals } from "../websites/recipe-website/editor/cli/index";
 
 /* `/api/inventory/make` with its auth stood in for: the route's own
  * parameters are what its test reads (U5 review). */
@@ -494,10 +498,94 @@ describe("makeable", () => {
       expect(slugs(result)).toEqual(["gimlet"]);
     });
 
-    it("refuses an empty feature", async () => {
-      await expect(makeable(ctx, { feature: ["  "] })).rejects.toMatchObject({
-        code: "validation",
+    it("refuses a feature that names no ingredient", async () => {
+      for (const feature of ["  ", "()", '"', "( )"]) {
+        await expect(
+          makeable(ctx, { feature: [feature] }),
+          JSON.stringify(feature),
+        ).rejects.toMatchObject({ code: "validation" });
+      }
+      await expect(makeable(ctx, { feature: ["()"] })).rejects.toMatchObject({
+        details: {
+          issues: [
+            expect.objectContaining({
+              message: "A feature must name an ingredient, e.g. lime",
+            }),
+          ],
+        },
       });
+    });
+  });
+
+  /* 41i review: `--remote` / RECIPE_API_URL against any editor. */
+  describe("over HTTP", () => {
+    const ORIGIN = "http://old-editor.test:3000";
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    function answer(body: unknown) {
+      const seen: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL) => {
+          seen.push(String(input));
+          return new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }),
+      );
+      return seen;
+    }
+
+    /* What a route from before 41i answers: no scope, features or link. */
+    const OLD = {
+      query: "tag:drink",
+      staples: true,
+      inventory: 2,
+      total: 1,
+      unjudged: 0,
+      canMake: [],
+      oneAway: [{ slug: "vodka-sour", name: "Vodka Sour" }],
+      twoAway: [],
+      further: 0,
+      buyNext: [],
+    };
+
+    it("names an editor from before 41i when a feature was asked for", async () => {
+      const seen = answer(OLD);
+      const backend = createHttpBackend({ baseUrl: ORIGIN });
+      await expect(
+        backend.inventoryMakeable({ query: "tag:drink", feature: ["lime"] }),
+      ).rejects.toThrow(
+        `The editor at ${ORIGIN} predates featuring (41i) — update it, or run with --content-dir.`,
+      );
+      expect(seen[0]).toContain("feature=lime");
+      /* Without a feature the old answer is still an answer… */
+      const plain = await backend.inventoryMakeable({ query: "tag:drink" });
+      expect(plain.total).toBe(1);
+      /* …and the text output doesn't trip over its missing fields. */
+      const text = inventoryCommands.make.format(plain);
+      expect(text).toContain('1 recipes for "tag:drink", 2 items on hand');
+      expect(text).not.toContain("undefined");
+      expect(text).not.toContain("On the site");
+    });
+
+    it("makes the link absolute on the editor that answered", async () => {
+      answer({
+        ...OLD,
+        scope: "tag:drink ingredient:lime",
+        features: ["lime"],
+        link: "/make?q=tag%3Adrink+ingredient%3Alime",
+        alwaysHave: ["salt"],
+      });
+      const result = await createHttpBackend({
+        baseUrl: `${ORIGIN}/`,
+      }).inventoryMakeable({ query: "tag:drink", feature: ["lime"] });
+      expect(result.link).toBe(
+        `${ORIGIN}/make?q=tag%3Adrink+ingredient%3Alime`,
+      );
     });
   });
 
@@ -508,6 +596,41 @@ describe("makeable", () => {
       result.canMake.length + result.oneAway.length + result.twoAway.length;
     expect(rows).toBeLessThanOrEqual(3);
     expect(result.canMake.length).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("the CLI's make flags (41i review)", () => {
+  const OPTIONS = {
+    query: { type: "string" },
+    feature: { type: "string", multiple: true },
+    limit: { type: "string" },
+    json: { type: "boolean" },
+  } as const;
+
+  it("takes a negation inline, and never a flag as a value", () => {
+    expect(
+      protectDashedPositionals(["--query", "-tag:drink", "--json"], OPTIONS),
+    ).toEqual(["--query=-tag:drink", "--json"]);
+    /* `--feature --json` stays two flags, for parseArgs to refuse. */
+    expect(protectDashedPositionals(["--feature", "--json"], OPTIONS)).toEqual([
+      "--feature",
+      "--json",
+    ]);
+    expect(
+      protectDashedPositionals(["--query", "--limit", "5"], OPTIONS),
+    ).toEqual(["--query", "--limit", "--", "5"]);
+    expect(
+      protectDashedPositionals(["-tag:drink", "--feature", "lime"], OPTIONS),
+    ).toEqual(["--feature", "lime", "--", "-tag:drink"]);
+  });
+
+  it("makes a link absolute only on an http(s) base", () => {
+    expect(absoluteLink("/make?q=", "http://editor.test:3000/x")).toBe(
+      "http://editor.test:3000/make?q=",
+    );
+    expect(absoluteLink("/make?q=", undefined)).toBe("/make?q=");
+    expect(absoluteLink("/make?q=", "not a url")).toBe("/make?q=");
+    expect(absoluteLink("/make?q=", "file:///x")).toBe("/make?q=");
   });
 });
 

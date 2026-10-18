@@ -174,13 +174,13 @@ const makeCommand: CommandDef<MakeableResult> = {
                 .join("\n"),
             ),
           ];
+    /* An editor from before 41i (`--remote`) answers without these. */
+    const featured = result.features ?? [];
     const features =
-      result.features.length > 0
-        ? ` with ${result.features.join(" and ")}`
-        : "";
+      featured.length > 0 ? ` with ${featured.join(" and ")}` : "";
     return [
-      `${result.total} recipes for ${JSON.stringify(result.scope)}${features}, ${result.inventory} items on hand${result.staples === false ? ", no pantry staples" : ", pantry staples assumed"}`,
-      `On the site: ${result.link}`,
+      `${result.total} recipes for ${JSON.stringify(result.scope ?? result.query)}${features}, ${result.inventory} items on hand${result.staples === false ? ", no pantry staples" : ", pantry staples assumed"}`,
+      ...(result.link ? [`On the site: ${result.link}`] : []),
       ...rows("Can make now", result.canMake),
       ...rows("One away", result.oneAway),
       ...rows("Two away", result.twoAway),

@@ -515,9 +515,12 @@ inventory_makeable {"query": "-tag:drink tag:quick", "limit": 20}
 inventory_makeable {"query": "-tag:drink", "staples": false}
 ```
 
-The answer carries `link`, the site's page showing the same question
-(`/make?q=tag%3Adrink+ingredient%3Alime`): give it to Roger with what you
-report, so he can see it, tick off what he has and change it there. It
+The answer carries `link`, the page on Roger's editor showing the same
+question: a full URL (`http://<his editor>/make?q=tag%3Adrink+ingredient%3Alime`)
+when the server knows the editor's address, else just the path
+(`/make?q=…`), which you present as a path on his editor. Give it to Roger
+with what you report, so he can see it, tick off what he has and change it
+there. It
 counts from the browser he opens it in (or the saved list, if he chooses
 so there), which may hold a different list from the shared one you judged.
 

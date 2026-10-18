@@ -429,14 +429,17 @@ describe("the CLI as a process", () => {
             "gin",
             "--json",
           ],
-          { SETTINGS_DIRECTORY: settingsDirectory },
+          {
+            SETTINGS_DIRECTORY: settingsDirectory,
+            RECIPE_EDITOR_URL: "http://editor.test:3000",
+          },
         );
         expect(featured.exitCode).toBe(0);
         expect(JSON.parse(featured.stdout)).toMatchObject({
           query: "-tag:drink",
           scope: "-tag:drink ingredient:lime ingredient:gin",
           features: ["lime", "gin"],
-          link: "/make?q=-tag%3Adrink+ingredient%3Alime+ingredient%3Agin",
+          link: "http://editor.test:3000/make?q=-tag%3Adrink+ingredient%3Alime+ingredient%3Agin",
           alwaysHave: ["salt", "gin"],
           total: 0,
         });

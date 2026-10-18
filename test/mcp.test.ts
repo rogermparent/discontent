@@ -729,7 +729,7 @@ describe("the MCP registry over an in-memory transport", () => {
     expect(featured.data).toMatchObject({
       scope: "tag:drink ingredient:gin",
       features: ["gin"],
-      link: "/make?q=tag%3Adrink+ingredient%3Agin",
+      link: expect.stringMatching(/\/make\?q=tag%3Adrink\+ingredient%3Agin$/),
       total: 1,
       oneAway: [{ slug: "gin-and-tonic" }],
     });
