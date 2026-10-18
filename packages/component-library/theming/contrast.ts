@@ -64,3 +64,36 @@ export function contrastRatio(fg: Oklch | string, bg: Oklch | string): number {
   const [hi, lo] = a > b ? [a, b] : [b, a];
   return (hi + 0.05) / (lo + 0.05);
 }
+
+/** The alpha of `oklch(L C H / A)` — a percentage or 0–1; 1 when opaque. */
+export function oklchAlpha(value: string): number {
+  const match = /\/\s*([\d.]+)(%?)\s*\)\s*$/.exec(value.trim());
+  if (!match) return 1;
+  const alpha = Number(match[1]) / (match[2] ? 100 : 1);
+  return clip(alpha);
+}
+
+/* sRGB transfer function and its inverse (IEC 61966-2-1). */
+const encode = (x: number) =>
+  x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055;
+const decode = (x: number) =>
+  x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+
+/**
+ * WCAG contrast of a possibly translucent colour painted over an opaque
+ * surface — what a translucent border (dark `--input`, `oklch(1 0 0 / 35%)`)
+ * actually shows against the page. Composited in gamma-encoded sRGB, as
+ * browsers paint `oklch(… / A)` today; an opaque `fg` is `contrastRatio`.
+ */
+export function contrastOver(fg: string, bg: string): number {
+  const alpha = oklchAlpha(fg);
+  const top = oklchToLinearSrgb(parseOklch(fg));
+  const under = oklchToLinearSrgb(parseOklch(bg));
+  const [r, g, b] = top.map((channel, i) =>
+    decode(alpha * encode(channel) + (1 - alpha) * encode(under[i])),
+  );
+  const painted = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const surface = relativeLuminance(bg);
+  const [hi, lo] = painted > surface ? [painted, surface] : [surface, painted];
+  return (hi + 0.05) / (lo + 0.05);
+}

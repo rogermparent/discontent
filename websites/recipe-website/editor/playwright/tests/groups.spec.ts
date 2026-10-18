@@ -367,8 +367,13 @@ test.describe("Groups", () => {
         "data-group-image",
         "own",
       );
+      /*
+       * `locator("img")`, not `getByRole("img")`: a group thumbnail is
+       * decorative since 41f (`alt=""`, the card link names it), and an empty
+       * alt takes the image out of the accessibility tree.
+       */
       await expect(
-        week.getByTestId("group-thumbnail").getByRole("img"),
+        week.getByTestId("group-thumbnail").locator("img"),
       ).toHaveAttribute("src", OWN_IMAGE);
       /*
        * The other card is the control: no image of its own, and no member with
@@ -404,7 +409,7 @@ test.describe("Groups", () => {
        */
       await page.goto("/groups");
       await expect(
-        groupCards(page).nth(0).getByTestId("group-thumbnail").getByRole("img"),
+        groupCards(page).nth(0).getByTestId("group-thumbnail").locator("img"),
       ).toHaveAttribute("src", OWN_IMAGE);
       const weeknight = groupCards(page).nth(1);
       await expect(weeknight).toContainText("Weeknight Favourites");
@@ -413,7 +418,7 @@ test.describe("Groups", () => {
         "member",
       );
       await expect(
-        weeknight.getByTestId("group-thumbnail").getByRole("img"),
+        weeknight.getByTestId("group-thumbnail").locator("img"),
       ).toHaveAttribute("src", MEMBER_IMAGE);
 
       await page.goto("/");
@@ -428,7 +433,7 @@ test.describe("Groups", () => {
         page
           .getByTestId("featured-group-card")
           .getByTestId("group-thumbnail")
-          .getByRole("img"),
+          .locator("img"),
       ).toHaveAttribute("src", MEMBER_IMAGE);
     });
 
@@ -458,7 +463,7 @@ test.describe("Groups", () => {
         weeknightCard().getByTestId("group-thumbnail"),
       ).toHaveAttribute("data-group-image", "own");
       await expect(
-        weeknightCard().getByTestId("group-thumbnail").getByRole("img"),
+        weeknightCard().getByTestId("group-thumbnail").locator("img"),
       ).toHaveAttribute("src", WEEKNIGHT_OWN_IMAGE);
 
       await page.goto("/");
@@ -466,12 +471,12 @@ test.describe("Groups", () => {
         page
           .getByTestId("featured-group-card")
           .getByTestId("group-thumbnail")
-          .getByRole("img"),
+          .locator("img"),
       ).toHaveAttribute("src", WEEKNIGHT_OWN_IMAGE);
 
       await page.goto("/featured-recipe/featured-weeknight");
       await expect(
-        page.getByTestId("group-thumbnail").getByRole("img"),
+        page.getByTestId("group-thumbnail").locator("img"),
       ).toHaveAttribute("src", WEEKNIGHT_OWN_IMAGE);
 
       /*
@@ -491,7 +496,7 @@ test.describe("Groups", () => {
         weeknightCard().getByTestId("group-thumbnail"),
       ).toHaveAttribute("data-group-image", "member");
       await expect(
-        weeknightCard().getByTestId("group-thumbnail").getByRole("img"),
+        weeknightCard().getByTestId("group-thumbnail").locator("img"),
       ).toHaveAttribute("src", MEMBER_IMAGE);
     });
 
@@ -508,7 +513,7 @@ test.describe("Groups", () => {
        */
       await page.goto("/groups");
       await expect(
-        groupCards(page).nth(0).getByTestId("group-thumbnail").getByRole("img"),
+        groupCards(page).nth(0).getByTestId("group-thumbnail").locator("img"),
       ).toBeVisible();
 
       await page.goto("/search");
@@ -517,7 +522,7 @@ test.describe("Groups", () => {
       await expect(groupResults.getByRole("listitem")).toHaveCount(1, {
         timeout: SEARCH_TIMEOUT,
       });
-      await expect(groupResults.getByRole("img")).toHaveAttribute(
+      await expect(groupResults.locator("img")).toHaveAttribute(
         "src",
         OWN_IMAGE,
       );
@@ -974,7 +979,7 @@ test.describe("Groups", () => {
        */
       const thumbnail = cards.nth(0).getByTestId("group-thumbnail");
       await expect(thumbnail).toHaveAttribute("data-group-image", "member");
-      await expect(thumbnail.getByRole("img")).toHaveAttribute(
+      await expect(thumbnail.locator("img")).toHaveAttribute(
         "src",
         /^\/image\/uploads\/group\/week-of-may-4\/uploads\/recipe-6-test-image-alternate\.png\/.*\.webp$/,
       );

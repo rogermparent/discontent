@@ -48,7 +48,10 @@
   --info: oklch(0.53 0.15 255);
   --info-foreground: oklch(0.985 0.005 85);
   --border: oklch(0.9 0.008 80);
-  --input: oklch(0.9 0.008 80);
+  /* A form control's boundary: ≥ 3:1 on the page and on a card (WCAG 1.4.11,
+     epic 41f; derive.ts fits it). Fills keep the old hairline as --input-fill. */
+  --input: oklch(0.64 0.008 80);
+  --input-fill: oklch(0.9 0.008 80);
   --ring: oklch(0.58 0.13 50);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
@@ -170,7 +173,8 @@
   --info: oklch(0.7 0.15 255);
   --info-foreground: oklch(0.2 0.03 255);
   --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 15%);
+  --input: oklch(1 0 0 / 35%);
+  --input-fill: oklch(1 0 0 / 15%);
   --ring: oklch(0.7 0.14 55);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
@@ -212,6 +216,7 @@
   --color-info-foreground: var(--info-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
+  --color-input-fill: var(--input-fill);
   --color-ring: var(--ring);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);

@@ -17,7 +17,17 @@ import {
  * reason they exist.
  */
 
-export const WCAG_TAGS = ["wcag2a", "wcag2aa"];
+/**
+ * The bar is WCAG 2.2 AA (epic 41f): axe's tags are per version, so 2.1's and
+ * 2.2's own A/AA criteria (target size 2.5.8 among them) need their tags too.
+ */
+export const WCAG_TAGS = [
+  "wcag2a",
+  "wcag2aa",
+  "wcag21a",
+  "wcag21aa",
+  "wcag22aa",
+];
 
 export type Mode = "light" | "dark";
 

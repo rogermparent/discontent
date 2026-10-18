@@ -45,11 +45,7 @@ export function GroupIndexPageWrapper({
             <GroupList
               groups={page.items}
               renderThumbnail={(group) => (
-                <GroupThumbnail
-                  slug={group.slug}
-                  name={group.name}
-                  image={group.image}
-                />
+                <GroupThumbnail slug={group.slug} image={group.image} />
               )}
             />
             <RecipePagination

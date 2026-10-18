@@ -9,8 +9,8 @@ import {
   signIn,
 } from "../support/helpers";
 import { snapshotLocator } from "../support/visual";
+import { WCAG_TAGS } from "../support/a11y";
 
-const WCAG = ["wcag2a", "wcag2aa"];
 const SEARCH_TIMEOUT = 20_000;
 
 const ticker = (page: Page) => page.getByTestId("search-ticker");
@@ -27,7 +27,7 @@ const recipeRow = (page: Page, name: string | RegExp) =>
   });
 
 const axeClean = async (page: Page) => {
-  const results = await new AxeBuilder({ page }).withTags(WCAG).analyze();
+  const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
   expect(results.violations).toEqual([]);
 };
 

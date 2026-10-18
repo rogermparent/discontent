@@ -10,7 +10,10 @@ import {
   WORKING_BENCH,
   type Preset,
 } from "@discontent/component-library/theming";
-import { contrastRatio } from "@discontent/component-library/theming/contrast";
+import {
+  contrastOver,
+  contrastRatio,
+} from "@discontent/component-library/theming/contrast";
 
 /*
  * The multi-site font contract (PR 01a of the portfolio rebuild).
@@ -267,5 +270,84 @@ describe("accent contrast", () => {
     expect(
       contrastRatio("oklch(0.99 0.01 85)", "oklch(0.53 0.16 189)"),
     ).toBeCloseTo(4.31, 2);
+  });
+});
+
+/*
+ * Form-control borders (epic 41f, WCAG 1.4.11 non-text contrast).
+ *
+ * `--input` is the border of every Input, Textarea, Select trigger, outline
+ * button and toggle — the only thing that shows where an empty field is. Until
+ * 41f it was the same hairline as `--border`: 1.27:1 on the light page and
+ * 1.54:1 on the dark one. These hold it at 3:1 against every surface a form
+ * sits on (the page, and a card or popover), in every neutral family and both
+ * modes. Dark `--input` is translucent white, so it is measured as painted
+ * over each surface (`contrastOver`), not as an opaque colour.
+ */
+describe("form-control border contrast", () => {
+  const NEUTRALS = ["warm", "cool", "gray"] as const;
+  const SURFACES = ["--background", "--card", "--popover"] as const;
+
+  /** `neutral/mode/surface: ratio` wherever `--input` falls under `min`. */
+  function failing(min: number): string[] {
+    const failures: string[] = [];
+    for (const neutral of NEUTRALS) {
+      const derived = deriveTheme({ ...WORKING_BENCH, neutral });
+      for (const mode of ["light", "dark"] as const) {
+        const tokens = derived[mode];
+        for (const surface of SURFACES) {
+          const ratio = contrastOver(tokens["--input"], tokens[surface]);
+          if (ratio < min)
+            failures.push(`${neutral}/${mode}/${surface}: ${ratio.toFixed(2)}`);
+        }
+      }
+    }
+    return failures;
+  }
+
+  it("keeps --input at 3:1 against the page and a card", () => {
+    expect(failing(3)).toEqual([]);
+  });
+
+  it("keeps the margin: every --input reaches 3.1:1", () => {
+    expect(failing(3.1)).toEqual([]);
+  });
+
+  /* The accent never reaches the neutral tokens, so no hue can undo this. */
+  it("does not vary with the accent hue", () => {
+    const at = (accentHue: number) =>
+      deriveTheme({ ...WORKING_BENCH, accentHue });
+    for (const hue of [0, 50, 191, 300]) {
+      expect(at(hue).light["--input"]).toBe(at(50).light["--input"]);
+      expect(at(hue).dark["--input"]).toBe(at(50).dark["--input"]);
+    }
+  });
+
+  /*
+   * The fills moved to their own token so the border could darken without
+   * them: `dark:bg-input-fill/30` paints exactly what `dark:bg-input/30` did.
+   */
+  it("keeps the fills at the old hairline value", () => {
+    for (const neutral of NEUTRALS) {
+      const { light, dark } = deriveTheme({ ...WORKING_BENCH, neutral });
+      expect(light["--input-fill"]).toBe(light["--border"]);
+      expect(dark["--input-fill"]).toBe("oklch(1 0 0 / 15%)");
+    }
+  });
+
+  it("measures a translucent colour as painted over its surface", () => {
+    const page = "oklch(0.185 0.008 78)";
+    // Opaque: the same number as the plain ratio.
+    expect(
+      contrastOver("oklch(0.64 0.008 78)", "oklch(0.98 0.006 78)"),
+    ).toBeCloseTo(
+      contrastRatio("oklch(0.64 0.008 78)", "oklch(0.98 0.006 78)"),
+      9,
+    );
+    // The pre-41f dark border, and the alpha forms parse alike.
+    expect(contrastOver("oklch(1 0 0 / 15%)", page)).toBeCloseTo(1.54, 2);
+    expect(contrastOver("oklch(1 0 0 / 0.15)", page)).toBeCloseTo(1.54, 2);
+    // Fully transparent paints nothing.
+    expect(contrastOver("oklch(1 0 0 / 0%)", page)).toBe(1);
   });
 });
