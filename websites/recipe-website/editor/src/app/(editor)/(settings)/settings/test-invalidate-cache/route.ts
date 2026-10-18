@@ -1,4 +1,6 @@
 import { revalidateDerivedState } from "@discontent/cms/content/next/revalidateDerived";
+import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
+import { releaseContentWrites } from "@discontent/cms/fs/writeGate";
 import { revalidatePath } from "next/cache";
 import { recipeContentTypes } from "../../../../../../controller/contentTypes";
 
@@ -7,6 +9,12 @@ export async function GET() {
   if (!process.env.TEST_MODE) {
     return Response.json({ error: "Not available" }, { status: 404 });
   }
+
+  /*
+   * The end of a reset (41b): writes held by `test-hold-writes` while the
+   * fixture went in may run again. A no-op when nothing held them.
+   */
+  releaseContentWrites(getContentDirectory());
 
   revalidatePath("/", "layout");
 

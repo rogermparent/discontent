@@ -1,7 +1,34 @@
-import { test as base } from "@playwright/test";
+import { test as base, type APIRequestContext } from "@playwright/test";
 import * as tasks from "./tasks";
 
 const CACHE_INVALIDATE_PATH = "/settings/test-invalidate-cache";
+const HOLD_WRITES_PATH = "/settings/test-hold-writes";
+
+/**
+ * Replace `test-content` while the server writes nothing into it (41b,
+ * 40-Tf5). `test-hold-writes` answers once the server's writes in flight —
+ * whatever the previous test started and did not wait for — have finished,
+ * and holds new ones at its write gate; the cache invalidation after the
+ * reset releases them. Before this the reset raced those writes: `ENOTEMPTY`
+ * on the removal, `EEXIST` on the copy, and a late file kept in the next
+ * test's corpus.
+ */
+async function withWritesHeld(
+  request: APIRequestContext,
+  reset: () => Promise<void>,
+): Promise<void> {
+  const held = await request.get(HOLD_WRITES_PATH);
+  if (!held.ok()) {
+    throw new Error(
+      `GET ${HOLD_WRITES_PATH} → ${held.status()}: ${await held.text()}`,
+    );
+  }
+  try {
+    await reset();
+  } finally {
+    await request.get(CACHE_INVALIDATE_PATH);
+  }
+}
 
 type Fixtures = {
   resetData: (fixture?: string) => Promise<void>;
@@ -58,16 +85,14 @@ export const test = base.extend<Fixtures>({
     await request.dispose();
   },
   resetData: async ({ request }, use) => {
-    await use(async (fixture) => {
-      await tasks.resetData(fixture);
-      await request.get(CACHE_INVALIDATE_PATH);
-    });
+    await use((fixture) =>
+      withWritesHeld(request, () => tasks.resetData(fixture)),
+    );
   },
   loadGitFixture: async ({ request }, use) => {
-    await use(async (fixture) => {
-      await tasks.loadGitFixture(fixture);
-      await request.get(CACHE_INVALIDATE_PATH);
-    });
+    await use((fixture) =>
+      withWritesHeld(request, () => tasks.loadGitFixture(fixture)),
+    );
   },
   initializeContentGit: async ({ request }, use) => {
     await use(async () => {

@@ -1,4 +1,6 @@
 import { revalidateDerivedState } from "@discontent/cms/content/next/revalidateDerived";
+import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
+import { releaseContentWrites } from "@discontent/cms/fs/writeGate";
 import { demoContentTypes } from "@/lib/contentTypes";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +25,8 @@ export const dynamic = "force-dynamic";
  * What it buys is that the third demo content type cannot be forgotten here.
  */
 export async function POST() {
+  /* The end of a reset (41b): release `hold-writes`, if it held anything. */
+  releaseContentWrites(getContentDirectory());
   revalidateDerivedState(demoContentTypes);
   return Response.json({ ok: true });
 }

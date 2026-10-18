@@ -247,4 +247,201 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
 
 ## Traps
 
+### 41b
+
+- **Tb1 — a new `ENOTEMPTY` or `EEXIST` in `resetData` names a writer that
+  bypasses the write gate.** The retries that hid it are gone from
+  `test-content`. Route the writer through `trackContentWrite` (or
+  `withWriteLock`, which does); don't add the retry back. The job store's
+  kept readings still retry: import jobs outlive their test and aren't
+  content.
+- **Tb2 — a client-side navigation moves the URL only when the destination
+  arrives.** Under `next dev` a route's first visit compiles it first, so
+  `expect(page).toHaveURL` (5 s) after a `Link` click can lose to the
+  compile early in a shard. Wait with `page.waitForURL`, which is bounded
+  by the test like `goto`.
+- **Tb3 — the editor's `next build` can fail in CI's new "Recipe build
+  (main-checkout shape)" job without a warning line.** With the links in
+  place, Next 16.4 hard-errors ("the symlink target leaves the filesystem
+  root") before it prints the tracing warning; the grep is the guard for a
+  Next that only warns. Either way the fix is the same:
+  `/*turbopackIgnore: true*/` on the new runtime fs call.
+- **Tb4 — the write gate is keyed by the directory as spelled.** Every
+  server caller spells it from `getContentDirectory()`. A write that passes
+  another spelling (a realpath, a trailing slash) is a different gate: not
+  held by a reset, and — nested in a held write — held until the pause
+  times out (20 s, `WritesStillRunningError`).
+
 ## Results
+
+### 41b — Test / CI robustness
+
+**Reindex needed: no. Deploy: none needed** (the engine change is a
+per-process counter on the write path; nothing pauses writes outside the
+test routes).
+
+**1. `resetData` at the root (40-Tf5).** The race was wider than the write
+lock could close. Outside a git repository `withWriteLock` takes no lock at
+all, and most fixtures aren't repositories. Image transforms also write into
+the content directory (`transformed-images`) from a page render, with no
+lock. So the fix is a per-process **write gate** in the engine,
+`packages/cms/fs/writeGate.ts`:
+
+- `trackContentWrite(dir, op, fn)` counts a write in flight and waits while
+  the gate is closed. Every `withWriteLock` goes through it (repository or
+  not), and so does `getTransformedUploadImageProps` (every recipe, group
+  and term image). Re-entrant through `AsyncLocalStorage`, so a nested write
+  never waits on its own pause. `outsideWriteLock` leaves the gate's scope
+  too, so background work (the index flush retry) meets a closed gate like
+  any other write.
+- `pauseContentWrites` closes the gate and waits for the in-flight count to
+  reach zero. After 20 s it gives up with `WritesStillRunningError`, which
+  names each running write's `op`, and reopens the gate.
+- `holdContentWrites` / `releaseContentWrites` split a pause across two
+  requests. A hold that is never released ends by itself after 30 s.
+- The state lives on `globalThis` (`Symbol.for`), because Next may bundle the
+  module once per server layer, and a route handler has to pause the gate
+  that server actions use.
+
+The harnesses use it like this:
+
+- **Recipe editor.** `GET /settings/test-hold-writes` (TEST_MODE only) holds
+  the server's writes and answers 503 with the stuck ops if they don't
+  drain. The `resetData` and `loadGitFixture` fixtures call it first, reset
+  from the test process, then call `test-invalidate-cache`, which releases
+  the hold. The release runs in a `finally`.
+- **CMS demo.** The same pair is `POST /test/hold-writes` and
+  `/test/reset-cache`. The one-shot tolerance on the first reset now covers
+  both calls.
+- **The retries.** The `ENOTEMPTY` `maxRetries` and the `EEXIST` copy loop
+  are gone from `test-content` in both suites; the remove and the copy are
+  plain. The job store's `readings/` and `photos/` keep `fs.rm`'s retries.
+  Import jobs outlive their test and write there without the gate, because
+  they aren't content (Db2, Tb1).
+
+**Test** (`test/writeGate.test.ts`, 7 cases). A control shows that a reset
+which doesn't hold writes lets the previous test's late aggregate into the
+next corpus. Then, with a write in flight, the real `test-hold-writes` route
+handler doesn't answer until the write finishes, and the remove-and-copy
+lands the fixture intact (no `ENOTEMPTY`, no `EEXIST`, no stray file). The
+other cases:
+
+- a write that arrives during a reset waits for the release, then runs
+  against the new corpus;
+- a nested write doesn't deadlock a pause;
+- a git repository's writes are covered the same way;
+- the timeout names the stuck write and reopens the gate;
+- an unreleased hold ends by itself.
+
+**2. CMS demo `aggregates.spec` retagging (formerly :265, now :271).
+Unexplained; recorded and stopped (Db4).** The CI record is in 80
+`playwright.yml` runs (scratch `tmp/41/41b/ci/`):
+
+- **16 dev-cell failures, every one the job's test #7.** That is the first
+  run of the retagging test in the suite, about a minute into the dev
+  server's life. Each was a 30 s timeout waiting for the Edit link on
+  `/notes/a`, and each retry passed.
+- **Two more were one-offs:** `aggregates.spec:154`, also test #3, also
+  early.
+- **None in the 7 runs since 40f.** Its strict `createNote` would now fail
+  at the create.
+- **No trace exists for any of them.** `trace: on-first-retry` records only
+  the passing retry, and the demo job uploaded nothing.
+
+Locally, with the write gate in place, neither repro failed: dev
+`--repeat-each 20` passed 140/140, and the full demo suite in dev on a cold
+`.next` (no Turbopack cache, like CI) passed 109/109. That was two runs, the
+budget. The test before #7 deletes the same slug (`a`), so the reset race is
+a candidate cause, but that is unproven. If it was the cause, the gate fixes
+it.
+
+To make the next occurrence diagnosable, the demo's config keeps every
+failed attempt's trace on CI (`retain-on-failure`), and the demo job uploads
+`test-results` (`demo-test-results-<mode>`, 14 days) when there is any. No
+timeout was raised.
+
+**3. `search-query-language.spec:310`: not the hydration class (Db3).** All
+three CI failures (2026-10-16, shard 4) had the same shape:
+
+- **The click ran 33–38 s into the shard.** The chip was clicked and
+  focused, and the URL stayed `/search` for 5 s.
+- **The retry's trace shows the payload was the wait.** The
+  `/group/week-of-may-4` payload came back in 65 ms on the retry, once the
+  route was compiled.
+
+Early in shard 4, the click is the dev server's first visit to
+`/group/[slug]`, and the URL moves only when the payload arrives. Hydration
+was already proven, since the field had just taken typed queries. The spec
+now waits with `page.waitForURL(…)`, a navigation wait bounded by the test,
+rather than `toHaveURL`'s 5 s.
+
+**4. CI symlink-chain check (#269).** No CI job built the recipe editor in
+production: the Recipe shards run `next dev` and resume/demo build their own
+apps. So the check is a new, small job in `playwright.yml`, **"Recipe build
+(main-checkout shape)"**, behind the existing `recipe` path filter (Db5):
+
+- **Links.** It points `editor/content` at `$RUNNER_TEMP/content`, outside
+  the workspace, with empty `transformed-images/` and `uploads/`. It makes
+  `export/public/{image,uploads}` absolute links through
+  `…/editor/content/…`, which mirrors the main checkout's targets.
+- **Build.** It runs `pnpm build` in the editor with the output teed to a
+  log, and fails on "Dynamic filesystem access causes tracing of the whole
+  project".
+- **No fixtures.** The build reads no content.
+
+**Local proof** (the worktree, scratch links outside the workspace, the
+editor build through `heavy.sh`):
+
+- With #269's annotations, the build is clean: no warning, exit 0.
+- Without the annotation on `writeLock.ts`'s `stat(full)`, the build fails
+  with exit 1 and `TurbopackInternalError … the symlink target leaves the
+filesystem root`.
+- With the same change and no links, the build passes but the grep catches
+  "Dynamic filesystem access causes tracing of the whole project" at
+  `writeLock.ts:277`, and the step exits 1.
+
+The links were removed afterwards and never committed. The CI proof (a
+throwaway commit without the annotation, then its revert) is to follow at
+push: RUN URLS PENDING.
+
+**Decisions.**
+
+- **Db1** — The reset waits on a **gate** in the engine, not on the write
+  lock. The lock is per git repository and absent outside one, while the
+  gate covers every write path in the process (and image transforms). The
+  harness doesn't take the lock from the test process either: the lock file
+  lives in `test-content/.git`, which the reset deletes.
+- **Db2** — The retries stay for the job store's kept readings only. Those
+  directories are written by import jobs that legitimately outlive their
+  test (accessibility.spec says so), and they aren't content.
+- **Db3** — `waitForURL` for a click-driven navigation, not a raised
+  `toHaveURL` timeout. It waits for the event that matters, bounded like
+  `goto`.
+- **Db4** — The demo flake stays open with better instruments (failed-attempt
+  traces uploaded) rather than a speculative fix. The write gate may well be
+  that fix. **Roger to confirm**: close it if a few weeks of CI show no
+  instance.
+- **Db5** — The symlink check is its own job (about 4 minutes, beside the
+  shards), not a step in a Recipe shard. It keeps a failure's meaning
+  obvious and puts no build on a shard's critical path. A full recipe run is
+  now about 12 jobs.
+
+**Gates.** All of these ran through the capped wrappers. Playwright ran in
+Docker (CI's image) unless marked host.
+
+- `pnpm --filter recipe-editor typecheck` ✅;
+  `pnpm --filter recipe-website exec tsc --noEmit` ✅; the demo's
+  `tsc --noEmit` ✅.
+- `pnpm exec vitest run`: **2349/2349** (115 files).
+- Recipe, build mode:
+  - `search-query-language.spec --repeat-each 10`: **190/190**, none flaky.
+  - The reset-heavy set once (empty-state, featured-recipes, tag-pages,
+    sticky-chrome, groups, git, photo-import): **158/158**.
+- Recipe, dev mode: `search-query-language.spec --repeat-each 10`:
+  **190/190**.
+- CMS demo, `PLAYWRIGHT_PORT=3021`:
+  - `aggregates.spec --repeat-each 10`, build: **70/70**.
+  - `--repeat-each 20`, dev (host): **140/140**.
+  - Full suite, dev, cold `.next` (host): **109/109**.
+- The editor build in the main checkout's shape: clean with #269's
+  annotations; caught twice without one (above).
