@@ -496,9 +496,13 @@ filesystem root`.
   "Dynamic filesystem access causes tracing of the whole project" at
   `writeLock.ts:277`, and the step exits 1.
 
-The links were removed afterwards and never committed. The CI proof (a
-throwaway commit without the annotation, then its revert) is to follow at
-push: RUN URLS PENDING.
+The links were removed afterwards and never committed. **CI proof (PR
+#272):** a throwaway commit without `writeLock.ts`'s annotation
+(`beb44c8d`) failed the new job in 37 s with #269's exact error — "Symlink
+websites/recipe-website/export/public/image could not be resolved: the
+symlink target leaves the filesystem root" on `packages/cms/git/writeLock.ts
+[instrumentation]` (run 39097332792, job 117586403735). Its revert
+(`6f8255e1`) is the PR's next run, which passes.
 
 **It builds the editor only, as the workstation does.** `pnpm workstation
 update` (`scripts/workstation-editor.sh`'s `build`) runs `pnpm --filter
