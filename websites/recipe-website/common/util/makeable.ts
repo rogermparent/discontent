@@ -1029,31 +1029,16 @@ function rankBuyNext(
   oneAway: RecipeMatch[],
   twoAway: RecipeMatch[],
 ): BuyNext[] {
-  const tally = new Map<string, BuyNext>();
-  const entry = (requirement: Requirement): BuyNext => {
-    const key = requirementKey(requirement);
-    let found = tally.get(key);
-    if (!found) {
-      found = {
+  return missingLines({ oneAway, twoAway })
+    .map(
+      ({ requirement, unlocks, helps }): BuyNext => ({
         item: nameLabel(requirement.alternatives[0]),
         label: requirementLabel(requirement),
-        unlocks: 0,
-        helps: 0,
-        recipes: [],
-      };
-      tally.set(key, found);
-    }
-    return found;
-  };
-  for (const match of oneAway) {
-    const found = entry(match.missing[0]);
-    found.unlocks += 1;
-    found.recipes.push(match.recipe.slug);
-  }
-  for (const match of twoAway) {
-    for (const requirement of match.missing) entry(requirement).helps += 1;
-  }
-  return [...tally.values()]
+        unlocks: unlocks.length,
+        helps,
+        recipes: unlocks,
+      }),
+    )
     .sort(
       (a, b) =>
         b.unlocks - a.unlocks ||
@@ -1061,6 +1046,114 @@ function rankBuyNext(
         a.label.localeCompare(b.label),
     )
     .slice(0, BUY_NEXT_LIMIT);
+}
+
+/**
+ * One missing line as Buy next tallies it (41h): the requirement, the
+ * one-away recipes it alone keeps out of reach, and the two-away recipes it
+ * is one of the two for. `rankBuyNext` is this tally, ranked and cut to
+ * `BUY_NEXT_LIMIT`. (The add field's what-if judges per recipe instead:
+ * `whatIf`.)
+ */
+export interface MissingLine {
+  requirement: Requirement;
+  /** Slugs of the one-away recipes missing only this. */
+  unlocks: string[];
+  /** Two-away recipes this is one of the two for. */
+  helps: number;
+}
+
+/** Every line the one- and two-away recipes miss, once each. */
+export function missingLines(
+  analysis: Pick<MakeableAnalysis, "oneAway" | "twoAway">,
+): MissingLine[] {
+  const tally = new Map<string, MissingLine>();
+  const entry = (requirement: Requirement): MissingLine => {
+    const key = requirementKey(requirement);
+    let found = tally.get(key);
+    if (!found) {
+      found = { requirement, unlocks: [], helps: 0 };
+      tally.set(key, found);
+    }
+    return found;
+  };
+  for (const match of analysis.oneAway) {
+    entry(match.missing[0]).unlocks.push(match.recipe.slug);
+  }
+  for (const match of analysis.twoAway) {
+    for (const requirement of match.missing) entry(requirement).helps += 1;
+  }
+  return [...tally.values()];
+}
+
+/** What adding one item would do (41h): "+N now · M closer". */
+export interface WhatIf {
+  item: string;
+  /** Slugs of the one- and two-away recipes it would finish. */
+  unlocks: string[];
+  /** One- and two-away recipes it would bring closer without finishing. */
+  helps: number;
+}
+
+/**
+ * `item` added to the inventory, judged per recipe against what each one-
+ * and two-away recipe is missing: every missing line it would meet, as an
+ * item meets a line (`satisfies`, with the corpus's aliases). A recipe it
+ * leaves with nothing missing is finished ("+N now"); one it meets some but
+ * not all of is closer. Per recipe, not per line (41h review): "lime" meets
+ * both "lime juice" and "lime wedge" of a two-away recipe and finishes it.
+ * Sub-recipes and close matches it might open are not counted.
+ */
+export function whatIf(
+  item: string,
+  analysis: Pick<MakeableAnalysis, "oneAway" | "twoAway">,
+  aliases?: AliasIndex,
+): WhatIf {
+  const parsed = parseInventoryItem(item);
+  const unlocks: string[] = [];
+  let helps = 0;
+  for (const match of [...analysis.oneAway, ...analysis.twoAway]) {
+    const met = match.missing.filter((requirement) =>
+      satisfies(parsed, requirement, aliases),
+    ).length;
+    if (met === 0) continue;
+    if (met === match.missing.length) unlocks.push(match.recipe.slug);
+    else helps += 1;
+  }
+  return { item, unlocks, helps };
+}
+
+/**
+ * Each item's **pull** (41h): how many of the recipes it can make now use
+ * it — a line it meets, or one it stands in for as a close match — so a
+ * label says which bottles carry the bar. Keyed by the item as written.
+ */
+export function pullCounts(
+  items: string[],
+  canMake: RecipeMatch[],
+  corpus: PreparedCorpus,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const parsed = parseInventoryItem(item);
+    let count = 0;
+    for (const match of canMake) {
+      const entry =
+        corpus.recipes.get(match.recipe.slug) ?? prepareRecipe(match.recipe);
+      if (
+        match.close.some((close) => close.item === item) ||
+        entry.requirements.some(
+          (requirement) =>
+            !requirement.optional &&
+            satisfies(parsed, requirement, corpus.aliases),
+        )
+      ) {
+        count += 1;
+      }
+    }
+    counts.set(item, count);
+  }
+  return counts;
 }
 
 /**

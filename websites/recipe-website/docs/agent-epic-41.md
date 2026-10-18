@@ -109,6 +109,7 @@ Thanksgiving roundup. Each page is fetched once, ≥ 15 s apart per host.
 | 41d1     | M    | `agent/41d1-react-tw` | 📝     | —   | React 19.3 + Tailwind 4.3; moved baselines regenerated in Docker.                           |
 | 41d2     | M    | `agent/41d2-pw`       | 📝     | —   | Playwright 1.64: package, CI images, `Dockerfile.playwright`; every baseline regenerated.   |
 | 41d3     | S    | `agent/41d3-prettier` | 📝     | —   | Prettier 3.9 and a repo-wide reformat in its own commit, in `.git-blame-ignore-revs`.       |
+| 41h      | L    | `agent/41h-make`      | 🟡     | —   | The Make page redesigned: the question as h1, tape labels, featuring, Count from, specs.    |
 | 41-close | S    | `agent/41-close`      | 📝     | —   | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                           |
 
 Ordering, in waves: **wave 1** 41a (light, the orchestrator) ∥ 41b ∥ 41c,
@@ -213,6 +214,43 @@ update`, never commit `editor/content`.
   workstation stopped and restarted, then `POST /api/revalidate`. Counts
   before and after; a review list for the close-out; the `feature --term
 thanksgiving` command for after Oct 31.
+
+### 41h — The Make page, redesigned (L)
+
+Roger, 2026-10-18 (live): "Improve the 'What can I make?' menu with more
+granular and easy control of ingredients: toggle whether global
+editor-saved ingredients are considered over browser ingredients, easier
+reset/clear of the browser ingredients list, the ability to save the
+current browser list as persistent editor list, and better control like
+search over 'buy next', e.g. I'm looking at drinks and have a list of
+things, I want to add/set a 'high priority' ingredient for lime so I can
+recontextualize the list for drinks I can make that include lime." Then:
+"Really consider the design … it really is one of the most joyful ways to
+use the site and I want to focus on making the experience even better."
+
+The reference is a working prototype Roger reviewed live (published as an
+artifact; the source is in the orchestrator's scratch, `41h/make-src.html`):
+its behaviour, copy and look, on the site's real components, tokens and
+matcher (`common/util/makeable.ts` — the prototype's matcher was a
+stand-in). Roger's decisions:
+
+- **Featuring filters.** A featured ingredient narrows every count, bucket
+  and Buy next to recipes that use it, as `ingredient:<name>` in `?q=`;
+  several featured → all must appear.
+- **Count from defaults to "This browser"** for a browser that never chose
+  (U6's rule, unchanged for everyone who doesn't touch it).
+- **Scope: the whole prototype, plus a spec-card view** (a per-browser
+  toggle between photo cards and compact spec cards).
+
+What it builds: the question as the page's `<h1>` with the kind word as a
+menu and each featured ingredient as a button; featuring written to the
+query; tape labels for every ingredient (on hand, featured, the second
+list, missing) with their pull; Count from (This browser / Saved list /
+Both) replacing U6's "Also makeable with…" group on `/make`; Clear and
+Copy with Undo; Save to editor with an inline diff; the add field as Buy
+next search (a combobox with "+N now · M closer"); Buy next inside the
+featured scope with the recipes it unlocks; spec cards; restrained motion
+(off under reduced motion); the phone shelf stacked and summarised.
 
 ### 41-close (S)
 
@@ -331,6 +369,43 @@ sugar` compiles to `<li><Multiplyable>cup sugar</Multiplyable></li>`, with
   recipes read-only, and rendering and index text are identical to 9.6.1.
   Hence the `~9.10.3` pin (Dc4) and the backlog row "markdown-to-jsx ≥ 9.7
   line capture" with its reopen trigger.
+
+### 41h
+
+- **Th1 — `ingredient:` means two things now.** On `/make` a featured
+  ingredient is judged by the matcher (Dh7): `withoutFeatures` strips the
+  top-level positive `ingredient:` terms before `scopeRecipes`, and
+  `featureScope` / `featuredLines` keep the recipes each feature meets. On
+  `/search` (and inside an OR on `/make`) `ingredient:` is still the search
+  language's word-prefix match, so `ingredient:gin` there still finds
+  ginger beer. A test or a link that expects one from the other fails; a
+  deep link from `/drinks` into `/make?q=…` reads the `/make` way.
+- **Th2 — the e2e expectations were first written without running.** The
+  implementing worker had no Playwright slot; the finisher ran them. Read a
+  `/make` spec's counts against `make-drinks` itself: the G&T's "Lime
+  wedge, for garnish" is optional, so the G&T is not "with lime"; `gin`
+  never meets "non-alcoholic gin".
+- **Th3 — a setter kept in a closure saves over stale settings.** Before
+  the review, `useMakeSettings`'s `save` merged into the render's `stored`,
+  so an Undo that ran `setSource` seconds later reverted any setting changed
+  in between. `save` now reads `make-settings-v1` from storage when it
+  runs; keep it that way for any setter an Undo or a timer holds.
+- **Th4 — no opacity on a tape.** "Dimmed" labels (Saved mode) are untaped
+  with `--muted-foreground` text, not `opacity`: axe composites opacity, and
+  75 % takes the tape text from ~10:1 to under 3:1.
+- **Th5 — a full-page shot of a page taller than the window can draw the
+  sticky header mid-page.** `make-page-specs` came out with the header at
+  ~385 px over Buy next, and stayed so with `scrollTo(0, 0)` and
+  `scrollY` polled to 0. Sizing the viewport so the page fits
+  (`setViewportSize({ width: 1280, height: 1800 })`) fixed it. The mobile
+  shots keep their known look: the fixed tab bar sits at the first
+  viewport's bottom, as in `homepage-mobile`.
+- **Th6 — under `next dev`, right after sign-in, `/make` can have a hidden
+  second copy.** The dev run's first attempt at the signed-in axe test
+  failed strict mode: two `make-ticker`s, one outside `<main>` that stayed
+  on "Loading recipes…". The retry passed; build mode never showed it.
+  That test now looks inside `getByRole("main")`; do the same in a new
+  signed-in `/make` spec.
 
 ## Results
 
@@ -1173,3 +1248,222 @@ different styles.
   spritzer. The tarts keep Sally's.
 - **After Oct 31:** `pnpm --silent recipes feature --term thanksgiving --slug thanksgiving-2026 --note "Thanksgiving: turkey, sides, pies and drinks"`.
   Undo any import with `git revert <commit>`.
+
+### 41h — The Make page, redesigned
+
+Branch `agent/41h-make`. **Reindex needed: no. Deploy: yes** (the editor
+and the export's `/make`). No content, index or stored-format change beyond
+two optional fields in `make-settings-v1` (`source`, `view`); a value
+written before 41h reads as This browser and photo cards.
+
+**What shipped** (the prototype, on the real page, components, tokens and
+matcher):
+
+- **The question is the `<h1>`** (`MakeQuestion.tsx`): "What **drinks** can
+  I make with **lime**?" The kind word is a menu button (`MAKE_KINDS`:
+  recipes / dishes / drinks, each with its count). Each featured word is a
+  button that un-features it. The menu renders beside the heading, so an
+  open menu is never part of the heading's name.
+- **Featuring lives in the query** (`kinds.ts`: `featuredOfQuery`,
+  `withFeature`, `withoutFeature`, `withoutFeatures`, `toggleFeature`,
+  `isFeatured`, `featureName`): top-level `ingredient:` terms in `?q=` and
+  `make-last-query`. Typing `ingredient:lime` in Search features lime, and
+  URLs share it. Several features must all appear. The featured scope is
+  judged by the matcher (Dh7).
+- **Tape labels** (`Tape.tsx`, `make.css`): on hand (tape), featured
+  (accent), the second list (outlined), missing (dashed), and, in Saved
+  mode, this browser's uncounted labels (untaped, muted ink). The torn ends
+  are a `clip-path` on `::before`, so focus rings aren't clipped. Tapping
+  the body features (`aria-pressed`); × removes (Undo). Each counted label
+  shows its **pull** (`pullCounts`). Colours: new derived tokens `--tape` /
+  `--tape-foreground` (`derive.ts`, `theme.css`), swept at ≥ 4.5:1 in every
+  neutral family, light and dark (`theming.test.ts`); the fonts are the
+  theme's role variables.
+- **Count from** (This browser / Saved list or House list / Both, with item
+  counts) only when the page has a second list: the signed-in editor's
+  saved inventory, or the export's (and editor guest's) house snapshot when
+  shared. Stored per browser as `source`, default `browser`. Both = the
+  union for every count, bucket and Buy next. In Saved or Both the second
+  list shows as its own outlined, featurable group with "Copy it to this
+  browser" (Undo). This replaces `SecondaryMakeGroup` on `/make` (Dh1).
+- **Clear** (Undo), **Save to editor** (signed-in only): an inline confirm
+  "+N … / −M …" before one commit through `saveInventoryChanges`; toast
+  "Saved list updated."
+- **The add field is Buy next as search** (`AddField.tsx`, a combobox with
+  `aria-activedescendant`): candidate names in scope matching at a word
+  start, each with "+N now · M closer" (`addCandidates`, `whatIf` per
+  recipe — Dh12), ranked by that.
+- **Buy next** follows the featured scope ("Buy next for lime drinks"),
+  names what each item unlocks (three and "and N more"), its item a
+  featurable dashed tape, "I have this: <item>".
+- **Spec cards** (`CardViewSwitch`, per browser as `view`): name, style
+  tags, the lines used (the featured ones marked, from `featuredLines`) and
+  "Needs" tapes. Photo cards stay the default and gained the "Needs" tapes.
+- **Motion**, off under `prefers-reduced-motion`: the ticker's numbers tick
+  (an `aria-hidden` copy; the plain `make-ticker` is the live region), a
+  newly makeable card gets a brief accent ring, a newly added label lands.
+- **Phone**: the shelf stacks above the results behind a disclosure button
+  that says what it holds ("16 on hand · lime featured"); nothing scrolls
+  sideways (checked in `mobile.spec`).
+- Kept: staples, "Assume I always have", "Count close matches",
+  Import / export, tag picks and refine chips, `/drinks`' links into
+  `/make?q=…`, one common component for both apps. Removed: `KindSwitch`,
+  `SecondaryMakeGroup` (from `/make`), `SavedInventoryEditor`.
+
+**Dh1 — Count from replaces "Also makeable with your saved inventory" on
+`/make` only.** The union is a choice now, not a second group under the
+results. `/drinks` keeps its secondary group: its panel has no Count from.
+U6's rule holds for a browser that never chose (This browser), and the
+export still never reads the saved file (`exportInventoryGuard`,
+`exportHouseInventory` green; the new render test pins the panel).
+
+**Dh2 — the per-item saved-list editor is gone.** `SavedInventoryEditor`
+(add or remove one item in the saved list, one commit each) is replaced by
+two whole-list moves: **Save to editor** writes this browser's list as a
+diff (`saveDiff`: add what only the browser has, remove what only the
+saved list as this page saw it has, so an item an agent added after the
+page loaded survives), and **Copy it to this browser** replaces this
+browser's list with the saved one (Undo). Editing the saved list item by
+item is: copy it here, edit, Save to editor. The CLI and MCP
+(`inventory add/remove`) still edit it item by item.
+
+**Dh3 — the combobox never auto-selects.** Enter with nothing picked adds
+what was typed, read as a list ("vodka, lime"), so pasting a comma list
+still works; the arrow keys pick a suggestion first.
+
+**Dh4 — removing a label doesn't un-feature it.** The feature is a term in
+the query, and the query is the person's: `ingredient:lime` stays after
+lime leaves the list (the question still says "with lime", and its button
+un-features).
+
+**Dh5 — the ticker drops the prototype's quoted query.** The query is in
+the Search field beside it; the ticker reads "72 DRINKS · 14 CAN MAKE · …"
+only. The ticking numbers are `aria-hidden`; a plain `sr-only` copy is the
+live region, so a change is announced once, not per animation frame.
+
+**Dh6 — a plain toast ignores the pointer.** "Added lime." never sits on
+top of a control a click meant. A toast with Undo takes the pointer, so
+hovering it pauses its timer (Dh9).
+
+**Dh7 — on `/make` a featured ingredient filters through the matcher
+(review; the orchestrator's decision).** A recipe is in the featured scope
+iff one of its **required** lines is met by the featured item the way
+`analyzeMakeable` would meet it with that item as the whole list (no
+staples; close matches as "Count close matches" says) —
+`featuredLines` / `featureScope` in `makeMath.ts`. So `gin` means gin: not
+ginger beer (on the real repo `ingredient:gin tag:drink` matched 63, ~20 of
+them ginger-only — Moscow Mules, Dark 'n' Stormy, Penicillin), never
+non-alcoholic gin, and "extra dry vermouth" meets every dry-vermouth
+Martini, as the inventory would. A garnish doesn't count: the fixture's
+G&T ("Lime wedge, for garnish") is not "with lime". The query still carries
+`ingredient:<name>`; a label is featured by its name without its
+parenthetical ("aperitif (Gnista)" → `ingredient:aperitif`), and typing
+`ingredient:x` in Make's Search features x the same way. Spec cards mark
+the lines a feature meets from the same judgement. A line met only through
+a sub-recipe ("via") doesn't count: featuring lime doesn't include a
+Gimlet whose lime cordial is a linked recipe (re-review). Search's own
+`ingredient:` is unchanged (Th1). Unit tests: gin vs ginger beer and
+non-alcoholic gin, extra dry vs dry vermouth, a parenthetical label,
+several features.
+
+**Dh8 — featuring is exact (review).** A label is pressed iff its own name
+is featured (`isFeatured`, by `featureKey`); a tap un-features exactly that
+name or adds it. Before, `featuredBy` used the search language's prefix
+rule: with gin featured, tapping "ginger beer" removed gin, and "orange
+bitters" looked pressed under "orange". The question shows each feature as
+typed in the query ("St-Germain", not the parser's "st-germain"). A
+trailing operator (`tag:drink OR`) is dropped before a feature is appended,
+so a tap never lands inside an OR.
+
+**Dh9 — Undo by keyboard (review; WCAG 2.1.1, 2.2.1).** The toast's timer
+pauses while the pointer is over it or focus is in it. After Clear (whose
+button disables itself) focus goes to Undo; after a label's × to the label
+that took its place (or the one before, or the add field). While an Undo
+toast is up, **Ctrl+Z / ⌘Z** undoes unless focus is in a text field (that is
+the field's own undo); the button says so (`aria-keyshortcuts`). After
+Undo, focus that was in the toast goes to the add field.
+
+**Dh10 — Undo applies to the list as it is now (review).** Remove's Undo
+puts that one item back where it was; Clear's restores the old list plus
+anything added since; Copy's restores the old list, keeping what was added
+since but not what the copy brought, and puts Count from back only if it is
+still the "This browser" the copy chose. `useMakeSettings`'s setters read
+storage when they run (Th3).
+
+**Dh11 — Saved mode says this browser's labels don't count (review).** In
+Count from = Saved list, this browser's labels stay on the shelf untaped in
+muted ink (`data-counted="false"`, Th4), without pulls, under "Not counted —
+switch Count from to This browser or Both to include them", and the list is
+named "This browser's list, not counted". The phone's folded summary counts
+what is counted (the saved list, the union in Both).
+
+**Dh12 — the what-if is per recipe (review).** `whatIf(item, analysis)`
+looks at each one- and two-away recipe: every missing line the item meets
+gone → "+1 now"; some → "closer". Per line it overcounted ("lime" meeting
+both "lime juice" and "lime wedge" of a two-away recipe said "0 now · 2
+closer" though it finishes it). Buy next keeps its per-line tally.
+
+**Dh13 — the heading's controls.** Buttons are phrasing content, so the h1
+holds them (axe's `nested-interactive` is about controls in controls; it
+passes). A featured word's button is named by the word alone and
+described ("Tap to stop featuring it") from a hidden element outside the
+heading, so the heading's name is the sentence. The tape buttons are
+named by their word, not the prototype's "lime, featured" / "lime,
+feature it": `aria-pressed` already says the state, and the name stays the
+visible word (WCAG 2.5.3). The "Tap a label…" hint is no longer the add
+field's description.
+
+**Coverage — the export / guest house list is a render test, not an
+e2e.** `test/makeInventoryPanel.test.tsx` renders `InventoryPanel` with a
+house list: Count from with its three counts (This browser first), no Save
+to editor, the house labels outlined (`data-kind="saved"`), featurable,
+not removable, "Copy it to this browser", Saved mode's uncounted labels and
+the folded summary; the editor's inventory reader and save action are
+mocked to record an import, and none happens. An e2e would need an export
+built with `SITE_HOUSE_INVENTORY` baked in; the export e2e builds once,
+without it, and `exportHouseInventory.test.ts` pins the bake itself.
+
+**Gates** (all through the capped wrappers, on the final tree):
+
+- `pnpm --filter recipe-editor typecheck` ✓, `pnpm --filter recipe-website
+exec tsc --noEmit` ✓.
+- `pnpm exec vitest run`: **119 files, 2398 tests** ✓ (the worker's 118 /
+  2389, plus `makeInventoryPanel.test.tsx` and the review's unit tests in
+  `makeFeatured.test.ts`).
+- Playwright, Docker, build mode: `make`, `accessibility`, `export-page`,
+  `drinks`, `homepage-browse`, `mobile`, `visual` — **152 passed** (the
+  first run, after the review fixes; `--update-snapshots`); after the last
+  component and spec changes `make`, `accessibility`, `mobile`, `visual` —
+  **127 passed**, and the specs baseline's own rerun 1 passed.
+- Playwright, Docker, dev mode (CI's): `make` + `accessibility` — **99
+  passed** (the first dev run: 98 passed, 1 flaky, Th6, fixed).
+
+**Baselines** (Docker only, each opened and compared with the prototype):
+
+- `visual.spec.ts/make-page-e2e.png` **moved**: the redesign itself (the
+  question as the h1, the tape shelf, Buy next with names, the Cards
+  switch, "Needs" tapes on the photo cards).
+- `visual.spec.ts/make-page-specs-e2e.png` **new**: the spec cards, a
+  feature in the question (`ingredient:tonic`), "Buy next for tonic
+  drinks", the marked lines; shot at 1280 × 1800 (Th5).
+- `mobile.spec.ts/make-mobile-mobile.png` **new**: the phone, the folded
+  shelf's summary ("4 on hand · gin featured") above the results, a
+  featured label.
+- No other baseline moved.
+
+**Roger to confirm:**
+
+- **Dh2: the saved list's per-item editing is gone from `/make`.** You
+  used to add or remove one saved item at a time there, each its own
+  commit. Now it is whole-list: Save to editor (with the +/− diff) or Copy
+  to this browser. Item by item stays in the CLI / MCP. Say if the per-item
+  editor should come back (e.g. × on the outlined saved labels).
+- **Dh7: on Make, featuring gin means gin, not ginger; Search's
+  `ingredient:gin` still prefix-matches.** And a garnish-only use doesn't
+  put a drink "with" the item.
+- **Dh1:** the "Also makeable with your saved inventory" group is gone from
+  `/make` (Count from → Both replaces it); `/drinks` keeps its group.
+- **Dh4:** removing a featured item from the list leaves it featured.
+- **Dh9:** Ctrl+Z / ⌘Z undoes the last shelf change while its toast shows
+  (not inside a text field).
+- **Dh11:** the dotted, muted look for uncounted labels in Saved mode.

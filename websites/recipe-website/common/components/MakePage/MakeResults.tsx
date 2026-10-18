@@ -1,23 +1,37 @@
 "use client";
 
-import { useId, useState } from "react";
+import { Fragment, useId, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { Button } from "@discontent/component-library/components/ui/button";
+import { cn } from "@discontent/component-library/lib/utils";
 import type { MassagedRecipeEntry } from "../../controller/data/read";
 import { requirementLabel } from "../../util/ingredientNames";
 import type {
   BuyNext,
   MakeableAnalysis,
+  PreparedCorpus,
   RecipeMatch,
 } from "../../util/makeable";
 import SearchList from "../SearchList";
 import { RecipeCardLink } from "../List/shared";
+import { isFeatured, type MakeKind } from "./kinds";
+import { namesAndMore } from "./makeMath";
+import { StaticTape, TapeLabel } from "./Tape";
+import type { CardView } from "./useInventory";
 
 /**
- * The line under a card: what to make first, what a close item stands in
- * for (32j: "≈ onion for shallot"), and what's missing. With close matches
- * not counted, a close line is missing too, and says what came near.
+ * What a card says under its name: what to make first, what a close item
+ * stands in for (32j: "≈ onion for shallot"), and what it **needs** — each
+ * missing line a dashed tape (41h). With close matches not counted, a close
+ * line is missing too, and says what came near.
  */
-function MatchNote({ match }: { match: RecipeMatch }) {
+function MatchNote({
+  match,
+  className,
+}: {
+  match: RecipeMatch;
+  className?: string;
+}) {
   if (
     match.via.length === 0 &&
     match.missing.length === 0 &&
@@ -32,9 +46,13 @@ function MatchNote({ match }: { match: RecipeMatch }) {
     ({ requirement }) => !match.missing.includes(requirement),
   );
   return (
-    <div className="mx-2 my-1 flex flex-col gap-0.5 text-xs">
+    <div className={cn("flex flex-col gap-1 text-xs", className)}>
       {match.via.map(({ slug, name }) => (
-        <p key={slug} data-testid="make-via" className="text-muted-foreground">
+        <p
+          key={slug}
+          data-testid="make-via"
+          className="m-0 text-muted-foreground"
+        >
           Make {name.toLowerCase()} first
         </p>
       ))}
@@ -42,7 +60,7 @@ function MatchNote({ match }: { match: RecipeMatch }) {
         <p
           key={`${requirement.line}-${requirementLabel(requirement)}`}
           data-testid="make-close"
-          className="text-muted-foreground"
+          className="m-0 text-muted-foreground"
         >
           <span aria-hidden>≈ </span>
           <span className="sr-only">Close match: </span>
@@ -50,15 +68,20 @@ function MatchNote({ match }: { match: RecipeMatch }) {
         </p>
       ))}
       {match.missing.length > 0 && (
-        <p data-testid="make-missing" className="font-medium">
-          Missing:{" "}
-          {match.missing
-            .map((requirement) => {
-              const near = nearBy.get(requirement);
-              const label = requirementLabel(requirement);
-              return near ? `${label} (close: ${near})` : label;
-            })
-            .join(", ")}
+        <p
+          data-testid="make-missing"
+          className="m-0 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-muted-foreground"
+        >
+          Needs{" "}
+          {match.missing.map((requirement) => {
+            const near = nearBy.get(requirement);
+            return (
+              <Fragment key={`${requirement.line}`}>
+                <StaticTape>{requirementLabel(requirement)}</StaticTape>{" "}
+                {near && <span>(close: {near}) </span>}
+              </Fragment>
+            );
+          })}
         </p>
       )}
     </div>
@@ -70,6 +93,91 @@ export const GROUP_LIMIT = 12;
 /** "Can make now" is what people came for: it shows more before folding. */
 export const READY_LIMIT = 24;
 
+/** What every card grid needs to draw either kind of card. */
+export interface CardContext {
+  view: CardView;
+  recipes: Map<string, MassagedRecipeEntry>;
+  prepared: PreparedCorpus;
+  /** Per recipe, the line indexes the featured ingredients meet. */
+  featuredLines?: Map<string, Set<number>>;
+  /** Slugs that just became makeable: a brief accent ring (41h). */
+  fresh: Set<string>;
+  /** A tag's label, for a spec card's style line. */
+  tagLabel: (tag: string) => string | undefined;
+}
+
+/**
+ * A spec card (41h): name, style, the lines it uses — featured ones marked —
+ * and "Needs" tapes for what's missing. Compact, for scanning a bar's worth
+ * at once; the photo cards stay the default.
+ */
+function SpecCard({
+  match,
+  context,
+}: {
+  match: RecipeMatch;
+  context: CardContext;
+}) {
+  const { recipe } = match;
+  const entry = context.prepared.recipes.get(recipe.slug);
+  const tags = context.recipes.get(recipe.slug)?.tags ?? [];
+  const style = tags
+    .map((tag) => context.tagLabel(tag))
+    .filter((label): label is string => !!label)
+    .slice(0, 3)
+    .join(" · ");
+  const missing = new Set(match.missing);
+  /* A line is marked when a featured item meets it, as the scope does. */
+  const marks = context.featuredLines?.get(recipe.slug);
+  const lines = (entry?.requirements ?? []).filter(
+    (requirement) =>
+      !requirement.optional && !requirement.staple && !missing.has(requirement),
+  );
+  return (
+    <li
+      className={cn(
+        "grid content-start gap-2 rounded-md border bg-card p-3.5 text-card-foreground",
+        context.fresh.has(recipe.slug) && "make-fresh",
+      )}
+    >
+      <h3 className="m-0 font-display text-base leading-tight font-bold">
+        <Link
+          href={`/recipe/${recipe.slug}`}
+          className="rounded-sm hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
+          {recipe.name}
+        </Link>
+      </h3>
+      {style && (
+        <span className="font-mono text-[0.66rem] leading-none tracking-[0.09em] text-muted-foreground uppercase">
+          {style}
+        </span>
+      )}
+      {lines.length > 0 && (
+        <p className="m-0 font-mono text-[0.8rem] leading-relaxed text-muted-foreground">
+          {lines.map((requirement, i) => {
+            const label = requirementLabel(requirement);
+            const marked = !!marks?.has(requirement.line);
+            return (
+              <Fragment key={`${requirement.line}-${label}`}>
+                {i > 0 && " · "}
+                {marked ? (
+                  <mark className="bg-transparent font-medium text-primary underline underline-offset-[0.2em]">
+                    {label}
+                  </mark>
+                ) : (
+                  label
+                )}
+              </Fragment>
+            );
+          })}
+        </p>
+      )}
+      <MatchNote match={match} />
+    </li>
+  );
+}
+
 /**
  * A group's cards, at most `limit` of them until "Show all N" — a real
  * button with `aria-expanded`, expanding in place. A real list runs to
@@ -77,32 +185,57 @@ export const READY_LIMIT = 24;
  */
 function MatchGrid({
   matches,
-  recipes,
+  context,
   limit = GROUP_LIMIT,
 }: {
   matches: RecipeMatch[];
-  recipes: Map<string, MassagedRecipeEntry>;
+  context: CardContext;
   limit?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const gridId = useId();
   const bySlug = new Map(matches.map((match) => [match.recipe.slug, match]));
   const shown = expanded ? matches : matches.slice(0, limit);
+  const { recipes, fresh } = context;
   return (
     <>
       <div id={gridId}>
-        <SearchList
-          recipeResults={shown
-            .map((match) => recipes.get(match.recipe.slug))
-            .filter((recipe): recipe is MassagedRecipeEntry => !!recipe)}
-          highlightQuery=""
-          renderItemWrapper={(recipe, content) => (
-            <RecipeCardLink href={`/recipe/${recipe.slug}`}>
-              {content}
-              <MatchNote match={bySlug.get(recipe.slug)!} />
-            </RecipeCardLink>
-          )}
-        />
+        {context.view === "specs" ? (
+          <ul
+            className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(14.5rem,1fr))] gap-3 p-0"
+            data-testid="make-spec-cards"
+          >
+            {shown.map((match) => (
+              <SpecCard
+                key={match.recipe.slug}
+                match={match}
+                context={context}
+              />
+            ))}
+          </ul>
+        ) : (
+          <SearchList
+            recipeResults={shown
+              .map((match) => recipes.get(match.recipe.slug))
+              .filter((recipe): recipe is MassagedRecipeEntry => !!recipe)}
+            highlightQuery=""
+            renderItemWrapper={(recipe, content) => (
+              <RecipeCardLink
+                href={`/recipe/${recipe.slug}`}
+                className={cn(
+                  "rounded-md",
+                  fresh.has(recipe.slug) && "make-fresh",
+                )}
+              >
+                {content}
+                <MatchNote
+                  match={bySlug.get(recipe.slug)!}
+                  className="mx-2 my-1"
+                />
+              </RecipeCardLink>
+            )}
+          />
+        )}
       </div>
       {matches.length > limit && (
         <Button
@@ -126,159 +259,250 @@ function Section({
   title,
   testId,
   matches,
-  recipes,
+  context,
   limit,
+  empty,
 }: {
   title: string;
   testId: string;
   matches: RecipeMatch[];
-  recipes: Map<string, MassagedRecipeEntry>;
+  context: CardContext;
   limit?: number;
+  /** Said when there are none; without it the section goes. */
+  empty?: ReactNode;
 }) {
   const headingId = useId();
-  if (matches.length === 0) return null;
+  if (matches.length === 0 && !empty) return null;
   return (
-    <section aria-labelledby={headingId} data-testid={testId} className="my-6">
-      <h2 id={headingId} className="mb-2 text-xl font-bold">
-        {title}{" "}
+    <section aria-labelledby={headingId} data-testid={testId}>
+      <h2
+        id={headingId}
+        className="m-0 mb-3 flex items-baseline gap-2 font-display text-xl font-bold"
+      >
+        {title}
         <span className="font-mono text-sm font-normal text-muted-foreground">
           {matches.length}
         </span>
       </h2>
-      <MatchGrid matches={matches} recipes={recipes} limit={limit} />
+      {matches.length > 0 ? (
+        <MatchGrid matches={matches} context={context} limit={limit} />
+      ) : (
+        empty
+      )}
     </section>
   );
 }
 
-/** "Buy next": what one more item would unlock, best first. */
-export function BuyNextList({
-  buyNext,
-  onHave,
-}: {
-  buyNext: BuyNext[];
-  onHave: (item: string) => void;
-}) {
-  const headingId = useId();
-  if (buyNext.length === 0) return null;
+/** A dashed box that says there's nothing here yet. */
+function NoneYet({ children }: { children: ReactNode }) {
   return (
-    <section
-      aria-labelledby={headingId}
-      data-testid="buy-next"
-      className="my-4 rounded-md border p-3"
-    >
-      <h2 id={headingId} className="mb-2 text-sm font-semibold">
-        Buy next
-      </h2>
-      <ol className="flex flex-col gap-1.5 text-sm">
-        {buyNext.map((entry) => (
-          <li
-            key={entry.label}
-            className="flex flex-wrap items-center justify-between gap-2"
-          >
-            <span>
-              <span className="font-medium">{entry.label}</span>{" "}
-              <span className="text-xs text-muted-foreground">
-                {[
-                  entry.unlocks > 0 &&
-                    `makes ${entry.unlocks} more ${entry.unlocks === 1 ? "recipe" : "recipes"}`,
-                  entry.helps > 0 && `${entry.helps} more one step closer`,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-            </span>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              /* Visible words first (41f, WCAG 2.5.3 label in name). */
-              aria-label={`I have this: ${entry.item}`}
-              onClick={() => onHave(entry.item)}
-            >
-              I have this
-            </Button>
-          </li>
-        ))}
-      </ol>
-    </section>
+    <p className="m-0 rounded-md border-[1.5px] border-dashed border-input p-4 text-sm text-muted-foreground">
+      {children}
+    </p>
   );
 }
 
 /**
- * The secondary group (U6): what another list — the operator's saved
- * inventory in a signed-in editor, or the house snapshot an export was
- * built with — makes now that this browser's list doesn't. Below the
- * results, folded away, and never in the ticker or Buy next.
+ * "Buy next" (41h): what one more item would unlock, best first, inside the
+ * featured scope ("Buy next for lime drinks"). Each names the recipes it
+ * would finish, its ingredient is a dashed tape that features it, and "I
+ * have this: <item>" (41f's name) adds it.
  */
-export function SecondaryMakeGroup({
-  label,
-  matches,
+export function BuyNextList({
+  buyNext,
   recipes,
+  featured,
+  kind,
+  onHave,
+  onFeature,
 }: {
-  label: string;
-  matches: RecipeMatch[];
+  buyNext: BuyNext[];
   recipes: Map<string, MassagedRecipeEntry>;
+  featured: string[];
+  kind: MakeKind;
+  onHave: (item: string) => void;
+  onFeature: (item: string) => void;
 }) {
+  const headingId = useId();
+  const scope =
+    featured.length > 0 ? ` for ${featured.join(" and ")} ${kind.word}` : "";
   return (
-    <details data-testid="make-secondary" className="my-6 border-t pt-4">
-      <summary className="cursor-pointer text-xl font-bold">
-        {label}{" "}
-        <span className="font-mono text-sm font-normal text-muted-foreground">
-          {matches.length}
-        </span>
-      </summary>
-      <div className="mt-2">
-        {matches.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Nothing more than this browser&apos;s list makes.
+    <section
+      aria-labelledby={headingId}
+      data-testid="buy-next"
+      className="rounded-lg border bg-card p-4 text-card-foreground sm:px-5"
+    >
+      <h2 id={headingId} className="m-0 font-display text-lg font-bold">
+        Buy next{scope}
+      </h2>
+      {buyNext.length === 0 ? (
+        <p className="mt-3 mb-0 text-sm text-muted-foreground">
+          Nothing to suggest here yet. Add a few things to the list
+          {featured.length > 0 ? " or feature something else" : ""}.
+        </p>
+      ) : (
+        <>
+          <p className="mt-1 mb-2 text-sm text-muted-foreground">
+            Ranked by what each one finishes on its own.
           </p>
-        ) : (
-          <MatchGrid matches={matches} recipes={recipes} />
-        )}
+          <ol className="m-0 grid list-none p-0">
+            {buyNext.map((entry, i) => {
+              const names = entry.recipes.map(
+                (slug) => recipes.get(slug)?.name ?? slug,
+              );
+              return (
+                <li
+                  key={`${i}-${entry.label}`}
+                  className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t py-2.5 first:border-t-0"
+                >
+                  <div className="flex min-w-0 grow basis-60 flex-col gap-1">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <TapeLabel
+                        as="span"
+                        kind="missing"
+                        item={entry.label}
+                        featured={isFeatured(entry.item, featured)}
+                        onFeature={() => onFeature(entry.item)}
+                      />
+                      <span className="font-mono text-xs">
+                        {entry.unlocks > 0
+                          ? `makes ${entry.unlocks} more`
+                          : "makes none alone"}{" "}
+                        <span className="text-muted-foreground">
+                          · {entry.helps} one step closer
+                        </span>
+                      </span>
+                    </div>
+                    <p className="m-0 min-w-0 text-sm text-muted-foreground">
+                      {names.length > 0
+                        ? namesAndMore(names)
+                        : "Helps two-away recipes"}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    /* Visible words first (41f, WCAG 2.5.3 label in name). */
+                    aria-label={`I have this: ${entry.item}`}
+                    onClick={() => onHave(entry.item)}
+                  >
+                    I have this
+                  </Button>
+                </li>
+              );
+            })}
+          </ol>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** Photos or specs (41h): per browser, above the buckets. */
+export function CardViewSwitch({
+  value,
+  onChange,
+}: {
+  value: CardView;
+  onChange: (value: CardView) => void;
+}) {
+  const name = useId();
+  const options: [CardView, string][] = [
+    ["photos", "Photos"],
+    ["specs", "Specs"],
+  ];
+  return (
+    <fieldset
+      className="m-0 flex items-center gap-2 border-0 p-0"
+      data-testid="make-view"
+    >
+      <legend className="sr-only">Cards</legend>
+      <span
+        aria-hidden
+        className="font-mono text-[0.72rem] tracking-[0.08em] text-muted-foreground uppercase"
+      >
+        Cards
+      </span>
+      <div className="inline-flex overflow-hidden rounded-md border border-input">
+        {options.map(([option, label], i) => {
+          const checked = value === option;
+          return (
+            <label
+              key={option}
+              className={cn(
+                "relative flex min-h-8 cursor-pointer items-center px-3 text-sm",
+                "has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-[3px] has-[:focus-visible]:outline-ring",
+                i > 0 && "border-l border-border",
+                checked
+                  ? "bg-foreground text-background"
+                  : "hover:bg-accent hover:text-accent-foreground",
+              )}
+            >
+              <input
+                type="radio"
+                name={name}
+                value={option}
+                checked={checked}
+                onChange={() => onChange(option)}
+                className="absolute inset-0 cursor-pointer opacity-0"
+              />
+              {label}
+            </label>
+          );
+        })}
       </div>
-    </details>
+    </fieldset>
   );
 }
 
 export function MakeResults({
   analysis,
-  recipes,
+  context,
 }: {
   analysis: MakeableAnalysis;
-  recipes: Map<string, MassagedRecipeEntry>;
+  context: CardContext;
 }) {
   const { canMake, oneAway, twoAway, further } = analysis;
   return (
-    <>
+    <div className="grid gap-9">
       <Section
         title="Can make now"
         testId="make-can"
         matches={canMake}
-        recipes={recipes}
+        context={context}
         limit={READY_LIMIT}
+        empty={
+          <NoneYet>
+            <strong className="font-semibold text-foreground">
+              Nothing to make yet.
+            </strong>{" "}
+            Buy next shows what gets you there fastest.
+          </NoneYet>
+        }
       />
       <Section
         title="One ingredient away"
         testId="make-one-away"
         matches={oneAway}
-        recipes={recipes}
+        context={context}
       />
       <Section
         title="Two away"
         testId="make-two-away"
         matches={twoAway}
-        recipes={recipes}
+        context={context}
       />
       {further.length > 0 && (
-        <details data-testid="make-further" className="my-6">
-          <summary className="cursor-pointer text-xl font-bold">
+        <details data-testid="make-further">
+          <summary className="cursor-pointer font-display text-xl font-bold">
             Further away ({further.length})
           </summary>
-          <div className="mt-2">
-            <MatchGrid matches={further} recipes={recipes} />
+          <div className="mt-3">
+            <MatchGrid matches={further} context={context} />
           </div>
         </details>
       )}
-    </>
+    </div>
   );
 }

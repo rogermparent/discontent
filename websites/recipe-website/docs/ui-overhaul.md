@@ -2532,6 +2532,14 @@ width.
 
 ### U6 — This browser's list first; the saved inventory second
 
+> **Since 41h (2026-10-18) `/make` is redesigned** — the question as its
+> `<h1>`, tape labels, featured ingredients in the query, a "Count from"
+> control (This browser by default, Saved list, Both) that replaced the
+> "Also makeable with…" group on `/make` (`/drinks` keeps its group), Save
+> to editor with a diff, the add field as Buy next search, and spec cards.
+> The rule below still holds for a browser that never chose. See
+> `agent-epic-41.md` §41h.
+
 - **Both apps judge the browser's list alone.** `useInventory()`: the
   `make-inventory-v1` value's `added` is the list, as on the export since
   25c (the hook takes no shared list any more).

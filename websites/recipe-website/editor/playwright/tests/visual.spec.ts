@@ -307,8 +307,9 @@ test.describe("Visual baselines @visual", () => {
     });
   });
 
-  // `/make` with a few items in: the inventory panel, quick picks, ticker,
-  // "Buy next" and the bucketed grids, all in one shot (25c).
+  // `/make` with a few items in: the question, the shelf of tape labels,
+  // quick picks, ticker, "Buy next" and the bucketed grids, all in one shot
+  // (25c, redesigned in 41h).
   test("make page with an inventory", async ({ page, resetData }) => {
     await resetData("make-drinks");
     await page.goto("/make");
@@ -319,6 +320,37 @@ test.describe("Visual baselines @visual", () => {
     await input.fill("vodka, simple syrup, gin, tonic, Gnista");
     await input.press("Enter");
     await expect(page.getByTestId("make-can")).toContainText("Gin and Tonic");
+    /* The "Added 5 items." toast has gone. */
+    await expect(page.getByTestId("make-toast")).toBeEmpty({
+      timeout: 5_000,
+    });
     await snapshotPage(page, "make-page.png");
+  });
+
+  // 41h: the spec cards, a featured ingredient in the question and on its
+  // labels, and Buy next for the featured scope.
+  test("make page, spec cards with a feature", async ({ page, resetData }) => {
+    await resetData("make-drinks");
+    await page.goto("/make?q=tag:drink ingredient:tonic");
+    await expect(page.getByTestId("make-ticker")).toHaveText(/can make/i, {
+      timeout: 20_000,
+    });
+    const input = page.getByTestId("inventory-input");
+    await input.fill("vodka, simple syrup, gin, tonic water, lime");
+    await input.press("Enter");
+    /* A viewport the page fits in: a full-page shot of a page taller than
+     * the window drew the sticky header mid-page here (Th5). */
+    await page.setViewportSize({ width: 1280, height: 1800 });
+    await page
+      .getByRole("group", { name: "Cards" })
+      .getByRole("radio", { name: "Specs" })
+      .check();
+    await expect(page.getByTestId("make-spec-cards").first()).toContainText(
+      "Gin and Tonic",
+    );
+    await expect(page.getByTestId("make-toast")).toBeEmpty({
+      timeout: 5_000,
+    });
+    await snapshotPage(page, "make-page-specs.png");
   });
 });

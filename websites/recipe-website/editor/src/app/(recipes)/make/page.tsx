@@ -4,10 +4,7 @@ import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { auth } from "@/auth";
 import { MakePage } from "recipe-website-common/components/MakePage";
 import { readTagOptions } from "recipe-website-common/controller/data/readTermPage";
-import {
-  SAVED_INVENTORY_LABEL,
-  secondaryInventory,
-} from "recipe-website-common/controller/secondaryInventory";
+import { secondaryInventory } from "recipe-website-common/controller/secondaryInventory";
 import {
   PageMain,
   PageSection,
@@ -19,13 +16,14 @@ import { readSettings } from "@/settings";
 import { readInventory } from "recipe-editor/controller/curation/inventory";
 
 /**
- * The editor's `/make` (U6): this browser's list leads, as on the export.
- * A signed-in session also gets the operator's saved inventory (25d's
- * committed list) as a secondary group — "Also makeable with your saved
- * inventory" — and the tools to edit it. A guest gets exactly the export's
- * page, with no saved list read and nothing about it in the payload: the
- * list is private to the content repo's remote, and this is a page that
- * would otherwise leak it.
+ * The editor's `/make` (U6, 41h): this browser's list leads, as on the
+ * export. A signed-in session also gets the operator's saved inventory
+ * (25d's committed list) as the page's second list — "Count from" offers it
+ * alone or with this browser's, and "Save to editor" writes this browser's
+ * list to it as one commit. A guest gets exactly the export's page, with no
+ * saved list read and nothing about it in the payload: the list is private
+ * to the content repo's remote, and this is a page that would otherwise
+ * leak it.
  *
  * A signed-in session also gets its saved "Assume I always have" list
  * (38a, `settings.makeStaples`), which seeds a browser still on the default
@@ -64,15 +62,7 @@ export default async function Make() {
           <MakePage
             tags={tags}
             secondary={secondary}
-            saved={
-              saved
-                ? {
-                    ...saved,
-                    label: SAVED_INVENTORY_LABEL,
-                    save: saveInventoryChanges,
-                  }
-                : undefined
-            }
+            saved={saved ? { ...saved, save: saveInventoryChanges } : undefined}
             savedStaples={
               settings
                 ? { items: settings.makeStaples, save: saveMakeStaples }

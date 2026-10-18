@@ -42,4 +42,42 @@ test.describe("Mobile @mobile", () => {
     await page.goto("/featured-recipes");
     await expect(page.getByRole("listitem").first()).toBeVisible();
   });
+
+  // 41h: `/make` on a phone — the question, the shelf stacked above the
+  // results, a featured label, and nothing scrolling sideways.
+  test("make page stacks the shelf above the results @visual", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("make-drinks");
+    await page.goto("/make?q=tag:drink");
+    await expect(page.getByTestId("make-ticker")).toHaveText(/can make/i, {
+      timeout: 20_000,
+    });
+    const input = page.getByTestId("inventory-input");
+    await input.fill("vodka, simple syrup, gin, tonic water");
+    await input.press("Enter");
+    await page
+      .getByTestId("inventory-chips")
+      .getByRole("button", { name: "gin", exact: true })
+      .click();
+    await expect(page.getByTestId("make-question")).toHaveText(
+      "What drinks can I make with gin?",
+    );
+    await expect(page.getByTestId("make-toast")).toBeEmpty({
+      timeout: 5_000,
+    });
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(0);
+
+    /* Folded, the shelf says what it holds. */
+    const toggle = page.getByRole("button", { name: /^4 on hand/ });
+    await expect(toggle).toHaveText("4 on hand · gin featured");
+    await snapshotPage(page, "make-mobile.png");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByTestId("inventory-chips")).toBeHidden();
+  });
 });
