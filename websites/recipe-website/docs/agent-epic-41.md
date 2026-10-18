@@ -1175,6 +1175,35 @@ image through `docker-pw.sh`):
 - Main-checkout-shaped build: not run. Playwright isn't in Next's build
   graph. 41b's CI job covers it anyway.
 
+### 41d3 — Prettier 3.9
+
+Branch `agent/41d3-prettier`. **Reindex needed: no. Deploy: no** (formatting
+only).
+
+- **Version:** `prettier` 3.8.5 to **3.9.10** (the latest 3.x). The root
+  keeps its caret (`^3.9.10`); the recipe and portfolio editors keep their
+  exact pins (`3.9.10`). The lockfile diff is the three prettier lines and
+  nothing else. No prettier plugins are declared.
+- **Commits, in order:** (1) the bump plus a `.prettierignore` line, (2)
+  `style: prettier 3.9 reformat (no code changes)` `0fa544e6`, (3)
+  `.git-blame-ignore-revs` naming (2), (4) this section. The branch must be
+  merged with a merge commit, never rebased, or (2)'s sha is lost.
+- **`.prettierignore` (D41d3-1):** the first run also rewrote the four
+  scraped roundup fixtures (`test/fixtures/roundups/*.html`, about 2,900
+  added lines). They are byte-exact page captures, so
+  `test/fixtures/roundups` is now ignored (in commit 1, so commit 2 never
+  touches them).
+- **Files reformatted:** 22 (16 `.ts`, 1 `.tsx`, 5 `.md`), 61 insertions and
+  105 deletions, all wrapping and parenthesis changes. `prettier --check .`
+  is clean.
+- **Blame:** GitHub honours `.git-blame-ignore-revs` on its own; locally run
+  `git config blame.ignoreRevsFile .git-blame-ignore-revs`.
+- **specVersions:** `test/specVersions.test.ts` passed without `-u` (no
+  pinned module's source changed). No version bump.
+- **Gates:** `prettier --check .` clean; `recipe-editor typecheck` and
+  `recipe-website tsc --noEmit` clean; full vitest **119 files, 2410 tests
+  passed**. Playwright left to CI.
+
 ### 41f — Accessibility follow-through
 
 Branch `agent/41f-a11y`. **Reindex needed: no. Deploy: yes, for the look**
