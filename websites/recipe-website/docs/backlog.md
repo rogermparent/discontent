@@ -24,6 +24,9 @@ it gets a phase in the epic's own doc and is struck here.
 > unattended Pi sync, hygiene, content calls) is in `agent-epic-39.md`.**
 > **Epic 40 (import polish, test and CI hygiene, quick wins, term clouds
 > measured, Thanksgiving) is in `agent-epic-40.md`.**
+> **Epic 41 (reindex decided, test/CI robustness, dependency and
+> accessibility follow-through, Thanksgiving extras) is in
+> `agent-epic-41.md`.**
 > Rows are struck here as an epic's phases pick them up; the struck rows
 > below name the phase.
 
