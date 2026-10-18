@@ -191,7 +191,8 @@ export function BuyNextList({
               type="button"
               size="sm"
               variant="outline"
-              aria-label={`I have ${entry.item}`}
+              /* Visible words first (41f, WCAG 2.5.3 label in name). */
+              aria-label={`I have this: ${entry.item}`}
               onClick={() => onHave(entry.item)}
             >
               I have this

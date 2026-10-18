@@ -118,7 +118,6 @@ export default function FeaturedRecipeDetailPage(
           <div className="my-2 flex flex-row flex-nowrap items-center gap-4">
             <GroupThumbnail
               slug={groupSlug}
-              name={group.name}
               image={group.image}
               items={group.items}
               className="size-24 shrink-0 overflow-hidden rounded-lg"

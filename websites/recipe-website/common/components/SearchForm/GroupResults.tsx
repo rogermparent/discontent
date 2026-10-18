@@ -34,9 +34,10 @@ export function GroupResults() {
       aria-label="Matching groups"
       data-testid="group-results"
     >
-      <span className="font-mono text-[0.65rem] uppercase tracking-widest text-muted-foreground">
+      {/* The section's heading (41f, axe heading-order): the cards are h3s. */}
+      <h2 className="font-mono text-[0.65rem] uppercase tracking-widest text-muted-foreground">
         Groups
-      </span>
+      </h2>
       <GroupList
         groups={matchedGroups.map((group) => ({
           slug: group.slug,
@@ -90,7 +91,8 @@ export function GroupResults() {
               uploadsDirectory={picture.uploadsDirectory}
               slug={picture.slug}
               image={picture.image}
-              alt={group.name}
+              /* Decorative, as on the server card: the link names it. */
+              alt=""
               width={400}
               height={600}
               className={recipeCardImageClassName}

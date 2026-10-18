@@ -783,6 +783,218 @@ two new parsers, `@simple-git/args-pathspec` 1.0.4 and
   `Multiplyable`?~~ Answered by the review: none of 799 recipes renders or
   indexes differently under 9.10.3 (read-only check). No reindex.
 
+### 41f — Accessibility follow-through
+
+Branch `agent/41f-a11y`. **Reindex needed: no. Deploy: yes, for the look**
+— every text field, select and outline button gets a visible border, and
+two reader controls change names (below). No content or index change.
+
+**Df1 — `--input` at ≥ 3.1:1 (WCAG 1.4.11), the smallest change.**
+`--input` is the border of every `Input`, `Textarea`, `Select` trigger,
+outline button, toggle and the shared `Form` field class. Fitted with
+`contrastRatio` (now `contrastOver`, below) against every surface a field
+sits on — the page, a card or popover, and the `--muted` and `--secondary`
+panels (the editor's timeline event fields sit on a `bg-muted` panel,
+`Form/Timeline`) — in all three neutral families. Ratios as page / card
+(= popover) / muted / secondary:
+
+| Mode  | Family | Old                                   | New                                       |
+| ----- | ------ | ------------------------------------- | ----------------------------------------- |
+| light | warm   | L 0.9: 1.27 / 1.35 / 1.18 / 1.13      | **L 0.61**: 3.58 / 3.79 / 3.33 / 3.18     |
+| light | cool   | 1.27 / 1.35 / 1.18 / 1.13             | 3.58 / 3.78 / 3.32 / 3.18                 |
+| light | gray   | 1.27 / 1.35 / 1.18 / 1.13             | 3.58 / 3.79 / 3.33 / 3.18                 |
+| dark  | warm   | 15 % white: 1.54 / 1.59 / 1.62 / 1.62 | **35 % white**: 3.21 / 3.22 / 3.14 / 3.14 |
+| dark  | cool   | 1.54 / 1.59 / 1.62 / 1.62             | 3.21 / 3.22 / 3.14 / 3.14                 |
+| dark  | gray   | 1.54 / 1.59 / 1.62 / 1.62             | 3.21 / 3.22 / 3.14 / 3.14                 |
+
+The light `--secondary` panel (L 0.94) is the tightest surface: L 0.64
+(the first cut, fitted to the page and card only) gave 2.95:1 on muted and
+2.82:1 on secondary, and L 0.62 still only 3.05:1 on secondary, so 0.61 is
+the first step past 3.1 on all five. (L 0.65, 40g's suggestion, gave
+3.05:1 on the page alone.) Dark at 34 % gives exactly 3.10 on the page,
+so 35 %, which also clears 3.1 on the muted panels. The chroma and hue
+stay the family's, and the accent never reaches `--input`, so no hue
+changes it (tested). `styles/theme.css` mirrors the default
+(`oklch(0.61 0.008 80)`, `oklch(1 0 0 / 35%)`). 40g's numbers were 1.27:1
+light and "~1.8:1" dark; measured composited over the page the old dark
+border was 1.54:1.
+
+What these measure is the border against the surface **outside** the
+field, the adjacent colour WCAG 1.4.11 asks about for a control's
+boundary. In dark mode the field's own fill (`--input-fill` at 30 %, i.e.
+4.5 % white) is slightly lighter than the surface, so the border against
+the inside of the field is 2.85–2.9:1 on the page and a card (2.75:1 on a
+muted panel); that is not the ratio 1.4.11 measures, and the field's
+boundary is identifiable from outside.
+
+**Df2 — fills got their own token, `--input-fill`.** shadcn paints the
+dark-mode fill of `Input`, `Textarea`, `Select`, `Checkbox`, `InputGroup`
+and the active `Tabs` trigger with `dark:bg-input/30` (and the select's
+hover with `/50`). Raising `--input` would have lifted those fills from
+4.5 % to 10.5 % white. They now read `dark:bg-input-fill/30`, and
+`--input-fill` holds the old values (light `--border`'s L 0.9, dark 15 %
+white), so every fill paints exactly what it did. Two uses stay on
+`--input` on purpose: the dark active tab's _border_ (a state indicator,
+better brighter) and `ButtonGroupSeparator`'s 1 px `bg-input` divider
+(used nowhere today; it separates buttons whose borders are `--input`).
+resume-builder has its own `--input` in its own `globals.css` and does not
+import `theme.css`, so its border is unchanged; but it renders the shared
+`ui/input`, which now emits `dark:bg-input-fill/30`, so its `globals.css`
+gained `--input-fill` (the same values as its `--input`, light and dark)
+and the `--color-input-fill` mapping, and its fields paint as before.
+
+**Df3 — `contrastOver`.** `contrast.ts` gains `oklchAlpha` and
+`contrastOver(fg, bg)`: a translucent colour composited over an opaque
+surface in gamma-encoded sRGB (as browsers paint `oklch(… / A)`), then the
+WCAG ratio. `test/theming.test.ts` adds a "form-control border contrast"
+block beside 30b's accent sweep: `--input` against `--background`,
+`--card`, `--popover`, `--muted` and `--secondary`, three families × two
+modes, at ≥ 3:1 and at the ≥ 3.1:1 margin; the accent hue can't move it;
+the fills keep the old values (pinned as literals); and the compositing
+maths (the old dark border at 1.54:1, both
+alpha spellings, 0 % paints nothing).
+
+**Df4 — the bar is WCAG 2.2 AA.** `WCAG_TAGS` (recipe and portfolio
+`playwright/support/a11y.ts`) is now `wcag2a`, `wcag2aa`, `wcag21a`,
+`wcag21aa`, `wcag22aa`. The four specs that spelled the tags out
+(`command-palette`, `search-live`, `search-query-language`,
+`search-tags`) import it, so one bar covers every axe check.
+
+**Df5 — a saved theme's pre-paint copy follows the derivation.** A
+visitor's saved theme is stored twice: the knobs (`ce-theme`) and the
+derived `{light, dark}` var maps (`ce-theme-vars`) that the blocking
+pre-paint script applies. Only `previewTheme()` wrote the maps, so after
+this change a saved theme would have painted the old `--input` until
+`ThemeVarsProvider` re-derived it after hydration — a border flash, on
+every load. The provider now rewrites `ce-theme-vars` on mount whenever
+the fresh derivation differs (guarded like the existing storage code), so
+the first load after a deploy flashes once and every later one paints the
+new values.
+
+**What the new tags found, and the fixes.** 40g's exploratory sweep (34
+routes, once) listed only the first row; the full specs reach more
+states:
+
+| Rule (tag)                                     | Where                                                         | Element                                                                                                            | Fix                                                                                                                                                                                   |
+| ---------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `target-size` (wcag22aa)                       | `/tags/<term>`, `/featured-recipe/<slug>`, every plain card   | `RecipeCardTagHint` chips (~22 px, their 24 px circle reaching the card link)                                      | `min-h-6` on the chip link: 24 px tall, so no spacing test applies.                                                                                                                   |
+| `target-size` (wcag22aa)                       | `/search`, `/make`, the search specs                          | `CardTags`' "Filter by tag …" buttons (same shape, interactive)                                                    | The button is `inline-flex min-h-6 items-center` around its badge.                                                                                                                    |
+| `target-size` (wcag22aa)                       | `/drinks` on a phone                                          | the family chips (40 px) straddling the fold behind the pinned tab bar, 9 px showing                               | Not a page defect: scrolling uncovers them. The phone sweep measures target size with the chrome released (Tf2).                                                                      |
+| `label-content-name-mismatch` (wcag21a, 2.5.3) | every page with the masthead (recipe), every page (portfolio) | the palette trigger: visible "Search 9 recipes" + the "Ctrl+K" chip; portfolio's icon + chip, named "Search works" | The chip's glyphs are generated content (`before:content-[attr(data-shortcut)]`), not text: decoration, announced by `aria-keyshortcuts`. Looks the same; specs read `data-shortcut`. |
+| `label-content-name-mismatch` (wcag21a)        | recipe page, cook view, theme matrix                          | the scaler's "½× / 1× / 2×" buttons named "Half / Single / Double batch"                                           | Named `½× (Half batch)` etc.: the visible text leads, and `name: "Double batch"` still matches as a substring.                                                                        |
+| `label-content-name-mismatch` (wcag21a)        | `/make`                                                       | Buy next's "I have this" buttons named "I have lime juice"                                                         | Named `I have this: lime juice`; `make.spec` follows.                                                                                                                                 |
+
+**Best practice (40g's two):**
+
+- **`heading-order` on `/search`.** The site's h1 is the masthead
+  wordmark, page headings are h2 and cards h3, but `/search` had no h2:
+  the matched-groups strip's "Groups" label is now an `<h2>` (same
+  classes, same look) and an `sr-only` `<h2>Recipes</h2>` heads the result
+  grid. Specs find cards inside `listitem`s, so neither heading is in
+  their way.
+- **`image-redundant-alt` on `/groups`.** Group thumbnails are decorative
+  (`alt=""`): every caller puts the name beside the picture, inside the
+  same card link or in the heading next to it. `GroupThumbnail` drops its
+  `name` prop (four callers: `/groups`, the term page's Plans, the featured
+  group card and the featured group's page) and `GroupResults` passes `alt=""` too. An empty
+  alt takes the image out of the accessibility tree, so `groups.spec`'s
+  eleven `getByRole("img")` under a thumbnail became `locator("img")`
+  (Tf3).
+
+**Baselines (Docker only, `--update-snapshots`, which rewrites only the
+images that miss the 2 % `maxDiffPixelRatio`):** recipe, build mode, every
+screenshot spec (`visual`, `mobile`, `command-palette`, `drinks`,
+`empty-state`, `footer`, `header`, `ingredient-preview`, `menus`,
+`paste-replace`, `recipe`, `yield`) — **2 images moved**:
+`paste-replace.spec` 1 (`paste-replace-imported-ingredients-e2e`: the
+ingredient field's border now shows) and `visual.spec` 1
+(`make-page-e2e`: 4 px taller from the 24 px card chips, and the field and
+outline-button borders). Both opened and checked. Every other baseline —
+the darker borders included — stays under 2 %. Portfolio, dev mode
+(`next dev`, its CI mode): `visual.spec` **none moved** (11/11, the project
+form included).
+
+After the review moved light `--input` from L 0.64 to 0.61 (Df1), the
+same recipe screenshot specs ran again with `--update-snapshots` (Docker,
+build mode; the `recipe.spec` regex also picked up `new-recipe.spec`):
+**184/184, no image moved** — the two baselines above, made at 0.64, stay
+under 2 % at 0.61. Portfolio's `visual.spec` (Docker, dev): **11/11, none
+moved**.
+
+**Gates.**
+
+- `pnpm --filter recipe-editor typecheck` ✓; `pnpm --filter recipe-website
+exec tsc --noEmit` ✓; `pnpm exec vitest run` **114 files, 2347 tests** ✓
+  (before the later fixes, which touched no unit-tested module).
+- Playwright, recipe, build mode in the Docker image (`DOCKER=1
+heavy-pw.sh`), e2e + mobile: `accessibility`, every `search*`,
+  `command-palette`, `drinks`, `recipe`, `bar-tools`, `groups`, `make`,
+  `visual`, `header`, `mobile`, `tag-pages`: 340 tests, 337 passed — the
+  3 failures were `make.spec`'s "I have this" (fixed, above) and the
+  `make-page` baseline (regenerated); then `make`, `homepage-browse` and
+  every screenshot spec **182/182**. The first round, before the fixes,
+  is the findings table.
+- Recipe dev mode (`next dev`, CI's mode), `--project=e2e`:
+  `accessibility.spec` **57/57** (56 first time, 1 flaky — Tf5).
+- Portfolio (dev, Docker): `accessibility`, `visual`, `command-palette`,
+  `chrome`, `smoke` **47/47**; before the palette fix, 18 of its axe tests
+  failed on the trigger (findings table).
+- **Review round** (L 0.61, the muted/secondary sweep, resume-builder's
+  `--input-fill`, Df5), after merging `origin/main` (41b): `vitest run
+test/theming.test.ts` **27/27**, then the full `vitest run` **115 files,
+  2361 tests** ✓; both typechecks ✓; recipe `accessibility.spec`, build
+  mode in Docker, e2e + mobile **61/61**; the baseline runs above.
+  resume-builder: a CSS-only change, not built (its build is a full
+  webpack `next build`).
+
+**Traps.**
+
+- **Tf1 — axe's label-in-name counts `aria-hidden` text.** The rule
+  compares the element's _visible_ text (axe's `visibleVirtual`, which
+  keeps `aria-hidden` children) with its accessible name, after dropping
+  punctuation, symbols and parentheticals. A shortcut chip inside a named
+  button fails it even though screen readers never hear the chip; so does
+  "½×" against "Half batch" (NFKD makes ½ "1⁄2", so the tokens are 1 and
+  2). Generated content (`::before { content: attr(…) }`) isn't a text
+  node and isn't counted. The rule is tagged `wcag21a` only, so the old
+  2.0 tags never ran it; 40g's exploratory table doesn't list it either.
+- **Tf2 — target size and pinned chrome.** axe measures 2.5.8 at the
+  current scroll position, so anything straddling the fold behind the
+  phone's sticky tab bar reads as "partially obscured" — on `/drinks`,
+  chips with 9 px showing. The phone sweep (`accessibility.spec`, "on a
+  phone") runs the full tags with `target-size` disabled, then
+  `target-size` alone after `data-sticky-chrome="off"` (the reader's own
+  setting) releases the bar into the flow. Don't paper over it with
+  padding: the bar is designed to cover the fold.
+- **Tf3 — an empty alt has no role.** `getByRole("img")` doesn't find
+  `<img alt="">` (its role is `presentation`); a decorative image is found
+  with `locator("img")`.
+- **Tf4 — 2 % hides a border redraw.** Darkening every field border moved
+  only 2 of 44 recipe baselines (and none of portfolio's 11), and the
+  later step from L 0.64 to 0.61 moved none: a 1 px outline is a small
+  share of a full-page shot. Visual review is the opened PNGs and the contrast sweep,
+  not the count of moved images.
+
+- **Tf5 — a dev-mode `/make` flake, not this phase's.** In dev mode the
+  first `/make` load can sit on "Loading recipes…" past 20 s (the cold
+  compile of the corpus route), and for a moment two `make-ticker`
+  paragraphs exist (strict-mode violation); the retry passed.
+  `accessibility.spec:59` in dev only; build mode never showed it.
+
+**Roger to confirm.**
+
+- The values: light `--input` L 0.61 (covers muted/secondary panels) and
+  dark 35 % white (Df1) — the quietest pair at ≥ 3.1:1 on all five
+  surfaces. L 0.64 would do for the page, card and popover alone, but the
+  editor's timeline fields sit on `bg-muted` (2.95:1 there). Outline
+  buttons and toggles follow, since they share the token; the alternative
+  is moving them to `border-border` to keep their hairline (their text
+  names them, so 1.4.11 doesn't require it).
+- The card chips at 24 px (the table above): cards with tags are ~2 px
+  taller, `/make`'s page 4 px.
+- Names that changed for screen readers: "½× (Half batch)", "I have this:
+  lime juice".
+
 ### 41g — Thanksgiving extras
 
 **Applied 2026-10-17** to the real repo, `5ff24c2b` → `34e72323`, four

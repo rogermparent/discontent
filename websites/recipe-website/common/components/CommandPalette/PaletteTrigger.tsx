@@ -103,13 +103,19 @@ export function PaletteTrigger({
           </>
         )}
       </span>
+      {/*
+        The chip's glyphs are generated content, not text (41f): WCAG 2.5.3
+        (label in name, axe `label-content-name-mismatch`) wants every visible
+        word of the button inside its accessible name, and as a text node the
+        "Ctrl+K" ran on into "Search N recipesCtrl+K". The shortcut is
+        decoration — `aria-keyshortcuts` is what announces it.
+      */}
       <kbd
         aria-hidden
         data-testid="palette-shortcut-hint"
-        className="ml-auto hidden rounded border border-border px-1 font-mono text-[0.7rem] leading-normal lg:inline"
-      >
-        {modifier}K
-      </kbd>
+        data-shortcut={`${modifier}K`}
+        className="ml-auto hidden rounded border border-border px-1 font-mono text-[0.7rem] leading-normal before:content-[attr(data-shortcut)] lg:inline"
+      />
     </button>
   );
 }

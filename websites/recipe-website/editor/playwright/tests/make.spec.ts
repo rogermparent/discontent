@@ -121,7 +121,9 @@ test.describe("What can I make?", () => {
     await expect(buyNext.getByRole("listitem").first()).toContainText(
       "lime juice",
     );
-    await buyNext.getByRole("button", { name: "I have lime juice" }).click();
+    await buyNext
+      .getByRole("button", { name: "I have this: lime juice" })
+      .click();
     await expect(section(page, "make-can")).toContainText("Vodka Sour");
     await expect(page.getByTestId("inventory-chips")).toContainText(
       "lime juice",

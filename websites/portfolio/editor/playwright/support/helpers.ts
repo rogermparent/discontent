@@ -139,9 +139,10 @@ export async function paletteShortcutReady(page: Page): Promise<void> {
       `${navigator.platform ?? ""} ${navigator.userAgent}`,
     ),
   );
-  await expect(page.getByTestId("palette-shortcut-hint").first()).toHaveText(
-    apple ? "⌘K" : "Ctrl+K",
-  );
+  // The glyphs are the chip's generated content since 41f, drawn from this.
+  await expect(
+    page.getByTestId("palette-shortcut-hint").first(),
+  ).toHaveAttribute("data-shortcut", apple ? "⌘K" : "Ctrl+K");
 }
 
 /**

@@ -1,4 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
+import { WCAG_TAGS } from "../support/a11y";
 import { test, expect, type Page } from "../support/test";
 import { searchFor } from "../support/helpers";
 
@@ -247,9 +248,7 @@ test.describe("Search — query language", () => {
       page.getByRole("button", { name: "Clear tags", exact: true }),
     ).toBeVisible();
 
-    const axe = await new AxeBuilder({ page })
-      .withTags(["wcag2a", "wcag2aa"])
-      .analyze();
+    const axe = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
     expect(axe.violations).toEqual([]);
   });
 });

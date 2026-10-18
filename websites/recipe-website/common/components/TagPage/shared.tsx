@@ -224,11 +224,7 @@ export function TermPageBody({ term }: { term: TermPageData }) {
           <GroupList
             groups={groups}
             renderThumbnail={(group) => (
-              <GroupThumbnail
-                slug={group.slug}
-                name={group.name}
-                image={group.image}
-              />
+              <GroupThumbnail slug={group.slug} image={group.image} />
             )}
           />
         </>

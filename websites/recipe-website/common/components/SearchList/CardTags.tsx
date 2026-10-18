@@ -26,7 +26,11 @@ export function CardTags({ tags }: { tags: string[] }) {
           type="button"
           onClick={() => toggleTagTerm(tag)}
           aria-label={`Filter by tag ${tag}`}
-          className="min-w-0"
+          /*
+           * 24 px tall at least (41f, WCAG 2.2 target size 2.5.8): the badge
+           * alone is ~22 px, and its 24 px circle reached the card link above.
+           */
+          className="inline-flex min-h-6 min-w-0 items-center"
         >
           <Badge
             variant="secondary"
