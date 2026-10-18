@@ -199,6 +199,11 @@ fields. CLI: `recipes inventory [list|add <item…>|remove <item…>|set --file
 f|make [<query…>]]`; a bare `inventory` is `list`, the one table command with
 a default; `set --file` reads the page's Export text or JSON.
 
+_Superseded in part by 41i (`agent-epic-41.md` Di1–Di3): `inventory_makeable`
+now scopes with `/make`'s own `scopeRecipes` (every free-text word must
+appear), takes `feature` (judged by `featureScope`, Dh7), and assumes the
+editor's saved staples._
+
 ### D12 — Sourced drinks: "Drink (Site)", `<tag>-<site>`, a shared drink tag (25e)
 
 A published drink is imported as its own recipe, never merged into a house

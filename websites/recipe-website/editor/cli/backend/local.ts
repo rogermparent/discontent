@@ -29,6 +29,7 @@ import * as shopping from "../../controller/curation/shopping";
 import { listTags, searchRecipes } from "../../controller/curation/search";
 import * as terms from "../../controller/curation/terms";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
+import { absoluteLink } from "./link";
 import type { CuratorBackend } from "./types";
 
 /**
@@ -340,7 +341,19 @@ export function createLocalBackend({
       await guard();
       return inventory.setInventory(ctx, raw);
     },
-    inventoryMakeable: (options) => inventory.makeable(ctx, options ?? {}),
+    /* `link` on the editor this checkout serves, when it says where (41i,
+     * Di5): `--notify`'s URL, else `RECIPE_EDITOR_URL` (`.mcp.json`, the
+     * CLI's `editor/.env`). */
+    async inventoryMakeable(options) {
+      const result = await inventory.makeable(ctx, options ?? {});
+      return {
+        ...result,
+        link: absoluteLink(
+          result.link,
+          notify?.url ?? process.env.RECIPE_EDITOR_URL,
+        ),
+      };
+    },
 
     getShopping: (options) => shopping.readShoppingView(ctx, options),
     async addToShopping(raw) {

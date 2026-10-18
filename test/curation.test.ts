@@ -2679,6 +2679,14 @@ const ALLOWED: RegExp[] = [
   /* The instance role (epic 28, 28a): reads `process.env` and `globalThis`
    * only, so a mirror's git seats can refuse to push or merge. */
   /^recipe-website-common\/config\/role$/,
+  /* `/make`'s pure halves joined at 41i, so `inventory_makeable` scopes and
+   * features as the page does: `scopeRecipes`, the featured-ingredient query
+   * helpers and `featureScope` — the query language and `util/makeable`
+   * underneath, and type-only imports of the page's hooks. */
+  /^recipe-website-common\/components\/MakePage\/(scope|kinds|makeMath)$/,
+  /* The settings store joined at 41i: the editor's saved staples
+   * (`settings.makeStaples`), read with `fs-extra` — no Next API. */
+  /^@discontent\/cms\/settings$/,
   /^recipe-website-common\/util\/[^/]+$/,
   /^\.\.?\//,
   /^\.\.\/contentTypes$/,

@@ -16,9 +16,9 @@
  *
  * `makeable` judges the list against a search-language scope with the same
  * pure `analyzeMakeable` the `/make` page runs in the browser, over the same
- * index lines — so the two cannot disagree. The scope goes through
- * `searchRecipes`, which is what lets 24d's term resolver reach it later
- * without a change here.
+ * index lines — so the two cannot disagree. Since 41i the scope is the
+ * page's too: `scopeRecipes` with 24d's term resolver, the featured
+ * ingredients through `featureScope`, and the editor's saved staples.
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -38,22 +38,36 @@ import {
   dedupeItems,
   inventoryKey,
 } from "recipe-website-common/util/inventoryText";
+import { readSettings } from "@discontent/cms/settings";
+import {
+  featuredOfQuery,
+  withFeature,
+  withoutFeatures,
+} from "recipe-website-common/components/MakePage/kinds";
+import { featureScope } from "recipe-website-common/components/MakePage/makeMath";
+import { scopeRecipes } from "recipe-website-common/components/MakePage/scope";
+import { parseQuery } from "recipe-website-common/components/SearchForm/queryLanguage";
 import {
   analyzeMakeable,
+  assumedStaples,
   DEFAULT_MAKE_QUERY,
+  DEFAULT_STAPLES,
+  prepareCorpus,
   type BuyNext,
   type MakeRecipe,
   type RecipeMatch,
   requirementLabel,
 } from "recipe-website-common/util/makeable";
 import type { CurationContext } from "./context";
+import { toRecipeRow, type RecipeRow } from "./recipes";
 import {
   InventoryMakeQuerySchema,
   InventoryPatchSchema,
   InventorySetSchema,
   parseInput,
 } from "./schema";
-import { searchRecipes } from "./search";
+import { hasFieldTerm, readGroupsByRecipe } from "./search";
+import { readTagResolver } from "./tagResolver";
 
 /** Relative to the content directory — the path `git add` is given. */
 export const INVENTORY_FILE = path.join("inventory", "on-hand.json");
@@ -264,12 +278,30 @@ export interface MakeableRow {
 }
 
 export interface MakeableResult {
+  /** The scope as given (`""`: every recipe). */
   query: string;
+  /**
+   * The scope `/make` would read (41i): `query` with each `feature` written
+   * in as an `ingredient:` term, as featuring on the page writes it.
+   */
+  scope: string;
+  /**
+   * The featured ingredients (41i, Dh7): `scope`'s top-level `ingredient:`
+   * terms. A recipe is judged only when every one meets a required line.
+   */
+  features: string[];
+  /** The page that shows the same answer: `/make?q=<scope>`. */
+  link: string;
   /** Whether pantry staples counted as on hand (U5; on by default). */
   staples: boolean;
+  /**
+   * "Assume I always have" (41i): the editor's saved list (38a,
+   * `settings.makeStaples`) when there is one, else `DEFAULT_STAPLES`.
+   */
+  alwaysHave: string[];
   /** How many items the judged list holds. */
   inventory: number;
-  /** Recipes in scope. */
+  /** Recipes in scope — after the features narrowed it. */
   total: number;
   /** In scope, but with no ingredient lines to judge. */
   unjudged: number;
@@ -302,20 +334,24 @@ function toRow(match: RecipeMatch): MakeableRow {
   };
 }
 
-/** The whole corpus with the two 25c fields `RecipeRow` leaves out. */
-async function readMakeCorpus(ctx: CurationContext): Promise<MakeRecipe[]> {
+/** A corpus row both the scope (`RecipeRow`) and the judge (`MakeRecipe`) read. */
+type MakeRow = RecipeRow & MakeRecipe & { groups?: string[] };
+
+/**
+ * The whole corpus, newest first: the search row plus the two 25c fields
+ * `RecipeRow` leaves out — one read for the scope and the judge.
+ */
+async function readMakeCorpus(ctx: CurationContext): Promise<MakeRow[]> {
   const { entries } = await readContentIndex<
     RecipeEntryValue,
     RecipeEntryKey,
-    MakeRecipe
+    MakeRow
   >({
     config: recipeContentConfig,
     reverse: true,
     contentDirectory: ctx.contentDirectory,
-    map: ({ key: [, slug], value }) => ({
-      slug,
-      name: value.name,
-      ingredients: value.ingredients,
+    map: ({ key, value }) => ({
+      ...toRecipeRow(key, value),
       ingredientHeadings: value.ingredientHeadings,
       ingredientRecipeLinks: value.ingredientRecipeLinks,
     }),
@@ -324,10 +360,39 @@ async function readMakeCorpus(ctx: CurationContext): Promise<MakeRecipe[]> {
 }
 
 /**
+ * The editor's saved "Assume I always have" list (38a, Da2), or `undefined`
+ * when none is saved — read from `SETTINGS_DIRECTORY/settings.json` (the CLI
+ * and the stdio MCP run in the editor package, whose `settings/` the
+ * workstation editor uses). A missing, unreadable or malformed value reads
+ * as "nothing saved".
+ */
+async function readSavedStaples(): Promise<string[] | undefined> {
+  const { makeStaples } = await readSettings<{ makeStaples?: unknown }>();
+  if (!Array.isArray(makeStaples)) return undefined;
+  const items = makeStaples.filter(
+    (item): item is string => typeof item === "string" && !!item.trim(),
+  );
+  return items.length === makeStaples.length ? items : undefined;
+}
+
+/**
  * What the shared list can make in `query`'s scope — every recipe by default
- * (32j) — with `DEFAULT_STAPLES` and, unless `staples: false`,
- * `PANTRY_STAPLES` assumed (U5), and close matches counted as had, as `/make`
- * does out of the box.
+ * (32j) — judged the way `/make` judges it (41i):
+ *
+ * - **The scope** is `scopeRecipes` over the query without its features
+ *   (`withoutFeatures`): every free-text word must appear, `tag:` reaches a
+ *   term's subtree, `group:` a group's members — the page's narrowing, not
+ *   `recipe_search`'s ranked any-word match.
+ * - **The features** (`feature`, plus any top-level `ingredient:` term the
+ *   query already has) narrow through the matcher (`featureScope`, Dh7): a
+ *   recipe stays only when each one meets a required line, so `gin` is gin
+ *   and never ginger beer, and a garnish doesn't count.
+ * - **The staples** are the editor's saved "Assume I always have"
+ *   (`settings.makeStaples`) or `DEFAULT_STAPLES`, plus `PANTRY_STAPLES`
+ *   unless `staples: false` (U5); close matches count as had.
+ *
+ * Buy next is computed inside the narrowed scope, as the page's "Buy next
+ * for lime drinks" is.
  */
 export async function makeable(
   ctx: CurationContext,
@@ -335,22 +400,45 @@ export async function makeable(
 ): Promise<MakeableResult> {
   const {
     query = DEFAULT_MAKE_QUERY,
+    feature = [],
     limit = 20,
     staples = true,
   } = parseInput(InventoryMakeQuerySchema, raw);
-  const [{ items }, corpus, scope] = await Promise.all([
-    readInventory(ctx),
-    readMakeCorpus(ctx),
-    searchRecipes(ctx, query, { limit: Number.MAX_SAFE_INTEGER }),
-  ]);
-  const inScope = new Set(scope.recipes.map((row) => row.slug));
-  const scoped = corpus.filter((recipe) => inScope.has(recipe.slug));
-  const analysis = analyzeMakeable(scoped, corpus, items, {
-    pantryStaples: staples,
+  const scope = feature.reduce(withFeature, query);
+  const features = featuredOfQuery(scope);
+  const base = withoutFeatures(scope);
+  const { filter } = parseQuery(base);
+  const [{ items }, corpus, saved, resolver, groupsByRecipe] =
+    await Promise.all([
+      readInventory(ctx),
+      readMakeCorpus(ctx),
+      readSavedStaples(),
+      hasFieldTerm(filter, "tag") ? readTagResolver(ctx) : undefined,
+      hasFieldTerm(filter, "group") ? readGroupsByRecipe(ctx) : undefined,
+    ]);
+  const rows = groupsByRecipe
+    ? corpus.map((row) => {
+        const groups = groupsByRecipe.get(row.slug);
+        return groups ? { ...row, groups } : row;
+      })
+    : corpus;
+  const prepared = prepareCorpus(corpus);
+  const scoped = featureScope(
+    scopeRecipes(rows, base, resolver),
+    prepared,
+    features,
+  );
+  const alwaysHave = saved ?? DEFAULT_STAPLES;
+  const analysis = analyzeMakeable(scoped, prepared, items, {
+    staples: assumedStaples(alwaysHave, staples),
   });
   return {
     query,
+    scope,
+    features,
+    link: `/make?${new URLSearchParams({ q: scope })}`,
     staples,
+    alwaysHave,
     inventory: items.length,
     total: scoped.length,
     unjudged: analysis.unjudged,

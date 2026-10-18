@@ -24,6 +24,10 @@ import {
   setInventory,
 } from "../websites/recipe-website/editor/controller/curation/inventory";
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
+import { createHttpBackend } from "../websites/recipe-website/editor/cli/backend/http";
+import { absoluteLink } from "../websites/recipe-website/editor/cli/backend/link";
+import { inventoryCommands } from "../websites/recipe-website/editor/cli/commands/inventory";
+import { protectDashedPositionals } from "../websites/recipe-website/editor/cli/index";
 
 /* `/api/inventory/make` with its auth stood in for: the route's own
  * parameters are what its test reads (U5 review). */
@@ -34,9 +38,11 @@ const { GET: makeRoute } =
   await import("../websites/recipe-website/editor/src/app/api/inventory/make/route");
 
 let contentDirectory: string;
+let settingsDirectory: string;
 let git: SimpleGit;
 let ctx: CurationContext;
 let previousContentDirectory: string | undefined;
+let previousSettingsDirectory: string | undefined;
 
 /** The same ordering `curationGit.test.ts` explains (T49). */
 async function initTestRepo(directory: string): Promise<SimpleGit> {
@@ -67,6 +73,11 @@ beforeEach(async () => {
   };
   previousContentDirectory = process.env.CONTENT_DIRECTORY;
   process.env.CONTENT_DIRECTORY = contentDirectory;
+  /* `makeable` reads the editor's saved staples (41i): an empty settings
+   * directory of its own, so no checkout's settings.json leaks in. */
+  settingsDirectory = await mkdtemp(join(tmpdir(), "inventory-settings-"));
+  previousSettingsDirectory = process.env.SETTINGS_DIRECTORY;
+  process.env.SETTINGS_DIRECTORY = settingsDirectory;
 });
 
 afterEach(async () => {
@@ -76,7 +87,13 @@ afterEach(async () => {
   } else {
     process.env.CONTENT_DIRECTORY = previousContentDirectory;
   }
+  if (previousSettingsDirectory === undefined) {
+    delete process.env.SETTINGS_DIRECTORY;
+  } else {
+    process.env.SETTINGS_DIRECTORY = previousSettingsDirectory;
+  }
   await rm(contentDirectory, { recursive: true, force: true });
+  await rm(settingsDirectory, { recursive: true, force: true });
 });
 
 describe("readInventory", () => {
@@ -342,6 +359,236 @@ describe("makeable", () => {
     expect((await get("?query=tag:dessert&staples=1")).staples).toBe(true);
   });
 
+  /* 41i: the tools ask what the page asks. */
+  describe("as /make judges it (41i)", () => {
+    beforeEach(async () => {
+      await createRecipe(ctx, {
+        name: "Gin and Tonic",
+        tags: ["drink"],
+        ingredients: [
+          "2 oz gin",
+          "Tonic water, to top",
+          "Lime wedge, for garnish",
+        ],
+      });
+      await createRecipe(ctx, {
+        name: "Moscow Mule",
+        tags: ["drink"],
+        ingredients: ["2 oz vodka", "1/2 oz lime juice", "4 oz ginger beer"],
+      });
+      await createRecipe(ctx, {
+        name: "Gimlet",
+        tags: ["drink"],
+        ingredients: ["2 oz gin", "3/4 oz lime juice", "3/4 oz simple syrup"],
+      });
+      await patchInventory(ctx, { add: ["vodka", "gin", "simple syrup"] });
+    });
+
+    const slugs = (result: Awaited<ReturnType<typeof makeable>>) =>
+      [...result.canMake, ...result.oneAway, ...result.twoAway]
+        .map((row) => row.slug)
+        .sort();
+
+    it("features an ingredient through the matcher: a garnish doesn't count", async () => {
+      const result = await makeable(ctx, {
+        query: "tag:drink",
+        feature: ["lime"],
+      });
+      expect(result).toMatchObject({
+        query: "tag:drink",
+        scope: "tag:drink ingredient:lime",
+        features: ["lime"],
+        link: "/make?q=tag%3Adrink+ingredient%3Alime",
+        total: 3,
+        canMake: [],
+      });
+      /* The G&T's lime is a garnish; the Gnista tonic has none. */
+      expect(slugs(result)).toEqual(["gimlet", "moscow-mule", "vodka-sour"]);
+      /* Buy next within the featured scope ("Buy next for lime drinks"). */
+      expect(result.buyNext[0]).toMatchObject({
+        item: "lime juice",
+        unlocks: 2,
+        helps: 1,
+      });
+      expect(result.buyNext[0].recipes.sort()).toEqual([
+        "gimlet",
+        "vodka-sour",
+      ]);
+    });
+
+    it("gin is gin, never ginger beer, and several features must all meet", async () => {
+      const gin = await makeable(ctx, { feature: ["gin"] });
+      expect(slugs(gin)).toEqual(["gimlet", "gin-and-tonic"]);
+      const both = await makeable(ctx, { feature: ["gin", "lime"] });
+      expect(both.features).toEqual(["gin", "lime"]);
+      expect(slugs(both)).toEqual(["gimlet"]);
+    });
+
+    it("reads an ingredient: term in the query as a feature, once", async () => {
+      const typed = await makeable(ctx, { query: "tag:drink ingredient:gin" });
+      expect(typed).toMatchObject({
+        scope: "tag:drink ingredient:gin",
+        features: ["gin"],
+        total: 2,
+      });
+      const twice = await makeable(ctx, {
+        query: "tag:drink ingredient:gin",
+        feature: ["Gin"],
+      });
+      expect(twice.scope).toBe("tag:drink ingredient:gin");
+      expect(twice.features).toEqual(["gin"]);
+    });
+
+    it("needs every free-text word, as /make's scope does", async () => {
+      /* recipe_search's ranked any-word match would add Lavender Syrup. */
+      expect((await makeable(ctx, { query: "lavender" })).total).toBe(2);
+      expect((await makeable(ctx, { query: "lavender tonic" })).total).toBe(1);
+    });
+
+    it("assumes the editor's saved staples when there are some (38a)", async () => {
+      const without = await makeable(ctx, {
+        query: "tag:drink",
+        staples: false,
+      });
+      expect(without.alwaysHave).toEqual([
+        "salt",
+        "black pepper",
+        "water",
+        "ice",
+      ]);
+      expect(without.oneAway.map((row) => row.slug)).toContain("vodka-sour");
+
+      await writeFile(
+        join(settingsDirectory, "settings.json"),
+        JSON.stringify({ makeStaples: ["salt", "lime juice"] }),
+      );
+      const saved = await makeable(ctx, {
+        query: "tag:drink",
+        staples: false,
+      });
+      expect(saved.alwaysHave).toEqual(["salt", "lime juice"]);
+      expect(saved.canMake.map((row) => row.slug).sort()).toEqual([
+        "gimlet",
+        "vodka-sour",
+      ]);
+
+      /* A malformed value is no saved list. */
+      await writeFile(
+        join(settingsDirectory, "settings.json"),
+        JSON.stringify({ makeStaples: ["salt", 3] }),
+      );
+      expect((await makeable(ctx, { query: "tag:drink" })).alwaysHave).toEqual([
+        "salt",
+        "black pepper",
+        "water",
+        "ice",
+      ]);
+    });
+
+    it("takes feature, repeated, on /api/inventory/make", async () => {
+      const response = await makeRoute(
+        new Request(
+          "http://editor.test/api/inventory/make?query=tag:drink&feature=gin&feature=lime",
+        ),
+      );
+      const result = (await response.json()) as Awaited<
+        ReturnType<typeof makeable>
+      >;
+      expect(result.features).toEqual(["gin", "lime"]);
+      expect(slugs(result)).toEqual(["gimlet"]);
+    });
+
+    it("refuses a feature that names no ingredient", async () => {
+      for (const feature of ["  ", "()", '"', "( )"]) {
+        await expect(
+          makeable(ctx, { feature: [feature] }),
+          JSON.stringify(feature),
+        ).rejects.toMatchObject({ code: "validation" });
+      }
+      await expect(makeable(ctx, { feature: ["()"] })).rejects.toMatchObject({
+        details: {
+          issues: [
+            expect.objectContaining({
+              message: "A feature must name an ingredient, e.g. lime",
+            }),
+          ],
+        },
+      });
+    });
+  });
+
+  /* 41i review: `--remote` / RECIPE_API_URL against any editor. */
+  describe("over HTTP", () => {
+    const ORIGIN = "http://old-editor.test:3000";
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    function answer(body: unknown) {
+      const seen: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL) => {
+          seen.push(String(input));
+          return new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }),
+      );
+      return seen;
+    }
+
+    /* What a route from before 41i answers: no scope, features or link. */
+    const OLD = {
+      query: "tag:drink",
+      staples: true,
+      inventory: 2,
+      total: 1,
+      unjudged: 0,
+      canMake: [],
+      oneAway: [{ slug: "vodka-sour", name: "Vodka Sour" }],
+      twoAway: [],
+      further: 0,
+      buyNext: [],
+    };
+
+    it("names an editor from before 41i when a feature was asked for", async () => {
+      const seen = answer(OLD);
+      const backend = createHttpBackend({ baseUrl: ORIGIN });
+      await expect(
+        backend.inventoryMakeable({ query: "tag:drink", feature: ["lime"] }),
+      ).rejects.toThrow(
+        `The editor at ${ORIGIN} predates featuring (41i) — update it, or run with --content-dir.`,
+      );
+      expect(seen[0]).toContain("feature=lime");
+      /* Without a feature the old answer is still an answer… */
+      const plain = await backend.inventoryMakeable({ query: "tag:drink" });
+      expect(plain.total).toBe(1);
+      /* …and the text output doesn't trip over its missing fields. */
+      const text = inventoryCommands.make.format(plain);
+      expect(text).toContain('1 recipes for "tag:drink", 2 items on hand');
+      expect(text).not.toContain("undefined");
+      expect(text).not.toContain("On the site");
+    });
+
+    it("makes the link absolute on the editor that answered", async () => {
+      answer({
+        ...OLD,
+        scope: "tag:drink ingredient:lime",
+        features: ["lime"],
+        link: "/make?q=tag%3Adrink+ingredient%3Alime",
+        alwaysHave: ["salt"],
+      });
+      const result = await createHttpBackend({
+        baseUrl: `${ORIGIN}/`,
+      }).inventoryMakeable({ query: "tag:drink", feature: ["lime"] });
+      expect(result.link).toBe(
+        `${ORIGIN}/make?q=tag%3Adrink+ingredient%3Alime`,
+      );
+    });
+  });
+
   it("caps each bucket at `limit`", async () => {
     const result = await makeable(ctx, { query: "", limit: 1 });
     expect(result.total).toBe(4);
@@ -349,6 +596,41 @@ describe("makeable", () => {
       result.canMake.length + result.oneAway.length + result.twoAway.length;
     expect(rows).toBeLessThanOrEqual(3);
     expect(result.canMake.length).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("the CLI's make flags (41i review)", () => {
+  const OPTIONS = {
+    query: { type: "string" },
+    feature: { type: "string", multiple: true },
+    limit: { type: "string" },
+    json: { type: "boolean" },
+  } as const;
+
+  it("takes a negation inline, and never a flag as a value", () => {
+    expect(
+      protectDashedPositionals(["--query", "-tag:drink", "--json"], OPTIONS),
+    ).toEqual(["--query=-tag:drink", "--json"]);
+    /* `--feature --json` stays two flags, for parseArgs to refuse. */
+    expect(protectDashedPositionals(["--feature", "--json"], OPTIONS)).toEqual([
+      "--feature",
+      "--json",
+    ]);
+    expect(
+      protectDashedPositionals(["--query", "--limit", "5"], OPTIONS),
+    ).toEqual(["--query", "--limit", "--", "5"]);
+    expect(
+      protectDashedPositionals(["-tag:drink", "--feature", "lime"], OPTIONS),
+    ).toEqual(["--feature", "lime", "--", "-tag:drink"]);
+  });
+
+  it("makes a link absolute only on an http(s) base", () => {
+    expect(absoluteLink("/make?q=", "http://editor.test:3000/x")).toBe(
+      "http://editor.test:3000/make?q=",
+    );
+    expect(absoluteLink("/make?q=", undefined)).toBe("/make?q=");
+    expect(absoluteLink("/make?q=", "not a url")).toBe("/make?q=");
+    expect(absoluteLink("/make?q=", "file:///x")).toBe("/make?q=");
   });
 });
 

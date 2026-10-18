@@ -29,6 +29,7 @@ import type {
 import { AISLES } from "recipe-website-common/util/aisles";
 import { SCALE_MESSAGE, isValidScale } from "recipe-website-common/util/scale";
 import { STORE_ID_PATTERN } from "recipe-website-common/util/shoppingTypes";
+import { featureKey } from "recipe-website-common/components/MakePage/kinds";
 import { z } from "zod";
 import { ValidationError, issuesOf } from "./errors";
 
@@ -504,6 +505,26 @@ export const InventorySetSchema = z.strictObject({ items: InventoryItems });
  */
 export const InventoryMakeQuerySchema = z.strictObject({
   query: z.string().optional(),
+  /**
+   * Featured ingredients (41i): `/make`'s featuring, each an ingredient name
+   * as a list item is written ("lime", "gin"). Every one must meet a
+   * required line of a recipe for it to be judged (Dh7).
+   */
+  feature: z
+    .array(
+      z
+        .string()
+        .trim()
+        .min(1)
+        .max(80)
+        /* What `/make` features is the name outside a parenthetical
+         * (`featureKey`): `()` or `"` would feature nothing (41i review). */
+        .refine((name) => /[\p{L}\p{N}]/u.test(featureKey(name)), {
+          message: "A feature must name an ingredient, e.g. lime",
+        }),
+    )
+    .max(10)
+    .optional(),
   limit: z.number().int().min(1).max(500).optional(),
   staples: z.boolean().optional(),
 });
