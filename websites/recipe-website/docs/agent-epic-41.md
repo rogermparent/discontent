@@ -18,8 +18,9 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 41a decided (**no-go**, warm Pi median 3.72 s) and 41g applied
-(`tag:thanksgiving` 47 → 51); 41b and 41c in progress; 41r1–41r3 deferred.
+**Now:** closed (2026-10-18). Every phase landed (41a–41i, 41d1–41d3;
+41r1–41r3 deferred by 41a's no-go); see the Close-out for Roger's steps,
+the design-variant canvases and the "Roger to confirm" list.
 
 ## Context
 
@@ -96,22 +97,22 @@ Thanksgiving roundup. Each page is fetched once, ≥ 15 s apart per host.
 
 ## Roadmap
 
-| Phase    | Size | Branch                 | Status | PR  | What                                                                                        |
-| -------- | ---- | ---------------------- | ------ | --- | ------------------------------------------------------------------------------------------- |
-| 41a      | S    | (orchestrator)         | ✅     | —   | D3: the Pi's warm reindex median, per type; go or a recorded no-go.                         |
-| 41b      | M    | `agent/41b-ci`         | 🟡     | —   | `resetData` under the write lock, two dev flakes, the CI symlink-chain check, Docker gates. |
-| 41c      | M    | `agent/41c-holds`      | 🟡     | —   | D4: zod ≥ 4.4, markdown-to-jsx ≥ 9.7, simple-git ≥ 3.34 — code changes, holds removed.      |
-| 41g      | S    | (content repo)         | ✅     | —   | D5: a cranberry drink and 2–4 appetizers or sides from Sally's roundup.                     |
-| 41f      | M    | `agent/41f-a11y`       | 📝     | —   | `--input` at ≥ 3:1, tag chips at 24 px with WCAG 2.1/2.2 tags, two best-practice findings.  |
-| 41r1     | L    | `agent/41r1-apply`     | ⏸️     | —   | If go: 29b, the engine's `applyContentChanges` and `reprojectDependents`.                   |
-| 41r2     | L    | `agent/41r2-changed`   | ⏸️     | —   | If go: 29c, `reindexChanged` behind `RECIPE_INCREMENTAL_REINDEX` (D2).                      |
-| 41r3     | S    | `agent/41r3-drill`     | ⏸️     | —   | If go: 29d, revalidation, docs, the Pi drill specified for Roger.                           |
-| 41d1     | M    | `agent/41d1-react-tw`  | 📝     | —   | React 19.3 + Tailwind 4.3; moved baselines regenerated in Docker.                           |
-| 41d2     | M    | `agent/41d2-pw`        | 📝     | —   | Playwright 1.64: package, CI images, `Dockerfile.playwright`; every baseline regenerated.   |
-| 41d3     | S    | `agent/41d3-prettier`  | 📝     | —   | Prettier 3.9 and a repo-wide reformat in its own commit, in `.git-blame-ignore-revs`.       |
-| 41h      | L    | `agent/41h-make`       | 🟡     | —   | The Make page redesigned: the question as h1, tape labels, featuring, Count from, specs.    |
-| 41i      | S–M  | `agent/41i-make-tools` | 🟡     | —   | Make for the agents: `feature` and the page's scope in MCP / CLI, the saved staples.        |
-| 41-close | S    | `agent/41-close`       | 📝     | —   | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                           |
+| Phase    | Size | Branch                 | Status | PR      | What                                                                                        |
+| -------- | ---- | ---------------------- | ------ | ------- | ------------------------------------------------------------------------------------------- |
+| 41a      | S    | (orchestrator)         | ✅     | #271    | D3: the Pi's warm reindex median, per type; go or a recorded no-go.                         |
+| 41b      | M    | `agent/41b-ci`         | ✅     | #272    | `resetData` under the write lock, two dev flakes, the CI symlink-chain check, Docker gates. |
+| 41c      | M    | `agent/41c-holds`      | ✅     | #274    | D4: zod ≥ 4.4, markdown-to-jsx ≥ 9.7, simple-git ≥ 3.34 — code changes, holds removed.      |
+| 41g      | S    | (content repo)         | ✅     | #271    | D5: a cranberry drink and 2–4 appetizers or sides from Sally's roundup.                     |
+| 41f      | M    | `agent/41f-a11y`       | ✅     | #273    | `--input` at ≥ 3:1, tag chips at 24 px with WCAG 2.1/2.2 tags, two best-practice findings.  |
+| 41r1     | L    | `agent/41r1-apply`     | ⏸️     | —       | If go: 29b, the engine's `applyContentChanges` and `reprojectDependents`.                   |
+| 41r2     | L    | `agent/41r2-changed`   | ⏸️     | —       | If go: 29c, `reindexChanged` behind `RECIPE_INCREMENTAL_REINDEX` (D2).                      |
+| 41r3     | S    | `agent/41r3-drill`     | ⏸️     | —       | If go: 29d, revalidation, docs, the Pi drill specified for Roger.                           |
+| 41d1     | M    | `agent/41d1-react-tw`  | ✅     | #275    | React 19.3 + Tailwind 4.3; moved baselines regenerated in Docker.                           |
+| 41d2     | M    | `agent/41d2-pw`        | ✅     | #278    | Playwright 1.64: package, CI images, `Dockerfile.playwright`; every baseline regenerated.   |
+| 41d3     | S    | `agent/41d3-prettier`  | ✅     | #279    | Prettier 3.9 and a repo-wide reformat in its own commit, in `.git-blame-ignore-revs`.       |
+| 41h      | L    | `agent/41h-make`       | ✅     | #276    | The Make page redesigned: the question as h1, tape labels, featuring, Count from, specs.    |
+| 41i      | S–M  | `agent/41i-make-tools` | ✅     | #277    | Make for the agents: `feature` and the page's scope in MCP / CLI, the saved staples.        |
+| 41-close | S    | `agent/41-close`       | ✅     | this PR | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                           |
 
 Ordering, in waves: **wave 1** 41a (light, the orchestrator) ∥ 41b ∥ 41c,
 with 41g's research and dry run in the orchestrator alongside; **wave 2**
@@ -674,7 +675,7 @@ The links were removed afterwards and never committed. **CI proof (PR
 websites/recipe-website/export/public/image could not be resolved: the
 symlink target leaves the filesystem root" on `packages/cms/git/writeLock.ts
 [instrumentation]` (run 39097332792, job 117586403735). Its revert
-(`6f8255e1`) is the PR's next run, which passes.
+(`3791c6ba`) is the PR's next run, which passes.
 
 **It builds the editor only, as the workstation does.** `pnpm workstation
 update` (`scripts/workstation-editor.sh`'s `build`) runs `pnpm --filter
@@ -1476,8 +1477,9 @@ different styles.
 - Descriptions rewritten for the mule (the page's read "they give any
   gathering a festive touch!"), the cheese ball (SEO copy) and the
   spritzer. The tarts keep Sally's.
-- **After Oct 31:** `pnpm --silent recipes feature --term thanksgiving --slug thanksgiving-2026 --note "Thanksgiving: turkey, sides, pies and drinks"`.
-  Undo any import with `git revert <commit>`.
+- ~~After Oct 31, feature `thanksgiving`~~ — **not needed**: the term has
+  been featured since 2026-10-13 (34e) and leads the strip (found at
+  close). Undo any import with `git revert <commit>`.
 
 ### 41h — The Make page, redesigned
 
@@ -1854,3 +1856,114 @@ for an item Buy next doesn't rank.
 - **Di3:** the CLI and MCP now assume your saved "Assume I always have"
   list, not only salt, pepper, water and ice — the answer's `alwaysHave`
   shows which.
+
+## Close-out
+
+Closed 2026-10-18 after an overnight run. Every phase landed: 41a (the
+reindex decision) and 41g (content), docs #271; 41b #272; 41f #273; 41c
+#274; 41d1 #275; 41h #276; 41i #277; 41d2 #278; 41d3 #279; and this close.
+41r1–41r3 stay deferred (41a). Nothing was deployed and the content repo
+was not pushed; the workstation's sync carried 41g's four commits to the
+Pi. No phase changes an index layout or a spec version, so **no reindex is
+needed**.
+
+### For Roger's morning
+
+The morning report gathers it in one page:
+https://claude.ai/artifact/Ptw1D4srYv4AYXUMauCUxP.
+
+- **The Make page, redesigned (41h).** Roger asked for it live on
+  2026-10-18 and reviewed the prototype
+  (https://claude.ai/artifact/6tunpf7DWGghik3npFCBKR) before it was built.
+  It reaches `/make` with `pnpm workstation update`.
+- **Design variants to judge**, made overnight in Claude Design at Roger's
+  ask, three per surface from safe to bold, on real content. Nothing is
+  implemented until he picks; the agents' own pick was B on each.
+  - Recipe page + cook view: https://claude.ai/artifact/RbiFUFraxCDuafSxfyDLzA
+  - `/drinks`: https://claude.ai/artifact/UQuSp1kAHRwjX2iUxJSpy7
+  - Homepage: https://claude.ai/artifact/UE1hJeoVDzzNo3XMtRCdD2
+  - `/shopping`: https://claude.ai/artifact/2ipce45U8LHKUZmZg3yxpd
+  - The design system they draw from, built from this codebase (tokens in
+    both themes, the bench pairing, 18 components, a brand book):
+    https://claude.ai/artifact/E3EfALpFiMvnstFCunLocU
+
+### The reindex decision (41a)
+
+**No-go.** The Pi's warm full rebuild has a median of 3.72 s over five
+jobs (797 recipes), under D3's ~5 s. The deploy's cold 8.24 s was one
+first-start rebuild, not two. Reopen when the warm median passes ~5 s,
+about 1,050 recipes at ~4.7 ms each (Da1; `agent-epic-29.md` carries the
+same note).
+
+### What shipped, phase by phase
+
+- **41b, test and CI robustness (#272).** A per-process write gate: a test
+  reset waits for in-flight writes and refuses late ones (40-Tf5 at the
+  root); the `search-query-language` flake was a dev compile, not
+  hydration; the demo flake stays open with traces kept. A new CI job
+  builds the editor in the main checkout's symlink shape and was shown
+  failing on #269's exact error. Docker became the default for local
+  Playwright gates (1.04–1.16× host time).
+- **41c, dependency holds (#274).** zod 4.6.7, markdown-to-jsx ~9.10.3,
+  simple-git 3.36, sharp 0.35.5, each with the code change it needed; no
+  test expectation changed.
+- **41f, accessibility (#273).** `--input` at ≥ 3.1:1 on every surface
+  (light L 0.61, dark 35 % white) with a separate `--input-fill`; WCAG 2.2
+  AA tags in the axe specs; tag chips at 24 px; `/search` heading order and
+  group thumbnail alts.
+- **41g, Thanksgiving (content).** Four cranberry recipes,
+  `tag:thanksgiving` 47 → 51.
+- **41d1, React 19.3.1 + Tailwind 4.3.3 (#275).** No class gained or lost
+  in any app's CSS; no screenshot moved.
+- **41h, the Make page (#276).** The question as the title, tape labels,
+  Count from, Clear and Copy with Undo, Save to editor with a diff,
+  featuring judged by the matcher, Buy next as search, spec cards.
+- **41i, Make for the agents (#277).** `inventory_makeable`, `recipes
+inventory make` and `/api/inventory/make` take `feature` and the page's
+  scope, honour the saved staples and return a `/make?q=…` link; tool
+  counts stay 57 / 43.
+- **41d2, Playwright 1.64.1 (#278).** Every baseline regenerated once in its
+  image; a control run showed Chromium 147 → 156 moved only six, the rest
+  were stale baselines still passing under the 2 % tolerance (backlog).
+- **41d3, Prettier 3.9.10 (#279).** A reformat commit of its own, listed in
+  `.git-blame-ignore-revs`.
+
+### Roger to confirm
+
+- **41b:** close the CMS demo's dev flake if a few weeks of CI show none
+  (Db4).
+- **41c:** a list item starting with a quantity renders inline (Dc3); the
+  tilde pin on markdown-to-jsx (Dc4).
+- **41d1:** resume-builder keeps Tailwind 4.1's font stack (Dd2).
+- **41f:** the `--input` values and outline buttons sharing the darker
+  border; the 24 px chips; "½× (Half batch)" and "I have this: …".
+- **41g:** the spritzer's video left out; no `easy` on the brie tarts; three
+  descriptions rewritten.
+- **41h:** the per-item saved-list editor removed (Dh2); featuring by the
+  matcher, gin ≠ ginger (Dh7); "Also makeable with…" gone from `/make`
+  (Dh1); a removed label stays featured (Dh4); Ctrl/⌘Z undo (Dh9); the
+  muted look for uncounted labels (Dh11).
+- **41i:** a multi-word scope needs every word (Di1); a query's own
+  `ingredient:x` is judged by the matcher (Di1/Di2); the tools assume the
+  saved "Assume I always have" list (Di3).
+
+### Roger's steps
+
+1. `pnpm workstation update` (main checkout). **No reindex.**
+2. `pnpm deploy:pi` when convenient. Until then, the CLI and MCP against
+   the Pi refuse a `feature` with "predates featuring (41i)" (Di6).
+3. **Thanksgiving on the homepage: nothing to do.** The `thanksgiving` term
+   has been featured since 2026-10-13 (34e) and leads the strip; the
+   "feature after Oct 31" step carried by epics 40 and 41 is dropped.
+4. Docker disk: the session's `content-engine-playwright:*` tags were
+   removed at close; older images and build cache are Roger's call.
+5. Optional: link the unlinked sub-recipe lines the morning report lists
+   (14 recipes named in 25 lines); buy-or-make is his call.
+
+### Backlog
+
+Rows added or kept open, in `backlog.md`: the visual-tolerance row (41d2,
+Tp1), the markdown-to-jsx line capture (41c), the CMS demo dev flake
+(41b, open), incremental reindex with the new trigger (41a). 41h's
+deferred items (an export/guest e2e for the house list) and 41i's are in
+their Results.
