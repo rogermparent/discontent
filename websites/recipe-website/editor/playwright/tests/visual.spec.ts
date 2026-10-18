@@ -338,6 +338,9 @@ test.describe("Visual baselines @visual", () => {
     const input = page.getByTestId("inventory-input");
     await input.fill("vodka, simple syrup, gin, tonic water, lime");
     await input.press("Enter");
+    /* A viewport the page fits in: a full-page shot of a page taller than
+     * the window drew the sticky header mid-page here (Th5). */
+    await page.setViewportSize({ width: 1280, height: 1800 });
     await page
       .getByRole("group", { name: "Cards" })
       .getByRole("radio", { name: "Specs" })
