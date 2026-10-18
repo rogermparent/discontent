@@ -247,4 +247,163 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
 
 ## Traps
 
+### 41c
+
+- **Tc1 — zod ≥ 4.4 breaks `z.coerce.boolean()` on an absent key, not
+  `z.preprocess`.** 40h named the preprocess parsers, but the failing path
+  in all 21 tests is an unticked checkbox (`clearImage`, `clearVideo`, a
+  timeline event's `activeTime`): the key is missing from the parsed
+  FormData, and `z.coerce.boolean()` alone used to read that as `false`.
+  Since 4.4 it fails with "expected nonoptional, received undefined". The
+  error names optionality, which points at the wrong construct. A repro of
+  every pattern in the workspace under 4.3.6 and 4.6.7 shows this is the only
+  one that changed.
+- **Tc2 — simple-git ≥ 3.34 checks every env handed to `.env()`, inherited
+  variables included.** A plain `simpleGit()` inherits `process.env`
+  unchecked, but `.env({ ...process.env, X })` is inspected whole. The
+  shell's `EDITOR` (in most shells), a test's `GIT_CONFIG_GLOBAL=/dev/null`
+  and a desktop's `SSH_ASKPASS` are all refused. `.env()` also sets the env
+  on the instance, so every later call on it fails too (`revert --abort`,
+  `reset --hard`, `status`), which is why the failures looked so varied. The
+  "safer routes" don't exist in 3.36: `-c core.sshCommand=…` and
+  `-c core.editor=…` are refused under the same flags as the env variables.
+  Use `gitWithEnv` (`controller/curation/gitEnv.ts`).
+- **Tc3 — markdown-to-jsx ≥ 9.7: a self-closing component that starts a
+  list item or a blockquote line takes the rest of the line as children.**
+  `- <Multiplyable baseNumber="1/2" /> cup sugar` compiles to
+  `<li><Multiplyable>cup sugar</Multiplyable></li>`, with the space after the
+  tag consumed. 9.6.1 gave the tag plus a sibling `<p>cup sugar</p>`. At top
+  level or mid-line the tag is still childless. Any override for a
+  self-closing tag has to render its children (`withCapturedLine`), or the
+  rest of the line disappears from the page as well as from the index text.
+
 ## Results
+
+### 41c — Dependency holds lifted
+
+Branch `agent/41c-holds`. 40h's three holds are lifted by code changes, and
+sharp moves to 0.35. Every test that failed under a new version passes with
+no expectation changed. **Reindex needed: no.** The indexed description text
+can only gain words, and only for a list item that starts with a quantity.
+**Deploy:** Roger's `pnpm workstation update`, and the next `pnpm deploy:pi`.
+
+| Package           | Old → new       | Range now | Red → green                                                                                  |
+| ----------------- | --------------- | --------- | -------------------------------------------------------------------------------------------- |
+| `zod`             | 4.3.6 → 4.6.7   | `^4.6.7`  | 21: `termForm` 15, `groups` (scale) 4, `parseRecipeForm` (drink) 2                           |
+| `markdown-to-jsx` | 9.6.1 → 9.10.3  | `^9.10.3` | 1 (40h's count): `flattenMarkdown` "keeps quantities inside prose…"; plus 3 new              |
+| `simple-git`      | 3.33.0 → 3.36.0 | `^3.36.0` | 31: `curationGit`, `siteWrites`, `instance`, `piSync`, `annex`, `mcp`, `mcpHttp`; plus 3 new |
+| `sharp`           | 0.34.5 → 0.35.5 | `0.35.5`  | none failed; no code change                                                                  |
+
+**zod.** The cause is Tc1. `@discontent/cms/forms/schema/checkbox` is
+`z.coerce.boolean().default(false)`: absent → `false`, `""` → `false`,
+`"on"` → `true`, the same results 4.3.6 gave. It replaces the five bare
+`z.coerce.boolean()` fields: the recipe form's `clearImage`, `clearVideo`
+and timeline `activeTime`, the group form's `clearImage` and the term form's
+`clearImage`. The two `z.preprocess` fields in `projects-collection`
+(`status`, `links`) preprocess into an optional inner schema, which behaves
+the same in both versions. Its `z.coerce.boolean().optional()` fields are
+unaffected. `termForm`, `groups` and `parseRecipeForm`: 69 tests pass.
+
+**markdown-to-jsx.** The cause is Tc3. Under 9.10.3 the page lost the text
+as well as the index: `Multiplyable` rendered only its number, so the recipe
+page and the form preview showed "1/2" for that list item.
+`withCapturedLine` (`View/Multiplier/Multiplyable/capturedLine.tsx`) renders
+the number, a space, then any children. `Multiplyable` (every unit mode) and
+the form's `DummyMultiplyable` use it. `flattenMarkdown`'s `Multiplyable`
+branch appends the flattened children the same way. New
+`test/multiplyableListItem.test.tsx` covers the form preview, the recipe page
+scaled ×2 through `?scale=2`, and a lone number. All three fail without the
+fix. Sweep: all 317 markdown strings in the Playwright fixtures (descriptions,
+ingredients, instructions, notes) compile to the same tree under 9.6.1 and
+9.10.3, ignoring empty `props` objects. None starts a list item with a
+`Multiplyable`, so the change shows only in the new tests.
+
+**simple-git.** The cause is Tc2. `gitWithEnv(options, added, unsafe)` is a
+fresh `simpleGit` running with `process.env` plus `added`:
+
+- It drops `EDITOR`, `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR`, `PAGER` and
+  `GIT_PAGER`. Every command that runs with an env is non-interactive
+  (`revert --no-edit`, `merge --no-edit`, `reset`, `status`, `fetch`,
+  `push`) and has no tty, so nothing needs `allowUnsafeEditor` or
+  `allowUnsafePager`.
+- It keeps any other refused variable the process inherited and allows that
+  category for this git only. That is the same environment every plain call
+  already gives git.
+- Whatever the caller adds is allowed only by name at the call site. Sync's
+  keepalive `GIT_SSH_COMMAND` (39b) passes `allowUnsafeSshCommand`, with a
+  comment.
+
+It replaces the four `.env({ ...process.env, … })` sites: `gitRevert`'s and
+`gitPull`'s author, `statusAsIfFlushed`'s scratch index and sync's
+`networkGit`. Each now gets its own instance, so the author env no longer
+leaks onto the abort, reset and status calls that follow on the shared one.
+Two tests' setup changed, with no expectation touched (Dc2).
+`test/gitEnv.test.ts` is new (3 tests): editor and pager dropped, an
+inherited `GIT_CONFIG_GLOBAL` kept, and an added `GIT_SSH_COMMAND` refused
+unless named. The seven files: 205 tests pass.
+
+**sharp.** 40h held it as a 0.x minor outside D4, not because it failed.
+0.35.5 (libvips 8.18.7) installs with no code change. The direct pins in nine
+`package.json`s now match the sharp Next 16.4.2 already brings, so the
+editor image ships one sharp for our code and for Next's. 0.34.5 stays in
+the lockfile only for netlify-cli's `ipx`.
+
+**Lockfile.** The `packages:` diff is these five version moves plus simple-git's
+two new parsers, `@simple-git/args-pathspec` 1.0.4 and
+`@simple-git/argv-parser` 1.1.1. There is no new major line. simple-git
+4.0.2 is out but is a major, so not considered (D4).
+
+**Decisions.**
+
+- **Dc1 — Absent checkbox = `.default(false)`, in one shared schema.** This
+  states the absent case outright instead of relying on coercion, which
+  4.4 removed. It lives in `@discontent/cms/forms/schema` beside
+  `dateEpoch`.
+- **Dc2 — `gitWithEnv`: drop what the commands can't use, keep what the
+  process inherited, name what we add.** The rejected options were a minimal
+  hand-built env (it would lose `PATH`, `HOME` and the person's ssh setup)
+  and allowing every category at every site (too broad). Test setup changes,
+  not expectations: `instance.test`'s "ssh keepalives" writes the person's
+  `core.sshCommand` through a git with `allowUnsafeSshCommand`, and
+  `mcpHttp.test`'s no-identity repository is set up through `gitWithEnv`.
+  Its scrubbed `GIT_CONFIG_GLOBAL=/dev/null` is exactly an inherited refused
+  variable.
+- **Dc3 — A `Multiplyable` that starts a list item renders its line
+  inline.** The result is "1/2 cup sugar" on one line. 9.6.1 showed the
+  number, then "cup sugar" as a paragraph on the next line inside the same
+  item. Reproducing that would mean rebuilding the parser's old tree in a
+  `renderRule`, against AST internals.
+- **Dc4 — Carets restored** for zod, markdown-to-jsx and simple-git (their
+  pre-40h form). sharp keeps its exact pin.
+
+**Gates** (local, every heavy step through the slot):
+
+- `pnpm --filter recipe-editor typecheck`: clean.
+  `pnpm --filter recipe-website exec tsc --noEmit`: clean. Portfolio editor
+  `pnpm typecheck`: clean.
+- `pnpm exec vitest run`: 116 files, 2348 tests passed.
+- Main-checkout-shaped build (D6): the worktree's `editor/content` linked to
+  a scratch directory outside the workspace, and `export/public/{image,uploads}`
+  as absolute links through it. The editor's `next build` passed. Neither
+  "Dynamic filesystem access" nor "leaves the filesystem root" appears in
+  the log. The links and the scratch directory were removed afterwards.
+- Playwright, build mode in CI's image (`DOCKER=1 heavy-pw.sh`), on the
+  `e2e` and `mobile` projects. Specs: `recipe`, `yield`,
+  `ingredient-preview`, `git`, `groups`, `term-edit`, `new-recipe`, `edit`,
+  `timeline`, `photo-import`, `visual` and `lexical-smoke`. 194 passed in
+  6.6 min. That includes `visual`'s 22, with every screenshot baseline
+  unchanged on sharp 0.35.
+- Playwright, dev mode once (`docker-pw.sh` without `PLAYWRIGHT_BUILD`),
+  for the specs over the changed form, markdown and git paths: `recipe`,
+  `yield`, `ingredient-preview`, `git`, `term-edit` and `timeline`. 77
+  passed in 6.1 min.
+
+**Roger to confirm.**
+
+- Dc3: inline "1/2 cup sugar" in a list item that starts with a quantity,
+  instead of 9.6.1's line break.
+- How many real recipes have a list item that starts with a `Multiplyable`?
+  Fixtures have none, and the real repo is off-limits to this phase. A
+  read-only grep of the content repo for `^\s*[-*+>] <Multiplyable` (or
+  `\n- <Multiplyable` inside the JSON strings) would answer it. Each such
+  item regains its text on the page and in search.
