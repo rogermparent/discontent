@@ -1359,7 +1359,9 @@ G&T ("Lime wedge, for garnish") is not "with lime". The query still carries
 `ingredient:<name>`; a label is featured by its name without its
 parenthetical ("aperitif (Gnista)" → `ingredient:aperitif`), and typing
 `ingredient:x` in Make's Search features x the same way. Spec cards mark
-the lines a feature meets from the same judgement. Search's own
+the lines a feature meets from the same judgement. A line met only through
+a sub-recipe ("via") doesn't count: featuring lime doesn't include a
+Gimlet whose lime cordial is a linked recipe (re-review). Search's own
 `ingredient:` is unchanged (Th1). Unit tests: gin vs ginger beer and
 non-alcoholic gin, extra dry vs dry vermouth, a parenthetical label,
 several features.

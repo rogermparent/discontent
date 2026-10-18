@@ -474,6 +474,8 @@ export function MakePage({
           settingsRef.current.setSource(sourceBefore);
         }
       },
+      /* The copy unmounts its own button (the second list folds away). */
+      { focusUndo: true },
     );
   }, [second, have, settings, setHave, showToast]);
   const featureItem = useCallback(

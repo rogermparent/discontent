@@ -32,7 +32,9 @@ function editable(target: EventTarget | null): boolean {
     target.isContentEditable ||
     target.tagName === "INPUT" ||
     target.tagName === "TEXTAREA" ||
-    target.tagName === "SELECT"
+    target.tagName === "SELECT" ||
+    /* A dialog (Import / export) owns its keys; don't undo the shelf behind it. */
+    target.closest('[role="dialog"]') !== null
   );
 }
 
