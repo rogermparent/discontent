@@ -1591,6 +1591,9 @@ exec tsc --noEmit` ✓.
   `curatorSkill`): **5 files, 105 tests** ✓. The first full run failed one
   test, the D8 import boundary (the new imports, allow-listed above); after
   it, `pnpm exec vitest run`: **119 files, 2406 tests** ✓.
+- Playwright, Docker, build mode: `api-write.spec` — **27 passed** ✓ (the
+  phase changed `/api/inventory/make`; its new `feature` parameter is
+  tested in-process in `inventory.test.ts`, which calls the route's `GET`).
 
 **Deferred:** the page's add-field what-if ("+N now · M closer",
 `addCandidates`) has no seat; Buy next with its `recipes` answers "what
