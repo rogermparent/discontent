@@ -730,6 +730,13 @@ the darker borders included — stays under 2 %. Portfolio, dev mode
 (`next dev`, its CI mode): `visual.spec` **none moved** (11/11, the project
 form included).
 
+After the review moved light `--input` from L 0.64 to 0.61 (Df1), the
+same recipe screenshot specs ran again with `--update-snapshots` (Docker,
+build mode; the `recipe.spec` regex also picked up `new-recipe.spec`):
+**184/184, no image moved** — the two baselines above, made at 0.64, stay
+under 2 % at 0.61. Portfolio's `visual.spec` (Docker, dev): **11/11, none
+moved**.
+
 **Gates.**
 
 - `pnpm --filter recipe-editor typecheck` ✓; `pnpm --filter recipe-website
@@ -748,6 +755,13 @@ heavy-pw.sh`), e2e + mobile: `accessibility`, every `search*`,
 - Portfolio (dev, Docker): `accessibility`, `visual`, `command-palette`,
   `chrome`, `smoke` **47/47**; before the palette fix, 18 of its axe tests
   failed on the trigger (findings table).
+- **Review round** (L 0.61, the muted/secondary sweep, resume-builder's
+  `--input-fill`, Df5), after merging `origin/main` (41b): `vitest run
+test/theming.test.ts` **27/27**, then the full `vitest run` **115 files,
+  2361 tests** ✓; both typechecks ✓; recipe `accessibility.spec`, build
+  mode in Docker, e2e + mobile **61/61**; the baseline runs above.
+  resume-builder: a CSS-only change, not built (its build is a full
+  webpack `next build`).
 
 **Traps.**
 
@@ -772,8 +786,9 @@ heavy-pw.sh`), e2e + mobile: `accessibility`, every `search*`,
   `<img alt="">` (its role is `presentation`); a decorative image is found
   with `locator("img")`.
 - **Tf4 — 2 % hides a border redraw.** Darkening every field border moved
-  only 2 of 44 recipe baselines (and none of portfolio's 11): a 1 px outline is a small share of a
-  full-page shot. Visual review is the opened PNGs and the contrast sweep,
+  only 2 of 44 recipe baselines (and none of portfolio's 11), and the
+  later step from L 0.64 to 0.61 moved none: a 1 px outline is a small
+  share of a full-page shot. Visual review is the opened PNGs and the contrast sweep,
   not the count of moved images.
 
 - **Tf5 — a dev-mode `/make` flake, not this phase's.** In dev mode the
