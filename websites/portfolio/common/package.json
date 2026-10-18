@@ -16,9 +16,9 @@
     "@discontent/next-static-image": "^0.0.1",
     "clsx": "^2.1.1",
     "github-markdown-css": "^5.9.0",
-    "markdown-to-jsx": "~9.6.1",
+    "markdown-to-jsx": "^9.10.3",
     "next": "16.4.2",
-    "zod": "~4.3.6"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^25.9.9"

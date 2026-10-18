@@ -1,5 +1,6 @@
 import { ZodSafeParseResult, z } from "zod";
 import parseFormData from "@discontent/cms/forms/parseFormData";
+import checkboxSchema from "@discontent/cms/forms/schema/checkbox";
 import dateEpochSchema from "@discontent/cms/forms/schema/dateEpoch";
 import { normalizeTags } from "recipe-website-common/controller/normalizeTags";
 import {
@@ -131,9 +132,9 @@ const RecipeFormSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   image: z.instanceof(File).optional(),
-  clearImage: z.coerce.boolean(),
+  clearImage: checkboxSchema,
   video: z.instanceof(File).optional(),
-  clearVideo: z.coerce.boolean(),
+  clearVideo: checkboxSchema,
   videoImportUrl: z.string().optional(),
   videoUrl: z.string().url().optional().or(z.literal("")),
   date: z.optional(dateEpochSchema),
@@ -185,7 +186,7 @@ const RecipeFormSchema = z.object({
         events: z.array(
           z.object({
             name: z.string().optional(),
-            activeTime: z.coerce.boolean(),
+            activeTime: checkboxSchema,
             defaultLength: durationSchema.transform((val) => val || 0),
             minLength: optionalDurationSchema.optional(),
             maxLength: optionalDurationSchema.optional(),

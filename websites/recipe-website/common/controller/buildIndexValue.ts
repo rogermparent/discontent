@@ -82,15 +82,25 @@ function flattenNode(node: unknown): string {
   }
   if (isElement(node)) {
     if (node.type === "Multiplyable") {
-      return String(node.props.baseNumber);
+      /*
+       * Since markdown-to-jsx 9.7 a Multiplyable that starts a list item or a
+       * quote line carries the rest of that line as its children (41c; see
+       * `withCapturedLine`), with the space after the tag consumed. Anywhere
+       * else it has none and this is the number alone.
+       */
+      const line = flattenNode(node.props.children);
+      return line
+        ? `${String(node.props.baseNumber)} ${line}`
+        : String(node.props.baseNumber);
     }
     const inner = flattenNode(node.props.children);
     /*
      * Padded on both sides, not just after. A block can also *follow* inline
-     * content within one parent: `- <Multiplyable baseNumber="1/2" /> cup
-     * sugar` compiles to the component plus a sibling `<p>`, with the space
-     * between them consumed by the parser, so a trailing-only separator yields
-     * "1/2cup sugar". The runs collapse at the end either way.
+     * content within one parent: up to markdown-to-jsx 9.6, `- <Multiplyable
+     * baseNumber="1/2" /> cup sugar` compiled to the component plus a sibling
+     * `<p>`, with the space between them consumed by the parser, so a
+     * trailing-only separator yielded "1/2cup sugar". The runs collapse at
+     * the end either way.
      */
     return typeof node.type === "string" && BLOCK_TAGS.has(node.type)
       ? ` ${inner} `

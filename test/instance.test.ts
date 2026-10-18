@@ -908,7 +908,11 @@ describe("a sync's network steps are bounded (39b review, M2)", () => {
       await syncSshCommand(repo, { GIT_SSH_COMMAND: "ssh -i key" }),
     ).toBeUndefined();
     expect(await syncSshCommand(repo, { GIT_SSH: "/bin/ssh" })).toBeUndefined();
-    await repo.addConfig("core.sshCommand", "ssh -F my-config");
+    /* The person's own setting; simple-git ≥ 3.34 writes it only when asked (41c). */
+    await simpleGit({
+      baseDir: dir,
+      unsafe: { allowUnsafeSshCommand: true },
+    }).addConfig("core.sshCommand", "ssh -F my-config");
     expect(await syncSshCommand(repo, {})).toBeUndefined();
   });
 });

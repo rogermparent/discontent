@@ -1,13 +1,14 @@
 "use client";
 import Fraction from "fraction.js";
 import { useMultiplier } from "../Provider";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useUnits } from "../../Units";
 import {
   formatOunces,
   formatParts,
   ouncesToMl,
 } from "../../../../util/barUnits";
+import { withCapturedLine } from "./capturedLine";
 
 function getFraction(quantity: string | number | undefined) {
   if (quantity) {
@@ -33,13 +34,18 @@ enum MultiplyableInputTypes {
  * `1 1/2 oz`, `45 ml`, or `2 parts` (ratios ignore the multiplier, since a
  * ratio does not scale). Without `unit` this renders exactly what it always
  * did.
+ *
+ * `children` is never written; it is the rest of the line when the tag starts
+ * a list item or a quote (markdown-to-jsx ≥ 9.7, see `withCapturedLine`).
  */
 export function Multiplyable({
   baseNumber,
   unit,
+  children,
 }: {
   baseNumber: string | number;
   unit?: string;
+  children?: ReactNode;
 }) {
   const fraction = useMemo(() => getFraction(baseNumber), [baseNumber]);
   const inputType =
@@ -50,10 +56,13 @@ export function Multiplyable({
   const { mode, base } = useUnits();
 
   if (unit === "oz" && fraction) {
-    if (mode === "parts" && base) return <>{formatParts(fraction, base)}</>;
+    if (mode === "parts" && base) {
+      return withCapturedLine(formatParts(fraction, base), children);
+    }
     if (mode === "ml") {
-      return (
-        <>{ouncesToMl(multiplier ? multiplier.mul(fraction) : fraction)} ml</>
+      return withCapturedLine(
+        <>{ouncesToMl(multiplier ? multiplier.mul(fraction) : fraction)} ml</>,
+        children,
       );
     }
   }
@@ -67,5 +76,8 @@ export function Multiplyable({
     : baseNumber;
 
   /* oz mode: today's number, with the unit `markOunces` moved in beside it. */
-  return <>{unit === "oz" && fraction ? `${shown} oz` : shown}</>;
+  return withCapturedLine(
+    unit === "oz" && fraction ? `${shown} oz` : shown,
+    children,
+  );
 }

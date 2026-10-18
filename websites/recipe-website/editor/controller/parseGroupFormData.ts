@@ -1,5 +1,6 @@
 import { ZodSafeParseResult, z } from "zod";
 import parseFormData from "@discontent/cms/forms/parseFormData";
+import checkboxSchema from "@discontent/cms/forms/schema/checkbox";
 import dateEpochSchema from "@discontent/cms/forms/schema/dateEpoch";
 import { normalizeTags } from "recipe-website-common/controller/normalizeTags";
 import type { GroupItem } from "recipe-website-common/controller/types";
@@ -55,7 +56,7 @@ const GroupFormSchema = z.object({
    * import-by-URL path is the CLI's (`--image-url` → `GroupInputSchema`).
    */
   image: z.instanceof(File).optional(),
-  clearImage: z.coerce.boolean(),
+  clearImage: checkboxSchema,
   date: z.optional(dateEpochSchema),
   slug: z.string().optional(),
   /*

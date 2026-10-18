@@ -83,6 +83,7 @@ import {
 } from "./errors";
 import { reindex } from "./reindex";
 import { changesOnlyUnindexed } from "./unindexed";
+import { gitWithEnv } from "./gitEnv";
 
 /* --- page DTOs (moved here from the `/git` page, D19) -------------------- */
 
@@ -431,10 +432,10 @@ async function statusAsIfFlushed(
       : path.join(contentDirectory, raw);
     copy = path.join(path.dirname(shared), `discontent-index-${ulid()}`);
     await copyFile(shared, copy);
-    const flushed = simpleGit({ baseDir: contentDirectory }).env({
-      ...process.env,
-      GIT_INDEX_FILE: copy,
-    });
+    const flushed = gitWithEnv(
+      { baseDir: contentDirectory },
+      { GIT_INDEX_FILE: copy },
+    );
     await flushed.raw([
       "reset",
       "-q",
@@ -994,9 +995,12 @@ async function revertLocked(
   }
 
   try {
-    await git
-      .env({ ...process.env, ...authorEnv(ctx) })
-      .raw(["revert", "--no-edit", resolved]);
+    /* Its own git, so the author stays off the abort and reset below. */
+    await gitWithEnv({ baseDir: ctx.contentDirectory }, authorEnv(ctx)).raw([
+      "revert",
+      "--no-edit",
+      resolved,
+    ]);
   } catch (error) {
     /*
      * Leave the tree as it was found. `revert --abort` is the right undo while
@@ -1427,8 +1431,7 @@ async function mergeLocked(
    */
   let failure: unknown = null;
   try {
-    await git
-      .env({ ...process.env, ...authorEnv(ctx) })
+    await gitWithEnv({ baseDir: ctx.contentDirectory }, authorEnv(ctx))
       /* A mirror only ever fast-forwards (epic 28, D1), whatever the
        * pre-check saw. */
       .raw(["merge", "--no-edit", ...(isMirror() ? ["--ff-only"] : []), from]);

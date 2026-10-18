@@ -17,6 +17,7 @@
  * the action hands it the session's context.
  */
 import parseFormData from "@discontent/cms/forms/parseFormData";
+import checkboxSchema from "@discontent/cms/forms/schema/checkbox";
 import { exists } from "fs-extra";
 import type {
   TermFormErrors,
@@ -80,7 +81,7 @@ const TermFormSchema = z.object({
     .optional()
     .transform((file) => (file && file.size > 0 ? file : undefined)),
   imageImportUrl: optionalText,
-  clearImage: z.coerce.boolean(),
+  clearImage: checkboxSchema,
 });
 
 export type ParsedTermForm = z.infer<typeof TermFormSchema>;

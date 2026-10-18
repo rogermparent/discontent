@@ -4,6 +4,8 @@ import {
   MarkdownControlsProps,
   wrapSelection,
 } from "@discontent/component-library/components/Form/inputs/Markdown/common";
+import type { ReactNode } from "react";
+import { withCapturedLine } from "../../View/Multiplier/Multiplyable/capturedLine";
 
 export function MultiplyableControl({ textArea }: MarkdownControlsProps) {
   const handleMultiplyableClick = () => {
@@ -55,10 +57,16 @@ export function RecipeCustomControls({ textArea }: MarkdownControlsProps) {
   );
 }
 
+/**
+ * The form preview's stand-in: the number as written. `children` is the rest
+ * of the line when the tag starts a list item (see `withCapturedLine`).
+ */
 export function DummyMultiplyable({
   baseNumber,
+  children,
 }: {
   baseNumber: string | number;
+  children?: ReactNode;
 }) {
-  return <>{baseNumber}</>;
+  return withCapturedLine(baseNumber, children);
 }

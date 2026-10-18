@@ -17,7 +17,6 @@
 import { mkdtemp, pathExists, rm, writeFile } from "fs-extra";
 import { tmpdir } from "os";
 import { join } from "path";
-import simpleGit from "simple-git";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -34,6 +33,7 @@ import type {
   CurationContext,
 } from "../websites/recipe-website/editor/controller/curation/context";
 import { toErrorObject } from "../websites/recipe-website/editor/controller/curation/errors";
+import { gitWithEnv } from "../websites/recipe-website/editor/controller/curation/gitEnv";
 import { createLocalBackend } from "../websites/recipe-website/editor/cli/backend/local";
 import { handleMcpRequest } from "../websites/recipe-website/editor/mcp/http";
 import { TOOL_NAMES } from "../websites/recipe-website/editor/mcp/registry";
@@ -418,13 +418,17 @@ describe("the MCP registry over HTTP", () => {
       delete process.env.GIT_COMMITTER_NAME;
 
       repoDirectory = await mkdtemp(join(tmpdir(), "mcp-http-repo-"));
-      const repo = simpleGit({ baseDir: repoDirectory }).env({
-        ...process.env,
-        GIT_AUTHOR_NAME: "Setup",
-        GIT_AUTHOR_EMAIL: "setup@test.local",
-        GIT_COMMITTER_NAME: "Setup",
-        GIT_COMMITTER_EMAIL: "setup@test.local",
-      });
+      /* `gitWithEnv`: simple-git ≥ 3.34 refuses an env spelled out with the
+       * scrubbed GIT_CONFIG_GLOBAL, or the shell's EDITOR, in it (41c). */
+      const repo = gitWithEnv(
+        { baseDir: repoDirectory },
+        {
+          GIT_AUTHOR_NAME: "Setup",
+          GIT_AUTHOR_EMAIL: "setup@test.local",
+          GIT_COMMITTER_NAME: "Setup",
+          GIT_COMMITTER_EMAIL: "setup@test.local",
+        },
+      );
       await repo.init();
       await repo.addConfig("commit.gpgsign", "false");
       /* Before the first LMDB open, or the indexes land in the commit (T49). */
