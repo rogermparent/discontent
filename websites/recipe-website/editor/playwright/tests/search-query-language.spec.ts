@@ -324,8 +324,17 @@ test.describe("Search — the group: field", () => {
     await expect(page.getByTestId("group-rail")).toBeVisible();
 
     // A chip is a destination, not a filter: it opens the group's page.
+    //
+    // `waitForURL`, not `expect(page).toHaveURL` (41b): a client-side
+    // navigation moves the URL only once the destination's payload arrives,
+    // and under `next dev` (CI's Recipe shards) the first visit to
+    // `/group/[slug]` compiles the route first. This test runs 33–38 s into
+    // shard 4, before anything else there has opened a group page, and that
+    // compile outran `toHaveURL`'s 5 s in all three CI failures (2026-10-16) — the
+    // chip clicked and focused, the URL still `/search`, the retry's payload
+    // back in 65 ms. A navigation wait is bounded by the test, as `goto` is.
     await page.getByRole("link", { name: /Week of May 4/ }).click();
-    await expect(page).toHaveURL(/\/group\/week-of-may-4$/);
+    await page.waitForURL(/\/group\/week-of-may-4$/);
   });
 
   test("shows no rail at all on a corpus with no groups", async ({

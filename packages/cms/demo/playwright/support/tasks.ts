@@ -12,45 +12,6 @@ export function fixturePath(...segments: string[]): string {
 }
 
 /**
- * Remove a directory the test server may still be writing into (40f).
- *
- * The suite runs one test after another against one server, and work the
- * previous test started can still be landing derived files — an aggregate,
- * an index — under `test-content` when the next test resets it. A plain
- * recursive remove then fails `ENOTEMPTY` when a directory gains an entry
- * between being emptied and its `rmdir` (CI: `test-content`,
- * `test-content/notes`). `fs.rm`'s `maxRetries` exists
- * for exactly this: it retries `ENOTEMPTY` and `EBUSY` with a linear backoff.
- */
-async function removeDir(dir: string): Promise<void> {
-  await rm(dir, {
-    recursive: true,
-    force: true,
-    maxRetries: 10,
-    retryDelay: 50,
-  });
-}
-
-/**
- * `copy` a fixture into a directory just removed, removing it again when the
- * server recreated it first — `EEXIST` on the copy's `mkdir` (40f, the
- * other half of `removeDir`'s race).
- */
-async function copyFresh(source: string, destination: string): Promise<void> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      await copy(source, destination);
-      return;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || attempt >= 5) {
-        throw error;
-      }
-      await removeDir(destination);
-    }
-  }
-}
-
-/**
  * Must match `PORT` in playwright.config.ts: `PLAYWRIGHT_PORT` there and in
  * the `:test` scripts, 3011 by default (40f — another app can hold 3011).
  */
@@ -63,36 +24,82 @@ const serverURL = `http://localhost:${Number(process.env.PLAYWRIGHT_PORT) || 301
  */
 let firstReset = true;
 
-export async function resetData(fixture?: string): Promise<void> {
-  await removeDir(testContentDir);
-  if (fixture) {
-    await copyFresh(fixturePath("test-content", fixture), testContentDir);
-  } else {
-    await ensureDir(testContentDir);
-  }
-  /*
-   * Rewinding the content directory is not a write, so it fires no cache tags
-   * and the running server has no way to learn the corpus went backwards. Tell
-   * it explicitly, or a page cached by one test leaks into the next.
-   *
-   * Tolerates failure on the *first* call only: that one can land before the
-   * server is up, and there is nothing cached yet at that point. Every later
-   * failure throws. Swallowing them all — which is what this did — turns a
-   * dead reset endpoint into a poisoned cache that surfaces as an unrelated
-   * assertion failing in whichever test happens to run next, and makes the
-   * whole suite quietly order-dependent. That is a debugging session nobody
-   * should have to repeat.
-   */
-  const attempt = fetch(`${serverURL}/test/reset-cache`, { method: "POST" });
-  if (firstReset) {
-    firstReset = false;
-    await attempt.catch(() => {});
-    return;
+/**
+ * POST one of the server's test routes and answer its JSON body. `tolerant`
+ * swallows a failure and answers null: see `resetData` for the one call that
+ * may.
+ */
+async function postTestRoute(
+  path: string,
+  tolerant: boolean,
+): Promise<Record<string, unknown> | null> {
+  const attempt = fetch(`${serverURL}${path}`, { method: "POST" });
+  if (tolerant) {
+    return attempt
+      .then((response) => (response.ok ? response.json() : null))
+      .catch(() => null);
   }
   const response = await attempt;
   if (!response.ok) {
     throw new Error(
-      `POST ${serverURL}/test/reset-cache failed: ${response.status} ${response.statusText}`,
+      `POST ${serverURL}${path} failed: ${response.status} ${response.statusText}: ${await response.text()}`,
+    );
+  }
+  return response.json();
+}
+
+export async function resetData(fixture?: string): Promise<void> {
+  /*
+   * Tolerates failure on the *first* reset only: that one can land before the
+   * server is up, and there is nothing cached or being written yet at that
+   * point. Every later failure throws. Swallowing them all — which is what
+   * this did — turns a dead reset endpoint into a poisoned cache that surfaces
+   * as an unrelated assertion failing in whichever test happens to run next,
+   * and makes the whole suite quietly order-dependent. That is a debugging
+   * session nobody should have to repeat.
+   */
+  const tolerant = firstReset;
+  firstReset = false;
+  /*
+   * Hold the server's writes first (41b, 40-Tf5): `hold-writes` answers once
+   * whatever the previous test started and did not wait for has finished,
+   * and from then until `reset-cache` releases the hold, the engine's write
+   * gate refuses new writes — so a late write from the previous test fails
+   * instead of landing in this test's fixture. The plain remove and copy
+   * below cannot race it: 40f's `ENOTEMPTY` retries and `EEXIST` loop
+   * absorbed that race instead, and let a late file into the next test. A
+   * new `ENOTEMPTY` or `EEXIST` here names a writer that bypasses
+   * `packages/cms/fs/writeGate.ts`.
+   */
+  const held = await postTestRoute("/test/hold-writes", tolerant);
+  const hold = typeof held?.hold === "string" ? held.hold : null;
+  let failed: { error: unknown } | null = null;
+  try {
+    await rm(testContentDir, { recursive: true, force: true });
+    if (fixture) {
+      await copy(fixturePath("test-content", fixture), testContentDir);
+    } else {
+      await ensureDir(testContentDir);
+    }
+  } catch (error) {
+    failed = { error };
+  }
+  /*
+   * Rewinding the content directory is not a write, so it fires no cache
+   * tags and the running server has no way to learn the corpus went
+   * backwards. Tell it explicitly, or a page cached by one test leaks into
+   * the next. The same route releases the hold — always, the reset failed or
+   * not. When the reset failed, its error is the one worth seeing, so a
+   * failing release is swallowed then rather than thrown over it.
+   */
+  const path = hold
+    ? `/test/reset-cache?hold=${encodeURIComponent(hold)}`
+    : "/test/reset-cache";
+  const done = await postTestRoute(path, tolerant || failed !== null);
+  if (failed) throw failed.error;
+  if (hold && !tolerant && done?.released !== true) {
+    throw new Error(
+      `The write hold ${hold} had ended before the reset finished (its 30 s limit, or a newer hold): the server may have written into test-content during the reset.`,
     );
   }
 }

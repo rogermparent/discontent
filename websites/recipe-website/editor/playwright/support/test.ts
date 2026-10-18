@@ -1,7 +1,59 @@
-import { test as base } from "@playwright/test";
+import { test as base, type APIRequestContext } from "@playwright/test";
 import * as tasks from "./tasks";
 
 const CACHE_INVALIDATE_PATH = "/settings/test-invalidate-cache";
+const HOLD_WRITES_PATH = "/settings/test-hold-writes";
+
+/**
+ * Replace `test-content` while the server writes nothing into it (41b,
+ * 40-Tf5). `test-hold-writes` answers once the server's writes in flight —
+ * whatever the previous test started and did not wait for — have finished,
+ * and from then on its write gate refuses new writes (they fail rather than
+ * land in the fixture going in); the cache invalidation after the reset,
+ * naming the hold's id, releases it. Before this the reset raced those
+ * writes: `ENOTEMPTY` on the removal, `EEXIST` on the copy, and a late file
+ * kept in the next test's corpus.
+ *
+ * The release always runs. When the reset itself failed, its error is the
+ * one thrown — a failing release does not mask it. Otherwise a release that
+ * fails, or finds the hold already over (its 30 s limit), fails the reset:
+ * the server may have written into `test-content` while it was replaced.
+ */
+export async function withWritesHeld(
+  request: APIRequestContext,
+  reset: () => Promise<void>,
+): Promise<void> {
+  const held = await request.get(HOLD_WRITES_PATH);
+  if (!held.ok()) {
+    throw new Error(
+      `GET ${HOLD_WRITES_PATH} → ${held.status()}: ${await held.text()}`,
+    );
+  }
+  const { hold } = (await held.json()) as { hold: string };
+  let failed: { error: unknown } | null = null;
+  try {
+    await reset();
+  } catch (error) {
+    failed = { error };
+  }
+  const releasePath = `${CACHE_INVALIDATE_PATH}?hold=${encodeURIComponent(hold)}`;
+  const released = await request.get(releasePath).catch((error: unknown) => {
+    if (failed) return null;
+    throw error;
+  });
+  if (failed) throw failed.error;
+  if (!released?.ok()) {
+    throw new Error(
+      `GET ${releasePath} → ${released?.status()}: ${await released?.text()}`,
+    );
+  }
+  const body = (await released.json()) as { released?: boolean };
+  if (body.released !== true) {
+    throw new Error(
+      `The write hold ${hold} had ended before the reset finished (its 30 s limit, or a newer hold): the server may have written into test-content during the reset.`,
+    );
+  }
+}
 
 type Fixtures = {
   resetData: (fixture?: string) => Promise<void>;
@@ -58,16 +110,14 @@ export const test = base.extend<Fixtures>({
     await request.dispose();
   },
   resetData: async ({ request }, use) => {
-    await use(async (fixture) => {
-      await tasks.resetData(fixture);
-      await request.get(CACHE_INVALIDATE_PATH);
-    });
+    await use((fixture) =>
+      withWritesHeld(request, () => tasks.resetData(fixture)),
+    );
   },
   loadGitFixture: async ({ request }, use) => {
-    await use(async (fixture) => {
-      await tasks.loadGitFixture(fixture);
-      await request.get(CACHE_INVALIDATE_PATH);
-    });
+    await use((fixture) =>
+      withWritesHeld(request, () => tasks.loadGitFixture(fixture)),
+    );
   },
   initializeContentGit: async ({ request }, use) => {
     await use(async () => {
