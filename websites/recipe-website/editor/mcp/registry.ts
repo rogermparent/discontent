@@ -1262,14 +1262,20 @@ export function createRecipeServer(
       description:
         "Judge the shared list against recipes in `query`'s scope (the search " +
         "language; every recipe by default — `tag:drink` for drinks, `-tag:drink` " +
-        "for food): which can be made now, which are one or two items short and " +
-        "what's missing, how many are further, and what to buy next. Salt, black " +
-        "pepper, water and ice count as on hand, and so do the pantry staples " +
-        `(${PANTRY_STAPLES.join(", ")}) unless \`staples: false\` — as the site's ` +
-        '"Assume pantry staples" switch, on by default. A line can be met by making ' +
-        "another recipe first (`makeFirst`), or by a close item (`close`: " +
-        "{needs, have}, e.g. onion for a shallot), which counts as had. The same " +
-        "rules the site's /make page uses.",
+        "for food; every free-text word must appear): which can be made now, which " +
+        "are one or two items short and what's missing, how many are further, and " +
+        "what to buy next within the scope. `feature` (ingredient names, e.g. " +
+        '["lime"]) keeps only recipes where each one meets a required line — `gin` ' +
+        "is gin, never ginger beer, and a garnish doesn't count — as featuring an " +
+        "ingredient on /make does; an `ingredient:` term in `query` features it too. " +
+        "The answer names the `scope`, the `features` and `link`, the /make page " +
+        'showing the same. The editor\'s saved "Assume I always have" list ' +
+        "(`alwaysHave`; else salt, black pepper, water and ice) counts as on hand, " +
+        `and so do the pantry staples (${PANTRY_STAPLES.join(", ")}) unless ` +
+        '`staples: false` — as the site\'s "Assume pantry staples" switch, on by ' +
+        "default. A line can be met by making another recipe first (`makeFirst`), " +
+        "or by a close item (`close`: {needs, have}, e.g. onion for a shallot), " +
+        "which counts as had. The same rules the site's /make page uses.",
       inputSchema: InventoryMakeQuerySchema,
       annotations: READ_ONLY,
     },

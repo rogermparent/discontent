@@ -199,7 +199,8 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   inventory add <item…>
   inventory remove <item…>
   inventory set --file <list.txt|list.json>
-  inventory make [<query…>] [--limit 20] [--no-staples]
+  inventory make [<query…> | --query <q>] [--feature <name> …] [--limit 20]
+                 [--no-staples]
   shopping [list] [--store <id>]
   shopping add (--recipe <slug> | --group <slug>) [--scale 2] | <line…>
   shopping check <id|name…>
@@ -289,12 +290,16 @@ Environment:
                        the content repository (default 30000) before it
                        fails with code \`busy\`
 
-What's on hand: \`inventory make\` judges the saved inventory, with salt,
-pepper, water, ice and the pantry staples (flour, sugar, butter, eggs, oil,
-milk, baking soda and powder) assumed — \`--no-staples\` drops the pantry, as
-/make's "Assume pantry staples" switch does. The site's /make and /drinks
-lead with each visitor's own list, kept in their browser; the saved list is a
-separate group for a signed-in editor, and reaches the static export only
+What's on hand: \`inventory make\` judges the saved inventory as /make
+judges it, with the editor's saved "Assume I always have" list (else salt,
+pepper, water and ice) and the pantry staples (flour, sugar, butter, eggs,
+oil, milk, baking soda and powder) assumed — \`--no-staples\` drops the
+pantry, as /make's "Assume pantry staples" switch does. \`--feature lime\`
+features an ingredient as the page does, and the answer's \`link\` is the
+/make page showing the same (\`recipes inventory make --help\` has the JSON).
+The site's /make and /drinks lead with each visitor's own list, kept in
+their browser; a signed-in editor's /make can count from the saved list
+(Count from), and the saved list reaches the static export only
 when the Export page's "Share my saved inventory on the export" is on (off
 by default): the build then bakes it in as SITE_HOUSE_INVENTORY, a JSON array
 of items, which a hand-run export build may also set.
@@ -466,14 +471,22 @@ export function protectDashedPositionals(
       rest.push(token);
       continue;
     }
-    flags.push(token);
     if (
       definition.type === "string" &&
       !named?.[2] &&
       index + 1 < tail.length
     ) {
       index += 1;
-      flags.push(tail[index]);
+      const value = tail[index];
+      /* `--query -tag:drink` (41i): `parseArgs` refuses a dashed value
+       * after a space as ambiguous, and takes it inline. Only a negation
+       * (one dash, then a character): `--feature --json` still errors
+       * rather than featuring "--json". */
+      flags.push(
+        ...(/^-[^-]/.test(value) ? [`${token}=${value}`] : [token, value]),
+      );
+    } else {
+      flags.push(token);
     }
   }
 

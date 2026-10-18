@@ -406,6 +406,57 @@ describe("the CLI as a process", () => {
         staples: false,
       });
 
+      /*
+       * 41i: `--query` (a dashed value after a space too) and a repeatable
+       * `--feature`, as /make features; the editor's saved staples, from a
+       * settings directory of the test's own.
+       */
+      const settingsDirectory = await mkdtemp(join(tmpdir(), "cli-settings-"));
+      try {
+        await writeFile(
+          join(settingsDirectory, "settings.json"),
+          JSON.stringify({ makeStaples: ["salt", "gin"] }),
+        );
+        const featured = await run(
+          [
+            "inventory",
+            "make",
+            "--query",
+            "-tag:drink",
+            "--feature",
+            "lime",
+            "--feature",
+            "gin",
+            "--json",
+          ],
+          {
+            SETTINGS_DIRECTORY: settingsDirectory,
+            RECIPE_EDITOR_URL: "http://editor.test:3000",
+          },
+        );
+        expect(featured.exitCode).toBe(0);
+        expect(JSON.parse(featured.stdout)).toMatchObject({
+          query: "-tag:drink",
+          scope: "-tag:drink ingredient:lime ingredient:gin",
+          features: ["lime", "gin"],
+          link: "http://editor.test:3000/make?q=-tag%3Adrink+ingredient%3Alime+ingredient%3Agin",
+          alwaysHave: ["salt", "gin"],
+          total: 0,
+        });
+      } finally {
+        await rm(settingsDirectory, { recursive: true, force: true });
+      }
+      const twice = await run([
+        "inventory",
+        "make",
+        "tag:drink",
+        "--query",
+        "tag:drink",
+        "--json",
+      ]);
+      expect(twice.exitCode).not.toBe(0);
+      expect(JSON.parse(twice.stdout).error.code).toBe("usage");
+
       const usage = await run(["inventory", "add", "--json"]);
       expect(usage.exitCode).not.toBe(0);
       expect(JSON.parse(usage.stdout).error.code).toBe("usage");

@@ -103,7 +103,7 @@ export function hasFieldTerm(
  * and `group:weeknight` both find it. `SearchContext`'s `groupsByRecipe`, on
  * the same corpus — transitive through sub-groups, as the browser's is.
  */
-async function readGroupsByRecipe(
+export async function readGroupsByRecipe(
   ctx: CurationContext,
 ): Promise<Map<string, string[]>> {
   const groups = await getGroupSearchCorpus({
