@@ -173,15 +173,21 @@ test.describe("What can I make?", () => {
     await expect(question(page)).toHaveText(
       "What drinks can I make with lime?",
     );
-    /* The Vodka Sour's lime juice and the G&T's lime wedge. */
-    await expect(ticker(page)).toHaveText(/^2 drinks · 2 can make/);
-    await expect(section(page, "make-can")).not.toContainText(
-      "Chamomile Collins",
-    );
+    /* Lime as the matcher reads it (Dh7): the Vodka Sour's lime juice. The
+     * G&T's "Lime wedge, for garnish" is optional, so it isn't "with lime". */
+    await expect(ticker(page)).toHaveText(/^1 drink · 1 can make/);
+    await expect(section(page, "make-can")).toContainText("Vodka Sour");
+    await expect(section(page, "make-can")).not.toContainText("Gin and Tonic");
 
-    await question(page)
-      .getByRole("button", { name: "lime — stop featuring" })
-      .click();
+    /* The question's word is named by itself and described as the undo. */
+    const unfeature = question(page).getByRole("button", {
+      name: "lime",
+      exact: true,
+    });
+    await expect(unfeature).toHaveAccessibleDescription(
+      "Tap to stop featuring it",
+    );
+    await unfeature.click();
     await expect(query(page)).toHaveValue("tag:drink");
     await expect(lime).toHaveAttribute("aria-pressed", "false");
     await expect(ticker(page)).toHaveText(/^5 drinks/);
@@ -193,21 +199,24 @@ test.describe("What can I make?", () => {
     await page.goto("/make?q=tag:drink");
     await ready(page);
     await addItems(page, "tonic water");
-    await query(page).fill("tag:drink ingredient:tonic");
+    await query(page).fill('tag:drink ingredient:"tonic water"');
     await expect(question(page)).toHaveText(
-      "What drinks can I make with tonic?",
+      "What drinks can I make with tonic water?",
     );
     await expect(ticker(page)).toHaveText(/^3 drinks/);
     await expect(
       chips(page).getByRole("button", { name: "tonic water", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
 
-    /* The G&T and its zero-proof twin; the Gnista tonic has no gin. */
-    await query(page).fill("tag:drink ingredient:tonic ingredient:gin");
+    /* Gin as the matcher reads it (Dh7): the G&T, never its zero-proof twin
+     * (gin doesn't stand in for non-alcoholic gin); the Gnista tonic has no
+     * gin at all. */
+    await query(page).fill('tag:drink ingredient:"tonic water" ingredient:gin');
     await expect(question(page)).toHaveText(
-      "What drinks can I make with tonic and gin?",
+      "What drinks can I make with tonic water and gin?",
     );
-    await expect(ticker(page)).toHaveText(/^2 drinks ·/);
+    await expect(ticker(page)).toHaveText(/^1 drink ·/);
+    await expect(section(page, "make-one-away")).toContainText("Gin and Tonic");
   });
 
   test("buy next follows the featured scope, and its tape features", async ({
@@ -282,15 +291,38 @@ test.describe("What can I make?", () => {
     await expect(chips(page)).toHaveCount(0);
     await expect(page.getByText("Tell it what you have")).toBeVisible();
     await expect(toast(page)).toContainText("Cleared 3 items.");
-    await toast(page).getByRole("button", { name: "Undo" }).click();
+    /* Clear's button goes away, so focus goes to Undo — and the toast
+     * waits while it is there (WCAG 2.2.1). */
+    const undo = toast(page).getByRole("button", { name: "Undo" });
+    await expect(undo).toBeFocused();
+    await page.keyboard.press("Enter");
     await expect(chips(page).getByRole("listitem")).toHaveCount(3);
     await expect(section(page, "make-can")).toContainText("Vodka Sour");
+    await expect(page.getByTestId("inventory-input")).toBeFocused();
 
     /* A removed label comes back the same way. */
     await page.getByRole("button", { name: "Remove vodka" }).click();
     await expect(toast(page)).toContainText("Removed vodka.");
-    await toast(page).getByRole("button", { name: "Undo" }).click();
-    await expect(chips(page)).toContainText("vodka");
+    await undo.click();
+    await expect(chips(page).getByRole("listitem")).toHaveText([
+      /vodka/,
+      /lime/,
+      /simple syrup/,
+    ]);
+
+    /* By keyboard: × moves focus to the label that took its place, and
+     * Ctrl+Z undoes while the toast is up. */
+    await page.getByRole("button", { name: "Remove vodka" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(
+      chips(page).getByRole("button", { name: "lime", exact: true }),
+    ).toBeFocused();
+    await page.keyboard.press("Control+z");
+    await expect(chips(page).getByRole("listitem")).toHaveText([
+      /vodka/,
+      /lime/,
+      /simple syrup/,
+    ]);
   });
 
   test("spec cards: per browser, with the featured lines marked", async ({
@@ -298,7 +330,7 @@ test.describe("What can I make?", () => {
   }) => {
     await page.goto("/make?q=tag:drink ingredient:lime");
     await ready(page);
-    await addItems(page, "vodka, simple syrup, gin, lime");
+    await addItems(page, "vodka, lime");
     const view = page.getByRole("group", { name: "Cards" });
     await expect(view.getByRole("radio", { name: "Photos" })).toBeChecked();
     await view.getByRole("radio", { name: "Specs" }).check();
@@ -308,14 +340,10 @@ test.describe("What can I make?", () => {
     await expect(sour.getByRole("heading", { level: 3 })).toHaveText(
       "Vodka Sour",
     );
-    await expect(sour).toContainText("vodka · lime juice · simple syrup");
+    await expect(sour).toContainText("vodka · lime juice");
     await expect(sour.locator("mark")).toHaveText("lime juice");
-    await expect(sour.getByTestId("make-missing")).toHaveCount(0);
-    const tonic = cards
-      .getByRole("listitem")
-      .filter({ hasText: "Gin and Tonic" });
-    await expect(tonic.getByTestId("make-missing")).toHaveText(
-      "Needs tonic water",
+    await expect(sour.getByTestId("make-missing")).toHaveText(
+      "Needs simple syrup",
     );
 
     await page.reload();
@@ -657,10 +685,21 @@ test.describe("What can I make? — your saved inventory", () => {
       page.getByTestId("buy-next").getByRole("listitem"),
     ).toContainText(["lime juice", "non-alcoholic gin"]);
 
+    /* On the saved list alone, this browser's labels stay, uncounted. */
+    await countFrom(page)
+      .getByRole("radio", { name: /^Saved list/ })
+      .check();
+    await expect(
+      page.getByRole("list", { name: "This browser's list, not counted" }),
+    ).toBeVisible();
+    await expect(page.getByTestId("make-not-counted")).toBeVisible();
+    await expect(chips(page).locator("[data-counted=false]")).toHaveCount(2);
+
     await countFrom(page)
       .getByRole("radio", { name: /^This browser/ })
       .check();
     await expect(ticker(page)).toHaveText(/0 can make · 1 one away/i);
+    await expect(page.getByTestId("make-not-counted")).toHaveCount(0);
   });
 
   test("Save to editor shows the diff, then writes one commit", async ({
@@ -670,9 +709,7 @@ test.describe("What can I make? — your saved inventory", () => {
     await addItems(page, "vodka, gin");
     await shelf(page).getByRole("button", { name: "Save to editor" }).click();
     const confirm = page.getByTestId("make-save-confirm");
-    await expect(confirm).toContainText(
-      "Replace the editor's saved list (2) with this browser's 2?",
-    );
+    await expect(confirm).toContainText("Update the editor's saved list (2)?");
     await expect(page.getByTestId("make-save-diff")).toHaveText(
       "+1 vodka−1 tonic water",
     );

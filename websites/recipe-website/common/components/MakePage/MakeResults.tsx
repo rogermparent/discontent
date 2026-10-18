@@ -14,7 +14,7 @@ import type {
 } from "../../util/makeable";
 import SearchList from "../SearchList";
 import { RecipeCardLink } from "../List/shared";
-import { featuredBy, type MakeKind } from "./kinds";
+import { isFeatured, type MakeKind } from "./kinds";
 import { namesAndMore } from "./makeMath";
 import { StaticTape, TapeLabel } from "./Tape";
 import type { CardView } from "./useInventory";
@@ -98,7 +98,8 @@ export interface CardContext {
   view: CardView;
   recipes: Map<string, MassagedRecipeEntry>;
   prepared: PreparedCorpus;
-  featured: string[];
+  /** Per recipe, the line indexes the featured ingredients meet. */
+  featuredLines?: Map<string, Set<number>>;
   /** Slugs that just became makeable: a brief accent ring (41h). */
   fresh: Set<string>;
   /** A tag's label, for a spec card's style line. */
@@ -126,6 +127,8 @@ function SpecCard({
     .slice(0, 3)
     .join(" · ");
   const missing = new Set(match.missing);
+  /* A line is marked when a featured item meets it, as the scope does. */
+  const marks = context.featuredLines?.get(recipe.slug);
   const lines = (entry?.requirements ?? []).filter(
     (requirement) =>
       !requirement.optional && !requirement.staple && !missing.has(requirement),
@@ -154,7 +157,7 @@ function SpecCard({
         <p className="m-0 font-mono text-[0.8rem] leading-relaxed text-muted-foreground">
           {lines.map((requirement, i) => {
             const label = requirementLabel(requirement);
-            const marked = featuredBy(label, context.featured).length > 0;
+            const marked = !!marks?.has(requirement.line);
             return (
               <Fragment key={`${requirement.line}-${label}`}>
                 {i > 0 && " · "}
@@ -343,13 +346,13 @@ export function BuyNextList({
             Ranked by what each one finishes on its own.
           </p>
           <ol className="m-0 grid list-none p-0">
-            {buyNext.map((entry) => {
+            {buyNext.map((entry, i) => {
               const names = entry.recipes.map(
                 (slug) => recipes.get(slug)?.name ?? slug,
               );
               return (
                 <li
-                  key={entry.label}
+                  key={`${i}-${entry.label}`}
                   className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t py-2.5 first:border-t-0"
                 >
                   <div className="flex min-w-0 grow basis-60 flex-col gap-1">
@@ -358,7 +361,7 @@ export function BuyNextList({
                         as="span"
                         kind="missing"
                         item={entry.label}
-                        featured={featuredBy(entry.item, featured).length > 0}
+                        featured={isFeatured(entry.item, featured)}
                         onFeature={() => onFeature(entry.item)}
                       />
                       <span className="font-mono text-xs">

@@ -46,7 +46,6 @@ export function AddField({
   const typed = useDeferredValue(draft);
   const inputId = useId();
   const listId = useId();
-  const hintId = useId();
   const optionId = (i: number) => `${listId}-${i}`;
 
   const candidates = useMemo(
@@ -77,7 +76,6 @@ export function AddField({
         aria-activedescendant={
           shown && active >= 0 ? optionId(active) : undefined
         }
-        aria-describedby={hintId}
         value={draft}
         placeholder="Add or look up an ingredient"
         autoComplete="off"
@@ -153,7 +151,7 @@ export function AddField({
           </li>
         ))}
       </ul>
-      <p id={hintId} className="mt-1.5 text-xs text-muted-foreground">
+      <p className="mt-1.5 text-xs text-muted-foreground">
         Tap a label to feature it in the question.
       </p>
     </div>

@@ -1,5 +1,4 @@
 import {
-  fieldMatches,
   filterTerms,
   fold,
   parseQuery,
@@ -176,16 +175,40 @@ export function withoutTagPicks(
 
 // --- featured ingredients (41h) ---------------------------------------------
 
-/** The key two spellings of a featured ingredient share. */
-export function featureKey(name: string): string {
-  return fold(name).replace(/\s+/g, " ").trim();
+/**
+ * The name a label features (41h review): its words without a
+ * parenthetical, as `parseInventoryItem` splits an item — "aperitif
+ * (Gnista)" features "aperitif". A label that is all parenthetical keeps it.
+ */
+export function featureName(label: string): string {
+  const outside = label
+    .replace(/\([^()]*\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return outside || label.replace(/[()]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-/** A positive `ingredient:` term ANDed at the top: a featured ingredient. */
-function featureValue(term: FilterTerm): string | undefined {
+/** The key two spellings of a featured ingredient share. */
+export function featureKey(name: string): string {
+  return fold(featureName(name)).replace(/\s+/g, " ").trim();
+}
+
+/**
+ * A positive `ingredient:` term ANDed at the top: a featured ingredient,
+ * spelled as the query has it ("St-Germain", not the parser's folded
+ * "st-germain"), so the question shows the label as typed.
+ */
+function featureValue(query: string, term: FilterTerm): string | undefined {
   if (term.negated || term.node.type !== "text") return undefined;
   if (term.node.field !== "ingredient") return undefined;
-  return term.node.value.replace(/\s+/g, " ").trim();
+  const folded = term.node.value.replace(/\s+/g, " ").trim();
+  const raw = query
+    .slice(term.node.start, term.node.end)
+    .replace(/^-?\s*[a-z]+:/i, "")
+    .replace(/^"([^"]*)"$/, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+  return raw && fold(raw).trim() === folded ? raw : folded;
 }
 
 /**
@@ -194,12 +217,16 @@ function featureValue(term: FilterTerm): string | undefined {
  * `ingredient:lime` in the field features lime, and featuring writes the
  * same term — the query stays the one source of truth, and a URL shares it.
  * Like a kind, a term inside an OR is the person's choice, not a feature.
+ *
+ * On `/make` a feature is judged by the matcher, not by the search
+ * language's word-prefix rule (Dh7): `scopeRecipes` gets the query
+ * `withoutFeatures`, and `featureScope` keeps the recipes a feature meets.
  */
 export function featuredOfQuery(query: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const term of topLevelTerms(query)) {
-    const value = featureValue(term);
+    const value = featureValue(query, term);
     const key = value && featureKey(value);
     if (!value || !key || seen.has(key)) continue;
     seen.add(key);
@@ -208,15 +235,24 @@ export function featuredOfQuery(query: string): string[] {
   return out;
 }
 
-/** `query` with `name` featured: an `ingredient:` term at the end. */
+/** An operator left dangling at the end: `tag:a OR`, `tag:a and`, `-`. */
+const DANGLING = /(?:^|\s)(?:OR|AND|NOT|-)\s*$/i;
+
+/**
+ * `query` with `name` featured: an `ingredient:` term ANDed at the end —
+ * the label's name without a parenthetical (`featureName`).
+ */
 export function withFeature(query: string, name: string): string {
-  const value = name.replace(/\s+/g, " ").trim();
+  const value = featureName(name);
   const key = featureKey(value);
   if (!key) return query;
   if (featuredOfQuery(query).some((had) => featureKey(had) === key)) {
     return query;
   }
   let base = query.trim();
+  for (let guard = 0; guard < 5 && DANGLING.test(base); guard++) {
+    base = base.replace(DANGLING, "").trim();
+  }
   /* `tag:a OR tag:b ingredient:lime` would bind lime to `tag:b` alone. */
   if (base && parseQuery(base).filter?.type === "or") base = `(${base})`;
   const term = `ingredient:${quoteQueryValue(value)}`;
@@ -226,25 +262,46 @@ export function withFeature(query: string, name: string): string {
 /** `query` with every top-level feature spelled like `name` taken out. */
 export function withoutFeature(query: string, name: string): string {
   const key = featureKey(name);
-  return removeTopLevel(query, (term) => {
-    const value = featureValue(term);
-    return value !== undefined && featureKey(value) === key;
-  });
+  /* By the folded value: `removeTopLevel` hands over terms of the query
+   * as it shrinks, so a span of the original would be stale. */
+  return removeTopLevel(
+    query,
+    (term) =>
+      !term.negated &&
+      term.node.type === "text" &&
+      term.node.field === "ingredient" &&
+      featureKey(term.node.value) === key,
+  );
 }
 
 /**
- * The features that light up `item`, an ingredient label on the page: the
- * search language's own rule, so under `ingredient:lime` — which matches a
- * line with a word starting "lime" — the label "lime juice" reads as
- * featured too.
+ * `query` without any feature: what `scopeRecipes` reads on `/make`, where
+ * the features narrow through the matcher instead (`featureScope`).
  */
-export function featuredBy(item: string, featured: string[]): string[] {
-  return featured.filter((name) => fieldMatches(item, featureKey(name)));
+export function withoutFeatures(query: string): string {
+  if (featuredOfQuery(query).length === 0) return query;
+  return removeTopLevel(
+    query,
+    (term) =>
+      !term.negated &&
+      term.node.type === "text" &&
+      term.node.field === "ingredient",
+  );
 }
 
-/** A label's tap (41h): un-feature whatever lights it up, or feature it. */
+/**
+ * Is `item`, an ingredient label on the page, featured? By its own name
+ * only (41h review): with gin featured, "ginger beer" and "non-alcoholic
+ * gin" are not — `aria-pressed` says exactly what a tap would undo.
+ */
+export function isFeatured(item: string, featured: string[]): boolean {
+  const key = featureKey(item);
+  return !!key && featured.some((name) => featureKey(name) === key);
+}
+
+/** A label's tap (41h): un-feature it if it is featured, else feature it. */
 export function toggleFeature(query: string, item: string): string {
-  const by = featuredBy(item, featuredOfQuery(query));
-  if (by.length === 0) return withFeature(query, item);
-  return by.reduce((current, name) => withoutFeature(current, name), query);
+  return isFeatured(item, featuredOfQuery(query))
+    ? withoutFeature(query, item)
+    : withFeature(query, item);
 }

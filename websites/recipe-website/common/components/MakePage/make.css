@@ -58,6 +58,17 @@
     border: 1.5px dashed var(--input);
     border-radius: 2px;
   }
+  /* This browser's labels while Count from is on the saved list alone:
+     no tape, muted ink (muted-foreground keeps its 4.5:1 on the page). */
+  .make-tape[data-counted="false"] {
+    color: var(--muted-foreground);
+  }
+  .make-tape[data-counted="false"]::before {
+    background: none;
+    clip-path: none;
+    border: 1px dotted var(--input);
+    border-radius: 2px;
+  }
   .make-tape[data-featured="true"] {
     color: var(--primary-foreground);
   }

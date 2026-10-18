@@ -317,24 +317,26 @@ export function useMakeSettings(): MakeSettings {
     getServerSnapshot,
   );
   const stored = useMemo(() => parseSettings(raw ?? ""), [raw]);
-  const save = useCallback(
-    (next: StoredSettings) => {
-      const merged: StoredSettings = { ...stored, ...next };
-      const kept: StoredSettings = {};
-      if (merged.countClose !== undefined) kept.countClose = merged.countClose;
-      if (merged.pantryStaples !== undefined) {
-        kept.pantryStaples = merged.pantryStaples;
-      }
-      if (merged.staples !== undefined) kept.staples = merged.staples;
-      if (merged.source !== undefined) kept.source = merged.source;
-      if (merged.view !== undefined) kept.view = merged.view;
-      write(
-        SETTINGS_KEY,
-        Object.keys(kept).length > 0 ? JSON.stringify(kept) : null,
-      );
-    },
-    [stored],
-  );
+  /* Over what storage holds now, not this render's `stored`: a setter
+   * kept in a closure (an Undo) must not undo what changed since. */
+  const save = useCallback((next: StoredSettings) => {
+    const merged: StoredSettings = {
+      ...parseSettings(read(SETTINGS_KEY) ?? ""),
+      ...next,
+    };
+    const kept: StoredSettings = {};
+    if (merged.countClose !== undefined) kept.countClose = merged.countClose;
+    if (merged.pantryStaples !== undefined) {
+      kept.pantryStaples = merged.pantryStaples;
+    }
+    if (merged.staples !== undefined) kept.staples = merged.staples;
+    if (merged.source !== undefined) kept.source = merged.source;
+    if (merged.view !== undefined) kept.view = merged.view;
+    write(
+      SETTINGS_KEY,
+      Object.keys(kept).length > 0 ? JSON.stringify(kept) : null,
+    );
+  }, []);
   const setCountClose = useCallback(
     (value: boolean) => save({ countClose: value ? undefined : false }),
     [save],

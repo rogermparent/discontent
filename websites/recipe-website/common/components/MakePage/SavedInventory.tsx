@@ -83,8 +83,7 @@ export function SaveConfirm({
       className="grid gap-2.5 rounded-md border border-input bg-card p-3 text-sm text-card-foreground"
     >
       <p id={headingId} className="m-0">
-        Replace the editor&apos;s saved list ({saved.length}) with this
-        browser&apos;s {browser.length}?
+        Update the editor&apos;s saved list ({saved.length})?
       </p>
       <p
         className="m-0 font-mono text-xs leading-relaxed text-muted-foreground"

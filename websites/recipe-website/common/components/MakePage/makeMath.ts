@@ -6,11 +6,13 @@
 import { dedupeItems } from "../../util/inventoryText";
 import { nameLabel, type Requirement } from "../../util/ingredientNames";
 import {
+  analyzeMakeable,
   parseInventoryItem,
+  prepareRecipe,
   probablyOnHand,
   whatIf,
+  type MakeableAnalysis,
   type MakeRecipe,
-  type MissingLine,
   type PreparedCorpus,
 } from "../../util/makeable";
 import { fieldMatches, fold } from "../SearchForm/queryLanguage";
@@ -32,6 +34,71 @@ export function countFromItems(
   if (source === "saved") return second;
   if (source === "both") return dedupeItems([...browser, ...second]);
   return browser;
+}
+
+/**
+ * The featured scope on `/make` (41h review, Dh7): for each recipe every
+ * featured ingredient is **used** in, the lines the features meet. A
+ * feature is judged as the inventory would be — `analyzeMakeable` with the
+ * feature as the whole list, no staples, and close matches as the page
+ * counts them — so `gin` meets a Martini's gin, never a Moscow Mule's
+ * ginger beer or a non-alcoholic gin, and "extra dry vermouth" every dry
+ * vermouth line. Only required lines count: a lime wedge for garnish
+ * doesn't put a drink in "with lime". Not the search language's word-prefix
+ * `ingredient:`, which `/search` keeps. `undefined` with nothing featured.
+ */
+export function featuredLines(
+  recipes: MakeRecipe[],
+  prepared: PreparedCorpus,
+  featured: string[],
+  countClose = true,
+): Map<string, Set<number>> | undefined {
+  if (featured.length === 0) return undefined;
+  let kept: Map<string, Set<number>> | undefined;
+  for (const feature of featured) {
+    const pool = kept
+      ? recipes.filter((recipe) => kept!.has(recipe.slug))
+      : recipes;
+    const judged = analyzeMakeable(pool, prepared, [feature], {
+      staples: [],
+      countClose,
+    });
+    const next = new Map<string, Set<number>>();
+    for (const match of [
+      ...judged.canMake,
+      ...judged.oneAway,
+      ...judged.twoAway,
+      ...judged.further,
+    ]) {
+      const { slug } = match.recipe;
+      const entry = prepared.recipes.get(slug) ?? prepareRecipe(match.recipe);
+      const unmet = new Set([
+        ...match.missing.map((requirement) => requirement.line),
+        ...match.via.map((via) => via.requirement.line),
+      ]);
+      const met = entry.requirements
+        .filter(
+          (requirement) =>
+            !requirement.optional && !unmet.has(requirement.line),
+        )
+        .map((requirement) => requirement.line);
+      if (met.length === 0) continue;
+      next.set(slug, new Set([...(kept?.get(slug) ?? []), ...met]));
+    }
+    kept = next;
+  }
+  return kept;
+}
+
+/** `recipes` narrowed to the featured scope (`featuredLines`). */
+export function featureScope<T extends MakeRecipe>(
+  recipes: T[],
+  prepared: PreparedCorpus,
+  featured: string[],
+  countClose = true,
+): T[] {
+  const lines = featuredLines(recipes, prepared, featured, countClose);
+  return lines ? recipes.filter((recipe) => lines.has(recipe.slug)) : recipes;
 }
 
 /** Suggestions shown at most. */
@@ -57,14 +124,14 @@ interface Named {
  * corpus, as `suggestNames` offers — that matches `typed` at a word start
  * (the search language's `fieldMatches`), leaving out what the list (with
  * the staples) already covers. Each says what adding it would do
- * (`whatIf` over `missing`, the tally Buy next ranks), and they are ranked
- * by that: recipes finished, then recipes helped, then use in scope.
+ * (`whatIf` over the analysis's one- and two-away recipes), and they are
+ * ranked by that: recipes finished, then recipes helped, then use in scope.
  */
 export function addCandidates({
   typed,
   scoped,
   prepared,
-  missing,
+  analysis,
   have,
   staples,
   limit = ADD_SUGGESTIONS,
@@ -72,7 +139,7 @@ export function addCandidates({
   typed: string;
   scoped: MakeRecipe[];
   prepared: PreparedCorpus;
-  missing: MissingLine[];
+  analysis: Pick<MakeableAnalysis, "oneAway" | "twoAway">;
   have: string[];
   staples: string[];
   limit?: number;
@@ -123,7 +190,7 @@ export function addCandidates({
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
     .slice(0, WHAT_IF_POOL)
     .map((named) => {
-      const gain = whatIf(named.name, missing, prepared.aliases);
+      const gain = whatIf(named.name, analysis, prepared.aliases);
       return {
         name: named.name,
         unlocks: gain.unlocks.length,

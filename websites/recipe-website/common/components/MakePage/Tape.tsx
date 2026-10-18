@@ -25,6 +25,7 @@ const FOCUS =
 export function TapeLabel({
   item,
   kind = "have",
+  counted = true,
   featured,
   pull,
   landed,
@@ -36,6 +37,11 @@ export function TapeLabel({
 }: {
   item: string;
   kind?: TapeKind;
+  /**
+   * False for this browser's labels while Count from is on the saved list
+   * alone: still on the shelf, not counted — untaped, in muted ink.
+   */
+  counted?: boolean;
   featured: boolean;
   /** Recipes it is used in among those you can make now. */
   pull?: number;
@@ -52,6 +58,7 @@ export function TapeLabel({
     <Tag
       className={cn("make-tape", className)}
       data-kind={kind}
+      data-counted={counted ? undefined : "false"}
       data-featured={featured ? "true" : undefined}
       data-landed={landed ? "true" : undefined}
     >

@@ -68,30 +68,33 @@ test.describe("Accessibility (axe)", () => {
     await page.goto("/");
     await signIn(page);
     await page.goto("/make?q=tag:drink ingredient:lime");
-    await expect(page.getByTestId("make-ticker")).toHaveText(/can make/i, {
+    /* Under `next dev`, right after sign-in, a hidden second copy of the
+     * page can linger on "Loading recipes…": look inside the page's main. */
+    const main = page.getByRole("main");
+    await expect(main.getByTestId("make-ticker")).toHaveText(/can make/i, {
       timeout: 20_000,
     });
-    const input = page.getByTestId("inventory-input");
+    const input = main.getByTestId("inventory-input");
     await input.fill("vodka, simple syrup");
     await input.press("Enter");
-    await page
+    await main
       .getByRole("group", { name: "Count from" })
       .getByRole("radio", { name: /^Both/ })
       .check();
-    await expect(page.getByTestId("make-second-labels")).toBeVisible();
-    await page.getByRole("button", { name: "Save to editor" }).click();
-    await expect(page.getByTestId("make-save-confirm")).toBeVisible();
-    await expect(page.getByTestId("make-can")).toBeVisible();
+    await expect(main.getByTestId("make-second-labels")).toBeVisible();
+    await main.getByRole("button", { name: "Save to editor" }).click();
+    await expect(main.getByTestId("make-save-confirm")).toBeVisible();
+    await expect(main.getByTestId("make-can")).toBeVisible();
     const photos = await new AxeBuilder({ page }).withTags(TAGS).analyze();
     expect(photos.violations).toEqual([]);
 
-    await page
+    await main
       .getByRole("group", { name: "Cards" })
       .getByRole("radio", { name: "Specs" })
       .check();
-    await expect(page.getByTestId("make-spec-cards").first()).toBeVisible();
-    await page.getByTestId("make-kind").click();
-    await expect(page.getByRole("menu")).toBeVisible();
+    await expect(main.getByTestId("make-spec-cards").first()).toBeVisible();
+    await main.getByTestId("make-kind").click();
+    await expect(main.getByRole("menu")).toBeVisible();
     const specs = await new AxeBuilder({ page }).withTags(TAGS).analyze();
     expect(specs.violations).toEqual([]);
   });

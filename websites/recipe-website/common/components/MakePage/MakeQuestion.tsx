@@ -25,7 +25,9 @@ const SLOT =
  * content, so a heading may hold them, and axe's `nested-interactive` is
  * about controls inside controls, which a heading is not. The menu itself is
  * rendered beside the heading, not in it, so an open menu never becomes part
- * of the heading's name.
+ * of the heading's name. A featured word's button is named by the word
+ * alone, and described ("Tap to stop featuring it") from outside the
+ * heading, so the heading's name is the sentence as it reads.
  */
 export function MakeQuestion({
   kind,
@@ -49,6 +51,7 @@ export function MakeQuestion({
   const kindRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
+  const unfeatureId = useId();
 
   const place = useCallback(() => {
     const wrap = wrapRef.current?.getBoundingClientRect();
@@ -151,7 +154,7 @@ export function MakeQuestion({
             <button
               type="button"
               className={cn(SLOT, "inline-flex items-baseline")}
-              aria-label={`${name} — stop featuring`}
+              aria-describedby={unfeatureId}
               onClick={() => onUnfeature(name)}
             >
               {name}
@@ -164,6 +167,10 @@ export function MakeQuestion({
         ))}
         ?
       </h1>
+      {/* Outside the heading, so its name stays the question itself. */}
+      <span id={unfeatureId} hidden>
+        Tap to stop featuring it
+      </span>
       {open && (
         <div
           ref={menuRef}

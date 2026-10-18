@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type RefObject } from "react";
+import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import { ChevronDown, X } from "lucide-react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { Input } from "@discontent/component-library/components/ui/input";
@@ -11,7 +11,7 @@ import type { CountFrom, Inventory, MakeSettings } from "./useInventory";
 import { ImportExportDialog } from "./ImportExportDialog";
 import { AddField, type AddCandidate } from "./AddField";
 import { SaveConfirm, type InventoryDiff } from "./SavedInventory";
-import { featuredBy } from "./kinds";
+import { isFeatured } from "./kinds";
 import { TapeLabel } from "./Tape";
 
 /**
@@ -315,6 +315,31 @@ export function InventoryPanel({
   const panelId = useId();
   const headingId = useId();
   const source = second ? settings.source : "browser";
+  /* In Saved, this browser's labels stay on the shelf but count for nothing. */
+  const browserCounted = source !== "saved";
+  const countedSize =
+    source === "saved"
+      ? (second?.items.length ?? 0)
+      : source === "both"
+        ? union
+        : have.length;
+
+  /* After a label's ×, focus goes to the label that took its place (or the
+   * one before it, or the add field) rather than to the page's body. */
+  const listRef = useRef<HTMLUListElement>(null);
+  const focusAfterRemove = useRef<number | null>(null);
+  useEffect(() => {
+    const at = focusAfterRemove.current;
+    if (at === null) return;
+    focusAfterRemove.current = null;
+    const bodies = listRef.current?.querySelectorAll<HTMLButtonElement>(
+      ":scope > li > button:first-child",
+    );
+    const target = bodies?.length
+      ? bodies[Math.min(at, bodies.length - 1)]
+      : inputRef.current;
+    target?.focus();
+  }, [have, inputRef]);
 
   return (
     <aside
@@ -331,7 +356,7 @@ export function InventoryPanel({
       >
         <span>
           <span className="font-display text-base font-bold">
-            {have.length} on hand
+            {countedSize} on hand
           </span>
           {featured.length > 0 && (
             <span className="font-mono text-xs text-muted-foreground">
@@ -400,23 +425,43 @@ export function InventoryPanel({
         )}
         <AddField suggest={suggest} onAdd={onAdd} inputRef={inputRef} />
         {have.length > 0 ? (
-          <ul
-            className="m-0 flex list-none flex-wrap gap-x-1.5 gap-y-2 p-0"
-            data-testid="inventory-chips"
-            aria-label="This browser's list"
-          >
-            {have.map((item) => (
-              <TapeLabel
-                key={inventoryKey(item)}
-                item={item}
-                featured={featuredBy(item, featured).length > 0}
-                pull={pulls.get(item)}
-                landed={landed === inventoryKey(item)}
-                onFeature={() => onToggleFeature(item)}
-                onRemove={() => onRemove(item)}
-              />
-            ))}
-          </ul>
+          <>
+            <ul
+              ref={listRef}
+              className="m-0 flex list-none flex-wrap gap-x-1.5 gap-y-2 p-0"
+              data-testid="inventory-chips"
+              aria-label={
+                browserCounted
+                  ? "This browser's list"
+                  : "This browser's list, not counted"
+              }
+            >
+              {have.map((item, i) => (
+                <TapeLabel
+                  key={inventoryKey(item)}
+                  item={item}
+                  counted={browserCounted}
+                  featured={isFeatured(item, featured)}
+                  pull={browserCounted ? pulls.get(item) : undefined}
+                  landed={landed === inventoryKey(item)}
+                  onFeature={() => onToggleFeature(item)}
+                  onRemove={() => {
+                    focusAfterRemove.current = i;
+                    onRemove(item);
+                  }}
+                />
+              ))}
+            </ul>
+            {!browserCounted && second && (
+              <p
+                className="m-0 text-xs text-muted-foreground"
+                data-testid="make-not-counted"
+              >
+                Not counted — switch Count from to This browser or Both to
+                include them.
+              </p>
+            )}
+          </>
         ) : (
           <p className="m-0 rounded border-[1.5px] border-dashed border-input p-3 text-sm text-muted-foreground">
             The list is empty. Add what&apos;s in the bar or the fridge
@@ -437,7 +482,7 @@ export function InventoryPanel({
         {second && source !== "browser" && (
           <div className="grid gap-2" data-testid="make-second-list">
             <h3 className="m-0 flex flex-wrap items-baseline gap-2 text-sm font-semibold">
-              {SECOND_COPY[second.kind].segment}
+              {SECOND_COPY[second.kind].segment}{" "}
               <span className="font-mono text-xs font-normal text-muted-foreground">
                 {SECOND_COPY[second.kind].where} · {second.items.length}
               </span>
@@ -453,7 +498,7 @@ export function InventoryPanel({
                     key={inventoryKey(item)}
                     item={item}
                     kind="saved"
-                    featured={featuredBy(item, featured).length > 0}
+                    featured={isFeatured(item, featured)}
                     pull={pulls.get(item)}
                     onFeature={() => onToggleFeature(item)}
                   />

@@ -3,6 +3,7 @@
 import {
   useCallback,
   useDeferredValue,
+  useEffect,
   useId,
   useMemo,
   useRef,
@@ -17,7 +18,6 @@ import type { MassagedRecipeEntry } from "../../controller/data/read";
 import type { TagOption } from "../../controller/tagVocabulary";
 import {
   analyzeMakeable,
-  missingLines,
   prepareCorpus,
   pullCounts,
   type MakeableAnalysis,
@@ -65,10 +65,16 @@ import {
   toggleFeature,
   withKind,
   withoutFeature,
+  withoutFeatures,
   withoutTagPicks,
   type MakeKind,
 } from "./kinds";
-import { addCandidates, countFromItems } from "./makeMath";
+import {
+  addCandidates,
+  countFromItems,
+  featuredLines,
+  featureScope,
+} from "./makeMath";
 import { useUndoToast } from "./Toast";
 
 /**
@@ -187,7 +193,7 @@ export function MakePage({
   const [dialogOpen, setDialogOpen] = useState(false);
   const queryInputId = useId();
   const settings = useSavedStaples(useMakeSettings(), savedStaples);
-  const { show: showToast, element: toastElement } = useUndoToast();
+  const { show: showToast, element: toastElement } = useUndoToast(inputRef);
 
   const { allRecipes, status, error, retry } = useSearch();
   const ingredientsQuery = useQuery({
@@ -220,10 +226,22 @@ export function MakePage({
   /* 32j review: the scope box reruns the whole analysis; deferring it keeps
    * typing responsive while the results catch up. */
   const scopeQuery = useDeferredValue(query);
-  const scoped = useMemo(
-    () => scopeRecipes(corpus, scopeQuery, tagResolver),
-    [corpus, scopeQuery, tagResolver],
+  /*
+   * A query's recipes on `/make` (Dh7): the search language without the
+   * featured ingredients, then each feature through the matcher
+   * (`featureScope`) — so featuring gin means gin, never ginger beer.
+   */
+  const scopeOf = useCallback(
+    (q: string) =>
+      featureScope(
+        scopeRecipes(corpus, withoutFeatures(q), tagResolver),
+        prepared,
+        featuredOfQuery(q),
+        settings.countClose,
+      ),
+    [corpus, tagResolver, prepared, settings.countClose],
   );
+  const scoped = useMemo(() => scopeOf(scopeQuery), [scopeOf, scopeQuery]);
 
   /* Count from (41h): the list every count, bucket and Buy next judges. */
   const source = second ? settings.source : "browser";
@@ -245,7 +263,6 @@ export function MakePage({
       }),
     [scoped, prepared, counted, countClose, staples],
   );
-  const missing = useMemo(() => missingLines(analysis), [analysis]);
   const pulls = useMemo(
     () => pullCounts(shelfItems, analysis.canMake, prepared),
     [shelfItems, analysis, prepared],
@@ -256,11 +273,11 @@ export function MakePage({
         typed: text,
         scoped,
         prepared,
-        missing,
+        analysis,
         have: counted,
         staples,
       }),
-    [scoped, prepared, missing, counted, staples],
+    [scoped, prepared, analysis, counted, staples],
   );
 
   const pending =
@@ -327,8 +344,8 @@ export function MakePage({
     () =>
       baseQuery === scopeQuery
         ? scopeUsage
-        : subtreeUsage(scopeRecipes(corpus, baseQuery, tagResolver), tagIndex),
-    [baseQuery, scopeQuery, scopeUsage, corpus, tagResolver, tagIndex],
+        : subtreeUsage(scopeOf(baseQuery), tagIndex),
+    [baseQuery, scopeQuery, scopeUsage, scopeOf, tagIndex],
   );
   const refinements = useMemo(
     () =>
@@ -367,14 +384,24 @@ export function MakePage({
       new Map(
         MAKE_KINDS.map((kind) => [
           kind.id,
-          scopeRecipes(corpus, switchKind(scopeQuery, kind), tagResolver)
-            .length,
+          scopeOf(switchKind(scopeQuery, kind)).length,
         ]),
       ),
-    [corpus, scopeQuery, tagResolver, switchKind],
+    [scopeOf, scopeQuery, switchKind],
   );
 
   /* --- the shelf's actions, each with its toast ------------------------- */
+  /*
+   * Undo reads the list and the settings as they are when it runs, not as
+   * they were when the toast went up (41h review): what changed meanwhile
+   * stays.
+   */
+  const haveRef = useRef(have);
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    haveRef.current = have;
+    settingsRef.current = settings;
+  });
   const [landed, setLanded] = useState<string>();
   const addItems = useCallback(
     (items: string[]) => {
@@ -391,31 +418,61 @@ export function MakePage({
   );
   const removeItem = useCallback(
     (item: string) => {
-      const before = have;
+      const at = have.findIndex(
+        (kept) => inventoryKey(kept) === inventoryKey(item),
+      );
       inventory.remove(item);
-      showToast(`Removed ${item}.`, () => setHave(before));
+      /* Undo puts back that one item, where it was. */
+      showToast(`Removed ${item}.`, () => {
+        const now = haveRef.current;
+        if (now.some((kept) => inventoryKey(kept) === inventoryKey(item))) {
+          return;
+        }
+        const index = at < 0 ? now.length : Math.min(at, now.length);
+        setHave([...now.slice(0, index), item, ...now.slice(index)]);
+      });
     },
     [have, inventory, setHave, showToast],
   );
   const clearAll = useCallback(() => {
     const before = have;
     setHave([]);
+    /* Undo brings the list back, keeping anything added since. */
     showToast(
       `Cleared ${before.length} ${before.length === 1 ? "item" : "items"}.`,
-      () => setHave(before),
+      () => setHave(dedupeItems([...before, ...haveRef.current])),
+      { focusUndo: true },
     );
   }, [have, setHave, showToast]);
   const copySecond = useCallback(() => {
     if (!second) return;
     const before = have;
+    const beforeKeys = new Set(before.map(inventoryKey));
+    const copied = new Set(
+      second.items.map(inventoryKey).filter((key) => !beforeKeys.has(key)),
+    );
     const sourceBefore = settings.source;
     setHave(second.items);
     settings.setSource("browser");
+    /*
+     * Undo restores the list as it was, keeping what was added since but
+     * not what the copy brought; the source goes back only if it is still
+     * the "This browser" the copy chose.
+     */
     showToast(
       `Copied ${second.items.length} ${second.kind} ${second.items.length === 1 ? "item" : "items"} to this browser.`,
       () => {
-        setHave(before);
-        settings.setSource(sourceBefore);
+        setHave(
+          dedupeItems([
+            ...before,
+            ...haveRef.current.filter(
+              (item) => !copied.has(inventoryKey(item)),
+            ),
+          ]),
+        );
+        if (settingsRef.current.source === "browser") {
+          settingsRef.current.setSource(sourceBefore);
+        }
       },
     );
   }, [second, have, settings, setHave, showToast]);
@@ -453,19 +510,23 @@ export function MakePage({
     };
   }, [saved, savedList, saving, saveError, saveOpen, showToast]);
 
+  const featureLines = useMemo(
+    () => featuredLines(scoped, prepared, scopeFeatured, countClose),
+    [scoped, prepared, scopeFeatured, countClose],
+  );
   const cardContext = useMemo<CardContext>(
     () => ({
       view: settings.view,
       recipes: recipesBySlug,
       prepared,
-      featured: scopeFeatured,
+      featuredLines: featureLines,
       fresh: seen?.fresh ?? NO_SLUGS,
       tagLabel: (tag: string) => {
         const key = fold(tag).trim();
         return KIND_TAGS.has(key) ? undefined : (tagLabels.get(key) ?? tag);
       },
     }),
-    [settings.view, recipesBySlug, prepared, scopeFeatured, seen, tagLabels],
+    [settings.view, recipesBySlug, prepared, featureLines, seen, tagLabels],
   );
 
   let body;

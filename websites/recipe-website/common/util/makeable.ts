@@ -1052,7 +1052,8 @@ function rankBuyNext(
  * One missing line as Buy next tallies it (41h): the requirement, the
  * one-away recipes it alone keeps out of reach, and the two-away recipes it
  * is one of the two for. `rankBuyNext` is this tally, ranked and cut to
- * `BUY_NEXT_LIMIT`; the add field's what-if reads it whole.
+ * `BUY_NEXT_LIMIT`. (The add field's what-if judges per recipe instead:
+ * `whatIf`.)
  */
 export interface MissingLine {
   requirement: Requirement;
@@ -1088,34 +1089,38 @@ export function missingLines(
 /** What adding one item would do (41h): "+N now · M closer". */
 export interface WhatIf {
   item: string;
-  /** Slugs of the one-away recipes it would finish. */
+  /** Slugs of the one- and two-away recipes it would finish. */
   unlocks: string[];
-  /** Two-away recipes it would bring one step closer. */
+  /** One- and two-away recipes it would bring closer without finishing. */
   helps: number;
 }
 
 /**
- * `item` added to the inventory, judged against the lines the current
- * analysis is missing (`missingLines`): every line it would meet, as an item
- * meets a line (`satisfies`, with the corpus's aliases). So "lime" finishes
- * the recipes missing "lime juice", which Buy next lists as its own entry.
- * Sub-recipes and close matches it might open are not counted: this is the
- * same tally Buy next ranks, read for one name.
+ * `item` added to the inventory, judged per recipe against what each one-
+ * and two-away recipe is missing: every missing line it would meet, as an
+ * item meets a line (`satisfies`, with the corpus's aliases). A recipe it
+ * leaves with nothing missing is finished ("+N now"); one it meets some but
+ * not all of is closer. Per recipe, not per line (41h review): "lime" meets
+ * both "lime juice" and "lime wedge" of a two-away recipe and finishes it.
+ * Sub-recipes and close matches it might open are not counted.
  */
 export function whatIf(
   item: string,
-  missing: MissingLine[],
+  analysis: Pick<MakeableAnalysis, "oneAway" | "twoAway">,
   aliases?: AliasIndex,
 ): WhatIf {
   const parsed = parseInventoryItem(item);
-  const unlocks = new Set<string>();
+  const unlocks: string[] = [];
   let helps = 0;
-  for (const line of missing) {
-    if (!satisfies(parsed, line.requirement, aliases)) continue;
-    for (const slug of line.unlocks) unlocks.add(slug);
-    helps += line.helps;
+  for (const match of [...analysis.oneAway, ...analysis.twoAway]) {
+    const met = match.missing.filter((requirement) =>
+      satisfies(parsed, requirement, aliases),
+    ).length;
+    if (met === 0) continue;
+    if (met === match.missing.length) unlocks.push(match.recipe.slug);
+    else helps += 1;
   }
-  return { item, unlocks: [...unlocks], helps };
+  return { item, unlocks, helps };
 }
 
 /**
