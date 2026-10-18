@@ -39,7 +39,7 @@
     "fs-extra": "^11.4.1",
     "lmdb": "^3.5.7",
     "lodash": "^4.18.1",
-    "markdown-to-jsx": "^9.10.3",
+    "markdown-to-jsx": "~9.10.3",
     "next": "16.4.2",
     "next-auth": "5.0.0-beta.30",
     "portfolio-website-common": "^1.0.0",

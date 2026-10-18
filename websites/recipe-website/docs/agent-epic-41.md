@@ -289,7 +289,11 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
   Since 4.4 it fails with "expected nonoptional, received undefined". The
   error names optionality, which points at the wrong construct. A repro of
   every pattern in the workspace under 4.3.6 and 4.6.7 shows this is the only
-  one that changed.
+  one that changed. The same rule catches `z.any()`, `z.unknown()` and
+  `z.union([…, z.undefined()])` as an object field: in 4.6 a missing key
+  fails "nonoptional" for each. None is an object field here today (MCP's
+  `data: z.unknown()` is protocol-required, always present); give one an
+  explicit `.optional()`.
 - **Tc2 — simple-git ≥ 3.34 checks every env handed to `.env()`, inherited
   variables included.** A plain `simpleGit()` inherits `process.env`
   unchecked, but `.env({ ...process.env, X })` is inspected whole. The
@@ -300,14 +304,33 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
   "safer routes" don't exist in 3.36: `-c core.sshCommand=…` and
   `-c core.editor=…` are refused under the same flags as the env variables.
   Use `gitWithEnv` (`controller/curation/gitEnv.ts`).
-- **Tc3 — markdown-to-jsx ≥ 9.7: a self-closing component that starts a
-  list item or a blockquote line takes the rest of the line as children.**
-  `- <Multiplyable baseNumber="1/2" /> cup sugar` compiles to
-  `<li><Multiplyable>cup sugar</Multiplyable></li>`, with the space after the
-  tag consumed. 9.6.1 gave the tag plus a sibling `<p>cup sugar</p>`. At top
-  level or mid-line the tag is still childless. Any override for a
-  self-closing tag has to render its children (`withCapturedLine`), or the
-  rest of the line disappears from the page as well as from the index text.
+- **Tc3 — markdown-to-jsx ≥ 9.7: a JSX tag that starts a block takes the
+  rest of the block as children.** `- <Multiplyable baseNumber="1/2" /> cup
+sugar` compiles to `<li><Multiplyable>cup sugar</Multiplyable></li>`, with
+  the space after the tag consumed; 9.6.1 gave the tag plus a sibling
+  `<p>cup sugar</p>`. The same capture happens for a quote line, an indented
+  line and a paragraph that runs over more than one line. Only a single
+  unindented line starting with the tag, or a tag mid-line, stays childless.
+  Any override for a self-closing tag has to render its children
+  (`withCapturedLine`), or the rest of the block disappears from the page as
+  well as from the index text. What that cannot restore under 9.10.3:
+  - **Spaces between inline elements inside the captured block.** The
+    parser keeps the `" "` text node; the compiler drops it before any
+    component sees the children, so no fix fits in `withCapturedLine` or
+    `flattenNode`. `- <M 1/> recipe [Pie crust](/recipe/pie-crust) *chilled*`
+    renders "Pie crustchilled"; `- <M/> cup **sugar** [link](/x)` indexes
+    "sugarlink"; `- <M 1/> cup sugar <M 3/> <M 4/>` runs "34" together.
+  - **A nested sub-list or hard break** inside a captured item is flattened
+    or dropped.
+  - **`<VideoTime>…</VideoTime>`** at a list item's start loses the space
+    after `</VideoTime>`; a multi-paragraph instruction starting with
+    `<VideoTime>…</VideoTime> and stir.` renders "and stir." as a separate
+    `<p>`.
+
+  None of these occurs in the real corpus at 41c: the review checked all 799
+  recipes read-only, and rendering and index text are identical to 9.6.1.
+  Hence the `~9.10.3` pin (Dc4) and the backlog row "markdown-to-jsx ≥ 9.7
+  line capture" with its reopen trigger.
 
 ## Results
 
@@ -640,7 +663,7 @@ can only gain words, and only for a list item that starts with a quantity.
 | Package           | Old → new       | Range now | Red → green                                                                                  |
 | ----------------- | --------------- | --------- | -------------------------------------------------------------------------------------------- |
 | `zod`             | 4.3.6 → 4.6.7   | `^4.6.7`  | 21: `termForm` 15, `groups` (scale) 4, `parseRecipeForm` (drink) 2                           |
-| `markdown-to-jsx` | 9.6.1 → 9.10.3  | `^9.10.3` | 1 (40h's count): `flattenMarkdown` "keeps quantities inside prose…"; plus 3 new              |
+| `markdown-to-jsx` | 9.6.1 → 9.10.3  | `~9.10.3` | 1 (40h's count): `flattenMarkdown` "keeps quantities inside prose…"; plus 5 new              |
 | `simple-git`      | 3.33.0 → 3.36.0 | `^3.36.0` | 31: `curationGit`, `siteWrites`, `instance`, `piSync`, `annex`, `mcp`, `mcpHttp`; plus 3 new |
 | `sharp`           | 0.34.5 → 0.35.5 | `0.35.5`  | none failed; no code change                                                                  |
 
@@ -658,12 +681,14 @@ unaffected. `termForm`, `groups` and `parseRecipeForm`: 69 tests pass.
 as well as the index: `Multiplyable` rendered only its number, so the recipe
 page and the form preview showed "1/2" for that list item.
 `withCapturedLine` (`View/Multiplier/Multiplyable/capturedLine.tsx`) renders
-the number, a space, then any children. `Multiplyable` (every unit mode) and
-the form's `DummyMultiplyable` use it. `flattenMarkdown`'s `Multiplyable`
-branch appends the flattened children the same way. New
-`test/multiplyableListItem.test.tsx` covers the form preview, the recipe page
-scaled ×2 through `?scale=2`, and a lone number. All three fail without the
-fix. Sweep: all 317 markdown strings in the Playwright fixtures (descriptions,
+the number, a space, then any children. The space is left out when the line
+starts with punctuation (`2% milk`, `3, then`; `util/capturedLine.ts`).
+`Multiplyable` (every unit mode) and the form's `DummyMultiplyable` use it.
+`flattenMarkdown`'s `Multiplyable` branch appends the flattened children the
+same way. New `test/multiplyableListItem.test.tsx` covers the form preview,
+the recipe page scaled ×2 through `?scale=2`, a lone number and leading
+punctuation; `flattenMarkdown.test.ts` gains the punctuation case. The first
+three fail without the fix. What this cannot restore is in Tc3. Sweep: all 317 markdown strings in the Playwright fixtures (descriptions,
 ingredients, instructions, notes) compile to the same tree under 9.6.1 and
 9.10.3, ignoring empty `props` objects. None starts a list item with a
 `Multiplyable`, so the change shows only in the new tests.
@@ -688,7 +713,7 @@ It replaces the four `.env({ ...process.env, … })` sites: `gitRevert`'s and
 `networkGit`. Each now gets its own instance, so the author env no longer
 leaks onto the abort, reset and status calls that follow on the shared one.
 Two tests' setup changed, with no expectation touched (Dc2).
-`test/gitEnv.test.ts` is new (3 tests): editor and pager dropped, an
+`test/gitEnv.test.ts` is new (3 tests): editor and pager dropped (`git var GIT_EDITOR` answers "", against a control that names one), an
 inherited `GIT_CONFIG_GLOBAL` kept, and an added `GIT_SSH_COMMAND` refused
 unless named. The seven files: 205 tests pass.
 
@@ -723,8 +748,10 @@ two new parsers, `@simple-git/args-pathspec` 1.0.4 and
   number, then "cup sugar" as a paragraph on the next line inside the same
   item. Reproducing that would mean rebuilding the parser's old tree in a
   `renderRule`, against AST internals.
-- **Dc4 — Carets restored** for zod, markdown-to-jsx and simple-git (their
-  pre-40h form). sharp keeps its exact pin.
+- **Dc4 — Carets restored** for zod and simple-git (their pre-40h form).
+  markdown-to-jsx is pinned **`~9.10.3`** instead (review): its parsing
+  changed in a minor once (Tc3), so a later minor waits for a deliberate
+  bump. sharp keeps its exact pin.
 
 **Gates** (local, every heavy step through the slot):
 
@@ -752,11 +779,9 @@ two new parsers, `@simple-git/args-pathspec` 1.0.4 and
 
 - Dc3: inline "1/2 cup sugar" in a list item that starts with a quantity,
   instead of 9.6.1's line break.
-- How many real recipes have a list item that starts with a `Multiplyable`?
-  Fixtures have none, and the real repo is off-limits to this phase. A
-  read-only grep of the content repo for `^\s*[-*+>] <Multiplyable` (or
-  `\n- <Multiplyable` inside the JSON strings) would answer it. Each such
-  item regains its text on the page and in search.
+- ~~How many real recipes have a list item that starts with a
+  `Multiplyable`?~~ Answered by the review: none of 799 recipes renders or
+  indexes differently under 9.10.3 (read-only check). No reindex.
 
 ### 41g — Thanksgiving extras
 

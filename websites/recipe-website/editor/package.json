@@ -52,7 +52,7 @@
     "html-entities": "^2.6.0",
     "lmdb": "^3.5.7",
     "lodash": "^4.18.1",
-    "markdown-to-jsx": "^9.10.3",
+    "markdown-to-jsx": "~9.10.3",
     "mdast-util-to-markdown": "^2.2.0",
     "next": "16.4.2",
     "next-auth": "5.0.0-beta.30",

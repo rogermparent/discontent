@@ -35,10 +35,22 @@ describe("gitWithEnv", () => {
   });
 
   it("runs with the shell's EDITOR and PAGER set, and leaves them out", async () => {
+    /*
+     * With no editor variable and no TERM, git refuses its default `vi` and
+     * `git var GIT_EDITOR` answers "" — so "" means neither variable reached
+     * git. The control shows the same call naming an editor it was given.
+     */
     const git = gitWithEnv({ baseDir: dir }, {}, {}, inherited);
-    const editor = String(await git.raw(["var", "GIT_EDITOR"])).trim();
-    expect(editor).not.toBe("an-editor-from-the-shell");
-    expect(editor).not.toBe("another-one");
+    expect(String(await git.raw(["var", "GIT_EDITOR"])).trim()).toBe("");
+    const named = gitWithEnv(
+      { baseDir: dir },
+      { EDITOR: "a-named-editor" },
+      { allowUnsafeEditor: true },
+      inherited,
+    );
+    expect(String(await named.raw(["var", "GIT_EDITOR"])).trim()).toBe(
+      "a-named-editor",
+    );
   });
 
   it("keeps an inherited GIT_CONFIG_GLOBAL, and what it adds", async () => {

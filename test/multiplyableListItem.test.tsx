@@ -69,4 +69,15 @@ describe("a Multiplyable that starts a list item", () => {
     );
     expect(items(container)).toEqual(["2", "3 eggs"]);
   });
+
+  it("puts punctuation that starts the line against the number", () => {
+    const { container } = render(
+      <StyledMarkdown components={{ Multiplyable: DummyMultiplyable }}>
+        {
+          '- <Multiplyable baseNumber="2" />% milk\n- <Multiplyable baseNumber="3" />, then more\n- <Multiplyable baseNumber="4" />) aside'
+        }
+      </StyledMarkdown>,
+    );
+    expect(items(container)).toEqual(["2% milk", "3, then more", "4) aside"]);
+  });
 });

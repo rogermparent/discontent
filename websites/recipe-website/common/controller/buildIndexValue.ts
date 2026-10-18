@@ -1,6 +1,7 @@
 import { Recipe, RecipeEntryValue } from "./types";
 import { hostnameLabel } from "../util/hostnameLabel";
 import { siteLabel } from "../util/siteNames";
+import { capturedLineSeparator } from "../util/capturedLine";
 import { compiler } from "markdown-to-jsx/react";
 import { normalizeLineEndings } from "@discontent/component-library/components/Markdown/normalize";
 
@@ -83,15 +84,16 @@ function flattenNode(node: unknown): string {
   if (isElement(node)) {
     if (node.type === "Multiplyable") {
       /*
-       * Since markdown-to-jsx 9.7 a Multiplyable that starts a list item or a
-       * quote line carries the rest of that line as its children (41c; see
-       * `withCapturedLine`), with the space after the tag consumed. Anywhere
-       * else it has none and this is the number alone.
+       * Since markdown-to-jsx 9.7 a Multiplyable that starts a block (a list
+       * item, a quote or indented line, a multi-line paragraph) carries the
+       * rest of that block as its children (41c; see `withCapturedLine`, and
+       * Tc3 for the spaces between inline elements it cannot restore), with
+       * the space after the tag consumed. Otherwise it has none and this is
+       * the number alone.
        */
+      const number = String(node.props.baseNumber);
       const line = flattenNode(node.props.children);
-      return line
-        ? `${String(node.props.baseNumber)} ${line}`
-        : String(node.props.baseNumber);
+      return line ? `${number}${capturedLineSeparator(line)}${line}` : number;
     }
     const inner = flattenNode(node.props.children);
     /*
