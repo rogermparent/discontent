@@ -67,7 +67,12 @@ export async function getTransformedUploadImageProps({
      * The variants land in the content directory, so the transform goes
      * through the write gate (41b, `fs/writeGate.ts`) like any write: a test
      * harness replacing `test-content` waits for a render still writing
-     * them, which otherwise recreated the directory under the reset.
+     * them, which otherwise recreated the directory under the reset. A
+     * render that starts *during* the reset — the previous test's page,
+     * which nobody is looking at any more — is refused
+     * (`ContentWritesHeldError`) and lands in the catch below like a missing
+     * file: a warning and the placeholder, never a 500, and no variant
+     * written into the next test's fixture.
      */
     return await trackContentWrite(
       contentDirectory,

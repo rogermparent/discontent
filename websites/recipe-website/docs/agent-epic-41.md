@@ -269,8 +269,15 @@ recipe-website exec tsc --noEmit`, `pnpm exec vitest run` (with counts),
 - **Tb4 — the write gate is keyed by the directory as spelled.** Every
   server caller spells it from `getContentDirectory()`. A write that passes
   another spelling (a realpath, a trailing slash) is a different gate: not
-  held by a reset, and — nested in a held write — held until the pause
-  times out (20 s, `WritesStillRunningError`).
+  held by a reset, and — when the write it is nested in used the other
+  spelling — not recognised as nested, so a hold refuses it part-way
+  through that write (`ContentWritesHeldError`).
+- **Tb5 — `ContentWritesHeldError` in a server log during a run is the gate
+  working.** It names a write the previous test left behind that arrived
+  while the next test's fixture went in (a page render's image transform
+  degrades to the placeholder). In a test's _own_ write it means that test's
+  reset never released its hold: `withWritesHeld` fails the reset when the
+  release doesn't answer `released: true`, so look for an earlier failure.
 
 ## Results
 
@@ -287,51 +294,82 @@ the content directory (`transformed-images`) from a page render, with no
 lock. So the fix is a per-process **write gate** in the engine,
 `packages/cms/fs/writeGate.ts`:
 
-- `trackContentWrite(dir, op, fn)` counts a write in flight and waits while
-  the gate is closed. Every `withWriteLock` goes through it (repository or
-  not), and so does `getTransformedUploadImageProps` (every recipe, group
-  and term image). Re-entrant through `AsyncLocalStorage`, so a nested write
-  never waits on its own pause. `outsideWriteLock` leaves the gate's scope
-  too, so background work (the index flush retry) meets a closed gate like
-  any other write.
+- `trackContentWrite(dir, op, fn)` counts a write in flight until it
+  settles, and **refuses** a write that arrives while the gate is closed:
+  `ContentWritesHeldError` ("Content writes into … are held for a test
+  reset: "<op>" was refused, not queued."), Db7. Every `withWriteLock` goes
+  through it (repository or not), and so does
+  `getTransformedUploadImageProps` (every recipe, group and term image).
+- Re-entrant through `AsyncLocalStorage`: a write nested in a running one
+  is counted but never refused, so a closed gate neither fails a write
+  half-way nor deadlocks a pause. Like `writeLock.ts`'s `hold.active`, the
+  scope is `{active}` and drops when the outer write settles, so a
+  fire-and-forget task it left running meets the gate like any other write.
+  `outsideWriteLock` leaves the gate's scope too, so background work (the
+  index flush retry) is refused by a closed gate — and retried on its own
+  schedule.
 - `pauseContentWrites` closes the gate and waits for the in-flight count to
   reach zero. After 20 s it gives up with `WritesStillRunningError`, which
   names each running write's `op`, and reopens the gate.
 - `holdContentWrites` / `releaseContentWrites` split a pause across two
-  requests. A hold that is never released ends by itself after 30 s.
+  requests. The hold answers an id; only a release naming it ends the hold,
+  so a stale or repeated release (an earlier hold's, or one after a newer
+  hold replaced it) changes nothing. A hold that is never released ends by
+  itself after 30 s and logs a warning naming its id.
 - The state lives on `globalThis` (`Symbol.for`), because Next may bundle the
   module once per server layer, and a route handler has to pause the gate
   that server actions use.
 
 The harnesses use it like this:
 
-- **Recipe editor.** `GET /settings/test-hold-writes` (TEST_MODE only) holds
-  the server's writes and answers 503 with the stuck ops if they don't
-  drain. The `resetData` and `loadGitFixture` fixtures call it first, reset
-  from the test process, then call `test-invalidate-cache`, which releases
-  the hold. The release runs in a `finally`.
+- **Recipe editor.** `GET /settings/test-hold-writes` (TEST_MODE only,
+  `force-dynamic`) holds the server's writes and answers `{held, hold: id}`,
+  or 503 with the stuck ops if they don't drain. The `resetData` and
+  `loadGitFixture` fixtures, and `.auth.setup.ts`'s first reset, go through
+  `withWritesHeld` (`support/test.ts`): hold, reset from the test process,
+  then `test-invalidate-cache?hold=<id>`, which releases that hold and
+  answers `released`. The release always runs; when the reset threw, the
+  reset's error is the one raised (a failing release doesn't mask it);
+  otherwise a release that fails or answers `released: false` (the hold had
+  timed out) fails the reset. Without `?hold` the invalidation releases
+  nothing, so the other fixtures that invalidate can't end a hold.
 - **CMS demo.** The same pair is `POST /test/hold-writes` and
-  `/test/reset-cache`. The one-shot tolerance on the first reset now covers
-  both calls.
+  `/test/reset-cache?hold=<id>`, with the same checks. The one-shot
+  tolerance on the first reset now covers both calls. The hold route is
+  ungated, like `reset-cache` (Db8).
 - **The retries.** The `ENOTEMPTY` `maxRetries` and the `EEXIST` copy loop
   are gone from `test-content` in both suites; the remove and the copy are
   plain. The job store's `readings/` and `photos/` keep `fs.rm`'s retries.
   Import jobs outlive their test and write there without the gate, because
   they aren't content (Db2, Tb1).
 
-**Test** (`test/writeGate.test.ts`, 7 cases). A control shows that a reset
+**Test** (`test/writeGate.test.ts`, 14 cases). A control shows that a reset
 which doesn't hold writes lets the previous test's late aggregate into the
 next corpus. Then, with a write in flight, the real `test-hold-writes` route
-handler doesn't answer until the write finishes, and the remove-and-copy
-lands the fixture intact (no `ENOTEMPTY`, no `EEXIST`, no stray file). The
-other cases:
+handler doesn't answer until the write finishes, the remove-and-copy lands
+the fixture intact (no `ENOTEMPTY`, no `EEXIST`, no stray file), and the
+real `test-invalidate-cache` route, naming the hold, releases it. The other
+cases:
 
-- a write that arrives during a reset waits for the release, then runs
-  against the new corpus;
-- a nested write doesn't deadlock a pause;
+- a write that arrives during a reset is refused, and only the fixture is
+  in the directory after the release (the 40-Tf5 leak, closed);
+- a nested write is neither refused nor deadlocks a pause;
+- work `outsideWriteLock` schedules from inside a write is refused by a
+  closed gate, while a nested write in the same write runs;
+- a fire-and-forget task a finished write left running is refused once
+  that write has settled (the `active` scope);
+- a write that throws (tracked, or nested in a locked one) leaves nothing
+  counted in flight;
 - a git repository's writes are covered the same way;
 - the timeout names the stuck write and reopens the gate;
-- an unreleased hold ends by itself.
+- an unreleased hold ends by itself, warns with its id, and its id then
+  releases nothing;
+- a new hold replaces the one in force, and the old id releases nothing;
+- the invalidation route releases nothing without `?hold` and answers
+  `released: false` for a stale id;
+- the hold route answers 404 without TEST_MODE and holds nothing;
+- an image transform refused by a hold returns no props (the placeholder)
+  with a warning, and writes no `transformed-images`.
 
 **2. CMS demo `aggregates.spec` retagging (formerly :265, now :271).
 Unexplained; recorded and stopped (Db4).** The CI record is in 80
@@ -404,6 +442,21 @@ The links were removed afterwards and never committed. The CI proof (a
 throwaway commit without the annotation, then its revert) is to follow at
 push: RUN URLS PENDING.
 
+**It builds the editor only, as the workstation does.** `pnpm workstation
+update` (`scripts/workstation-editor.sh`'s `build`) runs `pnpm --filter
+recipe-editor build` and nothing else, and `deploy:pi` builds the editor
+image. **Known gap:** the export app (`websites/recipe-website/export`) is
+not built in that shape. It is built on demand, from the editor's `/export`
+page (`buildExport` in `exportAction.ts`, which makes the
+`public/{image,uploads}` links through the content directory itself and
+runs the export's `next build`). Those are the links that left the
+workspace in #269, so a runtime fs call in code the export traces could
+fail that Build the same way, and CI wouldn't see it. Not added here: the
+export's build reads the content's indexes to render its pages, so an empty
+content directory would test a different build, and a fixture-backed one
+is more than a cheap step. Reopen if a `/export` Build fails on tracing,
+or if the export build joins a deploy.
+
 **Decisions.**
 
 - **Db1** — The reset waits on a **gate** in the engine, not on the write
@@ -425,6 +478,24 @@ push: RUN URLS PENDING.
   shards), not a step in a Recipe shard. It keeps a failure's meaning
   obvious and puts no build on a shard's critical path. A full recipe run is
   now about 12 jobs.
+- **Db6** — Docker is the worker contract's default for local Playwright
+  gate runs (`heavy-pw.sh` with `DOCKER=1`); host build mode is the
+  fallback. See "Orchestrator: Docker gate runs" below.
+- **Db7** — A closed gate **refuses** a write; it doesn't queue it. The
+  first cut made a late write wait at the gate and run after the release —
+  against the next test's fixture, which is exactly the 40-Tf5 leak. With
+  `workers: 1` no legitimate write arrives during a reset: anything that
+  does belongs to a test that has finished. The image transform is refused
+  too rather than deferred and dropped or run without writing its file:
+  `getTransformedUploadImageProps` already turns a failure into a warning
+  and `undefined`, so the render — the previous test's page, which no one is
+  looking at — shows the placeholder instead of 500ing, and no variant lands
+  in the new fixture. Skipping just the file write would have rendered
+  `<img>` URLs with nothing behind them.
+- **Db8** — The demo's `POST /test/hold-writes` is ungated, matching
+  `/test/reset-cache`. The demo has no test mode: its `:test` scripts only
+  point `CONTENT_DIRECTORY` at `test-content`, and the app isn't deployed.
+  A hold on a non-test demo server would refuse writes for at most 30 s.
 
 **Gates.** All of these ran through the capped wrappers. Playwright ran in
 Docker (CI's image) unless marked host.
@@ -432,7 +503,9 @@ Docker (CI's image) unless marked host.
 - `pnpm --filter recipe-editor typecheck` ✅;
   `pnpm --filter recipe-website exec tsc --noEmit` ✅; the demo's
   `tsc --noEmit` ✅.
-- `pnpm exec vitest run`: **2349/2349** (115 files).
+- `pnpm exec vitest run`: **2349/2349** (115 files), before the review
+  fixes; after them, `test/writeGate.test.ts` **14/14** (the full suite is
+  CI's lint job's).
 - Recipe, build mode:
   - `search-query-language.spec --repeat-each 10`: **190/190**, none flaky.
   - The reset-heavy set once (empty-state, featured-recipes, tag-pages,
@@ -445,3 +518,21 @@ Docker (CI's image) unless marked host.
   - Full suite, dev, cold `.next` (host): **109/109**.
 - The editor build in the main checkout's shape: clean with #269's
   annotations; caught twice without one (above).
+
+**Orchestrator: Docker gate runs.** The orchestrator added a `DOCKER=1`
+mode to `heavy-pw.sh` (orchestrator tooling, not in the repo), built on
+`docker-pw.sh`: the same specs in CI's Playwright image (fonts, Chromium),
+production mode, the same log contract and heavy slot. Bench (2026-10-17,
+origin/main d35a85ff, `git.spec` + `shopping.spec`, e2e + mobile, one slot
+hold, load about 4–5 with Archilyzer active):
+
+| Run                                           | Time  | Passed | vs host |
+| --------------------------------------------- | ----- | ------ | ------- |
+| Host build mode (`pw.sh`, `PLAYWRIGHT_BUILD`) | 145 s | 41     | 1.00×   |
+| Docker, image cached                          | 151 s | 41     | 1.04×   |
+| Docker after a source change (17 s rebuild)   | 168 s | 41     | 1.16×   |
+| Docker, a worktree's first run (115 s build)  | 266 s | 41     | 1.83×   |
+
+The image build (115 s) happens once per worktree or lockfile change; a
+source change re-runs only `COPY . .`. Under the ~1.5× bar for every run
+but a worktree's first, so Docker became the contract's default (Db6).

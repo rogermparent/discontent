@@ -425,8 +425,9 @@ export async function withWriteLock<T>(
   /*
    * Through the process's write gate first (41b, `fs/writeGate.ts`), repository
    * or not: a test harness pausing writes to replace the directory waits for
-   * this one, and this one waits while the directory is replaced. The lock's
-   * deadline starts once the gate lets it through.
+   * this one, and this one, arriving while the directory is replaced, is
+   * refused (`ContentWritesHeldError`) rather than run against the new
+   * fixture. The lock's deadline starts once the gate lets it through.
    */
   return trackContentWrite(contentDirectory, op, () =>
     lockedWrite(contentDirectory, op, fn, options),

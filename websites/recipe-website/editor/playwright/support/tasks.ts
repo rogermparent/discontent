@@ -48,10 +48,11 @@ const testKeptReadingDirs = ["readings", "photos"].map((name) =>
  * Remove a directory, recursively.
  *
  * `test-content` needs no retries: the `resetData` and `loadGitFixture`
- * fixtures (`support/test.ts`) hold the server's writes first (41b,
- * `test-hold-writes`), so nothing the previous test started can still be
- * landing files under it. 40f's `maxRetries` and `EEXIST` loop absorbed that
- * race instead (40-Tf5) — and let a late file into the next test. A new
+ * fixtures (`support/test.ts`) hold the server's writes around the reset
+ * (41b, `test-hold-writes`). The writes in flight finish before the removal
+ * starts, and one that arrives before the release is refused, not deferred
+ * to land in the new fixture. 40f's `maxRetries` and `EEXIST` loop absorbed
+ * that race instead (40-Tf5) — and let a late file into the next test. A new
  * `ENOTEMPTY` or `EEXIST` here names a writer that bypasses the write gate
  * (`packages/cms/fs/writeGate.ts`): route it through the gate, don't retry.
  */

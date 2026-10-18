@@ -25,14 +25,19 @@ const serverURL = `http://localhost:${Number(process.env.PLAYWRIGHT_PORT) || 301
 let firstReset = true;
 
 /**
- * POST one of the server's test routes. `tolerant` swallows a failure: see
- * `resetData` for the one call that may.
+ * POST one of the server's test routes and answer its JSON body. `tolerant`
+ * swallows a failure and answers null: see `resetData` for the one call that
+ * may.
  */
-async function postTestRoute(path: string, tolerant: boolean): Promise<void> {
+async function postTestRoute(
+  path: string,
+  tolerant: boolean,
+): Promise<Record<string, unknown> | null> {
   const attempt = fetch(`${serverURL}${path}`, { method: "POST" });
   if (tolerant) {
-    await attempt.catch(() => {});
-    return;
+    return attempt
+      .then((response) => (response.ok ? response.json() : null))
+      .catch(() => null);
   }
   const response = await attempt;
   if (!response.ok) {
@@ -40,6 +45,7 @@ async function postTestRoute(path: string, tolerant: boolean): Promise<void> {
       `POST ${serverURL}${path} failed: ${response.status} ${response.statusText}: ${await response.text()}`,
     );
   }
+  return response.json();
 }
 
 export async function resetData(fixture?: string): Promise<void> {
@@ -57,13 +63,17 @@ export async function resetData(fixture?: string): Promise<void> {
   /*
    * Hold the server's writes first (41b, 40-Tf5): `hold-writes` answers once
    * whatever the previous test started and did not wait for has finished,
-   * and keeps new writes at the engine's write gate until `reset-cache`. So
-   * the plain remove and copy below cannot race a late write — 40f's
-   * `ENOTEMPTY` retries and `EEXIST` loop absorbed that race instead, and
-   * let a late file into the next test. A new `ENOTEMPTY` or `EEXIST` here
-   * names a writer that bypasses `packages/cms/fs/writeGate.ts`.
+   * and from then until `reset-cache` releases the hold, the engine's write
+   * gate refuses new writes — so a late write from the previous test fails
+   * instead of landing in this test's fixture. The plain remove and copy
+   * below cannot race it: 40f's `ENOTEMPTY` retries and `EEXIST` loop
+   * absorbed that race instead, and let a late file into the next test. A
+   * new `ENOTEMPTY` or `EEXIST` here names a writer that bypasses
+   * `packages/cms/fs/writeGate.ts`.
    */
-  await postTestRoute("/test/hold-writes", tolerant);
+  const held = await postTestRoute("/test/hold-writes", tolerant);
+  const hold = typeof held?.hold === "string" ? held.hold : null;
+  let failed: { error: unknown } | null = null;
   try {
     await rm(testContentDir, { recursive: true, force: true });
     if (fixture) {
@@ -71,14 +81,26 @@ export async function resetData(fixture?: string): Promise<void> {
     } else {
       await ensureDir(testContentDir);
     }
-  } finally {
-    /*
-     * Rewinding the content directory is not a write, so it fires no cache
-     * tags and the running server has no way to learn the corpus went
-     * backwards. Tell it explicitly, or a page cached by one test leaks into
-     * the next. The same route releases the hold.
-     */
-    await postTestRoute("/test/reset-cache", tolerant);
+  } catch (error) {
+    failed = { error };
+  }
+  /*
+   * Rewinding the content directory is not a write, so it fires no cache
+   * tags and the running server has no way to learn the corpus went
+   * backwards. Tell it explicitly, or a page cached by one test leaks into
+   * the next. The same route releases the hold — always, the reset failed or
+   * not. When the reset failed, its error is the one worth seeing, so a
+   * failing release is swallowed then rather than thrown over it.
+   */
+  const path = hold
+    ? `/test/reset-cache?hold=${encodeURIComponent(hold)}`
+    : "/test/reset-cache";
+  const done = await postTestRoute(path, tolerant || failed !== null);
+  if (failed) throw failed.error;
+  if (hold && !tolerant && done?.released !== true) {
+    throw new Error(
+      `The write hold ${hold} had ended before the reset finished (its 30 s limit, or a newer hold): the server may have written into test-content during the reset.`,
+    );
   }
 }
 

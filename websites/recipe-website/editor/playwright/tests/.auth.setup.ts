@@ -2,6 +2,7 @@ import { test as setup, expect } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { resetData } from "../support/tasks";
+import { withWritesHeld } from "../support/test";
 import { fillSignInForm } from "../support/helpers";
 
 const storageStatePath = resolve(__dirname, "..", ".auth", "admin.json");
@@ -9,8 +10,8 @@ const storageStatePath = resolve(__dirname, "..", ".auth", "admin.json");
 setup.describe.configure({ retries: 2 });
 
 setup("authenticate as admin", async ({ page, request }) => {
-  await resetData();
-  await request.get("/settings/test-invalidate-cache");
+  // Held like every fixture reset (41b): the release is the invalidation.
+  await withWritesHeld(request, () => resetData());
 
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page
