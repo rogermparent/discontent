@@ -783,6 +783,122 @@ two new parsers, `@simple-git/args-pathspec` 1.0.4 and
   `Multiplyable`?~~ Answered by the review: none of 799 recipes renders or
   indexes differently under 9.10.3 (read-only check). No reindex.
 
+### 41d1 — React 19.3 + Tailwind 4.3
+
+Branch `agent/41d1-react-tw`. Two minors and one pinned font. No app code
+changed. **Reindex needed: no. Deploy:** Roger's `pnpm workstation update`
+and the next `pnpm deploy:pi`; nothing to look at.
+
+| Package                | Old → new        | Range now | Where                                                                                                              |
+| ---------------------- | ---------------- | --------- | ------------------------------------------------------------------------------------------------------------------ |
+| `react`                | 19.2.9 → 19.3.1  | `19.3.1`  | root, cms demo, menus/pages/projects collections, both portfolio apps, recipe common/editor/export, resume-builder |
+| `react-dom`            | 19.2.9 → 19.3.1  | `19.3.1`  | the same, less the three collections and recipe common                                                             |
+| `@types/react`         | 19.2.18 → 19.3.0 | `^19.3.0` | root, cms demo, next-static-image, component-library, the five apps, recipe common                                 |
+| `@types/react-dom`     | 19.2.7 → 19.3.0  | `^19.3.0` | the same, less component-library                                                                                   |
+| `tailwindcss`          | 4.1.18 → 4.3.3   | `^4.3.3`  | recipe editor/export, both portfolio apps, resume-builder                                                          |
+| `@tailwindcss/postcss` | 4.1.18 → 4.3.3   | `^4.3.3`  | recipe editor and resume-builder; now also declared in three more (Dd1)                                            |
+
+`next` stays at 16.4.2, the newest 16.4. Its peer range
+(`^19.0.0`) takes 19.3.1. `pnpm install` printed no peer warnings.
+
+**Lockfile.** These versions changed and nothing else: `react`/`react-dom`
+19.3.1, `scheduler` 0.27 → 0.28, `@types/react`/`@types/react-dom` 19.3.0,
+`tailwindcss`, `@tailwindcss/{node,oxide*,postcss}` 4.3.3, `lightningcss*`
+1.30.2 → 1.32.0, `enhanced-resolve` 5.18.4 → 5.26.0, `tapable` 2.3.0 →
+2.3.3, and one `jiti` 2.6.1 entry dropped. No major. The rest of the
+diff, about 1,700 lines, is peer suffixes (`(react@19.3.1)`) rewritten on
+Radix, lexical, cmdk, mux, next-auth, next-themes and friends.
+
+**React: the app already ran 19.3.** Next 16.4.2 renders the App Router
+with its vendored React, `next/dist/compiled/react` =
+`19.3.0-canary-278794d7-20261002`, newer than 19.3.0. Every page, server
+action and client component already ran on 19.3-level React in dev,
+build, Playwright and CI. The installed `react`/`react-dom` reach only
+vitest (the jsdom `.tsx` tests and the two `renderToStaticMarkup` tests),
+Next's pages-router fallbacks (we have no `pages/` router) and the types.
+The behaviour changes in 19.3.0 and 19.3.1 that could touch us, each
+grepped:
+
+- StrictMode now double-invokes effects during hydration. `JobsDashboard`
+  (40h's remount-safe `filtersShown` ref) and `bar-tools.spec` already
+  allow for it, and it was already live through the vendored canary.
+- `defaultValue` on `type="number"` now behaves like other inputs. The
+  one case is the kit's `Duration` (value XOR defaultValue), which
+  `formControls.test.tsx` covers. It passes.
+- Transitions no longer entangle (75 `useActionState`/`useFormStatus`
+  uses, all already on the canary). `onReset` on automatic form reset, the
+  `submitter` in `FormData`, `useEffectEvent`, `<Activity>`,
+  `<ViewTransition>`, conditional `use()`, batched `resize`: none used.
+- `@types/react` 19.3 adds types only (`FragmentInstance`,
+  `ViewTransition*`, `submitter` on `SubmitEvent`). Every typecheck is
+  clean with no code change.
+
+**Tailwind: the compiled CSS, before and after.** Each app's `globals.css`
+was compiled with its own `@tailwindcss/postcss` on this main, before and
+after the bump (the same `@source` scan Next runs; no build). Both sides
+were then flattened with lightningcss 1.32 (4.3 emits flat selectors where
+4.1 emitted nesting) and diffed rule by rule. In all five apps:
+
+- **No class gained or lost.** 4.3's `@source` changes (symlinked globs,
+  git-ignored dirs, siblings) leave our scan sets alone; every `@source`
+  here goes through pnpm workspace links.
+- `*-0` and `*-1` spacing now emit `0` and `var(--spacing)` instead of
+  `calc(var(--spacing) * 0|1)`, and `translate-y-0` emits `0px`. The
+  computed values are the same.
+- Preflight's Firefox `:-moz-focusring` now skips iframes; `> *:focus-visible`
+  became `> :focus-visible`. Both are equivalent in Chromium.
+- **The default `--font-sans` changed** (4.3.3, tailwindlabs/tailwindcss#20318) from
+  `ui-sans-serif, system-ui, sans-serif, …` to `-apple-system,
+BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans",
+Arial, sans-serif, …`, in the theme and as Preflight's `html` fallback.
+  The recipe and portfolio apps set `--default-font-family` from the kit's
+  `theme.css` (`--ff-body` first), so they don't use either value.
+  **resume-builder** used the default. Its `globals.css` `@theme inline`
+  now pins 4.1's exact stack, and its compiled `--default-font-family`
+  equals 4.1's value. `--font-mono` didn't change.
+
+Prediction from the diff: no screenshot moves. The run below agrees.
+
+**Decisions.**
+
+- **Dd1** — `@tailwindcss/postcss` `^4.3.3` is now a declared
+  devDependency of recipe export and both portfolio apps. Their
+  `postcss.config.mjs` names it, but they had only resolved it through
+  `shamefully-hoist`. Reversible.
+- **Dd2** — resume-builder keeps Tailwind 4.1's default sans stack, pinned
+  in its `@theme inline` with a comment. Nothing visible changes there.
+  Dropping the four lines takes 4.3's new default.
+
+**Gates** (local, every heavy step through the slot):
+
+- `pnpm --filter recipe-editor typecheck`: clean.
+  `pnpm --filter recipe-website exec tsc --noEmit`: clean. `tsc --noEmit`
+  in the portfolio editor, the portfolio export and resume-builder: clean.
+  resume-builder needs its gitignored `next-env.d.ts`, copied from the
+  main checkout, or its SVG imports fail TS2307. That is unrelated to the
+  bump.
+- `pnpm exec vitest run`: 117 files, 2369 tests passed.
+- Playwright, build mode in CI's image (`DOCKER=1 heavy-pw.sh`), on the
+  `e2e` and `mobile` projects. Specs: `visual`, `mobile`, `accessibility`,
+  `recipe`, every `search*`, `shopping`, `jobs`, `git`, `command-palette`,
+  `drinks`, `empty-state`, `footer`, `header`, `ingredient-preview`,
+  `paste-replace`, `yield`, `menus`, `lexical-smoke` and `theme-editor`.
+  That covers every recipe spec with a screenshot baseline. 340 passed in
+  11.1 min, none flaky. **No baseline moved**: every screenshot compared
+  equal to its stored baseline, and none was regenerated.
+- Portfolio `visual` + `accessibility` (Docker), dev mode once, and the
+  main-checkout-shaped build: not run locally — the shared heavy slot was
+  held for over an hour by the other session's image builds — so the PR's
+  CI is that gate: the Portfolio job (dev, with its baselines), the four
+  dev-mode Recipe shards, and 41b's "Recipe build (main-checkout shape)"
+  job.
+
+**Roger to confirm.**
+
+- Dd2: keep resume-builder on Tailwind 4.1's font stack, or accept 4.3's
+  new default (`-apple-system, …, Roboto, …, Arial`)? Accepting it changes
+  the resume pages' text face on Linux and Windows.
+
 ### 41f — Accessibility follow-through
 
 Branch `agent/41f-a11y`. **Reindex needed: no. Deploy: yes, for the look**
