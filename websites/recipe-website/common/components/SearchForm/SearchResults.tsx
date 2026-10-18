@@ -94,6 +94,12 @@ export function SearchResultsPage() {
   } else {
     body = (
       <>
+        {/*
+          The grid's heading, for a screen reader's outline (41f, axe
+          heading-order): each card names itself with an h3, and the page's
+          only other headings are the masthead's h1 and, above, "Groups".
+        */}
+        <h2 className="sr-only">Recipes</h2>
         <SearchList
           recipeResults={visibleRecipes}
           // The *free text*, never the raw query: `tag:dessert` must not go on

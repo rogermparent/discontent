@@ -44,6 +44,23 @@ const NEUTRALS: Record<NeutralKey, NeutralSpec> = {
   gray: { mainHue: 0, secondaryHue: 0, chroma: 0 },
 };
 
+/*
+ * Form-control borders (epic 41f, WCAG 1.4.11 non-text contrast). `--input` is
+ * the border of every Input, Textarea, Select trigger, outline button and
+ * toggle; at the old L 0.9 it measured 1.27:1 on the light page and 1.54:1 on
+ * the dark one. Fitted with `contrastRatio` to the smallest change that keeps
+ * ≥ 3.1:1 (3:1 plus a margin for renderer rounding) against every surface a
+ * field sits on — --background, --card, --popover, and the --muted and
+ * --secondary panels (the editor's timeline fields) — in every neutral family:
+ *   light L 0.61 → 3.58:1 on the page, 3.79:1 on a card, 3.32:1 on muted,
+ *     3.18:1 on secondary (the tightest);
+ *   dark 35 % white → 3.21:1 on the page, 3.22:1 on a card, 3.14:1 on muted
+ *     and secondary.
+ * `test/theming.test.ts` sweeps it. Mirrored in styles/theme.css.
+ */
+const INPUT_LIGHT_L = 0.61;
+const INPUT_DARK = "oklch(1 0 0 / 35%)";
+
 /** Neutral (bench) tokens for one mode, from a neutral family. */
 function deriveNeutral(spec: NeutralSpec, mode: "light" | "dark"): TokenMap {
   const { mainHue: h, secondaryHue: sh, chroma: s } = spec;
@@ -60,7 +77,11 @@ function deriveNeutral(spec: NeutralSpec, mode: "light" | "dark"): TokenMap {
       "--muted": ok(0.955, 0.006 * s, sh),
       "--muted-foreground": ok(0.5, 0.02 * s, sh),
       "--border": ok(0.9, 0.008 * s, h),
-      "--input": ok(0.9, 0.008 * s, h),
+      // A form control's boundary (WCAG 1.4.11): ≥ 3.1:1 on the page, a card
+      // and a muted/secondary panel in every family (41f). Fills keep the old
+      // hairline as --input-fill.
+      "--input": ok(INPUT_LIGHT_L, 0.008 * s, h),
+      "--input-fill": ok(0.9, 0.008 * s, h),
       "--sidebar": ok(0.985, 0.005 * s, h),
       "--sidebar-foreground": ok(0.22, 0.02 * s, h),
       "--sidebar-border": ok(0.9, 0.008 * s, h),
@@ -78,8 +99,11 @@ function deriveNeutral(spec: NeutralSpec, mode: "light" | "dark"): TokenMap {
     "--muted": ok(0.27, 0.008 * s, sh),
     "--muted-foreground": ok(0.7, 0.02 * s, sh),
     // Translucent hairlines read better than opaque ones on dark; kept constant.
+    // --input is a control's boundary, so it clears 3:1 (41f) over every dark
+    // surface; the fills (`dark:bg-input-fill/30`) keep the old 15 % white.
     "--border": "oklch(1 0 0 / 12%)",
-    "--input": "oklch(1 0 0 / 15%)",
+    "--input": INPUT_DARK,
+    "--input-fill": "oklch(1 0 0 / 15%)",
     "--sidebar": ok(0.225, 0.009 * s, h),
     "--sidebar-foreground": ok(0.96, 0.006 * s, h),
     "--sidebar-border": "oklch(1 0 0 / 12%)",

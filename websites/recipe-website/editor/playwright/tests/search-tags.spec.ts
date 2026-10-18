@@ -1,4 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
+import { WCAG_TAGS } from "../support/a11y";
 import { test, expect, type Page } from "../support/test";
 import {
   fillSignInForm,
@@ -197,9 +198,7 @@ test.describe("Search — tags", () => {
     // The rail chips, clear button, and card chips stay WCAG2AA-clean while a
     // filter is active — with no ToggleGroup left in the rail.
     await expect(page.getByRole("radio")).toHaveCount(0);
-    const axe = await new AxeBuilder({ page })
-      .withTags(["wcag2a", "wcag2aa"])
-      .analyze();
+    const axe = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
     expect(axe.violations).toEqual([]);
 
     // Broadening is now something you *type*: OR between the two terms.

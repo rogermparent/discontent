@@ -53,7 +53,12 @@ export function MultiplierInput() {
           <button
             key={value}
             type="button"
-            aria-label={name}
+            /*
+             * The visible "½×" leads the name (41f, WCAG 2.5.3 label in name):
+             * a speech user says what they see. "Half batch" follows for a
+             * screen reader, and still matches as a substring.
+             */
+            aria-label={`${label} (${name})`}
             aria-pressed={current === value}
             disabled={parts}
             onClick={() => setMultiplier(value)}

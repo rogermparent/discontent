@@ -35,16 +35,19 @@ import { GroupThumbnailPlaceholder } from "./Placeholder";
  *
  * `data-group-image` on the wrapper says which rung won, so a test can tell an
  * own image from a borrowed member one without matching on the file name.
+ *
+ * **Decorative: `alt=""`** (41f, axe `image-redundant-alt`). Every caller puts
+ * the group's name right beside the picture — inside the same card link, or
+ * the heading next to it on a featured group's page — so an alt repeating the
+ * name made a screen reader say it twice.
  */
 export async function GroupThumbnail({
   slug,
-  name,
   image,
   items,
   className,
 }: {
   slug: string;
-  name: string;
   /** The group's own image, when the caller already has it. */
   image?: string;
   items?: GroupItem[];
@@ -58,7 +61,7 @@ export async function GroupThumbnail({
       <GroupImage
         slug={slug}
         image={file}
-        alt={name}
+        alt=""
         className={recipeCardImageClassName}
         {...standardRecipeImageProps}
       />
@@ -112,7 +115,7 @@ export async function GroupThumbnail({
           <GroupImage
             slug={candidate.slug}
             image={memberImage}
-            alt={name}
+            alt=""
             className={recipeCardImageClassName}
             {...standardRecipeImageProps}
           />
@@ -120,7 +123,7 @@ export async function GroupThumbnail({
           <RecipeImage
             slug={candidate.slug}
             image={memberImage}
-            alt={name}
+            alt=""
             className={recipeCardImageClassName}
             {...standardRecipeImageProps}
           />

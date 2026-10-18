@@ -79,12 +79,7 @@ export function GroupCard({
             and fires on every group write, so the picture is fresh either way;
             what the borrow would buy is one read, on one card.
           */}
-          <GroupThumbnail
-            slug={slug}
-            name={name ?? slug}
-            image={image}
-            items={items}
-          />
+          <GroupThumbnail slug={slug} image={image} items={items} />
         </RecipeCardImageContainer>
         <RecipeCardName
           className={

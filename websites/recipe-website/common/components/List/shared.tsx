@@ -11,6 +11,10 @@ const MAX_CARD_TAG_HINTS = 2;
  * bookmarks). Non-interactive chips that link into tag-filtered search — the
  * server-safe counterpart to the search page's interactive `CardTags`. Kept to a
  * single clamped row so card heights stay uniform.
+ *
+ * Each chip is at least 24 px tall (`min-h-6`): WCAG 2.2's target size
+ * (2.5.8, epic 41f). The badge's own ~22 px left its 24 px circle overlapping
+ * the card link right above the row, which the spacing exception forbids.
  */
 export function RecipeCardTagHint({ tags }: { tags?: string[] }) {
   if (!tags || tags.length === 0) return null;
@@ -19,7 +23,12 @@ export function RecipeCardTagHint({ tags }: { tags?: string[] }) {
   return (
     <div className="flex flex-row flex-nowrap items-center gap-1 overflow-hidden px-2 pb-2">
       {shown.map((tag) => (
-        <Badge key={tag} asChild variant="secondary" className="max-w-full">
+        <Badge
+          key={tag}
+          asChild
+          variant="secondary"
+          className="min-h-6 max-w-full"
+        >
           <Link href={tagSearchHref(tag)}>{tag}</Link>
         </Badge>
       ))}

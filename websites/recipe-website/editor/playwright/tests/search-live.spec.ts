@@ -1,4 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
+import { WCAG_TAGS } from "../support/a11y";
 import { test, expect, type Page } from "../support/test";
 import { searchFor } from "../support/helpers";
 
@@ -185,8 +186,7 @@ test.describe("Search — live", () => {
   test("the live search page is WCAG2AA-clean idle and with results", async ({
     page,
   }) => {
-    const axe = () =>
-      new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+    const axe = () => new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
 
     expect((await axe()).violations).toEqual([]);
 

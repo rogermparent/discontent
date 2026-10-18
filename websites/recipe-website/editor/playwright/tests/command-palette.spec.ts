@@ -9,8 +9,8 @@ import {
   signIn,
 } from "../support/helpers";
 import { snapshotLocator } from "../support/visual";
+import { WCAG_TAGS } from "../support/a11y";
 
-const WCAG = ["wcag2a", "wcag2aa"];
 const SEARCH_TIMEOUT = 20_000;
 
 const ticker = (page: Page) => page.getByTestId("search-ticker");
@@ -27,7 +27,7 @@ const recipeRow = (page: Page, name: string | RegExp) =>
   });
 
 const axeClean = async (page: Page) => {
-  const results = await new AxeBuilder({ page }).withTags(WCAG).analyze();
+  const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
   expect(results.violations).toEqual([]);
 };
 
@@ -133,9 +133,18 @@ test.describe("Command palette", () => {
         { platform, userAgent },
       );
       await page.goto("/");
-      await expect(page.getByTestId("palette-shortcut-hint")).toHaveText(
-        expected,
-      );
+      /*
+       * The glyphs are the chip's generated content since 41f (label in
+       * name), so the attribute is what the reader sees — and the pseudo-
+       * element's computed `content` proves it is drawn from it.
+       */
+      const hint = page.getByTestId("palette-shortcut-hint");
+      await expect(hint).toHaveAttribute("data-shortcut", expected);
+      expect(
+        await hint.evaluate(
+          (element) => getComputedStyle(element, "::before").content,
+        ),
+      ).toBe(JSON.stringify(expected));
     });
   }
 
