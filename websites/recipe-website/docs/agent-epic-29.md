@@ -341,6 +341,27 @@ queued behind the start-time version rebuild, which records its own
 `reindex` job), plus the warm `reindex` jobs on the Pi's `/jobs`
 afterwards.
 
+### 41a: the Pi's warm number, and no-go again (2026-10-17)
+
+Epic 41 (`agent-epic-41.md`, 41a) read the warm number this section left
+pending. Five `reindex` jobs from the Pi's `/jobs` after foreign HEAD moves
+(797 recipes, `c1fe69ff`): **median 3.72 s** (3.60–4.37 s; recipes 2.73 s,
+featured 0.35 s, groups 0.21 s, tag-terms 0.17 s, pages 0.10 s). That is
+under ~5 s, so **no-go**; 29b–29d stay deferred as written.
+
+The deploy's 8.24 s was **one** cold rebuild: the first start with the
+index-version stamp, 6.88 s of index time plus ~1.3 s of start-up, about
+1.85× warm. `deploy-pi.sh`'s `POST /api/reindex` waited behind it in the
+queue line and skipped as fresh. The trigger, restated (41-Da1):
+
+- **Reopen** when the Pi's warm median passes ~5 s. At ~4.7 ms a recipe,
+  that is about 1,050 recipes, not 39b's ~1,300.
+- The cold ~8 s clause is dropped. Cold is about 1.85× warm, and only a
+  deploy that moves the index version (or a first start) pays it.
+- If cold start time matters, ship indexes built on the workstation with
+  the matching stamp, so the start-time rebuild skips. Incremental cannot
+  help a version move (D5).
+
 ### The decision rule
 
 If the Pi's full reindex is ≤ ~3 s and the workstation's ≤ ~1 s:
