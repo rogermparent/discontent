@@ -371,6 +371,21 @@ describe("the recipe-curator skill's allow-lists", () => {
     expect(onHand).toContain("`-tag:drink` for food");
   });
 
+  it("features an ingredient as /make does, and hands Roger the link (41i)", () => {
+    const onHand = section(skill, "8. What's on hand");
+    const calls = [...onHand.matchAll(/inventory_makeable (\{[^\n]*\})/g)].map(
+      (match) => JSON.parse(match[1]) as Record<string, unknown>,
+    );
+    expect(calls).toContainEqual({ query: "tag:drink", feature: ["lime"] });
+    expect(onHand).toContain("What can I make with lime?");
+    expect(onHand).toContain("`link`");
+    expect(onHand).toContain("/make?q=");
+    expect(onHand).toContain("`alwaysHave`");
+    expect(section(skill, "Fallback (CLI)")).toContain(
+      "inventory make --query",
+    );
+  });
+
   it("tags food with epic 33's facet children, never a root (34b, D3)", () => {
     /* The vocabulary block: from its bold lead to the "Drinks" paragraph. */
     const start = skill.indexOf("**Tag vocabulary (v4).**");

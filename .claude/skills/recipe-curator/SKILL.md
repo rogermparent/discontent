@@ -494,30 +494,50 @@ bottles, mixers) and judges recipes against it — the same rules as its "What
 can I make?" page. "What can I make?" means **any** recipe, dinner or drink:
 `inventory_makeable` with no `query` judges every recipe; narrow it only when
 the ask does — `tag:drink` for drinks, `-tag:drink` for food, or any search
-(`tag:vegetarian`, `chicken`).
+(`tag:vegetarian`, `chicken`; every word must appear, as on the page).
+
+**"What can I make with lime?"** names an ingredient: pass it as `feature`,
+as the page's featuring does. Only recipes where each featured ingredient
+meets a **required** line are judged — `gin` is gin, never ginger beer or
+non-alcoholic gin, and a garnish doesn't count — and `buyNext` is for that
+scope ("buy next for lime drinks"). Several features must all meet. Feature
+what the ask names, in the words of a list item (`lime`, `gin`, `Gnista`);
+don't add an `ingredient:` term to `query` for it.
 
 ```json
 inventory_get {}
 inventory_add {"items": ["Gnista", "orange bitters"]}
 inventory_remove {"items": ["vodka"]}
 inventory_makeable {"limit": 20}
+inventory_makeable {"query": "tag:drink", "feature": ["lime"]}
+inventory_makeable {"feature": ["chicken", "lemon"], "limit": 20}
 inventory_makeable {"query": "-tag:drink tag:quick", "limit": 20}
 inventory_makeable {"query": "-tag:drink", "staples": false}
 ```
+
+The answer carries `link`, the site's page showing the same question
+(`/make?q=tag%3Adrink+ingredient%3Alime`): give it to Roger with what you
+report, so he can see it, tick off what he has and change it there. It
+counts from the browser he opens it in (or the saved list, if he chooses
+so there), which may hold a different list from the shared one you judged.
 
 `inventory_get` → `{items, path}`. `inventory_add` and `inventory_remove` →
 `{items, path, added, removed, changed}`, one commit each, and `changed:
 false` when the list already said so. Write items the way recipe lines are
 written: **generic name** (`lime`, `simple syrup`, `non-alcoholic gin`), or a
 brand alone when it means one thing (`Gnista`). `inventory_makeable` →
-`{query, staples, inventory, total, canMake, oneAway, twoAway, further, buyNext}`:
-each row is `{slug, name, missing?, makeFirst?, close?}` (`makeFirst` names a
+`{query, scope, features, link, staples, alwaysHave, inventory, total,
+canMake, oneAway, twoAway, further, buyNext}` (`scope` is the query with
+each feature written in; `total` counts the recipes judged, after the
+features): each row is `{slug, name, missing?, makeFirst?, close?}` (`makeFirst` names a
 recipe, such as a house syrup, that meets a line once made; `close` lists
 `{needs, have}` lines met by a near enough item — onion for a shallot, olive
 oil for vegetable oil — which count as had, so say so when you report them),
-and `buyNext` ranks `{item, label, unlocks, helps}` by how many recipes one
-more item would make possible. Salt, black pepper, water and ice count as on
-hand, and so do the pantry staples (flour, sugar, butter, eggs, vegetable and
+and `buyNext` ranks `{item, label, unlocks, helps, recipes}` by how many
+recipes one more item would make possible (`recipes`: the slugs it
+unlocks). `alwaysHave` counts as on hand — Roger's saved "Assume I always
+have" list, else salt, black pepper, water and ice — and so do the pantry
+staples (flour, sugar, butter, eggs, vegetable and
 olive oil, milk, baking soda, baking powder), as the site's "Assume pantry
 staples" switch does by default; don't add them. Pass `"staples": false` when
 the ask is about what's really there ("I'm out of eggs and flour"). Change the list **only when the ask says so** ("I bought Gnista",
@@ -635,7 +655,10 @@ wait and run the same command once more, as with the tool.
   (or `shopping add "paper towels" --json`, one line per argument);
   `shopping_check {names}` → `pnpm --silent recipes shopping check eggs --json`
   (`uncheck` reverses); `shopping_remove` → `pnpm --silent recipes shopping remove --recipe <slug> --json`
-  (or `--group <slug>`, `--for <sub-recipe slug>`, or item ids).
+  (or `--group <slug>`, `--for <sub-recipe slug>`, or item ids);
+- `inventory_makeable {query, feature, staples: false}` →
+  `pnpm --silent recipes inventory make --query "tag:drink" --feature lime [--no-staples] --json`
+  (`--feature` once per ingredient).
 
 The draft file is the loop: inspect or dry-run into `d.json`, edit it, check
 it with `create --dry-run`, then create. Never pass `--author`,

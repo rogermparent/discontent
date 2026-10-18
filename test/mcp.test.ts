@@ -721,6 +721,21 @@ describe("the MCP registry over an in-memory transport", () => {
       query: "tag:drink",
       oneAway: [{ slug: "gin-and-tonic", missing: ["tonic water"] }],
     });
+    /* 41i: featuring, as /make does — gin keeps the G&T, vodka nothing. */
+    const featured = await call("inventory_makeable", {
+      query: "tag:drink",
+      feature: ["gin"],
+    });
+    expect(featured.data).toMatchObject({
+      scope: "tag:drink ingredient:gin",
+      features: ["gin"],
+      link: "/make?q=tag%3Adrink+ingredient%3Agin",
+      total: 1,
+      oneAway: [{ slug: "gin-and-tonic" }],
+    });
+    expect(
+      (await call("inventory_makeable", { feature: ["vodka"] })).data,
+    ).toMatchObject({ total: 0, canMake: [], oneAway: [] });
 
     await call("inventory_add", { items: ["tonic"] });
     await call("inventory_remove", { items: ["Gnista"] });

@@ -6,7 +6,8 @@
  *   inventory remove <item…>     remove items (one commit)
  *   inventory set --file <f>     replace the list whole (one commit)
  *   inventory make [<query…>]    what the list can make (every recipe by default;
- *                                pantry staples assumed unless --no-staples)
+ *                                pantry staples assumed unless --no-staples;
+ *                                --query and --feature as /make has them, 41i)
  *
  * Items are positionals, one per argument — quote the ones with spaces
  * (`inventory add "simple syrup" Gnista`). `set --file` reads what `/make`'s
@@ -32,6 +33,7 @@ import { PANTRY_STAPLES } from "recipe-website-common/util/makeable";
 import {
   booleanOption,
   numberOption,
+  stringListOption,
   stringOption,
   type CommandDef,
 } from "./types";
@@ -108,18 +110,45 @@ const setCommand: CommandDef<InventoryWriteResult> = {
 const makeCommand: CommandDef<MakeableResult> = {
   name: "inventory make",
   usage:
-    "recipes inventory make [<query…>] [--limit 20] [--no-staples]   every recipe by default; e.g. inventory make tag:drink, inventory make -tag:drink\n" +
-    "  Salt, black pepper, water and ice always count as on hand, and so do the pantry\n" +
-    `  staples (${PANTRY_STAPLES.join(", ")}) unless --no-staples.`,
+    "recipes inventory make [<query…> | --query <q>] [--feature <name> …] [--limit 20] [--no-staples]\n" +
+    "  What the saved inventory can make, judged as the site's /make page judges it.\n" +
+    "  Every recipe by default; the scope is the search language, and every free-text\n" +
+    "  word must appear: inventory make tag:drink, inventory make -tag:drink, or\n" +
+    '  --query "tag:drink -tag:batch" (--query=-tag:drink also works).\n' +
+    "  --feature <name> (repeatable) features an ingredient as /make does: only recipes\n" +
+    "  where it meets a required line count (gin is gin, never ginger beer; a garnish\n" +
+    "  doesn't count), and Buy next stays within that scope. An ingredient:<name> term\n" +
+    "  in the query features it too. e.g. inventory make tag:drink --feature lime\n" +
+    `  The editor's saved "Assume I always have" list (else salt, black pepper, water\n` +
+    "  and ice) counts as on hand, and so do the pantry staples\n" +
+    `  (${PANTRY_STAPLES.join(", ")}) unless --no-staples.\n` +
+    "  --json: {query, scope, features, link, staples, alwaysHave, inventory, total,\n" +
+    "  unjudged, canMake, oneAway, twoAway, further, buyNext}. scope is the query with\n" +
+    "  each feature written in as ingredient:<name>; link is the /make page showing the\n" +
+    "  same (/make?q=<scope>); each row is {slug, name, missing?, makeFirst?,\n" +
+    "  close?: [{needs, have}]}; buyNext is [{item, label, unlocks, helps, recipes}].",
   options: {
+    query: { type: "string" },
+    feature: { type: "string", multiple: true },
     limit: { type: "string" },
     "no-staples": { type: "boolean" },
   },
   takesDashedPositionals: true,
   async run({ backend, positionals, options }) {
-    const query = positionals.join(" ").trim();
+    const words = positionals.join(" ").trim();
+    const flag = stringOption(options, "query");
+    if (words && flag !== undefined) {
+      throw new UsageError(
+        "inventory make takes the scope once: as words or as --query, not both.",
+      );
+    }
+    const query = (flag ?? words).trim();
+    const feature = stringListOption(options, "feature")
+      .map((name) => name.trim())
+      .filter(Boolean);
     return backend.inventoryMakeable({
       ...(query ? { query } : {}),
+      ...(feature.length > 0 ? { feature } : {}),
       limit: numberOption(options, "limit"),
       ...(booleanOption(options, "no-staples") ? { staples: false } : {}),
     });
@@ -145,8 +174,13 @@ const makeCommand: CommandDef<MakeableResult> = {
                 .join("\n"),
             ),
           ];
+    const features =
+      result.features.length > 0
+        ? ` with ${result.features.join(" and ")}`
+        : "";
     return [
-      `${result.total} recipes for ${JSON.stringify(result.query)}, ${result.inventory} items on hand${result.staples === false ? ", no pantry staples" : ", pantry staples assumed"}`,
+      `${result.total} recipes for ${JSON.stringify(result.scope)}${features}, ${result.inventory} items on hand${result.staples === false ? ", no pantry staples" : ", pantry staples assumed"}`,
+      `On the site: ${result.link}`,
       ...rows("Can make now", result.canMake),
       ...rows("One away", result.oneAway),
       ...rows("Two away", result.twoAway),

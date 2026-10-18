@@ -34,9 +34,11 @@ const { GET: makeRoute } =
   await import("../websites/recipe-website/editor/src/app/api/inventory/make/route");
 
 let contentDirectory: string;
+let settingsDirectory: string;
 let git: SimpleGit;
 let ctx: CurationContext;
 let previousContentDirectory: string | undefined;
+let previousSettingsDirectory: string | undefined;
 
 /** The same ordering `curationGit.test.ts` explains (T49). */
 async function initTestRepo(directory: string): Promise<SimpleGit> {
@@ -67,6 +69,11 @@ beforeEach(async () => {
   };
   previousContentDirectory = process.env.CONTENT_DIRECTORY;
   process.env.CONTENT_DIRECTORY = contentDirectory;
+  /* `makeable` reads the editor's saved staples (41i): an empty settings
+   * directory of its own, so no checkout's settings.json leaks in. */
+  settingsDirectory = await mkdtemp(join(tmpdir(), "inventory-settings-"));
+  previousSettingsDirectory = process.env.SETTINGS_DIRECTORY;
+  process.env.SETTINGS_DIRECTORY = settingsDirectory;
 });
 
 afterEach(async () => {
@@ -76,7 +83,13 @@ afterEach(async () => {
   } else {
     process.env.CONTENT_DIRECTORY = previousContentDirectory;
   }
+  if (previousSettingsDirectory === undefined) {
+    delete process.env.SETTINGS_DIRECTORY;
+  } else {
+    process.env.SETTINGS_DIRECTORY = previousSettingsDirectory;
+  }
   await rm(contentDirectory, { recursive: true, force: true });
+  await rm(settingsDirectory, { recursive: true, force: true });
 });
 
 describe("readInventory", () => {
@@ -340,6 +353,152 @@ describe("makeable", () => {
       ]);
     }
     expect((await get("?query=tag:dessert&staples=1")).staples).toBe(true);
+  });
+
+  /* 41i: the tools ask what the page asks. */
+  describe("as /make judges it (41i)", () => {
+    beforeEach(async () => {
+      await createRecipe(ctx, {
+        name: "Gin and Tonic",
+        tags: ["drink"],
+        ingredients: [
+          "2 oz gin",
+          "Tonic water, to top",
+          "Lime wedge, for garnish",
+        ],
+      });
+      await createRecipe(ctx, {
+        name: "Moscow Mule",
+        tags: ["drink"],
+        ingredients: ["2 oz vodka", "1/2 oz lime juice", "4 oz ginger beer"],
+      });
+      await createRecipe(ctx, {
+        name: "Gimlet",
+        tags: ["drink"],
+        ingredients: ["2 oz gin", "3/4 oz lime juice", "3/4 oz simple syrup"],
+      });
+      await patchInventory(ctx, { add: ["vodka", "gin", "simple syrup"] });
+    });
+
+    const slugs = (result: Awaited<ReturnType<typeof makeable>>) =>
+      [...result.canMake, ...result.oneAway, ...result.twoAway]
+        .map((row) => row.slug)
+        .sort();
+
+    it("features an ingredient through the matcher: a garnish doesn't count", async () => {
+      const result = await makeable(ctx, {
+        query: "tag:drink",
+        feature: ["lime"],
+      });
+      expect(result).toMatchObject({
+        query: "tag:drink",
+        scope: "tag:drink ingredient:lime",
+        features: ["lime"],
+        link: "/make?q=tag%3Adrink+ingredient%3Alime",
+        total: 3,
+        canMake: [],
+      });
+      /* The G&T's lime is a garnish; the Gnista tonic has none. */
+      expect(slugs(result)).toEqual(["gimlet", "moscow-mule", "vodka-sour"]);
+      /* Buy next within the featured scope ("Buy next for lime drinks"). */
+      expect(result.buyNext[0]).toMatchObject({
+        item: "lime juice",
+        unlocks: 2,
+        helps: 1,
+      });
+      expect(result.buyNext[0].recipes.sort()).toEqual([
+        "gimlet",
+        "vodka-sour",
+      ]);
+    });
+
+    it("gin is gin, never ginger beer, and several features must all meet", async () => {
+      const gin = await makeable(ctx, { feature: ["gin"] });
+      expect(slugs(gin)).toEqual(["gimlet", "gin-and-tonic"]);
+      const both = await makeable(ctx, { feature: ["gin", "lime"] });
+      expect(both.features).toEqual(["gin", "lime"]);
+      expect(slugs(both)).toEqual(["gimlet"]);
+    });
+
+    it("reads an ingredient: term in the query as a feature, once", async () => {
+      const typed = await makeable(ctx, { query: "tag:drink ingredient:gin" });
+      expect(typed).toMatchObject({
+        scope: "tag:drink ingredient:gin",
+        features: ["gin"],
+        total: 2,
+      });
+      const twice = await makeable(ctx, {
+        query: "tag:drink ingredient:gin",
+        feature: ["Gin"],
+      });
+      expect(twice.scope).toBe("tag:drink ingredient:gin");
+      expect(twice.features).toEqual(["gin"]);
+    });
+
+    it("needs every free-text word, as /make's scope does", async () => {
+      /* recipe_search's ranked any-word match would add Lavender Syrup. */
+      expect((await makeable(ctx, { query: "lavender" })).total).toBe(2);
+      expect((await makeable(ctx, { query: "lavender tonic" })).total).toBe(1);
+    });
+
+    it("assumes the editor's saved staples when there are some (38a)", async () => {
+      const without = await makeable(ctx, {
+        query: "tag:drink",
+        staples: false,
+      });
+      expect(without.alwaysHave).toEqual([
+        "salt",
+        "black pepper",
+        "water",
+        "ice",
+      ]);
+      expect(without.oneAway.map((row) => row.slug)).toContain("vodka-sour");
+
+      await writeFile(
+        join(settingsDirectory, "settings.json"),
+        JSON.stringify({ makeStaples: ["salt", "lime juice"] }),
+      );
+      const saved = await makeable(ctx, {
+        query: "tag:drink",
+        staples: false,
+      });
+      expect(saved.alwaysHave).toEqual(["salt", "lime juice"]);
+      expect(saved.canMake.map((row) => row.slug).sort()).toEqual([
+        "gimlet",
+        "vodka-sour",
+      ]);
+
+      /* A malformed value is no saved list. */
+      await writeFile(
+        join(settingsDirectory, "settings.json"),
+        JSON.stringify({ makeStaples: ["salt", 3] }),
+      );
+      expect((await makeable(ctx, { query: "tag:drink" })).alwaysHave).toEqual([
+        "salt",
+        "black pepper",
+        "water",
+        "ice",
+      ]);
+    });
+
+    it("takes feature, repeated, on /api/inventory/make", async () => {
+      const response = await makeRoute(
+        new Request(
+          "http://editor.test/api/inventory/make?query=tag:drink&feature=gin&feature=lime",
+        ),
+      );
+      const result = (await response.json()) as Awaited<
+        ReturnType<typeof makeable>
+      >;
+      expect(result.features).toEqual(["gin", "lime"]);
+      expect(slugs(result)).toEqual(["gimlet"]);
+    });
+
+    it("refuses an empty feature", async () => {
+      await expect(makeable(ctx, { feature: ["  "] })).rejects.toMatchObject({
+        code: "validation",
+      });
+    });
   });
 
   it("caps each bucket at `limit`", async () => {

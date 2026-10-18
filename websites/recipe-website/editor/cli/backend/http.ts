@@ -103,7 +103,8 @@ export interface HttpBackendOptions {
   token?: string;
 }
 
-type Query = Record<string, string | number | boolean | undefined>;
+/** A `string[]` value is sent as the key repeated (`feature=lime&feature=gin`). */
+type Query = Record<string, string | number | boolean | string[] | undefined>;
 
 interface CallOptions {
   body?: unknown;
@@ -249,7 +250,11 @@ export function createHttpBackend({
     const url = new URL(`${root}${path}`);
     for (const [key, value] of Object.entries(query ?? {})) {
       if (value === undefined) continue;
-      url.searchParams.set(key, String(value));
+      if (Array.isArray(value)) {
+        for (const entry of value) url.searchParams.append(key, entry);
+      } else {
+        url.searchParams.set(key, String(value));
+      }
     }
 
     const headers: Record<string, string> = { accept: "application/json" };

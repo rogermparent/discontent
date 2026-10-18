@@ -96,21 +96,22 @@ Thanksgiving roundup. Each page is fetched once, ≥ 15 s apart per host.
 
 ## Roadmap
 
-| Phase    | Size | Branch                | Status | PR  | What                                                                                        |
-| -------- | ---- | --------------------- | ------ | --- | ------------------------------------------------------------------------------------------- |
-| 41a      | S    | (orchestrator)        | ✅     | —   | D3: the Pi's warm reindex median, per type; go or a recorded no-go.                         |
-| 41b      | M    | `agent/41b-ci`        | 🟡     | —   | `resetData` under the write lock, two dev flakes, the CI symlink-chain check, Docker gates. |
-| 41c      | M    | `agent/41c-holds`     | 🟡     | —   | D4: zod ≥ 4.4, markdown-to-jsx ≥ 9.7, simple-git ≥ 3.34 — code changes, holds removed.      |
-| 41g      | S    | (content repo)        | ✅     | —   | D5: a cranberry drink and 2–4 appetizers or sides from Sally's roundup.                     |
-| 41f      | M    | `agent/41f-a11y`      | 📝     | —   | `--input` at ≥ 3:1, tag chips at 24 px with WCAG 2.1/2.2 tags, two best-practice findings.  |
-| 41r1     | L    | `agent/41r1-apply`    | ⏸️     | —   | If go: 29b, the engine's `applyContentChanges` and `reprojectDependents`.                   |
-| 41r2     | L    | `agent/41r2-changed`  | ⏸️     | —   | If go: 29c, `reindexChanged` behind `RECIPE_INCREMENTAL_REINDEX` (D2).                      |
-| 41r3     | S    | `agent/41r3-drill`    | ⏸️     | —   | If go: 29d, revalidation, docs, the Pi drill specified for Roger.                           |
-| 41d1     | M    | `agent/41d1-react-tw` | 📝     | —   | React 19.3 + Tailwind 4.3; moved baselines regenerated in Docker.                           |
-| 41d2     | M    | `agent/41d2-pw`       | 📝     | —   | Playwright 1.64: package, CI images, `Dockerfile.playwright`; every baseline regenerated.   |
-| 41d3     | S    | `agent/41d3-prettier` | 📝     | —   | Prettier 3.9 and a repo-wide reformat in its own commit, in `.git-blame-ignore-revs`.       |
-| 41h      | L    | `agent/41h-make`      | 🟡     | —   | The Make page redesigned: the question as h1, tape labels, featuring, Count from, specs.    |
-| 41-close | S    | `agent/41-close`      | 📝     | —   | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                           |
+| Phase    | Size | Branch                 | Status | PR  | What                                                                                        |
+| -------- | ---- | ---------------------- | ------ | --- | ------------------------------------------------------------------------------------------- |
+| 41a      | S    | (orchestrator)         | ✅     | —   | D3: the Pi's warm reindex median, per type; go or a recorded no-go.                         |
+| 41b      | M    | `agent/41b-ci`         | 🟡     | —   | `resetData` under the write lock, two dev flakes, the CI symlink-chain check, Docker gates. |
+| 41c      | M    | `agent/41c-holds`      | 🟡     | —   | D4: zod ≥ 4.4, markdown-to-jsx ≥ 9.7, simple-git ≥ 3.34 — code changes, holds removed.      |
+| 41g      | S    | (content repo)         | ✅     | —   | D5: a cranberry drink and 2–4 appetizers or sides from Sally's roundup.                     |
+| 41f      | M    | `agent/41f-a11y`       | 📝     | —   | `--input` at ≥ 3:1, tag chips at 24 px with WCAG 2.1/2.2 tags, two best-practice findings.  |
+| 41r1     | L    | `agent/41r1-apply`     | ⏸️     | —   | If go: 29b, the engine's `applyContentChanges` and `reprojectDependents`.                   |
+| 41r2     | L    | `agent/41r2-changed`   | ⏸️     | —   | If go: 29c, `reindexChanged` behind `RECIPE_INCREMENTAL_REINDEX` (D2).                      |
+| 41r3     | S    | `agent/41r3-drill`     | ⏸️     | —   | If go: 29d, revalidation, docs, the Pi drill specified for Roger.                           |
+| 41d1     | M    | `agent/41d1-react-tw`  | 📝     | —   | React 19.3 + Tailwind 4.3; moved baselines regenerated in Docker.                           |
+| 41d2     | M    | `agent/41d2-pw`        | 📝     | —   | Playwright 1.64: package, CI images, `Dockerfile.playwright`; every baseline regenerated.   |
+| 41d3     | S    | `agent/41d3-prettier`  | 📝     | —   | Prettier 3.9 and a repo-wide reformat in its own commit, in `.git-blame-ignore-revs`.       |
+| 41h      | L    | `agent/41h-make`       | 🟡     | —   | The Make page redesigned: the question as h1, tape labels, featuring, Count from, specs.    |
+| 41i      | S–M  | `agent/41i-make-tools` | 🟡     | —   | Make for the agents: `feature` and the page's scope in MCP / CLI, the saved staples.        |
+| 41-close | S    | `agent/41-close`       | 📝     | —   | Close-out, CLAUDE.md bullet, backlog rows, memory, Roger's steps.                           |
 
 Ordering, in waves: **wave 1** 41a (light, the orchestrator) ∥ 41b ∥ 41c,
 with 41g's research and dry run in the orchestrator alongside; **wave 2**
@@ -251,6 +252,25 @@ Copy with Undo; Save to editor with an inline diff; the add field as Buy
 next search (a combobox with "+N now · M closer"); Buy next inside the
 featured scope with the recipes it unlocks; spec cards; restrained motion
 (off under reduced motion); the phone shelf stacked and summarised.
+
+### 41i — Make for the agents (S–M)
+
+41h's `/make` features an ingredient through the matcher (Dh7) and scopes
+with the page's own query language; the agents' seats lagged: MCP
+`inventory_makeable` and `recipes inventory make` judged the saved list over
+a `recipe_search` scope with fixed staples. Roger asks the curator "what
+can I make with lime?" — the tools answer it the way the page does.
+
+- `inventory_makeable` / `recipes inventory make` / `/api/inventory/make`
+  take `feature` (ingredient names; CLI `--feature`, repeatable) and scope
+  with `scopeRecipes` + `featureScope` exactly as `/make` does (CLI
+  `--query`); the answer adds `scope`, `features`, `link` (`/make?q=…`)
+  and `alwaysHave`, and Buy next is computed inside the narrowed scope. No
+  new tools: 57 / 43.
+- The server's staples are the editor-saved `settings.makeStaples` (38-Da2)
+  when set, else `DEFAULT_STAPLES`.
+- The curator skill: the "What drinks can I make with lime?" example, and
+  the link to hand Roger. Its frontmatter is unchanged (43).
 
 ### 41-close (S)
 
@@ -1467,3 +1487,121 @@ exec tsc --noEmit` ✓.
 - **Dh9:** Ctrl+Z / ⌘Z undoes the last shelf change while its toast shows
   (not inside a text field).
 - **Dh11:** the dotted, muted look for uncounted labels in Saved mode.
+
+### 41i — Make for the agents
+
+Branch `agent/41i-make-tools`. **Reindex needed: no. Deploy: yes** (the
+editor: the MCP-over-HTTP seat and `/api/inventory/make` answer the new
+inputs; the stdio MCP and the CLI pick them up from the checkout). No
+content, index or stored-format change; the saved staples are read, never
+written.
+
+**What shipped:**
+
+- **`feature`** on MCP `inventory_makeable` (an array of ingredient names,
+  ≤ 10, ≤ 80 characters each), `recipes inventory make --feature <name>`
+  (repeatable) and `/api/inventory/make?feature=…` (repeated; the HTTP
+  backend sends a `string[]` query value as the key repeated). Each feature
+  is written into the query as `/make` writes it (`withFeature`), and the
+  query's top-level `ingredient:` terms are the features
+  (`featuredOfQuery`), so `{"feature": ["lime"]}` and
+  `{"query": "ingredient:lime"}` answer alike. The features narrow through
+  41h's own `featureScope` (Dh7): a recipe is judged only when each one
+  meets a required line — gin is gin, never ginger beer; a garnish doesn't
+  count; several must all meet.
+- **The page's scope** (`inventory.ts` `makeable`): `scopeRecipes` over the
+  query `withoutFeatures`, with the term resolver for `tag:` and the group
+  memberships for `group:` read only when the query has them, then
+  `featureScope`; one index read serves both the scope and the judge, and
+  the corpus is prepared once. Buy next is `analyzeMakeable`'s over the
+  narrowed scope — "Buy next for lime drinks", with each item's `recipes`.
+- **The answer adds** `scope` (the query with the features written in),
+  `features`, `link` (`/make?q=<scope>`, the page showing the same) and
+  `alwaysHave`; `query` stays the scope as given, and `total` counts the
+  recipes judged after the features. The CLI's text output names the scope
+  and features and prints `On the site: <link>`.
+- **The saved staples** (Di3): `makeable` reads `settings.makeStaples` (38a,
+  Da2) through the engine's settings store and assumes it as "Assume I
+  always have", else `DEFAULT_STAPLES`; the pantry switch (`staples`) is
+  unchanged.
+- **CLI:** `--query <q>` beside the positional words (one or the other — a
+  usage error for both); `--query -tag:drink` works, since
+  `protectDashedPositionals` now hands a dashed value to a string option
+  inline (`--query=-tag:drink`), which `parseArgs` would otherwise refuse as
+  ambiguous. `inventory make --help` documents the JSON; the global
+  `--help`'s "What's on hand" paragraph names the saved staples, `--feature`
+  and Count from (it still described the "separate group" 41h removed).
+- **The curator skill** (§8): "What can I make with lime?" → `feature`, with
+  `inventory_makeable {"query": "tag:drink", "feature": ["lime"]}` and a
+  food example; the answer's fields; hand Roger the `link`, noting the page
+  counts from his browser's list. The fallback lists
+  `inventory make --query … --feature …`. Frontmatter unchanged (43);
+  tools 57 / 43.
+- The D8 import boundary (`curation.test.ts`) admits `/make`'s pure halves
+  (`MakePage/scope`, `kinds`, `makeMath`) and `@discontent/cms/settings`;
+  `cliJson.test.ts` proves a plain `tsx` process runs them.
+- `agent-mixology.md` D11 carries a "superseded in part" note.
+  `agent-mcp.md` has no table of `inventory_makeable`'s inputs, so it is
+  unchanged.
+
+**Di1 — the tools scope as `/make`, not as `recipe_search`.** Until now the
+scope went through `searchRecipes` (D11): ranked, and any one free-text
+word was enough. It is now `scopeRecipes`, the page's narrowing: every
+free-text word must appear (`inventory make lavender tonic` is the one
+recipe with both, not every recipe with either). `tag:` still reaches a
+term's subtree and `group:` a group's members — the page's corpus is
+decorated with groups too (`SearchContext`), so the server decorates the
+same way (`readGroupsByRecipe`, now exported). `recipe_search` itself is
+unchanged.
+
+**Di2 — the features live in the scope.** `feature` is sugar for the
+query's `ingredient:` terms, exactly as the page's featuring is; so the
+answer's `scope` and `link` are what the page would hold, and a feature
+already in the query is not added twice (by `featureKey`). Close matches
+count in the featured judgement, as they do in the tools' judgement (there
+is no `countClose` input; the page's default is on).
+
+**Di3 — the server reads the per-instance saved staples.** The settings
+store resolves `SETTINGS_DIRECTORY`, else `settings/` in the working
+directory: the stdio MCP and `pnpm recipes` run in the editor package, so
+on the workstation they read the editor's own `editor/settings`; over
+`--remote` / MCP over HTTP the editor answers with its own settings (the
+Pi's are the Pi's). A missing file, a missing key or a malformed list (a
+non-string entry) reads as nothing saved. The tools count from the shared
+list only — there is no browser list on the server, so no Count from.
+
+**Di4 — `feature` is an array.** `"feature": "lime"` is a validation error
+(the tool schema says `string[]`); one shape keeps the MCP schema plain.
+
+**Tests:** `inventory.test.ts` (+7: lime featured with the garnish-only G&T
+out and Buy next inside the scope, gin vs ginger beer and two features,
+`ingredient:` in the query read once, every free-text word, the saved
+staples and a malformed list, `feature` repeated on the route, an empty
+feature refused); `mcp.test.ts` (featuring through the tool);
+`cliJson.test.ts` (`--query -tag:drink`, two `--feature`s, the saved
+staples from a settings directory of the test's own, both scopes a usage
+error); `curatorSkill.test.ts` (+1: the lime example, `link`,
+`alwaysHave`, the fallback line).
+
+**Gates** (all through the capped wrappers):
+
+- `pnpm --filter recipe-editor typecheck` ✓, `pnpm --filter recipe-website
+exec tsc --noEmit` ✓.
+- Affected files first (`inventory`, `mcp`, `mcpHttp`, `cliJson`,
+  `curatorSkill`): **5 files, 105 tests** ✓. The first full run failed one
+  test, the D8 import boundary (the new imports, allow-listed above); after
+  it, `pnpm exec vitest run`: **119 files, 2406 tests** ✓.
+
+**Deferred:** the page's add-field what-if ("+N now · M closer",
+`addCandidates`) has no seat; Buy next with its `recipes` answers "what
+should I buy" for an agent. Reopen if the curator needs "what would X add?"
+for an item Buy next doesn't rank.
+
+**Roger to confirm:**
+
+- **Di1:** `recipes inventory make chicken pasta` (and the tool with a
+  multi-word query) now needs both words, as `/make` does; before, either
+  word was enough.
+- **Di3:** the CLI and MCP now assume your saved "Assume I always have"
+  list, not only salt, pepper, water and ice — the answer's `alwaysHave`
+  shows which.

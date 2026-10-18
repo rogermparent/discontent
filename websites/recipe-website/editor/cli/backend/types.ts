@@ -385,6 +385,8 @@ export interface CuratorBackend {
   setInventory(raw: unknown): Promise<InventoryWriteResult>;
   inventoryMakeable(options?: {
     query?: string;
+    /** Featured ingredients (41i): `/make`'s featuring, judged by the matcher. */
+    feature?: string[];
     limit?: number;
     /** Pantry staples count as on hand (U5); `false` turns them off. */
     staples?: boolean;

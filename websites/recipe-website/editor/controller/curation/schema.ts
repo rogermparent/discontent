@@ -504,6 +504,12 @@ export const InventorySetSchema = z.strictObject({ items: InventoryItems });
  */
 export const InventoryMakeQuerySchema = z.strictObject({
   query: z.string().optional(),
+  /**
+   * Featured ingredients (41i): `/make`'s featuring, each an ingredient name
+   * as a list item is written ("lime", "gin"). Every one must meet a
+   * required line of a recipe for it to be judged (Dh7).
+   */
+  feature: z.array(z.string().trim().min(1).max(80)).max(10).optional(),
   limit: z.number().int().min(1).max(500).optional(),
   staples: z.boolean().optional(),
 });

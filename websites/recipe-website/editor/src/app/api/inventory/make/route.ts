@@ -1,9 +1,10 @@
 /**
- * `/api/inventory/make?query=…&limit=…&staples=0` — what the shared list can make
- * (25d), the seat behind `inventory_makeable` over `--remote`.
+ * `/api/inventory/make?query=…&feature=…&limit=…&staples=0` — what the shared
+ * list can make (25d), the seat behind `inventory_makeable` over `--remote`.
  *
  * Authenticated like its parent: the answer is the list, restated as recipes.
- * `query` is the search language (every recipe when absent); `limit` caps each
+ * `query` is the search language (every recipe when absent); `feature`,
+ * repeated, features an ingredient as `/make` does (41i); `limit` caps each
  * bucket's rows; `staples=0` (or `false`) stops assuming pantry staples (U5),
  * which are on otherwise.
  */
@@ -21,9 +22,11 @@ export async function GET(request: Request) {
     const query = url.searchParams.get("query");
     const limit = intParam(url, "limit");
     const staples = url.searchParams.get("staples");
+    const feature = url.searchParams.getAll("feature");
     return Response.json(
       await makeable(ctx, {
         ...(query !== null ? { query } : {}),
+        ...(feature.length > 0 ? { feature } : {}),
         ...(limit !== undefined ? { limit } : {}),
         ...(staples !== null
           ? { staples: !/^(0|false|no|off)$/i.test(staples.trim()) }
