@@ -887,7 +887,11 @@ Prediction from the diff: no screenshot moves. The run below agrees.
   11.1 min, none flaky. **No baseline moved**: every screenshot compared
   equal to its stored baseline, and none was regenerated.
 - Portfolio `visual` + `accessibility` (Docker), dev mode once, and the
-  main-checkout-shaped build: PENDING
+  main-checkout-shaped build: not run locally — the shared heavy slot was
+  held for over an hour by the other session's image builds — so the PR's
+  CI is that gate: the Portfolio job (dev, with its baselines), the four
+  dev-mode Recipe shards, and 41b's "Recipe build (main-checkout shape)"
+  job.
 
 **Roger to confirm.**
 
