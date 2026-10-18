@@ -675,7 +675,27 @@ test.describe("Accessibility on a phone @mobile", () => {
         await page.goto(path);
         await expectMode(page, mode);
         await expect(page.getByTestId("phone-tab-bar")).toBeVisible();
-        await expectNoViolations(page);
+        /*
+         * Target size (WCAG 2.2, 2.5.8) is measured apart (41f, Tf2). axe
+         * judges it at the current scroll position, and the pinned tab bar
+         * covers whatever straddles the fold — /drinks' family chips, 9 px of
+         * them showing — which scrolling uncovers. So the full sweep runs with
+         * the bar pinned and without `target-size`, then `target-size` alone
+         * runs with the chrome released (the reader's own "off" setting), the
+         * bar's links still in it, at the page's end.
+         */
+        const pinned = await new AxeBuilder({ page })
+          .withTags(TAGS)
+          .disableRules(["target-size"])
+          .analyze();
+        expect(pinned.violations).toEqual([]);
+        await page.evaluate(() => {
+          document.documentElement.dataset.stickyChrome = "off";
+        });
+        const released = await new AxeBuilder({ page })
+          .withRules(["target-size"])
+          .analyze();
+        expect(released.violations).toEqual([]);
       });
     }
   }

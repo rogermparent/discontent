@@ -58,13 +58,18 @@ export function PaletteTrigger({ className }: { className?: string }) {
       )}
     >
       <SearchIcon className="size-3.5 shrink-0" />
+      {/*
+        The chip's glyphs are generated content, not text (41f): WCAG 2.5.3
+        (label in name, axe `label-content-name-mismatch`) wants the button's
+        visible words inside its name, and "Ctrl+K" is not in "Search works".
+        The shortcut is decoration; `aria-keyshortcuts` announces it.
+      */}
       <kbd
         aria-hidden
         data-testid="palette-shortcut-hint"
-        className="rounded border border-border px-1 font-mono text-[0.7rem] leading-normal normal-case"
-      >
-        {modifier}K
-      </kbd>
+        data-shortcut={`${modifier}K`}
+        className="rounded border border-border px-1 font-mono text-[0.7rem] leading-normal normal-case before:content-[attr(data-shortcut)]"
+      />
     </button>
   );
 }

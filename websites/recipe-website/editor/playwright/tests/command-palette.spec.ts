@@ -133,9 +133,18 @@ test.describe("Command palette", () => {
         { platform, userAgent },
       );
       await page.goto("/");
-      await expect(page.getByTestId("palette-shortcut-hint")).toHaveText(
-        expected,
-      );
+      /*
+       * The glyphs are the chip's generated content since 41f (label in
+       * name), so the attribute is what the reader sees — and the pseudo-
+       * element's computed `content` proves it is drawn from it.
+       */
+      const hint = page.getByTestId("palette-shortcut-hint");
+      await expect(hint).toHaveAttribute("data-shortcut", expected);
+      expect(
+        await hint.evaluate(
+          (element) => getComputedStyle(element, "::before").content,
+        ),
+      ).toBe(JSON.stringify(expected));
     });
   }
 
