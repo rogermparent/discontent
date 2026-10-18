@@ -146,6 +146,60 @@ jobs:
           path: websites/recipe-website/editor/blob-report
           retention-days: 14
 
+  # The editor's production build in the main checkout's shape (41b, #269).
+  # There, `editor/content` is a link out of the workspace (the content repo)
+  # and `export/public/{image,uploads}` are absolute links through it. A
+  # runtime fs call Turbopack cannot see past — `stat(x)`, `resolve(x)` with a
+  # non-constant `x` — reads as "trace the whole project", and on Next 16.4
+  # that walk hard-errors on those links ("the symlink target leaves the
+  # filesystem root"). CI and worktrees had no such links, so the first to see
+  # it was Roger's `pnpm workstation update`. This job builds with the links
+  # in place and also fails on the warning that comes before the error, so a
+  # new dynamic fs call without `/*turbopackIgnore: true*/` fails here even on
+  # a Next that only warns. No fixtures needed: the build reads no content.
+  recipe-build:
+    name: Recipe build (main-checkout shape)
+    needs: changes
+    if: ${{ needs.changes.outputs.recipe == 'true' }}
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        name: Install pnpm
+        with:
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Link content the way the main checkout does
+        run: |
+          content="$RUNNER_TEMP/content"
+          mkdir -p "$content/transformed-images" "$content/uploads"
+          site="$GITHUB_WORKSPACE/websites/recipe-website"
+          ln -s "$content" "$site/editor/content"
+          ln -s "$site/editor/content/transformed-images" "$site/export/public/image"
+          ln -s "$site/editor/content/uploads" "$site/export/public/uploads"
+          ls -l "$site/editor/content" "$site/export/public"
+
+      - name: Build the editor (fails on whole-project tracing)
+        working-directory: websites/recipe-website/editor
+        run: |
+          set -o pipefail
+          pnpm build 2>&1 | tee "$RUNNER_TEMP/editor-build.log"
+          if grep -q "Dynamic filesystem access causes tracing of the whole project" "$RUNNER_TEMP/editor-build.log"; then
+            echo "::error::Turbopack traces the whole project: a runtime fs call needs /*turbopackIgnore: true*/ (agent-epic-40.md, 'Post-close: the 16.4 symlink build failure')"
+            exit 1
+          fi
+
   portfolio:
     name: Portfolio
     needs: changes
@@ -334,6 +388,18 @@ jobs:
           # `!!process.env.PLAYWRIGHT_BUILD`, and "" is falsy.
           PLAYWRIGHT_BUILD: ${{ matrix.mode == 'prod' && '1' || '' }}
         run: pnpm exec playwright test --project=e2e
+
+      # A failed attempt's trace (the config retains them on CI), flaky ones
+      # included — 41b found 16 CI instances of the dev-only retagging flake
+      # and no trace of any.
+      - name: Upload failed attempts' traces
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: demo-test-results-${{ matrix.mode }}
+          path: packages/cms/demo/test-results
+          if-no-files-found: ignore
+          retention-days: 14
 
   merge-reports:
     name: Merge sharded reports

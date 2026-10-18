@@ -1,12 +1,26 @@
 import { revalidateDerivedState } from "@discontent/cms/content/next/revalidateDerived";
+import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
+import { releaseContentWrites } from "@discontent/cms/fs/writeGate";
 import { revalidatePath } from "next/cache";
 import { recipeContentTypes } from "../../../../../../controller/contentTypes";
 
-export async function GET() {
+export async function GET(request: Request) {
   // Only allow in test environment
   if (!process.env.TEST_MODE) {
     return Response.json({ error: "Not available" }, { status: 404 });
   }
+
+  /*
+   * The end of a reset (41b): `?hold=<id>` releases the hold
+   * `test-hold-writes` answered `id` for, and writes are accepted again.
+   * `released` is false when that hold had already ended — by itself after
+   * 30 s, or replaced by a newer hold — which the harness treats as a reset
+   * that wasn't protected. Without `hold` nothing is released.
+   */
+  const hold = new URL(request.url).searchParams.get("hold");
+  const released = hold
+    ? releaseContentWrites(getContentDirectory(), hold)
+    : undefined;
 
   revalidatePath("/", "layout");
 
@@ -26,5 +40,5 @@ export async function GET() {
    */
   revalidateDerivedState(recipeContentTypes);
 
-  return Response.json({ revalidated: true }, { status: 200 });
+  return Response.json({ revalidated: true, released }, { status: 200 });
 }
