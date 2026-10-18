@@ -70,6 +70,7 @@ import {
   isBusyError,
 } from "./errors";
 import { syncMedia } from "./annex";
+import { gitWithEnv } from "./gitEnv";
 import { gitPull, mergeInProgress } from "./git";
 import { directoryIsGitRepo } from "@discontent/cms/git/commit";
 
@@ -182,9 +183,19 @@ async function networkGit(
   git: SimpleGit,
   idleMs: number,
 ): Promise<SimpleGit> {
-  const network = simpleGit({ baseDir, timeout: { block: idleMs } });
+  const options = { baseDir, timeout: { block: idleMs } };
   const ssh = await syncSshCommand(git);
-  return ssh ? network.env({ ...process.env, GIT_SSH_COMMAND: ssh }) : network;
+  if (!ssh) return simpleGit(options);
+  /*
+   * `allowUnsafeSshCommand` for the one variable added here: simple-git ≥ 3.34
+   * refuses `GIT_SSH_COMMAND` (and `-c core.sshCommand`, the only other way
+   * to hand git ssh options) unless asked. The value is the constant above.
+   */
+  return gitWithEnv(
+    options,
+    { GIT_SSH_COMMAND: ssh },
+    { allowUnsafeSshCommand: true },
+  );
 }
 const MIRROR_DIRTY =
   /unstaged changes|uncommitted|working (directory|tree) .*(dirty|changes)|would be overwritten/i;

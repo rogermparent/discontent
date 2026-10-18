@@ -1,6 +1,7 @@
 import { Recipe, RecipeEntryValue } from "./types";
 import { hostnameLabel } from "../util/hostnameLabel";
 import { siteLabel } from "../util/siteNames";
+import { capturedLineSeparator } from "../util/capturedLine";
 import { compiler } from "markdown-to-jsx/react";
 import { normalizeLineEndings } from "@discontent/component-library/components/Markdown/normalize";
 
@@ -82,15 +83,26 @@ function flattenNode(node: unknown): string {
   }
   if (isElement(node)) {
     if (node.type === "Multiplyable") {
-      return String(node.props.baseNumber);
+      /*
+       * Since markdown-to-jsx 9.7 a Multiplyable that starts a block (a list
+       * item, a quote or indented line, a multi-line paragraph) carries the
+       * rest of that block as its children (41c; see `withCapturedLine`, and
+       * Tc3 for the spaces between inline elements it cannot restore), with
+       * the space after the tag consumed. Otherwise it has none and this is
+       * the number alone.
+       */
+      const number = String(node.props.baseNumber);
+      const line = flattenNode(node.props.children);
+      return line ? `${number}${capturedLineSeparator(line)}${line}` : number;
     }
     const inner = flattenNode(node.props.children);
     /*
      * Padded on both sides, not just after. A block can also *follow* inline
-     * content within one parent: `- <Multiplyable baseNumber="1/2" /> cup
-     * sugar` compiles to the component plus a sibling `<p>`, with the space
-     * between them consumed by the parser, so a trailing-only separator yields
-     * "1/2cup sugar". The runs collapse at the end either way.
+     * content within one parent: up to markdown-to-jsx 9.6, `- <Multiplyable
+     * baseNumber="1/2" /> cup sugar` compiled to the component plus a sibling
+     * `<p>`, with the space between them consumed by the parser, so a
+     * trailing-only separator yielded "1/2cup sugar". The runs collapse at
+     * the end either way.
      */
     return typeof node.type === "string" && BLOCK_TAGS.has(node.type)
       ? ` ${inner} `

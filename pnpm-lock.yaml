@@ -118,11 +118,11 @@ importers:
         specifier: ^4.18.1
         version: 4.18.1
       simple-git:
-        specifier: ~3.33.0
-        version: 3.33.0
+        specifier: ^3.36.0
+        version: 3.36.0
       zod:
-        specifier: ~4.3.6
-        version: 4.3.6
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       typescript:
         specifier: ^5.9.3
@@ -149,8 +149,8 @@ importers:
         specifier: 19.2.9
         version: 19.2.9(react@19.2.9)
       zod:
-        specifier: ~4.3.6
-        version: 4.3.6
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@playwright/test':
         specifier: ^1.59.1
@@ -168,8 +168,8 @@ importers:
         specifier: ^19.2.7
         version: 19.2.7(@types/react@19.2.18)
       simple-git:
-        specifier: ~3.33.0
-        version: 3.33.0
+        specifier: ^3.36.0
+        version: 3.36.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -255,8 +255,8 @@ importers:
         specifier: ^0.563.0
         version: 0.563.0(react@19.2.9)
       markdown-to-jsx:
-        specifier: ~9.6.1
-        version: 9.6.1(react@19.2.9)
+        specifier: ~9.10.3
+        version: 9.10.3(react@19.2.9)
       next:
         specifier: 16.4.2
         version: 16.4.2(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.59.1)(@types/node@26.6.5)(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
@@ -311,16 +311,16 @@ importers:
         version: 16.4.2(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.59.1)(@types/node@25.9.9)(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
       plaiceholder:
         specifier: ^3.0.0
-        version: 3.0.0(sharp@0.34.5)
+        version: 3.0.0(sharp@0.35.5(@types/node@25.9.9))
       react:
         specifier: 19.2.9
         version: 19.2.9
       sharp:
-        specifier: 0.34.5
-        version: 0.34.5
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@25.9.9)
       zod:
-        specifier: ~4.3.6
-        version: 4.3.6
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@types/fs-extra':
         specifier: ^11.0.4
@@ -338,14 +338,14 @@ importers:
         specifier: ^11.4.1
         version: 11.4.1
       markdown-to-jsx:
-        specifier: ~9.6.1
-        version: 9.6.1(react@19.2.9)
+        specifier: ~9.10.3
+        version: 9.10.3(react@19.2.9)
       next:
         specifier: 16.4.2
         version: 16.4.2(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.59.1)(@types/node@25.9.9)(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
       sharp:
-        specifier: 0.34.5
-        version: 0.34.5
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@25.9.9)
     devDependencies:
       '@types/node':
         specifier: ^25.9.9
@@ -384,23 +384,23 @@ importers:
         specifier: ^4.18.1
         version: 4.18.1
       markdown-to-jsx:
-        specifier: ~9.6.1
-        version: 9.6.1(react@19.2.9)
+        specifier: ~9.10.3
+        version: 9.10.3(react@19.2.9)
       next:
         specifier: 16.4.2
         version: 16.4.2(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.59.1)(@types/node@25.9.9)(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
       plaiceholder:
         specifier: ^3.0.0
-        version: 3.0.0(sharp@0.34.5)
+        version: 3.0.0(sharp@0.35.5(@types/node@25.9.9))
       react:
         specifier: 19.2.9
         version: 19.2.9
       sharp:
-        specifier: 0.34.5
-        version: 0.34.5
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@25.9.9)
       zod:
-        specifier: ~4.3.6
-        version: 4.3.6
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@types/fs-extra':
         specifier: ^11.0.4
@@ -440,16 +440,16 @@ importers:
         version: 16.4.2(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.59.1)(@types/node@25.9.9)(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
       plaiceholder:
         specifier: ^3.0.0
-        version: 3.0.0(sharp@0.34.5)
+        version: 3.0.0(sharp@0.35.5(@types/node@25.9.9))
       react:
         specifier: 19.2.9
         version: 19.2.9
       sharp:
-        specifier: 0.34.5
-        version: 0.34.5
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@25.9.9)
       zod:
-        specifier: ~4.3.6
-        version: 4.3.6
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@types/fs-extra':
         specifier: ^11.0.4
@@ -479,14 +479,14 @@ importers:
         specifier: ^5.9.0
         version: 5.9.0
       markdown-to-jsx:
-        specifier: ~9.6.1
-        version: 9.6.1(react@19.2.9)
+        specifier: ~9.10.3
+        version: 9.10.3(react@19.2.9)
       next:
         specifier: 16.4.2
         version: 16.4.2(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.59.1)(@types/node@25.9.9)(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
       zod:
-        specifier: ~4.3.6
-        version: 4.3.6
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@types/node':
         specifier: ^25.9.9
@@ -552,8 +552,8 @@ importers:
         specifier: ^4.18.1
         version: 4.18.1
       markdown-to-jsx:
-        specifier: ~9.6.1
-        version: 9.6.1(react@19.2.9)
+        specifier: ~9.10.3
+        version: 9.10.3(react@19.2.9)
       next:
         specifier: 16.4.2
         version: 16.4.2(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.59.1)(@types/node@25.9.9)(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
@@ -570,11 +570,11 @@ importers:
         specifier: 19.2.9
         version: 19.2.9(react@19.2.9)
       sharp:
-        specifier: 0.34.5
-        version: 0.34.5
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@25.9.9)
       zod:
-        specifier: ~4.3.6
-        version: 4.3.6
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@axe-core/playwright':
         specifier: ^4.14.0
@@ -625,8 +625,8 @@ importers:
         specifier: ^5.0.1
         version: 5.0.1
       simple-git:
-        specifier: ~3.33.0
-        version: 3.33.0
+        specifier: ^3.36.0
+        version: 3.36.0
       tailwindcss:
         specifier: ^4.1.18
         version: 4.1.18
@@ -685,8 +685,8 @@ importers:
         specifier: ^4.18.1
         version: 4.18.1
       markdown-to-jsx:
-        specifier: ~9.6.1
-        version: 9.6.1(react@19.2.9)
+        specifier: ~9.10.3
+        version: 9.10.3(react@19.2.9)
       netlify-cli:
         specifier: ^23.15.1
         version: 23.15.1(@parcel/watcher@2.6.0)(@types/node@25.9.9)(picomatch@4.0.7)(rollup@4.64.7)
@@ -703,11 +703,11 @@ importers:
         specifier: 19.2.9
         version: 19.2.9(react@19.2.9)
       sharp:
-        specifier: 0.34.5
-        version: 0.34.5
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@25.9.9)
       zod:
-        specifier: ~4.3.6
-        version: 4.3.6
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@types/lodash':
         specifier: ^4.17.26
@@ -797,8 +797,8 @@ importers:
         specifier: ^4.18.1
         version: 4.18.1
       markdown-to-jsx:
-        specifier: ~9.6.1
-        version: 9.6.1(react@19.2.9)
+        specifier: ~9.10.3
+        version: 9.10.3(react@19.2.9)
       next:
         specifier: 16.4.2
         version: 16.4.2(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.59.1)(@types/node@26.6.5)(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
@@ -807,19 +807,19 @@ importers:
         version: 0.4.6(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
       plaiceholder:
         specifier: ^3.0.0
-        version: 3.0.0(sharp@0.34.5)
+        version: 3.0.0(sharp@0.35.5(@types/node@26.6.5))
       react:
         specifier: 19.2.9
         version: 19.2.9
       sharp:
-        specifier: 0.34.5
-        version: 0.34.5
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@26.6.5)
       tldts:
         specifier: 7.4.18
         version: 7.4.18
       zod:
-        specifier: ~4.3.6
-        version: 4.3.6
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@testing-library/dom':
         specifier: ^10.4.2
@@ -918,8 +918,8 @@ importers:
         specifier: ^4.18.1
         version: 4.18.1
       markdown-to-jsx:
-        specifier: ~9.6.1
-        version: 9.6.1(react@19.2.9)
+        specifier: ~9.10.3
+        version: 9.10.3(react@19.2.9)
       mdast-util-to-markdown:
         specifier: ^2.2.0
         version: 2.2.0
@@ -945,14 +945,14 @@ importers:
         specifier: ^1.0.0
         version: link:../common
       sharp:
-        specifier: 0.34.5
-        version: 0.34.5
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@25.9.9)
       simple-git:
-        specifier: ~3.33.0
-        version: 3.33.0
+        specifier: ^3.36.0
+        version: 3.36.0
       zod:
-        specifier: ~4.3.6
-        version: 4.3.6
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@axe-core/playwright':
         specifier: ^4.14.0
@@ -1066,8 +1066,8 @@ importers:
         specifier: ^4.18.1
         version: 4.18.1
       markdown-to-jsx:
-        specifier: ~9.6.1
-        version: 9.6.1(react@19.2.9)
+        specifier: ~9.10.3
+        version: 9.10.3(react@19.2.9)
       netlify-cli:
         specifier: ^23.15.1
         version: 23.15.1(@parcel/watcher@2.6.0)(@types/node@25.9.9)(picomatch@4.0.7)(rollup@4.64.7)
@@ -1084,11 +1084,11 @@ importers:
         specifier: ^1.0.0
         version: link:../common
       sharp:
-        specifier: 0.34.5
-        version: 0.34.5
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@25.9.9)
       zod:
-        specifier: ~4.3.6
-        version: 4.3.6
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@types/bcrypt':
         specifier: ^6.0.0
@@ -1163,8 +1163,8 @@ importers:
         specifier: 19.2.9
         version: 19.2.9(react@19.2.9)
       zod:
-        specifier: ~4.3.6
-        version: 4.3.6
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@playwright/test':
         specifier: ^1.50.0
@@ -1191,8 +1191,8 @@ importers:
         specifier: ^8.5.30
         version: 8.5.30
       simple-git:
-        specifier: ~3.33.0
-        version: 3.33.0
+        specifier: ^3.36.0
+        version: 3.36.0
       tailwindcss:
         specifier: ^4.1.18
         version: 4.1.18
@@ -4264,6 +4264,12 @@ packages:
 
   '@sec-ant/readable-stream@0.4.1':
     resolution: {integrity: sha512-831qok9r2t8AlxLko40y2ebgSDhenenCatLVeW/uBtnHPyhHOvG0C7TvfgecV+wHzIm5KUICgzmVpWS+IMEAeg==}
+
+  '@simple-git/args-pathspec@1.0.4':
+    resolution: {integrity: sha512-EtMX6XjRWSastG2SdkmSQByPtJ9dx/NIjnHbpQPCYt62j4RmSx5rgLTGpw0YCjF5h191gZOmBfheOT23cRSFdw==}
+
+  '@simple-git/argv-parser@1.1.1':
+    resolution: {integrity: sha512-Q9lBcfQ+VQCpQqGJFHe5yooOS5hGdLFFbJ5R+R5aDsnkPCahtn1hSkMcORX65J2Z5lxSkD0lQorMsncuBQxYUw==}
 
   '@sinclair/typebox@0.34.52':
     resolution: {integrity: sha512-XiMQh7qqVlxZzcVD+kkGMNGMzcTrDMLWI7S4x7z1MkCkbDPrekpZXEUK0eZqZFMuHQg2a2DZOcDIh9o5v3Gonw==}
@@ -7930,8 +7936,8 @@ packages:
     resolution: {integrity: sha512-K6K2NgKnTXimT3779/4KxSvobxOtMmx1LBZ3NwRxT/MDIR3Br/fQ4Q+WCX5QxjyUR8zg5+RV9Tbf2c5pAWTD2A==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
 
-  markdown-to-jsx@9.6.1:
-    resolution: {integrity: sha512-FLZPygHQzEGNUwIJ3Egdf3Lzm5M4ebswji8aMfM5tAq1vxkSw31a7OBmYXA3tg264PPyJw5UMDHw1fU+wFaQ9Q==}
+  markdown-to-jsx@9.10.3:
+    resolution: {integrity: sha512-J5/NCmNYQ0ExsnThzvF3F1fSzNYLgROcW2diUqRqoIoiyhoy8DSI06jLuMYk0c86SQd/FiVYJrV6tIgci9S2tQ==}
     engines: {node: '>= 18'}
     peerDependencies:
       react: '>= 16.0.0'
@@ -9262,8 +9268,8 @@ packages:
     resolution: {integrity: sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw==}
     engines: {node: '>=14'}
 
-  simple-git@3.33.0:
-    resolution: {integrity: sha512-D4V/tGC2sjsoNhoMybKyGoE+v8A60hRawKQ1iFRA1zwuDgGZCBJ4ByOzZ5J8joBbi4Oam0qiPH+GhzmSBwbJng==}
+  simple-git@3.36.0:
+    resolution: {integrity: sha512-cGQjLjK8bxJw4QuYT7gxHw3/IouVESbhahSsHrX97MzCL1gu2u7oy38W6L2ZIGECEfIBG4BabsWDPjBxJENv9Q==}
 
   sirv@3.0.2:
     resolution: {integrity: sha512-2wcC/oGxHis/BoHkkPwldgiPSYcpZK3JU28WoMVv55yHJgcZ8rlXvuG9iZggz+sU1d4bRgIGASwyWqjxu3FM0g==}
@@ -10415,8 +10421,8 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
-  zod@4.3.6:
-    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
+  zod@4.6.7:
+    resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
@@ -11872,7 +11878,7 @@ snapshots:
       https-proxy-agent: 7.0.6(supports-color@10.2.2)
       node-fetch: 2.7.0
       nopt: 8.1.0
-      semver: 7.7.2
+      semver: 7.8.5
       tar: 7.5.22
     transitivePeerDependencies:
       - encoding
@@ -11886,16 +11892,16 @@ snapshots:
       eventsource-parser: 3.1.1
       jose: 6.2.12
       pkce-challenge: 5.0.1
-      zod: 4.3.6
+      zod: 4.6.7
 
   '@modelcontextprotocol/core@2.3.1':
     dependencies:
-      zod: 4.3.6
+      zod: 4.6.7
 
   '@modelcontextprotocol/server@2.3.1':
     dependencies:
       '@modelcontextprotocol/core': 2.3.1
-      zod: 4.3.6
+      zod: 4.6.7
 
   '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4':
     optional: true
@@ -11997,7 +12003,7 @@ snapshots:
       find-up: 7.0.0
       minimatch: 9.0.9
       read-pkg: 9.0.1
-      semver: 7.7.2
+      semver: 7.8.5
       yaml: 2.9.1
       yargs: 17.7.3
 
@@ -12045,7 +12051,7 @@ snapshots:
       resolve: 2.0.0-next.7
       rfdc: 1.4.1
       safe-json-stringify: 1.2.0
-      semver: 7.7.2
+      semver: 7.8.5
       string-width: 7.2.0
       supports-color: 10.2.2
       terminal-link: 4.0.0
@@ -12102,7 +12108,7 @@ snapshots:
       validate-npm-package-name: 5.0.1
       yaml: 2.9.1
       yargs: 17.7.3
-      zod: 4.3.6
+      zod: 4.6.7
 
   '@netlify/dev-utils@4.3.0':
     dependencies:
@@ -12117,7 +12123,7 @@ snapshots:
       image-size: 2.0.4
       js-image-generator: 1.0.4
       parse-gitignore: 2.0.0
-      semver: 7.7.2
+      semver: 7.8.5
       tmp-promise: 3.0.3
       uuid: 11.1.1
       write-file-atomic: 5.0.1
@@ -12135,7 +12141,7 @@ snapshots:
       image-size: 2.0.4
       js-image-generator: 1.0.4
       parse-gitignore: 2.0.0
-      semver: 7.7.2
+      semver: 7.8.5
       tmp-promise: 3.0.3
       uuid: 13.0.0
       write-file-atomic: 5.0.1
@@ -12152,7 +12158,7 @@ snapshots:
       empathic: 2.1.0
       env-paths: 3.0.0
       parse-gitignore: 2.0.0
-      semver: 7.7.2
+      semver: 7.8.5
 
   '@netlify/edge-bundler@14.9.5':
     dependencies:
@@ -12171,7 +12177,7 @@ snapshots:
       p-wait-for: 5.0.2
       parse-imports: 2.2.1
       path-key: 4.0.0
-      semver: 7.7.2
+      semver: 7.8.5
       tar: 7.5.22
       tmp-promise: 3.0.3
       urlpattern-polyfill: 8.0.2
@@ -12361,7 +12367,7 @@ snapshots:
       precinct: 12.3.2(supports-color@10.2.2)
       require-package-name: 2.0.1
       resolve: 2.0.0-next.7
-      semver: 7.7.2
+      semver: 7.8.5
       tmp-promise: 3.0.3
       toml: 3.0.0
       unixify: 1.0.0
@@ -12403,7 +12409,7 @@ snapshots:
       precinct: 12.3.2(supports-color@10.2.2)
       require-package-name: 2.0.1
       resolve: 2.0.0-next.7
-      semver: 7.7.2
+      semver: 7.8.5
       tmp-promise: 3.0.3
       toml: 3.0.0
       unixify: 1.0.0
@@ -13469,6 +13475,12 @@ snapshots:
   '@rtsao/scc@1.1.0': {}
 
   '@sec-ant/readable-stream@0.4.1': {}
+
+  '@simple-git/args-pathspec@1.0.4': {}
+
+  '@simple-git/argv-parser@1.1.1':
+    dependencies:
+      '@simple-git/args-pathspec': 1.0.4
 
   '@sinclair/typebox@0.34.52': {}
 
@@ -15841,8 +15853,8 @@ snapshots:
       '@babel/parser': 7.29.9
       eslint: 9.39.5(jiti@2.7.0)
       hermes-parser: 0.25.1
-      zod: 4.3.6
-      zod-validation-error: 4.0.2(zod@4.3.6)
+      zod: 4.6.7
+      zod-validation-error: 4.0.2(zod@4.6.7)
     transitivePeerDependencies:
       - supports-color
 
@@ -16153,7 +16165,7 @@ snapshots:
       process-warning: 5.1.1
       rfdc: 1.4.1
       secure-json-parse: 4.1.1
-      semver: 7.7.2
+      semver: 7.8.5
       toad-cache: 3.7.4
 
   fastq@1.20.3:
@@ -16400,7 +16412,7 @@ snapshots:
     dependencies:
       '@xhmikosr/downloader': 13.0.1
       node-fetch: 3.3.2
-      semver: 7.7.2
+      semver: 7.8.5
     transitivePeerDependencies:
       - bare-abort-controller
       - bare-buffer
@@ -17592,7 +17604,7 @@ snapshots:
       lodash.isstring: 4.0.1
       lodash.once: 4.1.1
       ms: 2.1.3
-      semver: 7.7.2
+      semver: 7.8.5
 
   jsx-ast-utils@3.3.5:
     dependencies:
@@ -17890,13 +17902,13 @@ snapshots:
 
   make-dir@4.0.0:
     dependencies:
-      semver: 7.7.2
+      semver: 7.8.5
 
   make-error@1.3.6: {}
 
   map-obj@5.0.2: {}
 
-  markdown-to-jsx@9.6.1(react@19.2.9):
+  markdown-to-jsx@9.10.3(react@19.2.9):
     optionalDependencies:
       react: 19.2.9
 
@@ -18428,19 +18440,19 @@ snapshots:
   normalize-package-data@6.0.2:
     dependencies:
       hosted-git-info: 7.0.2
-      semver: 7.7.2
+      semver: 7.8.5
       validate-npm-package-license: 3.0.4
 
   normalize-package-data@7.0.1:
     dependencies:
       hosted-git-info: 8.1.0
-      semver: 7.7.2
+      semver: 7.8.5
       validate-npm-package-license: 3.0.4
 
   normalize-package-data@8.0.0:
     dependencies:
       hosted-git-info: 9.0.3
-      semver: 7.7.2
+      semver: 7.8.5
       validate-npm-package-license: 3.0.4
 
   normalize-path@2.1.1:
@@ -18669,7 +18681,7 @@ snapshots:
       ky: 1.14.3
       registry-auth-token: 5.1.1
       registry-url: 6.0.1
-      semver: 7.7.2
+      semver: 7.8.5
 
   parallel-transform@1.2.0:
     dependencies:
@@ -18787,9 +18799,13 @@ snapshots:
     dependencies:
       find-up: 4.1.0
 
-  plaiceholder@3.0.0(sharp@0.34.5):
+  plaiceholder@3.0.0(sharp@0.35.5(@types/node@25.9.9)):
     dependencies:
-      sharp: 0.34.5
+      sharp: 0.35.5(@types/node@25.9.9)
+
+  plaiceholder@3.0.0(sharp@0.35.5(@types/node@26.6.5)):
+    dependencies:
+      sharp: 0.35.5(@types/node@26.6.5)
 
   player.style@0.3.5(react@19.2.9):
     dependencies:
@@ -19480,7 +19496,6 @@ snapshots:
       '@img/sharp-win32-ia32': 0.35.5
       '@img/sharp-win32-x64': 0.35.5
       '@types/node': 25.9.9
-    optional: true
 
   sharp@0.35.5(@types/node@26.6.5):
     dependencies:
@@ -19514,7 +19529,6 @@ snapshots:
       '@img/sharp-win32-ia32': 0.35.5
       '@img/sharp-win32-x64': 0.35.5
       '@types/node': 26.6.5
-    optional: true
 
   shebang-command@2.0.0:
     dependencies:
@@ -19556,10 +19570,12 @@ snapshots:
 
   signal-exit@4.1.0: {}
 
-  simple-git@3.33.0:
+  simple-git@3.36.0:
     dependencies:
       '@kwsites/file-exists': 1.1.1
       '@kwsites/promise-deferred': 1.1.1
+      '@simple-git/args-pathspec': 1.0.4
+      '@simple-git/argv-parser': 1.1.1
       debug: 4.4.3(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
@@ -20304,7 +20320,7 @@ snapshots:
       is-npm: 6.1.0
       latest-version: 9.0.0
       pupa: 3.3.0
-      semver: 7.7.2
+      semver: 7.8.5
       xdg-basedir: 5.1.0
 
   uqr@0.1.3: {}
@@ -20671,12 +20687,12 @@ snapshots:
       compress-commons: 6.0.2
       readable-stream: 4.8.0
 
-  zod-validation-error@4.0.2(zod@4.3.6):
+  zod-validation-error@4.0.2(zod@4.6.7):
     dependencies:
-      zod: 4.3.6
+      zod: 4.6.7
 
   zod@3.25.76: {}
 
-  zod@4.3.6: {}
+  zod@4.6.7: {}
 
   zwitch@2.0.4: {}

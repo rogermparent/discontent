@@ -73,6 +73,14 @@ describe("flattenMarkdown", () => {
     ).toBe("1/2 cup sugar 3 eggs");
   });
 
+  it("keeps punctuation that starts a list item's line against its quantity (41c)", () => {
+    expect(
+      flattenMarkdown(
+        '- <Multiplyable baseNumber="2" />% milk\n- <Multiplyable baseNumber="3" />, then more',
+      ),
+    ).toBe("2% milk 3, then more");
+  });
+
   it("is empty for empty input", () => {
     expect(flattenMarkdown("")).toBe("");
   });
