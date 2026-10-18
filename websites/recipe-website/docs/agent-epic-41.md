@@ -1018,6 +1018,163 @@ Prediction from the diff: no screenshot moves. The run below agrees.
   new default (`-apple-system, …, Roboto, …, Arial`)? Accepting it changes
   the resume pages' text face on Linux and Windows.
 
+### 41d2 — Playwright 1.64
+
+Branch `agent/41d2-pw`. Playwright 1.59.1 → **1.64.1** (Chromium 147 →
+156). No app code changed. **Reindex needed: no. Deploy: no**: Playwright
+is a dev dependency and isn't in the editor image.
+
+| Where                                                                                          | Old → new                         |
+| ---------------------------------------------------------------------------------------------- | --------------------------------- |
+| `@playwright/test`: recipe editor, portfolio editor, cms demo                                  | `^1.59.1` → `^1.64.1`             |
+| `@playwright/test`: resume-builder                                                             | `^1.50.0` → `^1.64.1`             |
+| `.github/workflows/playwright.yml`: Recipe shards, Portfolio, Resume builder, the demo's cells | `v1.59.1-noble` → `v1.64.1-noble` |
+| `Dockerfile.playwright` `FROM`                                                                 | `v1.59.1-noble` → `v1.64.1-noble` |
+
+`@axe-core/playwright` stays at 4.14.0. It is the newest release, and its
+peer range is `playwright-core >= 1.0.0`. **Lockfile:** only `playwright`,
+`playwright-core` and `@playwright/test` move. Playwright's optional
+`fsevents@2.3.2` drops out, and its `engines` now says node ≥ 20. The
+image runs Node 24.21. `scripts/check-playwright-image.sh` passes from all
+four suite directories. Read as code, it is sound for version drift. It
+drops the distro suffix before comparing, so a `-noble`/`-jammy` split
+between jobs would pass. That gap is noted, not fixed.
+
+**Why 1.64.1 and not 1.64.0.** 1.64.1 fixes #43242: Chromium 155+ aborted
+a preflighted cross-origin redirect whenever any route was registered.
+
+**Release notes 1.60–1.64, each item grepped across the four suites.**
+None of these needed a change:
+
+- 1.60 removed `Locator.ariaRef()`, `exposeBinding`'s `handle`, the
+  connect `logger`, and `videosPath`/`videoSize`. 1.60 also made the
+  runner reject a config that overrides a non-option fixture, and
+  `workers: 0`. None of these is used: our `test.use` calls set
+  `viewport` and `javaScriptEnabled`, both options.
+- 1.60 deprecated `ConsoleMessage.location()`'s
+  `lineNumber`/`columnNumber`. Not used.
+- 1.62 fixed its own fatal tsconfig `extends` regressions in 1.62.1.
+- 1.63 recommends `locator.visible()` over `:visible`. Not used.
+- 1.64 now passes the device descriptor's `screen` to the page
+  (Desktop Chrome 1920×1080, Pixel 5 393×851). Nothing reads
+  `window.screen` or a `device-*` media query.
+- 1.64 compiles JSX in test files per tsconfig. We have no `.tsx` specs.
+- 1.64 makes `--update-snapshots=missing` pass the run. Nothing uses
+  `missing`.
+- 1.64 treats elements inside a hidden iframe as hidden.
+  `youtube-video.spec` only reads attributes of the iframe itself.
+- 1.64 deprecates the screencast `fontSize`. Not used.
+
+Every config loads (`playwright test --list`), and no run log below
+contains "deprecat".
+
+**Baselines.** I regenerated all of them with `--update-snapshots=all`
+in the 1.64.1 image (Dockerfile.playwright, production mode), in their
+own commit. Before that, a no-update run of the 12 recipe screenshot specs
+in the new image passed 140/140, and portfolio's `visual` passed 11/11.
+So no baseline failed in the new image.
+
+| Spec (recipe)        | Baselines | Bytes changed | Moved by Chromium |
+| -------------------- | --------- | ------------- | ----------------- |
+| `visual`             | 23        | 21            | 4 (see below)     |
+| `command-palette`    | 7         | 5             | 0                 |
+| `empty-state`        | 4         | 4             | 0                 |
+| `mobile`             | 3         | 2             | 0                 |
+| `drinks`             | 2         | 2             | 0                 |
+| 7 one-baseline specs | 7         | 7             | 0                 |
+| **recipe total**     | **46**    | **41**        | **4**             |
+| `visual` (portfolio) | 11        | 11            | 2                 |
+
+The seven one-baseline specs are `footer`, `header`, `ingredient-preview`,
+`menus`, `paste-replace`, `recipe` and `yield`. The cms demo and
+resume-builder have no baselines.
+
+The "Moved by Chromium" column comes from a **control** (Tp2): I ran the
+same `--update-snapshots=all` commands on `origin/main` in the 1.59.1
+image and diffed its output against the 1.64.1 output pixel by pixel.
+
+- In 1.64.1, Chromium moves only these:
+  - The edit form's, the edit-form-overwrite view's and the
+    markdown-source view's downscaled "Recipe 6" preview image. That is
+    0.3 % of each page, with the image resampled slightly smoother.
+  - 5 px on the git page.
+  - Portfolio's textarea resize grip, 1 px over, on `project-form` and
+    `settings`.
+- Every other byte change is a baseline that was already out of date. I
+  diffed each committed baseline against the control on today's code:
+  41 of 46 recipe baselines and all 11 portfolio baselines differ. The
+  pages had moved on, but the 2 % tolerance kept passing them (Tp1).
+  Examples: `bookmarks-empty` still showed July's "My Bookmarks" page,
+  with the old masthead and Next's dev badge. `page-view-signed-in` had
+  the old nav. The new files show today's pages.
+- The three Make images 41h added (`make-page`, `make-page-specs`,
+  `make-mobile`) are byte-identical in the 1.64.1 image. They were made
+  hours earlier in 1.59.1 on the same code.
+
+**Sample review, by eye** (Read tool): at least one per spec file, plus
+the largest diffs. Checked:
+
+- the three Make images;
+- `bookmarks-empty` and `page-view-signed-in`, old against new;
+- `homepage-three-recipes`, with a diff overlay and an 8× crop of the
+  footer;
+- `drinks-page`;
+- `edit-form-populated`, plus the "Recipe 6" crops against the control;
+- every mobile image side by side;
+- a contact sheet of the masthead, about-link header, ingredient preview,
+  paste-replace, yield, query chips, reveal control, autocomplete and
+  palette-recents;
+- portfolio's palette and masthead, old against new, and the
+  resize-grip crop.
+
+Findings:
+
+- **Nothing changed beyond antialiasing or resampling** between the
+  1.59.1 and 1.64.1 runs.
+- **Portfolio's palette now highlights "Work".** July's baseline
+  highlighted "Content Engine". The 1.59.1 control shows "Work" too, so
+  this is the spec's selection timing (Tp3), not Chromium.
+- **The mobile tab bar sits mid-page** in full-page mobile shots. That is
+  how a full-page capture treats a fixed element, and it is the same in
+  the control.
+
+**Decisions.**
+
+- **Dp1 — `--update-snapshots=all`, not `changed`.** D4 says "every
+  baseline regenerated", and `changed` would have rewritten none of them,
+  because nothing failed in the new image. `all` also resets the
+  sub-tolerance staleness (Tp1). The baselines are production-mode
+  renders, as the contract asks. CI's dev-mode jobs compare against them
+  (gate below).
+- **Dp2 — 1.64.1 for all four suites.** That includes resume-builder,
+  which was the only `^1.50.0` left. It had already resolved 1.59.1
+  through the lockfile.
+
+**Gates** (local, every heavy step through the slot; Playwright in CI's
+image through `docker-pw.sh`):
+
+- Typecheck:
+  - `pnpm --filter recipe-editor typecheck`: clean.
+  - `pnpm --filter recipe-website exec tsc --noEmit`: clean.
+  - `tsc --noEmit` in the portfolio editor, the cms demo and
+    resume-builder: clean.
+- vitest: not run. No source or test file changed, only manifests, the
+  lockfile, CI, the Dockerfile, baselines and docs.
+- Recipe, full suite, build mode, `e2e` + `mobile`: **771 passed** in
+  18.9 min. Nothing flaky, no 137.
+- Recipe, the 12 screenshot specs in **dev mode** (CI's mode) against the
+  new production-made baselines: **140 passed**. This ran after merging
+  41i's main.
+- Portfolio, full `e2e` suite, dev mode (CI's Portfolio job): **89
+  passed**.
+- cms demo, full `e2e` suite, build mode: **109 passed**.
+- Resume-builder's suite: not run locally. The image leaves
+  `websites/resume-builder` out (`.dockerignore`), so the PR's "Resume
+  builder" job is that gate. The bump touches its `package.json`, which
+  triggers the job.
+- Main-checkout-shaped build: not run. Playwright isn't in Next's build
+  graph. 41b's CI job covers it anyway.
+
 ### 41f — Accessibility follow-through
 
 Branch `agent/41f-a11y`. **Reindex needed: no. Deploy: yes, for the look**
