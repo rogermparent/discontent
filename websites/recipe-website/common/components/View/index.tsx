@@ -98,43 +98,48 @@ export async function RecipeView({
           />
           <div className="w-full h-full p-2 print:p-0 grow flex flex-col flex-nowrap">
             <div className="container mx-auto lg:flex lg:flex-row justify-center print:w-full print:max-w-full">
-              <div className="aspect-[16/10] w-full lg:aspect-auto lg:h-96 lg:max-w-96 lg:mr-4 print:hidden relative">
-                {recipeImageProps ? (
-                  <img {...recipeImageProps.props} alt={`Photo of ${name}`} />
-                ) : (
-                  image &&
-                  !video && (
-                    /* Named, but not on this editor (D10): not copied here
+              {/* 42c1: no frame at all for a recipe with neither a photo nor
+                  a video — it was an empty 16:10 (phone) or 24rem (desktop)
+                  block above the recipe. */}
+              {(image || video) && (
+                <div className="aspect-[16/10] w-full lg:aspect-auto lg:h-96 lg:max-w-96 lg:mr-4 print:hidden relative">
+                  {recipeImageProps ? (
+                    <img {...recipeImageProps.props} alt={`Photo of ${name}`} />
+                  ) : (
+                    image &&
+                    !video && (
+                      /* Named, but not on this editor (D10): not copied here
                        yet, or dropped. A monogram, not an empty frame. */
-                    <div
-                      className="absolute inset-0 overflow-hidden rounded-md"
-                      data-testid="recipe-image-missing"
-                    >
-                      <RecipeCardPlaceholder name={name} />
-                    </div>
-                  )
-                )}
-                {video && (
-                  <VideoPlayer
-                    src={resolveRecipeVideoSrc(slug, video)}
-                    className="object-cover absolute w-full h-full inset-0"
-                    /* A recipe from a several-recipe video starts at its
+                      <div
+                        className="absolute inset-0 overflow-hidden rounded-md"
+                        data-testid="recipe-image-missing"
+                      >
+                        <RecipeCardPlaceholder name={name} />
+                      </div>
+                    )
+                  )}
+                  {video && (
+                    <VideoPlayer
+                      src={resolveRecipeVideoSrc(slug, video)}
+                      className="object-cover absolute w-full h-full inset-0"
+                      /* A recipe from a several-recipe video starts at its
                        chapter (36e): YouTube's `t=` is not read by the
                        embed, its `start` player parameter is; Vimeo's
                        `#t=` is not read either, so the player seeks
                        there (38c). */
-                    {...(videoStartSeconds(video) === undefined
-                      ? {}
-                      : isYouTubeUrl(video)
-                        ? {
-                            config: {
-                              youtube: { start: videoStartSeconds(video) },
-                            },
-                          }
-                        : { start: videoStartSeconds(video) })}
-                  />
-                )}
-              </div>
+                      {...(videoStartSeconds(video) === undefined
+                        ? {}
+                        : isYouTubeUrl(video)
+                          ? {
+                              config: {
+                                youtube: { start: videoStartSeconds(video) },
+                              },
+                            }
+                          : { start: videoStartSeconds(video) })}
+                    />
+                  )}
+                </div>
+              )}
               <div className="flex-1 max-w-xl mx-auto lg:mx-0 print:max-w-full">
                 <div className="flex flex-row items-start justify-between mt-4 mb-6">
                   <h1 className="text-3xl font-bold mr-4">{name}</h1>
