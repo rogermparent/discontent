@@ -353,8 +353,23 @@ function CombineBar({
     <div
       className="flex flex-wrap items-center gap-2"
       data-testid="tag-combine"
-      aria-live="polite"
     >
+      {/*
+       * The live count only (43t review): a polite region over the whole bar
+       * re-read every token and button on each change. It stays mounted so
+       * the first count after the second pick is announced.
+       */}
+      <span
+        className="sr-only"
+        aria-live="polite"
+        data-testid="tag-combine-status"
+      >
+        {combined.length > 0 && count !== undefined
+          ? `${plural(count, "recipe")} with ${combined
+              .map((slug) => names.get(slug)?.label ?? slug)
+              .join(" + ")}`
+          : ""}
+      </span>
       <span className="mr-1 font-mono text-xs font-medium tracking-[0.08em] text-muted-foreground uppercase">
         Combine
       </span>

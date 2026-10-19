@@ -14,6 +14,8 @@ import {
   type OtherTag,
 } from "../util/facets";
 import { HOLIDAYS_ROOT } from "../util/holidays";
+import { FACET_ROOT_ORDER } from "./homepageFacets";
+import { quoteQueryValue } from "../components/SearchForm/queryLanguage";
 import { tagSlug } from "./tagSlug";
 import type { RecipeListEntry } from "./paginationConfigs";
 
@@ -322,6 +324,37 @@ function fold(text: string): string {
 // --- term pages ------------------------------------------------------------
 
 /**
+ * The tag string `tag:` should name for `slug`: a carrier's own spelling,
+ * not the slug or the label. `tag:` matches tag strings by word prefix, so
+ * the slug `slow-cooker` misses "slow cooker" on a tag with no record, and a
+ * record's label "Drinks" misses `drink`. The slug is the fallback, and
+ * right whenever the two coincide.
+ */
+export function tagSpelling(
+  slug: string,
+  rows: ReadonlyArray<{ tags?: readonly string[] }>,
+): string {
+  for (const row of rows) {
+    const found = row.tags?.find((tag) => tagSlug(tag) === slug);
+    if (found) return found;
+  }
+  return slug;
+}
+
+/**
+ * `tag:<a> tag:<b>` with each slug spelled as its carriers spell it
+ * (`tagSpelling`) — the term page's "See all N" once chips are pressed.
+ */
+export function spelledTagQuery(
+  slugs: readonly string[],
+  rows: ReadonlyArray<{ tags?: readonly string[] }>,
+): string {
+  return [...new Set(slugs)]
+    .map((slug) => `tag:${quoteQueryValue(tagSpelling(slug, rows))}`)
+    .join(" ");
+}
+
+/**
  * How many of a term's subtree rows a term page sends to the browser for
  * "Narrow X" to filter in place (43t, Dt3). Measured on the real corpus
  * (2026-10-19): Christmas 41 rows = 8.1 KB of JSON (2.0 KB gzipped), Desserts
@@ -385,6 +418,28 @@ export interface RootSection {
   children: Array<{ slug: string; label: string; count: number }>;
 }
 
+/**
+ * The terms whose page is a root page (43t review): the facet roots —
+ * Course, Main ingredient, Cuisine, Speed & effort, Holidays, Drinks and
+ * Spirit & base (`FACET_ROOT_ORDER`). Every other term with narrower terms —
+ * a collection (Syrups › Lavender, Fall Favorites) or a `dessert` with
+ * children — is a normal term page whose "Narrow X" chips lead with them.
+ */
+export const ROOT_PAGE_SLUGS: ReadonlySet<string> = new Set(FACET_ROOT_ORDER);
+
+/** Does this term get the root layout: a facet root, no parent, narrower terms? */
+export function isRootPage(term: {
+  slug: string;
+  breadcrumb: ReadonlyArray<unknown>;
+  children: ReadonlyArray<unknown>;
+}): boolean {
+  return (
+    ROOT_PAGE_SLUGS.has(term.slug) &&
+    term.breadcrumb.length <= 1 &&
+    term.children.length > 0
+  );
+}
+
 /** How many narrower terms get a photo row before "And N more". */
 export const ROOT_PHOTO_SECTIONS = 7;
 /** Photos per row. */
@@ -394,17 +449,22 @@ export const ROOT_SECTION_PHOTOS = 3;
  * A root page (43t, `/tags/course`): one section per narrower term, biggest
  * first, from the subtree's rows (`rows`, pinned first then newest — what
  * `termPageData` merged). The first `photos` get three photos each; the
- * rest are dot-leader lines.
+ * rest are dot-leader lines. `only` are the rows that carry the root
+ * itself and none of its narrower terms, which no section would show.
  */
 export function rootSections(
   model: FacetModel,
   slug: string,
   rows: ReadonlyArray<RecipeListEntry>,
   photos: number = ROOT_PHOTO_SECTIONS,
-): { sections: RootSection[]; more: RootSection[] } {
+): {
+  sections: RootSection[];
+  more: RootSection[];
+  only: RecipeListEntry[];
+} {
   const counts = countFacets(model, rows);
-  const children = model
-    .children(slug)
+  const narrower = model.children(slug);
+  const children = narrower
     .map((child) => ({
       slug: child,
       label: model.terms.get(child)?.label ?? child,
@@ -438,6 +498,10 @@ export function rootSections(
   return {
     sections: sections.slice(0, photos),
     more: sections.slice(photos),
+    /* Tagged with the root itself (or an alias) and nothing under it. */
+    only: rows.filter(
+      (row) => !narrower.some((child) => carriesTerm(model, row.tags, child)),
+    ),
   };
 }
 

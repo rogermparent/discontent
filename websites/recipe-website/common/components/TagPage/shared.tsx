@@ -8,10 +8,12 @@ import type { TermPageData } from "../../controller/tagVocabulary";
 import type { RecipeListEntry } from "../../controller/paginationConfigs";
 import {
   TERM_NARROW_ROW_LIMIT,
+  isRootPage,
   otherTags,
   pageTagSlugs,
   plural,
   rootSections,
+  spelledTagQuery,
   type RootSection,
   type TagBoardData,
 } from "../../controller/tagBoardPage";
@@ -24,7 +26,6 @@ import {
   localDay,
 } from "../../util/holidays";
 import { EmptyState } from "../EmptyState";
-import { quoteQueryValue } from "../SearchForm/queryLanguage";
 import { GroupThumbnail } from "../GroupThumbnail";
 import RecipeList from "../List";
 import { RecipeCardPlaceholder } from "../List/shared";
@@ -48,19 +49,11 @@ import { TermRecipes } from "./TermRecipes";
 
 /**
  * This term as an encoded `tag:` query — for `/make` scoped to it (25c) and
- * for `/search`'s full list past the page's cap (34a).
- *
- * The `tag:` value is a carrier's own tag string, not the slug or the label:
- * `tag:` matches tag strings by word prefix, so the slug `slow-cooker` misses
- * "slow cooker" and a record's label "Drinks" misses `drink`. The slug is the
- * fallback, and right whenever the two coincide.
+ * for `/search`'s full list past the page's cap (34a), spelled as its
+ * carriers spell it (`tagSpelling`).
  */
 function tagQuery(slug: string, recipes: RecipeListEntry[]): string {
-  const tag =
-    recipes
-      .flatMap((recipe) => recipe.tags ?? [])
-      .find((candidate) => tagSlug(candidate) === slug) ?? slug;
-  return encodeURIComponent(`tag:${quoteQueryValue(tag)}`);
+  return encodeURIComponent(spelledTagQuery([slug], recipes));
 }
 
 /** The server's calendar day, for a first render the browser then corrects. */
@@ -306,8 +299,9 @@ function lean(terms: FacetTerm[]): FacetTerm[] {
  * (24c): the heading with the editor's actions top right and the count
  * ticker, a holiday's "when" card (or the picture and What can I make), the
  * plans and the pin slot, then the recipes with "Narrow X" over them. A
- * root term with narrower terms (`/tags/course`) is a root page instead
- * (`RootTermBody`).
+ * facet root with narrower terms (`/tags/course`, `isRootPage`) is a root
+ * page instead (`RootTermBody`); any other term with narrower terms (a
+ * collection, `dessert`) narrows by them here.
  *
  * `terms` is the vocabulary (records), which the chips and the cards' tag
  * hints need; without it (a caller that has none) the page lists the
@@ -327,7 +321,7 @@ export function TermPageBody({
   signedIn?: boolean;
 }) {
   const ancestors = term.breadcrumb.slice(0, -1);
-  if (ancestors.length === 0 && term.children.length > 0) {
+  if (isRootPage(term)) {
     return <RootTermBody term={term} terms={terms} actions={actions} />;
   }
   const { slug, label, recipes } = term;
@@ -420,11 +414,17 @@ export function TermPageBody({
   );
 }
 
-/** Three photos of a narrower term's recipes, each to its page. */
-function SectionPhotos({ recipes }: { recipes: RecipeListEntry[] }) {
+/** Photos of recipes, each to its page (three per narrower term). */
+function SectionPhotos({
+  recipes,
+  className,
+}: {
+  recipes: RecipeListEntry[];
+  className?: string;
+}) {
   if (recipes.length === 0) return null;
   return (
-    <ul className="m-0 grid list-none grid-cols-3 gap-2 p-0">
+    <ul className={cn("m-0 grid list-none grid-cols-3 gap-2 p-0", className)}>
       {recipes.map((recipe) => (
         <li key={recipe.slug}>
           <Link
@@ -500,6 +500,39 @@ function RootSectionRow({ section }: { section: RootSection }) {
   );
 }
 
+/**
+ * "Only Holidays 3" — the recipes tagged with the root itself and nothing
+ * under it, which no narrower term's section shows (43t review).
+ */
+function OnlyRootSection({
+  label,
+  rows,
+}: {
+  label: string;
+  rows: RecipeListEntry[];
+}) {
+  return (
+    <section
+      aria-labelledby="root-only"
+      className="flex min-w-0 flex-col gap-2.5 border-b border-border py-3.5"
+      data-testid="root-only"
+    >
+      <h2
+        id="root-only"
+        className="m-0 flex min-h-8 items-center justify-between gap-2"
+      >
+        <span className="font-display text-lg leading-6 font-semibold tracking-[-0.015em]">
+          Only {label}
+        </span>
+        <span className="font-mono text-[0.8125rem] font-normal text-muted-foreground">
+          {rows.length}
+        </span>
+      </h2>
+      <SectionPhotos recipes={rows} className="sm:grid-cols-4 lg:grid-cols-6" />
+    </section>
+  );
+}
+
 /** "Course" → "By course"; the root page's first view. */
 function byLabel(label: string): string {
   return `By ${label.charAt(0).toLowerCase()}${label.slice(1)}`;
@@ -529,15 +562,22 @@ export function RootTermBody({
         parent: term.slug,
       })),
   );
-  const { sections, more } = rootSections(model, term.slug, term.allRecipes);
-  /* Narrower terms nothing carries yet still have a line (a curator's). */
+  const { sections, more, only } = rootSections(
+    model,
+    term.slug,
+    term.allRecipes,
+  );
+  /*
+   * Narrower terms no recipe carries still have a line: a curator's (at 0),
+   * or one only plans carry — `child.count` counts the plans too.
+   */
   const listed = new Set([...sections, ...more].map((section) => section.slug));
   const empty = term.children
     .filter((child) => !listed.has(child.slug))
     .map((child) => ({
       slug: child.slug,
       label: child.label,
-      count: 0,
+      count: child.count,
       recipes: [],
       children: [],
     }));
@@ -561,6 +601,7 @@ export function RootTermBody({
           <RootSectionRow key={section.slug} section={section} />
         ))}
       </div>
+      {only.length > 0 && <OnlyRootSection label={term.label} rows={only} />}
       {rest.length > 0 && (
         <section aria-labelledby="root-more" className="pt-3.5">
           <h2

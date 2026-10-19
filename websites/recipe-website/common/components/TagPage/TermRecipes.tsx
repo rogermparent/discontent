@@ -10,8 +10,9 @@ import {
   otherTags,
   pageTagSlugs,
   plural,
+  spelledTagQuery,
 } from "../../controller/tagBoardPage";
-import { buildFacetModel, facetQuery, type FacetTerm } from "../../util/facets";
+import { buildFacetModel, type FacetTerm } from "../../util/facets";
 import { ClientListItem } from "../ClientList";
 import { RecipeCardPlaceholder, RecipeGrid } from "../List/shared";
 import { PureRecipeImage } from "../RecipeImage/PureRecipeImage";
@@ -101,7 +102,12 @@ export function TermRecipes({
     : [];
   const listed = selected.length > 0 ? filtered : (rows ?? []);
   const total = selected.length > 0 ? filtered.length : recipeCount;
-  const fullQuery = facetQuery([slug, ...selected]);
+  /*
+   * Spelled as the carriers spell each tag, the page's own first: a tag with
+   * no record (`slow-cooker`, carried as "slow cooker") is found by `tag:` only
+   * under its own spelling, as the unpressed "See all N" link already does.
+   */
+  const fullQuery = spelledTagQuery([slug, ...selected], rows ?? []);
 
   return (
     <>

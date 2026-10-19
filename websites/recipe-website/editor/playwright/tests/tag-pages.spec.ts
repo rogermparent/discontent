@@ -191,21 +191,23 @@ test.describe("Tag pages", () => {
       await expect(cards(page).nth(3)).toContainText("Gingerbread Cookies");
     });
 
-    /* A root with narrower terms is a root page (43t): one section each. */
+    /*
+     * Only a facet root is a root page (43t review): `dessert` here is a
+     * recorded root that is no facet, so it is a term page that links its
+     * narrower terms with counts.
+     */
     test("a parent lists its narrower terms with counts", async ({ page }) => {
       await page.goto("/tags/dessert");
-      const section = page.getByTestId("root-section");
-      await expect(section).toHaveCount(1);
-      const child = section
-        .getByRole("heading", { level: 2 })
-        .getByRole("link");
+      await expect(page.getByTestId("root-section")).toHaveCount(0);
+      const child = page
+        .getByTestId("term-children")
+        .getByRole("link", { name: /Cookies/ });
       await expect(child).toHaveAttribute("href", "/tags/cookies");
       expect((await child.innerText()).replace(/\s+/g, " ").trim()).toBe(
         "Cookies 8",
       );
-      await expect(page.getByTestId("term-count")).toHaveText(
-        "8 recipes · 1 narrower term",
-      );
+      await expect(cards(page)).toHaveCount(8);
+      await expect(page.getByTestId("term-count")).toHaveText("8 recipes");
     });
 
     /*

@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   carriesTerm,
   findTags,
+  isRootPage,
   narrowChips,
   otherTags,
   pageTagSlugs,
   rootSections,
+  spelledTagQuery,
   tagBoardData,
+  tagSpelling,
 } from "../websites/recipe-website/common/controller/tagBoardPage";
 import {
   buildFacetModel,
@@ -314,5 +317,58 @@ describe("term pages (43t)", () => {
     expect(more.map((section) => [section.slug, section.recipes])).toEqual([
       ["breakfast", []],
     ]);
+    /* Every row here carries a narrower term: nothing is "only Course". */
+    expect(rootSections(model, "course", rows).only).toEqual([]);
+  });
+
+  it("a root page keeps the recipes tagged with the root alone (Only Holidays)", () => {
+    const rows = [
+      { slug: "a", name: "A", date: 3, tags: ["christmas"] },
+      { slug: "b", name: "B", date: 2, tags: ["holidays", "easy"] },
+      { slug: "c", name: "C", date: 1, tags: ["Holidays", "halloween"] },
+    ];
+    const { sections, only } = rootSections(model, "holidays", rows);
+    expect(sections.map((section) => section.slug)).toEqual([
+      "christmas",
+      "halloween",
+    ]);
+    expect(only.map((row) => row.slug)).toEqual(["b"]);
+  });
+
+  it("only the facet roots get the root layout; a collection with narrower terms narrows", () => {
+    const one = [{}];
+    const page = (slug: string, depth = 1, children = one) => ({
+      slug,
+      breadcrumb: Array.from({ length: depth }, () => ({})),
+      children,
+    });
+    for (const slug of [
+      "course",
+      "main-ingredient",
+      "cuisine",
+      "effort",
+      "holidays",
+      "drink",
+      "spirit",
+    ]) {
+      expect(isRootPage(page(slug))).toBe(true);
+    }
+    expect(isRootPage(page("course", 1, []))).toBe(false);
+    expect(isRootPage(page("syrups"))).toBe(false);
+    expect(isRootPage(page("fall"))).toBe(false);
+    /* `dessert` has children but a parent: a term page with "Narrow". */
+    expect(isRootPage(page("dessert", 2))).toBe(false);
+  });
+
+  it("spells a tag as its carriers do, for `tag:` (See all after narrowing)", () => {
+    const rows = [
+      { tags: ["dinner", "slow cooker"] },
+      { tags: ["slow-cooker", "easy"] },
+    ];
+    expect(tagSpelling("slow-cooker", rows)).toBe("slow cooker");
+    expect(tagSpelling("missing", rows)).toBe("missing");
+    expect(spelledTagQuery(["slow-cooker", "easy", "easy"], rows)).toBe(
+      'tag:"slow cooker" tag:easy',
+    );
   });
 });

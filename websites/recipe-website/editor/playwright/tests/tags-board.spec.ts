@@ -138,6 +138,13 @@ test.describe("Tags board (43t)", () => {
     await expect(tokens.first()).toContainText("style");
     const show = page.getByTestId("tag-combine-show");
     await expect(show).toHaveText(/Show 2 recipes/, { timeout: 20_000 });
+    /* Only the count is live, not the whole bar (43t review). */
+    await expect(page.getByTestId("tag-combine-status")).toHaveText(
+      "2 recipes with Highball + Zero-proof",
+    );
+    await expect(page.getByTestId("tag-combine")).not.toHaveAttribute(
+      "aria-live",
+    );
     await expect(show).toHaveAttribute(
       "href",
       "/search?q=tag%3Ahighball%20tag%3Azero-proof",
@@ -261,6 +268,59 @@ test.describe("Tags board (43t)", () => {
     await newest.click();
     await expect(page.getByTestId("recipe-list")).toBeVisible();
     await expect(page.getByTestId("root-section").first()).toBeHidden();
+  });
+
+  /*
+   * 43t review: a recipe under a grandchild (Desserts › Pies) counts in
+   * Desserts' section, one tagged Course alone lands in "Only Course", and
+   * a feature of the root counts exactly as `/tags/course` does.
+   */
+  test("a root page counts grandchildren, keeps Only <Root>, and its feature agrees", async ({
+    page,
+    request,
+    createApiToken,
+  }) => {
+    const headers = { authorization: `Bearer ${await createApiToken()}` };
+    const pie = await request.post("/api/taxonomies/tag", {
+      headers,
+      data: { label: "Pies", slug: "pie", parent: "dessert" },
+    });
+    expect(pie.status()).toBe(201);
+    for (const data of [
+      { name: "Apple Pie", tags: ["pie"] },
+      { name: "Course Sampler", tags: ["course"] },
+    ]) {
+      const created = await request.post("/api/recipes", { headers, data });
+      expect(created.status()).toBe(201);
+    }
+    const featured = await request.post("/api/featured", {
+      headers,
+      data: { term: "course", slug: "feature-course" },
+    });
+    expect(featured.status()).toBe(201);
+
+    const sections = async () =>
+      (
+        await page
+          .getByTestId("root-section")
+          .getByRole("heading", { level: 2 })
+          .allInnerTexts()
+      ).map((text) => text.replace(/\s+/g, " ").trim());
+
+    await page.goto("/tags/course");
+    expect(await sections()).toEqual(["Desserts 2"]);
+    const only = page.getByTestId("root-only");
+    await expect(only.getByRole("heading", { level: 2 })).toHaveText(
+      /Only Course\s*1/,
+    );
+    await expect(only.getByRole("link")).toHaveAttribute(
+      "href",
+      "/recipe/course-sampler",
+    );
+
+    await page.goto("/featured-recipe/feature-course");
+    expect(await sections()).toEqual(["Desserts 2"]);
+    await expect(page.getByTestId("root-only")).toContainText("Course Sampler");
   });
 
   for (const mode of ["light", "dark"] as const) {

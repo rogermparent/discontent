@@ -43,15 +43,26 @@ import { TagIndexPage, TagPage } from "./shared";
 /**
  * `/tags` (43t, canvas B): the facet board — and beside it the Holidays,
  * whose pictures (the record's, else the newest recipe photo, else the
- * monogram: the almanac's rule, 42e) are rendered here on the server.
+ * monogram: the almanac's rule, 42e) are rendered here on the server, for
+ * the dated holidays only.
  */
 async function boardPage(actions?: ReactNode) {
   const [board, almanac] = await Promise.all([
     readTagBoardPage(),
     readHolidayAlmanac(),
   ]);
+  /*
+   * Only the dated holidays can reach the aside (Dt11), so only they get a
+   * picture. Which five show is the browser's day, not the server's — the
+   * export is built once and read for months — so every dated one is
+   * rendered (8 on the real corpus) and the aside picks.
+   */
+  const dated = new Set(
+    board.holidays.filter((holiday) => holiday.rule).map((h) => h.slug),
+  );
   const pictures: Record<string, ReactNode> = {};
   for (const entry of almanac ?? []) {
+    if (!dated.has(entry.slug)) continue;
     pictures[entry.slug] = (
       <TermPicture
         slug={entry.slug}
