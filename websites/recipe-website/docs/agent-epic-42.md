@@ -121,20 +121,20 @@ host, at most one retry after a 403). Nothing deleted, features untouched.
 
 ## Roadmap
 
-| Phase    | Size | Branch                  | Status | PR  | What                                                                                       |
-| -------- | ---- | ----------------------- | ------ | --- | ------------------------------------------------------------------------------------------ |
-| 42a      | S    | `agent/42a-followups`   | 🟡     | —   | Per-item saved-list editing on `/make`, outline borders, resume-builder font, house-list e2e. |
-| 42b      | S    | `agent/42b-tolerance`   | 🟡     | —   | Screenshot tolerance tightened (41-Tp1), proven 3× in dev and build mode.                  |
-| 42j      | —    | (canvases)              | 🟡     | —   | Design canvases for `/search`, `/tags` + a term page, the meal-plan page, the edit form.   |
-| 42k      | S    | (content repo)          | 🟡     | —   | D7: holiday terms for New Year's, Valentine's, St Patrick's, Easter, July 4th.             |
-| 42c1     | L    | `agent/42c1-recipe`     | 📝     | —   | Recipe page in cooking order: sticky ingredients, "uses:", heads-up, three wide columns.   |
-| 42g      | L    | `agent/42g-shopping`    | 📝     | —   | `/shopping`: in the store (aisle rail, aisle done) and at home (by plan and recipe).       |
-| 42c2     | M–L  | `agent/42c2-cook`       | 📝     | —   | Cook view one step at a time, timer buttons, the drink scaler counting drinks.             |
-| 42e      | M–L  | `agent/42e-holidays`    | 📝     | —   | `/holidays` (the almanac) and `/holidays/<slug>` (the menu), both apps.                    |
-| 42d      | M    | `agent/42d-drinks`      | 📝     | —   | `/drinks`: pour from your shelf.                                                           |
-| 42f      | M    | `agent/42f-home`        | 📝     | —   | Homepage: now and next.                                                                    |
-| 42h      | S–M  | `agent/42h-holiday-tools` | 📝   | —   | Holidays for the agents: seat, CLI, API, MCP `holiday_list` / `holiday_get`.               |
-| 42-close | S    | `agent/42-close`        | 📝     | —   | Close-out, CLAUDE.md bullet, backlog, memory, the morning report.                          |
+| Phase    | Size | Branch                    | Status | PR  | What                                                                                          |
+| -------- | ---- | ------------------------- | ------ | --- | --------------------------------------------------------------------------------------------- |
+| 42a      | S    | `agent/42a-followups`     | 🟡     | —   | Per-item saved-list editing on `/make`, outline borders, resume-builder font, house-list e2e. |
+| 42b      | S    | `agent/42b-tolerance`     | 🟡     | —   | Screenshot tolerance tightened (41-Tp1), proven 3× in dev and build mode.                     |
+| 42j      | —    | (canvases)                | 🟡     | —   | Design canvases for `/search`, `/tags` + a term page, the meal-plan page, the edit form.      |
+| 42k      | S    | (content repo)            | 🟡     | —   | D7: holiday terms for New Year's, Valentine's, St Patrick's, Easter, July 4th.                |
+| 42c1     | L    | `agent/42c1-recipe`       | 📝     | —   | Recipe page in cooking order: sticky ingredients, "uses:", heads-up, three wide columns.      |
+| 42g      | L    | `agent/42g-shopping`      | 📝     | —   | `/shopping`: in the store (aisle rail, aisle done) and at home (by plan and recipe).          |
+| 42c2     | M–L  | `agent/42c2-cook`         | 📝     | —   | Cook view one step at a time, timer buttons, the drink scaler counting drinks.                |
+| 42e      | M–L  | `agent/42e-holidays`      | 📝     | —   | `/holidays` (the almanac) and `/holidays/<slug>` (the menu), both apps.                       |
+| 42d      | M    | `agent/42d-drinks`        | 📝     | —   | `/drinks`: pour from your shelf.                                                              |
+| 42f      | M    | `agent/42f-home`          | 📝     | —   | Homepage: now and next.                                                                       |
+| 42h      | S–M  | `agent/42h-holiday-tools` | 📝     | —   | Holidays for the agents: seat, CLI, API, MCP `holiday_list` / `holiday_get`.                  |
+| 42-close | S    | `agent/42-close`          | 📝     | —   | Close-out, CLAUDE.md bullet, backlog, memory, the morning report.                             |
 
 Ordering, in waves: **1** 42a ∥ 42b (42j and 42k's dry run alongside —
 neither uses the heavy slot); **2** 42c1 ∥ 42g; **3** 42c2 ∥ 42e; **4** 42d ∥
