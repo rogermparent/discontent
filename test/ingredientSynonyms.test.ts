@@ -8,6 +8,7 @@ import type {
   Ingredient,
   InstructionEntry,
 } from "recipe-website-common/controller/types";
+import { aisleFor } from "recipe-website-common/util/aisles";
 import { parseIngredientLine } from "recipe-website-common/util/ingredientNames";
 import {
   parseInventoryItem,
@@ -114,6 +115,65 @@ describe("one name across Make, the shopping list and steps (43n)", () => {
     expect(matchStepIngredients(ingredients, instructions)).toEqual([
       [[0, 1]],
       [[]],
+    ]);
+  });
+});
+
+/*
+ * Dn2 (43n review): every can shape reads `canned X`. A plain name on hand
+ * still meets it (Make's tail rule), it shelves in the pantry, and a step
+ * that says "the beans" or "the tomatoes" still finds it.
+ */
+describe("canned names across Make, the shopping list and steps (43n)", () => {
+  const CANNED: [string, string][] = [
+    ["1 can black beans, drained", "black beans"],
+    ["1 (28 ounce) can crushed tomatoes", "tomatoes"],
+    ["2 cans chickpeas", "chickpeas"],
+    ["1 (15-ounce) can kidney beans, drained", "kidney beans"],
+  ];
+
+  it.each(CANNED)("%s is met by %s on hand", (line, item) => {
+    expect(satisfies(parseInventoryItem(item), onlyRequirement(line))).toBe(
+      true,
+    );
+    expect(
+      satisfies(parseInventoryItem(`canned ${item}`), onlyRequirement(line)),
+    ).toBe(true);
+  });
+
+  it("shelves every canned name in the pantry", () => {
+    const view = buildShoppingView(
+      CANNED.map(([text], i) => ({
+        id: `01j0000000${i}`,
+        text,
+        recipe: "a",
+        line: i,
+      })),
+      DEFAULT_SHOPPING_SETTINGS,
+    );
+    const rows = view.stores.flatMap((list) =>
+      list.sections.flatMap((section) => section.rows),
+    );
+    expect(rows).toHaveLength(4);
+    for (const row of rows) {
+      expect(row.nameKey.startsWith("canned "), row.nameKey).toBe(true);
+      expect(aisleFor(row.nameKey), row.nameKey).toBe("pantry");
+    }
+  });
+
+  it("finds a canned line from a step that leaves the can out", () => {
+    const ingredients: Ingredient[] = [
+      { ingredient: "1 can black beans, drained" },
+      { ingredient: "1 (28 ounce) can crushed tomatoes" },
+      { ingredient: "2 cans chickpeas" },
+    ];
+    const instructions: InstructionEntry[] = [
+      { text: "Add the black beans and the tomatoes." },
+      { text: "Stir in the chickpeas." },
+    ];
+    expect(matchStepIngredients(ingredients, instructions)).toEqual([
+      [[0, 1]],
+      [[2]],
     ]);
   });
 });

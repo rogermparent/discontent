@@ -1282,14 +1282,14 @@ test.describe("What can I make? — bean swaps", () => {
     );
     const card = cardOf(swap, "Chickpea Cucumber Salad");
     await expect(card.getByTestId("make-swap")).toHaveText(
-      "Use black beans for chickpea",
+      "Use black beans for canned chickpea",
     );
     /* Never "can make"; still one away, where it says what would swap. */
     await expect(section(page, "make-can")).toContainText(
       "Nothing to make yet.",
     );
     await expect(section(page, "make-one-away")).toContainText(
-      "Needs chickpea (swap: black beans)",
+      "Needs canned chickpea (swap: black beans)",
     );
     /* Green beans are no family bean: the three-bean salad stays out. */
     await expect(swap).not.toContainText("Classic Three Bean Salad");
@@ -1301,8 +1301,8 @@ test.describe("What can I make? — bean swaps", () => {
     await addItems(page, "red onion, red wine vinegar");
     const twoBean = cardOf(swap, "Two Bean Salad");
     await expect(twoBean.getByTestId("make-swap")).toHaveText([
-      "Use black beans for kidney bean",
-      "Use black beans for chickpea",
+      "Use black beans for canned kidney bean",
+      "Use black beans for canned chickpea",
     ]);
     await expect(ticker(page)).toHaveText(/· 2 with a bean swap$/);
     await expectNoViolations(page);

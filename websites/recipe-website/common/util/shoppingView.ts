@@ -99,7 +99,15 @@ function pluralWord(word: string): string {
  * line wrote it that way (`semi-sweet chocolate chips`) — but never for one
  * of a thing.
  */
-function displayName(label: string, amount: Amount, texts: string[]): string {
+function displayName(name: string, amount: Amount, texts: string[]): string {
+  /* `2 cans tomatoes`, not `2 cans canned tomatoes` (43n, Dn2): the key
+   * keeps `canned`, the line says it once. */
+  const label =
+    name.startsWith("canned ") &&
+    amount.parts.length > 0 &&
+    amount.parts.every((part) => part.unit === "can")
+      ? name.slice("canned ".length)
+      : name;
   const words = label.split(" ");
   const last = words[words.length - 1];
   if (!last || !/^\p{L}+$/u.test(last)) return label;
