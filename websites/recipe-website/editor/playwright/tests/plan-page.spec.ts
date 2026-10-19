@@ -140,6 +140,17 @@ async function writeWeek(request: APIRequestContext, token: string) {
   expect(week.status()).toBe(201);
 }
 
+/**
+ * Sign in once the masthead's Sign In button has hydrated: under `next dev`
+ * a plan page hydrates slowly enough that the click is lost (43p1's dev run).
+ */
+async function signInHydrated(page: Page) {
+  await expectHydrated(
+    page.getByRole("button", { name: "Sign In", exact: true }),
+  );
+  await signIn(page);
+}
+
 const rows = (page: Page) => page.getByTestId("group-item");
 const rail = (page: Page) =>
   page.getByRole("complementary", { name: "What this plan needs" });
@@ -161,15 +172,20 @@ async function withBrowserList(page: Page, items: string[]) {
 }
 
 test.describe("Meal plan: plan at home", () => {
-  test.beforeEach(async ({ page, resetData, request, createApiToken }) => {
+  test.beforeEach(async ({ resetData, request, createApiToken }) => {
     await resetData("drinks-bar");
     await writeTray(request, await createApiToken());
-    await page.clock.setFixedTime(SUNDAY);
   });
 
+  /*
+   * Only the tests that read the countdown freeze the clock: under `next
+   * dev` a frozen clock lost the Sign In click in every signed-in test
+   * (43p1's dev run), and those tests never read the date.
+   */
   test("rows in order, each with time, yield and a heads-up from its steps", async ({
     page,
   }) => {
+    await page.clock.setFixedTime(SUNDAY);
     await page.goto(`/group/${PLAN}`);
     await counted(page);
     await expect(
@@ -262,7 +278,7 @@ test.describe("Meal plan: plan at home", () => {
   }) => {
     await initializeContentGit();
     await page.goto(`/group/${PLAN}`);
-    await signIn(page);
+    await signInHydrated(page);
     await expect(page).toHaveURL(new RegExp(`/group/${PLAN}$`));
 
     const menu = page.getByRole("button", {
@@ -316,7 +332,7 @@ test.describe("Meal plan: plan at home", () => {
     createApiToken,
   }) => {
     await page.goto(`/group/${PLAN}`);
-    await signIn(page);
+    await signInHydrated(page);
     await expect(page).toHaveURL(new RegExp(`/group/${PLAN}$`));
     const menu = page.getByRole("button", {
       name: "Move or remove Spritz Cookies",
@@ -354,7 +370,7 @@ test.describe("Meal plan: plan at home", () => {
     page,
   }) => {
     await page.goto(`/group/${PLAN}`);
-    await signIn(page);
+    await signInHydrated(page);
     const menu = page.getByRole("button", {
       name: "Move or remove Iced Sugar Cookies",
     });
@@ -381,7 +397,7 @@ test.describe("Meal plan: plan at home", () => {
 
   test("signed in: More holds Edit, Feature and Delete", async ({ page }) => {
     await page.goto(`/group/${PLAN}`);
-    await signIn(page);
+    await signInHydrated(page);
     const more = page.getByRole("button", { name: "More", exact: true });
     await expectHydrated(more);
     await more.click();
@@ -415,6 +431,7 @@ test.describe("Meal plan: plan at home", () => {
   });
 
   test("no WCAG 2.2 violations in Plan, light and dark", async ({ page }) => {
+    await page.clock.setFixedTime(SUNDAY);
     for (const colorScheme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme });
       await page.goto(`/group/${PLAN}`);
@@ -427,6 +444,7 @@ test.describe("Meal plan: plan at home", () => {
   });
 
   test("plan mode @visual", async ({ page }) => {
+    await page.clock.setFixedTime(SUNDAY);
     await page.goto(`/group/${PLAN}`);
     await counted(page);
     await expect(
@@ -447,7 +465,7 @@ test.describe("Meal plan: the shopping list panel", () => {
     getContentGitLog,
   }) => {
     await page.goto("/group/week-of-oct-19");
-    await signIn(page);
+    await signInHydrated(page);
     const panel = rail(page).getByRole("region", { name: "Shopping list" });
     await expect(panel).toContainText("Not on your shopping list");
     await expect(page.getByTestId("add-group-to-shopping")).toHaveAttribute(
