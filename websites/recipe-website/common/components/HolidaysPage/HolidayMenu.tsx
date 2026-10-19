@@ -307,10 +307,11 @@ function metaOf(
   groups: Map<string, MenuGroup>,
 ): string[] {
   const group = groups.get(recipe.slug);
-  return [
-    group && group.slug !== MORE_GROUP ? group.label : undefined,
-    recipe.base,
-  ].filter((part): part is string => !!part);
+  const term = group && group.slug !== MORE_GROUP ? group.label : undefined;
+  /* "Rum · Sour" for a drink, as /drinks' cards; "Desserts · Chocolate". */
+  const parts =
+    recipe.kind === "drinks" ? [recipe.base, term] : [term, recipe.base];
+  return parts.filter((part): part is string => !!part);
 }
 
 /** "Dishes" or "Drinks", when the menu shows both. */
