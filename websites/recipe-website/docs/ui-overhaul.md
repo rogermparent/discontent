@@ -2106,6 +2106,14 @@ is a cross-cutting rule. Shared rules for every piece:
 
 ### U1 — Homepage (direction A)
 
+> **Superseded in part by 42f (2026-10-19)** — canvas B, "Now and next":
+> a search field beside the Make tile, the intents as `tag:` chips, "Coming
+> up" as dated "This season" rows linking to `/holidays/<slug>`, a right
+> rail with the newest plan and the featured list, each featured holiday
+> shown once. `agent-epic-42.md` → 42f has the page as it now is; what
+> follows is the structure it kept (the route does every read, the browser
+> owns the date) and the decisions it reversed.
+
 Two steps on one branch (`agent/home-redesign`): first the **redesign**,
 which fixed the page's structure, then **direction A**, which dressed it.
 

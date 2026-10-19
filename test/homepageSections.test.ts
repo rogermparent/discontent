@@ -3,13 +3,21 @@ import {
   HOMEPAGE_INTENTS,
   countLabel,
   homepageIntents,
+  intentSearchHref,
   termTotals,
 } from "../websites/recipe-website/common/controller/homepageIntents";
 import {
+  SEASON_LIMIT,
   comingUpEntries,
   courseLabels,
+  datedHolidays,
+  featureCandidates,
   findTermNode,
+  markFeaturedHolidays,
+  seasonPicks,
+  seasonRows,
   termSummary,
+  withoutSeasonFeatures,
 } from "../websites/recipe-website/common/controller/homepageComingUp";
 import type { TermHierarchyNode } from "../websites/recipe-website/common/controller/tagVocabulary";
 
@@ -53,6 +61,16 @@ describe("homepage intents", () => {
 
   it("is empty for a corpus with none of the terms", () => {
     expect(homepageIntents(new Map(), [])).toEqual([]);
+  });
+
+  it("opens each chip's tag query in search (42f)", () => {
+    expect(intentSearchHref("quick")).toBe("/search?q=tag%3Aquick");
+    expect(HOMEPAGE_INTENTS.map((intent) => intent.slug)).toEqual([
+      "quick",
+      "vegetarian",
+      "project",
+      "drink",
+    ]);
   });
 });
 
@@ -129,6 +147,122 @@ describe("coming up", () => {
     expect(
       termSummary({ slug: "halloween", children: [] }, rows, groupRows),
     ).toEqual({ recipes: 1, groups: 0 });
+  });
+});
+
+describe("this season (42f)", () => {
+  const rows: Record<
+    string,
+    { slug: string; date: number; image?: string; name: string }[]
+  > = {
+    christmas: [
+      { slug: "linzer", date: 6, name: "Linzer" },
+      { slug: "stollen", date: 2, image: "stollen.jpg", name: "Stollen" },
+      { slug: "wassail", date: 1, name: "Wassail" },
+    ],
+    "christmas-cookies": [
+      { slug: "linzer", date: 6, name: "Linzer" },
+      { slug: "spritz", date: 5, image: "spritz.jpg", name: "Spritz" },
+      { slug: "snowballs", date: 4, name: "Snowballs" },
+    ],
+  };
+  const recipeRows = (slug: string) => rows[slug] ?? [];
+  const tree = [
+    node("holidays", 6, [
+      node("christmas", 5, [node("christmas-cookies", 3)]),
+      node("halloween", 0),
+    ]),
+  ];
+
+  it("picks a holiday's photographed recipes first, newest first, once each", () => {
+    const christmas = findTermNode(tree, "christmas")!;
+    expect(seasonPicks(christmas, recipeRows)).toEqual([
+      { slug: "spritz", name: "Spritz", image: "spritz.jpg" },
+      { slug: "stollen", name: "Stollen", image: "stollen.jpg" },
+      { slug: "linzer", name: "Linzer" },
+      { slug: "snowballs", name: "Snowballs" },
+    ]);
+    expect(seasonPicks(christmas, recipeRows, 1)).toEqual([
+      { slug: "spritz", name: "Spritz", image: "spritz.jpg" },
+    ]);
+    /* The entries carry them. */
+    const [entry] = comingUpEntries(tree, recipeRows, () => [])!;
+    expect(entry.picks.map((pick) => pick.slug)).toEqual([
+      "spritz",
+      "stollen",
+      "linzer",
+      "snowballs",
+    ]);
+  });
+
+  it("shows the next three holidays within the window, soonest first", () => {
+    const items = [
+      { slug: "christmas" },
+      { slug: "halloween" },
+      { slug: "thanksgiving" },
+      { slug: "valentines" },
+      { slug: "fall-favorites" },
+    ];
+    const today = { year: 2026, month: 10, day: 18 };
+    expect(SEASON_LIMIT).toBe(3);
+    expect(
+      seasonRows(items, today).map((item) => [item.slug, item.days]),
+    ).toEqual([
+      ["halloween", 13],
+      ["thanksgiving", 39],
+      ["christmas", 68],
+    ]);
+    /* The day after Christmas: all three rolled a year out, past 180 days. */
+    expect(
+      seasonRows(items, { year: 2026, month: 12, day: 26 }).map(
+        (item) => item.slug,
+      ),
+    ).toEqual(["valentines"]);
+  });
+
+  it("shows a featured holiday once: marked on its row, off the featured list", () => {
+    const entries = comingUpEntries(tree, recipeRows, () => [])!;
+    const marked = markFeaturedHolidays(entries, new Set(["christmas"]));
+    expect(marked[0].featured).toBe(true);
+    expect(markFeaturedHolidays(entries, new Set())[0]).not.toHaveProperty(
+      "featured",
+    );
+
+    const features = [
+      { slug: "f1", holiday: "christmas" },
+      { slug: "f2" },
+      { slug: "f3" },
+      { slug: "f4", holiday: "easter" },
+    ];
+    expect(
+      withoutSeasonFeatures(features, new Set(["christmas", "halloween"])).map(
+        (entry) => entry.slug,
+      ),
+    ).toEqual(["f2", "f3", "f4"]);
+  });
+
+  it("hands over enough features that six remain once the holidays hide", () => {
+    const items = ["h1", "a", "h2", "b", "c", "h3", "d"];
+    const isHoliday = (item: string) => item.startsWith("h");
+    expect(featureCandidates(items, isHoliday, 2)).toEqual([
+      "h1",
+      "a",
+      "h2",
+      "b",
+    ]);
+    expect(featureCandidates(items, isHoliday, 4)).toEqual(items);
+    expect(featureCandidates(items, () => false, 3)).toEqual(["h1", "a", "h2"]);
+  });
+
+  it("rows only the holidays a rule dates", () => {
+    expect(
+      datedHolidays([
+        { slug: "christmas" },
+        { slug: "fall-favorites" },
+        { slug: "constructor" },
+        { slug: "halloween" },
+      ]).map((entry) => entry.slug),
+    ).toEqual(["christmas", "halloween"]);
   });
 });
 

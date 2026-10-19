@@ -1,64 +1,48 @@
 import type { TermHierarchyNode, TagVocabularyEntry } from "./tagVocabulary";
 
 /**
- * The homepage's intent tiles beside "What can I make?" (usability pass,
- * 2026-10-15): the questions a reader most often arrives with, each answered
- * by one term page.
+ * The homepage's intents beside "What can I make?" (usability pass,
+ * 2026-10-15; `tag:` chips since 42f): the questions a reader most often
+ * arrives with, each answered by one tag query.
  *
  * **The slugs are the vocabulary epic 33 applied** — `quick` and `project`
  * under Speed & effort (D2 defines quick as ≤ 30 minutes and project as
  * several stages or a long rest), `vegetarian` under Main ingredient (D3),
- * and the `drink` root. A tile whose term does not exist, or that nothing
- * carries, is left out, so a corpus without this vocabulary (every test
- * fixture) shows the Make tile alone. Change a slug here and nowhere else.
- * A tile links to `/tags/<slug>` unless it names its own `href`.
+ * and the `drink` root. An intent whose term does not exist, or that nothing
+ * carries, is left out, so a corpus without this vocabulary (most test
+ * fixtures) shows the search field and the Make tile alone. Change a slug
+ * here and nowhere else.
  *
- * The one-line descriptions are copy, not data; the count under each is the
- * term's own subtree total, the number its page lists.
+ * **A chip is a search** (42f, canvas B "Now and next"): it reads
+ * `tag:quick` and opens `/search?q=tag:quick` (`intentSearchHref`), so the
+ * reader lands in the field with the query as a chip to widen or narrow.
+ * Until 42f these were tiles linking to the term pages, the drink one to
+ * `/drinks`; those pages are still one click away, from the browse rows and
+ * the masthead. `tag:` search is hierarchy-aware (24d), so it finds the set
+ * the count describes.
  */
 export const HOMEPAGE_INTENTS: readonly HomepageIntentConfig[] = [
-  {
-    slug: "quick",
-    label: "Quick",
-    description: "On the table in 30 minutes or less",
-    noun: "recipe",
-  },
-  {
-    slug: "vegetarian",
-    label: "Vegetarian",
-    description: "Savory dishes with no meat or fish",
-    noun: "recipe",
-  },
-  {
-    slug: "project",
-    label: "A weekend project",
-    description: "Long rises, several stages, worth it",
-    noun: "recipe",
-  },
-  {
-    slug: "drink",
-    label: "A drink",
-    description: "Cocktails, spritzes, tea and zero-proof",
-    noun: "drink",
-    href: "/drinks",
-  },
+  { slug: "quick", label: "Quick", noun: "recipe" },
+  { slug: "vegetarian", label: "Vegetarian", noun: "recipe" },
+  { slug: "project", label: "A weekend project", noun: "recipe" },
+  { slug: "drink", label: "A drink", noun: "drink" },
 ];
 
 export interface HomepageIntentConfig {
   slug: string;
+  /** What the chip's tooltip calls it: "Quick: 121 recipes". */
   label: string;
-  description: string;
-  /** What the count line counts: "121 recipes", "217 drinks". */
+  /** What the count counts: "121 recipes", "217 drinks". */
   noun: string;
-  /**
-   * Where the tile goes, when not the term's own page: the drink tile opens
-   * `/drinks`, the bar home, whose count is the same `drink` subtree.
-   */
-  href?: string;
 }
 
 export interface HomepageIntent extends HomepageIntentConfig {
   count: number;
+}
+
+/** Where an intent chip goes: its tag query, in the search field (42f). */
+export function intentSearchHref(slug: string): string {
+  return `/search?q=${encodeURIComponent(`tag:${slug}`)}`;
 }
 
 /**
@@ -77,11 +61,11 @@ export function termTotals(tree: TermHierarchyNode[]): Map<string, number> {
 }
 
 /**
- * The tiles to show, in `HOMEPAGE_INTENTS` order, each with its count.
+ * The chips to show, in `HOMEPAGE_INTENTS` order, each with its count.
  *
  * Counts come from the hierarchy first (subtree totals) and then from the
  * flat vocabulary, which the route reads only when there is no hierarchy — so
- * a bare `quick` tag on a corpus with no records still gets its tile.
+ * a bare `quick` tag on a corpus with no records still gets its chip.
  */
 export function homepageIntents(
   totals: Map<string, number>,

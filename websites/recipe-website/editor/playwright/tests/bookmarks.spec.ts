@@ -192,7 +192,9 @@ test.describe("Bookmarks", () => {
     test("should show bookmark button on hover in recipe list", async ({
       page,
     }) => {
-      await page.goto("/");
+      /* `/recipes`: the homepage's New this week is a compact list with no
+       * bookmark button since 42f. */
+      await page.goto("/recipes");
 
       await expect(
         page
