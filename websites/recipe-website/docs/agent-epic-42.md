@@ -902,6 +902,30 @@ workstation update`, from the morning report's list.
 
 ## Traps
 
+### 42b
+
+- **Tb1 — `toHaveScreenshot` has no `style` option.** That option belongs to
+  `page.screenshot`; the matcher takes `stylePath` (a CSS file, relative to
+  the config) and silently ignores an unknown `style` key. 42b's first
+  attempt to hide Next's dev badge passed `style` and changed nothing, which
+  cost a 27-minute rerun.
+- **Tb2 — `next dev` draws a badge on every page.** It is the "N" at the
+  bottom left, a fixed element: 912 px on every desktop capture, 200–950 on
+  mobile, and it lands at the bottom of a full page that scrolled to its
+  end. Baselines are production renders, while CI's Recipe shards and the
+  Portfolio job run dev. So any budget under ~1 000 px fails every dev-mode
+  page unless `playwright/support/screenshot.css` hides `nextjs-portal`.
+- **Tb3 — `maxDiffPixels` beside `maxDiffPixelRatio` means the smaller one
+  wins.** Playwright's comparator takes the minimum when both are set, per
+  call and config alike. A per-call ratio "loosening" a page under the 100 px
+  config would tighten nothing and loosen nothing. `SnapshotOptions` now
+  offers `maxDiffPixels` only.
+- **Tb4 — Staleness under the budget still hides.** Plain
+  `--update-snapshots` (`changed`) never rewrites a baseline that passes,
+  so a page can drift by up to 100 px per capture (1 500 on the three edit-form
+  pages) unseen. That is a few glyphs, not an input border. Rewrite with
+  `--update-snapshots=all` when in doubt (41-Dp1).
+
 ### 42e
 
 - **Te1 — `react-hooks/refs` refuses a ref inside an object.** The first
@@ -924,6 +948,162 @@ buttonRef, …}` and two components taking it as a prop; the React
   narrows without a round trip, on the export too.
 
 ## Results
+
+### 42b — Screenshot tolerance tightened
+
+Branch `agent/42b-tolerance`. Test configuration only: **reindex no, deploy
+no**. No baseline moved.
+
+**What changed**
+
+- **Recipe and portfolio configs:** `maxDiffPixelRatio: 0.02` becomes
+  `threshold: 0.2` + `maxDiffPixels: 100`. The threshold is pixelmatch's
+  default, now written out. Both configs also get
+  `stylePath: "./playwright/support/screenshot.css"` (Db2). The CMS demo and
+  resume-builder have no screenshot specs.
+- **`playwright/support/screenshot.css` (new, both editors):**
+  `nextjs-portal { display: none !important; }`.
+- **`support/visual.ts` (both):** `SnapshotOptions.maxDiffPixelRatio`
+  becomes `maxDiffPixels` (Tb3).
+- **`visual.spec.ts` (recipe):** `EDIT_FORM_IMAGE = { maxDiffPixels: 1_500 }`
+  for edit form populated, edit form with slug conflict, and markdown source
+  mode (Db3). The search reveal control's 5 % override is gone (Db4).
+
+**Method.** Measured in CI's Playwright image (`docker-pw.sh`, Playwright
+1.64.1), against the committed 41d2 baselines. A temporary, uncommitted
+change made every capture compare at threshold 0 and 0 px, with a soft
+assertion so that each test reached all its captures. Every capture that was
+not byte-identical left an `-actual.png`. A script then recounted each one
+with Playwright's own comparator (`getComparator("image/png")`) at
+thresholds 0, 0.05, 0.1 and 0.2. Runs: the 12 recipe screenshot specs with
+`--repeat-each=3 --retries=0` (138 captures per run) in build mode, then in
+dev mode before and after hiding the badge. Portfolio's `visual` spec ran
+the same way (33 captures per run) in build and in dev mode.
+
+**Measured noise.** Differing pixels against the baseline, worst of 3
+captures; every capture not listed was byte-identical.
+
+| Capture                                                | Build, t=0 | Build, t=0.2 | Dev, t=0 | Dev, t=0.2 |
+| ------------------------------------------------------ | ---------- | ------------ | -------- | ---------- |
+| `edit-form-populated`                                  | 13 034     | 206          | 12 703   | 10         |
+| `edit-form-overwrite`                                  | 10 202     | 87           | 13 034   | 27         |
+| `markdown-source-mode`                                 | 9 122      | 87           | 11 531   | 206        |
+| `git-page`, `make-page-specs`, `yield-multiplied-half` | 1          | 0            | 0–1      | 0          |
+| the other 40 recipe baselines                          | 0          | 0            | 0        | 0          |
+| portfolio, all 11                                      | 0          | 0            | 0        | 0          |
+
+- **The edit-form noise is the "Recipe 6" preview image.** The diff's box
+  sits on the downscaled image (x 459–825, y 762–870) and nowhere else on
+  the page. Chromium resamples it slightly differently from run to run.
+  Across all 18 build and dev captures of these three pages, the most the
+  image moved was **599 px at t=0.2**: a dev capture from the first dev run,
+  with the badge's pixels counted separately.
+- **Dev mode before the stylesheet.** Next's badge added a constant 912 px
+  to every desktop capture, and 200–950 px on mobile (Tb2). The first fix,
+  a `style` option, changed nothing (Tb1). The re-run with `stylePath`
+  gave the table's dev columns.
+- **A functional dev-only failure, not visual.** `command-palette.spec:151`
+  ("live search … Enter navigates") failed once per full dev run, as the
+  first test against a cold `next dev`. It took no screenshot, and CI
+  retries it. It is outside 42b's scope and left as observed.
+
+**Staleness caught (step 4).** I compared each of the 57 baselines as they
+stood before 41d2 (`c3101dfd^`), as the expected image, against today's
+41d2 baseline, as the actual image (today's page in CI's image). The
+comparator was Playwright's, with each rule as the config would apply it.
+50 of the 57 differ. The other 7 show no difference at threshold 0.2: the
+three Make images, two palette rows, paste-replace, and the reveal control
+(147 px at 0.1).
+
+| Rule                                       | Old baselines that now fail |
+| ------------------------------------------ | --------------------------- |
+| `maxDiffPixelRatio: 0.02` (before)         | 0 of 57                     |
+| `maxDiffPixelRatio: 0.002`                 | 32                          |
+| `threshold 0.2` + `maxDiffPixels: 800`     | 32                          |
+| `threshold 0.2` + `maxDiffPixels: 250`     | 44                          |
+| **`threshold 0.2` + `maxDiffPixels: 100`** | **48**                      |
+
+Examples that passed at 0.02 and fail now:
+
+- `empty-state/homepage-empty`: 563 px. The diff is exactly 41f's 3:1
+  search-input border.
+- `visual/recipe-detail-signed-out`: 1 156 px, from 41f's input and
+  checkbox borders.
+- `empty-state/bookmarks-empty`: 17 592 px. This is July's "My Bookmarks"
+  page from Tp1.
+
+The two that still pass are `footer-mobile` (13 px) and `homepage-mobile`
+(76 px). Both changed only text antialiasing: the wordmark is drawn
+grayscale in one and subpixel in the other. A redesign moves more than
+that.
+
+**Decisions**
+
+- **Db1 — One absolute budget, `maxDiffPixels: 100` at threshold 0.2.** A
+  ratio scales the budget with page height: 0.002 of the 1280×3300 edit
+  form is 8 400 px, and a redesigned input border is ~500 px. The noise
+  outside one image is 0 px at t=0.2 (at most 1 px at t=0), so the margin
+  is wide, and 100 px is still 5× under the smallest real change measured
+  (563 px). A lower `threshold` (0.1) raised noise and real changes by
+  about the same factor (edit-form noise 206 → 1 094 px,
+  `homepage-empty` 563 → 3 238 px), so it bought no separation.
+- **Db2 — Hide Next's dev badge from captures** with a `stylePath`
+  stylesheet, not `devIndicators: false` in `next.config`. That keeps the
+  change test-only: no Next or Turbopack config, nothing for the
+  main-checkout build to trace, and Roger keeps the badge in his own
+  `next dev`. In production the rule matches nothing.
+- **Db3 — The edit form's image gets a per-call 1 500 px; it is not masked.**
+  That is 2.5× the worst 599 px, and still about 13× under the ~19 000 px
+  the edit form moved between July and 41d2. A mask would need three
+  baselines regenerated, and 42a may regenerate the same edit-form PNGs
+  for its outline borders. This choice touches no PNG.
+- **Db4 — The reveal control's 5 % (`maxDiffPixelRatio: 0.05`, #132) is
+  removed.** Its reason was host-drawn baselines against CI's fonts; since
+  41b every baseline is drawn in CI's image. Its noise measured 0, and the
+  config's 100 px is 2.4 % of that 118×36 element. Left in, Tb3 would have
+  made it a no-op anyway.
+- **Db5 — No baseline regenerated.** The measurement found none already
+  off: every byte-different capture is the image noise above.
+
+**Gates**
+
+- Recipe, the 47 tests that take a screenshot, picked by a `--grep` over
+  their titles in the 12 spec files (all 46 baselines), with
+  `--repeat-each=3 --retries=0` in CI's image:
+  - **build: 141 passed** (4.8 min).
+  - **dev: 141 passed** (6.2 min).
+- Portfolio `visual.spec` (11 baselines), `--repeat-each=3 --retries=0`:
+  - **build: 33 passed**.
+  - **dev: 33 passed**.
+- **After merging main** (42a's outline borders, 42c1 and 42e):
+  - Every runner above ran again. The recipe selection grew to 50 tests
+    with `holidays.spec` and `recipe-cooking-order.spec` (51 baselines).
+  - Recipe: **build 150 passed** (5.1 min), **dev 150 passed** (6.6 min).
+  - Portfolio: **build 33 passed**, **dev 33 passed**. 42a's shared
+    button and toggle change moves no portfolio capture.
+- No retries anywhere; no flaky test, no exit 137.
+- `pnpm --filter recipe-editor typecheck`: clean before and after the
+  merge. It includes `playwright/**`, so it checks every
+  `snapshotPage` / `snapshotLocator` caller against the new
+  `SnapshotOptions`.
+- `pnpm --filter recipe-website exec tsc --noEmit`: clean.
+- Portfolio editor `tsc --noEmit`: clean.
+- `pnpm exec vitest run`: **119 files, 2 410 tests passed**.
+- Main-checkout-shaped build: not run. Nothing here is in Next's build
+  graph.
+
+**Roger to confirm**
+
+- The 100 px budget. If CI's runners rasterise differently from this
+  machine's Docker, the PR's own CI will be the first to say so: its Recipe
+  shards run these specs in dev mode. No CI run was available before
+  review.
+- 1 500 px for the three edit-form pages, rather than masking the preview
+  image. A mask would bring them under the 100 px rule, but needs three
+  baselines regenerated.
+- Hiding `nextjs-portal` in captures. That also hides a dev-mode error
+  overlay from a screenshot; the specs' own assertions still fail on the
+  error.
 
 ### 42e — Holidays: the almanac and the menu pages
 
