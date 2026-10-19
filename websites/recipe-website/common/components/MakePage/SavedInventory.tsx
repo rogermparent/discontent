@@ -1,8 +1,13 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@discontent/component-library/components/ui/button";
-import { inventoryKey } from "../../util/inventoryText";
+import { Input } from "@discontent/component-library/components/ui/input";
+import {
+  dedupeItems,
+  inventoryKey,
+  parseInventoryText,
+} from "../../util/inventoryText";
 
 export interface InventoryDiff {
   add: string[];
@@ -124,5 +129,76 @@ export function SaveConfirm({
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * What "Add to saved list" (42a, Da1) would add: what was typed, once each,
+ * less what the saved list already holds as this page sees it — so Undo
+ * takes back only what the add brought.
+ */
+export function savedAdditions(items: string[], saved: string[]): string[] {
+  const savedKeys = new Set(saved.map(inventoryKey));
+  return dedupeItems(items).filter(
+    (item) => !savedKeys.has(inventoryKey(item)),
+  );
+}
+
+/**
+ * Per-item editing of the saved list on `/make` (42a, reversing 41-Dh2),
+ * for the signed-in editor only. Each call is one `{add, remove}` diff
+ * through `saveInventoryChanges` — one commit — and `add` answers whether
+ * it landed.
+ */
+export interface SavedListEdit {
+  /** A write is in flight. */
+  pending: boolean;
+  error?: string;
+  remove: (item: string) => void;
+  add: (items: string[]) => Promise<boolean>;
+}
+
+/**
+ * "Add to saved list" (42a, Da1): a small form under the saved list's
+ * labels, read as a list like the add field ("Campari, lime"). The draft
+ * clears once the commit lands and stays on a failure.
+ */
+export function AddToSavedForm({ edit }: { edit: SavedListEdit }) {
+  const [draft, setDraft] = useState("");
+  const inputId = useId();
+  return (
+    <form
+      className="flex gap-2"
+      data-testid="make-saved-add"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const { items } = parseInventoryText(draft);
+        if (items.length === 0) return;
+        void edit.add(items).then((ok) => {
+          if (ok) setDraft("");
+        });
+      }}
+    >
+      <label htmlFor={inputId} className="sr-only">
+        Add to saved list
+      </label>
+      <Input
+        id={inputId}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        placeholder="Add to saved list"
+        autoComplete="off"
+        className="h-8 font-mono text-xs"
+      />
+      <Button
+        type="submit"
+        size="sm"
+        variant="outline"
+        className="h-8"
+        disabled={edit.pending}
+      >
+        Add
+      </Button>
+    </form>
   );
 }

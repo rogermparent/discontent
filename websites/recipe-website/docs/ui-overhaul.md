@@ -2751,6 +2751,16 @@ then main merged at `c8573684` (#239, the homepage):
   `exportHouseInventory`, `specVersions`). Playwright, production build,
   `make`, `tag-pages` and `accessibility`, 83/83 on the final head. No baseline moved.
 
+### Holiday pages (epic 42, 42e)
+
+`/holidays` (the almanac: a to-scale year of the holidays that have
+recipes, countdown cards soonest first) and `/holidays/<slug>` (one
+holiday's menu: dot-leader groups by course and by drink style, the kind
+word from `/make`'s question). Decisions, traps and gates are in
+`agent-epic-42.md` → 42e. The kind menu moved out of `MakeQuestion` into
+`MakePage/KindMenu.tsx`, shared by both pages; the footer's default Browse
+column gains Holidays on a site that has a `holidays` root.
+
 ## Verification (Playwright-first)
 
 Verify UI changes with Playwright; open a real browser only to diagnose

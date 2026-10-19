@@ -175,6 +175,174 @@ update`, never commit `editor/content`.
 - **41h's coverage gap:** an e2e for the export / editor-guest house list
   on `/make` (41h left it a render test).
 
+#### Results (42a)
+
+Branch `agent/42a-followups`. **Reindex needed: no. Deploy: yes** (the
+`/make` shelf and outline borders change; no content or index change).
+
+Roger chose all four on 2026-10-18 after reading epic 41's results; each
+reverses or completes an epic-41 decision (`agent-epic-41.md`).
+
+**1. Per-item saved-list editing back on `/make` (reverses 41-Dh2, "the
+per-item saved-list editor is gone").**
+Signed in, in Count from's Saved and Both modes, every outlined saved tape
+(`data-kind="saved"`) has a × named "Remove <item> from the saved list".
+It sends `{add: [], remove: [item]}` through the existing
+`saveInventoryChanges` → `patchInventory` path — one commit,
+"Update inventory: −gin" — and the label goes when the server's list comes
+back. The toast says "Removed gin from the saved list." and its Undo (or
+Ctrl+Z) sends `{add: [gin]}`, a second commit. Focus moves to the label
+that took its place, or to the add field when the list is empty. Writes
+run one after another (a promise chain in `MakePage`), and each sets the
+saved list to the one the server answered with. A failure shows as an
+alert under the group and leaves the list as it was. "Save to editor"
+(41-Dh2's whole-list move) stays, and its diff reads the updated list. This
+browser's own tapes keep their ×, which still edits only this browser's
+list.
+
+- **Da1 — "Add to saved list" is a small form in the saved group.** It
+  sits under the saved labels (Saved and Both modes, signed in only): a
+  field labelled "Add to saved list" (read as a list, like the add field)
+  and an outline "Add". `savedAdditions` leaves out what the saved list
+  already has, so "Campari, gin" adds Campari alone, in one commit
+  ("Update inventory: +Campari"). Undo removes only what that add brought.
+  Something already on the list gets a plain toast and no commit. I kept it
+  out of the add combobox: that field is "Buy next as search" for this
+  browser's list (41-Dh3), and a second target in it would make Enter
+  ambiguous.
+- **Da2 — non-optimistic.** A label leaves when the commit lands, not when
+  it is clicked, so a refused write (mid-merge, `busy`) never shows a list
+  the repo doesn't have. The cost is a commit's latency (≈ 0.1–0.5 s
+  locally) before the label goes.
+- The export and the editor guest stay read-only. `InventoryPanel` edits
+  only a list of kind `saved`, and only when the page passes `savedEdit`,
+  which `MakePage` does only with `saved` (the signed-in editor's route).
+  A house list never gets × or the form, even if handed the edits (render
+  test). `exportInventoryGuard` stays green: the export still reaches no
+  editor code.
+
+**2. Outline buttons and toggles back on `--border` (41f's Df1 and its
+"Roger to confirm": the alternative of moving them to `border-border` to
+keep their hairline).** `ui/button.tsx` outline and `ui/toggle.tsx` outline now use
+`border-border`. Inputs, textareas, Select triggers and the shared `Form`
+field class keep 41f's `--input` (≥ 3.1:1), and the checkbox keeps 40g's
+`border-muted-foreground`. Their text
+names them, so WCAG 1.4.11 doesn't ask for a 3:1 boundary. `theming.test.ts`
+never pinned buttons, so only its comment (and `derive.ts`'s) changed.
+Make's own `border-input` boxes (the Count from frame, the phone's shelf
+toggle, the save confirm) are hand-written classes, not the kit's outline
+variant, and stay as 41h drew them.
+
+**3. resume-builder takes Tailwind 4.3's default sans (reverses 41d1's
+Dd2, "resume-builder keeps Tailwind 4.1's default sans stack").**
+The four-line `--font-sans` pin is gone from its `@theme inline`.
+resume-builder has no screenshot baselines, so nothing moves there.
+
+**4. The house list e2e (41h's "Coverage — the export / guest house list
+is a render test, not an e2e").** A new `make.spec`
+describe: with "Share my saved inventory on the export" off, nothing is
+baked and a guest has no Count from. On (`writeSettings`), the snapshot is
+exactly the saved list (gin, tonic water). The guest gets Count from (This
+browser 0 / House list 2 / Both), House list counts Gin and Tonic, the
+heading reads "House list shared with this site · 2", and the tapes are
+outlined (`data-kind="saved"`), featurable (`ingredient:gin` joins the
+query) and carry no ×, no "Add to saved list" and no "Save to editor".
+Both gives the union with this browser's vodka. The export itself isn't
+covered: `export-page.spec` never builds the static site. The guest page
+renders the same `MakePage` with the same `secondary` prop, and
+`exportHouseInventory.test.ts` pins the bake (Ta1).
+
+**Roger to confirm.**
+
+- Da1: "Add to saved list" lives in the saved group, which shows only in
+  Saved or Both. The alternative is a second target in the shelf's add
+  combobox.
+- Da2: a removed saved label waits for its commit before it goes.
+- Ta1: the editor guest's pages ignore the share setting. If an editor
+  guest should see the house list whenever sharing is on, the guest branch
+  of `make/page.tsx` and `drinks/page.tsx` would read the saved list when
+  `shareInventoryOnExport` is true. That is a product change, so I didn't
+  make it.
+
+**Moved baselines** (Docker, build mode, `--update-snapshots=all` over
+every recipe spec with screenshots, then a pixel diff of each rewritten PNG
+against HEAD; the six with 0 changed pixels — `homepage-empty`,
+`homepage-mobile`, `homepage-three-recipes`, `homepage-two-pages`,
+`layout-footer-signed-{in,out}` — were byte-only re-encodes and were
+restored). Twelve moved, each opened and checked against its diff. In every
+one the changed pixels are outline-button or toggle borders, and nothing
+else moved except the one noted:
+
+- `make-page`, `make-page-specs`, `make-mobile`: Clear, Import / export and
+  Buy next's "I have this" (0.06–0.07 % of pixels).
+- `recipe-detail-signed-{in,out}`, `featured-recipe-detail-signed-in`,
+  `recipe-6-multiplied`, `recipe-mobile`: the "Cook view" button (258 px).
+- `git-page`: Checkout, Fetch, Pull, Push.
+- `markdown-source-mode`: the instruction row's outline icon button.
+- `edit-form-populated`, `edit-form-overwrite`: the same icon button, and
+  also anti-aliasing along the edge of the "Recipe 6" preview image's
+  lettering. That image isn't a control. Its edge noise was already stale
+  in the old baseline and comes along because the page has to be
+  regenerated anyway.
+
+Portfolio: `visual.spec` (11 baselines) regenerated the same way in Docker,
+and no PNG changed. resume-builder has no baselines.
+
+**After merging 42c1 (#282).** Five baselines conflicted, the ones both
+phases touched: `recipe-detail-signed-{in,out}`,
+`featured-recipe-detail-signed-in`, `recipe-6-multiplied`, `recipe-mobile`.
+I took main's side, then regenerated every screenshot spec again in Docker
+build mode (`recipe-cooking-order` included) and pixel-diffed. Six moved,
+each by the "Cook view" outline border alone (258 px), and I opened each:
+those five on 42c1's new layout, plus 42c1's new `recipe-wide-columns`.
+Noise-only rewrites were restored: `git-page` (5 px), both `edit-form-*`
+(only the preview image's lettering), and the zero-pixel re-encodes.
+
+**Gates** (every heavy step through the capped slot):
+
+- `pnpm --filter recipe-editor typecheck` ✓,
+  `pnpm --filter recipe-website exec tsc --noEmit` ✓, resume-builder
+  `tsc --noEmit` ✓ (with its gitignored `next-env.d.ts` copied in).
+- `pnpm exec vitest run`: **119 files, 2416 tests passed**, including
+  `makeInventoryPanel` (+6: per-item edits, failure keeps the draft, never
+  on a house list or without edits, `savedAdditions` ×2),
+  `exportInventoryGuard` and `exportHouseInventory` unchanged and green.
+- Playwright, Docker, build mode: `make.spec`, `accessibility.spec`,
+  `export-page.spec` and every screenshot spec (`visual`, `mobile`,
+  `recipe`, `yield`, `drinks`, `empty-state`, `footer`, `header`,
+  `ingredient-preview`, `menus`, `command-palette`, `paste-replace`):
+  **244 passed**, no retries.
+- Playwright, Docker, dev mode (once, for the new checks): `make.spec` and
+  `accessibility.spec` `--grep=make`: **42 passed**.
+- resume-builder Playwright: **not run locally.** `.dockerignore` keeps
+  resume-builder out of the Playwright image, and the host has no Chromium
+  for Playwright 1.64 (`chromium_headless_shell-1248` missing; every test
+  failed at launch). Its own CI job (path-filtered on
+  `websites/resume-builder/**`) runs it on this PR. The change there is the
+  `--font-sans` stack alone, and nothing in its specs asserts on fonts.
+- lint-staged (prettier + eslint) ✓ on commit.
+- After the 42c1 merge: both typechecks ✓. The regeneration run in Docker
+  build mode had **255 passed, 1 flaky**: `visual` "search page with no
+  query" saw two copies of the search field (a stale second page, the
+  Tf5 shape) and passed on retry #2; this phase doesn't touch it. The
+  check run without `--update-snapshots`, in Docker build mode, over
+  `visual`, `mobile`, `recipe-cooking-order`, `recipe`, `make` and
+  `accessibility`: **157 passed**, no retries.
+
+**Backlog:** no row matches 42a, so nothing is struck.
+
+#### Traps (42a)
+
+- **Ta1 — the editor guest's house list is the process's, not the
+  setting's.** An editor guest's `/make` and `/drinks` read
+  `SITE_HOUSE_INVENTORY` from the editor process's own environment
+  (`secondaryInventory()` with no reader), which only an export Build's
+  child process is ever given. Ticking "Share my saved inventory on the
+  export" changes the next export, not the editor's guest pages. An e2e of
+  the house list therefore needs the variable in the server process:
+  `/settings/test-house-inventory?bake=1` (TEST_MODE only) sets it from
+  `exportBuildEnv`, and `afterEach` takes it away.
+
 ### 42b — Screenshot tolerance tightened (S)
 
 41-Tp1's backlog row: 52 stale baselines still passed at
@@ -706,4 +874,143 @@ workstation update`, from the morning report's list.
 
 ## Traps
 
+### 42e
+
+- **Te1 — `react-hooks/refs` refuses a ref inside an object.** The first
+  cut of the shared kind menu was a hook returning `{open, wrapRef,
+buttonRef, …}` and two components taking it as a prop; the React
+  compiler's lint flags every property read on that object during render
+  ("Cannot access refs during render"), even `menu.open`. Element state
+  through callback refs trips `set-state-in-effect` instead. What passes:
+  one component owning its refs, with the heading as a render prop
+  (`KindMenu`'s `children(word)`).
+- **Te2 — a holiday's alias can carry another holiday's rule.** 42k's
+  `new-years` term lists `new-years-eve` as an alias, and `new-years-eve`
+  has its own rule (31 December). The rule lookup is slug first, then
+  aliases in order (`holidayRuleKey`), so New Year's is 1 January; a lookup
+  that tried aliases first, or merged them, would date it a day early.
+- **Te3 — the kind change is `history.replaceState`, not
+  `router.replace`.** On the editor `router.replace("?kind=…")` re-requests
+  the page's RSC payload for a change only the browser cares about; Next
+  keeps `useSearchParams` in step with the History API, so the page
+  narrows without a round trip, on the export too.
+
 ## Results
+
+### 42e — Holidays: the almanac and the menu pages
+
+**What changed.**
+
+- **`/holidays`, the almanac** (homepage canvas C): a header ("The year
+  ahead · N holidays", today's date), a ruler of the next 365 days from
+  `md` up — a tick on the first of each month with the year on January,
+  a dot per dated holiday, labels stacked in up to three lanes when they
+  crowd (`rulerLanes`: Christmas and New Year's) — then **Next up**, three
+  countdown cards (the soonest larger, its number in the accent; picture,
+  date, "9 dishes · 3 drinks", its first three recipes pinned first, "The
+  Halloween menu"), **Later in the year** as one row each, and **Any time**
+  for holidays with no rule. Files: `common/components/HolidaysPage/`
+  (`index.tsx`, `Almanac.tsx`).
+- **`/holidays/<slug>`, the menu** (/drinks canvas C, generalised): the
+  "Holidays · counts" eyebrow and the holiday's date over the headline
+  "**13** days to Halloween.", the record's description and picture, four
+  lead cards of the kind shown (pinned first), "Then Christmas, in 68 days
+  — 1 drink." to the next holiday's menu, then **On the menu:
+  _recipes_** — the kind word is `/make`'s kind menu — with dot-leader
+  groups in newspaper columns: dishes by course, drinks by style, "More"
+  for the rest, each line's right-hand side the dish's main ingredient or
+  the drink's spirit. With both kinds shown, the groups sit under Dishes
+  and Drinks. "What can I make?" goes to `/make?q=` + `withKind(tag:<slug>,
+kind)`. Files: `HolidayMenu.tsx`, `HolidayMenuPage.tsx`.
+- **Data:** `common/controller/holidaysPage.ts` (pure: `holidayEntries`,
+  `holidayMenuData`, `almanacView`, `rulerLanes`, `holidayAfter`,
+  `menuGroups`, `menuCourses`, `holidayAliasTarget`) and
+  `controller/data/readHolidays.ts` (the tree, each holiday's record, one
+  cached by-term row per key of the holidays' subtrees — `/drinks`' and
+  the term page's pattern). `util/holidays.ts` gains `holidayRuleKey` (slug,
+  then aliases), an optional `rule` on items for `orderByNextOccurrence` /
+  `withinComingUpWindow` / `nextSeasonal` (unchanged without it),
+  `formatDayShort`, `formatMonthTick`, `addDays`.
+- **Routes in both apps:** `editor/src/app/(recipes)/holidays/page.tsx`,
+  `holidays/[slug]/page.tsx`, and the export's, defined once in
+  `HolidaysPage/routes.tsx`. The export's `generateStaticParams` emits
+  every holiday and every alias of one; with none, one `_` placeholder that
+  answers 404 (the `generateTagStaticParams` guard).
+- **The kind menu** moved out of `MakeQuestion` into
+  `MakePage/KindMenu.tsx` (Te1), markup and behaviour unchanged; `SLOT` is
+  exported for the holiday heading.
+- **Links:** a holiday's term page says "See the Halloween menu", the
+  `holidays` root's "The almanac: every holiday, by date"
+  (`TagPage/shared.tsx`); the footer's default Browse column gains
+  Holidays after Drinks on a site that has a `holidays` root with a child
+  (`AppLayout`, a cached tree read in a try/catch; `NAV_ICONS` gets
+  `calendar-heart`). `TagAliasRedirect` takes a `base` for the export's
+  alias pages.
+
+**Decisions.**
+
+- **De1 — dates per D4, by slug then alias.** A holiday child with no
+  rule is undated and last ("Any time"); a holiday further than 365 days
+  off (a late Easter after an early one) keeps its card but no dot.
+- **De2 — today is the browser's (U1).** The server's day orders the
+  first render; countdown numbers and today's date wait for the browser's
+  day (`useToday(null)`), so the export's HTML never prints a stale number.
+  Dates are `<time>` (masked in baselines).
+- **De3 — only holidays with recipes** are on the almanac (plans alone do
+  not count: the menu lists recipes). A holiday child with none still has
+  a menu page that says so.
+- **De4 — the kind lives in `?kind=<word>`** (`dishes`, `drinks`; none for
+  recipes), read with `useSearchParams` under a `Suspense` whose fallback
+  is the whole menu — the export's static HTML.
+- **De5 — course order is a meal's** (`MENU_COURSE_ORDER`: breakfast,
+  snacks, soup, salad, mains, sides, bread, sauces, desserts; other
+  courses after, in tree order); styles keep `DRINK_STYLE_SLUGS`' order. A
+  recipe in two courses goes under the earlier in that order, whatever
+  order its tags are in (`earliestTerm`; a dessert-and-breakfast pie is
+  breakfast); a drink in two styles likewise.
+- **De6 — the right-hand side of a menu line** is the dish's main
+  ingredient or the drink's spirit, not a time: the by-term rows carry no
+  times, and adding them would change the tag index's projection (a
+  reindex).
+- **De7 — an alias redirects.** `/holidays/christmas-cookies` → the
+  editor redirects; the export emits a page that sends the reader on. A
+  slug that is neither a holiday nor an alias of one is a 404.
+- **De8 — `TimelineStrip` was not reused.** It draws one recipe's
+  schedule as proportional segments; the almanac is a calendar ruler with
+  points. A new `Ruler` inside `Almanac.tsx` rather than a fork.
+- **De9 — no masthead link.** Six destinations fill the masthead at `md`,
+  and a masthead change moves every full-page baseline; the almanac is in
+  the footer — only on sites with holidays, so only `drinks-bar`'s footer
+  moved (both `drinks-page` baselines, e2e and mobile, regenerated) — and
+  linked from the term pages.
+
+**Roger to confirm.** De3 (plans don't put a holiday on the almanac);
+De5's course order; De6 (main ingredient / spirit at the end of the
+dotted line); De9 (footer only — a masthead or ⌘K palette entry is a
+small follow-up); the homepage's "All holidays" still goes to
+`/tags/holidays` — 42f's redesign links the almanac.
+
+**Gates** (2026-10-19, all through the capped heavy slot).
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit`: clean.
+- vitest: 120 files, 2434 tests passed (new: `test/holidaysPage.test.ts` —
+  rule lookup by slug then alias incl. 42k's `new-years` shape, almanac
+  order and undated last, the 365-day ruler across a year end, a late
+  Easter off the ruler, label lanes, the next holiday, menu grouping by
+  course and style with More, pins first, a two-course dish under the
+  earlier course, kinds, alias targets).
+- Export build (`next build`, `output: "export"`) against a scratch copy
+  of `drinks-bar`: `○ /holidays`, `● /holidays/halloween`,
+  `● /holidays/christmas` prerendered as static HTML; the index's footer
+  links `/holidays`.
+- Playwright in Docker, build mode: holidays, accessibility, drinks, make,
+  tag-pages, footer, homepage-browse, menus — **173 passed**. Dev mode
+  once (Docker): holidays and accessibility — **76 passed**.
+- Baselines (Docker): new `holidays-almanac` and `holidays-menu`, e2e and
+  mobile, on the frozen clock; `drinks-page` e2e and mobile moved (the
+  footer's Holidays link, nothing else). Each opened and compared with its
+  canvas: the almanac is canvas C's "The season" (ruler, big countdowns,
+  cards) as a page; the menu is the /drinks canvas C's hero and dot-leader
+  menu. With the fixture's two holidays the Next up row has an empty third
+  column, and every picture is a monogram (the fixture has no photos).

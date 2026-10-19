@@ -38,7 +38,12 @@ import {
   type SaveToEditor,
   type SecondList,
 } from "./InventoryPanel";
-import type { InventoryDiff, SavedInventoryProps } from "./SavedInventory";
+import {
+  savedAdditions,
+  type InventoryDiff,
+  type SavedInventoryProps,
+  type SavedListEdit,
+} from "./SavedInventory";
 import {
   BuyNextList,
   CardViewSwitch,
@@ -512,6 +517,85 @@ export function MakePage({
     };
   }, [saved, savedList, saving, saveError, saveOpen, showToast]);
 
+  /*
+   * The saved list item by item (42a, reversing 41-Dh2): a saved label's ×
+   * and "Add to saved list", signed-in only. Each is one `{add, remove}`
+   * diff through `saved.save` — one commit — and its Undo is another. The
+   * writes run one after another, each against the list the last answered.
+   */
+  const [savedWrites, setSavedWrites] = useState(0);
+  const [savedEditError, setSavedEditError] = useState<string>();
+  const savedWriteChain = useRef<Promise<unknown>>(Promise.resolve());
+  const savedListRef = useRef(savedList);
+  useEffect(() => {
+    savedListRef.current = savedList;
+  });
+  const writeSaved = useCallback(
+    (diff: InventoryDiff): Promise<boolean> => {
+      if (!saved) return Promise.resolve(false);
+      const run = async () => {
+        setSavedWrites((n) => n + 1);
+        try {
+          const result = await saved.save(diff);
+          if ("error" in result) {
+            setSavedEditError(result.error);
+            return false;
+          }
+          setSavedEditError(undefined);
+          setSavedItems(result.items);
+          return true;
+        } catch {
+          setSavedEditError("The saved list couldn't be updated. Try again.");
+          return false;
+        } finally {
+          setSavedWrites((n) => n - 1);
+        }
+      };
+      const next = savedWriteChain.current.then(run);
+      savedWriteChain.current = next;
+      return next;
+    },
+    [saved],
+  );
+  const savedEdit = useMemo<SavedListEdit | undefined>(() => {
+    if (!saved) return undefined;
+    return {
+      pending: savedWrites > 0,
+      error: savedEditError,
+      remove: (item: string) => {
+        void writeSaved({ add: [], remove: [item] }).then((ok) => {
+          if (!ok) return;
+          showToast(`Removed ${item} from the saved list.`, () => {
+            void writeSaved({ add: [item], remove: [] });
+          });
+        });
+      },
+      add: async (items: string[]) => {
+        const fresh = savedAdditions(items, savedListRef.current ?? []);
+        if (fresh.length === 0) {
+          showToast(
+            items.length === 1
+              ? `${items[0]} is already on the saved list.`
+              : "They're already on the saved list.",
+          );
+          return true;
+        }
+        const ok = await writeSaved({ add: fresh, remove: [] });
+        if (ok) {
+          showToast(
+            fresh.length === 1
+              ? `Added ${fresh[0]} to the saved list.`
+              : `Added ${fresh.length} items to the saved list.`,
+            () => {
+              void writeSaved({ add: [], remove: fresh });
+            },
+          );
+        }
+        return ok;
+      },
+    };
+  }, [saved, savedWrites, savedEditError, writeSaved, showToast]);
+
   const featureLines = useMemo(
     () => featuredLines(scoped, prepared, scopeFeatured, countClose),
     [scoped, prepared, scopeFeatured, countClose],
@@ -685,6 +769,7 @@ export function MakePage({
           onCopySecond={copySecond}
           onToggleFeature={featureItem}
           saveToEditor={saveToEditor}
+          savedEdit={savedEdit}
           inputRef={inputRef}
           dialogOpen={dialogOpen}
           onDialogOpenChange={setDialogOpen}
