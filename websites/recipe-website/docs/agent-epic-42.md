@@ -852,12 +852,17 @@ bean`), but pinto beans don't, so with pinto it lands in the tier ("Use
 - vitest 2432/2432 (120 files), heavy slot; the makeable suites alone
   212/212 (4 files) after the review fixes;
 - Playwright, Docker build mode: `make.spec` + `accessibility.spec` 101/101
-  (e2e + mobile), at 96dc9809; the new bean tests once in dev mode (Docker)
-  — see below;
+  (e2e + mobile), at 96dc9809; the two new bean tests (`make.spec`,
+  `accessibility.spec`) once in dev mode (Docker) 2/2;
 - baselines (Docker, build mode): `make-page-e2e` and `make-page-specs-e2e`
   unchanged; `make-mobile-mobile` moved (393×2162 → 393×2234: the new
   switch's three lines on the stacked shelf) and was regenerated, opened and
-  checked by eye — nothing else on it moved.
+  checked by eye — nothing else on it moved;
+- after merging origin/main (42a, 42c1; d16c80cc): typechecks ×2 ✅;
+  vitest, the make/inventory/CLI/MCP files 198/198 (8 files);
+  `make-mobile-mobile` conflicted, main's taken and regenerated in Docker
+  (same picture: the switch added); `make.spec` + `accessibility.spec`
+  104/104 in Docker build mode.
 
 **Roger to confirm.** The family list and its exclusions (Dm1: chili beans,
 romano beans, lentils as a later family of their own?); a swap recipe shown
