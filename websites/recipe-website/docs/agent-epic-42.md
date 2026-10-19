@@ -375,7 +375,55 @@ minutes to 1 hour.", "Refrigerate for 1 hour, or until firm." don't.
 No e2e fixture recipe has a heads-up; the new spec writes one through the
 API.
 
-**Gates.** _(filled in below once the heavy seat frees)_
+**Also fixed:** a recipe with neither a photo nor a video drew an empty
+16:10 (phone) / 24rem (desktop) frame above itself; it now draws none
+(visible in the featured-recipe baseline and on the new spec's pie).
+
+**Gates** (all through the capped wrappers):
+
+- `pnpm --filter recipe-editor typecheck` ✅ and `pnpm --filter
+recipe-website exec tsc --noEmit` ✅ (the export builds the same
+  `RecipeView`).
+- `pnpm exec vitest run`: 122 files, 2487 tests ✅ (new:
+  `stepIngredients` 29, `headsUp` 42, `wideRecipe` 6).
+- Playwright, Docker, build mode: `recipe`, `new-recipe`, `yield`,
+  `ingredient-preview`, `timeline`, `sticky-chrome`, `bar-tools`,
+  `accessibility`, `recipe-cooking-order`, `visual`, `mobile` — 202 passed;
+  after the review fixes and the photo-frame fix, `recipe`, `new-recipe`,
+  `recipe-cooking-order`, `visual`, `mobile`, `sticky-chrome`,
+  `missing-media`, `youtube-video`, `yield` — 128 passed.
+- Dev mode once (Docker), the new and changed specs (`recipe-cooking-order`,
+  `sticky-chrome`, `recipe`, `new-recipe`): 84 passed, 1 flaky —
+  `new-recipe.spec.ts:35` (naan import) timed out at 10 s waiting for
+  "Multiply" on the first recipe-page visit of the run (dev's cold compile)
+  and passed on retry.
+- Baselines, regenerated in Docker only: `recipe-detail-signed-out`,
+  `recipe-detail-signed-in`, `featured-recipe-detail-signed-in`,
+  `recipe-6-multiplied`, `recipe-mobile`, and new `recipe-wide-columns`
+  (1680 × 1000). `yield-multiplied-half` did not move. Compared with the
+  canvas: B's two-column body (ingredients panel left, step panels with
+  number circles and "Uses" chips, the accent heads-up with its calendar
+  icon) and C's three columns match in structure; deliberately different —
+  the hero (unchanged, not B's compact one), chips carrying the whole line,
+  a checkbox beside the number circle (B ticks with the circle), no "Now"
+  step. `recipe-mobile`'s full-page shot draws the sticky tab bar over the
+  step (the known full-page trap; unchanged behaviour).
+- Axe (WCAG 2.2 tags): the existing recipe-page sweeps (every preset ×
+  light/dark) and the new spec's pie with heads-up and "Uses" in light and
+  dark at 1680 — green. Phone: no sideways scroll (new `@mobile` check).
+
+#### Traps (42c1)
+
+- **A line's text is on the page twice now.** The "Uses" chips render the
+  ingredient line itself, so an unscoped `page.getByText("1 1/2 tsp salt")`
+  on a recipe page whose step names that line is a strict-mode violation.
+  Scope to `getByRole("list", { name: "Ingredients", exact: true })` (the
+  list is labelled for this) or to a step's `getByRole("list", { name:
+"Uses" })`. `recipe.spec` and `new-recipe.spec`'s katsudon check were
+  scoped; CI's full shards are the check for any other.
+- **A pre-hydration assertion that polls proves nothing** unless the page
+  cannot hydrate: the sync component sets the same attribute moments later.
+  Abort `**/_next/static/**/*.js` first (both pre-paint specs now do).
 
 **Roger to confirm.**
 
