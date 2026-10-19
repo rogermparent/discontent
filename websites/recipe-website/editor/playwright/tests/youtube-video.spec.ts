@@ -40,7 +40,9 @@ test.describe("YouTube Video Support", () => {
         ).toHaveValue(youtubeUrl);
 
         await page.getByLabel("Name").fill("Direct YouTube Import Test");
-        await page.getByRole("button", { name: "Submit" }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(page).toHaveURL(/\/recipe\/[^/]+$/);
 
@@ -69,7 +71,9 @@ test.describe("YouTube Video Support", () => {
           "https://www.youtube.com/watch?v=jNQXAC9IVRw",
         );
 
-        await page.getByRole("button", { name: "Submit" }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(page).toHaveURL(/\/recipe\/[^/]+$/);
 
@@ -91,7 +95,9 @@ test.describe("YouTube Video Support", () => {
 
         await expect(page.locator("youtube-video")).toBeAttached();
 
-        await page.getByRole("button", { name: "Submit" }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(page).toHaveURL(/\/recipe\/[^/]+$/);
 
@@ -116,7 +122,9 @@ test.describe("YouTube Video Support", () => {
         await page.getByLabel("Video URL").blur();
         await expect(page.locator("vimeo-video")).toBeAttached();
 
-        await page.getByRole("button", { name: "Submit" }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(page).toHaveURL(/\/recipe\/[^/]+$/);
 
@@ -161,7 +169,9 @@ test.describe("YouTube Video Support", () => {
           .getByLabel("Video URL")
           .fill("https://www.youtube.com/watch?v=jNQXAC9IVRw");
         await page.getByLabel("Video URL").blur();
-        await page.getByRole("button", { name: "Submit" }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(page).toHaveURL(/\/recipe\/[^/]+$/);
         await expect(page.locator("youtube-video iframe")).toHaveAttribute(
@@ -182,7 +192,7 @@ test.describe("YouTube Video Support", () => {
           .fill("https://www.youtube.com/watch?v=wiCEyvooYYI");
         await page.getByLabel("Video URL").blur();
 
-        await page.getByRole("button", { name: "Submit" }).click();
+        await page.getByRole("button", { name: "Save", exact: true }).click();
 
         await expect(page).toHaveURL(/\/recipe\/[^/]+$/);
 
@@ -196,7 +206,9 @@ test.describe("YouTube Video Support", () => {
         await page.getByLabel("Name").fill("File Upload Test");
         await expect(page.getByLabel("Upload File")).toBeChecked();
 
-        await page.getByRole("button", { name: "Submit" }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(page).toHaveURL(/\/recipe\/[^/]+$/);
 
@@ -232,7 +244,9 @@ test.describe("YouTube Video Support", () => {
 
         await expect(page.locator("youtube-video")).toBeAttached();
 
-        await page.getByRole("button", { name: "Submit" }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(page).toHaveURL(/\/recipe\/[^/]+$/);
 

@@ -333,7 +333,7 @@ test.describe("Groups", () => {
         mimeType: "image/png",
         buffer: readFileSync(fixturePath("images", "recipe-6-test-image.png")),
       });
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page.getByRole("button", { name: "Save", exact: true }).click();
       /*
        * Wait for the *redirect*, not for a heading — the edit page's own
        * "Editing Recipe: Third Recipe" satisfies a substring name match, so

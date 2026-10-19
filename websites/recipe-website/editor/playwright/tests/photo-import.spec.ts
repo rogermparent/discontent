@@ -78,7 +78,8 @@ async function useModels(
 }
 
 const CARD = fixturePath("photos", "oat-cookie-card.jpg");
-const PHOTO_LINK = "Or read a photo of a recipe card";
+/* 43e1: one of Start from's five ways in. */
+const PHOTO = "Photo";
 
 test.describe("Photo import (38e)", () => {
   test.beforeEach(async ({ page, resetData }) => {
@@ -94,22 +95,24 @@ test.describe("Photo import (38e)", () => {
     await useModels(request);
   });
 
-  test("Photo mode is hidden without a vision model", async ({
+  test("Photo mode is off without a vision model", async ({
     page,
     request,
   }) => {
     /* The suite's own state: no model at all. */
-    await expect(page.getByRole("button", { name: PHOTO_LINK })).toHaveCount(0);
+    const photo = page.getByRole("radio", { name: PHOTO, exact: true });
+    await expect(photo).toBeDisabled();
+    await expect(photo).toHaveAccessibleDescription(
+      "No vision model configured",
+    );
     /* A text model alone is not enough either. */
     await useModels(request, { url: modelUrl });
     await page.reload();
     await markdownEditorReady(page, "description");
     await expect(
-      page.getByRole("button", {
-        name: "No link? Paste the recipe text instead",
-      }),
+      page.getByRole("radio", { name: "Text", exact: true }),
     ).toBeEnabled();
-    await expect(page.getByRole("button", { name: PHOTO_LINK })).toHaveCount(0);
+    await expect(photo).toBeDisabled();
   });
 
   test("reads a photo: the live steps, the form filled, the photo as its image", async ({
@@ -120,13 +123,13 @@ test.describe("Photo import (38e)", () => {
     await page.reload();
     await markdownEditorReady(page, "description");
 
-    const link = page.getByRole("button", { name: PHOTO_LINK });
-    await expect(link).toHaveAccessibleDescription(
-      "— qwen2.5vl:7b transcribes it",
+    const way = page.getByRole("radio", { name: PHOTO, exact: true });
+    await expect(way).toHaveAccessibleDescription(
+      "a recipe card — qwen2.5vl:7b",
     );
-    await link.click();
+    await way.check();
     const add = page.getByLabel("Add photos of the recipe", { exact: true });
-    await expect(add).toBeFocused();
+    await expect(add).toBeVisible();
     const importButton = page.getByRole("button", {
       name: "Import",
       exact: true,
@@ -207,7 +210,9 @@ test.describe("Photo import (38e)", () => {
     await useFirst.check();
     await expect(page.getByAltText("Image to upload")).toBeVisible();
     await expect.poll(filesHeld).toBe(1);
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Create recipe", exact: true })
+      .click();
     await expect(page.getByLabel("Multiply")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("img").first()).toHaveAttribute(
       "src",
@@ -222,7 +227,7 @@ test.describe("Photo import (38e)", () => {
     await useModels(request, { url: modelUrl, vision: "qwen2.5vl:7b" });
     await page.reload();
     await markdownEditorReady(page, "description");
-    await page.getByRole("button", { name: PHOTO_LINK }).click();
+    await page.getByRole("radio", { name: PHOTO, exact: true }).check();
     const add = page.getByLabel("Add photos of the recipe", { exact: true });
     await add.setInputFiles([CARD, CARD, CARD]);
     await add.setInputFiles([CARD, CARD]);
@@ -238,9 +243,7 @@ test.describe("Photo import (38e)", () => {
     await expect(list.locator("li")).toHaveCount(3);
     await expect(add).toBeEnabled();
     /* Back to a link: the URL field again. */
-    await page
-      .getByRole("button", { name: "← Import from a link instead" })
-      .click();
-    await expect(page.getByLabel("Import from URL")).toBeFocused();
+    await page.getByRole("radio", { name: "A link", exact: true }).check();
+    await expect(page.getByLabel("Import from URL")).toBeVisible();
   });
 });

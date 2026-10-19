@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { Check } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import {
   buildStepTree,
@@ -87,6 +88,8 @@ export default function ImportProgress({
   job,
   onSettled,
   unfollowed,
+  doneNote,
+  doneActions,
 }: {
   job: string;
   /** Called once, when the job is seen to end. */
@@ -96,6 +99,13 @@ export default function ImportProgress({
    * "running" until the form says how it ended — never "finished" on a 404.
    */
   unfollowed?: UnfollowedImport;
+  /**
+   * The receipt (43e1): once the import is done, what it was read from
+   * ("from sallysbakingaddiction.com/…", "recipe data on the page") on the
+   * panel's one line, and the receipt's actions (Start over).
+   */
+  doneNote?: ReactNode;
+  doneActions?: ReactNode;
 }) {
   const poll = useJobPoll(unfollowed ? undefined : job, IMPORT_POLL_MS);
   const { lines, error, refresh } = poll;
@@ -158,7 +168,7 @@ export default function ImportProgress({
 
   return (
     <section
-      className="my-2 rounded-md border p-3"
+      className="my-2 rounded-md border bg-card p-3"
       data-testid="import-progress"
       data-status={status}
       aria-labelledby="import-progress-heading"
@@ -168,6 +178,12 @@ export default function ImportProgress({
         {announcement(meta, unfollowed)}
       </p>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        {!live && status === "done" ? (
+          <Check
+            aria-hidden
+            className="size-4 shrink-0 self-center text-success"
+          />
+        ) : null}
         <h3 id="import-progress-heading" className="font-semibold">
           {statusLine}
         </h3>
@@ -181,7 +197,15 @@ export default function ImportProgress({
             {meta.label}
           </span>
         )}
-        <span className="ml-auto flex items-center gap-2">
+        {!live && status === "done" && doneNote ? (
+          <span
+            className="min-w-0 text-sm text-muted-foreground"
+            data-testid="import-receipt"
+          >
+            {doneNote}
+          </span>
+        ) : null}
+        <span className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">
           {live && (
             <Button
               type="button"
@@ -201,6 +225,7 @@ export default function ImportProgress({
               Job details
             </Link>
           )}
+          {!live ? doneActions : null}
         </span>
       </div>
       {unfollowed && (

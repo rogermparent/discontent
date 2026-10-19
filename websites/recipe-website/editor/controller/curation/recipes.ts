@@ -379,6 +379,39 @@ export function resolveCreateSlug(input: RecipeInput): string {
   return slug;
 }
 
+/**
+ * The slug a copy is saved at (43e1, "Keep importing — save as a copy"):
+ * the first of `<slug>-2`, `<slug>-3`, … that `isTaken` says is free. A
+ * slug that already ends in `-<n>` is counted on from, not doubled
+ * (`cookies-2` → `cookies-3`, never `cookies-2-2`).
+ */
+export async function nextCopySlug(
+  slug: string,
+  isTaken: (candidate: string) => boolean | Promise<boolean>,
+  limit = 100,
+): Promise<string> {
+  const counted = /^(.*\D)-(\d+)$/.exec(slug);
+  const base = counted ? counted[1] : slug;
+  const from = counted ? Number(counted[2]) + 1 : 2;
+  for (let n = from; n < from + limit; n += 1) {
+    const candidate = `${base}-${n}`;
+    if (!(await isTaken(candidate))) return candidate;
+  }
+  throw new ValidationError(
+    `No free slug for a copy of "${slug}" in ${limit} tries — pass an explicit slug.`,
+  );
+}
+
+/** `resolveCreateSlug`'s slug, made a copy's: see `nextCopySlug`. */
+export async function resolveCopySlug(
+  ctx: CurationContext,
+  input: Pick<RecipeInput, "name" | "slug">,
+): Promise<string> {
+  return nextCopySlug(resolveCreateSlug(input as RecipeInput), (candidate) =>
+    slugIsTaken(ctx, candidate),
+  );
+}
+
 export async function createRecipe(
   ctx: CurationContext,
   raw: unknown,

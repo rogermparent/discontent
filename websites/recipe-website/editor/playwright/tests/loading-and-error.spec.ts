@@ -27,7 +27,9 @@ test.describe("Loading and Error States", () => {
       timeout: 10_000,
     });
 
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Create recipe", exact: true })
+      .click();
     await expect(page).toHaveURL(/\/new-recipe/);
   });
 

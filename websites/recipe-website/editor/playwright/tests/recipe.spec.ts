@@ -134,7 +134,7 @@ test.describe("Single Recipe View", () => {
       const recipeDate = "2023-12-08T01:16:12.622";
       await expect(page.getByLabel("Date (UTC)")).toHaveValue(recipeDate);
 
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page.getByRole("button", { name: "Save", exact: true }).click();
 
       await expect(
         page.getByRole("heading", { level: 1, name: editedRecipe }),
@@ -212,7 +212,9 @@ test.describe("Single Recipe View", () => {
       await form.locator('[name="source.name"]').fill("Example Kitchen");
       await form.locator('[name="source.author"]').fill("A. Cook");
 
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Create recipe", exact: true })
+        .click();
       await expect(
         page.getByRole("heading", { level: 1, name: "Cited Recipe" }),
       ).toBeVisible();
@@ -233,7 +235,7 @@ test.describe("Single Recipe View", () => {
       await expect(
         page.locator('#recipe-form [name="source.url"]'),
       ).toHaveValue("https://example.com/naan");
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page.getByRole("button", { name: "Save", exact: true }).click();
 
       await expect(
         page.getByRole("heading", { level: 1, name: "Cited Recipe" }),
@@ -283,7 +285,9 @@ test.describe("Single Recipe View", () => {
       await form.locator('[name="drink.ice"]').fill("up");
       await form.locator('[name="drink.garnish"]').fill("lime wheel");
 
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Create recipe", exact: true })
+        .click();
       await expect(
         page.getByRole("heading", { level: 1, name: "Daiquiri" }),
       ).toBeVisible();
@@ -321,7 +325,7 @@ test.describe("Single Recipe View", () => {
       for (const key of ["glass", "ice", "garnish"]) {
         await page.locator(`#recipe-form [name="drink.${key}"]`).fill("");
       }
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page.getByRole("button", { name: "Save", exact: true }).click();
       await expect(
         page.getByRole("heading", { level: 1, name: "Daiquiri" }),
       ).toBeVisible();

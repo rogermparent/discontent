@@ -143,7 +143,9 @@ test.describe("Several recipes in one video", () => {
   }) => {
     /* Someone else's Stuffing first, made by hand. */
     await page.getByLabel("Name", { exact: true }).fill("Stuffing");
-    await page.getByRole("button", { name: "Submit" }).click();
+    await page
+      .getByRole("button", { name: "Create recipe", exact: true })
+      .click();
     await expect(page).toHaveURL(/\/recipe\/stuffing$/);
     await page.goto("/new-recipe");
     await markdownEditorReady(page, "description");

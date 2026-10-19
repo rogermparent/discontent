@@ -312,6 +312,7 @@ export function InstructionsListInput({
                 ))}
               </ul>
               <Button
+                variant="outline"
                 className="mx-0.5 my-1 w-full"
                 onClick={() => arrayField.pushValue({ text: "" })}
               >

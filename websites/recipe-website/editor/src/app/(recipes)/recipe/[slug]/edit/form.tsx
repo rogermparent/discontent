@@ -2,9 +2,13 @@
 
 import UpdateRecipeFields from "recipe-website-common/components/Form/Update";
 import { RecipeFormShell } from "recipe-website-common/components/Form/RecipeFormShell";
-import { useActionState } from "react";
-import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
-import { Button } from "@discontent/component-library/components/ui/button";
+import {
+  RecipeFormFrame,
+  RecipeFormRail,
+} from "recipe-website-common/components/Form/RecipeFormFrame";
+import { useActionState, useMemo } from "react";
+import { withSlugConflict } from "recipe-website-common/components/Form/sections";
+import { recipeToFormValues } from "recipe-website-common/components/Form/formContext";
 import { Recipe } from "recipe-website-common/controller/types";
 import { RecipeFormState } from "recipe-website-common/controller/formState";
 import { StaticImageProps } from "@discontent/next-static-image/src";
@@ -13,6 +17,11 @@ import {
   overwriteUpdateRecipe,
 } from "../../../../../../controller/actions";
 
+/**
+ * `/recipe/<slug>/edit` in edit form B (43e1): the same rail and sections as
+ * a new recipe, without Start from — Save and Cancel in the rail (a sticky
+ * bar on a phone), with the count of fields changed since the page loaded.
+ */
 export default function EditRecipeForm({
   recipe,
   slug,
@@ -34,39 +43,47 @@ export default function EditRecipeForm({
     ? { ...recipe, ...state.formData }
     : recipe;
   const effectiveSlug = state.formData?.slug || slug;
+  const baseline = useMemo(
+    () => recipeToFormValues(recipe, slug),
+    [recipe, slug],
+  );
 
   return (
-    <RecipeFormShell
-      key={state.formData ? state.message : undefined}
-      action={dispatch}
-      recipe={effectiveRecipe}
-      slug={effectiveSlug}
-      className="w-full h-full flex flex-col grow"
+    <RecipeFormFrame
+      eyebrow={
+        <>
+          Editing recipe<span className="sr-only">:</span>
+        </>
+      }
+      title={recipe.name}
     >
-      <UpdateRecipeFields
+      <RecipeFormShell
+        key={state.formData ? state.message : undefined}
+        action={dispatch}
         recipe={effectiveRecipe}
         slug={effectiveSlug}
-        state={state}
-        defaultImage={defaultImage}
-        allTags={allTags}
-      />
-      <div id="missing-fields-error" aria-live="polite" aria-atomic="true">
-        {state.message && (
-          <p className="mt-2 text-sm text-destructive">{state.message}</p>
-        )}
-      </div>
-      <div className="flex flex-row flex-nowrap my-1 gap-2">
-        <SubmitButton>Submit</SubmitButton>
-        {state.slugConflict && (
-          <Button
-            type="submit"
-            variant="destructive"
-            formAction={overwriteDispatch}
-          >
-            Overwrite
-          </Button>
-        )}
-      </div>
-    </RecipeFormShell>
+        className="flex w-full flex-col gap-7"
+      >
+        <UpdateRecipeFields
+          recipe={effectiveRecipe}
+          slug={effectiveSlug}
+          state={withSlugConflict(state)}
+          defaultImage={defaultImage}
+          allTags={allTags}
+        />
+        {/* Last: on a phone its save bar ends the form, sticky above the tab bar. */}
+        <RecipeFormRail
+          mode="edit"
+          eyebrow="Editing"
+          picture={defaultImage ? "saved" : "none"}
+          errors={withSlugConflict(state).errors}
+          saveLabel="Save"
+          cancelHref={`/recipe/${slug}`}
+          message={state.message || undefined}
+          overwrite={state.slugConflict ? overwriteDispatch : undefined}
+          baseline={baseline}
+        />
+      </RecipeFormShell>
+    </RecipeFormFrame>
   );
 }

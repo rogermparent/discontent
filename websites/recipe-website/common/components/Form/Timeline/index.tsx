@@ -311,7 +311,10 @@ export function TimelinesInput({
                 ))}
               </ul>
               <div className="flex flex-row">
-                <Button onClick={() => arrayField.pushValue({ events: [] })}>
+                <Button
+                  variant="outline"
+                  onClick={() => arrayField.pushValue({ events: [] })}
+                >
                   Add Timeline
                 </Button>
               </div>
