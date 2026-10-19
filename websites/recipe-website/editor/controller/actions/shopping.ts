@@ -9,6 +9,7 @@ import {
   clearShopping,
   patchShopping,
   readShopping,
+  readShoppingPlanNames,
   updateShoppingSettings,
   type ShoppingAddResult,
   type ShoppingClearResult,
@@ -50,6 +51,8 @@ export interface ShoppingListState {
   settings: ShoppingSettings;
   /** The shared on-hand list, for the "probably on hand" fold. */
   inventory: string[];
+  /** 42g: plan slug → name, for the plans the lines came through. */
+  plans?: Record<string, string>;
 }
 
 /** The list read fresh — when the page becomes visible again, say. */
@@ -62,7 +65,8 @@ export async function loadShoppingList(): Promise<
       readShopping(ctx),
       readInventory(ctx),
     ]);
-    return { items, settings, inventory };
+    const plans = await readShoppingPlanNames(ctx, items);
+    return { items, settings, inventory, plans };
   });
 }
 

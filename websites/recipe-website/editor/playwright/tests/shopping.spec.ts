@@ -9,6 +9,11 @@ import { fillSignInForm } from "../support/helpers";
  * the nested plan "Weeknight Dinners" (the omelette and the soup). Its
  * twelve lines merge to ten rows: eggs 2×2 + 6 = 10, onions 2 + 4 = 6. The
  * shared on-hand list holds olive oil (and salt is a staple).
+ *
+ * 42g split the page into Plan (at home) and Shop (in the store): a wide
+ * screen opens in Plan, so the desktop tests here run there — the list by
+ * store and aisle, the Checked fold, Settings, Copy — unchanged; a phone
+ * opens in Shop. `shopping-modes.spec.ts` covers what is new in each.
  */
 
 const rows = (page: Page) => page.getByTestId("shopping-row");
@@ -427,7 +432,14 @@ test.describe("Shopping list", () => {
     getContentGitLog,
   }) => {
     await openList(page);
+    /* 42g: a phone opens in Shop, whose Add lives in the bottom bar. */
+    await expect(page.getByTestId("shopping-page")).toHaveAttribute(
+      "data-mode",
+      "shop",
+    );
+    await page.getByRole("button", { name: "Add an item" }).click();
     const add = page.getByTestId("shopping-add");
+    await expect(add).toBeFocused();
     await add.fill("paper towels\n2 lemons");
     await page.getByRole("button", { name: "Add", exact: true }).click();
     await expect(page.getByLabel("2 lemons", { exact: true })).toBeVisible();
@@ -440,6 +452,9 @@ test.describe("Shopping list", () => {
     await expect
       .poll(async () => (await getContentGitLog())[0], { timeout: 15_000 })
       .toBe("Update shopping list: ✓lemon");
+    /* In the store a ticked line stays where it is, struck through (42g). */
+    await expect(page.getByLabel("2 lemons", { exact: true })).toBeChecked();
+    await expect(page.getByTestId("shopping-checked")).toHaveCount(0);
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - window.innerWidth,
     );
