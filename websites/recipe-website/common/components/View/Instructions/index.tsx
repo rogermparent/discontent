@@ -7,7 +7,6 @@ import type {
   InstructionEntry,
 } from "../../../controller/types";
 
-import Markdown from "@discontent/component-library/components/Markdown";
 import { cn } from "@discontent/component-library/lib/utils";
 import { Multiplyable } from "../Multiplier/Multiplyable";
 import { VideoTime } from "./VideoTime";
@@ -18,6 +17,7 @@ import { IngredientLineText } from "../Ingredients";
 import { stepNumbers } from "../../../util/stepNumbers";
 import type { StepLines } from "../../../util/stepIngredients";
 import { stepId } from "./stepId";
+import { StepText } from "../Timers";
 
 const stepComponents = {
   Multiplyable: { component: Multiplyable },
@@ -102,7 +102,7 @@ function StepItem({
         )}
         <label className="flex flex-row flex-nowrap items-center gap-2 print:h-auto">
           <Checkbox className="m-2 shrink-0" />
-          <Markdown components={stepComponents}>{text}</Markdown>
+          <StepText text={text} step={number} components={stepComponents} />
         </label>
         {uses && <StepUses lines={uses} ingredients={ingredients} />}
       </div>

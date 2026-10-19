@@ -65,7 +65,20 @@ function ScaleFromSearchParams({
   return null;
 }
 
-export function MultiplierProvider({ children }: { children: ReactNode }) {
+/**
+ * On a drink (42c2), how many drinks the recipe makes at 1× — the scaler then
+ * counts drinks (`util/drinkCount`). `undefined` for everything else, and for
+ * a drink whose yield counts something other than drinks.
+ */
+const DrinkBaseContext = React.createContext<number | undefined>(undefined);
+
+export function MultiplierProvider({
+  children,
+  drinkBase,
+}: {
+  children: ReactNode;
+  drinkBase?: number;
+}) {
   const [multiplierState, setMultiplier] = useReducer(
     multiplierInputReducer,
     {},
@@ -73,12 +86,19 @@ export function MultiplierProvider({ children }: { children: ReactNode }) {
 
   return (
     <MultiplierContext.Provider value={[multiplierState, setMultiplier]}>
-      <Suspense fallback={null}>
-        <ScaleFromSearchParams setMultiplier={setMultiplier} />
-      </Suspense>
-      {children}
+      <DrinkBaseContext.Provider value={drinkBase}>
+        <Suspense fallback={null}>
+          <ScaleFromSearchParams setMultiplier={setMultiplier} />
+        </Suspense>
+        {children}
+      </DrinkBaseContext.Provider>
     </MultiplierContext.Provider>
   );
+}
+
+/** The drink count at 1× when the scaler counts drinks (42c2). */
+export function useDrinkBase(): number | undefined {
+  return React.useContext(DrinkBaseContext);
 }
 
 export function useMultiplier() {
