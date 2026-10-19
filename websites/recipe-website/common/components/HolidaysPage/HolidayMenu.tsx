@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useId, useMemo, type ReactNode } from "react";
 import {
   holidayAfter,
@@ -89,7 +89,6 @@ export function HolidayMenu({
   kindParam,
 }: HolidayMenuProps & { kindParam?: string | null }) {
   const kind = kindOfParam(kindParam);
-  const router = useRouter();
   const pathname = usePathname();
   const heroId = useId();
   const menuId = useId();
@@ -120,7 +119,9 @@ export function HolidayMenu({
 
   const setKind = (next: MakeKind) => {
     const query = next.id === MAKE_KINDS[0].id ? "" : `?kind=${next.word}`;
-    router.replace(`${pathname}${query}`, { scroll: false });
+    /* Next keeps `useSearchParams` in step with the History API: no
+     * round trip to the server, and the static export works the same. */
+    window.history.replaceState(null, "", `${pathname}${query}`);
   };
 
   const words = days !== undefined ? daysTo(days) : undefined;
