@@ -43,6 +43,28 @@ test.describe("Accessibility (axe)", () => {
     expect(results.violations).toEqual([]);
   });
 
+  /*
+   * 42e: the almanac (ruler, countdown cards) and a holiday's menu (the
+   * dot-leader groups, the kind word). Both modes and the kind menu open
+   * are in holidays.spec; this is the plain sweep beside the others.
+   */
+  test("holiday pages have no WCAG2AA violations", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("drinks-bar");
+    await page.goto("/holidays");
+    await expect(page.getByTestId("almanac-next")).toBeVisible();
+    expect(
+      (await new AxeBuilder({ page }).withTags(TAGS).analyze()).violations,
+    ).toEqual([]);
+    await page.goto("/holidays/halloween");
+    await expect(page.getByTestId("holiday-hero")).toBeVisible();
+    expect(
+      (await new AxeBuilder({ page }).withTags(TAGS).analyze()).violations,
+    ).toEqual([]);
+  });
+
   /* U4: the count-bar board — blocks, rows, More tags and the chips. */
   test("tag index board has no WCAG2AA violations", async ({
     page,
@@ -753,6 +775,9 @@ test.describe("Accessibility on a phone @mobile", () => {
     for (const { path, fixture } of [
       { path: "/", fixture: "three-recipes" },
       { path: "/drinks", fixture: "drinks-bar" },
+      /* 42e: the almanac and a holiday's menu. */
+      { path: "/holidays", fixture: "drinks-bar" },
+      { path: "/holidays/halloween", fixture: "drinks-bar" },
     ]) {
       test(`${path} with the tab bar stays WCAG2AA in ${mode} mode`, async ({
         page,

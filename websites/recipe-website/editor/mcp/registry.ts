@@ -59,6 +59,7 @@ import {
   type ImportTarget,
 } from "../controller/curation/importRequest";
 import { LLM_MODES } from "../controller/llm/mode";
+import { DAY_KEY_PATTERN } from "../controller/curation/holidays";
 import { PANTRY_STAPLES } from "recipe-website-common/util/makeable";
 import {
   JOB_LIST_MAX_LIMIT,
@@ -149,6 +150,9 @@ export const TOOL_NAMES = [
   "inventory_remove",
   "inventory_set",
   "inventory_makeable",
+  /* The holidays (42h): 57 → 59, both reads. */
+  "holiday_list",
+  "holiday_get",
   /* The shared shopping list (35c): 49 → 55. */
   "shopping_get",
   "shopping_add",
@@ -1287,6 +1291,61 @@ export function createRecipeServer(
       annotations: READ_ONLY,
     },
     async (args) => read(() => backend.inventoryMakeable(args)),
+  );
+
+  /* --- holidays (42h) ---------------------------------------------------- */
+
+  /*
+   * `date` is checked for its shape here, so `10/31` is the SDK's rejection
+   * (T28); a well-shaped day that is not one (`2026-02-30`) is the seat's
+   * `validation`.
+   */
+  const HolidayDate = z
+    .string()
+    .regex(DAY_KEY_PATTERN, "A calendar day as YYYY-MM-DD")
+    .optional();
+
+  register(
+    "holiday_list",
+    {
+      title: "What holidays are coming up?",
+      description:
+        "Every holiday the site files recipes under (the children of the `holidays` " +
+        "term), soonest first — what's coming up, and how far off. Each row is " +
+        "{slug, label, dated, date?, days?, countdown?, rule?, counts: {recipes, " +
+        "dishes, drinks}, aliases?, top}: `date` is its next day (YYYY-MM-DD) on or " +
+        'after today, `countdown` reads "today", "tomorrow" or "in 12 days", and ' +
+        "`top` is up to three recipes, pinned first. A holiday with no date rule " +
+        "(`dated: false`, a season such as fall favorites) comes last; one nothing " +
+        "is filed under yet has counts of 0. `date` asks as of another day. The " +
+        "answer names `today` and `link`, the site's almanac page. Then holiday_get " +
+        "for one holiday's menu.",
+      inputSchema: z.strictObject({ date: HolidayDate }),
+      annotations: READ_ONLY,
+    },
+    async (args) => read(() => backend.holidayList(args)),
+  );
+
+  register(
+    "holiday_get",
+    {
+      title: "What should I make for a holiday?",
+      description:
+        "One holiday's menu, as its page on the site has it — what to make for " +
+        "Thanksgiving, Christmas or Halloween: its label, description, when it next " +
+        "falls (`date`, `days`, `countdown`), `counts`, and its recipes grouped — " +
+        "`courses` for dishes (breakfast, soup, mains, sides, desserts… then More) " +
+        "and `styles` for drinks (sour, highball, warm drinks… then More), each " +
+        "{slug, label, recipes: [{slug, name, date, tags?, image?, base?}]} with " +
+        "`base` the dish's main ingredient or the drink's spirit. Everything under " +
+        "the holiday's term counts, child terms included. `next` is the holiday " +
+        "after it; `link` its menu page. An alias of a holiday (christmas-cookies) " +
+        "answers that holiday with `requested`. holiday_list names the slugs.",
+      inputSchema: z.strictObject({ slug: Slug, date: HolidayDate }),
+      annotations: READ_ONLY,
+    },
+    async ({ slug, date }) =>
+      read(() => backend.holidayGet(slug, date === undefined ? {} : { date })),
   );
 
   /* --- shopping list (35c) ---------------------------------------------- */

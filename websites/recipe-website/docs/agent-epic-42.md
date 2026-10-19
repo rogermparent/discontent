@@ -707,6 +707,157 @@ frontmatter (CLAUDE.md's 57/43 become 59/45). The curator skill learns
 "what's coming up?". Tests follow the `mcp`, `cliJson` and `curatorSkill`
 suites.
 
+#### Results (42h)
+
+Branch `agent/42h-holiday-tools`, cut from `agent/42e-holidays` (#284).
+**Reindex needed: no. Deploy: yes** (the editor: `/api/holidays` and the
+MCP-over-HTTP seat; the stdio MCP and the CLI pick the tools up from the
+checkout). No content, index or stored-format change; nothing is written.
+
+**What shipped:**
+
+- **The seat**, `editor/controller/curation/holidays.ts`: `holidayList(ctx,
+{date?})` and `holidayGet(ctx, slug, {date?})`. Both are 42e's view model
+  over Node-safe reads — the term tree aggregate, each holiday's record
+  (`readContentFileOrNull`) and one by-term row per key of the holidays'
+  subtrees (`readTaxonomyByTermEntry`), the pages' reads without
+  `unstable_cache`; nothing creates an index (F30). The list is
+  `holidayEntries` ordered by `almanacView`; the menu is `holidayMenuData`,
+  "Then …" is `holidayAfter`, the alias is `holidayAliasTarget`.
+  `holidayEntries` gains `includeEmpty` (default off, so the almanac is
+  unchanged).
+- **`holiday_list`** → `{today, total, link, holidays: [{slug, label,
+dated, date?, days?, countdown?, rule?, counts: {recipes, dishes, drinks},
+aliases?, top}]}`, soonest first, undated last. `date` is the next day
+  (`YYYY-MM-DD`) on or after today, `countdown` is `countdownLabel`'s
+  ("today", "tomorrow", "in 12 days"), `rule` appears only when another
+  key dates it (an alias's), `top` is the almanac card's three names.
+- **`holiday_get {slug}`** → `{today, slug, label, requested?, dated, date?,
+days?, countdown?, description?, image?, aliases?, counts, courses, styles,
+next?, link}`; `courses` (dishes, `MENU_COURSE_ORDER` then More) and
+  `styles` (drinks, `DRINK_STYLE_SLUGS` then More) are `[{slug, label,
+recipes: [{slug, name, date, tags?, image?, base?}]}]` — `recipe_search`'s
+  compact row with the menu line's `base` (main ingredient or spirit).
+- **CLI** `recipes holidays [<slug>] [--date YYYY-MM-DD]` with `--json`, a
+  readable form ("Halloween — halloween: Sat 31 Oct, in 12 days · 1 dish ·
+  1 drink"; the menu as Dishes / Drinks with course and style headings),
+  its own `--help` with the JSON, and a "Holidays:" paragraph and usage
+  line in the global `--help`.
+- **API** `GET /api/holidays?date=` and `GET /api/holidays/<slug>?date=`,
+  thin over the seat. The HTTP backend sends `date`, makes `link` absolute
+  on the editor that answered, and names an editor from before 42h ("The
+  editor at <origin> predates the holiday tools (42h) — update it, or run
+  with --content-dir") when the route answers Next's own 404 rather than
+  our `{error}`.
+- **MCP** `holiday_list` and `holiday_get`, `readOnlyHint` (so a
+  read-scoped token's session has them), `date` checked for its shape by
+  the schema (`10/31` is the SDK's rejection, T28) and for being a real
+  day by the seat (`2026-02-30` is `validation`). Pre-approved in
+  `.claude/settings.json` and the skill's frontmatter: **59 tools / 45
+  pre-approved** (CLAUDE.md updated; 14 held back, unchanged).
+- **The curator skill**: description gains "what holidays are coming up?"
+  and "plan for Easter"; a new **§7b Holidays** — "What's coming up?" →
+  `holiday_list {}`, "Plan for Easter" → `holiday_get`, then the planning
+  tools (reuse, `term_assign`, `group_create`), hand Roger the `link`; the
+  fallback lists `recipes holidays [<slug>] --json`.
+- The D8 boundary (`curation.test.ts`) admits
+  `recipe-website-common/controller/holidaysPage` (pure; it imports
+  `util/holidays`, `drinksPage`, `homepageComingUp`, `tagVocabulary` and
+  types). `agent-mcp.md` enumerates only epic 23's tools, so it is
+  unchanged (as at 41i).
+
+**Dh1 — the list includes holidays nothing is filed under.** The almanac
+leaves them out (De3); an agent asked "what's coming up?" should see that
+Easter has a term and no recipes, so `holiday_list` keeps them with counts
+of 0 (`includeEmpty`). "Then …" (`next`) follows the page: the next holiday
+_with recipes_.
+
+**Dh2 — today is the server's local day unless `date` says.** The pages
+wait for the browser's day (De2); a seat has none, so it counts from the
+machine's local calendar day and every answer names it (`today`). Over
+`--remote` that is the editor's day — the Pi's, in its time zone.
+
+**Dh3 — an alias answers its holiday, with `requested`.** The editor's page
+redirects (De7); a tool answering `not_found` for `christmas-cookies` would
+send an agent hunting, so `holiday_get` answers Christmas and says which
+slug was asked. A slug that is no holiday (a recipe, a course, the
+`holidays` root) is `not_found`, naming the holidays there are.
+
+**Dh4 — public reads.** `/api/holidays` answers without a token, like
+`/api/tags` and `/api/taxonomies/tag/<slug>`: the same data is on the public
+`/holidays` pages and the export. (Make's `/api/inventory/make` needs a read
+token because the inventory is private.)
+
+**Dh5 — rows carry `tags`, not times.** "Compact rows like
+`recipe_search`'s": `{slug, name, date, tags?, image?}` from the by-term
+rows, plus `base`. `totalTime` is not on those rows (De6) and adding it
+would change the tag index's projection (a reindex), so an agent wanting
+times asks `recipe_search "tag:<holiday>"` or `recipe_get`.
+
+**Smoke run** (scratch copy of the `drinks-bar` fixture under
+`tmp/42/42h/fixture`, `CONTENT_DIRECTORY` set there, reindexed, plus
+`easter` and `fall-favorites` terms, a `Christmas Cookies` alias on
+`christmas` and `hand-pies` under `fall-favorites`, all through the CLI):
+
+```
+$ pnpm --silent recipes holidays --date 2026-10-19 --json
+{"today":"2026-10-19","total":4,"holidays":[{"slug":"halloween","label":"Halloween","dated":true,"date":"2026-10-31","days":12,"countdown":"in 12 days","counts":{"recipes":2,"dishes":1,"drinks":1},"top":[{"slug":"hand-pies","name":"Hand Pies"},{"slug":"vodka-sour","name":"Vodka Sour"}]},{"slug":"christmas","label":"Christmas","dated":true,"date":"2026-12-25","days":67,"countdown":"in 67 days","counts":{"recipes":1,"dishes":0,"drinks":1},"aliases":["christmas cookies"],"top":[{"slug":"chamomile-collins","name":"Chamomile Collins"}]},{"slug":"easter","label":"Easter","dated":true,"date":"2027-03-28","days":160,"countdown":"in 160 days","counts":{"recipes":0,"dishes":0,"drinks":0},"top":[]},{"slug":"fall-favorites","label":"Fall favorites","dated":false,"counts":{"recipes":1,"dishes":1,"drinks":0},"top":[{"slug":"hand-pies","name":"Hand Pies"}]}],"link":"/holidays"}
+$ pnpm --silent recipes holidays halloween --date 2026-10-19 --json
+{"today":"2026-10-19","slug":"halloween","label":"Halloween","dated":true,"date":"2026-10-31","days":12,"countdown":"in 12 days","counts":{"recipes":2,"dishes":1,"drinks":1},"courses":[{"slug":"more","label":"More","recipes":[{"slug":"hand-pies","name":"Hand Pies","date":1790000420000,"tags":["dessert","halloween","fall favorites"]}]}],"styles":[{"slug":"sour","label":"Sour","recipes":[{"slug":"vodka-sour","name":"Vodka Sour","date":1790000060000,"tags":["drink","vodka","sour","shaken","halloween"],"base":"Vodka"}]}],"next":{"slug":"christmas","label":"Christmas","date":"2026-12-25","days":67,"countdown":"in 67 days"},"link":"/holidays/halloween"}
+$ pnpm --silent recipes holidays christmas-cookies --date 2026-10-19 --json
+{"today":"2026-10-19","slug":"christmas","label":"Christmas","requested":"christmas-cookies", … ,"styles":[{"slug":"collins","label":"Collins","recipes":[{"slug":"chamomile-collins", … ,"base":"Vodka"}]}],"link":"/holidays/christmas"}
+$ pnpm --silent recipes holidays --date 2026-10-19
+Holidays as of 2026-10-19 — on the site: /holidays
+  Halloween — halloween: Sat 31 Oct, in 12 days · 1 dish · 1 drink
+  Christmas — christmas: Fri 25 Dec, in 67 days · 1 drink
+  Easter — easter: Sun 28 Mar, in 160 days · nothing filed yet
+  Fall favorites — fall-favorites: no date · 1 dish
+$ pnpm --silent recipes holidays nope --json            # exit 1
+{"error":{"code":"not_found","message":"No holiday at slug \"nope\" — the holidays are halloween, christmas, easter, fall-favorites.","slug":"nope"}}
+$ pnpm --silent recipes holidays --date 2026-02-30 --json   # exit 1
+{"error":{"code":"validation","message":"\"2026-02-30\" is not a day: give it as YYYY-MM-DD, e.g. 2026-10-31.","issues":[{"path":"date","message":"A calendar day as YYYY-MM-DD"}]}}
+```
+
+(The fixture's `dessert` is not under a `course` root, so Hand Pies is
+"More" — the menu page shows it the same way.)
+
+**Tests:** new `test/holidayTools.test.ts` (the seat on a frozen day over a
+tmpdir built with the real seats — Halloween with a pin, a dessert and a
+warm drink; Christmas with a cookie filed under its alias; New Year's whose
+alias `new-years-eve` has its own rule (Te2); Easter with nothing filed;
+Fall favorites undated — order, counts, `top`, as of another day, "today",
+no holidays root, bad days; the menu by course and style with tags, an
+alias with `requested`, an undated and an empty holiday, `not_found`; both
+routes in-process; the local link on `RECIPE_EDITOR_URL`; the readable
+list and menu; over HTTP `date`, the absolute link, the pre-42h editor and
+a real `not_found` kept); `mcp.test.ts` (both tools, alias, `not_found`,
+`validation`, the SDK's shape for `10/31`, read-only annotations, the
+read-scoped list; 59 tools); `mcpHttp.test.ts` (a read-scoped session lists
+and calls them); `cliJson.test.ts` (list and menu as a process, `--date`,
+two slugs `usage`, a bad day, `not_found`); `curatorSkill.test.ts` (59/45,
+the two names, §7b and the fallback line; `holiday_` joins the tool-shaped
+tokens); `curation.test.ts` (D8 allow-list).
+
+**Gates** (2026-10-19, all through the capped heavy slot):
+
+- `pnpm --filter recipe-editor typecheck` ✓ and `pnpm --filter
+recipe-website exec tsc --noEmit` ✓ (before merging `origin/main` at
+  3cedeea0, which merged cleanly — no conflicted file).
+- Affected files after the merge (`holidayTools`, `mcp`, `mcpHttp`,
+  `cliJson`, `curatorSkill`, `curation`, `holidaysPage`): **7 files, 226
+  tests** ✓. Then `pnpm exec vitest run`: **124 files, 2534 tests** ✓.
+- Lint-staged `eslint` and `prettier --check` ✓ on commit.
+- No Playwright: no page changed (the two routes are covered in-process in
+  `holidayTools.test.ts`, as 41i covered `/api/inventory/make`).
+
+**Roger to confirm:**
+
+- **Dh1:** `holiday_list` lists a holiday nothing is filed under (counts
+  0); the almanac page still leaves it out.
+- **Dh2:** the tools count from the machine's own day; on the Pi over
+  `--remote` that is the Pi's local day.
+- **Dh4:** `/api/holidays` is public, like `/api/tags`.
+
 ### 42j — Next-round design canvases (no code)
 
 Four Claude Design canvases under epic 41's canvas brief, three variants
@@ -1067,4 +1218,143 @@ workstation update`, from the morning report's list.
 
 ## Traps
 
+### 42e
+
+- **Te1 — `react-hooks/refs` refuses a ref inside an object.** The first
+  cut of the shared kind menu was a hook returning `{open, wrapRef,
+buttonRef, …}` and two components taking it as a prop; the React
+  compiler's lint flags every property read on that object during render
+  ("Cannot access refs during render"), even `menu.open`. Element state
+  through callback refs trips `set-state-in-effect` instead. What passes:
+  one component owning its refs, with the heading as a render prop
+  (`KindMenu`'s `children(word)`).
+- **Te2 — a holiday's alias can carry another holiday's rule.** 42k's
+  `new-years` term lists `new-years-eve` as an alias, and `new-years-eve`
+  has its own rule (31 December). The rule lookup is slug first, then
+  aliases in order (`holidayRuleKey`), so New Year's is 1 January; a lookup
+  that tried aliases first, or merged them, would date it a day early.
+- **Te3 — the kind change is `history.replaceState`, not
+  `router.replace`.** On the editor `router.replace("?kind=…")` re-requests
+  the page's RSC payload for a change only the browser cares about; Next
+  keeps `useSearchParams` in step with the History API, so the page
+  narrows without a round trip, on the export too.
+
 ## Results
+
+### 42e — Holidays: the almanac and the menu pages
+
+**What changed.**
+
+- **`/holidays`, the almanac** (homepage canvas C): a header ("The year
+  ahead · N holidays", today's date), a ruler of the next 365 days from
+  `md` up — a tick on the first of each month with the year on January,
+  a dot per dated holiday, labels stacked in up to three lanes when they
+  crowd (`rulerLanes`: Christmas and New Year's) — then **Next up**, three
+  countdown cards (the soonest larger, its number in the accent; picture,
+  date, "9 dishes · 3 drinks", its first three recipes pinned first, "The
+  Halloween menu"), **Later in the year** as one row each, and **Any time**
+  for holidays with no rule. Files: `common/components/HolidaysPage/`
+  (`index.tsx`, `Almanac.tsx`).
+- **`/holidays/<slug>`, the menu** (/drinks canvas C, generalised): the
+  "Holidays · counts" eyebrow and the holiday's date over the headline
+  "**13** days to Halloween.", the record's description and picture, four
+  lead cards of the kind shown (pinned first), "Then Christmas, in 68 days
+  — 1 drink." to the next holiday's menu, then **On the menu:
+  _recipes_** — the kind word is `/make`'s kind menu — with dot-leader
+  groups in newspaper columns: dishes by course, drinks by style, "More"
+  for the rest, each line's right-hand side the dish's main ingredient or
+  the drink's spirit. With both kinds shown, the groups sit under Dishes
+  and Drinks. "What can I make?" goes to `/make?q=` + `withKind(tag:<slug>,
+kind)`. Files: `HolidayMenu.tsx`, `HolidayMenuPage.tsx`.
+- **Data:** `common/controller/holidaysPage.ts` (pure: `holidayEntries`,
+  `holidayMenuData`, `almanacView`, `rulerLanes`, `holidayAfter`,
+  `menuGroups`, `menuCourses`, `holidayAliasTarget`) and
+  `controller/data/readHolidays.ts` (the tree, each holiday's record, one
+  cached by-term row per key of the holidays' subtrees — `/drinks`' and
+  the term page's pattern). `util/holidays.ts` gains `holidayRuleKey` (slug,
+  then aliases), an optional `rule` on items for `orderByNextOccurrence` /
+  `withinComingUpWindow` / `nextSeasonal` (unchanged without it),
+  `formatDayShort`, `formatMonthTick`, `addDays`.
+- **Routes in both apps:** `editor/src/app/(recipes)/holidays/page.tsx`,
+  `holidays/[slug]/page.tsx`, and the export's, defined once in
+  `HolidaysPage/routes.tsx`. The export's `generateStaticParams` emits
+  every holiday and every alias of one; with none, one `_` placeholder that
+  answers 404 (the `generateTagStaticParams` guard).
+- **The kind menu** moved out of `MakeQuestion` into
+  `MakePage/KindMenu.tsx` (Te1), markup and behaviour unchanged; `SLOT` is
+  exported for the holiday heading.
+- **Links:** a holiday's term page says "See the Halloween menu", the
+  `holidays` root's "The almanac: every holiday, by date"
+  (`TagPage/shared.tsx`); the footer's default Browse column gains
+  Holidays after Drinks on a site that has a `holidays` root with a child
+  (`AppLayout`, a cached tree read in a try/catch; `NAV_ICONS` gets
+  `calendar-heart`). `TagAliasRedirect` takes a `base` for the export's
+  alias pages.
+
+**Decisions.**
+
+- **De1 — dates per D4, by slug then alias.** A holiday child with no
+  rule is undated and last ("Any time"); a holiday further than 365 days
+  off (a late Easter after an early one) keeps its card but no dot.
+- **De2 — today is the browser's (U1).** The server's day orders the
+  first render; countdown numbers and today's date wait for the browser's
+  day (`useToday(null)`), so the export's HTML never prints a stale number.
+  Dates are `<time>` (masked in baselines).
+- **De3 — only holidays with recipes** are on the almanac (plans alone do
+  not count: the menu lists recipes). A holiday child with none still has
+  a menu page that says so.
+- **De4 — the kind lives in `?kind=<word>`** (`dishes`, `drinks`; none for
+  recipes), read with `useSearchParams` under a `Suspense` whose fallback
+  is the whole menu — the export's static HTML.
+- **De5 — course order is a meal's** (`MENU_COURSE_ORDER`: breakfast,
+  snacks, soup, salad, mains, sides, bread, sauces, desserts; other
+  courses after, in tree order); styles keep `DRINK_STYLE_SLUGS`' order. A
+  recipe in two courses goes under the earlier in that order, whatever
+  order its tags are in (`earliestTerm`; a dessert-and-breakfast pie is
+  breakfast); a drink in two styles likewise.
+- **De6 — the right-hand side of a menu line** is the dish's main
+  ingredient or the drink's spirit, not a time: the by-term rows carry no
+  times, and adding them would change the tag index's projection (a
+  reindex).
+- **De7 — an alias redirects.** `/holidays/christmas-cookies` → the
+  editor redirects; the export emits a page that sends the reader on. A
+  slug that is neither a holiday nor an alias of one is a 404.
+- **De8 — `TimelineStrip` was not reused.** It draws one recipe's
+  schedule as proportional segments; the almanac is a calendar ruler with
+  points. A new `Ruler` inside `Almanac.tsx` rather than a fork.
+- **De9 — no masthead link.** Six destinations fill the masthead at `md`,
+  and a masthead change moves every full-page baseline; the almanac is in
+  the footer — only on sites with holidays, so only `drinks-bar`'s footer
+  moved (both `drinks-page` baselines, e2e and mobile, regenerated) — and
+  linked from the term pages.
+
+**Roger to confirm.** De3 (plans don't put a holiday on the almanac);
+De5's course order; De6 (main ingredient / spirit at the end of the
+dotted line); De9 (footer only — a masthead or ⌘K palette entry is a
+small follow-up); the homepage's "All holidays" still goes to
+`/tags/holidays` — 42f's redesign links the almanac.
+
+**Gates** (2026-10-19, all through the capped heavy slot).
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit`: clean.
+- vitest: 120 files, 2434 tests passed (new: `test/holidaysPage.test.ts` —
+  rule lookup by slug then alias incl. 42k's `new-years` shape, almanac
+  order and undated last, the 365-day ruler across a year end, a late
+  Easter off the ruler, label lanes, the next holiday, menu grouping by
+  course and style with More, pins first, a two-course dish under the
+  earlier course, kinds, alias targets).
+- Export build (`next build`, `output: "export"`) against a scratch copy
+  of `drinks-bar`: `○ /holidays`, `● /holidays/halloween`,
+  `● /holidays/christmas` prerendered as static HTML; the index's footer
+  links `/holidays`.
+- Playwright in Docker, build mode: holidays, accessibility, drinks, make,
+  tag-pages, footer, homepage-browse, menus — **173 passed**. Dev mode
+  once (Docker): holidays and accessibility — **76 passed**.
+- Baselines (Docker): new `holidays-almanac` and `holidays-menu`, e2e and
+  mobile, on the frozen clock; `drinks-page` e2e and mobile moved (the
+  footer's Holidays link, nothing else). Each opened and compared with its
+  canvas: the almanac is canvas C's "The season" (ruler, big countdowns,
+  cards) as a page; the menu is the /drinks canvas C's hero and dot-leader
+  menu. With the fixture's two holidays the Next up row has an empty third
+  column, and every picture is a monogram (the fixture has no photos).

@@ -49,6 +49,8 @@ import type {
   GroupDetail,
   GroupListResult,
   GroupWriteResult,
+  HolidayGetResult,
+  HolidayListResult,
   ImportListResult,
   ImportOptions,
   ImportResult,
@@ -94,6 +96,9 @@ import type {
  * second vocabulary is a second segment, not a second set of routes.
  */
 const TERMS = "/api/taxonomies/tag";
+
+/** The holiday seats' routes (42h). */
+const HOLIDAYS = "/api/holidays";
 
 function termPath(slug: string, action?: string): string {
   return `${TERMS}/${encodeURIComponent(slug)}${action ? `/${action}` : ""}`;
@@ -308,6 +313,30 @@ export function createHttpBackend({
       throw rehydrate(response.status, response.statusText, parsed);
     }
     return parsed as TResult;
+  }
+
+  /**
+   * An editor from before 42h has no `/api/holidays`: Next answers its own
+   * 404 page, not our `{error}` body, which reads as a bare `not_found`.
+   * Say what it means — a missing holiday answers with its slug named.
+   */
+  async function predatesHolidays<T>(pending: Promise<T>): Promise<T> {
+    try {
+      return await pending;
+    } catch (error) {
+      if (
+        error instanceof CurationError &&
+        error.code === "not_found" &&
+        error.details.slug === undefined &&
+        /^The editor answered 404/.test(error.message)
+      ) {
+        throw new CurationError(
+          "not_found",
+          `The editor at ${new URL(root).origin} predates the holiday tools (42h) — update it, or run with --content-dir.`,
+        );
+      }
+      throw error;
+    }
   }
 
   return {
@@ -568,6 +597,23 @@ export function createHttpBackend({
         return result;
       }
       /* The page on the editor that answered (41i, Di5). */
+      return { ...result, link: absoluteLink(result.link, root) };
+    },
+
+    async holidayList(options = {}) {
+      const result = await predatesHolidays(
+        call<HolidayListResult>("GET", HOLIDAYS, { query: { ...options } }),
+      );
+      return { ...result, link: absoluteLink(result.link, root) };
+    },
+    async holidayGet(slug, options = {}) {
+      const result = await predatesHolidays(
+        call<HolidayGetResult>(
+          "GET",
+          `${HOLIDAYS}/${encodeURIComponent(slug)}`,
+          { query: { ...options } },
+        ),
+      );
       return { ...result, link: absoluteLink(result.link, root) };
     },
 

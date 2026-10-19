@@ -148,6 +148,9 @@ describe("the MCP registry over an in-memory transport", () => {
           "recipe_get",
           "git_status",
           "git_fetch",
+          /* 42h: the holidays are reads. */
+          "holiday_list",
+          "holiday_get",
         ]),
       );
       for (const write of [
@@ -772,6 +775,94 @@ describe("the MCP registry over an in-memory transport", () => {
   });
 
   /* ---------------------------------------------------------------- */
+  /* 11b. Holidays (42h)                                               */
+  /* ---------------------------------------------------------------- */
+
+  it("says what's coming up and what to make for a holiday (42h)", async () => {
+    for (const term of [
+      { label: "Holidays", slug: "holidays" },
+      { label: "Halloween", parent: "holidays" },
+      { label: "Christmas", parent: "holidays", aliases: ["xmas"] },
+      { label: "Fall favorites", slug: "fall-favorites", parent: "holidays" },
+    ]) {
+      expect((await call("term_create", { term })).isError).toBe(false);
+    }
+    await call("recipe_create", {
+      recipe: { name: "Pumpkin Pie", tags: ["halloween"] },
+    });
+
+    const listed = await call("holiday_list", { date: "2026-10-19" });
+    expect(listed.isError).toBe(false);
+    expect(listed.data).toMatchObject({
+      today: "2026-10-19",
+      total: 3,
+      link: expect.stringMatching(/\/holidays$/),
+      holidays: [
+        {
+          slug: "halloween",
+          date: "2026-10-31",
+          days: 12,
+          countdown: "in 12 days",
+          counts: { recipes: 1, dishes: 1, drinks: 0 },
+          top: [{ slug: "pumpkin-pie", name: "Pumpkin Pie" }],
+        },
+        { slug: "christmas", days: 67, counts: { recipes: 0 } },
+        { slug: "fall-favorites", dated: false },
+      ],
+    });
+
+    const menu = await call("holiday_get", {
+      slug: "halloween",
+      date: "2026-10-19",
+    });
+    expect(menu.data).toMatchObject({
+      slug: "halloween",
+      days: 12,
+      courses: [
+        {
+          slug: "more",
+          recipes: [{ slug: "pumpkin-pie", name: "Pumpkin Pie" }],
+        },
+      ],
+      styles: [],
+      link: expect.stringMatching(/\/holidays\/halloween$/),
+    });
+    expect((await call("holiday_get", { slug: "xmas" })).data).toMatchObject({
+      slug: "christmas",
+      requested: "xmas",
+    });
+
+    /* A slug that is no holiday is the layer's not_found… */
+    expect(
+      await callError("holiday_get", { slug: "pumpkin-pie" }),
+    ).toMatchObject({ code: "not_found", slug: "pumpkin-pie" });
+    /* …a well-shaped day that is not one, its validation… */
+    expect(
+      await callError("holiday_list", { date: "2026-02-30" }),
+    ).toMatchObject({ code: "validation" });
+    /* …and a date in another shape the schema's, before dispatch (T28). */
+    const shaped = await client.callTool({
+      name: "holiday_list",
+      arguments: { date: "10/31" },
+    });
+    expect(shaped.isError).toBe(true);
+    expect(
+      (shaped.structuredContent as { error?: unknown } | undefined)?.error,
+    ).toBeUndefined();
+
+    const { tools } = await client.listTools();
+    for (const name of ["holiday_list", "holiday_get"]) {
+      expect(
+        tools.find((tool) => tool.name === name)?.annotations,
+        name,
+      ).toMatchObject({ readOnlyHint: true });
+    }
+    expect(
+      tools.find((tool) => tool.name === "holiday_list")?.description,
+    ).toContain("what's coming up");
+  });
+
+  /* ---------------------------------------------------------------- */
   /* 12. Shopping list (35c)                                           */
   /* ---------------------------------------------------------------- */
 
@@ -890,7 +981,7 @@ describe("the MCP registry over an in-memory transport", () => {
         (tool) => tool.name === "shopping_remove",
       )?.inputSchema.properties,
     ).toHaveProperty("for");
-    expect(TOOL_NAMES).toHaveLength(57);
+    expect(TOOL_NAMES).toHaveLength(59);
   });
 
   /* ---------------------------------------------------------------- */
