@@ -475,8 +475,12 @@ confirm-in-place remove. The per-browser state lives in `shopState.ts`.
   - Then, held or not, the ticked lines in this store's list are hidden at
     once and removed 8 s later as one commit ("−egg −onion"), unless Undo
     comes first.
+  - When the window closes, Undo goes. The lines stay hidden until the
+    write lands, or come back with the error if it fails. Until then Done
+    shopping stays disabled, so there is only one clear at a time.
   - Hiding or leaving the page inside that window sends the removal at
-    once, as a `keepalive` PATCH to `/api/shopping`.
+    once, as a `keepalive` PATCH to `/api/shopping`. Either way, the
+    trip's done aisles are forgotten.
   - Plan's Done shopping (`holdTicks` on) stays save-only, and Clear
     checked stays in the Checked fold, so both 38d/39 specs are unchanged.
 - **Dg5 — Buy anyway is the existing per-item `need` flag** (`{need: ids}`,
@@ -495,7 +499,18 @@ confirm-in-place remove. The per-browser state lives in `shopState.ts`.
   printout is narrower than `lg` too and keeps it, through a
   `@media screen` arbitrary variant.
 - **Dg9 — The rail lists aisles with rows to tick.** An aisle holding only
-  on-hand rows gets no chip.
+  on-hand rows gets no chip, and is never "done": it keeps its on-hand line
+  and Buy anyway.
+- **Dg10 — Focus follows what replaced the pressed control:**
+  - "Aisle done" → the folded line.
+  - The folded line's Undo → the aisle.
+  - Done shopping → its Undo.
+  - Undo → Done shopping.
+  - The Plan/Shop switch → the new layout's pressed button.
+  - Closing the sheet opened from "Stores and aisles" → that button.
+
+  The bottom bar's live region announces only what Done shopping did, and
+  a save that is retrying. It does not announce each tick's count.
 
 **Spec changes and reasons.**
 

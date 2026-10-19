@@ -216,13 +216,24 @@ describe("aisle done, per browser (42g)", () => {
     expect(markAisle(done, "hannaford", aisle, false, now)).toEqual({});
   });
 
-  it("opens again when a line is added to the aisle, even onto a merged row", () => {
-    const aisle = produce();
-    const done = markAisle({}, "list", aisle, true, now);
-    const more = [...planAndRecipe(), item("1 onion")];
-    const later = shopAisles(buildShoppingView(more, settings())).find(
-      (each) => each.id === "produce",
+  /** One list's produce aisle, built twice from the same items (same ids). */
+  function produceOf(items: ShoppingItem[]) {
+    return shopAisles(buildShoppingView(items, settings())).find(
+      (aisle) => aisle.id === "produce",
     )!;
+  }
+
+  it("stays done over the same items, rebuilt", () => {
+    const base = planAndRecipe();
+    const done = markAisle({}, "list", produceOf(base), true, now);
+    expect(aisleIsDone(done.list.produce, produceOf([...base]))).toBe(true);
+  });
+
+  it("opens again when a line is added to the aisle, even onto a merged row", () => {
+    const base = planAndRecipe();
+    const aisle = produceOf(base);
+    const done = markAisle({}, "list", aisle, true, now);
+    const later = produceOf([...base, item("1 onion")]);
     /* Same row keys ("name:onion"), one more item behind them. */
     expect(later.rows.map((row) => row.key)).toEqual(
       aisle.rows.map((row) => row.key),
@@ -231,10 +242,16 @@ describe("aisle done, per browser (42g)", () => {
   });
 
   it("stays done when a line leaves the aisle", () => {
-    const aisle = produce();
+    const base = planAndRecipe();
+    const done = markAisle({}, "list", produceOf(base), true, now);
+    const fewer = base.filter((each) => each.text !== "1 lb potatoes");
+    expect(aisleIsDone(done.list.produce, produceOf(fewer))).toBe(true);
+  });
+
+  it("is never done with no lines to tick (on-hand rows only)", () => {
+    const aisle = { ...produce(), rows: [], left: 0, ticked: 0 };
     const done = markAisle({}, "list", aisle, true, now);
-    const fewer = { ...aisle, rows: aisle.rows.slice(1) };
-    expect(aisleIsDone(done.list.produce, fewer)).toBe(true);
+    expect(aisleIsDone(done.list.produce, aisle)).toBe(false);
   });
 
   it("reads back what was stored, and forgets a trip over 12 hours old", () => {

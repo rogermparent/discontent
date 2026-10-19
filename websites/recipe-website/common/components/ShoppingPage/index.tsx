@@ -1,6 +1,12 @@
 "use client";
 
-import { useMemo, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 import { cn } from "@discontent/component-library/lib/utils";
 import { rowsHolding } from "../../util/shoppingPage";
 import {
@@ -12,7 +18,7 @@ import {
 import { PlanView } from "./PlanView";
 import { ShopView } from "./ShopView";
 import type { RowHandlers } from "./ShoppingRowView";
-import { useShoppingMode } from "./shopState";
+import { useShoppingMode, type ShoppingMode } from "./shopState";
 import {
   useShoppingList,
   type ShoppingListState,
@@ -98,8 +104,29 @@ export function ShoppingPage({
 }) {
   const list = useShoppingList({ initial, actions, patchUrl });
   const [store, setStore] = useStoreChoice();
-  const [mode, setMode] = useShoppingMode();
+  const [mode, saveMode] = useShoppingMode();
   const hydrated = useHydrated();
+  /*
+   * Switching mode swaps the whole layout, the switch with it: focus goes to
+   * the new layout's pressed button rather than to the page's start.
+   */
+  const modeSwitched = useRef(false);
+  const setMode = useCallback(
+    (next: ShoppingMode) => {
+      modeSwitched.current = true;
+      saveMode(next);
+    },
+    [saveMode],
+  );
+  useEffect(() => {
+    if (!modeSwitched.current) return;
+    modeSwitched.current = false;
+    document
+      .querySelector<HTMLElement>(
+        '[data-testid="shopping-mode"] [aria-pressed="true"]',
+      )
+      ?.focus();
+  }, [mode]);
 
   const fullView = useMemo(
     () => buildShoppingView(list.items, list.settings, list.inventory),

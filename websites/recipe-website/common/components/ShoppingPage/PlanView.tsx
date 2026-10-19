@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, Printer } from "lucide-react";
 import { Button } from "@discontent/component-library/components/ui/button";
@@ -165,7 +165,7 @@ function Switches({
   openSettings,
 }: {
   list: ShoppingList;
-  openSettings(): void;
+  openSettings(opener: HTMLElement): void;
 }) {
   const headingId = useId();
   const { features } = list.settings;
@@ -212,7 +212,7 @@ function Switches({
         type="button"
         variant="link"
         className="mt-1 h-10 px-0"
-        onClick={openSettings}
+        onClick={(event) => openSettings(event.currentTarget)}
       >
         Stores and aisles
         <ChevronRight aria-hidden className="size-4" />
@@ -357,6 +357,7 @@ export function PlanView({
   setMode(mode: ShoppingMode): void;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const openerRef = useRef<HTMLElement | null>(null);
   const origins = useMemo(
     () => listOrigins(list.items, list.plans),
     [list.items, list.plans],
@@ -405,6 +406,7 @@ export function PlanView({
               save={list.saveSettings}
               open={settingsOpen}
               onOpenChange={setSettingsOpen}
+              returnFocusRef={openerRef}
             />
           </div>
         </div>
@@ -428,7 +430,13 @@ export function PlanView({
           {subRecipes.length > 0 && (
             <SubRecipes groups={subRecipes} view={fullView} list={list} />
           )}
-          <Switches list={list} openSettings={() => setSettingsOpen(true)} />
+          <Switches
+            list={list}
+            openSettings={(element) => {
+              openerRef.current = element;
+              setSettingsOpen(true);
+            }}
+          />
         </aside>
 
         <div className="flex min-w-0 flex-col gap-4">

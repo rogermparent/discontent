@@ -68,11 +68,17 @@ export function SettingsSheet({
   save,
   open: openProp,
   onOpenChange,
+  returnFocusRef,
 }: {
   settings: ShoppingSettings;
   save(patch: unknown): Promise<unknown>;
   open?: boolean;
   onOpenChange?(open: boolean): void;
+  /**
+   * Opened from elsewhere ("Stores and aisles"): the element focus goes
+   * back to on close, instead of the Settings button. Cleared once used.
+   */
+  returnFocusRef?: { current: HTMLElement | null };
 }) {
   const [ownOpen, setOwnOpen] = useState(false);
   const open = openProp ?? ownOpen;
@@ -89,6 +95,13 @@ export function SettingsSheet({
         side="right"
         className="w-full overflow-y-auto sm:max-w-md"
         data-testid="shopping-settings"
+        onCloseAutoFocus={(event) => {
+          if (!returnFocusRef?.current) return;
+          const opener = returnFocusRef.current;
+          returnFocusRef.current = null;
+          event.preventDefault();
+          opener.focus();
+        }}
       >
         <SheetHeader>
           <SheetTitle>Shopping list settings</SheetTitle>

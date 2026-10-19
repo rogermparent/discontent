@@ -160,8 +160,13 @@ export function useShoppingList({
    * 42g: lines Done shopping is clearing — hidden now, removed when the Undo
    * window closes (or at once when the page is hidden or left).
    */
-  const [clearing, setClearing] = useState<string[] | undefined>();
+  const [clearing, setClearing] = useState<
+    { ids: string[]; sent: boolean } | undefined
+  >();
+  /* The ids still inside their Undo window (none once sent). */
   const clearingRef = useRef<string[] | undefined>(undefined);
+  /* What to do once that clear has landed (forget the done aisles). */
+  const clearedRef = useRef<(() => void) | undefined>(undefined);
   const clearTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -218,6 +223,8 @@ export function useShoppingList({
       if (!ids) return;
       clearingRef.current = undefined;
       clearTimeout(clearTimer.current);
+      const cleared = clearedRef.current;
+      clearedRef.current = undefined;
       /* Off the page now; the next read confirms it. */
       const gone = new Set(ids);
       setState((current) => ({
@@ -226,6 +233,8 @@ export function useShoppingList({
       }));
       setClearing(undefined);
       ticks.forget(ids);
+      /* Sent for good: the trip is over here too (42-Dg2). */
+      cleared?.();
       try {
         void fetch(patchUrl, {
           method: "PATCH",
@@ -299,7 +308,7 @@ export function useShoppingList({
   const items = useMemo(() => {
     const ticked = applyPending(state.items, sync.pending);
     if (!clearing) return ticked;
-    const hidden = new Set(clearing);
+    const hidden = new Set(clearing.ids);
     return ticked.filter((item) => !hidden.has(item.id));
   }, [state.items, sync.pending, clearing]);
 
@@ -354,27 +363,38 @@ export function useShoppingList({
     /**
      * 42g, Done shopping in the store (42-Dg4): hide these ticked lines at
      * once and remove them after `CLEAR_UNDO_MS` unless `undoClear` comes
-     * first. One clear at a time: a second sends the first now.
+     * first. Once the window closes the removal is `sent` and can no longer
+     * be undone; the lines stay hidden until it lands (or come back, with
+     * the error, if it fails). Done shopping is disabled meanwhile, so
+     * there is one clear at a time.
      */
-    clearing,
+    clearing: clearing?.ids,
+    /** The clear's Undo window has closed: it is being written. */
+    clearSent: clearing?.sent ?? false,
     startClear: (ids: string[], onCleared?: () => void) => {
-      const earlier = clearingRef.current;
       clearTimeout(clearTimer.current);
-      if (earlier) void removeIds(earlier);
       clearingRef.current = ids;
-      setClearing(ids);
+      clearedRef.current = onCleared;
+      const entry = { ids, sent: false };
+      setClearing(entry);
       clearTimer.current = setTimeout(() => {
         if (clearingRef.current !== ids) return;
         clearingRef.current = undefined;
+        const cleared = clearedRef.current;
+        clearedRef.current = undefined;
+        const sent = { ids, sent: true };
+        setClearing(sent);
         void removeIds(ids).then((result) => {
-          setClearing((current) => (current === ids ? undefined : current));
-          if (result) onCleared?.();
+          setClearing((current) => (current === sent ? undefined : current));
+          if (result) cleared?.();
         });
       }, CLEAR_UNDO_MS);
     },
     undoClear: () => {
+      if (!clearingRef.current) return;
       clearTimeout(clearTimer.current);
       clearingRef.current = undefined;
+      clearedRef.current = undefined;
       setClearing(undefined);
     },
     /**

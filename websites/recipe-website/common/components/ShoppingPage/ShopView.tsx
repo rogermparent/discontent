@@ -231,6 +231,7 @@ function DoneAisle({
           type="button"
           aria-expanded={open}
           aria-controls={rowsId}
+          data-focus={`done-${aisle.id}`}
           onClick={() => setOpen((value) => !value)}
           className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 text-left text-sm font-medium text-muted-foreground hover:text-foreground"
         >
@@ -334,8 +335,24 @@ export function ShopView({
   const checkedIds = view.checked.flatMap((row) => row.ids);
   const here = storesOn && store !== "all" ? " here" : "";
 
-  const markDone = (aisle: ShopAisle, value: boolean) =>
+  /*
+   * Marking an aisle done (or undoing it) unmounts the pressed button, so
+   * focus follows to what replaced it: the folded line, or the aisle
+   * itself, after the next render.
+   */
+  const focusNext = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const selector = focusNext.current;
+    if (!selector) return;
+    focusNext.current = undefined;
+    document.querySelector<HTMLElement>(selector)?.focus();
+  });
+  const markDone = (aisle: ShopAisle, value: boolean) => {
+    focusNext.current = value
+      ? `[data-focus="done-${aisle.id}"]`
+      : `#${aisleAnchor(aisle)}`;
     setDone((current) => markAisle(current, scope, aisle, value, Date.now()));
+  };
 
   /*
    * The aisle in view: the last whose top has passed under the pinned bar —
@@ -353,13 +370,18 @@ export function ShopView({
       const atEnd =
         window.scrollY > 0 &&
         window.innerHeight + window.scrollY >= root.scrollHeight - 2;
-      let found: string | undefined = atEnd ? ids[ids.length - 1] : undefined;
-      if (!found) {
-        for (const id of ids) {
-          const element = document.getElementById(id);
-          if (element && element.getBoundingClientRect().top <= line) {
-            found = id;
-          }
+      /*
+       * By position, not rail order: done aisles fold away above the open
+       * ones, so the aisle in view is the one whose top is lowest while
+       * still above the line — at the end of the page, the lowest of all.
+       */
+      let found: string | undefined;
+      let best = -Infinity;
+      for (const id of ids) {
+        const top = document.getElementById(id)?.getBoundingClientRect().top;
+        if (top !== undefined && (atEnd || top <= line) && top > best) {
+          best = top;
+          found = id;
         }
       }
       setCurrent((found ?? ids[0]).replace(/^shop-aisle-/, ""));
@@ -414,6 +436,8 @@ export function ShopView({
     const rows = rowsHolding(view, new Set(checkedIds));
     const cleared = `${saved !== undefined ? `Saved and cleared` : "Cleared"} ${lineCount(rows)}.`;
     setNote(cleared);
+    /* Done shopping disables itself: focus goes to Undo beside it. */
+    focusNext.current = '[data-focus="undo-clear"]';
     list.startClear(checkedIds, () =>
       setDone((current) => {
         const next = { ...current };
@@ -620,21 +644,26 @@ export function ShopView({
               <Plus aria-hidden className="size-5" />
             )}
           </Button>
-          <p
-            className="min-w-0 flex-1 text-xs text-muted-foreground"
-            role="status"
-          >
+          <p className="min-w-0 flex-1 text-xs text-muted-foreground">
             <span className="block font-mono text-sm font-semibold text-foreground">
               {status}
             </span>
             {detail}
           </p>
-          {clearing && (
+          {/* Announced: what Done shopping did, and a save that is late —
+              not every tick's count. Always mounted, empty until then. */}
+          <span role="status" className="sr-only">
+            {note ?? (list.status === "retrying" ? sync : "")}
+          </span>
+          {/* Only inside the window: once sent, Undo would be a lie. */}
+          {clearing && !list.clearSent && (
             <Button
               type="button"
               variant="outline"
               className="h-11"
+              data-focus="undo-clear"
               onClick={() => {
+                focusNext.current = '[data-focus="done-shopping"]';
                 list.undoClear();
                 setNote(undefined);
               }}
@@ -645,6 +674,7 @@ export function ShopView({
           <Button
             type="button"
             className="h-12 px-5 text-[0.9375rem]"
+            data-focus="done-shopping"
             disabled={!canFinish}
             onClick={() => void finish()}
           >

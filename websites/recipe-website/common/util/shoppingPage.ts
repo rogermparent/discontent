@@ -193,7 +193,8 @@ export function aisleIsDone(
   entry: DoneAisle | undefined,
   aisle: ShopAisle,
 ): boolean {
-  if (!entry) return false;
+  /* An aisle with no lines to tick (on-hand rows only) is never "done". */
+  if (!entry || aisle.rows.length === 0) return false;
   const known = new Set(entry.ids);
   return aisle.rows.every((row) => row.ids.every((id) => known.has(id)));
 }

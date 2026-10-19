@@ -112,10 +112,15 @@ test.describe("Shopping list: in the store @mobile", () => {
     );
     await expect(page.getByTestId("shopping-progress")).toContainText("9 left");
 
+    /* By keyboard: focus follows the aisle into its folded line. */
     await dairy
       .getByRole("button", { name: "Aisle done: Dairy & eggs" })
-      .click();
+      .focus();
+    await page.keyboard.press("Enter");
     const folded = page.getByTestId("shopping-aisle-done");
+    await expect(
+      folded.getByRole("button", { name: /Dairy & eggs — done/ }),
+    ).toBeFocused();
     await expect(folded).toContainText("Dairy & eggs — done");
     await expect(folded).toContainText("1 of 3");
     await expect(eggs).toBeHidden();
@@ -135,6 +140,8 @@ test.describe("Shopping list: in the store @mobile", () => {
       .getByRole("button", { name: "Undo: Dairy & eggs done" })
       .click();
     await expect(folded).toHaveCount(0);
+    /* …and back to the aisle when it opens again. */
+    await expect(dairy).toBeFocused();
     await expect(eggs).toBeVisible();
     await expect(eggs).toBeChecked();
     /* Nothing of it was written. */
@@ -208,12 +215,20 @@ test.describe("Shopping list: in the store @mobile", () => {
     await bar.getByRole("button", { name: "Done shopping" }).click();
     await expect(bar).toContainText("Cleared 2 lines.");
     await expect(page.getByLabel("10 eggs", { exact: true })).toHaveCount(0);
-    await bar.getByRole("button", { name: "Undo" }).click();
+    /* Done shopping disables itself; focus waits on Undo, then comes back. */
+    const undo = bar.getByRole("button", { name: "Undo" });
+    await expect(undo).toBeFocused();
+    await page.keyboard.press("Enter");
     await expect(page.getByLabel("10 eggs", { exact: true })).toBeChecked();
     await expect(page.getByLabel("6 onions", { exact: true })).toBeChecked();
+    await expect(
+      bar.getByRole("button", { name: "Done shopping" }),
+    ).toBeFocused();
 
     await bar.getByRole("button", { name: "Done shopping" }).click();
     await expect(page.getByLabel("10 eggs", { exact: true })).toHaveCount(0);
+    /* Once the window closes Undo goes, before the write lands. */
+    await expect(undo).toHaveCount(0, { timeout: 12_000 });
     await expect
       .poll(async () => (await getContentGitLog())[0], { timeout: 20_000 })
       .toBe("Update shopping list: −egg −onion");
@@ -384,6 +399,10 @@ test.describe("Shopping list: at home", () => {
     await expect(sheet.getByLabel(/^Aisles/)).not.toBeChecked();
     await sheet.getByRole("button", { name: "Cancel" }).click();
     await expect(sheet).toHaveCount(0);
+    /* Focus goes back to what opened it, not to the Settings button. */
+    await expect(
+      switches.getByRole("button", { name: "Stores and aisles" }),
+    ).toBeFocused();
   });
 
   test("Shop on a wide screen is remembered", async ({ page }) => {
@@ -393,6 +412,12 @@ test.describe("Shopping list: at home", () => {
       .getByRole("button", { name: "Shop" })
       .click();
     await expect(page$(page)).toHaveAttribute("data-mode", "shop");
+    /* The layout swapped; focus is on the new layout's Shop button. */
+    await expect(
+      page.getByRole("group", { name: "Mode" }).getByRole("button", {
+        name: "Shop",
+      }),
+    ).toBeFocused();
     await expect(
       page.getByRole("navigation", { name: "Aisles" }),
     ).toBeVisible();
