@@ -1052,6 +1052,49 @@ workstation update`, from the morning report's list.
 
 ## Traps
 
+### 42g
+
+- **Tg1 — `useShoppingList.ts` failed eslint on `main`.** The
+  eslint-plugin-react-hooks 7 rule `react-hooks/refs` flags the `TickSync`
+  made in a `useState` initializer: its `onItems` bumps a ref. Nobody had
+  touched the file since the plugin update. lint-staged lints whole files,
+  so the next phase to change it hit an error it didn't cause. 42g moved the
+  counter to a tiny `WriteCounter` object held in state. A plain
+  `{ current }` object fails a different rule, `react-hooks/immutability`.
+- **Tg2 — A sticky bar's jump offset is its `top` plus its height.** The
+  shop bar is `.sticky-chrome`. When the reader's setting or a short
+  viewport releases it, the position is `static` and there is no offset.
+  `pinnedBottom()` in `ShopView.tsx` reads both from computed style. Don't
+  hard-code the masthead's height.
+- **Tg3 — A scroll spy never reaches the last aisle on a short page.** The
+  last section can't scroll up to the bar, so "the last section whose top
+  passed the bar" stays on the one before it. When the page is scrolled to
+  the end, the last aisle is current. The spy picks by position, not rail
+  order, because done aisles fold away above the open ones.
+- **Tg4 — An sr-only suffix across flex items gains a space.** Chrome reads
+  `Buy anyway<span class="sr-only">: salt</span>` inside an `inline-flex`
+  button as "Buy anyway : salt". An `aria-label` fixes the spacing, but
+  only if its visible text is the start of the name. If the visible text
+  sits elsewhere, as the rail's "Pantry" plus "4" did, axe's
+  `label-content-name-mismatch` fails. The rail chips stay named by their
+  content, with sr-only words, and their specs match the name with
+  `/^Pantry ?4 left$/`.
+- **Tg5 — Pinned bars break full-page screenshots and axe.** A full-page
+  capture paints a sticky bar part-way down the page.
+  - Shop's baselines are viewport captures taken from the top
+    (`inView()` in `shopping-modes.spec.ts`).
+  - Axe's `target-size` rule calls a control scrolled under a pinned bar
+    "partially obscured", which depends on where the page stopped. The
+    in-store a11y sweep runs in a viewport tall enough not to scroll.
+- **Tg6 — `common/` may not contain the text "on-hand", not even in a
+  comment.** `test/inventory.test.ts` greps every `common/` and `export/`
+  source for it, as its boundary check that the export never reads the
+  shared inventory. Write "probably on hand".
+- **Tg7 — An optimistic control for Playwright's `check()`.** A controlled
+  checkbox that waits for the server's answer fails `uncheck()` with
+  "Clicking the checkbox did not change its state". Show the new state
+  while the write is out.
+
 ### 42b
 
 - **Tb1 — `toHaveScreenshot` has no `style` option.** That option belongs to
@@ -1098,6 +1141,214 @@ buttonRef, …}` and two components taking it as a prop; the React
   narrows without a round trip, on the export too.
 
 ## Results
+
+### 42g — /shopping: plan at home, shop in the store
+
+Canvas B, presentation only (D5). `buildShoppingView`, `formatShoppingText`,
+`viewForStore`, the tick queue and sync, and their three vitest suites are
+unchanged. The CLI/MCP `shopping_get` reads `readShoppingView`, which is
+also unchanged. The page regroups the view through new pure helpers in
+`common/util/shoppingPage.ts`:
+
+- `shopAisles`: rows in their aisles, with ticked rows put back in place.
+- `listOrigins` and `removalPatch`: what is on the list by plan and recipe,
+  and the one write that removes an origin's lines.
+- `readDoneAisles`, `aisleIsDone` and `markAisle`: the per-browser "aisle
+  done" state.
+- `rowsHolding`: the row counter the page already used.
+
+`test/shoppingPage.test.ts` covers them, including a check that the shared
+view and its copy text come out byte-identical.
+
+**What changed.** `ShoppingPage/index.tsx` now only chooses between two
+layouts: `ShopView.tsx` and `PlanView.tsx`. The pieces both use moved,
+unchanged in behaviour, to `parts.tsx`: Copy, the add box, the store
+buttons, Clear checked, Done shopping, expired ticks, sub-recipes and the
+confirm-in-place remove. The per-browser state lives in `shopState.ts`.
+
+- **Shop, in the store (a phone's default):**
+  - A sticky store bar holds the Plan/Shop switch, the store `<select>`
+    when Stores is on, a "4 of 10 ticked · 6 left" progress bar and the
+    aisle rail. Each rail chip jumps to its aisle, the aisle in view is
+    `aria-current="location"`, and a done aisle shows a tick.
+  - Rows are bigger: a 17 px label and a 24 px box. A ticked row stays in
+    place, struck through.
+  - Each aisle ends with "Aisle done". A done aisle folds into one line at
+    the top, which can be opened, with Undo.
+  - On-hand rows collapse to one quiet line in their aisle ("Probably at
+    home already: olive oil"). It opens to each row, each with Buy anyway.
+  - The bottom bar sits above the phone tab bar, in thumb reach, under the
+    same sticky-chrome policy. It holds Add (opens the add box), the tick
+    or held-tick status, Undo and Done shopping.
+- **Plan, at home (a wide screen's default, or the phone's Plan tab):**
+  - The header holds the title, the counts (unchanged text), the mode
+    switch, Copy, Print and Settings.
+  - The left panels are:
+    - the add box;
+    - **What's on it**: each plan, with its recipes linked beneath it,
+      each recipe added on its own, and the typed lines, each with Remove
+      these;
+    - Sub-recipes, now a panel instead of a fold;
+    - **Switches**: every feature as a `role="switch"` checkbox that
+      writes on change, plus "Stores and aisles", which opens the
+      settings sheet. Desktop only.
+  - The main column holds the store buttons, the list by store and aisle
+    (two columns from `xl`), "Probably on hand" with Buy anyway per row,
+    and the Checked fold with Clear checked.
+  - On a phone, Plan shows the panels and ends in **Start shopping**, a
+    button per store with its count. The list itself is Shop's there.
+- **Plan names:** `readShoppingPlanNames` in the seat reads the names of
+  the plans in the items' `via[0]`. They go to the page as `plans` on its
+  state, from both `page.tsx` and `loadShoppingList`. Nothing else reads
+  them.
+
+**Decisions.**
+
+- **Dg1 — Mode is per browser, defaulting to the viewport.** It's stored in
+  `localStorage` under `shopping-mode`. With no choice yet, `(min-width:
+1024px)` gives Plan and anything narrower gives Shop. The server renders
+  Shop, so the phone in the aisle never flashes; a desktop switches to Plan
+  as it hydrates.
+- **Dg2 — "Aisle done" lives in localStorage, not sessionStorage.** Phone
+  browsers discard background tabs mid-trip, and a session-scoped state
+  would lose the done aisles with the tab.
+  - The key is `shopping-aisles-done`, scoped by store id, `"all"`, or
+    `"list"` when Stores is off.
+  - Each entry stores the item ids its rows held, so any new line opens
+    the aisle again, even more eggs merged into the eggs row. Lines taken
+    off leave it done.
+  - Entries expire after 12 hours (a trip), so last week's done aisles
+    never hide this week's eggs.
+  - The entries are forgotten when Done shopping's clear lands.
+- **Dg3 — "Grouped by plan and recipe" is the canvas's "What's on it"
+  panel.** The list itself stays by store and aisle, as the canvas draws it.
+  - Each plan is grouped by its outermost plan (`via[0]`), with the recipes
+    it brought.
+  - Remove these sends `removeSource {group}` or `{recipe}` when that takes
+    exactly the lines shown, so the commit reads "-Week of Oct 19 (12
+    items)". A recipe also on a plan, or a plan also nested in another on
+    the list, goes by `remove: ids`, because `removeSource` would take
+    more than is shown. Typed lines always go by ids.
+  - Removal is confirmed in place, as sub-recipes are (39c). There is no
+    Undo: the existing remove has none, and re-adding can't restore the
+    items' ticks, scales or sources.
+- **Dg4 — Done shopping in Shop finishes the trip.**
+  - With `holdTicks` on, the held ticks are saved first, as one change
+    (38d, unchanged).
+  - Then, held or not, the ticked lines in this store's list are hidden at
+    once and removed 8 s later as one commit ("−egg −onion"), unless Undo
+    comes first.
+  - When the window closes, Undo goes. The lines stay hidden until the
+    write lands, or come back with the error if it fails. Until then Done
+    shopping stays disabled, so there is only one clear at a time.
+  - Hiding or leaving the page inside that window sends the removal at
+    once, as a `keepalive` PATCH to `/api/shopping`. Either way, the
+    trip's done aisles are forgotten.
+  - Plan's Done shopping (`holdTicks` on) stays save-only, and Clear
+    checked stays in the Checked fold, so both 38d/39 specs are unchanged.
+- **Dg5 — Buy anyway is the existing per-item `need` flag** (`{need: ids}`,
+  as the row menu's "Buy even if on hand" sets). The store's shape is
+  unchanged.
+- **Dg6 — Native controls kept (40-Dc5).** Checkboxes, the store
+  `<select>` (the OS picker on a phone) and the switches, which are native
+  checkboxes with `role="switch"` as on `/make`. `ui/` has no Switch.
+- **Dg7 — Kept beyond the canvas:**
+  - The Settings button stays in Plan's header on desktop too. The specs
+    and the a11y sweep open the sheet by it, and "Stores and aisles" opens
+    the same, now controllable, sheet.
+  - Plan keeps the store buttons, for narrowing and per-store Copy.
+  - Plan keeps the Checked fold, which is :109's contract.
+- **Dg8 — Phone Plan hides the list on screen only** (the canvas). A
+  printout is narrower than `lg` too and keeps it, through a
+  `@media screen` arbitrary variant.
+- **Dg9 — The rail lists aisles with rows to tick.** An aisle holding only
+  on-hand rows gets no chip, and is never "done": it keeps its on-hand line
+  and Buy anyway.
+- **Dg10 — Focus follows what replaced the pressed control:**
+  - "Aisle done" → the folded line.
+  - The folded line's Undo → the aisle.
+  - Done shopping → its Undo.
+  - Undo → Done shopping.
+  - The Plan/Shop switch → the new layout's pressed button.
+  - Closing the sheet opened from "Stores and aisles" → that button.
+
+  The bottom bar's live region announces only what Done shopping did, and
+  a save that is retrying. It does not announce each tick's count.
+
+- **Dg11 — The rail chips sit on the faint `--border`, like 42a's outline
+  buttons and toggles.** The canvas drew them on `--input`. A done chip
+  differs from an open one by its muted text and tick. The store
+  `<select>` is a real field and keeps `--input` (41f).
+
+**Spec changes and reasons.**
+
+- `shopping.spec` :425 (mobile): a phone opens in Shop, so the add box is
+  opened from the bottom bar's "Add an item" first. The test now also
+  asserts the ticked line stays in place, checked, and that there is no
+  Checked fold.
+- The other `shopping.spec` tests run in Plan on Desktop Chrome, unchanged:
+  the Checked fold :109, Done shopping :313, the week-old tick :368 and the
+  stores :196.
+- `accessibility.spec`'s `/shopping` test now also sweeps the in-store
+  view. It covers the store select, a ticked row, an aisle folded as done,
+  an on-hand line opened and the add box.
+- New `shopping-modes.spec.ts`:
+  - On mobile: the rail jump (the bar doesn't cover the target, no sideways
+    scroll), the struck tick until "Aisle done" with Undo surviving a
+    reload, the on-hand line with Buy anyway, one store at a time, Done
+    shopping with `holdTicks` off plus Undo, and Plan on the phone with
+    Start shopping.
+  - On desktop: the grouping, Remove these for a plan and for a recipe,
+    Buy anyway, the switches beside the list, and the mode remembered.
+  - Four `@visual` baselines.
+
+**Gates** (all through the capped slot):
+
+- After `origin/main` (42a, 42c1, 42e) was merged in:
+  - `pnpm --filter recipe-editor typecheck` and
+    `pnpm --filter recipe-website exec tsc --noEmit` are both clean.
+  - `pnpm exec vitest run`: **124 files, 2540/2540**.
+  - Before the merge, the first full run was 2432/2433. The one failure
+    was `inventory.test`'s boundary grep (Tg6), fixed by rewording two
+    comments.
+  - `shoppingView`, `shoppingTickSync` and `shoppingTickQueue` are
+    unchanged and green.
+- Playwright in Docker, production build (`DOCKER=1 heavy-pw.sh … shopping
+accessibility.spec`): `shopping.spec`, `shopping-modes.spec` and
+  `accessibility.spec`, e2e and mobile, **92/92** on the merged head. It
+  was 87/87 before the merge; `accessibility.spec` gained tests on main.
+- The same specs in dev mode (`docker-pw.sh` without `PLAYWRIGHT_BUILD`),
+  before the merge: **87/87**.
+- The CLI/MCP `shopping_get` path (`readShoppingView`) is untouched, so no
+  byte check was needed.
+
+**Baselines (new, Docker only):**
+
+- `shopping-plan-e2e`: a full page, with the panels beside the list by
+  aisle and Probably on hand with Buy anyway.
+- `shopping-shop-e2e`: the viewport.
+- `shopping-plan-mobile`: the viewport, panels and Start shopping.
+- `shopping-shop-mobile`: the viewport, with the store bar, rail, progress,
+  a struck row and the bottom bar above the tab bar.
+
+Each one was opened and compared with B-desktop, B-phone and
+B-plan-phone. The layout, order and copy follow the boards. The numbers
+are the fixture's own. The baselines were rewritten with
+`--update-snapshots=all` on the merged head, with 42a's faint outline
+borders, so 42b's tighter tolerance meets exact images.
+
+**Roger to confirm.**
+
+- Dg1: the mode's default by viewport, and Shop as the server's first
+  render.
+- Dg2: aisle-done in localStorage with a 12-hour expiry.
+- Dg3: "What's on it" as the at-home grouping, with confirm in place
+  rather than Undo.
+- Dg4: Done shopping in Shop clears the ticked lines after an 8 s Undo,
+  including after saving held ticks. In Plan it is unchanged.
+- Dg7: the extras kept beyond the canvas (the Settings button, the store
+  buttons, the Checked fold).
+- Dg8: the phone's Plan without the list.
 
 ### 42b — Screenshot tolerance tightened
 

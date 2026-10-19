@@ -20,7 +20,8 @@ import {
   type ShoppingStore,
 } from "../../util/shoppingTypes";
 
-const FEATURE_TEXT: Record<ShoppingFeature, [string, string]> = {
+/** Each switch's name and what it does — the sheet's and 42g's panel's. */
+export const FEATURE_TEXT: Record<ShoppingFeature, [string, string]> = {
   merge: ["Merge", "One line per ingredient, amounts added together."],
   quantities: ["Quantities", "Show amounts, scaled to each recipe."],
   aisles: ["Aisles", "Group the list by aisle."],
@@ -58,16 +59,78 @@ function storeId(name: string, taken: ShoppingStore[]): string {
 
 /**
  * Every switch, the stores, which store each aisle defaults to, and the aisle
- * order — edited as a draft and saved as one change (one commit).
+ * order — edited as a draft and saved as one change (one commit). Its own
+ * "Settings" button opens it; 42g's switches beside the list open it too
+ * ("Stores and aisles"), through `open` and `onOpenChange`.
  */
 export function SettingsSheet({
   settings,
   save,
+  open: openProp,
+  onOpenChange,
+  returnFocusRef,
 }: {
   settings: ShoppingSettings;
   save(patch: unknown): Promise<unknown>;
+  open?: boolean;
+  onOpenChange?(open: boolean): void;
+  /**
+   * Opened from elsewhere ("Stores and aisles"): the element focus goes
+   * back to on close, instead of the Settings button. Cleared once used.
+   */
+  returnFocusRef?: { current: HTMLElement | null };
 }) {
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = openProp ?? ownOpen;
+  const setOpen = onOpenChange ?? setOwnOpen;
+
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <Button type="button" variant="outline" size="sm" className="h-10">
+          Settings
+        </Button>
+      </SheetTrigger>
+      <SheetContent
+        side="right"
+        className="w-full overflow-y-auto sm:max-w-md"
+        data-testid="shopping-settings"
+        onCloseAutoFocus={(event) => {
+          if (!returnFocusRef?.current) return;
+          const opener = returnFocusRef.current;
+          returnFocusRef.current = null;
+          event.preventDefault();
+          opener.focus();
+        }}
+      >
+        <SheetHeader>
+          <SheetTitle>Shopping list settings</SheetTitle>
+          <SheetDescription>
+            Use only what helps today: with everything off, the list is the
+            lines as written.
+          </SheetDescription>
+        </SheetHeader>
+        {/* Mounted while open: each opening drafts from the saved settings. */}
+        <SettingsForm
+          settings={settings}
+          save={save}
+          close={() => setOpen(false)}
+        />
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/** The sheet's body: a draft of the settings, saved as one change. */
+function SettingsForm({
+  settings,
+  save,
+  close,
+}: {
+  settings: ShoppingSettings;
+  save(patch: unknown): Promise<unknown>;
+  close(): void;
+}) {
   const [draft, setDraft] = useState(settings);
   const [newStore, setNewStore] = useState("");
   const [saving, setSaving] = useState(false);
@@ -105,223 +168,184 @@ export function SettingsSheet({
     } finally {
       setSaving(false);
     }
-    if (result) setOpen(false);
+    if (result) close();
   };
 
   return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => {
-        if (next) setDraft(settings);
-        setOpen(next);
-      }}
-    >
-      <SheetTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="h-10">
-          Settings
-        </Button>
-      </SheetTrigger>
-      <SheetContent
-        side="right"
-        className="w-full overflow-y-auto sm:max-w-md"
-        data-testid="shopping-settings"
-      >
-        <SheetHeader>
-          <SheetTitle>Shopping list settings</SheetTitle>
-          <SheetDescription>
-            Use only what helps today: with everything off, the list is the
-            lines as written.
-          </SheetDescription>
-        </SheetHeader>
-        <div className="flex flex-col gap-6 px-4 pb-6">
-          <fieldset className="flex flex-col gap-3">
-            <legend className="mb-2 text-sm font-semibold">Features</legend>
-            {SHOPPING_FEATURES.map((feature) => (
-              <label key={feature} className="flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  className="mt-1 size-5 accent-primary"
-                  checked={draft.features[feature]}
-                  onChange={(event) =>
-                    update({
-                      features: {
-                        ...draft.features,
-                        [feature]: event.target.checked,
-                      },
-                    })
-                  }
-                />
-                <span>
-                  <span className="block font-medium">
-                    {FEATURE_TEXT[feature][0]}
-                  </span>
-                  <span className="block text-xs text-muted-foreground">
-                    {FEATURE_TEXT[feature][1]}
-                  </span>
-                </span>
-              </label>
-            ))}
-          </fieldset>
-
-          <fieldset className="flex flex-col gap-2">
-            <legend className="mb-2 text-sm font-semibold">Stores</legend>
-            {draft.stores.map((store, index) => (
-              <div key={store.id} className="flex items-center gap-2">
-                <Input
-                  aria-label={`Store name: ${store.name}`}
-                  value={store.name}
-                  onChange={(event) =>
-                    update({
-                      stores: draft.stores.map((each, i) =>
-                        i === index
-                          ? { ...each, name: event.target.value }
-                          : each,
-                      ),
-                    })
-                  }
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="size-10 p-0"
-                  aria-label={`Remove ${store.name}`}
-                  disabled={draft.stores.length === 1}
-                  onClick={() =>
-                    update({
-                      stores: draft.stores.filter((_, i) => i !== index),
-                    })
-                  }
-                >
-                  <X aria-hidden className="size-4" />
-                </Button>
-              </div>
-            ))}
-            <form
-              className="flex gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const name = newStore.trim();
-                if (!name) return;
+    <div className="flex flex-col gap-6 px-4 pb-6">
+      <fieldset className="flex flex-col gap-3">
+        <legend className="mb-2 text-sm font-semibold">Features</legend>
+        {SHOPPING_FEATURES.map((feature) => (
+          <label key={feature} className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              className="mt-1 size-5 accent-primary"
+              checked={draft.features[feature]}
+              onChange={(event) =>
                 update({
-                  stores: [
-                    ...draft.stores,
-                    { id: storeId(name, draft.stores), name },
-                  ],
-                });
-                setNewStore("");
-              }}
-            >
-              <label htmlFor={ids.add} className="sr-only">
-                New store
-              </label>
-              <Input
-                id={ids.add}
-                value={newStore}
-                placeholder="Add a store"
-                onChange={(event) => setNewStore(event.target.value)}
-              />
-              <Button
-                type="submit"
-                variant="outline"
-                size="sm"
-                className="h-10"
-              >
-                Add
-              </Button>
-            </form>
-            <label htmlFor={ids.default} className="mt-2 text-xs font-semibold">
-              Default store
-            </label>
-            <select
-              id={ids.default}
-              className={selectClass}
-              value={draft.defaultStore}
-              onChange={(event) => update({ defaultStore: event.target.value })}
-            >
-              {draft.stores.map((store) => (
-                <option key={store.id} value={store.id}>
-                  {store.name}
-                </option>
-              ))}
-            </select>
-          </fieldset>
-
-          <fieldset className="flex flex-col gap-2">
-            <legend className="mb-2 text-sm font-semibold">
-              Aisles: order and store
-            </legend>
-            <ol className="flex flex-col gap-2">
-              {draft.aisleOrder.map((aisle: Aisle, index) => (
-                <li key={aisle} className="flex items-center gap-1">
-                  <span className="flex-1 text-sm">{AISLE_LABELS[aisle]}</span>
-                  <select
-                    aria-label={`Store for ${AISLE_LABELS[aisle]}`}
-                    className={selectClass}
-                    value={draft.storeByAisle[aisle] ?? ""}
-                    onChange={(event) =>
-                      update({
-                        storeByAisle: {
-                          ...draft.storeByAisle,
-                          [aisle]: event.target.value || undefined,
-                        },
-                      })
-                    }
-                  >
-                    <option value="">Default store</option>
-                    {draft.stores.map((store) => (
-                      <option key={store.id} value={store.id}>
-                        {store.name}
-                      </option>
-                    ))}
-                  </select>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="size-10 p-0"
-                    aria-label={`Move ${AISLE_LABELS[aisle]} up`}
-                    disabled={index === 0}
-                    onClick={() => moveAisle(index, -1)}
-                  >
-                    <ArrowUp aria-hidden className="size-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="size-10 p-0"
-                    aria-label={`Move ${AISLE_LABELS[aisle]} down`}
-                    disabled={index === draft.aisleOrder.length - 1}
-                    onClick={() => moveAisle(index, 1)}
-                  >
-                    <ArrowDown aria-hidden className="size-4" />
-                  </Button>
-                </li>
-              ))}
-            </ol>
-          </fieldset>
-
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              onClick={submit}
-              disabled={
-                saving || draft.stores.some((store) => !store.name.trim())
+                  features: {
+                    ...draft.features,
+                    [feature]: event.target.checked,
+                  },
+                })
               }
-            >
-              {saving ? "Saving…" : "Save settings"}
-            </Button>
+            />
+            <span>
+              <span className="block font-medium">
+                {FEATURE_TEXT[feature][0]}
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                {FEATURE_TEXT[feature][1]}
+              </span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-2">
+        <legend className="mb-2 text-sm font-semibold">Stores</legend>
+        {draft.stores.map((store, index) => (
+          <div key={store.id} className="flex items-center gap-2">
+            <Input
+              aria-label={`Store name: ${store.name}`}
+              value={store.name}
+              onChange={(event) =>
+                update({
+                  stores: draft.stores.map((each, i) =>
+                    i === index ? { ...each, name: event.target.value } : each,
+                  ),
+                })
+              }
+            />
             <Button
               type="button"
               variant="ghost"
-              onClick={() => setOpen(false)}
+              size="sm"
+              className="size-10 p-0"
+              aria-label={`Remove ${store.name}`}
+              disabled={draft.stores.length === 1}
+              onClick={() =>
+                update({
+                  stores: draft.stores.filter((_, i) => i !== index),
+                })
+              }
             >
-              Cancel
+              <X aria-hidden className="size-4" />
             </Button>
           </div>
-        </div>
-      </SheetContent>
-    </Sheet>
+        ))}
+        <form
+          className="flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const name = newStore.trim();
+            if (!name) return;
+            update({
+              stores: [
+                ...draft.stores,
+                { id: storeId(name, draft.stores), name },
+              ],
+            });
+            setNewStore("");
+          }}
+        >
+          <label htmlFor={ids.add} className="sr-only">
+            New store
+          </label>
+          <Input
+            id={ids.add}
+            value={newStore}
+            placeholder="Add a store"
+            onChange={(event) => setNewStore(event.target.value)}
+          />
+          <Button type="submit" variant="outline" size="sm" className="h-10">
+            Add
+          </Button>
+        </form>
+        <label htmlFor={ids.default} className="mt-2 text-xs font-semibold">
+          Default store
+        </label>
+        <select
+          id={ids.default}
+          className={selectClass}
+          value={draft.defaultStore}
+          onChange={(event) => update({ defaultStore: event.target.value })}
+        >
+          {draft.stores.map((store) => (
+            <option key={store.id} value={store.id}>
+              {store.name}
+            </option>
+          ))}
+        </select>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-2">
+        <legend className="mb-2 text-sm font-semibold">
+          Aisles: order and store
+        </legend>
+        <ol className="flex flex-col gap-2">
+          {draft.aisleOrder.map((aisle: Aisle, index) => (
+            <li key={aisle} className="flex items-center gap-1">
+              <span className="flex-1 text-sm">{AISLE_LABELS[aisle]}</span>
+              <select
+                aria-label={`Store for ${AISLE_LABELS[aisle]}`}
+                className={selectClass}
+                value={draft.storeByAisle[aisle] ?? ""}
+                onChange={(event) =>
+                  update({
+                    storeByAisle: {
+                      ...draft.storeByAisle,
+                      [aisle]: event.target.value || undefined,
+                    },
+                  })
+                }
+              >
+                <option value="">Default store</option>
+                {draft.stores.map((store) => (
+                  <option key={store.id} value={store.id}>
+                    {store.name}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="size-10 p-0"
+                aria-label={`Move ${AISLE_LABELS[aisle]} up`}
+                disabled={index === 0}
+                onClick={() => moveAisle(index, -1)}
+              >
+                <ArrowUp aria-hidden className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="size-10 p-0"
+                aria-label={`Move ${AISLE_LABELS[aisle]} down`}
+                disabled={index === draft.aisleOrder.length - 1}
+                onClick={() => moveAisle(index, 1)}
+              >
+                <ArrowDown aria-hidden className="size-4" />
+              </Button>
+            </li>
+          ))}
+        </ol>
+      </fieldset>
+
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          onClick={submit}
+          disabled={saving || draft.stores.some((store) => !store.name.trim())}
+        >
+          {saving ? "Saving…" : "Save settings"}
+        </Button>
+        <Button type="button" variant="ghost" onClick={close}>
+          Cancel
+        </Button>
+      </div>
+    </div>
   );
 }
