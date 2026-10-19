@@ -382,8 +382,10 @@ export function CommandPalette({
   ).length;
   const foodCount = recipeResults.length - drinkCount;
   // `/search` with the whole query, filters and all — the last row's target,
-  // and Ctrl/⌘ ↵'s from anywhere in the list (43s).
+  // and Ctrl/⌘ ↵'s from anywhere in the list (43s). The live input, not the
+  // debounced query: the pending debounce is dropped and the input committed.
   const openAll = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     submitSearch(trimmed);
     recordSearch(trimmed);
     go(`/search?q=${encodeURIComponent(trimmed)}`);
@@ -391,6 +393,12 @@ export function CommandPalette({
   // When a query has recipe hits, the palette enters "recipe search" mode and
   // hides the nav/actions groups, so the only selectable rows are recipes.
   const hasRecipeHits = showRecipes && topRecipes.length > 0;
+  /*
+   * The rows count the debounced query; the hand-over row opens the live
+   * input. While the two differ (a keystroke not yet committed) its count is
+   * withheld rather than shown for a set it would not open (43s review).
+   */
+  const countSettled = trimmed === query;
   /*
    * Recipe rows are on their way (42s): text is typed, nothing has failed, no
    * hits are showing yet, and either the index is still being built or the
@@ -510,7 +518,8 @@ export function CommandPalette({
      * Enter still opens the highlighted row.
      */
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-      if (hasRecipeHits && !e.nativeEvent.isComposing) {
+      // Any typed query, hits or not: never the highlighted nav row instead.
+      if (trimmed && !e.nativeEvent.isComposing) {
         e.preventDefault();
         openAll();
       }
@@ -672,6 +681,9 @@ export function CommandPalette({
               <CommandItem
                 value="see-all-results"
                 onSelect={openAll}
+                aria-keyshortcuts={
+                  modifier === "⌘" ? "Meta+Enter" : "Control+Enter"
+                }
                 className="border-t border-border font-semibold"
               >
                 <span className="flex size-9 shrink-0 items-center justify-center">
@@ -679,18 +691,21 @@ export function CommandPalette({
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block">
-                    All {recipeResults.length}{" "}
-                    {recipeResults.length === 1 ? "result" : "results"} in
-                    search
+                    {countSettled
+                      ? `All ${recipeResults.length} ${recipeResults.length === 1 ? "result" : "results"} in search`
+                      : "All results in search"}
                   </span>
-                  {drinkCount > 0 && foodCount > 0 && (
+                  {countSettled && drinkCount > 0 && foodCount > 0 && (
                     <span className="block font-mono text-[0.6875rem] font-normal leading-4 text-muted-foreground">
                       {drinkCount} {drinkCount === 1 ? "drink" : "drinks"} ·{" "}
                       {foodCount} food
                     </span>
                   )}
                 </span>
-                <CommandShortcut>{`${modifier.replace("+", "")} ↵`}</CommandShortcut>
+                {/* Said by `aria-keyshortcuts`; the glyphs read as noise. */}
+                <CommandShortcut
+                  aria-hidden
+                >{`${modifier.replace("+", "")} ↵`}</CommandShortcut>
               </CommandItem>
             </CommandGroup>
           )}

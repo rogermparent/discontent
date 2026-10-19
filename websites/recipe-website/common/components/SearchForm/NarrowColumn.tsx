@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@discontent/component-library/lib/utils";
 import { Button } from "@discontent/component-library/components/ui/button";
 import type { MassagedRecipeEntry } from "../../controller/data/read";
@@ -30,11 +30,14 @@ function NarrowRow({
   label,
   count,
   pressed,
+  focusKey,
   onToggle,
 }: {
   label: string;
   count: number;
   pressed: boolean;
+  /** Where focus goes back to after the press (`useFocusAfter`). */
+  focusKey: string;
   onToggle: () => void;
 }) {
   return (
@@ -43,6 +46,7 @@ function NarrowRow({
       aria-pressed={pressed}
       onClick={onToggle}
       data-testid="narrow-row"
+      data-focus-key={focusKey}
       className={cn(
         "flex min-h-[30px] w-full items-center gap-2 rounded-md px-2 py-[3px] text-left text-sm transition-colors",
         "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
@@ -78,12 +82,32 @@ interface GroupShape {
   toggle: (key: string) => void;
 }
 
-function NarrowGroup({ group }: { group: GroupShape }) {
-  const [expanded, setExpanded] = useState(false);
-  const pressed = group.rows.filter((row) => row.pressed).map((r) => r.key);
+/**
+ * One group. Its "N more" stays opened while the rows toggle — keyed on the
+ * group alone, so the row a keyboard just pressed keeps focus as the query
+ * changes under it — and closes again when the free text changes
+ * (`resetKey`): a new search starts every group at its top four.
+ */
+function NarrowGroup({
+  group,
+  resetKey,
+  focusAfter,
+}: {
+  group: GroupShape;
+  resetKey: string;
+  focusAfter: (focusKey: string, rewrites?: boolean) => void;
+}) {
+  const [expandedFor, setExpandedFor] = useState<string | null>(null);
+  /* The row last pressed stays listed (a pressed row past the cut that was
+     just turned off would otherwise vanish from under the keyboard). */
+  const [held, setHeld] = useState<{ key: string; for: string } | null>(null);
+  const expanded = expandedFor === resetKey;
+  const keep = group.rows.filter((row) => row.pressed).map((r) => r.key);
+  if (held && held.for === resetKey) keep.push(held.key);
   const { rows, hidden } = expanded
     ? { rows: group.rows, hidden: 0 }
-    : limitByKey(group.rows, ROWS_SHOWN, pressed);
+    : limitByKey(group.rows, ROWS_SHOWN, keep);
+  const focusKey = (key: string) => `${group.id}:${key}`;
   return (
     <div
       role="group"
@@ -99,13 +123,23 @@ function NarrowGroup({ group }: { group: GroupShape }) {
           label={row.label}
           count={row.count}
           pressed={row.pressed}
-          onToggle={() => group.toggle(row.key)}
+          focusKey={focusKey(row.key)}
+          onToggle={() => {
+            setHeld({ key: row.key, for: resetKey });
+            focusAfter(focusKey(row.key));
+            group.toggle(row.key);
+          }}
         />
       ))}
       {hidden > 0 && (
         <button
           type="button"
-          onClick={() => setExpanded(true)}
+          onClick={() => {
+            // Focus moves to the first row the press revealed.
+            const next = group.rows.find((row) => !rows.includes(row));
+            if (next) focusAfter(focusKey(next.key), false);
+            setExpandedFor(resetKey);
+          }}
           aria-label={`${hidden} more in ${group.label}`}
           className="flex min-h-[30px] w-full items-center rounded-md px-2 text-left text-[0.8125rem] text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
         >
@@ -130,6 +164,36 @@ function limitByKey<T extends { key: string }>(
 }
 
 /**
+ * Put focus back after a press re-renders the column (43s review): the
+ * groups reorder by their totals and the rows by their counts as the query
+ * narrows, and a keyed node React moves loses focus. So the pressed control
+ * names itself (`data-focus-key`) and is focused again after the render,
+ * when focus has fallen off it.
+ */
+function useFocusAfter(query: string) {
+  const ref = useRef<HTMLDivElement>(null);
+  /* `from`: the query at the press. A press that rewrites the query waits
+     for the render that shows the new one, not an earlier one. */
+  const pending = useRef<{ key: string; from?: string } | null>(null);
+  useEffect(() => {
+    const press = pending.current;
+    if (!press || press.from === query) return;
+    pending.current = null;
+    const target = ref.current?.querySelector<HTMLElement>(
+      `[data-focus-key="${CSS.escape(press.key)}"]`,
+    );
+    if (target && document.activeElement !== target) target.focus();
+  });
+  return {
+    ref,
+    /** `rewrites`: the press changes the query (a row, Clear tags). */
+    focusAfter: (key: string, rewrites = true) => {
+      pending.current = { key, from: rewrites ? query : undefined };
+    },
+  };
+}
+
+/**
  * `/search`'s left column (43s, canvas B): narrow these results by what
  * they are. Kind first (Drinks · Food, D3's `tag:drink` / `-tag:drink`),
  * then the facet groups (43f) biggest first, counted inside the results,
@@ -150,6 +214,7 @@ export function NarrowColumn({
   recipes: MassagedRecipeEntry[];
 }) {
   const { query, parsedQuery, submitSearch, toggleTagTerm } = useSearch();
+  const { ref, focusAfter } = useFocusAfter(query);
   const active = activeFacetSlugs(model, query);
   const kind = queryKind(model, query);
 
@@ -236,23 +301,38 @@ export function NarrowColumn({
   const hasTagTerms = positiveTagValues(parsedQuery.filter).length > 0;
 
   return (
-    <div data-testid="narrow" className="flex flex-col gap-[18px]">
+    <div ref={ref} data-testid="narrow" className="flex flex-col gap-[18px]">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="font-display text-base font-semibold">Narrow</h2>
+        <h2
+          tabIndex={-1}
+          data-focus-key="narrow-heading"
+          className="font-display text-base font-semibold focus-visible:outline-none"
+        >
+          Narrow
+        </h2>
         {hasTagTerms && (
           /* Strips `tag:` terms only — free text and other filters stay. */
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            onClick={() => submitSearch(removeFilterTerms(query, "tag"))}
+            onClick={() => {
+              // The button goes with the last tag: focus the column's head.
+              focusAfter("narrow-heading");
+              submitSearch(removeFilterTerms(query, "tag"));
+            }}
           >
             Clear tags
           </Button>
         )}
       </div>
       {groups.map((group) => (
-        <NarrowGroup key={`${group.id}:${query}`} group={group} />
+        <NarrowGroup
+          key={group.id}
+          group={group}
+          resetKey={parsedQuery.text}
+          focusAfter={focusAfter}
+        />
       ))}
       <p className="text-xs text-muted-foreground">
         Each adds its <span className="font-mono">tag:</span> to the search.

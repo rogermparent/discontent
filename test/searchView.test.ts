@@ -19,8 +19,13 @@ import {
 import {
   ingredientOptions,
   pluralKey,
+  pluralKeys,
   recipeLineCounter,
 } from "../websites/recipe-website/common/components/SearchForm/QueryAutocomplete";
+import {
+  matchesFilter,
+  parseQuery,
+} from "../websites/recipe-website/common/components/SearchForm/queryLanguage";
 
 /*
  * 43s: `/search`'s layouts over a real-shaped vocabulary (copied shapes of the
@@ -357,16 +362,71 @@ describe("ingredient completions (43s)", () => {
     expect(count("quince")).toBe(0);
   });
 
-  it("offers one of 'seed' and 'seeds', the more used, with counts", () => {
+  it("offers one of 'seed' and 'seeds' — the shortest — with counts", () => {
     expect(pluralKey("pumpkin seeds")).toBe(pluralKey("pumpkin seed"));
     const options = ingredientOptions("pump", {
       names: ["pumpkin puree", "pumpkin seeds", "pumpkin seed"],
       matches: () => true,
       count: recipeLineCounter(lines),
     });
+    // In the more used one's place, spelled the way that finds both.
     expect(options.map((o) => [o.label, o.count])).toEqual([
       ["pumpkin puree", 2],
-      ["pumpkin seeds", 2],
+      ["pumpkin seed", 2],
     ]);
+  });
+
+  it("still finds a singular-only recipe from the offered form", () => {
+    const shelled = {
+      plural: ["1 cup pumpkin seeds"],
+      singular: ["1 cup pumpkin seed kernels"],
+    };
+    const [option] = ingredientOptions("pumpkin s", {
+      names: ["pumpkin seeds", "pumpkin seed"],
+      matches: () => true,
+      count: recipeLineCounter(shelled),
+    });
+    expect(option.label).toBe("pumpkin seed");
+    expect(option.count).toBe(2);
+    const { filter } = parseQuery(option.replacement);
+    for (const ingredients of Object.values(shelled))
+      expect(matchesFilter({ name: "R", ingredients }, filter)).toBe(true);
+  });
+
+  it("dedupes the -e plurals and the -es ones", () => {
+    expect(pluralKeys("limes")).toContain(pluralKey("lime"));
+    expect(pluralKeys("cheeses")).toContain(pluralKey("cheese"));
+    expect(pluralKeys("tomatoes")).toContain(pluralKey("tomato"));
+    expect(pluralKey("swiss")).toBe("swiss");
+    const labels = (prefix: string, names: string[]) =>
+      ingredientOptions(prefix, { names, matches: () => true }).map(
+        (o) => o.label,
+      );
+    expect(labels("", ["limes", "lime", "apples", "apple"])).toEqual([
+      "lime",
+      "apple",
+    ]);
+    expect(labels("c", ["cheeses", "cheese", "cherries"])).toEqual([
+      "cheese",
+      "cherries",
+    ]);
+    expect(labels("t", ["tomato", "tomatoes"])).toEqual(["tomato"]);
+  });
+
+  it("judges a group by its members that pass, not its first", () => {
+    // "lime" no line matches; "limes" does, so the group still offers.
+    expect(
+      ingredientOptions("li", {
+        names: ["lime", "limes"],
+        matches: (needle) => needle === "limes",
+      }).map((o) => o.label),
+    ).toEqual(["limes"]);
+    // A typed member finds the whole group: nothing to narrow to.
+    expect(
+      ingredientOptions("lime", {
+        names: ["limes", "lime"],
+        matches: () => true,
+      }),
+    ).toEqual([]);
   });
 });

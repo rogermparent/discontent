@@ -200,11 +200,30 @@ export interface IngredientSuggestions {
 }
 
 /**
- * The plural-blind key two offered names share — "pumpkin seed" and
- * "pumpkin seeds" (canvas B's finding) — on the last word only.
+ * The plural-blind keys a folded name answers to — "pumpkin seed" and
+ * "pumpkin seeds" (canvas B's finding) share one — on the last word only.
+ * The first is the name less one final `s` (lime/limes, cheese/cheeses),
+ * when that leaves a word and the name does not end in `ss`; a name ending
+ * `es` also answers to its `es`-less stem (tomato/tomatoes). Two names are
+ * one row when any of their keys meet.
  */
+export function pluralKeys(folded: string): string[] {
+  const keys: string[] = [];
+  const lastWord = folded.slice(folded.lastIndexOf(" ") + 1);
+  const strips = (n: number) =>
+    lastWord.length - n >= 2 ? folded.slice(0, -n) : undefined;
+  const plain = /[^s]s$/.test(lastWord) ? strips(1) : undefined;
+  keys.push(plain ?? folded);
+  if (/[^s]es$/.test(lastWord)) {
+    const stem = strips(2);
+    if (stem !== undefined) keys.push(stem);
+  }
+  return keys;
+}
+
+/** The first of `pluralKeys`: the key the plain `-s` rule gives. */
 export function pluralKey(folded: string): string {
-  return folded.replace(/(?:es|s)$/, "");
+  return pluralKeys(folded)[0];
 }
 
 /**
@@ -259,21 +278,44 @@ export function ingredientOptions(
   { names, matches, count }: IngredientSuggestions,
 ): CompletionOption[] {
   const folded = fold(prefix);
-  const seen = new Set<string>();
-  const options: CompletionOption[] = [];
+  /*
+   * Plural-blind (43s): "pumpkin seed" and "pumpkin seeds" are one row, in
+   * the place of the more used, offering the *shortest* spelling — every
+   * other member starts with it, so `ingredient:"pumpkin seed"` finds the
+   * seeds' recipes too. Grouped first, judged after: a member that is
+   * already typed, or that no line matches, does not stand for its group.
+   */
+  const groups: { members: { name: string; value: string }[] }[] = [];
+  const groupOf = new Map<string, (typeof groups)[number]>();
   for (const name of names) {
     const value = fold(name);
-    /* Plural-blind (43s): the more used of "seed" and "seeds" is offered. */
-    const key = pluralKey(value);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    if (!value.startsWith(folded) || value === folded) continue;
-    if (!matches(value)) continue;
+    const keys = pluralKeys(value);
+    let group = keys.map((key) => groupOf.get(key)).find(Boolean);
+    if (!group) {
+      group = { members: [] };
+      groups.push(group);
+    }
+    if (!group.members.some((member) => member.value === value))
+      group.members.push({ name, value });
+    for (const key of keys) if (!groupOf.has(key)) groupOf.set(key, group);
+  }
+  const options: CompletionOption[] = [];
+  for (const { members } of groups) {
+    // The typed name already finds every member: nothing to narrow to.
+    if (members.some((member) => member.value === folded)) continue;
+    const offered = members
+      .filter(({ value }) => value.startsWith(folded) && matches(value))
+      .reduce<{ name: string; value: string } | undefined>(
+        (best, member) =>
+          !best || member.value.length < best.value.length ? member : best,
+        undefined,
+      );
+    if (!offered) continue;
     options.push({
-      key: `ingredient:${value}`,
-      label: name,
-      replacement: `ingredient:${quoteQueryValue(name)}`,
-      ...(count ? { count: count(value) } : {}),
+      key: `ingredient:${offered.value}`,
+      label: offered.name,
+      replacement: `ingredient:${quoteQueryValue(offered.name)}`,
+      ...(count ? { count: count(offered.value) } : {}),
     });
     if (options.length >= MAX_OPTIONS) break;
   }

@@ -36,7 +36,16 @@ export interface CardContext {
   highlightQuery: string;
   words: readonly string[];
   onOpen: () => void;
+  /**
+   * Where focus goes once a control here has rewritten the query and gone
+   * with the old layout (43s review): the term card's name, or the first
+   * result.
+   */
+  focusAfter: (target: FocusTarget) => void;
 }
+
+/** `CardContext.focusAfter`'s places. */
+export type FocusTarget = "term" | "results";
 
 /** A text button that reads as the canvas's accent link ("All 73 drinks →"). */
 function LinkButton({
@@ -72,7 +81,7 @@ function Cards({
   testId?: string;
 }) {
   return (
-    <ul data-testid={testId} className={GRID}>
+    <ul data-testid={testId} data-card-grid className={GRID}>
       {recipes.map((recipe) => (
         <li key={recipe.slug}>
           <SearchCard
@@ -88,15 +97,23 @@ function Cards({
   );
 }
 
-/** "Also: A · B · C · 64 more" — the band's next names, as links. */
+/**
+ * "Also: A · B · C · 64 more" — the band's next names, as links, and the
+ * count of the rest as the band's own "All N" action.
+ */
 function AlsoLine({
   also,
   more,
   onOpen,
+  onMore,
+  moreLabel,
 }: {
   also: MassagedRecipeEntry[];
   more: number;
   onOpen: () => void;
+  onMore: () => void;
+  /** The accessible name: the band's "All N …" it does the same as. */
+  moreLabel: string;
 }) {
   if (also.length === 0) return null;
   return (
@@ -117,7 +134,14 @@ function AlsoLine({
       {more > 0 && (
         <>
           {" · "}
-          <span className="font-mono tabular-nums">{more} more</span>
+          <button
+            type="button"
+            onClick={onMore}
+            aria-label={moreLabel}
+            className="inline-flex min-h-6 items-center rounded-sm font-mono tabular-nums text-foreground underline decoration-border underline-offset-[3px] hover:decoration-primary focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          >
+            {more} more
+          </button>
         </>
       )}
     </p>
@@ -169,6 +193,11 @@ export function KindBands({
       {bands.map((band) => {
         const id = `search-band-${band.kind}`;
         const total = band.recipes.length;
+        const allLabel = `All ${total} ${band.kind === "drinks" ? "drinks" : "dishes"}`;
+        const showAll = () => {
+          card.focusAfter("results");
+          submitSearch(setQueryKind(card.model, query, band.kind));
+        };
         return (
           <section
             key={band.kind}
@@ -180,18 +209,20 @@ export function KindBands({
               title={band.kind === "drinks" ? "Drinks" : "Food"}
               count={total}
               action={
-                <LinkButton
-                  onClick={() =>
-                    submitSearch(setQueryKind(card.model, query, band.kind))
-                  }
-                >
-                  All {total} {band.kind === "drinks" ? "drinks" : "dishes"}
+                <LinkButton onClick={showAll}>
+                  {allLabel}
                   <ArrowRight aria-hidden className="size-4" />
                 </LinkButton>
               }
             />
             <Cards recipes={band.cards} card={card} testId={id} />
-            <AlsoLine also={band.also} more={band.more} onOpen={card.onOpen} />
+            <AlsoLine
+              also={band.also}
+              more={band.more}
+              onOpen={card.onOpen}
+              onMore={showAll}
+              moreLabel={allLabel}
+            />
           </section>
         );
       })}
@@ -229,6 +260,10 @@ export function SeasonBands({
       {bands.map((band) => {
         const id = `search-band-${band.slug}`;
         const total = band.recipes.length;
+        const showAll = () => {
+          card.focusAfter("term");
+          submitSearch(toggleFacet(card.model, query, band.slug));
+        };
         return (
           <section
             key={band.slug}
@@ -242,11 +277,7 @@ export function SeasonBands({
               count={seasonCount(band)}
               action={
                 total > 4 ? (
-                  <LinkButton
-                    onClick={() =>
-                      submitSearch(toggleFacet(card.model, query, band.slug))
-                    }
-                  >
+                  <LinkButton onClick={showAll}>
                     All {total}
                     <ArrowRight aria-hidden className="size-4" />
                   </LinkButton>
@@ -258,6 +289,8 @@ export function SeasonBands({
               also={band.recipes.slice(4, 9)}
               more={Math.max(0, total - 9)}
               onOpen={card.onOpen}
+              onMore={showAll}
+              moreLabel={`All ${total}`}
             />
           </section>
         );
@@ -344,7 +377,9 @@ export function TermCard({
   slug,
   counts,
   corpus,
+  focusAfter,
 }: {
+  focusAfter: (target: FocusTarget) => void;
   model: FacetModel;
   slug: string;
   /** `countFacets` over the results: the narrower chips' counts. */
@@ -385,7 +420,8 @@ export function TermCard({
       )}
       <h2
         id="search-term-name"
-        className="font-display text-[1.75rem] font-semibold leading-8 tracking-tight"
+        tabIndex={-1}
+        className="font-display text-[1.75rem] font-semibold leading-8 tracking-tight focus-visible:outline-none"
       >
         {term.label}
       </h2>
@@ -405,9 +441,11 @@ export function TermCard({
               <button
                 key={row.slug}
                 type="button"
-                onClick={() =>
-                  submitSearch(toggleFacet(model, query, row.slug))
-                }
+                onClick={() => {
+                  // The card turns to the chip's term: its name takes focus.
+                  focusAfter("term");
+                  submitSearch(toggleFacet(model, query, row.slug));
+                }}
                 className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[0.8125rem] font-medium hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
               >
                 {row.label}{" "}

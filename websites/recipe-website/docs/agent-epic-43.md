@@ -310,11 +310,17 @@ Files: `common/components/SearchForm/` (`SearchResults.tsx`, `TagFilterRail.tsx`
   what `tag:` finds (43f's subtree count over the corpus), an ingredient's
   the recipes `ingredient:` finds (`recipeLineCounter`, lines folded once,
   memoized per name); ingredient names are plural-blind on the last word
-  (`pluralKey`: "pumpkin seed" / "pumpkin seeds" offer the more used one).
+  (`pluralKeys`: a final `s`, or `es` — lime/limes, cheese/cheeses,
+  tomato/tomatoes): one row in the more used one's place, spelled as the
+  _shortest_ member, which every other member starts with, so
+  `ingredient:"pumpkin seed"` finds the seeds' recipes too.
 - **⌘K**: the recipes group always ends in **"All N results in search"**
   (with "N drinks · M food" when both), opened by its row or **Ctrl ↵ /
   ⌘ ↵** from anywhere in the list (prevented before cmdk, so plain ↵ still
-  opens the highlighted row); the pending status reads "Searching N
+  opens the highlighted row; with no recipe hits Ctrl ↵ still opens
+  `/search?q=<input>` rather than the highlighted nav row); its count is
+  withheld ("All results in search") while the input is ahead of the
+  debounced query it counts; the pending status reads "Searching N
   recipes…"; rows carry the mono meta line and the why line instead of the
   description and two tag badges.
 - **No result**: "Nothing mentions quince" / "Not a name, tag, ingredient

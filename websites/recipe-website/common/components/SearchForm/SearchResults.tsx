@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ListFilter } from "lucide-react";
 import { useSearch } from "./SearchContext";
 import { EmptyState } from "../EmptyState";
@@ -18,6 +18,7 @@ import {
   SeasonBands,
   TermCard,
   type CardContext,
+  type FocusTarget,
 } from "./SearchBands";
 import { SEARCH_MARKS } from "./SearchCard";
 import { useFacetModel } from "./useFacetModel";
@@ -78,6 +79,40 @@ export function SearchResultsPage() {
   );
   const subject = useMemo(() => subjectOf(model, query), [model, query]);
   const words = useMemo(() => queryWords(parsedQuery.text), [parsedQuery]);
+  /* The layouts, once per results (the reveal and the sheet re-render). */
+  const layout = useMemo(() => {
+    if (!sortedRecipes || sortedRecipes.length === 0) return undefined;
+    const seasons = subject
+      ? seasonBands(model, sortedRecipes, subject, localDay(new Date()))
+      : undefined;
+    const kinds =
+      !seasons && queryKind(model, query) === undefined
+        ? kindBands(model, sortedRecipes)
+        : undefined;
+    return { seasons, kinds };
+  }, [model, sortedRecipes, subject, query]);
+
+  /*
+   * A band's "All N" and the term card's Narrower chips rewrite the query
+   * and go with the layout they sat in; focus then moves to the term card's
+   * name (when there is one) or the first result, after the render that
+   * shows the new query (43s review).
+   */
+  const mainRef = useRef<HTMLDivElement>(null);
+  const pendingFocus = useRef<{ target: FocusTarget; from: string } | null>(
+    null,
+  );
+  useEffect(() => {
+    const press = pendingFocus.current;
+    if (!press || press.from === query) return;
+    pendingFocus.current = null;
+    const root = mainRef.current;
+    const term =
+      press.target === "term"
+        ? root?.querySelector<HTMLElement>("#search-term-name")
+        : null;
+    (term ?? root?.querySelector<HTMLElement>("[data-card-grid] a"))?.focus();
+  });
 
   if (status === "error") {
     return (
@@ -104,6 +139,9 @@ export function SearchResultsPage() {
     // Opening a result is a commit: the query clearly worked, so it earns
     // its place in RECENT (typing alone never does).
     onOpen: () => recordSearch(query),
+    focusAfter: (target) => {
+      pendingFocus.current = { target, from: query };
+    },
   };
   // Changing the query or the sort starts the reveal over.
   const revealKey = `${query}|${sort}`;
@@ -122,13 +160,7 @@ export function SearchResultsPage() {
       />
     ) : null;
   } else {
-    const seasons = subject
-      ? seasonBands(model, sortedRecipes, subject, localDay(new Date()))
-      : undefined;
-    const kinds =
-      !seasons && queryKind(model, query) === undefined
-        ? kindBands(model, sortedRecipes)
-        : undefined;
+    const { seasons, kinds } = layout ?? {};
     body = seasons ? (
       <SeasonBands
         bands={seasons.bands}
@@ -195,7 +227,8 @@ export function SearchResultsPage() {
       {!hasFilter && <RecentSearches />}
       {!hasFilter && <GroupRail />}
       <div className="mt-3 lg:grid lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:items-start lg:gap-8">
-        {narrow && (
+        {/* Not while the sheet holds the column: one Narrow at a time. */}
+        {narrow && !narrowOpen && (
           <aside
             aria-label="Narrow these results"
             className="hidden pr-1 lg:block"
@@ -204,6 +237,7 @@ export function SearchResultsPage() {
           </aside>
         )}
         <div
+          ref={mainRef}
           className={
             narrow
               ? "flex min-w-0 flex-col gap-6"
@@ -218,6 +252,7 @@ export function SearchResultsPage() {
               slug={subject}
               counts={counts}
               corpus={corpus}
+              focusAfter={card.focusAfter}
             />
           )}
           {body}

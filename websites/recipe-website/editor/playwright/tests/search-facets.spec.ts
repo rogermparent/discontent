@@ -118,6 +118,33 @@ test.describe("Search — sorted by what it is", () => {
     await expect(narrow).toContainText("Each adds its tag: to the search.");
   });
 
+  test("a row pressed from the keyboard keeps focus as the query changes", async ({
+    page,
+  }) => {
+    await searchFor(page, "lime");
+    await expect(grid(page)).toHaveCount(4, { timeout: SEARCH_TIMEOUT });
+    const vodka = narrowRow(page, "Vodka");
+    await vodka.focus();
+    await page.keyboard.press("Enter");
+    await expect(field(page)).toHaveValue("lime tag:vodka");
+    await expect(vodka).toHaveAttribute("aria-pressed", "true");
+    await expect(vodka).toBeFocused();
+    await page.keyboard.press("Space");
+    await expect(field(page)).toHaveValue("lime");
+    await expect(vodka).toBeFocused();
+
+    /* A band's "All N" goes with the bands: focus lands on the first result. */
+    await searchFor(page, "syrup");
+    const all = band(page, "drinks").getByRole("button", {
+      name: "All 5 drinks",
+    });
+    await expect(all.first()).toBeVisible({ timeout: SEARCH_TIMEOUT });
+    await all.first().focus();
+    await page.keyboard.press("Enter");
+    await expect(field(page)).toHaveValue("syrup tag:drink");
+    await expect(grid(page).first().getByRole("link")).toBeFocused();
+  });
+
   test("cards say what a drink is and why it matched, the amount in mono", async ({
     page,
   }) => {
@@ -277,6 +304,42 @@ test.describe("Command palette — the hand-over row", () => {
       timeout: SEARCH_TIMEOUT,
     });
   });
+
+  test("plain ↵ still opens the top recipe", async ({ page, resetData }) => {
+    await resetData("drinks-bar");
+    await page.goto("/");
+    await openPalette(page);
+    await paletteIndexReady(page);
+    await paletteInput(page).fill("syrup");
+    const recipes = page
+      .getByTestId("palette-recipes-group")
+      .getByRole("option");
+    await expect(recipes.last()).toContainText("All 6 results in search", {
+      timeout: SEARCH_TIMEOUT,
+    });
+    await expect(recipes.first()).toHaveAttribute("data-selected", "true");
+    await paletteInput(page).press("Enter");
+    await page.waitForURL(/\/recipe\/lavender-syrup$/);
+  });
+
+  test("Ctrl ↵ with no recipe hits still opens search, not the highlighted row", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("drinks-bar");
+    await page.goto("/");
+    await openPalette(page);
+    await paletteIndexReady(page);
+    /* "pantry" names no recipe but is a keyword of "What can I make?". */
+    await paletteInput(page).fill("pantry");
+    const make = page.getByRole("option", { name: /What can I make\?/ });
+    await expect(make).toHaveAttribute("data-selected", "true", {
+      timeout: SEARCH_TIMEOUT,
+    });
+    await expect(page.getByTestId("palette-recipes-group")).toHaveCount(0);
+    await paletteInput(page).press("ControlOrMeta+Enter");
+    await page.waitForURL(/\/search\?q=pantry$/);
+  });
 });
 
 test.describe("Search — the Narrow sheet @mobile", () => {
@@ -294,11 +357,19 @@ test.describe("Search — the Narrow sheet @mobile", () => {
     );
     expect(overflow).toBeLessThanOrEqual(0);
 
-    await page.getByRole("button", { name: "Narrow", exact: true }).click();
+    const trigger = page.getByRole("button", { name: "Narrow", exact: true });
+    await trigger.click();
     const sheet = page.getByRole("dialog", { name: "Narrow these results" });
     await expect(sheet).toBeVisible();
+    /* One Narrow column at a time: the sheet's, not a hidden twin. */
+    await expect(page.getByTestId("narrow")).toHaveCount(1);
     await sheet.getByRole("button", { name: /^Vodka \d+$/ }).click();
     await expect(field(page)).toHaveValue("tag:vodka");
     await axeClean(page);
+
+    /* Closing hands focus back to the button that opened it. */
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+    await expect(trigger).toBeFocused();
   });
 });
