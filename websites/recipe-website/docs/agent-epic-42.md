@@ -474,4 +474,27 @@ dotted line); De9 (footer only — a masthead or ⌘K palette entry is a
 small follow-up); the homepage's "All holidays" still goes to
 `/tags/holidays` — 42f's redesign links the almanac.
 
-**Gates.** _(pending the heavy seat)_
+**Gates** (2026-10-19, all through the capped heavy slot).
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit`: clean.
+- vitest: 120 files, 2434 tests passed (new: `test/holidaysPage.test.ts` —
+  rule lookup by slug then alias incl. 42k's `new-years` shape, almanac
+  order and undated last, the 365-day ruler across a year end, a late
+  Easter off the ruler, label lanes, the next holiday, menu grouping by
+  course and style with More, pins first, a two-course dish under the
+  earlier course, kinds, alias targets).
+- Export build (`next build`, `output: "export"`) against a scratch copy
+  of `drinks-bar`: `○ /holidays`, `● /holidays/halloween`,
+  `● /holidays/christmas` prerendered as static HTML; the index's footer
+  links `/holidays`.
+- Playwright in Docker, build mode: holidays, accessibility, drinks, make,
+  tag-pages, footer, homepage-browse, menus — **173 passed**. Dev mode
+  once (Docker): holidays and accessibility — **76 passed**.
+- Baselines (Docker): new `holidays-almanac` and `holidays-menu`, e2e and
+  mobile, on the frozen clock; `drinks-page` e2e and mobile moved (the
+  footer's Holidays link, nothing else). Each opened and compared with its
+  canvas: the almanac is canvas C's "The season" (ruler, big countdowns,
+  cards) as a page; the menu is the /drinks canvas C's hero and dot-leader
+  menu. With the fixture's two holidays the Next up row has an empty third
+  column, and every picture is a monogram (the fixture has no photos).
