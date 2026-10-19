@@ -552,7 +552,11 @@ kind/type/sort of beans`, `beans (any kind)`, `beans, any`. It
   matcher too — the browser canonicalises its list on read as well as on
   write, and the seat compares `patchInventory` and `setInventory` by the
   canonical key, so saving `any bean` over a stored "beans" is no change.
-  The add field never offers a line's plain `bean` beside "Any bean". A line asking for plain "beans" adds `any bean` when its
+  The add field never offers a line's plain `bean` beside "Any bean".
+  Against 42m's Dm7 (a bare `beans` names only the family) this widens one
+  case: `beans` on the list now meets chickpeas and black-eyed peas too —
+  every family member — as `any bean` does; green, vanilla and coffee
+  beans stay out. A line asking for plain "beans" adds `any bean` when its
   tape is tapped. This settles 42m's review finding 2 on this branch: a
   bare "beans" on the list can't meet green, vanilla or coffee beans.
 - **Dm2-7 — Beans only.** "Any cheese", "any vinegar", "any rum/whiskey"

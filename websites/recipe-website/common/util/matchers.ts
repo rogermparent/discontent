@@ -5,7 +5,7 @@
  *
  * **Stored as text** (Dm2-1): the canonical spelling is `any <noun>`
  * (`any bean`), and it round-trips through everything that keeps a list as
- * text — this browser's list, the editor's `inventory/on-hand.json`, Import /
+ * text — this browser's list, the editor's saved list, Import /
  * export, `recipes inventory add "any bean"`. `matcherOf` also reads `bean`,
  * `beans`, `any beans`, `all beans`, `any kind of beans` and `beans (any
  * kind)`; `canonicalItem` turns each into `any bean` when it is added

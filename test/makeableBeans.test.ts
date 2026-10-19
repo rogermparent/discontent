@@ -171,7 +171,9 @@ describe("a bare `beans` names only the family (42m, Dm7)", () => {
 
   it("meets family beans and lines that ask for beans", () => {
     expect(meets("beans", "1 can black beans, drained")).toBe(true);
-    expect(meets("beans", "1 (15 oz) can chickpeas")).toBe(false);
+    /* 42m2 (Dm2-6): a bare "beans" is the `any bean` matcher, which meets
+     * every family bean — chickpeas too. */
+    expect(meets("beans", "1 (15 oz) can chickpeas")).toBe(true);
     expect(meets("beans", "1 can mixed beans")).toBe(true);
     expect(meets("beans", "1 cup canned beans")).toBe(true);
     expect(meets("beans", "1 (15 oz) can beans, any kind")).toBe(true);
