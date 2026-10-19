@@ -61,7 +61,9 @@ export function useWideRecipe(): [WideRecipe, (next: WideRecipe) => void] {
         localStorage.setItem(WIDE_RECIPE_STORAGE_KEY, next);
       }
     } catch {
-      /* Storage blocked: the choice holds for this page only. */
+      /* Storage blocked: nothing is saved and the snapshot still reads the
+         default, so the switch stays on — the page keeps working, the
+         choice just cannot be made in this browser. */
     }
     window.dispatchEvent(new Event(WIDE_RECIPE_EVENT));
   }, []);

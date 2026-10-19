@@ -252,17 +252,23 @@ instructions)` → entry → step → line indices. Both sides go through
   the text of any link in it (a sub-recipe's name). It matches on a whole
   name; or, for a name of 2+ words, on its head (the last word, or the word
   before a shape word: `half`, `piece`, `cube`, `chunk`, `strip`, `leaf`,
-  `sprig`) when no other line has that head. Heads never used alone:
-  `ingredientNames`' generic heads (`juice`, `oil`, `water`…), its derived
-  forms (`zest`, `wedge`…), and a short list of words that are verbs or the
-  dish itself (`puree`, `paste`, `rub`, `glaze`, `cocktail`, `mixture`,
-  `filling`, `frosting`, `wash`…).
-- **Dc2 — a shared name shows nothing.** Two lines with the same name (two
-  butter lines, salt in three places, eggs in the cornbread and the
-  stuffing) are listed for neither — D3. One exception, as confident as the
-  rest: a step inside a group whose name is an ingredient heading's (`Crust`
-  / `For the crust:` / `Make the crust`, all `sectionKey` `crust`) weighs
-  only that heading's lines against each other.
+  `sprig`) when no other line's name contains that word. Heads never used
+  alone: `ingredientNames`' generic heads (`juice`, `oil`, `water`…), its
+  derived forms (`zest`, `wedge`…), and a short list of words that are verbs
+  or the dish itself (`puree`, `paste`, `rub`, `glaze`, `cocktail`,
+  `mixture`, `filling`, `frosting`, `wash`…). `pepper` stands for a name
+  only when the name says black, white, ground or cracked: "salt and pepper"
+  is never the bell pepper.
+- **Dc2 — a shared name shows nothing.** A name is shared when another
+  line's name _contains_ it as consecutive words, not only when it equals it
+  (review of 0283b66f): two butter lines, salt in three places, eggs in the
+  cornbread and the stuffing, "unsalted butter" beside "butter, for
+  greasing", "bread flour" beside "flour, for dusting", "red bell pepper"
+  beside "salt and pepper" — "the butter", "the flour", "the pepper" are
+  listed for neither (D3). One exception, as confident as the rest: a step
+  inside a group whose name is an ingredient heading's (`Crust` / `For the
+crust:` / `Make the crust`, all `sectionKey` `crust`) weighs only that
+  heading's lines against each other.
 - **Dc3 — the longer name claims its words.** An occurrence inside a longer
   occurrence of another line's name belongs to that line ("brown sugar" is
   never also a bare `sugar` line's), counting ambiguous long names too.
@@ -290,7 +296,10 @@ instructions)` → entry → step → line indices. Both sides go through
   (not before oats, oatmeal, French toast, breakfast, casserole, chia,
   pudding, egg bake, cinnamon rolls), "N/a day(s) in advance|ahead|before",
   "make ahead / make-ahead / make it ahead", and "chill|refrigerate|marinate
-  … N hour(s)" within one sentence and 60 characters. Read from step text
+  … N hour(s)" within one sentence and 60 characters, with N ≥ 2 or "at
+  least N" — never "up to N hours" or "30 minutes to 1 hour". "Overnight"
+  and the hours phrase don't count in a sentence about keeping what is made
+  (leftovers, store, keeps). Read from step text
   and cook-schedule notes; not from the description (marketing copy: "Follow
   my make-ahead instructions below" is not a step). Each sentence once, at
   most 3, quoted with its step number.
@@ -323,8 +332,8 @@ and the e2e fixtures' recipes run through the matcher:
   out the chilled pie crust" → `[Pie Crust](…)`. "the kefir with the baked
   potatoes" → the kefir link and "mashed potatoes, leftover from [Baked
   Potatoes](…)". Mule: vodka, cranberry juice cocktail, lime juice, ginger
-  beer. "the egg yolk" → "1 egg + 1 egg yolk" (head `egg yolk`), "the
-  beaten egg" → "1 egg, beaten, for the egg wash". Carnitas (fixture): oil,
+  beer. "the egg yolk" → "1 egg + 1 egg yolk" (head `egg yolk`). Carnitas
+  (fixture): oil,
   pork shoulder, salt, onion, garlic, lime juice, chili powder, oregano,
   cumin, broth.
 - True, but late: stuffing step 5's "sausage mixture" lists the sausage
@@ -340,16 +349,29 @@ and the e2e fixtures' recipes run through the matcher:
 - False negatives accepted: canvas B's step 4 butter and salt, step 3 eggs
   (shared names); "cream" for "heavy cream" (a compound); "olive oil" in a
   step when the line is "any cooking oil (… like olive oil …)" (aliases are
-  not names here).
-- False positives found: none in the fixtures beyond the "late" ones above.
+  not names here); "the egg" beside "1 egg + 1 egg yolk" and "1 egg, for the
+  egg wash" (either); the kefir fixture's "milk" (inside "milk kefir
+  grains"); "the sugar" beside "brown sugar" and "sugar".
+- False positives: the first commit's matcher compared whole names for
+  equality only, so a bare-name line won over the longer names containing
+  it — the review found "butter, for greasing" listed for "Cream the
+  butter", "flour, for dusting" for "Mix the flour", "sugar, for
+  sprinkling", "salt and pepper" for "the bell pepper" and the green bell
+  pepper for "season with salt and pepper", and the egg-wash egg for "add
+  the egg". Fixed by Dc2's containment rule and the `pepper` qualifier;
+  each shape is now a unit test. None left in the e2e fixtures beyond the
+  "late" ones above.
 
 **Heads-up, positives and negatives** — the test list in
-`test/headsUp.test.ts` (15 positives, 13 negatives): "Prepare 1 day in
+`test/headsUp.test.ts` (17 positives, 19 negatives): "Prepare 1 day in
 advance!", "Set aside to cool overnight.", "Chill 3-4 hours until firm.",
 "Refrigerate at least 6 hours", "Marinate … 4 to 6 hours", "Make ahead: …",
 "can be made 2 days ahead" count; "the overnight oats", "Let rest 5
 minutes.", "Chill for 30 minutes.", "Chill the glass.", "Marinate for 20
-minutes.", "Let the dough rise for 2 hours.", "Simmer for 2 hours." don't.
+minutes.", "Let the dough rise for 2 hours.", "Simmer for 2 hours.", and
+(from the review) "Leftovers can be refrigerated for up to 48 hours.",
+"Marinate for 30 minutes or up to 2 hours.", "Chill the dough for 30
+minutes to 1 hour.", "Refrigerate for 1 hour, or until firm." don't.
 No e2e fixture recipe has a heads-up; the new spec writes one through the
 API.
 

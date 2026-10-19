@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, render } from "@testing-library/react";
 import {
   parseWideRecipe,
@@ -45,6 +45,22 @@ describe("wideRecipePrePaintScript", () => {
     expect(document.documentElement.getAttribute(WIDE_RECIPE_ATTRIBUTE)).toBe(
       "two",
     );
+  });
+
+  it("swallows a storage that throws, leaving the default", () => {
+    const getItem = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new Error("SecurityError");
+      });
+    try {
+      expect(run).not.toThrow();
+      expect(document.documentElement.hasAttribute(WIDE_RECIPE_ATTRIBUTE)).toBe(
+        false,
+      );
+    } finally {
+      getItem.mockRestore();
+    }
   });
 
   it("leaves the attribute absent for the default or anything else", () => {

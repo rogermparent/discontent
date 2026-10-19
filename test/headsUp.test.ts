@@ -25,6 +25,8 @@ const POSITIVES = [
   "The sauce can be made 2 days ahead.",
   "Brine the turkey a day ahead.",
   "Start the night before you plan to bake.",
+  "Chill for at least 1 hour.",
+  "Refrigerate twenty-four hours before slicing.",
 ];
 
 const NEGATIVES = [
@@ -41,6 +43,13 @@ const NEGATIVES = [
   "Make the dressing.",
   "Stir in the rest of the stock.",
   "Simmer for 2 hours.",
+  /* Review of 42c1: a limit, a short wait, or keeping what is made. */
+  "Leftovers can be refrigerated for up to 48 hours.",
+  "Marinate for 30 minutes or up to 2 hours.",
+  "Chill the dough for 30 minutes to 1 hour.",
+  "Refrigerate for 1 hour, or until firm.",
+  "Store leftovers covered in the fridge overnight.",
+  "The cookies keep, refrigerated, for 72 hours.",
 ];
 
 describe("isHeadsUp", () => {

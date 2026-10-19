@@ -294,12 +294,25 @@ test.describe("Wide recipe columns (42c1)", () => {
     await page.addInitScript((key) => {
       localStorage.setItem(key, "off");
     }, WIDE_KEY);
+    /* No script bundles, so the page never hydrates and `WideRecipeSync`
+       never runs: only the inline pre-paint script can set the attribute. */
+    await page.route("**/_next/static/**/*.js", (route) => route.abort());
     await page.setViewportSize(WIDE);
     await page.goto(`/recipe/${SLUG}`, { waitUntil: "domcontentloaded" });
     await expect(page.locator("html")).toHaveAttribute(
       "data-recipe-columns",
       "two",
     );
+    /* And the CSS reads it: two columns, the heads-up above them. */
+    const headsUp = (await page
+      .getByRole("region", { name: "Heads-up" })
+      .boundingBox())!;
+    const ingredients = (await page
+      .locator("section", {
+        has: page.getByRole("heading", { level: 2, name: "Ingredients" }),
+      })
+      .boundingBox())!;
+    expect(headsUp.y + headsUp.height).toBeLessThanOrEqual(ingredients.y);
   });
 });
 

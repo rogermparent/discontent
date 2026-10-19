@@ -303,22 +303,29 @@ describe("matchStepIngredients — shared and partial names", () => {
     ]);
   });
 
-  it("'1 egg + 1 egg yolk': the yolk by its compound, never 'egg' inside it", () => {
+  it("'1 egg + 1 egg yolk': the yolk by its compound; a bare 'egg' is either line's", () => {
     const ingredients = lines(
       `${m("1")} egg + ${m("1")} egg yolk`,
-      `${m("1")} egg, beaten, for the egg wash`,
+      `${m("1")} egg, for the egg wash`,
     );
     expect(
       uses(
         ingredients,
-        steps("Beat in the egg yolk.", "Brush the dough with the beaten egg."),
+        steps(
+          "Beat in the egg yolk.",
+          "Beat the egg and egg yolk into the flour.",
+          "Add the egg.",
+          "Brush the dough with the beaten egg.",
+        ),
       ),
     ).toEqual([
-      /* `egg yolk` is the first line's head, and no other line ends in it. */
+      /* `egg yolk` is the first line's head, and no other line has it. */
       [ingredients[0].ingredient],
-      /* `egg` is the second line's whole name and the first line has no
-       * line named just `egg`, so it is the second line's. */
-      [ingredients[1].ingredient],
+      [ingredients[0].ingredient],
+      /* `egg` is the second line's whole name, but the first line's name
+       * contains it too: either could be meant, so neither (D3). */
+      [],
+      [],
     ]);
   });
 
@@ -332,7 +339,66 @@ describe("matchStepIngredients — shared and partial names", () => {
         ingredients,
         steps("Cream the butter and brown sugar.", "Sprinkle with sugar."),
       ),
-    ).toEqual([[ingredients[0].ingredient], [ingredients[1].ingredient]]);
+    ).toEqual([
+      [ingredients[0].ingredient],
+      /* "sugar" is inside "brown sugar": it could be either line. */
+      [],
+    ]);
+  });
+
+  it.each([
+    [
+      "unsalted butter / butter for greasing",
+      [
+        `${m("1")} cup unsalted butter, softened`,
+        "butter, for greasing the pan",
+      ],
+      "Cream the butter and sugar.",
+    ],
+    [
+      "bread flour / flour for dusting",
+      [`${m("3")} cups bread flour`, "flour, for dusting"],
+      "Mix the flour and yeast.",
+    ],
+    [
+      "granulated sugar / sugar for sprinkling",
+      [`${m("1")} cup granulated sugar`, "sugar, for sprinkling"],
+      "Stir in the sugar.",
+    ],
+    [
+      "red bell pepper / salt and pepper",
+      [`${m("1")} red bell pepper`, "Salt and pepper, to taste"],
+      "Add the bell pepper.",
+    ],
+    [
+      "green bell pepper / salt",
+      [`${m("1")} green bell pepper`, `${m("1")} tsp salt`],
+      "Season with pepper.",
+    ],
+  ])(
+    "a bare name inside another line's name lists neither: %s",
+    (_label, texts, step) => {
+      expect(uses(lines(...texts), steps(step))).toEqual([[]]);
+    },
+  );
+
+  it("'pepper' alone is black pepper: a bell pepper is listed only by name", () => {
+    const ingredients = lines(
+      `${m("1")} green bell pepper`,
+      `${m("1")} tsp salt`,
+      `${m("1/2")} tsp freshly ground black pepper`,
+    );
+    expect(
+      uses(
+        ingredients,
+        steps("Season with salt and pepper.", "Dice the bell pepper."),
+      ),
+    ).toEqual([
+      [ingredients[1].ingredient],
+      /* "bell pepper" is not the green bell pepper's whole name, and its
+       * head `pepper` is the black pepper's word too. */
+      [],
+    ]);
   });
 
   it("two lines ending in one head: the head alone names neither", () => {

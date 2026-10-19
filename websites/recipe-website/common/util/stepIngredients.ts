@@ -11,8 +11,9 @@
  * sugar" is never also a bare `sugar` line's. There is no fuzzy matching and
  * no list of synonyms beyond the ones `toName` already applies to both sides.
  *
- * Ambiguity shows nothing: a name or head that two lines share (two butter
- * lines, salt in three places) is listed for neither — except inside a
+ * Ambiguity shows nothing: a name or head that another line's name contains
+ * (two butter lines, salt in three places, "butter, for greasing" beside
+ * "unsalted butter") is listed for neither — except inside a
  * section, when an instruction group's name is an ingredient heading's
  * ("Crust" / "For the crust:"), where only that heading's lines compete.
  *
@@ -115,8 +116,6 @@ interface LineNames {
   names: string[][];
   /** The heads usable on their own (from names of two words or more). */
   heads: string[];
-  /** Every name's head, usable or not, for counting who shares one. */
-  lastWords: string[];
   /** The heading the line sits under, as a `sectionKey`; "" for none. */
   section: string;
 }
@@ -132,6 +131,20 @@ function headOf(words: string[]): string {
   return SHAPE_WORDS.has(last) && words.length > 1
     ? words[words.length - 2]
     : last;
+}
+
+/**
+ * Heads that, said alone in a step, mean one particular kind: "salt and
+ * pepper" is black pepper, never the bell pepper. Such a head stands for a
+ * name only when the name has one of these words.
+ */
+const QUALIFIED_HEADS: Record<string, string[]> = {
+  pepper: ["black", "white", "ground", "cracked"],
+};
+
+function qualifiedHead(words: string[]): boolean {
+  const needs = QUALIFIED_HEADS[headOf(words)];
+  return !needs || words.some((word) => needs.includes(word));
 }
 
 function usableHead(word: string): boolean {
@@ -171,16 +184,16 @@ export function lineNames(ingredients: readonly Ingredient[]): LineNames[] {
       }
     }
     for (const text of linkTexts(ingredient)) add(toName(text).words);
-    const lastWords = [...new Set(names.map(headOf))];
     const heads = [
       ...new Set(
         names
           .filter((words) => words.length > 1)
+          .filter((words) => qualifiedHead(words))
           .map(headOf)
           .filter(usableHead),
       ),
     ];
-    out.push({ index, names, heads, lastWords, section });
+    out.push({ index, names, heads, section });
   });
   return out;
 }
@@ -235,23 +248,22 @@ function matchStep(text: string, lines: LineNames[], scope: string): number[] {
       }
     });
   };
+  /*
+   * A name is shared when another line's name *contains* it as consecutive
+   * words, not only when it equals it: with "unsalted butter" and "butter,
+   * for greasing" on the list, "the butter" could be either, so it is
+   * neither's (D3). The same for a head, which is a one-word name.
+   */
+  const containedElsewhere = (line: LineNames, words: string[]) =>
+    competitors(line, (other) =>
+      other.names.some((theirs) => occurrences(theirs, words).length > 0),
+    );
   for (const line of lines) {
     for (const words of line.names) {
-      const key = words.join("|");
-      record(
-        line,
-        words,
-        !competitors(line, (other) =>
-          other.names.some((theirs) => theirs.join("|") === key),
-        ),
-      );
+      record(line, words, !containedElsewhere(line, words));
     }
     for (const head of line.heads) {
-      record(
-        line,
-        [head],
-        !competitors(line, (other) => other.lastWords.includes(head)),
-      );
+      record(line, [head], !containedElsewhere(line, [head]));
     }
   }
 

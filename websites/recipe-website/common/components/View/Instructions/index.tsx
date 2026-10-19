@@ -75,13 +75,17 @@ function StepItem({
   number,
   uses,
   ingredients,
+  inGroup = false,
 }: {
   step: Instruction;
   number: number;
   uses?: number[];
   ingredients: Ingredient[];
+  /** Under a group's h3, a step's own title is an h4; otherwise an h3. */
+  inGroup?: boolean;
 }) {
   const { name, text } = step;
+  const StepHeading = inGroup ? "h4" : "h3";
   return (
     <li
       id={stepId(number)}
@@ -92,7 +96,9 @@ function StepItem({
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         {name && (
-          <h4 className="border-b border-border text-base font-bold">{name}</h4>
+          <StepHeading className="border-b border-border text-base font-bold">
+            {name}
+          </StepHeading>
         )}
         <label className="flex flex-row flex-nowrap items-center gap-2 print:h-auto">
           <Checkbox className="m-2 shrink-0" />
@@ -177,6 +183,7 @@ export function Instructions({
                       number={numbers[i][j]}
                       uses={uses?.[i]?.[j]}
                       ingredients={ingredients}
+                      inGroup={Boolean(entry.name)}
                     />
                   ))}
                 </ol>
