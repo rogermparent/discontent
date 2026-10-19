@@ -453,6 +453,9 @@ export function SearchProvider({ children }: SearchProviderProps) {
     queryFn: () => buildSearchIndex(allRecipes, yieldToMain),
     enabled: indexWanted && recipesQuery.isSuccess && ingredientsDone,
     staleTime: Infinity,
+    // An index for an older key is garbage the moment its successor lands
+    // (the observer still shows it as placeholder until then).
+    gcTime: 0,
     placeholderData: keepPreviousData,
     // A FlexSearch Document is not data to diff, and building cannot fail.
     structuralSharing: false,

@@ -345,7 +345,7 @@ test.describe("Command palette — search depth", () => {
     await expect(recipeRow(page, "Ginger Cookies")).toBeVisible({
       timeout: SEARCH_TIMEOUT,
     });
-    await expect(searching).toHaveCount(0);
+    await expect(searching).toHaveText("");
     await expect(page.getByText("No results found.")).toHaveCount(0);
 
     // Once the index answers, a word that matches nothing says so.
@@ -353,7 +353,7 @@ test.describe("Command palette — search depth", () => {
     await expect(page.getByText("No results found.")).toBeVisible({
       timeout: SEARCH_TIMEOUT,
     });
-    await expect(searching).toHaveCount(0);
+    await expect(searching).toHaveText("");
   });
 
   test("rows carry the description and the matched ingredient", async ({

@@ -139,6 +139,12 @@ test.describe("Search — the split corpus", () => {
       timeout: SEARCH_TIMEOUT,
     });
     await expect(page.getByText("No matches")).toHaveCount(0);
+    // A beat later, still waiting. Without the gate the build runs the moment
+    // the query lands, and by now the ticker would read "0 results" and the
+    // page "No matches" — the second look is what turns that red.
+    await page.waitForTimeout(500);
+    await expect(ticker(page)).toHaveText(/SEARCHING/i);
+    await expect(page.getByText("No matches")).toHaveCount(0);
 
     release();
     await expect(cardNamed(page, INGREDIENT_ONLY_RECIPE)).toBeVisible({

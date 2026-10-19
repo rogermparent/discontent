@@ -368,17 +368,19 @@ export function CommandPalette({
   const hasRecipeHits = showRecipes && topRecipes.length > 0;
   /*
    * Recipe rows are on their way (42s): text is typed, nothing has failed, no
-   * hits are showing yet, and either the index is still being built, the
-   * engine has not answered, or the debounce has not handed it the text. Until
-   * then "No results found." would be a claim the palette cannot make yet — a
-   * cold load used to show it for the whole of the old IndexedDB populate — so
-   * a "Searching recipes…" status stands in for it.
+   * hits are showing yet, and either the index is still being built or the
+   * engine has not answered. Until then "No results found." would be a claim
+   * the palette cannot make yet — a cold load used to show it for the whole
+   * of the old IndexedDB populate — so a "Searching recipes…" status stands in
+   * for it. The debounce alone does not count once the index is built: the
+   * answer is a millisecond away, and a row that flickered on every keystroke
+   * after a no-hit word would re-announce itself each time.
    */
   const recipesPending =
     !!trimmed &&
     status !== "error" &&
     !hasRecipeHits &&
-    (isSearching || !indexPopulated || query !== trimmed);
+    (isSearching || !indexPopulated);
 
   /*
    * Group rows (22f). Independent of `indexUsable`: groups are matched in JS
@@ -537,17 +539,21 @@ export function CommandPalette({
         />
         {/*
           A status, not an option: outside the listbox (whose children must be
-          options or groups), announced politely, never selectable.
+          options or groups), announced politely, never selectable. Always
+          mounted with only its text swapped, so a screen reader hears the
+          change rather than a live region appearing (which many never read).
         */}
-        {recipesPending && (
-          <p
-            role="status"
-            data-testid="palette-searching"
-            className="px-4 pt-3 text-sm text-muted-foreground"
-          >
-            Searching recipes…
-          </p>
-        )}
+        <p
+          role="status"
+          data-testid="palette-searching"
+          className={
+            recipesPending
+              ? "px-4 pt-3 text-sm text-muted-foreground"
+              : "sr-only"
+          }
+        >
+          {recipesPending ? "Searching recipes…" : ""}
+        </p>
         <CommandList
           data-testid="palette-list"
           data-index-ready={String(indexPopulated)}

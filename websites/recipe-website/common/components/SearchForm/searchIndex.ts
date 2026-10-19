@@ -48,25 +48,36 @@ function createDocument(): Document {
   });
 }
 
-/** Recipes added between yields when building without blocking the page. */
-export const BUILD_CHUNK = 100;
+/**
+ * How long the build may hold the main thread before it yields, in ms. About
+ * half a frame: the build stays out of the way of the keystrokes a ⌘K user is
+ * typing while it runs, on a fast desktop and a slow phone alike.
+ */
+export const BUILD_BUDGET_MS = 10;
 
 /**
  * Build the index over `recipes`.
  *
- * With `yieldToMain`, the build pauses after every `BUILD_CHUNK` recipes so a
- * slow device keeps painting and taking keystrokes while it runs; without it
- * the build is one synchronous loop (tests, and anything that wants the index
- * now).
+ * With `yieldToMain`, the build pauses whenever it has run `BUILD_BUDGET_MS`
+ * since its last pause, so a slow device keeps painting and taking keystrokes
+ * while it runs; without it the build is one synchronous loop (tests, and
+ * anything that wants the index now). A time budget rather than a fixed
+ * count, because a hundred recipes take ~100 ms on a desktop and several
+ * times that on a phone.
  */
 export async function buildSearchIndex(
   recipes: readonly MassagedRecipeEntry[],
   yieldToMain?: () => Promise<void>,
+  now: () => number = () => performance.now(),
 ): Promise<SearchIndex> {
   const document = createDocument();
-  for (let i = 0; i < recipes.length; i++) {
-    if (yieldToMain && i > 0 && i % BUILD_CHUNK === 0) await yieldToMain();
-    document.add(recipes[i] as unknown as DocumentData);
+  let sliceStart = now();
+  for (const recipe of recipes) {
+    if (yieldToMain && now() - sliceStart > BUILD_BUDGET_MS) {
+      await yieldToMain();
+      sliceStart = now();
+    }
+    document.add(recipe as unknown as DocumentData);
   }
   return { document, size: recipes.length };
 }
@@ -104,8 +115,13 @@ export function yieldToMain(): Promise<void> {
  * `get` only stops when the count lands exactly on the limit), so "lime"
  * answered 108 there and would have answered 103 here. Passing the corpus
  * size keeps the 108 and lifts the same cap from multi-word queries, which
- * both engines applied. The first 100 hits are unchanged either way; the
- * extra ones only ever join the tail.
+ * both engines applied.
+ *
+ * Past the cap the order changes too, on purpose: a field that hit 100 used
+ * to let the next field's hits in ahead of its own 101st, so for a common word
+ * (sugar, salt, butter) ranks past ~100 interleaved fields. Now every field's
+ * hits come before the next field's — the name > tags > ingredients >
+ * description tiering this index exists for, all the way down.
  *
  * `suggest: true` is what makes multi-word queries usable: without it a single
  * unmatched term zeroes the whole result set, so "chocolate jujube" would
@@ -162,11 +178,14 @@ export const LEGACY_SEARCH_STORAGE_KEYS = [
  * the browser populated one, and removing the markers makes that a one-off.
  */
 export async function deleteLegacySearchIndex(
-  idb: IDBFactory | undefined = globalThis.indexedDB,
-  storage: Storage | undefined = globalThis.localStorage,
+  idbOverride?: IDBFactory,
+  storageOverride?: Storage,
 ): Promise<string[]> {
   let hadMarker = false;
   try {
+    // Read inside the try: merely touching `localStorage` throws where site
+    // data is blocked.
+    const storage = storageOverride ?? globalThis.localStorage;
     for (const key of LEGACY_SEARCH_STORAGE_KEYS) {
       if (storage?.getItem(key) != null) {
         hadMarker = true;
@@ -176,8 +195,9 @@ export async function deleteLegacySearchIndex(
   } catch {
     // Storage blocked: carry on to the databases.
   }
-  if (!idb) return [];
   try {
+    const idb = idbOverride ?? globalThis.indexedDB;
+    if (!idb) return [];
     let names: string[];
     if (typeof idb.databases === "function") {
       const present = new Set((await idb.databases()).map((db) => db.name));

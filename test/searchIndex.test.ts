@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MassagedRecipeEntry } from "../websites/recipe-website/common/controller/data/read";
 import {
-  BUILD_CHUNK,
+  BUILD_BUDGET_MS,
   LEGACY_SEARCH_DATABASES,
   LEGACY_SEARCH_STORAGE_KEYS,
   buildSearchIndex,
@@ -140,15 +140,27 @@ describe("the in-memory search index (42s)", () => {
     expect(searchSlugs(index, "lime juice")).toHaveLength(300);
   });
 
-  it("builds the same index in chunks, yielding between them", async () => {
-    const many: MassagedRecipeEntry[] = Array.from(
-      { length: BUILD_CHUNK * 2 + 5 },
-      (_, i) => ({ date: 0, slug: `r-${i}`, name: `Recipe ${i} stew` }),
-    );
-    const yieldToMain = vi.fn(() => Promise.resolve());
-    const chunked = await buildSearchIndex(many, yieldToMain);
+  it("yields once a slice has used its time budget, and builds the same index", async () => {
+    const many: MassagedRecipeEntry[] = Array.from({ length: 9 }, (_, i) => ({
+      date: 0,
+      slug: `r-${i}`,
+      name: `Recipe ${i} stew`,
+    }));
+    // Every clock read is 4 ms later, so a slice passes the 10 ms budget on
+    // its third recipe: yields before recipes 2, 5 and 8.
+    expect(BUILD_BUDGET_MS).toBe(10);
+    let t = 0;
+    const clock = () => (t += 4);
+    const yielded = vi.fn(() => Promise.resolve());
+    const chunked = await buildSearchIndex(many, yielded, clock);
+    expect(yielded).toHaveBeenCalledTimes(3);
+
+    // A clock that never moves never yields.
+    const still = vi.fn(() => Promise.resolve());
+    await buildSearchIndex(many, still, () => 0);
+    expect(still).not.toHaveBeenCalled();
+
     const whole = await buildSearchIndex(many);
-    expect(yieldToMain).toHaveBeenCalledTimes(2);
     expect(chunked.size).toBe(many.length);
     expect(searchSlugs(chunked, "stew")).toEqual(searchSlugs(whole, "stew"));
     expect(searchSlugs(chunked, "stew")).toHaveLength(many.length);
@@ -156,15 +168,17 @@ describe("the in-memory search index (42s)", () => {
 
   it("yields with a real task break when no one passes a stub", async () => {
     await expect(yieldToMain()).resolves.toBeUndefined();
-    const chunked = await buildSearchIndex(
-      Array.from({ length: BUILD_CHUNK + 1 }, (_, i) => ({
+    let t = 0;
+    const built = await buildSearchIndex(
+      Array.from({ length: 30 }, (_, i) => ({
         date: 0,
         slug: `r-${i}`,
         name: `Recipe ${i}`,
       })),
       yieldToMain,
+      () => (t += 4),
     );
-    expect(chunked.size).toBe(BUILD_CHUNK + 1);
+    expect(built.size).toBe(30);
   });
 
   it("resolves hits against the corpus it is handed, groups included", async () => {
