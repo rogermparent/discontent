@@ -981,6 +981,51 @@ kind/type/sort of beans`, `beans (any kind)`, `beans, any`. It
   (Dm8's follow-up), keeping `pinto bean` alone meets it only through the
   swap tier.
 
+**Tests.** `makeMatchers.test.ts` (new: the syntax and its spellings, Export
+/ Import round trip, family positives and exclusions on real line shapes,
+A-or-B and loose lines, can make and staples, the shopping fold, pull and
+what-if, no double count with the swap tier, the refine list with "cooked" /
+"low-sodium" lines, `refineMatcher`, the add field's matcher suggestion);
+`makeMatcherUi.test.tsx` (new: the ✱ tape and its popover, Keep only these,
+Feature any bean, a stored "beans" read as the matcher, a typed "beans";
+the cards' add buttons outside the link, further away as rows);
+`inventory.test.ts` (+2: stored canonical, removed by any spelling, the
+page's judge agreeing, an old "beans" list, `setInventory` no change);
+`mcp.test.ts` and `cliJson.test.ts` (the matcher round trip); 42m's Dm7
+test now expects a bare "beans" to meet chickpeas. E2e: `make.spec` (+5: a
+further-away tap with Undo and the card moving up; "bean" → the matcher,
+counts, refine to chickpeas, Undo; the layout at 1366 / 1600 / 1920, no
+tape outside its card, rows two across, at most four photo cards across;
+42m's swap-card lookups and one Roasted Vegetables check moved to the card
+from its link); `accessibility.spec` (+1: a matcher with the refine popover
+open); `visual.spec` (+1: `make-results-wide`).
+
+**Gates** (capped wrappers; the last set after merging 42m's branch with
+origin/main d16c80cc — 42a and 42c1):
+
+- `pnpm --filter recipe-editor typecheck` ✓, `pnpm --filter recipe-website
+exec tsc --noEmit` ✓.
+- `pnpm exec vitest run`: **125 files, 2544 tests** ✓ (before the merge:
+  122 / 2461 with 2 failures — the export boundary test, a comment naming
+  the saved file in `common/`, and 42m's Dm7 assertion above — both fixed,
+  their files rerun 4 / 78 ✓).
+- Playwright, Docker, build mode: `make`, `accessibility`, `visual`,
+  `mobile` — **138 passed, 1 flaky** (make.spec's "buy next follows the
+  featured scope": two `make-ticker`s at page load, a strict-mode miss in
+  `ready()` before any 42m2 code ran — 41h's Th6 seen in build mode —
+  passed on retry). Before the merge: 111 passed + the moved phone shot,
+  then 29 with `--update-snapshots`.
+- Playwright, Docker, dev mode: `make`, `accessibility`, `visual` — **131
+  passed**.
+
+**Baselines** (Docker only, each opened): `visual.spec.ts/make-page-e2e`
+**moved** (one-away photo cards four across, each "Needs" tape under the
+card's link); `mobile.spec.ts/make-mobile-mobile` **moved** (42m's bean
+switch and the 24 px tapes, +72 px); `visual.spec.ts/make-results-wide-e2e`
+**new** (1920 px: Buy next, the groups at most four across, further away as
+a row; shot at 1920 × 2800 so the page fits, Th5). The results column is
+~876 px at 1920, as at 1366: the page is `max-w-7xl`.
+
 **Roger to confirm.** A card tap adding to this browser's list even in Count
 from = Saved list (Dm2-3); further away as rows and the other groups four
 across (Dm2-4); typing "beans" giving `any bean` rather than a plain item
