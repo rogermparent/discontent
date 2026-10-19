@@ -294,6 +294,8 @@ test.describe("Drinks", () => {
       "href",
       "/holidays/christmas?kind=drinks",
     );
+    /* A link in a line of text is underlined, not told by colour alone. */
+    await expectNoViolations(page);
 
     /* After Halloween, Christmas alone; next Halloween (364 days) is past
      * even the 180-day window, so no line. */
