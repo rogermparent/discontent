@@ -10,12 +10,14 @@ import {
   type MakeableAnalysis,
   type MakeableOptions,
 } from "../../util/makeable";
-import { dedupeItems } from "../../util/inventoryText";
 import { fetchIngredients, useSearch } from "../SearchForm/SearchContext";
+import { countFromItems } from "./makeMath";
 import { scopeRecipes } from "./scope";
 import {
   useInventory,
   useMakeSettings,
+  type CountFrom,
+  type Inventory,
   type MakeSettings,
 } from "./useInventory";
 
@@ -31,20 +33,26 @@ export function makeableOptions(settings: MakeSettings): MakeableOptions {
 export interface Makeable {
   /**
    * `ready`: the corpus, the ingredient lines and the browser's storage are
-   * in. `empty`: the storage is in and there is nothing to judge — no list
-   * here and no secondary items — so nothing else was fetched or awaited.
+   * in. `empty`: the storage is in and the counted list is empty, so nothing
+   * else was fetched or awaited.
    */
   status: "pending" | "error" | "ready" | "empty";
+  /** The browser's storage — the list and the settings — has been read. */
+  stored: boolean;
   /** This browser's list (U6): what this visitor entered, nothing shared. */
+  inventory: Inventory;
+  /** This browser's list, as `inventory.have`. */
   have: string[];
-  /** `scope` judged against `have` (plus the staples). */
-  analysis?: MakeableAnalysis;
   /**
-   * `scope` judged against `have` ∪ `secondary`, when `secondary` was given —
-   * the secondary group (U6, `controller/secondaryInventory.ts`). Never part
-   * of `analysis`.
+   * Which list counts (41h's Count from): this browser's unless the page
+   * has a `second` list and this browser chose it, or both.
    */
-  withSecondary?: MakeableAnalysis;
+  source: CountFrom;
+  setSource: (source: CountFrom) => void;
+  /** The list judged: `countFromItems(source, have, second)`. */
+  counted: string[];
+  /** `scope` judged against `counted` (plus the staples). */
+  analysis?: MakeableAnalysis;
   /** Slug → corpus entry, for cards and names. */
   recipes: Map<string, MassagedRecipeEntry>;
   retry: () => void;
@@ -54,23 +62,29 @@ export interface Makeable {
  * What the recipes `scope` selects can be made from what's on hand — `/make`'s
  * judge (`analyzeMakeable`, the one the MCP's `inventory_makeable` runs) over
  * the corpus `SearchProvider` already holds plus the ingredient lines, for a
- * page that shows a summary rather than `/make` itself (U3's `/drinks`).
+ * page that shows a summary rather than `/make` itself (`/drinks`' shelf).
  *
- * **The browser's list first** (U6): the list is `useInventory()` — the
- * items this browser added, in both apps, with a pre-U6 overlay migrated by
- * the shared hook — and never the editor's saved list. The staples are
- * `/make`'s settings (`makeableOptions`), as on the homepage's Make tile. A page with a secondary list (`secondaryInventory()`: the operator's
- * saved inventory in the editor) passes its items as `secondary`, and gets a
- * second analysis to show apart from the first.
+ * **Count from, as on `/make`** (41h; 42d): the list judged is this
+ * browser's — `useInventory()`, the items this browser added, in both apps
+ * — unless the page has a `second` list (the signed-in editor's saved list,
+ * or the house snapshot an export shares: `secondaryInventory()`) and this
+ * browser's `/make` settings chose it, or both (`countFromItems`, the same
+ * per-browser `source`). A browser that never chose counts from its own
+ * list (U6). The staples are `/make`'s settings too (`makeableOptions`).
  */
-export function useMakeable(scope: string, secondary?: string[]): Makeable {
+export function useMakeable(scope: string, second?: string[]): Makeable {
   const { allRecipes, allTerms, status, retry } = useSearch();
   const inventory = useInventory();
+  const settings = useMakeSettings();
+  const source: CountFrom = second ? settings.source : "browser";
+  const counted = useMemo(
+    () => countFromItems(source, inventory.have, second),
+    [source, inventory.have, second],
+  );
   /* The ingredient lines are the one extra fetch, and only once there is a
    * list to judge — as on the homepage's Make tile. */
-  const wanted =
-    inventory.ready &&
-    (inventory.have.length > 0 || (secondary?.length ?? 0) > 0);
+  const stored = inventory.ready && settings.ready;
+  const wanted = stored && counted.length > 0;
   const ingredientsQuery = useQuery({
     queryKey: ["recipe-ingredients"],
     queryFn: fetchIngredients,
@@ -98,7 +112,7 @@ export function useMakeable(scope: string, secondary?: string[]): Makeable {
 
   /* Keyed by value: `useMakeSettings` answers a fresh object every render,
    * and a fresh options object would rerun the whole judge each time. */
-  const optionsKey = JSON.stringify(makeableOptions(useMakeSettings()));
+  const optionsKey = JSON.stringify(makeableOptions(settings));
   const options = useMemo(
     () => JSON.parse(optionsKey) as MakeableOptions,
     [optionsKey],
@@ -107,36 +121,26 @@ export function useMakeable(scope: string, secondary?: string[]): Makeable {
   const ready = wanted && status === "success" && ingredientsQuery.isSuccess;
   const analysis = useMemo(
     () =>
-      ready
-        ? analyzeMakeable(scoped, prepared, inventory.have, options)
-        : undefined,
-    [ready, scoped, prepared, inventory.have, options],
-  );
-  const withSecondary = useMemo(
-    () =>
-      ready && secondary
-        ? analyzeMakeable(
-            scoped,
-            prepared,
-            dedupeItems([...inventory.have, ...secondary]),
-            options,
-          )
-        : undefined,
-    [ready, secondary, scoped, prepared, inventory.have, options],
+      ready ? analyzeMakeable(scoped, prepared, counted, options) : undefined,
+    [ready, scoped, prepared, counted, options],
   );
 
   return {
     status:
-      inventory.ready && !wanted
+      stored && !wanted
         ? "empty"
         : status === "error" || ingredientsQuery.isError
           ? "error"
           : ready
             ? "ready"
             : "pending",
+    stored,
+    inventory,
     have: inventory.have,
+    source,
+    setSource: settings.setSource,
+    counted,
     analysis,
-    withSecondary,
     recipes,
     retry: () => {
       retry();

@@ -714,7 +714,7 @@ const THEME_PAGES: Array<{ path: string; fixture: string }> = [
   { path: "/", fixture: "three-recipes" },
   { path: "/recipe/recipe-6", fixture: "two-pages" },
   { path: "/search", fixture: "three-recipes" },
-  /* U3: spirit tiles, chips and the accent-filled make panel's frame. */
+  /* U3, 42d: the shelf's tapes, Pour now, the holiday badges, the index. */
   { path: "/drinks", fixture: "drinks-bar" },
 ];
 
@@ -825,7 +825,7 @@ test.describe("Accessibility on a phone @mobile", () => {
         /*
          * Target size (WCAG 2.2, 2.5.8) is measured apart (41f, Tf2). axe
          * judges it at the current scroll position, and the pinned tab bar
-         * covers whatever straddles the fold — /drinks' family chips, 9 px of
+         * covers whatever straddles the fold — /drinks' family chips once (before 42d), 9 px of
          * them showing — which scrolling uncovers. So the full sweep runs with
          * the bar pinned and without `target-size`, then `target-size` alone
          * runs with the chrome released (the reader's own "off" setting). The
