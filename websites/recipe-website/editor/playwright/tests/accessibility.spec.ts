@@ -143,7 +143,7 @@ test.describe("Accessibility (axe)", () => {
     await input.fill("pinto beans, cucumber, lemon");
     await input.press("Enter");
     await expect(main.getByTestId("make-bean-swap")).toContainText(
-      "Use pinto beans for canned chickpea",
+      "Use pinto beans for chickpea",
     );
     const photos = await new AxeBuilder({ page }).withTags(TAGS).analyze();
     expect(photos.violations).toEqual([]);

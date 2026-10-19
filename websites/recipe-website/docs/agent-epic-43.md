@@ -456,11 +456,13 @@ cups.
   next's item, the add field's candidates and a card's add tapes), so "1 (15 oz) can beans" is
   still met by black beans on hand (Dm7's bare `bean`) and the add field
   still offers "black bean", not "canned black bean". The bean family
-  already ignored `canned`. What the page shows moves: a line's label keeps
-  the can, so a bean-swap card reads "Use black beans for canned chickpea"
-  and one-away "Needs canned chickpea", and the `inventory make` seat's
-  `missing` / `swaps[].line` say `canned chickpea` (`make.spec`,
-  `accessibility.spec`, `makeableBeans` and `inventory` tests updated).
+  already ignored `canned`. So the page reads as before — "Use black beans
+  for chickpea", "Needs chickpea (swap: black beans)": its tapes are what
+  a tap would add. A requirement's label keeps the can: the `inventory
+make` seat's `missing` / `swaps[].line` say `canned chickpea`, and so do
+  a static tape and `makeableBeans`' swap labels (`inventory` and
+  `makeableBeans` tests updated; `make.spec` and `accessibility.spec`
+  unchanged).
 - **Shopping:** every `canned X` shelves in the pantry. Against the first
   pass, the moves are canned goods leaving fresh aisles — `tomato`,
   `petite tomato` (6 lines), `corn` (2), `green chile` (4), `green bean`,
@@ -569,16 +571,15 @@ and the bean-swap labels read `canned chickpea` / `canned kidney bean`;
 `aisles.test.ts` — "1 (14 oz) can diced tomatoes" shelves in the pantry
 (was produce: "the unit `can` is gone before the name"). `makeable`,
 `makeMatchers`, `makeMatcherUi`, `shoppingView`, `shoppingLines`,
-`stepIngredients`, `ingredientAmount`, `headsUp`: unchanged and green. e2e:
-`make.spec` and `accessibility.spec`'s bean-swap texts read "for canned
-chickpea" / "for canned kidney bean".
+`stepIngredients`, `ingredientAmount`, `headsUp`: unchanged and green;
+`inventory.test.ts` — the seat's bean-swap `line` and `missing` read
+`canned chickpea` / `canned kidney bean`. e2e: no expectation moved.
 
 **Roger to confirm:** the merges in the table (above), especially ground
 spices → the bare spice, `dry` red/white wine → the wine, white sugar →
 granulated sugar; `canned X` for every can (Dn2) — in particular that a
 list now keeps "1 can black beans" and "1 cup black beans" on two rows
-(fold `canned` in the shopping key if one row is wanted), and "Needs
-canned chickpea" on Make; the label rule (a label is the name unless
+(fold `canned` in the shopping key if one row is wanted), and `canned chickpea` in the `inventory make` seat's labels (the page's tapes drop it); the label rule (a label is the name unless
 something named follows it, or it names a part of the recipe); and which
 of the 30 left to merge.
 
