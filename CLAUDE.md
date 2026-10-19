@@ -168,6 +168,19 @@ survives a cleared context.
   Count from, featuring by the matcher) with its MCP/CLI parity (41i).
   Overnight design-variant canvases for four pages are linked in the
   Close-out.
+- `websites/recipe-website/docs/agent-epic-42.md` — epic 42: the variants
+  Roger picked, built — the recipe page in cooking order (42c1: a sticky
+  ingredients rail, confident step↔ingredient matches, heads-up notes,
+  three wide columns), the cook view one step at a time with timer buttons
+  and drinks counted (42c2), `/holidays` the almanac and `/holidays/<slug>`
+  the menu (42e) with `holiday_list` / `holiday_get` for the agents (42h,
+  59 tools / 45 pre-approved), `/shopping` plan at home / shop in the store
+  (42g), `/drinks` pour from your shelf (42d), the homepage now and next
+  (42f); epic 41's follow-ups (42a), a 100 px screenshot budget (42b), bean
+  swaps and the `any bean` matcher on Make (42m, 42m2), search built in
+  memory instead of IndexedDB (42s), and content: holidays across the year
+  and 18 bean salads (42k, 42n). The next four design canvases (42j),
+  "Roger to confirm" and Roger's steps are in the Close-out.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed

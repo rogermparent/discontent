@@ -1035,6 +1035,10 @@ the scaler into the Ingredients header as a ½× · 1× · 2× + custom control.
   heads-up notes, three columns at 1600px and wider. The scaler and the
   "Multiply" field stay in the Ingredients header. See `agent-epic-42.md`
   § 42c1.
+- **Later — epic 42c2 (2026-10-19):** the cook view one step at a time
+  (Back / Done, the step's matched lines, All steps a tap away), durations
+  in step text as timer buttons with a tray, and a drink's scaler counting
+  drinks ("1 drink · 2 drinks · 4 drinks"). See `agent-epic-42.md` § 42c2.
 
 ### PR 12 — Site-wide polish + search/tags `ui/12-polish` ✅ done
 
@@ -1357,6 +1361,9 @@ and larger in effect (below).
       commit, so a repopulate into a surviving DB duplicated ids — the populate
       step now `clear()`s first. Also added `commit: false` so the bulk populate
       isn't punctuated by 1 ms autocommit timers.
+      **Superseded by 42s (2026-10-19):** the index is no longer persisted —
+      it is built in memory on each load, and the old databases are deleted
+      (`agent-epic-42.md` § 42s, Ds1).
 - [x] **Live typeahead** — `SearchInput` is now the shared **live** field (page
       _and_ picker modal): leading `Search` icon, generous height, ember
       focus-within ring, mono placeholder, `aria-label` "Search recipes", no
@@ -2353,6 +2360,14 @@ width.
 
 ### U3 — `/drinks` `agent/nav-drinks`
 
+> **Redesigned by 42d (2026-10-19)** — canvas B, "Pour from your shelf":
+> "What drinks can I make?" over the shelf (following `/make`'s Count
+> from), Pour now and Buy next, the current and next holiday side by side
+> linking to `/holidays/<slug>`, and a dot-leader index of spirit & base,
+> style and classics. The tiles, chips, "New drinks" and "Also makeable
+> with…" below are gone; `agent-epic-42.md` → 42d has the page as it now
+> is.
+
 - [x] **Both apps, one component.** `common/components/DrinksPage` renders
       from `readDrinksPage()` (the reading half) over `drinksPageData()` (pure,
       `controller/drinksPage.ts`) — the term page's split and its reads: the
@@ -2561,6 +2576,12 @@ width.
 > to editor with a diff, the add field as Buy next search, and spec cards.
 > The rule below still holds for a browser that never chose. See
 > `agent-epic-41.md` §41h.
+>
+> **Epic 42 on `/make`:** per-item editing of the saved list is back for a
+> signed-in editor (42a); a "With a bean swap" tier and its switch (42m);
+> tapping a missing tape adds it, "Further away" as rows, and the `any bean`
+> matcher (42m2); `/drinks` now shares Count from (42d, Dd1). See
+> `agent-epic-42.md` § 42a, 42m, 42m2.
 
 - **Both apps judge the browser's list alone.** `useInventory()`: the
   `make-inventory-v1` value's `added` is the list, as on the export since
