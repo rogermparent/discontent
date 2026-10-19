@@ -377,8 +377,10 @@ recipes, groups})` (the board: four food columns, Collections, Holidays
   Drinks shelf (Style, Strength & method, Spirit & base, Families), and
   "N other tags" folded. Combine's count is `useQueryCount`: the search
   corpus through `matchesFilter` and the `tag:` expansion — what
-  `/search?q=tag:a tag:b` will show (D3, Df9). Pictures for the holidays
-  are rendered on the server (`TermPicture`, the almanac's rule).
+  `/search?q=tag:a tag:b` will show (D3, Df9); only that count is a live
+  region (a polite `sr-only` status), not the whole bar. Pictures for the
+  holidays are rendered on the server (`TermPicture`, the almanac's rule),
+  for the dated holidays only — the only ones the aside can show.
 - **Term page** (`shared.tsx` `TermPageBody`, `TermRecipes.tsx`,
   `HolidayWhen.tsx`): crumbs (`Tags ›` then the ancestors), the editor's
   actions top right, h1, the count ticker ("41 recipes · 1 plan · also
@@ -388,16 +390,20 @@ recipes, groups})` (the board: four food columns, Collections, Holidays
   in with no pins, the pin slot; "Narrow X" chips over the subtree's rows,
   filtering in place; list head with Clear and Grid / List; cards without
   the page's own tags. The column is canvas B's 1152 px (`max-w-6xl`).
-- **Root page** (`RootTermBody`, `RootViews.tsx`): a term with no parent
-  and narrower terms (`/tags/course`, `/tags/drink`, `/tags/holidays`) —
-  one section per narrower term by count (three photos, its narrower terms
-  as chips) for the first 7, "And N more" dot-leaders after (narrower terms
-  nothing carries yet at 0, for the curator), a By course / Newest switch
-  (Newest is 34a's capped list), What can I make, and on `holidays` the
-  almanac link.
+- **Root page** (`RootTermBody`, `RootViews.tsx`): a facet root with
+  narrower terms (`isRootPage`, Dt8: `/tags/course`, `/tags/drink`,
+  `/tags/holidays`) — one section per narrower term by count (three photos,
+  its narrower terms as chips) for the first 7, "Only <Root> N" for the
+  recipes tagged with the root alone, "And N more" dot-leaders after
+  (narrower terms no recipe carries keep their count of plans, or 0 for the
+  curator), a By course / Newest switch (Newest is 34a's capped list), What
+  can I make, and on `holidays` the almanac link. A feature of a term
+  renders the same body with the same vocabulary (`facetTermsFromTree`), so
+  a featured root counts grandchildren and aliases as `/tags/<root>` does.
 - **Session** — the editor's two route files read `auth()` and pass
-  `signedIn` to `editorTagIndexRoute` / `editorTagRoute` (common can't import
-  the editor's auth); a guest sees no New term, Feature, Edit, Add a
+  `signedIn` to `editorTagIndexRoute({signedIn})` / `editorTagRoute({params,
+signedIn})` — 43a's shape, kept as one rule after the merge (common can't
+  import the editor's auth); a guest sees no New term, Feature, Edit, Add a
   narrower term or pin slot (43a's rule for these pages).
 - `TagPage/blockRows.ts` and `test/tagBlockRows.test.ts` are gone (the
   count-bar board's row budget); `TagIndexPage` takes the board data.
@@ -433,7 +439,11 @@ method 134, Spirit & base 201, Families 113 top-level / 144 with nested
   chips are left out rather than the page growing. With no chip pressed the
   grid is the server's cards (34a's cap and "See all N recipes"); a pressed
   chip or the List view draws client cards (`ClientListItem`,
-  `PureRecipeImage`) from the rows.
+  `PureRecipeImage`) from the rows. The chips also need the vocabulary on
+  every narrowing page: 232 terms = 14.6 KB raw (3.1 KB gzipped) of
+  serialized props, pictures stripped (`lean`). "See all N" after narrowing
+  spells each tag as its carriers do (`spelledTagQuery`: `slow cooker`, not
+  `slow-cooker`), as the unpressed link always did.
 - **Dt4 — a visible `+` instead of long-press.** At `lg` and up, with a
   pointer that hovers, `+` shows on hover and focus (canvas B); below `lg`
   (the phone's disclosures) and on touch it is always there, 24 px. The phone hint reads "Tap + beside a row to combine it with
@@ -449,9 +459,13 @@ method 134, Spirit & base 201, Families 113 top-level / 144 with nested
   chosen; rows are the term's narrower terms, then up to 4 facet groups in
   `FACET_GROUPS` order, 6 chips each, a pressed chip always kept; "All N"
   clears. No Kind row.
-- **Dt8 — a root page is a term with no parent and narrower terms**; both
-  views are in the HTML (the switch only shows one), so the export carries
-  every link.
+- **Dt8 — a root page is a facet root with narrower terms**
+  (`ROOT_PAGE_SLUGS` = `FACET_ROOT_ORDER`: course, main-ingredient,
+  cuisine, effort, holidays, drink and spirit — `spirit` too, as Spirit &
+  base is a facet column on the board). Every other term with narrower
+  terms (Syrups › Lavender, Fall Favorites, a `dessert` with children) is a
+  term page whose "Narrow X" leads with them. Both views are in the HTML
+  (the switch only shows one), so the export carries every link.
 - **Dt9 — plan cards** show the plan's picture, kind and size; canvas B's
   six-photo strip needs each plan's members read and is left out.
 - **Dt10 — Families**: the 30 most made, then "All N families" opens the

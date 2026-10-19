@@ -699,7 +699,7 @@ function Holidays({
                       >
                         {formatDayShort(holiday.date)}
                       </time>{" "}
-                      ·
+                      ·{" "}
                     </span>
                     <span className="whitespace-nowrap">
                       {plural(holiday.recipes, "recipe")}
