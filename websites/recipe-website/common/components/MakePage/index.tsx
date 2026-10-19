@@ -32,6 +32,7 @@ import {
 } from "../SearchForm/queryLanguage";
 import { SearchSkeleton } from "../SearchForm/SearchSkeleton";
 import { dedupeItems, inventoryKey } from "../../util/inventoryText";
+import { canonicalItem, canonicalItems, matcherOf } from "../../util/matchers";
 import type { SecondaryInventory } from "../../controller/secondaryInventory";
 import {
   InventoryPanel,
@@ -79,6 +80,8 @@ import {
   countFromItems,
   featuredLines,
   featureScope,
+  matcherMembers,
+  refineMatcher,
 } from "./makeMath";
 import { useUndoToast } from "./Toast";
 
@@ -95,6 +98,20 @@ const FIRST_VISIT_QUERY = "";
 const REFINE_LIMIT = 12;
 
 const NO_SLUGS = new Set<string>();
+
+/** Each judged recipe's distance, by slug: can make 0, further away 3+. */
+function bucketDistances(analysis: MakeableAnalysis): Map<string, number> {
+  const distances = new Map<string, number>();
+  for (const match of [
+    ...analysis.canMake,
+    ...analysis.oneAway,
+    ...analysis.twoAway,
+    ...analysis.further,
+  ]) {
+    distances.set(match.recipe.slug, match.distance);
+  }
+  return distances;
+}
 
 /** Without a vocabulary from the route, every carried tag is a root. */
 function corpusTagOptions(recipes: MassagedRecipeEntry[]): TagOption[] {
@@ -259,14 +276,15 @@ export function MakePage({
     [have, second],
   );
 
-  const { countClose, staples } = settings;
+  const { countClose, staples, beanSwaps } = settings;
   const analysis = useMemo(
     () =>
       analyzeMakeable(scoped, prepared, counted, {
         countClose,
         staples,
+        beanSwaps,
       }),
-    [scoped, prepared, counted, countClose, staples],
+    [scoped, prepared, counted, countClose, staples, beanSwaps],
   );
   const pulls = useMemo(
     () => pullCounts(shelfItems, analysis.canMake, prepared),
@@ -292,7 +310,9 @@ export function MakePage({
   /*
    * A card that just became makeable gets a brief accent ring (41h) — after
    * a change to the list or the settings, not a new scope, where everything
-   * would be "new". Derived during render from the analysis before.
+   * would be "new". Derived during render from the analysis before. Since
+   * 42m2 a card that moved up a bucket (further away → two away, say, after
+   * a tap on one of its missing tapes) lands the same way.
    */
   const [seen, setSeen] = useState<{
     analysis: MakeableAnalysis;
@@ -302,16 +322,19 @@ export function MakePage({
   if (!pending && seen?.analysis !== analysis) {
     const before =
       seen && seen.query === scopeQuery
-        ? new Set(seen.analysis.canMake.map((match) => match.recipe.slug))
+        ? bucketDistances(seen.analysis)
         : undefined;
     setSeen({
       analysis,
       query: scopeQuery,
       fresh: before
         ? new Set(
-            analysis.canMake
-              .map((match) => match.recipe.slug)
-              .filter((slug) => !before.has(slug)),
+            [...bucketDistances(analysis)]
+              .filter(([slug, distance]) => {
+                const was = before.get(slug);
+                return was !== undefined && distance < Math.min(was, 3);
+              })
+              .map(([slug]) => slug),
           )
         : NO_SLUGS,
     });
@@ -409,7 +432,9 @@ export function MakePage({
   });
   const [landed, setLanded] = useState<string>();
   const addItems = useCallback(
-    (items: string[]) => {
+    (typedItems: string[]) => {
+      /* "beans" is the `any bean` matcher (42m2), and says so. */
+      const items = canonicalItems(typedItems);
       if (items.length === 0) return;
       inventory.add(items);
       setLanded(inventoryKey(items[items.length - 1]));
@@ -420,6 +445,77 @@ export function MakePage({
       );
     },
     [inventory, showToast],
+  );
+  /*
+   * A tap on a card's missing tape (42m2): the name joins this browser's
+   * list — the one being counted, unless Count from is the saved list
+   * alone, which the toast says — and Undo takes it off again. The tape
+   * goes with the line it met, so focus moves to Undo (as after Clear).
+   */
+  const addMissing = useCallback(
+    (name: string) => {
+      /* A line that asks for plain "beans" adds the `any bean` matcher. */
+      const item = canonicalItem(name);
+      const key = inventoryKey(item);
+      if (haveRef.current.some((kept) => inventoryKey(kept) === key)) {
+        /* Only while this browser's list isn't counted (Saved mode). */
+        showToast(`${item} is already on this browser's list.`);
+        return;
+      }
+      inventory.add([item]);
+      setLanded(key);
+      const uncounted = settingsRef.current.source === "saved" && !!second;
+      showToast(
+        uncounted
+          ? `Added ${item} to this browser's list (not counted while Count from is the ${second.kind === "saved" ? "saved" : "house"} list).`
+          : `Added ${item}.`,
+        () =>
+          setHave(haveRef.current.filter((kept) => inventoryKey(kept) !== key)),
+        { focusUndo: true },
+      );
+    },
+    [inventory, second, setHave, showToast],
+  );
+  /* "Keep only these" (42m2): the matcher out, the chosen names in its place. */
+  const refine = useCallback(
+    (item: string, chosen: string[]) => {
+      if (chosen.length === 0) return;
+      const before = have;
+      const at = before.findIndex(
+        (kept) => inventoryKey(kept) === inventoryKey(item),
+      );
+      const beforeKeys = new Set(before.map(inventoryKey));
+      const brought = new Set(
+        chosen.map(inventoryKey).filter((key) => !beforeKeys.has(key)),
+      );
+      setHave(refineMatcher(before, item, chosen));
+      setLanded(inventoryKey(chosen[chosen.length - 1]));
+      /* Undo puts the matcher back where it was and takes out what the
+       * refine brought, keeping anything added since. */
+      showToast(
+        `Kept ${chosen.length === 1 ? chosen[0] : `${chosen.length} kinds`} for ${item}.`,
+        () => {
+          const now = haveRef.current.filter(
+            (kept) => !brought.has(inventoryKey(kept)),
+          );
+          if (now.some((kept) => inventoryKey(kept) === inventoryKey(item))) {
+            setHave(now);
+            return;
+          }
+          const index = at < 0 ? now.length : Math.min(at, now.length);
+          setHave([...now.slice(0, index), item, ...now.slice(index)]);
+        },
+        { focusUndo: true },
+      );
+    },
+    [have, setHave, showToast],
+  );
+  const membersOf = useCallback(
+    (item: string) => {
+      const matcher = matcherOf(item);
+      return matcher ? matcherMembers(matcher, scoped, prepared) : [];
+    },
+    [scoped, prepared],
   );
   const removeItem = useCallback(
     (item: string) => {
@@ -611,8 +707,17 @@ export function MakePage({
         const key = fold(tag).trim();
         return KIND_TAGS.has(key) ? undefined : (tagLabels.get(key) ?? tag);
       },
+      onAddMissing: addMissing,
     }),
-    [settings.view, recipesBySlug, prepared, featureLines, seen, tagLabels],
+    [
+      settings.view,
+      recipesBySlug,
+      prepared,
+      featureLines,
+      seen,
+      tagLabels,
+      addMissing,
+    ],
   );
 
   let body;
@@ -730,6 +835,7 @@ export function MakePage({
           canMake={analysis.canMake.length}
           oneAway={analysis.oneAway.length}
           twoAway={analysis.twoAway.length}
+          beanSwap={analysis.beanSwap.length}
           kind={scopeKind}
           pending={pending}
         />
@@ -768,6 +874,8 @@ export function MakePage({
           onClear={clearAll}
           onCopySecond={copySecond}
           onToggleFeature={featureItem}
+          matcherMembers={membersOf}
+          onRefine={refine}
           saveToEditor={saveToEditor}
           savedEdit={savedEdit}
           inputRef={inputRef}

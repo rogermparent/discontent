@@ -1,12 +1,12 @@
 /**
- * `/api/inventory/make?query=…&feature=…&limit=…&staples=0` — what the shared
+ * `/api/inventory/make?query=…&feature=…&limit=…&staples=0&beanSwaps=0` — what the shared
  * list can make (25d), the seat behind `inventory_makeable` over `--remote`.
  *
  * Authenticated like its parent: the answer is the list, restated as recipes.
  * `query` is the search language (every recipe when absent); `feature`,
  * repeated, features an ingredient as `/make` does (41i); `limit` caps each
  * bucket's rows; `staples=0` (or `false`) stops assuming pantry staples (U5),
- * which are on otherwise.
+ * which are on otherwise; `beanSwaps=0` drops the bean-swap tier (42m).
  */
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
 import {
@@ -22,15 +22,16 @@ export async function GET(request: Request) {
     const query = url.searchParams.get("query");
     const limit = intParam(url, "limit");
     const staples = url.searchParams.get("staples");
+    const beanSwaps = url.searchParams.get("beanSwaps");
+    const on = (value: string) => !/^(0|false|no|off)$/i.test(value.trim());
     const feature = url.searchParams.getAll("feature");
     return Response.json(
       await makeable(ctx, {
         ...(query !== null ? { query } : {}),
         ...(feature.length > 0 ? { feature } : {}),
         ...(limit !== undefined ? { limit } : {}),
-        ...(staples !== null
-          ? { staples: !/^(0|false|no|off)$/i.test(staples.trim()) }
-          : {}),
+        ...(staples !== null ? { staples: on(staples) } : {}),
+        ...(beanSwaps !== null ? { beanSwaps: on(beanSwaps) } : {}),
       }),
     );
   } catch (error) {
