@@ -395,9 +395,11 @@ first, with counts), extras}`. **For 43p2:** call `readPlanTimes` per
     cooks by label instead: day headings, "up next" on the current one, the
     ticks inline and "Cook <recipe> at 2×".
   - `planState.ts` — the mode (`?mode=` first, then this browser's choice
-    under `plan-mode`, then the viewport: `lg` and up Plan) and the made
-    ticks under `plan-made:<slug>`, both via `useSyncExternalStore`, read
-    after hydration.
+    under `plan-mode`, then the viewport: `lg` and up Plan, decided once per
+    page load — Dp1-12) and the made ticks under `plan-made:<slug>`, both
+    via `useSyncExternalStore`, read after hydration. The editor's page is
+    dynamic, so it hands `?mode=` to the store's server snapshot and a
+    `?mode=cook` link renders Cook from the first byte (no Plan flash).
 - **The cook view opens from a link**: `FocusViewButton` opens at
   `?cook=1` as the recipe page hydrates and drops the parameter when it
   closes (`util/cookViewParam.ts`); the plan's links carry `?scale=` too.
@@ -462,7 +464,53 @@ first, with counts), extras}`. **For 43p2:** call `readPlanTimes` per
 shows. C's run sheet is 43p2's — the page's modes are a component switch
 in `PlanPage.tsx`, so a third section slots in beside Plan and Cook.
 
-_Gates, baselines and "Roger to confirm": below once run._
+**Review fixes** (after the read-only review; commit e7cb10a3):
+
+- **`planTimes` clauses.** A verb's time is read from its own clause only —
+  up to a semicolon, "then", or another timed verb (bake, chill,
+  refrigerate, let/allow). A lone "overnight" before any time is the answer
+  for a chill and, new, for a rest (`PlanRest {min?, max?, overnight?}`).
+  Near-miss tests: "Refrigerate dough overnight; the next day bake 10
+  minutes." → chill overnight; "Let the dough rest overnight, then roll out
+  and cut; bake 8 minutes." → rest overnight (the bake 8 min); "Let the
+  dough rest, covered, then bake for 25 minutes." → no rest, bake 25.
+- **The oven needs the oven's wording**: "preheat … to", "oven to",
+  "bake/roast at", or "in a N° oven" around the number, and never in a
+  sentence about the internal temperature, a thermometer, reads / registers
+  / reaches, oil, frying or keeping warm. Tests: the Dutch-oven oil, the
+  internal 205°F, the bread that reads 200°F (bake 35–40, no oven), "keep
+  warm in a 200°F oven" read as none; the brief's positives and "Heat the
+  oven to 425°F", "in a 180°C oven" read.
+- **Smaller misses**: `FREEZE_RE` skips "freeze-dried"; a chill under a
+  minute, or of glassware ("chill a coupe", "the glasses"), is none; "bake 2
+  to 3 minutes longer / more", "another 5 minutes" is never the bake. A test
+  each.
+- **Save vs concurrent writes** (Dp1-11).
+- **Cook mode's outline**: the by-label list starts with a visually hidden
+  h2 ("The plan, by label") before its h3 labels.
+
+**Decisions (review).**
+
+- **Dp1-11 — a Save over a changed plan writes nothing.** The page sends
+  `planItemsKey(items)` — a stable JSON key of the rows it rendered (key
+  order and absent fields ignored; order and values count) — and
+  `savePlanItems` passes `setItems` an `unchanged` check, which the seat
+  runs on the stored rows before writing: on a mismatch it throws
+  `validation` "The plan changed — reload to see it." and the page shows
+  that under the bar. The read and the write are not one locked step (the
+  seat reads before `updateContent` takes the write lock, as every
+  `setItems` caller does today); the window is milliseconds, against a
+  draft that was open for minutes. After `{ok}` the bar stays disabled
+  ("Saving…") inside a `useTransition` until `router.refresh()` lands.
+- **Dp1-12 — the viewport decides the default once.** Without `?mode=` or a
+  stored choice, the first read in a page load picks Plan (≥ 1024 px) or
+  Cook and keeps it: resizing across `lg` no longer flips the page, and a
+  client navigation back to a plan in the same load keeps that default.
+- **Dp1-13 — a rest can be "overnight".** `rest` became `PlanRest` (the
+  minutes optional) so "rest overnight" is a fact, not a guess at the next
+  number; the page quotes the rest's sentence only, so no wording changed.
+
+_Gates and baselines: below once run._
 
 ### 43p2 — The run sheet: C's features on the plan (M)
 
