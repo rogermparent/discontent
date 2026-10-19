@@ -855,6 +855,157 @@ frontmatter (CLAUDE.md's 57/43 become 59/45). The curator skill learns
 "what's coming up?". Tests follow the `mcp`, `cliJson` and `curatorSkill`
 suites.
 
+#### Results (42h)
+
+Branch `agent/42h-holiday-tools`, cut from `agent/42e-holidays` (#284).
+**Reindex needed: no. Deploy: yes** (the editor: `/api/holidays` and the
+MCP-over-HTTP seat; the stdio MCP and the CLI pick the tools up from the
+checkout). No content, index or stored-format change; nothing is written.
+
+**What shipped:**
+
+- **The seat**, `editor/controller/curation/holidays.ts`: `holidayList(ctx,
+{date?})` and `holidayGet(ctx, slug, {date?})`. Both are 42e's view model
+  over Node-safe reads — the term tree aggregate, each holiday's record
+  (`readContentFileOrNull`) and one by-term row per key of the holidays'
+  subtrees (`readTaxonomyByTermEntry`), the pages' reads without
+  `unstable_cache`; nothing creates an index (F30). The list is
+  `holidayEntries` ordered by `almanacView`; the menu is `holidayMenuData`,
+  "Then …" is `holidayAfter`, the alias is `holidayAliasTarget`.
+  `holidayEntries` gains `includeEmpty` (default off, so the almanac is
+  unchanged).
+- **`holiday_list`** → `{today, total, link, holidays: [{slug, label,
+dated, date?, days?, countdown?, rule?, counts: {recipes, dishes, drinks},
+aliases?, top}]}`, soonest first, undated last. `date` is the next day
+  (`YYYY-MM-DD`) on or after today, `countdown` is `countdownLabel`'s
+  ("today", "tomorrow", "in 12 days"), `rule` appears only when another
+  key dates it (an alias's), `top` is the almanac card's three names.
+- **`holiday_get {slug}`** → `{today, slug, label, requested?, dated, date?,
+days?, countdown?, description?, image?, aliases?, counts, courses, styles,
+next?, link}`; `courses` (dishes, `MENU_COURSE_ORDER` then More) and
+  `styles` (drinks, `DRINK_STYLE_SLUGS` then More) are `[{slug, label,
+recipes: [{slug, name, date, tags?, image?, base?}]}]` — `recipe_search`'s
+  compact row with the menu line's `base` (main ingredient or spirit).
+- **CLI** `recipes holidays [<slug>] [--date YYYY-MM-DD]` with `--json`, a
+  readable form ("Halloween — halloween: Sat 31 Oct, in 12 days · 1 dish ·
+  1 drink"; the menu as Dishes / Drinks with course and style headings),
+  its own `--help` with the JSON, and a "Holidays:" paragraph and usage
+  line in the global `--help`.
+- **API** `GET /api/holidays?date=` and `GET /api/holidays/<slug>?date=`,
+  thin over the seat. The HTTP backend sends `date`, makes `link` absolute
+  on the editor that answered, and names an editor from before 42h ("The
+  editor at <origin> predates the holiday tools (42h) — update it, or run
+  with --content-dir") when the route answers Next's own 404 rather than
+  our `{error}`.
+- **MCP** `holiday_list` and `holiday_get`, `readOnlyHint` (so a
+  read-scoped token's session has them), `date` checked for its shape by
+  the schema (`10/31` is the SDK's rejection, T28) and for being a real
+  day by the seat (`2026-02-30` is `validation`). Pre-approved in
+  `.claude/settings.json` and the skill's frontmatter: **59 tools / 45
+  pre-approved** (CLAUDE.md updated; 14 held back, unchanged).
+- **The curator skill**: description gains "what holidays are coming up?"
+  and "plan for Easter"; a new **§7b Holidays** — "What's coming up?" →
+  `holiday_list {}`, "Plan for Easter" → `holiday_get`, then the planning
+  tools (reuse, `term_assign`, `group_create`), hand Roger the `link`; the
+  fallback lists `recipes holidays [<slug>] --json`.
+- The D8 boundary (`curation.test.ts`) admits
+  `recipe-website-common/controller/holidaysPage` (pure; it imports
+  `util/holidays`, `drinksPage`, `homepageComingUp`, `tagVocabulary` and
+  types). `agent-mcp.md` enumerates only epic 23's tools, so it is
+  unchanged (as at 41i).
+
+**Dh1 — the list includes holidays nothing is filed under.** The almanac
+leaves them out (De3); an agent asked "what's coming up?" should see that
+Easter has a term and no recipes, so `holiday_list` keeps them with counts
+of 0 (`includeEmpty`). "Then …" (`next`) follows the page: the next holiday
+_with recipes_.
+
+**Dh2 — today is the server's local day unless `date` says.** The pages
+wait for the browser's day (De2); a seat has none, so it counts from the
+machine's local calendar day and every answer names it (`today`). Over
+`--remote` that is the editor's day — the Pi's, in its time zone.
+
+**Dh3 — an alias answers its holiday, with `requested`.** The editor's page
+redirects (De7); a tool answering `not_found` for `christmas-cookies` would
+send an agent hunting, so `holiday_get` answers Christmas and says which
+slug was asked. A slug that is no holiday (a recipe, a course, the
+`holidays` root) is `not_found`, naming the holidays there are.
+
+**Dh4 — public reads.** `/api/holidays` answers without a token, like
+`/api/tags` and `/api/taxonomies/tag/<slug>`: the same data is on the public
+`/holidays` pages and the export. (Make's `/api/inventory/make` needs a read
+token because the inventory is private.)
+
+**Dh5 — rows carry `tags`, not times.** "Compact rows like
+`recipe_search`'s": `{slug, name, date, tags?, image?}` from the by-term
+rows, plus `base`. `totalTime` is not on those rows (De6) and adding it
+would change the tag index's projection (a reindex), so an agent wanting
+times asks `recipe_search "tag:<holiday>"` or `recipe_get`.
+
+**Smoke run** (scratch copy of the `drinks-bar` fixture under
+`tmp/42/42h/fixture`, `CONTENT_DIRECTORY` set there, reindexed, plus
+`easter` and `fall-favorites` terms, a `Christmas Cookies` alias on
+`christmas` and `hand-pies` under `fall-favorites`, all through the CLI):
+
+```
+$ pnpm --silent recipes holidays --date 2026-10-19 --json
+{"today":"2026-10-19","total":4,"holidays":[{"slug":"halloween","label":"Halloween","dated":true,"date":"2026-10-31","days":12,"countdown":"in 12 days","counts":{"recipes":2,"dishes":1,"drinks":1},"top":[{"slug":"hand-pies","name":"Hand Pies"},{"slug":"vodka-sour","name":"Vodka Sour"}]},{"slug":"christmas","label":"Christmas","dated":true,"date":"2026-12-25","days":67,"countdown":"in 67 days","counts":{"recipes":1,"dishes":0,"drinks":1},"aliases":["christmas cookies"],"top":[{"slug":"chamomile-collins","name":"Chamomile Collins"}]},{"slug":"easter","label":"Easter","dated":true,"date":"2027-03-28","days":160,"countdown":"in 160 days","counts":{"recipes":0,"dishes":0,"drinks":0},"top":[]},{"slug":"fall-favorites","label":"Fall favorites","dated":false,"counts":{"recipes":1,"dishes":1,"drinks":0},"top":[{"slug":"hand-pies","name":"Hand Pies"}]}],"link":"/holidays"}
+$ pnpm --silent recipes holidays halloween --date 2026-10-19 --json
+{"today":"2026-10-19","slug":"halloween","label":"Halloween","dated":true,"date":"2026-10-31","days":12,"countdown":"in 12 days","counts":{"recipes":2,"dishes":1,"drinks":1},"courses":[{"slug":"more","label":"More","recipes":[{"slug":"hand-pies","name":"Hand Pies","date":1790000420000,"tags":["dessert","halloween","fall favorites"]}]}],"styles":[{"slug":"sour","label":"Sour","recipes":[{"slug":"vodka-sour","name":"Vodka Sour","date":1790000060000,"tags":["drink","vodka","sour","shaken","halloween"],"base":"Vodka"}]}],"next":{"slug":"christmas","label":"Christmas","date":"2026-12-25","days":67,"countdown":"in 67 days"},"link":"/holidays/halloween"}
+$ pnpm --silent recipes holidays christmas-cookies --date 2026-10-19 --json
+{"today":"2026-10-19","slug":"christmas","label":"Christmas","requested":"christmas-cookies", … ,"styles":[{"slug":"collins","label":"Collins","recipes":[{"slug":"chamomile-collins", … ,"base":"Vodka"}]}],"link":"/holidays/christmas"}
+$ pnpm --silent recipes holidays --date 2026-10-19
+Holidays as of 2026-10-19 — on the site: /holidays
+  Halloween — halloween: Sat 31 Oct, in 12 days · 1 dish · 1 drink
+  Christmas — christmas: Fri 25 Dec, in 67 days · 1 drink
+  Easter — easter: Sun 28 Mar, in 160 days · nothing filed yet
+  Fall favorites — fall-favorites: no date · 1 dish
+$ pnpm --silent recipes holidays nope --json            # exit 1
+{"error":{"code":"not_found","message":"No holiday at slug \"nope\" — the holidays are halloween, christmas, easter, fall-favorites.","slug":"nope"}}
+$ pnpm --silent recipes holidays --date 2026-02-30 --json   # exit 1
+{"error":{"code":"validation","message":"\"2026-02-30\" is not a day: give it as YYYY-MM-DD, e.g. 2026-10-31.","issues":[{"path":"date","message":"A calendar day as YYYY-MM-DD"}]}}
+```
+
+(The fixture's `dessert` is not under a `course` root, so Hand Pies is
+"More" — the menu page shows it the same way.)
+
+**Tests:** new `test/holidayTools.test.ts` (the seat on a frozen day over a
+tmpdir built with the real seats — Halloween with a pin, a dessert and a
+warm drink; Christmas with a cookie filed under its alias; New Year's whose
+alias `new-years-eve` has its own rule (Te2); Easter with nothing filed;
+Fall favorites undated — order, counts, `top`, as of another day, "today",
+no holidays root, bad days; the menu by course and style with tags, an
+alias with `requested`, an undated and an empty holiday, `not_found`; both
+routes in-process; the local link on `RECIPE_EDITOR_URL`; the readable
+list and menu; over HTTP `date`, the absolute link, the pre-42h editor and
+a real `not_found` kept); `mcp.test.ts` (both tools, alias, `not_found`,
+`validation`, the SDK's shape for `10/31`, read-only annotations, the
+read-scoped list; 59 tools); `mcpHttp.test.ts` (a read-scoped session lists
+and calls them); `cliJson.test.ts` (list and menu as a process, `--date`,
+two slugs `usage`, a bad day, `not_found`); `curatorSkill.test.ts` (59/45,
+the two names, §7b and the fallback line; `holiday_` joins the tool-shaped
+tokens); `curation.test.ts` (D8 allow-list).
+
+**Gates** (2026-10-19, all through the capped heavy slot):
+
+- `pnpm --filter recipe-editor typecheck` ✓ and `pnpm --filter
+recipe-website exec tsc --noEmit` ✓ (before merging `origin/main` at
+  3cedeea0, which merged cleanly — no conflicted file).
+- Affected files after the merge (`holidayTools`, `mcp`, `mcpHttp`,
+  `cliJson`, `curatorSkill`, `curation`, `holidaysPage`): **7 files, 226
+  tests** ✓. Then `pnpm exec vitest run`: **124 files, 2534 tests** ✓.
+- Lint-staged `eslint` and `prettier --check` ✓ on commit.
+- No Playwright: no page changed (the two routes are covered in-process in
+  `holidayTools.test.ts`, as 41i covered `/api/inventory/make`).
+
+**Roger to confirm:**
+
+- **Dh1:** `holiday_list` lists a holiday nothing is filed under (counts
+  0); the almanac page still leaves it out.
+- **Dh2:** the tools count from the machine's own day; on the Pi over
+  `--remote` that is the Pi's local day.
+- **Dh4:** `/api/holidays` is public, like `/api/tags`.
+
 ### 42j — Next-round design canvases (no code)
 
 Four Claude Design canvases under epic 41's canvas brief, three variants
@@ -901,6 +1052,30 @@ workstation update`, from the morning report's list.
 
 ## Traps
 
+### 42b
+
+- **Tb1 — `toHaveScreenshot` has no `style` option.** That option belongs to
+  `page.screenshot`; the matcher takes `stylePath` (a CSS file, relative to
+  the config) and silently ignores an unknown `style` key. 42b's first
+  attempt to hide Next's dev badge passed `style` and changed nothing, which
+  cost a 27-minute rerun.
+- **Tb2 — `next dev` draws a badge on every page.** It is the "N" at the
+  bottom left, a fixed element: 912 px on every desktop capture, 200–950 on
+  mobile, and it lands at the bottom of a full page that scrolled to its
+  end. Baselines are production renders, while CI's Recipe shards and the
+  Portfolio job run dev. So any budget under ~1 000 px fails every dev-mode
+  page unless `playwright/support/screenshot.css` hides `nextjs-portal`.
+- **Tb3 — `maxDiffPixels` beside `maxDiffPixelRatio` means the smaller one
+  wins.** Playwright's comparator takes the minimum when both are set, per
+  call and config alike. A per-call ratio "loosening" a page under the 100 px
+  config would tighten nothing and loosen nothing. `SnapshotOptions` now
+  offers `maxDiffPixels` only.
+- **Tb4 — Staleness under the budget still hides.** Plain
+  `--update-snapshots` (`changed`) never rewrites a baseline that passes,
+  so a page can drift by up to 100 px per capture (1 500 on the three edit-form
+  pages) unseen. That is a few glyphs, not an input border. Rewrite with
+  `--update-snapshots=all` when in doubt (41-Dp1).
+
 ### 42e
 
 - **Te1 — `react-hooks/refs` refuses a ref inside an object.** The first
@@ -923,6 +1098,162 @@ buttonRef, …}` and two components taking it as a prop; the React
   narrows without a round trip, on the export too.
 
 ## Results
+
+### 42b — Screenshot tolerance tightened
+
+Branch `agent/42b-tolerance`. Test configuration only: **reindex no, deploy
+no**. No baseline moved.
+
+**What changed**
+
+- **Recipe and portfolio configs:** `maxDiffPixelRatio: 0.02` becomes
+  `threshold: 0.2` + `maxDiffPixels: 100`. The threshold is pixelmatch's
+  default, now written out. Both configs also get
+  `stylePath: "./playwright/support/screenshot.css"` (Db2). The CMS demo and
+  resume-builder have no screenshot specs.
+- **`playwright/support/screenshot.css` (new, both editors):**
+  `nextjs-portal { display: none !important; }`.
+- **`support/visual.ts` (both):** `SnapshotOptions.maxDiffPixelRatio`
+  becomes `maxDiffPixels` (Tb3).
+- **`visual.spec.ts` (recipe):** `EDIT_FORM_IMAGE = { maxDiffPixels: 1_500 }`
+  for edit form populated, edit form with slug conflict, and markdown source
+  mode (Db3). The search reveal control's 5 % override is gone (Db4).
+
+**Method.** Measured in CI's Playwright image (`docker-pw.sh`, Playwright
+1.64.1), against the committed 41d2 baselines. A temporary, uncommitted
+change made every capture compare at threshold 0 and 0 px, with a soft
+assertion so that each test reached all its captures. Every capture that was
+not byte-identical left an `-actual.png`. A script then recounted each one
+with Playwright's own comparator (`getComparator("image/png")`) at
+thresholds 0, 0.05, 0.1 and 0.2. Runs: the 12 recipe screenshot specs with
+`--repeat-each=3 --retries=0` (138 captures per run) in build mode, then in
+dev mode before and after hiding the badge. Portfolio's `visual` spec ran
+the same way (33 captures per run) in build and in dev mode.
+
+**Measured noise.** Differing pixels against the baseline, worst of 3
+captures; every capture not listed was byte-identical.
+
+| Capture                                                | Build, t=0 | Build, t=0.2 | Dev, t=0 | Dev, t=0.2 |
+| ------------------------------------------------------ | ---------- | ------------ | -------- | ---------- |
+| `edit-form-populated`                                  | 13 034     | 206          | 12 703   | 10         |
+| `edit-form-overwrite`                                  | 10 202     | 87           | 13 034   | 27         |
+| `markdown-source-mode`                                 | 9 122      | 87           | 11 531   | 206        |
+| `git-page`, `make-page-specs`, `yield-multiplied-half` | 1          | 0            | 0–1      | 0          |
+| the other 40 recipe baselines                          | 0          | 0            | 0        | 0          |
+| portfolio, all 11                                      | 0          | 0            | 0        | 0          |
+
+- **The edit-form noise is the "Recipe 6" preview image.** The diff's box
+  sits on the downscaled image (x 459–825, y 762–870) and nowhere else on
+  the page. Chromium resamples it slightly differently from run to run.
+  Across all 18 build and dev captures of these three pages, the most the
+  image moved was **599 px at t=0.2**: a dev capture from the first dev run,
+  with the badge's pixels counted separately.
+- **Dev mode before the stylesheet.** Next's badge added a constant 912 px
+  to every desktop capture, and 200–950 px on mobile (Tb2). The first fix,
+  a `style` option, changed nothing (Tb1). The re-run with `stylePath`
+  gave the table's dev columns.
+- **A functional dev-only failure, not visual.** `command-palette.spec:151`
+  ("live search … Enter navigates") failed once per full dev run, as the
+  first test against a cold `next dev`. It took no screenshot, and CI
+  retries it. It is outside 42b's scope and left as observed.
+
+**Staleness caught (step 4).** I compared each of the 57 baselines as they
+stood before 41d2 (`c3101dfd^`), as the expected image, against today's
+41d2 baseline, as the actual image (today's page in CI's image). The
+comparator was Playwright's, with each rule as the config would apply it.
+50 of the 57 differ. The other 7 show no difference at threshold 0.2: the
+three Make images, two palette rows, paste-replace, and the reveal control
+(147 px at 0.1).
+
+| Rule                                       | Old baselines that now fail |
+| ------------------------------------------ | --------------------------- |
+| `maxDiffPixelRatio: 0.02` (before)         | 0 of 57                     |
+| `maxDiffPixelRatio: 0.002`                 | 32                          |
+| `threshold 0.2` + `maxDiffPixels: 800`     | 32                          |
+| `threshold 0.2` + `maxDiffPixels: 250`     | 44                          |
+| **`threshold 0.2` + `maxDiffPixels: 100`** | **48**                      |
+
+Examples that passed at 0.02 and fail now:
+
+- `empty-state/homepage-empty`: 563 px. The diff is exactly 41f's 3:1
+  search-input border.
+- `visual/recipe-detail-signed-out`: 1 156 px, from 41f's input and
+  checkbox borders.
+- `empty-state/bookmarks-empty`: 17 592 px. This is July's "My Bookmarks"
+  page from Tp1.
+
+The two that still pass are `footer-mobile` (13 px) and `homepage-mobile`
+(76 px). Both changed only text antialiasing: the wordmark is drawn
+grayscale in one and subpixel in the other. A redesign moves more than
+that.
+
+**Decisions**
+
+- **Db1 — One absolute budget, `maxDiffPixels: 100` at threshold 0.2.** A
+  ratio scales the budget with page height: 0.002 of the 1280×3300 edit
+  form is 8 400 px, and a redesigned input border is ~500 px. The noise
+  outside one image is 0 px at t=0.2 (at most 1 px at t=0), so the margin
+  is wide, and 100 px is still 5× under the smallest real change measured
+  (563 px). A lower `threshold` (0.1) raised noise and real changes by
+  about the same factor (edit-form noise 206 → 1 094 px,
+  `homepage-empty` 563 → 3 238 px), so it bought no separation.
+- **Db2 — Hide Next's dev badge from captures** with a `stylePath`
+  stylesheet, not `devIndicators: false` in `next.config`. That keeps the
+  change test-only: no Next or Turbopack config, nothing for the
+  main-checkout build to trace, and Roger keeps the badge in his own
+  `next dev`. In production the rule matches nothing.
+- **Db3 — The edit form's image gets a per-call 1 500 px; it is not masked.**
+  That is 2.5× the worst 599 px, and still about 13× under the ~19 000 px
+  the edit form moved between July and 41d2. A mask would need three
+  baselines regenerated, and 42a may regenerate the same edit-form PNGs
+  for its outline borders. This choice touches no PNG.
+- **Db4 — The reveal control's 5 % (`maxDiffPixelRatio: 0.05`, #132) is
+  removed.** Its reason was host-drawn baselines against CI's fonts; since
+  41b every baseline is drawn in CI's image. Its noise measured 0, and the
+  config's 100 px is 2.4 % of that 118×36 element. Left in, Tb3 would have
+  made it a no-op anyway.
+- **Db5 — No baseline regenerated.** The measurement found none already
+  off: every byte-different capture is the image noise above.
+
+**Gates**
+
+- Recipe, the 47 tests that take a screenshot, picked by a `--grep` over
+  their titles in the 12 spec files (all 46 baselines), with
+  `--repeat-each=3 --retries=0` in CI's image:
+  - **build: 141 passed** (4.8 min).
+  - **dev: 141 passed** (6.2 min).
+- Portfolio `visual.spec` (11 baselines), `--repeat-each=3 --retries=0`:
+  - **build: 33 passed**.
+  - **dev: 33 passed**.
+- **After merging main** (42a's outline borders, 42c1 and 42e):
+  - Every runner above ran again. The recipe selection grew to 50 tests
+    with `holidays.spec` and `recipe-cooking-order.spec` (51 baselines).
+  - Recipe: **build 150 passed** (5.1 min), **dev 150 passed** (6.6 min).
+  - Portfolio: **build 33 passed**, **dev 33 passed**. 42a's shared
+    button and toggle change moves no portfolio capture.
+- No retries anywhere; no flaky test, no exit 137.
+- `pnpm --filter recipe-editor typecheck`: clean before and after the
+  merge. It includes `playwright/**`, so it checks every
+  `snapshotPage` / `snapshotLocator` caller against the new
+  `SnapshotOptions`.
+- `pnpm --filter recipe-website exec tsc --noEmit`: clean.
+- Portfolio editor `tsc --noEmit`: clean.
+- `pnpm exec vitest run`: **119 files, 2 410 tests passed**.
+- Main-checkout-shaped build: not run. Nothing here is in Next's build
+  graph.
+
+**Roger to confirm**
+
+- The 100 px budget. If CI's runners rasterise differently from this
+  machine's Docker, the PR's own CI will be the first to say so: its Recipe
+  shards run these specs in dev mode. No CI run was available before
+  review.
+- 1 500 px for the three edit-form pages, rather than masking the preview
+  image. A mask would bring them under the 100 px rule, but needs three
+  baselines regenerated.
+- Hiding `nextjs-portal` in captures. That also hides a dev-mode error
+  overlay from a screenshot; the specs' own assertions still fail on the
+  error.
 
 ### 42e — Holidays: the almanac and the menu pages
 

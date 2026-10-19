@@ -8,6 +8,16 @@ import {
 } from "../support/helpers";
 import { snapshotLocator, snapshotPage } from "../support/visual";
 
+/*
+ * The edit form's preview of Recipe 6's image is a downscaled raster, and
+ * Chromium resamples it a little differently from run to run: 42b measured up
+ * to 206 px (build) and 599 px (dev) of difference there, and nowhere else on
+ * these pages, against the config's 100 px. A 1 500 px allowance for the three
+ * pages that show it, still far under the ~19 000 px the edit form moved
+ * between July's baselines and 41d2's.
+ */
+const EDIT_FORM_IMAGE = { maxDiffPixels: 1_500 };
+
 test.describe("Visual baselines @visual", () => {
   test("homepage with three recipes", async ({ page, resetData }) => {
     await resetData("three-recipes");
@@ -135,7 +145,7 @@ test.describe("Visual baselines @visual", () => {
       timeout: 10_000,
     });
     await markdownEditorReady(page, "description");
-    await snapshotPage(page, "edit-form-populated.png");
+    await snapshotPage(page, "edit-form-populated.png", EDIT_FORM_IMAGE);
   });
 
   test("edit form with slug conflict shows Overwrite", async ({
@@ -155,7 +165,7 @@ test.describe("Visual baselines @visual", () => {
     await expect(
       page.getByRole("button", { name: "Overwrite", exact: true }),
     ).toBeVisible();
-    await snapshotPage(page, "edit-form-overwrite.png");
+    await snapshotPage(page, "edit-form-overwrite.png", EDIT_FORM_IMAGE);
   });
 
   test("markdown editor source mode active", async ({ page, resetData }) => {
@@ -169,7 +179,7 @@ test.describe("Visual baselines @visual", () => {
     // hydration so the toggle click isn't swallowed mid-hydration).
     await openMarkdownSource(page, "description");
     await expect(page.getByLabel("Description source")).toBeVisible();
-    await snapshotPage(page, "markdown-source-mode.png");
+    await snapshotPage(page, "markdown-source-mode.png", EDIT_FORM_IMAGE);
   });
 
   test("git page with branches and remotes", async ({
@@ -330,14 +340,10 @@ test.describe("Visual baselines @visual", () => {
 
     const showMore = page.getByRole("button", { name: /Show \d+ more/ });
     await showMore.scrollIntoViewIfNeeded();
-    // A ~110×36 element that is mostly text: glyph-edge antialiasing between
-    // the machine that drew the baseline and the CI container is 84 px, which
-    // is 3% of an image this small (the global 2% is sized for pages). The
-    // first CI run against content-engine-test (#132, 2026-09-10) failed on
-    // exactly that, with expected and actual otherwise identical.
-    await snapshotLocator(showMore, "search-reveal-control.png", {
-      maxDiffPixelRatio: 0.05,
-    });
+    // No allowance of its own since 42b: the 5 % this had (#132) covered
+    // host-drawn baselines against CI's fonts, and baselines are drawn in
+    // CI's image now; the config's 100 px is 2.4 % of this 118×36 element.
+    await snapshotLocator(showMore, "search-reveal-control.png");
   });
 
   // `/make` with a few items in: the question, the shelf of tape labels,

@@ -18,8 +18,24 @@ export default defineConfig({
     toHaveScreenshot: {
       animations: "disabled",
       caret: "hide",
-      maxDiffPixelRatio: 0.02,
+      /*
+       * 42b: an absolute pixel budget, not a ratio. `maxDiffPixelRatio: 0.02`
+       * passed all 50 baselines that no longer matched their pages (41d2,
+       * Tp1): 2 % of a 1280×3300 page is 84 000 px, and a redrawn input
+       * border is ~500. Measured in CI's image against the committed
+       * baselines, 3× in build and 3× in dev mode, every capture is within
+       * 1 px at threshold 0 except the edit form's resampled preview image
+       * (its own allowance in visual.spec.ts). 100 px still fails 48 of
+       * those 50; the two it passes moved only text antialiasing.
+       * `threshold` is pixelmatch's default, spelled out. Never set a
+       * `maxDiffPixelRatio` beside these, here or per call: Playwright then
+       * takes the smaller of the two budgets.
+       */
+      threshold: 0.2,
+      maxDiffPixels: 100,
       scale: "css",
+      /* 42b: hides `next dev`'s badge; see the file. */
+      stylePath: "./playwright/support/screenshot.css",
     },
   },
   snapshotPathTemplate:

@@ -18,8 +18,8 @@ import { snapshotPage, snapshotLocator } from "../support/visual";
  * (`docker compose -f docker-compose.test.yml run --rm portfolio`), never on the
  * host: font rasterization differs, so host-made baselines fail in CI and
  * nowhere else. Note also that `--update-snapshots` will not rewrite a
- * *sub-tolerance* diff — if a baseline is stale but within `maxDiffPixelRatio`,
- * delete the file instead.
+ * *sub-tolerance* diff — if a baseline is stale but within the config's
+ * `maxDiffPixels`, use `--update-snapshots=all` (or delete the file).
  */
 test.describe("Visual baselines @visual", () => {
   test("the index", async ({ page, resetData }) => {

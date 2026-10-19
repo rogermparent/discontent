@@ -41,6 +41,7 @@ import {
 } from "./commands/featured";
 import { gitCommands } from "./commands/git";
 import { groupCommands } from "./commands/group";
+import { holidaysCommand } from "./commands/holidays";
 import { imageCommand } from "./commands/image";
 import { importCommand } from "./commands/import";
 import { importListCommand, inspectListCommand } from "./commands/importList";
@@ -96,6 +97,8 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
   feature: featureCommand,
   unfeature: unfeatureCommand,
   reindex: reindexCommand,
+  /* The holidays, for the agents (42h). */
+  holidays: holidaysCommand,
 };
 
 /**
@@ -201,6 +204,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   inventory set --file <list.txt|list.json>
   inventory make [<query…> | --query <q>] [--feature <name> …] [--limit 20]
                  [--no-staples]
+  holidays [<slug>] [--date YYYY-MM-DD]
   shopping [list] [--store <id>]
   shopping add (--recipe <slug> | --group <slug>) [--scale 2] | <line…>
   shopping check <id|name…>
@@ -303,6 +307,12 @@ their browser; a signed-in editor's /make can count from the saved list
 when the Export page's "Share my saved inventory on the export" is on (off
 by default): the build then bakes it in as SITE_HOUSE_INVENTORY, a JSON array
 of items, which a hand-run export build may also set.
+
+Holidays: \`holidays\` lists every child of the holidays term soonest first,
+with its next date, countdown and recipes per kind (undated ones last);
+\`holidays <slug>\` is that holiday's menu — dishes by course, drinks by
+style — as /holidays/<slug> shows it. \`--date 2026-12-01\` asks as of that
+day (\`recipes holidays --help\` has the JSON).
 
 Exit codes: 0 done; 1 failed (also \`term assign\` when a named carrier does
 not exist: --force lets an --add through as \`missing\`, printed, exit 1);
