@@ -1,73 +1,49 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Badge } from "@discontent/component-library/components/ui/badge";
+import { ArrowRight, ChevronRight, Gift } from "lucide-react";
+import { buttonVariants } from "@discontent/component-library/components/ui/button";
+import { cn } from "@discontent/component-library/lib/utils";
 import Markdown from "@discontent/component-library/components/Markdown";
-import type {
-  TagBoard,
-  TagVocabularyEntry,
-  TermCrumb,
-  TermHierarchyNode,
-  TermPageData,
-} from "../../controller/tagVocabulary";
+import type { TermPageData } from "../../controller/tagVocabulary";
 import type { RecipeListEntry } from "../../controller/paginationConfigs";
+import {
+  TERM_NARROW_ROW_LIMIT,
+  otherTags,
+  pageTagSlugs,
+  rootSections,
+  type RootSection,
+  type TagBoardData,
+} from "../../controller/tagBoardPage";
 import { tagSlug } from "../../controller/tagSlug";
-import { HOLIDAYS_ROOT } from "../../util/holidays";
+import { buildFacetModel, type FacetTerm } from "../../util/facets";
+import {
+  HOLIDAYS_ROOT,
+  dayKey,
+  holidayRuleKey,
+  localDay,
+} from "../../util/holidays";
 import { EmptyState } from "../EmptyState";
 import { quoteQueryValue } from "../SearchForm/queryLanguage";
 import { GroupThumbnail } from "../GroupThumbnail";
 import RecipeList from "../List";
-import GroupList from "../List/Group";
+import { RecipeCardPlaceholder } from "../List/shared";
+import { RecipeImage } from "../RecipeImage";
 import { TermImage } from "../TermImage";
-import { BLOCK_ROW_LIMIT, blockRows, type BlockRow } from "./blockRows";
-import {
-  PageMain,
-  PageSection,
-  PageHeading,
-} from "recipe-website-common/components/PageLayout";
+import { PageMain } from "recipe-website-common/components/PageLayout";
+import { groupCountLabel } from "../../util/groupCountLabel";
+import { groupKindLabel } from "../../util/groupKindLabel";
+import { TagBoard } from "./Board";
+import { HolidayWhen } from "./HolidayWhen";
+import { Leader, plural } from "./parts";
+import { RootViews } from "./RootViews";
+import { TermRecipes } from "./TermRecipes";
 
 /**
- * A row of term chips with their counts — `/tags`' markup, reused for the
- * breadcrumb and the "Narrower" row so the three read as one vocabulary rather
- * than three lists that happen to link to the same pages.
+ * The tag pages as canvas B, "Narrow it down", draws them (epic 43, 43t):
+ * `/tags` a facet board you can combine from, a term page that keeps
+ * narrowing, and a root page (`/tags/course`) that shows its narrower terms
+ * rather than the newest 48 recipes.
  */
-function TermChips({
-  terms,
-  testId,
-  separator,
-}: {
-  /** A chip prints its count when it has one; the breadcrumb's have none. */
-  terms: Array<TermCrumb & { count?: number }>;
-  testId?: string;
-  /** Printed between chips — the breadcrumb's "›", and nothing elsewhere. */
-  separator?: string;
-}) {
-  return (
-    <div
-      className="flex flex-row flex-wrap items-center gap-2"
-      data-testid={testId}
-    >
-      {terms.map((term, index) => (
-        <span key={term.slug} className="flex flex-row items-center gap-2">
-          {separator && index > 0 && (
-            <span aria-hidden className="text-muted-foreground">
-              {separator}
-            </span>
-          )}
-          <Badge asChild variant="secondary">
-            <Link href={`/tags/${term.slug}`}>
-              {term.label}
-              {term.count !== undefined && (
-                <span className="ml-1.5 font-mono text-[0.7em] opacity-70">
-                  {term.count}
-                </span>
-              )}
-            </Link>
-          </Badge>
-        </span>
-      ))}
-    </div>
-  );
-}
 
 /**
  * This term as an encoded `tag:` query — for `/make` scoped to it (25c) and
@@ -86,454 +62,636 @@ function tagQuery(slug: string, recipes: RecipeListEntry[]): string {
   return encodeURIComponent(`tag:${quoteQueryValue(tag)}`);
 }
 
-/**
- * One term, as both its own page and a feature's detail page render it (24c).
- *
- * Extracted from `TagPage` rather than duplicated into
- * `FeaturedRecipeDetailPage`, because a feature of a term is a *pin* of exactly
- * this: the reader arrived from a card and expects the term, not a summary of
- * it. The two callers differ only in the frame around this body.
- *
- * The record's parts — picture, description, breadcrumb, narrower terms — all
- * render conditionally, and a term with no record renders none of them. That is
- * the hybrid working as intended (D3): `/tags/<slug>` for a bare string is
- * byte-for-byte the page it was before this phase.
- */
-export function TermPageBody({ term }: { term: TermPageData }) {
-  const {
-    label,
-    description,
-    image,
-    slug,
-    breadcrumb,
-    children,
-    recipes,
-    recipeCount,
-    ownRecipeCount,
-    groups,
-  } = term;
-  /* The trail's last element is this term; the chips above it are the trail. */
-  const ancestors = breadcrumb.slice(0, -1);
-  /*
-   * The list holds the narrower terms' recipes too (34a, D1). Say so only when
-   * that changes the number, so a leaf's page reads exactly as it did.
-   */
-  const includesNarrower = recipeCount > ownRecipeCount;
-  const query = tagQuery(slug, recipes);
-  /*
-   * The holiday pages (42e): a child of the `holidays` root links to its
-   * menu, and the root to the almanac.
-   */
-  const holidayLink =
-    slug === HOLIDAYS_ROOT
-      ? { href: "/holidays", label: "The almanac: every holiday, by date" }
-      : ancestors[ancestors.length - 1]?.slug === HOLIDAYS_ROOT
-        ? { href: `/holidays/${slug}`, label: `See the ${label} menu` }
-        : undefined;
+/** The server's calendar day, for a first render the browser then corrects. */
+const serverDay = () => dayKey(localDay(new Date()));
 
+/** The column every tag page sits in: canvas B's 1152 px. */
+const WRAP = "mx-auto flex w-full max-w-6xl flex-col px-4";
+
+/**
+ * "41 recipes · 1 plan · also filed as christmas-cookies" — the count a term
+ * page never had (42j), aliases included.
+ */
+function countLine(term: TermPageData): string {
+  const parts = [plural(term.recipeCount, "recipe")];
+  if (term.groups.length > 0) parts.push(plural(term.groups.length, "plan"));
+  if (term.aliases?.length) {
+    parts.push(`also filed as ${term.aliases.join(", ")}`);
+  }
+  return parts.join(" · ");
+}
+
+/**
+ * Tags › Holidays › — the trail above the heading. `Tags` leads it; the
+ * term's ancestors (`term-breadcrumb`) follow, labels only (34a).
+ */
+function Crumbs({ term }: { term: TermPageData }) {
+  const ancestors = term.breadcrumb.slice(0, -1);
+  const link =
+    "inline-flex min-h-6 items-center hover:text-primary focus-visible:outline-2 focus-visible:outline-ring";
   return (
-    <>
+    <nav
+      aria-label="Breadcrumb"
+      className="flex flex-wrap items-center gap-1.5 text-sm font-medium text-muted-foreground"
+    >
+      <Link href="/tags" className={link}>
+        Tags
+      </Link>
+      <span aria-hidden>›</span>
       {ancestors.length > 0 && (
-        <nav aria-label="Breadcrumb" className="mb-2">
-          <TermChips terms={ancestors} testId="term-breadcrumb" separator="›" />
-        </nav>
-      )}
-      <PageHeading>{label}</PageHeading>
-      {image && (
-        <div
-          data-testid="term-image"
-          className="relative aspect-[4/3] max-w-xl overflow-hidden rounded-md"
+        <span
+          className="flex flex-wrap items-center gap-1.5"
+          data-testid="term-breadcrumb"
         >
-          <TermImage
-            slug={slug}
-            image={image}
-            alt={`Photo of ${label}`}
-            width={580}
-            height={450}
-            sizes="100vw"
-            loading="eager"
-            className="object-cover absolute w-full h-full inset-0 rounded-md"
-          />
-        </div>
-      )}
-      {description && (
-        <div className="my-2" data-testid="term-description">
-          <Markdown>{description}</Markdown>
-        </div>
-      )}
-      {children.length > 0 && (
-        <div className="my-3">
-          <h2 className="mb-2 text-sm font-semibold text-muted-foreground">
-            Narrower
-          </h2>
-          <TermChips terms={children} testId="term-children" />
-        </div>
-      )}
-      {includesNarrower && (
-        <p
-          className="my-3 text-sm text-muted-foreground"
-          data-testid="term-recipe-counts"
-        >
-          {ownRecipeCount} here · {recipeCount} including narrower terms
-        </p>
-      )}
-      {holidayLink && (
-        <p className="my-3 text-sm">
-          <Link
-            href={holidayLink.href}
-            className="underline underline-offset-4 hover:text-primary"
-            data-testid="term-holiday-link"
-          >
-            {holidayLink.label}
-          </Link>
-        </p>
-      )}
-      {recipes.length > 0 && (
-        <p className="my-3 text-sm">
-          <Link
-            href={`/make?q=${query}`}
-            className="underline underline-offset-4 hover:text-primary"
-            data-testid="term-make-link"
-          >
-            What can I make with these?
-          </Link>
-        </p>
-      )}
-      {recipes.length > 0 ? (
-        /*
-         * Already in the order the page wants: `resolveTermPage` ran the
-         * record's `pinned` list over the fold's rows, so the curated front and
-         * the remainder arrive as one list and this component sorts nothing.
-         */
-        <>
-          <RecipeList recipes={recipes} />
-          {/*
-            Capped (34a): pinned first, then the newest. The rest are one
-            click away on `/search`, which both apps serve from the client
-            corpus and whose `tag:` expands the subtree exactly as this list
-            does.
-          */}
-          {recipeCount > recipes.length && (
-            <p className="my-4 text-sm">
-              <Link
-                href={`/search?q=${query}`}
-                className="underline underline-offset-4 hover:text-primary"
-                data-testid="term-see-all"
-              >
-                See all {recipeCount} recipes
+          {ancestors.map((crumb) => (
+            <span key={crumb.slug} className="flex items-center gap-1.5">
+              <Link href={`/tags/${crumb.slug}`} className={link}>
+                {crumb.label}
               </Link>
-            </p>
-          )}
-        </>
-      ) : (
-        /*
-         * The recipes-only fallback. It can now fire with *everything* empty —
-         * a record-only term has no carriers at all and is still a real page —
-         * where before this phase `tagRoute` 404'd that case. `recipes` spans
-         * the subtree (34a), so a root whose recipes all carry a narrower term
-         * lists them rather than landing here.
-         */
-        <EmptyState message={`No recipes are tagged ${label}.`} />
+              <span aria-hidden>›</span>
+            </span>
+          ))}
+        </span>
       )}
-      {groups.length > 0 && (
-        <>
-          <h2 className="mt-6 mb-2 text-xl font-bold">Plans</h2>
-          {/*
-            The same card `/groups` renders, from the same projection: the
-            taxonomy's `project` *is* `groupsByDate`'s, so a by-term row is a
-            `GroupListEntry` and the thumbnail walk works unchanged.
-          */}
-          <GroupList
-            groups={groups}
-            renderThumbnail={(group) => (
-              <GroupThumbnail slug={group.slug} image={group.image} />
-            )}
-          />
-        </>
+    </nav>
+  );
+}
+
+/** The trail, the editor's actions top right (43t), the name and the count. */
+function TermHeading({
+  term,
+  actions,
+  ticker,
+}: {
+  term: TermPageData;
+  actions?: ReactNode;
+  ticker: string;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <Crumbs term={term} />
+        {actions && (
+          <div
+            role="group"
+            aria-label="Editor actions"
+            className="flex flex-wrap gap-0.5"
+            data-testid="term-actions"
+          >
+            {actions}
+          </div>
+        )}
+      </div>
+      <h1 className="m-0 font-display text-[2rem] leading-10 font-bold tracking-[-0.025em] sm:text-[2.5rem] sm:leading-[44px]">
+        {term.label}
+      </h1>
+      <p
+        className="m-0 font-mono text-[0.6875rem] leading-4 tracking-[0.1em] text-muted-foreground uppercase"
+        data-testid="term-count"
+      >
+        {ticker}
+      </p>
+      {term.description && (
+        <div
+          className="max-w-[680px] text-base leading-[26px]"
+          data-testid="term-description"
+        >
+          <Markdown>{term.description}</Markdown>
+        </div>
       )}
-    </>
+    </div>
+  );
+}
+
+/** The term's own picture. */
+function TermPicture({ term }: { term: TermPageData }) {
+  if (!term.image) return null;
+  return (
+    <div
+      data-testid="term-image"
+      className="relative aspect-[4/3] overflow-hidden rounded-lg bg-muted"
+    >
+      <TermImage
+        slug={term.slug}
+        image={term.image}
+        alt={`Photo of ${term.label}`}
+        width={580}
+        height={450}
+        sizes="(max-width: 1024px) 100vw, 340px"
+        loading="eager"
+        className="absolute inset-0 h-full w-full object-cover"
+      />
+    </div>
+  );
+}
+
+/** "What can I make with these?" — `/make` scoped to the term (25c). */
+function MakeLink({ href, className }: { href: string; className?: string }) {
+  return (
+    <Link
+      href={href}
+      className={cn(buttonVariants({ variant: "outline" }), "min-h-11", className)}
+      data-testid="term-make-link"
+    >
+      <Gift aria-hidden />
+      What can I make with these?
+    </Link>
   );
 }
 
 /**
- * One tag's page: everything carrying it or a narrower term (34a), newest
- * first, recipes then groups —
- * under the term record's own label, description and picture when it has one.
- *
- * Unpaginated on purpose. The rows come from folded values rather than a
- * partitioned keyspace, so there are no pages to number — see
- * `recipeTagTaxonomy.project` for the size lever and F8b for what replaces this
- * when a tag outgrows one record.
- *
- * Two lists rather than one merged one (24b): a recipe card and a group card
- * are different cards, and interleaving them by date would bury the two or
- * three groups a term has among a hundred recipes. The route hands the resolved
- * term in and this decides nothing else.
+ * The plans filed under the term (24b) — the plan leads the page now (canvas
+ * B), one card each: its picture, "Plan", the name, kind and size.
  */
-export function TagPage({
+function PlanCards({ term }: { term: TermPageData }) {
+  if (term.groups.length === 0) return null;
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <h2 className="m-0 font-mono text-xs font-medium tracking-[0.08em] text-muted-foreground uppercase">
+        Plans
+      </h2>
+      <ul
+        className="m-0 grid list-none gap-2 p-0 sm:grid-cols-2 lg:grid-cols-1"
+        data-testid="group-list"
+      >
+        {term.groups.map((group) => (
+          <li key={group.slug}>
+            <Link
+              href={`/group/${group.slug}`}
+              className="group flex min-h-20 items-center gap-4 rounded-lg border border-border bg-card px-4 py-3 hover:border-primary/50"
+            >
+              <span className="size-14 shrink-0 overflow-hidden rounded-md bg-muted">
+                <GroupThumbnail slug={group.slug} image={group.image} />
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="font-mono text-xs tracking-[0.08em] text-muted-foreground uppercase">
+                  {groupKindLabel(group.kind)}
+                </span>
+                <span className="font-display text-lg leading-6 font-semibold group-hover:text-primary">
+                  {group.name}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  {groupCountLabel(
+                    group.itemCount - (group.groupCount ?? 0),
+                    group.groupCount ?? 0,
+                  )}
+                </span>
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Signed in, with nothing pinned: where pins would go, and how. */
+function PinSlot() {
+  return (
+    <div
+      className="flex flex-col justify-center gap-1 rounded-lg border-[1.5px] border-dashed border-input px-4 py-3.5 text-sm leading-5 text-muted-foreground"
+      data-testid="term-pin-slot"
+    >
+      <span className="font-semibold text-foreground">Nothing pinned yet</span>
+      <span>Pinned recipes lead this page. Pick them in Edit.</span>
+    </div>
+  );
+}
+
+/**
+ * The term's narrower terms as links, beside the heading of a page that
+ * narrows (a root page shows them as its sections instead).
+ */
+function NarrowerLinks({ term }: { term: TermPageData }) {
+  if (term.children.length === 0) return null;
+  return (
+    <p
+      className="m-0 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted-foreground"
+      data-testid="term-children"
+    >
+      <span>Narrower:</span>
+      {term.children.map((child, index) => (
+        <span key={child.slug}>
+          {index > 0 && <span aria-hidden>· </span>}
+          <Link
+            href={`/tags/${child.slug}`}
+            className="inline-flex min-h-6 items-center text-foreground hover:text-primary"
+          >
+            {child.label}
+            <span className="ml-1 font-mono text-xs text-muted-foreground">
+              {child.count}
+            </span>
+          </Link>
+        </span>
+      ))}
+    </p>
+  );
+}
+
+/**
+ * The vocabulary as the browser's facet model wants it: no pictures (the
+ * chips never draw one), parents and aliases kept.
+ */
+function lean(terms: FacetTerm[]): FacetTerm[] {
+  return terms.map(({ image: _image, ...term }) => term);
+}
+
+/**
+ * One term, as both its own page and a feature's detail page render it
+ * (24c): the heading with the editor's actions top right and the count
+ * ticker, a holiday's "when" card (or the picture and What can I make), the
+ * plans and the pin slot, then the recipes with "Narrow X" over them. A
+ * root term with narrower terms (`/tags/course`) is a root page instead
+ * (`RootTermBody`).
+ *
+ * `terms` is the vocabulary (records), which the chips and the cards' tag
+ * hints need; without it (a caller that has none) the page lists the
+ * recipes and leaves the chips out.
+ */
+export function TermPageBody({
   term,
+  terms,
+  actions,
+  signedIn = false,
+}: {
+  term: TermPageData;
+  terms?: FacetTerm[];
+  /** Editor-only affordances, top right; the export passes none. */
+  actions?: ReactNode;
+  /** Signed in: the pin slot shows. */
+  signedIn?: boolean;
+}) {
+  const ancestors = term.breadcrumb.slice(0, -1);
+  if (ancestors.length === 0 && term.children.length > 0) {
+    return <RootTermBody term={term} terms={terms} actions={actions} />;
+  }
+  const { slug, label, recipes } = term;
+  const query = tagQuery(slug, term.allRecipes);
+  const makeHref = recipes.length > 0 ? `/make?q=${query}` : undefined;
+  const isHoliday = ancestors[ancestors.length - 1]?.slug === HOLIDAYS_ROOT;
+  const rule = isHoliday
+    ? holidayRuleKey(
+        slug,
+        (term.aliases ?? []).map((alias) => tagSlug(alias)),
+      )
+    : undefined;
+  const model = terms ? buildFacetModel(terms) : undefined;
+  const pageTags = model ? pageTagSlugs(model, slug) : undefined;
+  const cards = recipes.map((recipe) => ({
+    ...recipe,
+    tags:
+      model && pageTags ? otherTags(model, recipe.tags, pageTags) : recipe.tags,
+  }));
+  const narrows =
+    terms !== undefined && term.allRecipes.length <= TERM_NARROW_ROW_LIMIT;
+  const pinSlot = signedIn && term.pinnedCount === 0 && recipes.length > 0;
+  const side = isHoliday ? (
+    <HolidayWhen
+      slug={slug}
+      label={label}
+      rule={rule}
+      serverDay={serverDay()}
+      makeHref={makeHref}
+    />
+  ) : term.image || makeHref ? (
+    <div className="flex flex-col gap-3">
+      <TermPicture term={term} />
+      {makeHref && <MakeLink href={makeHref} />}
+    </div>
+  ) : null;
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div
+        className={cn(
+          "grid gap-5",
+          side && "lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-10",
+        )}
+      >
+        <div className="flex min-w-0 flex-col gap-2.5">
+          <TermHeading term={term} actions={actions} ticker={countLine(term)} />
+          <NarrowerLinks term={term} />
+        </div>
+        {side}
+      </div>
+      {isHoliday && term.image && (
+        <div className="max-w-xl">
+          <TermPicture term={term} />
+        </div>
+      )}
+      {(term.groups.length > 0 || pinSlot) && (
+        <div
+          className={cn(
+            "grid gap-5",
+            term.groups.length > 0 &&
+              pinSlot &&
+              "lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-10",
+          )}
+        >
+          <PlanCards term={term} />
+          {pinSlot && <PinSlot />}
+        </div>
+      )}
+      {recipes.length > 0 ? (
+        <TermRecipes
+          slug={slug}
+          label={label}
+          terms={narrows && terms ? lean(terms) : undefined}
+          rows={narrows ? term.allRecipes : undefined}
+          recipeCount={term.recipeCount}
+          shownCount={recipes.length}
+          searchHref={`/search?q=${query}`}
+          grid={<RecipeList recipes={cards} />}
+        />
+      ) : (
+        /*
+         * A record-only term has no carriers at all and is still a real page;
+         * `recipes` spans the subtree (34a), so a root whose recipes all
+         * carry a narrower term lists them rather than landing here.
+         */
+        <EmptyState message={`No recipes are tagged ${label}.`} />
+      )}
+    </div>
+  );
+}
+
+/** Three photos of a narrower term's recipes, each to its page. */
+function SectionPhotos({ recipes }: { recipes: RecipeListEntry[] }) {
+  if (recipes.length === 0) return null;
+  return (
+    <ul className="m-0 grid list-none grid-cols-3 gap-2 p-0">
+      {recipes.map((recipe) => (
+        <li key={recipe.slug}>
+          <Link
+            href={`/recipe/${recipe.slug}`}
+            className="group flex flex-col gap-1"
+          >
+            <span className="block aspect-square overflow-hidden rounded-md bg-muted">
+              {recipe.image ? (
+                <RecipeImage
+                  slug={recipe.slug}
+                  image={recipe.image}
+                  alt=""
+                  width={320}
+                  height={320}
+                  sizes="(max-width: 1024px) 33vw, 180px"
+                  className="h-full w-full object-cover"
+                  fallback={<RecipeCardPlaceholder name={recipe.name} />}
+                />
+              ) : (
+                <RecipeCardPlaceholder name={recipe.name} />
+              )}
+            </span>
+            <span className="line-clamp-2 text-xs leading-4 font-medium group-hover:text-primary">
+              {recipe.name}
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function RootSectionRow({ section }: { section: RootSection }) {
+  const id = `root-${section.slug}`;
+  return (
+    <section
+      aria-labelledby={id}
+      className="flex min-w-0 flex-col gap-2.5 border-b border-border py-3.5"
+      data-testid="root-section"
+    >
+      <h2 id={id} className="m-0">
+        <Link
+          href={`/tags/${section.slug}`}
+          className="group flex min-h-8 items-center justify-between gap-2"
+        >
+          <span className="font-display text-lg leading-6 font-semibold tracking-[-0.015em] group-hover:text-primary">
+            {section.label}
+          </span>
+          <span className="inline-flex items-center gap-1 font-mono text-[0.8125rem] font-normal text-primary">
+            {section.count}
+            <ChevronRight aria-hidden className="size-4" />
+          </span>
+        </Link>
+      </h2>
+      <SectionPhotos recipes={section.recipes} />
+      {section.children.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {section.children.map((child) => (
+            <Link
+              key={child.slug}
+              href={`/tags/${child.slug}`}
+              className="inline-flex min-h-7 items-baseline gap-1.5 rounded-md bg-secondary px-2.5 py-1 text-[0.8125rem] font-medium text-secondary-foreground hover:bg-secondary/80"
+            >
+              {child.label}
+              <span className="font-mono text-[0.6875rem] opacity-75">
+                {child.count}
+              </span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** "Course" → "By course"; the root page's first view. */
+function byLabel(label: string): string {
+  return `By ${label.charAt(0).toLowerCase()}${label.slice(1)}`;
+}
+
+/**
+ * A root page (43t, canvas B's `/tags/course`): one section per narrower
+ * term, biggest first, each with three photos and its own narrower terms
+ * as chips; past the first seven, "And N more" as dot-leader lines. The
+ * Newest view is the list the page used to be (pinned first, then the
+ * newest, capped — 34a).
+ */
+export function RootTermBody({
+  term,
+  terms,
   actions,
 }: {
   term: TermPageData;
+  terms?: FacetTerm[];
+  actions?: ReactNode;
+}) {
+  const model = buildFacetModel(
+    terms ??
+      term.children.map((child) => ({
+        slug: child.slug,
+        label: child.label,
+        parent: term.slug,
+      })),
+  );
+  const { sections, more } = rootSections(model, term.slug, term.allRecipes);
+  /* Narrower terms nothing carries yet still have a line (a curator's). */
+  const listed = new Set([...sections, ...more].map((section) => section.slug));
+  const empty = term.children
+    .filter((child) => !listed.has(child.slug))
+    .map((child) => ({
+      slug: child.slug,
+      label: child.label,
+      count: 0,
+      recipes: [],
+      children: [],
+    }));
+  const rest = [...more, ...empty];
+  const query = tagQuery(term.slug, term.allRecipes);
+  const pageTags = pageTagSlugs(model, term.slug);
+  const ticker = [
+    plural(term.recipeCount, "recipe"),
+    plural(term.children.length, "narrower term"),
+    ...(term.groups.length > 0 ? [plural(term.groups.length, "plan")] : []),
+    ...(term.aliases?.length
+      ? [`also filed as ${term.aliases.join(", ")}`]
+      : []),
+  ].join(" · ");
+  const almanac = term.slug === HOLIDAYS_ROOT;
+
+  const bySections = (
+    <div data-testid="term-children">
+      <div className="grid lg:grid-cols-2 lg:gap-x-10">
+        {sections.map((section) => (
+          <RootSectionRow key={section.slug} section={section} />
+        ))}
+      </div>
+      {rest.length > 0 && (
+        <section aria-labelledby="root-more" className="pt-3.5">
+          <h2
+            id="root-more"
+            className="m-0 mb-1 font-mono text-xs font-medium tracking-[0.08em] text-muted-foreground uppercase"
+          >
+            {sections.length > 0 ? `And ${rest.length} more` : "Narrower"}
+          </h2>
+          <ul className="m-0 grid list-none gap-x-10 p-0 sm:grid-cols-2 lg:grid-cols-3">
+            {rest.map((section) => (
+              <li key={section.slug} className="flex">
+                <Leader
+                  href={`/tags/${section.slug}`}
+                  label={section.label}
+                  count={section.count}
+                  className="min-h-10 text-[0.9375rem]"
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+  const newest =
+    term.recipes.length > 0 ? (
+      <div className="flex flex-col gap-3">
+        <RecipeList
+          recipes={term.recipes.map((recipe) => ({
+            ...recipe,
+            tags: otherTags(model, recipe.tags, pageTags),
+          }))}
+        />
+        {term.recipeCount > term.recipes.length && (
+          <p className="my-2 text-sm">
+            <Link
+              href={`/search?q=${query}`}
+              className="underline underline-offset-4 hover:text-primary"
+              data-testid="term-see-all"
+            >
+              See all {term.recipeCount} recipes
+            </Link>
+          </p>
+        )}
+      </div>
+    ) : (
+      <EmptyState message={`No recipes are tagged ${term.label}.`} />
+    );
+
+  return (
+    <div className="flex flex-col gap-4">
+      <TermHeading term={term} actions={actions} ticker={ticker} />
+      <div className="flex flex-wrap items-center gap-2">
+        <RootViews
+          first={byLabel(term.label)}
+          sections={bySections}
+          newest={newest}
+          controls={
+            <>
+              {almanac && (
+                <Link
+                  href="/holidays"
+                  className={cn(buttonVariants({ variant: "outline" }), "min-h-11")}
+                  data-testid="term-holiday-link"
+                >
+                  The almanac: every holiday, by date
+                  <ArrowRight aria-hidden />
+                </Link>
+              )}
+              {term.recipes.length > 0 && (
+                <MakeLink href={`/make?q=${query}`} className="flex-1 sm:flex-none" />
+              )}
+            </>
+          }
+        />
+      </div>
+      {term.groups.length > 0 && <PlanCards term={term} />}
+    </div>
+  );
+}
+
+/**
+ * One tag's page (34a): everything carrying it or a narrower term, under
+ * the term record's own label, description and picture when it has one.
+ * The route hands the resolved term in and this decides nothing else.
+ */
+export function TagPage({
+  term,
+  terms,
+  actions,
+  signedIn,
+}: {
+  term: TermPageData;
+  terms?: FacetTerm[];
   /** Editor-only affordances; the export passes none. */
   actions?: ReactNode;
+  signedIn?: boolean;
 }) {
   return (
     <PageMain>
-      <PageSection grow>
-        <TermPageBody term={term} />
-        {actions && (
-          <div className="mt-6 flex flex-row flex-wrap items-center gap-2">
-            {actions}
-          </div>
-        )}
-      </PageSection>
+      <div className={cn(WRAP, "pt-7 pb-12")}>
+        <TermPageBody
+          term={term}
+          terms={terms}
+          actions={actions}
+          signedIn={signedIn}
+        />
+      </div>
     </PageMain>
   );
 }
 
 /**
- * A term's other names on `/tags` (38a, D2): "also: Cocktail, Cocktails" —
- * the record's aliases as stored, which `tag:` and `/tags/<alias>` resolve to
- * the term and whose carriers its count includes. Nothing without aliases.
- */
-function AliasLine({ aliases }: { aliases?: string[] }) {
-  if (!aliases?.length) return null;
-  return (
-    <span data-testid="tag-aliases" className="text-xs text-muted-foreground">
-      also: {aliases.join(", ")}
-    </span>
-  );
-}
-
-/**
- * One row of a `/tags` block (U4): the term's label and count, and a thin bar
- * whose width is the count over the block's largest. The bar is decoration
- * (`aria-hidden`); the count is the text. A narrower term is indented by its
- * depth under the row it belongs to, on the same scale.
- */
-function TermRow({
-  node,
-  depth,
-  max,
-}: {
-  node: TermHierarchyNode;
-  depth: number;
-  max: number;
-}) {
-  const width =
-    max > 0 && node.total > 0 ? Math.max(2, (node.total / max) * 100) : 0;
-  return (
-    <li style={depth > 0 ? { paddingLeft: `${depth}rem` } : undefined}>
-      <Link
-        href={`/tags/${node.slug}`}
-        data-testid="tag-row"
-        className="group flex flex-col gap-1 border-b border-border py-1.5 underline-offset-2"
-      >
-        <span className="flex items-baseline justify-between gap-3 text-sm">
-          <span className="group-hover:underline">{node.label}</span>
-          <span className="font-mono text-xs text-muted-foreground">
-            {node.total}
-          </span>
-        </span>
-        <AliasLine aliases={node.aliases} />
-        <span
-          aria-hidden
-          data-testid="tag-bar"
-          className="block h-[3px] rounded-full bg-primary/45"
-          style={{ width: `${width}%` }}
-        />
-      </Link>
-    </li>
-  );
-}
-
-/**
- * One block of the `/tags` board (U4): a heading — the root's link, or plain
- * "More tags" — with its total, then up to `BLOCK_ROW_LIMIT` rows, biggest
- * first, top-level rows before nested ones (`blockRows`); past that, "See
- * all of <root> →" to the root's term page (or, for "More tags", which has
- * no page, a fold with the rest). The bars scale to the block's largest
- * row. Kept whole within a column (`break-inside: avoid`).
- */
-function TagBlock({
-  slug,
-  title,
-  total,
-  rows,
-  aliases,
-}: {
-  /** The root's slug; absent for "More tags", which has no page. */
-  slug?: string;
-  title: string;
-  total: string;
-  rows: TermHierarchyNode[];
-  /** The root's own aliases (38a). */
-  aliases?: string[];
-}) {
-  const { shown, rest, all } = blockRows(rows, BLOCK_ROW_LIMIT);
-  const max = all.reduce((most, { node }) => Math.max(most, node.total), 0);
-  const heading = (
-    <>
-      <span>{title}</span>
-      <span className="font-mono text-xs font-normal text-muted-foreground">
-        {total}
-      </span>
-    </>
-  );
-  const headingClass =
-    "mb-1 flex items-baseline justify-between gap-3 border-b-2 border-foreground pb-2 font-display text-lg font-bold";
-  const list = (entries: BlockRow[]) => (
-    <ul>
-      {entries.map(({ node, depth }) => (
-        <TermRow key={node.slug} node={node} depth={depth} max={max} />
-      ))}
-    </ul>
-  );
-  return (
-    <section
-      className="mb-8 break-inside-avoid"
-      data-testid="tag-block"
-      data-slug={slug}
-    >
-      <h3>
-        {slug ? (
-          <Link
-            href={`/tags/${slug}`}
-            className={`${headingClass} underline-offset-4 hover:underline`}
-          >
-            {heading}
-          </Link>
-        ) : (
-          <span className={headingClass}>{heading}</span>
-        )}
-      </h3>
-      {aliases?.length ? (
-        <p className="mb-1">
-          <AliasLine aliases={aliases} />
-        </p>
-      ) : null}
-      {list(shown)}
-      {rest.length > 0 &&
-        (slug ? (
-          <Link
-            href={`/tags/${slug}`}
-            data-testid="tag-block-all"
-            className="mt-2 inline-block text-sm font-medium text-primary underline-offset-2 hover:underline"
-          >
-            See all of {title} <span aria-hidden>→</span>
-          </Link>
-        ) : (
-          <details className="mt-2" data-testid="tag-block-rest">
-            <summary className="cursor-pointer text-sm font-medium text-primary">
-              {rest.length} more
-            </summary>
-            {list(rest)}
-          </details>
-        ))}
-    </section>
-  );
-}
-
-const EMPTY_BOARD: TagBoard = {
-  roots: [],
-  loose: [],
-  recorded: [],
-  aliased: [],
-};
-
-/**
- * `/tags` (U4): a board of count bars — one block per facet root, then the
- * records outside any hierarchy as "More tags" — and below it the bare tags
- * (no record) as chips, as the page always showed them. With no records at
- * all there is no board, and the chips are every tag.
+ * `/tags` (43t): the board (`TagBoard`), with each holiday's picture
+ * rendered here on the server.
  */
 export function TagIndexPage({
-  tags,
-  board = EMPTY_BOARD,
+  board,
+  pictures = {},
   actions,
 }: {
-  tags: TagVocabularyEntry[];
-  /** The hierarchy and the loose records (31b, U4); empty without records. */
-  board?: TagBoard;
+  board: TagBoardData;
+  pictures?: Record<string, ReactNode>;
   /** Editor-only affordances (31e: "New term"); the export passes none. */
   actions?: ReactNode;
 }) {
-  const hasBoard = board.roots.length > 0 || board.loose.length > 0;
-  /* A record's slug, or an alias of one (its carriers count under the
-   * term — 38a review), is no bare tag. */
-  const notBare = new Set([...board.recorded, ...board.aliased]);
-  const bare = tags.filter((tag) => !notBare.has(tag.slug));
   return (
     <PageMain>
-      <PageSection grow maxWidth="none" className="max-w-7xl mx-auto">
-        <PageHeading>Tags</PageHeading>
-        {actions && (
-          <div className="mb-6 flex flex-row flex-wrap items-center gap-2">
-            {actions}
-          </div>
-        )}
-        {hasBoard && (
-          <nav aria-labelledby="tags-by-kind" className="mb-8">
-            <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-              <h2
-                id="tags-by-kind"
-                className="font-display text-xl font-semibold"
-              >
-                By kind
-              </h2>
-              <span className="font-mono text-xs text-muted-foreground">
-                bar = how many carry the tag
-              </span>
-            </div>
-            <div className="columns-[15rem] gap-x-10" data-testid="tag-board">
-              {board.roots.map((root) => (
-                <TagBlock
-                  key={root.slug}
-                  slug={root.slug}
-                  title={root.label}
-                  total={`${root.total} in all`}
-                  rows={root.children}
-                  aliases={root.aliases}
-                />
-              ))}
-              {board.loose.length > 0 && (
-                <TagBlock
-                  title="More tags"
-                  total={`${board.loose.length} ${board.loose.length === 1 ? "tag" : "tags"}`}
-                  rows={board.loose}
-                />
-              )}
-            </div>
-          </nav>
-        )}
-        {bare.length > 0 ? (
-          <>
-            {hasBoard && (
-              <h2 className="mb-2 font-display text-xl font-semibold">
-                Other tags
-              </h2>
-            )}
-            <div
-              className="flex flex-row flex-wrap items-center gap-2"
-              data-testid="tag-index"
-            >
-              {bare.map((tag) => (
-                <Badge key={tag.slug} asChild variant="secondary">
-                  <Link href={`/tags/${tag.slug}`}>
-                    {tag.label}
-                    <span className="ml-1.5 font-mono text-[0.7em] opacity-70">
-                      {tag.count}
-                    </span>
-                  </Link>
-                </Badge>
-              ))}
-            </div>
-          </>
-        ) : (
-          !hasBoard && <EmptyState message="No recipes have tags yet." />
-        )}
-      </PageSection>
+      <div className={cn(WRAP, "pt-6 pb-12 lg:pt-8")}>
+        <TagBoard
+          data={board}
+          pictures={pictures}
+          serverDay={serverDay()}
+          actions={actions}
+        />
+      </div>
     </PageMain>
   );
 }
