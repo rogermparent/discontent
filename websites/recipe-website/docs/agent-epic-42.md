@@ -730,7 +730,48 @@ recipe-website exec tsc --noEmit` ✅ (the export builds the same
   open — one outside an `aria-modal` dialog may go unheard — and the page's
   stays quiet meanwhile, so nothing is said twice.
 
-**Gates** — pending the heavy seat.
+**Fixes from the gates.** The first Docker build-mode run (148 tests: 143
+passed, 5 failed) found four real faults, fixed in 4f3a0ccf:
+
+- **Sideways scroll on a phone** (`recipe-cooking-order` and the cook
+  view's `@mobile` tests): a step's text pieces and timer buttons were
+  separate items of the step label's no-wrap flex row (see Traps). The
+  page's `StepText` now sits in one `<span>`, as the cook view's already
+  did.
+- **Two `id="multiplier"`** while the cook or bar view is open: both labels
+  named the first field, so the page's scaler had no name. The field id now
+  comes from `useId`.
+- **Contrast**: Done's small "Done · step 2" line at 85% opacity was 4.34:1
+  on the primary fill; it is full strength now.
+- `cook-view.spec`: countdown reads allow two seconds (time flows under
+  `clock.install`), a `filter({ has })` locator relative to the row, and the
+  phone test pauses the clock (`pauseAt`) so its screenshot holds still.
+
+**Gates** (all through the capped heavy slot; Playwright in Docker).
+
+- `pnpm --filter recipe-editor typecheck` ✅ and `pnpm --filter
+recipe-website exec tsc --noEmit` ✅ — after each merge of `origin/main`
+  (42a/42e, then 42h).
+- `pnpm exec vitest run`: 127 files, 2581 tests ✅ (on 4f3a0ccf, before
+  the merges; new: `timeText`, `kitchenTimers`, `cookProgress`,
+  `drinkCount`, `stepTimers`; `llmExtract` and `tidyReading` untouched).
+- Playwright, build mode, after the fixes and the 42a/42e merge:
+  `cook-view`, `visual`, `mobile` — 34 passed (writing the new phone
+  baseline); `bar-tools`, `recipe`, `yield`, `accessibility`,
+  `recipe-cooking-order`, `cook-view` — 152 of 153 passed, the one a moved
+  baseline (below); regenerated, `recipe-cooking-order` 12 passed.
+- Playwright, dev mode once: `cook-view`, `bar-tools` — 12 passed.
+
+**Baselines** (Docker, build mode).
+
+- New: `cook-view.spec.ts/cook-view-mobile-mobile.png` — the cook view on a
+  phone at step 4 of 4 with a 50-minute timer 12 minutes in: canvas B's
+  progress, step bar and Back / Done bar, C's tray at the top, a running
+  and an idle timer button in the step.
+- Moved: `recipe-cooking-order.spec.ts/recipe-wide-columns-e2e.png` —
+  steps 1 and 4 show "2 hours" and "50 minutes" as timer buttons (C); the
+  page is 2 px taller. No `visual` or `mobile` baseline moved (their
+  fixtures' steps name no times), nor any drink page's.
 
 **Roger to confirm.**
 
@@ -745,6 +786,27 @@ recipe-website exec tsc --noEmit` ✅ (the export builds the same
   header (the full scaler sits under the header instead), C's big "05/08"
   step numeral and dots, a step's ticks for ingredients in the page's own
   "Uses" chips.
+
+#### Traps (42c2)
+
+- **markdown-to-jsx unwraps a lone node.** A paragraph that is one text
+  node comes back as that node, with no wrapper; when a `renderRule` turns
+  it into a Fragment of pieces, the pieces land directly in the parent. In a
+  flex parent each becomes its own item, their min-contents add up, and a
+  no-wrap row overflows a phone. Give rendered markdown its own box inside a
+  flex row.
+- **A fixed id in a component rendered twice.** The page and the cook /
+  bar view each render the scaler; `id="multiplier"` named only the first
+  field. Use `useId` for anything the cook view can duplicate.
+- **`page.clock.install` lets time flow.** After `fastForward` real time
+  still passes before the read, and a rounded-up countdown can already be a
+  second lower: allow it, or `pauseAt` first — and always pause before a
+  screenshot of a running countdown, or `toHaveScreenshot` never sees two
+  equal frames.
+- **`filter({ has })` takes a relative locator.** One built from the outer
+  locator (`tray.getByRole(…)`) carries its whole chain, so each row is
+  searched for a dialog with a tray inside it, and nothing matches; build it
+  from `page`.
 
 ### 42e — Holidays: the almanac and the menu pages (M–L)
 
