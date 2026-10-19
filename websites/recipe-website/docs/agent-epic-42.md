@@ -826,6 +826,9 @@ recipe-website exec tsc --noEmit`: clean.
   and "All 1" wrap under the name.
 - Phone: no sideways scroll (`drinks.spec` @mobile); axe target size
   (WCAG 2.2) passes with the chrome released.
+- After merging `origin/main` (42e #284, 42b's tighter screenshot
+  tolerance #286, 42h): both typechecks clean; `drinks` in Docker build
+  mode **12 passed**, the baselines held under 42b's tolerance.
 
 **Backlog:** no row matches 42d.
 
