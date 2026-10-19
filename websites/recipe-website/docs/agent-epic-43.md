@@ -283,7 +283,121 @@ Files: `common/components/TagPage/` (`shared.tsx`, `routes.tsx`), `readTermPage.
 
 #### Results (43t)
 
-_Pending._
+**Landed** (canvas B, "Narrow it down"). Three pages over 43f's facet model;
+no index, projection or spec version changed — **reindex: none**.
+
+- **Pure half** — `common/controller/tagBoardPage.ts`: `tagBoardData({terms,
+recipes, groups})` (the board: four food columns, Collections, Holidays
+  with recipe and plan counts, three drinks columns, the Families run-in
+  list with nested families, other tags, "Find a tag" entries with trail,
+  aliases and facet), `findTags` (label/slug first, then aliases, "also …"),
+  and for term pages `pageTagSlugs` / `otherTags` (a card drops the page's
+  own tags), `carriesTerm`, `narrowChips` (the "Narrow X" rows) and
+  `rootSections` (a root page's sections). `test/tagBoardPage.test.ts` (12).
+- **Reads** — `readTagBoardPage()` (`readTermPage.ts`): the same three
+  values `readTagBoard` reads (the tree, the two whole by-term maps), so the
+  board expires exactly as before. `termPageData` gains `allRecipes` (the
+  subtree's every row, pinned first — it already built them before the
+  48-cap), `pinnedCount` and `aliases`.
+- **`/tags`** (`TagPage/Board.tsx`, client): the panel (h1, New term for a
+  signed-in editor, Find a tag — an ARIA 1.2 combobox that opens the term,
+  Combine), the Food shelf (Course, Main ingredient, Cuisine, Speed &
+  effort + Collections; dot-leader rows nested by depth, `+` per row) beside
+  the Holidays aside (the 5 soonest on the browser's day, `useToday`, each
+  to `/holidays/<slug>`, "Each holiday's menu, in the almanac →"), the
+  Drinks shelf (Style, Strength & method, Spirit & base, Families), and
+  "N other tags" folded. Combine's count is `useQueryCount`: the search
+  corpus through `matchesFilter` and the `tag:` expansion — what
+  `/search?q=tag:a tag:b` will show (D3, Df9). Pictures for the holidays
+  are rendered on the server (`TermPicture`, the almanac's rule).
+- **Term page** (`shared.tsx` `TermPageBody`, `TermRecipes.tsx`,
+  `HolidayWhen.tsx`): crumbs (`Tags ›` then the ancestors), the editor's
+  actions top right, h1, the count ticker ("41 recipes · 1 plan · also
+  filed as christmas-cookies"), the description; a holiday's when card
+  (days on the browser's day, date, Open the X menu, What can I make with
+  these?) or the term's picture and What can I make; plan cards and, signed
+  in with no pins, the pin slot; "Narrow X" chips over the subtree's rows,
+  filtering in place; list head with Clear and Grid / List; cards without
+  the page's own tags. The column is canvas B's 1152 px (`max-w-6xl`).
+- **Root page** (`RootTermBody`, `RootViews.tsx`): a term with no parent
+  and narrower terms (`/tags/course`, `/tags/drink`, `/tags/holidays`) —
+  one section per narrower term by count (three photos, its narrower terms
+  as chips) for the first 7, "And N more" dot-leaders after (narrower terms
+  nothing carries yet at 0, for the curator), a By course / Newest switch
+  (Newest is 34a's capped list), What can I make, and on `holidays` the
+  almanac link.
+- **Session** — the editor's two route files read `auth()` and pass
+  `signedIn` to `editorTagIndexRoute` / `editorTagRoute` (common can't import
+  the editor's auth); a guest sees no New term, Feature, Edit, Add a
+  narrower term or pin slot (43a's rule for these pages).
+- `TagPage/blockRows.ts` and `test/tagBlockRows.test.ts` are gone (the
+  count-bar board's row budget); `TagIndexPage` takes the board data.
+
+**Measured (Dt3).** A read-only scratch clone of the content repo
+(`tmp/43/43t/content-clone`, deleted after), the subtree's rows as JSON
+(`slug, date, name, image, tags` — 34a's rows): Christmas 41 rows = 8.1 KB
+(2.0 KB gzipped), Cookies 45 = 8.7 KB, Fall Favorites 64 = 12 KB, Desserts
+148 = 27 KB (6.4 KB), Holidays 139 = 27 KB, Drinks 222 = 41 KB, Course 597
+= 105 KB (27 KB). The vocabulary for the chips' model: 232 terms = 14.6 KB
+(3.1 KB). The real board (`tagBoardData` over the clone, after 43k): 603
+dishes + 222 drinks; Course 597 (14 rows), Main ingredient 399, Cuisine
+384, Speed & effort 327, Collections 86 (Fall Favorites 64, House recipes
+18, Syrups 5 › Lavender 3…), Holidays 153 (8 dated), Style 217, Strength &
+method 134, Spirit & base 201, Families 113 top-level / 144 with nested
+(Spritz 10 with 6 children, Moscow Mule 6, Sangria 6…), **0 other tags**,
+241 names and aliases; the board's serialized props 38.6 KB.
+
+**Decisions.**
+
+- **Dt1 — one pure board function over the facet model**, no second
+  grouping; the server passes every carrier as `{tags}` from the by-term
+  maps (`carriersFromRows`). Shelves count recipes (what "Show N recipes"
+  opens); a holiday's plans and the other tags count plans too, as `/tags`
+  always counted a bare tag.
+- **Dt2 — Collections sit on the Food shelf (canvas B)**, and the Drinks
+  shelf adds an "In collections" run-in line counted on drinks (House
+  recipes 17, Fall Favorites 2 on the real corpus), so the drinks-heavy
+  House collection is reachable from the bar's shelf too.
+- **Dt3 — "Narrow X" reads all of the subtree's rows** (measured above;
+  the biggest page that narrows, Desserts, is 27 KB). Root pages don't
+  narrow, they show sections. Past `TERM_NARROW_ROW_LIMIT` (400 rows) the
+  chips are left out rather than the page growing. With no chip pressed the
+  grid is the server's cards (34a's cap and "See all N recipes"); a pressed
+  chip or the List view draws client cards (`ClientListItem`,
+  `PureRecipeImage`) from the rows.
+- **Dt4 — a visible `+` instead of long-press.** On a device whose pointer
+  hovers, `+` shows on hover and focus (canvas B); on touch it is always
+  there, 24 px. The phone hint reads "Tap + beside a row to combine it with
+  another."
+- **Dt5 — zero-count records leave the board** (they narrow nothing); Find
+  a tag still finds them, a root page lists them at 0 under "And N more",
+  and a term page's "Narrower:" line links every narrower term.
+- **Dt6 — cards keep the date line.** Canvas B shows a time; 34a's by-term
+  row carries no `totalTime`, and adding it is a projection change (a
+  version bump and a reindex) — deferred. The cards do drop the page's own
+  tags (the term, its ancestors and its subtree).
+- **Dt7 — chips AND together** and every count is within what is already
+  chosen; rows are the term's narrower terms, then up to 4 facet groups in
+  `FACET_GROUPS` order, 6 chips each, a pressed chip always kept; "All N"
+  clears. No Kind row.
+- **Dt8 — a root page is a term with no parent and narrower terms**; both
+  views are in the HTML (the switch only shows one), so the export carries
+  every link.
+- **Dt9 — plan cards** show the plan's picture, kind and size; canvas B's
+  six-photo strip needs each plan's members read and is left out.
+- **Dt10 — Families**: the 30 most made, then "All N families" opens the
+  rest in place; a family's own families follow it in brackets
+  ("Margarita 5 (Frozen Margarita, …)").
+- **Dt11 — Holidays aside**: the 5 soonest dated holidays; undated ones
+  live on the almanac. Find a tag opens the term page (it doesn't add to
+  Combine).
+
+**Gates.** _Pending._
+
+**Roger to confirm.** Dt2 (House recipes on both shelves), Dt5 (empty
+records off the board), Dt6 (the date, not the time, on term-page cards),
+Dt7 (chips AND rather than one at a time), Dt9 (no six-photo strip on the
+plan card).
 
 ### 43p1 — Meal plan B "Plan at home, cook through it" (L)
 

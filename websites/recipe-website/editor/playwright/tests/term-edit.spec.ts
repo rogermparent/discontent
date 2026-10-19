@@ -6,6 +6,7 @@ import {
   fillSignInForm,
   markdownEditorReady,
   selectValue,
+  signIn,
 } from "../support/helpers";
 import { fixturePath } from "../support/tasks";
 
@@ -26,9 +27,17 @@ test.describe("Term edit form", () => {
     page,
     baseURL,
   }) => {
+    /* A guest sees no New term (43a/43t): sign in first. */
+    await page.goto("/tags");
+    await expect(
+      page.getByRole("link", { name: "New term", exact: true }),
+    ).toHaveCount(0);
+    await signIn(page);
+    await expect(
+      page.getByRole("button", { name: "Sign Out", exact: true }),
+    ).toBeVisible();
     await page.goto("/tags");
     await page.getByRole("link", { name: "New term", exact: true }).click();
-    await fillSignInForm(page);
     await expect(page).toHaveURL(baseURL + "/tags/new");
     await markdownEditorReady(page, "description");
 
@@ -279,6 +288,15 @@ test.describe("Term tools", () => {
   });
 
   test("Add a narrower term prefills the parent", async ({ page, baseURL }) => {
+    /* The editor's actions are a signed-in editor's (43a/43t). */
+    await page.goto("/tags/cookies");
+    await expect(
+      page.getByRole("link", { name: "Add a narrower term", exact: true }),
+    ).toHaveCount(0);
+    await signIn(page);
+    await expect(
+      page.getByRole("button", { name: "Sign Out", exact: true }),
+    ).toBeVisible();
     /* A carried-only term cannot be a parent, so it offers no such link. */
     await page.goto("/tags/christmas");
     await expect(
@@ -292,7 +310,6 @@ test.describe("Term tools", () => {
     await page
       .getByRole("link", { name: "Add a narrower term", exact: true })
       .click();
-    await fillSignInForm(page);
     await expect(page).toHaveURL(baseURL + "/tags/new?parent=cookies");
     await markdownEditorReady(page, "description");
     await expect(selectValue(page, "parent")).toHaveValue("cookies");

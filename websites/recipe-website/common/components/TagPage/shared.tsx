@@ -190,7 +190,11 @@ function MakeLink({ href, className }: { href: string; className?: string }) {
   return (
     <Link
       href={href}
-      className={cn(buttonVariants({ variant: "outline" }), "min-h-11", className)}
+      className={cn(
+        buttonVariants({ variant: "outline" }),
+        "min-h-11",
+        className,
+      )}
       data-testid="term-make-link"
     >
       <Gift aria-hidden />
@@ -618,7 +622,10 @@ export function RootTermBody({
               {almanac && (
                 <Link
                   href="/holidays"
-                  className={cn(buttonVariants({ variant: "outline" }), "min-h-11")}
+                  className={cn(
+                    buttonVariants({ variant: "outline" }),
+                    "min-h-11",
+                  )}
                   data-testid="term-holiday-link"
                 >
                   The almanac: every holiday, by date
@@ -626,7 +633,10 @@ export function RootTermBody({
                 </Link>
               )}
               {term.recipes.length > 0 && (
-                <MakeLink href={`/make?q=${query}`} className="flex-1 sm:flex-none" />
+                <MakeLink
+                  href={`/make?q=${query}`}
+                  className="flex-1 sm:flex-none"
+                />
               )}
             </>
           }

@@ -505,7 +505,10 @@ function Column({
         >
           <ChevronDown
             aria-hidden
-            className={cn("size-4 -rotate-90 transition-transform", open && "rotate-0")}
+            className={cn(
+              "size-4 -rotate-90 transition-transform",
+              open && "rotate-0",
+            )}
           />
           <span className="flex-1">{column.label}</span>
           <span className="font-mono text-xs font-normal text-muted-foreground">
@@ -527,7 +530,10 @@ function Column({
       </h3>
       <ul
         id={listId}
-        className={cn("m-0 list-none p-0 pb-2 lg:block lg:pb-0", !open && "hidden")}
+        className={cn(
+          "m-0 list-none p-0 pb-2 lg:block lg:pb-0",
+          !open && "hidden",
+        )}
       >
         {column.rows.map((row) => (
           <BoardLine
@@ -669,7 +675,10 @@ function Holidays({
                     {holiday.label}
                   </span>
                   <span className="font-mono text-xs text-muted-foreground">
-                    <time dateTime={dayKey(holiday.date)} className="inline-block">
+                    <time
+                      dateTime={dayKey(holiday.date)}
+                      className="inline-block"
+                    >
                       {formatDayShort(holiday.date)}
                     </time>{" "}
                     · {plural(holiday.recipes, "recipe")}
@@ -734,7 +743,10 @@ function Families({
         >
           <ChevronDown
             aria-hidden
-            className={cn("size-4 -rotate-90 transition-transform", open && "rotate-0")}
+            className={cn(
+              "size-4 -rotate-90 transition-transform",
+              open && "rotate-0",
+            )}
           />
           <span className="flex-1">Families</span>
           <span className="font-mono text-xs font-normal text-muted-foreground">
@@ -748,7 +760,10 @@ function Families({
           </span>
         </span>
       </h3>
-      <div id={listId} className={cn("pb-3 lg:block lg:pb-0", !open && "hidden")}>
+      <div
+        id={listId}
+        className={cn("pb-3 lg:block lg:pb-0", !open && "hidden")}
+      >
         <p className="m-0 text-[0.84375rem] leading-6">
           {shown.map((row, index) => (
             <span key={row.slug}>

@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "../support/test";
 import { fillSignInForm, markdownEditorReady } from "../support/helpers";
+import { expectHydrated } from "../support/hydration";
 
 /*
  * `/tags/<slug>` as a pre-baked static page (F8).
@@ -68,19 +69,23 @@ test.describe("Tag pages", () => {
     expect(response?.status()).toBe(404);
   });
 
+  /*
+   * No term records, so no shelves (43t): every tag is an "other tag",
+   * listed open, most carried first, then by label.
+   */
   test("the tag index lists every tag with its count", async ({ page }) => {
     await page.goto("/tags");
     const chips = page.getByTestId("tag-index").getByRole("link");
     await expect(chips).toHaveCount(Object.keys(TAG_COUNTS).length);
-    /* Sorted by slug, which is what `finalize` guarantees. */
     const labels = (await chips.allInnerTexts()).map((text) =>
       text.replace(/\s+/g, " ").trim(),
     );
     expect(labels).toEqual(
       Object.keys(TAG_COUNTS)
-        .sort()
+        .sort((a, b) => TAG_COUNTS[b] - TAG_COUNTS[a] || a.localeCompare(b))
         .map((tag) => `${tag} ${TAG_COUNTS[tag]}`),
     );
+    await expect(page.getByTestId("tag-shelf")).toHaveCount(0);
   });
 
   /*
@@ -186,46 +191,48 @@ test.describe("Tag pages", () => {
       await expect(cards(page).nth(3)).toContainText("Gingerbread Cookies");
     });
 
+    /* A root with narrower terms is a root page (43t): one section each. */
     test("a parent lists its narrower terms with counts", async ({ page }) => {
       await page.goto("/tags/dessert");
-      const child = page
-        .getByTestId("term-children")
-        .getByRole("link", { name: /Cookies/ });
+      const section = page.getByTestId("root-section");
+      await expect(section).toHaveCount(1);
+      const child = section
+        .getByRole("heading", { level: 2 })
+        .getByRole("link");
       await expect(child).toHaveAttribute("href", "/tags/cookies");
       expect((await child.innerText()).replace(/\s+/g, " ").trim()).toBe(
         "Cookies 8",
       );
+      await expect(page.getByTestId("term-count")).toHaveText(
+        "8 recipes · 1 narrower term",
+      );
     });
 
-    test("/tags draws a block per root with subtree totals and bars (31b, U4)", async ({
+    /*
+     * 43t: `dessert` is a recorded root that is no facet, so the board files
+     * it under Collections, Cookies nested under it; each recipe counts once.
+     */
+    test("/tags files a root record under Collections with nested rows (43t)", async ({
       page,
     }) => {
       await page.goto("/tags");
-      const board = page.getByTestId("tag-board");
-      /* Dessert's eight carriers are the cookies; each counts once. */
-      const dessert = board.locator(
-        "[data-testid='tag-block'][data-slug='dessert']",
+      const collections = page.locator(
+        "[data-testid='tag-column'][data-group='collections']",
       );
-      await expect(dessert).toHaveCount(1);
-      await expect(
-        dessert.getByRole("heading", { level: 3 }).getByRole("link"),
-      ).toHaveAttribute("href", "/tags/dessert");
-      await expect(dessert.getByRole("heading", { level: 3 })).toHaveText(
-        /Dessert\s*8 in all/,
+      await expect(collections).toHaveCount(1);
+      const rows = collections.getByTestId("tag-row");
+      await expect(rows).toHaveCount(2);
+      await expect(rows.nth(0)).toHaveAttribute("href", "/tags/dessert");
+      expect((await rows.nth(0).innerText()).replace(/\s+/g, " ").trim()).toBe(
+        "Dessert 8",
       );
-      const cookies = dessert.getByTestId("tag-row");
-      await expect(cookies).toHaveCount(1);
-      await expect(cookies).toHaveAttribute("href", "/tags/cookies");
-      expect((await cookies.innerText()).replace(/\s+/g, " ").trim()).toBe(
+      await expect(rows.nth(1)).toHaveAttribute("href", "/tags/cookies");
+      expect((await rows.nth(1).innerText()).replace(/\s+/g, " ").trim()).toBe(
         "Cookies 8",
       );
-      /* The block's largest fills the bar; the bar is decoration. */
-      const bar = cookies.getByTestId("tag-bar");
-      await expect(bar).toHaveAttribute("aria-hidden", "true");
-      await expect(bar).toHaveAttribute("style", /width:\s*100%/);
-      /* A record outside any hierarchy goes to "More tags", not a block. */
+      /* A record nothing carries narrows nothing: not on the board. */
       await expect(
-        board.locator("[data-testid='tag-block'][data-slug='holiday']"),
+        page.getByTestId("tag-board").locator("a[href='/tags/holiday']"),
       ).toHaveCount(0);
     });
 
@@ -302,22 +309,28 @@ test.describe("Tag pages", () => {
         page.getByRole("heading", { name: "Course", exact: true }),
       ).toBeVisible();
       await expect(cards(page)).toHaveCount(8);
-      await expect(page.getByTestId("term-recipe-counts")).toHaveText(
-        "0 here · 8 including narrower terms",
+      await expect(page.getByTestId("term-count")).toHaveText(
+        "8 recipes · 1 narrower term",
       );
       await expect(page.getByText("No recipes are tagged")).toHaveCount(0);
       /* The child's count is its subtree's — what its own page lists. */
       const child = page
-        .getByTestId("term-children")
-        .getByRole("link", { name: /Dessert/ });
+        .getByTestId("root-section")
+        .getByRole("heading", { level: 2 })
+        .getByRole("link");
       expect((await child.innerText()).replace(/\s+/g, " ").trim()).toBe(
         "Dessert 8",
       );
 
-      /* Every cookie carries `dessert` too, so the line stays away there. */
+      /* Dessert is no root now: a term page, its narrower terms linked. */
       await page.goto("/tags/dessert");
       await expect(cards(page)).toHaveCount(8);
-      await expect(page.getByTestId("term-recipe-counts")).toHaveCount(0);
+      await expect(page.getByTestId("term-count")).toHaveText("8 recipes");
+      await expect(
+        page
+          .getByTestId("term-children")
+          .getByRole("link", { name: /Cookies/ }),
+      ).toHaveAttribute("href", "/tags/cookies");
 
       /* Two levels down, the breadcrumb walks to the root — labels only. */
       await page.goto("/tags/cookies");
@@ -338,7 +351,7 @@ test.describe("Tag pages", () => {
     }) => {
       await page.goto("/tags/dessert");
       await expect(cards(page)).toHaveCount(8);
-      await expect(page.getByTestId("term-recipe-counts")).toHaveCount(0);
+      await expect(page.getByTestId("term-count")).toHaveText(/^8 recipes/);
 
       const token = await createApiToken();
       const created = await request.post("/api/recipes", {
@@ -349,9 +362,9 @@ test.describe("Tag pages", () => {
 
       await page.goto("/tags/dessert");
       await expect(cards(page)).toHaveCount(9);
-      await expect(page.getByTestId("term-recipe-counts")).toHaveText(
-        "8 here · 9 including narrower terms",
-      );
+      await expect(page.getByTestId("term-count")).toHaveText(/^9 recipes/);
+      /* A root page's Newest view holds the list (43t). */
+      await page.getByRole("button", { name: "Newest", exact: true }).click();
       await expect(
         page.getByTestId("recipe-list").getByText("Linzer Bars"),
       ).toBeVisible();
@@ -384,7 +397,7 @@ test.describe("Tag pages", () => {
       await expect(cards(page)).toHaveCount(9);
       await expect(
         page.getByTestId("recipe-list").getByText("Lemon Bars"),
-      ).toBeVisible();
+      ).toBeAttached();
     });
 
     test("a recipe tagged with a narrower term's alias is listed, as tag: finds it (34a)", async ({
@@ -413,7 +426,7 @@ test.describe("Tag pages", () => {
       await expect(cards(page)).toHaveCount(9);
       await expect(
         page.getByTestId("recipe-list").getByText("Digestive Biscuits"),
-      ).toBeVisible();
+      ).toBeAttached();
     });
 
     test("/tags counts an alias's carriers and lists the aliases (38a, D2)", async ({
@@ -441,20 +454,23 @@ test.describe("Tag pages", () => {
       ).toBe(201);
 
       await page.goto("/tags");
-      const dessert = page
-        .getByTestId("tag-board")
-        .locator("[data-testid='tag-block'][data-slug='dessert']");
-      await expect(dessert.getByRole("heading", { level: 3 })).toHaveText(
-        /Dessert\s*9 in all/,
+      const rows = page
+        .locator("[data-testid='tag-column'][data-group='collections']")
+        .getByTestId("tag-row");
+      expect((await rows.nth(0).innerText()).replace(/\s+/g, " ").trim()).toBe(
+        "Dessert 9",
       );
-      const cookies = dessert.getByTestId("tag-row");
-      await expect(cookies.getByTestId("tag-aliases")).toHaveText(
-        "also: biscuits",
+      expect((await rows.nth(1).innerText()).replace(/\s+/g, " ").trim()).toBe(
+        "Cookies 9",
       );
-      expect((await cookies.innerText()).replace(/\s+/g, " ").trim()).toBe(
-        "Cookies 9 also: biscuits",
+      /* "Find a tag" knows the alias and says so (43t). */
+      await expectHydrated(page.getByTestId("tag-find"));
+      await page.getByTestId("tag-find").fill("biscu");
+      await expect(page.getByRole("option", { name: /Cookies/ })).toContainText(
+        "also Biscuits",
       );
       /* The alias is Cookies', not a bare tag of its own (38a review). */
+      await page.getByTestId("tag-other").locator("summary").click();
       const chips = page.getByTestId("tag-index");
       await expect(chips.getByRole("link", { name: /christmas/ })).toHaveCount(
         1,
@@ -478,48 +494,22 @@ test.describe("Tag pages", () => {
       ).toBeVisible();
     });
 
-    test("a block shows 15 rows, biggest first, then links to its root (U4)", async ({
-      page,
-      request,
-      createApiToken,
-    }) => {
-      const token = await createApiToken();
-      for (let i = 1; i <= 16; i += 1) {
-        const created = await request.post("/api/taxonomies/tag", {
-          headers: { authorization: `Bearer ${token}` },
-          data: {
-            label: `Treat ${String(i).padStart(2, "0")}`,
-            parent: "dessert",
-          },
-        });
-        expect(created.status()).toBe(201);
-      }
-      await page.goto("/tags");
-      const dessert = page.locator(
-        "[data-testid='tag-block'][data-slug='dessert']",
-      );
-      const rows = dessert.getByTestId("tag-row");
-      await expect(rows).toHaveCount(15);
-      /* Biggest first: Cookies leads the sixteen empty records. */
-      await expect(rows.first()).toHaveText(/Cookies\s*8/);
-      const all = dessert.getByTestId("tag-block-all");
-      await expect(all).toHaveText(/See all of Dessert/);
-      await expect(all).toHaveAttribute("href", "/tags/dessert");
-    });
-
-    test("the tag index lists a record-only term at zero, under More tags (U4)", async ({
+    test("Find a tag reaches a record nothing carries yet (43t)", async ({
       page,
     }) => {
       await page.goto("/tags");
-      const more = page
-        .getByTestId("tag-block")
-        .filter({ has: page.getByRole("heading", { name: /More tags/ }) });
-      const row = more.getByRole("link", { name: /Holiday/ });
-      await expect(row).toHaveAttribute("href", "/tags/holiday");
-      expect((await row.innerText()).replace(/\s+/g, " ").trim()).toBe(
-        "Holiday 0",
-      );
-      /* Recorded terms leave the chips below to the bare tags. */
+      const find = page.getByTestId("tag-find");
+      await expectHydrated(find);
+      await find.fill("holi");
+      await expect(page.getByRole("option", { name: /Holiday/ })).toBeVisible();
+      await find.press("Enter");
+      await page.waitForURL((url) => url.pathname === "/tags/holiday");
+      await expect(
+        page.getByRole("heading", { name: "Holiday", exact: true }),
+      ).toBeVisible();
+      /* Recorded terms leave the other tags to the bare ones. */
+      await page.goto("/tags");
+      await page.getByTestId("tag-other").locator("summary").click();
       const chips = page.getByTestId("tag-index");
       await expect(chips.getByRole("link", { name: /Holiday/ })).toHaveCount(0);
       await expect(chips.getByRole("link", { name: /^christmas/ })).toHaveCount(

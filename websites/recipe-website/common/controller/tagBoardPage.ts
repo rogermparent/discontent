@@ -311,10 +311,7 @@ export function findTags(
 }
 
 function fold(text: string): string {
-  return text
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase();
+  return text.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
 // --- term pages ------------------------------------------------------------
@@ -485,9 +482,7 @@ export function narrowChips(
       count: counts.subtree.get(child) ?? 0,
       pressed: pressed.has(child),
     }))
-    .filter(
-      (chip) => chip.pressed || (chip.count > 0 && chip.count < total),
-    )
+    .filter((chip) => chip.pressed || (chip.count > 0 && chip.count < total))
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
   if (own.length > 0) {
     rows.push({ id: "narrower", label: "Narrower", chips: own });

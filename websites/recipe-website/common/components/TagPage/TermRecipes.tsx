@@ -10,11 +10,7 @@ import {
   otherTags,
   pageTagSlugs,
 } from "../../controller/tagBoardPage";
-import {
-  buildFacetModel,
-  facetQuery,
-  type FacetTerm,
-} from "../../util/facets";
+import { buildFacetModel, facetQuery, type FacetTerm } from "../../util/facets";
 import { ClientListItem } from "../ClientList";
 import { RecipeCardPlaceholder, RecipeGrid } from "../List/shared";
 import { PureRecipeImage } from "../RecipeImage/PureRecipeImage";
@@ -80,8 +76,7 @@ export function TermRecipes({
     [rows, model, selected],
   );
   const chipRows = useMemo(
-    () =>
-      model && rows ? narrowChips(model, slug, filtered, selected) : [],
+    () => (model && rows ? narrowChips(model, slug, filtered, selected) : []),
     [model, rows, slug, filtered, selected],
   );
 
@@ -163,7 +158,9 @@ export function TermRecipes({
             id={listId}
             className="m-0 font-display text-xl font-semibold tracking-[-0.02em]"
           >
-            {selected.length > 0 ? selected.map(labelOf).join(" + ") : "Recipes"}
+            {selected.length > 0
+              ? selected.map(labelOf).join(" + ")
+              : "Recipes"}
             <span
               className="ml-2 font-mono text-xs font-normal text-muted-foreground"
               data-testid="term-list-count"
@@ -209,7 +206,9 @@ export function TermRecipes({
                 <ClientListItem
                   recipe={{
                     ...row,
-                    tags: model ? otherTags(model, row.tags, pageTags) : row.tags,
+                    tags: model
+                      ? otherTags(model, row.tags, pageTags)
+                      : row.tags,
                   }}
                 />
               </li>
@@ -230,7 +229,8 @@ export function TermRecipes({
           </ul>
         )}
 
-        {total > (selected.length === 0 && view === "grid" ? shownCount : SHOWN) && (
+        {total >
+          (selected.length === 0 && view === "grid" ? shownCount : SHOWN) && (
           <p className="my-2 text-sm">
             <Link
               href={
