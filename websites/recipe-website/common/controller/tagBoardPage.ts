@@ -24,6 +24,11 @@ import type { RecipeListEntry } from "./paginationConfigs";
  * only picks which groups go on which shelf and flattens them for the page.
  */
 
+/** "1 recipe", "38 recipes" — the pages' counts, server or browser. */
+export function plural(count: number, one: string, many = `${one}s`): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
 /** One dot-leader line on the board: a term, its depth, how many under it. */
 export interface BoardRow {
   slug: string;

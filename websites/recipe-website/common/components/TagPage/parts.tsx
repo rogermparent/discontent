@@ -114,8 +114,3 @@ export function useQueryCount(query: string): number | undefined {
     ).length;
   }, [query, status, allRecipes, allTerms, resolver]);
 }
-
-/** "1 recipe", "38 recipes". */
-export function plural(count: number, one: string, many = `${one}s`): string {
-  return `${count} ${count === 1 ? one : many}`;
-}

@@ -15,6 +15,7 @@ import { cn } from "@discontent/component-library/lib/utils";
 import { almanacView } from "../../controller/holidaysPage";
 import {
   findTags,
+  plural,
   type BoardColumn,
   type BoardFamily,
   type BoardRow,
@@ -25,7 +26,7 @@ import { dayKey, formatDayShort, parseDayKey } from "../../util/holidays";
 import { ALMANAC_HREF, daysTo, holidayHref } from "../HolidaysPage/shared";
 import { useToday } from "../Homepage/useToday";
 import { EmptyState } from "../EmptyState";
-import { Leader, plural, useQueryCount } from "./parts";
+import { Leader, useQueryCount } from "./parts";
 
 const termHref = (slug: string) => `/tags/${slug}`;
 

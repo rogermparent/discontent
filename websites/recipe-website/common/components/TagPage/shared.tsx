@@ -10,6 +10,7 @@ import {
   TERM_NARROW_ROW_LIMIT,
   otherTags,
   pageTagSlugs,
+  plural,
   rootSections,
   type RootSection,
   type TagBoardData,
@@ -34,7 +35,7 @@ import { groupCountLabel } from "../../util/groupCountLabel";
 import { groupKindLabel } from "../../util/groupKindLabel";
 import { TagBoard } from "./Board";
 import { HolidayWhen } from "./HolidayWhen";
-import { Leader, plural } from "./parts";
+import { Leader } from "./parts";
 import { RootViews } from "./RootViews";
 import { TermRecipes } from "./TermRecipes";
 

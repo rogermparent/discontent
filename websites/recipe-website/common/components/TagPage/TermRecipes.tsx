@@ -9,12 +9,13 @@ import {
   narrowChips,
   otherTags,
   pageTagSlugs,
+  plural,
 } from "../../controller/tagBoardPage";
 import { buildFacetModel, facetQuery, type FacetTerm } from "../../util/facets";
 import { ClientListItem } from "../ClientList";
 import { RecipeCardPlaceholder, RecipeGrid } from "../List/shared";
 import { PureRecipeImage } from "../RecipeImage/PureRecipeImage";
-import { Segmented, plural } from "./parts";
+import { Segmented } from "./parts";
 
 /** Cards the filtered list shows before "See all N in search". */
 const SHOWN = 48;
