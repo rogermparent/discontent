@@ -254,6 +254,28 @@ describe("this season (42f)", () => {
     expect(featureCandidates(items, () => false, 3)).toEqual(["h1", "a", "h2"]);
   });
 
+  it("dates a holiday by an alias's rule (42e's holidayRuleKey)", () => {
+    const xmas = {
+      ...node("xmas", 1),
+      label: "Xmas",
+      aliases: ["Christmas"],
+    };
+    const [entry] = comingUpEntries(
+      [node("holidays", 1, [xmas])],
+      (slug) =>
+        slug === "xmas" ? [{ slug: "stollen", date: 1, name: "Stollen" }] : [],
+      () => [],
+    )!;
+    expect(entry.rule).toBe("christmas");
+    expect(datedHolidays([entry]).map((e) => e.slug)).toEqual(["xmas"]);
+    expect(
+      seasonRows([entry], { year: 2026, month: 12, day: 20 }).map((row) => [
+        row.slug,
+        row.days,
+      ]),
+    ).toEqual([["xmas", 5]]);
+  });
+
   it("rows only the holidays a rule dates", () => {
     expect(
       datedHolidays([

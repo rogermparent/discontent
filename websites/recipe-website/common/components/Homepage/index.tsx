@@ -65,7 +65,7 @@ export default function Homepage({
    */
   featured: FeaturedStripEntry[];
   /** The dated holidays with something under them (`datedHolidays`). */
-  season: Array<{ slug: string }>;
+  season: Array<{ slug: string; rule?: string }>;
   featuredLimit: number;
   /** The newest group, if there is one. */
   plan?: GroupListEntry;

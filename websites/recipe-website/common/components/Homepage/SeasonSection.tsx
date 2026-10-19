@@ -16,6 +16,8 @@ import { useToday } from "./useToday";
 
 export interface SeasonRow {
   slug: string;
+  /** The rule key that dates it, when not its slug (an alias's, 42e). */
+  rule?: string;
   label: string;
   /** "32 recipes · 1 plan · featured", already spelled out on the server. */
   counts: string;
@@ -110,7 +112,7 @@ export function SeasonSection({
     >
       <ul className="flex flex-col border-t border-border">
         {shown.map((row) => {
-          const date = nextOccurrence(row.slug, today);
+          const date = nextOccurrence(row.rule ?? row.slug, today);
           return (
             <li
               key={row.slug}

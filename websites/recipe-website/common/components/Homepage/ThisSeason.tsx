@@ -61,6 +61,7 @@ export function ThisSeason({
       className={className}
       rows={datedHolidays(entries).map((entry) => ({
         slug: entry.slug,
+        ...(entry.rule ? { rule: entry.rule } : {}),
         label: entry.label,
         counts: counts(entry),
         strip:

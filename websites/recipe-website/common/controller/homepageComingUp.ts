@@ -1,9 +1,11 @@
 import {
   HOLIDAYS_ROOT,
   HOLIDAY_RULES,
+  holidayRuleKey,
   withinComingUpWindow,
   type CalendarDay,
 } from "../util/holidays";
+import { tagSlug } from "./tagSlug";
 import type { TermHierarchyNode } from "./tagVocabulary";
 
 /**
@@ -31,6 +33,11 @@ export interface ComingUpRow {
 export interface ComingUpEntry extends TermSummary {
   slug: string;
   label: string;
+  /**
+   * The `HOLIDAY_RULES` key that dates it (42e's `holidayRuleKey`: its slug,
+   * else an alias's), absent for an undated holiday.
+   */
+  rule?: string;
   /** A few of its recipes for the row's strip (`seasonPicks`). */
   picks: SeasonPick[];
   /** Whether a feature points at this holiday's term (42f: shown here, not twice). */
@@ -56,7 +63,7 @@ export const SEASON_LIMIT = 3;
  * asks, with the reader's day (the server's for the first render): which
  * rows show, and which featured holidays they stand in for.
  */
-export function seasonRows<T extends { slug: string }>(
+export function seasonRows<T extends { slug: string; rule?: string }>(
   entries: T[],
   today: CalendarDay,
 ): Array<T & { days: number }> {
@@ -65,11 +72,17 @@ export function seasonRows<T extends { slug: string }>(
 
 /**
  * The holidays a date rule covers (`util/holidays.ts`, D4) — the only ones
- * a season row can show. An undated holiday never has a row.
+ * a season row can show. An undated holiday never has a row. Dated by
+ * `rule` when the entry carries one (an alias's rule, 42e), else its slug.
  */
-export function datedHolidays<T extends { slug: string }>(entries: T[]): T[] {
+export function datedHolidays<T extends { slug: string; rule?: string }>(
+  entries: T[],
+): T[] {
   return entries.filter((entry) =>
-    Object.prototype.hasOwnProperty.call(HOLIDAY_RULES, entry.slug),
+    Object.prototype.hasOwnProperty.call(
+      HOLIDAY_RULES,
+      entry.rule ?? entry.slug,
+    ),
   );
 }
 
@@ -188,12 +201,19 @@ export function comingUpEntries(
   const holidays = tree.find((node) => node.slug === root);
   if (!holidays) return null;
   return holidays.children
-    .map((node): ComingUpEntry => ({
-      slug: node.slug,
-      label: node.label,
-      ...termSummary(node, recipeRows, groupRows),
-      picks: seasonPicks(node, recipeRows),
-    }))
+    .map((node): ComingUpEntry => {
+      const rule = holidayRuleKey(
+        node.slug,
+        (node.aliases ?? []).map((alias) => tagSlug(alias)),
+      );
+      return {
+        slug: node.slug,
+        label: node.label,
+        ...(rule ? { rule } : {}),
+        ...termSummary(node, recipeRows, groupRows),
+        picks: seasonPicks(node, recipeRows),
+      };
+    })
     .filter((entry) => entry.recipes + entry.groups > 0);
 }
 

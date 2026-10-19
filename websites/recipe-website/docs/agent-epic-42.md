@@ -802,12 +802,12 @@ it).
 
 #### Traps (42f)
 
-- **`/holidays` must be on main before this merges.** "All holidays" and
-  every season row link into 42e's pages; merged first, they would 404.
-  When 42e lands, its alias-aware rule lookup (`holidayRuleKey`, an
-  optional `rule` on items) should reach `comingUpEntries` too, so a
-  holiday dated only through an alias gets a row (`datedHolidays` reads
-  `HOLIDAY_RULES` by slug).
+- **`/holidays` had to be on main first.** "All holidays" and every
+  season row link into 42e's pages; 42f merged main after #284. Its
+  alias-aware lookup reaches the homepage too: `comingUpEntries` carries
+  `rule` (`holidayRuleKey`: the slug, else an alias's), and
+  `datedHolidays`, `seasonRows` and the row's date use `rule ?? slug`, so a
+  holiday dated only through an alias gets a row.
 - **`HOLIDAY_RULES[slug]` is an object lookup**: a term slugged
   `constructor` or `toString` would find `Object.prototype`'s.
   `datedHolidays` uses `hasOwnProperty`; `nextOccurrence` still indexes

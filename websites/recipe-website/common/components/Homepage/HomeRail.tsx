@@ -40,7 +40,7 @@ export function HomeRail({
   /** The plan panel, rendered on the server; `null` with no plans. */
   plan: ReactNode;
   rows: FeaturedListRow[];
-  season: Array<{ slug: string }>;
+  season: Array<{ slug: string; rule?: string }>;
   serverDay: string;
   limit: number;
   className?: string;

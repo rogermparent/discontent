@@ -213,7 +213,10 @@ export async function homepageRoute({
    * not called featured.
    */
   const holidays = comingUpEntries(tagTree, recipeRows, groupRows);
-  const season = datedHolidays(holidays ?? []).map(({ slug }) => ({ slug }));
+  const season = datedHolidays(holidays ?? []).map(({ slug, rule }) => ({
+    slug,
+    ...(rule ? { rule } : {}),
+  }));
   const seasonal = new Set(season.map(({ slug }) => slug));
   const candidates = featureCandidates(
     featuredHead.items,
