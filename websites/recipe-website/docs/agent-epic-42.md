@@ -121,20 +121,22 @@ host, at most one retry after a 403). Nothing deleted, features untouched.
 
 ## Roadmap
 
-| Phase    | Size | Branch                    | Status | PR  | What                                                                                          |
-| -------- | ---- | ------------------------- | ------ | --- | --------------------------------------------------------------------------------------------- |
-| 42a      | S    | `agent/42a-followups`     | 🟡     | —   | Per-item saved-list editing on `/make`, outline borders, resume-builder font, house-list e2e. |
-| 42b      | S    | `agent/42b-tolerance`     | 🟡     | —   | Screenshot tolerance tightened (41-Tp1), proven 3× in dev and build mode.                     |
-| 42j      | —    | (canvases)                | 🟡     | —   | Design canvases for `/search`, `/tags` + a term page, the meal-plan page, the edit form.      |
-| 42k      | S    | (content repo)            | 🟡     | —   | D7: holiday terms for New Year's, Valentine's, St Patrick's, Easter, July 4th.                |
-| 42c1     | L    | `agent/42c1-recipe`       | 📝     | —   | Recipe page in cooking order: sticky ingredients, "uses:", heads-up, three wide columns.      |
-| 42g      | L    | `agent/42g-shopping`      | 📝     | —   | `/shopping`: in the store (aisle rail, aisle done) and at home (by plan and recipe).          |
-| 42c2     | M–L  | `agent/42c2-cook`         | 📝     | —   | Cook view one step at a time, timer buttons, the drink scaler counting drinks.                |
-| 42e      | M–L  | `agent/42e-holidays`      | 📝     | —   | `/holidays` (the almanac) and `/holidays/<slug>` (the menu), both apps.                       |
-| 42d      | M    | `agent/42d-drinks`        | 📝     | —   | `/drinks`: pour from your shelf.                                                              |
-| 42f      | M    | `agent/42f-home`          | 📝     | —   | Homepage: now and next.                                                                       |
-| 42h      | S–M  | `agent/42h-holiday-tools` | 📝     | —   | Holidays for the agents: seat, CLI, API, MCP `holiday_list` / `holiday_get`.                  |
-| 42-close | S    | `agent/42-close`          | 📝     | —   | Close-out, CLAUDE.md bullet, backlog, memory, the morning report.                             |
+| Phase    | Size | Branch                     | Status | PR  | What                                                                                          |
+| -------- | ---- | -------------------------- | ------ | --- | --------------------------------------------------------------------------------------------- |
+| 42a      | S    | `agent/42a-followups`      | 🟡     | —   | Per-item saved-list editing on `/make`, outline borders, resume-builder font, house-list e2e. |
+| 42b      | S    | `agent/42b-tolerance`      | 🟡     | —   | Screenshot tolerance tightened (41-Tp1), proven 3× in dev and build mode.                     |
+| 42j      | —    | (canvases)                 | 🟡     | —   | Design canvases for `/search`, `/tags` + a term page, the meal-plan page, the edit form.      |
+| 42k      | S    | (content repo)             | 🟡     | —   | D7: holiday terms for New Year's, Valentine's, St Patrick's, Easter, July 4th.                |
+| 42m      | M    | `agent/42m-bean-swaps`     | 🟡     | —   | Bean swaps on `/make`: their own tier, a switch, and `inventory make`'s `beanSwap`.           |
+| 42m2     | M    | `agent/42m2-make-matchers` | 🟡     | —   | `/make`: tap a missing tape to add it, roomier further away, the `any bean` matcher.          |
+| 42c1     | L    | `agent/42c1-recipe`        | 📝     | —   | Recipe page in cooking order: sticky ingredients, "uses:", heads-up, three wide columns.      |
+| 42g      | L    | `agent/42g-shopping`       | 📝     | —   | `/shopping`: in the store (aisle rail, aisle done) and at home (by plan and recipe).          |
+| 42c2     | M–L  | `agent/42c2-cook`          | 📝     | —   | Cook view one step at a time, timer buttons, the drink scaler counting drinks.                |
+| 42e      | M–L  | `agent/42e-holidays`       | 📝     | —   | `/holidays` (the almanac) and `/holidays/<slug>` (the menu), both apps.                       |
+| 42d      | M    | `agent/42d-drinks`         | 📝     | —   | `/drinks`: pour from your shelf.                                                              |
+| 42f      | M    | `agent/42f-home`           | 📝     | —   | Homepage: now and next.                                                                       |
+| 42h      | S–M  | `agent/42h-holiday-tools`  | 📝     | —   | Holidays for the agents: seat, CLI, API, MCP `holiday_list` / `holiday_get`.                  |
+| 42-close | S    | `agent/42-close`           | 📝     | —   | Close-out, CLAUDE.md bullet, backlog, memory, the morning report.                             |
 
 Ordering, in waves: **1** 42a ∥ 42b (42j and 42k's dry run alongside —
 neither uses the heavy slot); **2** 42c1 ∥ 42g; **3** 42c2 ∥ 42e; **4** 42d ∥
@@ -626,6 +628,188 @@ recipe-website exec tsc --noEmit` ✅ (the export builds the same
   `parseTimeText` tests in its new home (`test/llmExtract.test.ts` and
   `tidyReading` keep passing).
 
+#### Results (42c2)
+
+**What changed.**
+
+- `common/util/timeText.ts`: `parseTimeText` moved here from the editor's
+  `controller/llm/timeText.ts`, which now only re-exports it (the LLM code
+  and `llmExtract`/`tidyReading` are untouched). New beside it:
+  `findStepTimes(text)` — every duration in a step's text, with its
+  position, as a timer could run it; `durationWords`, `formatCountdown`.
+- `common/util/kitchenTimers.ts` (pure): timers as a list with **end
+  times** — `startTimer`, `pauseTimer` (keeps what is left), `resumeTimer`,
+  `removeTimer`, `finishDue` (marks the ended ones done and answers them,
+  once each), `remainingMs`. A tab that slept reads right on waking.
+- `View/Timers/`: `TimersProvider` around the whole recipe view (page and
+  cook view share it, so a timer outlives the view opening and closing,
+  scrolling and the scaler); a 500 ms clock only while a timer runs, and a
+  check on `visibilitychange`; the alarm — a Web Audio chime (the context is
+  woken inside the tap that starts a timer), `navigator.vibrate`, and a
+  visible done state that stays until cleared; one polite live region
+  ("Timer started: …", "Timer done: …"), nothing per second.
+  `StepText` renders a step's markdown with a **render rule** that splits
+  text nodes around each duration into a `TimerButton` (idle → running with
+  its countdown → paused → done). `TimerTray`: floating bottom-right on the
+  page (above the phone tab bar), inline and sticky at the top of the cook
+  view (canvas C), each row with the step and words, a `role="timer"`
+  countdown, pause/resume and cancel/clear.
+- `View/FocusView/` (canvas B): **One step / All steps**. One step: "Step 3
+  of 9", B's step bar, the group name, the step big with its checkbox, "For
+  this step" — 42c1's matched lines, scaled, as checkboxes — and "All
+  ingredients" folded below; a bottom bar with Back and Done ("Done · step 4"
+  and the next step's title or words; "Done · last step"; then "Last step
+  done", disabled). Done ticks the step and moves on. All steps is the
+  previous checklist view. The scaler sits once under the header in both.
+  Wake lock, Esc, focus on Close, scroll lock unchanged.
+  `cookProgress.ts`: ticks (steps and ingredients), the step on screen and
+  the layout, per recipe under `cook-view:<slug>` in **sessionStorage**
+  (D1), every read and write guarded, indices past the recipe's end dropped.
+- Drinks: `common/util/drinkCount.ts` (`isDrinkRecipe`, `drinkYieldBase`,
+  `drinkCountLabel`, `multiplierForDrinks`). `MultiplierProvider` takes a
+  `drinkBase`; on a drink the scaler is a "Drinks" group — "1 drink · 2
+  drinks · 4 drinks" — and a "Drinks" field over the same multiplier, and the
+  meta bar's Yield reads "4 drinks". Food keeps "Multiply", ½× · 1× · 2× and
+  every testid.
+- `StyledMarkdown` (component library) passes a `renderRule` through.
+
+**Decisions.**
+
+- **Dc2-1 — a range starts its low end.** "45 to 50 minutes" runs 45
+  (start checking at the earliest the recipe gives); the button shows the
+  words as written and its name says "Start timer at 45 minutes: 45 to 50
+  minutes". `findStepTimes` keeps the high end (`maxSeconds`). Times: hours,
+  minutes, seconds, hyphenated ("a 10-minute rest"), compound ("1 hour 15
+  minutes"), "30 minutes to 1 hour", "an hour", "half an hour", "an hour and
+  a half"; not days, not over 24 hours ("marinate 48 hours" is a plan), not
+  "a second" (the second egg), not "overnight", "350 degrees", "2 cups" or
+  "minute 50". A hyphen before a fraction makes a mixed number, never a
+  range ("1-1/2 hours" is 90 minutes, "2-1/2 to 3 hours" starts at 2½ —
+  from the review), and a range's ends may be compound ("1 hour to 1 hour 30
+  minutes"). A number written as `<Multiplyable>` before "minutes" is not
+  read (it is a component, not text) — none of the fixtures does it.
+- **Dc2-2 — the timer button's name.** The brief's example was "Start 25
+  minute timer"; the name is "Start timer: 25 minutes" (running: "Pause
+  timer: 25 minutes · 24:13 left"), so the visible words are inside the name
+  (41f, WCAG 2.5.3) and it still says what it does. The button sits inside
+  the step's checkbox label, so the step checkbox gets its own name, the
+  step's plain words (`util/stepPlainText`) — otherwise it would include the
+  button's name and change twice a second while the timer runs (review). A
+  tap on the button is the button's (the label ignores taps on interactive
+  content, and the handler stops it).
+- **Dc2-3 — a render rule, not a text rewrite.** Injecting `<StepTimer>`
+  tags into the markdown would meet 41c's Tc3 capture at a block's start;
+  the rule works on parsed text nodes, so code spans and link text (a button
+  in a link is invalid) are left alone. markdown-to-jsx's `state.inAnchor`
+  is not set at render time, so the rule counts link depth itself. Ids are
+  `step-<n>-<k>` (the k-th time in step n, numbered through groups as 42c1's
+  Dc8), the same on the page and in the cook view.
+- **Dc2-4 — the bar view opens on All steps.** A drink is a short list to
+  pour; the cook view opens on One step. Either is one tap away, and the
+  choice is kept per recipe with the ticks.
+- **Dc2-5 — sessionStorage, and what it keeps.** Steps done, ingredients
+  gathered, the step on screen and the layout, per recipe for the tab's
+  session (D1). The page's own step checkboxes stay unpersisted, as before.
+- **Dc2-6 — a drink's count comes from its yield.** "1 drink", "2
+  servings", `<Multiplyable baseNumber="2" /> cocktails`, "Serves 4", "2" →
+  that many drinks at 1×; no yield → 1. A yield that counts something else
+  ("1 pitcher", "about 6 cups", "2 to 4 servings") keeps the batch scaler —
+  "1 drink" would misname a punch bowl. The presets are counts (1, 2, 4), so
+  with a yield of 2, "1 drink" is ½× and no preset is pressed at 1× when
+  the yield is 3.
+- **Dc2-7 — the trays' places.** Page: fixed bottom-right from `sm`, full
+  width above the tab bar on a phone (canvas C's desktop bar sits above the
+  steps; fixed keeps it in sight while scrolling). Cook view: sticky at the
+  top of the overlay, as C's phone board. While a tray shows, the page's
+  `scroll-padding-bottom` (or the cook view's `scroll-padding-top`) makes
+  room for it, so a focused control scrolled into view is not under it
+  (2.4.11).
+- **Dc2-8 — focus in the cook view (review).** Back on the first step and
+  Done on a finished last step are `aria-disabled`, not `disabled`, so the
+  button in hand keeps focus instead of dropping it to `<body>` (and the next
+  Tab out of the dialog). Done moves focus to the new step's section, so it
+  is read out. The cook view has its own live region for the timers while
+  open — one outside an `aria-modal` dialog may go unheard — and the page's
+  stays quiet meanwhile, so nothing is said twice.
+
+**Fixes from the gates.** The first Docker build-mode run (148 tests: 143
+passed, 5 failed) found four real faults, fixed in 4f3a0ccf:
+
+- **Sideways scroll on a phone** (`recipe-cooking-order` and the cook
+  view's `@mobile` tests): a step's text pieces and timer buttons were
+  separate items of the step label's no-wrap flex row (see Traps). The
+  page's `StepText` now sits in one `<span>`, as the cook view's already
+  did.
+- **Two `id="multiplier"`** while the cook or bar view is open: both labels
+  named the first field, so the page's scaler had no name. The field id now
+  comes from `useId`.
+- **Contrast**: Done's small "Done · step 2" line at 85% opacity was 4.34:1
+  on the primary fill; it is full strength now.
+- `cook-view.spec`: countdown reads allow two seconds (time flows under
+  `clock.install`), a `filter({ has })` locator relative to the row, and the
+  phone test pauses the clock (`pauseAt`) so its screenshot holds still.
+
+**Gates** (all through the capped heavy slot; Playwright in Docker).
+
+- `pnpm --filter recipe-editor typecheck` ✅ and `pnpm --filter
+recipe-website exec tsc --noEmit` ✅ — after each merge of `origin/main`
+  (42a/42e, then 42h).
+- `pnpm exec vitest run`: 127 files, 2581 tests ✅ (on 4f3a0ccf, before
+  the merges; new: `timeText`, `kitchenTimers`, `cookProgress`,
+  `drinkCount`, `stepTimers`; `llmExtract` and `tidyReading` untouched).
+- Playwright, build mode, after the fixes and the 42a/42e merge:
+  `cook-view`, `visual`, `mobile` — 34 passed (writing the new phone
+  baseline); `bar-tools`, `recipe`, `yield`, `accessibility`,
+  `recipe-cooking-order`, `cook-view` — 152 of 153 passed, the one a moved
+  baseline (below); regenerated, `recipe-cooking-order` 12 passed.
+- Playwright, dev mode once: `cook-view`, `bar-tools` — 12 passed.
+
+**Baselines** (Docker, build mode).
+
+- New: `cook-view.spec.ts/cook-view-mobile-mobile.png` — the cook view on a
+  phone at step 4 of 4 with a 50-minute timer 12 minutes in: canvas B's
+  progress, step bar and Back / Done bar, C's tray at the top, a running
+  and an idle timer button in the step.
+- Moved: `recipe-cooking-order.spec.ts/recipe-wide-columns-e2e.png` —
+  steps 1 and 4 show "2 hours" and "50 minutes" as timer buttons (C); the
+  page is 2 px taller. No `visual` or `mobile` baseline moved (their
+  fixtures' steps name no times), nor any drink page's.
+
+**Roger to confirm.**
+
+- A range runs to its low end (Dc2-1).
+- The timer button's name wording (Dc2-2).
+- The bar view opens on All steps (Dc2-4).
+- A drink whose yield counts something other than drinks keeps "Multiply"
+  (Dc2-6); presets are fixed counts 1 / 2 / 4.
+- The page's timer tray floats bottom-right rather than sitting above the
+  steps as in canvas C's desktop board (Dc2-7).
+- Not built from the canvases: B's "1×" scale button in the cook view's
+  header (the full scaler sits under the header instead), C's big "05/08"
+  step numeral and dots, a step's ticks for ingredients in the page's own
+  "Uses" chips.
+
+#### Traps (42c2)
+
+- **markdown-to-jsx unwraps a lone node.** A paragraph that is one text
+  node comes back as that node, with no wrapper; when a `renderRule` turns
+  it into a Fragment of pieces, the pieces land directly in the parent. In a
+  flex parent each becomes its own item, their min-contents add up, and a
+  no-wrap row overflows a phone. Give rendered markdown its own box inside a
+  flex row.
+- **A fixed id in a component rendered twice.** The page and the cook /
+  bar view each render the scaler; `id="multiplier"` named only the first
+  field. Use `useId` for anything the cook view can duplicate.
+- **`page.clock.install` lets time flow.** After `fastForward` real time
+  still passes before the read, and a rounded-up countdown can already be a
+  second lower: allow it, or `pauseAt` first — and always pause before a
+  screenshot of a running countdown, or `toHaveScreenshot` never sees two
+  equal frames.
+- **`filter({ has })` takes a relative locator.** One built from the outer
+  locator (`tray.getByRole(…)`) carries its whole chain, so each row is
+  searched for a dialog with a tray inside it, and nothing matches; build it
+  from `page`.
+
 ### 42e — Holidays: the almanac and the menu pages (M–L)
 
 - **Data:** the `holidays` root's children (Thanksgiving, Christmas with
@@ -1031,6 +1215,325 @@ with recipes (slugs from the rule keys), existing recipes attached on a
 clear reason, at most 8 imports for holidays left thin. Dry run in scratch,
 reviewed, applied through the CLI; `POST /api/revalidate` after.
 
+### 42m — Bean swaps on Make (M)
+
+Roger, 2026-10-18 (live): "Add many different bean salad recipes which I
+will look up in the what can I make tool. I should be able to see many
+recipes with different beans and be able to **loosen the bean restrictions
+to substitute different beans if needed as a separate tier**." The salads
+themselves are a content phase running alongside; this is the tier.
+
+Strict and close matching stay as they were — `bean` is still out of the
+same-head rule, so black beans never _meet_ a chickpea line. A bean family
+(`common/util/beans.ts`) says which beans stand in for one another; a
+recipe short only of family beans, each coverable by a bean on hand, is
+listed in its own "With a bean swap" group with "Use [pinto beans] for
+[black bean]". It never becomes "can make" and moves no other count. A
+switch beside "Count close matches" turns it off, per browser; the agents'
+`inventory make` returns the same group (41i parity).
+
+#### Results
+
+**What changed.**
+
+- `common/util/beans.ts` (new, pure): `BEAN_KINDS` (the family, by kind),
+  `beanKind` / `beanKindOf` (a name's kind, through `toName`, after a few
+  leading "how it's sold" words — `cooked`, `canned`, `can of`, `15-ounce`,
+  `low-sodium`, `no-salt-added`), `isBeanLine` (every alternative a family
+  bean), `beanFor` (which bean on hand to swap in).
+- `util/makeable.ts`: `MakeableOptions.beanSwaps` (default `false` in the
+  pure judge; the page and the seat pass it), `RecipeMatch.swaps`, and
+  `MakeableAnalysis.beanSwap` — the same match objects as in their bucket,
+  sorted by name.
+- `/make`: the "With a bean swap" section after "Can make now" (photo and
+  spec cards: one "Use [have] for [needs]" line per swap, the bean on hand
+  a `have` tape and the line's a dashed `missing` tape); in the bucket the
+  recipe also sits in, "Needs [chickpea] (swap: black beans)"; the ticker
+  adds "· N with a bean swap" when N > 0; the switch "Let beans stand in
+  for each other" under "Count close matches" (`make-settings-v1`
+  `beanSwaps`, stored only as `false`).
+- Agents: `inventory_makeable` / `recipes inventory make` /
+  `GET /api/inventory/make` take `beanSwaps` (`--no-bean-swaps`,
+  `beanSwaps=0`), answer `beanSwaps: boolean` always and `beanSwap: [{slug,
+name, swaps: [{line, use}]}]` while it is on (capped at `limit`); the
+  CLI's text prints "With a bean swap (N)" after the buckets; the tool
+  description, the CLI help and the curator skill's §8 say so. Existing
+  fields keep their shapes.
+- Fixture `make-beans` (four salads, copied shapes: Chickpea Cucumber
+  Salad, Black Bean and Corn Salad, Two Bean Salad, Classic Three Bean Salad
+  with green beans); indexes built on a scratch copy with
+  `rebuildFixtureIndexes` (seeded from `make-food`'s index, since a type
+  with no index is skipped) and copied back.
+
+**The family (Dm1).** Black (black, black turtle); red (kidney — red, dark
+red, light red — red, small red, adzuki/azuki); pinto (pinto, borlotti,
+cranberry, anasazi, pink); white (cannellini, white, white kidney, navy,
+great northern, haricot, flageolet, marrow); chickpea (chickpeas, garbanzo
+— folded already — ceci); butter (butter, lima, baby lima); black-eyed peas
+(and cowpeas); mung; fava (and broad); and "any": beans, mixed beans, bean
+medley, bean mix, three/four/five bean mix. Bare varieties count where
+they name nothing else, as an `(or …)` alternative leaves them ("black
+beans (or pinto)"): pinto, borlotti, anasazi, kidney, red kidney,
+adzuki/azuki, navy, great northern, cannellini, lima, fava, ceci — never
+black, white, red, butter or cranberry. 42n's shapes read as members:
+"cranberry beans (borlotti)", "fava beans (broad beans)", "kidney beans
+(rajma)" (the parenthetical is an alias), and "black beans (or pinto or
+cannellini beans)" (each of its beans). **Left out:** green, string,
+wax and runner beans; edamame and soybeans; lentils and split peas; bean
+sprouts; coffee, cocoa, vanilla and jelly beans; refried, baked and chili
+beans (sauced); bean paste; romano beans (borlotti in Italy, a flat green
+bean in the US).
+
+**Decisions.**
+
+- **Dm1 — The family is an exact list, by kind.** After the leading "how
+  it's sold" words, a name must be one of the listed names exactly; no tail
+  rule, which would let `beans` claim green, vanilla and coffee beans. The
+  kind only orders the choice: the line's own kind first (navy for
+  cannellini), then any named bean in list order, then a mix. An A-or-B line
+  is a bean line only when every alternative is a family bean ("chickpeas or
+  lentils" is not).
+- **Dm2 — The tier is beside the buckets, not one of them.** A swap recipe
+  stays in one/two/further away, its `missing` and `distance` unchanged, so
+  every other count, the headings, the ticker's first four numbers and Buy
+  next are exactly as before (Buy next still offers chickpeas for it). The
+  card shows twice: in "With a bean swap" (what to swap) and in its bucket
+  ("Needs chickpea (swap: black beans)").
+- **Dm3 — "Every requirement met except beans"** is "every line in
+  `missing` is a bean line", so it follows `countClose`: with close matches
+  off, a close non-bean line keeps a recipe out. Staples count as on hand
+  for the swap as they do for everything else, so an "Assume I always have"
+  bean can be swapped in.
+- **Dm4 — One bean may cover several lines**; a three-bean salad from one
+  can is listed, saying the same bean for each.
+- **Dm5 — Featuring follows the matcher, not the swap.** Featuring
+  `chickpeas` keeps recipes whose required line chickpeas meet, and those in
+  the tier show their swap; featuring `black beans` does not pull in
+  chickpea recipes it could stand in for.
+- **Dm6 — Defaults.** On by default on `/make` and in the seat; off by
+  default in the pure `analyzeMakeable` (pages that show counts only — the
+  homepage tile, `/drinks` — never ask, and pay nothing). The ticker leaves
+  the tier out at 0, so a drinks scope reads as before.
+- **Dm7 — A bare `beans` names only the family** (review, a pre-existing
+  matcher gap fixed narrowly): an inventory item `beans` used to meet "1 lb
+  green beans", "1 vanilla bean" and "coffee beans" strictly (`bean` is no
+  vague head), and green beans on hand met a line asking for "beans". Now,
+  in `namesMatch`, a name that is only `bean` meets a longer one only when
+  that is a family bean (`isFamilyBeanWords`) — "black beans", "mixed
+  beans", "canned beans" yes; green, wax, string, vanilla, coffee, cocoa and
+  jelly beans no. It touches nothing but the word `bean`. It can lower
+  can-make counts for a list holding plain "beans", and the shopping list's
+  "probably on hand" fold (the same `satisfies`) no longer folds green beans
+  under it.
+- **Dm8 — An `(or …)` with `or` inside is read in the family only.** The
+  parser leaves "black beans (or pinto or cannellini beans)" as two
+  alternatives, `black bean` and `pinto or cannellini bean`, and a bare
+  `(or pinto)` without the noun. `beanKinds` splits a name on `or` and
+  lends the last part's noun to a part without it, so the line is a bean
+  line naming black, pinto and white. Strict matching is unchanged:
+  cannellini beans on hand meet it (the tail of `pinto or cannellini
+bean`), but pinto beans don't, so with pinto it lands in the tier ("Use
+  pinto beans for black bean or pinto or cannellini bean"). **Follow-up:** split
+  `(or A or B C)` into alternatives and lend the noun in the parser
+  (`alternativeParts` / `inheritTails`) — a matcher-wide change, out of this
+  phase.
+
+**Gates.**
+
+- typechecks: recipe-editor ✅ and the export (`tsc --noEmit`) ✅, heavy
+  slot, at 96dc9809;
+- vitest 2432/2432 (120 files), heavy slot; the makeable suites alone
+  212/212 (4 files) after the review fixes;
+- Playwright, Docker build mode: `make.spec` + `accessibility.spec` 101/101
+  (e2e + mobile), at 96dc9809; the two new bean tests (`make.spec`,
+  `accessibility.spec`) once in dev mode (Docker) 2/2;
+- baselines (Docker, build mode): `make-page-e2e` and `make-page-specs-e2e`
+  unchanged; `make-mobile-mobile` moved (393×2162 → 393×2234: the new
+  switch's three lines on the stacked shelf) and was regenerated, opened and
+  checked by eye — nothing else on it moved;
+- after merging origin/main (42a, 42c1; d16c80cc): typechecks ×2 ✅;
+  vitest, the make/inventory/CLI/MCP files 198/198 (8 files);
+  `make-mobile-mobile` conflicted, main's taken and regenerated in Docker
+  (same picture: the switch added); `make.spec` + `accessibility.spec`
+  104/104 in Docker build mode.
+
+**Roger to confirm.** The family list and its exclusions (Dm1: chili beans,
+romano beans, lentils as a later family of their own?); a swap recipe shown
+in both the tier and its bucket (Dm2) rather than moved; the switch on by
+default and its wording; featuring not widened by swaps (Dm5); a bare
+"beans" on the list no longer meeting green/vanilla/coffee beans, which
+can lower can-make counts (Dm7); the swap text's singular line name — "Use
+pinto beans for kidney bean", matching "Needs chickpea" (`requirementLabel`).
+
+### 42m2 — Make: tap to add, roomier further away, matcher ingredients (M)
+
+Roger, 2026-10-18 (live): "If I click an ingredient in the 'further away'
+list in what can i make, I want it added to the currently on hand
+ingredients to help get started easy. The list should probably have fewer
+items across at full width because ingredients get smushed. Also, I want to
+be able to add ingredients as a matcher, e.g. add 'bean' which effectively
+matches all beans and I can refine it later."
+
+Built on 42m (branch `agent/42m-bean-swaps`): its bean family is the
+matcher's member list.
+
+#### Results
+
+**What changed.**
+
+- **Tap a missing tape to add it.** Every result card's missing names —
+  "Needs", and the line's bean in "With a bean swap" — are buttons, "Add
+  chickpea to what I have" (`AddTape`), one per name of an A-or-B line. A
+  tap adds the name to this browser's list with an Undo toast; focus goes
+  to Undo, since the tape goes with the line it met. A card that moves up a
+  bucket (further away → two away, two → one, one → can make) gets 41h's
+  accent ring, off under reduced motion. On photo cards the note now sits
+  **beside** the card's link, not inside it, so no button nests in a link.
+- **Roomier groups.** "Can make now" keeps six photo cards across at `lg`
+  (no tapes to squeeze); "With a bean swap", "One ingredient away" and "Two
+  away" show at most four (`grid-cols-2 md:3 lg:4`); "Further away" is a
+  list of wide rows — a small picture (decoration; the name is the link),
+  the name, the tapes wrapping — one column, two from `xl`. The page is
+  `max-w-7xl`, so the results column is ~880 px at 1366, 1600 and 1920
+  alike. `RecipeGrid` / `SearchList` take an optional grid class; every
+  other page keeps six across. Spec cards are unchanged (already ~3 across).
+- **Matchers** (`common/util/matchers.ts`): `any bean` on the list meets
+  every line naming a family bean (42m's `beans.ts`), strictly — so it counts
+  for can make. `parseInventoryItem` reads it as an item with no names and a
+  `matcher`; `satisfies` asks `matcherMeets` (any alternative a member,
+  never a loose line, never non-alcoholic). It is never close to anything
+  and never a bean to swap in.
+  - **The add field** offers "✱ Any bean — matches N kinds in these
+    recipes" when the typed text begins the family's word (`bea`, `bean`,
+    `beans`, `any b…`), ranked by its what-if like any name, unless the list
+    has it or the scope uses no bean.
+  - **The tape** is marked ✱ with a rule under its words (`currentColor`,
+    so every theme and state keeps its contrast) and shows its pull. On this
+    browser's list its body opens **"Which beans do you have?"** — the
+    family's specific members in the current scope, each with its recipe
+    count and a checkbox; **Keep only these** puts the ticked beans in the
+    matcher's place (one change, Undo restores it); **Feature it** features
+    it from there. × removes it as any label. On the saved / house list it
+    is an outlined ✱ label that features as before.
+  - **Agents:** the seat reads the stored text, so `inventory_makeable` /
+    `recipes inventory make` answer as the page does; `inventory add`
+    stores `any bean` for any spelling, and `inventory remove` takes any
+    spelling. The `inventory_add` description, the CLI usage line and the
+    curator skill's §8 say so.
+
+**Decisions.**
+
+- **Dm2-1 — The syntax is text: `any <noun>`.** Canonical `any bean`;
+  `matcherOf` also reads `bean`, `beans`, `any beans`, `all beans`, `any
+kind/type/sort of beans`, `beans (any kind)`, `beans, any`. It
+  round-trips through the browser list, `inventory/on-hand.json`, Import /
+  export and the CLI/MCP with no format change; a list without one reads
+  exactly as before. `black beans`, `mixed beans`, `canned beans` and
+  `beans (Goya)` stay ordinary items.
+- **Dm2-2 — Tapping a missing tape adds; it no longer could feature.**
+  41h's result-card "Needs" tapes were static words (only Buy next's dashed
+  tape features, and still does); 41h's "tapping the body features" (Dh7,
+  Dh8) holds for shelf labels and Buy next. A matcher's body opens its
+  popover instead, and featuring it moved into the popover ("Feature any
+  bean", a fixed label with `aria-pressed`). Every missing tape is now a tab
+  stop — further away's rows add one per missing name; Tab order follows
+  the cards, and "Show all N" still caps a group at 12 cards.
+- **Dm2-3 — The tap adds to this browser's list**, whatever Count from
+  says (42a's saved-list editing is the shelf's, not the cards'). In Count
+  from = Saved list that list isn't counted, and the toast says so ("not
+  counted while Count from is the saved list"); no commit is ever made from
+  a card.
+- **Dm2-4 — Further away is rows; the other tape groups four across.**
+  Rows read the whole missing list at a glance and never squeeze; photo
+  cards stay where they carry one or two tapes.
+- **Dm2-5 — A matcher meets strictly, so the swap tier has nothing to add
+  for beans.** With `any bean` on hand every bean line is met, so no
+  recipe's missing lines are beans and `beanSwap` holds none of them — no
+  double count. After "Keep only these" the swap tier works as 42m built it.
+- **Dm2-6 — A bare `beans` / `bean` is the matcher**, normalised on add
+  (the page's `setHave`, the seat's `patchInventory` / `setInventory`), so
+  the text says what it means; a stored "beans" from before reads as the
+  matcher too — the browser canonicalises its list on read as well as on
+  write, and the seat compares `patchInventory` and `setInventory` by the
+  canonical key, so saving `any bean` over a stored "beans" is no change.
+  The add field never offers a line's plain `bean` beside "Any bean".
+  Against 42m's Dm7 (a bare `beans` names only the family) this widens one
+  case: `beans` on the list now meets chickpeas and black-eyed peas too —
+  every family member — as `any bean` does; green, vanilla and coffee
+  beans stay out. A line asking for plain "beans" adds `any bean` when its
+  tape is tapped. This settles 42m's review finding 2 on this branch: a
+  bare "beans" on the list can't meet green, vanilla or coffee beans.
+- **Dm2-7 — Beans only.** "Any cheese", "any vinegar", "any rum/whiskey"
+  would need an exact member list like `BEAN_KINDS` — the head and
+  class-noun rules don't define one (cream cheese is a cheese and no
+  stand-in for parmesan; malt vinegar for rice vinegar) — so they are
+  follow-ups, not shipped. `MATCHERS` takes one entry each when they are.
+- **Dm2-8 — The refine list is specific members only** (`chickpea`, not
+  "mixed beans" or a "beans" line), required lines only, most used first;
+  a row is the family's own name without how the bean is sold (review:
+  "2 cups cooked black beans" and "1 can low-sodium black beans" are one
+  `black bean` row, `beanNames`), and keeping it adds that name, which
+  meets both lines. A 42m Dm8 line ("black beans (or pinto or cannellini
+  beans)") lists each of its beans; until the parser splits such lines
+  (Dm8's follow-up), keeping `pinto bean` alone meets it only through the
+  swap tier.
+
+**Tests.** `makeMatchers.test.ts` (new: the syntax and its spellings, Export
+/ Import round trip, family positives and exclusions on real line shapes,
+A-or-B and loose lines, can make and staples, the shopping fold, pull and
+what-if, no double count with the swap tier, the refine list with "cooked" /
+"low-sodium" lines, `refineMatcher`, the add field's matcher suggestion);
+`makeMatcherUi.test.tsx` (new: the ✱ tape and its popover, Keep only these,
+Feature any bean, a stored "beans" read as the matcher, a typed "beans";
+the cards' add buttons outside the link, further away as rows);
+`inventory.test.ts` (+2: stored canonical, removed by any spelling, the
+page's judge agreeing, an old "beans" list, `setInventory` no change);
+`mcp.test.ts` and `cliJson.test.ts` (the matcher round trip); 42m's Dm7
+test now expects a bare "beans" to meet chickpeas. E2e: `make.spec` (+5: a
+further-away tap with Undo and the card moving up; "bean" → the matcher,
+counts, refine to chickpeas, Undo; the layout at 1366 / 1600 / 1920, no
+tape outside its card, rows two across, at most four photo cards across;
+42m's swap-card lookups and one Roasted Vegetables check moved to the card
+from its link); `accessibility.spec` (+1: a matcher with the refine popover
+open); `visual.spec` (+1: `make-results-wide`).
+
+**Gates** (capped wrappers; the last set after merging 42m's branch with
+origin/main d16c80cc — 42a and 42c1):
+
+- `pnpm --filter recipe-editor typecheck` ✓, `pnpm --filter recipe-website
+exec tsc --noEmit` ✓.
+- `pnpm exec vitest run`: **125 files, 2544 tests** ✓ (before the merge:
+  122 / 2461 with 2 failures — the export boundary test, a comment naming
+  the saved file in `common/`, and 42m's Dm7 assertion above — both fixed,
+  their files rerun 4 / 78 ✓).
+- Playwright, Docker, build mode: `make`, `accessibility`, `visual`,
+  `mobile` — **138 passed, 1 flaky** (make.spec's "buy next follows the
+  featured scope": two `make-ticker`s at page load, a strict-mode miss in
+  `ready()` before any 42m2 code ran — 41h's Th6 seen in build mode —
+  passed on retry). Before the merge: 111 passed + the moved phone shot,
+  then 29 with `--update-snapshots`.
+- Playwright, Docker, dev mode: `make`, `accessibility`, `visual` — **131
+  passed**.
+- **Final, one branch for 42m + 42m2** (42m's 1e6e2293 merged, then
+  origin/main be8ba8ad with 42e and 42h; the one text conflict, the CLI
+  help, kept both lines): typechecks ×2 ✓; vitest **127 files, 2585
+  tests** ✓; Docker build mode `make`, `accessibility`, `visual`,
+  `mobile`, `holidays` — **154 passed**, no baseline moved.
+
+**Baselines** (Docker only, each opened): `visual.spec.ts/make-page-e2e`
+**moved** (one-away photo cards four across, each "Needs" tape under the
+card's link); `mobile.spec.ts/make-mobile-mobile` **moved** (42m's bean
+switch, +72 px — the same picture 42m regenerated; no result card on it); `visual.spec.ts/make-results-wide-e2e`
+**new** (1920 px: Buy next, the groups at most four across, further away as
+a row; shot at 1920 × 2800 so the page fits, Th5). The results column is
+~876 px at 1920, as at 1366: the page is `max-w-7xl`.
+
+**Roger to confirm.** A card tap adding to this browser's list even in Count
+from = Saved list (Dm2-3); further away as rows and the other groups four
+across (Dm2-4); typing "beans" giving `any bean` rather than a plain item
+(Dm2-6); beans as the only matcher for now, with cheese / vinegar / rum /
+whiskey as follow-ups (Dm2-7); focus moving to Undo after a card tap.
+
 ### 42-close (S)
 
 Close-out here, a CLAUDE.md "Durable docs" bullet, backlog rows, memory.
@@ -1148,6 +1651,26 @@ buttonRef, …}` and two components taking it as a prop; the React
   the page's RSC payload for a change only the browser cares about; Next
   keeps `useSearchParams` in step with the History API, so the page
   narrows without a round trip, on the export too.
+
+### 42m2
+
+- **Tm2-1 — baselines from before a merge go stale where the old budget
+  can't see it (Tb4 in practice).** #288's first CI run failed the four
+  Make captures on Recipe shard 4/4 (`make-page` 1 474 px,
+  `make-results-wide` 1 060, `make-page-specs` 7 333, `make-mobile` 416).
+  The same count on every retry, and Docker reproduced it to the pixel in
+  dev **and** build mode, so this was no dev-only motion or ticking number.
+  The PNGs were drawn at 230f0bd3, before the branch merged 42a's outline
+  borders (d16c80cc). The merge also kept main's 42a-era `make-page-specs`,
+  which has no bean-switch row (42m) and none of 42m2's Needs tapes. Under
+  41's 2 % ratio every "no baseline moved" gate after those merges passed;
+  42b's 100 px budget, merged next, did not. Fix: those four regenerated in
+  Docker, build mode, `--update-snapshots=all`, and opened. The diffs are
+  outline-button borders ("I have this", Clear, Import / export), the bean
+  switch row, and the Needs-tape layout. Then build ×3 and dev ×3
+  (`--repeat-each=3 --retries=0`): **12 + 12 passed**; `make.spec` in dev:
+  **47 passed**. Lesson: after merging main into a branch that owns
+  baselines, regenerate those baselines with `=all`; don't trust a pass.
 
 ## Results
 

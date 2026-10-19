@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "../support/test";
+import { expectHydrated } from "../support/hydration";
 
 /**
  * Bar tools (27c): the oz · ml · parts toggle, the batching note and the
@@ -14,6 +15,11 @@ function ingredientList(page: Page) {
   return page.locator("section").filter({
     has: page.getByRole("heading", { name: "Ingredients", exact: true }),
   });
+}
+
+/** The scaler's own field on a drink: "Drinks" (42c2), not "Multiply". */
+function drinksField(page: Page) {
+  return page.getByRole("textbox", { name: "Drinks", exact: true });
 }
 
 async function lines(page: Page): Promise<string[]> {
@@ -50,7 +56,8 @@ test.describe("Bar tools", () => {
       .poll(() => lines(page))
       .toEqual(["60 ml vodka", "25 ml lime juice", "25 ml simple syrup"]);
 
-    await page.getByRole("button", { name: "Double batch" }).click();
+    /* A drink's scaler counts drinks (42c2): two drinks is 2×. */
+    await page.getByRole("button", { name: "2 drinks" }).click();
     await expect
       .poll(() => lines(page))
       .toEqual(["120 ml vodka", "45 ml lime juice", "45 ml simple syrup"]);
@@ -68,7 +75,7 @@ test.describe("Bar tools", () => {
     page,
   }) => {
     await page.goto(VODKA_SOUR);
-    await page.getByRole("button", { name: "Double batch" }).click();
+    await page.getByRole("button", { name: "2 drinks" }).click();
     await page
       .getByRole("group", { name: "Units" })
       .getByRole("button", { name: "Parts" })
@@ -81,13 +88,13 @@ test.describe("Bar tools", () => {
         "1 part simple syrup",
       ]);
     await expect(page.getByText("parts don't scale")).toBeVisible();
-    await expect(page.getByLabel("Multiply")).toBeDisabled();
+    await expect(drinksField(page)).toBeDisabled();
   });
 
   test("offers a batching note for a scaled shaken drink", async ({ page }) => {
     await page.goto(VODKA_SOUR);
     await expect(page.getByTestId("batching-note")).toHaveCount(0);
-    await page.getByLabel("Multiply").fill("4");
+    await drinksField(page).fill("4");
     /* 3 1/2 oz × 4 = 14 oz; shaken, ~25% → 3 1/2 oz water. */
     await expect(page.getByTestId("batching-note")).toContainText(
       "Stir in about 3 1/2 oz water",
@@ -168,5 +175,54 @@ test.describe("Bar tools", () => {
     await page.goto("/recipe/hand-pies");
     await expect(page.getByRole("button", { name: "Cook view" })).toBeVisible();
     await expect(page.getByRole("group", { name: "Units" })).toHaveCount(0);
+    /* And keeps the batch scaler: "Multiply", ½× · 1× · 2×. */
+    await expect(page.getByLabel("Multiply")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Double batch" }),
+    ).toBeVisible();
+  });
+
+  test("a drink's scaler counts drinks, and so does its yield (42c2)", async ({
+    page,
+  }) => {
+    await page.goto(VODKA_SOUR);
+    const drinks = page.getByRole("group", { name: "Drinks", exact: true });
+    await expect(drinks.getByRole("button")).toHaveText([
+      "1 drink",
+      "2 drinks",
+      "4 drinks",
+    ]);
+    await expect(
+      drinks.getByRole("button", { name: "1 drink" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByLabel("Multiply")).toHaveCount(0);
+    const yieldValue = page
+      .getByText("Yield", { exact: true })
+      .locator("xpath=ancestor::div[1]");
+    await expect(yieldValue).toContainText("1 drink");
+
+    const four = drinks.getByRole("button", { name: "4 drinks" });
+    await expectHydrated(four);
+    await four.click();
+    await expect(four).toHaveAttribute("aria-pressed", "true");
+    await expect(drinksField(page)).toHaveValue("4");
+    await expect
+      .poll(() => lines(page))
+      .toEqual(["8 oz vodka", "3 oz lime juice", "3 oz simple syrup"]);
+    await expect(yieldValue).toContainText("4 drinks");
+
+    /* Typed counts go through the same multiplier. */
+    await drinksField(page).fill("3");
+    await expect(yieldValue).toContainText("3 drinks");
+    await expect
+      .poll(() => lines(page))
+      .toEqual(["6 oz vodka", "2 1/4 oz lime juice", "2 1/4 oz simple syrup"]);
+
+    /* The bar view's scaler is the same one. */
+    await page.getByRole("button", { name: "Bar view" }).click();
+    const view = page.getByRole("dialog", { name: "Bar view: Vodka Sour" });
+    await expect(
+      view.getByRole("textbox", { name: "Drinks", exact: true }),
+    ).toHaveValue("3");
   });
 });

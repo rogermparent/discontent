@@ -41,6 +41,7 @@ export default function StyledMarkdown({
   forceBlock,
   className = "markdown-body",
   wrapper,
+  renderRule,
 }: {
   children: string;
   components?: MarkdownToJSX.Overrides;
@@ -49,6 +50,11 @@ export default function StyledMarkdown({
   forceBlock?: boolean;
   className?: string;
   wrapper?: ElementType;
+  /**
+   * markdown-to-jsx's per-node render hook, passed through (42c2: the recipe
+   * page turns durations in a step's text into timer buttons with it).
+   */
+  renderRule?: MarkdownToJSX.Options["renderRule"];
 }) {
   return (
     <Markdown
@@ -67,6 +73,7 @@ export default function StyledMarkdown({
         forceInline,
         forceBlock,
         wrapper,
+        renderRule,
       }}
     >
       {/*

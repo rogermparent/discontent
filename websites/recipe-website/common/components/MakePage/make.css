@@ -78,6 +78,16 @@
     border-style: solid;
   }
 
+  /* A matcher (42m2, "✱ any bean"): a rule under its words, in its ink. */
+  .make-tape[data-matcher="true"]::before {
+    box-shadow: inset 0 -2px 0 currentColor;
+  }
+  /* A card's missing tape that adds on a tap (42m2): solid under the pointer. */
+  .make-tape-add:hover::before {
+    border-style: solid;
+    border-color: var(--foreground);
+  }
+
   /* A label that just went on the shelf lands. */
   .make-tape[data-landed="true"] {
     animation: make-tape-land 0.5s ease-out;

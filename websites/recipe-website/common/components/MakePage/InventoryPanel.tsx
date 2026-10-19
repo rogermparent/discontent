@@ -17,6 +17,9 @@ import {
   type SavedListEdit,
 } from "./SavedInventory";
 import { isFeatured } from "./kinds";
+import { matcherOf } from "../../util/matchers";
+import type { MatcherMember } from "./makeMath";
+import { MatcherTape } from "./MatcherTape";
 import { TapeLabel } from "./Tape";
 
 /**
@@ -170,6 +173,34 @@ function CloseSwitch({ settings }: { settings: MakeSettings }) {
   );
 }
 
+/**
+ * "Let beans stand in for each other" (42m), per browser, on by default:
+ * the "With a bean swap" group — recipes short only of beans another bean
+ * on hand could replace. It never changes what counts as had.
+ */
+function BeanSwitch({ settings }: { settings: MakeSettings }) {
+  const id = useId();
+  return (
+    <div className="flex items-start gap-2.5">
+      <input
+        id={id}
+        type="checkbox"
+        data-testid="make-bean-swaps"
+        className="mt-0.5 size-4 shrink-0 accent-primary"
+        checked={settings.beanSwaps}
+        onChange={(event) => settings.setBeanSwaps(event.target.checked)}
+      />
+      <label htmlFor={id} className="text-sm">
+        Let beans stand in for each other{" "}
+        <span className="text-muted-foreground">
+          — pinto for black beans, cannellini for chickpeas, in a group of their
+          own
+        </span>
+      </label>
+    </div>
+  );
+}
+
 /** The page's second list (41h): whose it is, for its labels and copy. */
 export interface SecondList {
   /** `saved`: the signed-in editor's saved list. `house`: the export's snapshot. */
@@ -278,6 +309,11 @@ export interface SaveToEditor {
  *
  * Each label's × is a **sibling** of its body, so each has a name of its own
  * ("Remove vodka") and nothing interactive nests.
+ *
+ * A matcher on this browser's list (42m2, "✱ any bean") is a `MatcherTape`:
+ * its body opens "Which beans do you have?" to refine it (`onRefine`), and
+ * features it from there. On the second list it is an outlined label marked
+ * ✱, featurable as any other.
  */
 export function InventoryPanel({
   inventory,
@@ -293,6 +329,8 @@ export function InventoryPanel({
   onClear,
   onCopySecond,
   onToggleFeature,
+  matcherMembers,
+  onRefine,
   saveToEditor,
   savedEdit,
   inputRef,
@@ -314,6 +352,14 @@ export function InventoryPanel({
   onClear: () => void;
   onCopySecond: () => void;
   onToggleFeature: (item: string) => void;
+  /**
+   * A matcher's members in the current scope (42m2), for its popover. With
+   * `onRefine`, a matcher on this browser's list opens it; without, it is a
+   * label like any other, marked ✱.
+   */
+  matcherMembers?: (item: string) => MatcherMember[];
+  /** "Keep only these" (42m2): the matcher `item` replaced by `chosen`. */
+  onRefine?: (item: string, chosen: string[]) => void;
   saveToEditor?: SaveToEditor;
   /** Per-item edits of the saved list (42a): signed-in editor only. */
   savedEdit?: SavedListEdit;
@@ -475,21 +521,42 @@ export function InventoryPanel({
                   : "This browser's list, not counted"
               }
             >
-              {have.map((item, i) => (
-                <TapeLabel
-                  key={inventoryKey(item)}
-                  item={item}
-                  counted={browserCounted}
-                  featured={isFeatured(item, featured)}
-                  pull={browserCounted ? pulls.get(item) : undefined}
-                  landed={landed === inventoryKey(item)}
-                  onFeature={() => onToggleFeature(item)}
-                  onRemove={() => {
-                    focusAfterRemove.current = i;
-                    onRemove(item);
-                  }}
-                />
-              ))}
+              {have.map((item, i) =>
+                matcherOf(item) &&
+                browserCounted &&
+                matcherMembers &&
+                onRefine ? (
+                  <MatcherTape
+                    key={inventoryKey(item)}
+                    item={item}
+                    featured={isFeatured(item, featured)}
+                    pull={pulls.get(item)}
+                    landed={landed === inventoryKey(item)}
+                    members={() => matcherMembers(item)}
+                    onRefine={(chosen) => onRefine(item, chosen)}
+                    onToggleFeature={() => onToggleFeature(item)}
+                    onRemove={() => {
+                      focusAfterRemove.current = i;
+                      onRemove(item);
+                    }}
+                  />
+                ) : (
+                  <TapeLabel
+                    key={inventoryKey(item)}
+                    item={item}
+                    counted={browserCounted}
+                    featured={isFeatured(item, featured)}
+                    pull={browserCounted ? pulls.get(item) : undefined}
+                    landed={landed === inventoryKey(item)}
+                    matcher={!!matcherOf(item)}
+                    onFeature={() => onToggleFeature(item)}
+                    onRemove={() => {
+                      focusAfterRemove.current = i;
+                      onRemove(item);
+                    }}
+                  />
+                ),
+              )}
             </ul>
             {!browserCounted && second && (
               <p
@@ -539,6 +606,7 @@ export function InventoryPanel({
                     key={inventoryKey(item)}
                     item={item}
                     kind="saved"
+                    matcher={!!matcherOf(item)}
                     featured={isFeatured(item, featured)}
                     pull={pulls.get(item)}
                     onFeature={() => onToggleFeature(item)}
@@ -585,6 +653,7 @@ export function InventoryPanel({
           <PantrySwitch settings={settings} />
           <StaplesEditor settings={settings} />
           <CloseSwitch settings={settings} />
+          <BeanSwitch settings={settings} />
         </div>
         <div className="flex flex-wrap gap-2">
           <ImportExportDialog

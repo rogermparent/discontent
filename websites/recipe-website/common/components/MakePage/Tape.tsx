@@ -11,7 +11,7 @@ import { cn } from "@discontent/component-library/lib/utils";
  */
 export type TapeKind = "have" | "saved" | "missing";
 
-const FOCUS =
+export const FOCUS =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 
 /**
@@ -29,6 +29,7 @@ export function TapeLabel({
   featured,
   pull,
   landed,
+  matcher,
   onFeature,
   onRemove,
   removeLabel,
@@ -47,6 +48,8 @@ export function TapeLabel({
   pull?: number;
   /** Just added: it lands (reduced motion: it doesn't). */
   landed?: boolean;
+  /** A matcher item (42m2, `any bean`): marked ✱, its look from the theme. */
+  matcher?: boolean;
   onFeature: () => void;
   onRemove?: () => void;
   /** The ×'s name; "Remove <item>" by default. */
@@ -61,6 +64,7 @@ export function TapeLabel({
       data-counted={counted ? undefined : "false"}
       data-featured={featured ? "true" : undefined}
       data-landed={landed ? "true" : undefined}
+      data-matcher={matcher ? "true" : undefined}
     >
       <button
         type="button"
@@ -72,6 +76,7 @@ export function TapeLabel({
           FOCUS,
         )}
       >
+        {matcher && <MatcherMark />}
         {item}
         {pull ? (
           <span aria-hidden className="text-[0.68rem] opacity-75">
@@ -93,6 +98,45 @@ export function TapeLabel({
         </button>
       )}
     </Tag>
+  );
+}
+
+/** A matcher's mark (42m2): decoration, so a tape's name stays its words. */
+export function MatcherMark() {
+  return (
+    <span aria-hidden className="-mr-0.5">
+      ✱
+    </span>
+  );
+}
+
+/**
+ * A missing ingredient a tap adds to the list (42m2): a card's "Needs" tape
+ * as a button, named "Add <item> to what I have" — the visible word inside
+ * the name (WCAG 2.5.3) — at least 24 px tall (2.5.8).
+ */
+export function AddTape({
+  item,
+  onAdd,
+}: {
+  /** What a tap adds, and what it says: the line's name, `chickpea`. */
+  item: string;
+  onAdd: (item: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-kind="missing"
+      data-testid="make-add-missing"
+      aria-label={`Add ${item} to what I have`}
+      onClick={() => onAdd(item)}
+      className={cn(
+        "make-tape make-tape-add min-h-6 max-w-full cursor-pointer items-center px-2 py-1 text-left font-mono text-[0.75rem] leading-tight",
+        FOCUS,
+      )}
+    >
+      {item}
+    </button>
   );
 }
 

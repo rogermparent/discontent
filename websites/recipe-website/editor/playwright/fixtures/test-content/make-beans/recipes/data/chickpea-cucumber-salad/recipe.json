@@ -1,0 +1,32 @@
+{
+  "name": "Chickpea Cucumber Salad",
+  "description": "Chickpeas, cucumber and lemon.",
+  "tags": [
+    "salad",
+    "vegetarian"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "1 (15 oz) can chickpeas, drained and rinsed"
+    },
+    {
+      "ingredient": "1 English cucumber, diced"
+    },
+    {
+      "ingredient": "2 tablespoons lemon juice"
+    },
+    {
+      "ingredient": "2 tablespoons olive oil"
+    },
+    {
+      "ingredient": "1/2 teaspoon kosher salt"
+    }
+  ],
+  "date": 1792000000000,
+  "recipeYield": "4 servings",
+  "instructions": [
+    {
+      "text": "Toss it all together."
+    }
+  ]
+}

@@ -384,6 +384,14 @@ describe("the CLI as a process", () => {
         items: ["Gnista", "simple syrup"],
         changed: true,
       });
+      /* 42m2: the matcher round-trips as text; "beans" is already it. */
+      const matcher = await run(["inventory", "add", "any bean", "--json"]);
+      expect(JSON.parse(matcher.stdout)).toMatchObject({
+        added: ["any bean"],
+      });
+      const again = await run(["inventory", "add", "beans", "--json"]);
+      expect(JSON.parse(again.stdout)).toMatchObject({ changed: false });
+      await run(["inventory", "remove", "any bean", "--json"]);
 
       const make = await run(["inventory", "make", "-tag:drink", "--json"]);
       expect(make.exitCode).toBe(0);
@@ -391,7 +399,21 @@ describe("the CLI as a process", () => {
         query: "-tag:drink",
         inventory: 2,
         staples: true,
+        beanSwaps: true,
+        beanSwap: [],
       });
+      /* 42m: `--no-bean-swaps` drops the bean-swap tier. */
+      const noSwaps = await run([
+        "inventory",
+        "make",
+        "-tag:drink",
+        "--no-bean-swaps",
+        "--json",
+      ]);
+      expect(noSwaps.exitCode).toBe(0);
+      const noSwapsJson = JSON.parse(noSwaps.stdout);
+      expect(noSwapsJson).toMatchObject({ beanSwaps: false });
+      expect(noSwapsJson).not.toHaveProperty("beanSwap");
       /* U5: `--no-staples` turns the pantry staples off. */
       const strict = await run([
         "inventory",

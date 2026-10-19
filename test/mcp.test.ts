@@ -706,6 +706,12 @@ describe("the MCP registry over an in-memory transport", () => {
     });
     /* Nothing caches the list, so there is no stale editor to warn about. */
     expect(added.data.warnings).toBeUndefined();
+    /* 42m2: "beans" is the `any bean` matcher, stored canonical; any
+     * spelling takes it off again. */
+    const matcher = await call("inventory_add", { items: ["beans"] });
+    expect(matcher.data).toMatchObject({ added: ["any bean"] });
+    const unmatched = await call("inventory_remove", { items: ["any beans"] });
+    expect(unmatched.data).toMatchObject({ removed: ["any bean"] });
 
     /* Every recipe by default (32j); `tag:drink` narrows. */
     const before = await call("inventory_makeable", {});
@@ -719,6 +725,12 @@ describe("the MCP registry over an in-memory transport", () => {
         },
       ]),
     });
+    /* 42m: the bean-swap tier is on by default, and `beanSwaps: false` drops it. */
+    expect(before.data).toMatchObject({ beanSwaps: true, beanSwap: [] });
+    const noSwaps = await call("inventory_makeable", { beanSwaps: false });
+    expect(noSwaps.isError).toBe(false);
+    expect(noSwaps.data.beanSwaps).toBe(false);
+    expect(noSwaps.data).not.toHaveProperty("beanSwap");
     const drinks = await call("inventory_makeable", { query: "tag:drink" });
     expect(drinks.data).toMatchObject({
       query: "tag:drink",
