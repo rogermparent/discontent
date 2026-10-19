@@ -996,8 +996,8 @@ test.describe("Featured Recipes", () => {
       // asserting where an image file actually exists to render.
       await resetData("linked-recipes");
 
-      await page.goto("/recipe/kefir");
-      await page.getByRole("link", { name: "Feature", exact: true }).click();
+      /* Signed out the recipe page offers no Feature link (43a): go to its target. */
+      await page.goto("/featured-recipe/new?recipe=kefir");
       await fillSignInForm(page);
       await page.getByRole("button", { name: "Submit", exact: true }).click();
       /*

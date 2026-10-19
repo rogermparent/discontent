@@ -1,3 +1,4 @@
+import { auth } from "@/auth";
 import {
   editorTagRoute,
   generateTagMetadata,
@@ -11,7 +12,12 @@ import {
  * The editor's variant (24c): the same body, plus the Feature link and, since
  * 31e, the Edit link to `/tags/<slug>/edit` — see `editorTagRoute`.
  */
-export default editorTagRoute;
+export default async function TagPage(props: {
+  params: Promise<{ tag: string }>;
+}) {
+  const signedIn = Boolean((await auth())?.user?.email);
+  return editorTagRoute({ params: props.params, signedIn });
+}
 
 export const generateMetadata = generateTagMetadata;
 export const generateStaticParams = generateTagStaticParams;

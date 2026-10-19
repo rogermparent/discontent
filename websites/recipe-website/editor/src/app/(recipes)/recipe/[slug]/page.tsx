@@ -54,30 +54,32 @@ export default async function RecipePage({
           }
         />
       </PageSection>
-      <PageActions>
-        <form
-          id="delete-recipe-form"
-          action={deleteRecipeWithId}
-          className="contents"
-        />
-        <ConfirmDeleteButton
-          formId="delete-recipe-form"
-          itemLabel="recipe"
-          description="This removes the recipe and its uploads, and commits the removal."
-        />
-        <Button asChild size="sm">
-          <Link href={`/recipe/${slug}/edit`}>Edit</Link>
-        </Button>
-        <Button asChild size="sm">
-          <Link href={`/recipe/${slug}/copy`}>Copy</Link>
-        </Button>
-        <Button asChild size="sm">
-          <Link href={`/featured-recipe/new?recipe=${slug}`}>Feature</Link>
-        </Button>
-        <Button asChild size="sm">
-          <Link href={`/group/new?recipe=${slug}`}>Group</Link>
-        </Button>
-      </PageActions>
+      {signedIn && (
+        <PageActions>
+          <form
+            id="delete-recipe-form"
+            action={deleteRecipeWithId}
+            className="contents"
+          />
+          <ConfirmDeleteButton
+            formId="delete-recipe-form"
+            itemLabel="recipe"
+            description="This removes the recipe and its uploads, and commits the removal."
+          />
+          <Button asChild size="sm">
+            <Link href={`/recipe/${slug}/edit`}>Edit</Link>
+          </Button>
+          <Button asChild size="sm">
+            <Link href={`/recipe/${slug}/copy`}>Copy</Link>
+          </Button>
+          <Button asChild size="sm">
+            <Link href={`/featured-recipe/new?recipe=${slug}`}>Feature</Link>
+          </Button>
+          <Button asChild size="sm">
+            <Link href={`/group/new?recipe=${slug}`}>Group</Link>
+          </Button>
+        </PageActions>
+      )}
     </PageMain>
   );
 }
