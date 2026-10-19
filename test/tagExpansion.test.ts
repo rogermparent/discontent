@@ -4,7 +4,8 @@
 //
 // Two halves. The pure one pins the resolver's rules: a term reaches its whole
 // subtree, a leaf still reconciles its slug with its label, a hand-edited
-// cycle terminates, and an expansion only ever *adds* to the prefix match.
+// cycle terminates, and a value that names a term matches that term's
+// subtree only (43f, Df9) while one that names none keeps the prefix match.
 // The fixture half is the parity claim: on a copy of `christmas-cookies` with
 // a `linzer` term under `cookies`, the server (`recipe_search`, `list --tag`)
 // and the browser (`matchesFilter` over the `/search/terms` vocabulary, and
@@ -124,7 +125,7 @@ describe("matchesFilter with a resolver", () => {
     expect(matchesFilter(linzer, filterOf("tag:dessert"))).toBe(false);
   });
 
-  it("negates through the expansion, and never loses a prefix match", () => {
+  it("negates through the expansion, and keeps the prefix match for a value naming no term", () => {
     expect(matchesFilter(linzer, filterOf("-tag:dessert"), resolver)).toBe(
       false,
     );
@@ -135,6 +136,50 @@ describe("matchesFilter with a resolver", () => {
       true,
     );
     expect(matchesFilter(slow, filterOf('tag:"slow cooker"'))).toBe(false);
+  });
+
+  /* 43f, Df9: a facet row's count is what its click finds. */
+  it("matches a term's subtree only, never another tag it prefixes", () => {
+    const bar = buildTagExpansion([
+      { slug: "side", label: "Sides", record: true },
+      { slug: "gin", label: "Gin", record: true },
+      { slug: "drink", label: "Drinks", record: true },
+      {
+        slug: "gin-and-tonic",
+        label: "Gin and Tonic",
+        parent: "drink",
+        record: true,
+      },
+      { slug: "sidecar", label: "Sidecar", parent: "drink", record: true },
+      { slug: "st-patricks-day", label: "St. Patrick's Day", record: true },
+    ]);
+    const sidecar = { name: "Sidecar", tags: ["drink", "sidecar"] };
+    const tonic = { name: "G&T", tags: ["drink", "gin-and-tonic"] };
+    const salad = { name: "Slaw", tags: ["side"] };
+    const soda = { name: "Shamrock", tags: ["St Patricks Day"] };
+    expect(matchesFilter(sidecar, filterOf("tag:side"), bar)).toBe(false);
+    expect(matchesFilter(salad, filterOf("tag:side"), bar)).toBe(true);
+    expect(matchesFilter(salad, filterOf("tag:Sides"), bar)).toBe(true);
+    expect(matchesFilter(tonic, filterOf("tag:gin"), bar)).toBe(false);
+    expect(matchesFilter(tonic, filterOf("-tag:gin"), bar)).toBe(true);
+    /* A carried spelling that slugs to the term's slug is the term's. */
+    expect(matchesFilter(soda, filterOf("tag:st-patricks-day"), bar)).toBe(
+      true,
+    );
+    /* Without a resolver — the corpus before /search/terms lands — prefix. */
+    expect(matchesFilter(sidecar, filterOf("tag:side"))).toBe(true);
+    expect(matchesFilter(tonic, filterOf("tag:gin"))).toBe(true);
+  });
+
+  it("keeps the prefix match for a half-typed value that names no term", () => {
+    const bar = buildTagExpansion([
+      { slug: "side", label: "Sides", record: true },
+      { slug: "sidecar", label: "Sidecar", record: true },
+    ]);
+    const sidecar = { name: "Sidecar", tags: ["sidecar"] };
+    const salad = { name: "Slaw", tags: ["side"] };
+    expect(matchesFilter(sidecar, filterOf("tag:sid"), bar)).toBe(true);
+    expect(matchesFilter(salad, filterOf("tag:sid"), bar)).toBe(true);
   });
 });
 

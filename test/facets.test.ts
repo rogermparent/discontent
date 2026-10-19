@@ -38,7 +38,8 @@ import {
 /*
  * A real-shaped vocabulary: the shapes of the content repo's term records on
  * 2026-10-19 (copied, trimmed — never read from `editor/content`). Four food
- * facet roots, two Collections, holidays with aliases, the bar with styles,
+ * facet roots, three Collections (House — 43k's root for the house bar —
+ * holds drinks and dishes), holidays with aliases, the bar with styles,
  * strength and method terms and drink-name families, the spirit root, and
  * one nested chain (Desserts › Cookies › Linzer Cookies).
  */
@@ -69,6 +70,7 @@ const RECORDS: Record<
   quick: { label: "Quick", parent: "effort" },
   fall: { label: "Fall Favorites" },
   syrup: { label: "Syrups" },
+  house: { label: "House" },
   holidays: { label: "Holidays" },
   christmas: {
     label: "Christmas",
@@ -157,7 +159,7 @@ const RECIPES = [
     ],
   },
   { slug: "aviation", tags: ["drink", "aviation", "shaken", "gin"] },
-  { slug: "nojito", tags: ["drink", "zero-proof", "highball"] },
+  { slug: "nojito", tags: ["drink", "zero-proof", "highball", "house"] },
   { slug: "tea-cake", tags: ["dessert", "tea"] },
   { slug: "simple-syrup", tags: ["syrup"] },
   { slug: "untagged" },
@@ -201,7 +203,7 @@ describe("the group constants", () => {
       "food:main-ingredient",
       "food:cuisine",
       "food:effort",
-      "food:collections",
+      "any:collections",
       "food:holidays",
       "drinks:style",
       "drinks:strength-method",
@@ -255,7 +257,7 @@ describe("buildFacetModel", () => {
   it("makes Collections of recorded roots outside every facet", () => {
     expect(
       model.groups.find((entry) => entry.id === "collections")?.rows,
-    ).toEqual(["fall", "syrup"]);
+    ).toEqual(["fall", "syrup", "house"]);
   });
 
   it("leaves out a group whose root the vocabulary lacks", () => {
@@ -332,8 +334,10 @@ describe("countFacets", () => {
   it("collects unplaced tags as other tags, most carried first", () => {
     expect(counts.other).toEqual([
       { slug: "aviation", label: "aviation", count: 1 },
-      { slug: "house", label: "house", count: 1 },
     ]);
+    /* A string only recipes carry — no record — is an other tag too. */
+    const loose = countFacets(model, [{ tags: ["zzz"] }, { tags: ["ZZZ "] }]);
+    expect(loose.other).toEqual([{ slug: "zzz", label: "zzz", count: 2 }]);
   });
 
   it("finds the same other tags from the browser's terms, carried-only ones included", () => {
@@ -345,9 +349,10 @@ describe("countFacets", () => {
       facetTermsFromOptions(tagOptions(vocabulary, TREE)),
     );
     const tally = countFacets(browser, RECIPES);
+    /* `aviation` is a carried-only term here, not an unknown string. */
+    expect(browser.terms.get("aviation")?.record).toBeUndefined();
     expect(tally.other.map((tag) => [tag.slug, tag.count])).toEqual([
       ["aviation", 1],
-      ["house", 1],
     ]);
     /* `TagOption` carries no picture; everything else is the same. */
     expect(withoutImages(facetGroups(browser, tally))).toEqual(
@@ -378,6 +383,7 @@ describe("countFacets", () => {
       "Main ingredient 1",
       "Cuisine 1",
       "Speed & effort 1",
+      "Collections 1",
       "Style 3",
       "Strength & method 3",
       "Spirit & base 2",
@@ -455,12 +461,42 @@ describe("facetGroups", () => {
     ]);
   });
 
-  it("puts Collections in the food shelf with their own counts", () => {
-    expect(labels(group("collections")?.rows)).toEqual([
+  it("counts Collections over every recipe, for either kind", () => {
+    const collections = group("collections");
+    expect(collections?.kind).toBe("any");
+    expect(labels(collections?.rows)).toEqual([
+      "House 2",
       "Fall Favorites 1",
       "Syrups 1",
     ]);
-    expect(group("collections")?.total).toBe(2);
+    expect(collections?.total).toBe(4);
+    /* A drinks-only set still has its House row; a food set its Fall one. */
+    const drinksOnly = countFacets(
+      model,
+      RECIPES.filter((recipe) => recipe.slug === "nojito"),
+    );
+    expect(
+      labels(
+        group("collections", facetGroups(model, drinksOnly, { kind: "drinks" }))
+          ?.rows,
+      ),
+    ).toEqual(["House 1"]);
+    const foodOnly = countFacets(
+      model,
+      RECIPES.filter((recipe) => recipe.slug === "pumpkin-bread"),
+    );
+    expect(
+      labels(
+        group("collections", facetGroups(model, foodOnly, { kind: "food" }))
+          ?.rows,
+      ),
+    ).toEqual(["Fall Favorites 1"]);
+    expect(
+      group(
+        "collections",
+        facetGroups(model, countFacets(model, []), { kind: "drinks" }),
+      ),
+    ).toBeUndefined();
   });
 
   it("drops empty rows unless asked, and keeps a selected one", () => {
@@ -507,7 +543,23 @@ describe("facetGroups", () => {
   it("filters by kind and orders by total when asked", () => {
     expect(
       facetGroups(model, counts, { kind: "drinks" }).map((entry) => entry.id),
-    ).toEqual(["style", "strength-method", "spirit", "families"]);
+    ).toEqual([
+      "collections",
+      "style",
+      "strength-method",
+      "spirit",
+      "families",
+    ]);
+    expect(
+      facetGroups(model, counts, { kind: "food" }).map((entry) => entry.id),
+    ).toEqual([
+      "course",
+      "main-ingredient",
+      "cuisine",
+      "effort",
+      "collections",
+      "holidays",
+    ]);
     const byTotal = facetGroups(model, counts, { order: "total" });
     expect(byTotal[0].id).toBe("course");
     expect(byTotal.map((entry) => entry.total)).toEqual(
@@ -563,8 +615,11 @@ describe("the query (D3)", () => {
       "tacos tag:chicken",
     );
     expect(toggleFacet(model, "tag:main tag:main", "main")).toBe("");
-    /* An excluded term isn't a selected one: the toggle adds it. */
-    expect(toggleFacet(model, "-tag:sour", "sour")).toBe("-tag:sour tag:sour");
+    /* An excluded row goes back to neutral: the exclusion is removed. */
+    expect(toggleFacet(model, "-tag:sour", "sour")).toBe("");
+    expect(toggleFacet(model, "lime NOT tag:Sour tag:gin", "sour")).toBe(
+      "lime tag:gin",
+    );
   });
 
   it("reads and writes the Kind row as tag:drink / -tag:drink", () => {

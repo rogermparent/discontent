@@ -117,8 +117,10 @@ reads; client- and server-safe: it imports only modules the browser already
 loads), and `test/facets.test.ts` (33 tests). One additive change elsewhere:
 `tagExpansion.ts` exports `buildTermLookup` — the spelling → term map
 `tag:` already resolved by, pulled out into `spellingIndex` and shared by
-`buildTagExpansion` (no behaviour change; its 18 tests pass unchanged), so a
-tag counted under a term is exactly the tag `tag:<term>` finds.
+`buildTagExpansion`, so a tag counted under a term is exactly the tag
+`tag:<term>` finds. Review fixes (second commit): `matchesFilter` matches
+a term's subtree only (Df9), Collections are of either kind (Df1), and a
+row's click clears an exclusion.
 
 **API summary (for 43s, 43t, 43e2, 43q).**
 
@@ -131,8 +133,9 @@ map)` turns a whole by-term map into `{slug, tags}[]` for the server.
 - **Model** — `buildFacetModel(terms)` → `{terms, resolve(tag), ancestors,
 children, groups, groupsOf}`. `groups` are `FacetGroupShape {id, kind,
 label, root?, rows: slug[]}` in `FACET_GROUPS` order: food `course`,
-  `main-ingredient`, `cuisine`, `effort`, `collections`, `holidays`; drinks
-  `style`, `strength-method`, `spirit`, `families`. Root-backed groups take
+  `main-ingredient`, `cuisine`, `effort`; `collections` (kind `"any"`); food
+  `holidays`; drinks `style`, `strength-method`, `spirit`, `families`.
+  `facetGroups({kind})` keeps the `"any"` group for either kind. Root-backed groups take
   their heading from the root record ("Speed & effort", "Spirit & base").
   Cycles and dangling parents are broken (`tagOptions`' rule).
 - **Counts** — `countFacets(model, recipes: {tags?}[])` → `{total, kinds:
@@ -156,31 +159,39 @@ keep)` → `{rows, hidden}` ("5 more", a selected row kept past the cut),
   HTML helper; the parser is `components/SearchForm/queryLanguage.ts`):
   `activeFacetSlugs(model, q)` (positive `tag:` values resolved, so
   `tag:Mains` presses Mains), `toggleFacet(model, q, slug)` (removes every
-  spelling of the term, else appends `tag:<slug>`), `queryKind` /
+  positive spelling of the term; else removes an exclusion — `-tag:sour`
+  back to neutral; else appends `tag:<slug>`), `queryKind` /
   `setQueryKind(model, q, "drinks"|"food"|undefined)` (`tag:drink` /
   `-tag:drink`), `facetQuery(slugs, kind?)` and `facetSearchHref` (/tags'
   Combine → `/search?q=tag%3Amain%20tag%3Achicken`).
 
-**Checked on real shapes.** A read-only scratch clone of the content repo
-(`tmp/43/43f/`, deleted after) through `facetTermsFromTree` +
-`countFacets`: 825 recipes = 222 drinks + 603 food; Course 597 (Desserts 148
-› Cookies 45 › Linzer 3; Salads 77 › Bean Salads 48 — "bean salads" as
-carried resolves), Main ingredient 399, Cuisine 384, Speed & effort 327,
-Collections 69 (Fall Favorites 64, Syrups 5), Holidays 153 (8 rows, each
-dated); Style 217 (7), Strength & method 134 (Shaken 79, Zero-proof 30,
-Low-ABV 29), Spirit & base 201 (11), Families 123 (56 rows); **90 other
-tags** (house 18, lavender-syrup 3, 88 used once) — the canvas's 90.
-"Narrow Christmas" over its 41 recipes: Desserts 29, American 27, Cookies
-23, Easy 12, Breakfast 9, Chocolate 6 — the canvas's chips.
+**Checked on real shapes** (illustrative, not targets — the counts come
+from whatever the content is). A read-only scratch clone of the content
+repo after 43k (`95ce65f5`, `tmp/43/43f/`, deleted after) through
+`facetTermsFromTree` + `countFacets`: 825 recipes = 222 drinks + 603 food;
+Course 597 (Desserts 148 › Cookies 45 › Linzer 3; Salads 77 › Bean Salads 48
+— "bean salads" as carried resolves), Main ingredient 399, Cuisine 384,
+Speed & effort 327, Collections 86 (Fall Favorites 64, House recipes 18,
+Syrups 5 › Lavender Syrup 3…), Holidays 153 (8 rows, each dated); Style 217
+(7), Strength & method 134 (Shaken 79, Zero-proof 30, Low-ABV 29), Spirit &
+base 201 (11), Families 209 (113 top-level rows, e.g. Spritz 10 › Aperol
+Spritz 3 › Zero Proof Aperol Spritz); **0 other tags** (before 43k: 90, the
+canvas's number). "Narrow Christmas" over its 41 recipes: Desserts 29,
+American 27, Cookies 23, Easy 12, Breakfast 9, Chocolate 6 — the canvas's
+chips. **Count/click parity:** for all 225 rows (any depth), the row's
+count equals what `tag:<slug>` finds through `matchesFilter` with the
+tree's resolver (drinks rows over drinks) — 0 mismatches, which Df9 is for.
 
 **Decisions.**
 
 - **Df1 — Collections** are the _recorded_ roots that are no food facet
-  root, `drink`, `spirit` or `holidays` (today `fall`, `syrup`). A root that
-  is only a carried string (`house` before 43k) is an other tag; once 43k
-  gives `house` a root record it becomes a Collection with no code change.
-  A new facet root added to the vocabulary also lands in Collections until
-  it is listed in `FACET_ROOT_ORDER` (and `FACET_GROUPS`).
+  root, `drink`, `spirit` or `holidays` (after 43k: `fall`, `house`,
+  `syrup`). They have **no kind** (`kind: "any"`): House is mostly drinks
+  and Syrups are bar recipes, Fall Favorites dishes, so the group shows for
+  `kind: "drinks"` and `"food"` alike and the counts within the set decide
+  which rows it has. `/tags` draws it on the Food shelf (canvas B). A new
+  facet root added to the vocabulary also lands in Collections until it is
+  listed in `FACET_ROOT_ORDER` (and `FACET_GROUPS`).
 - **Df2 — Style vs Strength & method.** `DRINK_STRENGTH_METHOD_SLUGS =
 zero-proof, low-abv, shaken`; Style is the rest of `DRINK_STYLE_SLUGS`
   (sour, highball, collins, stirred, built, batch, warm-drinks). `stirred`
@@ -192,27 +203,50 @@ zero-proof, low-abv, shaken`; Style is the rest of `DRINK_STYLE_SLUGS`
   record field). A family's own children nest under it.
 - **Df4 — drinks groups count drinks only** (a recipe under `drink`), as
   `/drinks` does (a `tea` cake is no Tea drink); food groups, Collections
-  and Holidays count every recipe in the set (holidays mix dishes and
-  drinks; Syrups are bar recipes). `kinds.food` is "not under `drink`".
+  (either kind, Df1) and Holidays count every recipe in the set (holidays
+  mix dishes and drinks). `kinds.food` is "not under `drink`".
 - **Df5 — Kind** is read from terms resolving to `drink` itself (any
   spelling, `-` or `NOT`); a query saying both is no kind. `setQueryKind`
   drops them all and appends one.
-- **Df6 — Other tags** = tags no term spells, plus terms with no record
-  (carried-only). Every record is placed (it hangs under a group's root or
-  row, or is a Collection), so a record is never "other".
+- **Df6 — Other tags** = tags no term spells, plus terms with no record (a
+  string only recipes carry). Every record is placed (it hangs under a
+  group's root or row, or is a Collection), so a record is never "other";
+  since 43k recorded the one-off drink names, the list is empty today.
 - **Df7 — row values are slugs** (`tag:main`), not labels: unique and never
   quoted; activeness is resolved through the model, so typed labels
   (`tag:Mains`) still press and un-press the row.
 - **Df8 — a listed slug stays in its list** wherever it sits: a style moved
   under `holidays` one day would still be a Style row and not a holiday.
+- **Df9 — `tag:<term>` matches the term's subtree only** (D3 count/click
+  parity; `matchesFilter` in `queryLanguage.ts`). Before, a `tag:` value
+  was always also a word-start prefix match, so a facet row's click found
+  more than its count: `tag:side` found the Sidecar, `tag:french` French 75
+  and French Martini, `tag:mexican` the Mexican Mule, `tag:gin` /
+  `tag:vodka` / `tag:wine` the drink-name families starting with them. Now
+  a value the resolver names (`expandTerm`: slug, label, alias) matches
+  only carriers whose folded spelling or slug is in that subtree; a value
+  that names no term (`tag:sid`, still being typed) keeps the prefix match,
+  as does any search without a resolver (the corpus before
+  `/search/terms` lands). The server's `recipe_search` / `list --tag` share
+  `matchesFilter`, so the CLI and MCP narrow the same way. The e2e specs
+  were grepped for prefix reliance: every `tag:` value they type is either
+  an exact fixture tag or names no term (`tag:des`, `tag:swe`), so no
+  expected diff; `search-query-language`, `search-tags` and
+  `search-query-chips` rerun in Docker (below).
 
 **Gates.** `pnpm --filter recipe-editor typecheck` ✓, `pnpm --filter
 recipe-website exec tsc --noEmit` ✓, `pnpm exec vitest run` **135 files /
-2761 tests** ✓ (all through `heavy.sh`). No UI, no Playwright.
+2763 tests** ✓ (all through `heavy.sh`; after the review fixes —
+`facets.test.ts` 33, `tagExpansion.test.ts` 20 with Df9's two). Playwright for Df9, Docker production build:
+`search-query-language`, `search-tags`, `search-query-chips` — **36
+passed**. No UI.
 
 **Roger to confirm.** Df2 — `stirred` and `built` as styles (the canvas and
 the records) rather than methods beside `shaken`; moving them is a
-one-line change to `DRINK_STRENGTH_METHOD_SLUGS`.
+one-line change to `DRINK_STRENGTH_METHOD_SLUGS`. Df9 — a whole term name
+after `tag:` no longer also prefix-matches longer tags (`tag:gin` is the
+Gin drinks, not Gin and Tonic unless it carries `gin`). A half-typed
+value still prefix-matches; going back is the one `if (!subtree)` branch.
 
 ### 43k — Tag cleanup (content, orchestrator-run agent)
 
