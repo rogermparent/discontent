@@ -1138,6 +1138,8 @@ test.describe("Featured groups", () => {
     await page.goto("/group/week-of-may-4");
     await signIn(page);
 
+    /* 43p1: the plan page keeps Feature in its More menu. */
+    await openPlanMenu(page);
     await page.getByRole("link", { name: "Feature", exact: true }).click();
     await expect(page).toHaveURL(/\/featured-recipe\/new\?group=week-of-may-4/);
 
