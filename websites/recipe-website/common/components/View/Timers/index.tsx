@@ -275,6 +275,17 @@ export function TimerButton({
       type="button"
       data-testid="timer-button"
       data-timer-status={status}
+      /*
+       * One string, not sr-only pieces: accessible-name computation drops
+       * the spaces at inline elements' edges ("timer:25 minutes").
+       */
+      aria-label={`${action}: ${text}${
+        left === undefined
+          ? ""
+          : status === "done"
+            ? ", done"
+            : ` · ${left} left`
+      }`}
       onClick={(event) => {
         /* Inside a step's label: the tap is the timer's, not the checkbox's. */
         event.preventDefault();
@@ -296,7 +307,6 @@ export function TimerButton({
           "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1 ring-offset-background",
       )}
     >
-      <span className="sr-only">{action}: </span>
       {status === "done" ? (
         <Check aria-hidden="true" className="size-3.5 self-center" />
       ) : (
@@ -313,7 +323,6 @@ export function TimerButton({
         <span className="font-normal">
           {" · "}
           {status === "done" ? "done" : left}
-          {status !== "done" && <span className="sr-only"> left</span>}
         </span>
       )}
     </button>

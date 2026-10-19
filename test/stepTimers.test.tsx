@@ -43,9 +43,14 @@ describe("timer buttons in step text", () => {
       "Bake about **55-60 minutes**. After 25 minutes, cover the edges. See [the 10 minutes guide](/x) and `5 minutes`.",
     );
     const buttons = screen.getAllByRole("button");
-    expect(buttons.map((button) => button.textContent)).toEqual([
+    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
       "Start timer at 55 minutes: 55-60 minutes",
       "Start timer: 25 minutes",
+    ]);
+    /* The visible words are the step's own. */
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      "55-60 minutes",
+      "25 minutes",
     ]);
     /* The words around the buttons are all still there. */
     expect(document.body.textContent).toContain("cover the edges");
