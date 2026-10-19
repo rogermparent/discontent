@@ -51,11 +51,13 @@ async function createRecipe(
   }
 
   if (ingredients.length > 0) {
-    await page.getByText("Paste Ingredients", { exact: true }).click();
+    await page
+      .getByRole("button", { name: "Edit as text", exact: true })
+      .click();
     await page
       .getByTitle("Ingredients Paste Area")
       .fill(ingredients.join("\n"));
-    await page.getByText("Import Ingredients", { exact: true }).click();
+    await page.getByRole("button", { name: "Rows", exact: true }).click();
   }
 
   await page

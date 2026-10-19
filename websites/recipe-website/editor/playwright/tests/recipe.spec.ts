@@ -2,7 +2,6 @@ import { test, expect } from "../support/test";
 import type { Page } from "@playwright/test";
 import {
   checkNamesInOrder,
-  chooseOption,
   fillSignInForm,
   markdownEditorReady,
   deleteWithConfirm,
@@ -275,13 +274,25 @@ test.describe("Single Recipe View", () => {
 
       const form = page.locator("#recipe-form");
       await page.getByLabel("Name").first().fill("Daiquiri");
-      await form.locator("summary", { hasText: "Drink" }).click();
-      await chooseOption(
-        page,
-        form.getByLabel("Method", { exact: true }),
-        "Shaken",
-      );
-      await form.locator('[name="drink.glass"]').fill("coupe");
+      /* 43e2: no drink spec on a recipe that isn't a drink — until asked. */
+      await expect(form.getByTestId("recipe-form-drink")).toHaveCount(0);
+      await form
+        .getByRole("button", { name: "add a drink spec", exact: true })
+        .click();
+      const methods = form.getByRole("group", { name: "Method", exact: true });
+      await methods
+        .getByRole("button", { name: "Shaken", exact: true })
+        .click();
+      /* The method sets its style tag — one choice, not two. */
+      await expect(
+        form.getByRole("button", { name: "Remove tag shaken", exact: true }),
+      ).toBeVisible();
+      /* Glass from the common choices, ice and garnish typed. */
+      await form
+        .getByRole("group", { name: "Common glass choices" })
+        .getByRole("button", { name: "coupe", exact: true })
+        .click();
+      await expect(form.locator('[name="drink.glass"]')).toHaveValue("coupe");
       await form.locator('[name="drink.ice"]').fill("up");
       await form.locator('[name="drink.garnish"]').fill("lime wheel");
 
@@ -312,16 +323,24 @@ test.describe("Single Recipe View", () => {
       });
       await markdownEditorReady(page, "description");
       const form2 = page.locator("#recipe-form");
-      const method = form2.getByLabel("Method", { exact: true });
-      await expect(method).toBeVisible();
-      await expect(method).toHaveText("Shaken");
+      /* A drink now: the spec is the first section. */
+      await expect(form2.locator("h2").first()).toHaveText("Drink spec");
+      const shaken = form2
+        .getByRole("group", { name: "Method", exact: true })
+        .getByRole("button", { name: "Shaken", exact: true });
+      await expect(shaken).toHaveAttribute("aria-pressed", "true");
       await expect(selectValue(form2, "drink.method")).toHaveValue("shake");
       await expect(
         page.locator('#recipe-form [name="drink.garnish"]'),
       ).toHaveValue("lime wheel");
 
-      await chooseOption(page, method, "—");
+      /* Pressing the chosen method again clears it, and takes back the tag
+       * it set. */
+      await shaken.click();
       await expect(selectValue(form2, "drink.method")).toHaveValue("");
+      await expect(
+        form2.getByRole("button", { name: "Remove tag shaken", exact: true }),
+      ).toHaveCount(0);
       for (const key of ["glass", "ice", "garnish"]) {
         await page.locator(`#recipe-form [name="drink.${key}"]`).fill("");
       }

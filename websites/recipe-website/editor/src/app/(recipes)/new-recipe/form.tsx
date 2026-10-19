@@ -4,6 +4,7 @@ import CreateRecipeFields from "recipe-website-common/components/Form/Create";
 import Image from "next/image";
 import Link from "next/link";
 import { RecipeFormShell } from "recipe-website-common/components/Form/RecipeFormShell";
+import type { TagPickerData } from "recipe-website-common/components/Form/Tags/tagPicker";
 import {
   RecipeFormRail,
   useWideRail,
@@ -191,6 +192,7 @@ export default function NewOrImportRecipeForm({
   initialJob,
   initialImportUrl,
   allTags = [],
+  tagPicker,
   terms = [],
   llmModel,
   visionModel,
@@ -208,6 +210,8 @@ export default function NewOrImportRecipeForm({
    */
   initialImportUrl?: string;
   allTags?: string[];
+  /** The tag picker's vocabulary and counts (43e2). */
+  tagPicker?: TagPickerData;
   /** The vocabulary, for the roundup's collection term. */
   terms?: { slug: string; label: string }[];
   /** The local model's name, or nothing when none is configured (36b). */
@@ -1078,6 +1082,7 @@ export default function NewOrImportRecipeForm({
             : (edited?.key ?? key ?? url)
         }
         action={submissionDispatch}
+        tagPicker={tagPicker}
         slug={copySlug ?? slug}
         recipe={submissionState.formData || recipe || undefined}
         className="flex w-full flex-col gap-7"

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useStore } from "@tanstack/react-form";
 import { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
 import { resolveRecipeVideoSrc } from "recipe-website-common/controller/recipeVideo";
@@ -7,8 +8,11 @@ import { RecipeFormState } from "recipe-website-common/controller/formState";
 import createDefaultSlug from "recipe-website-common/controller/createSlug";
 import { useRecipeForm } from "./formContext";
 import { mergeFieldErrors } from "./fieldErrors";
-import { TagsInput } from "recipe-website-common/components/Form/Tags";
-import { IngredientsListInput } from "recipe-website-common/components/Form/Ingredients";
+import {
+  ChosenTags,
+  TagFacets,
+} from "recipe-website-common/components/Form/Tags";
+import { IngredientsSection } from "recipe-website-common/components/Form/Ingredients";
 import { InstructionsListInput } from "recipe-website-common/components/Form/Instructions";
 import { TimelinesInput } from "recipe-website-common/components/Form/Timeline";
 import { DateTimeInput } from "@discontent/component-library/components/Form/inputs/DateTime";
@@ -22,40 +26,18 @@ import { VideoPlayerProvider } from "@discontent/component-library/components/Vi
 import { DurationInput } from "@discontent/component-library/components/Form/inputs/Duration";
 import { useCurrentTimezone } from "@discontent/cms/hooks/useCurrentTimezone";
 
-import { SelectInput } from "@discontent/component-library/components/Form/inputs/Select";
-import {
-  DRINK_METHODS,
-  DRINK_METHOD_LABELS,
-} from "recipe-website-common/controller/types";
-
 import { yieldToolbarItems } from "./RecipeMarkdown/lexicalToolbar";
 import { FormSection } from "./RecipeFormFrame";
 import { stepCount } from "./sections";
-
-/** The free-text half of the drink spec, with the common values offered. */
-const DRINK_TEXT_FIELDS = [
-  {
-    key: "glass",
-    label: "Glass",
-    suggestions: ["coupe", "martini", "rocks", "highball", "wine", "mug"],
-  },
-  {
-    key: "ice",
-    label: "Ice",
-    suggestions: ["up", "cubes", "crushed", "large cube"],
-  },
-  { key: "garnish", label: "Garnish", suggestions: undefined },
-] as const;
+import { DrinkSpecSection } from "./Drink";
+import { useDrinkShown, useRevealDrink } from "./drinkShown";
+import { timesHint } from "./Instructions/stepChecks";
 
 /** A list section's count beside its heading, read live from the form. */
-function SectionCount({ of }: { of: "ingredients" | "instructions" }) {
+function StepsCount() {
   const form = useRecipeForm();
   const count = useStore(form.store, (state) =>
-    of === "ingredients"
-      ? state.values.ingredients.filter(
-          (line) => line.type !== "heading" && line.ingredient?.trim(),
-        ).length
-      : stepCount(state.values.instructions),
+    stepCount(state.values.instructions),
   );
   return count ? (
     <span className="font-mono text-sm text-muted-foreground tabular-nums">
@@ -64,12 +46,115 @@ function SectionCount({ of }: { of: "ingredients" | "instructions" }) {
   ) : null;
 }
 
+/** "Prep + cook is 1h 28m; the rest is the chill in step 3." */
+function TimesHint() {
+  const form = useRecipeForm();
+  const values = useStore(form.store, (state) => state.values);
+  const hint = timesHint(values);
+  if (!hint) return null;
+  return (
+    <p className="pb-2 text-sm text-muted-foreground" data-testid="times-hint">
+      Prep + cook is <span className="font-mono">{hint.sum}</span>
+      {hint.rest ? `; ${hint.rest}` : ""}.
+    </p>
+  );
+}
+
 /**
- * The recipe's fields, in edit form B's sections (43e1): Recipe, Tags,
- * Picture and video, Ingredients, Steps, Times, Source and address. The
- * fields inside are the ones the form always had — same names, same submit
- * shape (D4) — under section headings instead of one long column; 43e2
- * reworks the Tags, Ingredients, Steps, drink and Times insides.
+ * "Drink spec and timelines appear here when …" — the way to either when
+ * the recipe has neither (canvas B's Source section).
+ */
+function AddAnyway() {
+  const form = useRecipeForm();
+  const drinkShown = useDrinkShown();
+  const revealDrink = useRevealDrink();
+  const timelines = useStore(
+    form.store,
+    (state) => state.values.timelines.length,
+  );
+  if (drinkShown && timelines) return null;
+  const link =
+    "inline-flex min-h-6 items-center text-primary underline underline-offset-2 hover:no-underline";
+  const drinkButton = (
+    <button type="button" className={link} onClick={revealDrink}>
+      add a drink spec
+    </button>
+  );
+  const timelineButton = (
+    <button
+      type="button"
+      className={link}
+      onClick={() =>
+        form.setFieldValue("timelines", [
+          ...form.state.values.timelines,
+          { events: [] },
+        ])
+      }
+    >
+      add a timeline
+    </button>
+  );
+  return (
+    <p className="text-sm text-muted-foreground" data-testid="add-anyway">
+      {!drinkShown && !timelines ? (
+        <>
+          A drink spec and timelines appear when the recipe is tagged a drink or
+          has a timeline — {drinkButton} · {timelineButton}.
+        </>
+      ) : !drinkShown ? (
+        <>
+          A drink spec appears when the recipe is tagged a drink — {drinkButton}
+          .
+        </>
+      ) : (
+        <>
+          Timelines appear under the steps once there is one — {timelineButton}.
+        </>
+      )}
+    </p>
+  );
+}
+
+/** Timelines (under the steps) once the recipe has one. */
+function Timelines() {
+  const form = useRecipeForm();
+  const count = useStore(form.store, (state) => state.values.timelines.length);
+  return count ? (
+    <TimelinesInput label="Timelines" id="recipe-form-timelines" />
+  ) : null;
+}
+
+/**
+ * The drink spec, first, when the recipe is a drink (or asked for one). Once
+ * on the page it stays for the visit: clearing the method (and with it the
+ * style tag it set) must not pull the section out from under the cursor.
+ */
+function DrinkFirst({ from, errors }: { from?: string; errors?: string[] }) {
+  const shown = useDrinkShown();
+  const reveal = useRevealDrink();
+  useEffect(() => {
+    if (shown) reveal();
+  }, [shown, reveal]);
+  return shown ? <DrinkSpecSection from={from} errors={errors} /> : null;
+}
+
+/** The section's source link, for an ingredient flag's "Open the page". */
+function IngredientsWithSource({ from }: { from?: string }) {
+  const form = useRecipeForm();
+  const url = useStore(form.store, (state) => state.values.source.url.trim());
+  return (
+    <IngredientsSection
+      from={from}
+      sourceUrl={/^https?:\/\//i.test(url) ? url : undefined}
+    />
+  );
+}
+
+/**
+ * The recipe's fields, in edit form B's sections (43e1, 43e2): on a drink the
+ * Drink spec first, then Recipe, Tags (by facet), Picture and video,
+ * Ingredients (rows), Steps (what each uses), Times, Source and address.
+ * Every field's name and submit shape is the one the form always had (D4).
  */
 export default function RecipeFields({
   recipe,
@@ -84,6 +169,7 @@ export default function RecipeFields({
   slug?: string;
   state?: RecipeFormState;
   defaultImage?: StaticImageProps;
+  /** Without the tag picker's data: the corpus's tags, offered as adds. */
   allTags?: string[];
   /** A file the image field starts with (38e: the photo a recipe was read from). */
   imageFile?: File;
@@ -111,6 +197,10 @@ export default function RecipeFields({
 
   return (
     <VideoPlayerProvider>
+      <DrinkFirst
+        from={imported(recipe?.drink)}
+        errors={state?.errors?.drink}
+      />
       <FormSection
         id="recipe"
         title="Recipe"
@@ -173,8 +263,8 @@ export default function RecipeFields({
           )}
         </form.Field>
       </FormSection>
-      <FormSection id="tags" title="Tags">
-        <TagsInput allTags={allTags} label="" />
+      <FormSection id="tags" title="Tags" aside={<ChosenTags />}>
+        <TagFacets allTags={allTags} suggestedTags={recipe?.suggestedTags} />
       </FormSection>
       <FormSection
         id="picture"
@@ -207,22 +297,15 @@ export default function RecipeFields({
           videoToImport={videoImportUrl}
         />
       </FormSection>
-      <FormSection
-        id="ingredients"
-        title="Ingredients"
-        from={imported(recipe?.ingredients?.length)}
-        aside={<SectionCount of="ingredients" />}
-      >
-        <IngredientsListInput label="" id="recipe-form-ingredients" />
-      </FormSection>
+      <IngredientsWithSource from={imported(recipe?.ingredients?.length)} />
       <FormSection
         id="steps"
         title="Steps"
         from={imported(recipe?.instructions?.length)}
-        aside={<SectionCount of="instructions" />}
+        aside={<StepsCount />}
       >
         <InstructionsListInput label="" id="recipe-form-instructions" />
-        <TimelinesInput label="Timelines" id="recipe-form-timelines" />
+        <Timelines />
       </FormSection>
       <FormSection
         id="times"
@@ -231,7 +314,7 @@ export default function RecipeFields({
           recipe?.prepTime || recipe?.cookTime || recipe?.totalTime,
         )}
       >
-        <div className="flex flex-row flex-wrap gap-2 justify-around items-center">
+        <div className="flex flex-row flex-wrap items-end gap-x-6 gap-y-2">
           <form.Field name="prepTime">
             {(field) => (
               <DurationInput
@@ -269,6 +352,7 @@ export default function RecipeFields({
               />
             )}
           </form.Field>
+          <TimesHint />
         </div>
       </FormSection>
       <FormSection
@@ -364,64 +448,7 @@ export default function RecipeFields({
             )}
           </form.Field>
         </div>
-        {/*
-          The drink spec (25a). Collapsed unless the recipe already is a drink, so
-          a food recipe's form looks as it always has. Same submit shape as
-          `source` above: `drink.method` etc., nested by lodash `set`, and an
-          all-blank block parses back to no `drink` at all.
-        */}
-        <details className="py-1 my-1" open={Boolean(recipe?.drink)}>
-          <summary className="text-sm font-semibold">Drink</summary>
-          <div className="flex flex-col flex-nowrap">
-            <form.Field name="drink.method">
-              {(field) => (
-                <SelectInput
-                  label="Method"
-                  name="drink.method"
-                  id="recipe-form-drink-method"
-                  value={field.state.value}
-                  onValueChange={(value) => field.handleChange(value)}
-                  errors={state?.errors?.drink}
-                  options={[
-                    { value: "", label: "—" },
-                    ...DRINK_METHODS.map((method) => ({
-                      value: method,
-                      label: DRINK_METHOD_LABELS[method],
-                    })),
-                  ]}
-                />
-              )}
-            </form.Field>
-            {DRINK_TEXT_FIELDS.map(({ key, label, suggestions }) => (
-              <form.Field key={key} name={`drink.${key}`}>
-                {(field) => (
-                  <>
-                    <TextInput
-                      label={label}
-                      name={`drink.${key}`}
-                      id={`recipe-form-drink-${key}`}
-                      value={field.state.value}
-                      onChange={(e) => field.handleChange(e.target.value)}
-                      onBlur={field.handleBlur}
-                      list={
-                        suggestions
-                          ? `recipe-form-drink-${key}-options`
-                          : undefined
-                      }
-                    />
-                    {suggestions && (
-                      <datalist id={`recipe-form-drink-${key}-options`}>
-                        {suggestions.map((value) => (
-                          <option key={value} value={value} />
-                        ))}
-                      </datalist>
-                    )}
-                  </>
-                )}
-              </form.Field>
-            ))}
-          </div>
-        </details>
+        <AddAnyway />
       </FormSection>
     </VideoPlayerProvider>
   );

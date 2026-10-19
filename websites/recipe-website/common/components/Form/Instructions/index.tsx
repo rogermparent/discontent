@@ -15,6 +15,93 @@ import { PasteField, ParsedLine } from "../PasteField";
 import { detectHeading } from "../../../util/detectHeading";
 import { useRecipeForm } from "../formContext";
 import { ArrayItemControls } from "@discontent/component-library/components/Form/ArrayItemControls";
+import { createContext, useContext, useMemo } from "react";
+import { useStore } from "@tanstack/react-form";
+import { Check } from "lucide-react";
+import {
+  flatSteps,
+  ingredientChipLabel,
+  stepLines,
+  stepWaits,
+  unnamedLines,
+} from "./stepChecks";
+import type { StepLines } from "../../../util/stepIngredients";
+
+/**
+ * What the Steps section knows about every step (43e2): the ingredient
+ * lines each uses, their chip labels, and each step's number in reading
+ * order — computed once for the list, read by each step.
+ */
+interface StepInfo {
+  lines: StepLines;
+  labels: string[];
+  numbers: number[][];
+}
+
+const StepInfoContext = createContext<StepInfo | null>(null);
+
+function useStepInfo(): StepInfo | null {
+  return useContext(StepInfoContext);
+}
+
+const NOTE_CHIP =
+  "rounded-sm border border-border px-1.5 py-1 font-mono text-xs leading-none text-muted-foreground";
+
+/** "uses flour · baking soda", "a wait in it: chill 1 hour" under a step. */
+function StepNotes({
+  entry,
+  step,
+  text,
+}: {
+  entry: number;
+  step: number;
+  text: string;
+}) {
+  const info = useStepInfo();
+  const used = info?.lines[entry]?.[step] ?? [];
+  const waits = useMemo(() => stepWaits(text), [text]);
+  if (!used.length && !waits.length) return null;
+  return (
+    <div className="mt-2 flex flex-col gap-1.5" data-testid="step-notes">
+      {used.length ? (
+        <p className="flex flex-wrap items-center gap-1">
+          <span className="text-xs text-muted-foreground">uses</span>
+          {used.map((line) => (
+            <span key={line} className={NOTE_CHIP}>
+              {info?.labels[line]}
+            </span>
+          ))}
+        </p>
+      ) : null}
+      {waits.length ? (
+        <p className="flex flex-wrap items-center gap-1">
+          <span className="text-xs text-muted-foreground">
+            {waits.length === 1 ? "a wait in it:" : "waits in it:"}
+          </span>
+          {waits.map((wait, index) => (
+            <span key={index} className={NOTE_CHIP}>
+              {wait.label}
+            </span>
+          ))}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** The step's number, in reading order across groups. */
+function StepNumber({ entry, step }: { entry: number; step: number }) {
+  const info = useStepInfo();
+  const number = info?.numbers[entry]?.[step];
+  return (
+    <span
+      className="font-mono text-[0.9375rem] leading-10 font-semibold text-primary tabular-nums"
+      aria-hidden
+    >
+      {number ?? ""}
+    </span>
+  );
+}
 
 /**
  * Field-name prefixes that exist in the form's typed key space: a top-level
@@ -35,31 +122,50 @@ type InstructionPrefix =
  * keep stale values when React reuses nodes across index changes). The `name`
  * attributes are preserved so submission stays FormData (parsed via lodash.set).
  */
-function InstructionFields({ namePrefix }: { namePrefix: InstructionPrefix }) {
+function InstructionFields({
+  namePrefix,
+  entry,
+  step,
+}: {
+  namePrefix: InstructionPrefix;
+  entry: number;
+  step: number;
+}) {
   const form = useRecipeForm();
   return (
-    <div>
-      <form.Field name={`${namePrefix}.name`}>
-        {(field) => (
-          <TextInput
-            label="Name"
-            name={`${namePrefix}.name`}
-            value={(field.state.value as string) ?? ""}
-            onChange={(e) => field.handleChange(e.target.value)}
-            onBlur={field.handleBlur}
-          />
-        )}
-      </form.Field>
-      <form.Field name={`${namePrefix}.text`}>
-        {(field) => (
-          <InstructionTextInput
-            label="Text"
-            name={`${namePrefix}.text`}
-            value={(field.state.value as string) ?? ""}
-            onChange={field.handleChange}
-          />
-        )}
-      </form.Field>
+    <div className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-2.5 max-sm:grid-cols-[1.375rem_minmax(0,1fr)] max-sm:gap-x-2">
+      <StepNumber entry={entry} step={step} />
+      <div className="min-w-0">
+        <form.Field name={`${namePrefix}.name`}>
+          {(field) => (
+            <TextInput
+              label="Name"
+              name={`${namePrefix}.name`}
+              value={(field.state.value as string) ?? ""}
+              onChange={(e) => field.handleChange(e.target.value)}
+              onBlur={field.handleBlur}
+              placeholder="Optional — most steps have none"
+            />
+          )}
+        </form.Field>
+        <form.Field name={`${namePrefix}.text`}>
+          {(field) => (
+            <>
+              <InstructionTextInput
+                label="Text"
+                name={`${namePrefix}.text`}
+                value={(field.state.value as string) ?? ""}
+                onChange={field.handleChange}
+              />
+              <StepNotes
+                entry={entry}
+                step={step}
+                text={(field.state.value as string) ?? ""}
+              />
+            </>
+          )}
+        </form.Field>
+      </div>
     </div>
   );
 }
@@ -67,8 +173,10 @@ function InstructionFields({ namePrefix }: { namePrefix: InstructionPrefix }) {
 /** Name + nested child-instruction array for an instruction group. */
 function InstructionGroupFields({
   namePrefix,
+  entry,
 }: {
   namePrefix: TopLevelPrefix;
+  entry: number;
 }) {
   const form = useRecipeForm();
   return (
@@ -97,6 +205,8 @@ function InstructionGroupFields({
                       <li key={index}>
                         <InstructionFields
                           namePrefix={`${namePrefix}.instructions[${index}]`}
+                          entry={entry}
+                          step={index}
                         />
                         <div className="flex flex-row flex-nowrap justify-center">
                           <ArrayItemControls
@@ -118,6 +228,7 @@ function InstructionGroupFields({
                     ))}
                   </ul>
                   <Button
+                    variant="outline"
                     className="mx-0.5 my-1 w-full"
                     onClick={() => arrayField.pushValue({ text: "" })}
                   >
@@ -178,9 +289,16 @@ function InstructionEntryFields({
         return (
           <li className="flex flex-col my-1">
             {isGroup ? (
-              <InstructionGroupFields namePrefix={`instructions[${index}]`} />
+              <InstructionGroupFields
+                namePrefix={`instructions[${index}]`}
+                entry={index}
+              />
             ) : (
-              <InstructionFields namePrefix={`instructions[${index}]`} />
+              <InstructionFields
+                namePrefix={`instructions[${index}]`}
+                entry={index}
+                step={0}
+              />
             )}
             <div className="flex flex-row flex-nowrap justify-center">
               <ArrayItemControls
@@ -273,55 +391,101 @@ export function InstructionsListInput({
   errors?: unknown;
 }) {
   const form = useRecipeForm();
+  const ingredients = useStore(form.store, (state) => state.values.ingredients);
+  const instructions = useStore(
+    form.store,
+    (state) => state.values.instructions,
+  );
+  const info = useMemo<StepInfo>(() => {
+    const lines = stepLines(ingredients, instructions);
+    const numbers: number[][] = [];
+    for (const entry of instructions) {
+      const start = numbers.flat().length;
+      const size = "instructions" in entry ? entry.instructions.length : 1;
+      numbers.push(Array.from({ length: size }, (_, i) => start + i + 1));
+    }
+    return {
+      lines,
+      labels: ingredients.map((line) => ingredientChipLabel(line)),
+      numbers,
+    };
+  }, [ingredients, instructions]);
+  const unnamed = useMemo(
+    () => unnamedLines(ingredients, info.lines),
+    [ingredients, info],
+  );
+  const hasSteps = flatSteps(instructions).some((step) => step.text.trim());
 
   return (
-    <FieldWrapper label={label} id={id}>
-      <form.Field name="instructions" mode="array">
-        {(arrayField) => {
-          const items =
-            (arrayField.state.value as InstructionEntry[] | undefined) ?? [];
-          return (
+    <StepInfoContext.Provider value={info}>
+      <FieldWrapper label={label} id={id}>
+        <form.Field name="instructions" mode="array">
+          {(arrayField) => {
+            const items =
+              (arrayField.state.value as InstructionEntry[] | undefined) ?? [];
+            return (
+              <>
+                <PasteField
+                  itemName="Instructions"
+                  pasteAreaId="instructions-paste-area"
+                  parseToLines={parseInstructionLines}
+                  assemble={assembleInstructions}
+                  onImport={(values) =>
+                    form.setFieldValue(
+                      "instructions",
+                      values as InstructionEntry[],
+                    )
+                  }
+                />
+                <ul>
+                  {items.map((_, index) => (
+                    <InstructionEntryFields
+                      key={index}
+                      index={index}
+                      onInsert={() =>
+                        arrayField.insertValue(index, { text: "" })
+                      }
+                      onMoveUp={() =>
+                        index > 0 && arrayField.moveValue(index, index - 1)
+                      }
+                      onMoveDown={() =>
+                        index < items.length - 1 &&
+                        arrayField.moveValue(index, index + 1)
+                      }
+                      onRemove={() => arrayField.removeValue(index)}
+                    />
+                  ))}
+                </ul>
+                <Button
+                  variant="outline"
+                  className="mx-0.5 my-1 w-full"
+                  onClick={() => arrayField.pushValue({ text: "" })}
+                >
+                  Add Instruction
+                </Button>
+              </>
+            );
+          }}
+        </form.Field>
+      </FieldWrapper>
+      {hasSteps && ingredients.some((line) => line.ingredient?.trim()) ? (
+        <p
+          className="flex items-center gap-2 text-sm"
+          data-testid="steps-coverage"
+        >
+          {unnamed.length === 0 ? (
             <>
-              <PasteField
-                itemName="Instructions"
-                pasteAreaId="instructions-paste-area"
-                parseToLines={parseInstructionLines}
-                assemble={assembleInstructions}
-                onImport={(values) =>
-                  form.setFieldValue(
-                    "instructions",
-                    values as InstructionEntry[],
-                  )
-                }
-              />
-              <ul>
-                {items.map((_, index) => (
-                  <InstructionEntryFields
-                    key={index}
-                    index={index}
-                    onInsert={() => arrayField.insertValue(index, { text: "" })}
-                    onMoveUp={() =>
-                      index > 0 && arrayField.moveValue(index, index - 1)
-                    }
-                    onMoveDown={() =>
-                      index < items.length - 1 &&
-                      arrayField.moveValue(index, index + 1)
-                    }
-                    onRemove={() => arrayField.removeValue(index)}
-                  />
-                ))}
-              </ul>
-              <Button
-                variant="outline"
-                className="mx-0.5 my-1 w-full"
-                onClick={() => arrayField.pushValue({ text: "" })}
-              >
-                Add Instruction
-              </Button>
+              <Check className="size-4 text-success" aria-hidden />
+              Every ingredient is named in a step.
             </>
-          );
-        }}
-      </form.Field>
-    </FieldWrapper>
+          ) : (
+            <span className="text-muted-foreground">
+              Not named in a step:{" "}
+              {unnamed.map((line) => info.labels[line]).join(", ")}.
+            </span>
+          )}
+        </p>
+      ) : null}
+    </StepInfoContext.Provider>
   );
 }
