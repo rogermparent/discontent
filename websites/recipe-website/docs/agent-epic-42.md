@@ -950,6 +950,11 @@ confirm-in-place remove. The per-browser state lives in `shopState.ts`.
   The bottom bar's live region announces only what Done shopping did, and
   a save that is retrying. It does not announce each tick's count.
 
+- **Dg11 — The rail chips sit on the faint `--border`, like 42a's outline
+  buttons and toggles.** The canvas drew them on `--input`. A done chip
+  differs from an open one by its muted text and tick. The store
+  `<select>` is a real field and keeps `--input` (41f).
+
 **Spec changes and reasons.**
 
 - `shopping.spec` :425 (mobile): a phone opens in Shop, so the add box is

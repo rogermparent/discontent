@@ -110,7 +110,7 @@ function AisleRail({
                   ? "border-primary bg-primary text-primary-foreground"
                   : isDone
                     ? "border-border text-muted-foreground"
-                    : "border-input text-foreground hover:border-primary",
+                    : "border-border text-foreground hover:border-primary",
               )}
             >
               {isDone && <Check aria-hidden className="size-4" />}
