@@ -458,6 +458,113 @@ recipe-website exec tsc --noEmit` ✅ (the export builds the same
   `parseTimeText` tests in its new home (`test/llmExtract.test.ts` and
   `tidyReading` keep passing).
 
+#### Results (42c2)
+
+**What changed.**
+
+- `common/util/timeText.ts`: `parseTimeText` moved here from the editor's
+  `controller/llm/timeText.ts`, which now only re-exports it (the LLM code
+  and `llmExtract`/`tidyReading` are untouched). New beside it:
+  `findStepTimes(text)` — every duration in a step's text, with its
+  position, as a timer could run it; `durationWords`, `formatCountdown`.
+- `common/util/kitchenTimers.ts` (pure): timers as a list with **end
+  times** — `startTimer`, `pauseTimer` (keeps what is left), `resumeTimer`,
+  `removeTimer`, `finishDue` (marks the ended ones done and answers them,
+  once each), `remainingMs`. A tab that slept reads right on waking.
+- `View/Timers/`: `TimersProvider` around the whole recipe view (page and
+  cook view share it, so a timer outlives the view opening and closing,
+  scrolling and the scaler); a 500 ms clock only while a timer runs, and a
+  check on `visibilitychange`; the alarm — a Web Audio chime (the context is
+  woken inside the tap that starts a timer), `navigator.vibrate`, and a
+  visible done state that stays until cleared; one polite live region
+  ("Timer started: …", "Timer done: …"), nothing per second.
+  `StepText` renders a step's markdown with a **render rule** that splits
+  text nodes around each duration into a `TimerButton` (idle → running with
+  its countdown → paused → done). `TimerTray`: floating bottom-right on the
+  page (above the phone tab bar), inline and sticky at the top of the cook
+  view (canvas C), each row with the step and words, a `role="timer"`
+  countdown, pause/resume and cancel/clear.
+- `View/FocusView/` (canvas B): **One step / All steps**. One step: "Step 3
+  of 9", B's step bar, the group name, the step big with its checkbox, "For
+  this step" — 42c1's matched lines, scaled, as checkboxes — and "All
+  ingredients" folded below; a bottom bar with Back and Done ("Done · step 4"
+  and the next step's title or words; "Done · last step"; then "Last step
+  done", disabled). Done ticks the step and moves on. All steps is the
+  previous checklist view. The scaler sits once under the header in both.
+  Wake lock, Esc, focus on Close, scroll lock unchanged.
+  `cookProgress.ts`: ticks (steps and ingredients), the step on screen and
+  the layout, per recipe under `cook-view:<slug>` in **sessionStorage**
+  (D1), every read and write guarded, indices past the recipe's end dropped.
+- Drinks: `common/util/drinkCount.ts` (`isDrinkRecipe`, `drinkYieldBase`,
+  `drinkCountLabel`, `multiplierForDrinks`). `MultiplierProvider` takes a
+  `drinkBase`; on a drink the scaler is a "Drinks" group — "1 drink · 2
+  drinks · 4 drinks" — and a "Drinks" field over the same multiplier, and the
+  meta bar's Yield reads "4 drinks". Food keeps "Multiply", ½× · 1× · 2× and
+  every testid.
+- `StyledMarkdown` (component library) passes a `renderRule` through.
+
+**Decisions.**
+
+- **Dc2-1 — a range starts its low end.** "45 to 50 minutes" runs 45
+  (start checking at the earliest the recipe gives); the button shows the
+  words as written and its name says "Start timer at 45 minutes: 45 to 50
+  minutes". `findStepTimes` keeps the high end (`maxSeconds`). Times: hours,
+  minutes, seconds, hyphenated ("a 10-minute rest"), compound ("1 hour 15
+  minutes"), "30 minutes to 1 hour", "an hour", "half an hour", "an hour and
+  a half"; not days, not over 24 hours ("marinate 48 hours" is a plan), not
+  "a second" (the second egg), not "overnight", "350 degrees", "2 cups" or
+  "minute 50". A number written as `<Multiplyable>` before "minutes" is not
+  read (it is a component, not text) — none of the fixtures does it.
+- **Dc2-2 — the timer button's name.** The brief's example was "Start 25
+  minute timer"; the name is "Start timer: 25 minutes" (running: "Pause
+  timer: 25 minutes · 24:13 left"), so the visible words are inside the name
+  (41f, WCAG 2.5.3) and it still says what it does. On the page the button
+  sits inside the step's checkbox label, so the step checkbox's name
+  includes it ("Bake for Start timer: 50 minutes…"); a tap on the button is
+  the button's (the label ignores taps on interactive content, and the
+  handler stops it).
+- **Dc2-3 — a render rule, not a text rewrite.** Injecting `<StepTimer>`
+  tags into the markdown would meet 41c's Tc3 capture at a block's start;
+  the rule works on parsed text nodes, so code spans and link text (a button
+  in a link is invalid) are left alone. markdown-to-jsx's `state.inAnchor`
+  is not set at render time, so the rule counts link depth itself. Ids are
+  `step-<n>-<k>` (the k-th time in step n, numbered through groups as 42c1's
+  Dc8), the same on the page and in the cook view.
+- **Dc2-4 — the bar view opens on All steps.** A drink is a short list to
+  pour; the cook view opens on One step. Either is one tap away, and the
+  choice is kept per recipe with the ticks.
+- **Dc2-5 — sessionStorage, and what it keeps.** Steps done, ingredients
+  gathered, the step on screen and the layout, per recipe for the tab's
+  session (D1). The page's own step checkboxes stay unpersisted, as before.
+- **Dc2-6 — a drink's count comes from its yield.** "1 drink", "2
+  servings", `<Multiplyable baseNumber="2" /> cocktails`, "Serves 4", "2" →
+  that many drinks at 1×; no yield → 1. A yield that counts something else
+  ("1 pitcher", "about 6 cups", "2 to 4 servings") keeps the batch scaler —
+  "1 drink" would misname a punch bowl. The presets are counts (1, 2, 4), so
+  with a yield of 2, "1 drink" is ½× and no preset is pressed at 1× when
+  the yield is 3.
+- **Dc2-7 — the trays' places.** Page: fixed bottom-right from `sm`, full
+  width above the tab bar on a phone (canvas C's desktop bar sits above the
+  steps; fixed keeps it in sight while scrolling). Cook view: sticky at the
+  top of the overlay, as C's phone board.
+
+**Gates** — pending the heavy seat.
+
+**Roger to confirm.**
+
+- A range runs to its low end (Dc2-1).
+- The timer button's name wording, and that the page's step checkbox name
+  now includes the button's (Dc2-2).
+- The bar view opens on All steps (Dc2-4).
+- A drink whose yield counts something other than drinks keeps "Multiply"
+  (Dc2-6); presets are fixed counts 1 / 2 / 4.
+- The page's timer tray floats bottom-right rather than sitting above the
+  steps as in canvas C's desktop board (Dc2-7).
+- Not built from the canvases: B's "1×" scale button in the cook view's
+  header (the full scaler sits under the header instead), C's big "05/08"
+  step numeral and dots, a step's ticks for ingredients in the page's own
+  "Uses" chips.
+
 ### 42e — Holidays: the almanac and the menu pages (M–L)
 
 - **Data:** the `holidays` root's children (Thanksgiving, Christmas with
