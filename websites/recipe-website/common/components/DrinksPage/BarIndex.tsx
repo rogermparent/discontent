@@ -163,7 +163,7 @@ export function BarIndex({
         families > data.classics.length ? (
           <Link
             href={termHref(DRINK_ROOT)}
-            className="inline-flex min-h-6 shrink-0 items-center text-sm text-primary underline-offset-4 hover:underline"
+            className="inline-block shrink-0 py-0.5 text-sm leading-5 text-primary underline-offset-4 hover:underline"
           >
             All <span className="font-mono">{families}</span>
             <span className="sr-only"> classics</span>

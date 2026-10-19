@@ -147,7 +147,7 @@ export function SeasonPair({ holidays }: { holidays: SeasonalDrinks[] }) {
                 </div>
                 <Link
                   href={`/holidays/${holiday.slug}?kind=drinks`}
-                  className="inline-flex min-h-6 items-center text-sm text-primary underline-offset-4 hover:underline"
+                  className="inline-block py-0.5 text-sm leading-5 text-primary underline-offset-4 hover:underline"
                 >
                   All <span className="font-mono">{holiday.count}</span>
                   <span className="sr-only">

@@ -69,9 +69,14 @@ test.describe("Drinks", () => {
     await page.goto("/drinks");
     await shelfReady(page);
 
-    /* The question is the page's h1, its kind fixed: the word goes to Make. */
-    const question = page.getByRole("heading", { level: 1 });
+    /* The question is an h1 (`make-question`, as on /make; the masthead's
+     * brand is the other), its kind fixed: the word goes to Make. */
+    const question = page.getByRole("heading", {
+      level: 1,
+      name: "What drinks can I make?",
+    });
     await expect(question).toHaveText("What drinks can I make?");
+    await expect(question).toHaveAttribute("data-testid", "make-question");
     await expect(
       question.getByRole("link", { name: "drinks" }),
     ).toHaveAttribute("href", "/make?q=tag%3Adrink");
@@ -505,8 +510,13 @@ test.describe("Drinks @mobile", () => {
 
     await expect(page.getByTestId("drinks-ready")).toBeVisible();
     await expect(page.getByTestId("drinks-season")).toBeVisible();
-    await expectNoViolations(page);
     await snapshotPage(page, "drinks-page.png");
+    /* With the chrome released (41f's Tf2): the pinned tab bar covers
+     * whatever straddles the fold, which axe's target-size counts. */
+    await page.evaluate(() => {
+      document.documentElement.dataset.stickyChrome = "off";
+    });
+    await expectNoViolations(page);
 
     await expectHydrated(styles);
     await styles.click();
