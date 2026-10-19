@@ -17,8 +17,10 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** wave 1 — 42a ∥ 42b, with the 42j canvases and 42k's content dry
-run alongside (2026-10-18).
+**Now:** closed (2026-10-19). Every phase landed (42a–42h, 42j, 42k, 42m,
+42m2, 42n, 42s; the skeleton #281 and #282–#292); see the Close-out for
+Roger's steps, the four new design canvases and the "Roger to confirm"
+list.
 
 ## Context
 
@@ -121,26 +123,33 @@ host, at most one retry after a 403). Nothing deleted, features untouched.
 
 ## Roadmap
 
-| Phase    | Size | Branch                     | Status | PR  | What                                                                                          |
-| -------- | ---- | -------------------------- | ------ | --- | --------------------------------------------------------------------------------------------- |
-| 42a      | S    | `agent/42a-followups`      | 🟡     | —   | Per-item saved-list editing on `/make`, outline borders, resume-builder font, house-list e2e. |
-| 42b      | S    | `agent/42b-tolerance`      | 🟡     | —   | Screenshot tolerance tightened (41-Tp1), proven 3× in dev and build mode.                     |
-| 42j      | —    | (canvases)                 | 🟡     | —   | Design canvases for `/search`, `/tags` + a term page, the meal-plan page, the edit form.      |
-| 42k      | S    | (content repo)             | 🟡     | —   | D7: holiday terms for New Year's, Valentine's, St Patrick's, Easter, July 4th.                |
-| 42m      | M    | `agent/42m-bean-swaps`     | 🟡     | —   | Bean swaps on `/make`: their own tier, a switch, and `inventory make`'s `beanSwap`.           |
-| 42m2     | M    | `agent/42m2-make-matchers` | 🟡     | —   | `/make`: tap a missing tape to add it, roomier further away, the `any bean` matcher.          |
-| 42c1     | L    | `agent/42c1-recipe`        | 📝     | —   | Recipe page in cooking order: sticky ingredients, "uses:", heads-up, three wide columns.      |
-| 42g      | L    | `agent/42g-shopping`       | 📝     | —   | `/shopping`: in the store (aisle rail, aisle done) and at home (by plan and recipe).          |
-| 42c2     | M–L  | `agent/42c2-cook`          | 📝     | —   | Cook view one step at a time, timer buttons, the drink scaler counting drinks.                |
-| 42e      | M–L  | `agent/42e-holidays`       | 📝     | —   | `/holidays` (the almanac) and `/holidays/<slug>` (the menu), both apps.                       |
-| 42d      | M    | `agent/42d-drinks`         | 📝     | —   | `/drinks`: pour from your shelf.                                                              |
-| 42f      | M    | `agent/42f-home`           | 📝     | —   | Homepage: now and next.                                                                       |
-| 42h      | S–M  | `agent/42h-holiday-tools`  | 📝     | —   | Holidays for the agents: seat, CLI, API, MCP `holiday_list` / `holiday_get`.                  |
-| 42-close | S    | `agent/42-close`           | 📝     | —   | Close-out, CLAUDE.md bullet, backlog, memory, the morning report.                             |
+| Phase    | Size | Branch                     | Status | PR      | What                                                                                          |
+| -------- | ---- | -------------------------- | ------ | ------- | --------------------------------------------------------------------------------------------- |
+| 42a      | S    | `agent/42a-followups`      | ✅     | #283    | Per-item saved-list editing on `/make`, outline borders, resume-builder font, house-list e2e. |
+| 42b      | S    | `agent/42b-tolerance`      | ✅     | #286    | Screenshot tolerance tightened (41-Tp1), proven 3× in dev and build mode.                     |
+| 42j      | —    | (canvases)                 | ✅     | this PR | Design canvases for `/search`, `/tags` + a term page, the meal-plan page, the edit form.      |
+| 42k      | S    | (content repo)             | ✅     | this PR | D7: holiday terms for New Year's, Valentine's, St Patrick's, Easter, July 4th.                |
+| 42m      | M    | `agent/42m-bean-swaps`     | ✅     | #288    | Bean swaps on `/make`: their own tier, a switch, and `inventory make`'s `beanSwap`.           |
+| 42m2     | M    | `agent/42m2-make-matchers` | ✅     | #288    | `/make`: tap a missing tape to add it, roomier further away, the `any bean` matcher.          |
+| 42n      | S    | (content repo)             | ✅     | this PR | Many more bean salads: 18 imports, Bean Salads 29 → 48.                                       |
+| 42c1     | L    | `agent/42c1-recipe`        | ✅     | #282    | Recipe page in cooking order: sticky ingredients, "uses:", heads-up, three wide columns.      |
+| 42g      | L    | `agent/42g-shopping`       | ✅     | #289    | `/shopping`: in the store (aisle rail, aisle done) and at home (by plan and recipe).          |
+| 42c2     | M–L  | `agent/42c2-cook`          | ✅     | #290    | Cook view one step at a time, timer buttons, the drink scaler counting drinks.                |
+| 42e      | M–L  | `agent/42e-holidays`       | ✅     | #284    | `/holidays` (the almanac) and `/holidays/<slug>` (the menu), both apps.                       |
+| 42d      | M    | `agent/42d-drinks`         | ✅     | #291    | `/drinks`: pour from your shelf.                                                              |
+| 42f      | M    | `agent/42f-home`           | ✅     | #287    | Homepage: now and next.                                                                       |
+| 42h      | S–M  | `agent/42h-holiday-tools`  | ✅     | #285    | Holidays for the agents: seat, CLI, API, MCP `holiday_list` / `holiday_get`.                  |
+| 42s      | S–M  | `agent/42s-search`         | ✅     | #292    | Search without the IndexedDB wait: the index in memory, a palette loading state.              |
+| 42-close | S    | `agent/42-close`           | ✅     | this PR | Close-out, CLAUDE.md bullet, backlog, memory, the morning report.                             |
 
 Ordering, in waves: **1** 42a ∥ 42b (42j and 42k's dry run alongside —
 neither uses the heavy slot); **2** 42c1 ∥ 42g; **3** 42c2 ∥ 42e; **4** 42d ∥
 42f (both link into 42e's pages); **5** 42h; then 42-close.
+
+Added during the night (Roger, 2026-10-18): 42h, 42j and 42k at 22:20
+("Slot in more work to make enough for overnight"); 42s at 23:00, after
+42j's canvas agents met the slow first search; 42m and 42n at 23:10 and
+42m2 at ~23:50, his live asks about beans on Make.
 
 ## How it runs
 
@@ -352,6 +361,186 @@ Noise-only rewrites were restored: `git-page` (5 px), both `edit-form-*`
 `0.002`, or `threshold` + `maxDiffPixels`), measured against
 Docker-generated baselines so CI stays stable; run each screenshot spec 3×
 in Docker in both dev and build mode; strike the backlog row.
+
+#### Results (42b)
+
+Branch `agent/42b-tolerance`. Test configuration only: **reindex no, deploy
+no**. No baseline moved.
+
+**What changed**
+
+- **Recipe and portfolio configs:** `maxDiffPixelRatio: 0.02` becomes
+  `threshold: 0.2` + `maxDiffPixels: 100`. The threshold is pixelmatch's
+  default, now written out. Both configs also get
+  `stylePath: "./playwright/support/screenshot.css"` (Db2). The CMS demo and
+  resume-builder have no screenshot specs.
+- **`playwright/support/screenshot.css` (new, both editors):**
+  `nextjs-portal { display: none !important; }`.
+- **`support/visual.ts` (both):** `SnapshotOptions.maxDiffPixelRatio`
+  becomes `maxDiffPixels` (Tb3).
+- **`visual.spec.ts` (recipe):** `EDIT_FORM_IMAGE = { maxDiffPixels: 1_500 }`
+  for edit form populated, edit form with slug conflict, and markdown source
+  mode (Db3). The search reveal control's 5 % override is gone (Db4).
+
+**Method.** Measured in CI's Playwright image (`docker-pw.sh`, Playwright
+1.64.1), against the committed 41d2 baselines. A temporary, uncommitted
+change made every capture compare at threshold 0 and 0 px, with a soft
+assertion so that each test reached all its captures. Every capture that was
+not byte-identical left an `-actual.png`. A script then recounted each one
+with Playwright's own comparator (`getComparator("image/png")`) at
+thresholds 0, 0.05, 0.1 and 0.2. Runs: the 12 recipe screenshot specs with
+`--repeat-each=3 --retries=0` (138 captures per run) in build mode, then in
+dev mode before and after hiding the badge. Portfolio's `visual` spec ran
+the same way (33 captures per run) in build and in dev mode.
+
+**Measured noise.** Differing pixels against the baseline, worst of 3
+captures; every capture not listed was byte-identical.
+
+| Capture                                                | Build, t=0 | Build, t=0.2 | Dev, t=0 | Dev, t=0.2 |
+| ------------------------------------------------------ | ---------- | ------------ | -------- | ---------- |
+| `edit-form-populated`                                  | 13 034     | 206          | 12 703   | 10         |
+| `edit-form-overwrite`                                  | 10 202     | 87           | 13 034   | 27         |
+| `markdown-source-mode`                                 | 9 122      | 87           | 11 531   | 206        |
+| `git-page`, `make-page-specs`, `yield-multiplied-half` | 1          | 0            | 0–1      | 0          |
+| the other 40 recipe baselines                          | 0          | 0            | 0        | 0          |
+| portfolio, all 11                                      | 0          | 0            | 0        | 0          |
+
+- **The edit-form noise is the "Recipe 6" preview image.** The diff's box
+  sits on the downscaled image (x 459–825, y 762–870) and nowhere else on
+  the page. Chromium resamples it slightly differently from run to run.
+  Across all 18 build and dev captures of these three pages, the most the
+  image moved was **599 px at t=0.2**: a dev capture from the first dev run,
+  with the badge's pixels counted separately.
+- **Dev mode before the stylesheet.** Next's badge added a constant 912 px
+  to every desktop capture, and 200–950 px on mobile (Tb2). The first fix,
+  a `style` option, changed nothing (Tb1). The re-run with `stylePath`
+  gave the table's dev columns.
+- **A functional dev-only failure, not visual.** `command-palette.spec:151`
+  ("live search … Enter navigates") failed once per full dev run, as the
+  first test against a cold `next dev`. It took no screenshot, and CI
+  retries it. It is outside 42b's scope and left as observed.
+
+**Staleness caught (step 4).** I compared each of the 57 baselines as they
+stood before 41d2 (`c3101dfd^`), as the expected image, against today's
+41d2 baseline, as the actual image (today's page in CI's image). The
+comparator was Playwright's, with each rule as the config would apply it.
+50 of the 57 differ. The other 7 show no difference at threshold 0.2: the
+three Make images, two palette rows, paste-replace, and the reveal control
+(147 px at 0.1).
+
+| Rule                                       | Old baselines that now fail |
+| ------------------------------------------ | --------------------------- |
+| `maxDiffPixelRatio: 0.02` (before)         | 0 of 57                     |
+| `maxDiffPixelRatio: 0.002`                 | 32                          |
+| `threshold 0.2` + `maxDiffPixels: 800`     | 32                          |
+| `threshold 0.2` + `maxDiffPixels: 250`     | 44                          |
+| **`threshold 0.2` + `maxDiffPixels: 100`** | **48**                      |
+
+Examples that passed at 0.02 and fail now:
+
+- `empty-state/homepage-empty`: 563 px. The diff is exactly 41f's 3:1
+  search-input border.
+- `visual/recipe-detail-signed-out`: 1 156 px, from 41f's input and
+  checkbox borders.
+- `empty-state/bookmarks-empty`: 17 592 px. This is July's "My Bookmarks"
+  page from Tp1.
+
+The two that still pass are `footer-mobile` (13 px) and `homepage-mobile`
+(76 px). Both changed only text antialiasing: the wordmark is drawn
+grayscale in one and subpixel in the other. A redesign moves more than
+that.
+
+**Decisions**
+
+- **Db1 — One absolute budget, `maxDiffPixels: 100` at threshold 0.2.** A
+  ratio scales the budget with page height: 0.002 of the 1280×3300 edit
+  form is 8 400 px, and a redesigned input border is ~500 px. The noise
+  outside one image is 0 px at t=0.2 (at most 1 px at t=0), so the margin
+  is wide, and 100 px is still 5× under the smallest real change measured
+  (563 px). A lower `threshold` (0.1) raised noise and real changes by
+  about the same factor (edit-form noise 206 → 1 094 px,
+  `homepage-empty` 563 → 3 238 px), so it bought no separation.
+- **Db2 — Hide Next's dev badge from captures** with a `stylePath`
+  stylesheet, not `devIndicators: false` in `next.config`. That keeps the
+  change test-only: no Next or Turbopack config, nothing for the
+  main-checkout build to trace, and Roger keeps the badge in his own
+  `next dev`. In production the rule matches nothing.
+- **Db3 — The edit form's image gets a per-call 1 500 px; it is not masked.**
+  That is 2.5× the worst 599 px, and still about 13× under the ~19 000 px
+  the edit form moved between July and 41d2. A mask would need three
+  baselines regenerated, and 42a may regenerate the same edit-form PNGs
+  for its outline borders. This choice touches no PNG.
+- **Db4 — The reveal control's 5 % (`maxDiffPixelRatio: 0.05`, #132) is
+  removed.** Its reason was host-drawn baselines against CI's fonts; since
+  41b every baseline is drawn in CI's image. Its noise measured 0, and the
+  config's 100 px is 2.4 % of that 118×36 element. Left in, Tb3 would have
+  made it a no-op anyway.
+- **Db5 — No baseline regenerated.** The measurement found none already
+  off: every byte-different capture is the image noise above.
+
+**Gates**
+
+- Recipe, the 47 tests that take a screenshot, picked by a `--grep` over
+  their titles in the 12 spec files (all 46 baselines), with
+  `--repeat-each=3 --retries=0` in CI's image:
+  - **build: 141 passed** (4.8 min).
+  - **dev: 141 passed** (6.2 min).
+- Portfolio `visual.spec` (11 baselines), `--repeat-each=3 --retries=0`:
+  - **build: 33 passed**.
+  - **dev: 33 passed**.
+- **After merging main** (42a's outline borders, 42c1 and 42e):
+  - Every runner above ran again. The recipe selection grew to 50 tests
+    with `holidays.spec` and `recipe-cooking-order.spec` (51 baselines).
+  - Recipe: **build 150 passed** (5.1 min), **dev 150 passed** (6.6 min).
+  - Portfolio: **build 33 passed**, **dev 33 passed**. 42a's shared
+    button and toggle change moves no portfolio capture.
+- No retries anywhere; no flaky test, no exit 137.
+- `pnpm --filter recipe-editor typecheck`: clean before and after the
+  merge. It includes `playwright/**`, so it checks every
+  `snapshotPage` / `snapshotLocator` caller against the new
+  `SnapshotOptions`.
+- `pnpm --filter recipe-website exec tsc --noEmit`: clean.
+- Portfolio editor `tsc --noEmit`: clean.
+- `pnpm exec vitest run`: **119 files, 2 410 tests passed**.
+- Main-checkout-shaped build: not run. Nothing here is in Next's build
+  graph.
+
+**Roger to confirm**
+
+- The 100 px budget. If CI's runners rasterise differently from this
+  machine's Docker, the PR's own CI will be the first to say so: its Recipe
+  shards run these specs in dev mode. No CI run was available before
+  review.
+- 1 500 px for the three edit-form pages, rather than masking the preview
+  image. A mask would bring them under the 100 px rule, but needs three
+  baselines regenerated.
+- Hiding `nextjs-portal` in captures. That also hides a dev-mode error
+  overlay from a screenshot; the specs' own assertions still fail on the
+  error.
+
+#### Traps (42b)
+
+- **Tb1 — `toHaveScreenshot` has no `style` option.** That option belongs to
+  `page.screenshot`; the matcher takes `stylePath` (a CSS file, relative to
+  the config) and silently ignores an unknown `style` key. 42b's first
+  attempt to hide Next's dev badge passed `style` and changed nothing, which
+  cost a 27-minute rerun.
+- **Tb2 — `next dev` draws a badge on every page.** It is the "N" at the
+  bottom left, a fixed element: 912 px on every desktop capture, 200–950 on
+  mobile, and it lands at the bottom of a full page that scrolled to its
+  end. Baselines are production renders, while CI's Recipe shards and the
+  Portfolio job run dev. So any budget under ~1 000 px fails every dev-mode
+  page unless `playwright/support/screenshot.css` hides `nextjs-portal`.
+- **Tb3 — `maxDiffPixels` beside `maxDiffPixelRatio` means the smaller one
+  wins.** Playwright's comparator takes the minimum when both are set, per
+  call and config alike. A per-call ratio "loosening" a page under the 100 px
+  config would tighten nothing and loosen nothing. `SnapshotOptions` now
+  offers `maxDiffPixels` only.
+- **Tb4 — Staleness under the budget still hides.** Plain
+  `--update-snapshots` (`changed`) never rewrites a baseline that passes,
+  so a page can drift by up to 100 px per capture (1 500 on the three edit-form
+  pages) unseen. That is a few glyphs, not an input border. Rewrite with
+  `--update-snapshots=all` when in doubt (41-Dp1).
 
 ### 42c1 — Recipe page in cooking order (L)
 
@@ -834,6 +1023,145 @@ recipe-website exec tsc --noEmit` ✅ — after each merge of `origin/main`
   has Halloween and Christmas); unit tests for the view model; axe;
   baselines for both pages, e2e and mobile.
 
+#### Results (42e)
+
+**What changed.**
+
+- **`/holidays`, the almanac** (homepage canvas C): a header ("The year
+  ahead · N holidays", today's date), a ruler of the next 365 days from
+  `md` up — a tick on the first of each month with the year on January,
+  a dot per dated holiday, labels stacked in up to three lanes when they
+  crowd (`rulerLanes`: Christmas and New Year's) — then **Next up**, three
+  countdown cards (the soonest larger, its number in the accent; picture,
+  date, "9 dishes · 3 drinks", its first three recipes pinned first, "The
+  Halloween menu"), **Later in the year** as one row each, and **Any time**
+  for holidays with no rule. Files: `common/components/HolidaysPage/`
+  (`index.tsx`, `Almanac.tsx`).
+- **`/holidays/<slug>`, the menu** (/drinks canvas C, generalised): the
+  "Holidays · counts" eyebrow and the holiday's date over the headline
+  "**13** days to Halloween.", the record's description and picture, four
+  lead cards of the kind shown (pinned first), "Then Christmas, in 68 days
+  — 1 drink." to the next holiday's menu, then **On the menu:
+  _recipes_** — the kind word is `/make`'s kind menu — with dot-leader
+  groups in newspaper columns: dishes by course, drinks by style, "More"
+  for the rest, each line's right-hand side the dish's main ingredient or
+  the drink's spirit. With both kinds shown, the groups sit under Dishes
+  and Drinks. "What can I make?" goes to `/make?q=` + `withKind(tag:<slug>,
+kind)`. Files: `HolidayMenu.tsx`, `HolidayMenuPage.tsx`.
+- **Data:** `common/controller/holidaysPage.ts` (pure: `holidayEntries`,
+  `holidayMenuData`, `almanacView`, `rulerLanes`, `holidayAfter`,
+  `menuGroups`, `menuCourses`, `holidayAliasTarget`) and
+  `controller/data/readHolidays.ts` (the tree, each holiday's record, one
+  cached by-term row per key of the holidays' subtrees — `/drinks`' and
+  the term page's pattern). `util/holidays.ts` gains `holidayRuleKey` (slug,
+  then aliases), an optional `rule` on items for `orderByNextOccurrence` /
+  `withinComingUpWindow` / `nextSeasonal` (unchanged without it),
+  `formatDayShort`, `formatMonthTick`, `addDays`.
+- **Routes in both apps:** `editor/src/app/(recipes)/holidays/page.tsx`,
+  `holidays/[slug]/page.tsx`, and the export's, defined once in
+  `HolidaysPage/routes.tsx`. The export's `generateStaticParams` emits
+  every holiday and every alias of one; with none, one `_` placeholder that
+  answers 404 (the `generateTagStaticParams` guard).
+- **The kind menu** moved out of `MakeQuestion` into
+  `MakePage/KindMenu.tsx` (Te1), markup and behaviour unchanged; `SLOT` is
+  exported for the holiday heading.
+- **Links:** a holiday's term page says "See the Halloween menu", the
+  `holidays` root's "The almanac: every holiday, by date"
+  (`TagPage/shared.tsx`); the footer's default Browse column gains
+  Holidays after Drinks on a site that has a `holidays` root with a child
+  (`AppLayout`, a cached tree read in a try/catch; `NAV_ICONS` gets
+  `calendar-heart`). `TagAliasRedirect` takes a `base` for the export's
+  alias pages.
+
+**Decisions.**
+
+- **De1 — dates per D4, by slug then alias.** A holiday child with no
+  rule is undated and last ("Any time"); a holiday further than 365 days
+  off (a late Easter after an early one) keeps its card but no dot.
+- **De2 — today is the browser's (U1).** The server's day orders the
+  first render; countdown numbers and today's date wait for the browser's
+  day (`useToday(null)`), so the export's HTML never prints a stale number.
+  Dates are `<time>` (masked in baselines).
+- **De3 — only holidays with recipes** are on the almanac (plans alone do
+  not count: the menu lists recipes). A holiday child with none still has
+  a menu page that says so.
+- **De4 — the kind lives in `?kind=<word>`** (`dishes`, `drinks`; none for
+  recipes), read with `useSearchParams` under a `Suspense` whose fallback
+  is the whole menu — the export's static HTML.
+- **De5 — course order is a meal's** (`MENU_COURSE_ORDER`: breakfast,
+  snacks, soup, salad, mains, sides, bread, sauces, desserts; other
+  courses after, in tree order); styles keep `DRINK_STYLE_SLUGS`' order. A
+  recipe in two courses goes under the earlier in that order, whatever
+  order its tags are in (`earliestTerm`; a dessert-and-breakfast pie is
+  breakfast); a drink in two styles likewise.
+- **De6 — the right-hand side of a menu line** is the dish's main
+  ingredient or the drink's spirit, not a time: the by-term rows carry no
+  times, and adding them would change the tag index's projection (a
+  reindex).
+- **De7 — an alias redirects.** `/holidays/christmas-cookies` → the
+  editor redirects; the export emits a page that sends the reader on. A
+  slug that is neither a holiday nor an alias of one is a 404.
+- **De8 — `TimelineStrip` was not reused.** It draws one recipe's
+  schedule as proportional segments; the almanac is a calendar ruler with
+  points. A new `Ruler` inside `Almanac.tsx` rather than a fork.
+- **De9 — no masthead link.** Six destinations fill the masthead at `md`,
+  and a masthead change moves every full-page baseline; the almanac is in
+  the footer — only on sites with holidays, so only `drinks-bar`'s footer
+  moved (both `drinks-page` baselines, e2e and mobile, regenerated) — and
+  linked from the term pages.
+
+**Roger to confirm.** De3 (plans don't put a holiday on the almanac);
+De5's course order; De6 (main ingredient / spirit at the end of the
+dotted line); De9 (footer only — a masthead or ⌘K palette entry is a
+small follow-up); the homepage's "All holidays" still goes to
+`/tags/holidays` — 42f's redesign links the almanac.
+
+**Gates** (2026-10-19, all through the capped heavy slot).
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit`: clean.
+- vitest: 120 files, 2434 tests passed (new: `test/holidaysPage.test.ts` —
+  rule lookup by slug then alias incl. 42k's `new-years` shape, almanac
+  order and undated last, the 365-day ruler across a year end, a late
+  Easter off the ruler, label lanes, the next holiday, menu grouping by
+  course and style with More, pins first, a two-course dish under the
+  earlier course, kinds, alias targets).
+- Export build (`next build`, `output: "export"`) against a scratch copy
+  of `drinks-bar`: `○ /holidays`, `● /holidays/halloween`,
+  `● /holidays/christmas` prerendered as static HTML; the index's footer
+  links `/holidays`.
+- Playwright in Docker, build mode: holidays, accessibility, drinks, make,
+  tag-pages, footer, homepage-browse, menus — **173 passed**. Dev mode
+  once (Docker): holidays and accessibility — **76 passed**.
+- Baselines (Docker): new `holidays-almanac` and `holidays-menu`, e2e and
+  mobile, on the frozen clock; `drinks-page` e2e and mobile moved (the
+  footer's Holidays link, nothing else). Each opened and compared with its
+  canvas: the almanac is canvas C's "The season" (ruler, big countdowns,
+  cards) as a page; the menu is the /drinks canvas C's hero and dot-leader
+  menu. With the fixture's two holidays the Next up row has an empty third
+  column, and every picture is a monogram (the fixture has no photos).
+
+#### Traps (42e)
+
+- **Te1 — `react-hooks/refs` refuses a ref inside an object.** The first
+  cut of the shared kind menu was a hook returning `{open, wrapRef,
+buttonRef, …}` and two components taking it as a prop; the React
+  compiler's lint flags every property read on that object during render
+  ("Cannot access refs during render"), even `menu.open`. Element state
+  through callback refs trips `set-state-in-effect` instead. What passes:
+  one component owning its refs, with the heading as a render prop
+  (`KindMenu`'s `children(word)`).
+- **Te2 — a holiday's alias can carry another holiday's rule.** 42k's
+  `new-years` term lists `new-years-eve` as an alias, and `new-years-eve`
+  has its own rule (31 December). The rule lookup is slug first, then
+  aliases in order (`holidayRuleKey`), so New Year's is 1 January; a lookup
+  that tried aliases first, or merged them, would date it a day early.
+- **Te3 — the kind change is `history.replaceState`, not
+  `router.replace`.** On the editor `router.replace("?kind=…")` re-requests
+  the page's RSC payload for a change only the browser cares about; Next
+  keeps `useSearchParams` in step with the History API, so the page
+  narrows without a round trip, on the export too.
+
 ### 42g — /shopping: plan at home, shop in the store (L)
 
 Canvas B, presentation only (D5).
@@ -856,666 +1184,7 @@ Canvas B, presentation only (D5).
   `shoppingView`, `shoppingTickSync`, `shoppingTickQueue`; the first
   `/shopping` baselines, e2e and mobile.
 
-### 42d — /drinks: pour from your shelf (M)
-
-Canvas B. The opening question "What drinks can I make?" with 41h's
-`MakeQuestion`, kind fixed to drinks; the shelf (the saved list as tape for
-a signed-in editor, the house list on the export when shared, otherwise the
-browser's list); Pour now and Buy next from `useMakeable`; the current and
-next holiday side by side (`withinComingUpWindow` sliced to 2), each
-linking to `/holidays/<slug>`; a dot-leader index of spirit & base, style
-and classics. Tests: `drinks.spec` (seasonal, frozen clock), `make.spec`
-links, baselines `drinks-page-{e2e,mobile}`.
-
-### 42f — Homepage: now and next (M)
-
-Canvas B. A real search field beside the Make tile (submits to
-`/search?q=…`, with the palette shortcut hint); intents as `tag:` chips;
-"This season" — dated rows for the coming holidays linking to
-`/holidays/<slug>`, and a link to the almanac; a right rail with the newest
-plan and, for a signed-in editor, a shopping-list link; about half today's
-height, the duplicate holiday showings gone. Tests: `homepage.spec`,
-`homepage-browse.spec`, `empty-state.spec`, baselines `homepage-*`.
-
-### 42h — Holidays for the agents (S–M)
-
-As 41i did for Make: a read-only seat — `holidayList` (each holiday term
-with its next date, days until, countdown label, recipe counts per kind)
-and `holidayGet <slug>` (the menu's grouping as data: courses for dishes,
-styles for drinks) — the CLI `recipes holidays [slug] --json`, an API route
-if the other seats have one, and MCP `holiday_list` / `holiday_get`,
-pre-approved as read-only in `.claude/settings.json` and the skill's
-frontmatter (CLAUDE.md's 57/43 become 59/45). The curator skill learns
-"what's coming up?". Tests follow the `mcp`, `cliJson` and `curatorSkill`
-suites.
-
-#### Results (42h)
-
-Branch `agent/42h-holiday-tools`, cut from `agent/42e-holidays` (#284).
-**Reindex needed: no. Deploy: yes** (the editor: `/api/holidays` and the
-MCP-over-HTTP seat; the stdio MCP and the CLI pick the tools up from the
-checkout). No content, index or stored-format change; nothing is written.
-
-**What shipped:**
-
-- **The seat**, `editor/controller/curation/holidays.ts`: `holidayList(ctx,
-{date?})` and `holidayGet(ctx, slug, {date?})`. Both are 42e's view model
-  over Node-safe reads — the term tree aggregate, each holiday's record
-  (`readContentFileOrNull`) and one by-term row per key of the holidays'
-  subtrees (`readTaxonomyByTermEntry`), the pages' reads without
-  `unstable_cache`; nothing creates an index (F30). The list is
-  `holidayEntries` ordered by `almanacView`; the menu is `holidayMenuData`,
-  "Then …" is `holidayAfter`, the alias is `holidayAliasTarget`.
-  `holidayEntries` gains `includeEmpty` (default off, so the almanac is
-  unchanged).
-- **`holiday_list`** → `{today, total, link, holidays: [{slug, label,
-dated, date?, days?, countdown?, rule?, counts: {recipes, dishes, drinks},
-aliases?, top}]}`, soonest first, undated last. `date` is the next day
-  (`YYYY-MM-DD`) on or after today, `countdown` is `countdownLabel`'s
-  ("today", "tomorrow", "in 12 days"), `rule` appears only when another
-  key dates it (an alias's), `top` is the almanac card's three names.
-- **`holiday_get {slug}`** → `{today, slug, label, requested?, dated, date?,
-days?, countdown?, description?, image?, aliases?, counts, courses, styles,
-next?, link}`; `courses` (dishes, `MENU_COURSE_ORDER` then More) and
-  `styles` (drinks, `DRINK_STYLE_SLUGS` then More) are `[{slug, label,
-recipes: [{slug, name, date, tags?, image?, base?}]}]` — `recipe_search`'s
-  compact row with the menu line's `base` (main ingredient or spirit).
-- **CLI** `recipes holidays [<slug>] [--date YYYY-MM-DD]` with `--json`, a
-  readable form ("Halloween — halloween: Sat 31 Oct, in 12 days · 1 dish ·
-  1 drink"; the menu as Dishes / Drinks with course and style headings),
-  its own `--help` with the JSON, and a "Holidays:" paragraph and usage
-  line in the global `--help`.
-- **API** `GET /api/holidays?date=` and `GET /api/holidays/<slug>?date=`,
-  thin over the seat. The HTTP backend sends `date`, makes `link` absolute
-  on the editor that answered, and names an editor from before 42h ("The
-  editor at <origin> predates the holiday tools (42h) — update it, or run
-  with --content-dir") when the route answers Next's own 404 rather than
-  our `{error}`.
-- **MCP** `holiday_list` and `holiday_get`, `readOnlyHint` (so a
-  read-scoped token's session has them), `date` checked for its shape by
-  the schema (`10/31` is the SDK's rejection, T28) and for being a real
-  day by the seat (`2026-02-30` is `validation`). Pre-approved in
-  `.claude/settings.json` and the skill's frontmatter: **59 tools / 45
-  pre-approved** (CLAUDE.md updated; 14 held back, unchanged).
-- **The curator skill**: description gains "what holidays are coming up?"
-  and "plan for Easter"; a new **§7b Holidays** — "What's coming up?" →
-  `holiday_list {}`, "Plan for Easter" → `holiday_get`, then the planning
-  tools (reuse, `term_assign`, `group_create`), hand Roger the `link`; the
-  fallback lists `recipes holidays [<slug>] --json`.
-- The D8 boundary (`curation.test.ts`) admits
-  `recipe-website-common/controller/holidaysPage` (pure; it imports
-  `util/holidays`, `drinksPage`, `homepageComingUp`, `tagVocabulary` and
-  types). `agent-mcp.md` enumerates only epic 23's tools, so it is
-  unchanged (as at 41i).
-
-**Dh1 — the list includes holidays nothing is filed under.** The almanac
-leaves them out (De3); an agent asked "what's coming up?" should see that
-Easter has a term and no recipes, so `holiday_list` keeps them with counts
-of 0 (`includeEmpty`). "Then …" (`next`) follows the page: the next holiday
-_with recipes_.
-
-**Dh2 — today is the server's local day unless `date` says.** The pages
-wait for the browser's day (De2); a seat has none, so it counts from the
-machine's local calendar day and every answer names it (`today`). Over
-`--remote` that is the editor's day — the Pi's, in its time zone.
-
-**Dh3 — an alias answers its holiday, with `requested`.** The editor's page
-redirects (De7); a tool answering `not_found` for `christmas-cookies` would
-send an agent hunting, so `holiday_get` answers Christmas and says which
-slug was asked. A slug that is no holiday (a recipe, a course, the
-`holidays` root) is `not_found`, naming the holidays there are.
-
-**Dh4 — public reads.** `/api/holidays` answers without a token, like
-`/api/tags` and `/api/taxonomies/tag/<slug>`: the same data is on the public
-`/holidays` pages and the export. (Make's `/api/inventory/make` needs a read
-token because the inventory is private.)
-
-**Dh5 — rows carry `tags`, not times.** "Compact rows like
-`recipe_search`'s": `{slug, name, date, tags?, image?}` from the by-term
-rows, plus `base`. `totalTime` is not on those rows (De6) and adding it
-would change the tag index's projection (a reindex), so an agent wanting
-times asks `recipe_search "tag:<holiday>"` or `recipe_get`.
-
-**Smoke run** (scratch copy of the `drinks-bar` fixture under
-`tmp/42/42h/fixture`, `CONTENT_DIRECTORY` set there, reindexed, plus
-`easter` and `fall-favorites` terms, a `Christmas Cookies` alias on
-`christmas` and `hand-pies` under `fall-favorites`, all through the CLI):
-
-```
-$ pnpm --silent recipes holidays --date 2026-10-19 --json
-{"today":"2026-10-19","total":4,"holidays":[{"slug":"halloween","label":"Halloween","dated":true,"date":"2026-10-31","days":12,"countdown":"in 12 days","counts":{"recipes":2,"dishes":1,"drinks":1},"top":[{"slug":"hand-pies","name":"Hand Pies"},{"slug":"vodka-sour","name":"Vodka Sour"}]},{"slug":"christmas","label":"Christmas","dated":true,"date":"2026-12-25","days":67,"countdown":"in 67 days","counts":{"recipes":1,"dishes":0,"drinks":1},"aliases":["christmas cookies"],"top":[{"slug":"chamomile-collins","name":"Chamomile Collins"}]},{"slug":"easter","label":"Easter","dated":true,"date":"2027-03-28","days":160,"countdown":"in 160 days","counts":{"recipes":0,"dishes":0,"drinks":0},"top":[]},{"slug":"fall-favorites","label":"Fall favorites","dated":false,"counts":{"recipes":1,"dishes":1,"drinks":0},"top":[{"slug":"hand-pies","name":"Hand Pies"}]}],"link":"/holidays"}
-$ pnpm --silent recipes holidays halloween --date 2026-10-19 --json
-{"today":"2026-10-19","slug":"halloween","label":"Halloween","dated":true,"date":"2026-10-31","days":12,"countdown":"in 12 days","counts":{"recipes":2,"dishes":1,"drinks":1},"courses":[{"slug":"more","label":"More","recipes":[{"slug":"hand-pies","name":"Hand Pies","date":1790000420000,"tags":["dessert","halloween","fall favorites"]}]}],"styles":[{"slug":"sour","label":"Sour","recipes":[{"slug":"vodka-sour","name":"Vodka Sour","date":1790000060000,"tags":["drink","vodka","sour","shaken","halloween"],"base":"Vodka"}]}],"next":{"slug":"christmas","label":"Christmas","date":"2026-12-25","days":67,"countdown":"in 67 days"},"link":"/holidays/halloween"}
-$ pnpm --silent recipes holidays christmas-cookies --date 2026-10-19 --json
-{"today":"2026-10-19","slug":"christmas","label":"Christmas","requested":"christmas-cookies", … ,"styles":[{"slug":"collins","label":"Collins","recipes":[{"slug":"chamomile-collins", … ,"base":"Vodka"}]}],"link":"/holidays/christmas"}
-$ pnpm --silent recipes holidays --date 2026-10-19
-Holidays as of 2026-10-19 — on the site: /holidays
-  Halloween — halloween: Sat 31 Oct, in 12 days · 1 dish · 1 drink
-  Christmas — christmas: Fri 25 Dec, in 67 days · 1 drink
-  Easter — easter: Sun 28 Mar, in 160 days · nothing filed yet
-  Fall favorites — fall-favorites: no date · 1 dish
-$ pnpm --silent recipes holidays nope --json            # exit 1
-{"error":{"code":"not_found","message":"No holiday at slug \"nope\" — the holidays are halloween, christmas, easter, fall-favorites.","slug":"nope"}}
-$ pnpm --silent recipes holidays --date 2026-02-30 --json   # exit 1
-{"error":{"code":"validation","message":"\"2026-02-30\" is not a day: give it as YYYY-MM-DD, e.g. 2026-10-31.","issues":[{"path":"date","message":"A calendar day as YYYY-MM-DD"}]}}
-```
-
-(The fixture's `dessert` is not under a `course` root, so Hand Pies is
-"More" — the menu page shows it the same way.)
-
-**Tests:** new `test/holidayTools.test.ts` (the seat on a frozen day over a
-tmpdir built with the real seats — Halloween with a pin, a dessert and a
-warm drink; Christmas with a cookie filed under its alias; New Year's whose
-alias `new-years-eve` has its own rule (Te2); Easter with nothing filed;
-Fall favorites undated — order, counts, `top`, as of another day, "today",
-no holidays root, bad days; the menu by course and style with tags, an
-alias with `requested`, an undated and an empty holiday, `not_found`; both
-routes in-process; the local link on `RECIPE_EDITOR_URL`; the readable
-list and menu; over HTTP `date`, the absolute link, the pre-42h editor and
-a real `not_found` kept); `mcp.test.ts` (both tools, alias, `not_found`,
-`validation`, the SDK's shape for `10/31`, read-only annotations, the
-read-scoped list; 59 tools); `mcpHttp.test.ts` (a read-scoped session lists
-and calls them); `cliJson.test.ts` (list and menu as a process, `--date`,
-two slugs `usage`, a bad day, `not_found`); `curatorSkill.test.ts` (59/45,
-the two names, §7b and the fallback line; `holiday_` joins the tool-shaped
-tokens); `curation.test.ts` (D8 allow-list).
-
-**Gates** (2026-10-19, all through the capped heavy slot):
-
-- `pnpm --filter recipe-editor typecheck` ✓ and `pnpm --filter
-recipe-website exec tsc --noEmit` ✓ (before merging `origin/main` at
-  3cedeea0, which merged cleanly — no conflicted file).
-- Affected files after the merge (`holidayTools`, `mcp`, `mcpHttp`,
-  `cliJson`, `curatorSkill`, `curation`, `holidaysPage`): **7 files, 226
-  tests** ✓. Then `pnpm exec vitest run`: **124 files, 2534 tests** ✓.
-- Lint-staged `eslint` and `prettier --check` ✓ on commit.
-- No Playwright: no page changed (the two routes are covered in-process in
-  `holidayTools.test.ts`, as 41i covered `/api/inventory/make`).
-
-**Roger to confirm:**
-
-- **Dh1:** `holiday_list` lists a holiday nothing is filed under (counts
-  0); the almanac page still leaves it out.
-- **Dh2:** the tools count from the machine's own day; on the Pi over
-  `--remote` that is the Pi's local day.
-- **Dh4:** `/api/holidays` is public, like `/api/tags`.
-
-### 42j — Next-round design canvases (no code)
-
-Four Claude Design canvases under epic 41's canvas brief, three variants
-each (A refine, B rethink, C bold): `/search`; `/tags` with a term page;
-the meal-plan (group) page; the recipe edit form. Nothing is implemented;
-Roger picks in the morning.
-
-### 42k — Holidays across the year (content)
-
-`HOLIDAY_RULES` already dates New Year's, Valentine's, St Patrick's, Easter
-and July 4th, but only three holiday terms exist, so the almanac would
-cover October to December. D7: a term under `holidays` for each of those
-with recipes (slugs from the rule keys), existing recipes attached on a
-clear reason, at most 8 imports for holidays left thin. Dry run in scratch,
-reviewed, applied through the CLI; `POST /api/revalidate` after.
-
-### 42m — Bean swaps on Make (M)
-
-Roger, 2026-10-18 (live): "Add many different bean salad recipes which I
-will look up in the what can I make tool. I should be able to see many
-recipes with different beans and be able to **loosen the bean restrictions
-to substitute different beans if needed as a separate tier**." The salads
-themselves are a content phase running alongside; this is the tier.
-
-Strict and close matching stay as they were — `bean` is still out of the
-same-head rule, so black beans never _meet_ a chickpea line. A bean family
-(`common/util/beans.ts`) says which beans stand in for one another; a
-recipe short only of family beans, each coverable by a bean on hand, is
-listed in its own "With a bean swap" group with "Use [pinto beans] for
-[black bean]". It never becomes "can make" and moves no other count. A
-switch beside "Count close matches" turns it off, per browser; the agents'
-`inventory make` returns the same group (41i parity).
-
-#### Results
-
-**What changed.**
-
-- `common/util/beans.ts` (new, pure): `BEAN_KINDS` (the family, by kind),
-  `beanKind` / `beanKindOf` (a name's kind, through `toName`, after a few
-  leading "how it's sold" words — `cooked`, `canned`, `can of`, `15-ounce`,
-  `low-sodium`, `no-salt-added`), `isBeanLine` (every alternative a family
-  bean), `beanFor` (which bean on hand to swap in).
-- `util/makeable.ts`: `MakeableOptions.beanSwaps` (default `false` in the
-  pure judge; the page and the seat pass it), `RecipeMatch.swaps`, and
-  `MakeableAnalysis.beanSwap` — the same match objects as in their bucket,
-  sorted by name.
-- `/make`: the "With a bean swap" section after "Can make now" (photo and
-  spec cards: one "Use [have] for [needs]" line per swap, the bean on hand
-  a `have` tape and the line's a dashed `missing` tape); in the bucket the
-  recipe also sits in, "Needs [chickpea] (swap: black beans)"; the ticker
-  adds "· N with a bean swap" when N > 0; the switch "Let beans stand in
-  for each other" under "Count close matches" (`make-settings-v1`
-  `beanSwaps`, stored only as `false`).
-- Agents: `inventory_makeable` / `recipes inventory make` /
-  `GET /api/inventory/make` take `beanSwaps` (`--no-bean-swaps`,
-  `beanSwaps=0`), answer `beanSwaps: boolean` always and `beanSwap: [{slug,
-name, swaps: [{line, use}]}]` while it is on (capped at `limit`); the
-  CLI's text prints "With a bean swap (N)" after the buckets; the tool
-  description, the CLI help and the curator skill's §8 say so. Existing
-  fields keep their shapes.
-- Fixture `make-beans` (four salads, copied shapes: Chickpea Cucumber
-  Salad, Black Bean and Corn Salad, Two Bean Salad, Classic Three Bean Salad
-  with green beans); indexes built on a scratch copy with
-  `rebuildFixtureIndexes` (seeded from `make-food`'s index, since a type
-  with no index is skipped) and copied back.
-
-**The family (Dm1).** Black (black, black turtle); red (kidney — red, dark
-red, light red — red, small red, adzuki/azuki); pinto (pinto, borlotti,
-cranberry, anasazi, pink); white (cannellini, white, white kidney, navy,
-great northern, haricot, flageolet, marrow); chickpea (chickpeas, garbanzo
-— folded already — ceci); butter (butter, lima, baby lima); black-eyed peas
-(and cowpeas); mung; fava (and broad); and "any": beans, mixed beans, bean
-medley, bean mix, three/four/five bean mix. Bare varieties count where
-they name nothing else, as an `(or …)` alternative leaves them ("black
-beans (or pinto)"): pinto, borlotti, anasazi, kidney, red kidney,
-adzuki/azuki, navy, great northern, cannellini, lima, fava, ceci — never
-black, white, red, butter or cranberry. 42n's shapes read as members:
-"cranberry beans (borlotti)", "fava beans (broad beans)", "kidney beans
-(rajma)" (the parenthetical is an alias), and "black beans (or pinto or
-cannellini beans)" (each of its beans). **Left out:** green, string,
-wax and runner beans; edamame and soybeans; lentils and split peas; bean
-sprouts; coffee, cocoa, vanilla and jelly beans; refried, baked and chili
-beans (sauced); bean paste; romano beans (borlotti in Italy, a flat green
-bean in the US).
-
-**Decisions.**
-
-- **Dm1 — The family is an exact list, by kind.** After the leading "how
-  it's sold" words, a name must be one of the listed names exactly; no tail
-  rule, which would let `beans` claim green, vanilla and coffee beans. The
-  kind only orders the choice: the line's own kind first (navy for
-  cannellini), then any named bean in list order, then a mix. An A-or-B line
-  is a bean line only when every alternative is a family bean ("chickpeas or
-  lentils" is not).
-- **Dm2 — The tier is beside the buckets, not one of them.** A swap recipe
-  stays in one/two/further away, its `missing` and `distance` unchanged, so
-  every other count, the headings, the ticker's first four numbers and Buy
-  next are exactly as before (Buy next still offers chickpeas for it). The
-  card shows twice: in "With a bean swap" (what to swap) and in its bucket
-  ("Needs chickpea (swap: black beans)").
-- **Dm3 — "Every requirement met except beans"** is "every line in
-  `missing` is a bean line", so it follows `countClose`: with close matches
-  off, a close non-bean line keeps a recipe out. Staples count as on hand
-  for the swap as they do for everything else, so an "Assume I always have"
-  bean can be swapped in.
-- **Dm4 — One bean may cover several lines**; a three-bean salad from one
-  can is listed, saying the same bean for each.
-- **Dm5 — Featuring follows the matcher, not the swap.** Featuring
-  `chickpeas` keeps recipes whose required line chickpeas meet, and those in
-  the tier show their swap; featuring `black beans` does not pull in
-  chickpea recipes it could stand in for.
-- **Dm6 — Defaults.** On by default on `/make` and in the seat; off by
-  default in the pure `analyzeMakeable` (pages that show counts only — the
-  homepage tile, `/drinks` — never ask, and pay nothing). The ticker leaves
-  the tier out at 0, so a drinks scope reads as before.
-- **Dm7 — A bare `beans` names only the family** (review, a pre-existing
-  matcher gap fixed narrowly): an inventory item `beans` used to meet "1 lb
-  green beans", "1 vanilla bean" and "coffee beans" strictly (`bean` is no
-  vague head), and green beans on hand met a line asking for "beans". Now,
-  in `namesMatch`, a name that is only `bean` meets a longer one only when
-  that is a family bean (`isFamilyBeanWords`) — "black beans", "mixed
-  beans", "canned beans" yes; green, wax, string, vanilla, coffee, cocoa and
-  jelly beans no. It touches nothing but the word `bean`. It can lower
-  can-make counts for a list holding plain "beans", and the shopping list's
-  "probably on hand" fold (the same `satisfies`) no longer folds green beans
-  under it.
-- **Dm8 — An `(or …)` with `or` inside is read in the family only.** The
-  parser leaves "black beans (or pinto or cannellini beans)" as two
-  alternatives, `black bean` and `pinto or cannellini bean`, and a bare
-  `(or pinto)` without the noun. `beanKinds` splits a name on `or` and
-  lends the last part's noun to a part without it, so the line is a bean
-  line naming black, pinto and white. Strict matching is unchanged:
-  cannellini beans on hand meet it (the tail of `pinto or cannellini
-bean`), but pinto beans don't, so with pinto it lands in the tier ("Use
-  pinto beans for black bean or pinto or cannellini bean"). **Follow-up:** split
-  `(or A or B C)` into alternatives and lend the noun in the parser
-  (`alternativeParts` / `inheritTails`) — a matcher-wide change, out of this
-  phase.
-
-**Gates.**
-
-- typechecks: recipe-editor ✅ and the export (`tsc --noEmit`) ✅, heavy
-  slot, at 96dc9809;
-- vitest 2432/2432 (120 files), heavy slot; the makeable suites alone
-  212/212 (4 files) after the review fixes;
-- Playwright, Docker build mode: `make.spec` + `accessibility.spec` 101/101
-  (e2e + mobile), at 96dc9809; the two new bean tests (`make.spec`,
-  `accessibility.spec`) once in dev mode (Docker) 2/2;
-- baselines (Docker, build mode): `make-page-e2e` and `make-page-specs-e2e`
-  unchanged; `make-mobile-mobile` moved (393×2162 → 393×2234: the new
-  switch's three lines on the stacked shelf) and was regenerated, opened and
-  checked by eye — nothing else on it moved;
-- after merging origin/main (42a, 42c1; d16c80cc): typechecks ×2 ✅;
-  vitest, the make/inventory/CLI/MCP files 198/198 (8 files);
-  `make-mobile-mobile` conflicted, main's taken and regenerated in Docker
-  (same picture: the switch added); `make.spec` + `accessibility.spec`
-  104/104 in Docker build mode.
-
-**Roger to confirm.** The family list and its exclusions (Dm1: chili beans,
-romano beans, lentils as a later family of their own?); a swap recipe shown
-in both the tier and its bucket (Dm2) rather than moved; the switch on by
-default and its wording; featuring not widened by swaps (Dm5); a bare
-"beans" on the list no longer meeting green/vanilla/coffee beans, which
-can lower can-make counts (Dm7); the swap text's singular line name — "Use
-pinto beans for kidney bean", matching "Needs chickpea" (`requirementLabel`).
-
-### 42m2 — Make: tap to add, roomier further away, matcher ingredients (M)
-
-Roger, 2026-10-18 (live): "If I click an ingredient in the 'further away'
-list in what can i make, I want it added to the currently on hand
-ingredients to help get started easy. The list should probably have fewer
-items across at full width because ingredients get smushed. Also, I want to
-be able to add ingredients as a matcher, e.g. add 'bean' which effectively
-matches all beans and I can refine it later."
-
-Built on 42m (branch `agent/42m-bean-swaps`): its bean family is the
-matcher's member list.
-
-#### Results
-
-**What changed.**
-
-- **Tap a missing tape to add it.** Every result card's missing names —
-  "Needs", and the line's bean in "With a bean swap" — are buttons, "Add
-  chickpea to what I have" (`AddTape`), one per name of an A-or-B line. A
-  tap adds the name to this browser's list with an Undo toast; focus goes
-  to Undo, since the tape goes with the line it met. A card that moves up a
-  bucket (further away → two away, two → one, one → can make) gets 41h's
-  accent ring, off under reduced motion. On photo cards the note now sits
-  **beside** the card's link, not inside it, so no button nests in a link.
-- **Roomier groups.** "Can make now" keeps six photo cards across at `lg`
-  (no tapes to squeeze); "With a bean swap", "One ingredient away" and "Two
-  away" show at most four (`grid-cols-2 md:3 lg:4`); "Further away" is a
-  list of wide rows — a small picture (decoration; the name is the link),
-  the name, the tapes wrapping — one column, two from `xl`. The page is
-  `max-w-7xl`, so the results column is ~880 px at 1366, 1600 and 1920
-  alike. `RecipeGrid` / `SearchList` take an optional grid class; every
-  other page keeps six across. Spec cards are unchanged (already ~3 across).
-- **Matchers** (`common/util/matchers.ts`): `any bean` on the list meets
-  every line naming a family bean (42m's `beans.ts`), strictly — so it counts
-  for can make. `parseInventoryItem` reads it as an item with no names and a
-  `matcher`; `satisfies` asks `matcherMeets` (any alternative a member,
-  never a loose line, never non-alcoholic). It is never close to anything
-  and never a bean to swap in.
-  - **The add field** offers "✱ Any bean — matches N kinds in these
-    recipes" when the typed text begins the family's word (`bea`, `bean`,
-    `beans`, `any b…`), ranked by its what-if like any name, unless the list
-    has it or the scope uses no bean.
-  - **The tape** is marked ✱ with a rule under its words (`currentColor`,
-    so every theme and state keeps its contrast) and shows its pull. On this
-    browser's list its body opens **"Which beans do you have?"** — the
-    family's specific members in the current scope, each with its recipe
-    count and a checkbox; **Keep only these** puts the ticked beans in the
-    matcher's place (one change, Undo restores it); **Feature it** features
-    it from there. × removes it as any label. On the saved / house list it
-    is an outlined ✱ label that features as before.
-  - **Agents:** the seat reads the stored text, so `inventory_makeable` /
-    `recipes inventory make` answer as the page does; `inventory add`
-    stores `any bean` for any spelling, and `inventory remove` takes any
-    spelling. The `inventory_add` description, the CLI usage line and the
-    curator skill's §8 say so.
-
-**Decisions.**
-
-- **Dm2-1 — The syntax is text: `any <noun>`.** Canonical `any bean`;
-  `matcherOf` also reads `bean`, `beans`, `any beans`, `all beans`, `any
-kind/type/sort of beans`, `beans (any kind)`, `beans, any`. It
-  round-trips through the browser list, `inventory/on-hand.json`, Import /
-  export and the CLI/MCP with no format change; a list without one reads
-  exactly as before. `black beans`, `mixed beans`, `canned beans` and
-  `beans (Goya)` stay ordinary items.
-- **Dm2-2 — Tapping a missing tape adds; it no longer could feature.**
-  41h's result-card "Needs" tapes were static words (only Buy next's dashed
-  tape features, and still does); 41h's "tapping the body features" (Dh7,
-  Dh8) holds for shelf labels and Buy next. A matcher's body opens its
-  popover instead, and featuring it moved into the popover ("Feature any
-  bean", a fixed label with `aria-pressed`). Every missing tape is now a tab
-  stop — further away's rows add one per missing name; Tab order follows
-  the cards, and "Show all N" still caps a group at 12 cards.
-- **Dm2-3 — The tap adds to this browser's list**, whatever Count from
-  says (42a's saved-list editing is the shelf's, not the cards'). In Count
-  from = Saved list that list isn't counted, and the toast says so ("not
-  counted while Count from is the saved list"); no commit is ever made from
-  a card.
-- **Dm2-4 — Further away is rows; the other tape groups four across.**
-  Rows read the whole missing list at a glance and never squeeze; photo
-  cards stay where they carry one or two tapes.
-- **Dm2-5 — A matcher meets strictly, so the swap tier has nothing to add
-  for beans.** With `any bean` on hand every bean line is met, so no
-  recipe's missing lines are beans and `beanSwap` holds none of them — no
-  double count. After "Keep only these" the swap tier works as 42m built it.
-- **Dm2-6 — A bare `beans` / `bean` is the matcher**, normalised on add
-  (the page's `setHave`, the seat's `patchInventory` / `setInventory`), so
-  the text says what it means; a stored "beans" from before reads as the
-  matcher too — the browser canonicalises its list on read as well as on
-  write, and the seat compares `patchInventory` and `setInventory` by the
-  canonical key, so saving `any bean` over a stored "beans" is no change.
-  The add field never offers a line's plain `bean` beside "Any bean".
-  Against 42m's Dm7 (a bare `beans` names only the family) this widens one
-  case: `beans` on the list now meets chickpeas and black-eyed peas too —
-  every family member — as `any bean` does; green, vanilla and coffee
-  beans stay out. A line asking for plain "beans" adds `any bean` when its
-  tape is tapped. This settles 42m's review finding 2 on this branch: a
-  bare "beans" on the list can't meet green, vanilla or coffee beans.
-- **Dm2-7 — Beans only.** "Any cheese", "any vinegar", "any rum/whiskey"
-  would need an exact member list like `BEAN_KINDS` — the head and
-  class-noun rules don't define one (cream cheese is a cheese and no
-  stand-in for parmesan; malt vinegar for rice vinegar) — so they are
-  follow-ups, not shipped. `MATCHERS` takes one entry each when they are.
-- **Dm2-8 — The refine list is specific members only** (`chickpea`, not
-  "mixed beans" or a "beans" line), required lines only, most used first;
-  a row is the family's own name without how the bean is sold (review:
-  "2 cups cooked black beans" and "1 can low-sodium black beans" are one
-  `black bean` row, `beanNames`), and keeping it adds that name, which
-  meets both lines. A 42m Dm8 line ("black beans (or pinto or cannellini
-  beans)") lists each of its beans; until the parser splits such lines
-  (Dm8's follow-up), keeping `pinto bean` alone meets it only through the
-  swap tier.
-
-**Tests.** `makeMatchers.test.ts` (new: the syntax and its spellings, Export
-/ Import round trip, family positives and exclusions on real line shapes,
-A-or-B and loose lines, can make and staples, the shopping fold, pull and
-what-if, no double count with the swap tier, the refine list with "cooked" /
-"low-sodium" lines, `refineMatcher`, the add field's matcher suggestion);
-`makeMatcherUi.test.tsx` (new: the ✱ tape and its popover, Keep only these,
-Feature any bean, a stored "beans" read as the matcher, a typed "beans";
-the cards' add buttons outside the link, further away as rows);
-`inventory.test.ts` (+2: stored canonical, removed by any spelling, the
-page's judge agreeing, an old "beans" list, `setInventory` no change);
-`mcp.test.ts` and `cliJson.test.ts` (the matcher round trip); 42m's Dm7
-test now expects a bare "beans" to meet chickpeas. E2e: `make.spec` (+5: a
-further-away tap with Undo and the card moving up; "bean" → the matcher,
-counts, refine to chickpeas, Undo; the layout at 1366 / 1600 / 1920, no
-tape outside its card, rows two across, at most four photo cards across;
-42m's swap-card lookups and one Roasted Vegetables check moved to the card
-from its link); `accessibility.spec` (+1: a matcher with the refine popover
-open); `visual.spec` (+1: `make-results-wide`).
-
-**Gates** (capped wrappers; the last set after merging 42m's branch with
-origin/main d16c80cc — 42a and 42c1):
-
-- `pnpm --filter recipe-editor typecheck` ✓, `pnpm --filter recipe-website
-exec tsc --noEmit` ✓.
-- `pnpm exec vitest run`: **125 files, 2544 tests** ✓ (before the merge:
-  122 / 2461 with 2 failures — the export boundary test, a comment naming
-  the saved file in `common/`, and 42m's Dm7 assertion above — both fixed,
-  their files rerun 4 / 78 ✓).
-- Playwright, Docker, build mode: `make`, `accessibility`, `visual`,
-  `mobile` — **138 passed, 1 flaky** (make.spec's "buy next follows the
-  featured scope": two `make-ticker`s at page load, a strict-mode miss in
-  `ready()` before any 42m2 code ran — 41h's Th6 seen in build mode —
-  passed on retry). Before the merge: 111 passed + the moved phone shot,
-  then 29 with `--update-snapshots`.
-- Playwright, Docker, dev mode: `make`, `accessibility`, `visual` — **131
-  passed**.
-- **Final, one branch for 42m + 42m2** (42m's 1e6e2293 merged, then
-  origin/main be8ba8ad with 42e and 42h; the one text conflict, the CLI
-  help, kept both lines): typechecks ×2 ✓; vitest **127 files, 2585
-  tests** ✓; Docker build mode `make`, `accessibility`, `visual`,
-  `mobile`, `holidays` — **154 passed**, no baseline moved.
-
-**Baselines** (Docker only, each opened): `visual.spec.ts/make-page-e2e`
-**moved** (one-away photo cards four across, each "Needs" tape under the
-card's link); `mobile.spec.ts/make-mobile-mobile` **moved** (42m's bean
-switch, +72 px — the same picture 42m regenerated; no result card on it); `visual.spec.ts/make-results-wide-e2e`
-**new** (1920 px: Buy next, the groups at most four across, further away as
-a row; shot at 1920 × 2800 so the page fits, Th5). The results column is
-~876 px at 1920, as at 1366: the page is `max-w-7xl`.
-
-**Roger to confirm.** A card tap adding to this browser's list even in Count
-from = Saved list (Dm2-3); further away as rows and the other groups four
-across (Dm2-4); typing "beans" giving `any bean` rather than a plain item
-(Dm2-6); beans as the only matcher for now, with cheese / vinegar / rum /
-whiskey as follow-ups (Dm2-7); focus moving to Undo after a card tap.
-
-### 42-close (S)
-
-Close-out here, a CLAUDE.md "Durable docs" bullet, backlog rows, memory.
-The morning-report artifact in epic 41's style: what to look at first (each
-page with before/after screenshots from the Docker runs), what merged, the
-canvases, "Roger to confirm", Roger's steps (`pnpm workstation update`,
-`pnpm deploy:pi`; reindex only if a phase changed an index version — none
-expected). The session's `content-engine-playwright:*` Docker tags removed.
-
-## Verification
-
-- **Every PR:** typecheck ×2 and vitest (with counts) through the capped
-  wrappers; the touched specs in Docker build mode, new specs once in dev
-  mode; CI green and `CLEAN` on every check, the main-checkout-shape build
-  job included.
-- **Per surface:** moved and new screenshots (Docker only) opened and
-  compared with the canvas; axe with the WCAG 2.2 tags green; no sideways
-  scroll at phone width; targets ≥ 24 px.
-- **42b:** each screenshot spec passes 3× in dev and in build mode at the
-  new tolerance. **42c1:** matching and heads-up unit tests, true and false
-  positives listed in Results. **42c2:** timer specs on a frozen clock,
-  `parseTimeText` tests in its new home. **42e:** a frozen-clock almanac;
-  the export builds `/holidays/*` statically. **42g:** `shopping_get`, the
-  copied text and the counts unchanged (the existing vitest is the
-  contract); the first `/shopping` baselines.
-- **After merge:** Roger checks each page on the workstation after `pnpm
-workstation update`, from the morning report's list.
-
-## Traps
-
-### 42g
-
-- **Tg1 — `useShoppingList.ts` failed eslint on `main`.** The
-  eslint-plugin-react-hooks 7 rule `react-hooks/refs` flags the `TickSync`
-  made in a `useState` initializer: its `onItems` bumps a ref. Nobody had
-  touched the file since the plugin update. lint-staged lints whole files,
-  so the next phase to change it hit an error it didn't cause. 42g moved the
-  counter to a tiny `WriteCounter` object held in state. A plain
-  `{ current }` object fails a different rule, `react-hooks/immutability`.
-- **Tg2 — A sticky bar's jump offset is its `top` plus its height.** The
-  shop bar is `.sticky-chrome`. When the reader's setting or a short
-  viewport releases it, the position is `static` and there is no offset.
-  `pinnedBottom()` in `ShopView.tsx` reads both from computed style. Don't
-  hard-code the masthead's height.
-- **Tg3 — A scroll spy never reaches the last aisle on a short page.** The
-  last section can't scroll up to the bar, so "the last section whose top
-  passed the bar" stays on the one before it. When the page is scrolled to
-  the end, the last aisle is current. The spy picks by position, not rail
-  order, because done aisles fold away above the open ones.
-- **Tg4 — An sr-only suffix across flex items gains a space.** Chrome reads
-  `Buy anyway<span class="sr-only">: salt</span>` inside an `inline-flex`
-  button as "Buy anyway : salt". An `aria-label` fixes the spacing, but
-  only if its visible text is the start of the name. If the visible text
-  sits elsewhere, as the rail's "Pantry" plus "4" did, axe's
-  `label-content-name-mismatch` fails. The rail chips stay named by their
-  content, with sr-only words, and their specs match the name with
-  `/^Pantry ?4 left$/`.
-- **Tg5 — Pinned bars break full-page screenshots and axe.** A full-page
-  capture paints a sticky bar part-way down the page.
-  - Shop's baselines are viewport captures taken from the top
-    (`inView()` in `shopping-modes.spec.ts`).
-  - Axe's `target-size` rule calls a control scrolled under a pinned bar
-    "partially obscured", which depends on where the page stopped. The
-    in-store a11y sweep runs in a viewport tall enough not to scroll.
-- **Tg6 — `common/` may not contain the text "on-hand", not even in a
-  comment.** `test/inventory.test.ts` greps every `common/` and `export/`
-  source for it, as its boundary check that the export never reads the
-  shared inventory. Write "probably on hand".
-- **Tg7 — An optimistic control for Playwright's `check()`.** A controlled
-  checkbox that waits for the server's answer fails `uncheck()` with
-  "Clicking the checkbox did not change its state". Show the new state
-  while the write is out.
-
-### 42b
-
-- **Tb1 — `toHaveScreenshot` has no `style` option.** That option belongs to
-  `page.screenshot`; the matcher takes `stylePath` (a CSS file, relative to
-  the config) and silently ignores an unknown `style` key. 42b's first
-  attempt to hide Next's dev badge passed `style` and changed nothing, which
-  cost a 27-minute rerun.
-- **Tb2 — `next dev` draws a badge on every page.** It is the "N" at the
-  bottom left, a fixed element: 912 px on every desktop capture, 200–950 on
-  mobile, and it lands at the bottom of a full page that scrolled to its
-  end. Baselines are production renders, while CI's Recipe shards and the
-  Portfolio job run dev. So any budget under ~1 000 px fails every dev-mode
-  page unless `playwright/support/screenshot.css` hides `nextjs-portal`.
-- **Tb3 — `maxDiffPixels` beside `maxDiffPixelRatio` means the smaller one
-  wins.** Playwright's comparator takes the minimum when both are set, per
-  call and config alike. A per-call ratio "loosening" a page under the 100 px
-  config would tighten nothing and loosen nothing. `SnapshotOptions` now
-  offers `maxDiffPixels` only.
-- **Tb4 — Staleness under the budget still hides.** Plain
-  `--update-snapshots` (`changed`) never rewrites a baseline that passes,
-  so a page can drift by up to 100 px per capture (1 500 on the three edit-form
-  pages) unseen. That is a few glyphs, not an input border. Rewrite with
-  `--update-snapshots=all` when in doubt (41-Dp1).
-
-### 42e
-
-- **Te1 — `react-hooks/refs` refuses a ref inside an object.** The first
-  cut of the shared kind menu was a hook returning `{open, wrapRef,
-buttonRef, …}` and two components taking it as a prop; the React
-  compiler's lint flags every property read on that object during render
-  ("Cannot access refs during render"), even `menu.open`. Element state
-  through callback refs trips `set-state-in-effect` instead. What passes:
-  one component owning its refs, with the heading as a render prop
-  (`KindMenu`'s `children(word)`).
-- **Te2 — a holiday's alias can carry another holiday's rule.** 42k's
-  `new-years` term lists `new-years-eve` as an alias, and `new-years-eve`
-  has its own rule (31 December). The rule lookup is slug first, then
-  aliases in order (`holidayRuleKey`), so New Year's is 1 January; a lookup
-  that tried aliases first, or merged them, would date it a day early.
-- **Te3 — the kind change is `history.replaceState`, not
-  `router.replace`.** On the editor `router.replace("?kind=…")` re-requests
-  the page's RSC payload for a change only the browser cares about; Next
-  keeps `useSearchParams` in step with the History API, so the page
-  narrows without a round trip, on the export too.
-
-### 42m2
-
-- **Tm2-1 — baselines from before a merge go stale where the old budget
-  can't see it (Tb4 in practice).** #288's first CI run failed the four
-  Make captures on Recipe shard 4/4 (`make-page` 1 474 px,
-  `make-results-wide` 1 060, `make-page-specs` 7 333, `make-mobile` 416).
-  The same count on every retry, and Docker reproduced it to the pixel in
-  dev **and** build mode, so this was no dev-only motion or ticking number.
-  The PNGs were drawn at 230f0bd3, before the branch merged 42a's outline
-  borders (d16c80cc). The merge also kept main's 42a-era `make-page-specs`,
-  which has no bean-switch row (42m) and none of 42m2's Needs tapes. Under
-  41's 2 % ratio every "no baseline moved" gate after those merges passed;
-  42b's 100 px budget, merged next, did not. Fix: those four regenerated in
-  Docker, build mode, `--update-snapshots=all`, and opened. The diffs are
-  outline-button borders ("I have this", Clear, Import / export), the bean
-  switch row, and the Needs-tape layout. Then build ×3 and dev ×3
-  (`--repeat-each=3 --retries=0`): **12 + 12 passed**; `make.spec` in dev:
-  **47 passed**. Lesson: after merging main into a branch that owns
-  baselines, regenerate those baselines with `=all`; don't trust a pass.
-
-## Results
-
-### 42g — /shopping: plan at home, shop in the store
+#### Results (42g)
 
 Canvas B, presentation only (D5). `buildShoppingView`, `formatShoppingText`,
 `viewForStore`, the tick queue and sync, and their three vitest suites are
@@ -1723,276 +1392,1185 @@ borders, so 42b's tighter tolerance meets exact images.
   buttons, the Checked fold).
 - Dg8: the phone's Plan without the list.
 
-### 42b — Screenshot tolerance tightened
+#### Traps (42g)
 
-Branch `agent/42b-tolerance`. Test configuration only: **reindex no, deploy
-no**. No baseline moved.
+- **Tg1 — `useShoppingList.ts` failed eslint on `main`.** The
+  eslint-plugin-react-hooks 7 rule `react-hooks/refs` flags the `TickSync`
+  made in a `useState` initializer: its `onItems` bumps a ref. Nobody had
+  touched the file since the plugin update. lint-staged lints whole files,
+  so the next phase to change it hit an error it didn't cause. 42g moved the
+  counter to a tiny `WriteCounter` object held in state. A plain
+  `{ current }` object fails a different rule, `react-hooks/immutability`.
+- **Tg2 — A sticky bar's jump offset is its `top` plus its height.** The
+  shop bar is `.sticky-chrome`. When the reader's setting or a short
+  viewport releases it, the position is `static` and there is no offset.
+  `pinnedBottom()` in `ShopView.tsx` reads both from computed style. Don't
+  hard-code the masthead's height.
+- **Tg3 — A scroll spy never reaches the last aisle on a short page.** The
+  last section can't scroll up to the bar, so "the last section whose top
+  passed the bar" stays on the one before it. When the page is scrolled to
+  the end, the last aisle is current. The spy picks by position, not rail
+  order, because done aisles fold away above the open ones.
+- **Tg4 — An sr-only suffix across flex items gains a space.** Chrome reads
+  `Buy anyway<span class="sr-only">: salt</span>` inside an `inline-flex`
+  button as "Buy anyway : salt". An `aria-label` fixes the spacing, but
+  only if its visible text is the start of the name. If the visible text
+  sits elsewhere, as the rail's "Pantry" plus "4" did, axe's
+  `label-content-name-mismatch` fails. The rail chips stay named by their
+  content, with sr-only words, and their specs match the name with
+  `/^Pantry ?4 left$/`.
+- **Tg5 — Pinned bars break full-page screenshots and axe.** A full-page
+  capture paints a sticky bar part-way down the page.
+  - Shop's baselines are viewport captures taken from the top
+    (`inView()` in `shopping-modes.spec.ts`).
+  - Axe's `target-size` rule calls a control scrolled under a pinned bar
+    "partially obscured", which depends on where the page stopped. The
+    in-store a11y sweep runs in a viewport tall enough not to scroll.
+- **Tg6 — `common/` may not contain the text "on-hand", not even in a
+  comment.** `test/inventory.test.ts` greps every `common/` and `export/`
+  source for it, as its boundary check that the export never reads the
+  shared inventory. Write "probably on hand".
+- **Tg7 — An optimistic control for Playwright's `check()`.** A controlled
+  checkbox that waits for the server's answer fails `uncheck()` with
+  "Clicking the checkbox did not change its state". Show the new state
+  while the write is out.
 
-**What changed**
+### 42d — /drinks: pour from your shelf (M)
 
-- **Recipe and portfolio configs:** `maxDiffPixelRatio: 0.02` becomes
-  `threshold: 0.2` + `maxDiffPixels: 100`. The threshold is pixelmatch's
-  default, now written out. Both configs also get
-  `stylePath: "./playwright/support/screenshot.css"` (Db2). The CMS demo and
-  resume-builder have no screenshot specs.
-- **`playwright/support/screenshot.css` (new, both editors):**
-  `nextjs-portal { display: none !important; }`.
-- **`support/visual.ts` (both):** `SnapshotOptions.maxDiffPixelRatio`
-  becomes `maxDiffPixels` (Tb3).
-- **`visual.spec.ts` (recipe):** `EDIT_FORM_IMAGE = { maxDiffPixels: 1_500 }`
-  for edit form populated, edit form with slug conflict, and markdown source
-  mode (Db3). The search reveal control's 5 % override is gone (Db4).
+Canvas B. The opening question "What drinks can I make?" with 41h's
+`MakeQuestion`, kind fixed to drinks; the shelf (the saved list as tape for
+a signed-in editor, the house list on the export when shared, otherwise the
+browser's list); Pour now and Buy next from `useMakeable`; the current and
+next holiday side by side (`withinComingUpWindow` sliced to 2), each
+linking to `/holidays/<slug>`; a dot-leader index of spirit & base, style
+and classics. Tests: `drinks.spec` (seasonal, frozen clock), `make.spec`
+links, baselines `drinks-page-{e2e,mobile}`.
 
-**Method.** Measured in CI's Playwright image (`docker-pw.sh`, Playwright
-1.64.1), against the committed 41d2 baselines. A temporary, uncommitted
-change made every capture compare at threshold 0 and 0 px, with a soft
-assertion so that each test reached all its captures. Every capture that was
-not byte-identical left an `-actual.png`. A script then recounted each one
-with Playwright's own comparator (`getComparator("image/png")`) at
-thresholds 0, 0.05, 0.1 and 0.2. Runs: the 12 recipe screenshot specs with
-`--repeat-each=3 --retries=0` (138 captures per run) in build mode, then in
-dev mode before and after hiding the badge. Portfolio's `visual` spec ran
-the same way (33 captures per run) in build and in dev mode.
+### 42f — Homepage: now and next (M)
 
-**Measured noise.** Differing pixels against the baseline, worst of 3
-captures; every capture not listed was byte-identical.
+Canvas B. A real search field beside the Make tile (submits to
+`/search?q=…`, with the palette shortcut hint); intents as `tag:` chips;
+"This season" — dated rows for the coming holidays linking to
+`/holidays/<slug>`, and a link to the almanac; a right rail with the newest
+plan and, for a signed-in editor, a shopping-list link; about half today's
+height, the duplicate holiday showings gone. Tests: `homepage.spec`,
+`homepage-browse.spec`, `empty-state.spec`, baselines `homepage-*`.
 
-| Capture                                                | Build, t=0 | Build, t=0.2 | Dev, t=0 | Dev, t=0.2 |
-| ------------------------------------------------------ | ---------- | ------------ | -------- | ---------- |
-| `edit-form-populated`                                  | 13 034     | 206          | 12 703   | 10         |
-| `edit-form-overwrite`                                  | 10 202     | 87           | 13 034   | 27         |
-| `markdown-source-mode`                                 | 9 122      | 87           | 11 531   | 206        |
-| `git-page`, `make-page-specs`, `yield-multiplied-half` | 1          | 0            | 0–1      | 0          |
-| the other 40 recipe baselines                          | 0          | 0            | 0        | 0          |
-| portfolio, all 11                                      | 0          | 0            | 0        | 0          |
+### 42h — Holidays for the agents (S–M)
 
-- **The edit-form noise is the "Recipe 6" preview image.** The diff's box
-  sits on the downscaled image (x 459–825, y 762–870) and nowhere else on
-  the page. Chromium resamples it slightly differently from run to run.
-  Across all 18 build and dev captures of these three pages, the most the
-  image moved was **599 px at t=0.2**: a dev capture from the first dev run,
-  with the badge's pixels counted separately.
-- **Dev mode before the stylesheet.** Next's badge added a constant 912 px
-  to every desktop capture, and 200–950 px on mobile (Tb2). The first fix,
-  a `style` option, changed nothing (Tb1). The re-run with `stylePath`
-  gave the table's dev columns.
-- **A functional dev-only failure, not visual.** `command-palette.spec:151`
-  ("live search … Enter navigates") failed once per full dev run, as the
-  first test against a cold `next dev`. It took no screenshot, and CI
-  retries it. It is outside 42b's scope and left as observed.
+As 41i did for Make: a read-only seat — `holidayList` (each holiday term
+with its next date, days until, countdown label, recipe counts per kind)
+and `holidayGet <slug>` (the menu's grouping as data: courses for dishes,
+styles for drinks) — the CLI `recipes holidays [slug] --json`, an API route
+if the other seats have one, and MCP `holiday_list` / `holiday_get`,
+pre-approved as read-only in `.claude/settings.json` and the skill's
+frontmatter (CLAUDE.md's 57/43 become 59/45). The curator skill learns
+"what's coming up?". Tests follow the `mcp`, `cliJson` and `curatorSkill`
+suites.
 
-**Staleness caught (step 4).** I compared each of the 57 baselines as they
-stood before 41d2 (`c3101dfd^`), as the expected image, against today's
-41d2 baseline, as the actual image (today's page in CI's image). The
-comparator was Playwright's, with each rule as the config would apply it.
-50 of the 57 differ. The other 7 show no difference at threshold 0.2: the
-three Make images, two palette rows, paste-replace, and the reveal control
-(147 px at 0.1).
+#### Results (42h)
 
-| Rule                                       | Old baselines that now fail |
-| ------------------------------------------ | --------------------------- |
-| `maxDiffPixelRatio: 0.02` (before)         | 0 of 57                     |
-| `maxDiffPixelRatio: 0.002`                 | 32                          |
-| `threshold 0.2` + `maxDiffPixels: 800`     | 32                          |
-| `threshold 0.2` + `maxDiffPixels: 250`     | 44                          |
-| **`threshold 0.2` + `maxDiffPixels: 100`** | **48**                      |
+Branch `agent/42h-holiday-tools`, cut from `agent/42e-holidays` (#284).
+**Reindex needed: no. Deploy: yes** (the editor: `/api/holidays` and the
+MCP-over-HTTP seat; the stdio MCP and the CLI pick the tools up from the
+checkout). No content, index or stored-format change; nothing is written.
 
-Examples that passed at 0.02 and fail now:
+**What shipped:**
 
-- `empty-state/homepage-empty`: 563 px. The diff is exactly 41f's 3:1
-  search-input border.
-- `visual/recipe-detail-signed-out`: 1 156 px, from 41f's input and
-  checkbox borders.
-- `empty-state/bookmarks-empty`: 17 592 px. This is July's "My Bookmarks"
-  page from Tp1.
+- **The seat**, `editor/controller/curation/holidays.ts`: `holidayList(ctx,
+{date?})` and `holidayGet(ctx, slug, {date?})`. Both are 42e's view model
+  over Node-safe reads — the term tree aggregate, each holiday's record
+  (`readContentFileOrNull`) and one by-term row per key of the holidays'
+  subtrees (`readTaxonomyByTermEntry`), the pages' reads without
+  `unstable_cache`; nothing creates an index (F30). The list is
+  `holidayEntries` ordered by `almanacView`; the menu is `holidayMenuData`,
+  "Then …" is `holidayAfter`, the alias is `holidayAliasTarget`.
+  `holidayEntries` gains `includeEmpty` (default off, so the almanac is
+  unchanged).
+- **`holiday_list`** → `{today, total, link, holidays: [{slug, label,
+dated, date?, days?, countdown?, rule?, counts: {recipes, dishes, drinks},
+aliases?, top}]}`, soonest first, undated last. `date` is the next day
+  (`YYYY-MM-DD`) on or after today, `countdown` is `countdownLabel`'s
+  ("today", "tomorrow", "in 12 days"), `rule` appears only when another
+  key dates it (an alias's), `top` is the almanac card's three names.
+- **`holiday_get {slug}`** → `{today, slug, label, requested?, dated, date?,
+days?, countdown?, description?, image?, aliases?, counts, courses, styles,
+next?, link}`; `courses` (dishes, `MENU_COURSE_ORDER` then More) and
+  `styles` (drinks, `DRINK_STYLE_SLUGS` then More) are `[{slug, label,
+recipes: [{slug, name, date, tags?, image?, base?}]}]` — `recipe_search`'s
+  compact row with the menu line's `base` (main ingredient or spirit).
+- **CLI** `recipes holidays [<slug>] [--date YYYY-MM-DD]` with `--json`, a
+  readable form ("Halloween — halloween: Sat 31 Oct, in 12 days · 1 dish ·
+  1 drink"; the menu as Dishes / Drinks with course and style headings),
+  its own `--help` with the JSON, and a "Holidays:" paragraph and usage
+  line in the global `--help`.
+- **API** `GET /api/holidays?date=` and `GET /api/holidays/<slug>?date=`,
+  thin over the seat. The HTTP backend sends `date`, makes `link` absolute
+  on the editor that answered, and names an editor from before 42h ("The
+  editor at <origin> predates the holiday tools (42h) — update it, or run
+  with --content-dir") when the route answers Next's own 404 rather than
+  our `{error}`.
+- **MCP** `holiday_list` and `holiday_get`, `readOnlyHint` (so a
+  read-scoped token's session has them), `date` checked for its shape by
+  the schema (`10/31` is the SDK's rejection, T28) and for being a real
+  day by the seat (`2026-02-30` is `validation`). Pre-approved in
+  `.claude/settings.json` and the skill's frontmatter: **59 tools / 45
+  pre-approved** (CLAUDE.md updated; 14 held back, unchanged).
+- **The curator skill**: description gains "what holidays are coming up?"
+  and "plan for Easter"; a new **§7b Holidays** — "What's coming up?" →
+  `holiday_list {}`, "Plan for Easter" → `holiday_get`, then the planning
+  tools (reuse, `term_assign`, `group_create`), hand Roger the `link`; the
+  fallback lists `recipes holidays [<slug>] --json`.
+- The D8 boundary (`curation.test.ts`) admits
+  `recipe-website-common/controller/holidaysPage` (pure; it imports
+  `util/holidays`, `drinksPage`, `homepageComingUp`, `tagVocabulary` and
+  types). `agent-mcp.md` enumerates only epic 23's tools, so it is
+  unchanged (as at 41i).
 
-The two that still pass are `footer-mobile` (13 px) and `homepage-mobile`
-(76 px). Both changed only text antialiasing: the wordmark is drawn
-grayscale in one and subpixel in the other. A redesign moves more than
-that.
+**Dh1 — the list includes holidays nothing is filed under.** The almanac
+leaves them out (De3); an agent asked "what's coming up?" should see that
+Easter has a term and no recipes, so `holiday_list` keeps them with counts
+of 0 (`includeEmpty`). "Then …" (`next`) follows the page: the next holiday
+_with recipes_.
 
-**Decisions**
+**Dh2 — today is the server's local day unless `date` says.** The pages
+wait for the browser's day (De2); a seat has none, so it counts from the
+machine's local calendar day and every answer names it (`today`). Over
+`--remote` that is the editor's day — the Pi's, in its time zone.
 
-- **Db1 — One absolute budget, `maxDiffPixels: 100` at threshold 0.2.** A
-  ratio scales the budget with page height: 0.002 of the 1280×3300 edit
-  form is 8 400 px, and a redesigned input border is ~500 px. The noise
-  outside one image is 0 px at t=0.2 (at most 1 px at t=0), so the margin
-  is wide, and 100 px is still 5× under the smallest real change measured
-  (563 px). A lower `threshold` (0.1) raised noise and real changes by
-  about the same factor (edit-form noise 206 → 1 094 px,
-  `homepage-empty` 563 → 3 238 px), so it bought no separation.
-- **Db2 — Hide Next's dev badge from captures** with a `stylePath`
-  stylesheet, not `devIndicators: false` in `next.config`. That keeps the
-  change test-only: no Next or Turbopack config, nothing for the
-  main-checkout build to trace, and Roger keeps the badge in his own
-  `next dev`. In production the rule matches nothing.
-- **Db3 — The edit form's image gets a per-call 1 500 px; it is not masked.**
-  That is 2.5× the worst 599 px, and still about 13× under the ~19 000 px
-  the edit form moved between July and 41d2. A mask would need three
-  baselines regenerated, and 42a may regenerate the same edit-form PNGs
-  for its outline borders. This choice touches no PNG.
-- **Db4 — The reveal control's 5 % (`maxDiffPixelRatio: 0.05`, #132) is
-  removed.** Its reason was host-drawn baselines against CI's fonts; since
-  41b every baseline is drawn in CI's image. Its noise measured 0, and the
-  config's 100 px is 2.4 % of that 118×36 element. Left in, Tb3 would have
-  made it a no-op anyway.
-- **Db5 — No baseline regenerated.** The measurement found none already
-  off: every byte-different capture is the image noise above.
+**Dh3 — an alias answers its holiday, with `requested`.** The editor's page
+redirects (De7); a tool answering `not_found` for `christmas-cookies` would
+send an agent hunting, so `holiday_get` answers Christmas and says which
+slug was asked. A slug that is no holiday (a recipe, a course, the
+`holidays` root) is `not_found`, naming the holidays there are.
 
-**Gates**
+**Dh4 — public reads.** `/api/holidays` answers without a token, like
+`/api/tags` and `/api/taxonomies/tag/<slug>`: the same data is on the public
+`/holidays` pages and the export. (Make's `/api/inventory/make` needs a read
+token because the inventory is private.)
 
-- Recipe, the 47 tests that take a screenshot, picked by a `--grep` over
-  their titles in the 12 spec files (all 46 baselines), with
-  `--repeat-each=3 --retries=0` in CI's image:
-  - **build: 141 passed** (4.8 min).
-  - **dev: 141 passed** (6.2 min).
-- Portfolio `visual.spec` (11 baselines), `--repeat-each=3 --retries=0`:
-  - **build: 33 passed**.
-  - **dev: 33 passed**.
-- **After merging main** (42a's outline borders, 42c1 and 42e):
-  - Every runner above ran again. The recipe selection grew to 50 tests
-    with `holidays.spec` and `recipe-cooking-order.spec` (51 baselines).
-  - Recipe: **build 150 passed** (5.1 min), **dev 150 passed** (6.6 min).
-  - Portfolio: **build 33 passed**, **dev 33 passed**. 42a's shared
-    button and toggle change moves no portfolio capture.
-- No retries anywhere; no flaky test, no exit 137.
-- `pnpm --filter recipe-editor typecheck`: clean before and after the
-  merge. It includes `playwright/**`, so it checks every
-  `snapshotPage` / `snapshotLocator` caller against the new
-  `SnapshotOptions`.
-- `pnpm --filter recipe-website exec tsc --noEmit`: clean.
-- Portfolio editor `tsc --noEmit`: clean.
-- `pnpm exec vitest run`: **119 files, 2 410 tests passed**.
-- Main-checkout-shaped build: not run. Nothing here is in Next's build
-  graph.
+**Dh5 — rows carry `tags`, not times.** "Compact rows like
+`recipe_search`'s": `{slug, name, date, tags?, image?}` from the by-term
+rows, plus `base`. `totalTime` is not on those rows (De6) and adding it
+would change the tag index's projection (a reindex), so an agent wanting
+times asks `recipe_search "tag:<holiday>"` or `recipe_get`.
 
-**Roger to confirm**
+**Smoke run** (scratch copy of the `drinks-bar` fixture under
+`tmp/42/42h/fixture`, `CONTENT_DIRECTORY` set there, reindexed, plus
+`easter` and `fall-favorites` terms, a `Christmas Cookies` alias on
+`christmas` and `hand-pies` under `fall-favorites`, all through the CLI):
 
-- The 100 px budget. If CI's runners rasterise differently from this
-  machine's Docker, the PR's own CI will be the first to say so: its Recipe
-  shards run these specs in dev mode. No CI run was available before
-  review.
-- 1 500 px for the three edit-form pages, rather than masking the preview
-  image. A mask would bring them under the 100 px rule, but needs three
-  baselines regenerated.
-- Hiding `nextjs-portal` in captures. That also hides a dev-mode error
-  overlay from a screenshot; the specs' own assertions still fail on the
-  error.
+```
+$ pnpm --silent recipes holidays --date 2026-10-19 --json
+{"today":"2026-10-19","total":4,"holidays":[{"slug":"halloween","label":"Halloween","dated":true,"date":"2026-10-31","days":12,"countdown":"in 12 days","counts":{"recipes":2,"dishes":1,"drinks":1},"top":[{"slug":"hand-pies","name":"Hand Pies"},{"slug":"vodka-sour","name":"Vodka Sour"}]},{"slug":"christmas","label":"Christmas","dated":true,"date":"2026-12-25","days":67,"countdown":"in 67 days","counts":{"recipes":1,"dishes":0,"drinks":1},"aliases":["christmas cookies"],"top":[{"slug":"chamomile-collins","name":"Chamomile Collins"}]},{"slug":"easter","label":"Easter","dated":true,"date":"2027-03-28","days":160,"countdown":"in 160 days","counts":{"recipes":0,"dishes":0,"drinks":0},"top":[]},{"slug":"fall-favorites","label":"Fall favorites","dated":false,"counts":{"recipes":1,"dishes":1,"drinks":0},"top":[{"slug":"hand-pies","name":"Hand Pies"}]}],"link":"/holidays"}
+$ pnpm --silent recipes holidays halloween --date 2026-10-19 --json
+{"today":"2026-10-19","slug":"halloween","label":"Halloween","dated":true,"date":"2026-10-31","days":12,"countdown":"in 12 days","counts":{"recipes":2,"dishes":1,"drinks":1},"courses":[{"slug":"more","label":"More","recipes":[{"slug":"hand-pies","name":"Hand Pies","date":1790000420000,"tags":["dessert","halloween","fall favorites"]}]}],"styles":[{"slug":"sour","label":"Sour","recipes":[{"slug":"vodka-sour","name":"Vodka Sour","date":1790000060000,"tags":["drink","vodka","sour","shaken","halloween"],"base":"Vodka"}]}],"next":{"slug":"christmas","label":"Christmas","date":"2026-12-25","days":67,"countdown":"in 67 days"},"link":"/holidays/halloween"}
+$ pnpm --silent recipes holidays christmas-cookies --date 2026-10-19 --json
+{"today":"2026-10-19","slug":"christmas","label":"Christmas","requested":"christmas-cookies", … ,"styles":[{"slug":"collins","label":"Collins","recipes":[{"slug":"chamomile-collins", … ,"base":"Vodka"}]}],"link":"/holidays/christmas"}
+$ pnpm --silent recipes holidays --date 2026-10-19
+Holidays as of 2026-10-19 — on the site: /holidays
+  Halloween — halloween: Sat 31 Oct, in 12 days · 1 dish · 1 drink
+  Christmas — christmas: Fri 25 Dec, in 67 days · 1 drink
+  Easter — easter: Sun 28 Mar, in 160 days · nothing filed yet
+  Fall favorites — fall-favorites: no date · 1 dish
+$ pnpm --silent recipes holidays nope --json            # exit 1
+{"error":{"code":"not_found","message":"No holiday at slug \"nope\" — the holidays are halloween, christmas, easter, fall-favorites.","slug":"nope"}}
+$ pnpm --silent recipes holidays --date 2026-02-30 --json   # exit 1
+{"error":{"code":"validation","message":"\"2026-02-30\" is not a day: give it as YYYY-MM-DD, e.g. 2026-10-31.","issues":[{"path":"date","message":"A calendar day as YYYY-MM-DD"}]}}
+```
 
-### 42e — Holidays: the almanac and the menu pages
+(The fixture's `dessert` is not under a `course` root, so Hand Pies is
+"More" — the menu page shows it the same way.)
+
+**Tests:** new `test/holidayTools.test.ts` (the seat on a frozen day over a
+tmpdir built with the real seats — Halloween with a pin, a dessert and a
+warm drink; Christmas with a cookie filed under its alias; New Year's whose
+alias `new-years-eve` has its own rule (Te2); Easter with nothing filed;
+Fall favorites undated — order, counts, `top`, as of another day, "today",
+no holidays root, bad days; the menu by course and style with tags, an
+alias with `requested`, an undated and an empty holiday, `not_found`; both
+routes in-process; the local link on `RECIPE_EDITOR_URL`; the readable
+list and menu; over HTTP `date`, the absolute link, the pre-42h editor and
+a real `not_found` kept); `mcp.test.ts` (both tools, alias, `not_found`,
+`validation`, the SDK's shape for `10/31`, read-only annotations, the
+read-scoped list; 59 tools); `mcpHttp.test.ts` (a read-scoped session lists
+and calls them); `cliJson.test.ts` (list and menu as a process, `--date`,
+two slugs `usage`, a bad day, `not_found`); `curatorSkill.test.ts` (59/45,
+the two names, §7b and the fallback line; `holiday_` joins the tool-shaped
+tokens); `curation.test.ts` (D8 allow-list).
+
+**Gates** (2026-10-19, all through the capped heavy slot):
+
+- `pnpm --filter recipe-editor typecheck` ✓ and `pnpm --filter
+recipe-website exec tsc --noEmit` ✓ (before merging `origin/main` at
+  3cedeea0, which merged cleanly — no conflicted file).
+- Affected files after the merge (`holidayTools`, `mcp`, `mcpHttp`,
+  `cliJson`, `curatorSkill`, `curation`, `holidaysPage`): **7 files, 226
+  tests** ✓. Then `pnpm exec vitest run`: **124 files, 2534 tests** ✓.
+- Lint-staged `eslint` and `prettier --check` ✓ on commit.
+- No Playwright: no page changed (the two routes are covered in-process in
+  `holidayTools.test.ts`, as 41i covered `/api/inventory/make`).
+
+**Roger to confirm:**
+
+- **Dh1:** `holiday_list` lists a holiday nothing is filed under (counts
+  0); the almanac page still leaves it out.
+- **Dh2:** the tools count from the machine's own day; on the Pi over
+  `--remote` that is the Pi's local day.
+- **Dh4:** `/api/holidays` is public, like `/api/tags`.
+
+### 42j — Next-round design canvases (no code)
+
+Four Claude Design canvases under epic 41's canvas brief, three variants
+each (A refine, B rethink, C bold): `/search`; `/tags` with a term page;
+the meal-plan (group) page; the recipe edit form. Nothing is implemented;
+Roger picks in the morning.
+
+#### Results (42j)
+
+Four Claude Design canvases, made overnight by the orchestrator's canvas
+agents under epic 41's canvas brief, on the same design system
+(https://claude.ai/artifact/E3EfALpFiMvnstFCunLocU) and real content: real
+counts and 49 real photos where a board shows the corpus. No board was
+render-checked one by one. **Nothing is implemented.** The agents picked B
+on all four. Roger picks.
+
+- **`/search`**: https://claude.ai/artifact/42whDEiU23xTV8h9fc8Rbc
+  - A, "Sharper results": results first. One line of in-result tags replaces
+    the 219-chip rail, so the first card starts at 245 px instead of 938.
+  - **B, "Sorted by what it is"** (the agents' pick): a facet-root column
+    counted within the results, Drinks and Food bands (lime 108 = 73 drinks
+    - 35 food), `tag:` opening on the term, and ⌘K ending in "All N
+      results".
+  - C, "The index": a back-of-book index, an 88 px query, and "Named for /
+    Uses / Mentions".
+- **`/tags` and a term page**: https://claude.ai/artifact/KBfnxjqGgAzsegiXMxcurh
+  - A, "Sharper board": a ticker and a jump row, a four-column grid, Other
+    tags folded. The term page puts its count and actions at the top.
+  - **B, "Narrow it down"** (the agents' pick): a Find field and a Combine
+    bar that goes to search (Mains + Chicken → 38), dot-leader shelves,
+    Holidays dated and linked to `/holidays`, "Narrow Christmas" chips from
+    the other facets, and a root page as a photo row per narrower term.
+  - C, "The cookbook index": an A–Z index with see / see also, and a term
+    page as a title page (112 px name, mosaic, contents).
+- **The meal-plan (group) page**: https://claude.ai/artifact/X7m2vXCZ1Kskek2naGeY1t
+  - A, "Sharper plan": one action row, time and yield on the cards, a
+    ticker.
+  - **B, "Plan at home, cook through it"** (the agents' pick): plan mode is
+    an editable list with a scale per row, heads-up notes and a rail; cook
+    mode is for the phone.
+  - C, "The run sheet": a printed baking-day sheet with oven minutes per
+    batch and a shopping docket.
+  - One SAMPLE board (a Thanksgiving week) shows labels, scale and nesting.
+- **The recipe edit form**: https://claude.ai/artifact/Ba1WK5PsrjWh7whdfrH6dF
+  - A, "Sharper form": a third the length, one-row ingredients, tag
+    type-ahead, a sticky save bar.
+  - **B, "Review, then save"** (the agents' pick): a Start-from card with a
+    live import, then a section rail with status and Save. Tags are picked
+    by facet group, a duplicate warning shows during the import, and each
+    step lists the ingredients it uses.
+  - C, "Edit it where it reads": the cooking-order page (42c1) edited in
+    place, with tape tags and a back-of-card panel.
+  - The "today" board is drawn from the baselines, since the form needs
+    sign-in. Its import step times are borrowed from a 17 October import,
+    and the canvas says so.
+
+**What the agents found** on the real pages (backlog rows in `backlog.md`,
+"Recorded at" 42j):
+
+- **Write controls shown to guests.** The editor's `/group/<slug>` and
+  `/recipe/<slug>` show Delete (first), Feature and Edit to a signed-out
+  visitor. The server actions check the session (`deleteGroup` →
+  `authenticateUser`), so this is UX, not security.
+- **`/shopping`.** Rows merged from "optional:" lines lose the optional
+  mark, and "gel food coloring" shows as two rows (`buildShoppingView`; a
+  bug fix outside 42g's D5).
+- **The edit form.** Tags show as 219 "+ tag" chips. An ingredient card
+  shows raw `<Multiplyable>` markup (~1,300 px, 12 lines). Re-importing a
+  page you already have says nothing until the slug fails on Submit. The
+  drink method and the `shaken` tag are set separately. Labels are in Title
+  Case. Submit sits at the end with no Cancel, and "Video" appears twice.
+- **`/search`.** About 220 tags sit above the results, 90 of them
+  one-recipe drink-name slugs, so the first card starts at 938 px on a
+  laptop and 2,108 px on a phone. Card tag chips are cut mid-word
+  ("ristma"). The first free-text search in a fresh browser sat on
+  "Searching…" for 10–31 s while ⌘K said "No results found" (fixed by
+  42s). Completions offer both "pumpkin seed" and "pumpkin seeds". The tag
+  `house` is on 18 recipes with no term record, and terms never appear as
+  results.
+- **`/tags` and term pages.**
+  - `/tags` shows Christmas 42, but the term page shows no count (41
+    recipes + 1 plan).
+  - Card chips are clipped in the 864 px column and repeat the page's own
+    tag.
+  - `/tags/course` says "0 here · 571 including narrower", and the Narrower
+    chips aren't sorted by count.
+  - Feature, Edit and Add narrower sit ~3,300 px down the page.
+  - The Drinks block mixes the method "Shaken" with the styles and 56
+    drink-name families. Other tags holds 90 slug chips, 88 of them used
+    once.
+  - No food term has pins, and Sour's two pins have no photos.
+- **The meal-plan page.** Card dates are import dates. The masthead doesn't
+  mark Plans as current on a plan page. There's no Make link, though
+  `/make?q=group:` works. `/groups` shows a lone home icon as its
+  pagination. The sugar-cookie photo is a 225 px thumbnail.
+
+### 42k — Holidays across the year (content)
+
+`HOLIDAY_RULES` already dates New Year's, Valentine's, St Patrick's, Easter
+and July 4th, but only three holiday terms exist, so the almanac would
+cover October to December. D7: a term under `holidays` for each of those
+with recipes (slugs from the rule keys), existing recipes attached on a
+clear reason, at most 8 imports for holidays left thin. Dry run in scratch,
+reviewed, applied through the CLI; `POST /api/revalidate` after.
+
+#### Results (42k)
+
+**Applied 2026-10-18, 22:36–22:42**, by the orchestrator through the CLI.
+It followed the reviewed dry run, with the orchestrator's answers. The real
+repo (branch `uraninite`) went from `34e72323` to `aacddf6f`: **19
+commits**, `c1c059f9`..`aacddf6f`.
+
+- 5 term creates, then `holidays`' description updated to name all eight
+  holidays (`7f154cc6`).
+- 8 recipe creates (`cb53dfa7`..`dcc01fe9`). Each touches its
+  `recipe.json` and one image, 87–215 KB, the inspect's `images[0]`.
+- 5 term assigns, one commit per term (`0a02614f`..`aacddf6f`).
+
+The session pushed nothing and ran no git in the content repo. Afterwards
+the tree was clean, `indexStale` and `indexVersionStale` were false, and
+there were no `busy` answers. The workstation editor kept running; the
+write lock was enough (41-Dg1). The workstation's sync carried the commits
+to the Pi.
+
+**Holidays** (counts from `term get`):
+
+| Term (label)                          | Aliases                                | Recipes | Imported |
+| ------------------------------------- | -------------------------------------- | ------- | -------- |
+| `new-years` (New Year's)              | new-year, new-years-day, new-years-eve | 5       | 0        |
+| `valentines-day` (Valentine's Day)    | valentines                             | 4       | 1        |
+| `st-patricks-day` (St. Patrick's Day) | st-patricks, saint-patricks-day        | 5       | 2        |
+| `easter` (Easter)                     | —                                      | 4       | 3        |
+| `fourth-of-july` (Fourth of July)     | july-4th, independence-day             | 11      | 2        |
+
+`holidays` `withDescendants` went **125 → 154**, and it now has 8 children.
+The corpus went **799 → 807** recipes. With these terms the almanac (42e)
+spans the year. 42e's Te2 is the `new-years-eve` alias carrying its own
+rule.
+
+**Imports (8, none skipped).** Each page was fetched once by `recipes
+inspect <url> --llm off --out`, sequentially and at least 20 s apart, and
+that inspect was the grounding. Every page had JSON-LD and came back
+`partial: false`, so there was no model read and no `--allow-partial`. Each
+draft got the skill-v4 facets, a `create --dry-run` and `create --file`, 20
+s apart. A jwplatform `.mp4` was dropped and YouTube links kept (as 41g
+did). The holiday tags came from `term assign`.
+
+- Valentine's: Chocolate Covered Strawberry Cupcakes (Sally's).
+- St Patrick's:
+  - Slow Cooker Corned Beef and Cabbage (Spend With Pennies), renamed from
+    "Corned Beef and Cabbage Slow Cooker Recipe".
+  - Grandma's Irish Soda Bread (Sally's).
+- Easter:
+  - Hot Cross Buns (Sally's).
+  - My Favorite Carrot Cake Recipe (Sally's).
+  - Baked Ham with Brown Sugar Glaze (Spend With Pennies), with its first
+    image only; the second was a site promo.
+- July 4th:
+  - Best Potato Salad (Love and Lemons).
+  - American Flag Pie (Sally's). Its crust line links
+    `/recipe/homemade-buttery-flaky-pie-crust-recipe`.
+
+**Verified:**
+
+- `POST /api/revalidate` on the workstation answered `{"revalidated":true}`.
+- `/tags/<slug>` answers 200 for the five new terms and for `holidays`.
+- The aliases redirect with a 307, for example `/tags/new-years-eve` →
+  `/tags/new-years` and `july-4th` → `fourth-of-july`.
+- All 8 new recipe pages answer 200.
+- The orchestrator re-checked the counts and the alias redirect.
+
+**Roger to confirm.**
+
+- `new-years` is dated 1 January and keeps `new-years-eve` as an alias:
+  midnight champagne drinks plus New Year's Day black-eyed peas. A
+  separate New Year's Eve term would need that alias removed first.
+- `shepherds-pie` has no image and leads the St Patrick's mains as it is.
+  `cottage-pie`, its beef twin with an image, was left untagged.
+- Optional Valentine's additions were left out:
+  `deliciously-moist-chocolate-layer-cake` and `dubai-chocolate-tart`.
+  Their pages don't say Valentine's.
+- Two imports were edited: the corned beef is renamed, and the flag pie's
+  crust line is a link. Sally's page warns that frozen fruit gives a soupy
+  filling.
+- No features changed; the new terms are not on the homepage strip.
+
+### 42m — Bean swaps on Make (M)
+
+Roger, 2026-10-18 (live): "Add many different bean salad recipes which I
+will look up in the what can I make tool. I should be able to see many
+recipes with different beans and be able to **loosen the bean restrictions
+to substitute different beans if needed as a separate tier**." The salads
+themselves are a content phase running alongside; this is the tier.
+
+Strict and close matching stay as they were — `bean` is still out of the
+same-head rule, so black beans never _meet_ a chickpea line. A bean family
+(`common/util/beans.ts`) says which beans stand in for one another; a
+recipe short only of family beans, each coverable by a bean on hand, is
+listed in its own "With a bean swap" group with "Use [pinto beans] for
+[black bean]". It never becomes "can make" and moves no other count. A
+switch beside "Count close matches" turns it off, per browser; the agents'
+`inventory make` returns the same group (41i parity).
+
+#### Results (42m)
 
 **What changed.**
 
-- **`/holidays`, the almanac** (homepage canvas C): a header ("The year
-  ahead · N holidays", today's date), a ruler of the next 365 days from
-  `md` up — a tick on the first of each month with the year on January,
-  a dot per dated holiday, labels stacked in up to three lanes when they
-  crowd (`rulerLanes`: Christmas and New Year's) — then **Next up**, three
-  countdown cards (the soonest larger, its number in the accent; picture,
-  date, "9 dishes · 3 drinks", its first three recipes pinned first, "The
-  Halloween menu"), **Later in the year** as one row each, and **Any time**
-  for holidays with no rule. Files: `common/components/HolidaysPage/`
-  (`index.tsx`, `Almanac.tsx`).
-- **`/holidays/<slug>`, the menu** (/drinks canvas C, generalised): the
-  "Holidays · counts" eyebrow and the holiday's date over the headline
-  "**13** days to Halloween.", the record's description and picture, four
-  lead cards of the kind shown (pinned first), "Then Christmas, in 68 days
-  — 1 drink." to the next holiday's menu, then **On the menu:
-  _recipes_** — the kind word is `/make`'s kind menu — with dot-leader
-  groups in newspaper columns: dishes by course, drinks by style, "More"
-  for the rest, each line's right-hand side the dish's main ingredient or
-  the drink's spirit. With both kinds shown, the groups sit under Dishes
-  and Drinks. "What can I make?" goes to `/make?q=` + `withKind(tag:<slug>,
-kind)`. Files: `HolidayMenu.tsx`, `HolidayMenuPage.tsx`.
-- **Data:** `common/controller/holidaysPage.ts` (pure: `holidayEntries`,
-  `holidayMenuData`, `almanacView`, `rulerLanes`, `holidayAfter`,
-  `menuGroups`, `menuCourses`, `holidayAliasTarget`) and
-  `controller/data/readHolidays.ts` (the tree, each holiday's record, one
-  cached by-term row per key of the holidays' subtrees — `/drinks`' and
-  the term page's pattern). `util/holidays.ts` gains `holidayRuleKey` (slug,
-  then aliases), an optional `rule` on items for `orderByNextOccurrence` /
-  `withinComingUpWindow` / `nextSeasonal` (unchanged without it),
-  `formatDayShort`, `formatMonthTick`, `addDays`.
-- **Routes in both apps:** `editor/src/app/(recipes)/holidays/page.tsx`,
-  `holidays/[slug]/page.tsx`, and the export's, defined once in
-  `HolidaysPage/routes.tsx`. The export's `generateStaticParams` emits
-  every holiday and every alias of one; with none, one `_` placeholder that
-  answers 404 (the `generateTagStaticParams` guard).
-- **The kind menu** moved out of `MakeQuestion` into
-  `MakePage/KindMenu.tsx` (Te1), markup and behaviour unchanged; `SLOT` is
-  exported for the holiday heading.
-- **Links:** a holiday's term page says "See the Halloween menu", the
-  `holidays` root's "The almanac: every holiday, by date"
-  (`TagPage/shared.tsx`); the footer's default Browse column gains
-  Holidays after Drinks on a site that has a `holidays` root with a child
-  (`AppLayout`, a cached tree read in a try/catch; `NAV_ICONS` gets
-  `calendar-heart`). `TagAliasRedirect` takes a `base` for the export's
-  alias pages.
+- `common/util/beans.ts` (new, pure): `BEAN_KINDS` (the family, by kind),
+  `beanKind` / `beanKindOf` (a name's kind, through `toName`, after a few
+  leading "how it's sold" words — `cooked`, `canned`, `can of`, `15-ounce`,
+  `low-sodium`, `no-salt-added`), `isBeanLine` (every alternative a family
+  bean), `beanFor` (which bean on hand to swap in).
+- `util/makeable.ts`: `MakeableOptions.beanSwaps` (default `false` in the
+  pure judge; the page and the seat pass it), `RecipeMatch.swaps`, and
+  `MakeableAnalysis.beanSwap` — the same match objects as in their bucket,
+  sorted by name.
+- `/make`: the "With a bean swap" section after "Can make now" (photo and
+  spec cards: one "Use [have] for [needs]" line per swap, the bean on hand
+  a `have` tape and the line's a dashed `missing` tape); in the bucket the
+  recipe also sits in, "Needs [chickpea] (swap: black beans)"; the ticker
+  adds "· N with a bean swap" when N > 0; the switch "Let beans stand in
+  for each other" under "Count close matches" (`make-settings-v1`
+  `beanSwaps`, stored only as `false`).
+- Agents: `inventory_makeable` / `recipes inventory make` /
+  `GET /api/inventory/make` take `beanSwaps` (`--no-bean-swaps`,
+  `beanSwaps=0`), answer `beanSwaps: boolean` always and `beanSwap: [{slug,
+name, swaps: [{line, use}]}]` while it is on (capped at `limit`); the
+  CLI's text prints "With a bean swap (N)" after the buckets; the tool
+  description, the CLI help and the curator skill's §8 say so. Existing
+  fields keep their shapes.
+- Fixture `make-beans` (four salads, copied shapes: Chickpea Cucumber
+  Salad, Black Bean and Corn Salad, Two Bean Salad, Classic Three Bean Salad
+  with green beans); indexes built on a scratch copy with
+  `rebuildFixtureIndexes` (seeded from `make-food`'s index, since a type
+  with no index is skipped) and copied back.
+
+**The family (Dm1).** Black (black, black turtle); red (kidney — red, dark
+red, light red — red, small red, adzuki/azuki); pinto (pinto, borlotti,
+cranberry, anasazi, pink); white (cannellini, white, white kidney, navy,
+great northern, haricot, flageolet, marrow); chickpea (chickpeas, garbanzo
+— folded already — ceci); butter (butter, lima, baby lima); black-eyed peas
+(and cowpeas); mung; fava (and broad); and "any": beans, mixed beans, bean
+medley, bean mix, three/four/five bean mix. Bare varieties count where
+they name nothing else, as an `(or …)` alternative leaves them ("black
+beans (or pinto)"): pinto, borlotti, anasazi, kidney, red kidney,
+adzuki/azuki, navy, great northern, cannellini, lima, fava, ceci — never
+black, white, red, butter or cranberry. 42n's shapes read as members:
+"cranberry beans (borlotti)", "fava beans (broad beans)", "kidney beans
+(rajma)" (the parenthetical is an alias), and "black beans (or pinto or
+cannellini beans)" (each of its beans). **Left out:** green, string,
+wax and runner beans; edamame and soybeans; lentils and split peas; bean
+sprouts; coffee, cocoa, vanilla and jelly beans; refried, baked and chili
+beans (sauced); bean paste; romano beans (borlotti in Italy, a flat green
+bean in the US).
 
 **Decisions.**
 
-- **De1 — dates per D4, by slug then alias.** A holiday child with no
-  rule is undated and last ("Any time"); a holiday further than 365 days
-  off (a late Easter after an early one) keeps its card but no dot.
-- **De2 — today is the browser's (U1).** The server's day orders the
-  first render; countdown numbers and today's date wait for the browser's
-  day (`useToday(null)`), so the export's HTML never prints a stale number.
-  Dates are `<time>` (masked in baselines).
-- **De3 — only holidays with recipes** are on the almanac (plans alone do
-  not count: the menu lists recipes). A holiday child with none still has
-  a menu page that says so.
-- **De4 — the kind lives in `?kind=<word>`** (`dishes`, `drinks`; none for
-  recipes), read with `useSearchParams` under a `Suspense` whose fallback
-  is the whole menu — the export's static HTML.
-- **De5 — course order is a meal's** (`MENU_COURSE_ORDER`: breakfast,
-  snacks, soup, salad, mains, sides, bread, sauces, desserts; other
-  courses after, in tree order); styles keep `DRINK_STYLE_SLUGS`' order. A
-  recipe in two courses goes under the earlier in that order, whatever
-  order its tags are in (`earliestTerm`; a dessert-and-breakfast pie is
-  breakfast); a drink in two styles likewise.
-- **De6 — the right-hand side of a menu line** is the dish's main
-  ingredient or the drink's spirit, not a time: the by-term rows carry no
-  times, and adding them would change the tag index's projection (a
-  reindex).
-- **De7 — an alias redirects.** `/holidays/christmas-cookies` → the
-  editor redirects; the export emits a page that sends the reader on. A
-  slug that is neither a holiday nor an alias of one is a 404.
-- **De8 — `TimelineStrip` was not reused.** It draws one recipe's
-  schedule as proportional segments; the almanac is a calendar ruler with
-  points. A new `Ruler` inside `Almanac.tsx` rather than a fork.
-- **De9 — no masthead link.** Six destinations fill the masthead at `md`,
-  and a masthead change moves every full-page baseline; the almanac is in
-  the footer — only on sites with holidays, so only `drinks-bar`'s footer
-  moved (both `drinks-page` baselines, e2e and mobile, regenerated) — and
-  linked from the term pages.
+- **Dm1 — The family is an exact list, by kind.** After the leading "how
+  it's sold" words, a name must be one of the listed names exactly; no tail
+  rule, which would let `beans` claim green, vanilla and coffee beans. The
+  kind only orders the choice: the line's own kind first (navy for
+  cannellini), then any named bean in list order, then a mix. An A-or-B line
+  is a bean line only when every alternative is a family bean ("chickpeas or
+  lentils" is not).
+- **Dm2 — The tier is beside the buckets, not one of them.** A swap recipe
+  stays in one/two/further away, its `missing` and `distance` unchanged, so
+  every other count, the headings, the ticker's first four numbers and Buy
+  next are exactly as before (Buy next still offers chickpeas for it). The
+  card shows twice: in "With a bean swap" (what to swap) and in its bucket
+  ("Needs chickpea (swap: black beans)").
+- **Dm3 — "Every requirement met except beans"** is "every line in
+  `missing` is a bean line", so it follows `countClose`: with close matches
+  off, a close non-bean line keeps a recipe out. Staples count as on hand
+  for the swap as they do for everything else, so an "Assume I always have"
+  bean can be swapped in.
+- **Dm4 — One bean may cover several lines**; a three-bean salad from one
+  can is listed, saying the same bean for each.
+- **Dm5 — Featuring follows the matcher, not the swap.** Featuring
+  `chickpeas` keeps recipes whose required line chickpeas meet, and those in
+  the tier show their swap; featuring `black beans` does not pull in
+  chickpea recipes it could stand in for.
+- **Dm6 — Defaults.** On by default on `/make` and in the seat; off by
+  default in the pure `analyzeMakeable` (pages that show counts only — the
+  homepage tile, `/drinks` — never ask, and pay nothing). The ticker leaves
+  the tier out at 0, so a drinks scope reads as before.
+- **Dm7 — A bare `beans` names only the family** (review, a pre-existing
+  matcher gap fixed narrowly): an inventory item `beans` used to meet "1 lb
+  green beans", "1 vanilla bean" and "coffee beans" strictly (`bean` is no
+  vague head), and green beans on hand met a line asking for "beans". Now,
+  in `namesMatch`, a name that is only `bean` meets a longer one only when
+  that is a family bean (`isFamilyBeanWords`) — "black beans", "mixed
+  beans", "canned beans" yes; green, wax, string, vanilla, coffee, cocoa and
+  jelly beans no. It touches nothing but the word `bean`. It can lower
+  can-make counts for a list holding plain "beans", and the shopping list's
+  "probably on hand" fold (the same `satisfies`) no longer folds green beans
+  under it.
+- **Dm8 — An `(or …)` with `or` inside is read in the family only.** The
+  parser leaves "black beans (or pinto or cannellini beans)" as two
+  alternatives, `black bean` and `pinto or cannellini bean`, and a bare
+  `(or pinto)` without the noun. `beanKinds` splits a name on `or` and
+  lends the last part's noun to a part without it, so the line is a bean
+  line naming black, pinto and white. Strict matching is unchanged:
+  cannellini beans on hand meet it (the tail of `pinto or cannellini
+bean`), but pinto beans don't, so with pinto it lands in the tier ("Use
+  pinto beans for black bean or pinto or cannellini bean"). **Follow-up:** split
+  `(or A or B C)` into alternatives and lend the noun in the parser
+  (`alternativeParts` / `inheritTails`) — a matcher-wide change, out of this
+  phase.
 
-**Roger to confirm.** De3 (plans don't put a holiday on the almanac);
-De5's course order; De6 (main ingredient / spirit at the end of the
-dotted line); De9 (footer only — a masthead or ⌘K palette entry is a
-small follow-up); the homepage's "All holidays" still goes to
-`/tags/holidays` — 42f's redesign links the almanac.
+**Gates.**
 
-**Gates** (2026-10-19, all through the capped heavy slot).
+- typechecks: recipe-editor ✅ and the export (`tsc --noEmit`) ✅, heavy
+  slot, at 96dc9809;
+- vitest 2432/2432 (120 files), heavy slot; the makeable suites alone
+  212/212 (4 files) after the review fixes;
+- Playwright, Docker build mode: `make.spec` + `accessibility.spec` 101/101
+  (e2e + mobile), at 96dc9809; the two new bean tests (`make.spec`,
+  `accessibility.spec`) once in dev mode (Docker) 2/2;
+- baselines (Docker, build mode): `make-page-e2e` and `make-page-specs-e2e`
+  unchanged; `make-mobile-mobile` moved (393×2162 → 393×2234: the new
+  switch's three lines on the stacked shelf) and was regenerated, opened and
+  checked by eye — nothing else on it moved;
+- after merging origin/main (42a, 42c1; d16c80cc): typechecks ×2 ✅;
+  vitest, the make/inventory/CLI/MCP files 198/198 (8 files);
+  `make-mobile-mobile` conflicted, main's taken and regenerated in Docker
+  (same picture: the switch added); `make.spec` + `accessibility.spec`
+  104/104 in Docker build mode.
 
-- `pnpm --filter recipe-editor typecheck` and `pnpm --filter
-recipe-website exec tsc --noEmit`: clean.
-- vitest: 120 files, 2434 tests passed (new: `test/holidaysPage.test.ts` —
-  rule lookup by slug then alias incl. 42k's `new-years` shape, almanac
-  order and undated last, the 365-day ruler across a year end, a late
-  Easter off the ruler, label lanes, the next holiday, menu grouping by
-  course and style with More, pins first, a two-course dish under the
-  earlier course, kinds, alias targets).
-- Export build (`next build`, `output: "export"`) against a scratch copy
-  of `drinks-bar`: `○ /holidays`, `● /holidays/halloween`,
-  `● /holidays/christmas` prerendered as static HTML; the index's footer
-  links `/holidays`.
-- Playwright in Docker, build mode: holidays, accessibility, drinks, make,
-  tag-pages, footer, homepage-browse, menus — **173 passed**. Dev mode
-  once (Docker): holidays and accessibility — **76 passed**.
-- Baselines (Docker): new `holidays-almanac` and `holidays-menu`, e2e and
-  mobile, on the frozen clock; `drinks-page` e2e and mobile moved (the
-  footer's Holidays link, nothing else). Each opened and compared with its
-  canvas: the almanac is canvas C's "The season" (ruler, big countdowns,
-  cards) as a page; the menu is the /drinks canvas C's hero and dot-leader
-  menu. With the fixture's two holidays the Next up row has an empty third
-  column, and every picture is a monogram (the fixture has no photos).
+**Roger to confirm.** The family list and its exclusions (Dm1: chili beans,
+romano beans, lentils as a later family of their own?); a swap recipe shown
+in both the tier and its bucket (Dm2) rather than moved; the switch on by
+default and its wording; featuring not widened by swaps (Dm5); a bare
+"beans" on the list no longer meeting green/vanilla/coffee beans, which
+can lower can-make counts (Dm7); the swap text's singular line name — "Use
+pinto beans for kidney bean", matching "Needs chickpea" (`requirementLabel`).
+
+### 42m2 — Make: tap to add, roomier further away, matcher ingredients (M)
+
+Roger, 2026-10-18 (live): "If I click an ingredient in the 'further away'
+list in what can i make, I want it added to the currently on hand
+ingredients to help get started easy. The list should probably have fewer
+items across at full width because ingredients get smushed. Also, I want to
+be able to add ingredients as a matcher, e.g. add 'bean' which effectively
+matches all beans and I can refine it later."
+
+Built on 42m (branch `agent/42m-bean-swaps`): its bean family is the
+matcher's member list.
+
+#### Results (42m2)
+
+**What changed.**
+
+- **Tap a missing tape to add it.** Every result card's missing names —
+  "Needs", and the line's bean in "With a bean swap" — are buttons, "Add
+  chickpea to what I have" (`AddTape`), one per name of an A-or-B line. A
+  tap adds the name to this browser's list with an Undo toast; focus goes
+  to Undo, since the tape goes with the line it met. A card that moves up a
+  bucket (further away → two away, two → one, one → can make) gets 41h's
+  accent ring, off under reduced motion. On photo cards the note now sits
+  **beside** the card's link, not inside it, so no button nests in a link.
+- **Roomier groups.** "Can make now" keeps six photo cards across at `lg`
+  (no tapes to squeeze); "With a bean swap", "One ingredient away" and "Two
+  away" show at most four (`grid-cols-2 md:3 lg:4`); "Further away" is a
+  list of wide rows — a small picture (decoration; the name is the link),
+  the name, the tapes wrapping — one column, two from `xl`. The page is
+  `max-w-7xl`, so the results column is ~880 px at 1366, 1600 and 1920
+  alike. `RecipeGrid` / `SearchList` take an optional grid class; every
+  other page keeps six across. Spec cards are unchanged (already ~3 across).
+- **Matchers** (`common/util/matchers.ts`): `any bean` on the list meets
+  every line naming a family bean (42m's `beans.ts`), strictly — so it counts
+  for can make. `parseInventoryItem` reads it as an item with no names and a
+  `matcher`; `satisfies` asks `matcherMeets` (any alternative a member,
+  never a loose line, never non-alcoholic). It is never close to anything
+  and never a bean to swap in.
+  - **The add field** offers "✱ Any bean — matches N kinds in these
+    recipes" when the typed text begins the family's word (`bea`, `bean`,
+    `beans`, `any b…`), ranked by its what-if like any name, unless the list
+    has it or the scope uses no bean.
+  - **The tape** is marked ✱ with a rule under its words (`currentColor`,
+    so every theme and state keeps its contrast) and shows its pull. On this
+    browser's list its body opens **"Which beans do you have?"** — the
+    family's specific members in the current scope, each with its recipe
+    count and a checkbox; **Keep only these** puts the ticked beans in the
+    matcher's place (one change, Undo restores it); **Feature it** features
+    it from there. × removes it as any label. On the saved / house list it
+    is an outlined ✱ label that features as before.
+  - **Agents:** the seat reads the stored text, so `inventory_makeable` /
+    `recipes inventory make` answer as the page does; `inventory add`
+    stores `any bean` for any spelling, and `inventory remove` takes any
+    spelling. The `inventory_add` description, the CLI usage line and the
+    curator skill's §8 say so.
+
+**Decisions.**
+
+- **Dm2-1 — The syntax is text: `any <noun>`.** Canonical `any bean`;
+  `matcherOf` also reads `bean`, `beans`, `any beans`, `all beans`, `any
+kind/type/sort of beans`, `beans (any kind)`, `beans, any`. It
+  round-trips through the browser list, `inventory/on-hand.json`, Import /
+  export and the CLI/MCP with no format change; a list without one reads
+  exactly as before. `black beans`, `mixed beans`, `canned beans` and
+  `beans (Goya)` stay ordinary items.
+- **Dm2-2 — Tapping a missing tape adds; it no longer could feature.**
+  41h's result-card "Needs" tapes were static words (only Buy next's dashed
+  tape features, and still does); 41h's "tapping the body features" (Dh7,
+  Dh8) holds for shelf labels and Buy next. A matcher's body opens its
+  popover instead, and featuring it moved into the popover ("Feature any
+  bean", a fixed label with `aria-pressed`). Every missing tape is now a tab
+  stop — further away's rows add one per missing name; Tab order follows
+  the cards, and "Show all N" still caps a group at 12 cards.
+- **Dm2-3 — The tap adds to this browser's list**, whatever Count from
+  says (42a's saved-list editing is the shelf's, not the cards'). In Count
+  from = Saved list that list isn't counted, and the toast says so ("not
+  counted while Count from is the saved list"); no commit is ever made from
+  a card.
+- **Dm2-4 — Further away is rows; the other tape groups four across.**
+  Rows read the whole missing list at a glance and never squeeze; photo
+  cards stay where they carry one or two tapes.
+- **Dm2-5 — A matcher meets strictly, so the swap tier has nothing to add
+  for beans.** With `any bean` on hand every bean line is met, so no
+  recipe's missing lines are beans and `beanSwap` holds none of them — no
+  double count. After "Keep only these" the swap tier works as 42m built it.
+- **Dm2-6 — A bare `beans` / `bean` is the matcher**, normalised on add
+  (the page's `setHave`, the seat's `patchInventory` / `setInventory`), so
+  the text says what it means; a stored "beans" from before reads as the
+  matcher too — the browser canonicalises its list on read as well as on
+  write, and the seat compares `patchInventory` and `setInventory` by the
+  canonical key, so saving `any bean` over a stored "beans" is no change.
+  The add field never offers a line's plain `bean` beside "Any bean".
+  Against 42m's Dm7 (a bare `beans` names only the family) this widens one
+  case: `beans` on the list now meets chickpeas and black-eyed peas too —
+  every family member — as `any bean` does; green, vanilla and coffee
+  beans stay out. A line asking for plain "beans" adds `any bean` when its
+  tape is tapped. This settles 42m's review finding 2 on this branch: a
+  bare "beans" on the list can't meet green, vanilla or coffee beans.
+- **Dm2-7 — Beans only.** "Any cheese", "any vinegar", "any rum/whiskey"
+  would need an exact member list like `BEAN_KINDS` — the head and
+  class-noun rules don't define one (cream cheese is a cheese and no
+  stand-in for parmesan; malt vinegar for rice vinegar) — so they are
+  follow-ups, not shipped. `MATCHERS` takes one entry each when they are.
+- **Dm2-8 — The refine list is specific members only** (`chickpea`, not
+  "mixed beans" or a "beans" line), required lines only, most used first;
+  a row is the family's own name without how the bean is sold (review:
+  "2 cups cooked black beans" and "1 can low-sodium black beans" are one
+  `black bean` row, `beanNames`), and keeping it adds that name, which
+  meets both lines. A 42m Dm8 line ("black beans (or pinto or cannellini
+  beans)") lists each of its beans; until the parser splits such lines
+  (Dm8's follow-up), keeping `pinto bean` alone meets it only through the
+  swap tier.
+
+**Tests.** `makeMatchers.test.ts` (new: the syntax and its spellings, Export
+/ Import round trip, family positives and exclusions on real line shapes,
+A-or-B and loose lines, can make and staples, the shopping fold, pull and
+what-if, no double count with the swap tier, the refine list with "cooked" /
+"low-sodium" lines, `refineMatcher`, the add field's matcher suggestion);
+`makeMatcherUi.test.tsx` (new: the ✱ tape and its popover, Keep only these,
+Feature any bean, a stored "beans" read as the matcher, a typed "beans";
+the cards' add buttons outside the link, further away as rows);
+`inventory.test.ts` (+2: stored canonical, removed by any spelling, the
+page's judge agreeing, an old "beans" list, `setInventory` no change);
+`mcp.test.ts` and `cliJson.test.ts` (the matcher round trip); 42m's Dm7
+test now expects a bare "beans" to meet chickpeas. E2e: `make.spec` (+5: a
+further-away tap with Undo and the card moving up; "bean" → the matcher,
+counts, refine to chickpeas, Undo; the layout at 1366 / 1600 / 1920, no
+tape outside its card, rows two across, at most four photo cards across;
+42m's swap-card lookups and one Roasted Vegetables check moved to the card
+from its link); `accessibility.spec` (+1: a matcher with the refine popover
+open); `visual.spec` (+1: `make-results-wide`).
+
+**Gates** (capped wrappers; the last set after merging 42m's branch with
+origin/main d16c80cc — 42a and 42c1):
+
+- `pnpm --filter recipe-editor typecheck` ✓, `pnpm --filter recipe-website
+exec tsc --noEmit` ✓.
+- `pnpm exec vitest run`: **125 files, 2544 tests** ✓ (before the merge:
+  122 / 2461 with 2 failures — the export boundary test, a comment naming
+  the saved file in `common/`, and 42m's Dm7 assertion above — both fixed,
+  their files rerun 4 / 78 ✓).
+- Playwright, Docker, build mode: `make`, `accessibility`, `visual`,
+  `mobile` — **138 passed, 1 flaky** (make.spec's "buy next follows the
+  featured scope": two `make-ticker`s at page load, a strict-mode miss in
+  `ready()` before any 42m2 code ran — 41h's Th6 seen in build mode —
+  passed on retry). Before the merge: 111 passed + the moved phone shot,
+  then 29 with `--update-snapshots`.
+- Playwright, Docker, dev mode: `make`, `accessibility`, `visual` — **131
+  passed**.
+- **Final, one branch for 42m + 42m2** (42m's 1e6e2293 merged, then
+  origin/main be8ba8ad with 42e and 42h; the one text conflict, the CLI
+  help, kept both lines): typechecks ×2 ✓; vitest **127 files, 2585
+  tests** ✓; Docker build mode `make`, `accessibility`, `visual`,
+  `mobile`, `holidays` — **154 passed**, no baseline moved.
+
+**Baselines** (Docker only, each opened): `visual.spec.ts/make-page-e2e`
+**moved** (one-away photo cards four across, each "Needs" tape under the
+card's link); `mobile.spec.ts/make-mobile-mobile` **moved** (42m's bean
+switch, +72 px — the same picture 42m regenerated; no result card on it); `visual.spec.ts/make-results-wide-e2e`
+**new** (1920 px: Buy next, the groups at most four across, further away as
+a row; shot at 1920 × 2800 so the page fits, Th5). The results column is
+~876 px at 1920, as at 1366: the page is `max-w-7xl`.
+
+**Roger to confirm.** A card tap adding to this browser's list even in Count
+from = Saved list (Dm2-3); further away as rows and the other groups four
+across (Dm2-4); typing "beans" giving `any bean` rather than a plain item
+(Dm2-6); beans as the only matcher for now, with cheese / vinegar / rum /
+whiskey as follow-ups (Dm2-7); focus moving to Undo after a card tap.
+
+#### Traps (42m2)
+
+- **Tm2-1 — baselines from before a merge go stale where the old budget
+  can't see it (Tb4 in practice).** #288's first CI run failed the four
+  Make captures on Recipe shard 4/4 (`make-page` 1 474 px,
+  `make-results-wide` 1 060, `make-page-specs` 7 333, `make-mobile` 416).
+  The same count on every retry, and Docker reproduced it to the pixel in
+  dev **and** build mode, so this was no dev-only motion or ticking number.
+  The PNGs were drawn at 230f0bd3, before the branch merged 42a's outline
+  borders (d16c80cc). The merge also kept main's 42a-era `make-page-specs`,
+  which has no bean-switch row (42m) and none of 42m2's Needs tapes. Under
+  41's 2 % ratio every "no baseline moved" gate after those merges passed;
+  42b's 100 px budget, merged next, did not. Fix: those four regenerated in
+  Docker, build mode, `--update-snapshots=all`, and opened. The diffs are
+  outline-button borders ("I have this", Clear, Import / export), the bean
+  switch row, and the Needs-tape layout. Then build ×3 and dev ×3
+  (`--repeat-each=3 --retries=0`): **12 + 12 passed**; `make.spec` in dev:
+  **47 passed**. Lesson: after merging main into a branch that owns
+  baselines, regenerate those baselines with `=all`; don't trust a pass.
+
+### 42n — Many more bean salads (content)
+
+Roger, 2026-10-18 (live), with 42m: "Add many different bean salad recipes
+which I will look up in the what can I make tool. I should be able to see
+many recipes with different beans and be able to loosen the bean
+restrictions to substitute different beans if needed as a separate tier."
+42m is the tier; 42n is the salads. The target was about 20 (cap 24),
+spread across the kinds of bean, under D7's import rules (40-D2). A dry run
+in scratch was reviewed by the orchestrator, then applied through the CLI,
+with `POST /api/revalidate` after.
+
+#### Results (42n)
+
+**Applied 2026-10-18, 23:37–23:53.** It applied the reviewed dry run,
+minus the kosambari, which the orchestrator judged too light on legume to
+read as a bean salad. The real repo (branch `uraninite`) went from
+`aacddf6f` to `d53f9ce5`: **19 commits**, `7d79732c`..`d53f9ce5`.
+
+- 18 creates. Each touches its `recipe.json` and one image.
+- 1 assign: `term assign bean-salads --add ultimate-cowboy-caviar`
+  (`d53f9ce5`).
+
+The session pushed nothing and ran no git in the content repo. Afterwards
+the tree was clean, `indexStale` and `indexVersionStale` were false, and
+there were no `busy` answers; the write lock was enough with the
+workstation running (41-Dg1). Nothing was deleted, no feature was touched,
+and no existing recipe was edited beyond the cowboy caviar's tag.
+
+**Method.**
+
+- Each page was fetched once with `recipes inspect <url> --llm off --out`,
+  sequentially and at least 20 s apart, with no 403s.
+- Every accepted page had JSON-LD and came back `partial: false`: no model
+  read, no `--allow-partial`.
+- A script edited the drafts:
+  - the skill-v4 facets plus `bean salads`;
+  - generic-first bean lines;
+  - an explicit slug;
+  - the three approved renames and two written descriptions;
+  - jwplatform `.mp4`s dropped and YouTube links kept.
+- Each draft got `create --file --dry-run` and then `create --file`, 20 s
+  or more apart.
+
+**Imports (18, none skipped at apply).**
+
+- Pinto:
+  - Pinto Bean Salad (The Plant Based School).
+  - Pinto Bean Salad with Corn (Glow Diaries).
+  - Cornbread Salad (Taste of Home, with bacon).
+- Black, pinto or cannellini: Dense Bean Salad (The Kitchn).
+- Black-eyed peas:
+  - Senegalese Black-Eyed Pea Salad (Cookie and Kate).
+  - Mediterranean Black Eyed Pea Salad (The Mediterranean Dish), renamed.
+  - Easy Black Eyed Pea Salad (A Couple Cooks).
+- Butter and kidney: Mediterranean Dense Bean Salad (A Couple Cooks),
+  renamed; its YouTube video is kept.
+- Butter: Marinated Butter Bean Salad (Moon and Spoon and Yum).
+- Fava:
+  - Fava Bean Salad (The Clever Meal).
+  - Broad Bean Salad (Veggie Desserts).
+- Borlotti:
+  - Cranberry Bean Salad with Basil, Mint and Feta (The Kitchn).
+  - Easy Borlotti Bean Salad (Micaela's Kitchen, with anchovies), renamed.
+- Edamame:
+  - Edamame Salad (A Couple Cooks).
+  - Easy Japanese Edamame Salad (Sim's Home Kitchen).
+- Lentil: Moroccan Lentil Salad (Feasting at Home).
+- Chickpea: Mediterranean Farro Salad with Spiced Chickpeas (Budget Bytes).
+- Kidney: Indian Rajma Salad (Indian Veggie Delight).
+
+**Dropped:**
+
+- The kosambari, at review.
+- In the dry run:
+  - near-duplicates (the cowboy caviars and three-bean salads);
+  - The Kitchn's succotash, which is corn-led;
+  - two Food Network fava salads and Food.com's Italian bean salad, which
+    have generic site images;
+  - Jovial's borlotti, which has no ingredients;
+  - Not Quite Nigella's borlotti, which has no steps.
+
+**After, per bean** (before → after): chickpea 8 → 9, black 7 → 9, kidney
+5 → 7, pinto 1 → 4, white 5 → 5, butter/lima 2 → 4, black-eyed pea 1 → 5,
+borlotti/cranberry 0 → 2, fava 0 → 2, edamame 1 → 3, mixed (two or more
+beans) 4 → 6, lentil 4 → 5. `term get bean-salads` gives own **48**
+(was 29), and the corpus went **807 → 825**.
+
+**Verified:**
+
+- `POST /api/revalidate` answered `{"revalidated":true}`.
+- All 18 new recipe pages and `/recipe/ultimate-cowboy-caviar` answer 200
+  on the workstation.
+- `/tags/bean-salads` lists them.
+
+**Roger to confirm.**
+
+- `ultimate-cowboy-caviar` (Texas caviar with chips) is now under Bean
+  Salads and keeps its `snack` tag.
+- Three renames:
+  - `mediterranean-black-eyed-pea-salad`, because `black-eyed-pea-salad`
+    was taken;
+  - "Mediterranean Dense Bean Salad", so it doesn't read as The Kitchn's;
+  - "Easy Borlotti Bean Salad", from a long page title.
+- Two descriptions are written by the session: The Kitchn's cranberry bean
+  page has none, and Micaela's named lemon and red onion, which the recipe
+  doesn't have.
+- Two aren't vegetarian and aren't tagged so: the cornbread salad (bacon)
+  and the borlotti salad (anchovies).
+- The Kitchn's line "black beans (or pinto or cannellini beans)": Make
+  matches black beans, and the swap tier covers the rest (42m Dm8).
+- The farro salad's image is 640×480, the page's largest.
+- `french-lentil-salad-with-goat-cheese` carries the tag `bean-salads` (the
+  slug form) where the others carry `bean salads`. The term counts it either
+  way, so it was left alone.
+- No features changed.
+
+### 42-close (S)
+
+Close-out here, a CLAUDE.md "Durable docs" bullet, backlog rows, memory.
+The morning-report artifact in epic 41's style: what to look at first (each
+page with before/after screenshots from the Docker runs), what merged, the
+canvases, "Roger to confirm", Roger's steps (`pnpm workstation update`,
+`pnpm deploy:pi`; reindex only if a phase changed an index version — none
+expected). The session's `content-engine-playwright:*` Docker tags removed.
+
+## Verification
+
+- **Every PR:** typecheck ×2 and vitest (with counts) through the capped
+  wrappers; the touched specs in Docker build mode, new specs once in dev
+  mode; CI green and `CLEAN` on every check, the main-checkout-shape build
+  job included.
+- **Per surface:** moved and new screenshots (Docker only) opened and
+  compared with the canvas; axe with the WCAG 2.2 tags green; no sideways
+  scroll at phone width; targets ≥ 24 px.
+- **42b:** each screenshot spec passes 3× in dev and in build mode at the
+  new tolerance. **42c1:** matching and heads-up unit tests, true and false
+  positives listed in Results. **42c2:** timer specs on a frozen clock,
+  `parseTimeText` tests in its new home. **42e:** a frozen-clock almanac;
+  the export builds `/holidays/*` statically. **42g:** `shopping_get`, the
+  copied text and the counts unchanged (the existing vitest is the
+  contract); the first `/shopping` baselines.
+- **After merge:** Roger checks each page on the workstation after `pnpm
+workstation update`, from the morning report's list.
+
+## Close-out
+
+Closed 2026-10-19 after an overnight run. Every phase landed:
+
+- the skeleton #281;
+- 42c1 #282, 42a #283, 42e #284, 42h #285, 42b #286, 42f #287;
+- 42m + 42m2 #288, 42g #289, 42c2 #290, 42d #291, 42s #292;
+- and this close.
+
+Beside them, the orchestrator ran 42j (four canvases) and two content
+rounds, 42k and 42n: 38 commits on the content repo's `uraninite` branch.
+Their Results are recorded here. Nothing was deployed and the content repo
+was not pushed; the workstation's sync carried 42k's and 42n's commits to
+the Pi.
+
+**No reindex is needed.** No phase changes an index version: a grep of
+every merged diff (`1086d1c3..`) finds no change to `indexVersion`,
+`ENGINE_INDEX_FORMAT`, a config's `version`, a spec version, a pagination
+index or an aggregate. 42s's `fetchIndexVersion` is the browser's
+`/search/version` read, and that was removed, not the server's index stamp.
+
+### For Roger's morning
+
+The morning report gathers it in one page:
+https://claude.ai/artifact/5BY2PY7STnvb4wxEmV6WCG.
+
+- **The pages Roger picked, built.** After `pnpm workstation update`, look
+  at:
+  - a recipe page in cooking order (42c1), then its cook view and a timer
+    in a step (42c2);
+  - `/holidays` and `/holidays/halloween` (42e);
+  - `/shopping` on a phone (Shop) and a desktop (Plan) (42g);
+  - `/drinks` (42d) and the homepage (42f);
+  - `/make` with "bean" on the list (42m, 42m2);
+  - a first search in a fresh private window (42s).
+- **Content, live now.** A holiday for every season: New Year's,
+  Valentine's Day, St Patrick's Day, Easter and the Fourth of July, with 29
+  recipes, 8 of them imported (42k). 18 more bean salads: Bean Salads went
+  29 → 48 (42n).
+- **Four new design canvases to judge** (42j), three variants each (A
+  refine, B rethink, C bold), on the same design system. The agents picked
+  B on all four. Nothing is implemented until Roger picks.
+  - `/search`: https://claude.ai/artifact/42whDEiU23xTV8h9fc8Rbc
+  - `/tags` + a term page: https://claude.ai/artifact/KBfnxjqGgAzsegiXMxcurh
+  - The meal-plan page: https://claude.ai/artifact/X7m2vXCZ1Kskek2naGeY1t
+  - The recipe edit form: https://claude.ai/artifact/Ba1WK5PsrjWh7whdfrH6dF
+
+### What shipped, phase by phase
+
+- **42a, epic 41's follow-ups (#283, `d16c80cc`).** Per-item saved-list
+  editing is back on `/make`, reversing 41-Dh2: a × on each saved tape and
+  an "Add to saved list" field, one commit each with Undo. Outline buttons
+  and toggles are back on the faint `--border`; real fields keep 41f's
+  `--input`. resume-builder takes Tailwind 4.3's default sans, and the
+  shared house list has its e2e.
+- **42b, screenshot tolerance (#286, `35c4ac93`).**
+  - Both configs compare at `threshold 0.2` with `maxDiffPixels: 100`. The
+    edit form's three pages get 1,500 px for the preview image's
+    resampling.
+  - Next's dev badge is hidden from captures by a `stylePath` stylesheet.
+  - The rule fails 48 of the 50 stale pre-41d2 baselines, where the old 2 %
+    failed none. Every screenshot spec passed 3× in dev and build mode.
+  - The same night it caught four stale Make baselines (Tm2-1).
+- **42c1, the recipe page in cooking order (#282, `a4c6381c`).**
+  - Ingredients sit in a sticky rail beside the steps, and each step lists
+    its "Uses": only whole-word matches of a name no other line shares (D3,
+    Dc1–Dc4).
+  - A "Plan ahead" note quotes the step that needs time (Dc7).
+  - Steps number straight through groups.
+  - At 100rem and wider there are three columns, with a "Wide recipe
+    columns" switch in Appearance.
+  - Both apps compute the matches on the server.
+- **42c2, the cook view, timers and drinks (#290, `83095c42`).**
+  - The cook view shows one step at a time, with Back and Done, the step's
+    matched lines, and All steps a tap away. Ticks are kept per recipe in
+    sessionStorage.
+  - Durations in step text are timer buttons: several at once, end-time
+    based, a chime, vibration and a tray.
+  - A drink's scaler counts drinks (1 · 2 · 4) when its yield is a count.
+- **42e, holidays (#284, `3cedeea0`).**
+  - `/holidays`, the almanac: a ruler of the next 365 days, Next up
+    countdown cards, Later in the year and Any time.
+  - `/holidays/<slug>`, the menu: a countdown headline, lead cards, "Then
+    …", and dot-leader groups (dishes by course, drinks by style) under
+    `/make`'s kind menu.
+  - Both apps, with static export pages and alias redirects. Linked from
+    the footer and the term pages.
+- **42g, `/shopping` (#289, `10defdcd`).**
+  - Shop, in the store: one store and an aisle rail, ticks struck in place
+    until "Aisle done", on-hand rows folded to one line, and a bottom bar
+    with Add and Done shopping (an 8 s Undo).
+  - Plan, at home: "What's on it" by plan and recipe with Remove these,
+    sub-recipes and the switches beside the list.
+  - The shared view, the copy text and `shopping_get` are unchanged (D5).
+- **42d, `/drinks` (#291, `MERGE291`).**
+  - "What drinks can I make?" over the shelf, which follows `/make`'s Count
+    from, then Pour now and Buy next.
+  - In season: the current and next holiday side by side, inside 38a's
+    60-day window, linking to their menus.
+  - Browse the bar: a dot-leader index of spirit & base, style and
+    classics. A NEW mark replaces "New drinks".
+- **42f, the homepage (#287, `MERGE287`).**
+  - A search field beside the Make tile, with the intents as `tag:` chips.
+  - "This season": rows for the next three dated holidays, linking into
+    42e's pages.
+  - A rail with the newest plan, the featured list and a shopping link for
+    the signed-in editor, then New this week and Browse.
+  - Each holiday shows once, and the browser's day decides the season
+    (Df2).
+  - 19–27 % shorter on the fixtures; the real page is Roger's check.
+- **42h, holidays for the agents (#285, `be8ba8ad`).** A read-only seat:
+  `holiday_list` / `holiday_get`, `recipes holidays [<slug>] --json`, and a
+  public `GET /api/holidays[/<slug>]`. The curator skill gained §7b, "What's
+  coming up?" and "Plan for Easter". MCP now has **59 tools, 45
+  pre-approved, 14 held back**.
+- **42m + 42m2, Make: bean swaps and matchers (#288, `8aa5ccff`).**
+  - A bean family (`beans.ts`) and a "With a bean swap" tier, "Use pinto
+    beans for black bean", beside the buckets with a switch. The agents'
+    `inventory make` returns `beanSwap`.
+  - A bare "beans" no longer meets green, vanilla or coffee beans (Dm7).
+  - A tap on a missing tape adds it, with Undo. "Further away" is roomy
+    rows, and the other groups are at most four across.
+  - `any bean` is a matcher that meets every family bean. Its tape opens
+    "Which beans do you have?" to narrow it.
+- **42s, search without the IndexedDB wait (#292, `MERGE292`).**
+  - The FlexSearch index is built in memory, with no IndexedDB, and
+    `/search/ingredients` is fetched lazily. The old database is deleted.
+  - ⌘K shows "Searching recipes…" instead of "No results found."
+  - Every query returns every match: `limit` is the corpus size, which
+    explains lime 108 vs 103.
+  - A cold `/search?q=lime` takes 0.8–1.3 s (was 4.2 s), and ⌘K is ready
+    in 0.3 s (was 2.2 s).
+- **42j, design canvases (no code).** The four canvases above, and what the
+  agents found on the live pages (42j Results, now backlog rows).
+- **42k, holidays across the year (content).** Five holiday terms with
+  aliases and 29 recipes, 8 imported (`c1c059f9`..`aacddf6f`). `holidays`
+  went 125 → 154.
+- **42n, bean salads (content).** 18 imports and the cowboy caviar
+  (`7d79732c`..`d53f9ce5`). Bean Salads went 29 → 48, with at least four
+  each for chickpea, black, kidney, pinto, white, butter and black-eyed
+  pea.
+
+### Roger to confirm
+
+Each item is one line here; the reasons are in the phase's Results.
+
+- **42a:**
+  - "Add to saved list" lives in the saved group, so it shows only in
+    Saved or Both (Da1).
+  - A removed saved label waits for its commit before it goes (Da2).
+  - An editor guest's `/make` and `/drinks` ignore the share setting (Ta1).
+- **42b:**
+  - The 100 px budget.
+  - 1,500 px for the three edit-form pages rather than masking the image.
+  - Hiding `nextjs-portal`, which also hides a dev error overlay, in
+    captures.
+- **42c1:**
+  - The rail stays pinned with Sticky headers Off (Dc6).
+  - The third column is heads-up, schedule and Appears in, not the
+    description (Dc9).
+  - A shared name shows nothing (Dc2).
+  - The chip is the whole line (Dc5).
+  - "Uses" stays shown on a phone, at 12 px.
+  - Steps are numbered through groups (Dc8).
+  - B's compact hero was not adopted.
+- **42c2:**
+  - A range starts at its low end (Dc2-1).
+  - The button reads "Start timer: 25 minutes" (Dc2-2).
+  - The bar view opens on All steps (Dc2-4).
+  - A drink whose yield isn't a count keeps "Multiply"; the presets are 1 /
+    2 / 4 (Dc2-6).
+  - The page's tray floats bottom-right (Dc2-7).
+  - Not built: B's 1× button, C's big step numeral, ingredient ticks in the
+    "Uses" chips.
+- **42e:**
+  - Plans alone don't put a holiday on the almanac (De3).
+  - Courses run in meal order (De5).
+  - A dotted line ends in the main ingredient or spirit, not a time (De6).
+  - The almanac is linked from the footer only; a masthead or ⌘K entry
+    would be a small follow-up (De9).
+- **42g:**
+  - The mode's default follows the viewport, and the server renders Shop
+    first (Dg1).
+  - "Aisle done" lives in localStorage for 12 hours (Dg2).
+  - "What's on it" confirms in place, with no Undo (Dg3).
+  - Shop's Done shopping clears the ticked lines after an 8 s Undo (Dg4).
+  - The Settings button, the store buttons and the Checked fold are kept
+    beyond the canvas (Dg7).
+  - The phone's Plan shows no list (Dg8).
+- **42d:**
+  - A signed-in editor counts this browser's list until Count from is
+    switched; before, the saved list's makeables showed by default (Dd1).
+  - The saved list is edited on Make only (Dd3).
+  - With one holiday in season, the next is a "Then …" line (Dd4).
+  - NEW lasts 30 days.
+- **42f:**
+  - The chips open search, and the drink chip no longer goes to `/drinks`
+    (Df3).
+  - "Featured", not "Pinned" (Df4).
+  - The masthead keeps its search on `/` (Df5).
+  - The shopping link has no line count (Df6).
+  - Three holidays, four pictures and three children per facet (Df7).
+  - No per-kind counts on the season rows (Df8).
+  - On a phone the rail follows the season.
+- **42h:**
+  - `holiday_list` includes holidays with nothing filed, at 0 (Dh1).
+  - The tools count from the machine's day; over `--remote` that is the
+    Pi's (Dh2).
+  - `/api/holidays` is public (Dh4).
+- **42m:**
+  - The bean family and its exclusions: chili beans, romano, and lentils as
+    a later family of their own (Dm1).
+  - A swap recipe shows in both the tier and its bucket (Dm2).
+  - The switch is on by default, and its wording.
+  - Featuring isn't widened by swaps (Dm5).
+  - A bare "beans" no longer meets green, vanilla or coffee beans, which
+    can lower counts (Dm7).
+  - The swap text uses the singular line name.
+- **42m2:**
+  - A card tap adds to this browser's list even when Count from is the
+    saved list (Dm2-3).
+  - Further away is rows, and the other groups are four across (Dm2-4).
+  - Typing "beans" gives `any bean`, which also meets chickpeas and
+    black-eyed peas (Dm2-6).
+  - Beans are the only matcher for now (Dm2-7).
+  - Focus moves to Undo after a card tap.
+- **42s:**
+  - Multi-word queries return every match: "lime juice" went 133 → 272,
+    with the first 60 unchanged.
+  - `/search/version` is kept but no longer read (Ds4): remove it, or keep
+    it?
+  - The palette prefetches on open only.
+  - An old browser keeps its ~5.5 MB database until its next load of a 42s
+    page.
+  - A warm reload is 0.1–0.2 s slower.
+- **42k:**
+  - `new-years` is dated 1 January, with `new-years-eve` as an alias.
+  - `shepherds-pie` has no image, and `cottage-pie` is left untagged.
+  - The Valentine's chocolate extras were left out.
+  - Two imports were edited.
+  - No features changed.
+- **42n:**
+  - The cowboy caviar is under Bean Salads.
+  - Three renames and two written descriptions.
+  - The cornbread salad (bacon) and the borlotti salad (anchovies) aren't
+    vegetarian.
+  - The farro image is 640×480.
+  - One recipe carries the `bean-salads` slug form.
+  - No features changed.
+- **42j:** pick a variant on each of the four canvases.
+
+### Roger's steps
+
+1. **`pnpm workstation update`** (main checkout), **on a quiet machine**.
+   At load ~30, 42s's production build against the real corpus failed:
+   some `/tags/[tag]` pages took over 60 s with 7 workers (42s-T2). If it
+   times out, rerun it when the machine is quiet; the backlog has the
+   `next.config` follow-up. **No reindex** (above).
+2. **Look at the pages** in "For Roger's morning".
+3. **`! pnpm deploy:pi`** when happy. Until then, the CLI and MCP with
+   `--remote` against the Pi answer the holiday tools with "predates the
+   holiday tools (42h)".
+4. **Pick variants** on the four 42j canvases.
+5. Docker disk: older `content-engine-playwright:*` images and the build
+   cache are Roger's call.
+
+### Backlog
+
+Rows added in `backlog.md`, each "Recorded at" its 42x phase:
+
+- Write controls shown to signed-out visitors.
+- `/shopping`'s lost "optional" mark and duplicate row.
+- The edit form's findings.
+- `/search` and `/tags` findings.
+- The meal-plan page's findings.
+- The `(or A or B C)` alternatives split (42m Dm8).
+- Matchers beyond beans (42m2 Dm2-7).
+- Per-kind counts on the homepage's season rows (42f Df8).
+- An almanac link in the masthead or ⌘K (42e De9).
+- The warm-reload cost of the in-memory search (42s).
+- The real-corpus build timeout under load (42s-T2).
+- The dev-mode `command-palette.spec:151` cold start and the duplicate
+  ticker (41-Th6, 42s-T1).
+- resume-builder's Playwright, which can't run locally.
+
+The visual-tolerance row was struck by 42b.
