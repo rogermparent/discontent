@@ -276,8 +276,9 @@ describe("accent contrast", () => {
 /*
  * Form-control borders (epic 41f, WCAG 1.4.11 non-text contrast).
  *
- * `--input` is the border of every Input, Textarea, Select trigger, outline
- * button and toggle — the only thing that shows where an empty field is. Until
+ * `--input` is the border of every Input, Textarea, Select trigger and the
+ * shared `Form` field class — the only thing that shows where an empty field
+ * is (outline buttons and toggles went back to `--border` in 42a). Until
  * 41f it was the same hairline as `--border`: 1.27:1 on the light page and
  * 1.54:1 on the dark one. These hold it at 3:1 against every surface a form
  * sits on (the page, a card or popover, and a muted or secondary panel — the

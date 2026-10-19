@@ -176,6 +176,174 @@ update`, never commit `editor/content`.
 - **41h's coverage gap:** an e2e for the export / editor-guest house list
   on `/make` (41h left it a render test).
 
+#### Results (42a)
+
+Branch `agent/42a-followups`. **Reindex needed: no. Deploy: yes** (the
+`/make` shelf and outline borders change; no content or index change).
+
+Roger chose all four on 2026-10-18 after reading epic 41's results; each
+reverses or completes an epic-41 decision (`agent-epic-41.md`).
+
+**1. Per-item saved-list editing back on `/make` (reverses 41-Dh2, "the
+per-item saved-list editor is gone").**
+Signed in, in Count from's Saved and Both modes, every outlined saved tape
+(`data-kind="saved"`) has a × named "Remove <item> from the saved list".
+It sends `{add: [], remove: [item]}` through the existing
+`saveInventoryChanges` → `patchInventory` path — one commit,
+"Update inventory: −gin" — and the label goes when the server's list comes
+back. The toast says "Removed gin from the saved list." and its Undo (or
+Ctrl+Z) sends `{add: [gin]}`, a second commit. Focus moves to the label
+that took its place, or to the add field when the list is empty. Writes
+run one after another (a promise chain in `MakePage`), and each sets the
+saved list to the one the server answered with. A failure shows as an
+alert under the group and leaves the list as it was. "Save to editor"
+(41-Dh2's whole-list move) stays, and its diff reads the updated list. This
+browser's own tapes keep their ×, which still edits only this browser's
+list.
+
+- **Da1 — "Add to saved list" is a small form in the saved group.** It
+  sits under the saved labels (Saved and Both modes, signed in only): a
+  field labelled "Add to saved list" (read as a list, like the add field)
+  and an outline "Add". `savedAdditions` leaves out what the saved list
+  already has, so "Campari, gin" adds Campari alone, in one commit
+  ("Update inventory: +Campari"). Undo removes only what that add brought.
+  Something already on the list gets a plain toast and no commit. I kept it
+  out of the add combobox: that field is "Buy next as search" for this
+  browser's list (41-Dh3), and a second target in it would make Enter
+  ambiguous.
+- **Da2 — non-optimistic.** A label leaves when the commit lands, not when
+  it is clicked, so a refused write (mid-merge, `busy`) never shows a list
+  the repo doesn't have. The cost is a commit's latency (≈ 0.1–0.5 s
+  locally) before the label goes.
+- The export and the editor guest stay read-only. `InventoryPanel` edits
+  only a list of kind `saved`, and only when the page passes `savedEdit`,
+  which `MakePage` does only with `saved` (the signed-in editor's route).
+  A house list never gets × or the form, even if handed the edits (render
+  test). `exportInventoryGuard` stays green: the export still reaches no
+  editor code.
+
+**2. Outline buttons and toggles back on `--border` (41f's Df1 and its
+"Roger to confirm": the alternative of moving them to `border-border` to
+keep their hairline).** `ui/button.tsx` outline and `ui/toggle.tsx` outline now use
+`border-border`. Inputs, textareas, Select triggers and the shared `Form`
+field class keep 41f's `--input` (≥ 3.1:1), and the checkbox keeps 40g's
+`border-muted-foreground`. Their text
+names them, so WCAG 1.4.11 doesn't ask for a 3:1 boundary. `theming.test.ts`
+never pinned buttons, so only its comment (and `derive.ts`'s) changed.
+Make's own `border-input` boxes (the Count from frame, the phone's shelf
+toggle, the save confirm) are hand-written classes, not the kit's outline
+variant, and stay as 41h drew them.
+
+**3. resume-builder takes Tailwind 4.3's default sans (reverses 41d1's
+Dd2, "resume-builder keeps Tailwind 4.1's default sans stack").**
+The four-line `--font-sans` pin is gone from its `@theme inline`.
+resume-builder has no screenshot baselines, so nothing moves there.
+
+**4. The house list e2e (41h's "Coverage — the export / guest house list
+is a render test, not an e2e").** A new `make.spec`
+describe: with "Share my saved inventory on the export" off, nothing is
+baked and a guest has no Count from. On (`writeSettings`), the snapshot is
+exactly the saved list (gin, tonic water). The guest gets Count from (This
+browser 0 / House list 2 / Both), House list counts Gin and Tonic, the
+heading reads "House list shared with this site · 2", and the tapes are
+outlined (`data-kind="saved"`), featurable (`ingredient:gin` joins the
+query) and carry no ×, no "Add to saved list" and no "Save to editor".
+Both gives the union with this browser's vodka. The export itself isn't
+covered: `export-page.spec` never builds the static site. The guest page
+renders the same `MakePage` with the same `secondary` prop, and
+`exportHouseInventory.test.ts` pins the bake (Ta1).
+
+**Roger to confirm.**
+
+- Da1: "Add to saved list" lives in the saved group, which shows only in
+  Saved or Both. The alternative is a second target in the shelf's add
+  combobox.
+- Da2: a removed saved label waits for its commit before it goes.
+- Ta1: the editor guest's pages ignore the share setting. If an editor
+  guest should see the house list whenever sharing is on, the guest branch
+  of `make/page.tsx` and `drinks/page.tsx` would read the saved list when
+  `shareInventoryOnExport` is true. That is a product change, so I didn't
+  make it.
+
+**Moved baselines** (Docker, build mode, `--update-snapshots=all` over
+every recipe spec with screenshots, then a pixel diff of each rewritten PNG
+against HEAD; the six with 0 changed pixels — `homepage-empty`,
+`homepage-mobile`, `homepage-three-recipes`, `homepage-two-pages`,
+`layout-footer-signed-{in,out}` — were byte-only re-encodes and were
+restored). Twelve moved, each opened and checked against its diff. In every
+one the changed pixels are outline-button or toggle borders, and nothing
+else moved except the one noted:
+
+- `make-page`, `make-page-specs`, `make-mobile`: Clear, Import / export and
+  Buy next's "I have this" (0.06–0.07 % of pixels).
+- `recipe-detail-signed-{in,out}`, `featured-recipe-detail-signed-in`,
+  `recipe-6-multiplied`, `recipe-mobile`: the "Cook view" button (258 px).
+- `git-page`: Checkout, Fetch, Pull, Push.
+- `markdown-source-mode`: the instruction row's outline icon button.
+- `edit-form-populated`, `edit-form-overwrite`: the same icon button, and
+  also anti-aliasing along the edge of the "Recipe 6" preview image's
+  lettering. That image isn't a control. Its edge noise was already stale
+  in the old baseline and comes along because the page has to be
+  regenerated anyway.
+
+Portfolio: `visual.spec` (11 baselines) regenerated the same way in Docker,
+and no PNG changed. resume-builder has no baselines.
+
+**After merging 42c1 (#282).** Five baselines conflicted, the ones both
+phases touched: `recipe-detail-signed-{in,out}`,
+`featured-recipe-detail-signed-in`, `recipe-6-multiplied`, `recipe-mobile`.
+I took main's side, then regenerated every screenshot spec again in Docker
+build mode (`recipe-cooking-order` included) and pixel-diffed. Six moved,
+each by the "Cook view" outline border alone (258 px), and I opened each:
+those five on 42c1's new layout, plus 42c1's new `recipe-wide-columns`.
+Noise-only rewrites were restored: `git-page` (5 px), both `edit-form-*`
+(only the preview image's lettering), and the zero-pixel re-encodes.
+
+**Gates** (every heavy step through the capped slot):
+
+- `pnpm --filter recipe-editor typecheck` ✓,
+  `pnpm --filter recipe-website exec tsc --noEmit` ✓, resume-builder
+  `tsc --noEmit` ✓ (with its gitignored `next-env.d.ts` copied in).
+- `pnpm exec vitest run`: **119 files, 2416 tests passed**, including
+  `makeInventoryPanel` (+6: per-item edits, failure keeps the draft, never
+  on a house list or without edits, `savedAdditions` ×2),
+  `exportInventoryGuard` and `exportHouseInventory` unchanged and green.
+- Playwright, Docker, build mode: `make.spec`, `accessibility.spec`,
+  `export-page.spec` and every screenshot spec (`visual`, `mobile`,
+  `recipe`, `yield`, `drinks`, `empty-state`, `footer`, `header`,
+  `ingredient-preview`, `menus`, `command-palette`, `paste-replace`):
+  **244 passed**, no retries.
+- Playwright, Docker, dev mode (once, for the new checks): `make.spec` and
+  `accessibility.spec` `--grep=make`: **42 passed**.
+- resume-builder Playwright: **not run locally.** `.dockerignore` keeps
+  resume-builder out of the Playwright image, and the host has no Chromium
+  for Playwright 1.64 (`chromium_headless_shell-1248` missing; every test
+  failed at launch). Its own CI job (path-filtered on
+  `websites/resume-builder/**`) runs it on this PR. The change there is the
+  `--font-sans` stack alone, and nothing in its specs asserts on fonts.
+- lint-staged (prettier + eslint) ✓ on commit.
+- After the 42c1 merge: both typechecks ✓. The regeneration run in Docker
+  build mode had **255 passed, 1 flaky**: `visual` "search page with no
+  query" saw two copies of the search field (a stale second page, the
+  Tf5 shape) and passed on retry #2; this phase doesn't touch it. The
+  check run without `--update-snapshots`, in Docker build mode, over
+  `visual`, `mobile`, `recipe-cooking-order`, `recipe`, `make` and
+  `accessibility`: **157 passed**, no retries.
+
+**Backlog:** no row matches 42a, so nothing is struck.
+
+#### Traps (42a)
+
+- **Ta1 — the editor guest's house list is the process's, not the
+  setting's.** An editor guest's `/make` and `/drinks` read
+  `SITE_HOUSE_INVENTORY` from the editor process's own environment
+  (`secondaryInventory()` with no reader), which only an export Build's
+  child process is ever given. Ticking "Share my saved inventory on the
+  export" changes the next export, not the editor's guest pages. An e2e of
+  the house list therefore needs the variable in the server process:
+  `/settings/test-house-inventory?bake=1` (TEST_MODE only) sets it from
+  `exportBuildEnv`, and `afterEach` takes it away.
+
 ### 42b — Screenshot tolerance tightened (S)
 
 41-Tp1's backlog row: 52 stale baselines still passed at
@@ -213,6 +381,231 @@ Canvas B's recipe board, with C's three columns on extra-wide screens.
   `recipe-mobile`, `yield-multiplied-half`,
   `featured-recipe-detail-signed-in`. The "Multiply" label and the testids
   stay.
+
+#### Results (42c1)
+
+**What changed.**
+
+- `common/util/stepIngredients.ts` (pure): `matchStepIngredients(ingredients,
+instructions)` → entry → step → line indices. Both sides go through
+  `ingredientNames`' one pipeline (`parseIngredientLine` for a line's names,
+  `toName` per clause of the step), and a name matches only as consecutive
+  whole words inside one clause (the step is split at punctuation first).
+  `stepNumbers` (its own module, so the client list doesn't ship
+  `ingredientNames`) numbers steps straight through groups.
+- `common/util/headsUp.ts` (pure): `findHeadsUps(instructions, timelines)` →
+  up to 3 `{sentence, step?, source}`; `HEADS_UP_PATTERNS` is the whole list.
+- `View/HeadsUp.tsx`: "Plan ahead" on `accent`, each note "Step N says
+  “…”", the step a link to `#step-N`.
+- `View/Instructions/`: every step a panel (number circle, checkbox + text,
+  then its "Uses" list), a group as a heading with "steps a–b"; step ids
+  `step-N`. `View/Ingredients/`: `IngredientLineText` (one rendering for the
+  list and the "Uses" chips), the list labelled "Ingredients", and from `lg`
+  the whole column is a sticky rail.
+- `View/recipe.css` (both `globals.css` import it): one DOM, grid areas —
+  one column below `lg`; from `lg` heads-up across the top, ingredients |
+  steps (canvas B), body capped at 72rem; from 100rem, unless switched off,
+  ingredients | steps | heads-up, cook schedule, Appears in (canvas C), cap
+  102rem.
+- `AppLayout/wideRecipe.ts` + `useWideRecipe.tsx`: the "Wide recipe columns"
+  On/Off switch in Appearance (desktop popover and the phone sheet), key
+  `recipe-wide-columns`, `data-recipe-columns="two"` on `<html>` only when
+  off, a pre-paint script, `WideRecipeSync` in `AppProviders`.
+- `RecipeView` computes matches and heads-ups on the server (both apps; the
+  export renders them statically).
+
+**Decisions.**
+
+- **Dc1 — names, then a unique head.** A line goes by every alternative
+  `parseIngredientLine` gives it (an infusion's loose flavour excluded) plus
+  the text of any link in it (a sub-recipe's name). It matches on a whole
+  name; or, for a name of 2+ words, on its head (the last word, or the word
+  before a shape word: `half`, `piece`, `cube`, `chunk`, `strip`, `leaf`,
+  `sprig`) when no other line's name contains that word. Heads never used
+  alone: `ingredientNames`' generic heads (`juice`, `oil`, `water`…), its
+  derived forms (`zest`, `wedge`…), and a short list of words that are verbs
+  or the dish itself (`puree`, `paste`, `rub`, `glaze`, `cocktail`,
+  `mixture`, `filling`, `frosting`, `wash`…). `pepper` stands for a name
+  only when the name says black, white, ground or cracked: "salt and pepper"
+  is never the bell pepper.
+- **Dc2 — a shared name shows nothing.** A name is shared when another
+  line's name _contains_ it as consecutive words, not only when it equals it
+  (review of 0283b66f): two butter lines, salt in three places, eggs in the
+  cornbread and the stuffing, "unsalted butter" beside "butter, for
+  greasing", "bread flour" beside "flour, for dusting", "red bell pepper"
+  beside "salt and pepper" — "the butter", "the flour", "the pepper" are
+  listed for neither (D3). One exception, as confident as the rest: a step
+  inside a group whose name is an ingredient heading's (`Crust` / `For the
+crust:` / `Make the crust`, all `sectionKey` `crust`) weighs only that
+  heading's lines against each other.
+- **Dc3 — the longer name claims its words.** An occurrence inside a longer
+  occurrence of another line's name belongs to that line ("brown sugar" is
+  never also a bare `sugar` line's), counting ambiguous long names too.
+- **Dc4 — `toName`'s synonyms apply to both sides.** "No synonyms" is read
+  as no _new_ list: the step goes through the same `toName` the line does,
+  so its existing rewrites (scallion → green onion) stay symmetric, and its
+  compounds (`baking powder`, `egg yolk`, `ginger beer`) make "powder",
+  "egg" and "beer" unable to match inside them.
+- **Dc5 — the chip is the line, whole.** The "Uses" chip renders the stored
+  line with the list's own `IngredientLineText` (Multiplyable, `markOunces`),
+  so scaling and oz/ml/parts are identical by construction — no re-parse.
+  The canvas's shortened names ("fresh thyme") would have needed a second
+  reading of the line; not done. Consequence: a line's text is on the page
+  twice, so unscoped `getByText(<line>)` in specs is ambiguous — two specs
+  were scoped to `getByRole("list", { name: "Ingredients" })` (see Traps).
+- **Dc6 — the rail is plain `sticky` at `--sticky-chrome-offset`.** Like
+  portfolio's index plate and `/make`'s shelf (`InventoryPanel`): pinned
+  beside the steps even when the masthead releases (Sticky headers Off, or a
+  short viewport under Auto), its top then `1rem` instead of
+  `header + 1rem`; it scrolls itself past the viewport's height. The
+  Ingredients header inside keeps `.sticky-chrome` (so the policy, the print
+  rule and `sticky-chrome.spec` are unchanged) and pins to the rail's top
+  from `lg` (`lg:top-0`).
+- **Dc7 — heads-up patterns.** "the day/night/evening before", "overnight"
+  (not before oats, oatmeal, French toast, breakfast, casserole, chia,
+  pudding, egg bake, cinnamon rolls), "N/a day(s) in advance|ahead|before",
+  "make ahead / make-ahead / make it ahead", and "chill|refrigerate|marinate
+  … N hour(s)" within one sentence and 60 characters, with N ≥ 2 or "at
+  least N" — never "up to N hours" or "30 minutes to 1 hour". "Overnight"
+  and the hours phrase don't count in a sentence about keeping what is made
+  (leftovers, store, keeps). Read from step text
+  and cook-schedule notes; not from the description (marketing copy: "Follow
+  my make-ahead instructions below" is not a step). Each sentence once, at
+  most 3, quoted with its step number.
+- **Dc8 — steps number straight through groups** ("Stuffing · steps 3–7",
+  canvas B), so a heads-up's "Step 4" and the list agree. Before, each
+  group restarted at 1.
+- **Dc9 — the third column is heads-up, cook schedule, Appears in.** The
+  brief's "notes" read as the heads-up notes; the description stays in the
+  hero. Below 100rem, and with the switch off, the two-column layout.
+- **Dc10 — the switch's storage.** Default on and never persisted (the
+  `useListMode` convention): only "off" is stored; the attribute is set only
+  when off. Here the pre-paint script _is_ flash avoidance — the column
+  count moves the layout.
+
+**Deliberately not built (canvas B items that are 42c2's or later):** the
+"Now" step, "Done — next step", a collapsed finished stage, stage chips, the
+"Lit: what step 4 uses" highlight in the rail, and B's compact hero (176px
+photo, action column) — the hero is unchanged.
+
+**Matching on real shapes — true and false positives.** From the unit
+fixtures (copied shapes of Sally's cornbread stuffing, a two-section pie, a
+pumpkin pie with a linked crust, a Moscow mule, the linked-recipes fixture)
+and the e2e fixtures' recipes run through the matcher:
+
+- True: stuffing step 4 → onion, celery, thyme ("thyme leaves" headed by
+  `thyme`), sage, parsley, black pepper, sausage (unique head of "uncooked
+  mild Italian sausage"); step 3 and 5 → chicken broth (head `broth`); step 5
+  → pecans (`pecan halves` headed by `pecan`). Pie: the crust's flour, salt,
+  butter and the filling's eggs, brown sugar, salt, each by section. "roll
+  out the chilled pie crust" → `[Pie Crust](…)`. "the kefir with the baked
+  potatoes" → the kefir link and "mashed potatoes, leftover from [Baked
+  Potatoes](…)". Mule: vodka, cranberry juice cocktail, lime juice, ginger
+  beer. "the egg yolk" → "1 egg + 1 egg yolk" (head `egg yolk`). Carnitas
+  (fixture): oil,
+  pork shoulder, salt, onion, garlic, lime juice, chili powder, oregano,
+  cumin, broth.
+- True, but late: stuffing step 5's "sausage mixture" lists the sausage
+  again; yogurt potato bread's last step "brush with melted butter" lists
+  the dough's 2 tbsp butter (the brushing butter is extra). Kefir lists "1
+  quart jar" (a jar listed as an ingredient, named in the step).
+- Correctly none (D3): "Heat butter" and "whisk the broth and eggs" in the
+  stuffing (two butter and two egg lines; no ingredient headings to scope
+  by); "season with salt" outside the pie's sections; "the sugar" with
+  granulated and brown sugar; "Top with beer" vs ginger beer; "a lime
+  wedge" vs lime juice; "slice in half" vs pecan halves; "peppery" / "boil";
+  "floured counter" vs flour; "the cornbread ingredients" names nothing.
+- False negatives accepted: canvas B's step 4 butter and salt, step 3 eggs
+  (shared names); "cream" for "heavy cream" (a compound); "olive oil" in a
+  step when the line is "any cooking oil (… like olive oil …)" (aliases are
+  not names here); "the egg" beside "1 egg + 1 egg yolk" and "1 egg, for the
+  egg wash" (either); the kefir fixture's "milk" (inside "milk kefir
+  grains"); "the sugar" beside "brown sugar" and "sugar".
+- False positives: the first commit's matcher compared whole names for
+  equality only, so a bare-name line won over the longer names containing
+  it — the review found "butter, for greasing" listed for "Cream the
+  butter", "flour, for dusting" for "Mix the flour", "sugar, for
+  sprinkling", "salt and pepper" for "the bell pepper" and the green bell
+  pepper for "season with salt and pepper", and the egg-wash egg for "add
+  the egg". Fixed by Dc2's containment rule and the `pepper` qualifier;
+  each shape is now a unit test. None left in the e2e fixtures beyond the
+  "late" ones above.
+
+**Heads-up, positives and negatives** — the test list in
+`test/headsUp.test.ts` (17 positives, 19 negatives): "Prepare 1 day in
+advance!", "Set aside to cool overnight.", "Chill 3-4 hours until firm.",
+"Refrigerate at least 6 hours", "Marinate … 4 to 6 hours", "Make ahead: …",
+"can be made 2 days ahead" count; "the overnight oats", "Let rest 5
+minutes.", "Chill for 30 minutes.", "Chill the glass.", "Marinate for 20
+minutes.", "Let the dough rise for 2 hours.", "Simmer for 2 hours.", and
+(from the review) "Leftovers can be refrigerated for up to 48 hours.",
+"Marinate for 30 minutes or up to 2 hours.", "Chill the dough for 30
+minutes to 1 hour.", "Refrigerate for 1 hour, or until firm." don't.
+No e2e fixture recipe has a heads-up; the new spec writes one through the
+API.
+
+**Also fixed:** a recipe with neither a photo nor a video drew an empty
+16:10 (phone) / 24rem (desktop) frame above itself; it now draws none
+(visible in the featured-recipe baseline and on the new spec's pie).
+
+**Gates** (all through the capped wrappers):
+
+- `pnpm --filter recipe-editor typecheck` ✅ and `pnpm --filter
+recipe-website exec tsc --noEmit` ✅ (the export builds the same
+  `RecipeView`).
+- `pnpm exec vitest run`: 122 files, 2487 tests ✅ (new:
+  `stepIngredients` 29, `headsUp` 42, `wideRecipe` 6).
+- Playwright, Docker, build mode: `recipe`, `new-recipe`, `yield`,
+  `ingredient-preview`, `timeline`, `sticky-chrome`, `bar-tools`,
+  `accessibility`, `recipe-cooking-order`, `visual`, `mobile` — 202 passed;
+  after the review fixes and the photo-frame fix, `recipe`, `new-recipe`,
+  `recipe-cooking-order`, `visual`, `mobile`, `sticky-chrome`,
+  `missing-media`, `youtube-video`, `yield` — 128 passed.
+- Dev mode once (Docker), the new and changed specs (`recipe-cooking-order`,
+  `sticky-chrome`, `recipe`, `new-recipe`): 84 passed, 1 flaky —
+  `new-recipe.spec.ts:35` (naan import) timed out at 10 s waiting for
+  "Multiply" on the first recipe-page visit of the run (dev's cold compile)
+  and passed on retry.
+- Baselines, regenerated in Docker only: `recipe-detail-signed-out`,
+  `recipe-detail-signed-in`, `featured-recipe-detail-signed-in`,
+  `recipe-6-multiplied`, `recipe-mobile`, and new `recipe-wide-columns`
+  (1680 × 1000). `yield-multiplied-half` did not move. Compared with the
+  canvas: B's two-column body (ingredients panel left, step panels with
+  number circles and "Uses" chips, the accent heads-up with its calendar
+  icon) and C's three columns match in structure; deliberately different —
+  the hero (unchanged, not B's compact one), chips carrying the whole line,
+  a checkbox beside the number circle (B ticks with the circle), no "Now"
+  step. `recipe-mobile`'s full-page shot draws the sticky tab bar over the
+  step (the known full-page trap; unchanged behaviour).
+- Axe (WCAG 2.2 tags): the existing recipe-page sweeps (every preset ×
+  light/dark) and the new spec's pie with heads-up and "Uses" in light and
+  dark at 1680 — green. Phone: no sideways scroll (new `@mobile` check).
+
+#### Traps (42c1)
+
+- **A line's text is on the page twice now.** The "Uses" chips render the
+  ingredient line itself, so an unscoped `page.getByText("1 1/2 tsp salt")`
+  on a recipe page whose step names that line is a strict-mode violation.
+  Scope to `getByRole("list", { name: "Ingredients", exact: true })` (the
+  list is labelled for this) or to a step's `getByRole("list", { name:
+"Uses" })`. `recipe.spec` and `new-recipe.spec`'s katsudon check were
+  scoped; CI's full shards are the check for any other.
+- **A pre-hydration assertion that polls proves nothing** unless the page
+  cannot hydrate: the sync component sets the same attribute moments later.
+  Abort `**/_next/static/**/*.js` first (both pre-paint specs now do).
+
+**Roger to confirm.**
+
+- The rail stays pinned with Sticky headers Off (Dc6) — or should Off
+  release it too?
+- The third column holds the heads-up, schedule and Appears in, not the
+  description (Dc9).
+- Shared names show nothing, even where canvas B listed them (Dc2).
+- The "Uses" chip shows the whole line, not B's shortened name (Dc5).
+- Phone: the "Uses" lists are shown, at 12px, rather than hidden as B's
+  phone board does (no board drew a food recipe's steps on a phone).
+- Step numbers run through groups (Dc8).
+- B's compact hero not adopted; the hero is unchanged.
 
 ### 42c2 — Cook view, timers, drink count (M–L)
 

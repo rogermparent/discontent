@@ -110,13 +110,13 @@ test.describe("Sticky chrome", () => {
     page,
   }) => {
     await seedStickyChrome(page, "off");
+    /* No script bundles (42c1 review): the page never hydrates, so
+     * `StickyChromeSync` never runs and only the inline pre-paint script
+     * can have set the attribute. Before, the assertion polled and the sync
+     * effect could satisfy it after hydration. */
+    await page.route("**/_next/static/**/*.js", (route) => route.abort());
     await page.goto("/recipe/recipe-6", { waitUntil: "domcontentloaded" });
 
-    /* Honest caveat: this is a strong signal, not a hard guarantee. Nothing
-     * here proves hydration hadn't already run — only that the attribute is
-     * present at a point where it usually hasn't. What it does catch for
-     * certain is the pre-paint script being dropped, since the sync effect
-     * alone would rarely have landed this early. */
     await expect(page.locator("html")).toHaveAttribute(
       "data-sticky-chrome",
       "off",

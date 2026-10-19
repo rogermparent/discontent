@@ -10,7 +10,12 @@ import { inventoryKey, parseInventoryText } from "../../util/inventoryText";
 import type { CountFrom, Inventory, MakeSettings } from "./useInventory";
 import { ImportExportDialog } from "./ImportExportDialog";
 import { AddField, type AddCandidate } from "./AddField";
-import { SaveConfirm, type InventoryDiff } from "./SavedInventory";
+import {
+  AddToSavedForm,
+  SaveConfirm,
+  type InventoryDiff,
+  type SavedListEdit,
+} from "./SavedInventory";
 import { isFeatured } from "./kinds";
 import { TapeLabel } from "./Tape";
 
@@ -292,7 +297,10 @@ export interface SaveToEditor {
  *   (signed-in editor only) shows the diff before it commits.
  * - **Count from** (only with a second list): which list every count judges;
  *   in Saved or Both the second list's labels show as their own outlined
- *   group, featurable, with "Copy it to this browser" (Undo).
+ *   group, featurable, with "Copy it to this browser" (Undo). The signed-in
+ *   editor's saved list is also editable there item by item (42a,
+ *   `savedEdit`): each label's × and "Add to saved list" commit at once,
+ *   with Undo. The house list (the export, an editor guest) never is.
  * - The judge's settings — pantry staples, "Assume I always have", close
  *   matches — and Import / export.
  *
@@ -314,6 +322,7 @@ export function InventoryPanel({
   onCopySecond,
   onToggleFeature,
   saveToEditor,
+  savedEdit,
   inputRef,
   dialogOpen,
   onDialogOpenChange,
@@ -334,6 +343,8 @@ export function InventoryPanel({
   onCopySecond: () => void;
   onToggleFeature: (item: string) => void;
   saveToEditor?: SaveToEditor;
+  /** Per-item edits of the saved list (42a): signed-in editor only. */
+  savedEdit?: SavedListEdit;
   inputRef: RefObject<HTMLInputElement | null>;
   dialogOpen: boolean;
   onDialogOpenChange: (open: boolean) => void;
@@ -368,6 +379,34 @@ export function InventoryPanel({
       : inputRef.current;
     target?.focus();
   }, [have, inputRef]);
+
+  /* The saved list's × commits first and the label goes when the server's
+   * list comes back; focus then moves the same way — unless it has gone
+   * somewhere else meanwhile. */
+  const editable = second?.kind === "saved" ? savedEdit : undefined;
+  const secondListRef = useRef<HTMLUListElement>(null);
+  const addSavedRef = useRef<HTMLDivElement>(null);
+  const focusAfterSavedRemove = useRef<number | null>(null);
+  const secondItems = second?.items;
+  useEffect(() => {
+    const at = focusAfterSavedRemove.current;
+    if (at === null) return;
+    const active = document.activeElement;
+    if (active && active !== document.body) {
+      if (!secondListRef.current?.contains(active)) {
+        focusAfterSavedRemove.current = null;
+      }
+      return;
+    }
+    focusAfterSavedRemove.current = null;
+    const bodies = secondListRef.current?.querySelectorAll<HTMLButtonElement>(
+      ":scope > li > button:first-child",
+    );
+    const target = bodies?.length
+      ? bodies[Math.min(at, bodies.length - 1)]
+      : addSavedRef.current?.querySelector("input");
+    target?.focus();
+  }, [secondItems]);
 
   return (
     <aside
@@ -517,11 +556,13 @@ export function InventoryPanel({
             </h3>
             {second.items.length > 0 ? (
               <ul
+                ref={secondListRef}
                 className="m-0 flex list-none flex-wrap gap-x-1.5 gap-y-2 p-0"
                 aria-label={`The ${SECOND_COPY[second.kind].segment.toLowerCase()}`}
+                aria-busy={editable?.pending || undefined}
                 data-testid="make-second-labels"
               >
-                {second.items.map((item) => (
+                {second.items.map((item, i) => (
                   <TapeLabel
                     key={inventoryKey(item)}
                     item={item}
@@ -529,11 +570,30 @@ export function InventoryPanel({
                     featured={isFeatured(item, featured)}
                     pull={pulls.get(item)}
                     onFeature={() => onToggleFeature(item)}
+                    onRemove={
+                      editable
+                        ? () => {
+                            focusAfterSavedRemove.current = i;
+                            editable.remove(item);
+                          }
+                        : undefined
+                    }
+                    removeLabel={`Remove ${item} from the saved list`}
                   />
                 ))}
               </ul>
             ) : (
               <p className="m-0 text-sm text-muted-foreground">It is empty.</p>
+            )}
+            {editable && (
+              <div ref={addSavedRef} className="grid gap-1">
+                <AddToSavedForm edit={editable} />
+                {editable.error && (
+                  <p role="alert" className="m-0 text-xs text-destructive">
+                    {editable.error}
+                  </p>
+                )}
+              </div>
             )}
             <div>
               <Button
