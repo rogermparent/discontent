@@ -204,8 +204,7 @@ export function HolidayMenu({
             <span className="font-display text-xl leading-tight font-semibold tracking-[-0.02em] sm:text-[1.75rem]">
               Then {then.label}, in{" "}
               <span className="font-mono font-medium">{then.days}</span>{" "}
-              {then.days === 1 ? "day" : "days"} —{" "}
-              <span className="font-mono font-medium">{countsLine(then)}</span>.
+              {then.days === 1 ? "day" : "days"} — {countsLine(then)}.
             </span>
           </Link>
         )}
