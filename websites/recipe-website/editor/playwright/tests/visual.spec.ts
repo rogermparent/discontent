@@ -130,10 +130,15 @@ test.describe("Visual baselines @visual", () => {
     await fillSignInForm(page);
     await markdownEditorReady(page, "description");
     await page.locator('[name="name"]').fill("Existing Recipe");
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Create recipe", exact: true })
+      .click();
     await expect(
       page.getByRole("button", { name: "Overwrite", exact: true }),
     ).toBeVisible();
+    /* 43e1: the Slug fill scrolled down, and the rail and masthead are
+     * sticky — a full-page shot is taken from the top. */
+    await page.evaluate(() => window.scrollTo(0, 0));
     await snapshotPage(page, "new-recipe-form-overwrite.png");
   });
 
@@ -161,10 +166,13 @@ test.describe("Visual baselines @visual", () => {
     await markdownEditorReady(page, "description");
     await page.getByLabel("Slug").clear();
     await page.getByLabel("Slug").fill("recipe-5");
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Overwrite", exact: true }),
     ).toBeVisible();
+    /* 43e1: the Slug fill scrolled down, and the rail and masthead are
+     * sticky — a full-page shot is taken from the top. */
+    await page.evaluate(() => window.scrollTo(0, 0));
     await snapshotPage(page, "edit-form-overwrite.png", EDIT_FORM_IMAGE);
   });
 

@@ -50,7 +50,9 @@ async function makeTestRecipe(page: Page, recipeName: string) {
   // Gate on form hydration so the Name fill isn't reset mid-hydration.
   await markdownEditorReady(page, "description");
   await page.getByLabel("Name").fill(recipeName);
-  await page.getByRole("button", { name: "Submit", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Create recipe", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { level: 1, name: recipeName }),
   ).toBeVisible();
@@ -350,7 +352,7 @@ test.describe("Git content", () => {
       await markdownEditorReady(page, "description");
       await page.getByLabel("Name").first().clear();
       await page.getByLabel("Name").first().fill(editedTestName);
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page.getByRole("button", { name: "Save", exact: true }).click();
       await expect(
         page.getByRole("heading", { level: 1, name: editedTestName }),
       ).toBeVisible();
@@ -937,7 +939,7 @@ test.describe("Git content", () => {
         await markdownEditorReady(page, "description");
         await page.getByLabel("Name").first().clear();
         await page.getByLabel("Name").first().fill("Mine");
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page.getByRole("button", { name: "Save", exact: true }).click();
         await expect(
           page.getByRole("heading", { level: 1, name: "Mine" }),
         ).toBeVisible();

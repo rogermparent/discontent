@@ -36,7 +36,9 @@ test.describe("Index Page", () => {
       await markdownEditorReady(page, "description");
 
       await page.getByLabel("Name").fill(testRecipe);
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Create recipe", exact: true })
+        .click();
       await expect(
         page.getByRole("heading", { level: 1, name: testRecipe }),
       ).toBeVisible();
@@ -64,7 +66,9 @@ test.describe("Index Page", () => {
         await page.goto("/new-recipe");
         await markdownEditorReady(page, "description");
         await page.getByLabel("Name").fill(testRecipe);
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
         await expect(
           page.getByRole("heading", { level: 1, name: testRecipe }),
         ).toBeVisible();

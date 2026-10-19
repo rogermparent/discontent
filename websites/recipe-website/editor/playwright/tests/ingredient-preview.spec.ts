@@ -136,7 +136,7 @@ test.describe("Ingredient Auto-Preview", () => {
           .getByLabel("Ingredient 1", { exact: true })
           .fill('<Multiplyable baseNumber="2" /> tsp pepper');
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page.getByRole("button", { name: "Save", exact: true }).click();
 
         await expect(
           page.getByRole("heading", { level: 1, name: "Recipe 6" }),

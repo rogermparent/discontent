@@ -885,7 +885,7 @@ test.describe("Featured Recipes", () => {
 
       await page.getByLabel("Name").first().clear();
       await page.getByLabel("Name").first().fill(name);
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page.getByRole("button", { name: "Save", exact: true }).click();
 
       // The redirect, awaited before anything navigates away. Widening the
       // write path is what tipped the demo's git spec over in D1.
@@ -969,7 +969,7 @@ test.describe("Featured Recipes", () => {
         "description",
         "A description no featured recipe borrows.",
       );
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page.getByRole("button", { name: "Save", exact: true }).click();
       await expect(
         page.getByRole("heading", { level: 1, name: "Featured Recipe" }),
       ).toBeVisible();

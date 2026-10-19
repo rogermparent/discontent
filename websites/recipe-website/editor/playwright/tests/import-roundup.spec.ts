@@ -17,7 +17,7 @@ test.describe("Import from a roundup", () => {
     await page.goto("/new-recipe");
     await fillSignInForm(page);
     await markdownEditorReady(page, "description");
-    await page.getByText("Import from a roundup", { exact: true }).click();
+    await page.getByRole("radio", { name: "Roundup", exact: true }).check();
   });
 
   const list = async (page: import("@playwright/test").Page, url: string) => {
@@ -128,7 +128,7 @@ test.describe("Import from a roundup", () => {
     await expect(listed).toHaveCount(0);
     await page.goto("/new-recipe");
     await markdownEditorReady(page, "description");
-    await page.getByText("Import from a roundup", { exact: true }).click();
+    await page.getByRole("radio", { name: "Roundup", exact: true }).check();
 
     await list(page, new URL("/uploads/roundup-five.html", baseURL!).href);
     const listing = page.getByTestId("roundup-job");
@@ -171,7 +171,7 @@ test.describe("Import from a roundup", () => {
       page.getByRole("button", { name: "Importing…", exact: true }),
     ).toBeDisabled();
     await expect(
-      page.getByRole("button", { name: "Submit", exact: true }),
+      page.getByRole("button", { name: "Create recipe", exact: true }),
     ).toBeDisabled();
 
     const progress = page.getByTestId("roundup-progress");
@@ -179,7 +179,7 @@ test.describe("Import from a roundup", () => {
       "Imported 3 of 5 · stopped with 2 picks left",
     );
     await expect(
-      page.getByRole("button", { name: "Submit", exact: true }),
+      page.getByRole("button", { name: "Create recipe", exact: true }),
     ).toBeEnabled();
     const results = page.getByTestId("roundup-results").locator("li");
     await expect(results).toHaveCount(3);
@@ -208,7 +208,7 @@ test.describe("Import from a roundup", () => {
     expect(created.status()).toBe(201);
     /* The term exists now; the page's suggestions were read before it. */
     await page.reload();
-    await page.getByText("Import from a roundup", { exact: true }).click();
+    await page.getByRole("radio", { name: "Roundup", exact: true }).check();
 
     await list(page, new URL("/uploads/roundup-five.html", baseURL!).href);
     await page

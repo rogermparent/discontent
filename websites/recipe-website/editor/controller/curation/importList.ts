@@ -88,6 +88,7 @@ import {
   getRecipe,
   readAllRecipeRows,
   resolveCreateSlug,
+  type RecipeDetail,
 } from "./recipes";
 import { parseInput } from "./schema";
 import {
@@ -204,6 +205,26 @@ async function existingBySource(
     if (key && !found.has(key)) found.set(key, detail!.slug);
   }
   return { found, warnings: [] };
+}
+
+/**
+ * The recipe already imported from `url`, if there is one (43e1: the new
+ * recipe form's duplicate check at Import time) — the roundup's own
+ * `existingBySource`, so the two agree on what "the same link" is
+ * (`sourceUrlKey`: no hash, no trailing slash). Nothing when the index is
+ * not built: the check only informs, and the slug conflict at Create still
+ * stands behind it.
+ */
+export async function recipeBySource(
+  ctx: CurationContext,
+  url: string,
+): Promise<RecipeDetail | undefined> {
+  const key = URL.canParse(url) ? sourceUrlKey(url) : undefined;
+  if (!key) return undefined;
+  const { found } = await existingBySource(ctx, [url]);
+  const slug = found.get(key);
+  if (!slug) return undefined;
+  return getRecipe(ctx, slug).catch(() => undefined);
 }
 
 function toItems(

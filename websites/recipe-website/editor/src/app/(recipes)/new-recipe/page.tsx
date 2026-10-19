@@ -8,10 +8,7 @@ import { jobsDirectory } from "recipe-editor/controller/jobs/location";
 import { findJob } from "recipe-editor/controller/jobs/store";
 import { llmConfig } from "recipe-editor/controller/llm/client";
 import { visionConfig } from "recipe-editor/controller/llm/vision";
-import {
-  PageMain,
-  PageSection,
-} from "recipe-website-common/components/PageLayout";
+import { PageMain } from "recipe-website-common/components/PageLayout";
 import type { RecipeActionState } from "./common";
 
 /** The form kinds whose result fills this page (37c). */
@@ -89,19 +86,17 @@ export default async function NewRecipe({
 
   return (
     <PageMain>
-      <PageSection maxWidth="xl" grow>
-        {/* 35r: the roundup picker above the form; the single-URL import
-            inside the form is unchanged, and waits while a run is in flight. */}
-        <NewRecipeWorkspace
-          initialState={initialState}
-          initialJob={initialJob}
-          initialImportUrl={initialImportUrl}
-          allTags={allTags}
-          terms={vocabulary.map(({ slug, label }) => ({ slug, label }))}
-          llmModel={llmConfig()?.model}
-          visionModel={visionConfig()?.model}
-        />
-      </PageSection>
+      {/* 43e1: Start from (the roundup picker one of its ways in), then the
+          recipe form, in the section rail's frame. */}
+      <NewRecipeWorkspace
+        initialState={initialState}
+        initialJob={initialJob}
+        initialImportUrl={initialImportUrl}
+        allTags={allTags}
+        terms={vocabulary.map(({ slug, label }) => ({ slug, label }))}
+        llmModel={llmConfig()?.model}
+        visionModel={visionConfig()?.model}
+      />
     </PageMain>
   );
 }

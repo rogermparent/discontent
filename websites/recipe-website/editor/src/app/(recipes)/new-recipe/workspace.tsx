@@ -1,15 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { RecipeFormFrame } from "recipe-website-common/components/Form/RecipeFormFrame";
 import CreateForm from "./form";
-import RoundupImport from "./RoundupImport";
 import type { RecipeActionState } from "./common";
 
 /**
- * `/new-recipe`'s two ways in (35r): the roundup picker and the recipe form
- * with its single-URL import. They share one flag — while a roundup run is
- * in flight, the form's Import and Submit wait, so a hand-made recipe does
- * not race the run's commits for a slug.
+ * `/new-recipe` in edit form B, "Review, then save" (43e1): the frame — the
+ * heading, the section rail with the save card, the column — around Start
+ * from (a link, text, a photo, a roundup or a blank form; 35r's roundup
+ * picker is one of the five) and the recipe form. While a roundup run is in
+ * flight the form's Import and Create wait, so a hand-made recipe does not
+ * race the run's commits for a slug.
  */
 export default function NewRecipeWorkspace({
   initialState,
@@ -32,19 +33,17 @@ export default function NewRecipeWorkspace({
   /** The vision model's name, or nothing: no Photo mode (38e). */
   visionModel?: string;
 }) {
-  const [roundupRunning, setRoundupRunning] = useState(false);
   return (
-    <>
-      <RoundupImport terms={terms} onRunningChange={setRoundupRunning} />
+    <RecipeFormFrame title="New recipe">
       <CreateForm
         initialState={initialState}
         initialJob={initialJob}
         initialImportUrl={initialImportUrl}
         allTags={allTags}
-        busy={roundupRunning}
+        terms={terms}
         llmModel={llmModel}
         visionModel={visionModel}
       />
-    </>
+    </RecipeFormFrame>
   );
 }

@@ -22,7 +22,9 @@ test.describe("Reference Updates", () => {
 
       const testRecipe = "Original Recipe Name";
       await page.getByLabel("Name").fill(testRecipe);
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Create recipe", exact: true })
+        .click();
       await expect(
         page.getByRole("heading", { level: 1, name: testRecipe }),
       ).toBeVisible();
@@ -43,7 +45,7 @@ test.describe("Reference Updates", () => {
       await expect(page.getByLabel("Slug")).toBeVisible();
       await page.getByLabel("Slug").clear();
       await page.getByLabel("Slug").fill("renamed-recipe-slug");
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page.getByRole("button", { name: "Save", exact: true }).click();
 
       await expect(page).toHaveURL(baseURL + "/recipe/renamed-recipe-slug");
       await expect(
@@ -74,7 +76,9 @@ test.describe("Reference Updates", () => {
 
       const testRecipe = "Multi-Featured Recipe";
       await page.getByLabel("Name").fill(testRecipe);
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Create recipe", exact: true })
+        .click();
       await expect(
         page.getByRole("heading", { level: 1, name: testRecipe }),
       ).toBeVisible();
@@ -104,7 +108,7 @@ test.describe("Reference Updates", () => {
       await expect(page.getByLabel("Slug")).toBeVisible();
       await page.getByLabel("Slug").clear();
       await page.getByLabel("Slug").fill("new-multi-featured");
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page.getByRole("button", { name: "Save", exact: true }).click();
 
       await expect(page).toHaveURL(baseURL + "/recipe/new-multi-featured");
 
@@ -126,14 +130,18 @@ test.describe("Reference Updates", () => {
       await markdownEditorReady(page, "description");
 
       await page.getByLabel("Name").fill("Recipe A");
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Create recipe", exact: true })
+        .click();
       await page.getByRole("link", { name: "Feature", exact: true }).click();
       await page.getByRole("button", { name: "Submit", exact: true }).click();
       await expect(page).toHaveURL(baseURL + "/");
 
       await page.goto("/new-recipe");
       await page.getByLabel("Name").fill("Recipe B");
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Create recipe", exact: true })
+        .click();
       await page.getByRole("link", { name: "Feature", exact: true }).click();
       await page.getByRole("button", { name: "Submit", exact: true }).click();
       await expect(page).toHaveURL(baseURL + "/");
@@ -143,7 +151,7 @@ test.describe("Reference Updates", () => {
       await expect(page.getByLabel("Slug")).toBeVisible();
       await page.getByLabel("Slug").clear();
       await page.getByLabel("Slug").fill("recipe-a-renamed");
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page.getByRole("button", { name: "Save", exact: true }).click();
 
       await expect(page).toHaveURL(baseURL + "/recipe/recipe-a-renamed");
 
@@ -168,7 +176,9 @@ test.describe("Reference Updates", () => {
       await markdownEditorReady(page, "description");
 
       await page.getByLabel("Name").fill("Lonely Recipe");
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Create recipe", exact: true })
+        .click();
       await expect(
         page.getByRole("heading", { level: 1, name: "Lonely Recipe" }),
       ).toBeVisible();
@@ -177,7 +187,7 @@ test.describe("Reference Updates", () => {
       await expect(page.getByLabel("Slug")).toBeVisible();
       await page.getByLabel("Slug").clear();
       await page.getByLabel("Slug").fill("still-lonely");
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page.getByRole("button", { name: "Save", exact: true }).click();
 
       await expect(page).toHaveURL(baseURL + "/recipe/still-lonely");
       await expect(
@@ -195,7 +205,9 @@ test.describe("Reference Updates", () => {
 
       const testRecipe = "Recipe with Note";
       await page.getByLabel("Name").fill(testRecipe);
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Create recipe", exact: true })
+        .click();
       await expect(
         page.getByRole("heading", { level: 1, name: testRecipe }),
       ).toBeVisible();
@@ -214,7 +226,7 @@ test.describe("Reference Updates", () => {
       await expect(page.getByLabel("Slug")).toBeVisible();
       await page.getByLabel("Slug").clear();
       await page.getByLabel("Slug").fill("renamed-with-note");
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page.getByRole("button", { name: "Save", exact: true }).click();
 
       await expect(page).toHaveURL(baseURL + "/recipe/renamed-with-note");
 

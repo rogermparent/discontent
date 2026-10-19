@@ -39,7 +39,9 @@ test.describe("Yield Feature", () => {
       const yieldSource = await openMarkdownSource(page, "recipeYield");
       await yieldSource.fill(yieldValue);
 
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Create recipe", exact: true })
+        .click();
 
       await expect(
         page.getByRole("heading", { name: newRecipeTitle }),

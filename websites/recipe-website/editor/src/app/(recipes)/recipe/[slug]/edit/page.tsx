@@ -4,11 +4,7 @@ import EditForm from "./form";
 import { notFound } from "next/navigation";
 import { getTransformedRecipeImageProps } from "recipe-website-common/components/RecipeImage";
 import { auth, signIn } from "@/auth";
-import {
-  PageMain,
-  PageSection,
-  PageHeading,
-} from "recipe-website-common/components/PageLayout";
+import { PageMain } from "recipe-website-common/components/PageLayout";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +22,7 @@ export default async function Recipe({
   }
   const recipe = await recipeItems.read(slug);
   if (!recipe) notFound();
-  const { name, image } = recipe;
+  const { image } = recipe;
   const defaultImage =
     slug && image
       ? await getTransformedRecipeImageProps({
@@ -42,15 +38,13 @@ export default async function Recipe({
   const allTags = await readTagLabels();
   return (
     <PageMain>
-      <PageSection maxWidth="xl" grow>
-        <PageHeading as="h1">Editing Recipe: {name}</PageHeading>
-        <EditForm
-          recipe={recipe}
-          slug={slug}
-          defaultImage={defaultImage}
-          allTags={allTags}
-        />
-      </PageSection>
+      {/* 43e1: the form draws its own frame — heading, rail and sections. */}
+      <EditForm
+        recipe={recipe}
+        slug={slug}
+        defaultImage={defaultImage}
+        allTags={allTags}
+      />
     </PageMain>
   );
 }

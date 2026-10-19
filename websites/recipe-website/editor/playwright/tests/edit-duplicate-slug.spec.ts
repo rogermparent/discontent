@@ -15,7 +15,7 @@ test.describe("Edit Recipe Duplicate Slug Detection", () => {
   }) => {
     await page.getByLabel("Slug").clear();
     await page.getByLabel("Slug").fill("recipe-5");
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
 
     await expect(page.getByText(/already exists/i)).toBeVisible();
     await expect(page.getByRole("button", { name: "Overwrite" })).toBeVisible();
@@ -30,7 +30,7 @@ test.describe("Edit Recipe Duplicate Slug Detection", () => {
 
     await page.getByLabel("Slug").clear();
     await page.getByLabel("Slug").fill("recipe-5");
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
 
     await expect(page.getByText(/already exists/i)).toBeVisible();
     await page.getByRole("button", { name: "Overwrite" }).click();
@@ -46,7 +46,7 @@ test.describe("Edit Recipe Duplicate Slug Detection", () => {
   }) => {
     await page.getByLabel("Slug").clear();
     await page.getByLabel("Slug").fill("recipe-6-unique");
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
 
     await expect(page).toHaveURL(/\/recipe\/recipe-6-unique/);
     await expect(

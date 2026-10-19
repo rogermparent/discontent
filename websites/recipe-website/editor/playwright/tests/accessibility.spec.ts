@@ -1,7 +1,11 @@
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "../support/test";
 import type { Page } from "@playwright/test";
-import { markdownEditorReady, signIn } from "../support/helpers";
+import {
+  fillSignInForm,
+  markdownEditorReady,
+  signIn,
+} from "../support/helpers";
 import { expectHydrated } from "../support/hydration";
 import { fixturePath } from "../support/tasks";
 import { PRESETS, type Theme } from "@discontent/component-library/theming";
@@ -833,6 +837,43 @@ test.describe("Accessibility on a phone @mobile", () => {
          * document flow after the content instead of over it, so no scroll
          * step is needed.
          */
+        const pinned = await new AxeBuilder({ page })
+          .withTags(TAGS)
+          .disableRules(["target-size"])
+          .analyze();
+        expect(pinned.violations).toEqual([]);
+        await page.evaluate(() => {
+          document.documentElement.dataset.stickyChrome = "off";
+        });
+        const released = await new AxeBuilder({ page })
+          .withRules(["target-size"])
+          .analyze();
+        expect(released.violations).toEqual([]);
+      });
+    }
+  }
+});
+
+/*
+ * 43e1: edit form B on a phone — the jump row of sections and the save bar
+ * pinned above the tab bar, signed in. As above: the full sweep with the
+ * chrome pinned and without `target-size`, then `target-size` alone with
+ * it released.
+ */
+test.describe("Accessibility of the edit form on a phone @mobile", () => {
+  for (const mode of MODES) {
+    for (const path of ["/recipe/classic-daiquiri/edit", "/new-recipe"]) {
+      test(`${path} with the save bar stays WCAG2AA in ${mode} mode`, async ({
+        page,
+        resetData,
+      }) => {
+        await resetData("drinks-bar");
+        await page.emulateMedia({ colorScheme: mode });
+        await page.goto(path);
+        await fillSignInForm(page);
+        await markdownEditorReady(page, "description");
+        await expectMode(page, mode);
+        await expect(page.getByTestId("recipe-form-savebar")).toBeVisible();
         const pinned = await new AxeBuilder({ page })
           .withTags(TAGS)
           .disableRules(["target-size"])

@@ -58,7 +58,9 @@ async function createRecipe(
     await page.getByText("Import Ingredients", { exact: true }).click();
   }
 
-  await page.getByRole("button", { name: "Submit", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Create recipe", exact: true })
+    .click();
   await expect(page.getByRole("heading", { name, exact: true })).toBeVisible({
     timeout: SEARCH_TIMEOUT,
   });
@@ -89,7 +91,9 @@ test.describe("Search — tags", () => {
       page.getByRole("button", { name: "Remove tag typo" }),
     ).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Create recipe", exact: true })
+      .click();
     await expect(
       page.getByRole("heading", { name: "Choco Cake", exact: true }),
     ).toBeVisible({ timeout: SEARCH_TIMEOUT });
@@ -136,7 +140,9 @@ test.describe("Search — tags", () => {
       page.getByRole("button", { name: "Remove tag dessert" }),
     ).toBeVisible();
 
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Create recipe", exact: true })
+      .click();
     await expect(
       page.getByRole("heading", { name: "Fruit Tart", exact: true }),
     ).toBeVisible({ timeout: SEARCH_TIMEOUT });
