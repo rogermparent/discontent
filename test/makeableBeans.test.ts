@@ -3,22 +3,28 @@ import {
   parseIngredientLine,
   requirementLabel,
 } from "recipe-website-common/util/ingredientNames";
-import {
-  beanFor,
-  beanKindOf,
-  beanKinds,
-  isBeanLine,
-} from "recipe-website-common/util/beans";
+import { beanKindOf, beanKinds } from "recipe-website-common/util/beans";
 import {
   analyzeMakeable,
   parseInventoryItem,
   prepareCorpus,
   satisfies,
-  type MakeableOptions,
   type MakeRecipe,
-  type RecipeMatch,
 } from "recipe-website-common/util/makeable";
+import type { Requirement } from "recipe-website-common/util/ingredientNames";
 import { parseSettings } from "recipe-website-common/components/MakePage/useInventory";
+
+/**
+ * A bean line (42m's `isBeanLine`, gone with its tier in 43m): every
+ * alternative a family bean, and no infusion's flavour.
+ */
+function isBeanLine(requirement: Requirement): boolean {
+  return (
+    !requirement.loose &&
+    requirement.alternatives.length > 0 &&
+    requirement.alternatives.every((name) => beanKinds(name) !== undefined)
+  );
+}
 
 /** The kind of the one requirement a line yields, if it is a bean line. */
 function lineKind(line: string): string | undefined {
@@ -101,24 +107,6 @@ describe("the bean family (42m)", () => {
     ).toBe(false);
   });
 
-  it("swaps in the line's own kind first, then a named bean, then a mix", () => {
-    const beans = [
-      { text: "mixed beans", kind: "any" },
-      { text: "black beans", kind: "black" },
-      { text: "navy beans", kind: "white" },
-    ];
-    const line = (text: string) => parseIngredientLine(text)[0];
-    expect(beanFor(line("1 can cannellini beans"), beans)?.text).toBe(
-      "navy beans",
-    );
-    expect(beanFor(line("1 can chickpeas"), beans)?.text).toBe("black beans");
-    expect(
-      beanFor(line("1 can chickpeas"), [{ text: "mixed beans", kind: "any" }])
-        ?.text,
-    ).toBe("mixed beans");
-    expect(beanFor(line("1 can chickpeas"), [])).toBeUndefined();
-  });
-
   /** Every kind each alternative of a line's one requirement names. */
   const kindsOf = (text: string) =>
     parseIngredientLine(text)[0].alternatives.map((name) => beanKinds(name));
@@ -156,13 +144,6 @@ describe("the bean family (42m)", () => {
     expect(
       isBeanLine(parseIngredientLine("1 can black beans (or green beans)")[0]),
     ).toBe(false);
-    /* The swap prefers a bean the line itself names. */
-    expect(
-      beanFor(parseIngredientLine(multi)[0], [
-        { text: "chickpeas", kind: "chickpea" },
-        { text: "navy beans", kind: "white" },
-      ])?.text,
-    ).toBe("navy beans");
   });
 });
 
@@ -204,152 +185,46 @@ describe("a bare `beans` names only the family (42m, Dm7)", () => {
   });
 });
 
-const recipe = (name: string, ingredients: string[]): MakeRecipe => ({
-  slug: name.toLowerCase().replace(/[^a-z]+/g, "-"),
-  name,
-  ingredients,
-});
+describe("the bean-swap tier is gone (43m)", () => {
+  const salad: MakeRecipe = {
+    slug: "chickpea-salad",
+    name: "Chickpea Salad",
+    ingredients: [
+      "1 (15 oz) can chickpeas, drained and rinsed",
+      "1 cucumber, diced",
+    ],
+  };
 
-const CHICKPEA_SALAD = recipe("Chickpea Salad", [
-  "1 (15 oz) can chickpeas, drained and rinsed",
-  "1 cucumber, diced",
-  "2 tbsp olive oil",
-]);
-const TWO_BEAN_SALAD = recipe("Two Bean Salad", [
-  "1 can chickpeas, drained",
-  "1 can kidney beans, drained",
-  "1 red onion",
-]);
-const BLACK_BEAN_SALSA = recipe("Black Bean Salsa", [
-  "1 can black beans",
-  "1 cup corn",
-]);
-const CHICKPEA_TOMATO = recipe("Chickpea Tomato Salad", [
-  "1 can chickpeas",
-  "2 tomatoes",
-]);
-const GREEN_BEAN_SALAD = recipe("Green Bean Salad", [
-  "1 lb green beans, trimmed",
-  "1 shallot",
-]);
-const CORPUS = [
-  CHICKPEA_SALAD,
-  TWO_BEAN_SALAD,
-  BLACK_BEAN_SALSA,
-  CHICKPEA_TOMATO,
-  GREEN_BEAN_SALAD,
-];
-
-function judge(inventory: string[], options: MakeableOptions = {}) {
-  return analyzeMakeable(CORPUS, prepareCorpus(CORPUS), inventory, {
-    pantryStaples: false,
-    beanSwaps: true,
-    ...options,
-  });
-}
-
-const slugs = (matches: RecipeMatch[]) => matches.map((m) => m.recipe.slug);
-const swapsOf = (match: RecipeMatch | undefined) =>
-  match?.swaps?.map(({ requirement, use }) => [
-    requirementLabel(requirement),
-    use,
-  ]);
-
-describe("the bean-swap tier (42m)", () => {
-  it("puts a chickpea recipe in the tier with black beans on hand", () => {
-    const analysis = judge(["black beans", "cucumber", "olive oil", "corn"]);
-    expect(slugs(analysis.canMake)).toEqual(["black-bean-salsa"]);
-    expect(slugs(analysis.beanSwap)).toEqual(["chickpea-salad"]);
-    expect(swapsOf(analysis.beanSwap[0])).toEqual([
-      ["chickpea", "black beans"],
-    ]);
-  });
-
-  it("covers two bean lines with one bean on hand", () => {
-    const analysis = judge(["pinto beans", "red onion"]);
-    const twoBean = analysis.beanSwap.find(
-      (m) => m.recipe.slug === "two-bean-salad",
-    );
-    expect(swapsOf(twoBean)).toEqual([
-      ["chickpea", "pinto beans"],
-      ["kidney bean", "pinto beans"],
-    ]);
-  });
-
-  it("never touches can-make, and leaves the other buckets as they were", () => {
-    const inventory = ["black beans", "cucumber", "olive oil", "corn"];
-    const on = judge(inventory);
-    const off = judge(inventory, { beanSwaps: false });
-    expect(off.beanSwap).toEqual([]);
-    expect(slugs(on.canMake)).toEqual(slugs(off.canMake));
-    expect(slugs(on.oneAway)).toEqual(slugs(off.oneAway));
-    expect(slugs(on.twoAway)).toEqual(slugs(off.twoAway));
-    expect(slugs(on.further)).toEqual(slugs(off.further));
-    expect(on.buyNext).toEqual(off.buyNext);
-    /* The swap recipe is still one away: it is missing chickpeas. */
-    expect(slugs(on.oneAway)).toContain("chickpea-salad");
-    expect(on.canMake.some((m) => m.swaps)).toBe(false);
-  });
-
-  it("leaves out a recipe that also misses something that isn't a bean", () => {
-    /* No tomatoes: Chickpea Tomato Salad misses more than beans. */
-    const analysis = judge(["black beans", "corn"]);
-    expect(slugs(analysis.beanSwap)).not.toContain("chickpea-tomato-salad");
-    expect(slugs(analysis.twoAway)).toContain("chickpea-tomato-salad");
-  });
-
-  it("does nothing without a family bean on hand, and green beans aren't one", () => {
-    const analysis = judge(["green beans", "cucumber", "olive oil"]);
-    expect(analysis.beanSwap).toEqual([]);
-  });
-
-  it("never lets a family bean stand in for green beans", () => {
-    const analysis = judge(["black beans", "shallot"]);
-    expect(slugs(analysis.beanSwap)).not.toContain("green-bean-salad");
-  });
-
-  it("takes an (or …) bean line, preferring a bean it names", () => {
-    const salad = recipe("Pinto Salad", [
-      "1 (15 oz) can black beans (or pinto or cannellini beans), drained",
-      "1 cup corn",
-    ]);
-    const judgeWith = (inventory: string[]) =>
-      analyzeMakeable([salad], prepareCorpus([salad]), inventory, {
-        pantryStaples: false,
-        beanSwaps: true,
-      });
-    /* Navy is a white bean, like the cannellini the line names. */
-    const analysis = judgeWith(["chickpeas", "navy beans", "corn"]);
-    expect(swapsOf(analysis.beanSwap[0])).toEqual([
-      ["black bean or pinto bean or cannellini bean", "navy beans"],
-    ]);
-    /* Cannellini itself meets the line (the strict tail rule): no swap. */
-    const strict = judgeWith(["cannellini beans", "corn"]);
-    expect(slugs(strict.canMake)).toEqual(["pinto-salad"]);
-    expect(strict.beanSwap).toEqual([]);
-  });
-
-  it("is off unless asked for", () => {
+  it("leaves a chickpea salad one away with black beans on hand, and says no more", () => {
     const analysis = analyzeMakeable(
-      CORPUS,
-      prepareCorpus(CORPUS),
-      ["black beans", "cucumber", "olive oil"],
+      [salad],
+      prepareCorpus([salad]),
+      ["black beans", "cucumber"],
       { pantryStaples: false },
     );
-    expect(analysis.beanSwap).toEqual([]);
-    expect(analysis.oneAway.every((m) => m.swaps === undefined)).toBe(true);
+    expect(analysis.oneAway.map((match) => match.recipe.slug)).toEqual([
+      "chickpea-salad",
+    ]);
+    expect(analysis).not.toHaveProperty("beanSwap");
+    expect(analysis.oneAway[0]).not.toHaveProperty("swaps");
+    /* What replaces it: `any bean` (or `bean*`) on the list meets the line. */
+    const matched = analyzeMakeable(
+      [salad],
+      prepareCorpus([salad]),
+      ["any bean", "cucumber"],
+      { pantryStaples: false },
+    );
+    expect(matched.canMake.map((match) => match.recipe.slug)).toEqual([
+      "chickpea-salad",
+    ]);
   });
 });
 
-describe("make-settings-v1 and beanSwaps (42m)", () => {
-  it("reads false, drops anything else, and leaves old values alone", () => {
-    expect(parseSettings(JSON.stringify({ beanSwaps: false }))).toEqual({
-      beanSwaps: false,
-    });
-    expect(parseSettings(JSON.stringify({ beanSwaps: "no" }))).toEqual({});
-    /* A value from before 42m: no field, so the default (on) holds. */
+describe("make-settings-v1 after 43m", () => {
+  it("reads past the retired beanSwaps and countClose, keeping the rest", () => {
+    expect(parseSettings(JSON.stringify({ beanSwaps: false }))).toEqual({});
     expect(
       parseSettings(JSON.stringify({ countClose: false, view: "specs" })),
-    ).toEqual({ countClose: false, view: "specs" });
+    ).toEqual({ view: "specs" });
   });
 });

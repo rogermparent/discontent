@@ -246,20 +246,18 @@ describe("`any bean` meets every family bean (42m2)", () => {
   });
 });
 
-describe("the matcher and the bean-swap tier never double-count (42m2)", () => {
-  it("leaves the tier nothing for beans the matcher already meets", () => {
+describe("the matcher puts each recipe in one bucket (42m2, 43m)", () => {
+  it("meets every bean line, and no recipe is counted twice", () => {
     const prepared = prepareCorpus(RECIPES);
     const analysis = analyzeMakeable(
       RECIPES,
       prepared,
       ["any bean", "red onion"],
-      { staples: [], beanSwaps: true },
+      { staples: [] },
     );
-    expect(analysis.beanSwap).toEqual([]);
     expect(analysis.canMake.map((match) => match.recipe.slug)).toContain(
       "two-bean-salad",
     );
-    /* Each recipe in one bucket only. */
     const slugs = [
       ...analysis.canMake,
       ...analysis.oneAway,
@@ -269,17 +267,18 @@ describe("the matcher and the bean-swap tier never double-count (42m2)", () => {
     expect(new Set(slugs).size).toBe(slugs.length);
   });
 
-  it("swaps as before once the matcher is refined to one bean", () => {
+  it("once refined to one bean, a recipe asking for another is one away (no swap tier)", () => {
     const prepared = prepareCorpus(RECIPES);
     const analysis = analyzeMakeable(
       RECIPES,
       prepared,
       ["black bean", "red onion"],
-      { staples: [], beanSwaps: true },
+      { staples: [] },
     );
-    expect(analysis.beanSwap.map((match) => match.recipe.slug)).toEqual([
+    expect(analysis.twoAway.map((match) => match.recipe.slug)).toContain(
       "two-bean-salad",
-    ]);
+    );
+    expect(analysis).not.toHaveProperty("beanSwap");
   });
 });
 

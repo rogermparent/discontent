@@ -30,6 +30,7 @@ import { AISLES } from "recipe-website-common/util/aisles";
 import { SCALE_MESSAGE, isValidScale } from "recipe-website-common/util/scale";
 import { STORE_ID_PATTERN } from "recipe-website-common/util/shoppingTypes";
 import { featureKey } from "recipe-website-common/components/MakePage/kinds";
+import { patternError } from "recipe-website-common/util/matchers";
 import { z } from "zod";
 import { ValidationError, issuesOf } from "./errors";
 
@@ -475,8 +476,21 @@ export type TermAssignInput = z.infer<typeof TermAssignSchema>;
  */
 export const InventoryItemSchema = z.string().trim().min(1).max(80);
 
+/**
+ * An item to add (43m): a pattern — `bean*`, `/may(o|onnaise)/` — must be one
+ * the page can use; the refusal says why, as the page's add field does.
+ * Removing takes any text, so a broken pattern stored before can go.
+ */
+export const InventoryAddItemSchema = InventoryItemSchema.superRefine(
+  (item, ctx) => {
+    const error = patternError(item);
+    if (error) ctx.addIssue({ code: "custom", message: `${item}: ${error}` });
+  },
+);
+
 /** At most 500 items, the import cap. */
 const InventoryItems = z.array(InventoryItemSchema).max(500);
+const InventoryAddItems = z.array(InventoryAddItemSchema).max(500);
 
 /**
  * `{add?, remove?}` — a diff, which is what both the browser's "Save to
@@ -485,7 +499,7 @@ const InventoryItems = z.array(InventoryItemSchema).max(500);
  */
 export const InventoryPatchSchema = z
   .strictObject({
-    add: InventoryItems.optional(),
+    add: InventoryAddItems.optional(),
     remove: InventoryItems.optional(),
   })
   .refine((data) => (data.add?.length ?? 0) + (data.remove?.length ?? 0) > 0, {
@@ -496,14 +510,14 @@ export const InventoryPatchSchema = z
 export type InventoryPatch = z.infer<typeof InventoryPatchSchema>;
 
 /** `{items}` — the whole list, replaced. Held back from the agent's seats. */
-export const InventorySetSchema = z.strictObject({ items: InventoryItems });
+export const InventorySetSchema = z.strictObject({ items: InventoryAddItems });
 
 /**
  * What to judge the list against: a search-language scope (every recipe when
  * absent; `tag:drink` narrows to drinks), how many rows each bucket answers
- * with, whether pantry staples count as on hand (U5: on unless `false`), and
- * whether beans stand in for each other as their own tier (42m: on unless
- * `false`).
+ * with, and whether pantry staples count as on hand (U5: on unless `false`).
+ * `beanSwaps` (42m's bean-swap tier) is accepted and ignored since 43m, so
+ * an agent that learned it isn't refused.
  */
 export const InventoryMakeQuerySchema = z.strictObject({
   query: z.string().optional(),
@@ -529,7 +543,12 @@ export const InventoryMakeQuerySchema = z.strictObject({
     .optional(),
   limit: z.number().int().min(1).max(500).optional(),
   staples: z.boolean().optional(),
-  beanSwaps: z.boolean().optional(),
+  beanSwaps: z
+    .boolean()
+    .optional()
+    .describe(
+      "Ignored since 43m: the bean-swap tier is gone — put a pattern (bean*) or `any bean` on the list instead.",
+    ),
 });
 
 /* --- shopping list (35c) ------------------------------------------------- */

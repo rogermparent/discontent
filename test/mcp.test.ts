@@ -725,12 +725,33 @@ describe("the MCP registry over an in-memory transport", () => {
         },
       ]),
     });
-    /* 42m: the bean-swap tier is on by default, and `beanSwaps: false` drops it. */
-    expect(before.data).toMatchObject({ beanSwaps: true, beanSwap: [] });
+    /* 43m: no bean-swap tier; `beanSwaps` is accepted and changes nothing. */
+    expect(before.data).not.toHaveProperty("beanSwap");
+    expect(before.data).not.toHaveProperty("beanSwaps");
     const noSwaps = await call("inventory_makeable", { beanSwaps: false });
     expect(noSwaps.isError).toBe(false);
-    expect(noSwaps.data.beanSwaps).toBe(false);
-    expect(noSwaps.data).not.toHaveProperty("beanSwap");
+    expect(noSwaps.data).toEqual(before.data);
+    /* 43m: a pattern item round-trips; a broken one is refused, saying why. */
+    const pattern = await call("inventory_add", { items: ["Tonic*"] });
+    expect(pattern.data).toMatchObject({ added: ["tonic*"] });
+    /* The schema refuses it, so the SDK answers, naming the reason. */
+    const broken = await client.callTool({
+      name: "inventory_add",
+      arguments: { items: ["/(a+)+/"] },
+    });
+    expect(broken.isError).toBe(true);
+    expect((broken.content as { text: string }[])[0].text).toContain(
+      "repeats a repeat",
+    );
+    const withPattern = await call("inventory_makeable", {
+      query: "tag:drink",
+    });
+    expect(withPattern.data.canMake).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ slug: "gin-and-tonic" }),
+      ]),
+    );
+    await call("inventory_remove", { items: ["tonic*"] });
     const drinks = await call("inventory_makeable", { query: "tag:drink" });
     expect(drinks.data).toMatchObject({
       query: "tag:drink",

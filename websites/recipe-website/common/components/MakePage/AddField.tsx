@@ -10,6 +10,7 @@ import {
 import { Input } from "@discontent/component-library/components/ui/input";
 import { cn } from "@discontent/component-library/lib/utils";
 import { parseInventoryText } from "../../util/inventoryText";
+import { looksLikePattern, patternError } from "../../util/matchers";
 
 /** One suggestion: a name the scope's recipes use, and what adding it does. */
 export interface AddCandidate {
@@ -23,6 +24,12 @@ export interface AddCandidate {
    * family the scope's recipes use.
    */
   matcher?: { kinds: number };
+  /**
+   * Set for a pattern (43m): `bean*` or `/may(o|onnaise)/`, and how many
+   * names it matches in these recipes. `every`: it is the "Match every line
+   * with 'bean'" row for plain text.
+   */
+  pattern?: { names: number; every?: boolean };
 }
 
 /**
@@ -35,6 +42,11 @@ export interface AddCandidate {
  * focus stays in the field), Enter adds the one picked — or, with none
  * picked, what was typed, read as a list ("vodka, lime"), so pasting a
  * comma list still works — and Escape closes the list, then clears.
+ *
+ * Patterns (43m): `bean*` or `/may(o|onnaise)/` typed is offered as itself
+ * and added whole by Enter; one that can't be used says why under the field
+ * (`aria-invalid`) and Enter keeps it there to fix. Plain text ends the list
+ * with "Match every line with 'X'", which adds `X*`.
  */
 export function AddField({
   suggest,
@@ -53,11 +65,16 @@ export function AddField({
   const listId = useId();
   const optionId = (i: number) => `${listId}-${i}`;
 
+  const errorId = useId();
+  const hintId = useId();
   const candidates = useMemo(
     () => (typed.trim() ? suggest(typed) : []),
     [suggest, typed],
   );
   const shown = open && candidates.length > 0 && draft.trim() !== "";
+  /* A pattern that can't be used says why, as it is typed (43m). */
+  const isPattern = looksLikePattern(draft);
+  const error = isPattern ? patternError(draft) : undefined;
 
   const commit = (items: string[]) => {
     if (items.length > 0) onAdd(items);
@@ -78,6 +95,8 @@ export function AddField({
         aria-autocomplete="list"
         aria-expanded={shown}
         aria-controls={listId}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${errorId} ${hintId}` : hintId}
         aria-activedescendant={
           shown && active >= 0 ? optionId(active) : undefined
         }
@@ -107,7 +126,11 @@ export function AddField({
           } else if (event.key === "Enter") {
             event.preventDefault();
             const picked = shown && active >= 0 ? candidates[active] : null;
-            commit(picked ? [picked.name] : parseInventoryText(draft).items);
+            if (picked) commit([picked.name]);
+            /* A pattern is one item, commas and all; a broken one stays. */
+            else if (isPattern) {
+              if (!error) commit([draft.trim()]);
+            } else commit(parseInventoryText(draft).items);
           } else if (event.key === "Escape") {
             if (shown) {
               event.preventDefault();
@@ -144,7 +167,30 @@ export function AddField({
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => commit([candidate.name])}
           >
-            {candidate.matcher ? (
+            {candidate.pattern ? (
+              <span className="flex min-w-0 flex-col">
+                <span>
+                  <span aria-hidden>✱ </span>
+                  {candidate.pattern.every ? (
+                    <>
+                      Match every line with “{candidate.name.replace(/\*$/, "")}
+                      ”
+                    </>
+                  ) : (
+                    <span className="font-mono">{candidate.name}</span>
+                  )}
+                  <span className="sr-only"> — </span>
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {candidate.pattern.every && (
+                    <span className="font-mono">{candidate.name} · </span>
+                  )}
+                  matches {candidate.pattern.names}{" "}
+                  {candidate.pattern.names === 1 ? "name" : "names"} in these
+                  recipes{" "}
+                </span>
+              </span>
+            ) : candidate.matcher ? (
               <span className="flex min-w-0 flex-col">
                 <span>
                   <span aria-hidden>✱ </span>
@@ -171,8 +217,22 @@ export function AddField({
           </li>
         ))}
       </ul>
+      <p
+        id={errorId}
+        aria-live="polite"
+        data-testid="inventory-input-error"
+        className="mt-1.5 text-xs text-destructive empty:hidden"
+      >
+        {error}
+      </p>
+      {/* Only the pattern sentence describes the field (41h's Dh13). */}
       <p className="mt-1.5 text-xs text-muted-foreground">
-        Tap a label to feature it in the question.
+        Tap a label to feature it in the question.{" "}
+        <span id={hintId}>
+          A word with a star — <code className="font-mono">bean*</code> — or a{" "}
+          <code className="font-mono">/pattern/</code> matches many lines at
+          once.
+        </span>
       </p>
     </div>
   );

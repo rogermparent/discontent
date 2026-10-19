@@ -399,10 +399,9 @@ describe("the CLI as a process", () => {
         query: "-tag:drink",
         inventory: 2,
         staples: true,
-        beanSwaps: true,
-        beanSwap: [],
       });
-      /* 42m: `--no-bean-swaps` drops the bean-swap tier. */
+      expect(JSON.parse(make.stdout)).not.toHaveProperty("beanSwap");
+      /* 43m: `--no-bean-swaps` is still accepted, and changes nothing. */
       const noSwaps = await run([
         "inventory",
         "make",
@@ -411,9 +410,21 @@ describe("the CLI as a process", () => {
         "--json",
       ]);
       expect(noSwaps.exitCode).toBe(0);
-      const noSwapsJson = JSON.parse(noSwaps.stdout);
-      expect(noSwapsJson).toMatchObject({ beanSwaps: false });
-      expect(noSwapsJson).not.toHaveProperty("beanSwap");
+      expect(JSON.parse(noSwaps.stdout)).toEqual(JSON.parse(make.stdout));
+      /* 43m: a pattern item goes in whole; a broken one is a validation error. */
+      const pattern = await run([
+        "inventory",
+        "add",
+        "/may(o|onnaise)/",
+        "--json",
+      ]);
+      expect(JSON.parse(pattern.stdout)).toMatchObject({
+        added: ["/may(o|onnaise)/"],
+      });
+      const broken = await run(["inventory", "add", "/may(/", "--json"]);
+      expect(broken.exitCode).not.toBe(0);
+      expect(JSON.parse(broken.stdout).error.code).toBe("validation");
+      await run(["inventory", "remove", "/may(o|onnaise)/", "--json"]);
       /* U5: `--no-staples` turns the pantry staples off. */
       const strict = await run([
         "inventory",

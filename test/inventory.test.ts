@@ -325,7 +325,7 @@ describe("makeable", () => {
     ]);
   });
 
-  it("lists bean swaps by default, and not with beanSwaps: false (42m)", async () => {
+  it("has no bean-swap tier; beanSwaps is accepted and ignored (43m)", async () => {
     await createRecipe(ctx, {
       name: "Two Bean Salad",
       tags: ["salad"],
@@ -336,45 +336,112 @@ describe("makeable", () => {
       ],
     });
     await patchInventory(ctx, { add: ["pinto beans", "red onion"] });
-    const on = await makeable(ctx, { query: "tag:salad", staples: false });
-    expect(on.beanSwaps).toBe(true);
-    expect(on.beanSwap).toEqual([
-      {
-        slug: "two-bean-salad",
-        name: "Two Bean Salad",
-        swaps: [
-          { line: "chickpea", use: "pinto beans" },
-          { line: "kidney bean", use: "pinto beans" },
-        ],
-      },
-    ]);
-    /* Never can make; still two away, missing what it was missing. */
-    expect(on.canMake).toEqual([]);
-    expect(on.twoAway).toEqual([
+    const plain = await makeable(ctx, { query: "tag:salad", staples: false });
+    expect(plain).not.toHaveProperty("beanSwap");
+    expect(plain).not.toHaveProperty("beanSwaps");
+    expect(plain.twoAway).toEqual([
       {
         slug: "two-bean-salad",
         name: "Two Bean Salad",
         missing: ["chickpea", "kidney bean"],
       },
     ]);
-    const off = await makeable(ctx, {
-      query: "tag:salad",
-      staples: false,
-      beanSwaps: false,
-    });
-    expect(off.beanSwaps).toBe(false);
-    expect(off).not.toHaveProperty("beanSwap");
-    expect(off.twoAway).toEqual(on.twoAway);
-    /* And over the route: `beanSwaps=0` turns it off. */
+    /* An agent that learned `beanSwaps` isn't refused, and nothing changes. */
+    for (const beanSwaps of [true, false]) {
+      expect(
+        await makeable(ctx, { query: "tag:salad", staples: false, beanSwaps }),
+      ).toEqual(plain);
+    }
+    /* Over the route too: `beanSwaps=0` is ignored. */
     const routed = (await (
       await makeRoute(
         new Request(
-          "http://editor.test/api/inventory/make?query=tag:salad&beanSwaps=0",
+          "http://editor.test/api/inventory/make?query=tag:salad&staples=0&beanSwaps=0",
         ),
       )
     ).json()) as Awaited<ReturnType<typeof makeable>>;
-    expect(routed.beanSwaps).toBe(false);
     expect(routed).not.toHaveProperty("beanSwap");
+    expect(routed.twoAway).toEqual(plain.twoAway);
+  });
+
+  it("stores pattern items and judges them as /make does (43m parity)", async () => {
+    const recipes = [
+      {
+        name: "Bean Salad",
+        tags: ["salad"],
+        ingredients: [
+          "1 (15 oz) can black beans, drained",
+          "1 lb green beans, trimmed",
+          "1 red onion, diced",
+        ],
+      },
+      {
+        name: "Egg Salad",
+        tags: ["salad"],
+        ingredients: ["6 eggs, hard-boiled", "1/3 cup mayo", "1 red onion"],
+      },
+      {
+        name: "Chickpea Salad",
+        tags: ["salad"],
+        ingredients: ["1 can chickpeas", "1 red onion"],
+      },
+    ];
+    for (const recipe of recipes) await createRecipe(ctx, recipe);
+    /* Canonical on add: the regex keeps its text, the prefix is folded. */
+    const added = await patchInventory(ctx, {
+      add: ["Bean*", "/may(o|onnaise)/", "red onion", "eggs"],
+    });
+    expect(added.items).toEqual([
+      "/may(o|onnaise)/",
+      "bean*",
+      "eggs",
+      "red onion",
+    ]);
+    /* A pattern the page can't use is refused, with the reason. */
+    await expect(
+      patchInventory(ctx, { add: ["/(a+)+$/"] }),
+    ).rejects.toMatchObject({ code: "validation" });
+    await expect(
+      patchInventory(ctx, { add: ["/may(/"] }),
+    ).rejects.toMatchObject({
+      code: "validation",
+      details: {
+        issues: [
+          {
+            path: "add.0",
+            message: expect.stringMatching(
+              /^\/may\(\/: That isn't a pattern this page can read/,
+            ),
+          },
+        ],
+      },
+    });
+
+    const result = await makeable(ctx, { query: "tag:salad", staples: false });
+    expect(result.canMake.map((row) => row.slug).sort()).toEqual([
+      "bean-salad",
+      "egg-salad",
+    ]);
+    /* bean* is a word prefix: chickpeas aren't "bean…". */
+    expect(result.oneAway).toEqual([
+      { slug: "chickpea-salad", name: "Chickpea Salad", missing: ["chickpea"] },
+    ]);
+    /* The page's judge over the same lines and list says the same. */
+    const corpus = recipes.map((recipe) => ({
+      slug: recipe.name.toLowerCase().replace(/\s+/g, "-"),
+      ...recipe,
+    }));
+    const page = analyzeMakeable(corpus, corpus, added.items, { staples: [] });
+    expect(page.canMake.map((match) => match.recipe.slug).sort()).toEqual(
+      result.canMake.map((row) => row.slug).sort(),
+    );
+    expect(page.oneAway.map((match) => match.recipe.slug)).toEqual(
+      result.oneAway.map((row) => row.slug),
+    );
+    /* A broken pattern stored before can still be removed. */
+    expect((await patchInventory(ctx, { remove: ["/may(/"] })).changed).toBe(
+      false,
+    );
   });
 
   it("keeps a matcher as `any bean` and judges it as /make does (42m2)", async () => {
@@ -415,13 +482,12 @@ describe("makeable", () => {
         missing: ["green bean"],
       },
     ]);
-    expect(result.beanSwap).toEqual([]);
     /* The page's judge over the same lines says the same (41i parity). */
     const page = analyzeMakeable(
       [{ slug: "two-bean-salad", ...salad }],
       [{ slug: "two-bean-salad", ...salad }],
       ["any bean", "red onion"],
-      { staples: [], beanSwaps: true },
+      { staples: [] },
     );
     expect(page.canMake.map((match) => match.recipe.slug)).toEqual([
       "two-bean-salad",
@@ -713,22 +779,13 @@ describe("makeable", () => {
       expect(text).not.toContain("On the site");
     });
 
-    it("sends beanSwaps=0 only when bean swaps are off, and reads an old answer (42m)", async () => {
+    it("never sends beanSwaps, and prints no swap group from an older editor (43m)", async () => {
       const seen = answer(OLD);
       const backend = createHttpBackend({ baseUrl: ORIGIN });
       await backend.inventoryMakeable({ query: "tag:drink" });
-      const plain = await backend.inventoryMakeable({
-        query: "tag:drink",
-        beanSwaps: false,
-      });
       expect(seen[0]).not.toContain("beanSwaps");
-      expect(seen[1]).toContain("beanSwaps=0");
-      /* An editor from before 42m answers without the tier: no swap lines. */
-      const text = inventoryCommands.make.format(plain);
-      expect(text).not.toContain("bean swap");
-      expect(text).not.toContain("undefined");
-      /* A 42m answer prints the tier after the buckets. */
-      const swapped = inventoryCommands.make.format({
+      /* A 42m editor still answers with its tier: the text leaves it out. */
+      const old = inventoryCommands.make.format({
         ...OLD,
         beanSwaps: true,
         beanSwap: [
@@ -739,8 +796,8 @@ describe("makeable", () => {
           },
         ],
       } as never);
-      expect(swapped).toContain("With a bean swap (1)");
-      expect(swapped).toContain("    swap: pinto beans for chickpea");
+      expect(old).not.toContain("bean swap");
+      expect(old).not.toContain("undefined");
     });
 
     it("makes the link absolute on the editor that answered", async () => {

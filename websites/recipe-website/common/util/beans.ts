@@ -1,11 +1,13 @@
 /**
  * The bean family (42m): the canned and dried beans that stand in for one
  * another in a salad, a soup or a chili — black beans for chickpeas, pinto
- * for kidney, cannellini for navy. `/make`'s "With a bean swap" tier and the
- * agents' `inventory make` read it. The strict and close tiers never swap
- * on it, so black beans still never *meet* a chickpea line
- * (`CLOSE_HEAD_EXCLUDED`); strict matching asks it one thing only — whether
- * a longer name a bare `beans` meets is a family bean (`isFamilyBeanWords`).
+ * for kidney, cannellini for navy. The `any bean` matcher (42m2,
+ * `matchers.ts`) is this list, and its refine popover names its members.
+ * 42m's "With a bean swap" tier read it too, until 43m replaced the tier with
+ * pattern items. The strict and close tiers never swap on it, so black beans
+ * still never *meet* a chickpea line (`CLOSE_HEAD_EXCLUDED`); strict matching
+ * asks it one thing only — whether a longer name a bare `beans` meets is a
+ * family bean (`isFamilyBeanWords`).
  *
  * Names go through the matcher's own pipeline (`toName`): plurals, "can of",
  * "15-ounce", "drained and rinsed" and "garbanzo" are handled there, and
@@ -22,19 +24,15 @@
  *
  * Pure, and safe in the browser.
  */
-import {
-  toName,
-  type IngredientName,
-  type Requirement,
-} from "./ingredientNames";
+import { toName, type IngredientName } from "./ingredientNames";
 
 /**
  * Each kind's names as people write them, and the bare variety where it
  * names nothing else — `pinto`, `navy`, as an `(or …)` alternative leaves
  * them ("black beans (or pinto)") — but never `black`, `white`, `red`,
- * `butter` or `cranberry`. The kind only orders the choice of what to swap
- * in — a white bean for a white bean first — every member stands in for
- * every other. `any` is a line that asks for beans of no kind in particular
+ * `butter` or `cranberry`. Every member stands in for every other; the kind
+ * groups them (it ordered 42m's swaps, and tells a specific bean from a
+ * mix). `any` is a line that asks for beans of no kind in particular
  * ("1 can mixed beans", "beans").
  */
 export const BEAN_KINDS: Record<string, string[]> = {
@@ -243,42 +241,4 @@ export function beanKindOf(text: string): string | undefined {
  */
 export function isFamilyBeanWords(words: string[]): boolean {
   return beanKinds({ words, na: false }) !== undefined;
-}
-
-/**
- * A line a family bean may stand in for: every alternative names a family
- * bean ("1 can black or pinto beans"), and it is no infusion's flavour.
- */
-export function isBeanLine(requirement: Requirement): boolean {
-  return (
-    !requirement.loose &&
-    requirement.alternatives.length > 0 &&
-    requirement.alternatives.every((name) => beanKinds(name) !== undefined)
-  );
-}
-
-/** A bean on hand: the entry as written and its kind. */
-export interface BeanOnHand {
-  text: string;
-  kind: string;
-}
-
-/**
- * The bean on hand to swap in for `requirement`, a bean line: one of the
- * line's own kinds first (cannellini for white beans), then any named bean,
- * then a generic one (`mixed beans`) — each in the order given. `undefined`
- * with no family bean on hand.
- */
-export function beanFor(
-  requirement: Requirement,
-  beans: BeanOnHand[],
-): BeanOnHand | undefined {
-  const kinds = new Set(
-    requirement.alternatives.flatMap((name) => beanKinds(name) ?? []),
-  );
-  return (
-    beans.find((bean) => bean.kind !== "any" && kinds.has(bean.kind)) ??
-    beans.find((bean) => bean.kind !== "any") ??
-    beans[0]
-  );
 }

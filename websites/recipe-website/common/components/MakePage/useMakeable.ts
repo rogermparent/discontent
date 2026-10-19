@@ -25,9 +25,10 @@ import {
  * The judge's options from this browser's `/make` settings — the one place a
  * page outside `/make` turns them into `analyzeMakeable`'s options, so a new
  * setting (U5's staples switch) reaches every such page by changing this.
+ * Close matches always count (43m: the switch went), the judge's default.
  */
 export function makeableOptions(settings: MakeSettings): MakeableOptions {
-  return { countClose: settings.countClose, staples: settings.staples };
+  return { staples: settings.staples };
 }
 
 export interface Makeable {

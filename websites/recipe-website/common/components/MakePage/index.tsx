@@ -45,12 +45,7 @@ import {
   type SavedInventoryProps,
   type SavedListEdit,
 } from "./SavedInventory";
-import {
-  BuyNextList,
-  CardViewSwitch,
-  MakeResults,
-  type CardContext,
-} from "./MakeResults";
+import { CardViewSwitch, MakeResults, type CardContext } from "./MakeResults";
 import { MakeTicker } from "./MakeTicker";
 import { MakeQuestion } from "./MakeQuestion";
 import { scopeRecipes } from "./scope";
@@ -81,8 +76,10 @@ import {
   featuredLines,
   featureScope,
   matcherMembers,
+  mostUsed,
   refineMatcher,
 } from "./makeMath";
+import { MakeSuggestions, type SuggestionTab } from "./MakeSuggestions";
 import { useUndoToast } from "./Toast";
 
 /**
@@ -259,9 +256,8 @@ export function MakePage({
         scopeRecipes(corpus, withoutFeatures(q), tagResolver),
         prepared,
         featuredOfQuery(q),
-        settings.countClose,
       ),
-    [corpus, tagResolver, prepared, settings.countClose],
+    [corpus, tagResolver, prepared],
   );
   const scoped = useMemo(() => scopeOf(scopeQuery), [scopeOf, scopeQuery]);
 
@@ -276,15 +272,15 @@ export function MakePage({
     [have, second],
   );
 
-  const { countClose, staples, beanSwaps } = settings;
+  const { staples } = settings;
   const analysis = useMemo(
-    () =>
-      analyzeMakeable(scoped, prepared, counted, {
-        countClose,
-        staples,
-        beanSwaps,
-      }),
-    [scoped, prepared, counted, countClose, staples, beanSwaps],
+    () => analyzeMakeable(scoped, prepared, counted, { staples }),
+    [scoped, prepared, counted, staples],
+  );
+  /* "Most used here" (43m): what the scope asks for, less what's on hand. */
+  const used = useMemo(
+    () => mostUsed({ scoped, prepared, have: counted, staples }),
+    [scoped, prepared, counted, staples],
   );
   const pulls = useMemo(
     () => pullCounts(shelfItems, analysis.canMake, prepared),
@@ -476,6 +472,42 @@ export function MakePage({
     },
     [inventory, second, setHave, showToast],
   );
+  /*
+   * The suggestions card's tab (43m): Most used while the counted list is
+   * empty, Buy next otherwise — until the visitor picks one, or taps a
+   * Most used row (building a stockpile stays on that tab). Clear forgets
+   * the pick, so it lands on Most used.
+   */
+  const [pickedTab, setPickedTab] = useState<SuggestionTab | null>(null);
+  const tab: SuggestionTab =
+    pickedTab ?? (counted.length === 0 ? "used" : "buy");
+  /*
+   * A tap in Most used (43m): as a card's missing tape adds (42m2), with
+   * Undo — but focus stays in the list, on the row that took its place, so
+   * a keyboard can add one after another (Ctrl+Z still undoes, Dh9).
+   */
+  const addUsed = useCallback(
+    (name: string) => {
+      const item = canonicalItem(name);
+      const key = inventoryKey(item);
+      setPickedTab("used");
+      if (haveRef.current.some((kept) => inventoryKey(kept) === key)) {
+        showToast(`${item} is already on this browser's list.`);
+        return;
+      }
+      inventory.add([item]);
+      setLanded(key);
+      const uncounted = settingsRef.current.source === "saved" && !!second;
+      showToast(
+        uncounted
+          ? `Added ${item} to this browser's list (not counted while Count from is the ${second.kind === "saved" ? "saved" : "house"} list).`
+          : `Added ${item}.`,
+        () =>
+          setHave(haveRef.current.filter((kept) => inventoryKey(kept) !== key)),
+      );
+    },
+    [inventory, second, setHave, showToast],
+  );
   /* "Keep only these" (42m2): the matcher out, the chosen names in its place. */
   const refine = useCallback(
     (item: string, chosen: string[]) => {
@@ -538,6 +570,8 @@ export function MakePage({
   const clearAll = useCallback(() => {
     const before = have;
     setHave([]);
+    /* Clear lands on Most used (43m): start again from what's used most. */
+    setPickedTab(null);
     /* Undo brings the list back, keeping anything added since. */
     showToast(
       `Cleared ${before.length} ${before.length === 1 ? "item" : "items"}.`,
@@ -693,8 +727,8 @@ export function MakePage({
   }, [saved, savedWrites, savedEditError, writeSaved, showToast]);
 
   const featureLines = useMemo(
-    () => featuredLines(scoped, prepared, scopeFeatured, countClose),
-    [scoped, prepared, scopeFeatured, countClose],
+    () => featuredLines(scoped, prepared, scopeFeatured),
+    [scoped, prepared, scopeFeatured],
   );
   const cardContext = useMemo<CardContext>(
     () => ({
@@ -757,46 +791,67 @@ export function MakePage({
         }
       />
     );
-  } else if (counted.length === 0) {
-    /* U6: never a fallback to another list — an invitation; Count from
-     * is where a second list is chosen, on purpose. */
-    body = (
-      <EmptyState
-        title="Tell it what you have"
-        message="Add what's in your kitchen or bar — produce, bottles, what's in the fridge — and what you can make shows up here."
-        action={
-          <div className="flex flex-wrap justify-center gap-2">
-            <Button type="button" onClick={() => inputRef.current?.focus()}>
-              Add an item
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setDialogOpen(true)}
-            >
-              Import a list
-            </Button>
-          </div>
+  } else {
+    /*
+     * U6: an empty list is never a fallback to another list — Count from is
+     * where a second list is chosen, on purpose. Since 43m it is no dead
+     * end either: the card opens on Most used here, so the list starts from
+     * what the recipes in scope ask for, one tap at a time.
+     */
+    const empty = counted.length === 0;
+    const suggestions = (
+      <MakeSuggestions
+        tab={tab}
+        onTab={setPickedTab}
+        buyNext={analysis.buyNext}
+        recipes={recipesBySlug}
+        featured={scopeFeatured}
+        kind={scopeKind}
+        onHave={(item) => addItems([item])}
+        onFeature={featureItem}
+        mostUsed={used}
+        total={scoped.length}
+        empty={empty}
+        onAddUsed={addUsed}
+        intro={
+          empty ? (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => inputRef.current?.focus()}
+              >
+                Type an item
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setDialogOpen(true)}
+              >
+                Import a list
+              </Button>
+            </div>
+          ) : undefined
         }
       />
     );
-  } else {
+    /* One tree either way, so the first tap's list keeps its focus. */
     body = (
       <>
-        <BuyNextList
-          buyNext={analysis.buyNext}
-          recipes={recipesBySlug}
-          featured={scopeFeatured}
-          kind={scopeKind}
-          onHave={(item) => addItems([item])}
-          onFeature={featureItem}
-        />
-        <div className="grid gap-4">
-          <div className="flex justify-end">
-            <CardViewSwitch value={settings.view} onChange={settings.setView} />
+        {suggestions}
+        {!empty && (
+          <div className="grid gap-4">
+            <div className="flex justify-end">
+              <CardViewSwitch
+                value={settings.view}
+                onChange={settings.setView}
+              />
+            </div>
+            <MakeResults analysis={analysis} context={cardContext} />
           </div>
-          <MakeResults analysis={analysis} context={cardContext} />
-        </div>
+        )}
       </>
     );
   }
@@ -835,7 +890,6 @@ export function MakePage({
           canMake={analysis.canMake.length}
           oneAway={analysis.oneAway.length}
           twoAway={analysis.twoAway.length}
-          beanSwap={analysis.beanSwap.length}
           kind={scopeKind}
           pending={pending}
         />
