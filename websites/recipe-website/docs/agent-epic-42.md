@@ -134,6 +134,7 @@ host, at most one retry after a 403). Nothing deleted, features untouched.
 | 42d      | M    | `agent/42d-drinks`        | 📝     | —   | `/drinks`: pour from your shelf.                                                              |
 | 42f      | M    | `agent/42f-home`          | 📝     | —   | Homepage: now and next.                                                                       |
 | 42h      | S–M  | `agent/42h-holiday-tools` | 📝     | —   | Holidays for the agents: seat, CLI, API, MCP `holiday_list` / `holiday_get`.                  |
+| 42s      | S–M  | `agent/42s-search`        | 🟡     | —   | Search without the IndexedDB wait: the index in memory, a palette loading state.              |
 | 42-close | S    | `agent/42-close`          | 📝     | —   | Close-out, CLAUDE.md bullet, backlog, memory, the morning report.                             |
 
 Ordering, in waves: **1** 42a ∥ 42b (42j and 42k's dry run alongside —
@@ -552,6 +553,224 @@ cover October to December. D7: a term under `holidays` for each of those
 with recipes (slugs from the rule keys), existing recipes attached on a
 clear reason, at most 8 imports for holidays left thin. Dry run in scratch,
 reviewed, applied through the CLI; `POST /api/revalidate` after.
+
+### 42s — Search without the IndexedDB wait (S–M)
+
+Added overnight after a design agent's first free-text search in a fresh
+browser stayed on "Searching…" for 10–31 s, while ⌘K said "No results
+found." The diagnosis (2026-10-18) traced it to FlexSearch's `IdxDB` adapter:
+its commit does one `get` and one `put` per prefix key on the main thread,
+18,257 gets and 18,881 puts for the 807-recipe corpus. That took 5–14 s on
+the workstation, longer under load. It ran in every fresh browser and in
+every browser after any content write, because the version marker moves on
+each write, and search was gated on it. The server answers in under 0.8 s.
+An in-memory build of the same index takes under 1.3 s, and a query about
+1 ms. Scope: (A) build the index in memory and fetch `/search/ingredients`
+lazily, (B) a palette loading state, (C) "Loading recipes…" in place of
+"All 0 recipes".
+
+#### Results
+
+**What changed.**
+
+- `common/components/SearchForm/searchIndex.ts` (new) is the engine, kept
+  pure so it can be tested. `buildSearchIndex` builds the same FlexSearch
+  `Document` as before (`tokenize: "forward"`; fields in the priority order
+  name > tags > ingredients > description) in memory. It yields to the page
+  whenever a slice passes a 10 ms budget, through `scheduler.yield()` or a
+  `MessageChannel`, never `setTimeout`, which background tabs clamp.
+  `searchSlugs` searches with `limit` set to the corpus size. `searchRecipes`
+  looks the slugs up in the corpus the provider holds. `store` is off, so
+  every hit carries the current `groups` and there is no stored copy that
+  can go stale. `deleteLegacySearchIndex` removes the old databases and
+  markers.
+- `SearchContext.tsx` drops the `IdxDB` mount, the probe, the
+  `/search/version` fetch and the populated-version marker. The
+  ingredients, and the build after them, start on the first free text, on
+  the ⌘K palette opening (`prefetchIndex`, a new context member), or on a
+  filter that reads ingredients. A page that searches nothing never fetches
+  `/search/ingredients`. The build waits for the ingredients to settle, so
+  an ingredient-only word never gets a premature "No matches"; the previous
+  build keeps answering during a rebuild (`keepPreviousData`, `gcTime: 0`).
+  The search itself is a synchronous `useMemo`. The browse view's
+  `displayedRecipes` stays `undefined` until `/search/all` lands, so the
+  ticker says "Loading recipes…" instead of "All 0 recipes" (C).
+  `indexReady` is gone from the context; nothing read it.
+- ⌘K (B) has an always-mounted `role="status"` line above the listbox. It
+  says "Searching recipes…" while text is typed, nothing has failed, no
+  recipe hit is showing, and the index is unbuilt or the engine has not
+  answered. Meanwhile the list is `aria-busy` and "No results found." is
+  withheld. Opening the palette, from the shortcut or the trigger, calls
+  `prefetchIndex`.
+- The old persisted index is deleted once per browser, best effort. Where
+  `indexedDB.databases()` exists, only names that are present are deleted;
+  elsewhere only when an old marker is found. A fresh browser's IndexedDB
+  is never touched. Route comments (`search/all`, `ingredients`, `groups`,
+  `terms`, `version` in both apps) are updated. **The routes are
+  unchanged.**
+
+**Decisions.**
+
+- **Ds1 — no persistence.** This reverses the IndexedDB persistence chosen
+  in the original search overhaul (`ui-overhaul.md`, "Two latent IndexedDB
+  bugs fixed": the `recipe-search-v2` rename, `clear()` before repopulate,
+  `commit: false`). It also reverses what F4a and F27 built on it
+  (`packages/cms/docs/incremental-regeneration.md` §12.8 and §12.12: "the
+  version gate holds and the index is already in IndexedDB", so a repeat
+  visit skips `/search/ingredients`). Those premises no longer hold, for
+  three reasons. The editor re-downloads `/search/all` on every load
+  anyway. Persistence saved only `/search/ingredients` (≈320 KB, ~30 ms
+  from localhost) and a build of under a second. And it cost 5–30 s of
+  serialized IndexedDB round trips in every fresh browser and after every
+  content write, which on the workstation is often. The persisted index
+  also brought two bug classes this removes: a marker outliving its
+  database (`search-index-recovery.spec`), and a schema bump needing a DB
+  rename (27d's `-v3`).
+- **Ds2 — `limit` = corpus size (the 108 vs 103 discrepancy).** See below.
+  Every query now returns every match.
+- **Ds3 — lazy ingredients.** The triggers are free text, the palette
+  opening, and an ingredient-reading filter. The palette prefetches on open
+  rather than on hover, because open is the one signal that a search is
+  coming. `/search` with no query no longer fetches them (F4a's saving, now
+  on every cold load too).
+- **Ds4 — the client stops reading `/search/version`.** Both apps keep the
+  route (`measure-corpus-caching.ts` reads it, and it is the cheap "has the
+  corpus moved" probe).
+- **Ds5 — yielding by time budget (10 ms), not by recipe count**, per
+  review: 100 recipes are ~100–150 ms on a desktop and several times that
+  on a phone, while the user is typing after ⌘K.
+
+**108 vs 103, explained.** Neither index was stale. FlexSearch's default
+`limit` is 100 per field. For "lime" the ingredients field has 107 hits,
+spread across nine resolution slots ([—, 2, 9, 9, 19, 16, 17, 19, 16]).
+
+- The in-memory index honours the limit and cuts at 100, which gives 103
+  merged hits.
+- The `IdxDB` adapter's `get` (`src/db/indexeddb/index.js` l.218–250) takes
+  `min(slot, limit)` from each slot and stops only when the count lands
+  exactly on the limit. So for one-word queries it overshot to every hit:
+  all 107, giving 108. "salt" got all 504 of its ingredient hits the same
+  way, where the in-memory default answers 120.
+- Multi-word queries go through `intersect`, which applied the limit in
+  both engines.
+
+The intended behaviour is every match: the ticker reports totals, and
+`/search` reveals them 60 at a time. So the in-memory build was the one
+missing hits, and passing `limit: corpusSize` fixes it. The vitest pins this
+with 150 + 150 synthetic hits.
+
+Measured against the old build in a browser on the real corpus (the
+workstation's, `/search/all` 333 KB):
+
+- One-word queries answer the same count and the same first 60 results: lime
+  112 = 112, salt 525 = 525, sugar 308 = 308, chicken 100 = 100, creme 9 = 9.
+- Multi-word queries now return their whole tail: "lime juice" went from 133
+  to 272, with the first 60 identical.
+
+Against a _capped_ search, ranks past ~100 regroup by field: every field's
+hits now precede the next field's, so the name > tags > ingredients >
+description tiering holds all the way down. The old build already behaved
+this way for one-word queries. `store: true` with `enrich` and `store:
+false` with slug lookup give identical results (six queries compared).
+
+**Tests.** `test/searchIndex.test.ts` (new) pins the set and order for nine
+fixture queries copied from `search-corpus`: accent folding, tag order,
+ingredient-only, field priority, position ranking within a field, suggest,
+and prefix. It also covers every match beyond 100 per field, the
+time-budget yields, the real `yieldToMain`, the groups lookup, blank text,
+and the legacy cleanup (present, absent, no `databases()`, blocked
+storage). In Playwright: `search-cold-load.spec.ts` is new (a fresh
+context's `/search?q=ginger` answers within 5 s of the corpus responses
+with no IndexedDB database created; the browse view reads "Loading
+recipes…" while `/search/all` is held; an old `flexsearch:recipe-search-v3`
+plus marker is deleted on the next load). `search-corpus-split.spec.ts` is
+rewritten: browsing skips the ingredients and free text fetches them; a
+filter-only query fetches them; a query typed while they are held stays
+"Searching…" and does not settle to "No matches"; the palette opening
+fetches them; the bare negation. `command-palette.spec.ts` gains "a cold
+palette says it is searching, never that nothing matched" (ingredients
+held, status and axe, then rows, then a no-hit word shows "No results
+found."). `drinks.spec.ts`' invitation test now opens the palette to
+produce the failing ingredients request, which nothing on `/drinks` makes
+unprompted any more. `search-index-recovery.spec.ts` is **retired**: its
+subject, a localStorage marker vouching for an IndexedDB database it
+outlived, no longer exists.
+
+**Gates** (all through the capped wrappers):
+
+- `pnpm --filter recipe-editor typecheck`: 0 errors.
+- `pnpm --filter recipe-website exec tsc --noEmit`: 0 errors.
+- `pnpm exec vitest run`: **123 files, 2,497 tests passed**, including
+  `searchIndex.test.ts`'s 10.
+- Playwright, Docker build mode, on `search-cold-load`,
+  `search-corpus-split`, `command-palette`, `drinks`, `search-autocomplete`,
+  `search-live` and `search-query-language`: **107 passed, 1 flaky**. The
+  flaky one was `search-query-language` "a half-typed query…", which failed
+  in its `beforeEach` on two tickers (42s-T1) and passed on retry.
+- The four specs whose ticker is now scoped to `<main>`, rerun in build
+  mode: **42/42 passed**.
+- All seven specs once in Docker dev mode: **108/108 passed**.
+- No baselines moved: every visual's end state is unchanged, and the new
+  status line is `sr-only` and empty when idle.
+
+**Timings**, before and after, back to back:
+
+- **Before:** the workstation on `:3000`, the pre-42s production build.
+- **After:** this branch's production build on `:3077`, against a scratch
+  clone of the content repo (the same corpus: `/search/all` 333,084 B on
+  both).
+- Diagnosis script `repro.mjs`, one fresh context per run, headless Chromium
+  at 1366 px.
+- Load average 4.0–4.7 on 8 cores throughout. The diagnosis ran at 15–24,
+  which is why its "before" was 5–7 s.
+
+| run       | `/search?q=lime` → "112 results" (from navigation) | ⌘K "lime" → recipe rows (from Ctrl+K)               | warm reload          | IndexedDB after               | long tasks |
+| --------- | -------------------------------------------------- | --------------------------------------------------- | -------------------- | ----------------------------- | ---------- |
+| before    | 4.32 / 4.22 / 4.23 s                               | 2.27 / 2.14 / 2.26 s, "No results found." till then | 0.51 / 0.43 / 0.53 s | `flexsearch:recipe-search-v3` | 439–585 ms |
+| **after** | **1.26 / 0.81 / 0.82 s**                           | **0.29 / 0.32 / 0.38 s**, never empty               | 0.76 / 0.58 / 0.68 s | none                          | 127–227 ms |
+
+- **The cold first search is 3.4–5.2× faster.** What remains is the
+  network plus a sub-second build.
+- **⌘K is ready about 7× sooner**, and never claims "No results found."
+  while it waits.
+- **A warm reload costs ~0.1–0.2 s more** than restoring from IndexedDB,
+  because each page load rebuilds the index. That cost now also replaces
+  the 5–30 s full repopulate that every content write used to trigger.
+
+**Traps.**
+
+- **42s-T1 — a hidden second copy of `/search`.** Strict mode failed on
+  two `search-ticker`s: the visible one read "All 67 recipes", and a hidden
+  one stayed on "Loading recipes…". It is the same shape as 41-Th6 (there
+  on `/make`, in dev) and was seen once, in build mode, in
+  `search-query-language`'s `beforeEach`. The aria snapshot shows one
+  ticker, so the copy is not exposed. It most likely predates 42s: a hidden
+  copy before it would have read "All 0 recipes" and failed the same way. The fix:
+  the search specs read the ticker inside `getByRole("main")`. Do the same
+  in any new spec that reads a ticker.
+- **42s-T2 — a production editor build against the real corpus can time
+  out on `/tags/[tag]`.** At load ~30, the default 7 static-generation
+  workers had three pages each take more than 60 s (`/tags/easy`,
+  `/tags/holidays`), and the build failed. A scratch-only
+  `experimental.cpus: 2` plus `staticPageGenerationTimeout: 600` built all
+  292 pages in 71 s. The change was reverted and is not committed. It
+  matters only for timing builds outside the workstation's own update.
+
+**Roger to confirm.**
+
+- Multi-word queries now return every match ("lime juice" 133 → 272). Ranks
+  past ~100 group by field; the first 60 are unchanged in every query
+  measured. One-word queries are unchanged against the old build. The
+  alternative is a cap again (`limit: 100`), which gives the in-memory
+  103-style truncation.
+- Both apps keep `/search/version`, but the client no longer reads it
+  (Ds4). Remove it in a later hygiene pass, or keep it?
+- The palette prefetches on open only, not on hovering or focusing the
+  trigger. A cold ⌘K waits ~0.3 s for the ingredients fetch and the build.
+- A browser on the old build keeps its ~5.5 MB database until it next loads
+  a 42s page, which deletes it.
+- The warm reload is ~0.1–0.2 s slower (above). A Web Worker or an idle
+  prebuild could hide it if it is ever noticed; neither was built.
 
 ### 42-close (S)
 

@@ -117,11 +117,14 @@ export function yieldToMain(): Promise<void> {
  * size keeps the 108 and lifts the same cap from multi-word queries, which
  * both engines applied.
  *
- * Past the cap the order changes too, on purpose: a field that hit 100 used
- * to let the next field's hits in ahead of its own 101st, so for a common word
- * (sugar, salt, butter) ranks past ~100 interleaved fields. Now every field's
- * hits come before the next field's — the name > tags > ingredients >
- * description tiering this index exists for, all the way down.
+ * Against a capped search the order past the cap changes too, on purpose: a
+ * field that hit 100 let the next field's hits in ahead of its own 101st, so
+ * ranks past ~100 interleaved fields. Now every field's hits come before the
+ * next field's — the name > tags > ingredients > description tiering this
+ * index exists for, all the way down. Measured against the old IndexedDB
+ * build on the real corpus, one-word queries (lime, salt, sugar, chicken)
+ * answer the same count and the same first 60; only multi-word queries grow
+ * ("lime juice" 133 → 272).
  *
  * `suggest: true` is what makes multi-word queries usable: without it a single
  * unmatched term zeroes the whole result set, so "chocolate jujube" would
