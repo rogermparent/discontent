@@ -35,13 +35,23 @@ import {
   useInventory,
   useMakeSettings,
 } from "recipe-website-common/components/MakePage/useInventory";
+import {
+  savedAdditions,
+  type SavedListEdit,
+} from "recipe-website-common/components/MakePage/SavedInventory";
 
 const HOUSE: SecondList = {
   kind: "house",
   items: ["gin", "campari", "sweet vermouth"],
 };
 
-function Shelf({ second }: { second?: SecondList }) {
+function Shelf({
+  second,
+  savedEdit,
+}: {
+  second?: SecondList;
+  savedEdit?: SavedListEdit;
+}) {
   const inventory = useInventory();
   const settings = useMakeSettings();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -61,6 +71,7 @@ function Shelf({ second }: { second?: SecondList }) {
       onClear={() => inventory.setHave([])}
       onCopySecond={() => {}}
       onToggleFeature={() => {}}
+      savedEdit={savedEdit}
       inputRef={inputRef}
       dialogOpen={dialogOpen}
       onDialogOpenChange={setDialogOpen}
@@ -171,5 +182,112 @@ describe("InventoryPanel with a house list (41h, export / guest)", () => {
 
   it("never imports the editor's saved-inventory modules", () => {
     expect(editorImports).toEqual([]);
+  });
+});
+
+/* 42a (reversing 41-Dh2): the signed-in editor's saved list, item by item. */
+describe("InventoryPanel with the saved list's per-item edits (42a)", () => {
+  const SAVED: SecondList = { kind: "saved", items: ["gin", "tonic water"] };
+
+  function editSpy(): SavedListEdit & {
+    removed: string[];
+    added: string[][];
+  } {
+    const removed: string[] = [];
+    const added: string[][] = [];
+    return {
+      pending: false,
+      removed,
+      added,
+      remove: (item) => removed.push(item),
+      add: async (items) => {
+        added.push(items);
+        return true;
+      },
+    };
+  }
+
+  async function showSecond() {
+    const source = await screen.findByRole("group", { name: "Count from" });
+    fireEvent.click(within(source).getByRole("radio", { name: /^Both/ }));
+    return screen.findByTestId("make-second-list");
+  }
+
+  it("gives each saved label a × of its own, and an add field", async () => {
+    const edit = editSpy();
+    render(<Shelf second={SAVED} savedEdit={edit} />);
+    const group = await showSecond();
+    const labels = within(group).getByRole("list", {
+      name: "The saved list",
+    });
+    for (const item of within(labels).getAllByRole("listitem")) {
+      expect(item).toHaveAttribute("data-kind", "saved");
+    }
+    fireEvent.click(
+      within(labels).getByRole("button", {
+        name: "Remove tonic water from the saved list",
+      }),
+    );
+    expect(edit.removed).toEqual(["tonic water"]);
+    /* The body still features; the × is a sibling, not nested. */
+    expect(within(labels).getByRole("button", { name: "gin" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+
+    const field = within(group).getByLabelText("Add to saved list");
+    fireEvent.change(field, { target: { value: "Campari, lime" } });
+    fireEvent.click(within(group).getByRole("button", { name: "Add" }));
+    expect(edit.added).toEqual([["Campari", "lime"]]);
+    await waitFor(() => expect(field).toHaveValue(""));
+  });
+
+  it("keeps the draft when the commit fails, and says why", async () => {
+    const edit: SavedListEdit = {
+      pending: false,
+      error: "Mid-merge: resolve it on the Git page.",
+      remove: () => {},
+      add: async () => false,
+    };
+    render(<Shelf second={SAVED} savedEdit={edit} />);
+    const group = await showSecond();
+    expect(within(group).getByRole("alert")).toHaveTextContent(
+      "Mid-merge: resolve it on the Git page.",
+    );
+    const field = within(group).getByLabelText("Add to saved list");
+    fireEvent.change(field, { target: { value: "lime" } });
+    fireEvent.submit(field.closest("form")!);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(field).toHaveValue("lime");
+  });
+
+  it("never edits a house list, even if handed the edits", async () => {
+    render(<Shelf second={HOUSE} savedEdit={editSpy()} />);
+    const group = await showSecond();
+    expect(within(group).queryByRole("button", { name: /^Remove/ })).toBeNull();
+    expect(within(group).queryByLabelText("Add to saved list")).toBeNull();
+  });
+
+  it("has no edits without them (a guest)", async () => {
+    render(<Shelf second={SAVED} />);
+    const group = await showSecond();
+    expect(within(group).queryByRole("button", { name: /^Remove/ })).toBeNull();
+    expect(within(group).queryByLabelText("Add to saved list")).toBeNull();
+  });
+});
+
+describe("savedAdditions (42a)", () => {
+  it("adds what the saved list lacks, once each, first spelling kept", () => {
+    expect(
+      savedAdditions(
+        ["Campari", "GIN", "campari", " lime ", "Tonic  Water"],
+        ["gin", "tonic water"],
+      ),
+    ).toEqual(["Campari", "lime"]);
+  });
+
+  it("adds nothing when everything is already there", () => {
+    expect(savedAdditions(["Gin"], ["gin"])).toEqual([]);
+    expect(savedAdditions([], ["gin"])).toEqual([]);
   });
 });

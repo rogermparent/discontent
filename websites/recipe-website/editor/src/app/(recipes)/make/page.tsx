@@ -20,7 +20,9 @@ import { readInventory } from "recipe-editor/controller/curation/inventory";
  * export. A signed-in session also gets the operator's saved inventory
  * (25d's committed list) as the page's second list — "Count from" offers it
  * alone or with this browser's, and "Save to editor" writes this browser's
- * list to it as one commit. A guest gets exactly the export's page, with no
+ * list to it as one commit; its labels' × and "Add to saved list" edit it
+ * item by item, one commit each (42a). A guest gets exactly the export's
+ * page, with no
  * saved list read and nothing about it in the payload: the list is private
  * to the content repo's remote, and this is a page that would otherwise
  * leak it.
