@@ -321,6 +321,13 @@ Noise-only rewrites were restored: `git-page` (5 px), both `edit-form-*`
   `websites/resume-builder/**`) runs it on this PR. The change there is the
   `--font-sans` stack alone, and nothing in its specs asserts on fonts.
 - lint-staged (prettier + eslint) ✓ on commit.
+- After the 42c1 merge: both typechecks ✓. The regeneration run in Docker
+  build mode had **255 passed, 1 flaky**: `visual` "search page with no
+  query" saw two copies of the search field (a stale second page, the
+  Tf5 shape) and passed on retry #2; this phase doesn't touch it. The
+  check run without `--update-snapshots`, in Docker build mode, over
+  `visual`, `mobile`, `recipe-cooking-order`, `recipe`, `make` and
+  `accessibility`: **157 passed**, no retries.
 
 **Backlog:** no row matches 42a, so nothing is struck.
 
