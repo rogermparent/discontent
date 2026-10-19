@@ -7,7 +7,6 @@ import type {
   InstructionEntry,
 } from "../../../controller/types";
 
-import Markdown from "@discontent/component-library/components/Markdown";
 import { cn } from "@discontent/component-library/lib/utils";
 import { Multiplyable } from "../Multiplier/Multiplyable";
 import { VideoTime } from "./VideoTime";
@@ -18,6 +17,8 @@ import { IngredientLineText } from "../Ingredients";
 import { stepNumbers } from "../../../util/stepNumbers";
 import type { StepLines } from "../../../util/stepIngredients";
 import { stepId } from "./stepId";
+import { StepText } from "../Timers";
+import { stepPlainText } from "../../../util/stepPlainText";
 
 const stepComponents = {
   Multiplyable: { component: Multiplyable },
@@ -101,8 +102,15 @@ function StepItem({
           </StepHeading>
         )}
         <label className="flex flex-row flex-nowrap items-center gap-2 print:h-auto">
-          <Checkbox className="m-2 shrink-0" />
-          <Markdown components={stepComponents}>{text}</Markdown>
+          {/* Named by the words alone (42c2): the label also holds the
+              step's timer buttons, whose countdowns change twice a second. */}
+          <Checkbox className="m-2 shrink-0" aria-label={stepPlainText(text)} />
+          {/* One flex item: the timer rule splits the text into pieces,
+              and markdown-to-jsx returns them unwrapped, so each would be
+              its own item of this no-wrap row (sideways scroll on a phone). */}
+          <span>
+            <StepText text={text} step={number} components={stepComponents} />
+          </span>
         </label>
         {uses && <StepUses lines={uses} ingredients={ingredients} />}
       </div>
