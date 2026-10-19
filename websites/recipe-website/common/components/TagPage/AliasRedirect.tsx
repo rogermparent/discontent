@@ -23,11 +23,14 @@ import {
 export function TagAliasRedirect({
   alias,
   target,
+  base = "/tags",
 }: {
   alias: string;
   target: { slug: string; label: string };
+  /** Where the target's page lives: `/tags`, or `/holidays` (42e). */
+  base?: string;
 }) {
-  const href = `/tags/${target.slug}`;
+  const href = `${base}/${target.slug}`;
   const router = useRouter();
   useEffect(() => {
     router.replace(href);

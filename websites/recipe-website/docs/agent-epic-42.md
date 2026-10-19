@@ -751,4 +751,143 @@ workstation update`, from the morning report's list.
 
 ## Traps
 
+### 42e
+
+- **Te1 — `react-hooks/refs` refuses a ref inside an object.** The first
+  cut of the shared kind menu was a hook returning `{open, wrapRef,
+buttonRef, …}` and two components taking it as a prop; the React
+  compiler's lint flags every property read on that object during render
+  ("Cannot access refs during render"), even `menu.open`. Element state
+  through callback refs trips `set-state-in-effect` instead. What passes:
+  one component owning its refs, with the heading as a render prop
+  (`KindMenu`'s `children(word)`).
+- **Te2 — a holiday's alias can carry another holiday's rule.** 42k's
+  `new-years` term lists `new-years-eve` as an alias, and `new-years-eve`
+  has its own rule (31 December). The rule lookup is slug first, then
+  aliases in order (`holidayRuleKey`), so New Year's is 1 January; a lookup
+  that tried aliases first, or merged them, would date it a day early.
+- **Te3 — the kind change is `history.replaceState`, not
+  `router.replace`.** On the editor `router.replace("?kind=…")` re-requests
+  the page's RSC payload for a change only the browser cares about; Next
+  keeps `useSearchParams` in step with the History API, so the page
+  narrows without a round trip, on the export too.
+
 ## Results
+
+### 42e — Holidays: the almanac and the menu pages
+
+**What changed.**
+
+- **`/holidays`, the almanac** (homepage canvas C): a header ("The year
+  ahead · N holidays", today's date), a ruler of the next 365 days from
+  `md` up — a tick on the first of each month with the year on January,
+  a dot per dated holiday, labels stacked in up to three lanes when they
+  crowd (`rulerLanes`: Christmas and New Year's) — then **Next up**, three
+  countdown cards (the soonest larger, its number in the accent; picture,
+  date, "9 dishes · 3 drinks", its first three recipes pinned first, "The
+  Halloween menu"), **Later in the year** as one row each, and **Any time**
+  for holidays with no rule. Files: `common/components/HolidaysPage/`
+  (`index.tsx`, `Almanac.tsx`).
+- **`/holidays/<slug>`, the menu** (/drinks canvas C, generalised): the
+  "Holidays · counts" eyebrow and the holiday's date over the headline
+  "**13** days to Halloween.", the record's description and picture, four
+  lead cards of the kind shown (pinned first), "Then Christmas, in 68 days
+  — 1 drink." to the next holiday's menu, then **On the menu:
+  _recipes_** — the kind word is `/make`'s kind menu — with dot-leader
+  groups in newspaper columns: dishes by course, drinks by style, "More"
+  for the rest, each line's right-hand side the dish's main ingredient or
+  the drink's spirit. With both kinds shown, the groups sit under Dishes
+  and Drinks. "What can I make?" goes to `/make?q=` + `withKind(tag:<slug>,
+kind)`. Files: `HolidayMenu.tsx`, `HolidayMenuPage.tsx`.
+- **Data:** `common/controller/holidaysPage.ts` (pure: `holidayEntries`,
+  `holidayMenuData`, `almanacView`, `rulerLanes`, `holidayAfter`,
+  `menuGroups`, `menuCourses`, `holidayAliasTarget`) and
+  `controller/data/readHolidays.ts` (the tree, each holiday's record, one
+  cached by-term row per key of the holidays' subtrees — `/drinks`' and
+  the term page's pattern). `util/holidays.ts` gains `holidayRuleKey` (slug,
+  then aliases), an optional `rule` on items for `orderByNextOccurrence` /
+  `withinComingUpWindow` / `nextSeasonal` (unchanged without it),
+  `formatDayShort`, `formatMonthTick`, `addDays`.
+- **Routes in both apps:** `editor/src/app/(recipes)/holidays/page.tsx`,
+  `holidays/[slug]/page.tsx`, and the export's, defined once in
+  `HolidaysPage/routes.tsx`. The export's `generateStaticParams` emits
+  every holiday and every alias of one; with none, one `_` placeholder that
+  answers 404 (the `generateTagStaticParams` guard).
+- **The kind menu** moved out of `MakeQuestion` into
+  `MakePage/KindMenu.tsx` (Te1), markup and behaviour unchanged; `SLOT` is
+  exported for the holiday heading.
+- **Links:** a holiday's term page says "See the Halloween menu", the
+  `holidays` root's "The almanac: every holiday, by date"
+  (`TagPage/shared.tsx`); the footer's default Browse column gains
+  Holidays after Drinks on a site that has a `holidays` root with a child
+  (`AppLayout`, a cached tree read in a try/catch; `NAV_ICONS` gets
+  `calendar-heart`). `TagAliasRedirect` takes a `base` for the export's
+  alias pages.
+
+**Decisions.**
+
+- **De1 — dates per D4, by slug then alias.** A holiday child with no
+  rule is undated and last ("Any time"); a holiday further than 365 days
+  off (a late Easter after an early one) keeps its card but no dot.
+- **De2 — today is the browser's (U1).** The server's day orders the
+  first render; countdown numbers and today's date wait for the browser's
+  day (`useToday(null)`), so the export's HTML never prints a stale number.
+  Dates are `<time>` (masked in baselines).
+- **De3 — only holidays with recipes** are on the almanac (plans alone do
+  not count: the menu lists recipes). A holiday child with none still has
+  a menu page that says so.
+- **De4 — the kind lives in `?kind=<word>`** (`dishes`, `drinks`; none for
+  recipes), read with `useSearchParams` under a `Suspense` whose fallback
+  is the whole menu — the export's static HTML.
+- **De5 — course order is a meal's** (`MENU_COURSE_ORDER`: breakfast,
+  snacks, soup, salad, mains, sides, bread, sauces, desserts; other
+  courses after, in tree order); styles keep `DRINK_STYLE_SLUGS`' order. A
+  recipe in two courses goes under the earlier in that order, whatever
+  order its tags are in (`earliestTerm`; a dessert-and-breakfast pie is
+  breakfast); a drink in two styles likewise.
+- **De6 — the right-hand side of a menu line** is the dish's main
+  ingredient or the drink's spirit, not a time: the by-term rows carry no
+  times, and adding them would change the tag index's projection (a
+  reindex).
+- **De7 — an alias redirects.** `/holidays/christmas-cookies` → the
+  editor redirects; the export emits a page that sends the reader on. A
+  slug that is neither a holiday nor an alias of one is a 404.
+- **De8 — `TimelineStrip` was not reused.** It draws one recipe's
+  schedule as proportional segments; the almanac is a calendar ruler with
+  points. A new `Ruler` inside `Almanac.tsx` rather than a fork.
+- **De9 — no masthead link.** Six destinations fill the masthead at `md`,
+  and a masthead change moves every full-page baseline; the almanac is in
+  the footer — only on sites with holidays, so only `drinks-bar`'s footer
+  moved (both `drinks-page` baselines, e2e and mobile, regenerated) — and
+  linked from the term pages.
+
+**Roger to confirm.** De3 (plans don't put a holiday on the almanac);
+De5's course order; De6 (main ingredient / spirit at the end of the
+dotted line); De9 (footer only — a masthead or ⌘K palette entry is a
+small follow-up); the homepage's "All holidays" still goes to
+`/tags/holidays` — 42f's redesign links the almanac.
+
+**Gates** (2026-10-19, all through the capped heavy slot).
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit`: clean.
+- vitest: 120 files, 2434 tests passed (new: `test/holidaysPage.test.ts` —
+  rule lookup by slug then alias incl. 42k's `new-years` shape, almanac
+  order and undated last, the 365-day ruler across a year end, a late
+  Easter off the ruler, label lanes, the next holiday, menu grouping by
+  course and style with More, pins first, a two-course dish under the
+  earlier course, kinds, alias targets).
+- Export build (`next build`, `output: "export"`) against a scratch copy
+  of `drinks-bar`: `○ /holidays`, `● /holidays/halloween`,
+  `● /holidays/christmas` prerendered as static HTML; the index's footer
+  links `/holidays`.
+- Playwright in Docker, build mode: holidays, accessibility, drinks, make,
+  tag-pages, footer, homepage-browse, menus — **173 passed**. Dev mode
+  once (Docker): holidays and accessibility — **76 passed**.
+- Baselines (Docker): new `holidays-almanac` and `holidays-menu`, e2e and
+  mobile, on the frozen clock; `drinks-page` e2e and mobile moved (the
+  footer's Holidays link, nothing else). Each opened and compared with its
+  canvas: the almanac is canvas C's "The season" (ruler, big countdowns,
+  cards) as a page; the menu is the /drinks canvas C's hero and dot-leader
+  menu. With the fixture's two holidays the Next up row has an empty third
+  column, and every picture is a monogram (the fixture has no photos).
