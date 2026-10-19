@@ -27,8 +27,10 @@ import {
 } from "../../config/site";
 import { HeaderNav, FooterNav, PhoneTabBar, type FooterColumn } from "./nav";
 import { fontVariables } from "./fonts";
-import { SITE_NAV } from "./siteNav";
+import { HOLIDAYS_HREF, SITE_NAV } from "./siteNav";
 import { recipePages } from "../../controller/data/readRecipePages";
+import { tagTermReads } from "../../controller/data/readTagTerms";
+import { holidayChildren } from "../../controller/holidaysPage";
 
 // Reader-facing default footer menu. Owner/management links (New Recipe,
 // Settings, Content Sync, Sign In/Out) no longer live here — they render in the
@@ -181,9 +183,42 @@ interface SiteFooterProps {
   footer?: SiteFooterConfig;
 }
 
+/**
+ * Whether the site has holidays (42e) — a `holidays` root with a child — so
+ * the default footer links the almanac. A tree read the term pages already
+ * cache; a site that has no tag index yet has no holidays, and a footer must
+ * not take the page down over a link (F30: the read creates nothing).
+ */
+async function readHasHolidays(): Promise<boolean> {
+  try {
+    return holidayChildren(await tagTermReads.tree.read()).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The reader's default Browse column: `defaultFooterItems`, plus Holidays
+ * after Drinks on a site that has them — so every fixture and site without
+ * a `holidays` root keeps the footer it had.
+ */
+function withHolidays(items: MenuItem[], hasHolidays: boolean): MenuItem[] {
+  if (!hasHolidays) return items;
+  const at = items.findIndex((item) => item.href === "/drinks") + 1;
+  return [
+    ...items.slice(0, at),
+    { name: "Holidays", href: HOLIDAYS_HREF },
+    ...items.slice(at),
+  ];
+}
+
 async function SiteFooter({ ownerLinks, footer }: SiteFooterProps) {
-  const footerMenu = await getMenuBySlug<MenuItem>("footer");
-  const footerItems = footerMenu?.items || defaultFooterItems;
+  const [footerMenu, hasHolidays] = await Promise.all([
+    getMenuBySlug<MenuItem>("footer"),
+    readHasHolidays(),
+  ]);
+  const footerItems =
+    footerMenu?.items || withHolidays(defaultFooterItems, hasHolidays);
   const columns = buildFooterColumns(footerItems);
   const { title, description } = getSiteConfig();
   const year = new Date().getFullYear();
