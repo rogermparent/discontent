@@ -375,7 +375,31 @@ workstation update`, from the morning report's list.
 - **Tg3 — A scroll spy never reaches the last aisle on a short page.** The
   last section can't scroll up to the bar, so "the last section whose top
   passed the bar" stays on the one before it. When the page is scrolled to
-  the end, the last aisle is current.
+  the end, the last aisle is current. The spy picks by position, not rail
+  order, because done aisles fold away above the open ones.
+- **Tg4 — An sr-only suffix across flex items gains a space.** Chrome reads
+  `Buy anyway<span class="sr-only">: salt</span>` inside an `inline-flex`
+  button as "Buy anyway : salt". An `aria-label` fixes the spacing, but
+  only if its visible text is the start of the name. If the visible text
+  sits elsewhere, as the rail's "Pantry" plus "4" did, axe's
+  `label-content-name-mismatch` fails. The rail chips stay named by their
+  content, with sr-only words, and their specs match the name with
+  `/^Pantry ?4 left$/`.
+- **Tg5 — Pinned bars break full-page screenshots and axe.** A full-page
+  capture paints a sticky bar part-way down the page.
+  - Shop's baselines are viewport captures taken from the top
+    (`inView()` in `shopping-modes.spec.ts`).
+  - Axe's `target-size` rule calls a control scrolled under a pinned bar
+    "partially obscured", which depends on where the page stopped. The
+    in-store a11y sweep runs in a viewport tall enough not to scroll.
+- **Tg6 — `common/` may not contain the text "on-hand", not even in a
+  comment.** `test/inventory.test.ts` greps every `common/` and `export/`
+  source for it, as its boundary check that the export never reads the
+  shared inventory. Write "probably on hand".
+- **Tg7 — An optimistic control for Playwright's `check()`.** A controlled
+  checkbox that waits for the server's answer fails `uncheck()` with
+  "Clicking the checkbox did not change its state". Show the new state
+  while the write is out.
 
 ## Results
 
@@ -534,10 +558,37 @@ confirm-in-place remove. The per-browser state lives in `shopState.ts`.
     Buy anyway, the switches beside the list, and the mode remembered.
   - Four `@visual` baselines.
 
-**Gates.** _Pending the heavy seat._
+**Gates** (all through the capped slot):
 
-**Baselines.** _Pending the heavy seat. New: `shopping-plan-e2e`,
-`shopping-shop-e2e`, `shopping-plan-mobile`, `shopping-shop-mobile`._
+- `pnpm --filter recipe-editor typecheck` and
+  `pnpm --filter recipe-website exec tsc --noEmit` both clean on the final
+  head.
+- `pnpm exec vitest run`: 2432/2433 the first time. The one failure was
+  `inventory.test`'s boundary grep (Tg6), fixed by rewording two comments.
+  Then the inventory, shopping, shoppingView, tick-sync, tick-queue and
+  shoppingPage files ran at 162/162.
+- `shoppingView`, `shoppingTickSync` and `shoppingTickQueue` are unchanged
+  and green.
+- Playwright in Docker, production build (`DOCKER=1 heavy-pw.sh … shopping
+accessibility.spec`): `shopping.spec`, `shopping-modes.spec` and
+  `accessibility.spec`, e2e and mobile, **87/87**.
+- The same specs in dev mode (`docker-pw.sh` without `PLAYWRIGHT_BUILD`):
+  **87/87**.
+- The CLI/MCP `shopping_get` path (`readShoppingView`) is untouched, so no
+  byte check was needed.
+
+**Baselines (new, Docker only):**
+
+- `shopping-plan-e2e`: a full page, with the panels beside the list by
+  aisle and Probably on hand with Buy anyway.
+- `shopping-shop-e2e`: the viewport.
+- `shopping-plan-mobile`: the viewport, panels and Start shopping.
+- `shopping-shop-mobile`: the viewport, with the store bar, rail, progress,
+  a struck row and the bottom bar above the tab bar.
+
+Each one was opened and compared with B-desktop, B-phone and
+B-plan-phone. The layout, order and copy follow the boards. The numbers
+are the fixture's own.
 
 **Roger to confirm.**
 
