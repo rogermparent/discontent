@@ -307,6 +307,55 @@ test.describe("Command palette — search depth", () => {
     ).toHaveCount(1);
   });
 
+  /*
+   * 42s. A fresh browser used to spend 5–30 s populating an IndexedDB copy of
+   * the index, and the palette said "No results found." for all of it. The
+   * index is built in memory now, but a cold palette still waits a moment for
+   * the ingredients and the build — and holding the ingredients here stretches
+   * that moment so the status can be looked at.
+   */
+  test("a cold palette says it is searching, never that nothing matched", async ({
+    page,
+  }) => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route("**/search/ingredients", async (route) => {
+      await held;
+      await route.continue();
+    });
+
+    await page.goto("/");
+    await openPalette(page);
+    await paletteInput(page).fill("ginger");
+
+    const searching = page.getByTestId("palette-searching");
+    await expect(searching).toHaveText("Searching recipes…", {
+      timeout: SEARCH_TIMEOUT,
+    });
+    await expect(searching).toHaveAttribute("role", "status");
+    // Past the debounce, with the query committed and still nothing claimed.
+    await expect(page.getByTestId("palette-list")).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    await expect(page.getByText("No results found.")).toHaveCount(0);
+    await axeClean(page);
+
+    release();
+    await expect(recipeRow(page, "Ginger Cookies")).toBeVisible({
+      timeout: SEARCH_TIMEOUT,
+    });
+    await expect(searching).toHaveCount(0);
+    await expect(page.getByText("No results found.")).toHaveCount(0);
+
+    // Once the index answers, a word that matches nothing says so.
+    await paletteInput(page).fill("zzqxj");
+    await expect(page.getByText("No results found.")).toBeVisible({
+      timeout: SEARCH_TIMEOUT,
+    });
+    await expect(searching).toHaveCount(0);
+  });
+
   test("rows carry the description and the matched ingredient", async ({
     page,
   }) => {

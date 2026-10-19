@@ -4,14 +4,13 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Document } from "flexsearch";
-import IdxDB from "flexsearch/db/indexeddb";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { MassagedRecipeEntry } from "../../controller/data/read";
 import type { GroupSearchEntry } from "../../controller/data/readGroupSearchCorpus";
 import type { SearchTerm } from "../../controller/data/readTermPage";
@@ -28,6 +27,12 @@ import {
   type ParsedQuery,
 } from "./queryLanguage";
 import { tagWordMatch } from "./tagMatch";
+import {
+  buildSearchIndex,
+  deleteLegacySearchIndex,
+  searchRecipes,
+  yieldToMain,
+} from "./searchIndex";
 
 // --- sessionStorage-backed state via useSyncExternalStore ---
 
@@ -65,49 +70,14 @@ const getQuerySnapshot = () => readSession(QUERY_KEY);
 const getInputSnapshot = () => readSession(INPUT_KEY);
 const getServerSnapshot = () => "";
 
-// --- localStorage-backed last-populated index version ---
-// Lives in localStorage (not sessionStorage) so it persists alongside the
-// IndexedDB-cached FlexSearch index across sessions.
+// --- localStorage-backed recent searches ---
+//
+// (The search index itself lives in memory since 42s — see `searchIndex.ts`.
+// Its old IndexedDB database and the localStorage marker that vouched for it
+// are deleted once per browser by `deleteLegacySearchIndex`.)
 
 const LOCAL_EVENT = "recipe-search-local";
 const RECENT_SEARCHES_KEY = "search-recent";
-
-/**
- * IndexedDB database name for the persisted FlexSearch index.
- *
- * **Bump the suffix whenever the indexed field set changes.** FlexSearch's
- * `IdxDB` adapter hard-codes its schema version at 1 and only creates its
- * object stores inside `onupgradeneeded`, which fires once per origin+DB name —
- * so adding a field to `document.index` against an existing database leaves its
- * `map:<field>` store uncreated and the first transaction throws
- * `NotFoundError`. A new name is the only thing that forces a clean create; the
- * `POPULATED_VERSION_KEY` check below can't help, because it gates *populating*
- * a database that has already been opened with the wrong schema.
- *
- * v3 (27d): the stored documents gained `sourceName`/`sourceHost` for the
- * `source:` filter. They are stored rather than indexed, so no `map:` store is
- * missing — the bump is so no browser keeps filtering `source:` over documents
- * stored before the fields existed, whatever its populated-version key says.
- */
-const SEARCH_DB_NAME = "recipe-search-v3";
-
-/**
- * Corpus version last populated into `SEARCH_DB_NAME`.
- *
- * **Namespaced by the database name on purpose.** This marker lives in
- * localStorage while the index it vouches for lives in IndexedDB, so a bare key
- * outlived the database it described: bumping `SEARCH_DB_NAME` above mounted a
- * new, *empty* database while the old marker still claimed the corpus was
- * current, leaving `needsRefetch` false and the populate skipped. Search then
- * ran against nothing — zero results, no error, no spinner, permanently.
- *
- * It only bit deployments whose corpus was unchanged across the rebuild, since
- * the version string is `data.mdb`'s mtime+size: a dev machine edits recipes
- * constantly, so its version moved and repopulated, masking the whole thing.
- * Tying the two names together means a database bump can no longer leave a
- * marker behind to lie about it.
- */
-const POPULATED_VERSION_KEY = `search-populated-version:${SEARCH_DB_NAME}`;
 
 /** How many committed queries the RECENT row remembers. */
 const MAX_RECENT_SEARCHES = 6;
@@ -121,18 +91,6 @@ function subscribeLocal(callback: () => void) {
   };
 }
 
-function getPopulatedVersion() {
-  return localStorage.getItem(POPULATED_VERSION_KEY);
-}
-
-function writePopulatedVersion(version: string) {
-  localStorage.setItem(POPULATED_VERSION_KEY, version);
-  window.dispatchEvent(new Event(LOCAL_EVENT));
-}
-
-const getPopulatedVersionServerSnapshot = () => null;
-
-// --- localStorage-backed recent searches ---
 // Stored as a raw JSON string so useSyncExternalStore's snapshot stays a stable
 // primitive; the array is parsed once per change via useMemo below.
 
@@ -187,10 +145,11 @@ async function fetchAllRecipes(): Promise<MassagedRecipeEntry[]> {
  * The heavy half, `Record<slug, string[]>`, fetched only on demand (F4a).
  *
  * It was ~80% of the corpus document — 199 of 247 KiB across the 436-recipe
- * corpus — and nothing renders from it: FlexSearch consumes it once per corpus
- * version, and `ingredient:` filters read it. Both are conditions, so this is a
- * conditional fetch, and an ordinary page load that finds a current index in
- * IndexedDB never makes it.
+ * corpus — and nothing renders from it: the free-text index is built from it,
+ * and `ingredient:` filters read it. Both are conditions, so this is a
+ * conditional fetch (42s: the first free text, the palette opening, or a
+ * filter that reads ingredients), and a page load that searches nothing never
+ * makes it.
  */
 export async function fetchIngredients(): Promise<Record<string, string[]>> {
   const res = await fetch("/search/ingredients");
@@ -216,12 +175,6 @@ async function fetchGroups(): Promise<GroupSearchEntry[]> {
 async function fetchTerms(): Promise<SearchTerm[]> {
   const res = await fetch("/search/terms");
   return res.json();
-}
-
-async function fetchIndexVersion(): Promise<string> {
-  const res = await fetch("/search/version");
-  const { version } = (await res.json()) as { version: string };
-  return version;
 }
 
 // --- context ---
@@ -261,20 +214,26 @@ export interface SearchContextValue {
   /**
    * Results to display: the engine's ranked matches for the query's free text
    * (or the whole corpus, when it has none), narrowed by the query's filter.
-   * `undefined` while still resolving.
+   * `undefined` while still resolving — including the browse view before the
+   * corpus lands, so nothing reports "All 0 recipes" (42s).
    */
   displayedRecipes: MassagedRecipeEntry[] | undefined;
   /** Add or remove a `tag:` term in the query — the one chip mutation path. */
   toggleTagTerm: (tag: string) => void;
-  indexReady: boolean;
-  /** True once the index is mounted and populated, i.e. safe to search. */
+  /** True once the in-memory index is built, i.e. safe to search. */
   indexPopulated: boolean;
+  /**
+   * Start fetching the ingredients and building the index before any free
+   * text arrives — the ⌘K palette calls it on open (42s). Free text and an
+   * `ingredient:` filter start it on their own.
+   */
+  prefetchIndex: () => void;
   /** A query is active and we are still building the index or running it. */
   isSearching: boolean;
   isFetching: boolean;
   status: "pending" | "success" | "error";
   error: Error | null;
-  /** Re-fetch recipes/version after a failure. */
+  /** Re-fetch the corpus documents after a failure. */
   retry: () => void;
   setInputValue: (value: string) => void;
   submitSearch: (query: string) => void;
@@ -294,61 +253,11 @@ export interface SearchProviderProps {
 }
 
 export function SearchProvider({ children }: SearchProviderProps) {
-  // Stable Document instance.
-  //
-  // `index` is **priority-ordered**, not just a field list: `search(q, {merge:
-  // true})` returns merged hits in `document.index` declaration order, so a name
-  // hit outranks a tag hit outranks an ingredient hit outranks a description-only
-  // hit — natively, with no JS re-tiering. (FlexSearch has no per-field weight,
-  // and `Resolver` boosts are a verified no-op, so declaration order is the only
-  // lever that works.)
-  //
-  // `commit: false` turns off the adapter's 1 ms autocommit timer, so the bulk
-  // populate below isn't punctuated by a write per `update()`; we commit once at
-  // the end. The default encoder already NFKD-normalizes and strips diacritics,
-  // so "creme" matches "Crème Brûlée" without a phonetic charset.
-  const [index] = useState<Document>(
-    () =>
-      new Document({
-        preset: "default",
-        tokenize: "forward",
-        commit: false,
-        document: {
-          store: true,
-          id: "slug",
-          index: ["name", "tags", "ingredients", "description"],
-        },
-      }),
-  );
-
-  // Step 1: mount IndexedDB persistent storage
-  const { data: mountedIndex } = useQuery({
-    queryKey: ["search-index-mount"],
-    queryFn: async () => {
-      await index.mount(new IdxDB(SEARCH_DB_NAME));
-      return index;
-    },
-    staleTime: Infinity,
-    gcTime: Infinity,
-  });
-  const indexReady = !!mountedIndex;
-
-  // Step 2: check the current server-side index version. Cheap stat-based
-  // endpoint; always revalidated so a fresh page load sees fresh data.
-  const versionQuery = useQuery({
-    queryKey: ["search-index-version"],
-    queryFn: fetchIndexVersion,
-    staleTime: 0,
-    gcTime: Infinity,
-  });
-  const serverVersion = versionQuery.data;
-
-  // Last version we successfully populated into the IndexedDB-cached index.
-  const populatedVersion = useSyncExternalStore(
-    subscribeLocal,
-    getPopulatedVersion,
-    getPopulatedVersionServerSnapshot,
-  );
+  // Free the old persisted index (pre-42s) once per browser. Best effort, off
+  // the critical path, and it sets no state.
+  useEffect(() => {
+    void deleteLegacySearchIndex();
+  }, []);
 
   // sessionStorage-backed query / inputValue. Read up here, ahead of the
   // fetches, because the parsed filter is one of the two things that decides
@@ -371,11 +280,9 @@ export function SearchProvider({ children }: SearchProviderProps) {
   const parsedQuery = useMemo(() => parseQuery(query), [query]);
   const { text: searchText, filter } = parsedQuery;
 
-  // Step 3: fetch the display corpus. Still unconditional (not just on a stale
-  // index) because the tag filter rail and the no-query browse view both need
-  // the full corpus — the recipe list, with tags, drives those directly. The
-  // version check still gates the expensive FlexSearch *populate* below, so a
-  // current cache skips re-indexing even though the list is fetched.
+  // Step 1: fetch the display corpus. Unconditional, because the tag filter
+  // rail and the no-query browse view both need the full corpus — the recipe
+  // list, with tags, drives those directly.
   //
   // What it no longer carries is `ingredients` (F4a): the one field on this
   // path that nothing renders, and four fifths of its bytes.
@@ -385,7 +292,7 @@ export function SearchProvider({ children }: SearchProviderProps) {
     staleTime: Infinity,
   });
 
-  // Step 3a: fetch the groups. Unconditional like the display corpus and for
+  // Step 1a: fetch the groups. Unconditional like the display corpus and for
   // the same reason — the idle rail and the group strip both render from it
   // before anything is typed — but a separate document, because a group write
   // moves this and moves nothing on `/search/all` (22f).
@@ -399,7 +306,7 @@ export function SearchProvider({ children }: SearchProviderProps) {
   // let the pipeline move rather than leaving `group:` pending forever.
   const groupsSettled = groupsQuery.isSuccess || groupsQuery.isError;
 
-  // Step 3b′: fetch the terms (31b). The same unconditional fetch, and the same
+  // Step 1b: fetch the terms (31b). The same unconditional fetch, and the same
   // settled-not-successful gate: a failed fetch lets `tag:` fall back to its
   // plain prefix match rather than pending forever.
   const termsQuery = useQuery({
@@ -443,10 +350,10 @@ export function SearchProvider({ children }: SearchProviderProps) {
     [groupsByRecipe],
   );
 
-  // Decorated *here*, ahead of `allTags`, `allRecipes` and the FlexSearch
-  // populate, so every consumer downstream sees one corpus rather than two
-  // shapes of it. `groups` is never an indexed field — it rides along in the
-  // document store, and the filter reads it from there.
+  // Decorated *here*, ahead of `allTags`, `allRecipes` and the index build, so
+  // every consumer downstream sees one corpus rather than two shapes of it.
+  // `groups` is never an indexed field — engine hits are looked up in this
+  // corpus by slug, and the filter reads it from there.
   const displayRecipes = useMemo(
     () => decorateGroups(recipesQuery.data ?? []),
     [recipesQuery.data, decorateGroups],
@@ -465,50 +372,20 @@ export function SearchProvider({ children }: SearchProviderProps) {
     [allTerms],
   );
 
-  // Step 3b: trust, but verify.
-  //
-  // A matching version says the mounted database already holds the corpus — but
-  // the marker saying so lives in localStorage while the index itself lives in
-  // IndexedDB, and a browser can drop one without the other (eviction under
-  // storage pressure, a database bump, a commit that never finished). Whenever
-  // they diverge, a matching version vouches for an empty index and search
-  // returns nothing at all, with no error to surface and no spinner to explain
-  // it. Probing one slug we know the corpus contains catches every such case for
-  // a single `reg`-store read, and costs nothing on the healthy path.
-  // (The display corpus is enough: a probe only needs one slug it knows is in
-  // the corpus, and slugs are on that half.)
-  const probeSlug = displayRecipes[0]?.slug;
-  const probeEnabled = !!mountedIndex && !!probeSlug;
-  const probeQuery = useQuery({
-    queryKey: ["search-index-probe", SEARCH_DB_NAME, probeSlug],
-    // (`Promise.resolve` because the typings only widen `contain()` to a promise
-    // when the storage generic is set explicitly; mounted, it really is async.)
-    queryFn: async () => Promise.resolve(mountedIndex!.contain(probeSlug!)),
-    enabled: probeEnabled,
-    staleTime: Infinity,
-    gcTime: Infinity,
-  });
+  // Step 2: is the free-text engine wanted yet? (42s) Free text in the query
+  // wants it, and so does the ⌘K palette opening (`prefetchIndex`), which
+  // starts the fetch and the build while the first word is still being typed.
+  // A page that searches nothing — the homepage, a recipe — pays for neither.
+  // Once wanted it stays wanted: clearing the field keeps the built index.
+  const [prefetchRequested, setPrefetchRequested] = useState(false);
+  const prefetchIndex = useCallback(() => setPrefetchRequested(true), []);
+  const indexWanted = !!searchText || prefetchRequested;
 
-  // A failed probe counts as missing: if we cannot read the database we cannot
-  // claim it is current, and repopulating is the cheap, safe direction to err in.
-  const indexEmpty =
-    probeEnabled && (probeQuery.isError || probeQuery.data === false);
-  // Nothing to verify when the corpus is empty; otherwise wait for the verdict
-  // before letting anything downstream call the index ready.
-  const probeSettled =
-    !probeEnabled || probeQuery.isSuccess || probeQuery.isError;
-
-  // Repopulate when the server's corpus moved past what we last populated, or
-  // when the probe says the database is not actually holding it.
-  const needsRefetch =
-    serverVersion !== undefined &&
-    (serverVersion !== populatedVersion || indexEmpty);
-
-  // Step 3c: fetch the ingredients — but only when something actually needs
+  // Step 3: fetch the ingredients — but only when something actually needs
   // them (F4a). Two things can:
   //
-  //  - the index is about to be (re)populated, since `ingredients` is one of
-  //    the four indexed fields; or
+  //  - the index is wanted, since `ingredients` is one of the four indexed
+  //    fields; or
   //  - the active filter reads them, which a filter-only `ingredient:beef`
   //    does without ever touching the engine.
   //
@@ -520,7 +397,7 @@ export function SearchProvider({ children }: SearchProviderProps) {
     () => filterUsesField(filter, "ingredient"),
     [filter],
   );
-  const needsIngredients = needsRefetch || filterNeedsIngredients;
+  const needsIngredients = indexWanted || filterNeedsIngredients;
   // The same gate for groups. The document itself is fetched unconditionally,
   // so this only decides whether the *results* may be shown before it lands.
   const filterNeedsGroups = useMemo(
@@ -542,11 +419,12 @@ export function SearchProvider({ children }: SearchProviderProps) {
     staleTime: Infinity,
   });
   // Settled, not merely successful: a failed fetch must still let the pipeline
-  // move, or a network blip would leave search pending forever. What a failure
-  // costs instead is the populated-version write below — so the next load
-  // retries rather than trusting an index built without ingredients.
-  const ingredientsSettled =
-    !needsIngredients || ingredientsQuery.isSuccess || ingredientsQuery.isError;
+  // move, or a network blip would leave search pending forever. A failure is
+  // surfaced as `error` below, and the index built without them lives only in
+  // this page's memory — the next load (or `retry`) builds it again.
+  const ingredientsDone =
+    ingredientsQuery.isSuccess || ingredientsQuery.isError;
+  const ingredientsSettled = !needsIngredients || ingredientsDone;
   const ingredientsBySlug = ingredientsQuery.data;
 
   // The two halves, rejoined. Recipes absent from the map simply have none.
@@ -558,121 +436,67 @@ export function SearchProvider({ children }: SearchProviderProps) {
     });
   }, [displayRecipes, ingredientsBySlug]);
 
-  // Step 4: populate the index with fresh recipes, then commit.
+  // Step 4: build the index in memory (42s), in chunks that yield to the page.
   // Keyed on both fetches' dataUpdatedAt so it only re-runs on an actual
-  // refetch of either half. After commit, record the populated version so
-  // future loads with an unchanged server version can skip the work entirely.
+  // refetch of either half; the previous build keeps answering meanwhile.
   //
-  // **It must not run before the ingredients land.** `ingredients` is an
-  // indexed field; commit the index without it and FlexSearch is finished —
-  // then `writePopulatedVersion` marks that version done, and every ingredient
-  // search returns nothing, from a cached index that probes healthy, until the
-  // corpus version next moves. Hence the `ingredientsSettled` gate here and the
-  // `ingredientsBySlug` guard on the version write below: an index built
-  // without them is usable, but it is not one we will vouch for.
-  const populateQuery = useQuery({
+  // It waits for the ingredients to *settle*: `ingredients` is an indexed
+  // field, and an index built before they land would answer every
+  // ingredient-only word with nothing. A failed fetch still builds (and
+  // surfaces the error), so search is degraded rather than stuck.
+  const buildQuery = useQuery({
     queryKey: [
-      "search-index-populate",
+      "search-index-build",
       recipesQuery.dataUpdatedAt,
       ingredientsQuery.dataUpdatedAt,
     ],
-    queryFn: async () => {
-      // Clear first: `commit()` *concatenates* onto the posting lists already in
-      // IndexedDB, and the in-memory `reg` dedupe guard is dropped after each
-      // commit — so re-populating a surviving database (the normal path when the
-      // corpus changes) would otherwise duplicate every id.
-      // (`Promise.resolve` because the typings only widen `clear()` to a promise
-      // when the storage generic is set explicitly; mounted, it really is async.)
-      await Promise.resolve(mountedIndex!.clear());
-      for (const recipe of allRecipes) {
-        mountedIndex!.update(recipe);
-      }
-      await mountedIndex!.commit();
-      if (serverVersion && ingredientsBySlug) {
-        writePopulatedVersion(serverVersion);
-      }
-      return recipesQuery.dataUpdatedAt;
-    },
-    enabled:
-      !!mountedIndex &&
-      needsRefetch &&
-      ingredientsSettled &&
-      allRecipes.length > 0,
+    queryFn: () => buildSearchIndex(allRecipes, yieldToMain),
+    enabled: indexWanted && recipesQuery.isSuccess && ingredientsDone,
     staleTime: Infinity,
-    gcTime: Infinity,
+    placeholderData: keepPreviousData,
+    // A FlexSearch Document is not data to diff, and building cannot fail.
+    structuralSharing: false,
+    retry: false,
   });
+  const searchIndex = buildQuery.data;
+  const indexPopulated = !!searchIndex;
 
-  // The index is searchable once it is mounted, the probe has reported back,
-  // and either (a) the cached version already matches the server *and* the probe
-  // found the corpus there (restored from IndexedDB, no populate needed) or
-  // (b) we have just finished populating it. Gating the search on this — rather
-  // than on mount alone — fixes a race where a query submitted before population
-  // completes returned empty results that never updated. Waiting on
-  // `probeSettled` closes the same race for the verification step: without it a
-  // matching version would call the index ready for the moment or two before the
-  // probe disproves it, and a search running in that window caches an empty
-  // result set under `staleTime: Infinity`.
-  const indexPopulated =
-    indexReady &&
-    serverVersion !== undefined &&
-    probeSettled &&
-    (!needsRefetch || populateQuery.isSuccess);
+  // Hits come back as slugs and are looked up here, in the decorated corpus,
+  // so every result carries the current `groups` — a group write moves
+  // `/search/groups` and nothing else, and needs no rebuild.
+  const recipesBySlug = useMemo(
+    () => new Map(allRecipes.map((recipe) => [recipe.slug, recipe])),
+    [allRecipes],
+  );
 
-  // Step 5: run the search. Key on the **free text**, not the raw query, so
-  // editing a filter term (`tag:` on, `tag:` off) neither invalidates the cache
-  // nor re-runs the engine for a result set that cannot have changed.
-  //
-  // Intentionally NOT keyed on indexVersion either, so an in-flight result set
-  // isn't yanked out from under the user when a background re-index commits.
-  // New searches after that point still hit the fresh index because FlexSearch
-  // reads live state from the same mountedIndex instance.
-  //
-  // Gated on indexPopulated: a query submitted before the index finishes
-  // populating stays pending (React Query auto-runs it once enabled flips
-  // true), instead of running against an empty index and caching nothing.
-  const searchQuery = useQuery({
-    queryKey: ["search", searchText],
-    queryFn: async () => {
-      // `suggest: true` is what makes multi-word queries usable: without it a
-      // single unmatched term zeroes the whole result set, so "chocolate jujube"
-      // returned nothing at all instead of the chocolate recipes.
-      const raw = await Promise.resolve(
-        mountedIndex!.search(searchText, {
-          merge: true,
-          enrich: true,
-          suggest: true,
-        }),
-      );
-      return (raw as unknown as { doc: MassagedRecipeEntry }[]).map(
-        ({ doc }) => doc,
-      );
-    },
-    enabled: indexPopulated && !!searchText,
-    staleTime: Infinity,
-    gcTime: Infinity,
-  });
-  const searchedRecipes = searchQuery.data;
+  // Step 5: run the search — synchronous, about a millisecond. Keyed on the
+  // **free text**, not the raw query, so editing a filter term (`tag:` on,
+  // `tag:` off) never re-runs the engine for a result set that cannot have
+  // changed. `undefined` until the index is built, which is what keeps a query
+  // typed before then "Searching…" rather than an honest-looking empty set.
+  const searchedRecipes = useMemo(
+    () =>
+      searchIndex && searchText
+        ? searchRecipes(searchIndex, searchText, recipesBySlug)
+        : undefined,
+    [searchIndex, searchText, recipesBySlug],
+  );
 
   // Displayed set: the engine's ranked matches when there is free text to run,
   // else the whole corpus (browse) — then narrowed by the query's filter. Same
   // shape as the tag filter it replaces, so consumers barely moved.
   //
   // Field priority (name > tags > ingredients > description) is native: it falls
-  // out of the `document.index` declaration order above, so there is no JS
-  // re-tiering pass here. Filtering preserves that order.
+  // out of `SEARCH_FIELDS`' declaration order, so there is no JS re-tiering
+  // pass here. Filtering preserves that order.
   const displayedRecipes = useMemo(() => {
-    /*
-     * The engine's hits are re-decorated rather than trusted to carry `groups`.
-     * They come back out of the FlexSearch document *store*, which is persisted
-     * in IndexedDB and only rewritten when the recipe corpus version moves — and
-     * a group write does not move it. Without this, creating a group and then
-     * running `chicken group:new-plan` would answer nothing until something
-     * unrelated touched a recipe. The browse path (`allRecipes`) is already
-     * decorated upstream; this is the one place stale storage can leak in.
-     */
+    // Browse waits for the corpus itself: an empty array before it lands would
+    // read as "All 0 recipes" rather than "Loading recipes…" (42s).
     const base = searchText
-      ? searchedRecipes && decorateGroups(searchedRecipes)
-      : allRecipes;
+      ? searchedRecipes
+      : recipesQuery.data
+        ? allRecipes
+        : undefined;
     if (!base || !filter) return base;
     // An `ingredient:` filter evaluated before its document arrives would match
     // nothing and read as an honest empty result. Stay pending instead.
@@ -686,8 +510,8 @@ export function SearchProvider({ children }: SearchProviderProps) {
     searchText,
     filter,
     searchedRecipes,
+    recipesQuery.data,
     allRecipes,
-    decorateGroups,
     filterNeedsIngredients,
     ingredientsSettled,
     filterNeedsGroups,
@@ -727,7 +551,7 @@ export function SearchProvider({ children }: SearchProviderProps) {
   // ingredients document and it is still in flight. A filter-only query
   // (`tag:dessert`) reaches neither, so it is never "searching".
   const isSearching =
-    (!!searchText && (!indexPopulated || searchedRecipes === undefined)) ||
+    (!!searchText && searchedRecipes === undefined) ||
     (filterNeedsIngredients && !ingredientsSettled) ||
     (filterNeedsGroups && !groupsSettled) ||
     (filterNeedsTerms && !termsSettled);
@@ -806,23 +630,19 @@ export function SearchProvider({ children }: SearchProviderProps) {
   }, []);
 
   const retry = useCallback(() => {
-    versionQuery.refetch();
     recipesQuery.refetch();
     groupsQuery.refetch();
     termsQuery.refetch();
     // Only refetches if it is currently enabled, which is what we want: there
     // is nothing to retry when nothing wanted the ingredients.
     ingredientsQuery.refetch();
-  }, [versionQuery, recipesQuery, groupsQuery, termsQuery, ingredientsQuery]);
+  }, [recipesQuery, groupsQuery, termsQuery, ingredientsQuery]);
 
-  // Surface failures from the version check, either corpus fetch. The
-  // ingredients belong here rather than being swallowed: without them the index
-  // populates incomplete and `ingredient:` filters answer nothing, and a silent
-  // empty result set is exactly the failure mode the probe above exists to
-  // prevent elsewhere.
-  const error = (recipesQuery.error ??
-    ingredientsQuery.error ??
-    versionQuery.error) as Error | null;
+  // Surface failures from either corpus fetch. The ingredients belong here
+  // rather than being swallowed: without them the index is built incomplete
+  // and `ingredient:` filters answer nothing, and a silent empty result set is
+  // the failure mode this whole pipeline is shaped to avoid.
+  const error = (recipesQuery.error ?? ingredientsQuery.error) as Error | null;
   const status: "pending" | "success" | "error" = error
     ? "error"
     : recipesQuery.status;
@@ -841,8 +661,8 @@ export function SearchProvider({ children }: SearchProviderProps) {
       matchedGroups,
       displayedRecipes,
       toggleTagTerm,
-      indexReady,
       indexPopulated,
+      prefetchIndex,
       isSearching,
       isFetching: recipesQuery.isFetching,
       status,
@@ -868,8 +688,8 @@ export function SearchProvider({ children }: SearchProviderProps) {
       matchedGroups,
       displayedRecipes,
       toggleTagTerm,
-      indexReady,
       indexPopulated,
+      prefetchIndex,
       isSearching,
       recipesQuery.isFetching,
       status,

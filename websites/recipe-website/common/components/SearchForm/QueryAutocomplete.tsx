@@ -221,7 +221,7 @@ export function ingredientOptions(
 
 /**
  * Built once per ingredients document, and only when an `ingredient:` value
- * first asks. A search can fetch the lines for its own reasons (a populate, an
+ * first asks. A search can fetch the lines for its own reasons (the index, an
  * `ingredient:beef` filter), and that should not cost a pass over the corpus
  * nobody wanted. Keyed on the document itself, which the query keeps for good.
  */

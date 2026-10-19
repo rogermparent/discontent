@@ -227,6 +227,7 @@ export function CommandPalette({
     removeRecentSearch,
     clearRecentSearches,
     indexPopulated,
+    prefetchIndex,
     isSearching,
     status,
   } = useSearch();
@@ -251,16 +252,21 @@ export function CommandPalette({
   // ⌘K / Ctrl-K toggle. The effect only *registers* the listener; the state
   // update lives in the handler, not the effect body, so it satisfies
   // eslint-plugin-react-hooks@7's `set-state-in-effect` rule.
+  //
+  // Opening also starts the search index (42s): the ingredients fetch and the
+  // in-memory build run while the first word is typed, so a cold palette has
+  // results about when the debounce fires rather than a beat after it.
   useEffect(() => {
     const onKeydown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
+        prefetchIndex();
         setOpen((prev) => !prev);
       }
     };
     window.addEventListener("keydown", onKeydown);
     return () => window.removeEventListener("keydown", onKeydown);
-  }, []);
+  }, [prefetchIndex]);
 
   // Flush the pending debounce timer on unmount.
   useEffect(() => {
@@ -287,7 +293,10 @@ export function CommandPalette({
     setOpen(false);
   }
 
-  const openPalette = useCallback(() => setOpen(true), []);
+  const openPalette = useCallback(() => {
+    prefetchIndex();
+    setOpen(true);
+  }, [prefetchIndex]);
   const closePalette = useCallback(() => setOpen(false), []);
   const [contextValue] = useState<CommandPaletteContextValue>(() => ({
     openPalette,
@@ -344,7 +353,7 @@ export function CommandPalette({
 
   // The recipe group is usable app-wide now that export has /search/all +
   // /search/version parity; the guard just avoids a flash before the index
-  // populates (or when it has errored).
+  // is built (or when it has errored).
   const indexUsable = status !== "error" && (indexPopulated || isSearching);
   // Results reflect the debounced `query`, not the live `value`. Guarded on
   // `query` so an empty palette lists no recipes at all — `displayedRecipes`
@@ -357,6 +366,19 @@ export function CommandPalette({
   // When a query has recipe hits, the palette enters "recipe search" mode and
   // hides the nav/actions groups, so the only selectable rows are recipes.
   const hasRecipeHits = showRecipes && topRecipes.length > 0;
+  /*
+   * Recipe rows are on their way (42s): text is typed, nothing has failed, no
+   * hits are showing yet, and either the index is still being built, the
+   * engine has not answered, or the debounce has not handed it the text. Until
+   * then "No results found." would be a claim the palette cannot make yet — a
+   * cold load used to show it for the whole of the old IndexedDB populate — so
+   * a "Searching recipes…" status stands in for it.
+   */
+  const recipesPending =
+    !!trimmed &&
+    status !== "error" &&
+    !hasRecipeHits &&
+    (isSearching || !indexPopulated || query !== trimmed);
 
   /*
    * Group rows (22f). Independent of `indexUsable`: groups are matched in JS
@@ -513,11 +535,25 @@ export function CommandPalette({
           onValueChange={onValueChange}
           placeholder="Search recipes or jump to…"
         />
+        {/*
+          A status, not an option: outside the listbox (whose children must be
+          options or groups), announced politely, never selectable.
+        */}
+        {recipesPending && (
+          <p
+            role="status"
+            data-testid="palette-searching"
+            className="px-4 pt-3 text-sm text-muted-foreground"
+          >
+            Searching recipes…
+          </p>
+        )}
         <CommandList
           data-testid="palette-list"
           data-index-ready={String(indexPopulated)}
+          aria-busy={recipesPending || undefined}
         >
-          <CommandEmpty>No results found.</CommandEmpty>
+          {!recipesPending && <CommandEmpty>No results found.</CommandEmpty>}
 
           {hasRecipeHits && (
             <CommandGroup heading="Recipes" data-testid="palette-recipes-group">

@@ -7,8 +7,9 @@ import { recipeContentConfig } from "recipe-website-common/controller/recipeCont
 // required opt-in for a parameterless route handler in a static export: the
 // meta read runs at build time and the version string is baked into the static
 // output — it only changes on a rebuild, which is exactly right for a static
-// reader site (the client's IndexedDB-cached index re-populates whenever this
-// string changes).
+// reader site. (Until 42s the client's IndexedDB-cached index re-populated
+// whenever this string changed; the index is in memory now and the client no
+// longer reads it.)
 export const dynamic = "force-static";
 
 /**
