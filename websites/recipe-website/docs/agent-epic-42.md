@@ -836,7 +836,17 @@ two slugs `usage`, a bad day, `not_found`); `curatorSkill.test.ts` (59/45,
 the two names, §7b and the fallback line; `holiday_` joins the tool-shaped
 tokens); `curation.test.ts` (D8 allow-list).
 
-**Gates:** _pending the heavy seat — see below._
+**Gates** (2026-10-19, all through the capped heavy slot):
+
+- `pnpm --filter recipe-editor typecheck` ✓ and `pnpm --filter
+recipe-website exec tsc --noEmit` ✓ (before merging `origin/main` at
+  3cedeea0, which merged cleanly — no conflicted file).
+- Affected files after the merge (`holidayTools`, `mcp`, `mcpHttp`,
+  `cliJson`, `curatorSkill`, `curation`, `holidaysPage`): **7 files, 226
+  tests** ✓. Then `pnpm exec vitest run`: **124 files, 2534 tests** ✓.
+- Lint-staged `eslint` and `prettier --check` ✓ on commit.
+- No Playwright: no page changed (the two routes are covered in-process in
+  `holidayTools.test.ts`, as 41i covered `/api/inventory/make`).
 
 **Roger to confirm:**
 
