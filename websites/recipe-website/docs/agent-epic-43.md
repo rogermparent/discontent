@@ -237,7 +237,9 @@ zero-proof, low-abv, shaken`; Style is the rest of `DRINK_STYLE_SLUGS`
 **Gates.** `pnpm --filter recipe-editor typecheck` ✓, `pnpm --filter
 recipe-website exec tsc --noEmit` ✓, `pnpm exec vitest run` **135 files /
 2763 tests** ✓ (all through `heavy.sh`; after the review fixes —
-`facets.test.ts` 33, `tagExpansion.test.ts` 20 with Df9's two). No UI.
+`facets.test.ts` 33, `tagExpansion.test.ts` 20 with Df9's two). Playwright for Df9, Docker production build:
+`search-query-language`, `search-tags`, `search-query-chips` — **36
+passed**. No UI.
 
 **Roger to confirm.** Df2 — `stirred` and `built` as styles (the canvas and
 the records) rather than methods beside `shaken`; moving them is a
