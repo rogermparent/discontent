@@ -7,6 +7,7 @@
  *   inventory set --file <f>     replace the list whole (one commit)
  *   inventory make [<query…>]    what the list can make (every recipe by default;
  *                                pantry staples assumed unless --no-staples;
+ *                                bean swaps listed unless --no-bean-swaps;
  *                                --query and --feature as /make has them, 41i)
  *
  * Items are positionals, one per argument — quote the ones with spaces
@@ -111,6 +112,7 @@ const makeCommand: CommandDef<MakeableResult> = {
   name: "inventory make",
   usage:
     "recipes inventory make [<query…> | --query <q>] [--feature <name> …] [--limit 20] [--no-staples]\n" +
+    "                       [--no-bean-swaps]\n" +
     "  What the saved inventory can make, judged as the site's /make page judges it.\n" +
     "  Every recipe by default; the scope is the search language, and every free-text\n" +
     "  word must appear: inventory make tag:drink, inventory make -tag:drink, or\n" +
@@ -122,16 +124,22 @@ const makeCommand: CommandDef<MakeableResult> = {
     `  The editor's saved "Assume I always have" list (else salt, black pepper, water\n` +
     "  and ice) counts as on hand, and so do the pantry staples\n" +
     `  (${PANTRY_STAPLES.join(", ")}) unless --no-staples.\n` +
-    "  --json: {query, scope, features, link, staples, alwaysHave, inventory, total,\n" +
-    "  unjudged, canMake, oneAway, twoAway, further, buyNext}. scope is the query with\n" +
-    "  each feature written in as ingredient:<name>; link is the /make page showing the\n" +
-    "  same (/make?q=<scope>); each row is {slug, name, missing?, makeFirst?,\n" +
-    "  close?: [{needs, have}]}; buyNext is [{item, label, unlocks, helps, recipes}].",
+    "  Beans stand in for each other as their own group, as /make's \"Let beans stand in\n" +
+    '  for each other" does, unless --no-bean-swaps: beanSwap lists the recipes short\n' +
+    "  only of beans another bean on the list can replace (pinto for black beans) — they\n" +
+    "  stay in their own bucket too, and never count as can make.\n" +
+    "  --json: {query, scope, features, link, staples, beanSwaps, alwaysHave, inventory,\n" +
+    "  total, unjudged, canMake, oneAway, twoAway, further, beanSwap?, buyNext}. scope is\n" +
+    "  the query with each feature written in as ingredient:<name>; link is the /make\n" +
+    "  page showing the same (/make?q=<scope>); each row is {slug, name, missing?, makeFirst?,\n" +
+    "  close?: [{needs, have}]}; beanSwap (while bean swaps are on) is [{slug, name,\n" +
+    "  swaps: [{line, use}]}]; buyNext is [{item, label, unlocks, helps, recipes}].",
   options: {
     query: { type: "string" },
     feature: { type: "string", multiple: true },
     limit: { type: "string" },
     "no-staples": { type: "boolean" },
+    "no-bean-swaps": { type: "boolean" },
   },
   takesDashedPositionals: true,
   async run({ backend, positionals, options }) {
@@ -151,6 +159,7 @@ const makeCommand: CommandDef<MakeableResult> = {
       ...(feature.length > 0 ? { feature } : {}),
       limit: numberOption(options, "limit"),
       ...(booleanOption(options, "no-staples") ? { staples: false } : {}),
+      ...(booleanOption(options, "no-bean-swaps") ? { beanSwaps: false } : {}),
     });
   },
   format(result) {
@@ -185,6 +194,18 @@ const makeCommand: CommandDef<MakeableResult> = {
       ...rows("One away", result.oneAway),
       ...rows("Two away", result.twoAway),
       ...(result.further > 0 ? [`Further away: ${result.further}`] : []),
+      /* An editor from before 42m (`--remote`) answers without it. */
+      ...(result.beanSwap && result.beanSwap.length > 0
+        ? [
+            `With a bean swap (${result.beanSwap.length})`,
+            ...result.beanSwap.map((row) =>
+              [
+                `  ${row.name} — ${row.slug}`,
+                `    swap: ${row.swaps.map(({ line, use }) => `${use} for ${line}`).join(", ")}`,
+              ].join("\n"),
+            ),
+          ]
+        : []),
       ...(result.buyNext.length > 0
         ? [
             "Buy next",

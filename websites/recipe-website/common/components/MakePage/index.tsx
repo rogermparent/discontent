@@ -254,14 +254,15 @@ export function MakePage({
     [have, second],
   );
 
-  const { countClose, staples } = settings;
+  const { countClose, staples, beanSwaps } = settings;
   const analysis = useMemo(
     () =>
       analyzeMakeable(scoped, prepared, counted, {
         countClose,
         staples,
+        beanSwaps,
       }),
-    [scoped, prepared, counted, countClose, staples],
+    [scoped, prepared, counted, countClose, staples, beanSwaps],
   );
   const pulls = useMemo(
     () => pullCounts(shelfItems, analysis.canMake, prepared),
@@ -646,6 +647,7 @@ export function MakePage({
           canMake={analysis.canMake.length}
           oneAway={analysis.oneAway.length}
           twoAway={analysis.twoAway.length}
+          beanSwap={analysis.beanSwap.length}
           kind={scopeKind}
           pending={pending}
         />

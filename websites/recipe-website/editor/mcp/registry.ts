@@ -1275,7 +1275,12 @@ export function createRecipeServer(
         '`staples: false` — as the site\'s "Assume pantry staples" switch, on by ' +
         "default. A line can be met by making another recipe first (`makeFirst`), " +
         "or by a close item (`close`: {needs, have}, e.g. onion for a shallot), " +
-        "which counts as had. The same rules the site's /make page uses.",
+        "which counts as had. `beanSwap` (unless `beanSwaps: false`, as the site's " +
+        '"Let beans stand in for each other" switch, on by default) lists recipes ' +
+        "short only of beans that another bean on the list could replace — " +
+        "{slug, name, swaps: [{line, use}]}, e.g. use pinto beans for black bean; " +
+        "they stay in their one/two-away bucket too and never count as can make. " +
+        "The same rules the site's /make page uses.",
       inputSchema: InventoryMakeQuerySchema,
       annotations: READ_ONLY,
     },

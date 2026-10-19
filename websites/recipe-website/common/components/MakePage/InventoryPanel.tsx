@@ -165,6 +165,34 @@ function CloseSwitch({ settings }: { settings: MakeSettings }) {
   );
 }
 
+/**
+ * "Let beans stand in for each other" (42m), per browser, on by default:
+ * the "With a bean swap" group — recipes short only of beans another bean
+ * on hand could replace. It never changes what counts as had.
+ */
+function BeanSwitch({ settings }: { settings: MakeSettings }) {
+  const id = useId();
+  return (
+    <div className="flex items-start gap-2.5">
+      <input
+        id={id}
+        type="checkbox"
+        data-testid="make-bean-swaps"
+        className="mt-0.5 size-4 shrink-0 accent-primary"
+        checked={settings.beanSwaps}
+        onChange={(event) => settings.setBeanSwaps(event.target.checked)}
+      />
+      <label htmlFor={id} className="text-sm">
+        Let beans stand in for each other{" "}
+        <span className="text-muted-foreground">
+          — pinto for black beans, cannellini for chickpeas, in a group of their
+          own
+        </span>
+      </label>
+    </div>
+  );
+}
+
 /** The page's second list (41h): whose it is, for its labels and copy. */
 export interface SecondList {
   /** `saved`: the signed-in editor's saved list. `house`: the export's snapshot. */
@@ -525,6 +553,7 @@ export function InventoryPanel({
           <PantrySwitch settings={settings} />
           <StaplesEditor settings={settings} />
           <CloseSwitch settings={settings} />
+          <BeanSwitch settings={settings} />
         </div>
         <div className="flex flex-wrap gap-2">
           <ImportExportDialog

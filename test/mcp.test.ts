@@ -716,6 +716,12 @@ describe("the MCP registry over an in-memory transport", () => {
         },
       ]),
     });
+    /* 42m: the bean-swap tier is on by default, and `beanSwaps: false` drops it. */
+    expect(before.data).toMatchObject({ beanSwaps: true, beanSwap: [] });
+    const noSwaps = await call("inventory_makeable", { beanSwaps: false });
+    expect(noSwaps.isError).toBe(false);
+    expect(noSwaps.data.beanSwaps).toBe(false);
+    expect(noSwaps.data).not.toHaveProperty("beanSwap");
     const drinks = await call("inventory_makeable", { query: "tag:drink" });
     expect(drinks.data).toMatchObject({
       query: "tag:drink",

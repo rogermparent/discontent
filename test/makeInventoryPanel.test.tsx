@@ -169,6 +169,22 @@ describe("InventoryPanel with a house list (41h, export / guest)", () => {
     expect(screen.queryByTestId("make-second-list")).toBeNull();
   });
 
+  it("keeps 'Let beans stand in for each other' on by default, stored only when off (42m)", async () => {
+    render(<Shelf />);
+    const beans = await screen.findByRole("checkbox", {
+      name: /^Let beans stand in for each other/,
+    });
+    expect(beans).toBeChecked();
+    fireEvent.click(beans);
+    await waitFor(() => expect(beans).not.toBeChecked());
+    expect(JSON.parse(localStorage.getItem("make-settings-v1")!)).toEqual({
+      beanSwaps: false,
+    });
+    fireEvent.click(beans);
+    await waitFor(() => expect(beans).toBeChecked());
+    expect(localStorage.getItem("make-settings-v1")).toBeNull();
+  });
+
   it("never imports the editor's saved-inventory modules", () => {
     expect(editorImports).toEqual([]);
   });

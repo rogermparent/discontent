@@ -391,7 +391,21 @@ describe("the CLI as a process", () => {
         query: "-tag:drink",
         inventory: 2,
         staples: true,
+        beanSwaps: true,
+        beanSwap: [],
       });
+      /* 42m: `--no-bean-swaps` drops the bean-swap tier. */
+      const noSwaps = await run([
+        "inventory",
+        "make",
+        "-tag:drink",
+        "--no-bean-swaps",
+        "--json",
+      ]);
+      expect(noSwaps.exitCode).toBe(0);
+      const noSwapsJson = JSON.parse(noSwaps.stdout);
+      expect(noSwapsJson).toMatchObject({ beanSwaps: false });
+      expect(noSwapsJson).not.toHaveProperty("beanSwap");
       /* U5: `--no-staples` turns the pantry staples off. */
       const strict = await run([
         "inventory",

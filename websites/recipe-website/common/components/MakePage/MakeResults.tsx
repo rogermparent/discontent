@@ -24,12 +24,20 @@ import type { CardView } from "./useInventory";
  * stands in for (32j: "≈ onion for shallot"), and what it **needs** — each
  * missing line a dashed tape (41h). With close matches not counted, a close
  * line is missing too, and says what came near.
+ *
+ * A bean line another bean on hand could replace (42m) says so: in "With a
+ * bean swap" as "Use [pinto beans] for [black bean]" — the bean on hand a
+ * tape, the line's a dashed one — in place of "Needs"; in the bucket the
+ * recipe also sits in, as "(swap: pinto beans)" after its "Needs" tape.
  */
 function MatchNote({
   match,
+  swapView = false,
   className,
 }: {
   match: RecipeMatch;
+  /** The card is in "With a bean swap": the swaps replace "Needs". */
+  swapView?: boolean;
   className?: string;
 }) {
   if (
@@ -42,6 +50,10 @@ function MatchNote({
   const nearBy = new Map(
     match.close.map(({ requirement, item }) => [requirement, item]),
   );
+  const swapBy = new Map(
+    (match.swaps ?? []).map(({ requirement, use }) => [requirement, use]),
+  );
+  const swapping = swapView && swapBy.size > 0;
   const counted = match.close.filter(
     ({ requirement }) => !match.missing.includes(requirement),
   );
@@ -67,7 +79,18 @@ function MatchNote({
           {item} for {requirementLabel(requirement)}
         </p>
       ))}
-      {match.missing.length > 0 && (
+      {swapping &&
+        match.swaps!.map(({ requirement, use }) => (
+          <p
+            key={`${requirement.line}`}
+            data-testid="make-swap"
+            className="m-0 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-muted-foreground"
+          >
+            Use <StaticTape kind="have">{use}</StaticTape> for{" "}
+            <StaticTape>{requirementLabel(requirement)}</StaticTape>
+          </p>
+        ))}
+      {!swapping && match.missing.length > 0 && (
         <p
           data-testid="make-missing"
           className="m-0 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-muted-foreground"
@@ -75,10 +98,12 @@ function MatchNote({
           Needs{" "}
           {match.missing.map((requirement) => {
             const near = nearBy.get(requirement);
+            const swap = swapBy.get(requirement);
             return (
               <Fragment key={`${requirement.line}`}>
                 <StaticTape>{requirementLabel(requirement)}</StaticTape>{" "}
                 {near && <span>(close: {near}) </span>}
+                {swap && <span>(swap: {swap}) </span>}
               </Fragment>
             );
           })}
@@ -114,9 +139,11 @@ export interface CardContext {
 function SpecCard({
   match,
   context,
+  swapView,
 }: {
   match: RecipeMatch;
   context: CardContext;
+  swapView?: boolean;
 }) {
   const { recipe } = match;
   const entry = context.prepared.recipes.get(recipe.slug);
@@ -173,7 +200,7 @@ function SpecCard({
           })}
         </p>
       )}
-      <MatchNote match={match} />
+      <MatchNote match={match} swapView={swapView} />
     </li>
   );
 }
@@ -187,10 +214,13 @@ function MatchGrid({
   matches,
   context,
   limit = GROUP_LIMIT,
+  swapView,
 }: {
   matches: RecipeMatch[];
   context: CardContext;
   limit?: number;
+  /** "With a bean swap" (42m): each card says what to swap. */
+  swapView?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const gridId = useId();
@@ -210,6 +240,7 @@ function MatchGrid({
                 key={match.recipe.slug}
                 match={match}
                 context={context}
+                swapView={swapView}
               />
             ))}
           </ul>
@@ -230,6 +261,7 @@ function MatchGrid({
                 {content}
                 <MatchNote
                   match={bySlug.get(recipe.slug)!}
+                  swapView={swapView}
                   className="mx-2 my-1"
                 />
               </RecipeCardLink>
@@ -262,6 +294,7 @@ function Section({
   context,
   limit,
   empty,
+  swapView,
 }: {
   title: string;
   testId: string;
@@ -270,6 +303,7 @@ function Section({
   limit?: number;
   /** Said when there are none; without it the section goes. */
   empty?: ReactNode;
+  swapView?: boolean;
 }) {
   const headingId = useId();
   if (matches.length === 0 && !empty) return null;
@@ -285,7 +319,12 @@ function Section({
         </span>
       </h2>
       {matches.length > 0 ? (
-        <MatchGrid matches={matches} context={context} limit={limit} />
+        <MatchGrid
+          matches={matches}
+          context={context}
+          limit={limit}
+          swapView={swapView}
+        />
       ) : (
         empty
       )}
@@ -463,7 +502,7 @@ export function MakeResults({
   analysis: MakeableAnalysis;
   context: CardContext;
 }) {
-  const { canMake, oneAway, twoAway, further } = analysis;
+  const { canMake, beanSwap, oneAway, twoAway, further } = analysis;
   return (
     <div className="grid gap-9">
       <Section
@@ -480,6 +519,14 @@ export function MakeResults({
             Buy next shows what gets you there fastest.
           </NoneYet>
         }
+      />
+      {/* 42m: also in their own buckets below, whose counts don't change. */}
+      <Section
+        title="With a bean swap"
+        testId="make-bean-swap"
+        matches={beanSwap}
+        context={context}
+        swapView
       />
       <Section
         title="One ingredient away"

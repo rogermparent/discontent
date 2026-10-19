@@ -127,6 +127,7 @@ host, at most one retry after a 403). Nothing deleted, features untouched.
 | 42b      | S    | `agent/42b-tolerance`     | 🟡     | —   | Screenshot tolerance tightened (41-Tp1), proven 3× in dev and build mode.                     |
 | 42j      | —    | (canvases)                | 🟡     | —   | Design canvases for `/search`, `/tags` + a term page, the meal-plan page, the edit form.      |
 | 42k      | S    | (content repo)            | 🟡     | —   | D7: holiday terms for New Year's, Valentine's, St Patrick's, Easter, July 4th.                |
+| 42m      | M    | `agent/42m-bean-swaps`    | 🟡     | —   | Bean swaps on `/make`: their own tier, a switch, and `inventory make`'s `beanSwap`.           |
 | 42c1     | L    | `agent/42c1-recipe`       | 📝     | —   | Recipe page in cooking order: sticky ingredients, "uses:", heads-up, three wide columns.      |
 | 42g      | L    | `agent/42g-shopping`      | 📝     | —   | `/shopping`: in the store (aisle rail, aisle done) and at home (by plan and recipe).          |
 | 42c2     | M–L  | `agent/42c2-cook`         | 📝     | —   | Cook view one step at a time, timer buttons, the drink scaler counting drinks.                |
@@ -327,6 +328,104 @@ cover October to December. D7: a term under `holidays` for each of those
 with recipes (slugs from the rule keys), existing recipes attached on a
 clear reason, at most 8 imports for holidays left thin. Dry run in scratch,
 reviewed, applied through the CLI; `POST /api/revalidate` after.
+
+### 42m — Bean swaps on Make (M)
+
+Roger, 2026-10-18 (live): "Add many different bean salad recipes which I
+will look up in the what can I make tool. I should be able to see many
+recipes with different beans and be able to **loosen the bean restrictions
+to substitute different beans if needed as a separate tier**." The salads
+themselves are a content phase running alongside; this is the tier.
+
+Strict and close matching stay as they were — `bean` is still out of the
+same-head rule, so black beans never _meet_ a chickpea line. A bean family
+(`common/util/beans.ts`) says which beans stand in for one another; a
+recipe short only of family beans, each coverable by a bean on hand, is
+listed in its own "With a bean swap" group with "Use [pinto beans] for
+[black bean]". It never becomes "can make" and moves no other count. A
+switch beside "Count close matches" turns it off, per browser; the agents'
+`inventory make` returns the same group (41i parity).
+
+#### Results
+
+**What changed.**
+
+- `common/util/beans.ts` (new, pure): `BEAN_KINDS` (the family, by kind),
+  `beanKind` / `beanKindOf` (a name's kind, through `toName`, after a few
+  leading "how it's sold" words — `cooked`, `canned`, `can of`, `15-ounce`,
+  `low-sodium`, `no-salt-added`), `isBeanLine` (every alternative a family
+  bean), `beanFor` (which bean on hand to swap in).
+- `util/makeable.ts`: `MakeableOptions.beanSwaps` (default `false` in the
+  pure judge; the page and the seat pass it), `RecipeMatch.swaps`, and
+  `MakeableAnalysis.beanSwap` — the same match objects as in their bucket,
+  sorted by name.
+- `/make`: the "With a bean swap" section after "Can make now" (photo and
+  spec cards: one "Use [have] for [needs]" line per swap, the bean on hand
+  a `have` tape and the line's a dashed `missing` tape); in the bucket the
+  recipe also sits in, "Needs [chickpea] (swap: black beans)"; the ticker
+  adds "· N with a bean swap" when N > 0; the switch "Let beans stand in
+  for each other" under "Count close matches" (`make-settings-v1`
+  `beanSwaps`, stored only as `false`).
+- Agents: `inventory_makeable` / `recipes inventory make` /
+  `GET /api/inventory/make` take `beanSwaps` (`--no-bean-swaps`,
+  `beanSwaps=0`), answer `beanSwaps: boolean` always and `beanSwap: [{slug,
+name, swaps: [{line, use}]}]` while it is on (capped at `limit`); the
+  CLI's text prints "With a bean swap (N)" after the buckets; the tool
+  description, the CLI help and the curator skill's §8 say so. Existing
+  fields keep their shapes.
+- Fixture `make-beans` (four salads, copied shapes: Chickpea Cucumber
+  Salad, Black Bean and Corn Salad, Two Bean Salad, Classic Three Bean Salad
+  with green beans); indexes built on a scratch copy with
+  `rebuildFixtureIndexes` (seeded from `make-food`'s index, since a type
+  with no index is skipped) and copied back.
+
+**The family (Dm1).** Black (black, black turtle); red (kidney — red, dark
+red, light red — red, small red, adzuki/azuki); pinto (pinto, borlotti,
+cranberry, anasazi, pink); white (cannellini, white, white kidney, navy,
+great northern, haricot, flageolet, marrow); chickpea (chickpeas, garbanzo
+— folded already — ceci); butter (butter, lima, baby lima); black-eyed peas
+(and cowpeas); mung; fava (and broad); and "any": beans, mixed beans, bean
+medley, bean mix, three/four/five bean mix. **Left out:** green, string,
+wax and runner beans; edamame and soybeans; lentils and split peas; bean
+sprouts; coffee, cocoa, vanilla and jelly beans; refried, baked and chili
+beans (sauced); bean paste; romano beans (borlotti in Italy, a flat green
+bean in the US).
+
+**Decisions.**
+
+- **Dm1 — The family is an exact list, by kind.** After the leading "how
+  it's sold" words, a name must be one of the listed names exactly; no tail
+  rule, which would let `beans` claim green, vanilla and coffee beans. The
+  kind only orders the choice: the line's own kind first (navy for
+  cannellini), then any named bean in list order, then a mix. An A-or-B line
+  is a bean line only when every alternative is a family bean ("chickpeas or
+  lentils" is not).
+- **Dm2 — The tier is beside the buckets, not one of them.** A swap recipe
+  stays in one/two/further away, its `missing` and `distance` unchanged, so
+  every other count, the headings, the ticker's first four numbers and Buy
+  next are exactly as before (Buy next still offers chickpeas for it). The
+  card shows twice: in "With a bean swap" (what to swap) and in its bucket
+  ("Needs chickpea (swap: black beans)").
+- **Dm3 — "Every requirement met except beans"** is "every line in
+  `missing` is a bean line", so it follows `countClose`: with close matches
+  off, a close non-bean line keeps a recipe out. Staples count as on hand
+  for the swap as they do for everything else, so an "Assume I always have"
+  bean can be swapped in.
+- **Dm4 — One bean may cover several lines**; a three-bean salad from one
+  can is listed, saying the same bean for each.
+- **Dm5 — Featuring follows the matcher, not the swap.** Featuring
+  `chickpeas` keeps recipes whose required line chickpeas meet, and those in
+  the tier show their swap; featuring `black beans` does not pull in
+  chickpea recipes it could stand in for.
+- **Dm6 — Defaults.** On by default on `/make` and in the seat; off by
+  default in the pure `analyzeMakeable` (pages that show counts only — the
+  homepage tile, `/drinks` — never ask, and pay nothing). The ticker leaves
+  the tier out at 0, so a drinks scope reads as before.
+
+**Roger to confirm.** The family list and its exclusions (Dm1: chili beans,
+romano beans, lentils as a later family of their own?); a swap recipe shown
+in both the tier and its bucket (Dm2) rather than moved; the switch on by
+default and its wording; featuring not widened by swaps (Dm5).
 
 ### 42-close (S)
 

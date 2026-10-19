@@ -1030,3 +1030,75 @@ test.describe("What can I make? — dinner as well as drinks", () => {
     ).toHaveCount(0);
   });
 });
+
+/*
+ * 42m: `make-beans` — four salads: Chickpea Cucumber Salad, Black Bean and
+ * Corn Salad, Two Bean Salad (kidney beans and chickpeas) and Classic Three
+ * Bean Salad, whose green beans no family bean stands in for.
+ */
+test.describe("What can I make? — bean swaps", () => {
+  test.beforeEach(async ({ resetData }) => {
+    await resetData("make-beans");
+  });
+
+  const beanSwitch = (page: Page) =>
+    page.getByRole("checkbox", { name: /^Let beans stand in for each other/ });
+
+  test("a bean on hand stands in for another as its own group, and the switch hides it", async ({
+    page,
+  }) => {
+    await page.goto("/make");
+    await ready(page);
+    await addItems(page, "black beans, cucumber, lemon");
+
+    const swap = section(page, "make-bean-swap");
+    await expect(swap.getByRole("heading", { level: 2 })).toHaveText(
+      /^With a bean swap\s*1$/,
+    );
+    const card = swap.getByRole("link", { name: /Chickpea Cucumber Salad/ });
+    await expect(card.getByTestId("make-swap")).toHaveText(
+      "Use black beans for chickpea",
+    );
+    /* Never "can make"; still one away, where it says what would swap. */
+    await expect(section(page, "make-can")).toContainText(
+      "Nothing to make yet.",
+    );
+    await expect(section(page, "make-one-away")).toContainText(
+      "Needs chickpea (swap: black beans)",
+    );
+    /* Green beans are no family bean: the three-bean salad stays out. */
+    await expect(swap).not.toContainText("Classic Three Bean Salad");
+    await expect(ticker(page)).toHaveText(
+      "4 recipes · 0 can make · 1 one away · 0 two away · 1 with a bean swap",
+    );
+
+    /* One bean covers two lines. */
+    await addItems(page, "red onion, red wine vinegar");
+    const twoBean = swap.getByRole("link", { name: /Two Bean Salad/ });
+    await expect(twoBean.getByTestId("make-swap")).toHaveText([
+      "Use black beans for kidney bean",
+      "Use black beans for chickpea",
+    ]);
+    await expect(ticker(page)).toHaveText(/· 2 with a bean swap$/);
+    await expectNoViolations(page);
+
+    await expect(beanSwitch(page)).toBeChecked();
+    await beanSwitch(page).uncheck();
+    await expect(section(page, "make-bean-swap")).toHaveCount(0);
+    await expect(ticker(page)).not.toHaveText(/bean swap/);
+    await expect(section(page, "make-one-away")).toContainText(
+      "Chickpea Cucumber Salad",
+    );
+    await expect(section(page, "make-one-away")).not.toContainText("swap:");
+
+    /* Per browser: the choice survives a reload. */
+    await page.reload();
+    await ready(page);
+    await expect(beanSwitch(page)).not.toBeChecked();
+    await expect(section(page, "make-bean-swap")).toHaveCount(0);
+    await beanSwitch(page).check();
+    await expect(section(page, "make-bean-swap")).toContainText(
+      "Two Bean Salad",
+    );
+  });
+});

@@ -548,9 +548,13 @@ export function createHttpBackend({
     setInventory(raw) {
       return call<InventoryWriteResult>("PUT", "/api/inventory", { body: raw });
     },
-    async inventoryMakeable({ staples, ...options } = {}) {
+    async inventoryMakeable({ staples, beanSwaps, ...options } = {}) {
       const result = await call<MakeableResult>("GET", "/api/inventory/make", {
-        query: { ...options, staples: staples === false ? 0 : undefined },
+        query: {
+          ...options,
+          staples: staples === false ? 0 : undefined,
+          beanSwaps: beanSwaps === false ? 0 : undefined,
+        },
       });
       /* An editor from before 41i ignores `feature` and answers the whole
        * scope: refuse that rather than pass it off as "lime drinks". */
