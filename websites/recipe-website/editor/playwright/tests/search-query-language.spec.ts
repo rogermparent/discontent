@@ -6,7 +6,11 @@ import { searchFor } from "../support/helpers";
 const SEARCH_TIMEOUT = 20_000;
 
 const searchField = (page: Page) => page.getByLabel("Search recipes");
-const ticker = (page: Page) => page.getByTestId("search-ticker");
+// Inside the visible <main>: a hidden second copy of the page can linger on
+// "Loading recipes…" (41-Th6, 42s-T1), and a page-wide locator then fails
+// strict mode.
+const ticker = (page: Page) =>
+  page.getByRole("main").getByTestId("search-ticker");
 
 // Direct-child cards only — a card's matched-ingredient <ul><li> would
 // otherwise be counted as extra list items.
