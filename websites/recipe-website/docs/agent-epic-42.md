@@ -175,6 +175,167 @@ update`, never commit `editor/content`.
 - **41h's coverage gap:** an e2e for the export / editor-guest house list
   on `/make` (41h left it a render test).
 
+#### Results (42a)
+
+Branch `agent/42a-followups`. **Reindex needed: no. Deploy: yes** (the
+`/make` shelf and outline borders change; no content or index change).
+
+Roger chose all four on 2026-10-18 after reading epic 41's results; each
+reverses or completes an epic-41 decision (`agent-epic-41.md`).
+
+**1. Per-item saved-list editing back on `/make` (reverses 41-Dh2, "the
+per-item saved-list editor is gone").**
+Signed in, in Count from's Saved and Both modes, every outlined saved tape
+(`data-kind="saved"`) has a × named "Remove <item> from the saved list".
+It sends `{add: [], remove: [item]}` through the existing
+`saveInventoryChanges` → `patchInventory` path — one commit,
+"Update inventory: −gin" — and the label goes when the server's list comes
+back. The toast says "Removed gin from the saved list." and its Undo (or
+Ctrl+Z) sends `{add: [gin]}`, a second commit. Focus moves to the label
+that took its place, or to the add field when the list is empty. Writes
+run one after another (a promise chain in `MakePage`), and each sets the
+saved list to the one the server answered with. A failure shows as an
+alert under the group and leaves the list as it was. "Save to editor"
+(41-Dh2's whole-list move) stays, and its diff reads the updated list. This
+browser's own tapes keep their ×, which still edits only this browser's
+list.
+
+- **Da1 — "Add to saved list" is a small form in the saved group.** It
+  sits under the saved labels (Saved and Both modes, signed in only): a
+  field labelled "Add to saved list" (read as a list, like the add field)
+  and an outline "Add". `savedAdditions` leaves out what the saved list
+  already has, so "Campari, gin" adds Campari alone, in one commit
+  ("Update inventory: +Campari"). Undo removes only what that add brought.
+  Something already on the list gets a plain toast and no commit. I kept it
+  out of the add combobox: that field is "Buy next as search" for this
+  browser's list (41-Dh3), and a second target in it would make Enter
+  ambiguous.
+- **Da2 — non-optimistic.** A label leaves when the commit lands, not when
+  it is clicked, so a refused write (mid-merge, `busy`) never shows a list
+  the repo doesn't have. The cost is a commit's latency (≈ 0.1–0.5 s
+  locally) before the label goes.
+- The export and the editor guest stay read-only. `InventoryPanel` edits
+  only a list of kind `saved`, and only when the page passes `savedEdit`,
+  which `MakePage` does only with `saved` (the signed-in editor's route).
+  A house list never gets × or the form, even if handed the edits (render
+  test). `exportInventoryGuard` stays green: the export still reaches no
+  editor code.
+
+**2. Outline buttons and toggles back on `--border` (41f's Df1 and its
+"Roger to confirm": the alternative of moving them to `border-border` to
+keep their hairline).** `ui/button.tsx` outline and `ui/toggle.tsx` outline now use
+`border-border`. Inputs, textareas, Select triggers and the shared `Form`
+field class keep 41f's `--input` (≥ 3.1:1), and the checkbox keeps 40g's
+`border-muted-foreground`. Their text
+names them, so WCAG 1.4.11 doesn't ask for a 3:1 boundary. `theming.test.ts`
+never pinned buttons, so only its comment (and `derive.ts`'s) changed.
+Make's own `border-input` boxes (the Count from frame, the phone's shelf
+toggle, the save confirm) are hand-written classes, not the kit's outline
+variant, and stay as 41h drew them.
+
+**3. resume-builder takes Tailwind 4.3's default sans (reverses 41d1's
+Dd2, "resume-builder keeps Tailwind 4.1's default sans stack").**
+The four-line `--font-sans` pin is gone from its `@theme inline`.
+resume-builder has no screenshot baselines, so nothing moves there.
+
+**4. The house list e2e (41h's "Coverage — the export / guest house list
+is a render test, not an e2e").** A new `make.spec`
+describe: with "Share my saved inventory on the export" off, nothing is
+baked and a guest has no Count from. On (`writeSettings`), the snapshot is
+exactly the saved list (gin, tonic water). The guest gets Count from (This
+browser 0 / House list 2 / Both), House list counts Gin and Tonic, the
+heading reads "House list shared with this site · 2", and the tapes are
+outlined (`data-kind="saved"`), featurable (`ingredient:gin` joins the
+query) and carry no ×, no "Add to saved list" and no "Save to editor".
+Both gives the union with this browser's vodka. The export itself isn't
+covered: `export-page.spec` never builds the static site. The guest page
+renders the same `MakePage` with the same `secondary` prop, and
+`exportHouseInventory.test.ts` pins the bake (Ta1).
+
+**Roger to confirm.**
+
+- Da1: "Add to saved list" lives in the saved group, which shows only in
+  Saved or Both. The alternative is a second target in the shelf's add
+  combobox.
+- Da2: a removed saved label waits for its commit before it goes.
+- Ta1: the editor guest's pages ignore the share setting. If an editor
+  guest should see the house list whenever sharing is on, the guest branch
+  of `make/page.tsx` and `drinks/page.tsx` would read the saved list when
+  `shareInventoryOnExport` is true. That is a product change, so I didn't
+  make it.
+
+**Moved baselines** (Docker, build mode, `--update-snapshots=all` over
+every recipe spec with screenshots, then a pixel diff of each rewritten PNG
+against HEAD; the six with 0 changed pixels — `homepage-empty`,
+`homepage-mobile`, `homepage-three-recipes`, `homepage-two-pages`,
+`layout-footer-signed-{in,out}` — were byte-only re-encodes and were
+restored). Twelve moved, each opened and checked against its diff. In every
+one the changed pixels are outline-button or toggle borders, and nothing
+else moved except the one noted:
+
+- `make-page`, `make-page-specs`, `make-mobile`: Clear, Import / export and
+  Buy next's "I have this" (0.06–0.07 % of pixels).
+- `recipe-detail-signed-{in,out}`, `featured-recipe-detail-signed-in`,
+  `recipe-6-multiplied`, `recipe-mobile`: the "Cook view" button (258 px).
+- `git-page`: Checkout, Fetch, Pull, Push.
+- `markdown-source-mode`: the instruction row's outline icon button.
+- `edit-form-populated`, `edit-form-overwrite`: the same icon button, and
+  also anti-aliasing along the edge of the "Recipe 6" preview image's
+  lettering. That image isn't a control. Its edge noise was already stale
+  in the old baseline and comes along because the page has to be
+  regenerated anyway.
+
+Portfolio: `visual.spec` (11 baselines) regenerated the same way in Docker,
+and no PNG changed. resume-builder has no baselines.
+
+**After merging 42c1 (#282).** Five baselines conflicted, the ones both
+phases touched: `recipe-detail-signed-{in,out}`,
+`featured-recipe-detail-signed-in`, `recipe-6-multiplied`, `recipe-mobile`.
+I took main's side, then regenerated every screenshot spec again in Docker
+build mode (`recipe-cooking-order` included) and pixel-diffed. Six moved,
+each by the "Cook view" outline border alone (258 px), and I opened each:
+those five on 42c1's new layout, plus 42c1's new `recipe-wide-columns`.
+Noise-only rewrites were restored: `git-page` (5 px), both `edit-form-*`
+(only the preview image's lettering), and the zero-pixel re-encodes.
+
+**Gates** (every heavy step through the capped slot):
+
+- `pnpm --filter recipe-editor typecheck` ✓,
+  `pnpm --filter recipe-website exec tsc --noEmit` ✓, resume-builder
+  `tsc --noEmit` ✓ (with its gitignored `next-env.d.ts` copied in).
+- `pnpm exec vitest run`: **119 files, 2416 tests passed**, including
+  `makeInventoryPanel` (+6: per-item edits, failure keeps the draft, never
+  on a house list or without edits, `savedAdditions` ×2),
+  `exportInventoryGuard` and `exportHouseInventory` unchanged and green.
+- Playwright, Docker, build mode: `make.spec`, `accessibility.spec`,
+  `export-page.spec` and every screenshot spec (`visual`, `mobile`,
+  `recipe`, `yield`, `drinks`, `empty-state`, `footer`, `header`,
+  `ingredient-preview`, `menus`, `command-palette`, `paste-replace`):
+  **244 passed**, no retries.
+- Playwright, Docker, dev mode (once, for the new checks): `make.spec` and
+  `accessibility.spec` `--grep=make`: **42 passed**.
+- resume-builder Playwright: **not run locally.** `.dockerignore` keeps
+  resume-builder out of the Playwright image, and the host has no Chromium
+  for Playwright 1.64 (`chromium_headless_shell-1248` missing; every test
+  failed at launch). Its own CI job (path-filtered on
+  `websites/resume-builder/**`) runs it on this PR. The change there is the
+  `--font-sans` stack alone, and nothing in its specs asserts on fonts.
+- lint-staged (prettier + eslint) ✓ on commit.
+
+**Backlog:** no row matches 42a, so nothing is struck.
+
+#### Traps (42a)
+
+- **Ta1 — the editor guest's house list is the process's, not the
+  setting's.** An editor guest's `/make` and `/drinks` read
+  `SITE_HOUSE_INVENTORY` from the editor process's own environment
+  (`secondaryInventory()` with no reader), which only an export Build's
+  child process is ever given. Ticking "Share my saved inventory on the
+  export" changes the next export, not the editor's guest pages. An e2e of
+  the house list therefore needs the variable in the server process:
+  `/settings/test-house-inventory?bake=1` (TEST_MODE only) sets it from
+  `exportBuildEnv`, and `afterEach` takes it away.
+
 ### 42b — Screenshot tolerance tightened (S)
 
 41-Tp1's backlog row: 52 stale baselines still passed at
@@ -583,155 +744,4 @@ workstation update`, from the morning report's list.
 
 ## Traps
 
-### 42a
-
-- **Ta1 — the editor guest's house list is the process's, not the
-  setting's.** An editor guest's `/make` and `/drinks` read
-  `SITE_HOUSE_INVENTORY` from the editor process's own environment
-  (`secondaryInventory()` with no reader), which only an export Build's
-  child process is ever given. Ticking "Share my saved inventory on the
-  export" changes the next export, not the editor's guest pages. An e2e of
-  the house list therefore needs the variable in the server process:
-  `/settings/test-house-inventory?bake=1` (TEST_MODE only) sets it from
-  `exportBuildEnv`, and `afterEach` takes it away.
-
 ## Results
-
-### 42a — Epic 41 follow-ups
-
-Branch `agent/42a-followups`. **Reindex needed: no. Deploy: yes** (the
-`/make` shelf and outline borders change; no content or index change).
-
-Roger chose all four on 2026-10-18 after reading epic 41's results; each
-reverses or completes an epic-41 decision (`agent-epic-41.md`).
-
-**1. Per-item saved-list editing back on `/make` (reverses 41-Dh2, "the
-per-item saved-list editor is gone").**
-Signed in, in Count from's Saved and Both modes, every outlined saved tape
-(`data-kind="saved"`) has a × named "Remove <item> from the saved list".
-It sends `{add: [], remove: [item]}` through the existing
-`saveInventoryChanges` → `patchInventory` path — one commit,
-"Update inventory: −gin" — and the label goes when the server's list comes
-back. The toast says "Removed gin from the saved list." and its Undo (or
-Ctrl+Z) sends `{add: [gin]}`, a second commit. Focus moves to the label
-that took its place, or to the add field when the list is empty. Writes
-run one after another (a promise chain in `MakePage`), and each sets the
-saved list to the one the server answered with. A failure shows as an
-alert under the group and leaves the list as it was. "Save to editor"
-(41-Dh2's whole-list move) stays, and its diff reads the updated list. This
-browser's own tapes keep their ×, which still edits only this browser's
-list.
-
-- **Da1 — "Add to saved list" is a small form in the saved group.** It
-  sits under the saved labels (Saved and Both modes, signed in only): a
-  field labelled "Add to saved list" (read as a list, like the add field)
-  and an outline "Add". `savedAdditions` leaves out what the saved list
-  already has, so "Campari, gin" adds Campari alone, in one commit
-  ("Update inventory: +Campari"). Undo removes only what that add brought.
-  Something already on the list gets a plain toast and no commit. I kept it
-  out of the add combobox: that field is "Buy next as search" for this
-  browser's list (41-Dh3), and a second target in it would make Enter
-  ambiguous.
-- **Da2 — non-optimistic.** A label leaves when the commit lands, not when
-  it is clicked, so a refused write (mid-merge, `busy`) never shows a list
-  the repo doesn't have. The cost is a commit's latency (≈ 0.1–0.5 s
-  locally) before the label goes.
-- The export and the editor guest stay read-only. `InventoryPanel` edits
-  only a list of kind `saved`, and only when the page passes `savedEdit`,
-  which `MakePage` does only with `saved` (the signed-in editor's route).
-  A house list never gets × or the form, even if handed the edits (render
-  test). `exportInventoryGuard` stays green: the export still reaches no
-  editor code.
-
-**2. Outline buttons and toggles back on `--border` (41f's Df1 and its
-"Roger to confirm": the alternative of moving them to `border-border` to
-keep their hairline).** `ui/button.tsx` outline and `ui/toggle.tsx` outline now use
-`border-border`. Inputs, textareas, Select triggers and the shared `Form`
-field class keep 41f's `--input` (≥ 3.1:1), and the checkbox keeps 40g's
-`border-muted-foreground`. Their text
-names them, so WCAG 1.4.11 doesn't ask for a 3:1 boundary. `theming.test.ts`
-never pinned buttons, so only its comment (and `derive.ts`'s) changed.
-Make's own `border-input` boxes (the Count from frame, the phone's shelf
-toggle, the save confirm) are hand-written classes, not the kit's outline
-variant, and stay as 41h drew them.
-
-**3. resume-builder takes Tailwind 4.3's default sans (reverses 41d1's
-Dd2, "resume-builder keeps Tailwind 4.1's default sans stack").**
-The four-line `--font-sans` pin is gone from its `@theme inline`.
-resume-builder has no screenshot baselines, so nothing moves there.
-
-**4. The house list e2e (41h's "Coverage — the export / guest house list
-is a render test, not an e2e").** A new `make.spec`
-describe: with "Share my saved inventory on the export" off, nothing is
-baked and a guest has no Count from. On (`writeSettings`), the snapshot is
-exactly the saved list (gin, tonic water). The guest gets Count from (This
-browser 0 / House list 2 / Both), House list counts Gin and Tonic, the
-heading reads "House list shared with this site · 2", and the tapes are
-outlined (`data-kind="saved"`), featurable (`ingredient:gin` joins the
-query) and carry no ×, no "Add to saved list" and no "Save to editor".
-Both gives the union with this browser's vodka. The export itself isn't
-covered: `export-page.spec` never builds the static site. The guest page
-renders the same `MakePage` with the same `secondary` prop, and
-`exportHouseInventory.test.ts` pins the bake (Ta1).
-
-**Roger to confirm.**
-
-- Da1: "Add to saved list" lives in the saved group, which shows only in
-  Saved or Both. The alternative is a second target in the shelf's add
-  combobox.
-- Da2: a removed saved label waits for its commit before it goes.
-- Ta1: the editor guest's pages ignore the share setting. If an editor
-  guest should see the house list whenever sharing is on, the guest branch
-  of `make/page.tsx` and `drinks/page.tsx` would read the saved list when
-  `shareInventoryOnExport` is true. That is a product change, so I didn't
-  make it.
-
-**Moved baselines** (Docker, build mode, `--update-snapshots=all` over
-every recipe spec with screenshots, then a pixel diff of each rewritten PNG
-against HEAD; the six with 0 changed pixels — `homepage-empty`,
-`homepage-mobile`, `homepage-three-recipes`, `homepage-two-pages`,
-`layout-footer-signed-{in,out}` — were byte-only re-encodes and were
-restored). Twelve moved, each opened and checked against its diff. In every
-one the changed pixels are outline-button or toggle borders, and nothing
-else moved except the one noted:
-
-- `make-page`, `make-page-specs`, `make-mobile`: Clear, Import / export and
-  Buy next's "I have this" (0.06–0.07 % of pixels).
-- `recipe-detail-signed-{in,out}`, `featured-recipe-detail-signed-in`,
-  `recipe-6-multiplied`, `recipe-mobile`: the "Cook view" button (258 px).
-- `git-page`: Checkout, Fetch, Pull, Push.
-- `markdown-source-mode`: the instruction row's outline icon button.
-- `edit-form-populated`, `edit-form-overwrite`: the same icon button, and
-  also anti-aliasing along the edge of the "Recipe 6" preview image's
-  lettering. That image isn't a control. Its edge noise was already stale
-  in the old baseline and comes along because the page has to be
-  regenerated anyway.
-
-Portfolio: `visual.spec` (11 baselines) regenerated the same way in Docker,
-and no PNG changed. resume-builder has no baselines.
-
-**Gates** (every heavy step through the capped slot):
-
-- `pnpm --filter recipe-editor typecheck` ✓,
-  `pnpm --filter recipe-website exec tsc --noEmit` ✓, resume-builder
-  `tsc --noEmit` ✓ (with its gitignored `next-env.d.ts` copied in).
-- `pnpm exec vitest run`: **119 files, 2416 tests passed**, including
-  `makeInventoryPanel` (+6: per-item edits, failure keeps the draft, never
-  on a house list or without edits, `savedAdditions` ×2),
-  `exportInventoryGuard` and `exportHouseInventory` unchanged and green.
-- Playwright, Docker, build mode: `make.spec`, `accessibility.spec`,
-  `export-page.spec` and every screenshot spec (`visual`, `mobile`,
-  `recipe`, `yield`, `drinks`, `empty-state`, `footer`, `header`,
-  `ingredient-preview`, `menus`, `command-palette`, `paste-replace`):
-  **244 passed**, no retries.
-- Playwright, Docker, dev mode (once, for the new checks): `make.spec` and
-  `accessibility.spec` `--grep=make`: **42 passed**.
-- resume-builder Playwright: **not run locally.** `.dockerignore` keeps
-  resume-builder out of the Playwright image, and the host has no Chromium
-  for Playwright 1.64 (`chromium_headless_shell-1248` missing; every test
-  failed at launch). Its own CI job (path-filtered on
-  `websites/resume-builder/**`) runs it on this PR. The change there is the
-  `--font-sans` stack alone, and nothing in its specs asserts on fonts.
-- lint-staged (prettier + eslint) ✓ on commit.
-
-**Backlog:** no row matches 42a, so nothing is struck.
