@@ -331,7 +331,9 @@ test.describe("Visual baselines @visual", () => {
   // most four across with their tapes as buttons, further away as rows.
   test("make page results, wide", async ({ page, resetData }) => {
     await resetData("make-beans");
-    await page.setViewportSize({ width: 1920, height: 1600 });
+    /* Tall enough that the page fits: a shot of an element taller than the
+     * window drew the sticky header over it (Th5). */
+    await page.setViewportSize({ width: 1920, height: 2800 });
     await page.goto("/make");
     await expect(page.getByTestId("make-ticker")).toHaveText(/can make/i, {
       timeout: 20_000,
