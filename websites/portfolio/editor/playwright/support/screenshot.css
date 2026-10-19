@@ -1,0 +1,14 @@
+/*
+ * Applied to every `toHaveScreenshot` capture (the config's `stylePath`).
+ *
+ * Next's dev-mode indicator, the "N" badge at the bottom left, is drawn by
+ * `next dev` on every page and never by `next start`. Baselines are production
+ * renders while CI's Portfolio job runs dev, so the badge differs on every
+ * page; on the recipe editor it alone was 912 px on each desktop page (42b),
+ * more than the whole tolerance. `nextjs-portal` is the host of Next's
+ * dev-overlay shadow root; hiding it hides the badge (and, in dev only, an
+ * error overlay, which the specs' own assertions report anyway).
+ */
+nextjs-portal {
+  display: none !important;
+}

@@ -148,6 +148,9 @@ describe("the MCP registry over an in-memory transport", () => {
           "recipe_get",
           "git_status",
           "git_fetch",
+          /* 42h: the holidays are reads. */
+          "holiday_list",
+          "holiday_get",
         ]),
       );
       for (const write of [
@@ -703,6 +706,12 @@ describe("the MCP registry over an in-memory transport", () => {
     });
     /* Nothing caches the list, so there is no stale editor to warn about. */
     expect(added.data.warnings).toBeUndefined();
+    /* 42m2: "beans" is the `any bean` matcher, stored canonical; any
+     * spelling takes it off again. */
+    const matcher = await call("inventory_add", { items: ["beans"] });
+    expect(matcher.data).toMatchObject({ added: ["any bean"] });
+    const unmatched = await call("inventory_remove", { items: ["any beans"] });
+    expect(unmatched.data).toMatchObject({ removed: ["any bean"] });
 
     /* Every recipe by default (32j); `tag:drink` narrows. */
     const before = await call("inventory_makeable", {});
@@ -716,6 +725,12 @@ describe("the MCP registry over an in-memory transport", () => {
         },
       ]),
     });
+    /* 42m: the bean-swap tier is on by default, and `beanSwaps: false` drops it. */
+    expect(before.data).toMatchObject({ beanSwaps: true, beanSwap: [] });
+    const noSwaps = await call("inventory_makeable", { beanSwaps: false });
+    expect(noSwaps.isError).toBe(false);
+    expect(noSwaps.data.beanSwaps).toBe(false);
+    expect(noSwaps.data).not.toHaveProperty("beanSwap");
     const drinks = await call("inventory_makeable", { query: "tag:drink" });
     expect(drinks.data).toMatchObject({
       query: "tag:drink",
@@ -757,6 +772,94 @@ describe("the MCP registry over an in-memory transport", () => {
       arguments: { items: ["x".repeat(81)] },
     });
     expect(tooLong.isError).toBe(true);
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* 11b. Holidays (42h)                                               */
+  /* ---------------------------------------------------------------- */
+
+  it("says what's coming up and what to make for a holiday (42h)", async () => {
+    for (const term of [
+      { label: "Holidays", slug: "holidays" },
+      { label: "Halloween", parent: "holidays" },
+      { label: "Christmas", parent: "holidays", aliases: ["xmas"] },
+      { label: "Fall favorites", slug: "fall-favorites", parent: "holidays" },
+    ]) {
+      expect((await call("term_create", { term })).isError).toBe(false);
+    }
+    await call("recipe_create", {
+      recipe: { name: "Pumpkin Pie", tags: ["halloween"] },
+    });
+
+    const listed = await call("holiday_list", { date: "2026-10-19" });
+    expect(listed.isError).toBe(false);
+    expect(listed.data).toMatchObject({
+      today: "2026-10-19",
+      total: 3,
+      link: expect.stringMatching(/\/holidays$/),
+      holidays: [
+        {
+          slug: "halloween",
+          date: "2026-10-31",
+          days: 12,
+          countdown: "in 12 days",
+          counts: { recipes: 1, dishes: 1, drinks: 0 },
+          top: [{ slug: "pumpkin-pie", name: "Pumpkin Pie" }],
+        },
+        { slug: "christmas", days: 67, counts: { recipes: 0 } },
+        { slug: "fall-favorites", dated: false },
+      ],
+    });
+
+    const menu = await call("holiday_get", {
+      slug: "halloween",
+      date: "2026-10-19",
+    });
+    expect(menu.data).toMatchObject({
+      slug: "halloween",
+      days: 12,
+      courses: [
+        {
+          slug: "more",
+          recipes: [{ slug: "pumpkin-pie", name: "Pumpkin Pie" }],
+        },
+      ],
+      styles: [],
+      link: expect.stringMatching(/\/holidays\/halloween$/),
+    });
+    expect((await call("holiday_get", { slug: "xmas" })).data).toMatchObject({
+      slug: "christmas",
+      requested: "xmas",
+    });
+
+    /* A slug that is no holiday is the layer's not_found… */
+    expect(
+      await callError("holiday_get", { slug: "pumpkin-pie" }),
+    ).toMatchObject({ code: "not_found", slug: "pumpkin-pie" });
+    /* …a well-shaped day that is not one, its validation… */
+    expect(
+      await callError("holiday_list", { date: "2026-02-30" }),
+    ).toMatchObject({ code: "validation" });
+    /* …and a date in another shape the schema's, before dispatch (T28). */
+    const shaped = await client.callTool({
+      name: "holiday_list",
+      arguments: { date: "10/31" },
+    });
+    expect(shaped.isError).toBe(true);
+    expect(
+      (shaped.structuredContent as { error?: unknown } | undefined)?.error,
+    ).toBeUndefined();
+
+    const { tools } = await client.listTools();
+    for (const name of ["holiday_list", "holiday_get"]) {
+      expect(
+        tools.find((tool) => tool.name === name)?.annotations,
+        name,
+      ).toMatchObject({ readOnlyHint: true });
+    }
+    expect(
+      tools.find((tool) => tool.name === "holiday_list")?.description,
+    ).toContain("what's coming up");
   });
 
   /* ---------------------------------------------------------------- */
@@ -878,7 +981,7 @@ describe("the MCP registry over an in-memory transport", () => {
         (tool) => tool.name === "shopping_remove",
       )?.inputSchema.properties,
     ).toHaveProperty("for");
-    expect(TOOL_NAMES).toHaveLength(57);
+    expect(TOOL_NAMES).toHaveLength(59);
   });
 
   /* ---------------------------------------------------------------- */

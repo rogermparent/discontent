@@ -32,6 +32,8 @@ export interface ShoppingListState {
   items: ShoppingItem[];
   settings: ShoppingSettings;
   inventory: string[];
+  /** 42g: plan slug → name, for "What's on it" (the server reads them). */
+  plans?: Record<string, string>;
 }
 
 /**
@@ -100,6 +102,24 @@ const sessionTicks = browserTicks(() => window.sessionStorage, STORAGE_KEY);
 const heldTicks = browserTicks(() => window.localStorage, HELD_STORAGE_KEY);
 
 const NONE: string[] = [];
+const NO_PLANS: Record<string, string> = {};
+
+/**
+ * 42g, Done shopping in the store: how long the ticked lines stay hidden,
+ * with Undo, before their removal is sent (42-Dg4).
+ */
+export const CLEAR_UNDO_MS = 8000;
+
+/** How many write answers have been applied (see `useShoppingList`). */
+class WriteCounter {
+  private count = 0;
+  bump(): void {
+    this.count += 1;
+  }
+  get value(): number {
+    return this.count;
+  }
+}
 
 export const UNREACHABLE =
   "Couldn't reach the editor — check the connection and try again.";
@@ -129,8 +149,27 @@ export function useShoppingList({
   /* A tick refusal the person dismissed stays dismissed until a new one. */
   const [dismissedSync, setDismissedSync] = useState<string | undefined>();
   const [working, setWorking] = useState(false);
-  /* Bumped by every applied write answer; a read started before one is stale. */
-  const writes = useRef(0);
+  /*
+   * Bumped by every applied write answer; a read started before one is
+   * stale. A counter object, not a ref: `TickSync`'s `onItems`, made once
+   * below, bumps it, and the compiler's ref rule refuses a ref handed to a
+   * function at render (eslint-plugin-react-hooks 7, seen in 42g).
+   */
+  const [writes] = useState(() => new WriteCounter());
+  /*
+   * 42g: lines Done shopping is clearing — hidden now, removed when the Undo
+   * window closes (or at once when the page is hidden or left).
+   */
+  const [clearing, setClearing] = useState<
+    { ids: string[]; sent: boolean } | undefined
+  >();
+  /* The ids still inside their Undo window (none once sent). */
+  const clearingRef = useRef<string[] | undefined>(undefined);
+  /* What to do once that clear has landed (forget the done aisles). */
+  const clearedRef = useRef<(() => void) | undefined>(undefined);
+  const clearTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
 
   const [ticks] = useState(
     () =>
@@ -141,7 +180,7 @@ export function useShoppingList({
         heldStorage: heldTicks,
         hold: initial.settings.features.holdTicks,
         onItems: (items) => {
-          writes.current += 1;
+          writes.bump();
           setState((current) => ({ ...current, items }));
         },
         onChange: setSync,
@@ -154,15 +193,15 @@ export function useShoppingList({
     ticks.setHold(hold);
   }, [ticks, hold]);
   const reload = useCallback(async () => {
-    const started = writes.current;
+    const started = writes.value;
     try {
       const result = await actions.load();
-      if (isActionError(result) || writes.current !== started) return;
+      if (isActionError(result) || writes.value !== started) return;
       setState(result);
     } catch {
       /* Offline: keep showing what we have; the next visit reads again. */
     }
-  }, [actions]);
+  }, [actions, writes]);
   const reloadRef = useRef(reload);
   useEffect(() => {
     reloadRef.current = reload;
@@ -175,11 +214,48 @@ export function useShoppingList({
    */
   useEffect(() => {
     ticks.attach();
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") ticks.flushNow();
-      else void reloadRef.current();
+    /*
+     * A clear still in its Undo window when the page goes away is sent now,
+     * as a `keepalive` PATCH (a server action would not outlive the page).
+     */
+    const sendClearNow = () => {
+      const ids = clearingRef.current;
+      if (!ids) return;
+      clearingRef.current = undefined;
+      clearTimeout(clearTimer.current);
+      const cleared = clearedRef.current;
+      clearedRef.current = undefined;
+      /* Off the page now; the next read confirms it. */
+      const gone = new Set(ids);
+      setState((current) => ({
+        ...current,
+        items: current.items.filter((item) => !gone.has(item.id)),
+      }));
+      setClearing(undefined);
+      ticks.forget(ids);
+      /* Sent for good: the trip is over here too (42-Dg2). */
+      cleared?.();
+      try {
+        void fetch(patchUrl, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ remove: ids }),
+          keepalive: true,
+        }).catch(() => undefined);
+      } catch {
+        /* Gone with the page; the lines stay ticked on the list. */
+      }
     };
-    const onPageHide = () => ticks.flushNow();
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        ticks.flushNow();
+        sendClearNow();
+      } else void reloadRef.current();
+    };
+    const onPageHide = () => {
+      ticks.flushNow();
+      sendClearNow();
+    };
     /* Another tab changed the held ticks (38d): show them here too. */
     const onStorage = (event: StorageEvent) => {
       if (event.key === HELD_STORAGE_KEY || event.key === null) {
@@ -194,8 +270,9 @@ export function useShoppingList({
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("storage", onStorage);
       ticks.detach();
+      sendClearNow();
     };
-  }, [ticks]);
+  }, [ticks, patchUrl]);
 
   /** Run a server action that answers with the list's items or settings. */
   const run = useCallback(
@@ -215,7 +292,7 @@ export function useShoppingList({
           return undefined;
         }
         setActionError(undefined);
-        writes.current += 1;
+        writes.bump();
         apply(result);
         return result;
       } catch {
@@ -225,21 +302,31 @@ export function useShoppingList({
         setWorking(false);
       }
     },
-    [],
+    [writes],
   );
 
-  const items = useMemo(
-    () => applyPending(state.items, sync.pending),
-    [state.items, sync.pending],
-  );
+  const items = useMemo(() => {
+    const ticked = applyPending(state.items, sync.pending);
+    if (!clearing) return ticked;
+    const hidden = new Set(clearing.ids);
+    return ticked.filter((item) => !hidden.has(item.id));
+  }, [state.items, sync.pending, clearing]);
 
   const setItems = (result: { items: ShoppingItem[] }) =>
     setState((current) => ({ ...current, items: result.items }));
+
+  /** Remove exactly these ids, one change; ticks waiting for them go too. */
+  const removeIds = async (ids: string[]) => {
+    const result = await run(() => actions.update({ remove: ids }), setItems);
+    if (result) ticks.forget(ids);
+    return result;
+  };
 
   return {
     items,
     settings: state.settings,
     inventory: state.inventory,
+    plans: state.plans ?? NO_PLANS,
     pendingCount: sync.pending.size,
     status: sync.status,
     error:
@@ -272,10 +359,43 @@ export function useShoppingList({
      * not "whatever the server has ticked", which could take an item just
      * unticked here, or one ticked on another device unseen.
      */
-    clearChecked: async (ids: string[]) => {
-      const result = await run(() => actions.update({ remove: ids }), setItems);
-      if (result) ticks.forget(ids);
-      return result;
+    clearChecked: removeIds,
+    /**
+     * 42g, Done shopping in the store (42-Dg4): hide these ticked lines at
+     * once and remove them after `CLEAR_UNDO_MS` unless `undoClear` comes
+     * first. Once the window closes the removal is `sent` and can no longer
+     * be undone; the lines stay hidden until it lands (or come back, with
+     * the error, if it fails). Done shopping is disabled meanwhile, so
+     * there is one clear at a time.
+     */
+    clearing: clearing?.ids,
+    /** The clear's Undo window has closed: it is being written. */
+    clearSent: clearing?.sent ?? false,
+    startClear: (ids: string[], onCleared?: () => void) => {
+      clearTimeout(clearTimer.current);
+      clearingRef.current = ids;
+      clearedRef.current = onCleared;
+      const entry = { ids, sent: false };
+      setClearing(entry);
+      clearTimer.current = setTimeout(() => {
+        if (clearingRef.current !== ids) return;
+        clearingRef.current = undefined;
+        const cleared = clearedRef.current;
+        clearedRef.current = undefined;
+        const sent = { ids, sent: true };
+        setClearing(sent);
+        void removeIds(ids).then((result) => {
+          setClearing((current) => (current === sent ? undefined : current));
+          if (result) cleared?.();
+        });
+      }, CLEAR_UNDO_MS);
+    },
+    undoClear: () => {
+      if (!clearingRef.current) return;
+      clearTimeout(clearTimer.current);
+      clearingRef.current = undefined;
+      clearedRef.current = undefined;
+      setClearing(undefined);
     },
     /**
      * 39c: undo a sub-recipe's expansion — every line whose `for` names it,
@@ -286,6 +406,15 @@ export function useShoppingList({
         () => actions.update({ removeSource: { for: slug } }),
         setItems,
       );
+      if (result) ticks.forget([...ids, ...(result.removed ?? [])]);
+      return result;
+    },
+    /**
+     * 42g: take a plan's, a recipe's or the typed lines off — one change,
+     * `removeSource` or ids as `removalPatch` chose.
+     */
+    removeOrigin: async (patch: unknown, ids: string[]) => {
+      const result = await run(() => actions.update(patch), setItems);
       if (result) ticks.forget([...ids, ...(result.removed ?? [])]);
       return result;
     },

@@ -250,6 +250,28 @@ export async function readShopping(
 }
 
 /**
+ * 42g: the names of the meal plans the list's lines came through (each
+ * item's outermost plan, `via[0]`), for the page's "What's on it". Items
+ * keep plan slugs only; a plan deleted since reads as missing here, and the
+ * page names it from its slug.
+ */
+export async function readShoppingPlanNames(
+  ctx: CurationContext,
+  items: readonly ShoppingItem[],
+): Promise<Record<string, string>> {
+  const slugs = [
+    ...new Set(items.flatMap((item) => (item.via?.[0] ? [item.via[0]] : []))),
+  ];
+  const groups = await Promise.all(slugs.map((slug) => readGroup(ctx, slug)));
+  const names: Record<string, string> = {};
+  slugs.forEach((slug, index) => {
+    const name = groups[index]?.name;
+    if (name) names[slug] = name;
+  });
+  return names;
+}
+
+/**
  * The list as a person reads it: the stored items and settings, the view
  * (`buildShoppingView` over the shared on-hand list and the staples) and its
  * copy text. `store` narrows to one store's list — with stores switched on

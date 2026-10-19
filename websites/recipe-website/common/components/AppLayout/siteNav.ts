@@ -3,6 +3,7 @@ import {
   BookOpenIcon,
   BookmarkIcon,
   CalendarDaysIcon,
+  CalendarHeartIcon,
   CookingPotIcon,
   MartiniIcon,
   SearchIcon,
@@ -63,6 +64,13 @@ export function siteNavFor(isOwner: boolean): SiteNavItem[] {
   return SITE_NAV.filter((item) => isOwner || !item.ownerOnly);
 }
 
+/**
+ * The almanac (42e). Not in the masthead — six destinations already fill it
+ * at `md`, and every masthead change moves every full-page baseline — but in
+ * the footer's default Browse column, on a site that has holidays.
+ */
+export const HOLIDAYS_HREF = "/holidays";
+
 /** Leading glyphs by href, for links built from menu data (the footer). */
 export const NAV_ICONS: Record<
   string,
@@ -70,6 +78,7 @@ export const NAV_ICONS: Record<
 > = {
   ...Object.fromEntries(SITE_NAV.map((item) => [item.href, item.icon])),
   "/search": SearchIcon,
+  [HOLIDAYS_HREF]: CalendarHeartIcon,
 };
 
 /**

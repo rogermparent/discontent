@@ -43,6 +43,28 @@ test.describe("Accessibility (axe)", () => {
     expect(results.violations).toEqual([]);
   });
 
+  /*
+   * 42e: the almanac (ruler, countdown cards) and a holiday's menu (the
+   * dot-leader groups, the kind word). Both modes and the kind menu open
+   * are in holidays.spec; this is the plain sweep beside the others.
+   */
+  test("holiday pages have no WCAG2AA violations", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("drinks-bar");
+    await page.goto("/holidays");
+    await expect(page.getByTestId("almanac-next")).toBeVisible();
+    expect(
+      (await new AxeBuilder({ page }).withTags(TAGS).analyze()).violations,
+    ).toEqual([]);
+    await page.goto("/holidays/halloween");
+    await expect(page.getByTestId("holiday-hero")).toBeVisible();
+    expect(
+      (await new AxeBuilder({ page }).withTags(TAGS).analyze()).violations,
+    ).toEqual([]);
+  });
+
   /* U4: the count-bar board — blocks, rows, More tags and the chips. */
   test("tag index board has no WCAG2AA violations", async ({
     page,
@@ -82,6 +104,13 @@ test.describe("Accessibility (axe)", () => {
       .getByRole("radio", { name: /^Both/ })
       .check();
     await expect(main.getByTestId("make-second-labels")).toBeVisible();
+    /* 42a: the saved labels' × and "Add to saved list" are in the scan. */
+    await expect(
+      main.getByRole("button", { name: "Remove gin from the saved list" }),
+    ).toBeVisible();
+    await expect(
+      main.getByLabel("Add to saved list", { exact: true }),
+    ).toBeVisible();
     await main.getByRole("button", { name: "Save to editor" }).click();
     await expect(main.getByTestId("make-save-confirm")).toBeVisible();
     await expect(main.getByTestId("make-can")).toBeVisible();
@@ -97,6 +126,61 @@ test.describe("Accessibility (axe)", () => {
     await expect(main.getByRole("menu")).toBeVisible();
     const specs = await new AxeBuilder({ page }).withTags(TAGS).analyze();
     expect(specs.violations).toEqual([]);
+  });
+
+  /* 42m: the bean-swap group, its tapes, and the switch beside close matches. */
+  test("make page with a bean swap has no WCAG2AA violations", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("make-beans");
+    await page.goto("/make");
+    const main = page.getByRole("main");
+    await expect(main.getByTestId("make-ticker")).toHaveText(/can make/i, {
+      timeout: 20_000,
+    });
+    const input = main.getByTestId("inventory-input");
+    await input.fill("pinto beans, cucumber, lemon");
+    await input.press("Enter");
+    await expect(main.getByTestId("make-bean-swap")).toContainText(
+      "Use pinto beans for chickpea",
+    );
+    const photos = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    expect(photos.violations).toEqual([]);
+
+    await main
+      .getByRole("group", { name: "Cards" })
+      .getByRole("radio", { name: "Specs" })
+      .check();
+    await expect(
+      main.getByTestId("make-bean-swap").getByTestId("make-spec-cards"),
+    ).toBeVisible();
+    const specs = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    expect(specs.violations).toEqual([]);
+  });
+
+  /* 42m2: a matcher on the shelf, its refine popover open, and the cards'
+   * missing tapes as buttons beside their links. */
+  test("make page with a matcher and its refine popover has no WCAG2AA violations", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("make-beans");
+    await page.goto("/make");
+    const main = page.getByRole("main");
+    await expect(main.getByTestId("make-ticker")).toHaveText(/can make/i, {
+      timeout: 20_000,
+    });
+    const input = main.getByTestId("inventory-input");
+    await input.fill("any bean, cucumber");
+    await input.press("Enter");
+    await main.getByTestId("make-further").locator("summary").click();
+    await main.getByTestId("make-matcher").click();
+    await expect(
+      page.getByRole("dialog", { name: "Which beans do you have?" }),
+    ).toBeVisible();
+    const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    expect(results.violations).toEqual([]);
   });
 
   test("bookmarks empty state has no WCAG2AA violations", async ({
@@ -458,8 +542,9 @@ test.describe("Accessibility of the editor's other pages (axe, 40g)", () => {
   /*
    * `/shopping` with a plan and a recipe whose sub-recipe expanded on it:
    * the settings sheet open, then the list with stores and "Probably on
-   * hand" switched on and the Sub-recipes fold open. Both modes: the store
-   * buttons, the counts and the muted notes carry colour.
+   * hand" switched on and the Sub-recipes fold open; then (42g) the
+   * in-store view. Both modes: the store buttons, the counts and the muted
+   * notes carry colour.
    */
   for (const mode of ["light", "dark"] as const) {
     test(`shopping list with items has no WCAG2AA violations in ${mode} mode`, async ({
@@ -505,6 +590,39 @@ test.describe("Accessibility of the editor's other pages (axe, 40g)", () => {
       const eggs = page.getByTestId("shopping-row").filter({ hasText: "eggs" });
       await eggs.getByText(/^from \d+ recipes?/).click();
       await expect(eggs.getByTestId("shopping-sources")).toBeVisible();
+      await expectNoViolations(page);
+
+      /*
+       * 42g's in-store view: the store select, the progress bar, the aisle
+       * rail, a ticked row struck in place, an aisle folded away as done,
+       * an on-hand line opened, and the add box in the bottom bar.
+       */
+      await page
+        .getByRole("group", { name: "Mode" })
+        .getByRole("button", { name: "Shop" })
+        .click();
+      await expect(
+        page.getByRole("navigation", { name: "Aisles" }),
+      ).toBeVisible();
+      await page.getByLabel("Store", { exact: true }).selectOption("hannaford");
+      await page.getByLabel("10 eggs", { exact: true }).check();
+      await page
+        .getByRole("button", { name: "Aisle done: Dairy & eggs" })
+        .click();
+      await expect(page.getByTestId("shopping-aisle-done")).toBeVisible();
+      await page
+        .getByRole("button", { name: /^Show what is probably on hand/ })
+        .first()
+        .click();
+      await page.getByRole("button", { name: "Add an item" }).click();
+      await expect(page.getByTestId("shopping-add")).toBeVisible();
+      /*
+       * Tall enough that nothing scrolls. The store bar and the bottom bar
+       * are pinned; scrolled, they cover whatever passes under them, and
+       * axe's target-size rule calls a control there "partially obscured"
+       * — a matter of where the page stopped, not of the page.
+       */
+      await page.setViewportSize({ width: 1280, height: 2400 });
       await expectNoViolations(page);
     });
   }
@@ -691,6 +809,9 @@ test.describe("Accessibility on a phone @mobile", () => {
     for (const { path, fixture } of [
       { path: "/", fixture: "three-recipes" },
       { path: "/drinks", fixture: "drinks-bar" },
+      /* 42e: the almanac and a holiday's menu. */
+      { path: "/holidays", fixture: "drinks-bar" },
+      { path: "/holidays/halloween", fixture: "drinks-bar" },
     ]) {
       test(`${path} with the tab bar stays WCAG2AA in ${mode} mode`, async ({
         page,

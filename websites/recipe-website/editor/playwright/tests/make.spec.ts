@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { test, expect } from "../support/test";
 import { openPalette, signIn } from "../support/helpers";
 import { expectNoViolations } from "../support/a11y";
@@ -21,6 +21,16 @@ const question = (page: Page) => page.getByTestId("make-question");
 const chips = (page: Page) => page.getByTestId("inventory-chips");
 const shelf = (page: Page) => page.getByTestId("make-shelf");
 const toast = (page: Page) => page.getByTestId("make-toast");
+
+/**
+ * A result card by its recipe's name: the list item holding its link (the
+ * card's notes sit beside the link since 42m2, whose tapes are buttons).
+ */
+const cardOf = (scope: Locator, name: string) =>
+  scope
+    .getByRole("listitem")
+    .filter({ has: scope.page().getByRole("link", { name: new RegExp(name) }) })
+    .last();
 
 /** The page has its corpus, its ingredients and its storage. */
 async function ready(page: Page) {
@@ -627,6 +637,7 @@ test.describe("What can I make? — your saved inventory", () => {
       page.getByRole("button", { name: "Save to editor" }),
     ).toHaveCount(0);
     await expect(page.getByText(/saved (list|inventory)/i)).toHaveCount(0);
+    await expect(page.getByLabel("Add to saved list")).toHaveCount(0);
 
     expect((await request.get("/api/inventory")).status()).toBe(401);
     expect((await request.get("/api/inventory/make")).status()).toBe(401);
@@ -774,6 +785,130 @@ test.describe("What can I make? — your saved inventory", () => {
     ).toBeChecked();
   });
 
+  /*
+   * 42a (reversing 41-Dh2): the saved list item by item again — a saved
+   * label's × and "Add to saved list", each one commit, each with Undo
+   * (another commit).
+   */
+  test("a saved label's × removes it in one commit, and Undo puts it back", async ({
+    page,
+    initializeContentGit,
+    getContentGitLog,
+  }) => {
+    await initializeContentGit();
+    const commits = (await getContentGitLog()).length;
+    await signInToMake(page, "tag:drink");
+    await countFrom(page)
+      .getByRole("radio", { name: /^Saved list/ })
+      .check();
+    await expect(ticker(page)).toHaveText(/1 can make/i);
+
+    await secondLabels(page)
+      .getByRole("button", { name: "Remove gin from the saved list" })
+      .click();
+    await expect(toast(page)).toContainText("Removed gin from the saved list.");
+    await expect(secondLabels(page).getByRole("listitem")).toHaveText([
+      /tonic water/,
+    ]);
+    /* Focus goes to the label that took its place. */
+    await expect(
+      secondLabels(page).getByRole("button", {
+        name: "tonic water",
+        exact: true,
+      }),
+    ).toBeFocused();
+    await expect(
+      countFrom(page).getByRole("radio", { name: /^Saved list\s*1 item\b/ }),
+    ).toBeChecked();
+    await expect(ticker(page)).toHaveText(/0 can make/i);
+    expect(await getContentGitLog()).toEqual(
+      expect.arrayContaining(["Update inventory: −gin"]),
+    );
+    expect(await getContentGitLog()).toHaveLength(commits + 1);
+
+    /* Committed: gone after a reload. */
+    await page.reload();
+    await ready(page);
+    await expect(secondLabels(page).getByRole("listitem")).toHaveText([
+      /tonic water/,
+    ]);
+
+    /* The last one: the list is empty, and Undo brings it back. */
+    await secondLabels(page)
+      .getByRole("button", { name: "Remove tonic water from the saved list" })
+      .click();
+    await expect(page.getByTestId("make-second-list")).toContainText(
+      "It is empty.",
+    );
+    await toast(page).getByRole("button", { name: "Undo" }).click();
+    await expect(secondLabels(page).getByRole("listitem")).toHaveText([
+      /tonic water/,
+    ]);
+    await expect.poll(() => getContentGitLog()).toHaveLength(commits + 3);
+    expect((await getContentGitLog()).slice(0, 2)).toEqual([
+      "Update inventory: +tonic water",
+      "Update inventory: −tonic water",
+    ]);
+    await page.reload();
+    await ready(page);
+    await expect(secondLabels(page).getByRole("listitem")).toHaveText([
+      /tonic water/,
+    ]);
+    /* This browser's labels keep their own ×, which commits nothing. */
+    await expect(chips(page)).toHaveCount(0);
+  });
+
+  test("Add to saved list commits once, with Undo", async ({
+    page,
+    initializeContentGit,
+    getContentGitLog,
+  }) => {
+    await initializeContentGit();
+    const commits = (await getContentGitLog()).length;
+    await signInToMake(page);
+    await addItems(page, "vodka");
+    await countFrom(page).getByRole("radio", { name: /^Both/ }).check();
+    const group = page.getByTestId("make-second-list");
+    const field = group.getByLabel("Add to saved list", { exact: true });
+
+    /* Read as a list; what the saved list already has is left out. */
+    await field.fill("Campari, gin");
+    await field.press("Enter");
+    await expect(toast(page)).toContainText("Added Campari to the saved list.");
+    await expect(field).toHaveValue("");
+    await expect(secondLabels(page).getByRole("listitem")).toHaveText([
+      /Campari/,
+      /gin/,
+      /tonic water/,
+    ]);
+    await expect(
+      countFrom(page).getByRole("radio", { name: /^Both\s*4 items/ }),
+    ).toBeChecked();
+    expect(await getContentGitLog()).toHaveLength(commits + 1);
+    expect((await getContentGitLog())[0]).toBe("Update inventory: +Campari");
+    /* This browser's list is its own. */
+    await expect(chips(page).getByRole("listitem")).toHaveText([/vodka/]);
+
+    await field.fill("lime");
+    await group.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(toast(page)).toContainText("Added lime to the saved list.");
+    await toast(page).getByRole("button", { name: "Undo" }).click();
+    await expect(secondLabels(page).getByRole("listitem")).toHaveText([
+      /Campari/,
+      /gin/,
+      /tonic water/,
+    ]);
+    await expect.poll(() => getContentGitLog()).toHaveLength(commits + 3);
+
+    await page.reload();
+    await ready(page);
+    await expect(secondLabels(page).getByRole("listitem")).toHaveText([
+      /Campari/,
+      /gin/,
+      /tonic water/,
+    ]);
+  });
+
   /* A pre-U6 browser stored an overlay on the saved list: hide gin, add lime. */
   const LEGACY = JSON.stringify({ added: ["lime"], removed: ["gin"] });
 
@@ -860,6 +995,98 @@ test.describe("What can I make? — your saved inventory", () => {
     );
     await other.close();
     await guest.close();
+  });
+});
+
+/*
+ * 42a, 41h's coverage gap: the house list end to end. The export's `/make`
+ * and an editor guest's read the house snapshot the same way
+ * (`secondaryInventory()` over `SITE_HOUSE_INVENTORY`), and the export e2e
+ * never builds the static site, so this is the guest's page: the test-only
+ * `/settings/test-house-inventory?bake=1` gives the server the snapshot an
+ * export Build would bake now (`exportBuildEnv` over the saved settings and
+ * `make-drinks`' saved gin + tonic water).
+ */
+test.describe("What can I make? — the house list (export / guest)", () => {
+  test.beforeEach(async ({ resetData }) => {
+    await resetData("make-drinks");
+  });
+  test.afterEach(async ({ request }) => {
+    await request.get("/settings/test-house-inventory");
+  });
+
+  const countFrom = (page: Page) =>
+    page.getByRole("group", { name: "Count from" });
+  const bake = async (request: APIRequestContext) => {
+    const response = await request.get("/settings/test-house-inventory?bake=1");
+    expect(response.ok()).toBe(true);
+    return ((await response.json()) as { items: string[] }).items;
+  };
+
+  test("shared on the export, a guest counts from it: outlined, featurable, never editable", async ({
+    page,
+    request,
+    writeSettings,
+  }) => {
+    /* Off, the default: nothing baked, no Count from. */
+    expect(await bake(request)).toEqual([]);
+    await page.goto("/make?q=tag:drink");
+    await ready(page);
+    await expect(countFrom(page)).toHaveCount(0);
+
+    await writeSettings({ shareInventoryOnExport: true });
+    expect(await bake(request)).toEqual(["gin", "tonic water"]);
+    await page.reload();
+    await ready(page);
+    const radios = countFrom(page).getByRole("radio");
+    await expect(radios).toHaveCount(3);
+    await expect(
+      countFrom(page).getByRole("radio", { name: /^This browser\s*0 items/ }),
+    ).toBeChecked();
+    await expect(
+      countFrom(page).getByRole("radio", { name: /^House list\s*2 items/ }),
+    ).toBeVisible();
+    await expect(page.getByTestId("make-second-list")).toHaveCount(0);
+
+    await countFrom(page)
+      .getByRole("radio", { name: /^House list/ })
+      .check();
+    await expect(ticker(page)).toHaveText(/1 can make/i);
+    await expect(section(page, "make-can")).toContainText("Gin and Tonic");
+    const group = page.getByTestId("make-second-list");
+    await expect(group.getByRole("heading", { level: 3 })).toHaveText(
+      "House list shared with this site · 2",
+    );
+    const labels = group.getByRole("list", { name: "The house list" });
+    await expect(labels.getByRole("listitem")).toHaveText([
+      /gin/,
+      /tonic water/,
+    ]);
+    /* Outlined (`make.css`'s second-list tape), and nothing to edit. */
+    for (const item of await labels.getByRole("listitem").all()) {
+      await expect(item).toHaveAttribute("data-kind", "saved");
+    }
+    await expect(group.getByRole("button", { name: /^Remove/ })).toHaveCount(0);
+    await expect(page.getByLabel("Add to saved list")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Save to editor" }),
+    ).toHaveCount(0);
+
+    /* Featurable like any label. */
+    await labels.getByRole("button", { name: "gin", exact: true }).click();
+    await expect(query(page)).toHaveValue("tag:drink ingredient:gin");
+    await expect(
+      labels.getByRole("button", { name: "gin", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    /* Both: the union, with this browser's own list. */
+    await addItems(page, "vodka");
+    await countFrom(page)
+      .getByRole("radio", { name: /^Both\s*3 items/ })
+      .check();
+    await expect(labels.getByRole("listitem")).toHaveCount(2);
+    await expect(group.getByRole("button", { name: /^Remove/ })).toHaveCount(0);
+    await expect(chips(page).getByRole("listitem")).toHaveText([/vodka/]);
   });
 });
 
@@ -1024,9 +1251,239 @@ test.describe("What can I make? — dinner as well as drinks", () => {
     const can = section(page, "make-can");
     await expect(can).toContainText("Roasted Vegetables");
     await expect(
-      can
-        .getByRole("link", { name: /Roasted Vegetables/ })
-        .getByTestId("make-close"),
+      cardOf(can, "Roasted Vegetables").getByTestId("make-close"),
     ).toHaveCount(0);
   });
+});
+
+/*
+ * 42m: `make-beans` — four salads: Chickpea Cucumber Salad, Black Bean and
+ * Corn Salad, Two Bean Salad (kidney beans and chickpeas) and Classic Three
+ * Bean Salad, whose green beans no family bean stands in for.
+ */
+test.describe("What can I make? — bean swaps", () => {
+  test.beforeEach(async ({ resetData }) => {
+    await resetData("make-beans");
+  });
+
+  const beanSwitch = (page: Page) =>
+    page.getByRole("checkbox", { name: /^Let beans stand in for each other/ });
+
+  test("a bean on hand stands in for another as its own group, and the switch hides it", async ({
+    page,
+  }) => {
+    await page.goto("/make");
+    await ready(page);
+    await addItems(page, "black beans, cucumber, lemon");
+
+    const swap = section(page, "make-bean-swap");
+    await expect(swap.getByRole("heading", { level: 2 })).toHaveText(
+      /^With a bean swap\s*1$/,
+    );
+    const card = cardOf(swap, "Chickpea Cucumber Salad");
+    await expect(card.getByTestId("make-swap")).toHaveText(
+      "Use black beans for chickpea",
+    );
+    /* Never "can make"; still one away, where it says what would swap. */
+    await expect(section(page, "make-can")).toContainText(
+      "Nothing to make yet.",
+    );
+    await expect(section(page, "make-one-away")).toContainText(
+      "Needs chickpea (swap: black beans)",
+    );
+    /* Green beans are no family bean: the three-bean salad stays out. */
+    await expect(swap).not.toContainText("Classic Three Bean Salad");
+    await expect(ticker(page)).toHaveText(
+      "4 recipes · 0 can make · 1 one away · 0 two away · 1 with a bean swap",
+    );
+
+    /* One bean covers two lines. */
+    await addItems(page, "red onion, red wine vinegar");
+    const twoBean = cardOf(swap, "Two Bean Salad");
+    await expect(twoBean.getByTestId("make-swap")).toHaveText([
+      "Use black beans for kidney bean",
+      "Use black beans for chickpea",
+    ]);
+    await expect(ticker(page)).toHaveText(/· 2 with a bean swap$/);
+    await expectNoViolations(page);
+
+    await expect(beanSwitch(page)).toBeChecked();
+    await beanSwitch(page).uncheck();
+    await expect(section(page, "make-bean-swap")).toHaveCount(0);
+    await expect(ticker(page)).not.toHaveText(/bean swap/);
+    await expect(section(page, "make-one-away")).toContainText(
+      "Chickpea Cucumber Salad",
+    );
+    await expect(section(page, "make-one-away")).not.toContainText("swap:");
+
+    /* Per browser: the choice survives a reload. */
+    await page.reload();
+    await ready(page);
+    await expect(beanSwitch(page)).not.toBeChecked();
+    await expect(section(page, "make-bean-swap")).toHaveCount(0);
+    await beanSwitch(page).check();
+    await expect(section(page, "make-bean-swap")).toContainText(
+      "Two Bean Salad",
+    );
+  });
+});
+
+/*
+ * 42m2, on `make-beans`: a card's missing tape adds that ingredient to the
+ * list; "bean" adds the `any bean` matcher, which refines to the beans
+ * ticked; further away is a list of wide rows, the other groups at most
+ * four across, so their tapes have room.
+ */
+test.describe("What can I make? — tap to add, and matchers", () => {
+  test.beforeEach(async ({ resetData }) => {
+    await resetData("make-beans");
+  });
+
+  test("a missing tape in further away goes on the list, with Undo", async ({
+    page,
+  }) => {
+    await page.goto("/make");
+    await ready(page);
+    await addItems(page, "cucumber");
+    await expect(ticker(page)).toHaveText(
+      "4 recipes · 0 can make · 0 one away · 1 two away",
+    );
+    const further = section(page, "make-further");
+    await further.locator("summary").click();
+    const row = cardOf(further, "Two Bean Salad");
+    await row
+      .getByRole("button", { name: "Add red onion to what I have" })
+      .click();
+    await expect(
+      chips(page).getByRole("button", { name: "red onion", exact: true }),
+    ).toBeVisible();
+    await expect(toast(page)).toContainText("Added red onion.");
+    /* Its tape goes with the line it met; focus goes to Undo. */
+    await expect(
+      row.getByRole("button", { name: "Add red onion to what I have" }),
+    ).toHaveCount(0);
+    await expect(
+      toast(page).getByRole("button", { name: "Undo" }),
+    ).toBeFocused();
+
+    /* A second tap moves the card up a bucket. */
+    await row
+      .getByRole("button", { name: "Add red wine vinegar to what I have" })
+      .click();
+    await expect(section(page, "make-two-away")).toContainText(
+      "Two Bean Salad",
+    );
+    await expect(ticker(page)).toHaveText(
+      "4 recipes · 0 can make · 0 one away · 2 two away",
+    );
+    await toast(page).getByRole("button", { name: "Undo" }).click();
+    await expect(
+      chips(page).getByRole("button", { name: "red wine vinegar" }),
+    ).toHaveCount(0);
+    await expect(section(page, "make-two-away")).not.toContainText(
+      "Two Bean Salad",
+    );
+    await expect(
+      chips(page).getByRole("button", { name: "red onion", exact: true }),
+    ).toBeVisible();
+  });
+
+  test("“bean” adds a matcher, which counts every bean and refines to chickpeas", async ({
+    page,
+  }) => {
+    await page.goto("/make");
+    await ready(page);
+    await addItems(page, "cucumber, lemon");
+    await expect(ticker(page)).toHaveText(
+      "4 recipes · 0 can make · 1 one away · 0 two away",
+    );
+
+    const input = page.getByTestId("inventory-input");
+    await input.fill("bean");
+    const option = page
+      .getByTestId("add-suggestions")
+      .getByRole("option", { name: /^Any bean — matches 4 kinds/ });
+    await expect(option).toBeVisible();
+    await option.click();
+
+    const matcher = shelf(page).getByTestId("make-matcher");
+    await expect(matcher).toHaveAccessibleName("any bean");
+    await expect(matcher).toHaveText("✱any bean1");
+    await expect(ticker(page)).toHaveText(
+      "4 recipes · 1 can make · 0 one away · 2 two away",
+    );
+    await expect(section(page, "make-can")).toContainText(
+      "Chickpea Cucumber Salad",
+    );
+    /* Green beans are no family bean: the three-bean salad still needs them. */
+    await expect(section(page, "make-two-away")).toContainText(
+      "Needs green bean",
+    );
+
+    await matcher.click();
+    const refine = page.getByRole("dialog", {
+      name: "Which beans do you have?",
+    });
+    await expect(refine.getByRole("checkbox")).toHaveCount(4);
+    await refine.getByRole("checkbox", { name: /^chickpea/ }).check();
+    await refine.getByRole("button", { name: "Keep only these" }).click();
+    await expect(refine).toHaveCount(0);
+    await expect(shelf(page).getByTestId("make-matcher")).toHaveCount(0);
+    await expect(
+      chips(page).getByRole("button", { name: "chickpea", exact: true }),
+    ).toBeVisible();
+    await expect(toast(page)).toContainText("Kept chickpea for any bean.");
+    await expect(section(page, "make-can")).toContainText(
+      "Chickpea Cucumber Salad",
+    );
+
+    await toast(page).getByRole("button", { name: "Undo" }).click();
+    await expect(shelf(page).getByTestId("make-matcher")).toBeVisible();
+    await expect(
+      chips(page).getByRole("button", { name: "chickpea", exact: true }),
+    ).toHaveCount(0);
+    await expectNoViolations(page);
+  });
+
+  for (const width of [1366, 1600, 1920]) {
+    test(`results have room at ${width} px: rows further away, four across at most`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.goto("/make");
+      await ready(page);
+      await addItems(page, "cucumber");
+      const further = section(page, "make-further");
+      await further.locator("summary").click();
+      const rows = further.getByTestId("make-rows");
+      await expect(rows.getByRole("listitem")).toHaveCount(3);
+      /* Every tape inside its card, none cut or spilling. */
+      const fits = await page.evaluate(() =>
+        [...document.querySelectorAll("[data-testid=make-add-missing]")].map(
+          (tape) => {
+            const card = tape.closest("li")!.getBoundingClientRect();
+            const box = tape.getBoundingClientRect();
+            return (
+              box.left >= card.left - 0.5 &&
+              box.right <= card.right + 0.5 &&
+              tape.scrollWidth <= tape.clientWidth + 1
+            );
+          },
+        ),
+      );
+      expect(fits.length).toBeGreaterThan(0);
+      expect(fits.every(Boolean)).toBe(true);
+      const columns = (locator: Locator) =>
+        locator.evaluate(
+          (element) =>
+            getComputedStyle(element).gridTemplateColumns.split(" ").length,
+        );
+      expect(await columns(rows)).toBe(width >= 1280 ? 2 : 1);
+      expect(
+        await columns(
+          section(page, "make-two-away").getByTestId("recipe-list"),
+        ),
+      ).toBeLessThanOrEqual(4);
+    });
+  }
 });

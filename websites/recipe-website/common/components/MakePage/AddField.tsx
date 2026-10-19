@@ -18,6 +18,11 @@ export interface AddCandidate {
   unlocks: number;
   /** Two-away recipes it would bring a step closer. */
   helps: number;
+  /**
+   * Set for a matcher (42m2): `any bean`, and how many specific kinds of the
+   * family the scope's recipes use.
+   */
+  matcher?: { kinds: number };
 }
 
 /**
@@ -139,7 +144,22 @@ export function AddField({
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => commit([candidate.name])}
           >
-            <span>{candidate.name}</span>
+            {candidate.matcher ? (
+              <span className="flex min-w-0 flex-col">
+                <span>
+                  <span aria-hidden>✱ </span>
+                  {candidate.name.replace(/^any\b/, "Any")}
+                  <span className="sr-only"> — </span>
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  matches {candidate.matcher.kinds}{" "}
+                  {candidate.matcher.kinds === 1 ? "kind" : "kinds"} in these
+                  recipes{" "}
+                </span>
+              </span>
+            ) : (
+              <span>{candidate.name}</span>
+            )}
             <span className="font-mono text-xs whitespace-nowrap">
               {candidate.unlocks > 0 && (
                 <>

@@ -384,6 +384,14 @@ describe("the CLI as a process", () => {
         items: ["Gnista", "simple syrup"],
         changed: true,
       });
+      /* 42m2: the matcher round-trips as text; "beans" is already it. */
+      const matcher = await run(["inventory", "add", "any bean", "--json"]);
+      expect(JSON.parse(matcher.stdout)).toMatchObject({
+        added: ["any bean"],
+      });
+      const again = await run(["inventory", "add", "beans", "--json"]);
+      expect(JSON.parse(again.stdout)).toMatchObject({ changed: false });
+      await run(["inventory", "remove", "any bean", "--json"]);
 
       const make = await run(["inventory", "make", "-tag:drink", "--json"]);
       expect(make.exitCode).toBe(0);
@@ -391,7 +399,21 @@ describe("the CLI as a process", () => {
         query: "-tag:drink",
         inventory: 2,
         staples: true,
+        beanSwaps: true,
+        beanSwap: [],
       });
+      /* 42m: `--no-bean-swaps` drops the bean-swap tier. */
+      const noSwaps = await run([
+        "inventory",
+        "make",
+        "-tag:drink",
+        "--no-bean-swaps",
+        "--json",
+      ]);
+      expect(noSwaps.exitCode).toBe(0);
+      const noSwapsJson = JSON.parse(noSwaps.stdout);
+      expect(noSwapsJson).toMatchObject({ beanSwaps: false });
+      expect(noSwapsJson).not.toHaveProperty("beanSwap");
       /* U5: `--no-staples` turns the pantry staples off. */
       const strict = await run([
         "inventory",
@@ -942,6 +964,92 @@ describe("the CLI as a process", () => {
       }
     },
     TIMEOUT * 2,
+  );
+
+  /*
+   * 42h. `holidays` lists and `holidays <slug>` reads a menu, as of `--date`,
+   * from a plain `tsx` process — which is what proves the seat reaches 42e's
+   * view model without a Next import.
+   */
+  it(
+    "lists the holidays and reads one's menu, as of --date",
+    async () => {
+      expect(
+        (await run(["term", "create", "--label", "Holidays", "--json"]))
+          .exitCode,
+      ).toBe(0);
+      expect(
+        (
+          await run([
+            "term",
+            "create",
+            "--label",
+            "Halloween",
+            "--parent",
+            "holidays",
+            "--json",
+          ])
+        ).exitCode,
+      ).toBe(0);
+      await run(["term", "assign", "halloween", "--add", "first-recipe"]);
+      try {
+        const listed = await run([
+          "holidays",
+          "--date",
+          "2026-10-19",
+          "--json",
+        ]);
+        expect(listed.exitCode).toBe(0);
+        expect(JSON.parse(listed.stdout)).toMatchObject({
+          today: "2026-10-19",
+          total: 1,
+          holidays: [
+            {
+              slug: "halloween",
+              date: "2026-10-31",
+              days: 12,
+              countdown: "in 12 days",
+              counts: { recipes: 1, dishes: 1, drinks: 0 },
+            },
+          ],
+        });
+
+        const menu = await run([
+          "holidays",
+          "halloween",
+          "--date",
+          "2026-10-31",
+        ]);
+        expect(menu.exitCode).toBe(0);
+        expect(menu.stdout).toContain(
+          "Halloween — halloween: Sat 31 Oct, today",
+        );
+        expect(menu.stdout).toContain("    First Recipe — first-recipe");
+
+        const two = await run(["holidays", "halloween", "christmas", "--json"]);
+        expect(two.exitCode).toBe(1);
+        expect(JSON.parse(two.stdout).error.code).toBe("usage");
+
+        const badDay = await run([
+          "holidays",
+          "--date",
+          "2026-02-30",
+          "--json",
+        ]);
+        expect(badDay.exitCode).toBe(1);
+        expect(JSON.parse(badDay.stdout).error.code).toBe("validation");
+
+        const missing = await run(["holidays", "nope", "--json"]);
+        expect(missing.exitCode).toBe(1);
+        expect(JSON.parse(missing.stdout).error).toMatchObject({
+          code: "not_found",
+          slug: "nope",
+        });
+      } finally {
+        await run(["term", "assign", "halloween", "--remove", "first-recipe"]);
+      }
+    },
+    TIMEOUT * 6,
   );
 });
 

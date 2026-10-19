@@ -41,6 +41,7 @@ import {
 } from "./commands/featured";
 import { gitCommands } from "./commands/git";
 import { groupCommands } from "./commands/group";
+import { holidaysCommand } from "./commands/holidays";
 import { imageCommand } from "./commands/image";
 import { importCommand } from "./commands/import";
 import { importListCommand, inspectListCommand } from "./commands/importList";
@@ -96,6 +97,8 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
   feature: featureCommand,
   unfeature: unfeatureCommand,
   reindex: reindexCommand,
+  /* The holidays, for the agents (42h). */
+  holidays: holidaysCommand,
 };
 
 /**
@@ -200,7 +203,8 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   inventory remove <item…>
   inventory set --file <list.txt|list.json>
   inventory make [<query…> | --query <q>] [--feature <name> …] [--limit 20]
-                 [--no-staples]
+                 [--no-staples] [--no-bean-swaps]
+  holidays [<slug>] [--date YYYY-MM-DD]
   shopping [list] [--store <id>]
   shopping add (--recipe <slug> | --group <slug>) [--scale 2] | <line…>
   shopping check <id|name…>
@@ -294,7 +298,9 @@ What's on hand: \`inventory make\` judges the saved inventory as /make
 judges it, with the editor's saved "Assume I always have" list (else salt,
 pepper, water and ice) and the pantry staples (flour, sugar, butter, eggs,
 oil, milk, baking soda and powder) assumed — \`--no-staples\` drops the
-pantry, as /make's "Assume pantry staples" switch does. \`--feature lime\`
+pantry, as /make's "Assume pantry staples" switch does, and
+\`--no-bean-swaps\` drops the "With a bean swap" group (recipes short only
+of beans another bean on hand can replace). \`--feature lime\`
 features an ingredient as the page does, and the answer's \`link\` is the
 /make page showing the same (\`recipes inventory make --help\` has the JSON).
 The site's /make and /drinks lead with each visitor's own list, kept in
@@ -303,6 +309,12 @@ their browser; a signed-in editor's /make can count from the saved list
 when the Export page's "Share my saved inventory on the export" is on (off
 by default): the build then bakes it in as SITE_HOUSE_INVENTORY, a JSON array
 of items, which a hand-run export build may also set.
+
+Holidays: \`holidays\` lists every child of the holidays term soonest first,
+with its next date, countdown and recipes per kind (undated ones last);
+\`holidays <slug>\` is that holiday's menu — dishes by course, drinks by
+style — as /holidays/<slug> shows it. \`--date 2026-12-01\` asks as of that
+day (\`recipes holidays --help\` has the JSON).
 
 Exit codes: 0 done; 1 failed (also \`term assign\` when a named carrier does
 not exist: --force lets an --add through as \`missing\`, printed, exit 1);
