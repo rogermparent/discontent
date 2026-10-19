@@ -151,11 +151,10 @@ test.describe("Single Recipe View", () => {
         "Recipe 2",
       ]);
 
-      const dateText = new Date(recipeDate + "Z").toLocaleString(undefined, {
-        year: "numeric",
-        month: "numeric",
-        day: "numeric",
-      });
+      /* New this week's "12/8" (42f): month/day, the server's calendar —
+       * the same machine and time zone as this runner. */
+      const date = new Date(recipeDate + "Z");
+      const dateText = `${date.getMonth() + 1}/${date.getDate()}`;
       await expect(
         page
           .getByText(editedRecipe)

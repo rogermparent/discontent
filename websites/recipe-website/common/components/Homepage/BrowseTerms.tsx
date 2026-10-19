@@ -1,33 +1,23 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import type {
   HomepageFacet,
   HomepageFacetChild,
 } from "../../controller/homepageFacets";
-import { TermImage } from "../TermImage";
 import { HomeSection } from "./HomeSection";
 
-const CHIP =
-  "inline-flex min-h-9 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-sm text-card-foreground transition-colors hover:border-primary/50";
+/** How many children each facet shows on the homepage (42f, canvas B). */
+export const BROWSE_CHILD_LIMIT = 3;
 
-/** A child term as a chip: its picture when it has one, its label, its total. */
-function FacetChip({ term }: { term: HomepageFacetChild }) {
+/** A child term as a link: its label, then its subtree total in mono. */
+function FacetLink({ term }: { term: HomepageFacetChild }) {
   return (
-    <Link href={`/tags/${term.slug}`} className={CHIP}>
-      {term.image && (
-        <span className="-ml-1.5 size-6 shrink-0 overflow-hidden rounded-full">
-          <TermImage
-            slug={term.slug}
-            image={term.image}
-            alt=""
-            width={48}
-            height={48}
-            sizes="24px"
-            className="h-full w-full object-cover"
-          />
-        </span>
-      )}
+    <Link
+      href={`/tags/${term.slug}`}
+      className="inline-flex min-h-6 items-baseline gap-1 underline-offset-4 hover:underline"
+    >
       {term.label}{" "}
-      <span className="font-mono text-[0.6875rem] tabular-nums text-muted-foreground">
+      <span className="font-mono text-xs tabular-nums text-muted-foreground">
         {term.total}
       </span>
     </Link>
@@ -35,48 +25,46 @@ function FacetChip({ term }: { term: HomepageFacetChild }) {
 }
 
 /**
- * One facet root as a row: the root's name in the mono label face, linking
- * to its page (which lists the whole subtree, 34a), then its biggest children
- * as chips, then "More" when the cap left some out.
+ * One facet root as a cell: the root's name in the mono label face, linking
+ * to its page (which lists the whole subtree, 34a), then its biggest
+ * children on one line.
  *
- * The root is an `h3` so the rows are navigable by heading, styled as the
- * small caps label direction A draws.
+ * The root is an `h3` so the cells are navigable by heading.
  */
-function FacetRow({ facet }: { facet: HomepageFacet }) {
+function FacetCell({ facet }: { facet: HomepageFacet }) {
   return (
     <li
-      className="flex flex-row flex-wrap items-baseline gap-x-5 gap-y-2.5 border-b border-border py-3.5"
+      className="flex flex-col gap-0.5 border-b border-border py-2.5"
       data-testid="home-facet"
     >
-      <h3 className="flex-[0_0_9.5rem] font-mono text-xs font-normal uppercase tracking-[0.12em] text-muted-foreground">
+      <h3 className="font-mono text-xs font-medium tracking-[0.05em] text-muted-foreground uppercase">
         <Link
           href={`/tags/${facet.slug}`}
-          className="underline-offset-4 hover:text-foreground hover:underline"
+          className="inline-flex min-h-6 items-center underline-offset-4 hover:text-foreground hover:underline"
         >
           {facet.label}
         </Link>
       </h3>
-      <div className="flex min-w-0 flex-[1_1_25rem] flex-row flex-wrap gap-2">
-        {facet.children.map((term) => (
-          <FacetChip key={term.slug} term={term} />
+      <p className="flex flex-row flex-wrap items-baseline gap-x-1.5 text-[0.8125rem] leading-5">
+        {facet.children.map((term, index) => (
+          <Fragment key={term.slug}>
+            {index > 0 && (
+              <span aria-hidden className="text-muted-foreground">
+                ·
+              </span>
+            )}
+            <FacetLink term={term} />
+          </Fragment>
         ))}
-        {facet.hidden > 0 && (
-          <Link
-            href={`/tags/${facet.slug}`}
-            className="inline-flex min-h-9 items-center px-2 text-sm text-primary underline-offset-4 hover:underline"
-          >
-            More<span className="sr-only"> {facet.label}</span>
-          </Link>
-        )}
-      </div>
+      </p>
     </li>
   );
 }
 
 /**
- * The homepage's "Browse" section: one row per facet root of the tag
- * vocabulary (direction A's rows, usability pass 2026-10-15; the structure is
- * the homepage redesign's).
+ * The homepage's "Browse" section: one cell per facet root of the tag
+ * vocabulary, three to a row on a laptop, each the root and its three
+ * biggest children (42f, canvas B — six wrapping rows of chips until then).
  *
  * Which roots and in what order is `homepageFacets`' decision, made in the
  * route; this only draws them. The caller renders `BrowseChips` instead when
@@ -85,8 +73,9 @@ function FacetRow({ facet }: { facet: HomepageFacet }) {
  *
  * Every link goes to a term page (`/tags/<slug>`), not to a `tag:` search: a
  * term page lists the term's whole subtree and leads with its pinned recipes,
- * which is the curated view the records exist for. The labels are the
- * records', never the slugs.
+ * which is the curated view the records exist for. The root's page is where
+ * the children past the first three are. The labels are the records', never
+ * the slugs.
  */
 export function BrowseTerms({ facets }: { facets: HomepageFacet[] }) {
   if (facets.length === 0) return null;
@@ -95,13 +84,14 @@ export function BrowseTerms({ facets }: { facets: HomepageFacet[] }) {
       id="home-browse"
       title="Browse"
       link={{ href: "/tags", label: "Every tag" }}
+      className="gap-2"
     >
       <ul
-        className="flex flex-col border-t border-border"
+        className="grid grid-cols-1 gap-x-6 border-t border-border sm:grid-cols-2 md:grid-cols-3"
         data-testid="home-facets"
       >
         {facets.map((facet) => (
-          <FacetRow key={facet.slug} facet={facet} />
+          <FacetCell key={facet.slug} facet={facet} />
         ))}
       </ul>
     </HomeSection>

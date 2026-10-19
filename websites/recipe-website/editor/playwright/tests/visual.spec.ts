@@ -38,6 +38,39 @@ test.describe("Visual baselines @visual", () => {
     await snapshotPage(page, "homepage-two-pages.png");
   });
 
+  /*
+   * 42f: the season and the rail, which no other baseline has. `drinks-bar`
+   * has Halloween and Christmas; a feature of Halloween (shown once, as its
+   * row) and of a recipe (the featured list). The dates are `<time>`s,
+   * masked; the clock fixes the countdowns.
+   */
+  test("homepage with a season and the featured rail", async ({
+    page,
+    request,
+    resetData,
+    createApiToken,
+  }) => {
+    await resetData("drinks-bar");
+    const token = await createApiToken();
+    for (const data of [
+      { term: "halloween", slug: "featured-halloween" },
+      { recipe: "daiquiri", slug: "featured-daiquiri" },
+    ]) {
+      const created = await request.post("/api/featured", {
+        headers: { authorization: `Bearer ${token}` },
+        data,
+      });
+      expect(created.status()).toBe(201);
+    }
+    await page.clock.setFixedTime(new Date(2026, 9, 18, 12));
+    await page.goto("/");
+    await expect(page.getByTestId("season-countdown")).toHaveCount(2);
+    await expect(
+      page.getByRole("region", { name: "Featured", exact: true }),
+    ).toContainText("Daiquiri");
+    await snapshotPage(page, "homepage-season-rail.png");
+  });
+
   test("recipe detail page (signed-out)", async ({ page, resetData }) => {
     await resetData("two-pages");
     await page.goto("/recipe/recipe-6");

@@ -8,11 +8,13 @@ import { analyzeMakeable, prepareCorpus } from "../../util/makeable";
 import { fetchIngredients, useSearch } from "../SearchForm/SearchContext";
 import { useInventory, useMakeSettings } from "../MakePage/useInventory";
 import { countLabel } from "../../controller/homepageIntents";
-import { intentTileClassName } from "./tileStyles";
+import { ArrowRightIcon } from "lucide-react";
 
 /**
- * The primary intent tile: "What can I make?", linking to `/make`, with how
- * many recipes are ready right now (usability pass, 2026-10-15).
+ * The Make tile: "What can I make?", linking to `/make`, with how many
+ * recipes are ready right now (usability pass, 2026-10-15). Since 42f it
+ * stands beside the search field as the band's accent block (canvas B), no
+ * longer the first of a row of equal tiles.
  *
  * The count is the `/make` page's judgement over **this browser's list
  * only**, in both apps (U6, Roger 2026-10-15): what this visitor entered here,
@@ -86,7 +88,11 @@ export function MakeTile() {
   }
 
   return (
-    <Link href="/make" className={intentTileClassName(true)}>
+    <Link
+      href="/make"
+      className="flex min-h-36 flex-col gap-2 rounded-xl bg-primary p-5 text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      data-testid="make-tile"
+    >
       <span className="font-display text-xl font-bold leading-tight">
         What can I make?
       </span>
@@ -95,11 +101,14 @@ export function MakeTile() {
           ? `Checks every recipe against the ${countLabel(have.length, "thing")} on hand`
           : "Checks every recipe against what you have on hand"}
       </span>
-      <span
-        className="mt-auto font-mono text-xs tabular-nums"
-        data-testid="make-tile-status"
-      >
-        {status}
+      <span className="mt-auto flex flex-row items-center justify-between gap-2">
+        <span
+          className="font-mono text-xs tabular-nums"
+          data-testid="make-tile-status"
+        >
+          {status}
+        </span>
+        <ArrowRightIcon aria-hidden className="size-5 shrink-0" />
       </span>
     </Link>
   );
