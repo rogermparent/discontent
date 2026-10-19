@@ -216,9 +216,10 @@ const SECOND_COPY = {
 /**
  * "Count from" (41h): a three-way control of native radios — the arrow
  * keys move between them — with each list's size. Shown only when the page
- * has a second list.
+ * has a second list. `/drinks`' shelf (42d) shows the same control over the
+ * same per-browser setting.
  */
-function CountFromControl({
+export function CountFromControl({
   value,
   onChange,
   browser,
