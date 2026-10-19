@@ -452,6 +452,20 @@ bean`), but pinto beans don't, so with pinto it lands in the tier ("Use
   (`alternativeParts` / `inheritTails`) — a matcher-wide change, out of this
   phase.
 
+**Gates.**
+
+- typechecks: recipe-editor ✅ and the export (`tsc --noEmit`) ✅, heavy
+  slot, at 96dc9809;
+- vitest 2432/2432 (120 files), heavy slot; the makeable suites alone
+  212/212 (4 files) after the review fixes;
+- Playwright, Docker build mode: `make.spec` + `accessibility.spec` 101/101
+  (e2e + mobile), at 96dc9809; the new bean tests once in dev mode (Docker)
+  — see below;
+- baselines (Docker, build mode): `make-page-e2e` and `make-page-specs-e2e`
+  unchanged; `make-mobile-mobile` moved (393×2162 → 393×2234: the new
+  switch's three lines on the stacked shelf) and was regenerated, opened and
+  checked by eye — nothing else on it moved.
+
 **Roger to confirm.** The family list and its exclusions (Dm1: chili beans,
 romano beans, lentils as a later family of their own?); a swap recipe shown
 in both the tier and its bucket (Dm2) rather than moved; the switch on by
