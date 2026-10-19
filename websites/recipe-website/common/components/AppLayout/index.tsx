@@ -20,6 +20,7 @@ import {
 import { themePrePaintScript } from "@discontent/component-library/components/theming/prePaint";
 import { AppProviders } from "./AppProviders";
 import { stickyChromePrePaintScript } from "./stickyChrome";
+import { wideRecipePrePaintScript } from "./wideRecipe";
 import {
   getSiteConfig,
   type ContactLinks,
@@ -291,6 +292,13 @@ export async function AppLayout({
         <script
           dangerouslySetInnerHTML={{
             __html: stickyChromePrePaintScript(),
+          }}
+        />
+        {/* 42c1: the recipe page's column count, before first paint — this
+            one is flash avoidance (see wideRecipe.ts). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: wideRecipePrePaintScript(),
           }}
         />
         <AppProviders
