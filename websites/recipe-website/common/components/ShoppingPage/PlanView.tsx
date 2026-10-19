@@ -262,8 +262,9 @@ function OnHandPanel({
               className="h-9"
               disabled={list.working}
               onClick={() => void list.update({ need: row.ids })}
+              aria-label={`Buy anyway: ${row.label}`}
             >
-              Buy anyway<span className="sr-only">: {row.label}</span>
+              Buy anyway
             </Button>
           </li>
         ))}

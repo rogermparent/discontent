@@ -100,6 +100,11 @@ function AisleRail({
               key={aisle.id}
               href={`#${aisleAnchor(aisle)}`}
               aria-current={isCurrent ? "location" : undefined}
+              aria-label={
+                isDone
+                  ? `${aisle.label}, done`
+                  : `${aisle.label}, ${aisle.left} left`
+              }
               onClick={(event) => {
                 event.preventDefault();
                 jump(aisle);
@@ -115,13 +120,9 @@ function AisleRail({
             >
               {isDone && <Check aria-hidden className="size-4" />}
               {aisle.label}
-              {isDone ? (
-                <span className="sr-only">, done</span>
-              ) : (
+              {!isDone && (
                 <span className="font-mono text-xs tabular-nums opacity-85">
-                  <span className="sr-only">, </span>
                   {aisle.left}
-                  <span className="sr-only"> left</span>
                 </span>
               )}
             </a>
@@ -189,8 +190,9 @@ function OnHandLine({
               className="h-9"
               disabled={list.working}
               onClick={() => void list.update({ need: row.ids })}
+              aria-label={`Buy anyway: ${row.label}`}
             >
-              Buy anyway<span className="sr-only">: {row.label}</span>
+              Buy anyway
             </Button>
           </li>
         ))}
@@ -251,8 +253,9 @@ function DoneAisle({
           size="sm"
           className="h-11 text-muted-foreground"
           onClick={undo}
+          aria-label={`Undo: ${aisle.label} done`}
         >
-          Undo<span className="sr-only">: {aisle.label} done</span>
+          Undo
         </Button>
       </div>
       <div id={rowsId} hidden={!open} className="px-3 pb-1">
@@ -477,11 +480,12 @@ export function ShopView({
 
   const storeChoices = [
     { id: "all", name: "All stores", count: fullView.counts.remaining },
-    ...fullView.stores.map((each) => ({
-      id: each.store!.id,
-      name: each.store!.name,
-      count: each.count,
-    })),
+    /* With Stores off the view's one list has no store: nothing to pick. */
+    ...fullView.stores.flatMap((each) =>
+      each.store
+        ? [{ id: each.store.id, name: each.store.name, count: each.count }]
+        : [],
+    ),
   ];
 
   return (
@@ -603,9 +607,10 @@ export function ShopView({
                 variant="outline"
                 className="mt-2 h-11 w-full"
                 onClick={() => markDone(aisle, true)}
+                aria-label={`Aisle done: ${aisle.label}`}
               >
                 <Check aria-hidden className="size-4" />
-                Aisle done<span className="sr-only">: {aisle.label}</span>
+                Aisle done
               </Button>
             )}
           </section>
