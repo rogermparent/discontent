@@ -452,7 +452,11 @@ export function MakePage({
       /* A line that asks for plain "beans" adds the `any bean` matcher. */
       const item = canonicalItem(name);
       const key = inventoryKey(item);
-      if (haveRef.current.some((kept) => inventoryKey(kept) === key)) return;
+      if (haveRef.current.some((kept) => inventoryKey(kept) === key)) {
+        /* Only while this browser's list isn't counted (Saved mode). */
+        showToast(`${item} is already on this browser's list.`);
+        return;
+      }
       inventory.add([item]);
       setLanded(key);
       const uncounted = settingsRef.current.source === "saved" && !!second;

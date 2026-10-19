@@ -19,7 +19,7 @@
  *
  * Pure, and safe in the browser and the CLI.
  */
-import { beanKind } from "./beans";
+import { beanKind, beanKindOf, beanNames } from "./beans";
 import type { IngredientName, Requirement } from "./ingredientNames";
 
 export interface IngredientMatcher {
@@ -32,10 +32,12 @@ export interface IngredientMatcher {
   /** Does a line's name (one alternative) belong to the family? */
   member: (name: IngredientName) => boolean;
   /**
-   * A member specific enough to keep when refining: `chickpea`, not "mixed
-   * beans" or a bare "beans" line.
+   * The members a line's name stands for, as the refine list names them
+   * (42m2 review): the family's own names, without "cooked" or "canned" —
+   * `black bean` for "2 cups cooked black beans" — and only the specific
+   * ones (`chickpea`, never "mixed beans" or a bare "beans" line).
    */
-  specific: (name: IngredientName) => boolean;
+  specificNames: (name: IngredientName) => string[];
 }
 
 export const MATCHERS: IngredientMatcher[] = [
@@ -44,10 +46,11 @@ export const MATCHERS: IngredientMatcher[] = [
     noun: "bean",
     plural: "beans",
     member: (name) => beanKind(name) !== undefined,
-    specific: (name) => {
-      const kind = beanKind(name);
-      return kind !== undefined && kind !== "any";
-    },
+    specificNames: (name) =>
+      (beanNames(name) ?? []).filter((member) => {
+        const kind = beanKindOf(member);
+        return kind !== undefined && kind !== "any";
+      }),
   },
 ];
 

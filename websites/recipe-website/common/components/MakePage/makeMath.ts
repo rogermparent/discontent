@@ -4,13 +4,10 @@
  * them without a page.
  */
 import { dedupeItems, inventoryKey } from "../../util/inventoryText";
-import {
-  nameKey,
-  nameLabel,
-  type Requirement,
-} from "../../util/ingredientNames";
+import { nameLabel, type Requirement } from "../../util/ingredientNames";
 import {
   matcherForTyped,
+  matcherOf,
   matcherText,
   type IngredientMatcher,
 } from "../../util/matchers";
@@ -157,6 +154,9 @@ export function addCandidates({
   if (!needle) return [];
   const names = new Map<string, Named>();
   const note = (name: string, requirement: Requirement) => {
+    /* A line's plain "bean" would add `any bean`: the matcher's own
+     * suggestion says so better (42m2 review). */
+    if (matcherOf(name)) return;
     const key = fold(name).trim();
     const found = names.get(key);
     if (found) found.count += 1;
@@ -213,11 +213,9 @@ export function addCandidates({
    * or the scope uses none. Ranked by its what-if like any other name.
    */
   const matcher = matcherForTyped(typed);
-  const matcherKey = matcher && inventoryKey(matcherText(matcher));
   if (
     matcher &&
-    !have.some((item) => inventoryKey(item) === matcherKey) &&
-    !stapleItems.some((item) => item.matcher === matcher)
+    ![...items, ...stapleItems].some((item) => item.matcher === matcher)
   ) {
     const members = matcherMembers(matcher, scoped, prepared);
     if (members.length > 0) {
@@ -276,14 +274,15 @@ export function matcherMembers(
     for (const requirement of entry.requirements) {
       if (requirement.optional || requirement.loose) continue;
       for (const alternative of requirement.alternatives) {
-        if (alternative.na || !matcher.specific(alternative)) continue;
-        const key = nameKey(alternative);
-        let member = found.get(key);
-        if (!member) {
-          member = { name: nameLabel(alternative), slugs: new Set() };
-          found.set(key, member);
+        if (alternative.na) continue;
+        for (const name of matcher.specificNames(alternative)) {
+          let member = found.get(name);
+          if (!member) {
+            member = { name, slugs: new Set() };
+            found.set(name, member);
+          }
+          member.slugs.add(recipe.slug);
         }
-        member.slugs.add(recipe.slug);
       }
     }
   }

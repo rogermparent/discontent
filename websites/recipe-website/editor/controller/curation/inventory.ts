@@ -259,10 +259,12 @@ async function setInventoryLocked(
   await assertNoMergeInProgress(ctx.contentDirectory);
   const { items: current, path: file } = await readInventory(ctx);
   const items = sorted(dedupeItems(canonicalItems(input.items)));
-  const nextKeys = new Set(items.map(inventoryKey));
-  const currentKeys = new Set(current.map(inventoryKey));
-  const added = items.filter((item) => !currentKeys.has(inventoryKey(item)));
-  const removed = current.filter((item) => !nextKeys.has(inventoryKey(item)));
+  /* By `itemKey`, as `patchInventory` compares (42m2 review): `any bean`
+   * over a stored "beans" is no change. */
+  const nextKeys = new Set(items.map(itemKey));
+  const currentKeys = new Set(current.map(itemKey));
+  const added = items.filter((item) => !currentKeys.has(itemKey(item)));
+  const removed = current.filter((item) => !nextKeys.has(itemKey(item)));
   if (added.length === 0 && removed.length === 0) {
     return { items: current, path: file, added, removed, changed: false };
   }

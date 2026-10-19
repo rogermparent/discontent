@@ -142,6 +142,23 @@ export function beanKind(name: IngredientName): string | undefined {
   return KIND_BY_NAME.get(name.words.slice(start).join(" "));
 }
 
+/**
+ * The family names a name is, without the words that say how it is sold
+ * (42m2): "cooked black beans" and "1 can low-sodium black beans" are both
+ * `black bean` — one row in a matcher's refine list, and the item a kept
+ * row adds, which meets both lines. `undefined` when it names no family
+ * bean.
+ */
+export function beanNames(name: IngredientName): string[] | undefined {
+  if (name.na || name.words.length === 0) return undefined;
+  let start = 0;
+  while (start < name.words.length - 1 && SOLD_AS.has(name.words[start])) {
+    start += 1;
+  }
+  const rest = name.words.slice(start).join(" ");
+  return KIND_BY_NAME.has(rest) ? [rest] : undefined;
+}
+
 /** The kind of a free-text name ("1 can black beans", an inventory item). */
 export function beanKindOf(text: string): string | undefined {
   return beanKind(toName(text));

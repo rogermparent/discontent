@@ -309,6 +309,29 @@ describe("refining a matcher (42m2)", () => {
     ]);
   });
 
+  it("names a member without how it's sold, and the kept name meets every line", () => {
+    const corpus: MakeRecipe[] = [
+      {
+        slug: "cooked",
+        name: "Cooked",
+        ingredients: ["2 cups cooked black beans"],
+      },
+      {
+        slug: "canned",
+        name: "Canned",
+        ingredients: ["1 (15-ounce) can low-sodium black beans"],
+      },
+    ];
+    const prepared = prepareCorpus(corpus);
+    expect(matcherMembers(BEAN, corpus, prepared)).toEqual([
+      { name: "black bean", recipes: 2 },
+    ]);
+    const analysis = analyzeMakeable(corpus, prepared, ["black bean"], {
+      staples: [],
+    });
+    expect(analysis.canMake).toHaveLength(2);
+  });
+
   it("replaces the matcher with the chosen beans, in its place", () => {
     expect(
       refineMatcher(["lime", "any bean", "corn"], "any bean", ["chickpea"]),
@@ -348,6 +371,39 @@ describe("the add field offers the matcher (42m2)", () => {
     expect(candidates.map((candidate) => candidate.name)).toContain(
       "black bean",
     );
+  });
+
+  it("offers the matcher, not a line's plain `bean`, for “beans”", () => {
+    const corpus = [
+      ...RECIPES,
+      {
+        slug: "any-bean-soup",
+        name: "Any Bean Soup",
+        ingredients: ["2 cans beans", "1 onion"],
+      },
+    ];
+    const withBeans = prepareCorpus(corpus);
+    const judged = analyzeMakeable(corpus, withBeans, ["onion"], {
+      staples: [],
+    });
+    const names = addCandidates({
+      typed: "beans",
+      scoped: corpus,
+      prepared: withBeans,
+      analysis: judged,
+      have: ["onion"],
+      staples: [],
+    }).map((candidate) => candidate.name);
+    expect(names).toContain("any bean");
+    expect(names).not.toContain("bean");
+  });
+
+  it("is not offered once the list holds it, in any spelling", () => {
+    expect(
+      suggest("bean", ["cucumber", "beans"]).some(
+        (candidate) => candidate.matcher,
+      ),
+    ).toBe(false);
   });
 
   it("is not offered once the list holds it, nor for other words", () => {

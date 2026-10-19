@@ -497,7 +497,10 @@ kind/type/sort of beans`, `beans (any kind)`, `beans, any`. It
   41h's result-card "Needs" tapes were static words (only Buy next's dashed
   tape features, and still does); 41h's "tapping the body features" (Dh7,
   Dh8) holds for shelf labels and Buy next. A matcher's body opens its
-  popover instead, and featuring it moved into the popover.
+  popover instead, and featuring it moved into the popover ("Feature any
+  bean", a fixed label with `aria-pressed`). Every missing tape is now a tab
+  stop — further away's rows add one per missing name; Tab order follows
+  the cards, and "Show all N" still caps a group at 12 cards.
 - **Dm2-3 — The tap adds to this browser's list**, whatever Count from
   says (42a's saved-list editing is the shelf's, not the cards'). In Count
   from = Saved list that list isn't counted, and the toast says so ("not
@@ -513,7 +516,10 @@ kind/type/sort of beans`, `beans (any kind)`, `beans, any`. It
 - **Dm2-6 — A bare `beans` / `bean` is the matcher**, normalised on add
   (the page's `setHave`, the seat's `patchInventory` / `setInventory`), so
   the text says what it means; a stored "beans" from before reads as the
-  matcher too. A line asking for plain "beans" adds `any bean` when its
+  matcher too — the browser canonicalises its list on read as well as on
+  write, and the seat compares `patchInventory` and `setInventory` by the
+  canonical key, so saving `any bean` over a stored "beans" is no change.
+  The add field never offers a line's plain `bean` beside "Any bean". A line asking for plain "beans" adds `any bean` when its
   tape is tapped. This settles 42m's review finding 2 on this branch: a
   bare "beans" on the list can't meet green, vanilla or coffee beans.
 - **Dm2-7 — Beans only.** "Any cheese", "any vinegar", "any rum/whiskey"
@@ -523,8 +529,10 @@ kind/type/sort of beans`, `beans (any kind)`, `beans, any`. It
   follow-ups, not shipped. `MATCHERS` takes one entry each when they are.
 - **Dm2-8 — The refine list is specific members only** (`chickpea`, not
   "mixed beans" or a "beans" line), required lines only, most used first;
-  a kept bean is added as the line names it (`chickpea`, `black bean`), as
-  Buy next adds its item.
+  a row is the family's own name without how the bean is sold (review:
+  "2 cups cooked black beans" and "1 can low-sodium black beans" are one
+  `black bean` row, `beanNames`), and keeping it adds that name, which
+  meets both lines.
 
 **Roger to confirm.** A card tap adding to this browser's list even in Count
 from = Saved list (Dm2-3); further away as rows and the other groups four

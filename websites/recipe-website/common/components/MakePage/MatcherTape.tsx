@@ -9,6 +9,7 @@ import {
   PopoverTrigger,
 } from "@discontent/component-library/components/ui/popover";
 import { cn } from "@discontent/component-library/lib/utils";
+import { matcherOf } from "../../util/matchers";
 import type { MatcherMember } from "./makeMath";
 import { FOCUS, MatcherMark } from "./Tape";
 
@@ -46,7 +47,9 @@ export function MatcherTape({
   const [shown, setShown] = useState<MatcherMember[]>([]);
   const headingId = useId();
   const hintId = useId();
-  const noun = item.replace(/^any\s+/i, "");
+  const matcher = matcherOf(item);
+  const noun = matcher?.noun ?? item;
+  const plural = matcher?.plural ?? item;
   return (
     <li
       className="make-tape"
@@ -93,7 +96,7 @@ export function MatcherTape({
           className="grid w-72 gap-3"
         >
           <h3 id={headingId} className="m-0 text-sm font-semibold">
-            Which {noun}s do you have?
+            Which {plural} do you have?
           </h3>
           <p id={hintId} className="m-0 text-xs text-muted-foreground">
             Every {noun} counts as on hand now. Tick the ones you have to keep
@@ -119,7 +122,7 @@ export function MatcherTape({
             </ul>
           ) : (
             <p className="m-0 text-sm text-muted-foreground">
-              No {noun}s in these recipes.
+              No {plural} in these recipes.
             </p>
           )}
           <div className="flex flex-wrap items-center gap-2">
@@ -147,7 +150,7 @@ export function MatcherTape({
                 onToggleFeature();
               }}
             >
-              {featured ? "Stop featuring" : "Feature it"}
+              Feature {item}
             </Button>
           </div>
         </PopoverContent>

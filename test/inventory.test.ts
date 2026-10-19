@@ -451,6 +451,15 @@ describe("makeable", () => {
     expect(result.canMake).toEqual([
       { slug: "chickpea-salad", name: "Chickpea Salad" },
     ]);
+    /* Replacing the list with `any bean` over "beans" is no change. */
+    await writeFile(
+      join(contentDirectory, INVENTORY_FILE),
+      `${JSON.stringify({ items: ["beans", "cucumber"] }, null, 2)}\n`,
+    );
+    const replaced = await setInventory(ctx, {
+      items: ["any bean", "cucumber"],
+    });
+    expect(replaced).toMatchObject({ added: [], removed: [], changed: false });
     expect(
       (await patchInventory(ctx, { remove: ["any bean"] })).removed,
     ).toEqual(["beans"]);

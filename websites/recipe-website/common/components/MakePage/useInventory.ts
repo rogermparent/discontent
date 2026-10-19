@@ -149,7 +149,13 @@ export function useInventory(legacy?: { shared: string[] }): Inventory {
     writeList(items.length > 0 ? storedList(items) : null);
   }, [migrating, raw, legacyShared]);
 
-  const have = useMemo(() => (raw ? parseOverlay(raw).added : NOTHING), [raw]);
+  /* Canonical on read too (42m2 review): a "beans" stored before matchers
+   * reads as `any bean`, as the seat's judge already treats it. */
+  const have = useMemo(
+    () =>
+      raw ? dedupeItems(canonicalItems(parseOverlay(raw).added)) : NOTHING,
+    [raw],
+  );
 
   const setHave = useCallback(
     (items: string[]) => {

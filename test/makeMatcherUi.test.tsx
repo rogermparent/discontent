@@ -126,10 +126,23 @@ describe("the matcher tape (42m2)", () => {
     const onToggleFeature = vi.fn();
     render(<Shelf onRefine={() => {}} onToggleFeature={onToggleFeature} />);
     fireEvent.click(screen.getByTestId("make-matcher"));
-    fireEvent.click(screen.getByRole("button", { name: "Feature it" }));
+    const feature = screen.getByRole("button", { name: "Feature any bean" });
+    expect(feature).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(feature);
     expect(onToggleFeature).toHaveBeenCalledWith("any bean");
     fireEvent.click(screen.getByRole("button", { name: "Remove any bean" }));
     expect(screen.queryByTestId("make-matcher")).toBeNull();
+  });
+
+  it("reads a stored `beans` from before as `any bean`", () => {
+    localStorage.setItem("make-inventory-v1", storedList(["beans"]));
+    render(<Shelf onRefine={() => {}} />);
+    const tape = screen.getByTestId("make-matcher");
+    expect(tape).toHaveAccessibleName("any bean");
+    fireEvent.click(tape);
+    expect(
+      screen.getByRole("dialog", { name: "Which beans do you have?" }),
+    ).toBeVisible();
   });
 
   it("keeps a typed `beans` as `any bean` (Dm2-6)", () => {
