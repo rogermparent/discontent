@@ -104,12 +104,14 @@ export const UNIT_PATTERN = [...UNITS]
   .map((unit) => unit.replace(/ /g, "\\s*"))
   .join("|");
 
-/** `2`, `1.5`, `1 1/2`, `3/4`, and a range or choice of them. */
+/** `2`, `1.5`, `.5`, `1 1/2`, `3/4`, and a range or choice of them. */
 /* Fractions first: the alternation takes the first branch that fits, and a
- * bare `\d+` fits the `3` of `3/4`. */
-export const NUMBER = String.raw`(?:\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:[.,]\d+)?)`;
+ * bare `\d+` fits the `3` of `3/4`. `.5` (43n) is `1lb/.5kg`'s other half. */
+export const NUMBER = String.raw`(?:\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:[.,]\d+)?|\.\d+)`;
 export const QUANTITY_WORDS = String.raw`(?:a\s+few|a\s+couple(?:\s+of)?|a\s+little|a\s+bit(?:\s+of)?|couple(?:\s+of)?|few|several|some|half(?![\s-]*(?:and|&)[\s-]*half)(?:\s+an?)?|one|two|three|four|five|six|seven|eight|nine|ten|twelve|an?)`;
-export const MODIFIER = String.raw`(?:about|approx\.?|approximately|around|~|scant|heaping|heaped|generous|rounded|level|large|small|big)`;
+/* `1 packed cup cilantro` (43n): packed is how the cup is filled; `1 med
+ * carrot`, `1lrg squash`, `3 medium-sized onions` are sizes. */
+export const MODIFIER = String.raw`(?:about|approx\.?|approximately|around|~|scant|heaping|heaped|generous|rounded|level|large|small|big|medium(?:[\s-]sized)?|med|lrg|sm|(?:lightly\s+|firmly\s+|loosely\s+|tightly\s+)?packed)`;
 export const QUANTITY_RE = new RegExp(
   String.raw`^(?:${MODIFIER}\s*)?(?:${NUMBER}(?:\s*(?:-|–|—|to|or)\s*${NUMBER})?|${QUANTITY_WORDS}\b)(?:\s*${MODIFIER}\b)?\s*`,
   "i",
@@ -118,9 +120,12 @@ export const UNIT_RE = new RegExp(
   String.raw`^(?:${UNIT_PATTERN})(?:e?s)?\.?(?=\s|$|\(|\/)\s*`,
   "i",
 );
-/** `/1.5kg` after `3.5lb`: the same amount in other units (32j). */
+/**
+ * `/1.5kg` after `3.5lb`: the same amount in other units (32j) — or a range
+ * of them, `3-4lbs/1.5-2kg` (43n).
+ */
 export const UNIT_ALT_RE = new RegExp(
-  String.raw`^\/\s*${NUMBER}\s*(?:${UNIT_PATTERN})(?:e?s)?\.?(?=\s|$|\()\s*`,
+  String.raw`^\/\s*${NUMBER}(?:\s*[-–—]\s*${NUMBER})?\s*(?:${UNIT_PATTERN})(?:e?s)?\.?(?=\s|$|\()\s*`,
   "i",
 );
 /** ` or can` / `/can` after a unit: the second of two containers (27c). */

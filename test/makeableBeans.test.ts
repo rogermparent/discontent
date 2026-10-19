@@ -137,7 +137,8 @@ describe("the bean family (42m)", () => {
   it("counts an (or …) line as any of its beans, a bare variety too", () => {
     const multi = "1 (15 oz) can black beans (or pinto or cannellini beans)";
     expect(isBeanLine(parseIngredientLine(multi)[0])).toBe(true);
-    expect(kindsOf(multi)).toEqual([["black"], ["pinto", "white"]]);
+    /* Three alternatives since 43n split `(or pinto or cannellini beans)`. */
+    expect(kindsOf(multi)).toEqual([["black"], ["pinto"], ["white"]]);
     for (const [line, kinds] of [
       ["1 cup black beans (or pinto)", [["black"], ["pinto"]]],
       ["1 can chickpeas (or navy)", [["chickpea"], ["white"]]],
@@ -320,7 +321,7 @@ describe("the bean-swap tier (42m)", () => {
     /* Navy is a white bean, like the cannellini the line names. */
     const analysis = judgeWith(["chickpeas", "navy beans", "corn"]);
     expect(swapsOf(analysis.beanSwap[0])).toEqual([
-      ["black bean or pinto or cannellini bean", "navy beans"],
+      ["black bean or pinto bean or cannellini bean", "navy beans"],
     ]);
     /* Cannellini itself meets the line (the strict tail rule): no swap. */
     const strict = judgeWith(["cannellini beans", "corn"]);

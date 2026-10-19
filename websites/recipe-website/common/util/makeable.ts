@@ -411,7 +411,8 @@ function closeWords(
   if (classDrop(line, have, CLASS_NOUNS)) return true;
   if (classDrop(have, line, CLASS_NOUNS_EITHER_WAY)) return true;
   /* One word typed differently: rewrite it to the line's, then the strict
-   * rules decide. */
+   * rules decide — or the class noun (43n: "mozzarella" lines read
+   * `mozzarella cheese` now, and `mozarella` on hand must still come close). */
   let typos = 0;
   const rewritten = have.map((word) => {
     const match = line.find((lineWord) => typoOf(word, lineWord, counts));
@@ -419,7 +420,10 @@ function closeWords(
     typos += 1;
     return match;
   });
-  return typos === 1 && strictWords(rewritten, line);
+  return (
+    typos === 1 &&
+    (strictWords(rewritten, line) || classDrop(line, rewritten, CLASS_NOUNS))
+  );
 }
 
 /**

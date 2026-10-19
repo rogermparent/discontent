@@ -348,7 +348,268 @@ Files: `common/util/ingredientNames.ts` (`parseIngredientLine` :732, `toName` :3
 
 #### Results (43n)
 
-_Pending._
+Branch `agent/43n-ingredient-names`. **Reindex needed: no** (names are
+read at request time from stored lines; nothing an index, aggregate or
+`specVersions` pins changed). **Deploy: yes** (Make, `/shopping`, the
+recipe page's "Uses" and the `inventory make` seats read the new names).
+
+Measured on a scratch clone of the content repo (825 recipes, 8,283
+ingredient lines) with read-only dumps of every line's name, amount and
+every step's "Uses", before (`origin/main` `db12c934`) and after:
+
+|                                                                            | Before    | After                                      |
+| -------------------------------------------------------------------------- | --------- | ------------------------------------------ |
+| Names still carrying amount debris (a unit, a number, a leading `to`/`or`) | 427 lines | 24                                         |
+| Lines whose name changed                                                   | —         | 941 (11.4 %)                               |
+| Lines whose amount changed                                                 | —         | 1 ("1 packed cup cilantro": `1` → `1 cup`) |
+| Distinct names                                                             | 1,746     | 1,727                                      |
+| Step "Uses" matches                                                        | —         | +167 / −32                                 |
+
+The 24 left are one-offs and typos ("50g gr 3Tbsp rainy mustard", "1
+Tablespoon granulated sugar + 1/2 teaspoon cinnamon", "Half of 1/4
+teaspoon"). Of the 32 step matches lost, most were false positives the old
+garbage names produced — `tahini or chinese sesame paste note` matched
+"(Note 4)", `raspberry conserve for swirling into the dough` every
+"dough", `ground pork i use` every "use", `neutral oil enough to fill the
+pot around deep` "deep" — and the rest are D3 working as meant: two lines
+that now share a name ("for rolling: … granulated or coarse sugar" beside
+"granulated sugar") or a head (`cheese`) show neither. The e2e fixtures
+moved two names (`pork-carnitas` "ground cumin" → `cumin`,
+`shallot-rice-pilaf` "freshly ground black pepper" → `black pepper`, a
+staple either way) and no step match.
+
+**1. Parser fixes** (`ingredientNames.ts`, `ingredientGrammar.ts`; each
+shape a vitest case in `test/ingredientNames.test.ts`, "ranges, dashes and
+amount shapes (43n)", with the line's old reading beside it):
+
+- balela-salad's lines: "1/2 cup to 1 cup Italian parsley – chopped" →
+  `italian parsley` (was `to cup italian parsley`); "… fresh mint- chopped"
+  → `mint`; "1/4- 1/2 teaspoon cayenne or aleppo chili flakes" → `cayenne
+pepper or aleppo chili flake`; "3 cups cooked garbanzo beans- ( 2 cans,
+  drained and rinsed)" → `cooked chickpea`; "red bell pepper-diced" → `red
+bell pepper` (already right; now pinned). `parseAmount` already read
+  them (1 cup, ½ tsp, 3 cups, 1) — now pinned in `ingredientAmount.test.ts`.
+- **A range or a second measure after the unit** (`secondMeasure`): "1/2
+  cup to 2/3 cup", "3/4 cup to 7/8 cup (170g to 198g)", and the
+  same-amount-two-ways shape of the Lagerstrom recipes, by far the most
+  common debris (~300 lines): "50g or 1/2c heavy cream" was `or 2c heavy
+cream`; "100g or 2 large carrots", "20g or 1/4 of a red onion".
+- **A container after a measure** (`CONTAINER_AFTER_RE`): "15oz can",
+  "One 15-ounce can", "12 ounce bag", "4 6-oz. bags", "two 4-ounce bars",
+  "1-inch piece of", "2-inch knob". A can or tin leaves `canned` (Dn2).
+- **`tidyLine`** before anything else: `15-ounce` / `15- ounce` → `15
+ounce`, `4 x 400g`, `8ish`, `3/4c+1tbsp`, `200g-250g`,
+  `medium-to-large`, and a word dash with a space on either side as a comma
+  (Dn1).
+- **After the unit**: `(packed)` / `(can)` brackets, `55g (1/4) cup` (the
+  bracket's unit after it), `4 lbs (meaty!) beef oxtail` (a bracket with a
+  name after it is a remark, not "the unit is the name"), `1/2 cup plus 2
+(150ml) tablespoons`.
+- **The grammar** (shared with `parseAmount`): `NUMBER` reads `.5`
+  (`1lb/.5kg`), `UNIT_ALT_RE` a range (`3-4lbs/1.5-2kg`), `MODIFIER`
+  `packed`, `medium(-sized)`, `med`, `lrg`, `sm`. The one amount that moved
+  is the packed cup (above).
+- **Around the name**: a label before the amount ("egg wash: 1 large egg
+  beaten with …", "for rolling: …", "optional topping: …"), "up to" /
+  "roughly" before a quantity, an amount written last ("Bread flour 300g",
+  "King Arthur Whole Wheat Flour 48g 40%", "Soy Sauce + 1 tsp"), "beaten
+  with" / "mixed with" / "grated and …" / "+ extra" trailing remarks (not
+  when the cut leaves only describing words — "finely chopped and toasted
+  pecans" stays pecans), `(or substitute …)` / `(or sub …)` / `(or use …)`,
+  `plus more` / `optional` / `Note 5` / `combination of both` dropped from
+  `(or …)` lists, `OR` in capitals, "pinch or two", "zest 1 lemon".
+- **The backlog's `(or A or B C)`** fell out of the same work (Dn6).
+
+**2. Synonyms and descriptors.** A curated table in `toName` —
+`NAME_SYNONYMS` (pattern → name, over the folded text) and
+`NAME_DESCRIPTORS` (words dropped like `DESCRIPTIVE`'s), both exported for
+the report. All three surfaces read names through `toName`, so a row moves
+them together; `test/ingredientSynonyms.test.ts` proves it per pair (one
+shopping key, an inventory item of either form meets a line of either
+form, one merged row with the amounts added, a step that names the line
+the other way finds it).
+
+| Row                                                                                                                                                                                                                 | Lines it rewrote |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `ground` before black/white pepper, cinnamon, nutmeg, cumin, allspice, cardamom, turmeric, cayenne pepper → dropped                                                                                                 | 328              |
+| a named cheese (feta, cheddar, mozzarella, ricotta, gruyère, parmesan, pecorino, provolone, cotija, monterey/pepper jack, gouda, fontina, asiago, manchego, halloumi, havarti, muenster, mascarpone) gains `cheese` | 58               |
+| `full fat` → dropped                                                                                                                                                                                                | 36               |
+| `cayenne`, `cayenne powder` → `cayenne pepper`                                                                                                                                                                      | 26               |
+| `plain` before a yogurt → dropped                                                                                                                                                                                   | 23               |
+| `AP flour`, `plain flour` → `all purpose flour`                                                                                                                                                                     | 18               |
+| `distilled white` / `white distilled` / `distilled vinegar` → `white vinegar`                                                                                                                                       | 14               |
+| `dry` before white/red wine → dropped                                                                                                                                                                               | 13               |
+| `white sugar`, `granulated white sugar` → `granulated sugar`                                                                                                                                                        | 12               |
+| `uncooked` (descriptor)                                                                                                                                                                                             | 11               |
+| `unsweetened` before cocoa → dropped                                                                                                                                                                                | 10               |
+| `mayo` → `mayonnaise`                                                                                                                                                                                               | 10               |
+| `worcestershire` → `worcestershire sauce`                                                                                                                                                                           | 8                |
+| `mild` (descriptor)                                                                                                                                                                                                 | 6                |
+| `dijon` → `dijon mustard`; `parm`, `parmigiano(-reggiano)` → `parmesan`; `flat-leaf parsley` → `italian parsley`; `instant dry yeast` → `instant yeast`; `active yeast` → `active dry yeast`                        | 1–3 each         |
+
+"mild feta cheese" + "feta cheese" (and "feta", "crumbled feta") are one
+name, `feta cheese`; "mayo" and "mayonnaise" one, `mayonnaise`. Garbanzo =
+chickpea was already a 32j synonym.
+
+**3. Near-duplicate report**:
+`editor/scripts/measure-ingredient-dupes.ts <content-dir> [--top N]`,
+read-only and index-free like `measure-ingredient-names.ts` (the repo's
+scripts live in `editor/scripts/`). Three sections: names that still
+differ only by a plural, word order or a candidate word (grouped, with
+line and recipe counts); "one word more" pairs both in the corpus; and
+each table row with its line count. The scratch run is in the
+orchestrator's scratch at `tmp/43/43n/dupes.md` (134 groups, 560 pairs).
+The top of what is **left for Roger to pick** (lines in brackets; none
+merged by 43n):
+
+1. salt (386) · kosher salt (99) · fine / coarse / flaky salt (≤4)
+2. unsalted butter (205) · butter (70) · salted butter (5)
+3. granulated sugar (171) · sugar (81)
+4. light brown sugar (103) · dark brown sugar (91) · brown sugar (34)
+5. olive oil (95) · extra virgin olive oil (57)
+6. onion (57) · yellow onion (38) · white onion (25)
+7. all purpose flour (186) · all purpose white flour (4) · unbleached (1)
+8. instant yeast (42) · active dry yeast (13) · yeast (3)
+9. ginger (38) · ground ginger (27) — fresh root vs the jar
+10. pepper (50) · ground pepper (6) · white pepper (5)
+11. smoked paprika (26) · paprika (21)
+12. soy sauce (39) · low / reduced sodium soy sauce (4)
+13. sea salt (19) · fine sea salt (12) · flaky sea salt (8)
+14. ground beef (26) · lean ground beef (7)
+15. chicken broth (19) · low / reduced sodium chicken broth (12) · chicken stock (22)
+16. ground clove (23) · clove (6)
+17. tomato (23) · canned tomato (6)
+18. cheddar cheese (15) · sharp cheddar cheese (7) · sharp white / extra sharp (3)
+19. cream cheese (17) · brick cream cheese (18)
+20. yellow mustard (9) · mustard (8) · ground / dry mustard (6)
+21. pumpkin puree (16) · canned pumpkin puree (5)
+22. tomato paste (22) · canned tomato paste (2)
+23. molasses (9) · dark molasses (9) · unsulphured molasses (8)
+24. ground coriander (10) · coriander (3)
+25. black bean (8) · canned black bean (8)
+26. corn (9) · frozen corn (5) · canned corn (2)
+27. creamy peanut butter (8) · creamy unsweetened peanut butter (2)
+28. dry white wine was merged; sparkling wine (10) · dry sparkling wine (2) was not
+29. cooked rice (3) · cooked white rice (2) · white rice (2) · rice (2)
+30. bacon (8) · thick cut bacon (1)
+
+**4. Index impact: none; reindex: not needed.** No index, aggregate or
+`specVersions`-pinned module computes names: `/make` runs the parser over
+the corpus in the browser, the `inventory make` seats over the same index
+lines on the server, the shopping view and the recipe page at request
+time. Stored state keyed by a name: the shopping settings'
+`aisleOverrides` / `storeOverrides` (by `nameKey`) — the content repo has
+no `shopping/settings.json` today, so nothing is orphaned (Tn2). Every
+rewritten name shelves where its old form did (`aisleFor` checked for
+each row's before and after: spices, pantry, dairy, produce unchanged;
+`can tomato` and `canned tomato` both pantry).
+
+**For 43m.** Normalized names: `prepareCorpus(corpus).recipes.get(slug)
+.requirements` (already parsed, cached) and, per requirement, each
+`alternatives[i]` with `nameKey` (to count and dedupe — "in 34 of 120
+drinks" is distinct recipes per `nameKey`) and `nameLabel` (to show; it is
+also what a `/regex/` item should test, the folded words joined). A typed
+pattern or tape normalizes through `toName(text)`. Count each
+requirement's first alternative, or every alternative once per recipe;
+skip `staple` and `optional` requirements. `canned black bean` and `black
+bean` are two names (Dn2), as `can black bean` and `black bean` were: fold
+them only if "most used" should — `beans.ts` already ignores `canned`.
+
+**Decisions**
+
+- **Dn1 — a dash after a word, with a space on either side, is a comma.**
+  "fresh mint- chopped", "Italian parsley – chopped", "garbanzo beans- (2
+  cans …)", "olive oil — plus more for the pan", "ground pork - i use
+  80/20". Not when `or` follows (`ground beef -or ground lamb` keeps its
+  alternative), and never a hyphen between letters: "red bell
+  pepper-diced" reads right already (`diced` is descriptive), and
+  "semi-sweet", "all-purpose", "fire-roasted" are one word each.
+- **Dn2 — a can or tin after a measure becomes `canned`.** The old names
+  kept the word (`can tomato`, `can black bean`), which kept "28 oz can
+  diced tomatoes" apart from fresh tomatoes on a list and shelved it in the
+  pantry (`aisles.ts` reads `can`/`canned` as a cue). Dropping it would
+  have merged canned with fresh; `canned tomato` keeps both and reads as
+  people write. Other containers (bag, box, jar, bar, block, piece, knob,
+  pack) are dropped. "1 can black beans" (the can as the unit) still reads
+  `black bean`, as before.
+- **Dn3 — a synonym's target is the longer name unless measured
+  otherwise.** Shortening a name to one another line contains makes it
+  ambiguous for step matching (D3 shows neither), so named cheeses gain
+  `cheese` rather than losing it — and "Sprinkle the feta" now finds the
+  feta line. The two rows that shorten — ground spices and `white vinegar`
+  — were measured on the step dump: spice lines +17 / −4 (cayenne
+  included), vinegar lines unchanged.
+- **Dn4 — what was left apart** (varieties that matter, or amounts that
+  don't add): `cooked` (two cups of cooked rice and a cup of rice don't
+  add up on a list), low/reduced sodium, kosher vs table salt (volumes
+  differ), salted vs unsalted butter, granulated sugar vs sugar, lean
+  ground beef, ground ginger / mustard / cloves / coriander / thyme (the
+  bare name is often fresh or another thing), dry vermouth, unsweetened
+  applesauce. **Italian parsley** stays its own name: the survey found
+  "italian parsley" in 2 lines and "flat leaf parsley" in 1, against
+  "parsley" in 44, and no recipe using them as one — so `flat-leaf
+parsley` → `italian parsley` (one plant, two names) and plain `parsley`
+  stays; Make's tail rule already lets parsley on hand meet "Italian
+  parsley".
+- **Dn5 — a named cheese keeps its own word as a head** (`stepIngredients`
+  `CLASS_HEADS`): "mozzarella cheese" goes by `cheese` and `mozzarella`, so
+  a step that says "the mozzarella" still finds a line that now ends in
+  `cheese`; the shared head `cheese` stays ambiguous between two cheese
+  lines, as D3 wants.
+- **Dn6 — `(or A or B C)` splits** (backlog row, struck): a `(or …)`
+  group's text goes through `splitAlternatives` and `inheritTails` like
+  the line's own, so "black beans (or pinto or cannellini beans)" is three
+  alternatives and pinto on hand meets it strictly (`makeableBeans` test
+  updated). `inheritTails` no longer lends a tail that opens with a
+  connecting word: "Chambord or crème de mure" was `chambord de mure`.
+- **Dn7 — the close tier's typo rule takes a class noun** (`makeable.ts`):
+  "mozarella" on hand still comes close to "1 cup shredded mozzarella",
+  now `mozzarella cheese`.
+
+**Expected diffs in the contract suites** (all in this branch):
+`ingredientNames.test.ts` — "dry red wine, such as Cabernet Sauvignon" →
+`red wine` (×2, drink lines), "1/2 cup plus 2 tablespoons white sugar" →
+`granulated sugar`, "kosher salt & freshly ground black pepper" → `kosher
+salt` + `black pepper`; `makeableBeans.test.ts` — the `(or pinto or
+cannellini beans)` line has three alternatives and reads `black bean or
+pinto bean or cannellini bean`. `makeable`, `makeMatchers`,
+`makeMatcherUi`, `shoppingView`, `shoppingLines`, `stepIngredients`,
+`ingredientAmount`, `aisles`, `headsUp`: unchanged and green.
+
+**Roger to confirm:** the merges in the table (above), especially ground
+spices → the bare spice, `dry` red/white wine → the wine, white sugar →
+granulated sugar and `canned X` names; and which of the 30 left to merge.
+
+**Gates** (all through the capped heavy slot): `pnpm --filter
+recipe-editor typecheck` and `pnpm --filter recipe-website exec tsc
+--noEmit` clean; `pnpm exec vitest run` on the final code 2,840 / 2,842 — the two red were
+30 s timeouts under a load average of ~8 (`cliJson` "keeps the
+inventory…", `instance` "syncs a workstation commit…"), both green re-run
+alone (53/53); an earlier full run, before the `(or …)` split, was 2,839 /
+2,839;
+Playwright in Docker build mode (`DOCKER=1 heavy-pw.sh`), `make.spec`,
+`cook-view.spec`, `recipe-cooking-order.spec`, `shopping.spec`,
+`shopping-modes.spec`, `drinks.spec` × e2e + mobile: **103 passed**. No
+baseline moved or was regenerated: the e2e fixtures changed two names
+(above), neither on a screenshotted surface; no new spec, so no dev-mode
+run.
+
+#### Traps (43n)
+
+- **Tn1 — shortening a name can cost step matches.** A canonical name that
+  another line's name contains is ambiguous (D3). Before adding a row that
+  shortens, dump every step's "Uses" before and after (the 43n survey
+  scripts did; `matchStepIngredients` over a scratch clone) — gains and
+  losses both.
+- **Tn2 — stored overrides are keyed by the old name.** `/shopping`'s
+  aisle and store overrides are keyed by `nameKey` when they are written;
+  a new synonym row orphans one written under the old name (the content
+  repo has none today). Re-save the override, or re-key on read if it
+  happens.
+- **Tn3 — `inheritTails` runs after the table.** "instant or active dry
+  yeast" builds `instant dry yeast` after `toName` has run, so the
+  `instant dry yeast` row never sees it (3 lines). A row that must catch
+  lent tails belongs after `inheritTails`, not in `toName`.
 
 ### 43m — What can I make: start from nothing, pattern items (M–L)
 
