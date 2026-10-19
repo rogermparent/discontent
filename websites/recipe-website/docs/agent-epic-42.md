@@ -1268,6 +1268,26 @@ buttonRef, …}` and two components taking it as a prop; the React
   keeps `useSearchParams` in step with the History API, so the page
   narrows without a round trip, on the export too.
 
+### 42m2
+
+- **Tm2-1 — baselines from before a merge go stale where the old budget
+  can't see it (Tb4 in practice).** #288's first CI run failed the four
+  Make captures on Recipe shard 4/4 (`make-page` 1 474 px,
+  `make-results-wide` 1 060, `make-page-specs` 7 333, `make-mobile` 416).
+  The same count on every retry, and Docker reproduced it to the pixel in
+  dev **and** build mode, so this was no dev-only motion or ticking number.
+  The PNGs were drawn at 230f0bd3, before the branch merged 42a's outline
+  borders (d16c80cc). The merge also kept main's 42a-era `make-page-specs`,
+  which has no bean-switch row (42m) and none of 42m2's Needs tapes. Under
+  41's 2 % ratio every "no baseline moved" gate after those merges passed;
+  42b's 100 px budget, merged next, did not. Fix: those four regenerated in
+  Docker, build mode, `--update-snapshots=all`, and opened. The diffs are
+  outline-button borders ("I have this", Clear, Import / export), the bean
+  switch row, and the Needs-tape layout. Then build ×3 and dev ×3
+  (`--repeat-each=3 --retries=0`): **12 + 12 passed**; `make.spec` in dev:
+  **47 passed**. Lesson: after merging main into a branch that owns
+  baselines, regenerate those baselines with `=all`; don't trust a pass.
+
 ## Results
 
 ### 42b — Screenshot tolerance tightened
