@@ -33,10 +33,14 @@ import { HOLIDAYS_ROOT, holidayRuleKey } from "./holidays";
  *
  * - **Food:** Course, Main ingredient, Cuisine, Speed & effort — the facet
  *   roots of `FACET_ROOT_ORDER` that are neither holidays nor the bar, each
- *   group its root's children — then **Collections** (every *recorded* root
- *   that is none of those roots, `drink`, `spirit` or `holidays`: Fall
- *   Favorites, Syrups) and **Holidays** (the children of `holidays`, each row
- *   carrying the `HOLIDAY_RULES` key that dates it).
+ *   group its root's children — and **Holidays** (the children of
+ *   `holidays`, each row carrying the `HOLIDAY_RULES` key that dates it).
+ * - **Either kind:** **Collections** — every *recorded* root that is none of
+ *   those roots, `drink`, `spirit` or `holidays` (Fall Favorites, Syrups,
+ *   House). A collection can be dishes or the bar (House is mostly drinks),
+ *   so the group has kind `"any"`: it shows for either kind, and the counts
+ *   within the set decide whether it has rows. `/tags` draws it on the Food
+ *   shelf (canvas B).
  * - **Drinks:** **Style** (`DRINK_STYLE_SLUGS` less the next group's),
  *   **Strength & method** (`DRINK_STRENGTH_METHOD_SLUGS`), **Spirit & base**
  *   (the `spirit` root's children) and **Families** (every other child of
@@ -52,11 +56,15 @@ import { HOLIDAYS_ROOT, holidayRuleKey } from "./holidays";
  * and Holidays count every recipe in the set.
  *
  * **Other tags** are what no group places: a tag no term spells, or a term
- * with no record (a carried-only string such as `house`).
+ * with no record (a string only recipes carry — since 43k gave the one-off
+ * drink names records, a rare case).
  */
 
 /** The two shelves: dishes and the bar. `tag:drink` / `-tag:drink` (D3). */
 export type FacetKind = "food" | "drinks";
+
+/** A group's kind: one shelf's, or `"any"` (Collections) for both. */
+export type FacetGroupKind = FacetKind | "any";
 
 /** The groups, in reading order. */
 export type FacetGroupId =
@@ -110,7 +118,7 @@ type GroupSource =
 
 export interface FacetGroupDef {
   id: FacetGroupId;
-  kind: FacetKind;
+  kind: FacetGroupKind;
   /** The heading when no root record names it. */
   label: string;
   source: GroupSource;
@@ -138,7 +146,7 @@ export const FACET_GROUPS: readonly FacetGroupDef[] = [
   },
   {
     id: "collections",
-    kind: "food",
+    kind: "any",
     label: "Collections",
     source: { type: "collections" },
   },
@@ -296,7 +304,7 @@ export interface FacetModel {
 /** A group with its top-level row slugs worked out, before any counting. */
 export interface FacetGroupShape {
   id: FacetGroupId;
-  kind: FacetKind;
+  kind: FacetGroupKind;
   label: string;
   /** The term the group is the children of (its `/tags/<root>` page). */
   root?: string;
@@ -626,7 +634,7 @@ export interface FacetGroupOptions {
   sort?: "count" | "label";
   /** `FACET_GROUPS`' order (default), or the biggest group first. */
   order?: "fixed" | "total";
-  /** Only these groups' kind. */
+  /** Only the groups of this kind (and the `"any"` ones). */
   kind?: FacetKind;
 }
 
@@ -657,7 +665,7 @@ export function facetGroups(
 
   const groups: FacetGroup[] = [];
   for (const shape of model.groups) {
-    if (kind && shape.kind !== kind) continue;
+    if (kind && shape.kind !== kind && shape.kind !== "any") continue;
     const countsOf = shape.kind === "drinks" ? counts.drinks : counts.subtree;
     const build = (
       slug: string,
@@ -839,8 +847,10 @@ function removeTagTerms(
 
 /**
  * A facet row's click: remove every positive `tag:` term naming the row's
- * term (by any spelling — `tag:Mains` and `tag:main` are one term), else
- * append `tag:<slug>`. AND, as every `tag:` term already is (D3).
+ * term (by any spelling — `tag:Mains` and `tag:main` are one term); else, if
+ * the query excludes the term (`-tag:sour`), remove that exclusion — the row
+ * goes back to neutral rather than asking for both; else append
+ * `tag:<slug>`. AND, as every `tag:` term already is (D3).
  */
 export function toggleFacet(
   model: FacetModel,
@@ -850,6 +860,8 @@ export function toggleFacet(
   if (activeFacetSlugs(model, raw).has(slug)) {
     return removeTagTerms(model, raw, slug, "positive");
   }
+  const cleared = removeTagTerms(model, raw, slug, "negated");
+  if (cleared !== raw) return cleared;
   return appendFilterTerm(raw, "tag", slug);
 }
 
