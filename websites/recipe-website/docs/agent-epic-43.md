@@ -188,7 +188,101 @@ Files: `editor/.../new-recipe/` (`form.tsx`, `workspace.tsx`, `ImportProgress.ts
 
 #### Results (43e1)
 
-_Pending._
+**What changed.** `/new-recipe` and `/recipe/<slug>/edit` are canvas B's
+frame (board `B-start`, `B-desktop`, `B-phone`):
+
+- **The frame** (`common/components/Form/RecipeFormFrame.tsx`): h1 (the
+  edit page's "Editing recipe" eyebrow + name), a sticky section rail from
+  `lg` — Start from (new only) · Recipe · Tags · Picture · Ingredients ·
+  Steps · Times · Source — and the save card under it: **Create recipe** /
+  **Save**, **Cancel** (to `/` or the recipe), and **"N changes · not
+  saved"**. On a phone the rail is a jump row of section pills and the save
+  card a sticky bar above the tab bar (the `/shopping` bar's pattern). The
+  current section is marked from the scroll position (`aria-current`).
+- **The rail's model** (`common/components/Form/sections.ts`, pure):
+  statuses from the form state — "from the page/text/photo" while a
+  section is unchanged since the import, "N chosen" tags, line and step
+  counts, "N · all lines used" only when the recipe page's own matcher
+  (`matchStepIngredients`, 42c1) names every line, the total (or prep +
+  cook) time, the source's site or host, "needs a name", and "check" on a
+  section with a field error. `changedFields` counts real field changes
+  against the loaded values (CRLF, a trailing newline, a 0-minute time and
+  `type: undefined` are not changes; source and drink count per part).
+- **The sections** (`Form/index.tsx`): Recipe (name, description, yield),
+  Tags, Picture and video, Ingredients, Steps (+ timelines), Times, Source
+  and address (source link / site / author, slug, date, the Drink fold) —
+  headings with rules, every field's name and submit shape unchanged (D4).
+  The Add Ingredient / Instruction / Timeline buttons go outline: primary
+  is Save's alone.
+- **Start from** (`new-recipe/form.tsx`): five ways in as a radiogroup — A
+  link, Text, Photo, Roundup, Blank — over the existing import modes and
+  35r's `RoundupImport` (kept mounted, hidden, so a run survives a switch);
+  Text and Photo are disabled with "No local model / vision model
+  configured" where there is none. The live job panel (`ImportProgress`)
+  sits inside; once an import fills the form the card folds to a
+  **receipt** — the panel's one line with how it was read ("recipe data on
+  the page — no model needed", "read by qwen3:8b") and **Start over**.
+- **Duplicate check at Import time**: `recipeBySource` (`importList.ts`,
+  over the roundup's own `existingBySource`) behind `sameSourceAction`
+  (`new-recipe/duplicateActions.ts`); "Already in your recipes. X was
+  imported from this link on 14 Oct 2026." with **Open it** / **Edit that
+  one instead** / **Keep importing — save as a copy**, which sets the slug
+  from `resolveCopySlug` (`recipes.ts`: `nextCopySlug`, the first free
+  `-2`, `-3`…, counting on from a slug that already ends in a number) and
+  says so in the rail ("Same link as X — you chose to keep a copy",
+  `/recipe/x-2`). Asked again for a reopened `?job=`.
+- **Errors**: the slug conflict's Overwrite path is unchanged; the Slug
+  field now also says "This slug is taken: change it, or overwrite that
+  recipe." (`withSlugConflict`), and the rail marks Source "check".
+
+**Decisions.**
+
+- **De1-1 one Save in the DOM.** The rail's card is portalled out of the
+  recipe form (Start from is a `<form>` of its own; forms cannot nest), so
+  its buttons carry `form="recipe-form"`; `useFormStatus` still works (the
+  React tree is the form's). Which copy renders — rail card or phone bar —
+  follows `(min-width: 64rem)` after hydration (`useWideRail`); the server
+  renders the phone bar, hidden from `lg` by CSS. So there is one Save, one
+  Overwrite and one message at a time (strict locators stay strict).
+- **De1-2 the button names.** The canvas's copy wins: "Create recipe" and
+  "Save". 109 lookups of the recipe form's `Submit` in 25 specs were
+  rewritten by page (a script classifying each by the page it was on);
+  every other form's Submit (featured, group, term, menus, pages) stays.
+  Labels the specs find case-insensitively stay as they were where they are
+  43e2's (Prep Time, Add Ingredient…); the Source block's are now "Source
+  link", "Site", "Author".
+- **De1-3 no focus move on a mode switch.** 36d moved focus to the field a
+  mode link opened; with radios, focus stays on the radio (arrow keys move
+  through the five). The specs that asserted the old focus now assert the
+  field is shown.
+- **De1-4 "Start over" re-opens the ways in; it does not clear the form.**
+  The form keeps what the import gave it until the next import fills it
+  (D1: conservative). Roger to confirm.
+- **De1-5 the duplicate check informs only.** No index (or no match) is
+  silence; the slug conflict at Create still stands behind it. It is asked
+  for link imports (and a reopened link job), not for pasted text or photos.
+- **De1-6 the picture's change** is seen from the form element's own
+  `change`/`input` events on the file, URL and candidate inputs (the form
+  instance does not hold them): it counts as one change and turns the rail's
+  Picture to "new"; picking the original candidate back still counts.
+- **De1-7 Import stays primary** (board `B-start`); every other button in
+  the form is outline or ghost.
+- **De1-8 the phone's pill row is `contain: inline-size`.** A scroll
+  container still hands its content's min-content width up to an ancestor
+  grid track: the pills stretched the page to ~660 px at 393 until
+  contained (caught by the new spec's "nothing reaches past the screen"
+  check, which lists the offending boxes).
+
+**Found, not fixed (43e2's):** an untouched save writes `"name": ""` into
+every untitled step (the step-name input posts an empty string and the
+schema keeps it) — pinned in `editFormRoundTrip.test.tsx` so the change is
+seen when the steps section is reworked. The ingredient, tag and drink-spec
+round-trip (D4) is exact.
+
+**Gates.** _Pending (after review)._
+
+**Roger to confirm:** De1-4 (Start over keeps the form); the receipt's
+wording; Cancel on a new recipe goes to `/` without asking.
 
 ### 43e2 — Edit form B: tags, ingredients, steps, drinks (M–L)
 
