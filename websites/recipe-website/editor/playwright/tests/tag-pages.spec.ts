@@ -365,8 +365,7 @@ test.describe("Tag pages", () => {
       await page.goto("/tags/dessert");
       await expect(cards(page)).toHaveCount(9);
       await expect(page.getByTestId("term-count")).toHaveText(/^9 recipes/);
-      /* A root page's Newest view holds the list (43t). */
-      await page.getByRole("button", { name: "Newest", exact: true }).click();
+      /* `dessert` is no facet root, so its page is the list (43t). */
       await expect(
         page.getByTestId("recipe-list").getByText("Linzer Bars"),
       ).toBeVisible();
