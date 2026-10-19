@@ -128,6 +128,61 @@ test.describe("Accessibility (axe)", () => {
     expect(specs.violations).toEqual([]);
   });
 
+  /* 42m: the bean-swap group, its tapes, and the switch beside close matches. */
+  test("make page with a bean swap has no WCAG2AA violations", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("make-beans");
+    await page.goto("/make");
+    const main = page.getByRole("main");
+    await expect(main.getByTestId("make-ticker")).toHaveText(/can make/i, {
+      timeout: 20_000,
+    });
+    const input = main.getByTestId("inventory-input");
+    await input.fill("pinto beans, cucumber, lemon");
+    await input.press("Enter");
+    await expect(main.getByTestId("make-bean-swap")).toContainText(
+      "Use pinto beans for chickpea",
+    );
+    const photos = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    expect(photos.violations).toEqual([]);
+
+    await main
+      .getByRole("group", { name: "Cards" })
+      .getByRole("radio", { name: "Specs" })
+      .check();
+    await expect(
+      main.getByTestId("make-bean-swap").getByTestId("make-spec-cards"),
+    ).toBeVisible();
+    const specs = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    expect(specs.violations).toEqual([]);
+  });
+
+  /* 42m2: a matcher on the shelf, its refine popover open, and the cards'
+   * missing tapes as buttons beside their links. */
+  test("make page with a matcher and its refine popover has no WCAG2AA violations", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("make-beans");
+    await page.goto("/make");
+    const main = page.getByRole("main");
+    await expect(main.getByTestId("make-ticker")).toHaveText(/can make/i, {
+      timeout: 20_000,
+    });
+    const input = main.getByTestId("inventory-input");
+    await input.fill("any bean, cucumber");
+    await input.press("Enter");
+    await main.getByTestId("make-further").locator("summary").click();
+    await main.getByTestId("make-matcher").click();
+    await expect(
+      page.getByRole("dialog", { name: "Which beans do you have?" }),
+    ).toBeVisible();
+    const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    expect(results.violations).toEqual([]);
+  });
+
   test("bookmarks empty state has no WCAG2AA violations", async ({
     page,
     resetData,

@@ -410,6 +410,8 @@ export interface CuratorBackend {
     limit?: number;
     /** Pantry staples count as on hand (U5); `false` turns them off. */
     staples?: boolean;
+    /** The bean-swap tier (42m); `false` turns it off. */
+    beanSwaps?: boolean;
   }): Promise<MakeableResult>;
 
   /* --- shopping list (35c) ---------------------------------------------- */

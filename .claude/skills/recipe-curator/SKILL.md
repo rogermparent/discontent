@@ -545,9 +545,13 @@ so there), which may hold a different list from the shared one you judged.
 `{items, path, added, removed, changed}`, one commit each, and `changed:
 false` when the list already said so. Write items the way recipe lines are
 written: **generic name** (`lime`, `simple syrup`, `non-alcoholic gin`), or a
-brand alone when it means one thing (`Gnista`). `inventory_makeable` →
-`{query, scope, features, link, staples, alwaysHave, inventory, total,
-canMake, oneAway, twoAway, further, buyNext}` (`scope` is the query with
+brand alone when it means one thing (`Gnista`). "I have beans, any kind"
+is the matcher **`any bean`**: it meets every canned or dried bean a line
+names (black, pinto, chickpeas, cannellini…; never green, wax or vanilla
+beans, lentils or refried beans), and counts as had. `beans` and `any beans`
+are stored as `any bean`. `inventory_makeable` →
+`{query, scope, features, link, staples, beanSwaps, alwaysHave, inventory,
+total, canMake, oneAway, twoAway, further, beanSwap?, buyNext}` (`scope` is the query with
 each feature written in; `total` counts the recipes judged, after the
 features): each row is `{slug, name, missing?, makeFirst?, close?}` (`makeFirst` names a
 recipe, such as a house syrup, that meets a line once made; `close` lists
@@ -560,7 +564,13 @@ have" list, else salt, black pepper, water and ice — and so do the pantry
 staples (flour, sugar, butter, eggs, vegetable and
 olive oil, milk, baking soda, baking powder), as the site's "Assume pantry
 staples" switch does by default; don't add them. Pass `"staples": false` when
-the ask is about what's really there ("I'm out of eggs and flour"). Change the list **only when the ask says so** ("I bought Gnista",
+the ask is about what's really there ("I'm out of eggs and flour").
+`beanSwap` (on unless `"beanSwaps": false`, as the site's "Let beans stand
+in for each other") lists `{slug, name, swaps: [{line, use}]}` — recipes
+short only of beans that another bean on the list could replace (pinto for
+black beans, cannellini for chickpeas); they stay in `oneAway`, `twoAway`
+or the `further` count as well (a three-bean salad can be further away)
+and never count as can make, so report them as "with a swap". Change the list **only when the ask says so** ("I bought Gnista",
 "I'm out of vodka").
 
 ## 8b. The shopping list

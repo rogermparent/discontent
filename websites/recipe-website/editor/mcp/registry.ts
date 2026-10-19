@@ -1215,7 +1215,9 @@ export function createRecipeServer(
       description:
         "Add items to the shared list, one commit. Items already there are skipped. " +
         "Write the generic name first (`aperitif (Gnista)` or just `Gnista`), the way " +
-        "recipe lines are written.",
+        "recipe lines are written. `any bean` is a matcher: every canned or dried bean " +
+        "a line names counts as on hand (never green or vanilla beans); `beans` is " +
+        "stored as `any bean`.",
       inputSchema: z.strictObject({
         items: z.array(InventoryItemSchema).min(1).max(500),
       }),
@@ -1279,7 +1281,12 @@ export function createRecipeServer(
         '`staples: false` — as the site\'s "Assume pantry staples" switch, on by ' +
         "default. A line can be met by making another recipe first (`makeFirst`), " +
         "or by a close item (`close`: {needs, have}, e.g. onion for a shallot), " +
-        "which counts as had. The same rules the site's /make page uses.",
+        "which counts as had. `beanSwap` (unless `beanSwaps: false`, as the site's " +
+        '"Let beans stand in for each other" switch, on by default) lists recipes ' +
+        "short only of beans that another bean on the list could replace — " +
+        "{slug, name, swaps: [{line, use}]}, e.g. use pinto beans for black bean; " +
+        "they stay in oneAway, twoAway or the further count too and never count as can make. " +
+        "The same rules the site's /make page uses.",
       inputSchema: InventoryMakeQuerySchema,
       annotations: READ_ONLY,
     },
