@@ -535,8 +535,15 @@ function nextDay(timestamp: number): number {
  *
  * `resolver` makes `tag:` hierarchy-aware (epic 31, 31b): a term with terms
  * under it also matches recipes that carry any of them, so `tag:dessert`
- * finds the linzer cookies. Without one — or for a value that names no parent
- * term — `tag:` is today's prefix match, which the expansion only ever adds to.
+ * finds the linzer cookies.
+ *
+ * **A value that names a term matches that term's subtree and nothing else**
+ * (43f, Df9): `tag:side` finds the sides, not the Sidecar, and `tag:gin` the
+ * gin drinks, not every drink-name family starting "gin" — so a facet row's
+ * count is what its click finds. A carried tag belongs to the subtree by its
+ * folded spelling or its slug (`St Patricks Day` is `st-patricks-day`).
+ * Without a resolver, or for a value that names no term (`tag:sid`, still
+ * being typed), `tag:` is the word-start prefix match it has always been.
  */
 export function matchesFilter(
   recipe: FilterableRecipe,
@@ -583,9 +590,12 @@ export function matchesFilter(
       switch (field) {
         case "tag": {
           const tags = recipe.tags ?? [];
-          if (tags.some((tag) => fieldMatches(tag, value))) return true;
           const subtree = resolver?.expandTerm("tag", value);
-          return !!subtree && tags.some((tag) => subtree.has(fold(tag).trim()));
+          if (!subtree) return tags.some((tag) => fieldMatches(tag, value));
+          return tags.some((tag) => {
+            const folded = fold(tag).trim();
+            return subtree.has(folded) || subtree.has(tagSlug(folded));
+          });
         }
         case "ingredient":
           return (recipe.ingredients ?? []).some((line) =>
