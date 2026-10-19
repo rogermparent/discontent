@@ -449,7 +449,9 @@ kind)`. Files: `HolidayMenu.tsx`, `HolidayMenuPage.tsx`.
 - **De5 — course order is a meal's** (`MENU_COURSE_ORDER`: breakfast,
   snacks, soup, salad, mains, sides, bread, sauces, desserts; other
   courses after, in tree order); styles keep `DRINK_STYLE_SLUGS`' order. A
-  recipe in two courses goes under the earlier.
+  recipe in two courses goes under the earlier in that order, whatever
+  order its tags are in (`earliestTerm`; a dessert-and-breakfast pie is
+  breakfast); a drink in two styles likewise.
 - **De6 — the right-hand side of a menu line** is the dish's main
   ingredient or the drink's spirit, not a time: the by-term rows carry no
   times, and adding them would change the tag index's projection (a
@@ -462,8 +464,9 @@ kind)`. Files: `HolidayMenu.tsx`, `HolidayMenuPage.tsx`.
   points. A new `Ruler` inside `Almanac.tsx` rather than a fork.
 - **De9 — no masthead link.** Six destinations fill the masthead at `md`,
   and a masthead change moves every full-page baseline; the almanac is in
-  the footer (only on sites with holidays, so no other fixture's footer
-  moved) and linked from the term pages.
+  the footer — only on sites with holidays, so only `drinks-bar`'s footer
+  moved (both `drinks-page` baselines, e2e and mobile, regenerated) — and
+  linked from the term pages.
 
 **Roger to confirm.** De3 (plans don't put a holiday on the almanac);
 De5's course order; De6 (main ingredient / spirit at the end of the

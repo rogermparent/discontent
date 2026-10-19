@@ -80,7 +80,8 @@ export async function readHolidayMenu(
 
 /**
  * Every holiday page the export emits: each holiday, and each alias of one
- * that is not a term of its own (a page that sends the reader on). Never
+ * that is not a term of its own (a page that sends the reader on;
+ * `holidayAliasTarget` leaves out a slug with a record of its own). Never
  * empty — `output: "export"` rejects a dynamic route with no params — so a
  * site with no holidays emits one placeholder that answers 404, the
  * `generateTagStaticParams` guard.

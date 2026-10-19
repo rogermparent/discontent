@@ -156,7 +156,7 @@ export function HolidayMenu({
         <h1
           id={heroId}
           data-testid="holiday-hero"
-          className="m-0 font-display text-[clamp(3.25rem,1.4rem+7vw,7.5rem)] leading-[0.92] font-extrabold tracking-[-0.045em] text-balance"
+          className="m-0 font-display text-[clamp(2.75rem,1.2rem+7vw,7.5rem)] leading-[0.92] font-extrabold tracking-[-0.045em] text-balance [overflow-wrap:anywhere]"
         >
           {words && (
             <>

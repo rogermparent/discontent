@@ -264,6 +264,44 @@ test.describe("Holidays", () => {
   });
 });
 
+test.describe("Holidays, a long name at 360 px @mobile", () => {
+  test("Thanksgiving's headline wraps rather than scrolls", async ({
+    page,
+    resetData,
+    request,
+    createApiToken,
+  }) => {
+    await resetData("drinks-bar");
+    const headers = { authorization: `Bearer ${await createApiToken()}` };
+    const created = await request.post("/api/taxonomies/tag", {
+      headers,
+      data: { label: "Thanksgiving", parent: "holidays" },
+    });
+    expect(created.status()).toBe(201);
+    const assigned = await request.post(
+      "/api/taxonomies/tag/thanksgiving/assign",
+      { headers, data: { add: ["hand-pies"] } },
+    );
+    expect(assigned.status()).toBe(200);
+    await page.clock.setFixedTime(SUNDAY);
+    await page.setViewportSize({ width: 360, height: 780 });
+
+    await page.goto("/holidays/thanksgiving");
+    await expect(page.getByTestId("holiday-hero")).toHaveText(
+      "39 days to Thanksgiving.",
+      { timeout: 20_000 },
+    );
+    const sideways = () =>
+      page.evaluate(
+        () => document.documentElement.scrollWidth - window.innerWidth,
+      );
+    expect(await sideways()).toBeLessThanOrEqual(0);
+    await page.goto("/holidays");
+    await counted(page);
+    expect(await sideways()).toBeLessThanOrEqual(0);
+  });
+});
+
 test.describe("Holidays @mobile", () => {
   test.beforeEach(async ({ page, resetData, request, createApiToken }) => {
     await resetData("drinks-bar");

@@ -186,7 +186,8 @@ export function holidayAliasTarget(
   tree: TermTree | null | undefined,
   slug: string,
 ): { slug: string; label: string } | undefined {
-  if (holidayChildren(tree).includes(slug)) return undefined;
+  /* A term of its own is never an alias here, as `ownAliases` has it. */
+  if (tree?.[slug] || holidayChildren(tree).includes(slug)) return undefined;
   const target = aliasTarget(tree, slug);
   if (!target || !holidayChildren(tree).includes(target)) return undefined;
   return { slug: target, label: tree?.[target]?.label ?? target };
@@ -240,20 +241,44 @@ export function menuStyles(
 }
 
 /**
- * Tag slug → the first of `terms` whose subtree (aliases included) holds it.
- * First wins, so a recipe tagged with two courses goes under the earlier.
+ * Tag slug → the first of `terms` whose subtree (aliases included) holds
+ * it, with that term's place in `terms` (`earliestTerm` picks by it).
  */
 function firstTermOf(
   tree: TermTree | null | undefined,
   terms: Array<{ slug: string; label: string }>,
-): Map<string, { slug: string; label: string }> {
-  const found = new Map<string, { slug: string; label: string }>();
-  for (const term of terms) {
+): Map<string, RankedTerm> {
+  const found = new Map<string, RankedTerm>();
+  terms.forEach((term, rank) => {
     for (const key of subtreeKeys(tree, term.slug)) {
-      if (!found.has(key)) found.set(key, term);
+      if (!found.has(key)) found.set(key, { ...term, rank });
     }
-  }
+  });
   return found;
+}
+
+interface RankedTerm {
+  slug: string;
+  label: string;
+  /** Its place in the list it came from: lower is earlier. */
+  rank: number;
+}
+
+/**
+ * The earliest of `terms` (by their list's order, not the tags' order) that
+ * any of `tags` falls under — so a recipe tagged `dessert` and `breakfast`
+ * is breakfast on a menu (De5), whichever tag it lists first.
+ */
+function earliestTerm(
+  tags: string[],
+  terms: Map<string, RankedTerm>,
+): RankedTerm | undefined {
+  let best: RankedTerm | undefined;
+  for (const tag of tags) {
+    const term = terms.get(tag);
+    if (term && (!best || term.rank < best.rank)) best = term;
+  }
+  return best;
 }
 
 /**
@@ -271,19 +296,17 @@ export function holidayRecipeOf(
     tree,
     childTerms(tree, MAIN_INGREDIENT_ROOT),
   );
-  const first = (
-    tags: string[],
-    map: Map<string, { slug: string; label: string }>,
-  ) => tags.map((tag) => map.get(tag)).find(Boolean);
-
   return (recipe) => {
     const tags = (recipe.tags ?? []).map((tag) => tagSlug(tag));
     const kind: HolidayKind = tags.some((tag) => drinkKeys.has(tag))
       ? "drinks"
       : "food";
-    const course = kind === "food" ? first(tags, courseOf) : undefined;
-    const style = kind === "drinks" ? first(tags, styleOf) : undefined;
-    const base = first(tags, kind === "drinks" ? spiritOf : ingredientOf);
+    const course = kind === "food" ? earliestTerm(tags, courseOf) : undefined;
+    const style = kind === "drinks" ? earliestTerm(tags, styleOf) : undefined;
+    const base = earliestTerm(
+      tags,
+      kind === "drinks" ? spiritOf : ingredientOf,
+    );
     return {
       slug: recipe.slug,
       name: recipe.name,

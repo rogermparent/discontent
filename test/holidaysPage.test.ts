@@ -13,6 +13,7 @@ import {
   holidayEntries,
   holidayKeys,
   holidayMenuData,
+  holidayRecipeOf,
   kindCounts,
   menuCourses,
   menuGroups,
@@ -322,6 +323,13 @@ describe("holidayMenuData", () => {
     });
     expect(holidayAliasTarget(tree, "punches")).toBeUndefined();
     expect(holidayAliasTarget(tree, "halloween")).toBeUndefined();
+    /* An alias spelled like another record's slug is that record's. */
+    const clash = {
+      ...tree,
+      xmas: { ...tree.xmas, aliases: ["Christmas", "Cookies"] },
+    };
+    expect(holidayAliasTarget(clash, "cookies")).toBeUndefined();
+    expect(holidayAliasTarget(clash, "christmas")?.slug).toBe("xmas");
   });
 
   it("puts the pinned first, then the newest", () => {
@@ -388,6 +396,37 @@ describe("holidayMenuData", () => {
       ["food", 5],
       ["drinks", 2],
     ]);
+  });
+});
+
+describe("holidayRecipeOf", () => {
+  const withBreakfast = {
+    ...tree,
+    course: {
+      ...tree.course,
+      children: [...tree.course.children, "breakfast"],
+    },
+    breakfast: { label: "Breakfast", parent: "course", children: [] },
+  };
+  const view = holidayRecipeOf(withBreakfast);
+
+  it("puts a two-course dish under the earlier course on a menu", () => {
+    /* Breakfast comes before desserts and mains, whatever the tag order. */
+    for (const tags of [
+      ["dessert", "breakfast"],
+      ["breakfast", "dessert"],
+    ]) {
+      expect(view(recipe("pie", 1, tags)).course).toBe("breakfast");
+    }
+    expect(view(recipe("roast", 1, ["side", "pizza", "main"])).course).toBe(
+      "main",
+    );
+  });
+
+  it("puts a two-style drink under the earlier style", () => {
+    expect(
+      view(recipe("toddy", 1, ["drink", "warm-drinks", "sour"])).style,
+    ).toBe("sour");
   });
 });
 
