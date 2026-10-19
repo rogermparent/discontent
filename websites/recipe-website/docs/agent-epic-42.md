@@ -386,7 +386,14 @@ cranberry, anasazi, pink); white (cannellini, white, white kidney, navy,
 great northern, haricot, flageolet, marrow); chickpea (chickpeas, garbanzo
 — folded already — ceci); butter (butter, lima, baby lima); black-eyed peas
 (and cowpeas); mung; fava (and broad); and "any": beans, mixed beans, bean
-medley, bean mix, three/four/five bean mix. **Left out:** green, string,
+medley, bean mix, three/four/five bean mix. Bare varieties count where
+they name nothing else, as an `(or …)` alternative leaves them ("black
+beans (or pinto)"): pinto, borlotti, anasazi, kidney, red kidney,
+adzuki/azuki, navy, great northern, cannellini, lima, fava, ceci — never
+black, white, red, butter or cranberry. 42n's shapes read as members:
+"cranberry beans (borlotti)", "fava beans (broad beans)", "kidney beans
+(rajma)" (the parenthetical is an alias), and "black beans (or pinto or
+cannellini beans)" (each of its beans). **Left out:** green, string,
 wax and runner beans; edamame and soybeans; lentils and split peas; bean
 sprouts; coffee, cocoa, vanilla and jelly beans; refried, baked and chili
 beans (sauced); bean paste; romano beans (borlotti in Italy, a flat green
@@ -422,11 +429,37 @@ bean in the US).
   default in the pure `analyzeMakeable` (pages that show counts only — the
   homepage tile, `/drinks` — never ask, and pay nothing). The ticker leaves
   the tier out at 0, so a drinks scope reads as before.
+- **Dm7 — A bare `beans` names only the family** (review, a pre-existing
+  matcher gap fixed narrowly): an inventory item `beans` used to meet "1 lb
+  green beans", "1 vanilla bean" and "coffee beans" strictly (`bean` is no
+  vague head), and green beans on hand met a line asking for "beans". Now,
+  in `namesMatch`, a name that is only `bean` meets a longer one only when
+  that is a family bean (`isFamilyBeanWords`) — "black beans", "mixed
+  beans", "canned beans" yes; green, wax, string, vanilla, coffee, cocoa and
+  jelly beans no. It touches nothing but the word `bean`. It can lower
+  can-make counts for a list holding plain "beans", and the shopping list's
+  "probably on hand" fold (the same `satisfies`) no longer folds green beans
+  under it.
+- **Dm8 — An `(or …)` with `or` inside is read in the family only.** The
+  parser leaves "black beans (or pinto or cannellini beans)" as two
+  alternatives, `black bean` and `pinto or cannellini bean`, and a bare
+  `(or pinto)` without the noun. `beanKinds` splits a name on `or` and
+  lends the last part's noun to a part without it, so the line is a bean
+  line naming black, pinto and white. Strict matching is unchanged:
+  cannellini beans on hand meet it (the tail of `pinto or cannellini
+bean`), but pinto beans don't, so with pinto it lands in the tier ("Use
+  pinto beans for black bean or pinto or cannellini bean"). **Follow-up:** split
+  `(or A or B C)` into alternatives and lend the noun in the parser
+  (`alternativeParts` / `inheritTails`) — a matcher-wide change, out of this
+  phase.
 
 **Roger to confirm.** The family list and its exclusions (Dm1: chili beans,
 romano beans, lentils as a later family of their own?); a swap recipe shown
 in both the tier and its bucket (Dm2) rather than moved; the switch on by
-default and its wording; featuring not widened by swaps (Dm5).
+default and its wording; featuring not widened by swaps (Dm5); a bare
+"beans" on the list no longer meeting green/vanilla/coffee beans, which
+can lower can-make counts (Dm7); the swap text's singular line name — "Use
+pinto beans for kidney bean", matching "Needs chickpea" (`requirementLabel`).
 
 ### 42m2 — Make: tap to add, roomier further away, matcher ingredients (M)
 
@@ -532,7 +565,10 @@ kind/type/sort of beans`, `beans (any kind)`, `beans, any`. It
   a row is the family's own name without how the bean is sold (review:
   "2 cups cooked black beans" and "1 can low-sodium black beans" are one
   `black bean` row, `beanNames`), and keeping it adds that name, which
-  meets both lines.
+  meets both lines. A 42m Dm8 line ("black beans (or pinto or cannellini
+  beans)") lists each of its beans; until the parser splits such lines
+  (Dm8's follow-up), keeping `pinto bean` alone meets it only through the
+  swap tier.
 
 **Roger to confirm.** A card tap adding to this browser's list even in Count
 from = Saved list (Dm2-3); further away as rows and the other groups four

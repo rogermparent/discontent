@@ -1281,7 +1281,7 @@ export function createRecipeServer(
         '"Let beans stand in for each other" switch, on by default) lists recipes ' +
         "short only of beans that another bean on the list could replace — " +
         "{slug, name, swaps: [{line, use}]}, e.g. use pinto beans for black bean; " +
-        "they stay in their one/two-away bucket too and never count as can make. " +
+        "they stay in oneAway, twoAway or the further count too and never count as can make. " +
         "The same rules the site's /make page uses.",
       inputSchema: InventoryMakeQuerySchema,
       annotations: READ_ONLY,
