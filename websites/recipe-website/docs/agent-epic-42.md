@@ -839,6 +839,15 @@ it).
   `constructor` or `toString` would find `Object.prototype`'s.
   `datedHolidays` uses `hasOwnProperty`; `nextOccurrence` still indexes
   directly (unchanged, 42e touches it).
+- **The palette baselines move with the homepage.** `command-palette.spec`
+  opens the palette over `/`, and `snapshotLocator`'s default masks paint
+  every `<time>` on the page — the homepage's date line and New this
+  week's dates included — so the masked boxes show through the dialog's
+  shot at the homepage's coordinates. 42f moved them: all seven
+  `palette-*` baselines regenerated in Docker (the dialog itself
+  unchanged), then 3× in build and dev mode, and every `@visual` once in
+  dev (41/41). Any later homepage layout change moves them again; scoping
+  the masks to the locator would end it.
 - **A spec can't freeze the server's clock.** `page.clock` moves the
   browser only, so anything the server decides by date is decided by the
   real date — Df2 is what makes the season specs hold on any day.
