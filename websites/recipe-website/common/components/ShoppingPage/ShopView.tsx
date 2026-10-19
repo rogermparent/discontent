@@ -325,7 +325,7 @@ export function ShopView({
       : [],
   );
   const open = aisles.filter((aisle) => !doneSet.has(aisle.id));
-  /* The rail lists aisles with lines to tick, not on-hand-only ones. */
+  /* The rail lists aisles with lines to tick, not ones holding only what is probably on hand. */
   const railAisles = aisles.filter((aisle) => aisle.rows.length > 0);
   const folded = aisles.filter((aisle) => doneSet.has(aisle.id));
 
