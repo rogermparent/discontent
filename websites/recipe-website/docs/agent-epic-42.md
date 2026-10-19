@@ -2551,8 +2551,9 @@ Each item is one line here; the reasons are in the phase's Results.
    `--remote` against the Pi answer the holiday tools with "predates the
    holiday tools (42h)".
 4. **Pick variants** on the four 42j canvases.
-5. Docker disk: older `content-engine-playwright:*` images and the build
-   cache are Roger's call.
+5. Docker disk: the session's `content-engine-playwright:agent-*` tags are
+   removed by the orchestrator at close; older images and the build cache
+   are Roger's call.
 
 ### Backlog
 
