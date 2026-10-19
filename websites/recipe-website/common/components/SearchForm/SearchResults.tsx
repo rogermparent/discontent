@@ -1,57 +1,83 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { ListFilter } from "lucide-react";
 import { useSearch } from "./SearchContext";
-import SearchList from "../SearchList";
-import { RecipeCardLink } from "../List/shared";
 import { EmptyState } from "../EmptyState";
 import { SearchSkeleton } from "./SearchSkeleton";
-import { TagFilterRail } from "./TagFilterRail";
 import { GroupRail } from "./GroupRail";
 import { GroupResults } from "./GroupResults";
 import { RecentSearches } from "./RecentSearches";
 import { QueryChips } from "./QueryChips";
 import { SearchTicker } from "./SearchTicker";
+import { NarrowColumn } from "./NarrowColumn";
+import {
+  KindBands,
+  NoResults,
+  ResultGrid,
+  SeasonBands,
+  TermCard,
+  type CardContext,
+} from "./SearchBands";
+import { SEARCH_MARKS } from "./SearchCard";
+import { useFacetModel } from "./useFacetModel";
+import { kindBands, queryWords, seasonBands, subjectOf } from "./searchView";
 import { countFilterTerms } from "./queryLanguage";
+import { countFacets, queryKind } from "../../util/facets";
+import { localDay } from "../../util/holidays";
 import { Button } from "@discontent/component-library/components/ui/button";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  SheetTrigger,
+} from "@discontent/component-library/components/ui/sheet";
 import { RecipeSort, RecipeSortControl, useSortedRecipes } from "../RecipeSort";
 
-/** Cards rendered before the reveal control appears, and per "Show more" press. */
-const REVEAL_STEP = 60;
-
+/**
+ * `/search` below the field (43s, canvas B "Sorted by what it is"): the
+ * ticker and sort, the query's chips, the idle browse rails, then two
+ * columns — **Narrow** on the left (a sheet on a phone) and the answer on
+ * the right:
+ *
+ * - a `tag:` query opens on its term (`TermCard`), then bands by date when
+ *   its results fall into holidays or collections (`SeasonBands`);
+ * - results of both kinds, with no Kind chosen, band into Drinks and Food
+ *   (`KindBands`);
+ * - anything else is one grid, revealed sixty at a time.
+ *
+ * Every layout is a partition of `displayedRecipes` in its order (sorted by
+ * the Sort control), so what the engine ranks and the filter keeps is
+ * exactly what it was (42s's parity contract).
+ */
 export function SearchResultsPage() {
   const {
     query,
     parsedQuery,
     displayedRecipes,
+    allRecipes,
     isSearching,
     status,
     error,
     retry,
-    submitSearch,
     recordSearch,
   } = useSearch();
+  const model = useFacetModel();
   const filterCount = countFilterTerms(parsedQuery.filter);
   const [sort, setSort] = useState<RecipeSort>("relevance");
   const sortedRecipes = useSortedRecipes(displayedRecipes, sort);
+  const [narrowOpen, setNarrowOpen] = useState(false);
 
-  // Progressive reveal. The whole corpus is already in memory (the client
-  // downloaded it via /search/all) and images lazy-load, so this is a DOM-node
-  // and scroll-length cap, not a data cap — which is why it's local state and
-  // not a URL page number that would fight the URL sync's replaceState.
-  const [visibleCount, setVisibleCount] = useState(REVEAL_STEP);
-
-  // Reset the cap when the inputs that define the result set change. Derived
-  // during render off a "last inputs" key rather than in an effect, because
-  // eslint-plugin-react-hooks@7's `set-state-in-effect` rule forbids setState in
-  // effect bodies (same pattern as the palette's selection snap). The query is
-  // the whole of the filter state now, so it and the sort are the whole key.
-  const inputsKey = `${query}|${sort}`;
-  const [lastInputsKey, setLastInputsKey] = useState(inputsKey);
-  if (inputsKey !== lastInputsKey) {
-    setLastInputsKey(inputsKey);
-    setVisibleCount(REVEAL_STEP);
-  }
+  const counts = useMemo(
+    () => countFacets(model, sortedRecipes ?? []),
+    [model, sortedRecipes],
+  );
+  const corpus = useMemo(
+    () => countFacets(model, allRecipes),
+    [model, allRecipes],
+  );
+  const subject = useMemo(() => subjectOf(model, query), [model, query]);
+  const words = useMemo(() => queryWords(parsedQuery.text), [parsedQuery]);
 
   if (status === "error") {
     return (
@@ -69,95 +95,132 @@ export function SearchResultsPage() {
 
   const hasFilter = !!query;
   const total = sortedRecipes?.length;
-  const visibleRecipes = sortedRecipes?.slice(0, visibleCount);
-  const remaining = total === undefined ? 0 : total - visibleCount;
+  const card: CardContext = {
+    model,
+    // The *free text*, never the raw query: `tag:dessert` must not go on to
+    // <mark> the word "dessert" inside names and descriptions.
+    highlightQuery: parsedQuery.text,
+    words,
+    // Opening a result is a commit: the query clearly worked, so it earns
+    // its place in RECENT (typing alone never does).
+    onOpen: () => recordSearch(query),
+  };
+  // Changing the query or the sort starts the reveal over.
+  const revealKey = `${query}|${sort}`;
+  const hasResults = !!sortedRecipes && sortedRecipes.length > 0;
 
   let body;
   if (isSearching) {
     body = <SearchSkeleton />;
   } else if (!sortedRecipes || sortedRecipes.length === 0) {
     body = hasFilter ? (
-      <EmptyState
-        title="No matches"
-        message="Nothing matched. Try a different term or loosen the filters."
-        action={
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => submitSearch("")}
-          >
-            Clear search
-          </Button>
-        }
+      <NoResults
+        model={model}
+        text={parsedQuery.text}
+        query={query}
+        corpusSize={allRecipes.length}
       />
     ) : null;
   } else {
-    body = (
-      <>
-        {/*
-          The grid's heading, for a screen reader's outline (41f, axe
-          heading-order): each card names itself with an h3, and the page's
-          only other headings are the masthead's h1 and, above, "Groups".
-        */}
-        <h2 className="sr-only">Recipes</h2>
-        <SearchList
-          recipeResults={visibleRecipes}
-          // The *free text*, never the raw query: `tag:dessert` must not go on
-          // to <mark> the word "dessert" inside names and descriptions.
-          highlightQuery={parsedQuery.text}
-          renderItemWrapper={(recipe, content) => (
-            <RecipeCardLink
-              href={`/recipe/${recipe.slug}`}
-              // Opening a result is a commit: the query clearly worked, so it
-              // earns its place in RECENT (typing alone never does).
-              onClick={() => recordSearch(query)}
-            >
-              {content}
-            </RecipeCardLink>
-          )}
-        />
-        {remaining > 0 && (
-          <div className="my-6 flex justify-center">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() =>
-                setVisibleCount(
-                  (count) => count + Math.min(REVEAL_STEP, remaining),
-                )
-              }
-            >
-              Show {Math.min(REVEAL_STEP, remaining)} more
-            </Button>
-          </div>
-        )}
-      </>
+    const seasons = subject
+      ? seasonBands(model, sortedRecipes, subject, localDay(new Date()))
+      : undefined;
+    const kinds =
+      !seasons && queryKind(model, query) === undefined
+        ? kindBands(model, sortedRecipes)
+        : undefined;
+    body = seasons ? (
+      <SeasonBands
+        bands={seasons.bands}
+        rest={seasons.rest}
+        card={card}
+        revealKey={revealKey}
+      />
+    ) : kinds ? (
+      <KindBands bands={kinds} card={card} />
+    ) : (
+      <ResultGrid key={revealKey} recipes={sortedRecipes} card={card} />
     );
   }
 
+  const narrow = hasResults ? (
+    <NarrowColumn model={model} counts={counts} recipes={sortedRecipes} />
+  ) : null;
+
   return (
-    <>
-      <div className="my-2 flex flex-row flex-wrap items-center justify-between gap-2">
-        <SearchTicker
-          count={total}
-          query={query}
-          filterCount={filterCount}
-          isSearching={isSearching}
-        />
+    <div className={SEARCH_MARKS}>
+      <div className="my-2 flex flex-row flex-wrap items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <SearchTicker
+            count={total}
+            query={query}
+            filterCount={filterCount}
+            isSearching={isSearching}
+            kinds={
+              hasResults && !isSearching && counts.kinds.drinks > 0
+                ? counts.kinds
+                : undefined
+            }
+          />
+        </div>
+        {narrow && (
+          <Sheet open={narrowOpen} onOpenChange={setNarrowOpen}>
+            <SheetTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 lg:hidden"
+              >
+                <ListFilter aria-hidden />
+                Narrow
+              </Button>
+            </SheetTrigger>
+            <SheetContent
+              side="bottom"
+              className="max-h-[85vh] overflow-y-auto rounded-t-xl p-4 pt-5"
+            >
+              <SheetTitle className="sr-only">Narrow these results</SheetTitle>
+              {narrow}
+            </SheetContent>
+          </Sheet>
+        )}
         <RecipeSortControl value={sort} onChange={setSort} />
       </div>
-      {/* One chip per typed term — renders nothing at all for a plain search,
-          which is why the default view's baselines don't move. */}
+      {/* One chip per typed term — nothing at all for a plain search. */}
       <QueryChips />
-      {/* Idle: recents + the group and tag rails are the browse affordance.
-          Groups lead: there are a handful of them against dozens of tags, and
-          each one is a destination rather than a filter. */}
+      {/* Idle: recents and the group rail are the browse affordance; groups
+          lead, being destinations rather than filters. */}
       {!hasFilter && <RecentSearches />}
       {!hasFilter && <GroupRail />}
-      <TagFilterRail />
-      {/* Matching groups sit above the grid; the ticker still counts recipes. */}
-      <GroupResults />
-      {body}
-    </>
+      <div className="mt-3 lg:grid lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:items-start lg:gap-8">
+        {narrow && (
+          <aside
+            aria-label="Narrow these results"
+            className="hidden pr-1 lg:block"
+          >
+            {narrow}
+          </aside>
+        )}
+        <div
+          className={
+            narrow
+              ? "flex min-w-0 flex-col gap-6"
+              : "flex min-w-0 flex-col gap-6 lg:col-span-2"
+          }
+        >
+          {/* Matching groups sit above the results; the ticker counts recipes. */}
+          <GroupResults />
+          {subject && hasResults && !isSearching && (
+            <TermCard
+              model={model}
+              slug={subject}
+              counts={counts}
+              corpus={corpus}
+            />
+          )}
+          {body}
+        </div>
+      </div>
+    </div>
   );
 }

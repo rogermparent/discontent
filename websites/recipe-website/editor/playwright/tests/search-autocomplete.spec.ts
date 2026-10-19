@@ -3,6 +3,7 @@ import { test, expect, type Page } from "../support/test";
 import {
   fillSignInForm,
   markdownEditorReady,
+  narrowRow,
   searchFor,
 } from "../support/helpers";
 import { WCAG_TAGS } from "../support/a11y";
@@ -242,15 +243,14 @@ test.describe("Search — in-field autocomplete", () => {
       timeout: SEARCH_TIMEOUT,
     });
 
-    // The rail, not the card chips, which carry the same button names.
-    const rail = page.locator('[aria-label="Tag filters"]');
-    await rail.getByRole("button", { name: "Filter by tag salad" }).click();
+    // The Narrow column's row (43s).
+    await narrowRow(page, "salad").click();
     await expect(field).toHaveValue("tag:salad");
     await expect(page).toHaveURL(/\?q=tag%3Asalad$/);
 
     // A word the tag was not heading for stays, and the tag is appended.
     await searchFor(page, "ginger");
-    await rail.getByRole("button", { name: "Filter by tag dessert" }).click();
+    await narrowRow(page, "dessert").click();
     await expect(field).toHaveValue("ginger tag:dessert");
   });
 

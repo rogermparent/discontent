@@ -34,6 +34,8 @@ import {
   type QueryCompletion,
 } from "./queryLanguage";
 import { startsWithFolded } from "./tagMatch";
+import { useFacetModel } from "./useFacetModel";
+import { countFacets } from "../../util/facets";
 
 /**
  * How many operand rows to offer at once.
@@ -65,6 +67,11 @@ export interface CompletionOption {
   label: string;
   /** The second line: what accepting it would mean. */
   hint?: string;
+  /**
+   * How many recipes accepting it would find (43s, canvas B: "pumpkin puree
+   * 22"), when that is known.
+   */
+  count?: number;
   /** What replaces `completion.span` when it is accepted. */
   replacement: string;
 }
@@ -121,8 +128,14 @@ export function tagCompletionOptions(
   prefix: string,
   allTags: string[],
   aliases: readonly TagAlias[] = [],
+  /** Recipes `tag:<label>` finds, by label (43s). */
+  countOf?: (label: string) => number | undefined,
 ): CompletionOption[] {
   const folded = fold(prefix);
+  const counted = (label: string) => {
+    const count = countOf?.(label);
+    return count === undefined ? {} : { count };
+  };
   const options: CompletionOption[] = allTags
     .filter((tag) => startsWithFolded(tag, folded) && fold(tag) !== folded)
     .slice(0, MAX_OPTIONS)
@@ -130,6 +143,7 @@ export function tagCompletionOptions(
       key: `tag:${tag}`,
       label: tag,
       replacement: `tag:${quoteQueryValue(tag)}`,
+      ...counted(tag),
     }));
   const offered = new Set(options.map((option) => option.label));
   for (const { alias, label } of aliases) {
@@ -142,6 +156,7 @@ export function tagCompletionOptions(
       label,
       hint: `also called ${alias}`,
       replacement: `tag:${quoteQueryValue(label)}`,
+      ...counted(label),
     });
   }
   return options;
@@ -180,6 +195,49 @@ export interface IngredientSuggestions {
   names: string[];
   /** Would `ingredient:<folded name>` match any line? `anyLineMatcher`'s answer. */
   matches: (needle: string) => boolean;
+  /** How many recipes `ingredient:<folded name>` finds (43s). */
+  count?: (needle: string) => number;
+}
+
+/**
+ * The plural-blind key two offered names share — "pumpkin seed" and
+ * "pumpkin seeds" (canvas B's finding) — on the last word only.
+ */
+export function pluralKey(folded: string): string {
+  return folded.replace(/(?:es|s)$/, "");
+}
+
+/**
+ * Recipes whose lines `ingredient:<needle>` would match — `fieldMatches`'
+ * rule, over lines folded once — memoized per needle.
+ */
+export function recipeLineCounter(
+  bySlug: Record<string, string[]>,
+): (needle: string) => number {
+  const recipes = Object.values(bySlug).map((lines) =>
+    lines.map((line) => {
+      const hay = fold(line);
+      return { hay, words: hay.split(/[^\p{L}\p{N}]+/u) };
+    }),
+  );
+  const memo = new Map<string, number>();
+  return (needle) => {
+    const known = memo.get(needle);
+    if (known !== undefined) return known;
+    const spaced = /\s/.test(needle);
+    let count = 0;
+    for (const lines of recipes) {
+      const hit = lines.some(({ hay, words }) =>
+        spaced
+          ? hay.includes(needle)
+          : hay.startsWith(needle) ||
+            words.some((word) => !!word && word.startsWith(needle)),
+      );
+      if (hit) count += 1;
+    }
+    memo.set(needle, count);
+    return count;
+  };
 }
 
 /**
@@ -198,21 +256,24 @@ export interface IngredientSuggestions {
  */
 export function ingredientOptions(
   prefix: string,
-  { names, matches }: IngredientSuggestions,
+  { names, matches, count }: IngredientSuggestions,
 ): CompletionOption[] {
   const folded = fold(prefix);
   const seen = new Set<string>();
   const options: CompletionOption[] = [];
   for (const name of names) {
     const value = fold(name);
-    if (seen.has(value)) continue;
-    seen.add(value);
+    /* Plural-blind (43s): the more used of "seed" and "seeds" is offered. */
+    const key = pluralKey(value);
+    if (seen.has(key)) continue;
+    seen.add(key);
     if (!value.startsWith(folded) || value === folded) continue;
     if (!matches(value)) continue;
     options.push({
       key: `ingredient:${value}`,
       label: name,
       replacement: `ingredient:${quoteQueryValue(name)}`,
+      ...(count ? { count: count(value) } : {}),
     });
     if (options.length >= MAX_OPTIONS) break;
   }
@@ -248,6 +309,7 @@ function ingredientSuggestions(
   const built = {
     names: suggestNames(prepareCorpus(corpus), { includeStaples: true }),
     matches: anyLineMatcher(Object.values(ingredientsBySlug).flat()),
+    count: recipeLineCounter(ingredientsBySlug),
   };
   // Not before the display corpus lands, or an empty list would stick.
   if (allRecipes.length > 0)
@@ -261,6 +323,7 @@ function optionsFor(
   tagAliases: readonly TagAlias[],
   allGroups: GroupSearchEntry[],
   ingredients: IngredientSuggestions | undefined,
+  tagCount: (label: string) => number | undefined,
 ): CompletionOption[] {
   if (!completion) return [];
   if (completion.kind === "field") return fieldOptions(completion.prefix);
@@ -275,7 +338,12 @@ function optionsFor(
    * The other fields take free text or a date, which no list can shorten.
    */
   if (completion.field === "tag")
-    return tagCompletionOptions(completion.prefix, allTags, tagAliases);
+    return tagCompletionOptions(
+      completion.prefix,
+      allTags,
+      tagAliases,
+      tagCount,
+    );
   if (completion.field === "group")
     return groupOptions(completion.prefix, allGroups);
   if (completion.field === "ingredient" && ingredients)
@@ -343,6 +411,22 @@ export function useQueryAutocomplete({
     allRecipes,
   } = useSearch();
   const tagAliases = useMemo(() => tagAliasesOf(allTerms), [allTerms]);
+  /*
+   * What `tag:<label>` finds, subtree and aliases included (43f's counting,
+   * `tag:`'s own reading), so a row's count is what accepting it shows.
+   */
+  const model = useFacetModel();
+  const corpusCounts = useMemo(
+    () => countFacets(model, allRecipes),
+    [model, allRecipes],
+  );
+  const tagCount = useCallback(
+    (label: string) => {
+      const slug = model.resolve(label);
+      return slug === undefined ? undefined : corpusCounts.subtree.get(slug);
+    },
+    [model, corpusCounts],
+  );
   const listId = useId();
   /*
    * Whether the listbox element exists, learned from the element itself
@@ -397,8 +481,16 @@ export function useQueryAutocomplete({
     wantsIngredients && !ingredientsBySlug && !ingredientsQuery.isError;
 
   const options = useMemo(
-    () => optionsFor(completion, allTags, tagAliases, allGroups, ingredients),
-    [completion, allTags, tagAliases, allGroups, ingredients],
+    () =>
+      optionsFor(
+        completion,
+        allTags,
+        tagAliases,
+        allGroups,
+        ingredients,
+        tagCount,
+      ),
+    [completion, allTags, tagAliases, allGroups, ingredients, tagCount],
   );
 
   const open =
@@ -675,6 +767,19 @@ export function QueryAutocompleteList({
               {option.hint ? (
                 <span className="truncate text-xs text-muted-foreground">
                   {option.hint}
+                </span>
+              ) : null}
+              {option.count !== undefined ? (
+                <span
+                  data-testid="query-autocomplete-count"
+                  className={cn(
+                    "ml-auto shrink-0 font-mono text-xs tabular-nums",
+                    index === activeIndex
+                      ? "text-inherit"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {option.count}
                 </span>
               ) : null}
             </li>

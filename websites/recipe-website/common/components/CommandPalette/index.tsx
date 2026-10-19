@@ -17,14 +17,13 @@ import {
   Moon,
   Monitor,
   Clock,
+  CornerDownLeft,
   Filter,
   Layers,
-  Search,
   Trash2,
   UtensilsCrossed,
 } from "lucide-react";
 import { PureStaticImage } from "@discontent/next-static-image/src/Pure";
-import { Badge } from "@discontent/component-library/components/ui/badge";
 import {
   CommandDialog,
   CommandEmpty,
@@ -51,6 +50,15 @@ import {
 } from "../SearchForm/queryLanguage";
 import { tagWordMatch } from "../SearchForm/tagMatch";
 import { highlightText } from "../SearchList";
+import { SEARCH_MARKS } from "../SearchForm/SearchCard";
+import { useFacetModel } from "../SearchForm/useFacetModel";
+import {
+  isDrinkRecipe,
+  queryWords,
+  recipeMeta,
+  whyMatch,
+} from "../SearchForm/searchView";
+import { useShortcutModifier } from "./shortcutModifier";
 import { groupKindLabel } from "../../util/groupKindLabel";
 import { NAV_DESTINATIONS } from "./destinations";
 
@@ -135,20 +143,21 @@ function tagFacets(
 }
 
 /**
- * The first ingredient the query actually matched, highlighted — so a hit that
- * came only from the ingredient list explains itself instead of showing a name
- * with no visible reason it matched. `highlightText` is a plain function (not a
- * hook), so calling it in a loop is safe.
+ * Why a row matched, when its name does not say (43s: `whyMatch`, the line
+ * `/search`'s cards carry) — the first ingredient the query marked, else the
+ * description when that is where it matched — so an ingredient- or
+ * description-only hit explains itself. `highlightText` is a plain function
+ * (not a hook), so calling it in a loop is safe.
  */
-function firstMatchedIngredient(
+function rowWhy(
   recipe: MassagedRecipeEntry,
   query: string,
+  words: readonly string[],
 ): ReactNode | undefined {
-  for (const ingredient of recipe.ingredients ?? []) {
-    const nodes = highlightText(ingredient, query);
-    if (nodes) return nodes;
-  }
-  return undefined;
+  const why = whyMatch(recipe, words);
+  if (!why) return undefined;
+  const text = why.kind === "ingredient" ? why.line : why.text;
+  return highlightText(text, query) || text;
 }
 
 // --- context: lets the header trigger open the palette without lifting state
@@ -230,7 +239,10 @@ export function CommandPalette({
     prefetchIndex,
     isSearching,
     status,
+    allRecipes,
   } = useSearch();
+  const model = useFacetModel();
+  const modifier = useShortcutModifier();
 
   const [open, setOpen] = useState(false);
   // Input value is local (drives the field as-you-type); the debounced write to
@@ -360,9 +372,22 @@ export function CommandPalette({
   // falls back to the whole corpus when nothing is typed.
   const recipeResults = query ? (displayedRecipes ?? []) : [];
   const highlightQuery = parsedQuery.text;
+  const words = queryWords(highlightQuery);
   const topRecipes = recipeResults.slice(0, MAX_RECIPE_ROWS);
   const hasMore = recipeResults.length > MAX_RECIPE_ROWS;
   const showRecipes = !!trimmed && indexUsable;
+  /* The hand-over row's second line (43s): "73 drinks · 35 food". */
+  const drinkCount = recipeResults.filter((recipe) =>
+    isDrinkRecipe(model, recipe),
+  ).length;
+  const foodCount = recipeResults.length - drinkCount;
+  // `/search` with the whole query, filters and all — the last row's target,
+  // and Ctrl/⌘ ↵'s from anywhere in the list (43s).
+  const openAll = () => {
+    submitSearch(trimmed);
+    recordSearch(trimmed);
+    go(`/search?q=${encodeURIComponent(trimmed)}`);
+  };
   // When a query has recipe hits, the palette enters "recipe search" mode and
   // hides the nav/actions groups, so the only selectable rows are recipes.
   const hasRecipeHits = showRecipes && topRecipes.length > 0;
@@ -478,6 +503,19 @@ export function CommandPalette({
   // `react-hooks/preserve-manual-memoization` and skips compiling the whole
   // component. The compiler memoizes it for us anyway.
   const onListKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    /*
+     * Ctrl ↵ (⌘ ↵ on a Mac) opens every result on `/search` (43s), whatever
+     * row is highlighted. Prevented before cmdk sees it: its root handler
+     * runs only when the event is not already `defaultPrevented`, so plain
+     * Enter still opens the highlighted row.
+     */
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      if (hasRecipeHits && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+        openAll();
+      }
+      return;
+    }
     if (e.key !== "Backspace" && e.key !== "Delete") return;
     if (trimmed || !selectedValue.startsWith(RECENT_PREFIX)) return;
     const entry = selectedValue.slice(RECENT_PREFIX.length);
@@ -552,9 +590,15 @@ export function CommandPalette({
               : "sr-only"
           }
         >
-          {recipesPending ? "Searching recipes…" : ""}
+          {/* "Searching 799 recipes…" once the corpus is in (canvas B). */}
+          {recipesPending
+            ? allRecipes.length > 0
+              ? `Searching ${allRecipes.length} recipes…`
+              : "Searching recipes…"
+            : ""}
         </p>
         <CommandList
+          className={SEARCH_MARKS}
           data-testid="palette-list"
           data-index-ready={String(indexPopulated)}
           aria-busy={recipesPending || undefined}
@@ -570,10 +614,12 @@ export function CommandPalette({
                 // result set was never matched on — and marking a `tag:` value
                 // would highlight a word that constrained the set rather than
                 // matched it.
-                const matchedIngredient = firstMatchedIngredient(
-                  recipe,
-                  highlightQuery,
-                );
+                const why = rowWhy(recipe, highlightQuery, words);
+                const drink = isDrinkRecipe(model, recipe);
+                const meta = [
+                  ...(drink ? ["Drink"] : []),
+                  ...recipeMeta(model, recipe, drink),
+                ];
                 return (
                   <CommandItem
                     key={recipe.slug}
@@ -604,50 +650,48 @@ export function CommandPalette({
                         {highlightText(recipe.name, highlightQuery) ||
                           recipe.name}
                       </span>
-                      {recipe.description && (
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {highlightText(recipe.description, highlightQuery) ||
-                            recipe.description}
+                      {meta.length > 0 && (
+                        <span className="block truncate font-mono text-[0.6875rem] leading-4 text-muted-foreground">
+                          {meta.join(" · ")}
                         </span>
                       )}
-                      {matchedIngredient && (
+                      {why && (
                         <span className="block truncate text-xs text-muted-foreground">
-                          {matchedIngredient}
-                        </span>
-                      )}
-                      {recipe.tags && recipe.tags.length > 0 && (
-                        <span className="mt-1 flex gap-1">
-                          {recipe.tags.slice(0, 2).map((tag) => (
-                            <Badge
-                              key={tag}
-                              variant="secondary"
-                              className="px-1.5 py-0 text-[0.65rem] font-normal"
-                            >
-                              {tag}
-                            </Badge>
-                          ))}
+                          {why}
                         </span>
                       )}
                     </span>
                   </CommandItem>
                 );
               })}
-              {hasMore && (
-                <CommandItem
-                  value="see-all-results"
-                  onSelect={() => {
-                    submitSearch(trimmed);
-                    recordSearch(trimmed);
-                    // The whole query travels, filters included — `/search`
-                    // shows the same set this row is counting, which is only
-                    // true now that both surfaces read the same one string.
-                    go(`/search?q=${encodeURIComponent(trimmed)}`);
-                  }}
-                >
-                  <Search className="size-4 shrink-0 text-muted-foreground" />
-                  <span>See all results for “{trimmed}”</span>
-                </CommandItem>
-              )}
+              {/*
+                The hand-over row (43s, canvas B): always last among the
+                recipes, counting every result — the whole query travels,
+                filters included, so `/search` shows the very set it counts.
+              */}
+              <CommandItem
+                value="see-all-results"
+                onSelect={openAll}
+                className="border-t border-border font-semibold"
+              >
+                <span className="flex size-9 shrink-0 items-center justify-center">
+                  <CornerDownLeft className="size-5 text-primary" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block">
+                    All {recipeResults.length}{" "}
+                    {recipeResults.length === 1 ? "result" : "results"} in
+                    search
+                  </span>
+                  {drinkCount > 0 && foodCount > 0 && (
+                    <span className="block font-mono text-[0.6875rem] font-normal leading-4 text-muted-foreground">
+                      {drinkCount} {drinkCount === 1 ? "drink" : "drinks"} ·{" "}
+                      {foodCount} food
+                    </span>
+                  )}
+                </span>
+                <CommandShortcut>{`${modifier.replace("+", "")} ↵`}</CommandShortcut>
+              </CommandItem>
             </CommandGroup>
           )}
 

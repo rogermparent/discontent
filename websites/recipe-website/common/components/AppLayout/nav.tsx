@@ -124,6 +124,12 @@ export function HeaderNav({
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
   const items = siteNavFor(isOwner);
+  /*
+   * 43s: `/search` is the search — its own field leads the page, so the
+   * masthead drops its trigger there (⌘K still opens the palette), as
+   * canvas B draws it.
+   */
+  const onSearch = usePathname() === "/search";
   const known = new Set(SITE_NAV.map((item) => item.href));
   const extras = menuItems.filter(
     (item) => item.href !== "/search" && !known.has(item.href),
@@ -168,13 +174,13 @@ export function HeaderNav({
         ))}
       </nav>
       <div className="hidden shrink-0 items-center gap-1 text-sm md:flex">
-        <PaletteTrigger count={recipeCount} />
+        {!onSearch && <PaletteTrigger count={recipeCount} />}
         {extraNavItems}
         <AppearanceMenu className="ml-1" extraControls={stickyChromeField} />
       </div>
 
       <div className="flex items-center md:hidden">
-        <PaletteTrigger variant="icon" count={recipeCount} />
+        {!onSearch && <PaletteTrigger variant="icon" count={recipeCount} />}
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
             <Button
