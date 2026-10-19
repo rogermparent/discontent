@@ -12,6 +12,7 @@ import { tagTermReads } from "../../controller/data/readTagTerms";
 import { aliasedRows, vocabularyOfRows } from "../../controller/tagVocabulary";
 import { groupItems } from "../../controller/data/readGroupItem";
 import { resolveGroupItems } from "../../controller/data/resolveGroupItems";
+import { scaleOf } from "../GroupDetailPage/GroupItems";
 import {
   HOLIDAYS_ROOT,
   comingUpEntries,
@@ -53,9 +54,13 @@ async function readPlanLines(
   return resolved.flatMap(({ item, recipe, group: child }): PlanLine[] => {
     if (item.recipe !== undefined) {
       if (!recipe) return [];
+      /* The plan page's own rule: a 1× or unreadable scale links plainly. */
+      const scale = scaleOf(item);
       return [
         {
-          href: `/recipe/${item.recipe}${item.scale ? `?scale=${encodeURIComponent(item.scale)}` : ""}`,
+          href: scale
+            ? `/recipe/${item.recipe}?scale=${encodeURIComponent(scale.value)}`
+            : `/recipe/${item.recipe}`,
           name: recipe.name,
           recipe: {
             slug: item.recipe,
@@ -200,20 +205,27 @@ export async function homepageRoute({
   /*
    * "This season" and the featured list share their holidays once (42f):
    * a featured holiday term's row says "featured", and the featured list
-   * hides the holidays that have a row on the reader's day (`FeaturedList`).
+   * hides the holidays that have a row on the reader's day (`HomeRail`).
    * The head page holds up to `2 * perPage` features, so a hidden holiday
    * lets the next feature up rather than shortening the list
-   * (`featureCandidates`).
+   * (`featureCandidates`). The "featured" mark comes from those same
+   * candidates — a holiday featured long ago, past the list's reach, is
+   * not called featured.
    */
+  const holidays = comingUpEntries(tagTree, recipeRows, groupRows);
+  const season = datedHolidays(holidays ?? []).map(({ slug }) => ({ slug }));
+  const seasonal = new Set(season.map(({ slug }) => slug));
+  const candidates = featureCandidates(
+    featuredHead.items,
+    (entry) => Boolean(entry.term && seasonal.has(entry.term)),
+    STRIP_SIZE,
+  );
   const featuredTerms = new Set(
-    featuredHead.items.flatMap((entry) =>
+    candidates.flatMap((entry) =>
       entry.term && entry.termLabel ? [entry.term] : [],
     ),
   );
-  const holidays = comingUpEntries(tagTree, recipeRows, groupRows);
   const comingUp = holidays && markFeaturedHolidays(holidays, featuredTerms);
-  const season = datedHolidays(comingUp ?? []).map(({ slug }) => ({ slug }));
-  const seasonal = new Set(season.map(({ slug }) => slug));
   /*
    * Browse skips the holidays root while the season shows it: the same terms
    * twice, one screen apart. Without a season section it stays a row.
@@ -259,11 +271,7 @@ export async function homepageRoute({
    */
   async function featuredEntries(): Promise<FeaturedStripEntry[]> {
     return Promise.all(
-      featureCandidates(
-        featuredHead.items,
-        (entry) => Boolean(entry.term && seasonal.has(entry.term)),
-        STRIP_SIZE,
-      )
+      candidates
         .filter(
           (entry) => entry.recipeName || entry.groupName || entry.termLabel,
         )

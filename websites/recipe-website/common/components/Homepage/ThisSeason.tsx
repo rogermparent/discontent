@@ -41,20 +41,24 @@ export function hasSeason(entries: ComingUpEntry[] | null): boolean {
  * to print.
  *
  * A featured holiday is shown here once, marked "featured", and the featured
- * list hides it while its row shows (`FeaturedList`): the canvas found each
+ * list hides it while its row shows (`HomeRail`): the canvas found each
  * of Halloween, Thanksgiving and Christmas on the page twice.
  */
 export function ThisSeason({
   entries,
   serverDay,
+  className,
 }: {
   entries: ComingUpEntry[] | null;
   serverDay: string;
+  /** The section's own placement (the page grid's), so no wrapper is left empty. */
+  className?: string;
 }) {
   if (!entries || !hasSeason(entries)) return null;
   return (
     <SeasonSection
       serverDay={serverDay}
+      className={className}
       rows={datedHolidays(entries).map((entry) => ({
         slug: entry.slug,
         label: entry.label,

@@ -358,6 +358,21 @@ test.describe("Homepage — browse by term", () => {
     await expect(page.locator('time[datetime="2026-12-20"]')).toHaveText(
       "Sunday 20 December",
     );
+
+    /*
+     * The day after Christmas, on the browser's calendar: Christmas is a
+     * year out, past the window, so no row and no section — whatever the
+     * server's day — and Browse still leaves the holidays root alone.
+     */
+    await page.clock.setFixedTime(new Date(2026, 11, 26, 12));
+    await page.goto("/");
+    await expect(page.locator('time[datetime="2026-12-26"]')).toHaveText(
+      "Saturday 26 December",
+    );
+    await expect(season(page)).toHaveCount(0);
+    await expect(
+      browse(page).getByRole("heading", { level: 3, name: "Holidays" }),
+    ).toHaveCount(0);
   });
 
   for (const mode of ["light", "dark"] as const) {

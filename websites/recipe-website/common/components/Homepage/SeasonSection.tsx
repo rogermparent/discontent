@@ -10,6 +10,7 @@ import {
   parseDayKey,
   type CalendarDay,
 } from "../../util/holidays";
+import { cn } from "@discontent/component-library/lib/utils";
 import { HomeSection } from "./HomeSection";
 import { useToday } from "./useToday";
 
@@ -41,18 +42,23 @@ const MONTHS = [
 /**
  * The row's date as a calendar leaf — "SAT / 31 / OCT". A `<time>`, which
  * the visual specs mask (U1's trap: a baseline that printed a date would
- * fail when the year turns), and a fixed-width block so the mask's box is
- * the same whatever the date.
+ * fail when the year turns), and a fixed-size block so the mask's box — and
+ * the row — is the same whatever the date.
+ *
+ * Empty until the browser's day is known (`day` undefined): the export's
+ * HTML would otherwise print the build day's next date, which after a
+ * holiday passes is the wrong year's weekday (U1: the export never prints a
+ * build day's date). The box keeps its size, so nothing shifts.
  */
-function DayLeaf({ day }: { day: CalendarDay }) {
+function DayLeaf({ day }: { day?: CalendarDay }) {
+  const box =
+    "flex h-[3.75rem] w-12 shrink-0 flex-col items-start font-mono tabular-nums sm:w-[4.75rem]";
+  if (!day) return <time className={box} />;
   const weekday = new Date(
     Date.UTC(day.year, day.month - 1, day.day),
   ).getUTCDay();
   return (
-    <time
-      dateTime={dayKey(day)}
-      className="flex w-12 shrink-0 flex-col items-start font-mono tabular-nums sm:w-[4.75rem]"
-    >
+    <time dateTime={dayKey(day)} className={box}>
       <span className="text-[0.6875rem] leading-4 tracking-[0.1em] text-muted-foreground uppercase">
         {WEEKDAYS[weekday]}
       </span>{" "}
@@ -85,9 +91,11 @@ function DayLeaf({ day }: { day: CalendarDay }) {
 export function SeasonSection({
   rows,
   serverDay,
+  className,
 }: {
   rows: SeasonRow[];
   serverDay: string;
+  className?: string;
 }) {
   const browserToday = useToday(null);
   const today = parseDayKey(browserToday ?? serverDay);
@@ -98,7 +106,7 @@ export function SeasonSection({
       id="home-season"
       title="This season"
       link={{ href: "/holidays", label: "All holidays" }}
-      className="gap-2"
+      className={cn("gap-2", className)}
     >
       <ul className="flex flex-col border-t border-border">
         {shown.map((row) => {
@@ -109,7 +117,7 @@ export function SeasonSection({
               data-testid="season-row"
               className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-3 border-b border-border py-4 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-x-5"
             >
-              {date && <DayLeaf day={date} />}
+              <DayLeaf day={browserToday !== null ? date : undefined} />
               <div className="flex min-w-0 flex-col gap-1">
                 <div className="flex flex-row flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
                   <Link

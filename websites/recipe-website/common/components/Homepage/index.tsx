@@ -9,7 +9,8 @@ import {
 } from "recipe-website-common/components/PageLayout";
 import { BrowseChips } from "./BrowseChips";
 import { BrowseTerms } from "./BrowseTerms";
-import { FeaturedPanel, type FeaturedStripEntry } from "./FeaturedPanel";
+import { featuredRows, type FeaturedStripEntry } from "./FeaturedPanel";
+import { HomeRail } from "./HomeRail";
 import { HomeIntro } from "./HomeIntro";
 import { NewThisWeek, type NewRecipe } from "./NewThisWeek";
 import { PlanPanel, type PlanLine } from "./PlanPanel";
@@ -32,6 +33,8 @@ import { ThisSeason, hasSeason } from "./ThisSeason";
  * phone board has it. On a laptop the rail spans the main column's rows;
  * the second row is `1fr`, so a rail taller than the season stretches the
  * bottom of the main column rather than opening a gap under the season.
+ * Whether the season and the featured list render is the browser's day's
+ * call (`SeasonSection`, `HomeRail`); the grid leaves no hole either way.
  *
  * Every value arrives as a prop — the route does all the reading — and the
  * things that depend on the reader's browser (the date, the season's rows
@@ -86,7 +89,8 @@ export default function Homepage({
   recipeCount: number;
 }) {
   const season = hasSeason(comingUp);
-  const hasRail = plan !== undefined || featured.length > 0;
+  /* The rail may still render nothing: `HomeRail` decides on the reader's day. */
+  const mayHaveRail = plan !== undefined || featured.length > 0;
   return (
     <PageMain>
       <PageSection
@@ -94,39 +98,45 @@ export default function Homepage({
         className="mx-auto flex max-w-6xl flex-col gap-10 pt-8 pb-14 sm:pt-9"
       >
         <HomeIntro intents={intents} recipeCount={recipeCount} />
+        {/*
+         * No gaps on the laptop grid: each part brings its own margin, so a
+         * part the browser decides not to render (the season on a day with
+         * no rows, a rail of only in-season holidays) leaves no empty track
+         * and no stray gap — the rail's `auto` column is then 0 wide.
+         */}
         <div
           className={cn(
             "flex flex-col gap-10",
-            hasRail &&
-              "lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:grid-rows-[auto_1fr] lg:gap-x-10",
+            (season || mayHaveRail) &&
+              "lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:grid-rows-[auto_1fr] lg:gap-0",
           )}
         >
           {season && (
-            <div className="min-w-0 lg:col-start-1 lg:row-start-1">
-              <ThisSeason entries={comingUp} serverDay={serverDay} />
-            </div>
+            <ThisSeason
+              entries={comingUp}
+              serverDay={serverDay}
+              className="min-w-0 lg:col-start-1 lg:row-start-1 lg:mb-10"
+            />
           )}
-          {hasRail && (
-            <div className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:self-start">
-              <PlanPanel
-                plan={plan}
-                lines={planLines}
-                showShopping={showShopping}
-              />
-              <FeaturedPanel
-                featured={featured}
-                season={seasonHolidays}
-                serverDay={serverDay}
-                limit={featuredLimit}
-              />
-            </div>
+          {mayHaveRail && (
+            <HomeRail
+              plan={
+                plan ? (
+                  <PlanPanel
+                    plan={plan}
+                    lines={planLines}
+                    showShopping={showShopping}
+                  />
+                ) : null
+              }
+              rows={featuredRows(featured)}
+              season={seasonHolidays}
+              serverDay={serverDay}
+              limit={featuredLimit}
+              className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:ml-10 lg:w-[22rem] lg:self-start"
+            />
           )}
-          <div
-            className={cn(
-              "flex min-w-0 flex-col gap-10 lg:col-start-1",
-              season ? "lg:row-start-2" : "lg:row-start-1",
-            )}
-          >
+          <div className="flex min-w-0 flex-col gap-10 lg:col-start-1 lg:row-start-2">
             <NewThisWeek
               recipes={recipes}
               recipeCount={recipeCount}

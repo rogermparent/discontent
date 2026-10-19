@@ -5,7 +5,7 @@ import type { TermSummary } from "../../controller/homepageComingUp";
 import { countLabel } from "../../controller/homepageIntents";
 import type { GroupItem, GroupKind } from "../../controller/types";
 import { GroupThumbnail } from "../GroupThumbnail";
-import { FeaturedList } from "./FeaturedList";
+import type { FeaturedListRow } from "./HomeRail";
 import { RecipeThumb, THUMB_IMAGE } from "./RecipeThumb";
 import { TermPicture } from "./TermPicture";
 
@@ -162,59 +162,37 @@ function featuredRow(entry: FeaturedStripEntry): ReactNode {
 }
 
 /**
- * The homepage's "Featured" list — recipes, plans and terms, newest first,
- * as compact rows in the right rail (42f, canvas B's "Pinned" panel; a grid
- * of equal cards since the 2026-10-15 redesign, which removed the hero).
+ * The homepage's "Featured" list as rendered rows — recipes, plans and
+ * terms, newest first, as compact rows in the right rail (42f, canvas B's
+ * "Pinned" panel; a grid of equal cards since the 2026-10-15 redesign,
+ * which removed the hero). `HomeRail` (a client island) shows them.
  *
  * **The heading stays "Featured"** (Roger, 2026-10-15) rather than the
  * canvas's "Pinned": it names what the curator does, the link says
  * "Everything featured", and a dozen specs find the section by it.
  *
- * **A holiday with a season row is not listed here**: it shows once, as its
- * row marked "featured". Which holidays have rows is the browser's day's
- * question, so the rows are rendered here and `FeaturedList` (a client
- * island) hides the ones in season and cuts to `limit`.
+ * **A holiday with a season row is not listed**: it shows once, as its row
+ * marked "featured". Which holidays have rows is the browser's day's
+ * question, so each row carries its holiday's slug and `HomeRail` hides
+ * the ones in season.
  *
  * **No timestamps.** Each row's line says what it is: "Tag · 12 recipes",
  * "Plan · 6 recipes", or a recipe's course ("Mains"). `/featured-recipes`
  * keeps dates and the full cards: that page is the curator's.
  */
-export function FeaturedPanel({
-  featured,
-  season,
-  serverDay,
-  limit,
-}: {
-  featured: FeaturedStripEntry[];
-  /** The dated holidays with something under them, for the season's rows. */
-  season: Array<{ slug: string }>;
-  serverDay: string;
-  /** How many rows to show once the season's holidays are hidden. */
-  limit: number;
-}) {
-  if (featured.length === 0) return null;
-  return (
-    <FeaturedList
-      season={season}
-      serverDay={serverDay}
-      limit={limit}
-      rows={featured.map((entry, index) => ({
-        /*
-         * By position, not by slug: a recipe may be featured more than once
-         * and both features can be in the newest six, so the slug is not a
-         * key.
-         */
-        key:
-          entry.kind === "recipe"
-            ? `${index}-recipe-${entry.recipe.slug}`
-            : `${index}-${entry.kind}-${entry.slug}`,
-        ...(entry.kind === "term" && entry.holiday
-          ? { holiday: entry.slug }
-          : {}),
-        row: featuredRow(entry),
-      }))}
-    />
-  );
+export function featuredRows(
+  featured: FeaturedStripEntry[],
+): FeaturedListRow[] {
+  return featured.map((entry, index) => ({
+    /*
+     * By position, not by slug: a recipe may be featured more than once and
+     * both features can be in the newest six, so the slug is not a key.
+     */
+    key:
+      entry.kind === "recipe"
+        ? `${index}-recipe-${entry.recipe.slug}`
+        : `${index}-${entry.kind}-${entry.slug}`,
+    ...(entry.kind === "term" && entry.holiday ? { holiday: entry.slug } : {}),
+    row: featuredRow(entry),
+  }));
 }
-
-export default FeaturedPanel;

@@ -550,7 +550,7 @@ height, the duplicate holiday showings gone. Tests: `homepage.spec`,
   plan"** (`PlanPanel`: the newest plan, its first six lines with pictures
   through `resolveGroupItems`, "and N more", "Open the plan", "All plans",
   and "Shopping list" for a signed-in editor only) and **"Featured"**
-  (`FeaturedPanel` + the client `FeaturedList`: 44 px rows, the same
+  (`FeaturedPanel`'s rows in the client `HomeRail`: 44 px rows, the same
   `featured-*-card` / `card-meta` test ids).
 - **"New this week"** (`NewThisWeek`): a compact two-column list (56 px
   picture, name, "Mains · 10/17"), still `data-testid="recipe-list"`.
@@ -606,9 +606,19 @@ height, the duplicate holiday showings gone. Tests: `homepage.spec`,
 - **Df8 — counts are recipes and plans.** The canvas's "16 sides · 7
   drinks" per holiday is 42e's menu data (`holidaysPage.ts`, unmerged at
   the time); the row says "N recipes · N plans · featured".
-- **Df9 — the date on New this week's rows** is a `<time>` (masked); the
+- **Df9 — the date on New this week's rows** is a `<time>` (masked), month/day in a fixed format (not the server's locale); the
   bookmark button on those rows is gone (the rows are a way in);
   `bookmarks.spec`'s hover check moved to `/recipes`.
+- **Df10 — the export prints no build-day date, and leaves no empty box**
+  (review round). A season row's calendar leaf stays empty, at its fixed
+  size, until the browser's day is known. The season section and the rail
+  are placed by the grid themselves (no wrapper), the laptop grid has no
+  gaps (each part brings its margin) and the rail's column is `auto`, so a
+  section the browser's day doesn't render leaves no empty track; the rail
+  (`HomeRail`, client) renders nothing when there's no plan and every
+  feature is an in-season holiday. The "featured" mark comes from the
+  features the list could show (`featureCandidates`), not the whole head
+  page. Plan lines link with the plan page's `scaleOf`.
 
 **Gates.** _(pending the heavy seat)_
 

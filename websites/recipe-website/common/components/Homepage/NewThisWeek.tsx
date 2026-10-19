@@ -7,12 +7,17 @@ import { RecipeThumb } from "./RecipeThumb";
 /** A newest recipe with its course label ("Mains"), when it has one. */
 export type NewRecipe = MassagedRecipeEntry & { course?: string };
 
-/** "10/17" — the day it was added, in the reader's own short form. */
+/**
+ * "10/17" — the day it was added, month/day. A fixed format rather than
+ * `toLocaleDateString`, which is the *server's* locale here (a server
+ * component; the export's build machine): the same string on every host.
+ * The day is the server's time zone's — a recipe added near midnight may
+ * read a day off for a reader elsewhere, which a "new this week" list can
+ * bear.
+ */
 function shortDate(date: number): string {
-  return new Date(date).toLocaleDateString(undefined, {
-    month: "numeric",
-    day: "numeric",
-  });
+  const day = new Date(date);
+  return `${day.getMonth() + 1}/${day.getDate()}`;
 }
 
 /**
