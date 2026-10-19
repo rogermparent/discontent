@@ -683,6 +683,169 @@ linking to `/holidays/<slug>`; a dot-leader index of spirit & base, style
 and classics. Tests: `drinks.spec` (seasonal, frozen clock), `make.spec`
 links, baselines `drinks-page-{e2e,mobile}`.
 
+#### Results (42d)
+
+Branch `agent/42d-drinks`. **Reindex needed: no. Deploy: yes** (the
+`/drinks` page changes in both apps; no content, index or settings change).
+
+**What changed.** `/drinks` is canvas B, top to bottom:
+
+1. **The question over the shelf** (`DrinksPage/MakePanel.tsx`,
+   `DrinksShelf`). The eyebrow reads "Drinks · N in the book", and the h1
+   is `MakeQuestion` with its kind fixed. Below them: whose list the shelf
+   is ("From this browser's list — 2 things on the shelf. Tap a label to
+   ask about it."), the labels as tape, `/make`'s ticker in the drinks
+   word, Count from when the page has a second list, "Add to the shelf",
+   and "Open in Make". Beside them are **Pour now** (the ready drinks,
+   sources of one drink grouped by family as 38a did, with picture, name
+   and base · style, and "Lavender Syrup first" when a sub-recipe comes
+   first; up to 8 entries, then "+N more in Make") and **Buy next**
+   (`/make`'s own `BuyNextList`, top 3).
+2. **In season** (`Seasonal.tsx`, `SeasonPair`) shows the current and next
+   holiday side by side: `holidayPair` keeps the holidays with drinks
+   within 38a's 60-day seasonal window (Roger's) and cuts them to two. Each
+   holiday has a badge ("Now", "Next"), a countdown and a date ("in 3 days
+   · Sat 31 Oct"). Its name links to `/holidays/<slug>` and "All N" to
+   `/holidays/<slug>?kind=drinks` (42e's menu, on its drinks). The sooner
+   holiday shows four cards and the later one two, with "Also: …" naming
+   the rest. On a phone each holiday is a row that scrolls sideways. When
+   only one holiday is in season, the next one within 180 days gets a
+   quiet line instead of cards: "Then Christmas, in 71 days — 1 drink.",
+   in 42e's wording, linking to its menu.
+3. **Browse the bar** (`BarIndex.tsx`) is spirit & base, style and classics
+   as one dot-leader index of real terms and drink counts, each linking to
+   `/tags/<slug>`, with "All N drinks" (and "All N" classics past 24)
+   linking to `/tags/drink`. On a phone the three columns become
+   disclosures, with Spirit & base open.
+
+Removed, as B drops them: the spirit tiles, the style and classic chips,
+"For Halloween" (`nextSeasonal` is no longer used by the page; the util
+and its tests stay), "New drinks" (its role is now a NEW mark on a drink
+dated within 30 days, judged in the browser), the "What's on your shelf?"
+panel, and the U6 "Also makeable with…" group, which Count from replaces,
+as it did on `/make` (41-Dh1). `DrinksPageData.latest` is gone. It gains
+`meta`, the base and style lookup, so the server's cards and the browser's
+Pour now rows share `drinkMeta`, and each holiday's `rule`.
+
+**Decisions.**
+
+- **Dd1 — the shelf follows Count from, not a role.** The brief listed the
+  saved list for a signed-in editor, the house list on the export, and the
+  browser's list otherwise. 41h already decided which list counts: a
+  per-browser `source` in `make-settings-v1` that defaults to this
+  browser's list (U6). `/drinks` reads that same setting (`useMakeable`
+  now judges `countFromItems(source, have, second)`), shows the same Count
+  from control whenever a second list exists, and shows the labels of the
+  list that counts (`shelfLabels`). On the second list alone, this
+  browser's labels follow muted and uncounted (`data-counted="false"`), as
+  on `/make`, so "Add to the shelf" and Buy next's "I have this" (both add
+  to this browser's list) always show where the item went. A signed-in
+  editor who never chose therefore sees this browser's list first, with
+  "Saved list · 23 items" one tap away, and a choice made on either page
+  holds on the other. Signed in, the second list is the saved list even
+  when it is empty, as on `/make`: a stored "Saved" then counts an empty
+  list on both pages. Before 42d the editor route skipped an empty saved
+  list.
+- **Dd2 — the kind word links to Make** (`MakeQuestion`'s `kindHref`, no
+  menu): "What **drinks** can I make?" goes to `/make?q=tag:drink`. A label
+  links to `/make?q=tag:drink ingredient:<item>`, which is Make asking
+  "What drinks can I make with lime?".
+- **Dd3 — the saved list is read-only here.** Per-item editing (42a) stays
+  on Make, so the saved and house labels have no ×. When Count from is on
+  the saved list alone, a line says so and links to Make: "Counting from
+  the saved list — edit it on Make. What you add here goes on this
+  browser's list, not counted." On the house list it reads "Counting from
+  the house list, which is read-only. …". "Add to the shelf" always adds
+  to this browser's list, with Undo in `/make`'s toast. It is a plain
+  field (comma lists work), without Make's suggestion combobox.
+- **Dd4 — Roger's 60-day window stays** (38a). The pair is the holidays
+  with drinks within 60 days, "Now" then "Next". With one holiday in
+  season, the next one within the homepage's 180-day window gets the
+  quiet "Then …" line, and with none in season there is no section. Only
+  holidays with at least one drink count, and an undated holiday never
+  does. The rule is looked up by slug, then by alias, with 42e's
+  `holidayRule`.
+- **Dd5 — the browser's day and clock.** The pair and its countdowns wait
+  for `useToday(null)`, as the old row did, so the export's static HTML
+  never names a holiday or a number of days; the section appears after
+  hydration. NEW is judged against the browser's `Date.now()`, read once
+  per load (`useNow`, `0` on the server), and never against a day key: a
+  day key parsed as UTC midnight would make a drink added earlier today
+  look like it is in the future, west of UTC.
+- **Dd6 — Buy next is `/make`'s list**, cut to three. Its "I have this"
+  adds to this browser's list, as on `/make`, and a tap on its label opens
+  Make featuring that item.
+
+**Roger to confirm.**
+
+- **Dd1: a signed-in editor no longer sees what the saved list makes by
+  default.** Before 42d, `/drinks` showed "Also makeable with your saved
+  inventory" under the panel. Now the page counts this browser's list
+  until Count from is switched to Saved or Both (once, per browser, shared
+  with `/make`), and the canvas drew the saved list. The alternative is to
+  default Count from to Saved when signed in, which would change 41h's
+  rule on `/make` as well.
+- Dd3: the saved list is edited on Make, not here (no × or "Add to saved
+  list" on `/drinks`).
+- Dd4: with one holiday in season, the next is a "Then …" line rather than
+  a second column of cards.
+- NEW lasts 30 days from a recipe's date (`NEW_DRINK_DAYS`).
+
+**Gates** (2026-10-19, every heavy step through the capped slot).
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit`: clean.
+- `pnpm exec vitest run`: **123 files, 2526 tests passed**. In
+  `test/drinksPage.test.ts`: the pair within 60 days, the "Then" line
+  within 180, no section past 60, a pair item dated by `rule`, each
+  holiday's rule by slug then alias (`xmas` → christmas; `new-years` keeps
+  its own over the `new-years-eve` alias), the shelf per Count from with
+  uncounted labels, the source line, `drinkMeta` (and the lookup), NEW at
+  29/30 days and earlier today, and "Also: …".
+  `exportInventoryGuard` and `exportHouseInventory` are unchanged and
+  green: the export reaches no editor code.
+- Playwright, Docker, build mode: `drinks`, `make`, `accessibility`,
+  `export-page`: **112 passed, 9 failed**. All nine failures were axe's
+  `link-in-text-block` on the "Then Christmas" line, which the live clock
+  showed in accessibility.spec's `/drinks` sweeps; fixed by underlining
+  links inside a line of text. After the fix, `drinks` + `accessibility`:
+  **78 passed**, no retries.
+- Playwright, Docker, dev mode (once, for the new spec): `drinks`: **12
+  passed**.
+- Baselines (Docker, build mode): `drinks-page-e2e` and
+  `drinks-page-mobile` regenerated, and opened against canvas B. They
+  match its order: eyebrow, the h1 question with the dotted accent word,
+  tape labels, the mono ticker, "Add to the shelf" and "Open in Make" on
+  the left; Pour now and Buy next on the right; "In season" with Halloween
+  ("Now", four-card grid) beside Christmas ("Next", two-card grid, divider
+  on the left); then "Browse the bar" in three dot-leader columns, with
+  Classics in two. On the phone the index folds into three disclosures,
+  Spirit & base open. The fixture has no photos, so every picture is a
+  monogram; with a two-item shelf Pour now holds one row and the left
+  column is short beside Buy next. In the narrow Next column the countdown
+  and "All 1" wrap under the name.
+- Phone: no sideways scroll (`drinks.spec` @mobile); axe target size
+  (WCAG 2.2) passes with the chrome released.
+
+**Backlog:** no row matches 42d.
+
+#### Traps (42d)
+
+- **Td1 — `--update-snapshots` (changed) keeps a baseline whose change is
+  under 42b's tolerance.** A one-space fix ("All1" → "All 1") passed the
+  comparison, so the file wasn't rewritten and the PNG kept the bug. When
+  a fix is small, regenerate with `--update-snapshots=all` and open the
+  PNG.
+- **Td2 — `inline-flex` trims the space between "All" and its count.** A
+  flex container makes "All " an anonymous item, and its trailing space is
+  dropped. Links that mix text and a `<span>` use `inline-block` instead.
+- **Td3 — the masthead's brand is an h1 too.** Find the question by name
+  (`getByRole("heading", {level: 1, name: …})`), never as "the" h1.
+- **Td4 — a live clock shows what a frozen one hides.** accessibility.spec
+  doesn't freeze the clock, so on 19 October it met the "Then Christmas"
+  line, which `drinks.spec`'s 28 October never shows. The spec now runs
+  axe at a date that shows the line.
+
 ### 42f — Homepage: now and next (M)
 
 Canvas B. A real search field beside the Make tile (submits to
