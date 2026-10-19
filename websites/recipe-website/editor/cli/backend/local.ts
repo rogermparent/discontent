@@ -19,6 +19,7 @@ import { gitSync } from "../../controller/curation/sync";
 import { CurationError } from "../../controller/curation/errors";
 import { LockBusyError, withRepoLock } from "../../controller/instance/lock";
 import * as groups from "../../controller/curation/groups";
+import * as holidays from "../../controller/curation/holidays";
 import {
   setRecipeImage,
   setTermImage,
@@ -139,6 +140,9 @@ export function createLocalBackend({
       }\n${STALE_EDITOR_HINT}`;
     }
   };
+
+  /* The editor a link is made absolute on (41i, Di5). */
+  const editorUrl = () => notify?.url ?? process.env.RECIPE_EDITOR_URL;
 
   return {
     kind: "local",
@@ -353,6 +357,16 @@ export function createLocalBackend({
           notify?.url ?? process.env.RECIPE_EDITOR_URL,
         ),
       };
+    },
+
+    /* `link` on this checkout's editor, as `inventoryMakeable`'s (42h). */
+    async holidayList(options) {
+      const result = await holidays.holidayList(ctx, options);
+      return { ...result, link: absoluteLink(result.link, editorUrl()) };
+    },
+    async holidayGet(slug, options) {
+      const result = await holidays.holidayGet(ctx, slug, options);
+      return { ...result, link: absoluteLink(result.link, editorUrl()) };
     },
 
     getShopping: (options) => shopping.readShoppingView(ctx, options),

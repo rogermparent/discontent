@@ -2684,6 +2684,11 @@ const ALLOWED: RegExp[] = [
    * helpers and `featureScope` — the query language and `util/makeable`
    * underneath, and type-only imports of the page's hooks. */
   /^recipe-website-common\/components\/MakePage\/(scope|kinds|makeMath)$/,
+  /* The holiday pages' pure half joined at 42h, so `holiday_list` and
+   * `holiday_get` answer as `/holidays` does: plain functions over the tree
+   * and the by-term rows the seat reads itself (`holidayEntries`,
+   * `almanacView`, `holidayMenuData`), `util/holidays` and type imports. */
+  /^recipe-website-common\/controller\/holidaysPage$/,
   /* The settings store joined at 41i: the editor's saved staples
    * (`settings.makeStaples`), read with `fs-extra` — no Next API. */
   /^@discontent\/cms\/settings$/,
