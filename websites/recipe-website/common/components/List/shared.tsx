@@ -185,12 +185,16 @@ export function RecipeCardDate({
 }
 
 // Grid container for recipe lists
-export function RecipeGrid({ children }: { children: ReactNode }) {
+export function RecipeGrid({
+  children,
+  className = "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3",
+}: {
+  children: ReactNode;
+  /** The grid's columns, when a page wants fewer (42m2: `/make`'s buckets). */
+  className?: string;
+}) {
   return (
-    <ul
-      data-testid="recipe-list"
-      className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3"
-    >
+    <ul data-testid="recipe-list" className={className}>
       {children}
     </ul>
   );

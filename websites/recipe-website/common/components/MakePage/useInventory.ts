@@ -10,6 +10,7 @@ import {
   parseOverlay,
   storedList,
 } from "../../util/inventoryText";
+import { canonicalItems } from "../../util/matchers";
 
 /**
  * What this browser has on hand (25c/D10, U6): its whole list, in both apps,
@@ -148,11 +149,18 @@ export function useInventory(legacy?: { shared: string[] }): Inventory {
     writeList(items.length > 0 ? storedList(items) : null);
   }, [migrating, raw, legacyShared]);
 
-  const have = useMemo(() => (raw ? parseOverlay(raw).added : NOTHING), [raw]);
+  /* Canonical on read too (42m2 review): a "beans" stored before matchers
+   * reads as `any bean`, as the seat's judge already treats it. */
+  const have = useMemo(
+    () =>
+      raw ? dedupeItems(canonicalItems(parseOverlay(raw).added)) : NOTHING,
+    [raw],
+  );
 
   const setHave = useCallback(
     (items: string[]) => {
-      const list = dedupeItems(items);
+      /* A matcher is kept as its canonical text (42m2): "beans" → `any bean`. */
+      const list = dedupeItems(canonicalItems(items));
       /*
        * While a migration waits (`"defer"`), keep the pre-U6 shape — `added`
        * the list as shown, `removed` as it was, no version — never `null`:
@@ -224,8 +232,10 @@ export function useLastMakeQuery(): [
 /**
  * `/make`'s judgement settings, per browser like the list itself: whether a
  * close match counts as had (32j, on by default), what this kitchen always
- * has (32j, `DEFAULT_STAPLES` until edited), and whether pantry staples are
- * assumed too (U5, on by default). Each is stored only once changed, so a
+ * has (32j, `DEFAULT_STAPLES` until edited), whether pantry staples are
+ * assumed too (U5, on by default), and whether beans stand in for each
+ * other as their own tier (42m, on by default). Each is stored only once
+ * changed, so a
  * better default reaches everyone who never touched it.
  *
  * `staples` is the **whole** assumed list — the always-on items plus, while
@@ -246,6 +256,12 @@ export interface MakeSettings {
   /** "Assume pantry staples" (U5): on unless this browser turned it off. */
   pantryStaples: boolean;
   /**
+   * "Let beans stand in for each other" (42m): the "With a bean swap" tier,
+   * on unless this browser turned it off. `/make` only — it adds a tier,
+   * so the pages that show counts alone never read it.
+   */
+  beanSwaps: boolean;
+  /**
    * "Count from" (41h): which list every count judges — this browser's
    * (the default, and U6's rule for a browser that never chose), the second
    * list the page has (the signed-in editor's saved list, or the house
@@ -256,6 +272,7 @@ export interface MakeSettings {
   view: CardView;
   setCountClose: (value: boolean) => void;
   setPantryStaples: (value: boolean) => void;
+  setBeanSwaps: (value: boolean) => void;
   setStaples: (items: string[]) => void;
   resetStaples: () => void;
   setSource: (value: CountFrom) => void;
@@ -274,6 +291,8 @@ export interface StoredSettings {
   countClose?: boolean;
   /** Stored only as `false`: on is the default. */
   pantryStaples?: boolean;
+  /** Stored only as `false`: on is the default (42m). */
+  beanSwaps?: boolean;
   staples?: string[];
   /** Stored only when not `"browser"` (41h). */
   source?: CountFrom;
@@ -290,11 +309,12 @@ export function parseSettings(raw: string): StoredSettings {
   try {
     const parsed = raw ? (JSON.parse(raw) as unknown) : {};
     if (!parsed || typeof parsed !== "object") return {};
-    const { countClose, pantryStaples, staples, source, view } =
+    const { countClose, pantryStaples, beanSwaps, staples, source, view } =
       parsed as Record<string, unknown>;
     const out: StoredSettings = {};
     if (typeof countClose === "boolean") out.countClose = countClose;
     if (typeof pantryStaples === "boolean") out.pantryStaples = pantryStaples;
+    if (typeof beanSwaps === "boolean") out.beanSwaps = beanSwaps;
     if (Array.isArray(staples)) {
       out.staples = staples.filter(
         (item): item is string => typeof item === "string",
@@ -329,6 +349,7 @@ export function useMakeSettings(): MakeSettings {
     if (merged.pantryStaples !== undefined) {
       kept.pantryStaples = merged.pantryStaples;
     }
+    if (merged.beanSwaps !== undefined) kept.beanSwaps = merged.beanSwaps;
     if (merged.staples !== undefined) kept.staples = merged.staples;
     if (merged.source !== undefined) kept.source = merged.source;
     if (merged.view !== undefined) kept.view = merged.view;
@@ -343,6 +364,10 @@ export function useMakeSettings(): MakeSettings {
   );
   const setPantryStaples = useCallback(
     (value: boolean) => save({ pantryStaples: value ? undefined : false }),
+    [save],
+  );
+  const setBeanSwaps = useCallback(
+    (value: boolean) => save({ beanSwaps: value ? undefined : false }),
     [save],
   );
   const setStaples = useCallback(
@@ -373,10 +398,12 @@ export function useMakeSettings(): MakeSettings {
     alwaysHave,
     defaultStaples: stored.staples === undefined,
     pantryStaples,
+    beanSwaps: stored.beanSwaps ?? true,
     source: stored.source ?? "browser",
     view: stored.view ?? "photos",
     setCountClose,
     setPantryStaples,
+    setBeanSwaps,
     setStaples,
     resetStaples,
     setSource,

@@ -38,6 +38,10 @@ import {
   dedupeItems,
   inventoryKey,
 } from "recipe-website-common/util/inventoryText";
+import {
+  canonicalItem,
+  canonicalItems,
+} from "recipe-website-common/util/matchers";
 import { readSettings } from "@discontent/cms/settings";
 import {
   featuredOfQuery,
@@ -134,6 +138,11 @@ function describe(added: string[], removed: string[]): string {
   return text;
 }
 
+/** Two spellings of one item share this key: a matcher's are canonical first. */
+function itemKey(item: string): string {
+  return inventoryKey(canonicalItem(item));
+}
+
 /** Called under the write lock, which `patchInventory` / `setInventory` hold. */
 async function writeInventory(
   ctx: CurationContext,
@@ -181,19 +190,23 @@ async function patchInventoryLocked(
   await assertNoMergeInProgress(ctx.contentDirectory);
   const { items: current, path: file } = await readInventory(ctx);
 
-  const removeKeys = new Set((input.remove ?? []).map(inventoryKey));
-  const removed = current.filter((item) => removeKeys.has(inventoryKey(item)));
-  const kept = current.filter((item) => !removeKeys.has(inventoryKey(item)));
-  const keptKeys = new Set(kept.map(inventoryKey));
-  const added = dedupeItems(input.add ?? []).filter(
-    (item) => !keptKeys.has(inventoryKey(item)),
+  /*
+   * A matcher is one item however it is spelled (42m2): `beans`, `any
+   * beans` and `any bean` are all `any bean` — added in that spelling, and
+   * removing any of them removes a stored "beans" from before.
+   */
+  const removeKeys = new Set((input.remove ?? []).map(itemKey));
+  const removed = current.filter((item) => removeKeys.has(itemKey(item)));
+  const kept = current.filter((item) => !removeKeys.has(itemKey(item)));
+  const keptKeys = new Set(kept.map(itemKey));
+  const added = dedupeItems(canonicalItems(input.add ?? [])).filter(
+    (item) => !keptKeys.has(itemKey(item)),
   );
   /* Removed and re-added in one patch: neither, as far as the list goes. */
-  const readded = new Set(added.map(inventoryKey));
-  const netRemoved = removed.filter((item) => !readded.has(inventoryKey(item)));
+  const readded = new Set(added.map(itemKey));
+  const netRemoved = removed.filter((item) => !readded.has(itemKey(item)));
   const netAdded = added.filter(
-    (item) =>
-      !removed.some((gone) => inventoryKey(gone) === inventoryKey(item)),
+    (item) => !removed.some((gone) => itemKey(gone) === itemKey(item)),
   );
 
   if (netAdded.length === 0 && netRemoved.length === 0) {
@@ -245,11 +258,13 @@ async function setInventoryLocked(
    */
   await assertNoMergeInProgress(ctx.contentDirectory);
   const { items: current, path: file } = await readInventory(ctx);
-  const items = sorted(dedupeItems(input.items));
-  const nextKeys = new Set(items.map(inventoryKey));
-  const currentKeys = new Set(current.map(inventoryKey));
-  const added = items.filter((item) => !currentKeys.has(inventoryKey(item)));
-  const removed = current.filter((item) => !nextKeys.has(inventoryKey(item)));
+  const items = sorted(dedupeItems(canonicalItems(input.items)));
+  /* By `itemKey`, as `patchInventory` compares (42m2 review): `any bean`
+   * over a stored "beans" is no change. */
+  const nextKeys = new Set(items.map(itemKey));
+  const currentKeys = new Set(current.map(itemKey));
+  const added = items.filter((item) => !currentKeys.has(itemKey(item)));
+  const removed = current.filter((item) => !nextKeys.has(itemKey(item)));
   if (added.length === 0 && removed.length === 0) {
     return { items: current, path: file, added, removed, changed: false };
   }
@@ -277,6 +292,16 @@ export interface MakeableRow {
   close?: { needs: string; have: string }[];
 }
 
+/**
+ * A recipe short only of beans that another bean on the list could stand
+ * in for (42m): each missing bean line, and the bean on hand to use.
+ */
+export interface BeanSwapRow {
+  slug: string;
+  name: string;
+  swaps: { line: string; use: string }[];
+}
+
 export interface MakeableResult {
   /** The scope as given (`""`: every recipe). */
   query: string;
@@ -295,6 +320,11 @@ export interface MakeableResult {
   /** Whether pantry staples counted as on hand (U5; on by default). */
   staples: boolean;
   /**
+   * Whether beans stood in for each other (42m; on by default): `/make`'s
+   * "Let beans stand in for each other".
+   */
+  beanSwaps: boolean;
+  /**
    * "Assume I always have" (41i): the editor's saved list (38a,
    * `settings.makeStaples`) when there is one, else `DEFAULT_STAPLES`.
    */
@@ -310,6 +340,13 @@ export interface MakeableResult {
   twoAway: MakeableRow[];
   /** Three or more away — a count, since a list of them says little. */
   further: number;
+  /**
+   * "With a bean swap" (42m), present while `beanSwaps` is on: recipes whose
+   * missing lines are all beans another bean on the list stands in for.
+   * Each is also in `oneAway`, `twoAway` or `further`, which stay as they
+   * were — a swap never makes a recipe "can make".
+   */
+  beanSwap?: BeanSwapRow[];
   buyNext: BuyNext[];
 }
 
@@ -331,6 +368,17 @@ function toRow(match: RecipeMatch): MakeableRow {
           })),
         }
       : {}),
+  };
+}
+
+function toSwapRow(match: RecipeMatch): BeanSwapRow {
+  return {
+    slug: match.recipe.slug,
+    name: match.recipe.name,
+    swaps: (match.swaps ?? []).map(({ requirement, use }) => ({
+      line: requirementLabel(requirement),
+      use,
+    })),
   };
 }
 
@@ -390,6 +438,9 @@ async function readSavedStaples(): Promise<string[] | undefined> {
  * - **The staples** are the editor's saved "Assume I always have"
  *   (`settings.makeStaples`) or `DEFAULT_STAPLES`, plus `PANTRY_STAPLES`
  *   unless `staples: false` (U5); close matches count as had.
+ * - **Bean swaps** (42m), unless `beanSwaps: false`: `beanSwap` lists the
+ *   recipes short only of beans another bean on the list stands in for, as
+ *   the page's "With a bean swap" does.
  *
  * Buy next is computed inside the narrowed scope, as the page's "Buy next
  * for lime drinks" is.
@@ -403,6 +454,7 @@ export async function makeable(
     feature = [],
     limit = 20,
     staples = true,
+    beanSwaps = true,
   } = parseInput(InventoryMakeQuerySchema, raw);
   const scope = feature.reduce(withFeature, query);
   const features = featuredOfQuery(scope);
@@ -431,6 +483,7 @@ export async function makeable(
   const alwaysHave = saved ?? DEFAULT_STAPLES;
   const analysis = analyzeMakeable(scoped, prepared, items, {
     staples: assumedStaples(alwaysHave, staples),
+    beanSwaps,
   });
   return {
     query,
@@ -438,6 +491,7 @@ export async function makeable(
     features,
     link: `/make?${new URLSearchParams({ q: scope })}`,
     staples,
+    beanSwaps,
     alwaysHave,
     inventory: items.length,
     total: scoped.length,
@@ -446,6 +500,9 @@ export async function makeable(
     oneAway: analysis.oneAway.slice(0, limit).map(toRow),
     twoAway: analysis.twoAway.slice(0, limit).map(toRow),
     further: analysis.further.length,
+    ...(beanSwaps
+      ? { beanSwap: analysis.beanSwap.slice(0, limit).map(toSwapRow) }
+      : {}),
     buyNext: analysis.buyNext,
   };
 }
