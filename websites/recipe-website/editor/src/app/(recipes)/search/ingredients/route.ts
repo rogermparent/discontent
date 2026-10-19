@@ -3,11 +3,11 @@ import { getSearchCorpus } from "recipe-website-common/controller/data/read";
 /**
  * The heavy half of the search corpus, split out of `search/all` by F4a.
  *
- * Fetched only when it is actually needed — when the FlexSearch index needs
- * (re)populating, or when the active filter mentions ingredients — so the
- * common page load, which finds a current index already in IndexedDB, never
- * pays for it. That is 199 of the corpus's 247 KiB moved behind the version
- * gate that already existed.
+ * Fetched only when it is actually needed — when the in-memory FlexSearch
+ * index is first wanted (free text, or the ⌘K palette opening), or when the
+ * active filter mentions ingredients (42s) — so a page load that searches
+ * nothing never pays for it. That is 199 of the corpus's 247 KiB kept off the
+ * common path.
  *
  * `Record<slug, string[]>`, not an array: the client merges by slug, and a map
  * keeps the shape self-describing without a second field to keep in step.

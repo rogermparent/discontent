@@ -1,6 +1,6 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 import { test, expect } from "../support/test";
-import { signIn } from "../support/helpers";
+import { openPalette, palette, signIn } from "../support/helpers";
 import { expectNoViolations } from "../support/a11y";
 import { expectHydrated } from "../support/hydration";
 import { snapshotPage } from "../support/visual";
@@ -131,14 +131,19 @@ test.describe("Drinks", () => {
     page,
   }) => {
     /* With nothing to judge the shelf needs no ingredient lines, so their
-     * failure (search's own index fill still asks for them) never turns the
-     * invitation into an error. */
+     * failure never turns the invitation into an error. Since 42s nothing on
+     * the page asks for them unprompted, so opening the ⌘K palette (which
+     * starts search's index) is what makes the failing request happen. */
     await page.route("**/search/ingredients", (route) => route.abort());
     const aborted = page.waitForEvent("requestfailed", (request) =>
       request.url().includes("/search/ingredients"),
     );
     await page.goto("/drinks");
+    await shelfReady(page);
+    await openPalette(page);
     await aborted;
+    await page.keyboard.press("Escape");
+    await expect(palette(page)).toHaveCount(0);
     await shelfReady(page);
     await expect(source(page)).toHaveText(
       "Nothing on the shelf yet — this browser's list is empty.",

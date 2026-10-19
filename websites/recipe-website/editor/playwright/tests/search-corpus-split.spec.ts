@@ -1,9 +1,13 @@
 import { test, expect, type Page } from "../support/test";
-import { searchFor } from "../support/helpers";
+import { openPalette, searchFor } from "../support/helpers";
 
 const SEARCH_TIMEOUT = 20_000;
 
-const ticker = (page: Page) => page.getByTestId("search-ticker");
+// Inside the visible <main>: a hidden second copy of the page can linger on
+// "Loading recipes…" (41-Th6, 42s-T1), and a page-wide locator then fails
+// strict mode.
+const ticker = (page: Page) =>
+  page.getByRole("main").getByTestId("search-ticker");
 
 // Direct-child cards only — a card's matched-ingredient <ul><li> would
 // otherwise be counted as extra list items.
@@ -21,21 +25,6 @@ const cardNamed = (page: Page, name: string | RegExp) =>
  */
 const INGREDIENT_ONLY_TERM = "yolks";
 const INGREDIENT_ONLY_RECIPE = "Crème Brûlée";
-
-/**
- * Empty the query and wait for the browse view to come back.
- *
- * Required before any reload in this file. The query lives in sessionStorage
- * (and `?q=`), and both survive `page.goto` — so a spec that searched, reloaded
- * and then expected the browse ticker would be asserting against its own
- * leftover query, not a fresh load.
- */
-async function clearSearch(page: Page) {
-  await searchFor(page, "");
-  await expect(ticker(page)).toHaveText(/ALL 67 RECIPES/i, {
-    timeout: SEARCH_TIMEOUT,
-  });
-}
 
 /** Record which of the two corpus documents a page load actually fetched. */
 function trackCorpusFetches(page: Page) {
@@ -55,72 +44,61 @@ function trackCorpusFetches(page: Page) {
 
 /*
  * F4a split the search corpus in two. `/search/all` keeps everything the client
- * *renders* — 54 KiB of the 436-recipe corpus — and is still fetched on every
- * page load. `/search/ingredients` carries the other 199 KiB, which nothing
- * renders: FlexSearch eats it once per corpus version, and `ingredient:`
- * filters read it. Both are conditions, so it is a conditional fetch.
+ * *renders* and is fetched on every page load. `/search/ingredients` carries the
+ * rest, which nothing renders: the free-text index is built from it, and
+ * `ingredient:` filters read it. Both are conditions, so it is a conditional
+ * fetch — and since 42s, with the index built in memory rather than persisted,
+ * the conditions are the first free text, the ⌘K palette opening, and a filter
+ * that reads ingredients. A page that searches nothing never fetches it.
  *
  * What these tests hold down is that "conditional" never becomes "wrong". Every
  * failure mode here is silent — an empty result set that looks like an honest
  * answer — which is why none of them would be caught by the existing specs.
  */
 test.describe("Search — the split corpus", () => {
-  test("a cold load fetches both halves and can filter on ingredients", async ({
+  test("browsing fetches only the display half; the first free text fetches the rest", async ({
     page,
     resetData,
   }) => {
     await resetData("search-corpus");
     const fetched = trackCorpusFetches(page);
 
-    await page.goto("/search");
-    await expect(ticker(page)).toHaveText(/ALL 67 RECIPES/i, {
-      timeout: SEARCH_TIMEOUT,
-    });
-
-    // Nothing is cached yet, so the index needs populating and the ingredients
-    // come with it.
-    await expect.poll(fetched.ingredients, { timeout: SEARCH_TIMEOUT }).toBe(1);
-
-    await searchFor(page, `ingredient:${INGREDIENT_ONLY_TERM}`);
-    await expect(cardNamed(page, INGREDIENT_ONLY_RECIPE)).toBeVisible({
-      timeout: SEARCH_TIMEOUT,
-    });
-    await expect(listItems(page)).toHaveCount(1);
-  });
-
-  test("a warm load skips the ingredients, then fetches them when a filter asks", async ({
-    page,
-    resetData,
-  }) => {
-    await resetData("search-corpus");
-
-    // First load: populate the index and let the populated-version marker land.
-    await page.goto("/search");
-    await expect(ticker(page)).toHaveText(/ALL 67 RECIPES/i, {
-      timeout: SEARCH_TIMEOUT,
-    });
-    await searchFor(page, INGREDIENT_ONLY_TERM);
-    await expect(cardNamed(page, INGREDIENT_ONLY_RECIPE)).toBeVisible({
-      timeout: SEARCH_TIMEOUT,
-    });
-    await clearSearch(page);
-
-    // Second load, unchanged corpus: the IndexedDB index is current, so there
-    // is nothing to populate — and with no ingredient filter in play there is
-    // nothing to fetch the heavy half *for*. This is the saving, made
-    // executable: 199 of the corpus's 247 KiB not crossing the wire.
-    const fetched = trackCorpusFetches(page);
     await page.goto("/search");
     await expect(ticker(page)).toHaveText(/ALL 67 RECIPES/i, {
       timeout: SEARCH_TIMEOUT,
     });
     await expect.poll(fetched.all, { timeout: SEARCH_TIMEOUT }).toBe(1);
+    // The browse view, the rails and the chips render from the display half
+    // alone, so nothing has asked for the heavy one yet.
     expect(fetched.ingredients()).toBe(0);
 
-    // …until a filter needs them. A filter-only query never reaches the engine,
-    // so nothing else would pull the document in; `filterUsesField` is what
-    // notices, and without it this query would filter a corpus whose recipes
-    // all have no ingredients and report a confident zero.
+    // An ingredient-only word can only be answered by an index built with the
+    // ingredients in it.
+    await searchFor(page, INGREDIENT_ONLY_TERM);
+    await expect(cardNamed(page, INGREDIENT_ONLY_RECIPE)).toBeVisible({
+      timeout: SEARCH_TIMEOUT,
+    });
+    await expect(listItems(page)).toHaveCount(1);
+    expect(fetched.ingredients()).toBe(1);
+  });
+
+  test("a filter-only query fetches the ingredients when it asks for them", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("search-corpus");
+    const fetched = trackCorpusFetches(page);
+
+    await page.goto("/search");
+    await expect(ticker(page)).toHaveText(/ALL 67 RECIPES/i, {
+      timeout: SEARCH_TIMEOUT,
+    });
+    expect(fetched.ingredients()).toBe(0);
+
+    // A filter-only query never reaches the engine, so nothing else would pull
+    // the document in; `filterUsesField` is what notices, and without it this
+    // query would filter a corpus whose recipes all have no ingredients and
+    // report a confident zero.
     await searchFor(page, `ingredient:${INGREDIENT_ONLY_TERM}`);
     await expect(cardNamed(page, INGREDIENT_ONLY_RECIPE)).toBeVisible({
       timeout: SEARCH_TIMEOUT,
@@ -130,32 +108,28 @@ test.describe("Search — the split corpus", () => {
   });
 
   /*
-   * The hazard the split creates, and the reason the populate is gated.
+   * The hazard the split creates, and the reason the build is gated.
    *
-   * If the populate is allowed to run before the ingredients arrive, FlexSearch
-   * is committed without them and `writePopulatedVersion` then marks that
-   * version done. The index probes healthy, the version matches, no page load
-   * ever refetches — and every ingredient search returns nothing until the
-   * corpus version happens to move. This is the same shape as the failure
-   * `search-index-recovery.spec.ts` covers: a cached index that looks current
-   * and answers nothing.
+   * `ingredients` is an indexed field. An index built before they arrive would
+   * answer an ingredient-only word with nothing — an honest-looking "No
+   * matches" — until the rebuild their arrival triggers. So the build waits for
+   * them to settle, and the query stays "Searching…" meanwhile.
    *
-   * **The delay below is what makes this a test rather than a coincidence.**
-   * Without it the two documents land in the same tick over localhost against a
-   * 67-recipe fixture, so the populate finds the ingredients already there
-   * whether or not anything made it wait — removing the gate entirely left all
-   * four tests in this file green. Holding `/search/ingredients` back by a
-   * second forces the ordering the gate exists for, and this test then fails
-   * without it.
+   * **Holding the response is what makes this a test rather than a
+   * coincidence.** Over localhost against a 67-recipe fixture both documents
+   * land in the same tick, so the build would find the ingredients already
+   * there whether or not anything made it wait.
    */
-  test("a populated index at a current version still answers ingredient searches", async ({
+  test("a query typed while the ingredients are in flight waits for them", async ({
     page,
     resetData,
   }) => {
     await resetData("search-corpus");
 
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
     await page.route("**/search/ingredients", async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      await held;
       await route.continue();
     });
 
@@ -163,29 +137,44 @@ test.describe("Search — the split corpus", () => {
     await expect(ticker(page)).toHaveText(/ALL 67 RECIPES/i, {
       timeout: SEARCH_TIMEOUT,
     });
-    // Searching proves the index is populated, which is when the marker lands.
-    await searchFor(page, "tomato");
-    await expect(cardNamed(page, "Tomato Basil Soup")).toBeVisible({
-      timeout: SEARCH_TIMEOUT,
-    });
-    await clearSearch(page);
-
-    // Reload onto the cached index. Free text goes to FlexSearch and nowhere
-    // else, so this can only pass if the ingredients were in the document set
-    // that was committed — and the version was only written because they were.
-    const fetched = trackCorpusFetches(page);
-    await page.goto("/search");
-    await expect(ticker(page)).toHaveText(/ALL 67 RECIPES/i, {
-      timeout: SEARCH_TIMEOUT,
-    });
 
     await searchFor(page, INGREDIENT_ONLY_TERM);
+    await expect(ticker(page)).toHaveText(/SEARCHING/i, {
+      timeout: SEARCH_TIMEOUT,
+    });
+    await expect(page.getByText("No matches")).toHaveCount(0);
+    // A beat later, still waiting. Without the gate the build runs the moment
+    // the query lands, and by now the ticker would read "0 results" and the
+    // page "No matches" — the second look is what turns that red.
+    await page.waitForTimeout(500);
+    await expect(ticker(page)).toHaveText(/SEARCHING/i);
+    await expect(page.getByText("No matches")).toHaveCount(0);
+
+    release();
     await expect(cardNamed(page, INGREDIENT_ONLY_RECIPE)).toBeVisible({
       timeout: SEARCH_TIMEOUT,
     });
-    // And it did it without refetching them: this is the *cached* index
-    // answering, which is what makes the deferral safe rather than lucky.
+    await expect(ticker(page)).toHaveText(/1 RESULT/i);
+  });
+
+  test("opening the palette starts the ingredients before any word is typed", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("search-corpus");
+    const fetched = trackCorpusFetches(page);
+
+    await page.goto("/");
+    await expect.poll(fetched.all, { timeout: SEARCH_TIMEOUT }).toBe(1);
     expect(fetched.ingredients()).toBe(0);
+
+    await openPalette(page);
+    await expect.poll(fetched.ingredients, { timeout: SEARCH_TIMEOUT }).toBe(1);
+    await expect(page.getByTestId("palette-list")).toHaveAttribute(
+      "data-index-ready",
+      "true",
+      { timeout: SEARCH_TIMEOUT },
+    );
   });
 
   /*
@@ -199,20 +188,8 @@ test.describe("Search — the split corpus", () => {
     resetData,
   }) => {
     await resetData("search-corpus");
-
-    // Warm the index first, so the only thing that can pull the ingredients in
-    // on the second load is the negation itself.
-    await page.goto("/search");
-    await expect(ticker(page)).toHaveText(/ALL 67 RECIPES/i, {
-      timeout: SEARCH_TIMEOUT,
-    });
-    await searchFor(page, "tomato");
-    await expect(cardNamed(page, "Tomato Basil Soup")).toBeVisible({
-      timeout: SEARCH_TIMEOUT,
-    });
-    await clearSearch(page);
-
     const fetched = trackCorpusFetches(page);
+
     await page.goto("/search");
     await expect(ticker(page)).toHaveText(/ALL 67 RECIPES/i, {
       timeout: SEARCH_TIMEOUT,

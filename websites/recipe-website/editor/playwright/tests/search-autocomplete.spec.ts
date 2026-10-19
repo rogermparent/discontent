@@ -306,8 +306,8 @@ test.describe("Search — in-field autocomplete", () => {
   });
 
   test("says the ingredients are loading until they land", async ({ page }) => {
-    // The lines are a conditional fetch (F4a). The first visit populated the
-    // index, so a reload does not fetch them, and the completion is what asks.
+    // The lines are a conditional fetch (F4a). A reload starts with nothing
+    // asking for them (42s), and the completion is what asks.
     // Holding the response keeps the loading row up long enough to look at.
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
