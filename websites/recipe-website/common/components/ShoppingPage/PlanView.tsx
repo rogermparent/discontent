@@ -11,7 +11,10 @@ import {
   rowsHolding,
   type ShoppingOrigin,
 } from "../../util/shoppingPage";
-import { SHOPPING_FEATURES } from "../../util/shoppingTypes";
+import {
+  SHOPPING_FEATURES,
+  type ShoppingFeature,
+} from "../../util/shoppingTypes";
 import type {
   ShoppingRow,
   ShoppingSubRecipeGroup,
@@ -169,6 +172,22 @@ function Switches({
 }) {
   const headingId = useId();
   const { features } = list.settings;
+  /*
+   * A switch shows its new state at once, while its write is out; the
+   * saved settings take over when it answers (or put it back on a failure).
+   */
+  const [pending, setPending] = useState<
+    Partial<Record<ShoppingFeature, boolean>>
+  >({});
+  const flip = async (feature: ShoppingFeature, value: boolean) => {
+    setPending((current) => ({ ...current, [feature]: value }));
+    await list.saveSettings({ features: { [feature]: value } });
+    setPending((current) => {
+      const next = { ...current };
+      delete next[feature];
+      return next;
+    });
+  };
   return (
     <section
       className={cn(panelClass, "hidden lg:block print:hidden")}
@@ -191,13 +210,9 @@ function Switches({
               type="checkbox"
               role="switch"
               className="mt-0.5 size-5 shrink-0 accent-primary"
-              checked={features[feature]}
+              checked={pending[feature] ?? features[feature]}
               disabled={list.working}
-              onChange={(event) =>
-                void list.saveSettings({
-                  features: { [feature]: event.target.checked },
-                })
-              }
+              onChange={(event) => void flip(feature, event.target.checked)}
             />
             <span className="flex-1 text-sm">
               <span className="font-medium">{FEATURE_TEXT[feature][0]}</span>

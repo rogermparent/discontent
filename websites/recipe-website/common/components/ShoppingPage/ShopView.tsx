@@ -347,13 +347,16 @@ export function ShopView({
   useEffect(() => {
     const selector = focusNext.current;
     if (!selector) return;
+    /* Kept until the target has rendered: another render may come first. */
+    const target = document.querySelector<HTMLElement>(selector);
+    if (!target) return;
     focusNext.current = undefined;
-    document.querySelector<HTMLElement>(selector)?.focus();
+    target.focus();
   });
   const markDone = (aisle: ShopAisle, value: boolean) => {
     focusNext.current = value
       ? `[data-focus="done-${aisle.id}"]`
-      : `#${aisleAnchor(aisle)}`;
+      : `section#${aisleAnchor(aisle)}`;
     setDone((current) => markAisle(current, scope, aisle, value, Date.now()));
   };
 

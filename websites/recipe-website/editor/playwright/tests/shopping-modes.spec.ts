@@ -46,6 +46,16 @@ async function openWith(
 
 const PLAN = { group: "week-of-oct-19" };
 
+/**
+ * The viewport from the top, not the full page. Shop's store bar and
+ * bottom bar, and the phone's Start shopping bar, are sticky. A full-page
+ * capture paints them part-way down the page, which no reader ever sees.
+ */
+async function inView(page: Page, name: string) {
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await snapshotPage(page, name, { fullPage: false });
+}
+
 test.describe("Shopping list: in the store @mobile", () => {
   test.beforeEach(async ({ resetData, initializeContentGit }) => {
     await resetData("shopping");
@@ -271,7 +281,7 @@ test.describe("Shopping list: in the store @mobile", () => {
       "Saving",
       { timeout: 15_000 },
     );
-    await snapshotPage(page, "shopping-shop.png");
+    await inView(page, "shopping-shop.png");
   });
 
   test("the at-home view on a phone @visual", async ({ page }) => {
@@ -283,7 +293,7 @@ test.describe("Shopping list: in the store @mobile", () => {
       .getByRole("button", { name: "Plan" })
       .click();
     await expect(page.getByTestId("shopping-on-list")).toBeVisible();
-    await snapshotPage(page, "shopping-plan.png");
+    await inView(page, "shopping-plan.png");
   });
 });
 
@@ -445,6 +455,6 @@ test.describe("Shopping list: at home", () => {
     await expect(
       page.getByRole("navigation", { name: "Aisles" }),
     ).toBeVisible();
-    await snapshotPage(page, "shopping-shop.png");
+    await inView(page, "shopping-shop.png");
   });
 });
