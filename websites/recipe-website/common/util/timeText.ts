@@ -105,8 +105,12 @@ const VULGAR: Record<string, number> = {
 };
 const VULGAR_CLASS = `[${Object.keys(VULGAR).join("")}]`;
 
-/** A number in step text, as written: `25`, `1.5`, `1/2`, `1 1/2`, `1½`, `½`. */
-const STEP_NUMBER = `(?:\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:\\.\\d+)?(?:\\s?${VULGAR_CLASS})?|${VULGAR_CLASS})`;
+/**
+ * A number in step text, as written: `25`, `1.5`, `1/2`, `1 1/2`, `1-1/2`,
+ * `1½`, `1-½`, `½`. The hyphenated mixed numbers come before a range's dash
+ * is tried, so "1-1/2 hours" is 1½ hours, not a range from 1 to ½.
+ */
+const STEP_NUMBER = `(?:\\d+(?:\\s+|-)\\d+\\/\\d+|\\d+\\/\\d+|\\d+-${VULGAR_CLASS}|\\d+(?:\\.\\d+)?(?:\\s?${VULGAR_CLASS})?|${VULGAR_CLASS})`;
 
 /** Units a timer counts in. Days are not a timer ("rest 2 days"). */
 const STEP_UNIT = "(?:hours?|hrs?|minutes?|mins?|seconds?|secs?)";
@@ -118,12 +122,13 @@ const ONE = "(?:an?|one)";
  * One duration, as a regex source with named groups. Alternatives, longest
  * first:
  * - `low` to/–/- `number` `unit`: "45 to 50 minutes", "10-12 min", "1½–2 hours"
+ *   — a hyphen before a fraction is a mixed number's, never a range's
  * - `number` `unit`, the unit maybe hyphenated: "25 minutes", "a 10-minute rest"
  * - "half an hour", "an hour and a half", "an hour", "a minute" — not "a
  *   second", which is as often the second egg as a second
  */
 const PART = [
-  `(?:(?<low>${STEP_NUMBER})\\s*(?:-|–|—|to)\\s*)?(?<number>${STEP_NUMBER})\\s*-?\\s*(?<unit>${STEP_UNIT})(?![a-z])`,
+  `(?:(?<low>${STEP_NUMBER})\\s*(?:-(?!\\d+\\/|${VULGAR_CLASS})|–|—|to)\\s*)?(?<number>${STEP_NUMBER})\\s*-?\\s*(?<unit>${STEP_UNIT})(?![a-z])`,
   `(?<half>half\\s+an?\\s+hour)(?![a-z])`,
   `(?<one>${ONE}\\s+(?<oneUnit>hour|minute))(?<andHalf>\\s+and\\s+a\\s+half)?(?![a-z])`,
 ].join("|");
@@ -143,7 +148,8 @@ const MAX_TIMER_SECONDS = 24 * 60 * 60;
 
 /** A number as step text writes it, in its own value. */
 function stepAmount(text: string): number {
-  const trimmed = text.trim();
+  /* A hyphen inside a number is a mixed number's: "1-1/2", "1-½". */
+  const trimmed = text.trim().replace(/^(\d+)-/, "$1 ");
   const vulgar = trimmed.match(new RegExp(`^(\\d*)\\s?(${VULGAR_CLASS})$`));
   if (vulgar) return Number(vulgar[1] || 0) + VULGAR[vulgar[2]];
   return amount(trimmed.replace(/\s+/g, " "));
@@ -220,15 +226,12 @@ export function findStepTimes(text: string): StepTime[] {
     .map(readPart)
     .filter((part): part is Part => part !== undefined);
 
-  const times: StepTime[] = [];
-  for (let i = 0; i < parts.length; i++) {
-    const first = parts[i];
-    let end = first.end;
-    let seconds = first.seconds;
-    let low = first.low;
-    let maxSeconds: number | undefined;
-    let unit = first.unit;
-    /* "1 hour 15 minutes": smaller units joined on, each once. */
+  /*
+   * One whole time from part `i`: the part, with any smaller units joined on
+   * ("1 hour 15 minutes", each unit once). Answers the index of its last part.
+   */
+  const whole = (i: number) => {
+    let { end, seconds, unit } = parts[i];
     while (
       i + 1 < parts.length &&
       parts[i + 1].low === undefined &&
@@ -240,30 +243,46 @@ export function findStepTimes(text: string): StepTime[] {
       unit = parts[i].unit;
       end = parts[i].end;
     }
-    /* "30 minutes to 1 hour": a range of two whole times. */
+    return { last: i, end, seconds };
+  };
+
+  const times: StepTime[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const first = parts[i];
+    let low = first.low;
+    let maxSeconds: number | undefined;
+    const span =
+      low === undefined
+        ? whole(i)
+        : { last: i, end: first.end, seconds: first.seconds };
+    i = span.last;
+    let { end, seconds } = span;
+    /* "30 minutes to 1 hour", "1 hour to 1 hour 30 minutes": a range of two whole times. */
     if (
       low === undefined &&
       i + 1 < parts.length &&
       parts[i + 1].low === undefined &&
-      parts[i + 1].seconds > seconds &&
       RANGE_GAP.test(text.slice(end, parts[i + 1].start))
     ) {
-      i += 1;
-      low = seconds;
-      seconds = parts[i].seconds;
-      end = parts[i].end;
+      const high = whole(i + 1);
+      if (high.seconds > seconds) {
+        low = seconds;
+        seconds = high.seconds;
+        end = high.end;
+        i = high.last;
+      }
     }
     if (low !== undefined && low < seconds) {
       maxSeconds = seconds;
       seconds = low;
     }
-    const whole = Math.round(seconds);
-    if (whole < 1 || (maxSeconds ?? whole) > MAX_TIMER_SECONDS) continue;
+    const rounded = Math.round(seconds);
+    if (rounded < 1 || (maxSeconds ?? rounded) > MAX_TIMER_SECONDS) continue;
     times.push({
       start: first.start,
       end,
       text: text.slice(first.start, end),
-      seconds: whole,
+      seconds: rounded,
       ...(maxSeconds !== undefined && { maxSeconds: Math.round(maxSeconds) }),
     });
   }

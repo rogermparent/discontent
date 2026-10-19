@@ -100,6 +100,8 @@ test.describe("Cook view, one step at a time (42c2)", () => {
     await expect(done).toContainText("Roll it out on a floured counter.");
     await done.click();
     await expect(progress).toHaveText("Step 2 of 4");
+    /* Focus follows to the new step, so it is read out. */
+    await expect(step).toBeFocused();
     /* "floured" is not flour: a step that names nothing lists nothing. */
     await expect(
       view.getByRole("region", { name: "For this step" }),
@@ -107,6 +109,8 @@ test.describe("Cook view, one step at a time (42c2)", () => {
 
     await view.getByRole("button", { name: "Back" }).click();
     await expect(progress).toHaveText("Step 1 of 4");
+    /* Back is now aria-disabled, and keeps focus rather than dropping it. */
+    await expect(view.getByRole("button", { name: "Back" })).toBeFocused();
     await expect(step.getByRole("checkbox").first()).toBeChecked();
 
     await done.click();
@@ -125,6 +129,7 @@ test.describe("Cook view, one step at a time (42c2)", () => {
     await done.click();
     await expect(done).toContainText("Last step done");
     await expect(done).toBeDisabled();
+    await expect(done).toBeFocused();
 
     /* "All steps" is the whole checklist, with the same ticks. */
     await layout.getByRole("button", { name: "All steps" }).click();
@@ -240,7 +245,8 @@ test.describe("Timer buttons in step text (42c2)", () => {
     await expect(
       viewTray.getByTestId("timer-row").filter({ has: cover }),
     ).toHaveAttribute("data-timer-status", "done");
-    await expect(page.getByTestId("timer-announcer")).toHaveText(
+    /* Said inside the dialog; the page's region stays quiet meanwhile. */
+    await expect(view.getByTestId("timer-announcer")).toHaveText(
       "Timer done: Step 4 · 25 minutes",
     );
     await expect(

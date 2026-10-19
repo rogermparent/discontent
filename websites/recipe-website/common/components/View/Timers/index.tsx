@@ -48,7 +48,10 @@ import {
  * stay marked until dismissed.
  *
  * Announced politely at start and finish only, through one live region; the
- * countdowns themselves are `role="timer"`, which is not live.
+ * countdowns themselves are `role="timer"`, which is not live. While the cook
+ * view is open its own `TimerAnnouncer` speaks instead — a live region
+ * outside an `aria-modal` dialog may go unheard — and the page's falls
+ * silent, so nothing is said twice.
  */
 
 interface TimersValue {
@@ -58,6 +61,10 @@ interface TimersValue {
   pause: (id: string) => void;
   resume: (id: string) => void;
   remove: (id: string) => void;
+  /** The latest start or finish, for whichever live region is speaking. */
+  announcement: string;
+  /** A `TimerAnnouncer` mounted inside a dialog takes over the speaking. */
+  host: () => () => void;
 }
 
 const TimersContext = createContext<TimersValue | undefined>(undefined);
@@ -100,6 +107,7 @@ export function TimersProvider({ children }: { children: ReactNode }) {
   const [timers, setTimers] = useState<readonly KitchenTimer[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const [announcement, setAnnouncement] = useState("");
+  const [hosts, setHosts] = useState(0);
   const audioRef = useRef<AudioContext | null>(null);
 
   /* Wake (or make) the audio context inside the tap that starts a timer. */
@@ -121,8 +129,13 @@ export function TimersProvider({ children }: { children: ReactNode }) {
       `Timer done: ${finished.map(({ label }) => label).join(", ")}`,
     );
     try {
-      if (audioRef.current && audioRef.current.state !== "closed") {
-        chime(audioRef.current);
+      const context = audioRef.current;
+      if (context && context.state !== "closed") {
+        /* iOS suspends an idle context: wake it, then ring. */
+        void context
+          .resume()
+          .then(() => chime(context))
+          .catch(() => {});
       }
     } catch {
       /* The visible state stands in. */
@@ -176,6 +189,11 @@ export function TimersProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const host = useCallback(() => {
+    setHosts((count) => count + 1);
+    return () => setHosts((count) => count - 1);
+  }, []);
+
   const value = useMemo<TimersValue>(
     () => ({
       timers,
@@ -199,15 +217,17 @@ export function TimersProvider({ children }: { children: ReactNode }) {
         setTimers((current) => resumeTimer(current, id, at));
       },
       remove: (id) => setTimers((current) => removeTimer(current, id)),
+      announcement,
+      host,
     }),
-    [timers, now, primeAudio],
+    [timers, now, primeAudio, announcement, host],
   );
 
   return (
     <TimersContext.Provider value={value}>
       {children}
       <p aria-live="polite" className="sr-only" data-testid="timer-announcer">
-        {announcement}
+        {hosts > 0 ? "" : announcement}
       </p>
     </TimersContext.Provider>
   );
@@ -369,6 +389,22 @@ export function StepText({
 }
 
 /**
+ * The timers' live region inside a dialog (the cook view): while mounted it
+ * speaks the starts and finishes and the page's own region stays quiet.
+ */
+export function TimerAnnouncer() {
+  const context = useTimers();
+  const host = context?.host;
+  useEffect(() => host?.(), [host]);
+  if (!context) return null;
+  return (
+    <p aria-live="polite" className="sr-only" data-testid="timer-announcer">
+      {context.announcement}
+    </p>
+  );
+}
+
+/**
  * The running timers, in a small tray (canvas C): the step and words, the
  * countdown, pause or resume, and cancel; a finished timer says "Done" and
  * offers to clear. `floating` pins it to the viewport's bottom corner on the
@@ -383,10 +419,36 @@ export function TimerTray({
   className?: string;
 }) {
   const context = useTimers();
-  if (!context || context.timers.length === 0) return null;
+  const trayRef = useRef<HTMLElement>(null);
+  const shown = Boolean(context && context.timers.length > 0);
+  const rows = context?.timers.length ?? 0;
+  /*
+   * Room for the tray when the page scrolls something into view (WCAG 2.2
+   * 2.4.11, focus not obscured): bottom padding on the page for the
+   * floating tray, top padding on the cook view's scroller for the sticky
+   * one.
+   */
+  useEffect(() => {
+    const tray = trayRef.current;
+    if (!shown || !tray) return;
+    const scroller =
+      variant === "floating"
+        ? document.documentElement
+        : (tray.closest<HTMLElement>("[role=dialog]") ?? undefined);
+    if (!scroller) return;
+    const side =
+      variant === "floating" ? "scrollPaddingBottom" : "scrollPaddingTop";
+    const before = scroller.style[side];
+    scroller.style[side] = `${tray.offsetHeight + 16}px`;
+    return () => {
+      scroller.style[side] = before;
+    };
+  }, [shown, rows, variant]);
+  if (!context || !shown) return null;
   const { timers, now, pause, resume, remove } = context;
   return (
     <section
+      ref={trayRef}
       aria-label="Timers"
       data-testid="timer-tray"
       className={cn(
@@ -435,7 +497,7 @@ export function TimerTray({
                   type="button"
                   onClick={() => (running ? pause(timer.id) : resume(timer.id))}
                   aria-label={`${running ? "Pause" : "Resume"} ${timer.label}`}
-                  className="inline-flex size-10 items-center justify-center rounded-md outline-none hover:bg-black/10 focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                  className="inline-flex size-10 items-center justify-center rounded-md outline-none hover:bg-current/10 focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 >
                   {running ? (
                     <Pause aria-hidden="true" className="size-4" />
@@ -448,7 +510,7 @@ export function TimerTray({
                 type="button"
                 onClick={() => remove(timer.id)}
                 aria-label={`${done ? "Clear" : "Cancel"} ${timer.label}`}
-                className="inline-flex size-10 items-center justify-center rounded-md outline-none hover:bg-black/10 focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                className="inline-flex size-10 items-center justify-center rounded-md outline-none hover:bg-current/10 focus-visible:ring-[3px] focus-visible:ring-ring/50"
               >
                 <X aria-hidden="true" className="size-4" />
               </button>

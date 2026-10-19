@@ -7,6 +7,7 @@ import {
   formatCountdown,
   parseTimeText,
 } from "recipe-website-common/util/timeText";
+import { stepPlainText } from "recipe-website-common/util/stepPlainText";
 import { parseTimeText as llmParseTimeText } from "../websites/recipe-website/editor/controller/llm/timeText";
 
 /*
@@ -58,6 +59,14 @@ describe("findStepTimes", () => {
     ["Bake 1 hour 15 minutes.", [["1 hour 15 minutes", 4500]]],
     ["Bake 1 hour and 15 minutes.", [["1 hour and 15 minutes", 4500]]],
     ["Whisk for 30 seconds.", [["30 seconds", 30]]],
+    /* A hyphen before a fraction makes a mixed number, not a range (review). */
+    ["Bake 1-1/2 hours.", [["1-1/2 hours", 5400]]],
+    ["Bake 1-½ hours.", [["1-½ hours", 5400]]],
+    ["Simmer 2-1/2 to 3 hours.", [["2-1/2 to 3 hours", 9000, 10800]]],
+    [
+      "Braise 1 hour to 1 hour 30 minutes.",
+      [["1 hour to 1 hour 30 minutes", 3600, 5400]],
+    ],
     ["Let it rest a 10-minute stretch.", [["10-minute", 600]]],
     ["Proof for an hour.", [["an hour", 3600]]],
     ["Wait half an hour.", [["half an hour", 1800]]],
@@ -126,5 +135,16 @@ describe("durationWords and formatCountdown", () => {
     [-5000, "0:00"],
   ])("%d ms → %s", (ms, text) => {
     expect(formatCountdown(ms)).toBe(text);
+  });
+});
+
+describe("stepPlainText (a step checkbox's name)", () => {
+  it("keeps the words and numbers, drops the markup", () => {
+    expect(
+      stepPlainText(
+        'Add <Multiplyable baseNumber="2" /> cups of **flour** and the [Pie Crust](/recipe/pie-crust), then bake `25 minutes`.',
+      ),
+    ).toBe("Add 2 cups of flour and the Pie Crust, then bake 25 minutes.");
+    expect(stepPlainText(undefined)).toBe("");
   });
 });

@@ -20,10 +20,11 @@ import type {
 } from "../../../controller/types";
 import type { StepLines } from "../../../util/stepIngredients";
 import { markOunces } from "../../../util/barUnits";
+import { stepPlainText } from "../../../util/stepPlainText";
 import { DrinkSpecBar } from "../DrinkSpec";
 import { MultiplierInput } from "../Multiplier";
 import { Multiplyable } from "../Multiplier/Multiplyable";
-import { StepText, TimerTray } from "../Timers";
+import { StepText, TimerAnnouncer, TimerTray } from "../Timers";
 import {
   readCookProgress,
   sessionStore,
@@ -87,13 +88,17 @@ function flattenSteps(
 
 /** A step as a short line for the Done button: its title, or its words. */
 function stepPreview(step: FlatStep): string {
-  if (step.name) return step.name;
-  return (step.text ?? "")
-    .replace(/<[^>]*\/?>/g, " ")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/[*_`#>]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return step.name || stepPlainText(step.text);
+}
+
+/**
+ * A step checkbox's name: its title and words as plain text, so the timer
+ * buttons inside its label (their countdown changing twice a second) are not
+ * part of it (42c2 review).
+ */
+function stepCheckboxName(step: FlatStep): string {
+  const words = stepPlainText(step.text);
+  return step.name ? `${step.name}. ${words}` : words;
 }
 
 const markdownComponents = { Multiplyable };
@@ -236,6 +241,9 @@ function FocusOverlay({
   onClose: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const stepRef = useRef<HTMLElement>(null);
+  /* Set by Done: once the next step renders, focus moves to it. */
+  const focusStep = useRef(false);
   const awake = useScreenWakeLock();
   const steps = useMemo(
     () => flattenSteps(instructions, uses),
@@ -267,6 +275,12 @@ function FocusOverlay({
     };
   }, [onClose]);
 
+  useEffect(() => {
+    if (!focusStep.current) return;
+    focusStep.current = false;
+    stepRef.current?.focus();
+  }, [progress.step]);
+
   const done = new Set(progress.done);
   const gathered = new Set(progress.gathered);
   /* No steps, no step to show: the checklist alone. */
@@ -288,13 +302,25 @@ function FocusOverlay({
   const toggleIngredient = (index: number) => toggle("gathered", index);
   const setLayout = (value: CookLayout) =>
     setProgress((previous) => ({ ...previous, layout: value }));
-  const back = () =>
+  /*
+   * Back on the first step and Done on a finished last step do nothing, but
+   * stay focusable (`aria-disabled`, not `disabled`): disabling the button in
+   * the reader's hand would drop focus to <body>, and the next Tab out of
+   * the dialog (42c2 review).
+   */
+  const canGoBack = current > 0;
+  const canFinish = !(last && done.has(current));
+  const back = () => {
+    if (!canGoBack) return;
     setProgress((previous) => ({
       ...previous,
       step: Math.max(0, Math.min(previous.step, steps.length - 1) - 1),
     }));
-  /* Done: tick the step on screen and move to the next. */
-  const finish = () =>
+  };
+  /* Done: tick the step on screen and move to the next, focus with it. */
+  const finish = () => {
+    if (!canFinish) return;
+    if (!last) focusStep.current = true;
     setProgress((previous) => {
       const at = Math.min(previous.step, steps.length - 1);
       const ticked = new Set(previous.done).add(at);
@@ -304,6 +330,7 @@ function FocusOverlay({
         step: Math.min(at + 1, steps.length - 1),
       };
     });
+  };
 
   const stepLines = (step?.uses ?? []).filter(
     (index) => ingredients[index] && ingredients[index].type !== "heading",
@@ -419,6 +446,8 @@ function FocusOverlay({
           </div>
         )}
 
+        {/* Inside the modal, where a screen reader still hears it. */}
+        <TimerAnnouncer />
         <TimerTray
           variant="inline"
           className="sticky top-0 z-10 -mx-4 bg-background px-4 py-2"
@@ -426,9 +455,11 @@ function FocusOverlay({
 
         {layout === "step" && step ? (
           <section
+            ref={stepRef}
+            tabIndex={-1}
             aria-label={`Step ${current + 1}`}
             data-testid="cook-step"
-            className="flex flex-col gap-5 pb-4"
+            className="flex flex-col gap-5 rounded-md pb-4 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
           >
             {step.group && (
               <p className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
@@ -444,6 +475,7 @@ function FocusOverlay({
               <Checkbox
                 checked={done.has(current)}
                 onCheckedChange={() => toggleStep(current)}
+                aria-label={stepCheckboxName(step)}
                 className={focusCheckboxClassName}
               />
               <span className="min-w-0 flex-1">
@@ -532,6 +564,7 @@ function FocusOverlay({
                         <Checkbox
                           checked={done.has(i)}
                           onCheckedChange={() => toggleStep(i)}
+                          aria-label={stepCheckboxName(each)}
                           className={focusCheckboxClassName}
                         />
                         <span className="min-w-[2ch] shrink-0 font-mono tabular-nums text-muted-foreground">
@@ -566,8 +599,8 @@ function FocusOverlay({
             <Button
               type="button"
               variant="outline"
-              className="h-14"
-              disabled={current === 0}
+              className="h-14 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+              aria-disabled={!canGoBack || undefined}
               onClick={back}
             >
               <ArrowLeft aria-hidden="true" />
@@ -575,8 +608,8 @@ function FocusOverlay({
             </Button>
             <Button
               type="button"
-              className="h-14 min-w-0 justify-between gap-3 px-4"
-              disabled={last && done.has(current)}
+              className="h-14 min-w-0 justify-between gap-3 px-4 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+              aria-disabled={!canFinish || undefined}
               onClick={finish}
               data-testid="cook-done"
             >

@@ -18,6 +18,7 @@ import { stepNumbers } from "../../../util/stepNumbers";
 import type { StepLines } from "../../../util/stepIngredients";
 import { stepId } from "./stepId";
 import { StepText } from "../Timers";
+import { stepPlainText } from "../../../util/stepPlainText";
 
 const stepComponents = {
   Multiplyable: { component: Multiplyable },
@@ -101,7 +102,9 @@ function StepItem({
           </StepHeading>
         )}
         <label className="flex flex-row flex-nowrap items-center gap-2 print:h-auto">
-          <Checkbox className="m-2 shrink-0" />
+          {/* Named by the words alone (42c2): the label also holds the
+              step's timer buttons, whose countdowns change twice a second. */}
+          <Checkbox className="m-2 shrink-0" aria-label={stepPlainText(text)} />
           <StepText text={text} step={number} components={stepComponents} />
         </label>
         {uses && <StepUses lines={uses} ingredients={ingredients} />}

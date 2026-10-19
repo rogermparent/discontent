@@ -513,16 +513,20 @@ recipe-website exec tsc --noEmit` ✅ (the export builds the same
   minutes"), "30 minutes to 1 hour", "an hour", "half an hour", "an hour and
   a half"; not days, not over 24 hours ("marinate 48 hours" is a plan), not
   "a second" (the second egg), not "overnight", "350 degrees", "2 cups" or
-  "minute 50". A number written as `<Multiplyable>` before "minutes" is not
+  "minute 50". A hyphen before a fraction makes a mixed number, never a
+  range ("1-1/2 hours" is 90 minutes, "2-1/2 to 3 hours" starts at 2½ —
+  from the review), and a range's ends may be compound ("1 hour to 1 hour 30
+  minutes"). A number written as `<Multiplyable>` before "minutes" is not
   read (it is a component, not text) — none of the fixtures does it.
 - **Dc2-2 — the timer button's name.** The brief's example was "Start 25
   minute timer"; the name is "Start timer: 25 minutes" (running: "Pause
   timer: 25 minutes · 24:13 left"), so the visible words are inside the name
-  (41f, WCAG 2.5.3) and it still says what it does. On the page the button
-  sits inside the step's checkbox label, so the step checkbox's name
-  includes it ("Bake for Start timer: 50 minutes…"); a tap on the button is
-  the button's (the label ignores taps on interactive content, and the
-  handler stops it).
+  (41f, WCAG 2.5.3) and it still says what it does. The button sits inside
+  the step's checkbox label, so the step checkbox gets its own name, the
+  step's plain words (`util/stepPlainText`) — otherwise it would include the
+  button's name and change twice a second while the timer runs (review). A
+  tap on the button is the button's (the label ignores taps on interactive
+  content, and the handler stops it).
 - **Dc2-3 — a render rule, not a text rewrite.** Injecting `<StepTimer>`
   tags into the markdown would meet 41c's Tc3 capture at a block's start;
   the rule works on parsed text nodes, so code spans and link text (a button
@@ -546,15 +550,24 @@ recipe-website exec tsc --noEmit` ✅ (the export builds the same
 - **Dc2-7 — the trays' places.** Page: fixed bottom-right from `sm`, full
   width above the tab bar on a phone (canvas C's desktop bar sits above the
   steps; fixed keeps it in sight while scrolling). Cook view: sticky at the
-  top of the overlay, as C's phone board.
+  top of the overlay, as C's phone board. While a tray shows, the page's
+  `scroll-padding-bottom` (or the cook view's `scroll-padding-top`) makes
+  room for it, so a focused control scrolled into view is not under it
+  (2.4.11).
+- **Dc2-8 — focus in the cook view (review).** Back on the first step and
+  Done on a finished last step are `aria-disabled`, not `disabled`, so the
+  button in hand keeps focus instead of dropping it to `<body>` (and the next
+  Tab out of the dialog). Done moves focus to the new step's section, so it
+  is read out. The cook view has its own live region for the timers while
+  open — one outside an `aria-modal` dialog may go unheard — and the page's
+  stays quiet meanwhile, so nothing is said twice.
 
 **Gates** — pending the heavy seat.
 
 **Roger to confirm.**
 
 - A range runs to its low end (Dc2-1).
-- The timer button's name wording, and that the page's step checkbox name
-  now includes the button's (Dc2-2).
+- The timer button's name wording (Dc2-2).
 - The bar view opens on All steps (Dc2-4).
 - A drink whose yield counts something other than drinks keeps "Multiply"
   (Dc2-6); presets are fixed counts 1 / 2 / 4.
