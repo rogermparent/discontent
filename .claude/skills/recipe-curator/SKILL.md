@@ -1,7 +1,7 @@
 ---
 name: recipe-curator
-description: Find, import, cite and organize recipes for the recipe website — meal plans, collections and nested collections (as tag terms), the homepage strip, the shared list of what's on hand and the shopping list — through the `recipes` MCP tools. Use for asks like "plan dinners for the week", "import this recipe", "import the recipes from this roundup", "make a collection of …", "put it on the homepage", "I bought Gnista", "what can I make?", "put this week's plan on the shopping list", "I bought eggs".
-allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__page_inspect, mcp__recipes__recipe_import, mcp__recipes__page_inspect_list, mcp__recipes__recipe_import_list, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__recipe_set_image, mcp__recipes__tag_list, mcp__recipes__term_list, mcp__recipes__term_get, mcp__recipes__term_create, mcp__recipes__term_update, mcp__recipes__term_set_image, mcp__recipes__term_assign, mcp__recipes__term_rename, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__inventory_get, mcp__recipes__inventory_add, mcp__recipes__inventory_remove, mcp__recipes__inventory_makeable, mcp__recipes__shopping_get, mcp__recipes__shopping_add, mcp__recipes__shopping_check, mcp__recipes__shopping_remove, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, mcp__recipes__git_fetch, mcp__recipes__job_list, mcp__recipes__job_get, WebSearch, WebFetch, Bash(pnpm --silent recipes:*)
+description: Find, import, cite and organize recipes for the recipe website — meal plans, collections and nested collections (as tag terms), the homepage strip, the shared list of what's on hand and the shopping list — through the `recipes` MCP tools. Use for asks like "plan dinners for the week", "import this recipe", "import the recipes from this roundup", "make a collection of …", "put it on the homepage", "I bought Gnista", "what can I make?", "what holidays are coming up?", "plan for Easter", "put this week's plan on the shopping list", "I bought eggs".
+allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__recipes__recipe_get, mcp__recipes__page_inspect, mcp__recipes__recipe_import, mcp__recipes__page_inspect_list, mcp__recipes__recipe_import_list, mcp__recipes__recipe_create, mcp__recipes__recipe_update, mcp__recipes__recipe_set_image, mcp__recipes__tag_list, mcp__recipes__term_list, mcp__recipes__term_get, mcp__recipes__term_create, mcp__recipes__term_update, mcp__recipes__term_set_image, mcp__recipes__term_assign, mcp__recipes__term_rename, mcp__recipes__group_list, mcp__recipes__group_get, mcp__recipes__group_create, mcp__recipes__group_update, mcp__recipes__group_set_items, mcp__recipes__group_add_item, mcp__recipes__group_remove_item, mcp__recipes__featured_list, mcp__recipes__feature, mcp__recipes__inventory_get, mcp__recipes__inventory_add, mcp__recipes__inventory_remove, mcp__recipes__inventory_makeable, mcp__recipes__holiday_list, mcp__recipes__holiday_get, mcp__recipes__shopping_get, mcp__recipes__shopping_add, mcp__recipes__shopping_check, mcp__recipes__shopping_remove, mcp__recipes__git_status, mcp__recipes__git_log, mcp__recipes__git_show, mcp__recipes__git_file_at, mcp__recipes__git_diff, mcp__recipes__git_fetch, mcp__recipes__job_list, mcp__recipes__job_get, WebSearch, WebFetch, Bash(pnpm --silent recipes:*)
 ---
 
 # Recipe curator
@@ -487,6 +487,23 @@ rename; `group_remove_item` drops one row. Renaming a recipe or a group
 the same commit — the commit holds the item plus each group it touched.
 Deleting one leaves its rows in place, shown as missing.
 
+## 7b. Holidays: "what's coming up?"
+
+The site files holiday recipes under the children of the `holidays` term
+(`thanksgiving`, `christmas`, `halloween`…) and dates each in code, so ask
+the tools rather than working dates out. **"What's coming up?"** →
+`holiday_list {}`: every holiday soonest first, each with `date`
+(YYYY-MM-DD), `countdown` ("in 12 days") and `counts` of dishes and drinks;
+undated ones (`dated: false`) come last. **"Plan for Easter"** or "what
+should I make for Thanksgiving?" → `holiday_get {"slug": "thanksgiving"}`:
+its recipes as the menu page groups them, dishes by `courses` and drinks by
+`styles`. Then plan with the tools above — reuse those recipes first, find
+more on the web only for a course the menu lacks, file new ones under the
+holiday with `term_assign`, and build the meal plan with `group_create`.
+Give Roger the answer's `link` (the menu page). `date` asks as of another
+day (`holiday_list {"date": "2026-12-01"}`); a holiday with counts of 0 has
+a term but nothing filed under it yet.
+
 ## 8. What's on hand
 
 The site keeps one shared list of what is on hand (pantry items, produce,
@@ -659,6 +676,8 @@ wait and run the same command once more, as with the tool.
   `shopping_check {names}` → `pnpm --silent recipes shopping check eggs --json`
   (`uncheck` reverses); `shopping_remove` → `pnpm --silent recipes shopping remove --recipe <slug> --json`
   (or `--group <slug>`, `--for <sub-recipe slug>`, or item ids);
+- `holiday_list {}` → `pnpm --silent recipes holidays --json`; `holiday_get {"slug": "easter"}` →
+  `pnpm --silent recipes holidays easter --json` (`--date 2026-12-01` as `date`);
 - `inventory_makeable {query, feature, staples: false}` →
   `pnpm --silent recipes inventory make --query "tag:drink" --feature lime [--no-staples] --json`
   (`--feature` once per ingredient).

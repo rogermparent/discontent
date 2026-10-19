@@ -25,14 +25,15 @@ is a symlink to it (and is gitignored here). Never commit anything under
 
 The `recipe-curator` skill (`.claude/skills/recipe-curator/`) imports, cites,
 groups and features recipes through the **`recipes` MCP server** — `.mcp.json`
-registers its 57 tools, `.claude/settings.json` pre-approves its 43
-non-destructive ones, and the skill's frontmatter lists the same 43. Held back,
+registers its 59 tools, `.claude/settings.json` pre-approves its 45
+non-destructive ones, and the skill's frontmatter lists the same 45. Held back,
 deliberately (the other 14):
 `recipe_delete`, `group_delete`, `term_delete`, `term_merge`, `unfeature`,
 `reindex`, `git_revert`, `git_restore`, `git_push`, `git_pull`, `git_sync`,
 `inventory_set`, `shopping_clear`, `shopping_settings_set`. `git_fetch` is
 pre-approved: it moves only remote-tracking refs; so are `job_list` and
-`job_get`, which read the import job store. The server reads `CONTENT_DIRECTORY` (or
+`job_get`, which read the import job store, and `holiday_list` and
+`holiday_get` (42h), which read the holidays. The server reads `CONTENT_DIRECTORY` (or
 `RECIPE_API_URL` for a running editor, with `RECIPE_API_TOKEN`); with neither
 set it writes — and commits — to the real content repo through that symlink.
 
