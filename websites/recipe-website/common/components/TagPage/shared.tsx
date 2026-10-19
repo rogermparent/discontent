@@ -11,6 +11,7 @@ import type {
 } from "../../controller/tagVocabulary";
 import type { RecipeListEntry } from "../../controller/paginationConfigs";
 import { tagSlug } from "../../controller/tagSlug";
+import { HOLIDAYS_ROOT } from "../../util/holidays";
 import { EmptyState } from "../EmptyState";
 import { quoteQueryValue } from "../SearchForm/queryLanguage";
 import { GroupThumbnail } from "../GroupThumbnail";
@@ -119,6 +120,16 @@ export function TermPageBody({ term }: { term: TermPageData }) {
    */
   const includesNarrower = recipeCount > ownRecipeCount;
   const query = tagQuery(slug, recipes);
+  /*
+   * The holiday pages (42e): a child of the `holidays` root links to its
+   * menu, and the root to the almanac.
+   */
+  const holidayLink =
+    slug === HOLIDAYS_ROOT
+      ? { href: "/holidays", label: "The almanac: every holiday, by date" }
+      : ancestors[ancestors.length - 1]?.slug === HOLIDAYS_ROOT
+        ? { href: `/holidays/${slug}`, label: `See the ${label} menu` }
+        : undefined;
 
   return (
     <>
@@ -164,6 +175,17 @@ export function TermPageBody({ term }: { term: TermPageData }) {
           data-testid="term-recipe-counts"
         >
           {ownRecipeCount} here · {recipeCount} including narrower terms
+        </p>
+      )}
+      {holidayLink && (
+        <p className="my-3 text-sm">
+          <Link
+            href={holidayLink.href}
+            className="underline underline-offset-4 hover:text-primary"
+            data-testid="term-holiday-link"
+          >
+            {holidayLink.label}
+          </Link>
         </p>
       )}
       {recipes.length > 0 && (
