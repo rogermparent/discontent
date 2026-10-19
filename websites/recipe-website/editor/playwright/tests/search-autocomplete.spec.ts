@@ -22,7 +22,8 @@ const listItems = (page: Page) =>
   page.getByTestId("recipe-list").locator("> li");
 
 /**
- * The row `aria-activedescendant` currently points at, by its text.
+ * The row `aria-activedescendant` currently points at, by its label (43s: a
+ * row also carries its count, which is not the term).
  *
  * An attribute selector rather than `#id`: `useId` produces ids containing `«»`,
  * which are not valid in a CSS id selector, and `CSS.escape` does not exist in
@@ -31,7 +32,10 @@ const listItems = (page: Page) =>
 async function activeOption(page: Page): Promise<string | null> {
   const id = await searchField(page).getAttribute("aria-activedescendant");
   if (!id) return null;
-  return page.locator(`[id="${id}"]`).innerText();
+  return page
+    .locator(`[id="${id}"]`)
+    .getByTestId("query-autocomplete-label")
+    .innerText();
 }
 
 /** Where the caret sits in the field. */

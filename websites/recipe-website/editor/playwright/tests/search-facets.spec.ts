@@ -103,7 +103,12 @@ test.describe("Search — sorted by what it is", () => {
     await expect(narrowRow(page, "Vodka")).toHaveText("Vodka 1");
     await narrowRow(page, "Vodka").click();
     await expect(field(page)).toHaveValue("lime tag:vodka");
-    await expect(grid(page)).toHaveCount(1);
+    /* A tag: query now: Vodka's card, and its one result in Halloween's band. */
+    await expect(page.getByTestId("search-term-card")).toBeVisible();
+    await expect(page.getByTestId("season-band")).toHaveCount(1);
+    await expect(
+      page.getByRole("main").getByRole("listitem").getByRole("heading"),
+    ).toHaveText(["Vodka Sour"]);
     await expect(narrowRow(page, "Vodka")).toHaveAttribute(
       "aria-pressed",
       "true",

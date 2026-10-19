@@ -177,7 +177,9 @@ export function SearchResultsPage() {
             </SheetTrigger>
             <SheetContent
               side="bottom"
-              className="max-h-[85vh] overflow-y-auto rounded-t-xl p-4 pt-5"
+              /* `pt-12`: the column's head ("Clear tags") clears the
+                 sheet's 16 px close button by its 24 px spacing (2.5.8). */
+              className="max-h-[85vh] overflow-y-auto rounded-t-xl p-4 pt-12"
             >
               <SheetTitle className="sr-only">Narrow these results</SheetTitle>
               {narrow}

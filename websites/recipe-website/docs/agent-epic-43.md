@@ -269,7 +269,118 @@ Files: `common/components/SearchForm/` (`SearchResults.tsx`, `TagFilterRail.tsx`
 
 #### Results (43s)
 
-_Pending._
+**What changed.** `/search` below the field is canvas B in both apps:
+
+- **Narrow column** (`SearchForm/NarrowColumn.tsx`, replacing
+  `TagFilterRail`): 43f's groups counted inside the displayed results
+  (`countFacets` → `facetGroups`, `order: "total"`), each its top four rows
+  and "N more"; a **Kind** row first (Drinks · Food → `setQueryKind`,
+  shown on a site with `drink` when the results hold both or a Kind is
+  set); the tags no facet places last ("Other tags", or "Tags" on a site
+  with no vocabulary). Rows are `aria-pressed` toggles read back from the
+  query (D3): on → the context's `toggleTagTerm` (so a half-typed word is
+  replaced), off → `toggleFacet` (every spelling, a negation too). "Clear
+  tags" heads the column while a `tag:` term is in; the footnote reads
+  "Each adds its tag: to the search." Below `lg` it is the body of a
+  **Narrow** sheet (Radix dialog, from the bottom) beside Sort.
+- **Bands** (`SearchBands.tsx`, pure layout in `searchView.ts`): results
+  of both kinds, with no Kind in the query, band into **Drinks** and
+  **Food** — four cards, an "Also:" line of five names and "N more", and
+  "All N drinks / dishes" writing the Kind. A `tag:` query **opens on its
+  term** (`TermCard`: breadcrumb, description, count, Narrower chips
+  counted inside the results, "Open the X page") and, when its results
+  fall into holidays or Collections, **bands by date**: each holiday
+  soonest first (`orderByNextOccurrence`, "4 · in 13 days"), each
+  Collection, then **Any time** (the rest, as the page's grid). Anything
+  else is one grid, revealed sixty at a time as before.
+- **Cards** (`SearchCard.tsx`): 4:5 picture, the name with the free text
+  marked, a mono meta line (a drink's style, else family; a dish's course
+  at its most specific; then the time, else the speed & effort term), and
+  the **why** line — the first ingredient the words mark with its amount
+  as written in mono (`leadingAmount`, gated on `parseAmount`), else the
+  description where that is what matched. Marks are styled from tokens
+  (`SEARCH_MARKS`: an accent tint with an underline), on `/search` and in
+  the palette only.
+- **Term descriptions**: a new lazy document `/search/term-descriptions`
+  (`readTermDescriptions`: each record's description flattened, capped at
+  240 characters; editor route, and a `force-static` export route),
+  fetched the first time a term card shows — `/search/terms` is on every
+  page load and stays as it was.
+- **Completions** carry counts (`query-autocomplete-count`): a tag's is
+  what `tag:` finds (43f's subtree count over the corpus), an ingredient's
+  the recipes `ingredient:` finds (`recipeLineCounter`, lines folded once,
+  memoized per name); ingredient names are plural-blind on the last word
+  (`pluralKey`: "pumpkin seed" / "pumpkin seeds" offer the more used one).
+- **⌘K**: the recipes group always ends in **"All N results in search"**
+  (with "N drinks · M food" when both), opened by its row or **Ctrl ↵ /
+  ⌘ ↵** from anywhere in the list (prevented before cmdk, so plain ↵ still
+  opens the highlighted row); the pending status reads "Searching N
+  recipes…"; rows carry the mono meta line and the why line instead of the
+  description and two tag badges.
+- **No result**: "Nothing mentions quince" / "Not a name, tag, ingredient
+  or description in N recipes." (or "Nothing matches <query>" when filters
+  are in it), **Import a recipe** for the signed-in owner only (a new
+  `OwnerContext` from `AppProviders`; the export never sets it), **Clear
+  search**, and **Or browse by** the facet roots with their term counts.
+- **Masthead** drops its palette trigger on `/search` (both variants;
+  ⌘K still opens it). The page's field is taller with a clear button.
+- The ticker adds "· 73 drinks · 35 food" after its existing parts when the
+  results hold both kinds.
+
+**Parity.** `SearchContext` is untouched: `displayedRecipes`, its order and
+`matchesFilter` are what they were; every layout is a partition of the
+sorted list that keeps its order. `test/searchView.test.ts` pins that
+(kinds and seasons: every result once, relative order kept, the first
+card the top result) beside the unchanged `searchIndex.test.ts`.
+
+**Decisions.**
+
+- **Ds1 — the band holding the best match leads** (Drinks first for
+  "lime", Food first for "syrup"), so the first card on the page is still
+  the top-ranked result and the ranking specs read the same.
+- **Ds2 — single-kind fallback** is the plain grid (with the reveal), not a
+  band; "All N drinks" leads there. A `tag:` query's date bands need at
+  least one holiday or Collection band; otherwise its results are the grid
+  under the term card.
+- **Ds3 — the subject** is the deepest positive `tag:` term when all of
+  them lie on one line of the tree (so a pressed Narrower chip moves the
+  card to the child), and only a term with a record; `tag:drink` is the
+  Kind, never a subject. A bare carried tag gets no card.
+- **Ds4 — date bands on the desktop are full bands** (head, four cards,
+  Also line, "All N" when more than four), not the canvas state-strip's
+  compressed thumbnail rows; on a phone the band grids are two columns
+  rather than the board's sideways scroller (no inner horizontal scroll
+  to fight the 390 px check).
+- **Ds5 — the why line falls back to the description** when the words
+  matched there and in no ingredient, so a description-only hit still
+  explains itself (the board's cards show only ingredient lines).
+- **Ds6 — the ticker keeps the query and filter count** (`“lime”`,
+  `2 FILTERS`) and appends the kind split; the board's ticker drops the
+  query, but the specs and the screen reader read it there.
+- **Ds7 — the hand-over row is always there** when the palette has recipe
+  hits (not only past five), so Ctrl ↵ always has a target.
+- **Ds8 — row names** are the visible text ("dessert 2"); the old
+  "Filter by tag X" labels went with the rail (`narrowRow` in
+  `support/helpers.ts` finds a row by its label).
+
+**Specs.** Updated in this commit: `search-tags` (Narrow rows for the rail
+and the card chips; the why line for the "+N more" cap), `search-
+autocomplete` (Narrow rows), `command-palette` (typed `tag:` filters where
+it clicked rail chips; "All 60 results in search"; the counted searching
+status), `empty-state` (the new copy; no Import for a reader),
+`search-corpus-split` (`search-no-results`), `missing-media` (the card's
+picture is decorative now). New: `search-facets.spec.ts` (bands and the
+Kind, Narrow counts and toggles, card meta and why, a term with date
+bands, no-result roots and the owner's Import, the masthead, completion
+counts, the term description, the palette's hand-over row and Ctrl ↵, the
+phone sheet with a 390 px overflow check). Baselines: `search-bands`,
+`search-term`, `search-term-mobile` new.
+
+**Gates.** _Pending._
+
+**Roger to confirm.** Ds4 (full bands rather than the thumbnail rows on
+the desktop's `tag:` view; two-column grids on a phone) and Ds6 (the query
+stays in the ticker).
 
 ### 43t — /tags B "Narrow it down" (L)
 
