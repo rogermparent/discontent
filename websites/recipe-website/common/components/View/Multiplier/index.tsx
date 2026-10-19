@@ -1,6 +1,6 @@
 "use client";
 
-import React, { ChangeEvent, useState } from "react";
+import React, { ChangeEvent, useId, useState } from "react";
 import Fraction from "fraction.js";
 
 import { TextInput } from "@discontent/component-library/components/Form/inputs/Text";
@@ -54,6 +54,12 @@ const fieldClassName = (parts: boolean) =>
 export function MultiplierInput() {
   const [{ input }, setMultiplier] = useMultiplier();
   const drinkBase = useDrinkBase();
+  /*
+   * The page and the cook view each render a scaler; a fixed id would be
+   * duplicated while the view is open and both labels would name the first
+   * field (42c2).
+   */
+  const fieldId = useId();
   // Empty / "1" both mean the default single batch; that's the selected preset.
   const current = input && input.trim() !== "" ? input : "1";
   /*
@@ -98,10 +104,10 @@ export function MultiplierInput() {
               </button>
             ))}
           </div>
-          <label htmlFor="multiplier" className={fieldClassName(parts)}>
+          <label htmlFor={fieldId} className={fieldClassName(parts)}>
             Multiply
             <TextInput
-              id="multiplier"
+              id={fieldId}
               name="multiplier"
               value={input ?? ""}
               disabled={parts}
@@ -133,6 +139,7 @@ function DrinkScaler({ base, parts }: { base: number; parts: boolean }) {
   const [{ input, multiplier }, setMultiplier] = useMultiplier();
   const count = drinkCount(base, multiplier);
   const [draft, setDraft] = useState<string | null>(null);
+  const fieldId = useId();
   const fieldValue =
     base === 1
       ? (input ?? "")
@@ -167,10 +174,10 @@ function DrinkScaler({ base, parts }: { base: number; parts: boolean }) {
           );
         })}
       </div>
-      <label htmlFor="multiplier" className={fieldClassName(parts)}>
+      <label htmlFor={fieldId} className={fieldClassName(parts)}>
         Drinks
         <TextInput
-          id="multiplier"
+          id={fieldId}
           name="multiplier"
           value={fieldValue}
           disabled={parts}

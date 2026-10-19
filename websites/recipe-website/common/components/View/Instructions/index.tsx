@@ -105,7 +105,12 @@ function StepItem({
           {/* Named by the words alone (42c2): the label also holds the
               step's timer buttons, whose countdowns change twice a second. */}
           <Checkbox className="m-2 shrink-0" aria-label={stepPlainText(text)} />
-          <StepText text={text} step={number} components={stepComponents} />
+          {/* One flex item: the timer rule splits the text into pieces,
+              and markdown-to-jsx returns them unwrapped, so each would be
+              its own item of this no-wrap row (sideways scroll on a phone). */}
+          <span>
+            <StepText text={text} step={number} components={stepComponents} />
+          </span>
         </label>
         {uses && <StepUses lines={uses} ingredients={ingredients} />}
       </div>

@@ -58,6 +58,24 @@ async function writePie(
   expect(response.status()).toBe(201);
 }
 
+/*
+ * A countdown read on the installed clock: time still flows between a
+ * `fastForward` and the read, and the display rounds up, so "15:00" may
+ * already say "14:59" — allow two seconds. `whole: false` matches it at
+ * the end of a longer text (the running button's "50 minutes · 40:00").
+ */
+function countdown(mmss: string, { whole = true } = {}): RegExp {
+  const [minutes, seconds] = mmss.split(":").map(Number);
+  const total = minutes * 60 + seconds;
+  const shown = [0, 1, 2]
+    .map((late) => Math.max(0, total - late))
+    .map(
+      (left) =>
+        `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`,
+    );
+  return new RegExp(`${whole ? "^" : ""}(${shown.join("|")})$`);
+}
+
 async function openCookView(page: Page) {
   const button = page.getByRole("button", { name: "Cook view" });
   await expectHydrated(button);
@@ -208,17 +226,17 @@ test.describe("Timer buttons in step text (42c2)", () => {
     const tray = page.getByRole("region", { name: "Timers" });
     const timer = (label: string) =>
       tray.getByRole("timer", { name: new RegExp(`^${label}:`) });
-    await expect(timer("Step 4 · 50 minutes")).toHaveText("50:00");
+    await expect(timer("Step 4 · 50 minutes")).toHaveText(countdown("50:00"));
     await expect(page.getByTestId("timer-announcer")).toHaveText(
       "Timer started: Step 4 · 50 minutes",
     );
 
     await page.clock.fastForward("10:00");
-    await expect(timer("Step 4 · 50 minutes")).toHaveText("40:00");
+    await expect(timer("Step 4 · 50 minutes")).toHaveText(countdown("40:00"));
     /* The running button shows its countdown too, and now pauses. */
     await expect(
       page.getByRole("button", { name: /^Pause timer: 50 minutes/ }),
-    ).toContainText("40:00");
+    ).toContainText(countdown("40:00", { whole: false }));
 
     await page.getByRole("button", { name: "Start timer: 25 minutes" }).click();
     await expect(tray.getByTestId("timer-row")).toHaveCount(2);
@@ -242,8 +260,11 @@ test.describe("Timer buttons in step text (42c2)", () => {
       name: /^Step 4 · 25 minutes:/,
     });
     await expect(cover).toHaveText("Done");
+    /* `has` is relative to the row: a locator from the page, not the tray. */
     await expect(
-      viewTray.getByTestId("timer-row").filter({ has: cover }),
+      viewTray.getByTestId("timer-row").filter({
+        has: page.getByRole("timer", { name: /^Step 4 · 25 minutes:/ }),
+      }),
     ).toHaveAttribute("data-timer-status", "done");
     /* Said inside the dialog; the page's region stays quiet meanwhile. */
     await expect(view.getByTestId("timer-announcer")).toHaveText(
@@ -251,20 +272,24 @@ test.describe("Timer buttons in step text (42c2)", () => {
     );
     await expect(
       viewTray.getByRole("timer", { name: /^Step 4 · 50 minutes:/ }),
-    ).toHaveText("15:00");
+    ).toHaveText(countdown("15:00"));
 
     /* Closed, the page's tray still has both. */
     await page.keyboard.press("Escape");
     await expect(view).toHaveCount(0);
     await expect(timer("Step 4 · 25 minutes")).toHaveText("Done");
-    await expect(timer("Step 4 · 50 minutes")).toHaveText("15:00");
+    await expect(timer("Step 4 · 50 minutes")).toHaveText(countdown("15:00"));
 
     /* Paused, the clock moves and the timer does not. */
     await tray
       .getByRole("button", { name: "Pause Step 4 · 50 minutes" })
       .click();
+    await expect(
+      tray.getByRole("button", { name: "Resume Step 4 · 50 minutes" }),
+    ).toBeVisible();
+    const pausedAt = await timer("Step 4 · 50 minutes").textContent();
     await page.clock.fastForward("05:00");
-    await expect(timer("Step 4 · 50 minutes")).toHaveText("15:00");
+    await expect(timer("Step 4 · 50 minutes")).toHaveText(pausedAt!);
     await tray
       .getByRole("button", { name: "Clear Step 4 · 25 minutes" })
       .click();
@@ -317,6 +342,8 @@ test.describe("Cook view on a phone @mobile", () => {
     await page.goto(`/recipe/${SLUG}`);
     const view = await openCookView(page);
     for (let i = 0; i < 3; i++) await view.getByTestId("cook-done").click();
+    /* Paused from here, so the countdown in the screenshot holds still. */
+    await page.clock.pauseAt(new Date("2026-10-19T18:00:00Z"));
     await view.getByRole("button", { name: "Start timer: 50 minutes" }).click();
     await page.clock.fastForward("12:00");
     await expect(

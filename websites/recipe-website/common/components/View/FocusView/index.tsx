@@ -614,7 +614,9 @@ function FocusOverlay({
               data-testid="cook-done"
             >
               <span className="flex min-w-0 flex-col items-start text-left leading-tight">
-                <span className="text-xs opacity-85">
+                {/* Full strength: at 85% the small line missed 4.5:1 on
+                    the primary fill (axe, 42c2). */}
+                <span className="text-xs">
                   {next
                     ? `Done · step ${current + 2}`
                     : done.has(current)
