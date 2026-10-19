@@ -46,12 +46,14 @@ export async function tagIndexRoute() {
  * The editor's `/tags` (31e): the same page, plus a **New term** link to
  * `/tags/new`.
  *
- * Shown to everyone who can reach the editor, as every editor affordance is
- * (the group page's Edit, this vocabulary's Feature, the footer's New Recipe):
- * the destination is what asks for a sign-in. Reading the session here would
- * make the index a per-request render for the sake of one link.
+ * Shown only to a signed-in editor (43a), as the masthead's `ownerOnly` links
+ * are. The session is the *route file's* to read and pass in: this module is
+ * shared with the export, which must not import the editor's auth. The page
+ * is already a per-request render through the root layout's `auth()`. The
+ * destination still asks for a sign-in; this only stops offering a guest a
+ * button that goes nowhere.
  */
-export async function editorTagIndexRoute() {
+export async function editorTagIndexRoute({ signedIn }: { signedIn: boolean }) {
   const [tags, board] = await Promise.all([
     readTagVocabulary(),
     readTagBoard(),
@@ -61,12 +63,14 @@ export async function editorTagIndexRoute() {
       tags={tags}
       board={board}
       actions={
-        <Link
-          href="/tags/new"
-          className={buttonVariants({ variant: "secondary", size: "sm" })}
-        >
-          New term
-        </Link>
+        signedIn ? (
+          <Link
+            href="/tags/new"
+            className={buttonVariants({ variant: "secondary", size: "sm" })}
+          >
+            New term
+          </Link>
+        ) : undefined
       }
     />
   );
@@ -109,12 +113,15 @@ export async function tagRoute({
  *
  * Its own export rather than a prop on `tagRoute`, because a Next page module
  * exports a function and cannot pass it arguments — the editor's route file
- * re-exports this one and the export's re-exports the plain one.
+ * wraps this one (passing `signedIn`, 43a) and the export's re-exports the
+ * plain one. The buttons render for a signed-in editor only.
  */
 export async function editorTagRoute({
   params,
+  signedIn,
 }: {
   params: Promise<{ tag: string }>;
+  signedIn: boolean;
 }) {
   const { tag } = await params;
   const [term, tree] = await Promise.all([
@@ -136,28 +143,30 @@ export async function editorTagRoute({
     <TagPage
       term={term}
       actions={
-        <>
-          <Link
-            href={`/featured-recipe/new?term=${term.slug}`}
-            className={buttonVariants({ variant: "secondary", size: "sm" })}
-          >
-            Feature
-          </Link>
-          <Link
-            href={`/tags/${term.slug}/edit`}
-            className={buttonVariants({ variant: "secondary", size: "sm" })}
-          >
-            Edit
-          </Link>
-          {hasRecord && (
+        signedIn ? (
+          <>
             <Link
-              href={`/tags/new?parent=${encodeURIComponent(term.slug)}`}
+              href={`/featured-recipe/new?term=${term.slug}`}
               className={buttonVariants({ variant: "secondary", size: "sm" })}
             >
-              Add a narrower term
+              Feature
             </Link>
-          )}
-        </>
+            <Link
+              href={`/tags/${term.slug}/edit`}
+              className={buttonVariants({ variant: "secondary", size: "sm" })}
+            >
+              Edit
+            </Link>
+            {hasRecord && (
+              <Link
+                href={`/tags/new?parent=${encodeURIComponent(term.slug)}`}
+                className={buttonVariants({ variant: "secondary", size: "sm" })}
+              >
+                Add a narrower term
+              </Link>
+            )}
+          </>
+        ) : undefined
       }
     />
   );

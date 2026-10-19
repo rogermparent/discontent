@@ -26,8 +26,8 @@ test.describe("Term edit form", () => {
     page,
     baseURL,
   }) => {
-    await page.goto("/tags");
-    await page.getByRole("link", { name: "New term", exact: true }).click();
+    /* Signed out, /tags offers no New term link (43a): go to its target. */
+    await page.goto("/tags/new");
     await fillSignInForm(page);
     await expect(page).toHaveURL(baseURL + "/tags/new");
     await markdownEditorReady(page, "description");
@@ -288,10 +288,8 @@ test.describe("Term tools", () => {
       page.getByRole("link", { name: "Add a narrower term", exact: true }),
     ).toHaveCount(0);
 
-    await page.goto("/tags/cookies");
-    await page
-      .getByRole("link", { name: "Add a narrower term", exact: true })
-      .click();
+    /* Signed out, the page hides the link (43a): go to its target. */
+    await page.goto("/tags/new?parent=cookies");
     await fillSignInForm(page);
     await expect(page).toHaveURL(baseURL + "/tags/new?parent=cookies");
     await markdownEditorReady(page, "description");

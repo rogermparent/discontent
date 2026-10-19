@@ -755,3 +755,67 @@ describe("sub-recipe groups (39c)", () => {
     expect(subRecipeGroups([item("eggs"), item("milk", lemonade)])).toEqual([]);
   });
 });
+
+describe("43a: optional lines and decorating lists", () => {
+  /* The two lines the 42j agents found split on the real list. */
+  const sugarCookies = { recipe: "christmas-sugar-cookies", optional: true };
+  const spritz = { recipe: "spritz-cookies", optional: true };
+
+  it("keys a decorating list by its first item, as the comma form is", () => {
+    const key = (text: string) => shoppingNameOf(text).key;
+    expect(key("optional: gel food coloring & sprinkles for decorating")).toBe(
+      "gel food coloring",
+    );
+    expect(key("optional: gel food coloring and sprinkles for garnish")).toBe(
+      "gel food coloring",
+    );
+    expect(
+      key(
+        "optional: gel food coloring, sprinkles, chocolate chips, and melted chocolate for decorating",
+      ),
+    ).toBe("gel food coloring");
+    /* Only a decorating tail turns an `and`/`&` into a list. */
+    expect(key("salt & pepper")).toBe("salt");
+    expect(key("1 cup flour and water")).not.toBe("flour");
+  });
+
+  it("shows gel food coloring as one row, still optional", () => {
+    const view = buildShoppingView(
+      [
+        item(
+          "optional: gel food coloring & sprinkles for decorating",
+          sugarCookies,
+        ),
+        item(
+          "optional: gel food coloring, sprinkles, chocolate chips, and melted chocolate for decorating",
+          spritz,
+        ),
+      ],
+      settings({}),
+    );
+    const merged = rows(view);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].total).toBe(2);
+    expect(merged[0].optional).toBe(true);
+  });
+
+  it("keeps a merged row optional only when every line is (Da1)", () => {
+    const allOptional = buildShoppingView(
+      [
+        item("optional: sprinkles", spritz),
+        item("1 tbsp sprinkles", { optional: true }),
+      ],
+      settings({}),
+    );
+    expect(rows(allOptional)).toHaveLength(1);
+    expect(rows(allOptional)[0].optional).toBe(true);
+
+    /* One recipe needs it: you buy it, so the row is not optional. */
+    const someOptional = buildShoppingView(
+      [item("optional: sprinkles", spritz), item("1 tbsp sprinkles")],
+      settings({}),
+    );
+    expect(rows(someOptional)).toHaveLength(1);
+    expect(rows(someOptional)[0].optional).toBe(false);
+  });
+});
