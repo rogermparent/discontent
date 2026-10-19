@@ -204,6 +204,35 @@ describe("the MCP registry over HTTP", () => {
     );
   });
 
+  /*
+   * 42h: a read-scoped token (27b) still asks what's coming up — the holiday
+   * tools are reads.
+   */
+  it("serves the holiday tools to a read-scoped session", async () => {
+    const reader = new Client({ name: "mcp-http-read", version: "0" });
+    await reader.connect(transportFor({ contentDirectory, scope: "read" }));
+    try {
+      const names = (await reader.listTools()).tools.map((tool) => tool.name);
+      expect(names).toEqual(
+        expect.arrayContaining(["holiday_list", "holiday_get"]),
+      );
+      expect(names).not.toContain("recipe_create");
+      const result = await reader.callTool({
+        name: "holiday_list",
+        arguments: { date: "2026-10-19" },
+      });
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toEqual({
+        today: "2026-10-19",
+        total: 0,
+        holidays: [],
+        link: expect.stringMatching(/\/holidays$/),
+      });
+    } finally {
+      await reader.close();
+    }
+  });
+
   /* ---------------------------------------------------------------- */
   /* 2. A write reaches the context's hooks, and carries no hint       */
   /* ---------------------------------------------------------------- */
