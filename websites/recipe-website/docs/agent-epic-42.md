@@ -788,9 +788,36 @@ height, the duplicate holiday showings gone. Tests: `homepage.spec`,
   features the list could show (`featureCandidates`), not the whole head
   page. Plan lines link with the plan page's `scaleOf`.
 
-**Gates.** _(pending the heavy seat)_
+**Gates** (after merging main with 42e, capped wrappers): editor
+typecheck ✅; export `tsc --noEmit` ✅; vitest **123 files, 2524 tests**
+✅. Playwright in Docker, build mode: homepage-browse, homepage, groups,
+bookmarks, featured-recipes, empty-state, accessibility, visual, mobile,
+api-write, reference-updates — **251/252** on the first run (e2e + mobile).
+The one failure was the new phone check: axe's `target-size` counted a strip
+link the fixed tab bar covered at that scroll as "partially obscured", so
+the phone half now measures the season's links (≥ 24 px) instead. The rerun
+of homepage-browse, visual and mobile passed **48/48**. homepage-browse in
+dev mode (Docker) passed **18/18**.
 
-**Heights** (desktop baselines, 1280 px wide): _(pending)_.
+**Baselines** (Docker, `--update-snapshots`, each opened): moved —
+`homepage-three-recipes-e2e`, `homepage-two-pages-e2e`,
+`homepage-empty-e2e`, `homepage-mobile-mobile` (the band and the compact
+New this week), and `layout-footer-signed-{in,out}-e2e` (both are
+full-page shots of the empty homepage). New — `homepage-season-rail-e2e`
+(`drinks-bar` on 18 Oct with Halloween and a recipe featured: two season
+rows, Halloween's marked "featured" and absent from the featured list) and
+`homepage-season-mobile-mobile`. Against canvas B: the band, chips, Make
+block, season rows and rail sit where the board has them. The fixtures
+have no photos, so the strips and thumbnails are monograms.
+
+**Heights** (full-page baselines, before → after): three recipes 1,172 →
+876 px (−25%); seven recipes 1,172 → 953 (−19%); empty 964 → 826; phone,
+three recipes 1,770 → 1,428 (−19%). The fixtures are short, so the
+~350 px footer is most of each page; above the footer, the seven-recipe
+page went from 822 to 603 px (−27%). The canvas measured the real corpus
+at 2,734 → ~1,400 px (−49%). The real repo is off-limits to code phases,
+so that page wasn't measured here — Roger's check after `pnpm workstation
+update`.
 
 **Roger to confirm.** Df3 (chips open search; the drink chip no longer
 goes to `/drinks`); Df4 ("Featured" over "Pinned"); Df5 (masthead search

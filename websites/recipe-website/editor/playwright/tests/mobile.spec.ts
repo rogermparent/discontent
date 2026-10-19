@@ -13,6 +13,18 @@ test.describe("Mobile @mobile", () => {
     await snapshotPage(page, "homepage-mobile.png");
   });
 
+  /* 42f: the season's rows and their strips on a phone (dates masked). */
+  test("homepage season on a small viewport @visual", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("drinks-bar");
+    await page.clock.setFixedTime(new Date(2026, 9, 18, 12));
+    await page.goto("/");
+    await expect(page.getByTestId("season-countdown")).toHaveCount(2);
+    await snapshotPage(page, "homepage-season-mobile.png");
+  });
+
   test("recipe view reflows ingredients on mobile @visual", async ({
     page,
     resetData,

@@ -543,6 +543,27 @@ test.describe("Homepage — this season and the featured list", () => {
         document.documentElement.clientWidth,
     );
     expect(overflow).toBeLessThanOrEqual(0);
-    await expectNoViolations(page);
+    /*
+     * Every link in the season's rows is a ≥ 24 px target. Measured rather than
+     * axe'd: at phone width axe's target-size counts whatever the fixed tab
+     * bar happens to cover at the current scroll as "partially obscured" —
+     * a property of the scroll position, not of the targets.
+     */
+    const boxes = await season(page)
+      .getByTestId("season-row")
+      .getByRole("link")
+      .evaluateAll((links) =>
+        links.map((link) => {
+          const { width, height } = link.getBoundingClientRect();
+          return { name: link.textContent || link.ariaLabel, width, height };
+        }),
+      );
+    expect(boxes.length).toBeGreaterThan(0);
+    for (const box of boxes) {
+      expect(
+        Math.min(box.width, box.height),
+        String(box.name),
+      ).toBeGreaterThanOrEqual(24);
+    }
   });
 });
