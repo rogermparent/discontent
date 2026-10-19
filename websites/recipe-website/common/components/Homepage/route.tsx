@@ -11,21 +11,68 @@ import {
 import { tagTermReads } from "../../controller/data/readTagTerms";
 import { aliasedRows, vocabularyOfRows } from "../../controller/tagVocabulary";
 import { groupItems } from "../../controller/data/readGroupItem";
+import { resolveGroupItems } from "../../controller/data/resolveGroupItems";
+import { scaleOf } from "../GroupDetailPage/GroupItems";
 import {
   HOLIDAYS_ROOT,
   comingUpEntries,
   courseLabels,
+  datedHolidays,
+  featureCandidates,
   findTermNode,
+  markFeaturedHolidays,
   termSummary,
 } from "../../controller/homepageComingUp";
 import { homepageFacets } from "../../controller/homepageFacets";
 import { homepageIntents, termTotals } from "../../controller/homepageIntents";
+import type { GroupListEntry } from "../../controller/groupPaginationConfig";
 import { dayKey, localDay } from "../../util/holidays";
 import Homepage from ".";
-import type { FeaturedStripEntry } from "./FeaturedStrip";
+import { BROWSE_CHILD_LIMIT } from "./BrowseTerms";
+import type { FeaturedStripEntry } from "./FeaturedPanel";
+import type { NewRecipe } from "./NewThisWeek";
+import type { PlanLine } from "./PlanPanel";
 
-/** How many cards each homepage strip shows. */
+/** How many rows "New this week" and "Featured" each show. */
 const STRIP_SIZE = 6;
+
+/**
+ * The newest plan's lines for the rail (42f): its record (cached,
+ * `item:groups:<slug>`, the read its thumbnail made anyway) and each line's
+ * recipe or sub-plan (cached item reads, `resolveGroupItems`), in the plan's
+ * order. A dangling line is left out — the plan's own page says "not
+ * found"; the homepage is no place for a hole. `undefined` when the record
+ * cannot be read.
+ */
+async function readPlanLines(
+  plan: GroupListEntry | undefined,
+): Promise<PlanLine[] | undefined> {
+  if (!plan) return undefined;
+  const group = await groupItems.read(plan.slug).catch(() => undefined);
+  if (!group) return undefined;
+  const resolved = await resolveGroupItems(group);
+  return resolved.flatMap(({ item, recipe, group: child }): PlanLine[] => {
+    if (item.recipe !== undefined) {
+      if (!recipe) return [];
+      /* The plan page's own rule: a 1× or unreadable scale links plainly. */
+      const scale = scaleOf(item);
+      return [
+        {
+          href: scale
+            ? `/recipe/${item.recipe}?scale=${encodeURIComponent(scale.value)}`
+            : `/recipe/${item.recipe}`,
+          name: recipe.name,
+          recipe: {
+            slug: item.recipe,
+            ...(recipe.image ? { image: recipe.image } : {}),
+          },
+        },
+      ];
+    }
+    if (!child) return [];
+    return [{ href: `/group/${item.group}`, name: child.name }];
+  });
+}
 
 /**
  * The homepage, defined once and re-exported by both apps' `page.tsx`. It
@@ -49,7 +96,22 @@ const STRIP_SIZE = 6;
  * correctness win over the `more` it replaces, which is unreliable for reads
  * that do not bound themselves (F2).
  */
-export async function homepageRoute() {
+export async function homepageRoute({
+  showShopping = false,
+}: {
+  /**
+   * The reader is a signed-in editor: the plan panel links the shopping
+   * list. Only the editor's page passes it, from its session; the export's
+   * never does, so the static build cannot link a page it does not have.
+   */
+  showShopping?: boolean;
+} = {}) {
+  /*
+   * The server's day, for the season's first render only — the browser
+   * replaces it with its own (`useToday`). On the static export this is the
+   * build's day, which is exactly why it is never the final answer.
+   */
+  const serverDay = dayKey(localDay(new Date()));
   const [
     recipeHead,
     featuredHead,
@@ -99,7 +161,7 @@ export async function homepageRoute() {
     tagTermReads.tree.read(),
   ]);
   const tagTree = board.roots;
-  const allFacets = homepageFacets(tagTree);
+  const allFacets = homepageFacets(tagTree, { limit: BROWSE_CHILD_LIMIT });
   /*
    * The intent tiles, per tile (38a): a term the board draws — a root's
    * subtree or a loose record — counts its distinct carriers, aliases
@@ -140,22 +202,56 @@ export async function homepageRoute() {
           )
           .map((entry) => entry.label)
       : [];
-  const comingUp = comingUpEntries(tagTree, recipeRows, groupRows);
   /*
-   * Browse skips the holidays root while Coming up shows it: the same terms
-   * twice, one screen apart. Without a Coming up section it stays a row.
+   * "This season" and the featured list share their holidays once (42f):
+   * a featured holiday term's row says "featured", and the featured list
+   * hides the holidays that have a row on the reader's day (`HomeRail`).
+   * The head page holds up to `2 * perPage` features, so a hidden holiday
+   * lets the next feature up rather than shortening the list
+   * (`featureCandidates`). The "featured" mark comes from those same
+   * candidates — a holiday featured long ago, past the list's reach, is
+   * not called featured.
+   */
+  const holidays = comingUpEntries(tagTree, recipeRows, groupRows);
+  const season = datedHolidays(holidays ?? []).map(({ slug, rule }) => ({
+    slug,
+    ...(rule ? { rule } : {}),
+  }));
+  const seasonal = new Set(season.map(({ slug }) => slug));
+  const candidates = featureCandidates(
+    featuredHead.items,
+    (entry) => Boolean(entry.term && seasonal.has(entry.term)),
+    STRIP_SIZE,
+  );
+  const featuredTerms = new Set(
+    candidates.flatMap((entry) =>
+      entry.term && entry.termLabel ? [entry.term] : [],
+    ),
+  );
+  const comingUp = holidays && markFeaturedHolidays(holidays, featuredTerms);
+  /*
+   * Browse skips the holidays root while the season shows it: the same terms
+   * twice, one screen apart. Without a season section it stays a row.
    */
   const facets =
     comingUp && comingUp.length > 0
       ? allFacets.filter((facet) => facet.slug !== HOLIDAYS_ROOT)
       : allFacets;
 
-  const recipes: MassagedRecipeEntry[] = recipeHead.items.slice(0, STRIP_SIZE);
+  const courses = courseLabels(tagTree, recipeRows);
+  const recipes: NewRecipe[] = recipeHead.items
+    .slice(0, STRIP_SIZE)
+    .map((recipe: MassagedRecipeEntry) => {
+      const course = courses.get(recipe.slug);
+      return course ? { ...recipe, course } : recipe;
+    });
 
   /*
-   * Slice *then* filter, matching what `getFeaturedRecipes({ limit: 6 })` did:
-   * the six newest are chosen first, and a dangling reference among them
-   * yields a shorter strip rather than pulling a seventh entry forward.
+   * Take enough to leave six once the season's holidays hide
+   * (`featureCandidates`), then filter the dangling — slice-then-filter, as
+   * `getFeaturedRecipes({ limit: 6 })` did: the six newest are chosen first,
+   * and a dangling reference among them yields a shorter list rather than
+   * pulling a seventh entry forward.
    * Filtering first would silently change which cards the homepage shows.
    *
    * The filter is on the *borrowed name* rather than on the reference, which is
@@ -176,74 +272,81 @@ export async function homepageRoute() {
    * write) — the read its thumbnail made anyway, now made once here and
    * handed down.
    */
-  const courses = courseLabels(tagTree, recipeRows);
-  const featured: FeaturedStripEntry[] = await Promise.all(
-    featuredHead.items
-      .slice(0, STRIP_SIZE)
-      .filter((entry) => entry.recipeName || entry.groupName || entry.termLabel)
-      .map(async (entry): Promise<FeaturedStripEntry> => {
-        /* Newest discriminator first, as the card list does — see that file. */
-        if (entry.term && entry.termLabel) {
-          const node = findTermNode(tagTree, entry.term) ?? {
-            slug: entry.term,
-            children: [],
-          };
+  async function featuredEntries(): Promise<FeaturedStripEntry[]> {
+    return Promise.all(
+      candidates
+        .filter(
+          (entry) => entry.recipeName || entry.groupName || entry.termLabel,
+        )
+        .map(async (entry): Promise<FeaturedStripEntry> => {
+          /* Newest discriminator first, as the card list does — see that file. */
+          if (entry.term && entry.termLabel) {
+            const node = findTermNode(tagTree, entry.term) ?? {
+              slug: entry.term,
+              children: [],
+            };
+            return {
+              kind: "term",
+              slug: entry.term,
+              label: entry.termLabel,
+              ...(entry.termImage ? { image: entry.termImage } : {}),
+              date: entry.date,
+              ...(seasonal.has(entry.term) ? { holiday: true } : {}),
+              summary: termSummary(
+                { ...node, image: entry.termImage },
+                recipeRows,
+                groupRows,
+              ),
+            };
+          }
+          if (entry.group && entry.groupName) {
+            const group = await groupItems
+              .read(entry.group)
+              .catch(() => undefined);
+            return {
+              kind: "group",
+              slug: entry.group,
+              name: entry.groupName,
+              groupKind: entry.groupKind,
+              date: entry.date,
+              ...(group?.image ? { image: group.image } : {}),
+              ...(group ? { items: group.items } : {}),
+            };
+          }
+          const course = courses.get(entry.recipe!);
           return {
-            kind: "term",
-            slug: entry.term,
-            label: entry.termLabel,
-            ...(entry.termImage ? { image: entry.termImage } : {}),
-            date: entry.date,
-            summary: termSummary(
-              { ...node, image: entry.termImage },
-              recipeRows,
-              groupRows,
-            ),
+            kind: "recipe",
+            recipe: {
+              slug: entry.recipe!,
+              date: entry.date,
+              name: entry.recipeName!,
+              image: entry.recipeImage,
+            } satisfies MassagedRecipeEntry,
+            ...(course ? { meta: course } : {}),
           };
-        }
-        if (entry.group && entry.groupName) {
-          const group = await groupItems
-            .read(entry.group)
-            .catch(() => undefined);
-          return {
-            kind: "group",
-            slug: entry.group,
-            name: entry.groupName,
-            groupKind: entry.groupKind,
-            date: entry.date,
-            ...(group?.image ? { image: group.image } : {}),
-            ...(group ? { items: group.items } : {}),
-          };
-        }
-        const course = courses.get(entry.recipe!);
-        return {
-          kind: "recipe",
-          recipe: {
-            slug: entry.recipe!,
-            date: entry.date,
-            name: entry.recipeName!,
-            image: entry.recipeImage,
-          } satisfies MassagedRecipeEntry,
-          ...(course ? { meta: course } : {}),
-        };
-      }),
-  );
+        }),
+    );
+  }
+
+  const [featured, planLines] = await Promise.all([
+    featuredEntries(),
+    readPlanLines(groupHead.items[0]),
+  ]);
 
   return (
     <Homepage
       recipes={recipes}
       featured={featured}
+      season={season}
+      featuredLimit={STRIP_SIZE}
       plan={groupHead.items[0]}
+      planLines={planLines}
+      showShopping={showShopping}
       facets={facets}
       tags={tags}
       intents={intents}
       comingUp={comingUp}
-      /*
-       * The server's day, for the countdowns' first render only — the browser
-       * replaces it with its own (`useToday`). On the static export this is
-       * the build's day, which is exactly why it is never the final answer.
-       */
-      serverDay={dayKey(localDay(new Date()))}
+      serverDay={serverDay}
       moreRecipes={recipeHead.total > STRIP_SIZE}
       /*
        * "All N recipes". `total` is on the head page already read, under the

@@ -1059,6 +1059,165 @@ plan and, for a signed-in editor, a shopping-list link; about half today's
 height, the duplicate holiday showings gone. Tests: `homepage.spec`,
 `homepage-browse.spec`, `empty-state.spec`, baselines `homepage-*`.
 
+#### Results (42f)
+
+**What changed** (`common/components/Homepage/`, one component per part;
+`route.tsx` still does every read, `index.tsx` only arranges).
+
+- **The band** (`HomeIntro`): the date, "What are you making?" (still the
+  `h2`), a real **search field** (`HomeSearch`: a `next/form` GET to
+  `/search?q=…`, so it works before hydration and with no script; labelled
+  "Search recipes", the placeholder "Search N recipes — a name, an
+  ingredient, a tag"; the palette's `⌘K` / `Ctrl+K` chip from the
+  masthead's `useShortcutModifier`, `aria-hidden`, `SearchShortcutHint`),
+  the intents as **`tag:` chips** (`tag:quick 121`, a `nav` "Start a search
+  from"), and the **Make tile** beside them from `lg` as the accent block
+  (`MakeTile`, its count logic and `make-tile-status` unchanged).
+- **"This season"** (`ThisSeason` + the client `SeasonSection`): the next
+  three dated holidays within 180 days, each a row — a calendar leaf
+  (`SAT / 31 / OCT`, a `<time>`), the name linking to `/holidays/<slug>`,
+  the countdown, "32 recipes · 1 plan · featured", and a strip of four
+  recipes (`seasonPicks`: photographed first, newest first, then
+  monograms); "All holidays" goes to `/holidays`.
+- **The right rail** from `lg`, spanning the main column's rows (rows
+  `auto 1fr`, so a tall rail never opens a gap under the season): **"On the
+  plan"** (`PlanPanel`: the newest plan, its first six lines with pictures
+  through `resolveGroupItems`, "and N more", "Open the plan", "All plans",
+  and "Shopping list" for a signed-in editor only) and **"Featured"**
+  (`FeaturedPanel`'s rows in the client `HomeRail`: 44 px rows, the same
+  `featured-*-card` / `card-meta` test ids).
+- **"New this week"** (`NewThisWeek`): a compact two-column list (56 px
+  picture, name, "Mains · 10/17"), still `data-testid="recipe-list"`.
+- **"Browse"** (`BrowseTerms`): one cell per facet root, three to a row,
+  the root's label and its three biggest children on one line.
+- **Phone:** one column — band, season, the rail (plan, then featured),
+  New this week, Browse; the season's strip drops under its row.
+- **Removed:** `ComingUp` / `ComingUpCards` (now `ThisSeason` /
+  `SeasonSection`), `FeaturedStrip` (`FeaturedPanel`), `PlansStrip`
+  (`PlanPanel`), `tileStyles.ts`, the intents' descriptions and the drink
+  intent's `/drinks` href.
+- **Controller** (`homepageComingUp.ts`, pure): `seasonPicks`,
+  `seasonRows` (`SEASON_LIMIT` 3), `datedHolidays`, `markFeaturedHolidays`,
+  `withoutSeasonFeatures`, `featureCandidates`; `homepageIntents.ts`:
+  `intentSearchHref`. `Monogram` and `TermPicture` take `small`;
+  `RecipeThumb` is the one 160 px square every small picture uses (one
+  transform per photo on the export).
+- **Routes:** the editor's `/` reads the session (`showShopping: !!session`,
+  as the masthead's `ownerOnly` link); the export's passes nothing.
+
+**Decisions.**
+
+- **Df1 — each holiday once.** A featured holiday term shows as its season
+  row, marked "featured", and the featured list hides it while that row
+  shows; the server hands over enough features (`featureCandidates`) that
+  six remain after the hiding, so the list doesn't shrink. Browse keeps
+  leaving the `holidays` root to the season.
+- **Df2 — the browser's day decides the season, not the server's.** Which
+  rows show, whether the section shows at all, and which features they
+  stand in for are computed in the browser (`useToday`), the server's day
+  only for the first render. Until now the server's day decided whether
+  "Coming up" rendered, so a page served — or a spec run — after 25
+  December with only Christmas tagged had no section whatever the
+  browser's clock said (homepage-browse's Christmas test was a time bomb
+  for 26 Dec – 27 Jun). The server only checks that some holiday with
+  something under it has a date (`hasSeason`).
+- **Df3 — intents are searches.** A chip opens `/search?q=tag:<slug>` (the
+  canvas: "open search with the query"), the drink chip included; until
+  now the tiles went to the term pages and `/drinks`. `tag:` search is
+  hierarchy-aware (24d), so it finds the counted set. The four intents are
+  unchanged; the canvas's extra `tag:thanksgiving` / `tag:cookies` chips
+  were not added (no rule says which terms earn one).
+- **Df4 — "Featured", not "Pinned".** The rail's list keeps the heading
+  Roger chose on 2026-10-15 and every spec's region name.
+- **Df5 — the masthead keeps its search trigger on `/`.** The canvas drops
+  it on the homepage; it stays, so the masthead is the same on every page
+  (and `header` / `command-palette` specs unchanged).
+- **Df6 — no shopping count.** "Shopping list" is a plain link; the
+  canvas's "On the list · 66 lines" would read the shopping store on every
+  homepage render, which the route has never done.
+- **Df7 — three holidays, four pictures, three children per facet**, the
+  canvas's numbers (`SEASON_LIMIT`, `SEASON_PICKS`, `BROWSE_CHILD_LIMIT`).
+- **Df8 — counts are recipes and plans.** The canvas's "16 sides · 7
+  drinks" per holiday is 42e's menu data (`holidaysPage.ts`, unmerged at
+  the time); the row says "N recipes · N plans · featured".
+- **Df9 — the date on New this week's rows** is a `<time>` (masked), month/day in a fixed format (not the server's locale); the
+  bookmark button on those rows is gone (the rows are a way in);
+  `bookmarks.spec`'s hover check moved to `/recipes`.
+- **Df10 — the export prints no build-day date, and leaves no empty box**
+  (review round). A season row's calendar leaf stays empty, at its fixed
+  size, until the browser's day is known. The season section and the rail
+  are placed by the grid themselves (no wrapper), the laptop grid has no
+  gaps (each part brings its margin) and the rail's column is `auto`, so a
+  section the browser's day doesn't render leaves no empty track; the rail
+  (`HomeRail`, client) renders nothing when there's no plan and every
+  feature is an in-season holiday. The "featured" mark comes from the
+  features the list could show (`featureCandidates`), not the whole head
+  page. Plan lines link with the plan page's `scaleOf`.
+
+**Gates** (after merging main with 42e, capped wrappers): editor
+typecheck ✅; export `tsc --noEmit` ✅; vitest **123 files, 2524 tests**
+✅. Playwright in Docker, build mode: homepage-browse, homepage, groups,
+bookmarks, featured-recipes, empty-state, accessibility, visual, mobile,
+api-write, reference-updates — **251/252** on the first run (e2e + mobile).
+The one failure was the new phone check: axe's `target-size` counted a strip
+link the fixed tab bar covered at that scroll as "partially obscured", so
+the phone half now measures the season's links (≥ 24 px) instead. The rerun
+of homepage-browse, visual and mobile passed **48/48**. homepage-browse in
+dev mode (Docker) passed **18/18**.
+
+**Baselines** (Docker, `--update-snapshots`, each opened): moved —
+`homepage-three-recipes-e2e`, `homepage-two-pages-e2e`,
+`homepage-empty-e2e`, `homepage-mobile-mobile` (the band and the compact
+New this week), and `layout-footer-signed-{in,out}-e2e` (both are
+full-page shots of the empty homepage). New — `homepage-season-rail-e2e`
+(`drinks-bar` on 18 Oct with Halloween and a recipe featured: two season
+rows, Halloween's marked "featured" and absent from the featured list) and
+`homepage-season-mobile-mobile`. Against canvas B: the band, chips, Make
+block, season rows and rail sit where the board has them. The fixtures
+have no photos, so the strips and thumbnails are monograms.
+
+**Heights** (full-page baselines, before → after): three recipes 1,172 →
+876 px (−25%); seven recipes 1,172 → 953 (−19%); empty 964 → 826; phone,
+three recipes 1,770 → 1,428 (−19%). The fixtures are short, so the
+~350 px footer is most of each page; above the footer, the seven-recipe
+page went from 822 to 603 px (−27%). The canvas measured the real corpus
+at 2,734 → ~1,400 px (−49%). The real repo is off-limits to code phases,
+so that page wasn't measured here — Roger's check after `pnpm workstation
+update`.
+
+**Roger to confirm.** Df3 (chips open search; the drink chip no longer
+goes to `/drinks`); Df4 ("Featured" over "Pinned"); Df5 (masthead search
+kept on `/`); Df6 (no line count on the shopping link); Df7's numbers;
+Df8 (no per-kind counts on the season rows — a follow-up once 42e's
+`holidaysPage` is on main); the phone order (the rail after the season,
+the featured list before New this week — the canvas puts "Pinned" after
+it).
+
+#### Traps (42f)
+
+- **`/holidays` had to be on main first.** "All holidays" and every
+  season row link into 42e's pages; 42f merged main after #284. Its
+  alias-aware lookup reaches the homepage too: `comingUpEntries` carries
+  `rule` (`holidayRuleKey`: the slug, else an alias's), and
+  `datedHolidays`, `seasonRows` and the row's date use `rule ?? slug`, so a
+  holiday dated only through an alias gets a row.
+- **`HOLIDAY_RULES[slug]` is an object lookup**: a term slugged
+  `constructor` or `toString` would find `Object.prototype`'s.
+  `datedHolidays` uses `hasOwnProperty`; `nextOccurrence` still indexes
+  directly (unchanged, 42e touches it).
+- **The palette baselines move with the homepage.** `command-palette.spec`
+  opens the palette over `/`, and `snapshotLocator`'s default masks paint
+  every `<time>` on the page — the homepage's date line and New this
+  week's dates included — so the masked boxes show through the dialog's
+  shot at the homepage's coordinates. 42f moved them: all seven
+  `palette-*` baselines regenerated in Docker (the dialog itself
+  unchanged), then 3× in build and dev mode, and every `@visual` once in
+  dev (41/41). Any later homepage layout change moves them again; scoping
+  the masks to the locator would end it.
+- **A spec can't freeze the server's clock.** `page.clock` moves the
+  browser only, so anything the server decides by date is decided by the
+  real date — Df2 is what makes the season specs hold on any day.
+
 ### 42h — Holidays for the agents (S–M)
 
 As 41i did for Make: a read-only seat — `holidayList` (each holiday term
