@@ -365,9 +365,9 @@ method 134, Spirit & base 201, Families 113 top-level / 144 with nested
   grid is the server's cards (34a's cap and "See all N recipes"); a pressed
   chip or the List view draws client cards (`ClientListItem`,
   `PureRecipeImage`) from the rows.
-- **Dt4 — a visible `+` instead of long-press.** On a device whose pointer
-  hovers, `+` shows on hover and focus (canvas B); on touch it is always
-  there, 24 px. The phone hint reads "Tap + beside a row to combine it with
+- **Dt4 — a visible `+` instead of long-press.** At `lg` and up, with a
+  pointer that hovers, `+` shows on hover and focus (canvas B); below `lg`
+  (the phone's disclosures) and on touch it is always there, 24 px. The phone hint reads "Tap + beside a row to combine it with
   another."
 - **Dt5 — zero-count records leave the board** (they narrow nothing); Find
   a tag still finds them, a root page lists them at 0 under "And N more",

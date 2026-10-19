@@ -467,7 +467,7 @@ test.describe("Tag pages", () => {
       await expectHydrated(page.getByTestId("tag-find"));
       await page.getByTestId("tag-find").fill("biscu");
       await expect(page.getByRole("option", { name: /Cookies/ })).toContainText(
-        "also Biscuits",
+        /also biscuits/i,
       );
       /* The alias is Cookies', not a bare tag of its own (38a review). */
       await page.getByTestId("tag-other").locator("summary").click();

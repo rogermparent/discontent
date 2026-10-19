@@ -45,10 +45,10 @@ const FIND_OPTIONS = 8;
  * base and the Families run-in list) and the other tags folded away.
  *
  * Every row is a link to its term page; the `+` beside it adds it to
- * Combine. The `+` shows on hover where there is a pointer that hovers, and
- * always where there is not (a phone: canvas B's "long-press to combine"
- * became a visible button, Dt4). On a phone each column is a disclosure,
- * Holidays first.
+ * Combine. On a wide screen with a pointer that hovers the `+` shows on
+ * hover and focus (canvas B); below `lg`, and on touch, it is always there
+ * (canvas B's "long-press to combine" became a visible button, Dt4). On a
+ * phone each column is a disclosure, Holidays first.
  */
 export function TagBoard({
   data,
@@ -584,7 +584,7 @@ function BoardLine({
           "inline-flex size-6 shrink-0 items-center justify-center rounded-sm border border-transparent text-muted-foreground focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-ring",
           pressed
             ? "bg-primary text-primary-foreground"
-            : "group-hover/row:border-input [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/row:opacity-100",
+            : "border-input lg:border-transparent lg:group-hover/row:border-input lg:[@media(hover:hover)]:opacity-0 lg:[@media(hover:hover)]:group-hover/row:opacity-100",
         )}
       >
         {pressed ? (
@@ -675,15 +675,22 @@ function Holidays({
                   <span className="font-display text-base leading-[22px] font-semibold group-hover:text-primary">
                     {holiday.label}
                   </span>
-                  <span className="font-mono text-xs text-muted-foreground">
-                    <time
-                      dateTime={dayKey(holiday.date)}
-                      className="inline-block"
-                    >
-                      {formatDayShort(holiday.date)}
-                    </time>{" "}
-                    · {plural(holiday.recipes, "recipe")}
-                    {holiday.plans > 0 && ` · ${plural(holiday.plans, "plan")}`}
+                  {/* Two pieces that wrap whole in the 300 px aside. */}
+                  <span className="flex flex-wrap gap-x-1.5 font-mono text-xs text-muted-foreground">
+                    <span className="whitespace-nowrap">
+                      <time
+                        dateTime={dayKey(holiday.date)}
+                        className="inline-block"
+                      >
+                        {formatDayShort(holiday.date)}
+                      </time>{" "}
+                      ·
+                    </span>
+                    <span className="whitespace-nowrap">
+                      {plural(holiday.recipes, "recipe")}
+                      {holiday.plans > 0 &&
+                        ` · ${plural(holiday.plans, "plan")}`}
+                    </span>
                   </span>
                 </span>
                 <span

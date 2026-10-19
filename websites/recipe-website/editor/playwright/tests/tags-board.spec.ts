@@ -336,8 +336,10 @@ test.describe("Tags board @mobile", () => {
     /* The + is a visible button on a touch screen (Dt4). */
     await expect(
       style.getByRole("button", { name: "Combine with Highball" }),
-    ).toBeVisible();
+    ).toHaveCSS("opacity", "1");
     expect(await sideways(page)).toBeLessThanOrEqual(0);
+    /* The sticky masthead and tab bar draw where the page is scrolled to. */
+    await page.evaluate(() => window.scrollTo(0, 0));
     await snapshotPage(page, "tags-board.png");
 
     await page.goto("/tags/halloween");
