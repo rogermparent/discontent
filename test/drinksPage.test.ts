@@ -148,27 +148,39 @@ describe("the holiday pair (42d)", () => {
     /* No rule: never in the pair. */
     { slug: "game-day" },
   ];
-  const pair = (today: string) =>
-    holidayPair(holidays, parseDayKey(today)).map(
-      (holiday) => `${holiday.slug} ${holiday.days} ${holiday.slot}`,
-    );
+  const pair = (today: string, list: { slug: string }[] = holidays) => {
+    const found = holidayPair(list, parseDayKey(today));
+    return [
+      ...found.pair.map(
+        (holiday) => `${holiday.slug} ${holiday.days} ${holiday.slot}`,
+      ),
+      ...(found.then ? [`then ${found.then.slug} ${found.then.days}`] : []),
+    ];
+  };
 
-  it("is the two soonest within 180 days, the first now while in season", () => {
+  it("is the two soonest within 38a's 60-day window", () => {
     expect(pair("2026-10-15")).toEqual([
       "halloween 16 now",
       "thanksgiving 42 next",
     ]);
-    /* After Thanksgiving, Christmas alone: next Halloween is 338 days off. */
+    /* After Thanksgiving, Christmas alone: next Halloween is 338 days off,
+     * past even the 180-day window, so there is no "Then" line. */
     expect(pair("2026-11-27")).toEqual(["christmas 28 now"]);
   });
 
-  it("calls a first holiday more than 60 days off coming up, and hides past 180", () => {
+  it("names the next past 60 days on a quiet line, within 180", () => {
+    const two = [{ slug: "halloween" }, { slug: "christmas" }];
+    expect(pair("2026-10-15", two)).toEqual([
+      "halloween 16 now",
+      "then christmas 71",
+    ]);
+  });
+
+  it("hides when nothing is within 60 days", () => {
     /* The day after Christmas: next Halloween is 309 days off. */
     expect(pair("2026-12-26")).toEqual([]);
-    expect(pair("2027-08-15")).toEqual([
-      "halloween 77 soon",
-      "thanksgiving 102 next",
-    ]);
+    /* Halloween 77 days off: past the seasonal window, no section. */
+    expect(pair("2027-08-15")).toEqual([]);
   });
 
   it("dates a holiday by its rule when the slug has none", () => {
@@ -177,32 +189,71 @@ describe("the holiday pair (42d)", () => {
         [{ slug: "xmas", rule: "christmas" }, { slug: "game-day" }],
         parseDayKey("2026-12-01"),
       ),
-    ).toEqual([{ slug: "xmas", rule: "christmas", days: 24, slot: "now" }]);
+    ).toEqual({
+      pair: [{ slug: "xmas", rule: "christmas", days: 24, slot: "now" }],
+    });
+  });
+
+  it("takes each holiday's rule from its slug, then its aliases (42e)", () => {
+    const holidayTree = {
+      drink: { label: "Drinks", children: [] },
+      holidays: { label: "Holidays", children: ["xmas", "new-years"] },
+      xmas: {
+        label: "Xmas",
+        parent: "holidays",
+        children: [],
+        aliases: ["Christmas"],
+      },
+      /* 42e's Te2: its own slug's rule wins over an alias's. */
+      "new-years": {
+        label: "New Year's",
+        parent: "holidays",
+        children: [],
+        aliases: ["New Year's Eve"],
+      },
+    };
+    const eggnog = recipe("eggnog", 1, ["drink", "xmas", "new-years"]);
+    const page = drinksPageData({
+      tree: holidayTree,
+      recipeRows: (key) =>
+        eggnog.tags?.includes(key)
+          ? { label: key, items: [eggnog] }
+          : undefined,
+    });
+    expect(
+      page.seasonal.map((holiday) => [holiday.slug, holiday.rule]),
+    ).toEqual([
+      ["xmas", "christmas"],
+      ["new-years", "new-years"],
+    ]);
   });
 });
 
 describe("the shelf (42d)", () => {
-  it("shows exactly the list Count from counts", () => {
+  it("shows the list Count from counts, and this browser's uncounted", () => {
     const browser = ["vodka", "Gin"];
     const saved = ["gin", "tonic water"];
     expect(shelfLabels("browser", browser, saved)).toEqual([
-      { item: "vodka", kind: "have" },
-      { item: "Gin", kind: "have" },
+      { item: "vodka", kind: "have", counted: true },
+      { item: "Gin", kind: "have", counted: true },
     ]);
+    /* The saved list alone leads; this browser's own follow, muted, as on
+     * /make — what is on both lists shows once, counted. */
     expect(shelfLabels("saved", browser, saved)).toEqual([
-      { item: "gin", kind: "saved" },
-      { item: "tonic water", kind: "saved" },
+      { item: "gin", kind: "saved", counted: true },
+      { item: "tonic water", kind: "saved", counted: true },
+      { item: "vodka", kind: "have", counted: false },
     ]);
     /* Both: this browser's first, then what only the second list has. */
     expect(shelfLabels("both", browser, saved)).toEqual([
-      { item: "vodka", kind: "have" },
-      { item: "Gin", kind: "have" },
-      { item: "tonic water", kind: "saved" },
+      { item: "vodka", kind: "have", counted: true },
+      { item: "Gin", kind: "have", counted: true },
+      { item: "tonic water", kind: "saved", counted: true },
     ]);
     /* No second list: this browser's, whatever was chosen on another page. */
     expect(shelfLabels("saved", browser)).toEqual([
-      { item: "vodka", kind: "have" },
-      { item: "Gin", kind: "have" },
+      { item: "vodka", kind: "have", counted: true },
+      { item: "Gin", kind: "have", counted: true },
     ]);
   });
 
@@ -235,6 +286,9 @@ describe("NEW and the names after the cards (42d)", () => {
     expect(isNewDrink(now - day, now)).toBe(true);
     expect(isNewDrink(now - 29 * day, now)).toBe(true);
     expect(isNewDrink(now - 30 * day, now)).toBe(false);
+    /* Dated earlier today, judged against the clock (not a day key read
+     * as UTC midnight, which west of UTC would put it in the future). */
+    expect(isNewDrink(now - 60 * 60 * 1000, now)).toBe(true);
     /* Dated after today (a clock behind): not new, not negative. */
     expect(isNewDrink(now + day, now)).toBe(false);
   });

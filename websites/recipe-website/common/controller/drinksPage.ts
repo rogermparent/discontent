@@ -3,15 +3,16 @@ import type { RecipeListEntry } from "./paginationConfigs";
 import {
   HOLIDAYS_ROOT,
   SEASONAL_WINDOW_DAYS,
-  holidayRuleKey,
   withinComingUpWindow,
   type CalendarDay,
 } from "../util/holidays";
 import { inventoryKey } from "../util/inventoryText";
+/* A cycle (`holidaysPage` reads this module's constants), safe because
+ * both sides use the other's exports only inside functions. */
+import { holidayRule } from "./holidaysPage";
 import { tagSlug } from "./tagSlug";
 import {
   mergeTermRows,
-  ownAliases,
   subtreeKeys,
   subtreeSlugs,
   type TermRow,
@@ -278,10 +279,7 @@ export function drinksPageData({
   const seasonal = childrenOf(HOLIDAYS_ROOT)
     .map((slug): SeasonalDrinks => {
       const found = drinksUnder(slug);
-      const rule = holidayRuleKey(
-        slug,
-        ownAliases(tree, slug).map((alias) => tagSlug(alias)),
-      );
+      const rule = holidayRule(tree, slug);
       return {
         slug,
         label: labelOf(slug),
@@ -343,13 +341,19 @@ export interface ShelfLabel {
   item: string;
   /** `have`: this browser's (tape). `saved`: the second list's (outlined). */
   kind: "have" | "saved";
+  /**
+   * False for this browser's labels while Count from is on the second list
+   * alone: still on the shelf, not counted — muted, as on `/make` (41h).
+   */
+  counted: boolean;
 }
 
 /**
- * The shelf as `/drinks` shows it (42d): exactly the list Count from counts
- * (`countFromItems`) — this browser's labels when it counts, then the second
- * list's that this browser doesn't also have. Never a list that doesn't
- * count: the shelf is what the numbers beside it judge.
+ * The shelf as `/drinks` shows it (42d), `/make`'s rule (41h): the list
+ * Count from counts (`countFromItems`) — this browser's labels when it
+ * counts, then the second list's that this browser doesn't also have. On
+ * the second list alone, its labels lead and this browser's follow,
+ * uncounted, so "I have this" or an add still shows where it went.
  */
 export function shelfLabels(
   source: ShelfSource,
@@ -359,21 +363,21 @@ export function shelfLabels(
   const counting = second ? source : "browser";
   const labels: ShelfLabel[] = [];
   const seen = new Set<string>();
-  if (counting !== "saved") {
-    for (const item of browser) {
+  const add = (items: string[], label: Omit<ShelfLabel, "item">) => {
+    for (const item of items) {
       const key = inventoryKey(item);
       if (seen.has(key)) continue;
       seen.add(key);
-      labels.push({ item, kind: "have" });
+      labels.push({ item, ...label });
     }
-  }
-  if (counting !== "browser") {
-    for (const item of second ?? []) {
-      const key = inventoryKey(item);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      labels.push({ item, kind: "saved" });
-    }
+  };
+  if (counting === "saved") {
+    add(second ?? [], { kind: "saved", counted: true });
+    add(browser, { kind: "have", counted: false });
+  } else {
+    add(browser, { kind: "have", counted: true });
+    if (counting === "both")
+      add(second ?? [], { kind: "saved", counted: true });
   }
   return labels;
 }
@@ -410,30 +414,40 @@ export function isNewDrink(date: number, now: number): boolean {
   return age >= 0 && age < NEW_DRINK_DAYS * 24 * 60 * 60 * 1000;
 }
 
-/**
- * A pair slot (42d): the sooner holiday is "now" while it is in season
- * (38a's 60-day window, the old row's rule) and "soon" further off; the
- * later one is "next".
- */
-export type PairSlot = "now" | "soon" | "next";
+/** A pair slot (42d): the sooner holiday is "now", the later "next". */
+export type PairSlot = "now" | "next";
+
+export interface HolidayPair<T> {
+  /** In season: within 38a's 60-day window (Roger's), soonest first, ≤ 2. */
+  pair: Array<T & { days: number; slot: PairSlot }>;
+  /**
+   * With one holiday in season, the one after it when that falls within
+   * the homepage's 180-day "Coming up" window — a quiet "Then …" line, not
+   * a column of cards.
+   */
+  then?: T & { days: number };
+}
 
 /**
  * The current and next holiday (42d, canvas B's "In season"): the holidays
- * with drinks that fall within the homepage's "Coming up" window
- * (`withinComingUpWindow`, 180 days), soonest first, cut to two. Undated
- * holidays never qualify, and an empty answer hides the section.
+ * with drinks within the seasonal window (`SEASONAL_WINDOW_DAYS`, 38a's 60
+ * days — the old row's rule), soonest first, cut to two. Undated holidays
+ * never qualify, and an empty `pair` hides the section.
  */
 export function holidayPair<T extends { slug: string; rule?: string }>(
   holidays: T[],
   today: CalendarDay,
-): Array<T & { days: number; slot: PairSlot }> {
-  return withinComingUpWindow(holidays, today)
+): HolidayPair<T> {
+  const coming = withinComingUpWindow(holidays, today);
+  const pair = coming
+    .filter((holiday) => holiday.days <= SEASONAL_WINDOW_DAYS)
     .slice(0, 2)
     .map((holiday, i) => ({
       ...holiday,
-      slot:
-        i > 0 ? "next" : holiday.days <= SEASONAL_WINDOW_DAYS ? "now" : "soon",
+      slot: (i === 0 ? "now" : "next") as PairSlot,
     }));
+  const then = pair.length === 1 ? coming[1] : undefined;
+  return then ? { pair, then } : { pair };
 }
 
 /**

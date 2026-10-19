@@ -18,26 +18,17 @@ export const metadata = { title: "Drinks" };
 export default async function Drinks() {
   const session = await auth();
   const signedIn = !!session?.user?.email;
-  const [data, secondary] = await Promise.all([
+  const [data, second] = await Promise.all([
     readDrinksPage(),
-    secondaryInventory(
-      signedIn
-        ? () =>
-            readInventory({ contentDirectory: getContentDirectory() }).then(
-              (inventory) => inventory.items,
-            )
-        : undefined,
-    ),
+    /* Signed in, the saved list even when empty — `/make`'s second list
+     * (a stored "Saved" then counts an empty list, as it does there). */
+    signedIn
+      ? readInventory({ contentDirectory: getContentDirectory() }).then(
+          ({ items }) => ({ kind: "saved" as const, items }),
+        )
+      : secondaryInventory().then(
+          (house) => house && { kind: "house" as const, items: house.items },
+        ),
   ]);
-  return (
-    <DrinksPage
-      data={data}
-      second={
-        secondary && {
-          kind: signedIn ? "saved" : "house",
-          items: secondary.items,
-        }
-      }
-    />
-  );
+  return <DrinksPage data={data} second={second} />;
 }

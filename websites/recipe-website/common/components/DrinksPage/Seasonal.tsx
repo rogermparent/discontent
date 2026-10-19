@@ -23,6 +23,7 @@ import { RecipeCardPlaceholder } from "../List/shared";
 import { PureRecipeImage } from "../RecipeImage/PureRecipeImage";
 import { useToday } from "../Homepage/useToday";
 import { NewMark } from "./MakePanel";
+import { useNow } from "./useNow";
 
 /** Cards the sooner holiday shows; the later one shows `NEXT_CARDS`. */
 const NOW_CARDS = 4;
@@ -30,7 +31,6 @@ const NEXT_CARDS = 2;
 
 const SLOT_LABEL: Record<PairSlot, string> = {
   now: "Now",
-  soon: "Coming up",
   next: "Next",
 };
 
@@ -71,11 +71,13 @@ function SeasonCard({ card, now }: { card: DrinkCard; now: number }) {
 
 /**
  * "In season" (42d, canvas B): the current and next holiday side by side —
- * `holidayPair`, the holidays with drinks within the homepage's 180-day
- * "Coming up" window, cut to two — each with its countdown, its date, its
- * drinks and "All N" to its menu page (`/holidays/<slug>`, 42e, on its
- * drinks). The sooner shows four cards, the later two and the names of the
- * rest; on a phone each is a row that scrolls sideways.
+ * `holidayPair`, the holidays with drinks within 38a's 60-day seasonal
+ * window, cut to two — each with its countdown, its date, its drinks and
+ * "All N" to its menu page (`/holidays/<slug>`, 42e, on its drinks). The
+ * sooner shows four cards, the later two and the names of the rest; on a
+ * phone each is a row that scrolls sideways. With one holiday in season,
+ * the next within 180 days is a quiet "Then Christmas, in 71 days — 1
+ * drink." line, as 42e's menu page says it.
  *
  * Today is the browser's (`useToday(null)`, U1): nothing on the server, so
  * the export's static HTML never names a holiday or a number of days.
@@ -83,11 +85,11 @@ function SeasonCard({ card, now }: { card: DrinkCard; now: number }) {
 export function SeasonPair({ holidays }: { holidays: SeasonalDrinks[] }) {
   const headingId = useId();
   const today = useToday(null);
+  const now = useNow();
   if (today === null) return null;
   const day = parseDayKey(today);
-  const pair = holidayPair(holidays, day);
+  const { pair, then } = holidayPair(holidays, day);
   if (pair.length === 0) return null;
-  const now = Date.parse(today);
 
   return (
     <section
@@ -181,6 +183,23 @@ export function SeasonPair({ holidays }: { holidays: SeasonalDrinks[] }) {
           );
         })}
       </div>
+      {then && (
+        <p
+          className="m-0 text-sm text-muted-foreground"
+          data-testid="drinks-season-then"
+        >
+          Then{" "}
+          <Link
+            href={`/holidays/${then.slug}?kind=drinks`}
+            className="text-primary underline-offset-4 hover:underline"
+          >
+            {then.label}
+          </Link>
+          , {countdownLabel(then.days)} —{" "}
+          <span className="font-mono">{then.count}</span>{" "}
+          {then.count === 1 ? "drink" : "drinks"}.
+        </p>
+      )}
     </section>
   );
 }

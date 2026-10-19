@@ -19,11 +19,15 @@ import { snapshotPage } from "../support/visual";
  * The shelf counts this browser's list (U6) unless Count from — `/make`'s
  * per-browser setting (41h) — chooses the second list; each test starts from
  * a fresh context with neither, and `withBrowserList` seeds one. The clock
- * is frozen on 15 October 2026 so the holidays, and the NEW mark (the
- * fixture's drinks are dated late September), hold still.
+ * is frozen on 28 October 2026 — Halloween in 3 days, Christmas in 58, both
+ * in season — so the holidays hold still, and the fixture's drinks (dated
+ * 21 September 2026, minutes apart) are past the 30-day NEW mark; the NEW
+ * test sets the clock between them.
  */
 
-const FROZEN = new Date(2026, 9, 15, 12);
+const FROZEN = new Date(2026, 9, 28, 12);
+/** The fixture's dates: `1790000000000` plus a minute or so per drink. */
+const FIXTURE_EPOCH = 1_790_000_000_000;
 
 const shelf = (page: Page) => page.getByTestId("drinks-shelf");
 const source = (page: Page) => page.getByTestId("drinks-shelf-source");
@@ -207,11 +211,26 @@ test.describe("Drinks", () => {
       "Gin and Tonic",
     );
     /* The saved list is edited on Make (42a), never from here. */
-    await expect(page.getByLabel("Add to the shelf")).toHaveCount(0);
-    await expect(shelf(page)).toContainText("Edit the saved list on Make.");
+    const note = page.getByTestId("drinks-not-counted");
+    await expect(note).toContainText("Counting from the saved list");
+    await expect(
+      note.getByRole("link", { name: "edit it on Make" }),
+    ).toHaveAttribute("href", "/make?q=tag%3Adrink");
     await expect(
       shelf(page).getByRole("button", { name: /^Remove/ }),
     ).toHaveCount(0);
+
+    /* An add still goes on this browser's list — on the shelf, muted and
+     * uncounted, as /make shows it. */
+    const field = page.getByLabel("Add to the shelf", { exact: true });
+    await field.fill("vodka");
+    await field.press("Enter");
+    await expect(labels(page)).toHaveText(["gin", "tonic water", "vodka"]);
+    await expect(labels(page).last()).toHaveAttribute("data-kind", "have");
+    await expect(labels(page).last()).toHaveAttribute("data-counted", "false");
+    await expect(source(page)).toHaveText(
+      "From your saved list — 2 things on the shelf. Tap a label to ask about it.",
+    );
 
     /* One setting with /make: it counts from the saved list there too. */
     await page.goto("/make?q=tag:drink");
@@ -234,7 +253,7 @@ test.describe("Drinks", () => {
     await expect(now.getByRole("heading", { level: 3 })).toHaveText(
       "Halloween",
     );
-    await expect(now).toContainText("in 16 days");
+    await expect(now).toContainText("in 3 days");
     await expect(
       now.getByRole("link", { name: "Halloween", exact: true }),
     ).toHaveAttribute("href", "/holidays/halloween");
@@ -245,26 +264,43 @@ test.describe("Drinks", () => {
     await expect(now.getByRole("listitem")).toHaveCount(1);
     await expect(now.getByRole("listitem")).toContainText("Vodka Sour");
 
-    /* There is no Thanksgiving term, so Christmas is next. */
+    /* There is no Thanksgiving term, so Christmas is next, 58 days off. */
     await expect(next.getByRole("heading", { level: 3 })).toHaveText(
       "Christmas",
     );
-    await expect(next).toContainText("in 71 days");
+    await expect(next).toContainText("in 58 days");
     await expect(
       next.getByRole("link", { name: "All 1 Christmas drink" }),
     ).toHaveAttribute("href", "/holidays/christmas?kind=drinks");
     await expect(next.getByRole("listitem")).toContainText("Chamomile Collins");
+    await expect(page.getByTestId("drinks-season-then")).toHaveCount(0);
 
-    /* After Halloween, Christmas alone: next Halloween is 364 days off,
-     * past the 180-day window. */
+    /* 15 October: Christmas is 71 days off, past 38a's 60-day window, so
+     * Halloween stands alone and Christmas is a quiet line to its menu. */
+    await page.clock.setFixedTime(new Date(2026, 9, 15, 12));
+    await page.reload();
+    await expect(season.getByRole("heading", { level: 3 })).toHaveText([
+      "Halloween",
+    ]);
+    await expect(now).toContainText("in 16 days");
+    const then = page.getByTestId("drinks-season-then");
+    await expect(then).toHaveText("Then Christmas, in 71 days — 1 drink.");
+    await expect(then.getByRole("link", { name: "Christmas" })).toHaveAttribute(
+      "href",
+      "/holidays/christmas?kind=drinks",
+    );
+
+    /* After Halloween, Christmas alone; next Halloween (364 days) is past
+     * even the 180-day window, so no line. */
     await page.clock.setFixedTime(new Date(2026, 10, 1, 12));
     await page.reload();
     await expect(season.getByRole("heading", { level: 3 })).toHaveText([
       "Christmas",
     ]);
     await expect(now).toContainText("in 54 days");
+    await expect(then).toHaveCount(0);
 
-    /* The day after Christmas nothing is within 180 days: no section. */
+    /* The day after Christmas nothing is within 60 days: no section. */
     await page.clock.setFixedTime(new Date(2026, 11, 26, 12));
     await page.reload();
     await shelfReady(page);
@@ -306,6 +342,38 @@ test.describe("Drinks", () => {
       .getByRole("link", { name: /^Vodka/ })
       .click();
     await expect(page).toHaveURL(/\/tags\/vodka$/);
+  });
+
+  test("NEW marks a drink dated within 30 days, and only those", async ({
+    page,
+  }) => {
+    /* 30 days and 150 s after the fixture's epoch: the Vodka Sour (+60 s)
+     * is just past 30 days, the Chamomile Collins (+360 s) just inside. */
+    await page.clock.setFixedTime(
+      FIXTURE_EPOCH + 30 * 24 * 60 * 60 * 1000 + 150_000,
+    );
+    await withBrowserList(page, [
+      "vodka",
+      "lime juice",
+      "simple syrup",
+      "chamomile-infused vodka",
+      "lemon juice",
+      "club soda",
+    ]);
+    await page.goto("/drinks");
+    await shelfReady(page);
+    const ready = page.getByTestId("drinks-ready").getByRole("link");
+    const collins = ready.filter({ hasText: "Chamomile Collins" });
+    const sour = ready.filter({ hasText: "Vodka Sour" });
+    await expect(collins).toContainText("NEW");
+    await expect(sour).toBeVisible();
+    await expect(sour).not.toContainText("NEW");
+    /* The seasonal card is judged the same way. */
+    const halloween = page
+      .getByTestId("drinks-season")
+      .locator("[data-slot=now]");
+    await expect(halloween.getByRole("listitem")).toContainText("Vodka Sour");
+    await expect(halloween.getByRole("listitem")).not.toContainText("NEW");
   });
 
   test("the masthead marks Drinks as the current page", async ({ page }) => {
@@ -397,10 +465,12 @@ test.describe("Drinks — the house list (export / guest)", () => {
     await expect(page.getByTestId("drinks-ready")).toContainText(
       "Gin and Tonic",
     );
-    await expect(page.getByLabel("Add to the shelf")).toHaveCount(0);
-    await expect(shelf(page)).toContainText(
-      "The house list is shared read-only.",
+    await expect(page.getByTestId("drinks-not-counted")).toContainText(
+      "Counting from the house list, which is read-only.",
     );
+    await expect(
+      shelf(page).getByRole("button", { name: /^Remove/ }),
+    ).toHaveCount(0);
   });
 });
 

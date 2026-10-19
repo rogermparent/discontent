@@ -40,7 +40,7 @@ import { MakeQuestion } from "../MakePage/MakeQuestion";
 import { MakeTicker } from "../MakePage/MakeTicker";
 import { useUndoToast } from "../MakePage/Toast";
 import { useMakeable } from "../MakePage/useMakeable";
-import { useToday } from "../Homepage/useToday";
+import { useNow } from "./useNow";
 
 /** The judge's scope on this page: every drink (`tag:` reaches the subtree). */
 export const DRINKS_SCOPE = "tag:drink";
@@ -258,8 +258,7 @@ export function DrinksShelf({
   const [allLabels, setAllLabels] = useState(false);
   const [draft, setDraft] = useState("");
   /* NEW is judged in the browser (the export's HTML would go stale). */
-  const today = useToday(null);
-  const now = today ? Date.parse(today) : 0;
+  const now = useNow();
 
   /* Undo reads the list as it is when it runs, not when the toast went up. */
   const haveRef = useRef(have);
@@ -407,6 +406,7 @@ export function DrinksShelf({
                   !allLabels && i >= PHONE_LABELS && "max-sm:hidden",
                 )}
                 data-kind={label.kind}
+                data-counted={label.counted ? undefined : "false"}
               >
                 <Link
                   href={featureHref(label.item)}
@@ -455,39 +455,53 @@ export function DrinksShelf({
             />
           </div>
         )}
+        {!browserCounts && second && (
+          <p
+            className="m-0 text-sm text-muted-foreground"
+            data-testid="drinks-not-counted"
+          >
+            {second.kind === "house"
+              ? "Counting from the house list, which is read-only. "
+              : "Counting from the saved list — "}
+            {second.kind === "saved" && (
+              <>
+                <Link
+                  href={DRINKS_MAKE_HREF}
+                  className="text-primary underline-offset-4 hover:underline"
+                >
+                  edit it on Make
+                </Link>
+                .{" "}
+              </>
+            )}
+            What you add here goes on this browser&apos;s list, not counted.
+          </p>
+        )}
         <div className="flex flex-wrap items-end gap-2.5">
-          {browserCounts ? (
-            <form
-              onSubmit={onAdd}
-              className="flex min-w-0 grow basis-72 flex-col gap-1.5 sm:max-w-sm"
-            >
-              <label htmlFor={addId} className="text-sm font-medium">
-                Add to the shelf
-              </label>
-              <div className="flex gap-2">
-                <Input
-                  ref={inputRef}
-                  id={addId}
-                  data-testid="drinks-add"
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  placeholder="A bottle, mixer or syrup"
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="bg-card"
-                />
-                <Button type="submit" variant="outline">
-                  Add
-                </Button>
-              </div>
-            </form>
-          ) : (
-            <p className="m-0 grow basis-72 text-sm text-muted-foreground">
-              {second?.kind === "house"
-                ? "The house list is shared read-only."
-                : "Edit the saved list on Make."}
-            </p>
-          )}
+          <form
+            onSubmit={onAdd}
+            className="flex min-w-0 grow basis-72 flex-col gap-1.5 sm:max-w-sm"
+          >
+            <label htmlFor={addId} className="text-sm font-medium">
+              Add to the shelf
+            </label>
+            <div className="flex gap-2">
+              <Input
+                ref={inputRef}
+                id={addId}
+                data-testid="drinks-add"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder="A bottle, mixer or syrup"
+                autoComplete="off"
+                spellCheck={false}
+                className="bg-card"
+              />
+              <Button type="submit" variant="outline">
+                Add
+              </Button>
+            </div>
+          </form>
           <Button asChild>
             <Link href={DRINKS_MAKE_HREF}>
               Open in Make
