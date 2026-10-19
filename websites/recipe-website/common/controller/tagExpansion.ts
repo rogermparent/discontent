@@ -60,12 +60,15 @@ export interface TermResolver {
   expandTerm(field: "tag", value: string): ReadonlySet<string> | undefined;
 }
 
-export function buildTagExpansion(
-  terms: ReadonlyArray<TermNode>,
-): TermResolver {
+/**
+ * The spelling → term map `tag:` resolves by, with the precedence above: a
+ * record's own slug and label first, then aliases, then carried-only terms.
+ * Shared by `buildTagExpansion` and `buildTermLookup`, so a tag counted under
+ * a term (43f's facets) is the tag `tag:<term>` finds.
+ */
+function spellingIndex(terms: ReadonlyArray<TermNode>) {
   const bySpelling = new Map<string, string>();
   const nodes = new Map<string, TermNode>();
-  const children = new Map<string, string[]>();
   /* A record's own spellings, which no other term's alias may take. */
   const claimed = new Map<string, string>();
   for (const term of terms) {
@@ -89,6 +92,30 @@ export function buildTagExpansion(
       if (spelling !== fold(term.slug)) bySpelling.set(spelling, term.slug);
     }
   }
+  /* `value` already folded, as the query parser leaves it. */
+  const resolve = (value: string): string | undefined =>
+    bySpelling.get(value.trim()) ?? bySpelling.get(tagSlug(value));
+  return { nodes, ownAliasSpellings, resolve };
+}
+
+/**
+ * The term a carried tag (or a `tag:` operand) names — its slug — or
+ * `undefined` when it names none: "bean salads", `bean-salads` and an alias
+ * of the record all answer `bean-salads`. The exact lookup `tag:` starts its
+ * expansion from (43f).
+ */
+export function buildTermLookup(
+  terms: ReadonlyArray<TermNode>,
+): (tag: string) => string | undefined {
+  const { resolve } = spellingIndex(terms);
+  return (tag) => resolve(fold(tag));
+}
+
+export function buildTagExpansion(
+  terms: ReadonlyArray<TermNode>,
+): TermResolver {
+  const { nodes, ownAliasSpellings, resolve } = spellingIndex(terms);
+  const children = new Map<string, string[]>();
   for (const term of terms) {
     /* A term is never its own child (24-T8), even when a hand edit says so. */
     if (!term.parent || term.parent === term.slug) continue;
@@ -100,7 +127,7 @@ export function buildTagExpansion(
   const cache = new Map<string, ReadonlySet<string> | undefined>();
 
   function expand(value: string): ReadonlySet<string> | undefined {
-    const root = bySpelling.get(value.trim()) ?? bySpelling.get(tagSlug(value));
+    const root = resolve(value);
     if (!root) return undefined;
     const spellings = new Set<string>();
     /* Visited-set walk: a hand-edited cycle terminates, as the tree's does. */
