@@ -112,7 +112,107 @@ _Pending._
 
 #### Results (43f)
 
-_Pending._
+**Landed.** `common/util/facets.ts` — the one facet model (D2), pure (no
+reads; client- and server-safe: it imports only modules the browser already
+loads), and `test/facets.test.ts` (33 tests). One additive change elsewhere:
+`tagExpansion.ts` exports `buildTermLookup` — the spelling → term map
+`tag:` already resolved by, pulled out into `spellingIndex` and shared by
+`buildTagExpansion` (no behaviour change; its 18 tests pass unchanged), so a
+tag counted under a term is exactly the tag `tag:<term>` finds.
+
+**API summary (for 43s, 43t, 43e2, 43q).**
+
+- **Input** — `FacetTerm {slug, label, parent?, aliases?, record?, image?}`.
+  Adapters: `facetTermsFromOptions(SearchTerm[] | TagOption[])` (the
+  browser's `useSearch().allTerms`, or `readTagOptions()`; carried-only
+  terms included, no images), `facetTermsFromTree(tree)` (records, with
+  images), `facetTermsFromBoard(readTagBoard())`. `carriersFromRows(byTerm
+map)` turns a whole by-term map into `{slug, tags}[]` for the server.
+- **Model** — `buildFacetModel(terms)` → `{terms, resolve(tag), ancestors,
+children, groups, groupsOf}`. `groups` are `FacetGroupShape {id, kind,
+label, root?, rows: slug[]}` in `FACET_GROUPS` order: food `course`,
+  `main-ingredient`, `cuisine`, `effort`, `collections`, `holidays`; drinks
+  `style`, `strength-method`, `spirit`, `families`. Root-backed groups take
+  their heading from the root record ("Speed & effort", "Spirit & base").
+  Cycles and dangling parents are broken (`tagOptions`' rule).
+- **Counts** — `countFacets(model, recipes: {tags?}[])` → `{total, kinds:
+{food, drinks}, subtree, drinks, own, ownDrinks, groups, other}`. Any set:
+  the corpus (/tags, the edit form), the current results (search's Narrow),
+  a term's recipes ("Narrow X"). A recipe counts once per term over its
+  subtree and aliases; `groups` is each group's distinct recipes (the
+  heading number, "Course 571"); `other` is the "N other tags" list.
+- **Rows** — `facetGroups(model, counts, {includeEmpty, keep, sort:
+"count"|"label", order: "fixed"|"total", kind})` → `FacetGroup {…shape,
+total, rows: FacetRow[]}`; `FacetRow {slug, label, count, ownCount,
+depth, group, aliases?, image?, rule?, children}` nested (Desserts ›
+  Cookies › Linzer Cookies), ties by label then slug. Holiday rows carry
+  `rule` (the `HOLIDAY_RULES` key via `holidayRuleKey`, so an alias dates
+  it) for `nextOccurrence` / `orderByNextOccurrence`. Helpers:
+  `flattenRows` (depth-first, for dot-leader lists), `limitRows(rows, n,
+keep)` → `{rows, hidden}` ("5 more", a selected row kept past the cut),
+  `narrowRows(model, counts, {exclude, limit, kind})` (a term page's chips:
+  rows some but not all of the set carries, minus the term's own line).
+- **Query (D3)** — over `queryLanguage.ts` (the brief's `hastQuery.ts` is the
+  HTML helper; the parser is `components/SearchForm/queryLanguage.ts`):
+  `activeFacetSlugs(model, q)` (positive `tag:` values resolved, so
+  `tag:Mains` presses Mains), `toggleFacet(model, q, slug)` (removes every
+  spelling of the term, else appends `tag:<slug>`), `queryKind` /
+  `setQueryKind(model, q, "drinks"|"food"|undefined)` (`tag:drink` /
+  `-tag:drink`), `facetQuery(slugs, kind?)` and `facetSearchHref` (/tags'
+  Combine → `/search?q=tag%3Amain%20tag%3Achicken`).
+
+**Checked on real shapes.** A read-only scratch clone of the content repo
+(`tmp/43/43f/`, deleted after) through `facetTermsFromTree` +
+`countFacets`: 825 recipes = 222 drinks + 603 food; Course 597 (Desserts 148
+› Cookies 45 › Linzer 3; Salads 77 › Bean Salads 48 — "bean salads" as
+carried resolves), Main ingredient 399, Cuisine 384, Speed & effort 327,
+Collections 69 (Fall Favorites 64, Syrups 5), Holidays 153 (8 rows, each
+dated); Style 217 (7), Strength & method 134 (Shaken 79, Zero-proof 30,
+Low-ABV 29), Spirit & base 201 (11), Families 123 (56 rows); **90 other
+tags** (house 18, lavender-syrup 3, 88 used once) — the canvas's 90.
+"Narrow Christmas" over its 41 recipes: Desserts 29, American 27, Cookies
+23, Easy 12, Breakfast 9, Chocolate 6 — the canvas's chips.
+
+**Decisions.**
+
+- **Df1 — Collections** are the _recorded_ roots that are no food facet
+  root, `drink`, `spirit` or `holidays` (today `fall`, `syrup`). A root that
+  is only a carried string (`house` before 43k) is an other tag; once 43k
+  gives `house` a root record it becomes a Collection with no code change.
+  A new facet root added to the vocabulary also lands in Collections until
+  it is listed in `FACET_ROOT_ORDER` (and `FACET_GROUPS`).
+- **Df2 — Style vs Strength & method.** `DRINK_STRENGTH_METHOD_SLUGS =
+zero-proof, low-abv, shaken`; Style is the rest of `DRINK_STYLE_SLUGS`
+  (sour, highball, collins, stirred, built, batch, warm-drinks). `stirred`
+  and `built` stay styles: the vocabulary's records and agent-mixology.md
+  call them styles, and canvas B files them there; `shaken` is the one
+  method tag (27c D1). No `blended` term exists. A slug in neither list
+  that sits under `drink` is a Family.
+- **Df3 — Families** are derived: children of `drink` in neither list (no
+  record field). A family's own children nest under it.
+- **Df4 — drinks groups count drinks only** (a recipe under `drink`), as
+  `/drinks` does (a `tea` cake is no Tea drink); food groups, Collections
+  and Holidays count every recipe in the set (holidays mix dishes and
+  drinks; Syrups are bar recipes). `kinds.food` is "not under `drink`".
+- **Df5 — Kind** is read from terms resolving to `drink` itself (any
+  spelling, `-` or `NOT`); a query saying both is no kind. `setQueryKind`
+  drops them all and appends one.
+- **Df6 — Other tags** = tags no term spells, plus terms with no record
+  (carried-only). Every record is placed (it hangs under a group's root or
+  row, or is a Collection), so a record is never "other".
+- **Df7 — row values are slugs** (`tag:main`), not labels: unique and never
+  quoted; activeness is resolved through the model, so typed labels
+  (`tag:Mains`) still press and un-press the row.
+- **Df8 — a listed slug stays in its list** wherever it sits: a style moved
+  under `holidays` one day would still be a Style row and not a holiday.
+
+**Gates.** `pnpm --filter recipe-editor typecheck` ✓, `pnpm --filter
+recipe-website exec tsc --noEmit` ✓, `pnpm exec vitest run` **135 files /
+2761 tests** ✓ (all through `heavy.sh`). No UI, no Playwright.
+
+**Roger to confirm.** Df2 — `stirred` and `built` as styles (the canvas and
+the records) rather than methods beside `shaken`; moving them is a
+one-line change to `DRINK_STRENGTH_METHOD_SLUGS`.
 
 ### 43k — Tag cleanup (content, orchestrator-run agent)
 
