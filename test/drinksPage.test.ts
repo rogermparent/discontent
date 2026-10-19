@@ -6,10 +6,17 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  alsoLine,
+  drinkMeta,
   drinksPageData,
   groupReady,
+  holidayPair,
+  isNewDrink,
+  shelfLabels,
+  shelfSourceLine,
 } from "../websites/recipe-website/common/controller/drinksPage";
 import type { RecipeListEntry } from "../websites/recipe-website/common/controller/paginationConfigs";
+import { parseDayKey } from "../websites/recipe-website/common/util/holidays";
 
 const tree = {
   drink: {
@@ -65,12 +72,6 @@ const data = drinksPageData({
 describe("drinksPageData", () => {
   it("counts every drink once", () => {
     expect(data.count).toBe(4);
-    expect(data.latest.map((card) => card.slug)).toEqual([
-      "margarita",
-      "poison-apple",
-      "negroni",
-      "gin-tonic",
-    ]);
   });
 
   it("counts spirits by drinks only, most first, empty ones left out", () => {
@@ -105,12 +106,24 @@ describe("drinksPageData", () => {
     ]);
   });
 
-  it("gives each card its base and style", () => {
-    const meta = new Map(data.latest.map((card) => [card.slug, card.meta]));
-    expect(meta.get("margarita")).toEqual(["Tequila", "Sour"]);
-    expect(meta.get("poison-apple")).toEqual(["Tequila", "Shaken"]);
-    expect(meta.get("negroni")).toEqual(["Gin"]);
-    expect(meta.get("gin-tonic")).toEqual(["Gin", "Highball"]);
+  it("gives each card its base and style, and the browser the same lookup", () => {
+    expect(data.seasonal[0].drinks[0].meta).toEqual(["Tequila", "Shaken"]);
+    const meta = (slug: string) =>
+      drinkMeta(recipes.find((entry) => entry.slug === slug)?.tags, data.meta);
+    expect(meta("margarita")).toEqual(["Tequila", "Sour"]);
+    expect(meta("poison-apple")).toEqual(["Tequila", "Shaken"]);
+    expect(meta("negroni")).toEqual(["Gin"]);
+    expect(meta("gin-tonic")).toEqual(["Gin", "Highball"]);
+    /* Tags as written, not slugs: "Gin" and "Highball" still read. */
+    expect(drinkMeta(["Gin", "Highball"], data.meta)).toEqual([
+      "Gin",
+      "Highball",
+    ]);
+    expect(drinkMeta(undefined, data.meta)).toEqual([]);
+    expect(data.meta).toEqual({
+      bases: { tequila: "Tequila", gin: "Gin", tea: "Tea" },
+      styles: { shaken: "Shaken", sour: "Sour", highball: "Highball" },
+    });
   });
 
   it("answers an empty page without a vocabulary", () => {
@@ -121,9 +134,129 @@ describe("drinksPageData", () => {
       styles: [],
       classics: [],
       seasonal: [],
-      latest: [],
+      meta: { bases: {}, styles: {} },
       familyOf: {},
     });
+  });
+});
+
+describe("the holiday pair (42d)", () => {
+  const holidays = [
+    { slug: "halloween" },
+    { slug: "christmas" },
+    { slug: "thanksgiving" },
+    /* No rule: never in the pair. */
+    { slug: "game-day" },
+  ];
+  const pair = (today: string) =>
+    holidayPair(holidays, parseDayKey(today)).map(
+      (holiday) => `${holiday.slug} ${holiday.days} ${holiday.slot}`,
+    );
+
+  it("is the two soonest within 180 days, the first now while in season", () => {
+    expect(pair("2026-10-15")).toEqual([
+      "halloween 16 now",
+      "thanksgiving 42 next",
+    ]);
+    /* After Thanksgiving, Christmas alone: next Halloween is 338 days off. */
+    expect(pair("2026-11-27")).toEqual(["christmas 28 now"]);
+  });
+
+  it("calls a first holiday more than 60 days off coming up, and hides past 180", () => {
+    /* The day after Christmas: next Halloween is 309 days off. */
+    expect(pair("2026-12-26")).toEqual([]);
+    expect(pair("2027-08-15")).toEqual([
+      "halloween 77 soon",
+      "thanksgiving 102 next",
+    ]);
+  });
+
+  it("dates a holiday by its rule when the slug has none", () => {
+    expect(
+      holidayPair(
+        [{ slug: "xmas", rule: "christmas" }, { slug: "game-day" }],
+        parseDayKey("2026-12-01"),
+      ),
+    ).toEqual([{ slug: "xmas", rule: "christmas", days: 24, slot: "now" }]);
+  });
+});
+
+describe("the shelf (42d)", () => {
+  it("shows exactly the list Count from counts", () => {
+    const browser = ["vodka", "Gin"];
+    const saved = ["gin", "tonic water"];
+    expect(shelfLabels("browser", browser, saved)).toEqual([
+      { item: "vodka", kind: "have" },
+      { item: "Gin", kind: "have" },
+    ]);
+    expect(shelfLabels("saved", browser, saved)).toEqual([
+      { item: "gin", kind: "saved" },
+      { item: "tonic water", kind: "saved" },
+    ]);
+    /* Both: this browser's first, then what only the second list has. */
+    expect(shelfLabels("both", browser, saved)).toEqual([
+      { item: "vodka", kind: "have" },
+      { item: "Gin", kind: "have" },
+      { item: "tonic water", kind: "saved" },
+    ]);
+    /* No second list: this browser's, whatever was chosen on another page. */
+    expect(shelfLabels("saved", browser)).toEqual([
+      { item: "vodka", kind: "have" },
+      { item: "Gin", kind: "have" },
+    ]);
+  });
+
+  it("says whose list it is", () => {
+    expect(shelfSourceLine("browser", undefined, 2)).toBe(
+      "From this browser's list — 2 things on the shelf.",
+    );
+    expect(shelfSourceLine("saved", "saved", 23)).toBe(
+      "From your saved list — 23 things on the shelf.",
+    );
+    expect(shelfSourceLine("saved", "house", 1)).toBe(
+      "From the house list — 1 thing on the shelf.",
+    );
+    expect(shelfSourceLine("both", "saved", 3)).toBe(
+      "From this browser and your saved list — 3 things on the shelf.",
+    );
+    expect(shelfSourceLine("browser", "saved", 0)).toBe(
+      "Nothing on the shelf yet — this browser's list is empty.",
+    );
+    expect(shelfSourceLine("both", "house", 0)).toBe(
+      "Nothing on the shelf yet.",
+    );
+  });
+});
+
+describe("NEW and the names after the cards (42d)", () => {
+  const day = 24 * 60 * 60 * 1000;
+  it("marks a drink NEW for 30 days", () => {
+    const now = Date.parse("2026-10-19");
+    expect(isNewDrink(now - day, now)).toBe(true);
+    expect(isNewDrink(now - 29 * day, now)).toBe(true);
+    expect(isNewDrink(now - 30 * day, now)).toBe(false);
+    /* Dated after today (a clock behind): not new, not negative. */
+    expect(isNewDrink(now + day, now)).toBe(false);
+  });
+
+  it("names what the cards leave out", () => {
+    const names = [
+      "Cranberry Moscow Mule (Spend With Pennies)",
+      "Cranberry Thyme Spritzer",
+      "Apple Cider Mimosa (A Couple Cooks)",
+      "Mulled Cider",
+      "Apple Cider Sangria",
+      "Homemade Apple Cider",
+    ];
+    expect(alsoLine(names, 7, 2)).toBe(
+      "Also: Apple Cider Mimosa, Mulled Cider, Apple Cider Sangria and 2 more.",
+    );
+    expect(alsoLine(names.slice(0, 4), 4, 2)).toBe(
+      "Also: Apple Cider Mimosa and Mulled Cider.",
+    );
+    expect(alsoLine(names.slice(0, 3), 3, 2)).toBe("Also: Apple Cider Mimosa.");
+    expect(alsoLine(names.slice(0, 2), 2, 2)).toBe("");
+    expect(alsoLine(names.slice(0, 4), 4, 4)).toBe("");
   });
 });
 

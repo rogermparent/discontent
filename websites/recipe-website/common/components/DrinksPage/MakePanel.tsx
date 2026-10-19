@@ -1,39 +1,120 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
+import { ArrowRight } from "lucide-react";
 import { Button } from "@discontent/component-library/components/ui/button";
+import { Input } from "@discontent/component-library/components/ui/input";
 import { Skeleton } from "@discontent/component-library/components/ui/skeleton";
-import { groupReady, type DrinksPageData } from "../../controller/drinksPage";
-import type { SecondaryInventory } from "../../controller/secondaryInventory";
-import type { BuyNext, RecipeMatch } from "../../util/makeable";
+import { cn } from "@discontent/component-library/lib/utils";
+import {
+  drinkMeta,
+  groupReady,
+  isNewDrink,
+  shelfLabels,
+  shelfSourceLine,
+  type DrinkMetaLookup,
+  type DrinksPageData,
+} from "../../controller/drinksPage";
+import type { MassagedRecipeEntry } from "../../controller/data/read";
+import {
+  dedupeItems,
+  inventoryKey,
+  parseInventoryText,
+} from "../../util/inventoryText";
+import type { RecipeMatch } from "../../util/makeable";
+import { RecipeCardPlaceholder } from "../List/shared";
+import { PureRecipeImage } from "../RecipeImage/PureRecipeImage";
+import { CountFromControl, type SecondList } from "../MakePage/InventoryPanel";
+import { MAKE_KINDS, withFeature } from "../MakePage/kinds";
+import { BuyNextList } from "../MakePage/MakeResults";
+import { MakeQuestion } from "../MakePage/MakeQuestion";
+import { MakeTicker } from "../MakePage/MakeTicker";
+import { useUndoToast } from "../MakePage/Toast";
 import { useMakeable } from "../MakePage/useMakeable";
+import { useToday } from "../Homepage/useToday";
 
 /** The judge's scope on this page: every drink (`tag:` reaches the subtree). */
 export const DRINKS_SCOPE = "tag:drink";
 /** `/make`, scoped to drinks — where the list is edited. */
 export const DRINKS_MAKE_HREF = `/make?q=${encodeURIComponent(DRINKS_SCOPE)}`;
-/** Ready drinks shown as buttons before "+N more". */
-const READY_LIMIT = 12;
+/** The question's kind, fixed: `/make`'s Drinks. */
+const DRINKS_KIND = MAKE_KINDS.find((kind) => kind.id === "drinks")!;
+/** Pour now's entries before "+N more in Make". */
+const POUR_LIMIT = 8;
+/** Buy next's rows here (`/make` lists them all). */
+const BUY_NEXT_LIMIT = 3;
+/** A phone shows this many labels before "+N more". */
+const PHONE_LABELS = 10;
+
+/** `/make` asking "What drinks can I make with <item>?". */
+export function featureHref(item: string): string {
+  return `/make?q=${encodeURIComponent(withFeature(DRINKS_SCOPE, item))}`;
+}
 
 const drinks = (count: number) => (count === 1 ? "drink" : "drinks");
 
-const readyClassName =
-  "inline-flex min-h-11 items-center rounded-lg bg-primary px-4 font-semibold text-primary-foreground shadow-xs transition-colors hover:bg-primary/90";
+const FOCUS =
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
+
+/** A picture for a Pour now row: the photo, or the monogram. */
+function Thumb({ recipe }: { recipe?: MassagedRecipeEntry }) {
+  return (
+    <div className="h-15 w-12 shrink-0 overflow-hidden rounded-md bg-muted [&_span]:text-xl">
+      {recipe?.image ? (
+        <PureRecipeImage
+          slug={recipe.slug}
+          image={recipe.image}
+          alt=""
+          width={400}
+          height={600}
+          className="h-full w-full object-cover"
+          fallback={<RecipeCardPlaceholder name={recipe.name} />}
+        />
+      ) : (
+        <RecipeCardPlaceholder name={recipe?.name} />
+      )}
+    </div>
+  );
+}
+
+export function NewMark() {
+  return (
+    <span className="mr-1.5 inline-block rounded-sm bg-primary px-1 align-[2px] font-mono text-[0.65rem] leading-4 font-semibold tracking-[0.08em] text-primary-foreground">
+      NEW
+    </span>
+  );
+}
 
 /**
- * The ready drinks as buttons (U3), several sources of one drink behind one
- * entry (38a): "Daiquiri · 2 drinks" opens the family's term page.
+ * Pour now (42d, canvas B): what the counted list makes right now, several
+ * sources of one drink behind one entry (38a's `groupReady`): "Daiquiri · 2
+ * drinks" opens the family's term page. Each row: the picture, the name,
+ * and base · style (`drinkMeta`), plus what has to be made first.
  */
-function ReadyLinks({
+function PourList({
   matches,
   familyOf,
+  meta,
+  recipes,
+  now,
 }: {
   matches: RecipeMatch[];
   familyOf: DrinksPageData["familyOf"];
+  meta: DrinkMetaLookup;
+  recipes: Map<string, MassagedRecipeEntry>;
+  now: number;
 }) {
   const entries = groupReady(matches, familyOf);
-  const shown = entries.slice(0, READY_LIMIT);
+  const shown = entries.slice(0, POUR_LIMIT);
   const more =
     matches.length -
     shown.reduce(
@@ -42,266 +123,422 @@ function ReadyLinks({
       0,
     );
   return (
-    <ul className="flex flex-wrap gap-2" data-testid="drinks-ready">
-      {shown.map((entry) =>
-        entry.kind === "family" ? (
-          <li key={`family:${entry.slug}`}>
-            <Link href={`/tags/${entry.slug}`} className={readyClassName}>
-              {entry.label}&nbsp;·&nbsp;
-              <span className="font-mono">{entry.matches.length}</span>
-              &nbsp;drinks
-            </Link>
-          </li>
-        ) : (
-          <li key={entry.match.recipe.slug}>
-            <Link
-              href={`/recipe/${entry.match.recipe.slug}`}
-              className={readyClassName}
-            >
-              {entry.match.recipe.name}
-            </Link>
-          </li>
-        ),
-      )}
-      {more > 0 && (
-        <li>
-          <Link
-            href={DRINKS_MAKE_HREF}
-            className="inline-flex min-h-11 items-center rounded-lg border border-border px-4 font-medium hover:text-primary"
-          >
-            <span className="font-mono">+{more}</span>&nbsp;more
-          </Link>
-        </li>
-      )}
-    </ul>
-  );
-}
-
-function BuyNextColumn({ buyNext }: { buyNext: BuyNext[] }) {
-  const headingId = useId();
-  return (
-    <section
-      aria-labelledby={headingId}
-      data-testid="drinks-buy-next"
-      className="flex flex-[1_1_18rem] flex-col gap-1 bg-secondary p-6 text-secondary-foreground sm:p-7"
-    >
-      <h3
-        id={headingId}
-        className="mb-2 font-mono text-xs uppercase tracking-[0.16em]"
+    <>
+      <ul
+        className="m-0 flex list-none flex-col p-0"
+        data-testid="drinks-ready"
       >
-        Buy next
-      </h3>
-      {buyNext.length === 0 ? (
-        <p className="text-sm">
-          Nothing on the list is one or two items from a drink.
-        </p>
-      ) : (
-        <ol className="flex flex-col">
-          {buyNext.map((entry) => (
+        {shown.map((entry) => {
+          const first =
+            entry.kind === "family" ? entry.matches[0] : entry.match;
+          const recipe = recipes.get(first.recipe.slug);
+          const line = drinkMeta(recipe?.tags, meta);
+          const via = entry.kind === "recipe" ? entry.match.via : [];
+          if (via.length > 0) {
+            line.push(`${via.map((step) => step.name).join(", ")} first`);
+          }
+          const fresh =
+            entry.kind === "recipe" &&
+            recipe?.date !== undefined &&
+            isNewDrink(recipe.date, now);
+          return (
             <li
-              key={entry.label}
-              className="flex items-baseline gap-3 border-b border-border py-2 last:border-b-0"
+              key={
+                entry.kind === "family"
+                  ? `family:${entry.slug}`
+                  : entry.match.recipe.slug
+              }
+              className="border-t border-border first:border-t-0"
             >
-              <span className="flex-1 font-medium">{entry.label}</span>
-              <span className="font-mono text-sm">
-                {entry.unlocks > 0
-                  ? `+${entry.unlocks} ${drinks(entry.unlocks)}`
-                  : `${entry.helps} closer`}
-              </span>
-            </li>
-          ))}
-        </ol>
-      )}
-    </section>
-  );
-}
-
-/**
- * The secondary group (U6): what the other list — the operator's saved
- * inventory in a signed-in editor, or the house snapshot the operator chose
- * to share on the export — makes that this browser's list doesn't. Below
- * the panel, collapsed, and never in its counts.
- */
-function SecondaryGroup({
-  label,
-  matches,
-}: {
-  label: string;
-  matches: RecipeMatch[];
-}) {
-  return (
-    <details
-      data-testid="drinks-secondary"
-      className="rounded-lg border border-border bg-card px-4 py-3"
-    >
-      <summary className="cursor-pointer font-semibold">
-        {label}{" "}
-        <span className="font-mono text-sm font-normal text-muted-foreground">
-          {matches.length}
-        </span>
-      </summary>
-      {matches.length === 0 ? (
-        <p className="mt-2 text-sm text-muted-foreground">
-          Nothing more than this browser&apos;s list makes.
-        </p>
-      ) : (
-        <ul className="mt-3 flex flex-wrap gap-2">
-          {matches.map(({ recipe }) => (
-            <li key={recipe.slug}>
               <Link
-                href={`/recipe/${recipe.slug}`}
-                className="inline-flex min-h-10 items-center rounded-lg border border-border px-3 text-sm font-medium hover:text-primary"
+                href={
+                  entry.kind === "family"
+                    ? `/tags/${entry.slug}`
+                    : `/recipe/${entry.match.recipe.slug}`
+                }
+                className={cn(
+                  "group grid min-h-16 grid-cols-[3rem_minmax(0,1fr)] items-center gap-3 rounded-sm py-2",
+                  FOCUS,
+                )}
               >
-                {recipe.name}
+                <Thumb recipe={recipe} />
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className="font-display leading-tight font-semibold group-hover:text-primary">
+                    {fresh && <NewMark />}
+                    {entry.kind === "family" ? (
+                      <>
+                        {entry.label} ·{" "}
+                        <span className="font-mono">
+                          {entry.matches.length}
+                        </span>{" "}
+                        drinks
+                      </>
+                    ) : (
+                      entry.match.recipe.name
+                    )}
+                  </span>
+                  {line.length > 0 && (
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {line.join(" · ")}
+                    </span>
+                  )}
+                </span>
               </Link>
             </li>
-          ))}
-        </ul>
+          );
+        })}
+      </ul>
+      {more > 0 && (
+        <p className="m-0 border-t border-border py-2.5 text-sm">
+          <Link
+            href={DRINKS_MAKE_HREF}
+            className="text-primary underline-offset-4 hover:underline"
+          >
+            <span className="font-mono">+{more}</span> more in Make
+          </Link>
+        </p>
       )}
-    </details>
+    </>
   );
 }
 
 /**
- * `/drinks`' top panel (U3): "You can mix N drinks right now", the ready
- * drinks as buttons, and Buy next — `/make`'s judge over every drink, from
- * this browser's list (U6) in both apps.
+ * `/drinks`' opening (42d, canvas B "Pour from your shelf"): the question
+ * — `/make`'s `MakeQuestion` with the kind fixed to drinks, its word a link
+ * to Make — over the shelf as tape labels, the ticker, then Pour now and
+ * Buy next beside them.
  *
- * `secondary` comes from `secondaryInventory()`: the operator's saved list
- * in a signed-in editor; elsewhere the house snapshot when the export option
- * is on, and nothing by default. `familyOf` is the page data's drink →
- * families map, which groups the ready list (38a).
+ * **The shelf is what counts** (41h's Count from, the same per-browser
+ * setting as `/make`): this browser's list by default (U6), in both apps;
+ * with a `second` list — the signed-in editor's saved list, or the house
+ * list an export shares (`secondaryInventory()`, nothing by default) — the
+ * same Count from control, and the labels of whichever list it counts.
+ * A label asks Make "What drinks can I make with lime?". "Add to the shelf"
+ * adds to this browser's list (Undo in the toast); the saved list is edited
+ * on Make (42a), and the house list never.
  */
-export function DrinksMakePanel({
-  secondary,
+export function DrinksShelf({
+  count,
+  second,
   familyOf,
+  meta,
 }: {
-  secondary?: SecondaryInventory;
-  familyOf?: DrinksPageData["familyOf"];
+  /** Every drink in the book. */
+  count: number;
+  second?: SecondList;
+  familyOf: DrinksPageData["familyOf"];
+  meta: DrinkMetaLookup;
 }) {
-  const headingId = useId();
-  const { status, have, analysis, withSecondary, retry } = useMakeable(
-    DRINKS_SCOPE,
-    secondary?.items,
+  const router = useRouter();
+  const pourId = useId();
+  const addId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const { show: showToast, element: toastElement } = useUndoToast(inputRef);
+  const {
+    status,
+    stored,
+    inventory,
+    have,
+    source,
+    setSource,
+    counted,
+    analysis,
+    recipes,
+    retry,
+  } = useMakeable(DRINKS_SCOPE, second?.items);
+
+  const labels = useMemo(
+    () => shelfLabels(source, have, second?.items),
+    [source, have, second],
   );
-  const ready = analysis?.canMake ?? [];
-  const secondaryOnly = useMemo(() => {
-    if (!withSecondary) return [];
-    const mine = new Set(ready.map((match) => match.recipe.slug));
-    return withSecondary.canMake.filter(
-      (match) => !mine.has(match.recipe.slug),
+  const union = useMemo(
+    () => (second ? dedupeItems([...have, ...second.items]).length : 0),
+    [have, second],
+  );
+  const [allLabels, setAllLabels] = useState(false);
+  const [draft, setDraft] = useState("");
+  /* NEW is judged in the browser (the export's HTML would go stale). */
+  const today = useToday(null);
+  const now = today ? Date.parse(today) : 0;
+
+  /* Undo reads the list as it is when it runs, not when the toast went up. */
+  const haveRef = useRef(have);
+  useEffect(() => {
+    haveRef.current = have;
+  });
+  const addItems = (items: string[]) => {
+    const before = new Set(haveRef.current.map(inventoryKey));
+    const fresh = dedupeItems(items).filter(
+      (item) => !before.has(inventoryKey(item)),
     );
-  }, [withSecondary, ready]);
+    if (fresh.length === 0) {
+      showToast(
+        items.length === 1
+          ? `${items[0]} is already on the shelf.`
+          : "They're already on the shelf.",
+      );
+      return;
+    }
+    inventory.add(fresh);
+    const keys = new Set(fresh.map(inventoryKey));
+    showToast(
+      fresh.length === 1
+        ? `Added ${fresh[0]}.`
+        : `Added ${fresh.length} items.`,
+      () =>
+        inventory.setHave(
+          haveRef.current.filter((item) => !keys.has(inventoryKey(item))),
+        ),
+    );
+  };
+  const onAdd = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const { items } = parseInventoryText(draft);
+    if (items.length > 0) addItems(items);
+    setDraft("");
+  };
 
-  const invitation = (
-    <div className="flex flex-col items-start gap-4 p-6 sm:p-7">
-      <h2
-        id={headingId}
-        className="font-display text-3xl font-bold leading-none tracking-tight sm:text-4xl"
-      >
-        What&apos;s on your shelf?
-      </h2>
-      <p className="max-w-prose text-muted-foreground">
-        Tell it the bottles, mixers and syrups you have, and the drinks you can
-        mix show up here.
-      </p>
-      <Button asChild>
-        <Link href={DRINKS_MAKE_HREF}>Add what you have</Link>
-      </Button>
-    </div>
-  );
+  const browserCounts = source !== "saved";
+  const ready = analysis?.canMake ?? [];
 
-  let body;
-  /* An empty list invites at once: it never waits on, or fails with, the
-   * corpus or the ingredient lines it has no use for. */
-  if (status === "empty") {
-    body = invitation;
-  } else if (status === "error") {
-    body = (
-      <div className="flex flex-col items-start gap-3 p-6 sm:p-7">
-        <h2 id={headingId} className="font-display text-2xl font-bold">
-          Drinks are unavailable
-        </h2>
+  let pour;
+  if (status === "error") {
+    pour = (
+      <div className="flex flex-col items-start gap-3 py-3">
+        <p className="m-0 font-semibold">Drinks are unavailable.</p>
         <Button type="button" onClick={retry}>
           Try again
         </Button>
       </div>
     );
+  } else if (status === "empty") {
+    pour = (
+      <p
+        className="m-0 py-3 text-sm text-muted-foreground"
+        data-testid="drinks-pour-empty"
+      >
+        Add the bottles, mixers and syrups on your shelf, and the drinks you can
+        pour show up here.
+      </p>
+    );
   } else if (status === "pending" || !analysis) {
-    body = (
-      <div className="flex w-full flex-col gap-4 p-6 sm:p-7" aria-busy="true">
-        <h2 id={headingId} className="sr-only">
-          What you can mix
-        </h2>
-        <Skeleton className="h-3 w-40" />
-        <Skeleton className="h-10 w-3/4" />
-        <div className="flex gap-2">
-          <Skeleton className="h-11 w-28" />
-          <Skeleton className="h-11 w-32" />
-          <Skeleton className="h-11 w-24" />
-        </div>
+    pour = (
+      <div className="flex flex-col gap-3 py-3" aria-busy="true">
+        <span className="sr-only">Loading what you can pour</span>
+        {[0, 1, 2].map((row) => (
+          <div key={row} className="flex items-center gap-3">
+            <Skeleton className="h-15 w-12" />
+            <Skeleton className="h-4 w-40" />
+          </div>
+        ))}
       </div>
     );
-  } else if (have.length === 0) {
-    /* Nothing here, but a secondary list to judge: the invitation still
-     * leads, and the secondary group shows below. */
-    body = invitation;
-  } else {
+  } else if (ready.length === 0) {
     const oneAway = analysis.oneAway.length;
-    body = (
-      <>
-        <div className="flex flex-[999_1_26rem] flex-col gap-5 p-6 sm:p-7">
-          <div className="flex flex-col gap-1.5">
-            <p className="font-mono text-xs uppercase tracking-[0.16em] text-muted-foreground">
-              <Link href={DRINKS_MAKE_HREF} className="hover:text-primary">
-                {have.length} on hand
-              </Link>
-            </p>
-            <h2
-              id={headingId}
-              data-testid="drinks-can-mix"
-              className="font-display text-3xl font-bold leading-none tracking-tight sm:text-4xl"
-            >
-              {ready.length === 0 ? (
-                "Nothing to mix yet"
-              ) : (
-                <>
-                  You can mix <span className="font-mono">{ready.length}</span>{" "}
-                  {drinks(ready.length)} right now
-                </>
-              )}
-            </h2>
-          </div>
-          {ready.length > 0 && (
-            <ReadyLinks matches={ready} familyOf={familyOf ?? {}} />
-          )}
-          {oneAway > 0 && (
-            <Link
-              href={DRINKS_MAKE_HREF}
-              className="self-start text-sm text-primary underline-offset-4 hover:underline"
-            >
-              See the <span className="font-mono">{oneAway}</span>{" "}
-              {drinks(oneAway)} one item away
-            </Link>
-          )}
-        </div>
-        <BuyNextColumn buyNext={analysis.buyNext} />
-      </>
+    pour = (
+      <div className="flex flex-col items-start gap-2 py-3">
+        <p className="m-0 text-sm" data-testid="drinks-pour-empty">
+          Nothing to pour yet.
+        </p>
+        {oneAway > 0 && (
+          <Link
+            href={DRINKS_MAKE_HREF}
+            className="text-sm text-primary underline-offset-4 hover:underline"
+          >
+            See the <span className="font-mono">{oneAway}</span>{" "}
+            {drinks(oneAway)} one item away
+          </Link>
+        )}
+      </div>
+    );
+  } else {
+    pour = (
+      <PourList
+        matches={ready}
+        familyOf={familyOf}
+        meta={meta}
+        recipes={recipes}
+        now={now}
+      />
     );
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <section
-        aria-labelledby={headingId}
-        data-testid="drinks-make"
-        className="flex flex-wrap overflow-hidden rounded-xl border border-border bg-card text-card-foreground"
-      >
-        {body}
-      </section>
-      {secondary && withSecondary && (
-        <SecondaryGroup label={secondary.label} matches={secondaryOnly} />
-      )}
+    <div
+      data-testid="drinks-shelf"
+      className="grid items-start gap-10 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]"
+    >
+      <div className="flex min-w-0 flex-col gap-5">
+        <p
+          data-testid="drinks-count"
+          className="m-0 font-mono text-xs tracking-[0.1em] text-muted-foreground uppercase"
+        >
+          Drinks · <span className="tabular-nums">{count}</span> in the book
+        </p>
+        <MakeQuestion
+          kind={DRINKS_KIND}
+          featured={[]}
+          kindHref={DRINKS_MAKE_HREF}
+        />
+        <p
+          className="m-0 max-w-[36rem] text-muted-foreground"
+          data-testid="drinks-shelf-source"
+        >
+          {stored ? (
+            <>
+              {shelfSourceLine(source, second?.kind, counted.length)}
+              {labels.length > 0 && " Tap a label to ask about it."}
+            </>
+          ) : (
+            "Reading your shelf…"
+          )}
+        </p>
+        {labels.length > 0 && (
+          <ul
+            aria-label="On the shelf"
+            data-testid="drinks-shelf-labels"
+            className="m-0 flex list-none flex-wrap gap-x-1.5 gap-y-2 p-0"
+          >
+            {labels.map((label, i) => (
+              <li
+                key={`${label.kind}:${inventoryKey(label.item)}`}
+                className={cn(
+                  "make-tape",
+                  !allLabels && i >= PHONE_LABELS && "max-sm:hidden",
+                )}
+                data-kind={label.kind}
+              >
+                <Link
+                  href={featureHref(label.item)}
+                  className={cn(
+                    "inline-flex min-h-7 items-center px-2.5 py-1 font-mono text-[0.8rem] leading-none",
+                    FOCUS,
+                  )}
+                >
+                  {label.item}
+                </Link>
+              </li>
+            ))}
+            {!allLabels && labels.length > PHONE_LABELS && (
+              <li className="sm:hidden">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 font-mono text-[0.8rem]"
+                  onClick={() => setAllLabels(true)}
+                >
+                  +{labels.length - PHONE_LABELS} more
+                </Button>
+              </li>
+            )}
+          </ul>
+        )}
+        {counted.length > 0 && (
+          <MakeTicker
+            total={count}
+            canMake={ready.length}
+            oneAway={analysis?.oneAway.length ?? 0}
+            twoAway={analysis?.twoAway.length ?? 0}
+            kind={DRINKS_KIND}
+            pending={status !== "ready"}
+          />
+        )}
+        {second && (
+          <div className="max-w-sm">
+            <CountFromControl
+              value={source}
+              onChange={setSource}
+              browser={have.length}
+              second={second}
+              union={union}
+            />
+          </div>
+        )}
+        <div className="flex flex-wrap items-end gap-2.5">
+          {browserCounts ? (
+            <form
+              onSubmit={onAdd}
+              className="flex min-w-0 grow basis-72 flex-col gap-1.5 sm:max-w-sm"
+            >
+              <label htmlFor={addId} className="text-sm font-medium">
+                Add to the shelf
+              </label>
+              <div className="flex gap-2">
+                <Input
+                  ref={inputRef}
+                  id={addId}
+                  data-testid="drinks-add"
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  placeholder="A bottle, mixer or syrup"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="bg-card"
+                />
+                <Button type="submit" variant="outline">
+                  Add
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <p className="m-0 grow basis-72 text-sm text-muted-foreground">
+              {second?.kind === "house"
+                ? "The house list is shared read-only."
+                : "Edit the saved list on Make."}
+            </p>
+          )}
+          <Button asChild>
+            <Link href={DRINKS_MAKE_HREF}>
+              Open in Make
+              <ArrowRight aria-hidden />
+            </Link>
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-4">
+        <section
+          aria-labelledby={pourId}
+          data-testid="drinks-pour"
+          className="rounded-lg border border-border bg-card px-4 pt-3 pb-1 text-card-foreground sm:px-5"
+        >
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4">
+            <h2
+              id={pourId}
+              className="m-0 font-display text-xl leading-7 font-semibold"
+            >
+              Pour now
+              {status === "ready" && (
+                <>
+                  {" "}
+                  <span className="font-mono text-sm font-normal text-muted-foreground">
+                    {ready.length}
+                  </span>
+                </>
+              )}
+            </h2>
+            <Link
+              href={DRINKS_MAKE_HREF}
+              className="text-sm text-primary underline-offset-4 hover:underline"
+            >
+              All in Make
+            </Link>
+          </div>
+          {pour}
+        </section>
+        {status === "ready" && analysis && analysis.buyNext.length > 0 && (
+          <BuyNextList
+            buyNext={analysis.buyNext.slice(0, BUY_NEXT_LIMIT)}
+            recipes={recipes}
+            featured={[]}
+            kind={DRINKS_KIND}
+            onHave={(item) => addItems([item])}
+            onFeature={(item) => router.push(featureHref(item))}
+          />
+        )}
+      </div>
+      {toastElement}
     </div>
   );
 }
