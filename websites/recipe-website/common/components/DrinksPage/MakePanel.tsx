@@ -467,7 +467,7 @@ export function DrinksShelf({
               <>
                 <Link
                   href={DRINKS_MAKE_HREF}
-                  className="text-primary underline-offset-4 hover:underline"
+                  className="text-primary underline underline-offset-4"
                 >
                   edit it on Make
                 </Link>
