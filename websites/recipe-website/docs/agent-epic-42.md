@@ -979,20 +979,21 @@ confirm-in-place remove. The per-browser state lives in `shopState.ts`.
 
 **Gates** (all through the capped slot):
 
-- `pnpm --filter recipe-editor typecheck` and
-  `pnpm --filter recipe-website exec tsc --noEmit` both clean on the final
-  head.
-- `pnpm exec vitest run`: 2432/2433 the first time. The one failure was
-  `inventory.test`'s boundary grep (Tg6), fixed by rewording two comments.
-  Then the inventory, shopping, shoppingView, tick-sync, tick-queue and
-  shoppingPage files ran at 162/162.
-- `shoppingView`, `shoppingTickSync` and `shoppingTickQueue` are unchanged
-  and green.
+- After `origin/main` (42a, 42c1, 42e) was merged in:
+  - `pnpm --filter recipe-editor typecheck` and
+    `pnpm --filter recipe-website exec tsc --noEmit` are both clean.
+  - `pnpm exec vitest run`: **124 files, 2540/2540**.
+  - Before the merge, the first full run was 2432/2433. The one failure
+    was `inventory.test`'s boundary grep (Tg6), fixed by rewording two
+    comments.
+  - `shoppingView`, `shoppingTickSync` and `shoppingTickQueue` are
+    unchanged and green.
 - Playwright in Docker, production build (`DOCKER=1 heavy-pw.sh … shopping
 accessibility.spec`): `shopping.spec`, `shopping-modes.spec` and
-  `accessibility.spec`, e2e and mobile, **87/87**.
-- The same specs in dev mode (`docker-pw.sh` without `PLAYWRIGHT_BUILD`):
-  **87/87**.
+  `accessibility.spec`, e2e and mobile, **92/92** on the merged head. It
+  was 87/87 before the merge; `accessibility.spec` gained tests on main.
+- The same specs in dev mode (`docker-pw.sh` without `PLAYWRIGHT_BUILD`),
+  before the merge: **87/87**.
 - The CLI/MCP `shopping_get` path (`readShoppingView`) is untouched, so no
   byte check was needed.
 
@@ -1007,7 +1008,9 @@ accessibility.spec`): `shopping.spec`, `shopping-modes.spec` and
 
 Each one was opened and compared with B-desktop, B-phone and
 B-plan-phone. The layout, order and copy follow the boards. The numbers
-are the fixture's own.
+are the fixture's own. The baselines were rewritten with
+`--update-snapshots=all` on the merged head, with 42a's faint outline
+borders, so 42b's tighter tolerance meets exact images.
 
 **Roger to confirm.**
 
