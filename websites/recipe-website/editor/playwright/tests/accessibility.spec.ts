@@ -104,6 +104,13 @@ test.describe("Accessibility (axe)", () => {
       .getByRole("radio", { name: /^Both/ })
       .check();
     await expect(main.getByTestId("make-second-labels")).toBeVisible();
+    /* 42a: the saved labels' × and "Add to saved list" are in the scan. */
+    await expect(
+      main.getByRole("button", { name: "Remove gin from the saved list" }),
+    ).toBeVisible();
+    await expect(
+      main.getByLabel("Add to saved list", { exact: true }),
+    ).toBeVisible();
     await main.getByRole("button", { name: "Save to editor" }).click();
     await expect(main.getByTestId("make-save-confirm")).toBeVisible();
     await expect(main.getByTestId("make-can")).toBeVisible();
