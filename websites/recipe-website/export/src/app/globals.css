@@ -4,6 +4,8 @@
 @import "../../../../../packages/component-library/styles/theme.css";
 /* `/make`'s tape labels (41h); the editor imports the same file. */
 @import "../../node_modules/recipe-website-common/components/MakePage/make.css";
+/* The recipe page's columns (42c1); the editor imports the same file. */
+@import "../../node_modules/recipe-website-common/components/View/recipe.css";
 @source "../../node_modules/recipe-website-common/components";
 @source "../../node_modules/@discontent/component-library/components";
 

@@ -20,6 +20,7 @@ import {
 } from "./Appearance";
 import { PaletteTrigger } from "../CommandPalette/PaletteTrigger";
 import { StickyChromeToggle } from "./useStickyChrome";
+import { WideRecipeToggle } from "./useWideRecipe";
 import {
   isCurrentPath,
   NAV_ICONS,
@@ -137,9 +138,15 @@ export function HeaderNav({
    * the sheet is `md:hidden`, and both Radix surfaces unmount when closed.
    */
   const stickyChromeField = (
-    <AppearanceField label="Sticky headers">
-      <StickyChromeToggle />
-    </AppearanceField>
+    <>
+      <AppearanceField label="Sticky headers">
+        <StickyChromeToggle />
+      </AppearanceField>
+      {/* 42c1: the recipe page's three columns at 1600px and wider. */}
+      <AppearanceField label="Wide recipe columns">
+        <WideRecipeToggle />
+      </AppearanceField>
+    </>
   );
 
   return (
