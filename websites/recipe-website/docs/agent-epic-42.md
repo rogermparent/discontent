@@ -924,9 +924,17 @@ that.
 - Portfolio `visual.spec` (11 baselines), `--repeat-each=3 --retries=0`:
   - **build: 33 passed**.
   - **dev: 33 passed**.
+- **After merging main** (42a's outline borders, 42c1 and 42e):
+  - Every runner above ran again. The recipe selection grew to 50 tests
+    with `holidays.spec` and `recipe-cooking-order.spec` (51 baselines).
+  - Recipe: **build 150 passed** (5.1 min), **dev 150 passed** (6.6 min).
+  - Portfolio: **build 33 passed**, **dev 33 passed**. 42a's shared
+    button and toggle change moves no portfolio capture.
 - No retries anywhere; no flaky test, no exit 137.
-- `pnpm --filter recipe-editor typecheck`: clean. It includes
-  `playwright/**`.
+- `pnpm --filter recipe-editor typecheck`: clean before and after the
+  merge. It includes `playwright/**`, so it checks every
+  `snapshotPage` / `snapshotLocator` caller against the new
+  `SnapshotOptions`.
 - `pnpm --filter recipe-website exec tsc --noEmit`: clean.
 - Portfolio editor `tsc --noEmit`: clean.
 - `pnpm exec vitest run`: **119 files, 2 410 tests passed**.
