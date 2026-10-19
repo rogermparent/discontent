@@ -54,12 +54,13 @@ describe("parseIngredientLine — every real drink line", () => {
     ["1/2 oz ginger syrup (Toschi)", "ginger syrup"],
     ["1/4 oz lavender syrup", "lavender syrup"],
     ["Tonic water, to top", "tonic water"],
-    ["2 cups dry red wine, such as Cabernet Sauvignon", "dry red wine"],
+    /* `dry` before a red or white wine says nothing you buy by (43n). */
+    ["2 cups dry red wine, such as Cabernet Sauvignon", "red wine"],
     ["1 oz cinnamon syrup (Toschi)", "cinnamon syrup"],
     ["A few orange slices", "orange slice"],
     [
       "3 cups dry red wine, such as Cabernet Sauvignon (about one bottle)",
-      "dry red wine",
+      "red wine",
     ],
     ["1 oz mango syrup (Toschi)", "mango syrup"],
     ["1 orange, chopped", "orange"],
@@ -146,7 +147,8 @@ describe("parseIngredientLine — 25f's parser findings, fixed (27c)", () => {
     ["2 dashes hot sauce", "hot sauce"],
     ["1 cup hot water", "water"],
     /* A `plus|and <qty> <unit>` chain is all amount. */
-    ["1/2 cup plus 2 tablespoons white sugar", "white sugar"],
+    /* White sugar is granulated sugar (43n). */
+    ["1/2 cup plus 2 tablespoons white sugar", "granulated sugar"],
     ["1 cup and 1 tablespoon flour", "flour"],
     /* `unit or unit`: either container. */
     ["1 (46- to 48-oz) bottle or can tomato juice", "tomato juice"],
@@ -228,7 +230,7 @@ describe("parseIngredientLine — quantities, units and alternatives", () => {
       parseIngredientLine(
         "1 tsp kosher salt & freshly ground black pepper",
       ).map(requirementLabel),
-    ).toEqual(["kosher salt", "ground black pepper"]);
+    ).toEqual(["kosher salt", "black pepper"]);
   });
 
   it("drops measures in parentheses but keeps names as aliases", () => {
@@ -455,5 +457,220 @@ describe("38d: OR: lines and a bare pinch", () => {
     expect(label("pinch salt")).toBe("salt");
     expect(label("Dash Angostura bitters")).toBe("angostura bitters");
     expect(label("2 pinches salt")).toBe("salt");
+  });
+});
+
+describe("parseIngredientLine — ranges, dashes and amount shapes (43n)", () => {
+  /*
+   * Real lines from the corpus survey (a read-only dump of every line of a
+   * scratch clone), each beside the name it now reads as — and, in the
+   * comment, what it read before.
+   */
+  const m = (n: string) => `<Multiplyable baseNumber="${n}" />`;
+  it.each([
+    /* balela-salad: `to cup italian parsley`, `to cup mint`. */
+    [
+      `${m("1/2")} cup to ${m("1")} cup Italian parsley – chopped`,
+      "italian parsley",
+    ],
+    [`${m("1/2")} cup to ${m("1")} cup fresh mint- chopped`, "mint"],
+    [
+      `${m("1/4")}- ${m("1/2")} teaspoon cayenne or aleppo chili flakes`,
+      "cayenne pepper or aleppo chili flake",
+    ],
+    [
+      `${m("3")} cups cooked garbanzo beans- ( ${m("2")} cans, drained and rinsed)`,
+      "cooked chickpea",
+    ],
+    [`${m("1")} red bell pepper-diced`, "red bell pepper"],
+    /* Other range ends: `to cup chocolate chip`, `to cup water`. */
+    ["1/2 cup to 2/3 cup chocolate chips", "chocolate chip"],
+    ["3/4 cup to 7/8 cup (170g to 198g) lukewarm water", "water"],
+    ["1 cup to 1 cup plus 2 tablespoons (227g to 255g) boiling water", "water"],
+    /* The same amount two ways (Lagerstrom): `or 2c heavy cream`. */
+    ["125g or 1/2c heavy cream", "heavy cream"],
+    ["75g or about 1/3c aged balsamic", "aged balsamic"],
+    ["200g or 3/4c+1tbsp water", "water"],
+    ["100g or 2 large carrots, julienned", "carrot"],
+    ["20g or 1/4 of a red onion", "red onion"],
+    ["3-4 cloves or 10-15g minced garlic", "garlic"],
+    ["1lb or 1/2kg boneless skinless chicken thighs", "chicken thigh"],
+    /* `/.5kg`, a range in other units: `5kg ground beef`, `2kg chuck roast`. */
+    ["1lb/.5kg 90/10 ground beef", "ground beef"],
+    ["3-4lbs/1.5-2kg Chuck roast, cut into large chunks", "chuck roast"],
+    ["8ish TBSP/100-150g of salt", "salt"],
+    /* A container after a measure: `ounce can kidney bean`, `bag cranberry`. */
+    ["One 15-ounce can kidney beans, drained and rinsed", "canned kidney bean"],
+    [
+      "1 15- ounce can cannellini beans, (drained and rinsed)",
+      "canned cannellini bean",
+    ],
+    ["28oz/800g can crushed tomatoes", "canned tomato"],
+    ["one 15-ounce can (425g) pumpkin puree*", "canned pumpkin puree"],
+    ["6-ounce can of tomato paste", "canned tomato paste"],
+    ["12 ounce bag cranberries, rinsed", "cranberry"],
+    ["4 6-oz. bags baby spinach leaves, (stems removed)", "baby spinach leaf"],
+    [
+      "two 4-ounce bars (226g) white chocolate, coarsely chopped",
+      "white chocolate",
+    ],
+    ["1-inch piece of ginger- sliced into thin strips", "ginger"],
+    ["2-inch knob ginger, peeled and finely diced", "ginger"],
+    ["4 x 400g/14 oz large floury potatoes", "floury potato"],
+    /* A bracket after the unit: `cup white sugar`, `lbs beef oxtail`. */
+    ["55g (1/4) cup white sugar", "granulated sugar"],
+    ["1 1/2 cups (packed) brown sugar, divided", "brown sugar"],
+    ["15 ounces (can) refried beans", "refried bean"],
+    [
+      "4 lbs (meaty!) fresh beef oxtail, already cut into pieces",
+      "beef oxtail",
+    ],
+    ["1 packed cup cilantro (plus more for garnish)", "cilantro"],
+    ["1/2 cup plus 2 (150ml) tablespoons water", "water"],
+    /* Sizes: `to green onion`, `med carrot`, `lrg clove garlic`. */
+    ["6 medium-to-large scallions, diced", "green onion"],
+    ["150g or 3 med carrot, diced", "carrot"],
+    ["5g or 1/2 lrg clove garlic", "garlic"],
+    ["4 medium cloves garlic, thinly sliced", "garlic"],
+    /* A label before the amount: `egg wash egg with tablespoon milk`. */
+    ["egg wash: 1 large egg beaten with 1 Tablespoon (15ml) milk", "egg"],
+    [
+      "for rolling: 2/3 cup granulated or coarse sugar",
+      "granulated sugar or coarse sugar",
+    ],
+    ["optional topping: 1/3 cup (30g) breadcrumbs", "breadcrumb"],
+    /* Words before a quantity: `up to cup blueberry preserve`. */
+    ["up to 1/2 cup blueberry preserves", "blueberry preserve"],
+    ["Roughly 1 tablespoon salted butter", "salted butter"],
+    /* An amount written last: `bread flour 300g`, `soy sauce tsp`. */
+    ["Bread flour 300g (at least 12.8% protein)", "bread flour"],
+    ["King Arthur Whole Wheat Flour 48g 40%", "king arthur wheat flour"],
+    ["3 tablespoons Soy Sauce + 1 tsp", "soy sauce"],
+    /* A dash before the prep, after the name: `garlic into round`. */
+    ["1 clove garlic- thinly sliced into rounds", "garlic"],
+    [
+      "25 g (1 3/4 T) olive oil — plus 1/4 cup + for the pan and drizzling",
+      "olive oil",
+    ],
+    [
+      "1 lb. 90% lean ground beef -or ground lamb",
+      "lean ground beef or ground lamb",
+    ],
+    /* Remarks after the name: `onion and to remove excess liquid`. */
+    ["1 onion grated and squeezed to remove excess liquid", "onion"],
+    ["75g or 5 1/2Tbsp melted butter (not hot) + extra for brushing", "butter"],
+    ["optional: 3/4 cup (100g) finely chopped and toasted pecans", "pecan"],
+    /* Alternatives: `uncut stevia or tbsp sugar`, `… or plus more`, `… note`. */
+    ["pinch uncut stevia OR 2 tbsp sugar", "uncut stevia or sugar"],
+    [
+      "1 tablespoon (18 grams) adobo ((or seasoned salt), plus more to taste)",
+      "adobo or seasoned salt",
+    ],
+    [
+      "2 tbsp tahini ((or Chinese sesame paste - Note 5))",
+      "tahini or chinese sesame paste",
+    ],
+    [
+      "2 tablespoons chopped fresh dill or basil (or substitute 1/2 teaspoon dried dill)",
+      "dill or basil",
+    ],
+    [
+      "1 (14-ounce) can (drained and rinsed) or 1 package of frozen corn",
+      "frozen corn",
+    ],
+    ["pinch or two chili flakes (optional, but good)", "chili flake"],
+    ["zest 1 lemon", "lemon zest"],
+    /* The backlog's `(or A or B C)`: `pinto or cannellini bean` was one name. */
+    [
+      "2 (about 15-ounce) cans black beans (or pinto or cannellini beans), drained and rinsed",
+      "black bean or pinto bean or cannellini bean",
+    ],
+    [
+      "1 cup (150g) shredded apple (or shredded carrot/zucchini)",
+      "apple or carrot or zucchini",
+    ],
+    /* …and a tail that is the rest of a name is not lent. */
+    [
+      "1/2 oz crème de cassis (or substitute Chambord or crème de mure)",
+      "creme de cassis or chambord or creme de mure",
+    ],
+  ])("%s → %s", (line, expected) => {
+    expect(label(line)).toBe(expected);
+  });
+
+  it("keeps a hyphen inside a name", () => {
+    expect(label("1 cup semi-sweet chocolate chips")).toBe(
+      "semi sweet chocolate chip",
+    );
+    expect(label("2 cups all-purpose flour")).toBe("all purpose flour");
+  });
+
+  it("keeps a can that is the unit, and a unit that is the name", () => {
+    expect(label("1 can black beans")).toBe("black bean");
+    expect(label("4 cloves (minced)")).toBe("clove");
+  });
+});
+
+describe("toName — synonyms and descriptors (43n)", () => {
+  const name = (text: string) => toName(text).words.join(" ");
+
+  it.each([
+    ["mayo", "mayonnaise"],
+    ["Mayonnaise", "mayonnaise"],
+    ["mild feta cheese", "feta cheese"],
+    ["feta", "feta cheese"],
+    ["crumbled feta", "feta cheese"],
+    ["parm", "parmesan cheese"],
+    ["Parmigiano-Reggiano", "parmesan cheese"],
+    ["grated parmesan", "parmesan cheese"],
+    ["sharp cheddar", "sharp cheddar cheese"],
+    ["shredded mozzarella", "mozzarella cheese"],
+    ["pepper jack", "pepper jack cheese"],
+    ["garbanzo beans", "chickpea"],
+    ["Dijon", "dijon mustard"],
+    ["Worcestershire", "worcestershire sauce"],
+    ["cayenne", "cayenne pepper"],
+    ["cayenne powder", "cayenne pepper"],
+    ["AP flour", "all purpose flour"],
+    ["plain flour", "all purpose flour"],
+    ["flat-leaf parsley", "italian parsley"],
+    ["white sugar", "granulated sugar"],
+    ["full-fat sour cream", "sour cream"],
+    ["plain Greek yogurt", "greek yogurt"],
+    ["unsweetened cocoa powder", "cocoa powder"],
+    ["dry white wine", "white wine"],
+    ["distilled white vinegar", "white vinegar"],
+    ["white distilled vinegar", "white vinegar"],
+    ["instant dry yeast", "instant yeast"],
+    ["freshly ground black pepper", "black pepper"],
+    ["ground cinnamon", "cinnamon"],
+    ["uncooked long grain rice", "long grain rice"],
+    ["mild Italian sausage", "italian sausage"],
+  ])("%s → %s", (text, expected) => {
+    expect(name(text)).toBe(expected);
+  });
+
+  it("never merges varieties that matter", () => {
+    for (const [text, expected] of [
+      ["Italian parsley", "italian parsley"],
+      ["parsley", "parsley"],
+      ["dark brown sugar", "dark brown sugar"],
+      ["kosher salt", "kosher salt"],
+      ["unsalted butter", "unsalted butter"],
+      ["ground ginger", "ground ginger"],
+      ["ground beef", "ground beef"],
+      ["ground cloves", "ground clove"],
+      ["dry vermouth", "dry vermouth"],
+      ["cooked rice", "cooked rice"],
+      ["low sodium soy sauce", "low sodium soy sauce"],
+      ["cream cheese", "cream cheese"],
+      ["cheddar cheese sauce", "cheddar cheese sauce"],
+      ["parmesan rind", "parmesan rind"],
+      ["unsweetened applesauce", "unsweetened applesauce"],
+      ["white wine vinegar", "white wine vinegar"],
+      ["Swiss chard", "swiss chard"],
+    ]) {
+      expect(name(text), text).toBe(expected);
+    }
   });
 });
