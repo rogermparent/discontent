@@ -67,7 +67,7 @@ export function PlanHolidayWhen({ holiday }: { holiday: PlanHoliday }) {
       {" · "}for{" "}
       <Link
         href={`/holidays/${holiday.slug}`}
-        className={cn("underline-offset-4 hover:underline", FOCUS)}
+        className={cn("underline underline-offset-4", FOCUS)}
       >
         {holiday.label}
       </Link>
@@ -254,10 +254,7 @@ export function PlanHead({
         <p className="font-mono text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
           <Link
             href="/groups"
-            className={cn(
-              "text-primary underline-offset-4 hover:underline",
-              FOCUS,
-            )}
+            className={cn("text-primary underline underline-offset-4", FOCUS)}
           >
             Plans
           </Link>

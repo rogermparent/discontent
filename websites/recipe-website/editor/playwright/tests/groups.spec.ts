@@ -1064,7 +1064,7 @@ test.describe("Groups", () => {
 
       await expect(page).toHaveURL(baseURL + "/group/spring-menus");
       await expect(page.getByTestId("group-item-group")).toHaveCount(1);
-      await expect(page.getByTestId("group-item").nth(0)).toContainText(
+      await expect(page.getByTestId("group-item-label").first()).toHaveText(
         "Week One",
       );
     });

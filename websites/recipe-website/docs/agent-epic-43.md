@@ -165,7 +165,170 @@ Files: `editor/.../group/[slug]/page.tsx`, `common/components/GroupDetailPage/`,
 
 #### Results (43p1)
 
-_Pending._
+Branch `agent/43p1-plan`. **Reindex needed: no** (no index, projection or
+spec version moved; groups write through the existing `setItems` /
+`addItem` seats). **Deploy: yes** — the plan page and `/groups` change in
+both apps.
+
+**What changed.**
+
+- **`common/util/planTimes.ts`** (pure, D5) — the parser 43p2 builds on.
+  `readPlanTimes(recipe)` reads each recipe's **steps only** (never the
+  description) and returns, each as a `PlanFact {value, sentence, step}`
+  (the quoted sentence and its page step number, through groups as 42c1's
+  Dc8):
+  - `chill` — `{min?, max?, atLeast?, overnight?}` in minutes: "chill for at
+    least 3 hours", "1-2 hours", "must be chilled for 1 hour", "in the
+    refrigerator for 2 hours", "… or overnight", "refrigerate overnight";
+  - `keeps` — `{count, max?, unit: day|week}`: "or up to 3 days", "made 2
+    days ahead", "keeps 2-3 days" (only beside dough / chill / make-ahead
+    words; never leftovers, room temperature, the freezer, or stored baked
+    goods);
+  - `rest` — "let it sit … about 20 minutes", "let stand 5-10 minutes";
+  - `bake` — `{min, max?, about?, perBatch}`: the first "bake … N minutes"
+    (not pre-bake, par-bake, blind bake, baked, baking); `perBatch` when the
+    steps say "batch" or the yield / sentence is cookies-like;
+  - `oven` — `{degrees, unit}`: "350°F (177°C)", "375 degrees F", "180°C",
+    "400 F"; a unit is required;
+  - `extras[]` — `freeze` ("… in the freezer for 10 minutes", "then 10
+    minutes in the freezer") and `set` ("allow the icing to set for 24
+    hours", what sets named);
+  - `yield` (from `recipeYield`, no sentence) — `{min, max?, unit, about?,
+text}`: "84 bite-size cookies", "20-22 cookies", "Makes about 24",
+    "Serves 4", "Servings: 8", "2 dozen cookies" (×12), Multiplyable markup.
+    The single-sentence readers (`readChill`, `readKeeps`, `readRest`,
+    `readBake`, `readOven`, `readExtra`, `parseYield`) are exported, with the
+    wording (`formatChill`, `formatChillShort`, `formatKeeps`, `formatDays`,
+    `formatBake`, `formatOven`, `formatExtra`, `formatYield`, `formatSpan`,
+    `formatMinutes`) and the plan summary `summarizeMakeAhead(entries)` →
+    `{recipes, chilling (longest first), doughs, keepsDays, ovens (commonest
+first, with counts), extras}`. **For 43p2:** call `readPlanTimes` per
+    recipe (the page already has it on every row as `row.recipe.times`, from
+    `readPlanPage`), `summarizeMakeAhead` for the hero stats and the day-before
+    list, `times.bake.value` (min/max, `perBatch`) for the oven bars,
+    `times.yield` for the yields, and print "not set" where a field is absent.
+- **`common/util/planPage.ts`** (pure): the page's view model — row types
+  (`PlanRowView`, `PlanRecipeView`, `PlanSubPlanView`, `PlanPageData`),
+  `readLabel` (a label that starts with a day is a day), `labelRuns`
+  (consecutive rows that share a label share a heading), `rowCaption`
+  ("1 h · 84 bite-size cookies · 6 ingredients", "… · no time or yield set"),
+  `yieldLine` (scaled: "16 servings at 2×"), `headsUpLine`, `cookCaption`,
+  `aheadNotes`, the draft (`initialDraft`, `moveRow`, `removeRow`,
+  `setRowScale`, `draftItems`, `draftChanges`, the scale presets) and the
+  tick keys (`tickKeys`, `madeStorageKey`, `parseTicks`).
+- **`common/controller/data/readPlanPage.ts`** (both apps, cached reads
+  only): the rows `resolveGroupItems` read, each recipe's `readPlanTimes`,
+  each sub-plan walked (`walkGroupRecipes`, capped at 48) for the row that
+  opens in place, and the holiday the plan is for (its first tag that is a
+  `holidays` child or an alias of one, dated by `holidayRule`).
+- **The plan page** (`common/components/GroupDetailPage/`): `index.tsx`
+  stays the server component both routes render — it reads the data,
+  renders the pictures (server `RecipeImage`, so the export generates them
+  at build time), the description and Appears in, and hands plain data to
+  the client `PlanPage`:
+  - `PlanHead.tsx` — the eyebrow "Plans · Meal plan · for Christmas, 25 Dec
+    · in 68 days" (date and countdown on the browser's day, 42-De2), the
+    title, description, the plan's own picture, tags, "N recipes · created
+    …", "Search within this plan", the Plan/Cook switch, and — signed in —
+    **More** (Edit, Feature, Delete, which asks in an alert dialog outside
+    the popover).
+  - `PlanList.tsx` — **Plan mode**: "In order", label headings, rows with a
+    drag handle (HTML5 drag, armed from the handle), number, 72 px thumb,
+    name, caption, the heads-up line from the steps and the item's note; a
+    scale select (½× · 1× · 1½× · 2× · 3× · 4×, plus a row's own odd value)
+    and a row menu (Move up, Move down, Remove from the plan) when signed
+    in. Every change is a **draft** — "2 changes · not saved", Undo, Save —
+    and **Save** writes them as **one commit** through `setItems` (D5).
+    "Add a recipe or a plan by name" (recipes and the other plans from the
+    search corpus, matches as buttons) is one commit through `addItem`.
+    Sub-plan rows show a 2×2 mosaic and open their recipes in place.
+  - `PlanRail.tsx` — **Shopping list** (signed in): "This plan is on your
+    list: 12 lines, merged into N rows. None ticked yet.", Open list, Take
+    it off the list (confirmed in place, `removeSource {group}`, one
+    commit) — or, off the list, the existing Add to shopping list with its
+    scale. **From your shelf**: `useMakeable` over `group:<slug>` (Count
+    from and the staples as on /make) → ready / 1–2 away / need more, the
+    nearest recipe's missing lines as dashed tapes, Open in Make. **Make
+    ahead**: "3 of 4 doughs chill. Mix them the day before; they keep 3
+    days.", the chill list longest first, "All four bake at 350°F.", the
+    extras, "From the steps."
+  - `CookList.tsx` — **Cook mode**: "N of M made" with a bar ("ticks stay
+    on this phone"; "the sub-plan counts as one"), **Up next** (photo, time
+    · yield · per-batch minutes at the oven, the chill/rest sentences
+    quoted with their step, Open in cook view, Mark made), Still to make,
+    Made, Start over, then the Shopping list / From your shelf / Make ahead
+    line rows (a fold where there is something to open). A plan with labels
+    cooks by label instead: day headings, "up next" on the current one, the
+    ticks inline and "Cook <recipe> at 2×".
+  - `planState.ts` — the mode (`?mode=` first, then this browser's choice
+    under `plan-mode`, then the viewport: `lg` and up Plan) and the made
+    ticks under `plan-made:<slug>`, both via `useSyncExternalStore`, read
+    after hydration.
+- **The cook view opens from a link**: `FocusViewButton` opens at
+  `?cook=1` as the recipe page hydrates and drops the parameter when it
+  closes (`util/cookViewParam.ts`); the plan's links carry `?scale=` too.
+- **`/groups`** (`GroupIndexPage/shared.tsx`, `GroupThumbnail/PlanStrip.tsx`):
+  B's row cards — up to six member photos (the plan's own picture first,
+  then members, then the placeholder; `group-thumbnail` / `data-group-image`
+  kept), the kind and holiday eyebrow with its countdown, name,
+  description, counts, "on your shopping list (N lines)" (signed in), and
+  Plan / Cook links into the modes; "N plans · newest first", **New plan**
+  in the head (signed in, the editor's own `groups/routes.tsx`), the
+  pagination only when there is more than one page, B's footnote.
+- **The masthead marks Plans** on a plan page: `navCurrent` gives
+  `aria-current="true"` for a page in a destination's section (`/group/x`
+  in Plans), styled as the current page; `"page"` stays the page's own.
+- **The editor's routes**: `group/[slug]/page.tsx` builds the editor props
+  for a signed-in session only (Save, Add, Delete, the shopping summary,
+  the saved list as From your shelf's second list); a guest gets the
+  export's read-only page with the house list when one is baked. The export
+  route passes the house list. New server actions `savePlanItems` and
+  `addPlanItem` in `controller/actions/groups.ts`.
+
+**Decisions.**
+
+- **Dp1-1 — the heads-up line claims no absence.** The board's "No chill ·
+  7–9 min a batch" is not drawn: a parser that found nothing can't say there
+  is nothing. Only what the steps state shows.
+- **Dp1-2 — the server renders Plan.** The ordered list is the document:
+  the export's static HTML and a reader without scripts get the whole plan,
+  and a phone switches to Cook as it hydrates (the opposite of 42-Dg1's
+  Shop-first, because a plan page is read at home more than in a hurry).
+  `?mode=plan|cook` (the /groups buttons) wins over the stored choice.
+- **Dp1-3 — "1–2 away" for the shelf's middle tile.** The board says "two
+  away"; the tile counts one-away and two-away recipes together, so it says
+  so.
+- **Dp1-4 — Add is its own commit and waits for Save.** With unsaved
+  reorder/scale changes the add field is disabled ("Save or undo the
+  changes above first."), so an add never lands under a draft that hasn't
+  been written.
+- **Dp1-5 — Save is forced past dangling rows.** `setItems` refuses an
+  unknown recipe unless forced; the page only writes back rows the plan
+  already had, so a dangling row (a legitimate state, D3) doesn't block a
+  reorder. Remove is part of the draft, not an immediate write.
+- **Dp1-6 — ticks are per browser, never expire.** `plan-made:<slug>`, in
+  localStorage (D5), with Start over. A sub-plan row is one tick; its own
+  recipes' ticks are the sub-plan's page's, shown as "N made".
+- **Dp1-7 — timers and `MultiplierProvider` untouched.** No timer runs on
+  the plan page (Open in cook view goes to the recipe, whose timers keep
+  42c2's ids), and `?scale=` already seeds the recipe's multiplier, so
+  neither needed the change the plan allowed for.
+- **Dp1-8 — no new dependency for drag.** Native HTML5 drag-and-drop from
+  the handle on a wide screen; the row menu's Move up / Move down is the
+  keyboard's and the phone's way (HTML5 drag doesn't fire on touch).
+- **Dp1-9 — the plan's own picture stays** (max 24 rem, under the
+  description), though B's board draws none: 22h's picture and its specs
+  are kept.
+- **Dp1-10 — 43a overlap.** 43a also hides the group page's guest
+  controls; this phase replaces that bottom bar entirely (the More menu,
+  signed in only). Whichever merges second keeps this version.
+
+**Not built:** the board's 225 px sugar-cookie photo is a content matter
+(the stored image is small); the row thumbnail is 72 px, so it no longer
+shows. C's run sheet is 43p2's — the page's modes are a component switch
+in `PlanPage.tsx`, so a third section slots in beside Plan and Cook.
+
+_Gates, baselines and "Roger to confirm": below once run._
 
 ### 43p2 — The run sheet: C's features on the plan (M)
 
