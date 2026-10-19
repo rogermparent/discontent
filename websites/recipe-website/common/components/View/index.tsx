@@ -27,6 +27,9 @@ import { isYouTubeUrl, videoStartSeconds } from "../../util/videoUrl";
 import { formatDurationLong } from "../../util/formatDuration";
 import { tagSearchHref } from "../SearchForm/queryLanguage";
 import { RecipeCardPlaceholder } from "../List/shared";
+import { HeadsUpNotes } from "./HeadsUp";
+import { matchStepIngredients } from "../../util/stepIngredients";
+import { findHeadsUps } from "../../util/headsUp";
 
 export async function RecipeView({
   recipe,
@@ -61,6 +64,11 @@ export async function RecipeView({
 
   // Calculate the totalTime from prepTime and cookTime if not provided
   const totalTime = recipe.totalTime || (prepTime || 0) + (cookTime || 0);
+
+  /* 42c1 (D3): worked out here, on the server, so neither the matcher nor
+     `ingredientNames` ships to the browser. */
+  const stepLines = matchStepIngredients(ingredients, instructions);
+  const headsUps = findHeadsUps(instructions, timelines);
 
   const recipeImageProps = image
     ? await getTransformedRecipeImageProps({
@@ -197,23 +205,46 @@ export async function RecipeView({
                 />
               </div>
             </div>
-            {timelines && timelines.length > 0 && (
-              <RecipeSchedule timelines={timelines} />
-            )}
-            {/* The scaler used to sit in a full-width sticky bar here; it now lives
-              in the Ingredients header (PR 11), where recipe sites put it. */}
-            <div className="justify-center flex-nowrap container mx-auto p-2 lg:flex lg:flex-row print:w-full print:max-w-full print:flex print:flex-row rounded">
+            {/*
+             * The recipe in cooking order (42c1, canvas B): the ingredients a
+             * sticky rail beside the steps from `lg`, each step with what it
+             * uses, and the heads-up above them. At 1600px and wider (unless
+             * the reader turned it off) a third column takes the heads-up,
+             * the cook schedule and "Appears in" (canvas C). One DOM for
+             * every layout; the grid areas in `recipe.css` place it.
+             */}
+            <div className="recipe-body w-full p-2 print:block print:w-full print:max-w-full">
+              {timelines && timelines.length > 0 && (
+                <div className="recipe-area-schedule min-w-0">
+                  <RecipeSchedule timelines={timelines} />
+                </div>
+              )}
+              <HeadsUpNotes
+                notes={headsUps}
+                className="recipe-area-headsup mx-auto mb-3 w-full max-w-xl lg:max-w-none"
+              />
+              {/* The scaler used to sit in a full-width sticky bar here; it now
+                lives in the Ingredients header (PR 11), where recipe sites put
+                it. */}
               <Ingredients
                 ingredients={ingredients}
                 drink={recipe.drink}
                 actions={ingredientActions}
+                className="recipe-area-ingredients"
               />
-              <Instructions instructions={instructions} />
+              <Instructions
+                instructions={instructions}
+                ingredients={ingredients}
+                uses={stepLines}
+                className="recipe-area-steps"
+              />
+              {/* After the recipe itself, because it is about the recipe rather
+                than part of it, and because it is the one block here that
+                reads a *different* content type's derived state (22b/D4). */}
+              <div className="recipe-area-appears min-w-0">
+                <AppearsIn slug={slug} />
+              </div>
             </div>
-            {/* Below the recipe itself, because it is about the recipe rather
-              than part of it, and because it is the one block here that reads
-              a *different* content type's derived state (22b/D4). */}
-            <AppearsIn slug={slug} />
           </div>
         </VideoPlayerProvider>
       </UnitProvider>

@@ -213,6 +213,161 @@ Canvas B's recipe board, with C's three columns on extra-wide screens.
   `featured-recipe-detail-signed-in`. The "Multiply" label and the testids
   stay.
 
+#### Results (42c1)
+
+**What changed.**
+
+- `common/util/stepIngredients.ts` (pure): `matchStepIngredients(ingredients,
+instructions)` → entry → step → line indices. Both sides go through
+  `ingredientNames`' one pipeline (`parseIngredientLine` for a line's names,
+  `toName` per clause of the step), and a name matches only as consecutive
+  whole words inside one clause (the step is split at punctuation first).
+  `stepNumbers` (its own module, so the client list doesn't ship
+  `ingredientNames`) numbers steps straight through groups.
+- `common/util/headsUp.ts` (pure): `findHeadsUps(instructions, timelines)` →
+  up to 3 `{sentence, step?, source}`; `HEADS_UP_PATTERNS` is the whole list.
+- `View/HeadsUp.tsx`: "Plan ahead" on `accent`, each note "Step N says
+  “…”", the step a link to `#step-N`.
+- `View/Instructions/`: every step a panel (number circle, checkbox + text,
+  then its "Uses" list), a group as a heading with "steps a–b"; step ids
+  `step-N`. `View/Ingredients/`: `IngredientLineText` (one rendering for the
+  list and the "Uses" chips), the list labelled "Ingredients", and from `lg`
+  the whole column is a sticky rail.
+- `View/recipe.css` (both `globals.css` import it): one DOM, grid areas —
+  one column below `lg`; from `lg` heads-up across the top, ingredients |
+  steps (canvas B), body capped at 72rem; from 100rem, unless switched off,
+  ingredients | steps | heads-up, cook schedule, Appears in (canvas C), cap
+  102rem.
+- `AppLayout/wideRecipe.ts` + `useWideRecipe.tsx`: the "Wide recipe columns"
+  On/Off switch in Appearance (desktop popover and the phone sheet), key
+  `recipe-wide-columns`, `data-recipe-columns="two"` on `<html>` only when
+  off, a pre-paint script, `WideRecipeSync` in `AppProviders`.
+- `RecipeView` computes matches and heads-ups on the server (both apps; the
+  export renders them statically).
+
+**Decisions.**
+
+- **Dc1 — names, then a unique head.** A line goes by every alternative
+  `parseIngredientLine` gives it (an infusion's loose flavour excluded) plus
+  the text of any link in it (a sub-recipe's name). It matches on a whole
+  name; or, for a name of 2+ words, on its head (the last word, or the word
+  before a shape word: `half`, `piece`, `cube`, `chunk`, `strip`, `leaf`,
+  `sprig`) when no other line has that head. Heads never used alone:
+  `ingredientNames`' generic heads (`juice`, `oil`, `water`…), its derived
+  forms (`zest`, `wedge`…), and a short list of words that are verbs or the
+  dish itself (`puree`, `paste`, `rub`, `glaze`, `cocktail`, `mixture`,
+  `filling`, `frosting`, `wash`…).
+- **Dc2 — a shared name shows nothing.** Two lines with the same name (two
+  butter lines, salt in three places, eggs in the cornbread and the
+  stuffing) are listed for neither — D3. One exception, as confident as the
+  rest: a step inside a group whose name is an ingredient heading's (`Crust`
+  / `For the crust:` / `Make the crust`, all `sectionKey` `crust`) weighs
+  only that heading's lines against each other.
+- **Dc3 — the longer name claims its words.** An occurrence inside a longer
+  occurrence of another line's name belongs to that line ("brown sugar" is
+  never also a bare `sugar` line's), counting ambiguous long names too.
+- **Dc4 — `toName`'s synonyms apply to both sides.** "No synonyms" is read
+  as no _new_ list: the step goes through the same `toName` the line does,
+  so its existing rewrites (scallion → green onion) stay symmetric, and its
+  compounds (`baking powder`, `egg yolk`, `ginger beer`) make "powder",
+  "egg" and "beer" unable to match inside them.
+- **Dc5 — the chip is the line, whole.** The "Uses" chip renders the stored
+  line with the list's own `IngredientLineText` (Multiplyable, `markOunces`),
+  so scaling and oz/ml/parts are identical by construction — no re-parse.
+  The canvas's shortened names ("fresh thyme") would have needed a second
+  reading of the line; not done. Consequence: a line's text is on the page
+  twice, so unscoped `getByText(<line>)` in specs is ambiguous — two specs
+  were scoped to `getByRole("list", { name: "Ingredients" })` (see Traps).
+- **Dc6 — the rail is plain `sticky` at `--sticky-chrome-offset`.** Like
+  portfolio's index plate and `/make`'s shelf (`InventoryPanel`): pinned
+  beside the steps even when the masthead releases (Sticky headers Off, or a
+  short viewport under Auto), its top then `1rem` instead of
+  `header + 1rem`; it scrolls itself past the viewport's height. The
+  Ingredients header inside keeps `.sticky-chrome` (so the policy, the print
+  rule and `sticky-chrome.spec` are unchanged) and pins to the rail's top
+  from `lg` (`lg:top-0`).
+- **Dc7 — heads-up patterns.** "the day/night/evening before", "overnight"
+  (not before oats, oatmeal, French toast, breakfast, casserole, chia,
+  pudding, egg bake, cinnamon rolls), "N/a day(s) in advance|ahead|before",
+  "make ahead / make-ahead / make it ahead", and "chill|refrigerate|marinate
+  … N hour(s)" within one sentence and 60 characters. Read from step text
+  and cook-schedule notes; not from the description (marketing copy: "Follow
+  my make-ahead instructions below" is not a step). Each sentence once, at
+  most 3, quoted with its step number.
+- **Dc8 — steps number straight through groups** ("Stuffing · steps 3–7",
+  canvas B), so a heads-up's "Step 4" and the list agree. Before, each
+  group restarted at 1.
+- **Dc9 — the third column is heads-up, cook schedule, Appears in.** The
+  brief's "notes" read as the heads-up notes; the description stays in the
+  hero. Below 100rem, and with the switch off, the two-column layout.
+- **Dc10 — the switch's storage.** Default on and never persisted (the
+  `useListMode` convention): only "off" is stored; the attribute is set only
+  when off. Here the pre-paint script _is_ flash avoidance — the column
+  count moves the layout.
+
+**Deliberately not built (canvas B items that are 42c2's or later):** the
+"Now" step, "Done — next step", a collapsed finished stage, stage chips, the
+"Lit: what step 4 uses" highlight in the rail, and B's compact hero (176px
+photo, action column) — the hero is unchanged.
+
+**Matching on real shapes — true and false positives.** From the unit
+fixtures (copied shapes of Sally's cornbread stuffing, a two-section pie, a
+pumpkin pie with a linked crust, a Moscow mule, the linked-recipes fixture)
+and the e2e fixtures' recipes run through the matcher:
+
+- True: stuffing step 4 → onion, celery, thyme ("thyme leaves" headed by
+  `thyme`), sage, parsley, black pepper, sausage (unique head of "uncooked
+  mild Italian sausage"); step 3 and 5 → chicken broth (head `broth`); step 5
+  → pecans (`pecan halves` headed by `pecan`). Pie: the crust's flour, salt,
+  butter and the filling's eggs, brown sugar, salt, each by section. "roll
+  out the chilled pie crust" → `[Pie Crust](…)`. "the kefir with the baked
+  potatoes" → the kefir link and "mashed potatoes, leftover from [Baked
+  Potatoes](…)". Mule: vodka, cranberry juice cocktail, lime juice, ginger
+  beer. "the egg yolk" → "1 egg + 1 egg yolk" (head `egg yolk`), "the
+  beaten egg" → "1 egg, beaten, for the egg wash". Carnitas (fixture): oil,
+  pork shoulder, salt, onion, garlic, lime juice, chili powder, oregano,
+  cumin, broth.
+- True, but late: stuffing step 5's "sausage mixture" lists the sausage
+  again; yogurt potato bread's last step "brush with melted butter" lists
+  the dough's 2 tbsp butter (the brushing butter is extra). Kefir lists "1
+  quart jar" (a jar listed as an ingredient, named in the step).
+- Correctly none (D3): "Heat butter" and "whisk the broth and eggs" in the
+  stuffing (two butter and two egg lines; no ingredient headings to scope
+  by); "season with salt" outside the pie's sections; "the sugar" with
+  granulated and brown sugar; "Top with beer" vs ginger beer; "a lime
+  wedge" vs lime juice; "slice in half" vs pecan halves; "peppery" / "boil";
+  "floured counter" vs flour; "the cornbread ingredients" names nothing.
+- False negatives accepted: canvas B's step 4 butter and salt, step 3 eggs
+  (shared names); "cream" for "heavy cream" (a compound); "olive oil" in a
+  step when the line is "any cooking oil (… like olive oil …)" (aliases are
+  not names here).
+- False positives found: none in the fixtures beyond the "late" ones above.
+
+**Heads-up, positives and negatives** — the test list in
+`test/headsUp.test.ts` (15 positives, 13 negatives): "Prepare 1 day in
+advance!", "Set aside to cool overnight.", "Chill 3-4 hours until firm.",
+"Refrigerate at least 6 hours", "Marinate … 4 to 6 hours", "Make ahead: …",
+"can be made 2 days ahead" count; "the overnight oats", "Let rest 5
+minutes.", "Chill for 30 minutes.", "Chill the glass.", "Marinate for 20
+minutes.", "Let the dough rise for 2 hours.", "Simmer for 2 hours." don't.
+No e2e fixture recipe has a heads-up; the new spec writes one through the
+API.
+
+**Gates.** _(filled in below once the heavy seat frees)_
+
+**Roger to confirm.**
+
+- The rail stays pinned with Sticky headers Off (Dc6) — or should Off
+  release it too?
+- The third column holds the heads-up, schedule and Appears in, not the
+  description (Dc9).
+- Shared names show nothing, even where canvas B listed them (Dc2).
+- The "Uses" chip shows the whole line, not B's shortened name (Dc5).
+- Phone: the "Uses" lists are shown, at 12px, rather than hidden as B's
+  phone board does (no board drew a food recipe's steps on a phone).
+- Step numbers run through groups (Dc8).
+- B's compact hero not adopted; the hero is unchanged.
+
 ### 42c2 — Cook view, timers, drink count (M–L)
 
 - **Timer buttons in step text:** `parseTimeText`
