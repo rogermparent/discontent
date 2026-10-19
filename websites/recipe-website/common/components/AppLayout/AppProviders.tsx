@@ -9,6 +9,7 @@ import type { ColorMode } from "@discontent/component-library/theming";
 import { ThemeVarsProvider } from "./ThemeVarsProvider";
 import { CommandPalette } from "../CommandPalette";
 import { StickyChromeSync } from "./useStickyChrome";
+import { WideRecipeSync } from "./useWideRecipe";
 
 export function AppProviders({
   children,
@@ -34,6 +35,7 @@ export function AppProviders({
         {/* Mounted here, not beside the toggle — see StickyChromeSync's
             docstring for the Radix-unmount reason. */}
         <StickyChromeSync />
+        <WideRecipeSync />
         <QueryClientProvider>
           <SearchProvider>
             <BookmarksProvider>
