@@ -5,6 +5,7 @@ import { groupContentConfig } from "recipe-website-common/controller/groupConten
 import { groupsByDate } from "recipe-website-common/controller/groupPaginationConfig";
 import { resolveGroupItems } from "recipe-website-common/controller/data/resolveGroupItems";
 import GroupDetailPage from "recipe-website-common/components/GroupDetailPage";
+import { secondaryInventory } from "recipe-website-common/controller/secondaryInventory";
 import { staticSlugParams } from "../../../../staticSlugParams";
 
 export async function generateMetadata({
@@ -41,13 +42,23 @@ export default async function GroupPage({
   }
 
   /*
-   * The same body as the editor's, minus the actions and the `force-dynamic` —
+   * The same body as the editor's, minus the writes and the `force-dynamic` —
    * see `resolveGroupItems` for why the reads keep the group's order and why a
    * dangling item is rendered rather than skipped.
    */
   const items = await resolveGroupItems(group);
+  /* From your shelf's second list: the house snapshot, only when the
+   * operator shares it (U6) — as the export's /make and /drinks. */
+  const house = await secondaryInventory();
 
-  return <GroupDetailPage group={group} slug={slug} items={items} />;
+  return (
+    <GroupDetailPage
+      group={group}
+      slug={slug}
+      items={items}
+      second={house ? { kind: "house", items: house.items } : undefined}
+    />
+  );
 }
 
 /*

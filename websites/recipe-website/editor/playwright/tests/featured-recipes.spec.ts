@@ -6,6 +6,7 @@ import {
   markdownEditorReady,
   searchFor,
   deleteWithConfirm,
+  openPlanMenu,
 } from "../support/helpers";
 
 test.describe("Featured Recipes", () => {
@@ -1261,6 +1262,7 @@ test.describe("Featured groups", () => {
     await resetData("three-recipes-groups");
     await page.goto("/group/weeknight-favourites");
     await signIn(page);
+    await openPlanMenu(page);
     await deleteWithConfirm(page, "group");
     await expect(page).toHaveURL(/\/groups$/);
 
